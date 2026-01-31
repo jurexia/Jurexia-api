@@ -9,6 +9,7 @@ FastAPI backend para plataforma LegalTech con:
 - Memoria conversacional stateless con streaming
 - Grounding con citas documentales
 """
+
 import asyncio
 import html
 import json
@@ -16,6 +17,7 @@ import os
 import uuid
 from typing import AsyncGenerator, List, Literal, Optional
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -34,26 +36,33 @@ from qdrant_client.http.models import (
 )
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
 # ══════════════════════════════════════════════════════════════════════════════
+
 # Cargar variables de entorno desde .env
 from dotenv import load_dotenv
 load_dotenv()
+
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+
 # DeepSeek API Configuration
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 CHAT_MODEL = "deepseek-chat"  # or deepseek-reasoner for R1
+
 # For embeddings, we still use OpenAI (DeepSeek doesn't have embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
 # Silos V4 de Jurexia
 SILOS = {
     "federal": "leyes_federales",
     "estatal": "leyes_estatales",
     "jurisprudencia": "jurisprudencia_nacional",
 }
+
 # Estados mexicanos válidos (normalizados a mayúsculas)
 ESTADOS_MEXICO = [
     "AGUASCALIENTES", "BAJA_CALIFORNIA", "BAJA_CALIFORNIA_SUR", "CAMPECHE",
@@ -63,28 +72,36 @@ ESTADOS_MEXICO = [
     "QUERETARO", "QUINTANA_ROO", "SAN_LUIS_POTOSI", "SINALOA", "SONORA",
     "TABASCO", "TAMAULIPAS", "TLAXCALA", "VERACRUZ", "YUCATAN", "ZACATECAS",
 ]
+
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SYSTEM PROMPTS
 # ══════════════════════════════════════════════════════════════════════════════
+
 SYSTEM_PROMPT_CHAT = """Eres un Consultor Jurídico Élite especializado en Derecho Mexicano.
+
 INSTRUCCIONES CRÍTICAS DE CITAS:
 1. SIEMPRE fundamenta tus respuestas usando EXCLUSIVAMENTE los documentos proporcionados en las etiquetas <documento>.
 2. Al citar, usa el formato: [Doc ID: X] donde X es el id del documento XML.
 3. Si no encuentras información relevante en los documentos, indícalo expresamente.
 4. Sigue el razonamiento jurídico: Constitución → Leyes Secundarias → Jurisprudencia → Aplicación.
+
 ESTRUCTURA DE RESPUESTA:
 1. **Fundamento Normativo**: Cita las normas aplicables con sus IDs.
 2. **Interpretación Jurisprudencial**: Cita tesis relevantes con sus IDs.
 3. **Conclusión Jurídica**: Síntesis aplicada al caso concreto.
 """
+
 SYSTEM_PROMPT_AUDIT = """Eres un Auditor Legal Experto. Tu tarea es analizar documentos legales contra la evidencia jurídica proporcionada.
+
 INSTRUCCIONES:
 1. Extrae los "Puntos Controvertidos" del documento analizado.
 2. Evalúa cada punto contra la evidencia proporcionada en las etiquetas <documento>.
 3. Identifica Fortalezas, Debilidades y Sugerencias.
 4. SIEMPRE cita usando [Doc ID: X].
+
 RETORNA TU ANÁLISIS EN EL SIGUIENTE FORMATO JSON ESTRICTO:
 {
     "puntos_controvertidos": ["..."],
@@ -95,19 +112,25 @@ RETORNA TU ANÁLISIS EN EL SIGUIENTE FORMATO JSON ESTRICTO:
     "resumen_ejecutivo": "..."
 }
 """
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MODELOS PYDANTIC
 # ══════════════════════════════════════════════════════════════════════════════
+
 class Message(BaseModel):
     """Mensaje del historial conversacional"""
     role: Literal["user", "assistant", "system"]
     content: str
+
+
 class SearchRequest(BaseModel):
     """Request para búsqueda híbrida"""
     query: str = Field(..., min_length=1, max_length=2000)
     estado: Optional[str] = Field(None, description="Estado mexicano (ej: NUEVO_LEON)")
     top_k: int = Field(10, ge=1, le=50)
     alpha: float = Field(0.7, ge=0.0, le=1.0, description="Balance dense/sparse (1=solo dense)")
+
+
 class SearchResult(BaseModel):
     """Resultado individual de búsqueda"""
     id: str
@@ -118,22 +141,30 @@ class SearchResult(BaseModel):
     jurisdiccion: Optional[str] = None
     entidad: Optional[str] = None
     silo: str
+
+
 class SearchResponse(BaseModel):
     """Response de búsqueda"""
     query: str
     estado_filtrado: Optional[str]
     resultados: List[SearchResult]
     total: int
+
+
 class ChatRequest(BaseModel):
     """Request para chat conversacional"""
     messages: List[Message] = Field(..., min_items=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
     top_k: int = Field(10, ge=1, le=30)
+
+
 class AuditRequest(BaseModel):
     """Request para auditoría de documento legal"""
     documento: str = Field(..., min_length=50, description="Texto de la demanda/sentencia")
     estado: Optional[str] = Field(None)
     profundidad: Literal["rapida", "exhaustiva"] = "rapida"
+
+
 class AuditResponse(BaseModel):
     """Response estructurada del agente centinela"""
     puntos_controvertidos: List[str]
@@ -142,13 +173,18 @@ class AuditResponse(BaseModel):
     sugerencias: List[dict]
     riesgo_general: str
     resumen_ejecutivo: str
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # CLIENTES GLOBALES (Lifecycle)
 # ══════════════════════════════════════════════════════════════════════════════
+
 sparse_encoder: SparseTextEmbedding = None
 qdrant_client: AsyncQdrantClient = None
 openai_client: AsyncOpenAI = None  # For embeddings only
 deepseek_client: AsyncOpenAI = None  # For chat/reasoning
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicialización y cleanup de recursos"""
@@ -187,9 +223,12 @@ async def lifespan(app: FastAPI):
     # Shutdown
     print("🔻 Cerrando conexiones...")
     await qdrant_client.close()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # UTILIDADES
 # ══════════════════════════════════════════════════════════════════════════════
+
 def normalize_estado(estado: Optional[str]) -> Optional[str]:
     """Normaliza el nombre del estado a formato esperado"""
     if not estado:
@@ -203,6 +242,8 @@ def normalize_estado(estado: Optional[str]) -> Optional[str]:
     if normalized in ESTADOS_MEXICO:
         return normalized
     return None
+
+
 def build_jurisdiction_filter(estado: Optional[str]) -> Optional[Filter]:
     """
     Construye filtro MUST para seguridad jurisdiccional.
@@ -231,6 +272,8 @@ def build_jurisdiction_filter(estado: Optional[str]) -> Optional[Filter]:
             FieldCondition(key="silo", match=MatchValue(value="jurisprudencia_nacional")),
         ]
     )
+
+
 async def get_dense_embedding(text: str) -> List[float]:
     """Genera embedding denso usando OpenAI"""
     response = await openai_client.embeddings.create(
@@ -238,6 +281,8 @@ async def get_dense_embedding(text: str) -> List[float]:
         input=text,
     )
     return response.data[0].embedding
+
+
 def get_sparse_embedding(text: str) -> SparseVector:
     """Genera embedding sparse usando BM25"""
     embeddings = list(sparse_encoder.query_embed(text))
@@ -249,6 +294,8 @@ def get_sparse_embedding(text: str) -> SparseVector:
         indices=sparse.indices.tolist(),
         values=sparse.values.tolist(),
     )
+
+
 def format_results_as_xml(results: List[SearchResult]) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
@@ -272,6 +319,8 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
     xml_parts.append("</documentos>")
     
     return "\n".join(xml_parts)
+
+
 async def hybrid_search_single_silo(
     collection: str,
     query: str,
@@ -348,6 +397,8 @@ async def hybrid_search_single_silo(
     except Exception as e:
         print(f"⚠️ Error en búsqueda sobre {collection}: {e}")
         return []
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -390,15 +441,19 @@ async def hybrid_search_all_silos(
     
     merged.sort(key=lambda x: x.score, reverse=True)
     return merged[:top_k]
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # APP FASTAPI
 # ══════════════════════════════════════════════════════════════════════════════
+
 app = FastAPI(
     title="Jurexia Core API",
     description="Motor de Producción para Plataforma LegalTech con RAG Híbrido",
     version="1.0.0",
     lifespan=lifespan,
 )
+
 # CORS para Next.js frontend - Allow all Vercel subdomains
 app.add_middleware(
     CORSMiddleware,
@@ -407,9 +462,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: HEALTH CHECK
 # ══════════════════════════════════════════════════════════════════════════════
+
 @app.get("/health")
 async def health_check():
     """Verifica estado del servicio y conexiones"""
@@ -429,9 +487,71 @@ async def health_check():
         "sparse_encoder": "Qdrant/bm25",
         "dense_model": EMBEDDING_MODEL,
     }
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: BÚSQUEDA HÍBRIDA
 # ══════════════════════════════════════════════════════════════════════════════
+
+class DocumentResponse(BaseModel):
+    """Respuesta con documento completo"""
+    id: str
+    texto: str
+    ref: Optional[str] = None
+    origen: Optional[str] = None
+    jurisdiccion: Optional[str] = None
+    entidad: Optional[str] = None
+    silo: str
+    found: bool = True
+
+
+@app.get("/document/{doc_id}", response_model=DocumentResponse)
+async def get_document(doc_id: str):
+    """
+    Obtiene el contenido completo de un documento por su ID de Qdrant.
+    Busca en todos los silos hasta encontrarlo.
+    """
+    try:
+        # Buscar en cada silo
+        for silo_name in SILOS.values():
+            try:
+                # Intentar obtener el punto por ID
+                points = await qdrant_client.retrieve(
+                    collection_name=silo_name,
+                    ids=[doc_id],
+                    with_payload=True,
+                )
+                
+                if points:
+                    point = points[0]
+                    payload = point.payload or {}
+                    
+                    return DocumentResponse(
+                        id=str(point.id),
+                        texto=payload.get("texto", payload.get("text", "Contenido no disponible")),
+                        ref=payload.get("ref", payload.get("referencia", None)),
+                        origen=payload.get("origen", payload.get("fuente", None)),
+                        jurisdiccion=payload.get("jurisdiccion", None),
+                        entidad=payload.get("entidad", payload.get("estado", None)),
+                        silo=silo_name,
+                        found=True,
+                    )
+            except Exception:
+                # ID no encontrado en este silo, continuar
+                continue
+        
+        # No encontrado en ningún silo
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Documento {doc_id} no encontrado en ningún silo"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener documento: {str(e)}")
+
+
 @app.post("/search", response_model=SearchResponse)
 async def search_endpoint(request: SearchRequest):
     """
@@ -457,9 +577,12 @@ async def search_endpoint(request: SearchRequest):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en búsqueda: {str(e)}")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: CHAT (STREAMING SSE)
 # ══════════════════════════════════════════════════════════════════════════════
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     """
@@ -535,9 +658,12 @@ async def chat_endpoint(request: ChatRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en chat: {str(e)}")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: AGENTE CENTINELA (AUDITORÍA)
 # ══════════════════════════════════════════════════════════════════════════════
+
 @app.post("/audit", response_model=AuditResponse)
 async def audit_endpoint(request: AuditRequest):
     """
@@ -555,8 +681,10 @@ async def audit_endpoint(request: AuditRequest):
         # PASO 1: Extraer Puntos Controvertidos
         # ─────────────────────────────────────────────────────────────────────
         extraction_prompt = f"""Analiza el siguiente documento legal y extrae una lista de máximo 5 "Puntos Controvertidos" (los temas jurídicos clave que requieren fundamentación).
+
 DOCUMENTO:
 {request.documento[:8000]}
+
 Responde SOLO con un JSON array de strings:
 ["punto 1", "punto 2", ...]
 """
@@ -619,10 +747,13 @@ Responde SOLO con un JSON array de strings:
         # ─────────────────────────────────────────────────────────────────────
         audit_prompt = f"""DOCUMENTO A AUDITAR:
 {request.documento[:6000]}
+
 PUNTOS CONTROVERTIDOS IDENTIFICADOS:
 {json.dumps(puntos_controvertidos, ensure_ascii=False, indent=2)}
+
 EVIDENCIA JURÍDICA:
 {evidence_xml}
+
 Realiza la auditoría siguiendo las instrucciones del sistema."""
         
         audit_response = await deepseek_client.chat.completions.create(
@@ -663,9 +794,12 @@ Realiza la auditoría siguiendo las instrucciones del sistema."""
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en auditoría: {str(e)}")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
+
 if __name__ == "__main__":
     import uvicorn
     
