@@ -244,10 +244,11 @@ def normalize_estado(estado: Optional[str]) -> Optional[str]:
     return None
 
 
-def build_jurisdiction_filter(estado: Optional[str]) -> Optional[Filter]:
+def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
     """
-    Construye filtro MUST para seguridad jurisdiccional.
-    REGLA: Si selecciona un estado, SOLO trae ese estado + Federal/Jurisprudencia.
+    Construye filtro para leyes estatales SOLO.
+    REGLA: Si hay estado seleccionado, filtra por ese estado específico.
+    Este filtro solo se aplica a la colección leyes_estatales.
     """
     if not estado:
         return None
@@ -256,22 +257,25 @@ def build_jurisdiction_filter(estado: Optional[str]) -> Optional[Filter]:
     if not normalized:
         return None
     
-    # Solo permite resultados del estado específico O federales/jurisprudencia
+    # Filtro simple: solo documentos del estado seleccionado
     return Filter(
-        should=[
-            # Leyes del estado específico
-            Filter(
-                must=[
-                    FieldCondition(key="jurisdiccion", match=MatchValue(value="ESTATAL")),
-                    FieldCondition(key="entidad", match=MatchValue(value=normalized)),
-                ]
-            ),
-            # Leyes federales (siempre aplicables)
-            FieldCondition(key="jurisdiccion", match=MatchValue(value="FEDERAL")),
-            # Jurisprudencia nacional (siempre aplicable)
-            FieldCondition(key="silo", match=MatchValue(value="jurisprudencia_nacional")),
+        must=[
+            FieldCondition(key="entidad", match=MatchValue(value=normalized)),
         ]
     )
+
+
+def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filter]:
+    """
+    Retorna el filtro apropiado para cada silo.
+    - leyes_estatales: Filtra por estado seleccionado
+    - leyes_federales: Sin filtro (todo es aplicable a cualquier estado)
+    - jurisprudencia_nacional: Sin filtro (toda es aplicable)
+    """
+    if silo_name == "leyes_estatales" and estado:
+        return build_state_filter(estado)
+    # Para federales y jurisprudencia, no se aplica filtro de estado
+    return None
 
 
 async def get_dense_embedding(text: str) -> List[float]:
@@ -414,23 +418,23 @@ async def hybrid_search_all_silos(
     sparse_vector = get_sparse_embedding(query)
     dense_vector = await dense_task
     
-    # Construir filtro jurisdiccional
-    filter_ = build_jurisdiction_filter(estado)
-    
-    # Búsqueda paralela en los 3 silos
+    # Búsqueda paralela en los 3 silos CON FILTROS ESPECÍFICOS POR SILO
     tasks = []
     for silo_name in SILOS.values():
+        # Obtener filtro específico para este silo
+        silo_filter = get_filter_for_silo(silo_name, estado)
         tasks.append(
             hybrid_search_single_silo(
                 collection=silo_name,
                 query=query,
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
-                filter_=filter_,
+                filter_=silo_filter,
                 top_k=top_k,
                 alpha=alpha,
             )
         )
+
     
     all_results = await asyncio.gather(*tasks)
     
@@ -454,10 +458,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS para Next.js frontend - Allow all Vercel subdomains
+# CORS para Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now (can be restricted later)
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -490,7 +498,7 @@ async def health_check():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT: BÚSQUEDA HÍBRIDA
+# ENDPOINT: OBTENER DOCUMENTO POR ID
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DocumentResponse(BaseModel):
@@ -551,6 +559,10 @@ async def get_document(doc_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener documento: {str(e)}")
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: BÚSQUEDA HÍBRIDA
+# ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/search", response_model=SearchResponse)
 async def search_endpoint(request: SearchRequest):
@@ -808,9 +820,9 @@ if __name__ == "__main__":
     print("═" * 60)
     
     uvicorn.run(
-        "main:app",
+        "api_jurexia_core:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),
-        reload=False,
+        port=8000,
+        reload=True,
         log_level="info",
     )
