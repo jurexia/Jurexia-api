@@ -449,6 +449,7 @@ app.add_middleware(
         "https://jurexiagtp.com",
         "https://www.jurexiagtp.com",
         "https://v0-jurexia-dashboard-design.vercel.app",
+        "https://jurexia-frontend.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -748,3 +749,4 @@ if __name__ == "__main__":
         reload=False,
         log_level="info",
     )
+
