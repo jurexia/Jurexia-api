@@ -354,6 +354,7 @@ async def hybrid_search_single_silo(
         
         if has_sparse:
             # Búsqueda Híbrida: Prefetch Sparse -> Rerank Dense
+            # IMPORTANTE: El filtro se aplica tanto en prefetch como en query principal
             results = await qdrant_client.query_points(
                 collection_name=collection,
                 prefetch=[
@@ -367,9 +368,11 @@ async def hybrid_search_single_silo(
                 query=dense_vector,
                 using="dense",
                 limit=top_k,
+                query_filter=filter_,  # CRÍTICO: Filtro también en rerank denso
                 with_payload=True,
                 score_threshold=0.1,
             )
+
         else:
             # Búsqueda Solo Dense (colecciones sin sparse)
             results = await qdrant_client.query_points(
