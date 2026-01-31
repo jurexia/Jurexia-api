@@ -47,6 +47,11 @@ load_dotenv()
 
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+# DeepSeek API Configuration
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+CHAT_MODEL = "deepseek-chat"
+# For embeddings only
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # Silos V4 de Jurexia
@@ -749,4 +754,5 @@ if __name__ == "__main__":
         reload=False,
         log_level="info",
     )
+
 
