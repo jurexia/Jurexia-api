@@ -368,7 +368,7 @@ async def hybrid_search_single_silo(
                 using="dense",
                 limit=top_k,
                 with_payload=True,
-                score_threshold=0.3,
+                score_threshold=0.1,
             )
         else:
             # Búsqueda Solo Dense (colecciones sin sparse)
@@ -379,7 +379,7 @@ async def hybrid_search_single_silo(
                 limit=top_k,
                 query_filter=filter_,
                 with_payload=True,
-                score_threshold=0.3,
+                score_threshold=0.1,
             )
         
         search_results = []
