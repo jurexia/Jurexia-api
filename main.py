@@ -14,8 +14,9 @@ import asyncio
 import html
 import json
 import os
+import re
 import uuid
-from typing import AsyncGenerator, List, Literal, Optional
+from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -200,6 +201,24 @@ class AuditResponse(BaseModel):
     sugerencias: List[dict]
     riesgo_general: str
     resumen_ejecutivo: str
+
+
+class CitationValidation(BaseModel):
+    """Resultado de validación de una cita individual"""
+    doc_id: str
+    exists_in_context: bool
+    status: Literal["valid", "invalid", "not_found"]
+    source_ref: Optional[str] = None  # Referencia del documento si existe
+
+
+class ValidationResult(BaseModel):
+    """Resultado completo de validación de citas"""
+    total_citations: int
+    valid_count: int
+    invalid_count: int
+    citations: List[CitationValidation]
+    confidence_score: float  # Porcentaje de citas válidas (0-1)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -449,6 +468,129 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
     xml_parts.append("</documentos>")
     
     return "\n".join(xml_parts)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VALIDADOR DE CITAS (Citation Grounding Verification)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Regex para extraer Doc IDs del formato [Doc ID: uuid]
+DOC_ID_PATTERN = re.compile(r'\[Doc ID:\s*([a-f0-9\-]{36})\]', re.IGNORECASE)
+
+
+def extract_doc_ids(text: str) -> List[str]:
+    """
+    Extrae todos los Doc IDs citados en el texto.
+    Formato esperado: [Doc ID: uuid]
+    """
+    matches = DOC_ID_PATTERN.findall(text)
+    return list(set(matches))  # Únicos
+
+
+def build_doc_id_map(search_results: List[SearchResult]) -> Dict[str, SearchResult]:
+    """
+    Construye un diccionario de Doc ID -> SearchResult para validación rápida.
+    """
+    return {result.id: result for result in search_results}
+
+
+def validate_citations(
+    response_text: str,
+    retrieved_docs: Dict[str, SearchResult]
+) -> ValidationResult:
+    """
+    Valida que todas las citas en la respuesta del LLM correspondan
+    a documentos realmente recuperados de Qdrant.
+    
+    Args:
+        response_text: Texto de respuesta del LLM
+        retrieved_docs: Diccionario de Doc ID -> SearchResult de docs recuperados
+    
+    Returns:
+        ValidationResult con estadísticas y detalle de cada cita
+    """
+    cited_ids = extract_doc_ids(response_text)
+    
+    if not cited_ids:
+        # Sin citas - permitido pero sin verificación
+        return ValidationResult(
+            total_citations=0,
+            valid_count=0,
+            invalid_count=0,
+            citations=[],
+            confidence_score=1.0  # Sin citas = no hay errores
+        )
+    
+    validations = []
+    valid_count = 0
+    invalid_count = 0
+    
+    for doc_id in cited_ids:
+        if doc_id in retrieved_docs:
+            doc = retrieved_docs[doc_id]
+            validations.append(CitationValidation(
+                doc_id=doc_id,
+                exists_in_context=True,
+                status="valid",
+                source_ref=doc.ref
+            ))
+            valid_count += 1
+        else:
+            validations.append(CitationValidation(
+                doc_id=doc_id,
+                exists_in_context=False,
+                status="invalid",
+                source_ref=None
+            ))
+            invalid_count += 1
+    
+    total = valid_count + invalid_count
+    confidence = valid_count / total if total > 0 else 1.0
+    
+    return ValidationResult(
+        total_citations=total,
+        valid_count=valid_count,
+        invalid_count=invalid_count,
+        citations=validations,
+        confidence_score=confidence
+    )
+
+
+def annotate_invalid_citations(response_text: str, invalid_ids: Set[str]) -> str:
+    """
+    Anota las citas inválidas en el texto con una advertencia visual.
+    
+    Ejemplo:
+        [Doc ID: abc123] -> [Doc ID: abc123] ⚠️ *[Cita no verificada]*
+    """
+    if not invalid_ids:
+        return response_text
+    
+    def replace_invalid(match):
+        doc_id = match.group(1)
+        original = match.group(0)
+        if doc_id.lower() in [i.lower() for i in invalid_ids]:
+            return f"{original} ⚠️ *[Cita no verificada]*"
+        return original
+    
+    return DOC_ID_PATTERN.sub(replace_invalid, response_text)
+
+
+def get_valid_doc_ids_prompt(retrieved_docs: Dict[str, SearchResult]) -> str:
+    """
+    Genera una lista de Doc IDs válidos para incluir en prompts de regeneración.
+    """
+    if not retrieved_docs:
+        return "No hay documentos disponibles para citar."
+    
+    lines = ["DOCUMENTOS DISPONIBLES PARA CITAR (usa SOLO estos Doc IDs):"]
+    for doc_id, doc in list(retrieved_docs.items())[:15]:  # Limitar a 15 para no saturar
+        ref = doc.ref or "Sin referencia"
+        lines.append(f"  - [Doc ID: {doc_id}] → {ref[:80]}")
+    
+    return "\n".join(lines)
+
+
 
 
 async def hybrid_search_single_silo(
@@ -772,17 +914,21 @@ async def search_endpoint(request: SearchRequest):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT: CHAT (STREAMING SSE)
+# ENDPOINT: CHAT (STREAMING SSE CON VALIDACIÓN DE CITAS)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     """
-    Chat conversacional con memoria stateless y streaming SSE.
+    Chat conversacional con memoria stateless, streaming SSE y VALIDACIÓN DE CITAS.
+    
+    NUEVO: Genera respuesta completa, valida Doc IDs contra documentos recuperados,
+    anota citas inválidas, y luego hace streaming del resultado validado.
     
     - Recibe historial completo en el body.
     - Ejecuta RAG híbrido sobre la última pregunta.
-    - Retorna stream de texto letra por letra.
+    - Valida que las citas correspondan a documentos reales.
+    - Retorna stream de texto con citas validadas.
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
@@ -798,17 +944,24 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=400, detail="No se encontró mensaje del usuario")
     
     try:
-        # Ejecutar búsqueda híbrida
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 1: Búsqueda Híbrida en Qdrant
+        # ─────────────────────────────────────────────────────────────────────
         search_results = await hybrid_search_all_silos(
             query=last_user_message,
             estado=request.estado,
             top_k=request.top_k,
         )
         
+        # Construir mapa de Doc IDs para validación
+        doc_id_map = build_doc_id_map(search_results)
+        
         # Inyectar contexto XML
         context_xml = format_results_as_xml(search_results)
         
-        # Construir mensajes para LLM
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 2: Construir mensajes para LLM
+        # ─────────────────────────────────────────────────────────────────────
         llm_messages = [
             {"role": "system", "content": SYSTEM_PROMPT_CHAT},
             {"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"},
@@ -818,31 +971,62 @@ async def chat_endpoint(request: ChatRequest):
         for msg in request.messages:
             llm_messages.append({"role": msg.role, "content": msg.content})
         
-        async def generate_stream() -> AsyncGenerator[str, None]:
-            """Generador de streaming SSE"""
-            try:
-                stream = await deepseek_client.chat.completions.create(
-                    model=CHAT_MODEL,
-                    messages=llm_messages,
-                    stream=True,
-                    temperature=0.3,
-                    max_tokens=4000,
-                )
-                
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        yield chunk.choices[0].delta.content
-                        
-            except Exception as e:
-                yield f"\n\n[Error en generación: {str(e)}]"
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 3: Generar Respuesta COMPLETA (sin streaming para validar)
+        # ─────────────────────────────────────────────────────────────────────
+        response = await deepseek_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=llm_messages,
+            stream=False,  # Generación completa para validación
+            temperature=0.3,
+            max_tokens=4000,
+        )
+        
+        full_response = response.choices[0].message.content
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 4: Validar Citas
+        # ─────────────────────────────────────────────────────────────────────
+        validation = validate_citations(full_response, doc_id_map)
+        
+        # Log de validación para debugging
+        if validation.invalid_count > 0:
+            print(f"⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
+            for cit in validation.citations:
+                if cit.status == "invalid":
+                    print(f"   ❌ Doc ID no encontrado: {cit.doc_id}")
+        else:
+            print(f"✅ Validación OK: {validation.valid_count} citas verificadas")
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 5: Anotar Citas Inválidas (si hay)
+        # ─────────────────────────────────────────────────────────────────────
+        if validation.invalid_count > 0:
+            invalid_ids = {c.doc_id for c in validation.citations if c.status == "invalid"}
+            full_response = annotate_invalid_citations(full_response, invalid_ids)
+            
+            # Agregar nota al final
+            full_response += f"\n\n---\n⚠️ *Nota: {validation.invalid_count} cita(s) no pudieron ser verificadas contra los documentos fuente.*"
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 6: Streaming Simulado del Resultado Validado
+        # ─────────────────────────────────────────────────────────────────────
+        async def generate_validated_stream() -> AsyncGenerator[str, None]:
+            """Streaming simulado del texto ya validado"""
+            # Velocidad de streaming: ~50 caracteres por yield para balance
+            chunk_size = 50
+            for i in range(0, len(full_response), chunk_size):
+                yield full_response[i:i + chunk_size]
+                await asyncio.sleep(0.02)  # 20ms de delay para simular streaming
         
         return StreamingResponse(
-            generate_stream(),
+            generate_validated_stream(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
+                "X-Citation-Validation": f"{validation.valid_count}/{validation.total_citations}",
             },
         )
     
