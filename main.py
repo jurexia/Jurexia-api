@@ -642,20 +642,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS para Next.js frontend
+# CORS para Next.js frontend (allow all origins for production flexibility)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "https://jurexiagtp.com",
-        "https://www.jurexiagtp.com",
-        "https://jurexia-frontend.vercel.app",
-        "https://jurexia-frontend-git-main-jurexia.vercel.app",
-        "https://jurexia-frontend-lfio6yjny-jurexia.vercel.app",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
