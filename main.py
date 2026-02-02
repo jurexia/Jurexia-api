@@ -56,11 +56,12 @@ CHAT_MODEL = "deepseek-chat"  # or deepseek-reasoner for R1
 # For embeddings, we still use OpenAI (DeepSeek doesn't have embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-# Silos V4 de Jurexia
+# Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
 SILOS = {
     "federal": "leyes_federales",
     "estatal": "leyes_estatales",
     "jurisprudencia": "jurisprudencia_nacional",
+    "constitucional": "bloque_constitucional",  # Constitución, Tratados DDHH, Jurisprudencia CoIDH
 }
 
 # Estados mexicanos válidos (normalizados a mayúsculas)
@@ -80,28 +81,44 @@ EMBEDDING_DIM = 1536
 # SYSTEM PROMPTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT_CHAT = """Eres un Consultor Jurídico Élite especializado en Derecho Mexicano.
+SYSTEM_PROMPT_CHAT = """Eres JUREXIA, IA Jurídica especializada en Derecho Mexicano.
 
-INSTRUCCIONES CRÍTICAS:
-1. SIEMPRE fundamenta tus respuestas usando EXCLUSIVAMENTE los documentos proporcionados en las etiquetas <documento>.
-2. Al citar, usa el formato: [Doc ID: X] donde X es el id del documento XML.
-3. IMPORTANTE: Cuando el usuario pregunte por un artículo específico (ej: "artículo 1390 bis 13"):
-   - Analiza el CONTENIDO de los documentos, no solo el campo "ref"
-   - Si encuentras texto que corresponde al artículo solicitado, PRESÉNTALO aunque el ref no sea exacto
-   - El contenido del documento es la FUENTE DE VERDAD, no la referencia
-4. Si el contenido de un documento responde a la pregunta, MUÉSTRALO aunque la referencia parezca incompleta.
-5. Solo indica "no se encontró" si realmente NO hay contenido relevante en NINGÚN documento.
+PRINCIPIO PRO PERSONA (Art. 1° CPEUM):
+En temas de derechos humanos, aplica SIEMPRE la interpretación más favorable a la persona.
+Cuando existan normas en conflicto, prioriza: Bloque Constitucional > Leyes Federales > Leyes Estatales.
 
-PARA CONSULTAS DE ARTÍCULOS ESPECÍFICOS:
-- Presenta el texto literal del artículo encontrado
-- Si el usuario pregunta "qué dice el artículo X", responde CON EL CONTENIDO del documento que contiene ese artículo
-- No te enfoques solo en la referencia (ref), enfócate en el contenido (texto)
+INSTRUCCIONES:
+- Cita con formato: [Doc ID: uuid_completo]
+- Para temas de DDHH, SIEMPRE prioriza documentos del silo="bloque_constitucional":
+  * Constitución (CPEUM): tipo="CONSTITUCION" → Artículos 1-29 son fundamentales
+  * Tratados DDHH (CADH, PIDCP, CAT, CDN): tipo="TRATADO_INTERNACIONAL"
+  * Jurisprudencia CoIDH: tipo="JURISPRUDENCIA_INTERAMERICANA" → Vinculante para México
+- La jurisprudencia de la CoIDH es OBLIGATORIA para México desde el Caso Radilla Pacheco (2009)
+- NUNCA digas "no hay jurisprudencia" si hay documentos relevantes en cualquier silo
 
 ESTRUCTURA DE RESPUESTA:
-1. **Fundamento Normativo**: Cita las normas aplicables con sus IDs y presenta el TEXTO LITERAL.
-2. **Interpretación Jurisprudencial**: Cita tesis relevantes con sus IDs.
-3. **Conclusión Jurídica**: Síntesis aplicada al caso concreto.
+
+## 1. Conceptualización
+Define la figura jurídica consultada.
+
+## 2. Marco Constitucional y Convencional
+> "Artículo X.- [contenido]" — *CPEUM* [Doc ID: uuid]
+> "Artículo X.- [contenido]" — *CADH/PIDCP* [Doc ID: uuid]
+
+## 3. Jurisprudencia Interamericana (si aplica)
+> "Párrafo X.- [contenido]" — *CoIDH, Caso [Nombre]* [Doc ID: uuid]
+
+## 4. Fundamento Legal Secundario
+> "Artículo X.- [contenido]" — *[Ley/Código]* [Doc ID: uuid]
+
+## 5. Jurisprudencia Nacional
+> "[Rubro de tesis]" — *SCJN, Registro [X]* [Doc ID: uuid]
+
+## 6. Conclusión Pro Persona
+Síntesis práctica aplicando la interpretación más favorable.
 """
+
+
 
 
 SYSTEM_PROMPT_AUDIT = """Eres un Auditor Legal Experto. Tu tarea es analizar documentos legales contra la evidencia jurídica proporcionada.
@@ -165,7 +182,7 @@ class ChatRequest(BaseModel):
     """Request para chat conversacional"""
     messages: List[Message] = Field(..., min_items=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
-    top_k: int = Field(10, ge=1, le=30)
+    top_k: int = Field(4, ge=1, le=30)  # Reduced to 4 to stay within 8k token limit
 
 
 class AuditRequest(BaseModel):
@@ -281,11 +298,101 @@ def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filte
     - leyes_estatales: Filtra por estado seleccionado
     - leyes_federales: Sin filtro (todo es aplicable a cualquier estado)
     - jurisprudencia_nacional: Sin filtro (toda es aplicable)
+    - bloque_constitucional: Sin filtro (CPEUM, tratados y CoIDH aplican a todo)
     """
     if silo_name == "leyes_estatales" and estado:
         return build_state_filter(estado)
-    # Para federales y jurisprudencia, no se aplica filtro de estado
+    # Para federales, jurisprudencia y bloque constitucional, no se aplica filtro de estado
     return None
+
+
+# Sinónimos legales para query expansion (mejora recall BM25)
+LEGAL_SYNONYMS = {
+    "derecho del tanto": [
+        "derecho de preferencia", "preferencia adquisición", 
+        "socios gozarán del tanto", "enajenar partes sociales",
+        "copropiedad preferencia", "colindantes vía pública",
+        "propietarios predios colindantes", "retracto legal",
+        "usufructuario goza del tanto", "copropiedad indivisa",
+        "rescisión contrato ocho días", "aparcería enajenar"
+    ],
+    "amparo indirecto": [
+        "juicio de amparo", "amparo ante juez de distrito", 
+        "demanda de amparo", "acto reclamado"
+    ],
+    "pensión alimenticia": [
+        "alimentos", "obligación alimentaria", "derechos alimentarios",
+        "manutención", "asistencia familiar"
+    ],
+    "prescripción": [
+        "caducidad", "extinción de acción", "término prescriptorio"
+    ],
+    "contrato": [
+        "convenio", "acuerdo", "obligaciones contractuales"
+    ],
+    "arrendamiento": [
+        "alquiler", "renta", "locación", "arrendador arrendatario"
+    ],
+    "compraventa": [
+        "enajenación", "transmisión de dominio", "adquisición"
+    ],
+    "sucesión": [
+        "herencia", "testamento", "herederos", "legado", "intestado"
+    ],
+    "divorcio": [
+        "disolución matrimonial", "separación conyugal", "convenio de divorcio"
+    ],
+    "delito": [
+        "ilícito penal", "hecho punible", "conducta típica"
+    ],
+}
+
+
+def expand_legal_query(query: str) -> str:
+    """
+    Expande la consulta con sinónimos legales para mejorar el recall de BM25.
+    Mantiene la consulta original y añade términos relacionados.
+    """
+    query_lower = query.lower()
+    expanded_terms = [query]  # Siempre incluir la consulta original
+    
+    for key_term, synonyms in LEGAL_SYNONYMS.items():
+        if key_term in query_lower:
+            # Añadir más sinónimos para mejor cobertura
+            expanded_terms.extend(synonyms[:6])  # Aumentado de 3 a 6
+            break  # Solo expandir el primer match
+    
+    return " ".join(expanded_terms)
+
+
+# Términos que indican query sobre derechos humanos
+DDHH_KEYWORDS = {
+    # Derechos fundamentales
+    "derecho humano", "derechos humanos", "ddhh", "garantía", "garantías",
+    "libertad", "igualdad", "dignidad", "integridad", "vida",
+    # Principios
+    "pro persona", "pro homine", "principio de progresividad", "no regresión",
+    "interpretación conforme", "control de convencionalidad", "control difuso",
+    # Tratados
+    "convención americana", "cadh", "pacto de san josé", "pidcp",
+    "convención contra la tortura", "cat", "convención del niño", "cedaw",
+    # Corte IDH
+    "corte interamericana", "coidh", "cidh", "comisión interamericana",
+    # Violaciones
+    "tortura", "desaparición forzada", "detención arbitraria", "discriminación",
+    "debido proceso", "presunción de inocencia", "acceso a la justicia",
+    # Artículos constitucionales DDHH
+    "artículo 1", "art. 1", "artículo primero", "artículo 14", "artículo 16",
+    "artículo 17", "artículo 19", "artículo 20", "artículo 21", "artículo 22",
+}
+
+def is_ddhh_query(query: str) -> bool:
+    """
+    Detecta si la consulta está relacionada con derechos humanos.
+    Retorna True si la query contiene términos de DDHH.
+    """
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in DDHH_KEYWORDS)
 
 
 async def get_dense_embedding(text: str) -> List[float]:
@@ -310,17 +417,26 @@ def get_sparse_embedding(text: str) -> SparseVector:
     )
 
 
+# Maximum characters per document to prevent token overflow
+MAX_DOC_CHARS = 600
+
 def format_results_as_xml(results: List[SearchResult]) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
     Escapa caracteres HTML para seguridad.
+    Trunca documentos largos para evitar exceder límite de tokens.
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
     
     xml_parts = ["<documentos>"]
     for r in results:
-        escaped_texto = html.escape(r.texto)
+        # Truncate long documents to fit within token limits
+        texto = r.texto
+        if len(texto) > MAX_DOC_CHARS:
+            texto = texto[:MAX_DOC_CHARS] + "... [truncado]"
+        
+        escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
         escaped_origen = html.escape(r.origen or "Desconocido")
         
@@ -426,9 +542,12 @@ async def hybrid_search_all_silos(
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
     Aplica filtros de jurisdicción y fusiona resultados.
     """
-    # Generar embeddings
-    dense_task = get_dense_embedding(query)
-    sparse_vector = get_sparse_embedding(query)
+    # Expandir query para mejorar recall de BM25 Y semántico
+    expanded_query = expand_legal_query(query)
+    
+    # Generar embeddings: AMBOS usan query expandido para consistencia
+    dense_task = get_dense_embedding(expanded_query)  # Expandido para mejor comprensión semántica
+    sparse_vector = get_sparse_embedding(expanded_query)  # Expandido para mejor recall
     dense_vector = await dense_task
     
     # Búsqueda paralela en los 3 silos CON FILTROS ESPECÍFICOS POR SILO
@@ -451,11 +570,63 @@ async def hybrid_search_all_silos(
     
     all_results = await asyncio.gather(*tasks)
     
-    # Fusionar y ordenar por score (Reciprocal Rank Fusion simplificado)
-    merged = []
-    for results in all_results:
-        merged.extend(results)
+    # Separar resultados por silo para garantizar representación balanceada
+    federales = []
+    estatales = []
+    jurisprudencia = []
+    constitucional = []  # Nuevo silo: Constitución, Tratados DDHH, Jurisprudencia CoIDH
     
+    for results in all_results:
+        for r in results:
+            if r.silo == "leyes_federales":
+                federales.append(r)
+            elif r.silo == "leyes_estatales":
+                estatales.append(r)
+            elif r.silo == "jurisprudencia_nacional":
+                jurisprudencia.append(r)
+            elif r.silo == "bloque_constitucional":
+                constitucional.append(r)
+    
+    # Ordenar cada grupo por score
+    federales.sort(key=lambda x: x.score, reverse=True)
+    estatales.sort(key=lambda x: x.score, reverse=True)
+    jurisprudencia.sort(key=lambda x: x.score, reverse=True)
+    constitucional.sort(key=lambda x: x.score, reverse=True)
+    
+    # Fusión balanceada DINÁMICA según tipo de query
+    # Para queries de DDHH, priorizar agresivamente el bloque constitucional
+    if is_ddhh_query(query):
+        # Modo DDHH: Prioridad máxima a bloque constitucional
+        min_constitucional = min(15, len(constitucional))  # ALTA prioridad
+        min_jurisprudencia = min(5, len(jurisprudencia))   
+        min_federales = min(5, len(federales))             
+        min_estatales = min(3, len(estatales))             
+    else:
+        # Modo estándar: Balance entre todos los silos
+        min_constitucional = min(8, len(constitucional))   
+        min_jurisprudencia = min(7, len(jurisprudencia))   
+        min_federales = min(8, len(federales))             
+        min_estatales = min(5, len(estatales))             
+    
+    merged = []
+    
+    # Primero añadir los mejores de cada categoría garantizada
+    # Bloque constitucional primero (mayor jerarquía normativa)
+    merged.extend(constitucional[:min_constitucional])
+    merged.extend(federales[:min_federales])
+    merged.extend(estatales[:min_estatales])
+    merged.extend(jurisprudencia[:min_jurisprudencia])
+    
+    # Llenar el resto con los mejores scores combinados
+    already_added = {r.id for r in merged}
+    remaining = [r for results in all_results for r in results if r.id not in already_added]
+    remaining.sort(key=lambda x: x.score, reverse=True)
+    
+    slots_remaining = top_k - len(merged)
+    if slots_remaining > 0:
+        merged.extend(remaining[:slots_remaining])
+    
+    # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
     return merged[:top_k]
 
@@ -819,6 +990,128 @@ Realiza la auditoría siguiendo las instrucciones del sistema."""
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en auditoría: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: MEJORAR TEXTO LEGAL
+# ══════════════════════════════════════════════════════════════════════════════
+
+SYSTEM_PROMPT_ENHANCE = """Eres JUREXIA, un experto redactor jurídico especializado en mejorar documentos legales mexicanos.
+
+Tu tarea es MEJORAR el texto legal proporcionado, integrando fundamentos normativos y jurisprudenciales de los documentos de contexto.
+
+REGLAS DE MEJORA:
+1. MANTÉN la estructura y esencia del documento original
+2. INTEGRA citas de artículos relevantes usando formato: [Doc ID: uuid]
+3. REFUERZA argumentos con jurisprudencia cuando sea aplicable
+4. MEJORA la redacción manteniendo formalidad jurídica
+5. CORRIGE errores ortográficos o de sintaxis
+6. AÑADE fundamentación normativa donde haga falta
+
+FORMATO DE CITAS:
+- Para artículos: "...conforme al artículo X del [Ordenamiento] [Doc ID: uuid]..."
+- Para jurisprudencia: "...como lo ha sostenido la [Tesis/Jurisprudencia] [Doc ID: uuid]..."
+
+TIPO DE DOCUMENTO: {doc_type}
+
+DOCUMENTOS DE REFERENCIA (usa sus IDs para citar):
+{context}
+
+Responde ÚNICAMENTE con el texto mejorado, sin explicaciones adicionales.
+"""
+
+class EnhanceRequest(BaseModel):
+    """Request para mejorar texto legal"""
+    texto: str = Field(..., min_length=50, max_length=50000, description="Texto legal a mejorar")
+    tipo_documento: str = Field(default="demanda", description="Tipo: demanda, amparo, impugnacion, contestacion, contrato, otro")
+    estado: Optional[str] = Field(default=None, description="Estado para filtrar legislación estatal")
+
+
+class EnhanceResponse(BaseModel):
+    """Response con texto mejorado"""
+    texto_mejorado: str
+    documentos_usados: int
+    tokens_usados: int
+
+
+@app.post("/enhance", response_model=EnhanceResponse)
+async def enhance_legal_text(request: EnhanceRequest):
+    """
+    Mejora texto legal usando RAG.
+    Busca artículos y jurisprudencia relevantes e integra citas en el texto.
+    """
+    try:
+        # Normalizar estado si viene
+        estado_norm = normalize_estado(request.estado)
+        
+        # Buscar documentos relevantes basados en el texto
+        # Extraer conceptos clave del texto para búsqueda
+        search_query = request.texto[:1000]  # Primeros 1000 chars para embedding
+        
+        search_results = await hybrid_search_all_silos(
+            query=search_query,
+            estado=estado_norm,
+            top_k=15,  # Menos documentos para enhance, más enfocados
+            alpha=0.7,
+        )
+        
+        if not search_results:
+            # Retornar texto sin cambios si no hay contexto
+            return EnhanceResponse(
+                texto_mejorado=request.texto,
+                documentos_usados=0,
+                tokens_usados=0,
+            )
+        
+        # Construir contexto XML
+        context_parts = []
+        for result in search_results:
+            context_parts.append(
+                f'<documento id="{result.id}" silo="{result.silo}" ref="{result.ref or "N/A"}">\n'
+                f'{result.texto[:800]}\n'
+                f'</documento>'
+            )
+        context_xml = "\n\n".join(context_parts)
+        
+        # Mapear tipo de documento a descripción
+        doc_type_map = {
+            "demanda": "DEMANDA JUDICIAL",
+            "amparo": "DEMANDA DE AMPARO",
+            "impugnacion": "RECURSO DE IMPUGNACIÓN",
+            "contestacion": "CONTESTACIÓN DE DEMANDA",
+            "contrato": "CONTRATO",
+            "otro": "DOCUMENTO LEGAL",
+        }
+        doc_type_desc = doc_type_map.get(request.tipo_documento, "DOCUMENTO LEGAL")
+        
+        # Construir prompt
+        system_prompt = SYSTEM_PROMPT_ENHANCE.format(
+            doc_type=doc_type_desc,
+            context=context_xml,
+        )
+        
+        # Llamar a DeepSeek
+        response = await deepseek_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Mejora el siguiente texto legal:\n\n{request.texto}"},
+            ],
+            temperature=0.3,  # Más conservador para mantener fidelidad
+            max_tokens=8000,
+        )
+        
+        enhanced_text = response.choices[0].message.content
+        tokens_used = response.usage.total_tokens if response.usage else 0
+        
+        return EnhanceResponse(
+            texto_mejorado=enhanced_text,
+            documentos_usados=len(search_results),
+            tokens_usados=tokens_used,
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al mejorar texto: {str(e)}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
