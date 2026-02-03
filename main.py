@@ -8,6 +8,9 @@ FastAPI backend para plataforma LegalTech con:
 - Agente Centinela para auditoría legal
 - Memoria conversacional stateless con streaming
 - Grounding con citas documentales
+- DeepSeek Reasoner con reasoning visible
+
+VERSION: 2026.02.03-v2
 """
 
 import asyncio
