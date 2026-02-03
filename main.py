@@ -1385,6 +1385,8 @@ async def health_check():
     
     return {
         "status": "healthy" if qdrant_status == "connected" else "degraded",
+        "version": "2026.02.03-v3",
+        "model": "deepseek-reasoner",
         "qdrant": qdrant_status,
         "silos_activos": silos_activos,
         "sparse_encoder": "Qdrant/bm25",
