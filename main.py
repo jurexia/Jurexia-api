@@ -1395,6 +1395,112 @@ async def health_check():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: EXTRACT TEXT FROM DOCUMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+from fastapi import File, UploadFile
+
+@app.post("/extract-text")
+async def extract_text_from_document(file: UploadFile = File(...)):
+    """
+    Extrae texto de documentos .doc, .docx y .pdf
+    Soporta formato Word 97-2003 (.doc) que no puede procesarse en el navegador.
+    """
+    import io
+    
+    filename = file.filename or "unknown"
+    extension = filename.split(".")[-1].lower()
+    
+    # Leer contenido del archivo
+    content = await file.read()
+    
+    try:
+        if extension == "docx":
+            # Usar python-docx para .docx
+            from docx import Document
+            doc = Document(io.BytesIO(content))
+            text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+            
+        elif extension == "doc":
+            # Usar olefile para .doc (formato binario antiguo)
+            import olefile
+            import struct
+            
+            try:
+                ole = olefile.OleFileIO(io.BytesIO(content))
+                
+                # Intentar extraer texto del stream WordDocument
+                if ole.exists("WordDocument"):
+                    # Método simple: buscar texto en streams
+                    text_parts = []
+                    
+                    # Intentar el stream 1Table o 0Table (contiene texto)
+                    for stream_name in ["1Table", "0Table", "WordDocument"]:
+                        if ole.exists(stream_name):
+                            try:
+                                stream_data = ole.openstream(stream_name).read()
+                                # Extraer texto ASCII/Latin1 legible
+                                decoded = stream_data.decode('latin-1', errors='ignore')
+                                # Filtrar solo caracteres imprimibles
+                                readable = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded)
+                                # Limpiar espacios múltiples
+                                readable = re.sub(r'\s+', ' ', readable).strip()
+                                if len(readable) > 100:  # Solo si hay contenido significativo
+                                    text_parts.append(readable)
+                            except:
+                                continue
+                    
+                    if text_parts:
+                        text = "\n\n".join(text_parts)
+                    else:
+                        raise ValueError("No se pudo extraer texto del documento .doc")
+                else:
+                    raise ValueError("Archivo .doc no válido o corrupto")
+                    
+                ole.close()
+                
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Error al procesar archivo .doc: {str(e)}. El archivo puede estar corrupto o protegido."
+                )
+                
+        elif extension == "pdf":
+            # Para PDF, devolver error - debe procesarse en frontend
+            raise HTTPException(
+                status_code=400,
+                detail="Los archivos PDF deben procesarse en el navegador. Use la función de upload normal."
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Formato no soportado: .{extension}. Use .doc, .docx o .pdf"
+            )
+        
+        # Validar que se extrajo texto
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(
+                status_code=400,
+                detail="No se pudo extraer texto significativo del documento."
+            )
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "text": text,
+            "characters": len(text)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno al procesar documento: {str(e)}"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: OBTENER DOCUMENTO POR ID
 # ══════════════════════════════════════════════════════════════════════════════
 
