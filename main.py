@@ -83,8 +83,97 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SYSTEM COVERAGE - INVENTARIO VERIFICADO DE LA BASE DE DATOS
+# ══════════════════════════════════════════════════════════════════════════════
+
+SYSTEM_COVERAGE = {
+    "legislacion_federal": [
+        "Constitución Política de los Estados Unidos Mexicanos (CPEUM)",
+        "Código Penal Federal",
+        "Código Civil Federal",
+        "Código de Comercio",
+        "Código Nacional de Procedimientos Penales",
+        "Código Fiscal de la Federación",
+        "Ley Federal del Trabajo",
+        "Ley de Amparo",
+        "Ley General de Salud",
+        "Ley General de Víctimas",
+    ],
+    "tratados_internacionales": [
+        "Convención Americana sobre Derechos Humanos (Pacto de San José)",
+        "Pacto Internacional de Derechos Civiles y Políticos",
+        "Convención sobre los Derechos del Niño",
+        "Convención contra la Tortura y Otros Tratos Crueles",
+        "Estatuto de Roma de la Corte Penal Internacional",
+    ],
+    "entidades_federativas": ESTADOS_MEXICO,  # 32 estados
+    "jurisprudencia": [
+        "Tesis y Jurisprudencias de la SCJN (1917-2025)",
+        "Tribunales Colegiados de Circuito",
+        "Plenos de Circuito",
+    ],
+}
+
+# Bloque de inventario para inyección dinámica
+INVENTORY_CONTEXT = """
+═══════════════════════════════════════════════════════════════
+   INFORMACIÓN DE INVENTARIO DEL SISTEMA (VERIFICADA)
+═══════════════════════════════════════════════════════════════
+
+El sistema JUREXIA cuenta, verificada y físicamente en su base de datos, con:
+
+📚 LEGISLACIÓN FEDERAL:
+- Constitución Política de los Estados Unidos Mexicanos (CPEUM)
+- Código Penal Federal, Código Civil Federal, Código de Comercio
+- Código Nacional de Procedimientos Penales
+- Ley Federal del Trabajo, Ley de Amparo, Ley General de Salud, entre otras
+
+🌍 TRATADOS INTERNACIONALES:
+- Convención Americana sobre Derechos Humanos (Pacto de San José)
+- Pacto Internacional de Derechos Civiles y Políticos
+- Convención sobre los Derechos del Niño
+- Otros tratados ratificados por México
+
+🗺️ LEGISLACIÓN DE LAS 32 ENTIDADES FEDERATIVAS:
+Aguascalientes, Baja California, Baja California Sur, Campeche, Chiapas,
+Chihuahua, Ciudad de México, Coahuila, Colima, Durango, Guanajuato, Guerrero,
+Hidalgo, Jalisco, Estado de México, Michoacán, Morelos, Nayarit, Nuevo León,
+Oaxaca, Puebla, Querétaro, Quintana Roo, San Luis Potosí, Sinaloa, Sonora,
+Tabasco, Tamaulipas, Tlaxcala, Veracruz, Yucatán, Zacatecas.
+(Incluye Códigos Penales, Civiles, Familiares y Procedimientos de cada entidad)
+
+⚖️ JURISPRUDENCIA:
+- Tesis y Jurisprudencias de la SCJN (1917-2025)
+- Tribunales Colegiados de Circuito
+- Plenos de Circuito
+
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIONES DE COMPORTAMIENTO (CRÍTICO)
+═══════════════════════════════════════════════════════════════
+
+1. Si el usuario pregunta sobre **COBERTURA o DISPONIBILIDAD** del sistema:
+   (Ejemplos: "¿Tienes leyes de Chiapas?", "¿Cuántos códigos penales tienes?")
+   → Responde basándote en la INFORMACIÓN DE INVENTARIO arriba.
+   → Puedes confirmar: "Sí, cuento con el Código Penal de Chiapas en mi base."
+
+2. Si el usuario hace una **CONSULTA JURÍDICA ESPECÍFICA**:
+   (Ejemplos: "¿Cuál es la pena por robo en Chiapas?", "Dame el artículo 123")
+   → Responde ÚNICA Y EXCLUSIVAMENTE basándote en el [CONTEXTO RECUPERADO] abajo.
+   → JAMÁS inventes artículos, penas o contenidos no presentes en el contexto.
+
+3. **SITUACIÓN ESPECIAL - RAG NO RECUPERÓ EL DOCUMENTO**:
+   Si tienes cobertura de una entidad pero el RAG no trajo el artículo específico:
+   → Responde honestamente: "Tengo cobertura de [Estado] en mi sistema, pero no
+   logré recuperar el artículo específico en esta búsqueda. Por favor reformula
+   tu pregunta con más detalle o términos diferentes."
+   → NUNCA inventes contenido para llenar el vacío.
+
+"""
+
+# ══════════════════════════════════════════════════════════════════════════════
 # SYSTEM PROMPTS
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 SYSTEM_PROMPT_CHAT = """Eres JUREXIA, IA Jurídica especializada en Derecho Mexicano.
 
@@ -1736,6 +1825,10 @@ async def chat_endpoint(request: ChatRequest):
         llm_messages = [
             {"role": "system", "content": system_prompt},
         ]
+        
+        # Inyección de Contexto Global: Inventario del Sistema
+        # Esto da al modelo "Scope Awareness" para responder preguntas de cobertura
+        llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
         
         if context_xml:
             llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
