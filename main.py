@@ -1394,6 +1394,12 @@ async def health_check():
     }
 
 
+@app.get("/api/wake")
+async def wake_endpoint():
+    """Ultra-lightweight endpoint to wake up the backend from cold start."""
+    return {"status": "awake"}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: EXTRACT TEXT FROM DOCUMENT
 # ══════════════════════════════════════════════════════════════════════════════
