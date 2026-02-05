@@ -756,7 +756,7 @@ class ChatRequest(BaseModel):
     """Request para chat conversacional"""
     messages: List[Message] = Field(..., min_length=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
-    top_k: int = Field(4, ge=1, le=30)  # Reduced to 4 to stay within 8k token limit
+    top_k: int = Field(12, ge=1, le=50)  # Increased from 4 for better coverage
 
 
 class AuditRequest(BaseModel):
@@ -853,13 +853,34 @@ def normalize_estado(estado: Optional[str]) -> Optional[str]:
     if not estado:
         return None
     normalized = estado.upper().replace(" ", "_").replace("-", "_")
-    # Corrección de variantes comunes
-    if normalized in ["NUEVO_LEON", "NL", "NUEVOLEON"]:
-        return "NUEVO_LEON"
-    if normalized in ["CDMX", "DF", "CIUDAD_DE_MEXICO"]:
-        return "CIUDAD_DE_MEXICO"
+    
+    # Mapeo de variantes a nombres canónicos
+    ESTADO_ALIASES = {
+        # Nuevo León
+        "NUEVO_LEON": "NUEVO_LEON", "NL": "NUEVO_LEON", "NUEVOLEON": "NUEVO_LEON",
+        "NUEVO LEON": "NUEVO_LEON",
+        # CDMX
+        "CDMX": "CIUDAD_DE_MEXICO", "DF": "CIUDAD_DE_MEXICO", 
+        "CIUDAD_DE_MEXICO": "CIUDAD_DE_MEXICO", "CIUDAD DE MEXICO": "CIUDAD_DE_MEXICO",
+        # Coahuila
+        "COAHUILA": "COAHUILA_DE_ZARAGOZA", "COAHUILA_DE_ZARAGOZA": "COAHUILA_DE_ZARAGOZA",
+        # Estado de México
+        "MEXICO": "ESTADO_DE_MEXICO", "ESTADO_DE_MEXICO": "ESTADO_DE_MEXICO",
+        "EDO_MEXICO": "ESTADO_DE_MEXICO", "EDOMEX": "ESTADO_DE_MEXICO",
+        # Michoacán
+        "MICHOACAN": "MICHOACAN", "MICHOACAN_DE_OCAMPO": "MICHOACAN",
+        # Veracruz
+        "VERACRUZ": "VERACRUZ", "VERACRUZ_DE_IGNACIO_DE_LA_LLAVE": "VERACRUZ",
+    }
+    
+    # Primero buscar en aliases
+    if normalized in ESTADO_ALIASES:
+        return ESTADO_ALIASES[normalized]
+    
+    # Luego verificar si está en lista de estados válidos
     if normalized in ESTADOS_MEXICO:
         return normalized
+    
     return None
 
 
