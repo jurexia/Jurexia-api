@@ -845,7 +845,7 @@ class ChatRequest(BaseModel):
     """Request para chat conversacional"""
     messages: List[Message] = Field(..., min_length=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
-    top_k: int = Field(12, ge=1, le=50)  # Increased from 4 for better coverage
+    top_k: int = Field(20, ge=1, le=50)  # Recall Boost: captures Art 160-162 (def + pena + agravantes)
 
 
 class AuditRequest(BaseModel):
@@ -1052,19 +1052,73 @@ LEGAL_SYNONYMS = {
 
 def expand_legal_query(query: str) -> str:
     """
-    Expande la consulta con sinónimos legales para mejorar el recall de BM25.
-    Mantiene la consulta original y añade términos relacionados.
+    LEGACY: Expansión básica con sinónimos estáticos.
+    Se mantiene como fallback si la expansión LLM falla.
     """
     query_lower = query.lower()
-    expanded_terms = [query]  # Siempre incluir la consulta original
+    expanded_terms = [query]
     
     for key_term, synonyms in LEGAL_SYNONYMS.items():
         if key_term in query_lower:
-            # Añadir más sinónimos para mejor cobertura
-            expanded_terms.extend(synonyms[:6])  # Aumentado de 3 a 6
-            break  # Solo expandir el primer match
+            expanded_terms.extend(synonyms[:6])
+            break
     
     return " ".join(expanded_terms)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DOGMATIC QUERY EXPANSION - LLM-Based Legal Term Extraction
+# ══════════════════════════════════════════════════════════════════════════════
+
+DOGMATIC_EXPANSION_PROMPT = """Actúa como un experto penalista mexicano. Tu único trabajo es identificar el concepto jurídico de la consulta y devolver sus elementos normativos, verbos rectores y términos técnicos según la dogmática penal mexicana.
+
+REGLAS ESTRICTAS:
+1. SOLO devuelve palabras clave separadas por espacio
+2. NO incluyas explicaciones ni puntuación
+3. Incluye sinónimos técnicos del derecho mexicano
+4. Prioriza términos que aparecerían en códigos penales
+
+EJEMPLOS:
+- Entrada: "Delito de violación" -> Salida: "violación cópula acceso carnal delito sexual"
+- Entrada: "Robo" -> Salida: "robo apoderamiento cosa mueble ajena sin consentimiento"  
+- Entrada: "Homicidio" -> Salida: "homicidio privar vida muerte lesiones mortales"
+- Entrada: "Fraude" -> Salida: "fraude engaño error lucro indebido perjuicio patrimonial"
+- Entrada: "Amparo" -> Salida: "amparo garantías acto reclamado queja suspensión"
+
+Ahora procesa esta consulta y devuelve SOLO las palabras clave:"""
+
+
+async def expand_legal_query_llm(query: str) -> str:
+    """
+    Expansión de consulta usando LLM para extraer terminología dogmática.
+    Usa DeepSeek con temperature=0 para respuestas deterministas.
+    
+    Esta función cierra la brecha semántica entre:
+    - Lenguaje coloquial del usuario: "violación"
+    - Terminología técnica del legislador: "cópula"
+    """
+    try:
+        response = await deepseek_client.chat.completions.create(
+            model="deepseek-chat",  # Modelo rápido, no reasoner
+            messages=[
+                {"role": "system", "content": DOGMATIC_EXPANSION_PROMPT},
+                {"role": "user", "content": query}
+            ],
+            temperature=0,  # Determinista
+            max_tokens=100,  # Solo necesitamos palabras clave
+        )
+        
+        expanded_terms = response.choices[0].message.content.strip()
+        
+        # Combinar query original + términos expandidos
+        result = f"{query} {expanded_terms}"
+        print(f"  📚 Query expandido: '{query}' → '{result}'")
+        return result
+        
+    except Exception as e:
+        print(f"  ⚠️ Error en expansión LLM, usando fallback: {e}")
+        # Fallback a expansión estática
+        return expand_legal_query(query)
 
 
 # Términos que indican query sobre derechos humanos
@@ -1366,13 +1420,19 @@ async def hybrid_search_all_silos(
     """
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
     Aplica filtros de jurisdicción y fusiona resultados.
+    
+    Incluye Dogmatic Query Expansion para cerrar brecha semántica entre
+    lenguaje coloquial y terminología técnica legal.
     """
-    # Expandir query para mejorar recall de BM25 Y semántico
-    expanded_query = expand_legal_query(query)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PASO 0: Dogmatic Query Expansion (LLM-based)
+    # Traduce "violación" → "violación cópula acceso carnal delito sexual"
+    # ═══════════════════════════════════════════════════════════════════════════
+    expanded_query = await expand_legal_query_llm(query)
     
     # Generar embeddings: AMBOS usan query expandido para consistencia
     dense_task = get_dense_embedding(expanded_query)  # Expandido para mejor comprensión semántica
-    sparse_vector = get_sparse_embedding(expanded_query)  # Expandido para mejor recall
+    sparse_vector = get_sparse_embedding(expanded_query)  # Expandido para mejor recall BM25
     dense_vector = await dense_task
     
     # Búsqueda paralela en los 3 silos CON FILTROS ESPECÍFICOS POR SILO
