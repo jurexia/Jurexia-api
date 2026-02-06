@@ -8,6 +8,9 @@ FastAPI backend para plataforma LegalTech con:
 - Agente Centinela para auditoría legal
 - Memoria conversacional stateless con streaming
 - Grounding con citas documentales
+- DeepSeek Reasoner con reasoning visible
+
+VERSION: 2026.02.03-v2
 """
 
 import asyncio
@@ -16,17 +19,13 @@ import json
 import os
 import re
 import uuid
-import time
-import logging
-from datetime import datetime
-from typing import AsyncGenerator, Dict, List, Literal, Optional
+from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple
 from contextlib import asynccontextmanager
-from collections import defaultdict
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel, Field, validator
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import (
@@ -42,14 +41,6 @@ from qdrant_client.http.models import (
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
 
-# Configure logging for audit trail
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s | %(levelname)s | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-audit_logger = logging.getLogger('iurexia.audit')
-
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
 # ══════════════════════════════════════════════════════════════════════════════
@@ -64,16 +55,18 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 # DeepSeek API Configuration
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-CHAT_MODEL = "deepseek-chat"  # or deepseek-reasoner for R1
+CHAT_MODEL = "deepseek-chat"  # For regular queries
+REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thought
 
 # For embeddings, we still use OpenAI (DeepSeek doesn't have embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-# Silos V4 de Jurexia
+# Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
 SILOS = {
     "federal": "leyes_federales",
     "estatal": "leyes_estatales",
     "jurisprudencia": "jurisprudencia_nacional",
+    "constitucional": "bloque_constitucional",  # Constitución, Tratados DDHH, Jurisprudencia CoIDH
 }
 
 # Estados mexicanos válidos (normalizados a mayúsculas)
@@ -90,139 +83,706 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECURITY: RATE LIMITING
+# SYSTEM COVERAGE - INVENTARIO VERIFICADO DE LA BASE DE DATOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-RATE_LIMIT_REQUESTS = 10  # Max requests per window
-RATE_LIMIT_WINDOW = 60    # Window in seconds (1 minute)
+SYSTEM_COVERAGE = {
+    "legislacion_federal": [
+        "Constitución Política de los Estados Unidos Mexicanos (CPEUM)",
+        "Código Penal Federal",
+        "Código Civil Federal",
+        "Código de Comercio",
+        "Código Nacional de Procedimientos Penales",
+        "Código Fiscal de la Federación",
+        "Ley Federal del Trabajo",
+        "Ley de Amparo",
+        "Ley General de Salud",
+        "Ley General de Víctimas",
+    ],
+    "tratados_internacionales": [
+        "Convención Americana sobre Derechos Humanos (Pacto de San José)",
+        "Pacto Internacional de Derechos Civiles y Políticos",
+        "Convención sobre los Derechos del Niño",
+        "Convención contra la Tortura y Otros Tratos Crueles",
+        "Estatuto de Roma de la Corte Penal Internacional",
+    ],
+    "entidades_federativas": ESTADOS_MEXICO,  # 32 estados
+    "jurisprudencia": [
+        "Tesis y Jurisprudencias de la SCJN (1917-2025)",
+        "Tribunales Colegiados de Circuito",
+        "Plenos de Circuito",
+    ],
+}
 
-# In-memory rate limit storage (sliding window)
-rate_limit_storage: Dict[str, List[float]] = defaultdict(list)
+# Bloque de inventario para inyección dinámica
+INVENTORY_CONTEXT = """
+═══════════════════════════════════════════════════════════════
+   INFORMACIÓN DE INVENTARIO DEL SISTEMA (VERIFICADA)
+═══════════════════════════════════════════════════════════════
 
-def check_rate_limit(client_ip: str) -> bool:
-    """Check if client IP has exceeded rate limit using sliding window."""
-    current_time = time.time()
-    window_start = current_time - RATE_LIMIT_WINDOW
-    
-    # Clean old entries
-    rate_limit_storage[client_ip] = [
-        t for t in rate_limit_storage[client_ip] if t > window_start
-    ]
-    
-    # Check limit
-    if len(rate_limit_storage[client_ip]) >= RATE_LIMIT_REQUESTS:
-        return False  # Rate limited
-    
-    # Add new request
-    rate_limit_storage[client_ip].append(current_time)
-    return True
+El sistema JUREXIA cuenta, verificada y físicamente en su base de datos, con:
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SECURITY: INPUT SANITIZATION
-# ══════════════════════════════════════════════════════════════════════════════
+📚 LEGISLACIÓN FEDERAL:
+- Constitución Política de los Estados Unidos Mexicanos (CPEUM)
+- Código Penal Federal, Código Civil Federal, Código de Comercio
+- Código Nacional de Procedimientos Penales
+- Ley Federal del Trabajo, Ley de Amparo, Ley General de Salud, entre otras
 
-# Dangerous patterns for SQL injection
-SQL_INJECTION_PATTERNS = [
-    r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|UNION|ALTER|CREATE|TRUNCATE)\b)",
-    r"(--|;|\*|/\*|\*/)",
-    r"(\bOR\b.*=.*|\bAND\b.*=.*)",
-]
+🌍 TRATADOS INTERNACIONALES:
+- Convención Americana sobre Derechos Humanos (Pacto de San José)
+- Pacto Internacional de Derechos Civiles y Políticos
+- Convención sobre los Derechos del Niño
+- Otros tratados ratificados por México
 
-# XSS patterns
-XSS_PATTERNS = [
-    r"<script[^>]*>.*?</script>",
-    r"javascript:",
-    r"on\w+\s*=",
-    r"<iframe",
-    r"<object",
-    r"<embed",
-]
+🗺️ LEGISLACIÓN DE LAS 32 ENTIDADES FEDERATIVAS:
+Aguascalientes, Baja California, Baja California Sur, Campeche, Chiapas,
+Chihuahua, Ciudad de México, Coahuila, Colima, Durango, Guanajuato, Guerrero,
+Hidalgo, Jalisco, Estado de México, Michoacán, Morelos, Nayarit, Nuevo León,
+Oaxaca, Puebla, Querétaro, Quintana Roo, San Luis Potosí, Sinaloa, Sonora,
+Tabasco, Tamaulipas, Tlaxcala, Veracruz, Yucatán, Zacatecas.
+(Incluye Códigos Penales, Civiles, Familiares y Procedimientos de cada entidad)
 
-def sanitize_input(text: str) -> str:
-    """Sanitize user input against SQL injection and XSS attacks."""
-    if not text:
-        return text
-    
-    # HTML escape first
-    sanitized = html.escape(text)
-    
-    # Remove null bytes
-    sanitized = sanitized.replace('\x00', '')
-    
-    # Log if suspicious patterns detected (but don't block legal queries)
-    for pattern in SQL_INJECTION_PATTERNS + XSS_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
-            audit_logger.warning(f"SECURITY: Suspicious pattern detected in input")
-            break
-    
-    return sanitized
+⚖️ JURISPRUDENCIA:
+- Tesis y Jurisprudencias de la SCJN (1917-2025)
+- Tribunales Colegiados de Circuito
+- Plenos de Circuito
 
-def validate_legal_query(text: str) -> bool:
-    """Validate that query is appropriate for legal consultation."""
-    # Check for minimum content
-    if not text or len(text.strip()) < 3:
-        return False
-    
-    # Check max length (prevent DoS)
-    if len(text) > 10000:
-        return False
-    
-    return True
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIONES DE COMPORTAMIENTO (CRÍTICO)
+═══════════════════════════════════════════════════════════════
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SECURITY: AUDIT LOGGING
-# ══════════════════════════════════════════════════════════════════════════════
+1. Si el usuario pregunta sobre **COBERTURA o DISPONIBILIDAD** del sistema:
+   (Ejemplos: "¿Tienes leyes de Chiapas?", "¿Cuántos códigos penales tienes?")
+   → Responde basándote en la INFORMACIÓN DE INVENTARIO arriba.
+   → Puedes confirmar: "Sí, cuento con el Código Penal de Chiapas en mi base."
 
-audit_log_storage: List[Dict] = []  # In-memory for now (can be replaced with DB)
+2. Si el usuario hace una **CONSULTA JURÍDICA ESPECÍFICA**:
+   (Ejemplos: "¿Cuál es la pena por robo en Chiapas?", "Dame el artículo 123")
+   → Responde ÚNICA Y EXCLUSIVAMENTE basándote en el [CONTEXTO RECUPERADO] abajo.
+   → JAMÁS inventes artículos, penas o contenidos no presentes en el contexto.
 
-def log_audit_entry(
-    user_id: Optional[str],
-    client_ip: str,
-    prompt: str,
-    response: str = "",
-    endpoint: str = "/chat",
-    status: str = "success"
-):
-    """Log audit entry for legal compliance."""
-    entry = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "user_id": user_id or "anonymous",
-        "client_ip": client_ip[:15] + "..." if len(client_ip) > 15 else client_ip,  # Partial IP for privacy
-        "endpoint": endpoint,
-        "prompt_preview": prompt[:200] + "..." if len(prompt) > 200 else prompt,
-        "response_length": len(response),
-        "status": status
-    }
-    
-    audit_log_storage.append(entry)
-    
-    # Keep only last 1000 entries in memory
-    if len(audit_log_storage) > 1000:
-        audit_log_storage.pop(0)
-    
-    # Log to file/console
-    audit_logger.info(
-        f"AUDIT | user={entry['user_id']} | ip={entry['client_ip']} | "
-        f"endpoint={endpoint} | status={status} | prompt_len={len(prompt)}"
-    )
+3. **SITUACIÓN ESPECIAL - RAG NO RECUPERÓ EL DOCUMENTO**:
+   Si tienes cobertura de una entidad pero el RAG no trajo el artículo específico:
+   → Responde honestamente: "Tengo cobertura de [Estado] en mi sistema, pero no
+   logré recuperar el artículo específico en esta búsqueda. Por favor reformula
+   tu pregunta con más detalle o términos diferentes."
+   → NUNCA inventes contenido para llenar el vacío.
+
+"""
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SYSTEM PROMPTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT_CHAT = """Eres un Consultor Jurídico Élite especializado en Derecho Mexicano.
 
-INSTRUCCIONES CRÍTICAS DE CITAS:
-1. SIEMPRE fundamenta tus respuestas usando EXCLUSIVAMENTE los documentos proporcionados en las etiquetas <documento>.
-2. Al citar, usa el formato: [Doc ID: X] donde X es el id del documento XML.
-3. Si no encuentras información relevante en los documentos, indícalo expresamente.
-4. Sigue el razonamiento jurídico: Constitución → Leyes Secundarias → Jurisprudencia → Aplicación.
+SYSTEM_PROMPT_CHAT = """Eres JUREXIA, IA Jurídica especializada en Derecho Mexicano.
+
+═══════════════════════════════════════════════════════════════
+   REGLA FUNDAMENTAL: CERO ALUCINACIONES
+═══════════════════════════════════════════════════════════════
+
+1. SOLO CITA lo que está en el CONTEXTO JURÍDICO RECUPERADO
+2. Si NO hay fuentes relevantes en el contexto → DILO EXPLÍCITAMENTE
+3. NUNCA inventes artículos, tesis, o jurisprudencia que no estén en el contexto
+4. Cada afirmación legal DEBE tener [Doc ID: uuid] del contexto
+
+PRINCIPIO PRO PERSONA (Art. 1° CPEUM):
+En DDHH, aplica la interpretación más favorable. Prioriza:
+Bloque Constitucional > Leyes Federales > Leyes Estatales
+
+FORMATO DE CITAS (CRÍTICO):
+- SOLO usa Doc IDs del contexto proporcionado
+- Los UUID tienen 36 caracteres exactos: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+- Si NO tienes el UUID completo → NO CITES, omite la referencia
+- NUNCA inventes o acortes UUIDs
+- Ejemplo correcto: [Doc ID: 9f830f9c-e91e-54e1-975d-d3aa597e0939]
+- Ejemplo INCORRECTO: [Doc ID: 9f830f9c] ← NUNCA hagas esto
+
+SI NO HAY UUID EN EL CONTEXTO:
+Describe la fuente por su nombre sin Doc ID. Ejemplo:
+> "Artículo 56..." — *Ley de Hacienda de Querétaro*
+
+SI NO HAY CONTEXTO SUFICIENTE, responde:
+"No encontré fuentes específicas sobre [tema] en mi base documental.
+Para responderte con precisión, necesitaría [información faltante].
+Te sugiero consultar [fuente oficial recomendada]."
 
 ESTRUCTURA DE RESPUESTA:
-1. **Fundamento Normativo**: Cita las normas aplicables con sus IDs.
-2. **Interpretación Jurisprudencial**: Cita tesis relevantes con sus IDs.
-3. **Conclusión Jurídica**: Síntesis aplicada al caso concreto.
+
+## Conceptualización
+Breve definición de la figura jurídica consultada.
+
+## Marco Constitucional y Convencional
+> "Artículo X.- [contenido exacto del contexto]" — *CPEUM* [Doc ID: uuid]
+SOLO si hay artículos constitucionales en el contexto. Si no hay, omitir sección.
+
+## Fundamento Legal
+> "Artículo X.- [contenido]" — *[Ley/Código]* [Doc ID: uuid]
+SOLO con fuentes del contexto proporcionado.
+
+## Jurisprudencia Aplicable
+> "[Rubro exacto de la tesis]" — *SCJN/TCC, Registro [X]* [Doc ID: uuid]
+SOLO si hay jurisprudencia en el contexto. Si no hay, indicar: "No se encontró jurisprudencia específica en la búsqueda."
+
+## Análisis y Argumentación
+Razonamiento jurídico desarrollado basado en las fuentes citadas arriba.
+Aquí puedes construir argumentos sólidos, pero SIEMPRE anclados en las fuentes del contexto.
+Esta sección es para elaborar, conectar y aplicar las fuentes al caso concreto.
+
+## Conclusión
+Síntesis práctica aplicando la interpretación más favorable, con recomendaciones concretas.
 """
+
+# System prompt for document analysis (user-uploaded documents)
+SYSTEM_PROMPT_DOCUMENT_ANALYSIS = """Eres JUREXIA, IA Jurídica para análisis de documentos legales mexicanos.
+
+═══════════════════════════════════════════════════════════════
+   REGLA FUNDAMENTAL: CERO ALUCINACIONES
+═══════════════════════════════════════════════════════════════
+
+1. Analiza el documento del usuario
+2. Contrasta con el CONTEXTO JURÍDICO RECUPERADO (fuentes verificadas)
+3. SOLO cita normas y jurisprudencia del contexto con [Doc ID: uuid]
+4. Si mencionas algo NO presente en el contexto, indícalo claramente
+
+CAPACIDADES:
+- Identificar fortalezas y debilidades argumentativas
+- Detectar contradicciones o inconsistencias
+- Sugerir mejoras CON FUNDAMENTO del contexto
+- Redactar propuestas de texto alternativo cuando sea útil
+
+FORMATO DE CITAS (CRÍTICO):
+- SOLO usa Doc IDs del contexto proporcionado
+- Los UUID tienen 36 caracteres exactos: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+- Si NO tienes el UUID completo → NO CITES, omite la referencia
+- NUNCA inventes o acortes UUIDs
+- Si no hay UUID, describe la fuente por nombre: "Artículo X..." — *Nombre de la Ley*
+
+PRINCIPIO PRO PERSONA (Art. 1° CPEUM):
+En DDHH, aplica la interpretación más favorable a la persona.
+
+ESTRUCTURA DE ANÁLISIS:
+
+## Tipo y Naturaleza
+Identificar tipo de documento (demanda, sentencia, contrato, amparo, etc.)
+
+## Síntesis del Documento
+Resumen breve de los puntos principales y pretensiones.
+
+## Marco Normativo Aplicable
+> "Artículo X.-..." — *Fuente* [Doc ID: uuid]
+Citar SOLO normas del contexto que apliquen al caso.
+Si no hay normas relevantes en el contexto, indicar: "No se encontraron normas específicas en la búsqueda."
+
+## Contraste con Jurisprudencia
+> "[Rubro de la tesis]" — *Tribunal* [Doc ID: uuid]
+SOLO jurisprudencia del contexto. Si no hay relevante, indicarlo explícitamente.
+
+## Fortalezas del Documento
+Qué está bien fundamentado, citando fuentes de respaldo del contexto cuando aplique.
+
+## Debilidades y Áreas de Mejora
+Qué falta o tiene errores, CON propuesta de corrección fundamentada en el contexto.
+
+## Propuesta de Redacción (si aplica)
+Cuando sea útil, proporcionar texto alternativo sugerido para mejorar el documento.
+Este texto debe estar anclado en las fuentes citadas del contexto.
+Útil para: conclusiones de demanda, agravios, conceptos de violación, etc.
+
+## Conclusión
+Síntesis final y recomendaciones priorizadas, aplicando interpretación más favorable.
+
+REGLA DE ORO:
+Si el contexto no contiene fuentes suficientes para un análisis completo,
+INDÍCALO: "Para un análisis más profundo, sería necesario consultar [fuentes específicas]."
+"""
+
+# ═══════════════════════════════════════════════════════════════
+# PROMPTS DE REDACCIÓN DE DOCUMENTOS LEGALES
+# ═══════════════════════════════════════════════════════════════
+
+SYSTEM_PROMPT_DRAFT_CONTRATO = """Eres JUREXIA REDACTOR, especializado en redacción de contratos mexicanos.
+
+OBJETIVO: Generar un contrato COMPLETO, PROFESIONAL y LEGALMENTE VÁLIDO.
+
+ESTRUCTURA OBLIGATORIA:
+
+**ENCABEZADO**
+- Título del contrato (en mayúsculas)
+- Lugar y fecha
+
+**PROEMIO**
+Identificación completa de las partes:
+- Nombre completo
+- Nacionalidad
+- Estado civil
+- Ocupación
+- Domicilio
+- Identificación oficial (opcional)
+- En adelante "EL ARRENDADOR" / "EL ARRENDATARIO" (o equivalente)
+
+**DECLARACIONES**
+I. Del [Parte 1] - Declaraciones relevantes
+II. Del [Parte 2] - Declaraciones relevantes
+III. De ambas partes
+
+**CLÁUSULAS**
+PRIMERA.- Objeto del contrato
+SEGUNDA.- Plazo/Vigencia
+TERCERA.- Contraprestación/Precio
+CUARTA.- Forma de pago
+QUINTA.- Obligaciones de las partes
+[Continuar numerando según aplique]
+CLÁUSULA [N].- Jurisdicción y competencia
+CLÁUSULA [N+1].- Domicilios para notificaciones
+
+**CIERRE**
+"Leído que fue el presente contrato por las partes, y enteradas de su contenido y alcance legal, lo firman por duplicado..."
+
+**FIRMAS**
+________________________          ________________________
+[Nombre Parte 1]                 [Nombre Parte 2]
+
+REGLAS CRÍTICAS:
+1. FUNDAMENTA cláusulas en el CONTEXTO JURÍDICO proporcionado [Doc ID: uuid]
+2. Cita artículos del Código Civil aplicable según la jurisdicción
+3. Incluye cláusulas de protección equilibradas
+4. Usa lenguaje formal pero claro
+5. Adapta al estado/jurisdicción seleccionado
+"""
+
+SYSTEM_PROMPT_DRAFT_DEMANDA = """Eres JUREXIA REDACTOR ESTRATÉGICO, especializado en redacción de demandas mexicanas con enfoque estratégico-procesal.
+
+═══════════════════════════════════════════════════════════════
+   FASE 1: ANÁLISIS ESTRATÉGICO PREVIO (PIENSA ANTES DE REDACTAR)
+═══════════════════════════════════════════════════════════════
+
+Antes de redactar, ANALIZA internamente:
+1. ¿Qué acción es la IDÓNEA para lo que reclama el usuario?
+2. ¿Cuál es la VÍA PROCESAL correcta (ordinaria, sumaria, ejecutiva, especial)?
+3. ¿Cuáles son los ELEMENTOS DE LA ACCIÓN que debo acreditar?
+4. ¿Qué PRUEBAS son INDISPENSABLES para la procedencia?
+5. ¿Hay JURISPRUDENCIA que defina los requisitos de procedencia?
+6. ¿La JURISDICCIÓN (estado seleccionado) tiene reglas especiales?
+
+═══════════════════════════════════════════════════════════════
+   FASE 2: REDACCIÓN DE LA DEMANDA
+═══════════════════════════════════════════════════════════════
+
+ESTRUCTURA OBLIGATORIA:
+
+## DEMANDA DE [TIPO DE JUICIO]
+
+**RUBRO**
+EXPEDIENTE: ________
+SECRETARÍA: ________
+
+**ENCABEZADO**
+C. JUEZ [Civil/Familiar/Laboral/de Distrito] EN TURNO
+EN [Ciudad según jurisdicción seleccionada]
+P R E S E N T E
+
+**DATOS DEL ACTOR**
+[Nombre], mexicano(a), mayor de edad, [estado civil], con domicilio en [dirección], señalando como domicilio para oír y recibir notificaciones el ubicado en [dirección procesal], autorizando en términos del artículo [aplicable según código procesal de la jurisdicción] a los licenciados en derecho [nombres], con cédulas profesionales números [X], ante Usted con el debido respeto comparezco para exponer:
+
+**VÍA PROCESAL**
+Que por medio del presente escrito y con fundamento en los artículos [citar del código procesal de la JURISDICCIÓN SELECCIONADA] vengo a promover juicio [tipo exacto] en contra de:
+
+**DEMANDADO(S)**
+[Datos completos incluyendo domicilio para emplazamiento]
+
+**PRESTACIONES**
+Reclamo de mi contrario las siguientes prestaciones:
+
+A) [Prestación principal - relacionar con los elementos de la acción]
+B) [Prestaciones accesorias - intereses, daños, perjuicios según aplique]
+C) El pago de gastos y costas que origine el presente juicio.
+
+**HECHOS**
+(SECCIÓN CREATIVA: Narra los hechos de forma PERSUASIVA, CRONOLÓGICA y ESTRATÉGICA)
+(Cada hecho debe orientarse a ACREDITAR un elemento de la acción)
+
+1. [Hecho que establece la relación jurídica o el acto generador]
+2. [Hecho que acredita la obligación o el derecho violentado]
+3. [Hecho que demuestra el incumplimiento o la afectación]
+4. [Hecho que relaciona el daño con la prestación reclamada]
+[Continuar numeración según sea necesario]
+
+**DERECHO APLICABLE**
+
+FUNDAMENTO CONSTITUCIONAL:
+> "Artículo X.-..." — *CPEUM* [Doc ID: uuid]
+
+FUNDAMENTO PROCESAL (JURISDICCIÓN ESPECÍFICA):
+> "Artículo X.-..." — *[Código de Procedimientos del Estado seleccionado]* [Doc ID: uuid]
+
+FUNDAMENTO SUSTANTIVO:
+> "Artículo X.-..." — *[Código Civil/Mercantil/Laboral aplicable]* [Doc ID: uuid]
+
+JURISPRUDENCIA QUE DEFINE ELEMENTOS DE LA ACCIÓN:
+> "[Rubro que establece qué debe probarse]" — *SCJN/TCC* [Doc ID: uuid]
+
+**PRUEBAS**
+Ofrezco las siguientes pruebas, relacionándolas con los hechos que pretendo acreditar:
+
+1. DOCUMENTAL PÚBLICA.- Consistente en... relacionada con el hecho [X]
+2. DOCUMENTAL PRIVADA.- Consistente en... relacionada con el hecho [X]
+3. TESTIMONIAL.- A cargo de [nombre], quien declarará sobre...
+4. CONFESIONAL.- A cargo de la parte demandada, quien absolverá posiciones...
+5. PERICIAL EN [MATERIA].- A cargo de perito en [especialidad], para acreditar...
+6. PRESUNCIONAL LEGAL Y HUMANA.- En todo lo que favorezca a mis intereses.
+7. INSTRUMENTAL DE ACTUACIONES.- Para que se tengan como prueba todas las actuaciones del expediente.
+
+**PUNTOS PETITORIOS**
+Por lo anteriormente expuesto y fundado, a Usted C. Juez, atentamente pido:
+
+PRIMERO.- Tenerme por presentado en los términos de este escrito, demandando en la vía [tipo] a [demandado].
+SEGUNDO.- Ordenar el emplazamiento del demandado en el domicilio señalado.
+TERCERO.- Admitir a trámite las pruebas ofrecidas.
+CUARTO.- En su oportunidad, dictar sentencia condenando al demandado al cumplimiento de las prestaciones reclamadas.
+
+PROTESTO LO NECESARIO
+
+[Ciudad], a [fecha]
+
+________________________
+[Nombre del actor/abogado]
+
+═══════════════════════════════════════════════════════════════
+   FASE 3: ESTRATEGIA Y RECOMENDACIONES POST-DEMANDA
+═══════════════════════════════════════════════════════════════
+
+AL FINAL DE LA DEMANDA, INCLUYE SIEMPRE ESTA SECCIÓN:
+
+---
+
+## 📋 ESTRATEGIA PROCESAL Y RECOMENDACIONES
+
+### ⚖️ Elementos de la Acción a Acreditar
+Para que prospere esta demanda, el actor DEBE demostrar:
+1. [Elemento 1 de la acción]
+2. [Elemento 2 de la acción]
+3. [Elemento n de la acción]
+
+### 📁 Pruebas Indispensables a Recabar
+Antes de presentar la demanda, asegúrese de contar con:
+- [ ] [Documento/prueba 1 y para qué sirve]
+- [ ] [Documento/prueba 2 y qué acredita]
+- [ ] [Testigos si aplica y qué deben declarar]
+
+### 📝 Hechos Esenciales que NO deben faltar
+La demanda DEBE narrar claramente:
+1. [Hecho indispensable 1 - sin esto no procede la acción]
+2. [Hecho indispensable 2 - requisito de procedibilidad]
+3. [Hecho que evita una excepción común]
+
+### ⚠️ Puntos de Atención
+- [Posible excepción que opondrá el demandado y cómo prevenirla]
+- [Plazo de prescripción aplicable]
+- [Requisitos especiales de la jurisdicción seleccionada]
+
+### 💡 Recomendación de Jurisprudencia Adicional
+Buscar jurisprudencia sobre:
+- [Tema 1 para fortalecer la demanda]
+- [Tema 2 sobre elementos de la acción]
+
+---
+
+REGLAS CRÍTICAS:
+1. USA SIEMPRE el código procesal de la JURISDICCIÓN SELECCIONADA
+2. Los hechos deben ser PERSUASIVOS, no solo informativos
+3. Cada prestación debe tener FUNDAMENTO LEGAL específico
+4. La sección de estrategia es OBLIGATORIA al final
+5. Cita SIEMPRE con [Doc ID: uuid] del contexto recuperado
+6. Si el usuario no proporciona datos específicos, indica [COMPLETAR: descripción de lo que falta]
+"""
+
+
+SYSTEM_PROMPT_ARGUMENTACION = """Eres JUREXIA ARGUMENTADOR, un experto en construcción de argumentos jurídicos sólidos con base en legislación, jurisprudencia y doctrina.
+
+═══════════════════════════════════════════════════════════════
+   TU MISIÓN: CONSTRUIR ARGUMENTOS JURÍDICOS IRREFUTABLES
+═══════════════════════════════════════════════════════════════
+
+El usuario te presentará una situación, acto, resolución o norma sobre la cual necesita argumentar. Tu trabajo es:
+1. ANALIZAR profundamente la situación desde múltiples ángulos jurídicos
+2. BUSCAR en el contexto RAG las normas, tesis y precedentes que sustenten la posición
+3. CONSTRUIR argumentos estructurados, lógicos y persuasivos
+4. ANTICIPAR contraargumentos y desvirtuarlos
+
+═══════════════════════════════════════════════════════════════
+   TIPOS DE ARGUMENTACIÓN
+═══════════════════════════════════════════════════════════════
+
+TIPO: ILEGALIDAD
+Objetivo: Demostrar que un acto viola la ley
+Estructura:
+- ¿Qué norma debió observarse?
+- ¿Cómo se vulneró específicamente?
+- ¿Cuál es la consecuencia jurídica de la violación?
+
+TIPO: INCONSTITUCIONALIDAD
+Objetivo: Demostrar violación a derechos fundamentales o principios constitucionales
+Estructura:
+- ¿Qué derecho fundamental está en juego?
+- ¿Cuál es el contenido esencial del derecho?
+- ¿Cómo la norma/acto restringe indebidamente ese derecho?
+- ¿Pasa el test de proporcionalidad?
+
+TIPO: INCONVENCIONALIDAD
+Objetivo: Demostrar violación a tratados internacionales
+Estructura:
+- ¿Qué artículo del tratado se viola?
+- ¿Cómo interpreta la Corte IDH ese artículo?
+- ¿Existe jurisprudencia interamericana aplicable?
+- ¿Cuál es el estándar de protección internacional?
+
+TIPO: FORTALECER POSICIÓN
+Objetivo: Construir la mejor defensa/ataque posible
+Estructura:
+- ¿Cuáles son los elementos de tu posición?
+- ¿Qué normas la sustentan?
+- ¿Qué jurisprudencia la fortalece?
+- ¿Cuáles son los puntos débiles y cómo cubrirlos?
+
+TIPO: CONSTRUIR AGRAVIO
+Objetivo: Formular un agravio técnico para impugnación
+Estructura:
+- Identificación precisa del acto reclamado
+- Preceptos violados
+- Concepto de violación (cómo y por qué se violan)
+- Perjuicio causado
+
+═══════════════════════════════════════════════════════════════
+   ESTRUCTURA DE RESPUESTA
+═══════════════════════════════════════════════════════════════
+
+## ⚖️ Análisis de Argumentación Jurídica
+
+### 🎯 Posición a Defender
+[Resumen ejecutivo de la posición jurídica]
+
+### 📋 Argumentos Principales
+
+#### Argumento 1: [Título descriptivo]
+**Premisa mayor (norma aplicable):**
+> "Artículo X.-..." — *[Fuente]* [Doc ID: uuid]
+
+**Premisa menor (hechos del caso):**
+[Cómo los hechos encuadran en la norma]
+
+**Conclusión:**
+[Por qué la norma se aplica y qué consecuencia produce]
+
+#### Argumento 2: [Título descriptivo]
+[Misma estructura]
+
+### 📚 Jurisprudencia que Sustenta la Posición
+> "[Rubro de la tesis]" — *SCJN/TCC, Registro X* [Doc ID: uuid]
+**Aplicación al caso:** [Cómo fortalece el argumento]
+
+### ⚔️ Posibles Contraargumentos y su Refutación
+
+| Contraargumento | Refutación |
+|----------------|------------|
+| [Lo que podría alegar la contraparte] | [Por qué no prospera] |
+
+### 🛡️ Blindaje del Argumento
+Para que este argumento sea más sólido, considera:
+- [Elemento adicional que fortalece]
+- [Prueba que sería útil]
+- [Tesis adicional a buscar]
+
+### ✍️ Redacción Sugerida (lista para usar)
+[Párrafo(s) redactados profesionalmente, listos para copiar en un escrito]
+
+---
+
+REGLAS CRÍTICAS:
+1. SIEMPRE usa el contexto RAG - cita con [Doc ID: uuid]
+2. Los argumentos deben ser LÓGICOS (premisa mayor + menor = conclusión)
+3. USA la jurisdicción seleccionada para buscar código procesal local
+4. Anticipa y desvirtúa contraargumentos
+5. Proporciona redacción lista para usar
+6. Si el usuario solicita expresamente redactar una SENTENCIA, entonces sí redáctala con formato judicial completo
+"""
+
+SYSTEM_PROMPT_PETICION_OFICIO = """Eres JUREXIA REDACTOR DE OFICIOS Y PETICIONES, especializado en comunicaciones oficiales fundadas y motivadas.
+
+═══════════════════════════════════════════════════════════════
+   TIPOS DE DOCUMENTO
+═══════════════════════════════════════════════════════════════
+
+TIPO 1: PETICIÓN DE CIUDADANO A AUTORIDAD
+Fundamento: Artículo 8 Constitucional (Derecho de Petición)
+Estructura:
+- Destinatario (autoridad competente)
+- Datos del peticionario
+- Petición clara y fundada
+- Fundamento legal de la petición
+- Lo que se solicita específicamente
+
+TIPO 2: OFICIO ENTRE AUTORIDADES
+Estructura:
+- Número de oficio
+- Asunto
+- Autoridad destinataria
+- Antecedentes
+- Fundamento legal de la actuación
+- Solicitud o comunicación
+- Despedida formal
+
+TIPO 3: RESPUESTA A PETICIÓN CIUDADANA
+Fundamento: Art. 8 Constitucional + Ley de procedimiento aplicable
+Estructura:
+- Acuse de petición recibida
+- Análisis de procedencia
+- Fundamento de la respuesta
+- Sentido de la respuesta (procedente/improcedente)
+- Recursos disponibles
+
+═══════════════════════════════════════════════════════════════
+   ESTRUCTURA DE PETICIÓN CIUDADANA
+═══════════════════════════════════════════════════════════════
+
+## 📄 Petición ante [Autoridad]
+
+**DATOS DEL PETICIONARIO**
+[Nombre completo], [nacionalidad], mayor de edad, con domicilio en [dirección], identificándome con [INE/Pasaporte] número [X], con CURP [X], señalando como domicilio para oír y recibir notificaciones [dirección o correo electrónico], ante Usted respetuosamente comparezco para exponer:
+
+**ANTECEDENTES**
+[Hechos relevantes que dan origen a la petición]
+
+**FUNDAMENTO JURÍDICO**
+Con fundamento en el artículo 8 de la Constitución Política de los Estados Unidos Mexicanos:
+> "Los funcionarios y empleados públicos respetarán el ejercicio del derecho de petición, siempre que ésta se formule por escrito, de manera pacífica y respetuosa..." — *CPEUM* [Doc ID: uuid]
+
+Asimismo, de conformidad con [artículos específicos aplicables]:
+> "Artículo X.-..." — *[Ley aplicable]* [Doc ID: uuid]
+
+**PETICIÓN**
+Por lo anteriormente expuesto, respetuosamente SOLICITO:
+
+PRIMERO.- [Petición principal clara y específica]
+SEGUNDO.- [Peticiones adicionales si las hay]
+TERCERO.- Se me notifique la resolución en el domicilio señalado.
+
+PROTESTO LO NECESARIO
+[Ciudad], a [fecha]
+
+________________________
+[Nombre del peticionario]
+
+═══════════════════════════════════════════════════════════════
+   ESTRUCTURA DE OFICIO ENTRE AUTORIDADES
+═══════════════════════════════════════════════════════════════
+
+## 📋 Oficio Oficial
+
+**[DEPENDENCIA/JUZGADO EMISOR]**
+**[ÁREA O UNIDAD]**
+
+OFICIO NÚM.: [SIGLAS]-[NÚMERO]/[AÑO]
+EXPEDIENTE: [Número si aplica]
+ASUNTO: [Resumen breve del contenido]
+
+[Ciudad], a [fecha]
+
+**[CARGO DEL DESTINATARIO]**
+**[NOMBRE DEL DESTINATARIO]**
+**[DEPENDENCIA/ÓRGANO]**
+P R E S E N T E
+
+Por este conducto, y con fundamento en los artículos [X] de [Ley Orgánica/Reglamento aplicable] [Doc ID: uuid], me permito hacer de su conocimiento lo siguiente:
+
+**ANTECEDENTES:**
+[Descripción de los antecedentes que dan origen al oficio]
+
+**FUNDAMENTO:**
+De conformidad con lo dispuesto en:
+> "Artículo X.-..." — *[Ordenamiento]* [Doc ID: uuid]
+
+**SOLICITUD/COMUNICACIÓN:**
+En virtud de lo anterior, atentamente SOLICITO/COMUNICO:
+
+[Contenido específico de la solicitud o comunicación]
+
+Sin otro particular, aprovecho la ocasión para enviarle un cordial saludo.
+
+ATENTAMENTE
+*"[LEMA INSTITUCIONAL SI APLICA]"*
+
+________________________
+[NOMBRE DEL TITULAR]
+[CARGO]
+
+c.c.p. [Copias si aplican]
+
+═══════════════════════════════════════════════════════════════
+   ESTRUCTURA DE RESPUESTA A PETICIÓN
+═══════════════════════════════════════════════════════════════
+
+## 📬 Respuesta a Petición Ciudadana
+
+**[DEPENDENCIA EMISORA]**
+OFICIO NÚM.: [X]
+ASUNTO: Respuesta a petición de fecha [X]
+
+[Ciudad], a [fecha]
+
+**C. [NOMBRE DEL PETICIONARIO]**
+[Domicilio señalado]
+P R E S E N T E
+
+En atención a su escrito de fecha [X], recibido en esta [dependencia] el día [X], mediante el cual solicita [resumen de la petición], me permito comunicarle lo siguiente:
+
+**ANÁLISIS DE LA PETICIÓN:**
+[Análisis fundado de la petición recibida]
+
+**FUNDAMENTO:**
+De conformidad con los artículos [X] de [Ley aplicable]:
+> "Artículo X.-..." — *[Ordenamiento]* [Doc ID: uuid]
+
+**RESOLUCIÓN:**
+En virtud de lo anterior, esta autoridad determina que su petición resulta [PROCEDENTE/IMPROCEDENTE] por las siguientes razones:
+
+[Explicación clara de las razones]
+
+**RECURSOS:**
+Se hace de su conocimiento que, en caso de inconformidad con la presente respuesta, tiene derecho a interponer [recurso de revisión/amparo/etc.] en términos de [fundamento].
+
+Sin otro particular, quedo de usted.
+
+ATENTAMENTE
+
+________________________
+[NOMBRE DEL SERVIDOR PÚBLICO]
+[CARGO]
+
+---
+
+REGLAS CRÍTICAS:
+1. SIEMPRE fundamenta con artículos del CONTEXTO RAG [Doc ID: uuid]
+2. Las peticiones deben citar el artículo 8 Constitucional
+3. Los oficios deben incluir número, fecha y fundamento
+4. Las respuestas deben indicar recursos disponibles
+5. Usa lenguaje formal pero accesible
+6. Adapta a la jurisdicción seleccionada
+"""
+
+def get_drafting_prompt(tipo: str, subtipo: str) -> str:
+    """Retorna el prompt apropiado según el tipo de documento"""
+    if tipo == "contrato":
+        return SYSTEM_PROMPT_DRAFT_CONTRATO
+    elif tipo == "demanda":
+        return SYSTEM_PROMPT_DRAFT_DEMANDA
+    elif tipo == "argumentacion":
+        return SYSTEM_PROMPT_ARGUMENTACION
+    elif tipo == "peticion_oficio":
+        return SYSTEM_PROMPT_PETICION_OFICIO
+    else:
+        return SYSTEM_PROMPT_CHAT  # Fallback
+
 
 SYSTEM_PROMPT_AUDIT = """Eres un Auditor Legal Experto. Tu tarea es analizar documentos legales contra la evidencia jurídica proporcionada.
 
@@ -283,9 +843,9 @@ class SearchResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     """Request para chat conversacional"""
-    messages: List[Message] = Field(..., min_items=1)
+    messages: List[Message] = Field(..., min_length=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
-    top_k: int = Field(10, ge=1, le=30)
+    top_k: int = Field(20, ge=1, le=50)  # Recall Boost: captures Art 160-162 (def + pena + agravantes)
 
 
 class AuditRequest(BaseModel):
@@ -303,6 +863,24 @@ class AuditResponse(BaseModel):
     sugerencias: List[dict]
     riesgo_general: str
     resumen_ejecutivo: str
+
+
+class CitationValidation(BaseModel):
+    """Resultado de validación de una cita individual"""
+    doc_id: str
+    exists_in_context: bool
+    status: Literal["valid", "invalid", "not_found"]
+    source_ref: Optional[str] = None  # Referencia del documento si existe
+
+
+class ValidationResult(BaseModel):
+    """Resultado completo de validación de citas"""
+    total_citations: int
+    valid_count: int
+    invalid_count: int
+    citations: List[CitationValidation]
+    confidence_score: float  # Porcentaje de citas válidas (0-1)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -364,20 +942,42 @@ def normalize_estado(estado: Optional[str]) -> Optional[str]:
     if not estado:
         return None
     normalized = estado.upper().replace(" ", "_").replace("-", "_")
-    # Corrección de variantes comunes
-    if normalized in ["NUEVO_LEON", "NL", "NUEVOLEON"]:
-        return "NUEVO_LEON"
-    if normalized in ["CDMX", "DF", "CIUDAD_DE_MEXICO"]:
-        return "CIUDAD_DE_MEXICO"
+    
+    # Mapeo de variantes a nombres canónicos
+    ESTADO_ALIASES = {
+        # Nuevo León
+        "NUEVO_LEON": "NUEVO_LEON", "NL": "NUEVO_LEON", "NUEVOLEON": "NUEVO_LEON",
+        "NUEVO LEON": "NUEVO_LEON",
+        # CDMX
+        "CDMX": "CIUDAD_DE_MEXICO", "DF": "CIUDAD_DE_MEXICO", 
+        "CIUDAD_DE_MEXICO": "CIUDAD_DE_MEXICO", "CIUDAD DE MEXICO": "CIUDAD_DE_MEXICO",
+        # Coahuila
+        "COAHUILA": "COAHUILA_DE_ZARAGOZA", "COAHUILA_DE_ZARAGOZA": "COAHUILA_DE_ZARAGOZA",
+        # Estado de México
+        "MEXICO": "ESTADO_DE_MEXICO", "ESTADO_DE_MEXICO": "ESTADO_DE_MEXICO",
+        "EDO_MEXICO": "ESTADO_DE_MEXICO", "EDOMEX": "ESTADO_DE_MEXICO",
+        # Michoacán
+        "MICHOACAN": "MICHOACAN", "MICHOACAN_DE_OCAMPO": "MICHOACAN",
+        # Veracruz
+        "VERACRUZ": "VERACRUZ", "VERACRUZ_DE_IGNACIO_DE_LA_LLAVE": "VERACRUZ",
+    }
+    
+    # Primero buscar en aliases
+    if normalized in ESTADO_ALIASES:
+        return ESTADO_ALIASES[normalized]
+    
+    # Luego verificar si está en lista de estados válidos
     if normalized in ESTADOS_MEXICO:
         return normalized
+    
     return None
 
 
-def build_jurisdiction_filter(estado: Optional[str]) -> Optional[Filter]:
+def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
     """
-    Construye filtro MUST para seguridad jurisdiccional.
-    REGLA: Si selecciona un estado, SOLO trae ese estado + Federal/Jurisprudencia.
+    Construye filtro para leyes estatales SOLO.
+    REGLA: Si hay estado seleccionado, filtra por ese estado específico.
+    Este filtro solo se aplica a la colección leyes_estatales.
     """
     if not estado:
         return None
@@ -386,22 +986,169 @@ def build_jurisdiction_filter(estado: Optional[str]) -> Optional[Filter]:
     if not normalized:
         return None
     
-    # Solo permite resultados del estado específico O federales/jurisprudencia
+    # Filtro simple: solo documentos del estado seleccionado
     return Filter(
-        should=[
-            # Leyes del estado específico
-            Filter(
-                must=[
-                    FieldCondition(key="jurisdiccion", match=MatchValue(value="ESTATAL")),
-                    FieldCondition(key="entidad", match=MatchValue(value=normalized)),
-                ]
-            ),
-            # Leyes federales (siempre aplicables)
-            FieldCondition(key="jurisdiccion", match=MatchValue(value="FEDERAL")),
-            # Jurisprudencia nacional (siempre aplicable)
-            FieldCondition(key="silo", match=MatchValue(value="jurisprudencia_nacional")),
+        must=[
+            FieldCondition(key="entidad", match=MatchValue(value=normalized)),
         ]
     )
+
+
+def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filter]:
+    """
+    Retorna el filtro apropiado para cada silo.
+    - leyes_estatales: Filtra por estado seleccionado
+    - leyes_federales: Sin filtro (todo es aplicable a cualquier estado)
+    - jurisprudencia_nacional: Sin filtro (toda es aplicable)
+    - bloque_constitucional: Sin filtro (CPEUM, tratados y CoIDH aplican a todo)
+    """
+    if silo_name == "leyes_estatales" and estado:
+        return build_state_filter(estado)
+    # Para federales, jurisprudencia y bloque constitucional, no se aplica filtro de estado
+    return None
+
+
+# Sinónimos legales para query expansion (mejora recall BM25)
+LEGAL_SYNONYMS = {
+    "derecho del tanto": [
+        "derecho de preferencia", "preferencia adquisición", 
+        "socios gozarán del tanto", "enajenar partes sociales",
+        "copropiedad preferencia", "colindantes vía pública",
+        "propietarios predios colindantes", "retracto legal",
+        "usufructuario goza del tanto", "copropiedad indivisa",
+        "rescisión contrato ocho días", "aparcería enajenar"
+    ],
+    "amparo indirecto": [
+        "juicio de amparo", "amparo ante juez de distrito", 
+        "demanda de amparo", "acto reclamado"
+    ],
+    "pensión alimenticia": [
+        "alimentos", "obligación alimentaria", "derechos alimentarios",
+        "manutención", "asistencia familiar"
+    ],
+    "prescripción": [
+        "caducidad", "extinción de acción", "término prescriptorio"
+    ],
+    "contrato": [
+        "convenio", "acuerdo", "obligaciones contractuales"
+    ],
+    "arrendamiento": [
+        "alquiler", "renta", "locación", "arrendador arrendatario"
+    ],
+    "compraventa": [
+        "enajenación", "transmisión de dominio", "adquisición"
+    ],
+    "sucesión": [
+        "herencia", "testamento", "herederos", "legado", "intestado"
+    ],
+    "divorcio": [
+        "disolución matrimonial", "separación conyugal", "convenio de divorcio"
+    ],
+    "delito": [
+        "ilícito penal", "hecho punible", "conducta típica"
+    ],
+}
+
+
+def expand_legal_query(query: str) -> str:
+    """
+    LEGACY: Expansión básica con sinónimos estáticos.
+    Se mantiene como fallback si la expansión LLM falla.
+    """
+    query_lower = query.lower()
+    expanded_terms = [query]
+    
+    for key_term, synonyms in LEGAL_SYNONYMS.items():
+        if key_term in query_lower:
+            expanded_terms.extend(synonyms[:6])
+            break
+    
+    return " ".join(expanded_terms)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DOGMATIC QUERY EXPANSION - LLM-Based Legal Term Extraction
+# ══════════════════════════════════════════════════════════════════════════════
+
+DOGMATIC_EXPANSION_PROMPT = """Actúa como un experto penalista mexicano. Tu único trabajo es identificar el concepto jurídico de la consulta y devolver sus elementos normativos, verbos rectores y términos técnicos según la dogmática penal mexicana.
+
+REGLAS ESTRICTAS:
+1. SOLO devuelve palabras clave separadas por espacio
+2. NO incluyas explicaciones ni puntuación
+3. Incluye sinónimos técnicos del derecho mexicano
+4. Prioriza términos que aparecerían en códigos penales
+
+EJEMPLOS:
+- Entrada: "Delito de violación" -> Salida: "violación cópula acceso carnal delito sexual"
+- Entrada: "Robo" -> Salida: "robo apoderamiento cosa mueble ajena sin consentimiento"  
+- Entrada: "Homicidio" -> Salida: "homicidio privar vida muerte lesiones mortales"
+- Entrada: "Fraude" -> Salida: "fraude engaño error lucro indebido perjuicio patrimonial"
+- Entrada: "Amparo" -> Salida: "amparo garantías acto reclamado queja suspensión"
+
+Ahora procesa esta consulta y devuelve SOLO las palabras clave:"""
+
+
+async def expand_legal_query_llm(query: str) -> str:
+    """
+    Expansión de consulta usando LLM para extraer terminología dogmática.
+    Usa DeepSeek con temperature=0 para respuestas deterministas.
+    
+    Esta función cierra la brecha semántica entre:
+    - Lenguaje coloquial del usuario: "violación"
+    - Terminología técnica del legislador: "cópula"
+    """
+    try:
+        response = await deepseek_client.chat.completions.create(
+            model="deepseek-chat",  # Modelo rápido, no reasoner
+            messages=[
+                {"role": "system", "content": DOGMATIC_EXPANSION_PROMPT},
+                {"role": "user", "content": query}
+            ],
+            temperature=0,  # Determinista
+            max_tokens=100,  # Solo necesitamos palabras clave
+        )
+        
+        expanded_terms = response.choices[0].message.content.strip()
+        
+        # Combinar query original + términos expandidos
+        result = f"{query} {expanded_terms}"
+        print(f"  📚 Query expandido: '{query}' → '{result}'")
+        return result
+        
+    except Exception as e:
+        print(f"  ⚠️ Error en expansión LLM, usando fallback: {e}")
+        # Fallback a expansión estática
+        return expand_legal_query(query)
+
+
+# Términos que indican query sobre derechos humanos
+DDHH_KEYWORDS = {
+    # Derechos fundamentales
+    "derecho humano", "derechos humanos", "ddhh", "garantía", "garantías",
+    "libertad", "igualdad", "dignidad", "integridad", "vida",
+    # Principios
+    "pro persona", "pro homine", "principio de progresividad", "no regresión",
+    "interpretación conforme", "control de convencionalidad", "control difuso",
+    # Tratados
+    "convención americana", "cadh", "pacto de san josé", "pidcp",
+    "convención contra la tortura", "cat", "convención del niño", "cedaw",
+    # Corte IDH
+    "corte interamericana", "coidh", "cidh", "comisión interamericana",
+    # Violaciones
+    "tortura", "desaparición forzada", "detención arbitraria", "discriminación",
+    "debido proceso", "presunción de inocencia", "acceso a la justicia",
+    # Artículos constitucionales DDHH
+    "artículo 1", "art. 1", "artículo primero", "artículo 14", "artículo 16",
+    "artículo 17", "artículo 19", "artículo 20", "artículo 21", "artículo 22",
+}
+
+def is_ddhh_query(query: str) -> bool:
+    """
+    Detecta si la consulta está relacionada con derechos humanos.
+    Retorna True si la query contiene términos de DDHH.
+    """
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in DDHH_KEYWORDS)
 
 
 async def get_dense_embedding(text: str) -> List[float]:
@@ -426,17 +1173,26 @@ def get_sparse_embedding(text: str) -> SparseVector:
     )
 
 
+# Maximum characters per document to prevent token overflow
+MAX_DOC_CHARS = 600
+
 def format_results_as_xml(results: List[SearchResult]) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
     Escapa caracteres HTML para seguridad.
+    Trunca documentos largos para evitar exceder límite de tokens.
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
     
     xml_parts = ["<documentos>"]
     for r in results:
-        escaped_texto = html.escape(r.texto)
+        # Truncate long documents to fit within token limits
+        texto = r.texto
+        if len(texto) > MAX_DOC_CHARS:
+            texto = texto[:MAX_DOC_CHARS] + "... [truncado]"
+        
+        escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
         escaped_origen = html.escape(r.origen or "Desconocido")
         
@@ -449,6 +1205,129 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
     xml_parts.append("</documentos>")
     
     return "\n".join(xml_parts)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VALIDADOR DE CITAS (Citation Grounding Verification)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Regex para extraer Doc IDs del formato [Doc ID: uuid]
+DOC_ID_PATTERN = re.compile(r'\[Doc ID:\s*([a-f0-9\-]{36})\]', re.IGNORECASE)
+
+
+def extract_doc_ids(text: str) -> List[str]:
+    """
+    Extrae todos los Doc IDs citados en el texto.
+    Formato esperado: [Doc ID: uuid]
+    """
+    matches = DOC_ID_PATTERN.findall(text)
+    return list(set(matches))  # Únicos
+
+
+def build_doc_id_map(search_results: List[SearchResult]) -> Dict[str, SearchResult]:
+    """
+    Construye un diccionario de Doc ID -> SearchResult para validación rápida.
+    """
+    return {result.id: result for result in search_results}
+
+
+def validate_citations(
+    response_text: str,
+    retrieved_docs: Dict[str, SearchResult]
+) -> ValidationResult:
+    """
+    Valida que todas las citas en la respuesta del LLM correspondan
+    a documentos realmente recuperados de Qdrant.
+    
+    Args:
+        response_text: Texto de respuesta del LLM
+        retrieved_docs: Diccionario de Doc ID -> SearchResult de docs recuperados
+    
+    Returns:
+        ValidationResult con estadísticas y detalle de cada cita
+    """
+    cited_ids = extract_doc_ids(response_text)
+    
+    if not cited_ids:
+        # Sin citas - permitido pero sin verificación
+        return ValidationResult(
+            total_citations=0,
+            valid_count=0,
+            invalid_count=0,
+            citations=[],
+            confidence_score=1.0  # Sin citas = no hay errores
+        )
+    
+    validations = []
+    valid_count = 0
+    invalid_count = 0
+    
+    for doc_id in cited_ids:
+        if doc_id in retrieved_docs:
+            doc = retrieved_docs[doc_id]
+            validations.append(CitationValidation(
+                doc_id=doc_id,
+                exists_in_context=True,
+                status="valid",
+                source_ref=doc.ref
+            ))
+            valid_count += 1
+        else:
+            validations.append(CitationValidation(
+                doc_id=doc_id,
+                exists_in_context=False,
+                status="invalid",
+                source_ref=None
+            ))
+            invalid_count += 1
+    
+    total = valid_count + invalid_count
+    confidence = valid_count / total if total > 0 else 1.0
+    
+    return ValidationResult(
+        total_citations=total,
+        valid_count=valid_count,
+        invalid_count=invalid_count,
+        citations=validations,
+        confidence_score=confidence
+    )
+
+
+def annotate_invalid_citations(response_text: str, invalid_ids: Set[str]) -> str:
+    """
+    Anota las citas inválidas en el texto con una advertencia visual.
+    
+    Ejemplo:
+        [Doc ID: abc123] -> [Doc ID: abc123] ⚠️ *[Cita no verificada]*
+    """
+    if not invalid_ids:
+        return response_text
+    
+    def replace_invalid(match):
+        doc_id = match.group(1)
+        original = match.group(0)
+        if doc_id.lower() in [i.lower() for i in invalid_ids]:
+            return f"{original} ⚠️ *[Cita no verificada]*"
+        return original
+    
+    return DOC_ID_PATTERN.sub(replace_invalid, response_text)
+
+
+def get_valid_doc_ids_prompt(retrieved_docs: Dict[str, SearchResult]) -> str:
+    """
+    Genera una lista de Doc IDs válidos para incluir en prompts de regeneración.
+    """
+    if not retrieved_docs:
+        return "No hay documentos disponibles para citar."
+    
+    lines = ["DOCUMENTOS DISPONIBLES PARA CITAR (usa SOLO estos Doc IDs):"]
+    for doc_id, doc in list(retrieved_docs.items())[:15]:  # Limitar a 15 para no saturar
+        ref = doc.ref or "Sin referencia"
+        lines.append(f"  - [Doc ID: {doc_id}] → {ref[:80]}")
+    
+    return "\n".join(lines)
+
+
 
 
 async def hybrid_search_single_silo(
@@ -480,6 +1359,7 @@ async def hybrid_search_single_silo(
         
         if has_sparse:
             # Búsqueda Híbrida: Prefetch Sparse -> Rerank Dense
+            # IMPORTANTE: El filtro se aplica tanto en prefetch como en query principal
             results = await qdrant_client.query_points(
                 collection_name=collection,
                 prefetch=[
@@ -493,9 +1373,11 @@ async def hybrid_search_single_silo(
                 query=dense_vector,
                 using="dense",
                 limit=top_k,
+                query_filter=filter_,  # CRÍTICO: Filtro también en rerank denso
                 with_payload=True,
-                score_threshold=0.3,
+                score_threshold=0.1,
             )
+
         else:
             # Búsqueda Solo Dense (colecciones sin sparse)
             results = await qdrant_client.query_points(
@@ -505,7 +1387,7 @@ async def hybrid_search_single_silo(
                 limit=top_k,
                 query_filter=filter_,
                 with_payload=True,
-                score_threshold=0.3,
+                score_threshold=0.1,
             )
         
         search_results = []
@@ -538,37 +1420,98 @@ async def hybrid_search_all_silos(
     """
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
     Aplica filtros de jurisdicción y fusiona resultados.
+    
+    Incluye Dogmatic Query Expansion para cerrar brecha semántica entre
+    lenguaje coloquial y terminología técnica legal.
     """
-    # Generar embeddings
-    dense_task = get_dense_embedding(query)
-    sparse_vector = get_sparse_embedding(query)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PASO 0: Dogmatic Query Expansion (LLM-based)
+    # Traduce "violación" → "violación cópula acceso carnal delito sexual"
+    # ═══════════════════════════════════════════════════════════════════════════
+    expanded_query = await expand_legal_query_llm(query)
+    
+    # Generar embeddings: AMBOS usan query expandido para consistencia
+    dense_task = get_dense_embedding(expanded_query)  # Expandido para mejor comprensión semántica
+    sparse_vector = get_sparse_embedding(expanded_query)  # Expandido para mejor recall BM25
     dense_vector = await dense_task
     
-    # Construir filtro jurisdiccional
-    filter_ = build_jurisdiction_filter(estado)
-    
-    # Búsqueda paralela en los 3 silos
+    # Búsqueda paralela en los 3 silos CON FILTROS ESPECÍFICOS POR SILO
     tasks = []
     for silo_name in SILOS.values():
+        # Obtener filtro específico para este silo
+        silo_filter = get_filter_for_silo(silo_name, estado)
         tasks.append(
             hybrid_search_single_silo(
                 collection=silo_name,
                 query=query,
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
-                filter_=filter_,
+                filter_=silo_filter,
                 top_k=top_k,
                 alpha=alpha,
             )
         )
+
     
     all_results = await asyncio.gather(*tasks)
     
-    # Fusionar y ordenar por score (Reciprocal Rank Fusion simplificado)
-    merged = []
-    for results in all_results:
-        merged.extend(results)
+    # Separar resultados por silo para garantizar representación balanceada
+    federales = []
+    estatales = []
+    jurisprudencia = []
+    constitucional = []  # Nuevo silo: Constitución, Tratados DDHH, Jurisprudencia CoIDH
     
+    for results in all_results:
+        for r in results:
+            if r.silo == "leyes_federales":
+                federales.append(r)
+            elif r.silo == "leyes_estatales":
+                estatales.append(r)
+            elif r.silo == "jurisprudencia_nacional":
+                jurisprudencia.append(r)
+            elif r.silo == "bloque_constitucional":
+                constitucional.append(r)
+    
+    # Ordenar cada grupo por score
+    federales.sort(key=lambda x: x.score, reverse=True)
+    estatales.sort(key=lambda x: x.score, reverse=True)
+    jurisprudencia.sort(key=lambda x: x.score, reverse=True)
+    constitucional.sort(key=lambda x: x.score, reverse=True)
+    
+    # Fusión balanceada DINÁMICA según tipo de query
+    # Para queries de DDHH, priorizar agresivamente el bloque constitucional
+    if is_ddhh_query(query):
+        # Modo DDHH: Prioridad máxima a bloque constitucional
+        min_constitucional = min(15, len(constitucional))  # ALTA prioridad
+        min_jurisprudencia = min(5, len(jurisprudencia))   
+        min_federales = min(5, len(federales))             
+        min_estatales = min(3, len(estatales))             
+    else:
+        # Modo estándar: Balance entre todos los silos
+        min_constitucional = min(8, len(constitucional))   
+        min_jurisprudencia = min(7, len(jurisprudencia))   
+        min_federales = min(8, len(federales))             
+        min_estatales = min(5, len(estatales))             
+    
+    merged = []
+    
+    # Primero añadir los mejores de cada categoría garantizada
+    # Bloque constitucional primero (mayor jerarquía normativa)
+    merged.extend(constitucional[:min_constitucional])
+    merged.extend(federales[:min_federales])
+    merged.extend(estatales[:min_estatales])
+    merged.extend(jurisprudencia[:min_jurisprudencia])
+    
+    # Llenar el resto con los mejores scores combinados
+    already_added = {r.id for r in merged}
+    remaining = [r for results in all_results for r in results if r.id not in already_added]
+    remaining.sort(key=lambda x: x.score, reverse=True)
+    
+    slots_remaining = top_k - len(merged)
+    if slots_remaining > 0:
+        merged.extend(remaining[:slots_remaining])
+    
+    # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
     return merged[:top_k]
 
@@ -584,45 +1527,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS para Next.js frontend - Allow all Vercel subdomains
+# CORS para Next.js frontend (allow all origins for production flexibility)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now (can be restricted later)
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECURITY MIDDLEWARE: RATE LIMITING
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    """Rate limiting middleware - 10 requests per minute per IP."""
-    # Skip rate limiting for health/wake endpoints
-    if request.url.path in ["/health", "/api/wake", "/docs", "/openapi.json"]:
-        return await call_next(request)
-    
-    # Get client IP (handle proxies)
-    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
-    if "," in client_ip:
-        client_ip = client_ip.split(",")[0].strip()
-    
-    # Check rate limit
-    if not check_rate_limit(client_ip):
-        audit_logger.warning(f"RATE_LIMIT: IP {client_ip} exceeded limit")
-        return JSONResponse(
-            status_code=429,
-            content={
-                "detail": "Demasiadas solicitudes. Por favor espera un momento.",
-                "error": "rate_limit_exceeded",
-                "retry_after": RATE_LIMIT_WINDOW
-            }
-        )
-    
-    return await call_next(request)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -643,6 +1555,8 @@ async def health_check():
     
     return {
         "status": "healthy" if qdrant_status == "connected" else "degraded",
+        "version": "2026.02.03-v3",
+        "model": "deepseek-reasoner",
         "qdrant": qdrant_status,
         "silos_activos": silos_activos,
         "sparse_encoder": "Qdrant/bm25",
@@ -656,23 +1570,114 @@ async def wake_endpoint():
     return {"status": "awake"}
 
 
-@app.get("/api/audit-logs")
-async def get_audit_logs(limit: int = 50):
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: EXTRACT TEXT FROM DOCUMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+from fastapi import File, UploadFile
+
+@app.post("/extract-text")
+async def extract_text_from_document(file: UploadFile = File(...)):
     """
-    Retrieve recent audit logs for compliance review.
+    Extrae texto de documentos .doc, .docx y .pdf
+    Soporta formato Word 97-2003 (.doc) que no puede procesarse en el navegador.
+    """
+    import io
     
-    SECURITY: Returns last N entries from audit log.
-    In production, this should be protected with admin authentication.
-    """
-    return {
-        "total_entries": len(audit_log_storage),
-        "showing": min(limit, len(audit_log_storage)),
-        "logs": audit_log_storage[-limit:] if limit < len(audit_log_storage) else audit_log_storage
-    }
+    filename = file.filename or "unknown"
+    extension = filename.split(".")[-1].lower()
+    
+    # Leer contenido del archivo
+    content = await file.read()
+    
+    try:
+        if extension == "docx":
+            # Usar python-docx para .docx
+            from docx import Document
+            doc = Document(io.BytesIO(content))
+            text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+            
+        elif extension == "doc":
+            # Usar olefile para .doc (formato binario antiguo)
+            import olefile
+            import struct
+            
+            try:
+                ole = olefile.OleFileIO(io.BytesIO(content))
+                
+                # Intentar extraer texto del stream WordDocument
+                if ole.exists("WordDocument"):
+                    # Método simple: buscar texto en streams
+                    text_parts = []
+                    
+                    # Intentar el stream 1Table o 0Table (contiene texto)
+                    for stream_name in ["1Table", "0Table", "WordDocument"]:
+                        if ole.exists(stream_name):
+                            try:
+                                stream_data = ole.openstream(stream_name).read()
+                                # Extraer texto ASCII/Latin1 legible
+                                decoded = stream_data.decode('latin-1', errors='ignore')
+                                # Filtrar solo caracteres imprimibles
+                                readable = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded)
+                                # Limpiar espacios múltiples
+                                readable = re.sub(r'\s+', ' ', readable).strip()
+                                if len(readable) > 100:  # Solo si hay contenido significativo
+                                    text_parts.append(readable)
+                            except:
+                                continue
+                    
+                    if text_parts:
+                        text = "\n\n".join(text_parts)
+                    else:
+                        raise ValueError("No se pudo extraer texto del documento .doc")
+                else:
+                    raise ValueError("Archivo .doc no válido o corrupto")
+                    
+                ole.close()
+                
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Error al procesar archivo .doc: {str(e)}. El archivo puede estar corrupto o protegido."
+                )
+                
+        elif extension == "pdf":
+            # Para PDF, devolver error - debe procesarse en frontend
+            raise HTTPException(
+                status_code=400,
+                detail="Los archivos PDF deben procesarse en el navegador. Use la función de upload normal."
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Formato no soportado: .{extension}. Use .doc, .docx o .pdf"
+            )
+        
+        # Validar que se extrajo texto
+        if not text or len(text.strip()) < 10:
+            raise HTTPException(
+                status_code=400,
+                detail="No se pudo extraer texto significativo del documento."
+            )
+        
+        return {
+            "success": True,
+            "filename": filename,
+            "text": text,
+            "characters": len(text)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno al procesar documento: {str(e)}"
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT: BÚSQUEDA HÍBRIDA
+# ENDPOINT: OBTENER DOCUMENTO POR ID
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DocumentResponse(BaseModel):
@@ -734,6 +1739,10 @@ async def get_document(doc_id: str):
         raise HTTPException(status_code=500, detail=f"Error al obtener documento: {str(e)}")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: BÚSQUEDA HÍBRIDA
+# ══════════════════════════════════════════════════════════════════════════════
+
 @app.post("/search", response_model=SearchResponse)
 async def search_endpoint(request: SearchRequest):
     """
@@ -762,27 +1771,24 @@ async def search_endpoint(request: SearchRequest):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT: CHAT (STREAMING SSE)
+# ENDPOINT: CHAT (STREAMING SSE CON VALIDACIÓN DE CITAS)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest, http_request: Request):
+async def chat_endpoint(request: ChatRequest):
     """
-    Chat conversacional con memoria stateless y streaming SSE.
+    Chat conversacional con memoria stateless, streaming SSE y VALIDACIÓN DE CITAS.
     
-    - Recibe historial completo en el body.
-    - Ejecuta RAG híbrido sobre la última pregunta.
-    - Retorna stream de texto letra por letra.
+    NUEVO v2.0: Para documentos adjuntos, usa deepseek-reasoner con streaming
+    del proceso de razonamiento para que el usuario vea el análisis en tiempo real.
     
-    SECURITY: Input sanitization + Audit logging enabled.
+    - Detecta documentos adjuntos en el mensaje
+    - Usa deepseek-reasoner para análisis profundo
+    - Muestra el proceso de "pensamiento" antes de la respuesta
+    - Valida citas documentales
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
-    
-    # Get client IP for audit
-    client_ip = http_request.headers.get("X-Forwarded-For", http_request.client.host)
-    if "," in client_ip:
-        client_ip = client_ip.split(",")[0].strip()
     
     # Extraer última pregunta del usuario
     last_user_message = None
@@ -794,63 +1800,184 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No se encontró mensaje del usuario")
     
-    # SECURITY: Validate input
-    if not validate_legal_query(last_user_message):
-        log_audit_entry(None, client_ip, last_user_message, "", "/chat", "invalid_input")
-        raise HTTPException(status_code=400, detail="Consulta inválida o demasiado corta/larga")
+    # Detectar si hay documento adjunto
+    has_document = "DOCUMENTO ADJUNTO:" in last_user_message or "DOCUMENTO_INICIO" in last_user_message
     
-    # SECURITY: Sanitize input (for logging, not for LLM - LLM sees original)
-    sanitized_prompt = sanitize_input(last_user_message)
+    # Detectar si es una solicitud de redacción de documento
+    is_drafting = "[REDACTAR_DOCUMENTO]" in last_user_message
+    draft_tipo = None
+    draft_subtipo = None
     
-    # AUDIT: Log the request
-    log_audit_entry(None, client_ip, sanitized_prompt, "", "/chat", "started")
+    if is_drafting:
+        # Extraer tipo y subtipo del mensaje de redacción
+        import re
+        tipo_match = re.search(r'Tipo:\s*(\w+)', last_user_message)
+        subtipo_match = re.search(r'Subtipo:\s*(\w+)', last_user_message)
+        if tipo_match:
+            draft_tipo = tipo_match.group(1).lower()
+        if subtipo_match:
+            draft_subtipo = subtipo_match.group(1).lower()
+        print(f"✍️ Modo REDACCIÓN detectado - Tipo: {draft_tipo}, Subtipo: {draft_subtipo}")
     
     try:
-        # Ejecutar búsqueda híbrida
-        search_results = await hybrid_search_all_silos(
-            query=last_user_message,
-            estado=request.estado,
-            top_k=request.top_k,
-        )
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 1: Búsqueda Híbrida en Qdrant
+        # ─────────────────────────────────────────────────────────────────────
+        if is_drafting:
+            # Para redacción: buscar contexto legal relevante para el tipo de documento
+            descripcion_match = re.search(r'Descripción del caso:\s*(.+)', last_user_message, re.DOTALL)
+            descripcion = descripcion_match.group(1).strip() if descripcion_match else last_user_message
+            
+            # Crear query de búsqueda enfocada en el tipo de documento y su contenido
+            search_query = f"{draft_tipo} {draft_subtipo} artículos fundamento legal: {descripcion[:1500]}"
+            
+            search_results = await hybrid_search_all_silos(
+                query=search_query,
+                estado=request.estado,
+                top_k=15,  # Más resultados para redacción
+            )
+            doc_id_map = build_doc_id_map(search_results)
+            context_xml = format_results_as_xml(search_results)
+            print(f"  ✓ Encontrados {len(search_results)} documentos para fundamentar redacción")
+        elif has_document:
+            # Para documentos: extraer términos clave y buscar contexto relevante
+            print("📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
+            
+            # Extraer los primeros 2000 caracteres del contenido para buscar términos relevantes
+            doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
+            if doc_start_idx != -1:
+                doc_content = last_user_message[doc_start_idx:doc_start_idx + 3000]
+            else:
+                doc_content = last_user_message[:2000]
+            
+            # Crear query de búsqueda basada en términos legales del documento
+            search_query = f"análisis jurídico: {doc_content[:1500]}"
+            
+            search_results = await hybrid_search_all_silos(
+                query=search_query,
+                estado=request.estado,
+                top_k=15,  # Más resultados para documentos
+            )
+            doc_id_map = build_doc_id_map(search_results)
+            context_xml = format_results_as_xml(search_results)
+            print(f"  ✓ Encontrados {len(search_results)} documentos relevantes para contrastar")
+        else:
+            # Consulta normal
+            search_results = await hybrid_search_all_silos(
+                query=last_user_message,
+                estado=request.estado,
+                top_k=request.top_k,
+            )
+            doc_id_map = build_doc_id_map(search_results)
+            context_xml = format_results_as_xml(search_results)
         
-        # Inyectar contexto XML
-        context_xml = format_results_as_xml(search_results)
-        
-        # Construir mensajes para LLM
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 2: Construir mensajes para LLM
+        # ─────────────────────────────────────────────────────────────────────
+        # Select appropriate system prompt based on mode
+        if is_drafting and draft_tipo:
+            system_prompt = get_drafting_prompt(draft_tipo, draft_subtipo or "")
+            print(f"  ✓ Usando prompt de redacción para: {draft_tipo}")
+        elif has_document:
+            system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
+        else:
+            system_prompt = SYSTEM_PROMPT_CHAT
         llm_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_CHAT},
-            {"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"},
+            {"role": "system", "content": system_prompt},
         ]
         
-        # Agregar historial conversacional (sanitized for safety)
+        # Inyección de Contexto Global: Inventario del Sistema
+        # Esto da al modelo "Scope Awareness" para responder preguntas de cobertura
+        llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
+        
+        if context_xml:
+            llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
+        
+        # Agregar historial conversacional
         for msg in request.messages:
             llm_messages.append({"role": msg.role, "content": msg.content})
         
-        async def generate_stream() -> AsyncGenerator[str, None]:
-            """Generador de streaming SSE"""
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 3: Generar respuesta con razonamiento visible
+        # ─────────────────────────────────────────────────────────────────────
+        
+        # Determinar mensaje de inicio y header final según el tipo de consulta
+        if has_document:
+            start_message = "🧠 **Analizando documento...**\n\n"
+            final_header = "## ⚖️ Análisis Legal\n\n"
+            max_tokens = 16000
+        else:
+            start_message = "🧠 **Consultando...**\n\n"
+            final_header = "## ⚖️ Respuesta Legal\n\n"
+            max_tokens = 8000
+        
+        async def generate_reasoning_stream() -> AsyncGenerator[str, None]:
+            """Stream con razonamiento visible para todas las consultas"""
             try:
+                # Indicador de inicio
+                yield start_message
+                yield "💭 *Proceso de razonamiento:*\n\n> "
+                
+                reasoning_buffer = ""
+                content_buffer = ""
+                in_content = False
+                
                 stream = await deepseek_client.chat.completions.create(
-                    model=CHAT_MODEL,
+                    model=REASONER_MODEL,
                     messages=llm_messages,
                     stream=True,
-                    temperature=0.3,
-                    max_tokens=4000,
+                    max_tokens=max_tokens,
                 )
                 
                 async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        yield chunk.choices[0].delta.content
+                    if chunk.choices and chunk.choices[0].delta:
+                        delta = chunk.choices[0].delta
                         
+                        # Verificar si hay reasoning_content
+                        reasoning_content = getattr(delta, 'reasoning_content', None)
+                        content = getattr(delta, 'content', None)
+                        
+                        if reasoning_content:
+                            # Streaming del razonamiento en formato blockquote
+                            reasoning_buffer += reasoning_content
+                            # Convertir saltos de línea a formato blockquote
+                            formatted = reasoning_content.replace('\n', '\n> ')
+                            yield formatted
+                        
+                        if content:
+                            # Transición a contenido final
+                            if not in_content:
+                                in_content = True
+                                yield f"\n\n---\n\n{final_header}"
+                            content_buffer += content
+                            yield content
+                
+                # Si no hubo contenido final pero sí razonamiento
+                if not in_content and reasoning_buffer:
+                    yield "\n\n---\n\n*Consulta completada*\n"
+                
+                # Validar citas para consultas sin documento (tienen doc_id_map poblado)
+                if not has_document and doc_id_map:
+                    validation = validate_citations(content_buffer, doc_id_map)
+                    if validation.invalid_count > 0:
+                        print(f"⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
+                    else:
+                        print(f"✅ Validación OK: {validation.valid_count} citas verificadas")
+                
+                # Log para debug
+                print(f"✅ Respuesta con razonamiento ({len(reasoning_buffer)} chars reasoning, {len(content_buffer)} chars content)")
+                
             except Exception as e:
-                yield f"\n\n[Error en generación: {str(e)}]"
+                yield f"\n\n❌ Error: {str(e)}"
         
         return StreamingResponse(
-            generate_stream(),
+            generate_reasoning_stream(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
+                "X-Model-Used": "deepseek-reasoner",
             },
         )
     
@@ -997,6 +2124,128 @@ Realiza la auditoría siguiendo las instrucciones del sistema."""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: MEJORAR TEXTO LEGAL
+# ══════════════════════════════════════════════════════════════════════════════
+
+SYSTEM_PROMPT_ENHANCE = """Eres JUREXIA, un experto redactor jurídico especializado en mejorar documentos legales mexicanos.
+
+Tu tarea es MEJORAR el texto legal proporcionado, integrando fundamentos normativos y jurisprudenciales de los documentos de contexto.
+
+REGLAS DE MEJORA:
+1. MANTÉN la estructura y esencia del documento original
+2. INTEGRA citas de artículos relevantes usando formato: [Doc ID: uuid]
+3. REFUERZA argumentos con jurisprudencia cuando sea aplicable
+4. MEJORA la redacción manteniendo formalidad jurídica
+5. CORRIGE errores ortográficos o de sintaxis
+6. AÑADE fundamentación normativa donde haga falta
+
+FORMATO DE CITAS:
+- Para artículos: "...conforme al artículo X del [Ordenamiento] [Doc ID: uuid]..."
+- Para jurisprudencia: "...como lo ha sostenido la [Tesis/Jurisprudencia] [Doc ID: uuid]..."
+
+TIPO DE DOCUMENTO: {doc_type}
+
+DOCUMENTOS DE REFERENCIA (usa sus IDs para citar):
+{context}
+
+Responde ÚNICAMENTE con el texto mejorado, sin explicaciones adicionales.
+"""
+
+class EnhanceRequest(BaseModel):
+    """Request para mejorar texto legal"""
+    texto: str = Field(..., min_length=50, max_length=50000, description="Texto legal a mejorar")
+    tipo_documento: str = Field(default="demanda", description="Tipo: demanda, amparo, impugnacion, contestacion, contrato, otro")
+    estado: Optional[str] = Field(default=None, description="Estado para filtrar legislación estatal")
+
+
+class EnhanceResponse(BaseModel):
+    """Response con texto mejorado"""
+    texto_mejorado: str
+    documentos_usados: int
+    tokens_usados: int
+
+
+@app.post("/enhance", response_model=EnhanceResponse)
+async def enhance_legal_text(request: EnhanceRequest):
+    """
+    Mejora texto legal usando RAG.
+    Busca artículos y jurisprudencia relevantes e integra citas en el texto.
+    """
+    try:
+        # Normalizar estado si viene
+        estado_norm = normalize_estado(request.estado)
+        
+        # Buscar documentos relevantes basados en el texto
+        # Extraer conceptos clave del texto para búsqueda
+        search_query = request.texto[:1000]  # Primeros 1000 chars para embedding
+        
+        search_results = await hybrid_search_all_silos(
+            query=search_query,
+            estado=estado_norm,
+            top_k=15,  # Menos documentos para enhance, más enfocados
+            alpha=0.7,
+        )
+        
+        if not search_results:
+            # Retornar texto sin cambios si no hay contexto
+            return EnhanceResponse(
+                texto_mejorado=request.texto,
+                documentos_usados=0,
+                tokens_usados=0,
+            )
+        
+        # Construir contexto XML
+        context_parts = []
+        for result in search_results:
+            context_parts.append(
+                f'<documento id="{result.id}" silo="{result.silo}" ref="{result.ref or "N/A"}">\n'
+                f'{result.texto[:800]}\n'
+                f'</documento>'
+            )
+        context_xml = "\n\n".join(context_parts)
+        
+        # Mapear tipo de documento a descripción
+        doc_type_map = {
+            "demanda": "DEMANDA JUDICIAL",
+            "amparo": "DEMANDA DE AMPARO",
+            "impugnacion": "RECURSO DE IMPUGNACIÓN",
+            "contestacion": "CONTESTACIÓN DE DEMANDA",
+            "contrato": "CONTRATO",
+            "otro": "DOCUMENTO LEGAL",
+        }
+        doc_type_desc = doc_type_map.get(request.tipo_documento, "DOCUMENTO LEGAL")
+        
+        # Construir prompt
+        system_prompt = SYSTEM_PROMPT_ENHANCE.format(
+            doc_type=doc_type_desc,
+            context=context_xml,
+        )
+        
+        # Llamar a DeepSeek
+        response = await deepseek_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Mejora el siguiente texto legal:\n\n{request.texto}"},
+            ],
+            temperature=0.3,  # Más conservador para mantener fidelidad
+            max_tokens=8000,
+        )
+        
+        enhanced_text = response.choices[0].message.content
+        tokens_used = response.usage.total_tokens if response.usage else 0
+        
+        return EnhanceResponse(
+            texto_mejorado=enhanced_text,
+            documentos_usados=len(search_results),
+            tokens_usados=tokens_used,
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al mejorar texto: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1010,7 +2259,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),
-        reload=False,
+        port=8000,
+        reload=True,
         log_level="info",
     )
