@@ -1182,6 +1182,14 @@ DDHH_KEYWORDS = {
     # Artículos constitucionales DDHH
     "artículo 1", "art. 1", "artículo primero", "artículo 14", "artículo 16",
     "artículo 17", "artículo 19", "artículo 20", "artículo 21", "artículo 22",
+    # Control de convencionalidad y constitucionalidad
+    "control de convencionalidad", "convencionalidad", "constitucionalidad",
+    "jerarquía normativa", "bloque de constitucionalidad", "bloque constitucional",
+    "principio pro persona", "interpretación conforme",
+    # Prisión preventiva
+    "prisión preventiva", "prisión preventiva oficiosa", "medida cautelar",
+    # Referencias a constitución
+    "constitución", "cpeum", "artículo constitucional", "reforma constitucional",
 }
 
 def is_ddhh_query(query: str) -> bool:
@@ -1555,8 +1563,36 @@ async def hybrid_search_all_silos(
     if slots_remaining > 0:
         merged.extend(remaining[:slots_remaining])
     
+    # Boost CPEUM en queries sobre constitucionalidad
+    def boost_cpeum_if_constitutional_query(results: List[SearchResult], query: str) -> List[SearchResult]:
+        """
+        Boostea resultados de CPEUM cuando la query menciona términos constitucionales.
+        Esto asegura que la Constitución aparezca en top results para queries sobre
+        control de constitucionalidad/convencionalidad, artículos constitucionales, etc.
+        """
+        query_lower = query.lower()
+        constitutional_terms = [
+            "constitución", "constitucional", "cpeum", 
+            "artículo 1", "artículo 14", "artículo 16", "artículo 19", "artículo 20",
+            "control de constitucionalidad", "control de convencionalidad"
+        ]
+        
+        is_constitutional = any(term in query_lower for term in constitutional_terms)
+        
+        if not is_constitutional:
+            return results
+        
+        # Boost CPEUM results by 30%
+        for result in results:
+            if result.origen and "Constitución Política" in result.origen:
+                result.score *= 1.3
+        
+        # Re-sort después del boost
+        return sorted(results, key=lambda x: x.score, reverse=True)
+    
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
+    merged = boost_cpeum_if_constitutional_query(merged, query)  # Boost CPEUM si es query constitucional
     return merged[:top_k]
 
 
