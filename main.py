@@ -1488,10 +1488,12 @@ async def hybrid_search_all_silos(
         min_estatales = min(3, len(estatales))             
     else:
         # Modo estándar: Balance entre todos los silos
+        # INCREASED estatales from 5 to 12 for better recall on state-specific queries
+        # This ensures important short articles like "Art 2280 interés legal = 20%" appear
         min_constitucional = min(8, len(constitucional))   
         min_jurisprudencia = min(7, len(jurisprudencia))   
         min_federales = min(8, len(federales))             
-        min_estatales = min(5, len(estatales))             
+        min_estatales = min(12, len(estatales))             
     
     merged = []
     
