@@ -41,6 +41,7 @@ from qdrant_client.http.models import (
 )
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
+from supabase import create_client, Client as SupabaseClient
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -52,6 +53,18 @@ load_dotenv()
 
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+
+# Supabase Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+# Initialize Supabase client (uses service role key for server-side operations)
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    supabase: SupabaseClient = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    print(f"[Init] Supabase client initialized: {SUPABASE_URL[:40]}...")
+else:
+    supabase = None  # type: ignore
+    print("[Init] WARNING: Supabase credentials not found — lawyer search fallback disabled")
 
 # DeepSeek API Configuration
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -3440,6 +3453,10 @@ async def search_lawyers(request: LawyerSearchRequest):
     # ── Strategy 2: Supabase fallback ──
     try:
         print("[Connect] Using Supabase fallback for lawyer search")
+
+        if not supabase:
+            print("[Connect] Supabase client not initialized — cannot fallback")
+            return {"lawyers": [], "total": 0}
 
         # Fetch all active lawyer profiles (JSONB filtering not reliable via PostgREST)
         result = supabase.table("lawyer_profiles").select("*").eq(
