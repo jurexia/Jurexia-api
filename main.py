@@ -2883,7 +2883,6 @@ import httpx as _httpx  # Alias para evitar conflicto con imports existentes
 
 class CedulaValidationRequest(BaseModel):
     cedula: str = Field(..., min_length=5, max_length=20, description="Número de cédula profesional")
-    recaptcha_token: Optional[str] = Field(None, description="reCAPTCHA v3 token from frontend")
 
 class CedulaValidationResponse(BaseModel):
     valid: bool
@@ -2892,6 +2891,7 @@ class CedulaValidationResponse(BaseModel):
     profesion: Optional[str] = None
     institucion: Optional[str] = None
     error: Optional[str] = None
+    verification_status: str = "pending"  # pending | verified | rejected
 
 class SepomexResponse(BaseModel):
     cp: str
@@ -2942,216 +2942,71 @@ class ConnectMessageResponse(BaseModel):
 
 
 # ─────────────────────────────────────────
-# SERVICIO: Validación de Cédula Profesional (SEP Real)
+# SERVICIO: Validación de Cédula Profesional
 # ─────────────────────────────────────────
-# Consulta la API oficial de la SEP en:
-# https://cedulaprofesional.sep.gob.mx/api/solr/profesionista/consultar
-# Requiere reCAPTCHA v3 token generado en el frontend.
-# Usa subprocess+curl porque Python OpenSSL no soporta el TLS de la SEP.
-
-import subprocess
+# La API de la SEP (cedulaprofesional.sep.gob.mx) usa reCAPTCHA v3
+# con dominio restringido, imposibilitando consultas server-to-server.
+# Estrategia: validación de formato + registro como pendiente.
+# El perfil se activa como "pending_verification" y puede ser
+# verificado manualmente por administradores.
 
 class CedulaValidationService:
     """
-    Validates Mexican professional license (cédula profesional)
-    using the official SEP API at cedulaprofesional.sep.gob.mx.
+    Validates Mexican professional license (cédula profesional).
+    Performs strict format validation (7-8 digits as per SEP standard).
+    Marks profiles as 'pending_verification' for manual review.
     """
 
-    SEP_API_URL = "https://cedulaprofesional.sep.gob.mx/api/solr/profesionista/consultar"
-    SEP_API_KEY = "65da8s675f8s75fda675s8d76as87d5as675da"
-
-    # Profesiones válidas para ejercer como abogado
-    VALID_PROFESSIONS = [
-        "LICENCIADO EN DERECHO",
-        "LICENCIATURA EN DERECHO",
-        "ABOGADO",
-        "MAESTRO EN DERECHO",
-        "MAESTRÍA EN DERECHO",
-        "DOCTOR EN DERECHO",
-        "DOCTORADO EN DERECHO",
-        "DERECHO",
-    ]
+    # SEP verification link for manual cross-reference
+    SEP_VERIFY_URL = "https://cedulaprofesional.sep.gob.mx"
 
     @classmethod
-    async def validate(cls, cedula: str, recaptcha_token: str = None) -> CedulaValidationResponse:
-        """
-        Validates a cédula by querying the SEP's official API.
-        Requires a reCAPTCHA v3 token from the frontend.
-        Uses subprocess+curl as Python OpenSSL fails with SEP's TLS.
-        """
+    async def validate(cls, cedula: str) -> CedulaValidationResponse:
+        """Validates cédula format and accepts as pending verification."""
         cedula_clean = cedula.strip()
-
-        # Basic format check (SEP: 7-8 digits)
         digits_only = re.sub(r'\D', '', cedula_clean)
+
+        # ── Format validation ──
         if len(digits_only) < 7 or len(digits_only) > 8:
             return CedulaValidationResponse(
                 valid=False,
                 cedula=cedula_clean,
-                error="Formato inválido. La cédula debe tener entre 7 y 8 dígitos.",
+                error="Formato inválido. La cédula profesional debe tener 7 u 8 dígitos.",
+                verification_status="rejected",
             )
 
-        if not recaptcha_token:
+        # ── Check for obviously invalid patterns ──
+        if digits_only == "0" * len(digits_only):
             return CedulaValidationResponse(
                 valid=False,
                 cedula=cedula_clean,
-                error="Se requiere verificación reCAPTCHA. Intenta de nuevo.",
+                error="Número de cédula inválido.",
+                verification_status="rejected",
             )
 
-        # ── QUERY SEP API via subprocess curl ──
+        # ── Check if cédula is already registered by another user ──
         try:
-            body = json.dumps({"idCedula": digits_only})
-            
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: subprocess.run(
-                    [
-                        "curl", "-k", "-s", "--max-time", "15",
-                        "-X", "POST",
-                        cls.SEP_API_URL,
-                        "-H", "Content-Type: application/json",
-                        "-H", f"Recaptcha-Token: {recaptcha_token}",
-                        "-H", f"Api-Key: {cls.SEP_API_KEY}",
-                        "-d", body,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=20,
-                )
-            )
-
-            if result.returncode != 0:
-                print(f"[CedulaValidation] curl failed: {result.stderr}")
+            existing = supabase.table("lawyer_profiles").select("id").eq(
+                "cedula_number", digits_only
+            ).execute()
+            if existing.data and len(existing.data) > 0:
                 return CedulaValidationResponse(
                     valid=False,
                     cedula=cedula_clean,
-                    error="No se pudo conectar con la SEP. Intenta más tarde.",
+                    error="Esta cédula ya está registrada en la plataforma.",
+                    verification_status="rejected",
                 )
-
-            response_text = result.stdout.strip()
-            print(f"[CedulaValidation] SEP raw response: {response_text[:500]}")
-
-            if not response_text:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=cedula_clean,
-                    error="La SEP no devolvió datos. Intenta más tarde.",
-                )
-
-            data = json.loads(response_text)
-
-            # Handle error responses
-            if isinstance(data, dict) and data.get("error"):
-                error_msg = data.get("error", "")
-                if "Unauthorized" in str(error_msg):
-                    print(f"[CedulaValidation] SEP Unauthorized - reCAPTCHA token may be invalid")
-                    return CedulaValidationResponse(
-                        valid=False,
-                        cedula=cedula_clean,
-                        error="Verificación reCAPTCHA fallida. Recarga la página e intenta de nuevo.",
-                    )
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=cedula_clean,
-                    error=f"Error de la SEP: {error_msg}",
-                )
-
-            # Response should be array or object
-            doc = None
-            if isinstance(data, list):
-                if len(data) == 0:
-                    return CedulaValidationResponse(
-                        valid=False,
-                        cedula=cedula_clean,
-                        error="Cédula no encontrada en la base de datos de la SEP.",
-                    )
-                doc = data[0]
-            elif isinstance(data, dict) and not data.get("error"):
-                doc = data
-            else:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=cedula_clean,
-                    error="Cédula no encontrada en la base de datos de la SEP.",
-                )
-
-            # ── Build response from SEP data ──
-            # The SEP API response field names may vary; try common patterns
-            nombre = (
-                doc.get("nombre", "") or 
-                doc.get("nom", "") or ""
-            ).strip()
-            paterno = (
-                doc.get("paterno", "") or 
-                doc.get("primerApellido", "") or ""
-            ).strip()
-            materno = (
-                doc.get("materno", "") or 
-                doc.get("segundoApellido", "") or ""
-            ).strip()
-
-            nombre_parts = [p for p in [nombre, paterno, materno] if p]
-            full_name = " ".join(nombre_parts) if nombre_parts else None
-
-            titulo = (
-                doc.get("titulo", "") or 
-                doc.get("desCarrera", "") or 
-                doc.get("profesion", "") or ""
-            ).upper().strip()
-            
-            institucion = (
-                doc.get("institucion", "") or 
-                doc.get("insNombre", "") or ""
-            ).strip() or None
-            
-            anio = str(
-                doc.get("anioRegistro", "") or 
-                doc.get("anioreg", "") or ""
-            ).strip()
-
-            print(f"[CedulaValidation] SEP data: name={full_name}, titulo={titulo}, inst={institucion}, anio={anio}")
-
-            # Check if it's a law degree
-            is_lawyer = any(p in titulo for p in cls.VALID_PROFESSIONS) if titulo else False
-
-            if titulo and not is_lawyer:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=cedula_clean,
-                    nombre=full_name,
-                    profesion=titulo,
-                    institucion=institucion,
-                    error=f"La cédula corresponde a '{titulo}', no a Licenciado en Derecho.",
-                )
-
-            return CedulaValidationResponse(
-                valid=True,
-                cedula=cedula_clean,
-                nombre=full_name,
-                profesion=titulo or "LICENCIADO EN DERECHO",
-                institucion=f"{institucion} ({anio})" if anio and institucion else institucion,
-            )
-
-        except json.JSONDecodeError as e:
-            print(f"[CedulaValidation] JSON parse error: {e}, raw: {response_text[:200]}")
-            return CedulaValidationResponse(
-                valid=False,
-                cedula=cedula_clean,
-                error="Respuesta inesperada de la SEP. Intenta más tarde.",
-            )
-        except subprocess.TimeoutExpired:
-            print("[CedulaValidation] curl subprocess timeout")
-            return CedulaValidationResponse(
-                valid=False,
-                cedula=cedula_clean,
-                error="Timeout al conectar con la SEP. Intenta más tarde.",
-            )
         except Exception as e:
-            print(f"[CedulaValidation] Error: {e}")
-            return CedulaValidationResponse(
-                valid=False,
-                cedula=cedula_clean,
-                error="Error al validar la cédula. Intenta más tarde.",
-            )
+            print(f"[CedulaValidation] DB check error (non-blocking): {e}")
+
+        # ── Accepted: format valid, pending manual verification ──
+        print(f"[CedulaValidation] Cédula {digits_only} accepted (pending verification)")
+        return CedulaValidationResponse(
+            valid=True,
+            cedula=digits_only,
+            profesion="LICENCIADO EN DERECHO",
+            verification_status="pending",
+        )
 
 
 # ─────────────────────────────────────────
@@ -3370,10 +3225,11 @@ class PrivacyShield:
 @app.post("/connect/validate-cedula", response_model=CedulaValidationResponse)
 async def validate_cedula(request: CedulaValidationRequest):
     """
-    Valida una cédula profesional contra la API oficial de la SEP.
-    Requiere reCAPTCHA v3 token generado en el frontend.
+    Valida formato de cédula profesional (7-8 dígitos).
+    El perfil se registra como pendiente de verificación.
+    Verificar manualmente en: https://cedulaprofesional.sep.gob.mx
     """
-    return await CedulaValidationService.validate(request.cedula, request.recaptcha_token)
+    return await CedulaValidationService.validate(request.cedula)
 
 
 @app.get("/connect/sepomex/{cp}", response_model=SepomexResponse)
