@@ -1761,18 +1761,18 @@ async def hybrid_search_all_silos(
     # Para queries de DDHH, priorizar agresivamente el bloque constitucional
     if is_ddhh_query(query):
         # Modo DDHH: Prioridad máxima a bloque constitucional
-        min_constitucional = min(15, len(constitucional))  # ALTA prioridad
-        min_jurisprudencia = min(5, len(jurisprudencia))   
-        min_federales = min(5, len(federales))             
-        min_estatales = min(3, len(estatales))             
+        min_constitucional = min(8, len(constitucional))  # ALTA prioridad
+        min_jurisprudencia = min(3, len(jurisprudencia))   
+        min_federales = min(3, len(federales))             
+        min_estatales = min(2, len(estatales))             
     else:
         # Modo estándar: Balance entre todos los silos
         # INCREASED estatales from 5 to 12 for better recall on state-specific queries
         # This ensures important short articles like "Art 2280 interés legal = 20%" appear
-        min_constitucional = min(8, len(constitucional))   
-        min_jurisprudencia = min(7, len(jurisprudencia))   
-        min_federales = min(8, len(federales))             
-        min_estatales = min(12, len(estatales))             
+        min_constitucional = min(5, len(constitucional))   
+        min_jurisprudencia = min(4, len(jurisprudencia))   
+        min_federales = min(5, len(federales))             
+        min_estatales = min(5, len(estatales))             
     
     merged = []
     
