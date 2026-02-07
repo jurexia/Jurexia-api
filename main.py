@@ -1224,23 +1224,53 @@ def get_sparse_embedding(text: str) -> SparseVector:
 
 
 # Maximum characters per document to prevent token overflow
-MAX_DOC_CHARS = 600
+# INCREASED from 600 to 3000 to avoid truncating constitutional articles
+# Art. 19 CPEUM (~2500 chars) was being cut, losing the list of crimes for preventive detention
+MAX_DOC_CHARS = 3000
+
+
+def smart_truncate(text: str, max_chars: int) -> str:
+    """
+    Trunca al último párrafo/oración completa dentro del límite.
+    Evita cortar a mitad de frase, preservando coherencia del texto legal.
+    """
+    if len(text) <= max_chars:
+        return text
+    
+    truncated = text[:max_chars]
+    
+    # Buscar el último corte natural (párrafo o punto final)
+    last_paragraph = truncated.rfind('\n\n')
+    last_period_newline = truncated.rfind('.\n')
+    last_period_space = truncated.rfind('. ')
+    
+    # Usar el mejor corte disponible (debe estar al menos al 50% del texto)
+    min_acceptable = int(max_chars * 0.5)
+    
+    best_cut = -1
+    for cut_point in [last_paragraph, last_period_newline, last_period_space]:
+        if cut_point > min_acceptable and cut_point > best_cut:
+            best_cut = cut_point
+    
+    if best_cut > 0:
+        return truncated[:best_cut + 1].rstrip() + "\n... [truncado]"
+    
+    return truncated.rstrip() + "... [truncado]"
+
 
 def format_results_as_xml(results: List[SearchResult]) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
     Escapa caracteres HTML para seguridad.
-    Trunca documentos largos para evitar exceder límite de tokens.
+    Trunca documentos largos inteligentemente para evitar exceder límite de tokens.
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
     
     xml_parts = ["<documentos>"]
     for r in results:
-        # Truncate long documents to fit within token limits
-        texto = r.texto
-        if len(texto) > MAX_DOC_CHARS:
-            texto = texto[:MAX_DOC_CHARS] + "... [truncado]"
+        # Smart truncate: preserva párrafos/oraciones completas
+        texto = smart_truncate(r.texto, MAX_DOC_CHARS)
         
         escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
