@@ -845,6 +845,114 @@ RETORNA TU ANÁLISIS EN EL SIGUIENTE FORMATO JSON ESTRICTO:
 }
 """
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SYSTEM PROMPT: CENTINELA DE SENTENCIAS (Art. 217 Ley de Amparo)
+# ══════════════════════════════════════════════════════════════════════════════
+
+SYSTEM_PROMPT_SENTENCIA_PERFILAMIENTO = """Eres un Secretario Proyectista de Tribunal Colegiado de Circuito.
+Tu tarea es PERFILAR una sentencia judicial para su auditoría.
+
+Del texto de la sentencia, extrae EXCLUSIVAMENTE la información que encuentres. Si algún campo no está presente, indica "NO IDENTIFICADO".
+
+RETORNA UN JSON ESTRICTO con esta estructura:
+{
+  "acto_reclamado": "Descripción de qué se juzgó / resolvió",
+  "sentido_fallo": "CONDENA | ABSOLUCION | SOBRESEIMIENTO | AMPARO | OTRO",
+  "materia": "PENAL | CIVIL | MERCANTIL | LABORAL | FAMILIA | ADMINISTRATIVO | AMPARO | CONSTITUCIONAL",
+  "normas_aplicadas": ["Art. X de la Ley Y", ...],
+  "tesis_citadas": ["Registro XXXXX", "Tesis: XXX", ...],
+  "partes": {
+    "actor": "nombre o descripción",
+    "demandado": "nombre o descripción",
+    "autoridad_emisora": "Juzgado/Tribunal que emitió la sentencia"
+  },
+  "resumen_hechos": "Resumen de los hechos relevantes en máximo 3 líneas",
+  "fecha_sentencia": "Si se identifica",
+  "estado_jurisdiccion": "Estado de la República donde se emitió"
+}
+
+IMPORTANTE: Responde SOLO con el JSON, sin explicaciones ni markdown."""
+
+
+SYSTEM_PROMPT_SENTENCIA_DICTAMEN = """Actúa como un Secretario Proyectista de Tribunal Colegiado de Circuito.
+Tu tarea es auditar la sentencia adjunta y generar un Dictamen de Regularidad.
+
+═══════════════════════════════════════════════════════════════
+PROTOCOLOS DE REVISIÓN (STRICT ORDER — NO ALTERAR SECUENCIA)
+═══════════════════════════════════════════════════════════════
+
+## PROTOCOLO 1: CONFRONTACIÓN JURISPRUDENCIAL (PRIORIDAD MÁXIMA)
+- Revisa si las normas aplicadas o la conclusión tienen Jurisprudencia OBLIGATORIA de la SCJN, Plenos de Circuito o Plenos Regionales EN CONTRA.
+- Si la hay → la sentencia es POTENCIALMENTE ILEGAL por inobservancia del Art. 217 de la Ley de Amparo.
+- Cita el Registro Digital y la Tesis exacta del contexto RAG.
+- Si hay contradicción jurisprudencial → REPORTA INMEDIATAMENTE.
+
+## PROTOCOLO 2: CONTROL DE REGULARIDAD CONSTITUCIONAL (CT 293/2011)
+- Si la sentencia toca derechos fundamentales, evalúa conforme al parámetro de regularidad:
+  a) Si existe RESTRICCIÓN CONSTITUCIONAL EXPRESA (ej. arraigo Art. 16, prisión preventiva oficiosa Art. 19) Y NO hay sentencia condenatoria de la Corte IDH contra México → APLICA LA RESTRICCIÓN.
+  b) En todos los demás casos → APLICA PRINCIPIO PRO PERSONA (la norma más favorable, sea constitucional o convencional).
+- Busca en el contexto RAG si hay tratados internacionales o sentencias CoIDH relevantes.
+
+## PROTOCOLO 3: CONTROL EX OFFICIO — METODOLOGÍA RADILLA
+- Verifica si el juez siguió la metodología de interpretación conforme:
+  Paso 1: Interpretación Conforme en Sentido Amplio (armonizar con la Constitución)
+  Paso 2: Interpretación Conforme en Sentido Estricto (elegir la interpretación constitucional)
+  Paso 3: Inaplicación de la norma (solo si los pasos 1 y 2 fallan)
+- Si el juez INAPLICÓ una norma sin intentar salvarla primero → ERROR METODOLÓGICO.
+
+## PROTOCOLO 4: SUPLENCIA DE LA QUEJA vs ESTRICTO DERECHO
+- MATERIA PENAL (imputado), LABORAL (trabajador), FAMILIA: Modo Suplencia. Busca violaciones procesales y sustantivas AUNQUE no se mencionen en los agravios.
+- MATERIA CIVIL, MERCANTIL: Modo Estricto Derecho. Limítate a verificar congruencia y exhaustividad de la litis planteada.
+
+═══════════════════════════════════════════════════════════════
+REGLAS INQUEBRANTABLES
+═══════════════════════════════════════════════════════════════
+
+1. SOLO basa tu análisis en el contexto XML proporcionado y el texto de la sentencia.
+2. SIEMPRE cita usando [Doc ID: uuid] para cada fundamento.
+3. Si NO hay jurisprudencia contradictoria en el contexto → NO inventes. Di que no se encontró contradicción en la base consultada.
+4. La JERARQUÍA de revisión es ESTRICTA: Protocolo 1 → 2 → 3 → 4.
+
+FORMATO DE SALIDA (JSON ESTRICTO):
+{
+  "viabilidad_sentencia": "ALTA" | "MEDIA" | "NULA (Viola Jurisprudencia)",
+  "perfil_sentencia": {
+    "materia": "...",
+    "sentido_fallo": "...",
+    "modo_revision": "SUPLENCIA | ESTRICTO_DERECHO",
+    "acto_reclamado": "..."
+  },
+  "hallazgos_criticos": [
+    {
+      "tipo": "VIOLACION_JURISPRUDENCIA | CONTROL_CONVENCIONALIDAD | ERROR_METODOLOGICO | VIOLACION_PROCESAL | INCONGRUENCIA",
+      "severidad": "CRITICA | ALTA | MEDIA | BAJA",
+      "descripcion": "Descripción detallada del hallazgo",
+      "fundamento": "[Doc ID: uuid] - Registro Digital / Artículo / Tesis",
+      "protocolo_origen": "1 | 2 | 3 | 4"
+    }
+  ],
+  "analisis_jurisprudencial": {
+    "jurisprudencia_contradictoria_encontrada": true | false,
+    "detalle": "Explicación de la confrontación o confirmación de que no hay contradicción"
+  },
+  "analisis_convencional": {
+    "derechos_en_juego": ["..."],
+    "tratados_aplicables": ["..."],
+    "restriccion_constitucional_aplica": true | false,
+    "detalle": "..."
+  },
+  "analisis_metodologico": {
+    "interpretacion_conforme_aplicada": true | false,
+    "detalle": "..."
+  },
+  "sugerencia_proyectista": "Conceder/Negar Amparo para efectos de... | Confirmar/Revocar/Modificar sentencia porque...",
+  "resumen_ejecutivo": "Párrafo ejecutivo con el diagnóstico general"
+}
+
+IMPORTANTE: Responde SOLO con el JSON, sin explicaciones ni markdown."""
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MODELOS PYDANTIC
 # ══════════════════════════════════════════════════════════════════════════════
@@ -904,6 +1012,58 @@ class AuditResponse(BaseModel):
     debilidades: List[dict]
     sugerencias: List[dict]
     riesgo_general: str
+    resumen_ejecutivo: str
+
+
+class SentenciaHallazgo(BaseModel):
+    """Hallazgo individual en auditoría de sentencia"""
+    tipo: str
+    severidad: str
+    descripcion: str
+    fundamento: str
+    protocolo_origen: str
+
+
+class SentenciaPerfilado(BaseModel):
+    """Perfil extraído de la sentencia"""
+    materia: str
+    sentido_fallo: str
+    modo_revision: str
+    acto_reclamado: str
+
+
+class SentenciaAnalisisJurisp(BaseModel):
+    jurisprudencia_contradictoria_encontrada: bool
+    detalle: str
+
+
+class SentenciaAnalisisConvencional(BaseModel):
+    derechos_en_juego: List[str] = []
+    tratados_aplicables: List[str] = []
+    restriccion_constitucional_aplica: bool = False
+    detalle: str = ""
+
+
+class SentenciaAnalisisMetodologico(BaseModel):
+    interpretacion_conforme_aplicada: bool = False
+    detalle: str = ""
+
+
+class SentenciaAuditRequest(BaseModel):
+    """Request para auditoría jerárquica de sentencia"""
+    documento: str = Field(..., min_length=100, description="Texto completo de la sentencia")
+    estado: Optional[str] = Field(None, description="Estado jurisdiccional")
+
+
+class SentenciaAuditResponse(BaseModel):
+    """Response del Dictamen de Regularidad"""
+    viabilidad_sentencia: str
+    perfil_sentencia: SentenciaPerfilado
+    hallazgos_criticos: List[SentenciaHallazgo]
+    analisis_jurisprudencial: SentenciaAnalisisJurisp
+    analisis_convencional: SentenciaAnalisisConvencional
+    analisis_metodologico: SentenciaAnalisisMetodologico
+    sugerencia_proyectista: str
     resumen_ejecutivo: str
 
 
@@ -2278,6 +2438,312 @@ Realiza la auditoría siguiendo las instrucciones del sistema."""
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en auditoría: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: AUDITORÍA DE SENTENCIAS (CENTINELA JERÁRQUICO)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/audit/sentencia", response_model=SentenciaAuditResponse)
+async def audit_sentencia_endpoint(request: SentenciaAuditRequest):
+    """
+    Auditoría jerárquica de sentencias judiciales.
+    
+    Pipeline de 5 pasos (orden estricto):
+    0. Perfilamiento del asunto (Scanner Procesal)
+    1. Kill Switch — Validación de Jurisprudencia (Art. 217 Ley de Amparo)
+    2. Filtro CT 293/2011 — Parámetro de Regularidad Constitucional
+    3. Motor Radilla — Control Ex Officio (Interpretación Conforme)
+    4. Suplencia vs Estricto Derecho (según materia)
+    """
+    try:
+        sentencia_text = request.documento
+        # Limitar a los primeros 12000 chars para el perfilamiento (mantener contexto amplio)
+        sentencia_preview = sentencia_text[:12000]
+        
+        print(f"\n{'='*70}")
+        print(f"  CENTINELA DE SENTENCIAS — Auditoría Jerárquica")
+        print(f"{'='*70}")
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 0: PERFILAMIENTO DEL ASUNTO (Scanner Procesal)
+        # ─────────────────────────────────────────────────────────────────────
+        print(f"\n  [PASO 0/4] Perfilamiento del asunto...")
+        
+        perfil_response = await deepseek_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_SENTENCIA_PERFILAMIENTO},
+                {"role": "user", "content": f"Perfila esta sentencia:\n\n{sentencia_preview}"},
+            ],
+            temperature=0.1,
+            max_tokens=1500,
+        )
+        
+        perfil_text = perfil_response.choices[0].message.content.strip()
+        # Limpiar markdown si existe
+        if perfil_text.startswith("```"):
+            perfil_text = perfil_text.split("```")[1]
+            if perfil_text.startswith("json"):
+                perfil_text = perfil_text[4:]
+        
+        try:
+            perfil = json.loads(perfil_text)
+        except json.JSONDecodeError:
+            perfil = {
+                "acto_reclamado": "No identificado",
+                "sentido_fallo": "NO IDENTIFICADO",
+                "materia": "CIVIL",
+                "normas_aplicadas": [],
+                "tesis_citadas": [],
+                "partes": {},
+                "resumen_hechos": "No se pudo extraer",
+            }
+        
+        materia = perfil.get("materia", "CIVIL").upper()
+        normas_aplicadas = perfil.get("normas_aplicadas", [])
+        tesis_citadas = perfil.get("tesis_citadas", [])
+        sentido_fallo = perfil.get("sentido_fallo", "NO IDENTIFICADO")
+        acto_reclamado = perfil.get("acto_reclamado", "No identificado")
+        
+        # Determinar modo de revisión según materia
+        materias_suplencia = ["PENAL", "LABORAL", "FAMILIA"]
+        modo_revision = "SUPLENCIA" if materia in materias_suplencia else "ESTRICTO_DERECHO"
+        
+        print(f"    ✓ Materia: {materia}")
+        print(f"    ✓ Sentido: {sentido_fallo}")
+        print(f"    ✓ Modo: {modo_revision}")
+        print(f"    ✓ Normas aplicadas: {len(normas_aplicadas)}")
+        print(f"    ✓ Tesis citadas: {len(tesis_citadas)}")
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 1: KILL SWITCH — Búsqueda de Jurisprudencia Contradictoria
+        # Busca en silo jurisprudencia_nacional criterios que contradigan
+        # ─────────────────────────────────────────────────────────────────────
+        print(f"\n  [PASO 1/4] Kill Switch — Buscando jurisprudencia contradictoria...")
+        
+        # Construir queries de búsqueda basadas en normas y acto reclamado
+        jurisp_queries = []
+        # Query principal: el acto reclamado
+        jurisp_queries.append(acto_reclamado)
+        # Queries por norma aplicada (buscar si hay JVS en contra)
+        for norma in normas_aplicadas[:5]:
+            jurisp_queries.append(f"jurisprudencia {norma} inconstitucionalidad")
+        # Queries por tesis citadas (verificar vigencia)
+        for tesis in tesis_citadas[:3]:
+            jurisp_queries.append(f"{tesis}")
+        
+        # Búsquedas paralelas en jurisprudencia y bloque constitucional
+        jurisp_tasks = []
+        for q in jurisp_queries[:6]:  # Máximo 6 queries
+            jurisp_tasks.append(
+                hybrid_search_all_silos(
+                    query=q,
+                    estado=request.estado,
+                    top_k=8,
+                )
+            )
+        
+        jurisp_results_raw = await asyncio.gather(*jurisp_tasks)
+        
+        # Consolidar y deduplicar resultados jurisprudenciales
+        seen_ids = set()
+        jurisp_results = []
+        for result_list in jurisp_results_raw:
+            for r in result_list:
+                if r.id not in seen_ids:
+                    seen_ids.add(r.id)
+                    jurisp_results.append(r)
+        
+        jurisp_results.sort(key=lambda x: x.score, reverse=True)
+        jurisp_results = jurisp_results[:30]  # Top 30 docs relevantes
+        
+        print(f"    ✓ {len(jurisp_results)} documentos jurídicos recuperados")
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 2: FILTRO CT 293/2011 — Buscar tratados internacionales
+        # ─────────────────────────────────────────────────────────────────────
+        print(f"\n  [PASO 2/4] Filtro CT 293/2011 — Buscando bloque de convencionalidad...")
+        
+        convencional_queries = [
+            f"{acto_reclamado} derechos humanos convención",
+            f"{materia} principio pro persona tratado internacional",
+        ]
+        
+        conv_tasks = []
+        for q in convencional_queries:
+            conv_tasks.append(
+                hybrid_search_all_silos(
+                    query=q,
+                    estado=request.estado,
+                    top_k=8,
+                )
+            )
+        
+        conv_results_raw = await asyncio.gather(*conv_tasks)
+        
+        conv_results = []
+        for result_list in conv_results_raw:
+            for r in result_list:
+                if r.id not in seen_ids:
+                    seen_ids.add(r.id)
+                    conv_results.append(r)
+        
+        conv_results.sort(key=lambda x: x.score, reverse=True)
+        conv_results = conv_results[:15]
+        
+        print(f"    ✓ {len(conv_results)} documentos convencionales recuperados")
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # CONSOLIDAR TODA LA EVIDENCIA
+        # ─────────────────────────────────────────────────────────────────────
+        all_evidence = jurisp_results + conv_results
+        all_evidence.sort(key=lambda x: x.score, reverse=True)
+        all_evidence = all_evidence[:40]  # Máximo 40 docs para contexto
+        
+        evidence_xml = format_results_as_xml(all_evidence)
+        
+        # ─────────────────────────────────────────────────────────────────────
+        # PASO 3 + 4: DICTAMEN INTEGRAL (Radilla + Suplencia)
+        # El LLM aplica los protocolos 1-4 jerárquicamente
+        # ─────────────────────────────────────────────────────────────────────
+        print(f"\n  [PASO 3-4/4] Generando Dictamen de Regularidad con DeepSeek Reasoner...")
+        
+        dictamen_prompt = f"""SENTENCIA A AUDITAR:
+{sentencia_text[:10000]}
+
+PERFIL EXTRAÍDO:
+- Materia: {materia}
+- Sentido del fallo: {sentido_fallo}
+- Modo de revisión: {modo_revision}
+- Acto reclamado: {acto_reclamado}
+- Normas aplicadas: {json.dumps(normas_aplicadas, ensure_ascii=False)}
+- Tesis citadas por el juez: {json.dumps(tesis_citadas, ensure_ascii=False)}
+
+EVIDENCIA JURÍDICA DEL CONTEXTO RAG:
+{evidence_xml}
+
+Ejecuta los 4 protocolos de revisión en orden estricto y genera el Dictamen de Regularidad."""
+        
+        # Usar DeepSeek Reasoner para análisis profundo
+        dictamen_response = await deepseek_client.chat.completions.create(
+            model=REASONER_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_SENTENCIA_DICTAMEN},
+                {"role": "user", "content": dictamen_prompt},
+            ],
+            temperature=0.1,
+            max_tokens=6000,
+        )
+        
+        dictamen_text = dictamen_response.choices[0].message.content.strip()
+        
+        # Limpiar markdown si existe
+        if dictamen_text.startswith("```"):
+            lines = dictamen_text.split("\n")
+            # Remover primera y última línea de markdown
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            dictamen_text = "\n".join(lines)
+        
+        try:
+            dictamen = json.loads(dictamen_text)
+        except json.JSONDecodeError:
+            # Intentar extraer JSON del texto
+            import re as re_mod
+            json_match = re_mod.search(r'\{[\s\S]+\}', dictamen_text)
+            if json_match:
+                try:
+                    dictamen = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    dictamen = None
+            else:
+                dictamen = None
+        
+        if dictamen is None:
+            # Fallback: construir respuesta desde el texto
+            dictamen = {
+                "viabilidad_sentencia": "INDETERMINADO",
+                "perfil_sentencia": {
+                    "materia": materia,
+                    "sentido_fallo": sentido_fallo,
+                    "modo_revision": modo_revision,
+                    "acto_reclamado": acto_reclamado,
+                },
+                "hallazgos_criticos": [],
+                "analisis_jurisprudencial": {
+                    "jurisprudencia_contradictoria_encontrada": False,
+                    "detalle": dictamen_text[:1000] if dictamen_text else "No se pudo procesar",
+                },
+                "analisis_convencional": {
+                    "derechos_en_juego": [],
+                    "tratados_aplicables": [],
+                    "restriccion_constitucional_aplica": False,
+                    "detalle": "",
+                },
+                "analisis_metodologico": {
+                    "interpretacion_conforme_aplicada": False,
+                    "detalle": "",
+                },
+                "sugerencia_proyectista": "Requiere revisión manual — el análisis automatizado no pudo completarse.",
+                "resumen_ejecutivo": dictamen_text[:500] if dictamen_text else "Error en procesamiento",
+            }
+        
+        # Construir respuesta estructurada
+        perfil_resp = dictamen.get("perfil_sentencia", {})
+        
+        hallazgos = []
+        for h in dictamen.get("hallazgos_criticos", []):
+            hallazgos.append(SentenciaHallazgo(
+                tipo=h.get("tipo", "OTRO"),
+                severidad=h.get("severidad", "MEDIA"),
+                descripcion=h.get("descripcion", ""),
+                fundamento=h.get("fundamento", ""),
+                protocolo_origen=str(h.get("protocolo_origen", "")),
+            ))
+        
+        analisis_jurisp = dictamen.get("analisis_jurisprudencial", {})
+        analisis_conv = dictamen.get("analisis_convencional", {})
+        analisis_metod = dictamen.get("analisis_metodologico", {})
+        
+        response = SentenciaAuditResponse(
+            viabilidad_sentencia=dictamen.get("viabilidad_sentencia", "INDETERMINADO"),
+            perfil_sentencia=SentenciaPerfilado(
+                materia=perfil_resp.get("materia", materia),
+                sentido_fallo=perfil_resp.get("sentido_fallo", sentido_fallo),
+                modo_revision=perfil_resp.get("modo_revision", modo_revision),
+                acto_reclamado=perfil_resp.get("acto_reclamado", acto_reclamado),
+            ),
+            hallazgos_criticos=hallazgos,
+            analisis_jurisprudencial=SentenciaAnalisisJurisp(
+                jurisprudencia_contradictoria_encontrada=analisis_jurisp.get("jurisprudencia_contradictoria_encontrada", False),
+                detalle=analisis_jurisp.get("detalle", ""),
+            ),
+            analisis_convencional=SentenciaAnalisisConvencional(
+                derechos_en_juego=analisis_conv.get("derechos_en_juego", []),
+                tratados_aplicables=analisis_conv.get("tratados_aplicables", []),
+                restriccion_constitucional_aplica=analisis_conv.get("restriccion_constitucional_aplica", False),
+                detalle=analisis_conv.get("detalle", ""),
+            ),
+            analisis_metodologico=SentenciaAnalisisMetodologico(
+                interpretacion_conforme_aplicada=analisis_metod.get("interpretacion_conforme_aplicada", False),
+                detalle=analisis_metod.get("detalle", ""),
+            ),
+            sugerencia_proyectista=dictamen.get("sugerencia_proyectista", ""),
+            resumen_ejecutivo=dictamen.get("resumen_ejecutivo", ""),
+        )
+        
+        viab = response.viabilidad_sentencia
+        n_hallazgos = len(hallazgos)
+        print(f"\n  ✅ Dictamen generado: {viab} ({n_hallazgos} hallazgos)")
+        print(f"{'='*70}\n")
+        
+        return response
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"  ❌ Error en auditoría de sentencia: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en auditoría de sentencia: {str(e)}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
