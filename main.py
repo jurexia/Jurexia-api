@@ -2950,9 +2950,13 @@ class CedulaValidationService:
     """
     Validates Mexican professional license (cédula profesional)
     using the SEP's public Solr search endpoint.
+    Tries HTTPS first, falls back to HTTP.
     """
 
-    SEP_SOLR_URL = "http://search.sep.gob.mx/solr/cedulasCore/select"
+    SEP_SOLR_URLS = [
+        "https://search.sep.gob.mx/solr/cedulasCore/select",
+        "http://search.sep.gob.mx/solr/cedulasCore/select",
+    ]
 
     # Profesiones válidas para ejercer como abogado
     VALID_PROFESSIONS = [
@@ -2982,97 +2986,113 @@ class CedulaValidationService:
                 error="Formato inválido. Ingresa un número de cédula válido.",
             )
 
-        # ── QUERY SEP SOLR ──
+        # ── QUERY SEP SOLR (try HTTPS then HTTP) ──
+        params = {
+            "q": f"numCedula:{digits_only}",
+            "fl": "*,score",
+            "start": "0",
+            "rows": "10",
+            "wt": "json",
+            "indent": "on",
+        }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) IUREXIA-Connect/1.0",
+            "Accept": "application/json",
+        }
+
+        resp = None
+        last_error = None
+
+        for url in cls.SEP_SOLR_URLS:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=15.0,
+                    verify=False,  # SEP cert may be self-signed
+                    follow_redirects=True,
+                ) as client:
+                    resp = await client.get(url, params=params, headers=headers)
+                    if resp.status_code == 200:
+                        print(f"[CedulaValidation] SEP query OK via {url}")
+                        break
+                    else:
+                        print(f"[CedulaValidation] SEP returned {resp.status_code} from {url}")
+                        resp = None
+            except Exception as e:
+                last_error = str(e)
+                print(f"[CedulaValidation] Failed {url}: {e}")
+                continue
+
+        if resp is None or resp.status_code != 200:
+            print(f"[CedulaValidation] All SEP URLs failed. Last error: {last_error}")
+            return cls._fallback_accept(cedula_clean, digits_only)
+
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(
-                    cls.SEP_SOLR_URL,
-                    params={
-                        "q": f"numCedula:{digits_only}",
-                        "fl": "*,score",
-                        "start": "0",
-                        "rows": "10",
-                        "wt": "json",
-                        "indent": "on",
-                    },
-                    headers={
-                        "User-Agent": "IUREXIA-Connect/1.0",
-                        "Accept": "application/json",
-                    },
+            data = resp.json()
+            response_data = data.get("response", {})
+            num_found = response_data.get("numFound", 0)
+            print(f"[CedulaValidation] SEP found {num_found} results for cedula {digits_only}")
+
+            if num_found == 0:
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=cedula_clean,
+                    error="Cédula no encontrada en la base de datos de la SEP.",
                 )
 
-                if resp.status_code != 200:
-                    # SEP endpoint not available — fallback
-                    return cls._fallback_accept(cedula_clean, digits_only)
+            # Find exact match by numCedula
+            docs = response_data.get("docs", [])
+            match = None
+            for doc in docs:
+                if str(doc.get("numCedula", "")).strip() == digits_only:
+                    match = doc
+                    break
 
-                data = resp.json()
-                response_data = data.get("response", {})
-                num_found = response_data.get("numFound", 0)
-
-                if num_found == 0:
-                    return CedulaValidationResponse(
-                        valid=False,
-                        cedula=cedula_clean,
-                        error="Cédula no encontrada en la base de datos de la SEP.",
-                    )
-
-                # Find exact match by numCedula
-                docs = response_data.get("docs", [])
-                match = None
-                for doc in docs:
-                    if str(doc.get("numCedula", "")).strip() == digits_only:
-                        match = doc
-                        break
-
-                if not match:
-                    # Results found but no exact cédula match
-                    return CedulaValidationResponse(
-                        valid=False,
-                        cedula=cedula_clean,
-                        error="Cédula no encontrada. Verifique el número e intente nuevamente.",
-                    )
-
-                # ── Build response from SEP data ──
-                nombre_parts = []
-                if match.get("nombre"):
-                    nombre_parts.append(match["nombre"].strip())
-                if match.get("paterno"):
-                    nombre_parts.append(match["paterno"].strip())
-                if match.get("materno"):
-                    nombre_parts.append(match["materno"].strip())
-                full_name = " ".join(nombre_parts) if nombre_parts else None
-
-                titulo = match.get("titulo", "").upper().strip()
-                institucion = match.get("institucion", "").strip() or None
-                anio = match.get("anioRegistro", "")
-
-                # Check if it's a law degree
-                is_lawyer = any(p in titulo for p in cls.VALID_PROFESSIONS)
-
-                if not is_lawyer:
-                    return CedulaValidationResponse(
-                        valid=False,
-                        cedula=cedula_clean,
-                        nombre=full_name,
-                        profesion=titulo,
-                        institucion=institucion,
-                        error=f"La cédula corresponde a '{titulo}', no a Licenciado en Derecho.",
-                    )
-
+            if not match:
                 return CedulaValidationResponse(
-                    valid=True,
+                    valid=False,
+                    cedula=cedula_clean,
+                    error="Cédula no encontrada. Verifique el número e intente nuevamente.",
+                )
+
+            # ── Build response from SEP data ──
+            nombre_parts = []
+            if match.get("nombre"):
+                nombre_parts.append(match["nombre"].strip())
+            if match.get("paterno"):
+                nombre_parts.append(match["paterno"].strip())
+            if match.get("materno"):
+                nombre_parts.append(match["materno"].strip())
+            full_name = " ".join(nombre_parts) if nombre_parts else None
+
+            titulo = match.get("titulo", "").upper().strip()
+            institucion = match.get("institucion", "").strip() or None
+            anio = match.get("anioRegistro", "")
+
+            print(f"[CedulaValidation] SEP data: name={full_name}, titulo={titulo}, inst={institucion}, anio={anio}")
+
+            # Check if it's a law degree
+            is_lawyer = any(p in titulo for p in cls.VALID_PROFESSIONS)
+
+            if not is_lawyer:
+                return CedulaValidationResponse(
+                    valid=False,
                     cedula=cedula_clean,
                     nombre=full_name,
                     profesion=titulo,
-                    institucion=f"{institucion} ({anio})" if anio and institucion else institucion,
+                    institucion=institucion,
+                    error=f"La cédula corresponde a '{titulo}', no a Licenciado en Derecho.",
                 )
 
-        except httpx.TimeoutException:
-            # SEP timeout — use fallback
-            return cls._fallback_accept(cedula_clean, digits_only)
+            return CedulaValidationResponse(
+                valid=True,
+                cedula=cedula_clean,
+                nombre=full_name,
+                profesion=titulo,
+                institucion=f"{institucion} ({anio})" if anio and institucion else institucion,
+            )
+
         except Exception as e:
-            # Any other error — use fallback
-            print(f"[CedulaValidation] SEP query error: {e}")
+            print(f"[CedulaValidation] Error parsing SEP response: {e}")
             return cls._fallback_accept(cedula_clean, digits_only)
 
     @classmethod
