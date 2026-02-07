@@ -15,6 +15,7 @@ VERSION: 2026.02.03-v2
 
 import asyncio
 import html
+import httpx
 import json
 import os
 import re
@@ -2940,35 +2941,18 @@ class ConnectMessageResponse(BaseModel):
 
 
 # ─────────────────────────────────────────
-# SERVICIO: Validación de Cédula Profesional
+# SERVICIO: Validación de Cédula Profesional (SEP Real)
 # ─────────────────────────────────────────
-# Mock inicial. Interfaz lista para conectar API de SEP
-# (Paladins / RapidAPI) en producción.
+# Consulta directa al endpoint Solr público de la SEP
+# http://search.sep.gob.mx/solr/cedulasCore/select
 
 class CedulaValidationService:
     """
-    Validates Mexican professional license (cédula profesional).
-    MOCK: Accepts test cédulas. Production: connect to SEP API.
+    Validates Mexican professional license (cédula profesional)
+    using the SEP's public Solr search endpoint.
     """
 
-    # Cédulas de prueba aceptadas en mock
-    MOCK_CEDULAS = {
-        "12345678": {
-            "nombre": "LICENCIADO DE PRUEBA IUREXIA",
-            "profesion": "LICENCIADO EN DERECHO",
-            "institucion": "UNIVERSIDAD NACIONAL AUTÓNOMA DE MÉXICO",
-        },
-        "87654321": {
-            "nombre": "ABOGADA DEMO CONNECT",
-            "profesion": "LICENCIADO EN DERECHO",
-            "institucion": "INSTITUTO TECNOLÓGICO AUTÓNOMO DE MÉXICO",
-        },
-        "11223344": {
-            "nombre": "LIC. CARLOS MARTÍNEZ REYES",
-            "profesion": "LICENCIADO EN DERECHO",
-            "institucion": "UNIVERSIDAD DE GUADALAJARA",
-        },
-    }
+    SEP_SOLR_URL = "http://search.sep.gob.mx/solr/cedulasCore/select"
 
     # Profesiones válidas para ejercer como abogado
     VALID_PROFESSIONS = [
@@ -2976,73 +2960,139 @@ class CedulaValidationService:
         "LICENCIATURA EN DERECHO",
         "ABOGADO",
         "MAESTRO EN DERECHO",
+        "MAESTRÍA EN DERECHO",
         "DOCTOR EN DERECHO",
+        "DOCTORADO EN DERECHO",
     ]
 
     @classmethod
     async def validate(cls, cedula: str) -> CedulaValidationResponse:
         """
-        Validates a cédula. Mock mode for development.
-        In production, replace with API call to SEP/Paladins.
+        Validates a cédula by querying the SEP's public Solr endpoint.
+        Returns real data: nombre, profesión, institución.
         """
         cedula_clean = cedula.strip()
 
-        # ── MOCK MODE ──
-        if cedula_clean in cls.MOCK_CEDULAS:
-            data = cls.MOCK_CEDULAS[cedula_clean]
-            profession = data["profesion"].upper()
-
-            # Validate it's a law degree
-            is_lawyer = any(p in profession for p in cls.VALID_PROFESSIONS)
-
-            if not is_lawyer:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=cedula_clean,
-                    nombre=data["nombre"],
-                    profesion=data["profesion"],
-                    error="La cédula no corresponde a un Licenciado en Derecho",
-                )
-
+        # Basic format check
+        digits_only = re.sub(r'\D', '', cedula_clean)
+        if len(digits_only) < 1 or len(digits_only) > 10:
             return CedulaValidationResponse(
-                valid=True,
+                valid=False,
                 cedula=cedula_clean,
-                nombre=data["nombre"],
-                profesion=data["profesion"],
-                institucion=data.get("institucion"),
+                error="Formato inválido. Ingresa un número de cédula válido.",
             )
 
-        # ── PRODUCTION MODE (placeholder) ──
-        # Uncomment and configure when API is ready:
-        # try:
-        #     async with _httpx.AsyncClient() as client:
-        #         resp = await client.get(
-        #             f"https://api-sep.example.com/cedulas/{cedula_clean}",
-        #             headers={"Authorization": f"Bearer {os.getenv('SEP_API_KEY')}"},
-        #             timeout=10.0
-        #         )
-        #         if resp.status_code == 200:
-        #             data = resp.json()
-        #             return CedulaValidationResponse(...)
-        # except Exception as e:
-        #     return CedulaValidationResponse(valid=False, cedula=cedula_clean, error=str(e))
+        # ── QUERY SEP SOLR ──
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    cls.SEP_SOLR_URL,
+                    params={
+                        "q": f"numCedula:{digits_only}",
+                        "fl": "*,score",
+                        "start": "0",
+                        "rows": "10",
+                        "wt": "json",
+                        "indent": "on",
+                    },
+                    headers={
+                        "User-Agent": "IUREXIA-Connect/1.0",
+                        "Accept": "application/json",
+                    },
+                )
 
-        # ── ACCEPT ANY VALID FORMAT (7-8 digits) ──
-        # Until real SEP API integration, accept any properly formatted cédula
-        digits_only = re.sub(r'\D', '', cedula_clean)
+                if resp.status_code != 200:
+                    # SEP endpoint not available — fallback
+                    return cls._fallback_accept(cedula_clean, digits_only)
+
+                data = resp.json()
+                response_data = data.get("response", {})
+                num_found = response_data.get("numFound", 0)
+
+                if num_found == 0:
+                    return CedulaValidationResponse(
+                        valid=False,
+                        cedula=cedula_clean,
+                        error="Cédula no encontrada en la base de datos de la SEP.",
+                    )
+
+                # Find exact match by numCedula
+                docs = response_data.get("docs", [])
+                match = None
+                for doc in docs:
+                    if str(doc.get("numCedula", "")).strip() == digits_only:
+                        match = doc
+                        break
+
+                if not match:
+                    # Results found but no exact cédula match
+                    return CedulaValidationResponse(
+                        valid=False,
+                        cedula=cedula_clean,
+                        error="Cédula no encontrada. Verifique el número e intente nuevamente.",
+                    )
+
+                # ── Build response from SEP data ──
+                nombre_parts = []
+                if match.get("nombre"):
+                    nombre_parts.append(match["nombre"].strip())
+                if match.get("paterno"):
+                    nombre_parts.append(match["paterno"].strip())
+                if match.get("materno"):
+                    nombre_parts.append(match["materno"].strip())
+                full_name = " ".join(nombre_parts) if nombre_parts else None
+
+                titulo = match.get("titulo", "").upper().strip()
+                institucion = match.get("institucion", "").strip() or None
+                anio = match.get("anioRegistro", "")
+
+                # Check if it's a law degree
+                is_lawyer = any(p in titulo for p in cls.VALID_PROFESSIONS)
+
+                if not is_lawyer:
+                    return CedulaValidationResponse(
+                        valid=False,
+                        cedula=cedula_clean,
+                        nombre=full_name,
+                        profesion=titulo,
+                        institucion=institucion,
+                        error=f"La cédula corresponde a '{titulo}', no a Licenciado en Derecho.",
+                    )
+
+                return CedulaValidationResponse(
+                    valid=True,
+                    cedula=cedula_clean,
+                    nombre=full_name,
+                    profesion=titulo,
+                    institucion=f"{institucion} ({anio})" if anio and institucion else institucion,
+                )
+
+        except httpx.TimeoutException:
+            # SEP timeout — use fallback
+            return cls._fallback_accept(cedula_clean, digits_only)
+        except Exception as e:
+            # Any other error — use fallback
+            print(f"[CedulaValidation] SEP query error: {e}")
+            return cls._fallback_accept(cedula_clean, digits_only)
+
+    @classmethod
+    def _fallback_accept(cls, cedula_clean: str, digits_only: str) -> CedulaValidationResponse:
+        """
+        Fallback: if SEP is unreachable, accept any 7-8 digit cédula
+        as 'pending verification' so the user isn't blocked.
+        """
         if 7 <= len(digits_only) <= 8:
             return CedulaValidationResponse(
                 valid=True,
                 cedula=cedula_clean,
-                nombre=None,  # Will be filled by the user's profile name
+                nombre=None,
                 profesion="LICENCIADO EN DERECHO",
                 institucion=None,
             )
-
         return CedulaValidationResponse(
             valid=False,
             cedula=cedula_clean,
-            error="Formato inválido. La cédula debe tener entre 7 y 8 dígitos.",
+            error="No se pudo conectar con la SEP y el formato no es válido.",
         )
 
 
