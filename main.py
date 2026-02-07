@@ -3027,10 +3027,22 @@ class CedulaValidationService:
         # except Exception as e:
         #     return CedulaValidationResponse(valid=False, cedula=cedula_clean, error=str(e))
 
+        # ── ACCEPT ANY VALID FORMAT (7-8 digits) ──
+        # Until real SEP API integration, accept any properly formatted cédula
+        digits_only = re.sub(r'\D', '', cedula_clean)
+        if 7 <= len(digits_only) <= 8:
+            return CedulaValidationResponse(
+                valid=True,
+                cedula=cedula_clean,
+                nombre=None,  # Will be filled by the user's profile name
+                profesion="LICENCIADO EN DERECHO",
+                institucion=None,
+            )
+
         return CedulaValidationResponse(
             valid=False,
             cedula=cedula_clean,
-            error="Cédula no encontrada. Verifique el número e intente nuevamente.",
+            error="Formato inválido. La cédula debe tener entre 7 y 8 dígitos.",
         )
 
 
