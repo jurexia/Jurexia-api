@@ -1491,6 +1491,18 @@ async def hybrid_search_single_silo(
         return []
 
 
+# Regex para detectar patrones de citación exacta en la query
+# Si el usuario pide "Art. 19", "artículo 123", "Tesis 2014", etc.
+# priorizamos BM25 (keyword matching) sobre semántico
+CITATION_PATTERN = re.compile(
+    r'(?:art[ií]culo?|art\.?)\s*\d+|'
+    r'(?:tesis|jurisprudencia)\s*\d+|'
+    r'(?:fracción|frac\.?)\s+[IVXLCDM]+|'
+    r'(?:párrafo|inciso)\s+[a-z)\d]',
+    re.IGNORECASE
+)
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -1501,11 +1513,24 @@ async def hybrid_search_all_silos(
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
     Aplica filtros de jurisdicción y fusiona resultados.
     
-    Incluye Dogmatic Query Expansion para cerrar brecha semántica entre
-    lenguaje coloquial y terminología técnica legal.
+    Incluye:
+    - Dogmatic Query Expansion (brecha semántica)
+    - Dynamic Alpha (citación exacta vs conceptual)
+    - Post-check jurisdiccional (elimina contaminación de estados)
     """
     # ═══════════════════════════════════════════════════════════════════════════
-    # PASO 0: Dogmatic Query Expansion (LLM-based)
+    # PASO 0: Enrutamiento Dinámico (Dynamic Alpha)
+    # Si la query tiene patrones de citación exacta, priorizar BM25
+    # ═══════════════════════════════════════════════════════════════════════════
+    if CITATION_PATTERN.search(query):
+        alpha = 0.15  # Prioridad BM25/keyword para encontrar artículos exactos
+        print(f"  🎯 Dynamic Alpha: Citación detectada → alpha={alpha} (BM25 priority)")
+    else:
+        alpha = 0.7   # Prioridad semántica para consultas conceptuales
+        print(f"  🧠 Dynamic Alpha: Consulta conceptual → alpha={alpha} (Dense priority)")
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PASO 1: Dogmatic Query Expansion (LLM-based)
     # Traduce "violación" → "violación cópula acceso carnal delito sexual"
     # ═══════════════════════════════════════════════════════════════════════════
     expanded_query = await expand_legal_query_llm(query)
@@ -1592,6 +1617,28 @@ async def hybrid_search_all_silos(
     slots_remaining = top_k - len(merged)
     if slots_remaining > 0:
         merged.extend(remaining[:slots_remaining])
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # BLINDAJE JURISDICCIONAL: Post-check de contaminación de estados
+    # Si el usuario pidió un estado, eliminar docs estatales de OTRO estado
+    # NOTA: Solo aplica a docs estatales. Federales/jurisprudencia aplican a todos.
+    # ═══════════════════════════════════════════════════════════════════════════
+    if estado:
+        normalized_estado = normalize_estado(estado)
+        if normalized_estado:
+            pre_filter_count = len(merged)
+            merged = [
+                r for r in merged
+                if not (
+                    r.silo == "leyes_estatales" and
+                    r.entidad and
+                    r.entidad != "NA" and
+                    r.entidad != normalized_estado
+                )
+            ]
+            removed = pre_filter_count - len(merged)
+            if removed > 0:
+                print(f"  🛡️ Blindaje Jurisdiccional: {removed} docs de otro estado eliminados")
     
     # Boost CPEUM en queries sobre constitucionalidad
     def boost_cpeum_if_constitutional_query(results: List[SearchResult], query: str) -> List[SearchResult]:
