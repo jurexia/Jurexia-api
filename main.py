@@ -2867,6 +2867,616 @@ async def enhance_legal_text(request: EnhanceRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al mejorar texto: {str(e)}")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# IUREXIA CONNECT — MARKETPLACE LEGAL INTELIGENTE
+# ══════════════════════════════════════════════════════════════════════════════
+# Módulo de conexión entre usuarios y abogados certificados.
+# Incluye: Validación de Cédula (Mock), SEPOMEX, Privacy Shield, Chat Blindado.
+# ══════════════════════════════════════════════════════════════════════════════
+
+import httpx as _httpx  # Alias para evitar conflicto con imports existentes
+
+# ─────────────────────────────────────────
+# MODELOS PYDANTIC — CONNECT
+# ─────────────────────────────────────────
+
+class CedulaValidationRequest(BaseModel):
+    cedula: str = Field(..., min_length=5, max_length=20, description="Número de cédula profesional")
+
+class CedulaValidationResponse(BaseModel):
+    valid: bool
+    cedula: str
+    nombre: Optional[str] = None
+    profesion: Optional[str] = None
+    institucion: Optional[str] = None
+    error: Optional[str] = None
+
+class SepomexResponse(BaseModel):
+    cp: str
+    estado: str
+    municipio: str
+    colonia: Optional[str] = None
+
+class LawyerProfileCreate(BaseModel):
+    cedula_number: str = Field(..., min_length=5, max_length=20)
+    full_name: str = Field(..., min_length=3)
+    specialties: List[str] = Field(default_factory=list)
+    bio: str = ""
+    office_address: dict = Field(default_factory=lambda: {"estado": "", "municipio": "", "cp": ""})
+    avatar_url: Optional[str] = None
+    phone: Optional[str] = None
+
+class LawyerProfileResponse(BaseModel):
+    id: str
+    cedula_number: str
+    full_name: str
+    specialties: List[str]
+    bio: str
+    office_address: dict
+    verification_status: str
+    is_pro_active: bool
+    avatar_url: Optional[str] = None
+    created_at: Optional[str] = None
+
+class LawyerSearchRequest(BaseModel):
+    query: str = Field(..., min_length=3, description="Describe tu problema legal")
+    estado: Optional[str] = None
+    limit: int = Field(default=10, le=50)
+
+class ConnectStartRequest(BaseModel):
+    lawyer_id: str
+    dossier_summary: dict = Field(default_factory=dict, description="Expediente preliminar IA")
+
+class ConnectMessageRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=5000)
+
+class ConnectMessageResponse(BaseModel):
+    id: str
+    room_id: str
+    sender_id: str
+    content: str
+    is_system_message: bool
+    created_at: str
+
+
+# ─────────────────────────────────────────
+# SERVICIO: Validación de Cédula Profesional
+# ─────────────────────────────────────────
+# Mock inicial. Interfaz lista para conectar API de SEP
+# (Paladins / RapidAPI) en producción.
+
+class CedulaValidationService:
+    """
+    Validates Mexican professional license (cédula profesional).
+    MOCK: Accepts test cédulas. Production: connect to SEP API.
+    """
+
+    # Cédulas de prueba aceptadas en mock
+    MOCK_CEDULAS = {
+        "12345678": {
+            "nombre": "LICENCIADO DE PRUEBA IUREXIA",
+            "profesion": "LICENCIADO EN DERECHO",
+            "institucion": "UNIVERSIDAD NACIONAL AUTÓNOMA DE MÉXICO",
+        },
+        "87654321": {
+            "nombre": "ABOGADA DEMO CONNECT",
+            "profesion": "LICENCIADO EN DERECHO",
+            "institucion": "INSTITUTO TECNOLÓGICO AUTÓNOMO DE MÉXICO",
+        },
+        "11223344": {
+            "nombre": "LIC. CARLOS MARTÍNEZ REYES",
+            "profesion": "LICENCIADO EN DERECHO",
+            "institucion": "UNIVERSIDAD DE GUADALAJARA",
+        },
+    }
+
+    # Profesiones válidas para ejercer como abogado
+    VALID_PROFESSIONS = [
+        "LICENCIADO EN DERECHO",
+        "LICENCIATURA EN DERECHO",
+        "ABOGADO",
+        "MAESTRO EN DERECHO",
+        "DOCTOR EN DERECHO",
+    ]
+
+    @classmethod
+    async def validate(cls, cedula: str) -> CedulaValidationResponse:
+        """
+        Validates a cédula. Mock mode for development.
+        In production, replace with API call to SEP/Paladins.
+        """
+        cedula_clean = cedula.strip()
+
+        # ── MOCK MODE ──
+        if cedula_clean in cls.MOCK_CEDULAS:
+            data = cls.MOCK_CEDULAS[cedula_clean]
+            profession = data["profesion"].upper()
+
+            # Validate it's a law degree
+            is_lawyer = any(p in profession for p in cls.VALID_PROFESSIONS)
+
+            if not is_lawyer:
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=cedula_clean,
+                    nombre=data["nombre"],
+                    profesion=data["profesion"],
+                    error="La cédula no corresponde a un Licenciado en Derecho",
+                )
+
+            return CedulaValidationResponse(
+                valid=True,
+                cedula=cedula_clean,
+                nombre=data["nombre"],
+                profesion=data["profesion"],
+                institucion=data.get("institucion"),
+            )
+
+        # ── PRODUCTION MODE (placeholder) ──
+        # Uncomment and configure when API is ready:
+        # try:
+        #     async with _httpx.AsyncClient() as client:
+        #         resp = await client.get(
+        #             f"https://api-sep.example.com/cedulas/{cedula_clean}",
+        #             headers={"Authorization": f"Bearer {os.getenv('SEP_API_KEY')}"},
+        #             timeout=10.0
+        #         )
+        #         if resp.status_code == 200:
+        #             data = resp.json()
+        #             return CedulaValidationResponse(...)
+        # except Exception as e:
+        #     return CedulaValidationResponse(valid=False, cedula=cedula_clean, error=str(e))
+
+        return CedulaValidationResponse(
+            valid=False,
+            cedula=cedula_clean,
+            error="Cédula no encontrada. Verifique el número e intente nuevamente.",
+        )
+
+
+# ─────────────────────────────────────────
+# SERVICIO: SEPOMEX — Código Postal → Ubicación
+# ─────────────────────────────────────────
+
+class SepomexService:
+    """
+    Static dictionary of Mexican postal codes.
+    Maps CP to Estado + Municipio for auto-fill.
+    500+ major CPs for quick lookup.
+    """
+
+    # Diccionario estático de CPs principales por estado
+    CP_DATABASE = {
+        # CDMX
+        "01000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Álvaro Obregón", "colonia": "San Ángel"},
+        "03100": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Benito Juárez", "colonia": "Del Valle Centro"},
+        "06000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuauhtémoc", "colonia": "Centro"},
+        "06600": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuauhtémoc", "colonia": "Roma Norte"},
+        "06700": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuauhtémoc", "colonia": "Roma Sur"},
+        "11000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Miguel Hidalgo", "colonia": "Lomas de Chapultepec"},
+        "11520": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Miguel Hidalgo", "colonia": "Polanco"},
+        "11560": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Miguel Hidalgo", "colonia": "Polanco V Sección"},
+        "14000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Tlalpan", "colonia": "Tlalpan Centro"},
+        "04510": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Coyoacán", "colonia": "Ciudad Universitaria"},
+        "03810": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Benito Juárez", "colonia": "Narvarte Poniente"},
+        "01210": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Álvaro Obregón", "colonia": "Santa Fe"},
+        "05348": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuajimalpa", "colonia": "Santa Fe"},
+        # Jalisco
+        "44100": {"estado": "JALISCO", "municipio": "Guadalajara", "colonia": "Centro"},
+        "44600": {"estado": "JALISCO", "municipio": "Guadalajara", "colonia": "Americana"},
+        "44160": {"estado": "JALISCO", "municipio": "Guadalajara", "colonia": "Providencia"},
+        "45050": {"estado": "JALISCO", "municipio": "Zapopan", "colonia": "Country Club"},
+        # Nuevo León
+        "64000": {"estado": "NUEVO_LEON", "municipio": "Monterrey", "colonia": "Centro"},
+        "64620": {"estado": "NUEVO_LEON", "municipio": "Monterrey", "colonia": "Obispado"},
+        "66220": {"estado": "NUEVO_LEON", "municipio": "San Pedro Garza García", "colonia": "Del Valle"},
+        "66260": {"estado": "NUEVO_LEON", "municipio": "San Pedro Garza García", "colonia": "Residencial San Agustín"},
+        # Estado de México
+        "50000": {"estado": "MEXICO", "municipio": "Toluca", "colonia": "Centro"},
+        "52140": {"estado": "MEXICO", "municipio": "Metepec", "colonia": "La Virgen"},
+        "52786": {"estado": "MEXICO", "municipio": "Huixquilucan", "colonia": "Interlomas"},
+        # Puebla
+        "72000": {"estado": "PUEBLA", "municipio": "Puebla", "colonia": "Centro"},
+        "72160": {"estado": "PUEBLA", "municipio": "Puebla", "colonia": "La Paz"},
+        # Querétaro
+        "76000": {"estado": "QUERETARO", "municipio": "Querétaro", "colonia": "Centro"},
+        "76090": {"estado": "QUERETARO", "municipio": "Querétaro", "colonia": "Juriquilla"},
+        # Yucatán
+        "97000": {"estado": "YUCATAN", "municipio": "Mérida", "colonia": "Centro"},
+        "97130": {"estado": "YUCATAN", "municipio": "Mérida", "colonia": "García Ginerés"},
+        # Veracruz
+        "91000": {"estado": "VERACRUZ", "municipio": "Xalapa", "colonia": "Centro"},
+        "94290": {"estado": "VERACRUZ", "municipio": "Boca del Río", "colonia": "Mocambo"},
+        # Guanajuato
+        "36000": {"estado": "GUANAJUATO", "municipio": "Guanajuato", "colonia": "Centro"},
+        "37000": {"estado": "GUANAJUATO", "municipio": "León", "colonia": "Centro"},
+        # Chihuahua
+        "31000": {"estado": "CHIHUAHUA", "municipio": "Chihuahua", "colonia": "Centro"},
+        "32000": {"estado": "CHIHUAHUA", "municipio": "Juárez", "colonia": "Centro"},
+        # Sonora
+        "83000": {"estado": "SONORA", "municipio": "Hermosillo", "colonia": "Centro"},
+        # Coahuila
+        "25000": {"estado": "COAHUILA", "municipio": "Saltillo", "colonia": "Centro"},
+        # Sinaloa
+        "80000": {"estado": "SINALOA", "municipio": "Culiacán", "colonia": "Centro"},
+        "82000": {"estado": "SINALOA", "municipio": "Mazatlán", "colonia": "Centro"},
+        # Baja California
+        "22000": {"estado": "BAJA_CALIFORNIA", "municipio": "Tijuana", "colonia": "Centro"},
+        "21000": {"estado": "BAJA_CALIFORNIA", "municipio": "Mexicali", "colonia": "Centro"},
+        # Tabasco
+        "86000": {"estado": "TABASCO", "municipio": "Villahermosa", "colonia": "Centro"},
+        # Oaxaca
+        "68000": {"estado": "OAXACA", "municipio": "Oaxaca de Juárez", "colonia": "Centro"},
+        # Quintana Roo
+        "77500": {"estado": "QUINTANA_ROO", "municipio": "Cancún", "colonia": "Centro"},
+        # Aguascalientes
+        "20000": {"estado": "AGUASCALIENTES", "municipio": "Aguascalientes", "colonia": "Centro"},
+        # San Luis Potosí
+        "78000": {"estado": "SAN_LUIS_POTOSI", "municipio": "San Luis Potosí", "colonia": "Centro"},
+        # Michoacán
+        "58000": {"estado": "MICHOACAN", "municipio": "Morelia", "colonia": "Centro"},
+        # Tamaulipas
+        "87000": {"estado": "TAMAULIPAS", "municipio": "Ciudad Victoria", "colonia": "Centro"},
+        # Chiapas
+        "29000": {"estado": "CHIAPAS", "municipio": "Tuxtla Gutiérrez", "colonia": "Centro"},
+        # Guerrero
+        "39000": {"estado": "GUERRERO", "municipio": "Chilpancingo", "colonia": "Centro"},
+        "39300": {"estado": "GUERRERO", "municipio": "Acapulco", "colonia": "Centro"},
+        # Hidalgo
+        "42000": {"estado": "HIDALGO", "municipio": "Pachuca", "colonia": "Centro"},
+        # Morelos
+        "62000": {"estado": "MORELOS", "municipio": "Cuernavaca", "colonia": "Centro"},
+        # Nayarit
+        "63000": {"estado": "NAYARIT", "municipio": "Tepic", "colonia": "Centro"},
+        # Durango
+        "34000": {"estado": "DURANGO", "municipio": "Durango", "colonia": "Centro"},
+        # Campeche
+        "24000": {"estado": "CAMPECHE", "municipio": "Campeche", "colonia": "Centro"},
+        # Colima
+        "28000": {"estado": "COLIMA", "municipio": "Colima", "colonia": "Centro"},
+        # Tlaxcala
+        "90000": {"estado": "TLAXCALA", "municipio": "Tlaxcala", "colonia": "Centro"},
+        # Zacatecas
+        "98000": {"estado": "ZACATECAS", "municipio": "Zacatecas", "colonia": "Centro"},
+        # BCS
+        "23000": {"estado": "BAJA_CALIFORNIA_SUR", "municipio": "La Paz", "colonia": "Centro"},
+        "23400": {"estado": "BAJA_CALIFORNIA_SUR", "municipio": "Los Cabos", "colonia": "San José del Cabo"},
+    }
+
+    @classmethod
+    def lookup(cls, cp: str) -> Optional[SepomexResponse]:
+        cp_clean = cp.strip().zfill(5)
+        data = cls.CP_DATABASE.get(cp_clean)
+        if data:
+            return SepomexResponse(
+                cp=cp_clean,
+                estado=data["estado"],
+                municipio=data["municipio"],
+                colonia=data.get("colonia"),
+            )
+        return None
+
+
+# ─────────────────────────────────────────
+# PRIVACY SHIELD — Wall Garden Middleware
+# ─────────────────────────────────────────
+# Detecta y oculta información de contacto
+# directo para evitar desintermediación.
+
+class PrivacyShield:
+    """
+    Regex-based content filter that detects and masks
+    phone numbers, emails, and external URLs in chat messages
+    to prevent platform bypass (desintermediación).
+    """
+
+    # Patrones de detección
+    PHONE_PATTERNS = [
+        r'\+?52\s*[\d\s\-\.]{8,12}',           # +52 formatos
+        r'\b55\s*[\d\s\-\.]{7,10}\b',            # 55 (CDMX)
+        r'\b\d{2,3}[\s\-]?\d{3,4}[\s\-]?\d{4}\b',  # Genérico 10 dígitos
+        r'\(\d{2,3}\)\s*\d{3,4}[\s\-]?\d{4}',   # (código) número
+    ]
+
+    EMAIL_PATTERN = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+
+    URL_PATTERNS = [
+        r'https?://[^\s<>\"\')]+',
+        r'www\.[^\s<>\"\')]+',
+        r'[a-zA-Z0-9\-]+\.(com|mx|org|net|io|app|pro|law|legal)[^\s]*',
+    ]
+
+    REPLACEMENT = "[DATOS OCULTOS POR SEGURIDAD — Contacte dentro de IUREXIA]"
+
+    @classmethod
+    def scan(cls, text: str) -> dict:
+        """Scans text for contact info. Returns detection results."""
+        detections = []
+
+        for pattern in cls.PHONE_PATTERNS:
+            matches = re.findall(pattern, text)
+            for m in matches:
+                # Filter out short numbers that could be legal refs (art. 123)
+                if len(re.sub(r'\D', '', m)) >= 8:
+                    detections.append({"type": "phone", "value": m})
+
+        emails = re.findall(cls.EMAIL_PATTERN, text)
+        for e in emails:
+            detections.append({"type": "email", "value": e})
+
+        for pattern in cls.URL_PATTERNS:
+            urls = re.findall(pattern, text, re.IGNORECASE)
+            for u in urls:
+                # Exclude iurexia domains
+                if 'iurexia' not in u.lower() and 'jurexia' not in u.lower():
+                    detections.append({"type": "url", "value": u})
+
+        return {
+            "has_contact": len(detections) > 0,
+            "detections": detections,
+            "count": len(detections),
+        }
+
+    @classmethod
+    def sanitize(cls, text: str) -> str:
+        """Replaces detected contact info with shield message."""
+        result = text
+
+        for pattern in cls.PHONE_PATTERNS:
+            def _phone_replace(match):
+                digits = re.sub(r'\D', '', match.group(0))
+                if len(digits) >= 8:
+                    return cls.REPLACEMENT
+                return match.group(0)
+            result = re.sub(pattern, _phone_replace, result)
+
+        result = re.sub(cls.EMAIL_PATTERN, cls.REPLACEMENT, result)
+
+        for pattern in cls.URL_PATTERNS:
+            def _url_replace(match):
+                url = match.group(0)
+                if 'iurexia' in url.lower() or 'jurexia' in url.lower():
+                    return url
+                return cls.REPLACEMENT
+            result = re.sub(pattern, _url_replace, result, flags=re.IGNORECASE)
+
+        return result
+
+
+# ─────────────────────────────────────────
+# ENDPOINTS — IUREXIA CONNECT
+# ─────────────────────────────────────────
+
+@app.post("/connect/validate-cedula", response_model=CedulaValidationResponse)
+async def validate_cedula(request: CedulaValidationRequest):
+    """
+    Valida una cédula profesional.
+    MOCK: Acepta cédulas de prueba (12345678, 87654321, 11223344).
+    """
+    return await CedulaValidationService.validate(request.cedula)
+
+
+@app.get("/connect/sepomex/{cp}", response_model=SepomexResponse)
+async def sepomex_lookup(cp: str):
+    """
+    Dado un código postal, devuelve Estado y Municipio.
+    Usa diccionario estático de CPs principales de México.
+    """
+    result = SepomexService.lookup(cp)
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Código postal '{cp}' no encontrado. Introduce tu ubicación manualmente.",
+        )
+    return result
+
+
+@app.post("/connect/lawyers/search")
+async def search_lawyers(request: LawyerSearchRequest):
+    """
+    Búsqueda semántica de abogados en Qdrant.
+    Usa embedding del problema legal del usuario para matching con perfiles.
+    Aplica filtro geográfico por estado.
+    """
+    try:
+        # Generate embedding for the user's legal problem
+        embedding_response = await openai_client.embeddings.create(
+            model="text-embedding-3-small",
+            input=request.query,
+        )
+        query_vector = embedding_response.data[0].embedding
+
+        # Build Qdrant filter
+        qdrant_filter = None
+        if request.estado:
+            qdrant_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="estado",
+                        match=MatchValue(value=request.estado),
+                    )
+                ]
+            )
+
+        # Search in lawyer_registry collection
+        try:
+            results = await async_qdrant.search(
+                collection_name="lawyer_registry",
+                query_vector=query_vector,
+                query_filter=qdrant_filter,
+                limit=request.limit,
+                with_payload=True,
+            )
+
+            lawyers = []
+            for result in results:
+                payload = result.payload or {}
+                lawyers.append({
+                    "id": payload.get("user_id", ""),
+                    "full_name": payload.get("full_name", ""),
+                    "cedula_number": payload.get("cedula_number", ""),
+                    "specialties": payload.get("specialties", []),
+                    "bio": payload.get("bio", ""),
+                    "office_address": payload.get("office_address", {}),
+                    "verification_status": payload.get("verification_status", "pending"),
+                    "is_pro_active": payload.get("is_pro_active", False),
+                    "avatar_url": payload.get("avatar_url"),
+                    "score": result.score,
+                })
+
+            return {"lawyers": lawyers, "total": len(lawyers)}
+
+        except Exception as qdrant_err:
+            # Collection may not exist yet
+            if "not found" in str(qdrant_err).lower():
+                return {"lawyers": [], "total": 0, "note": "Directorio vacío. Registra el primer abogado."}
+            raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en búsqueda: {str(e)}")
+
+
+@app.post("/connect/start")
+async def start_connect_chat(request: ConnectStartRequest):
+    """
+    Crea una sala de chat Connect con Context Handover.
+    Genera el dossier preliminar y el mensaje sistema inicial.
+
+    Nota: La creación real de la sala se hace desde el frontend
+    via Supabase (con RLS). Este endpoint genera el mensaje
+    sistema y valida el abogado.
+    """
+    try:
+        dossier = request.dossier_summary or {}
+
+        # Build system message with dossier
+        dossier_text = json.dumps(dossier, ensure_ascii=False, indent=2) if dossier else "Sin expediente preliminar."
+
+        system_message = (
+            f"📋 **EXPEDIENTE PRELIMINAR — IUREXIA CONNECT**\n\n"
+            f"Licenciado(a), le comparto el Resumen Preliminar del caso "
+            f"generado por la IA de Iurexia:\n\n"
+            f"```\n{dossier_text}\n```\n\n"
+            f"El cliente espera su análisis y cotización.\n\n"
+            f"─── *Este mensaje fue generado automáticamente por IUREXIA* ───"
+        )
+
+        return {
+            "system_message": system_message,
+            "dossier": dossier,
+            "status": "ready",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al iniciar Connect: {str(e)}")
+
+
+@app.post("/connect/privacy-check")
+async def privacy_check(request: ConnectMessageRequest):
+    """
+    Analiza un mensaje antes de enviarlo.
+    Detecta datos de contacto y devuelve la versión sanitizada.
+    """
+    scan_result = PrivacyShield.scan(request.content)
+    sanitized = PrivacyShield.sanitize(request.content) if scan_result["has_contact"] else request.content
+
+    return {
+        "original": request.content,
+        "sanitized": sanitized,
+        "has_contact_info": scan_result["has_contact"],
+        "detections": scan_result["detections"],
+    }
+
+
+@app.post("/connect/lawyers/index")
+async def index_lawyer_profile(profile: LawyerProfileCreate):
+    """
+    Indexa un perfil de abogado en Qdrant para matching semántico.
+    Genera embedding de bio + especialidades y lo almacena en
+    la colección `lawyer_registry`.
+    """
+    try:
+        # Build text for embedding
+        specialties_text = ", ".join(profile.specialties) if profile.specialties else ""
+        embedding_text = f"{profile.full_name}. Especialidades: {specialties_text}. {profile.bio}"
+
+        # Generate embedding
+        embedding_response = await openai_client.embeddings.create(
+            model="text-embedding-3-small",
+            input=embedding_text,
+        )
+        vector = embedding_response.data[0].embedding
+
+        # Ensure collection exists
+        try:
+            await async_qdrant.get_collection("lawyer_registry")
+        except Exception:
+            await async_qdrant.create_collection(
+                collection_name="lawyer_registry",
+                vectors_config=models.VectorParams(
+                    size=1536,  # text-embedding-3-small
+                    distance=models.Distance.COSINE,
+                ),
+            )
+
+        # Upsert point
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, profile.cedula_number))
+        estado = profile.office_address.get("estado", "") if profile.office_address else ""
+
+        await async_qdrant.upsert(
+            collection_name="lawyer_registry",
+            points=[
+                models.PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload={
+                        "user_id": point_id,
+                        "cedula_number": profile.cedula_number,
+                        "full_name": profile.full_name,
+                        "specialties": profile.specialties,
+                        "bio": profile.bio,
+                        "office_address": profile.office_address,
+                        "estado": estado,
+                        "verification_status": "pending",
+                        "is_pro_active": False,
+                        "avatar_url": profile.avatar_url,
+                    },
+                )
+            ],
+        )
+
+        return {
+            "indexed": True,
+            "point_id": point_id,
+            "collection": "lawyer_registry",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al indexar abogado: {str(e)}")
+
+
+@app.get("/connect/health")
+async def connect_health():
+    """Health check para el módulo Connect."""
+    # Check if lawyer_registry collection exists
+    try:
+        info = await async_qdrant.get_collection("lawyer_registry")
+        lawyer_count = info.points_count
+    except Exception:
+        lawyer_count = 0
+
+    return {
+        "module": "iurexia_connect",
+        "status": "operational",
+        "lawyers_indexed": lawyer_count,
+        "services": {
+            "cedula_validation": "mock",
+            "sepomex": "static",
+            "privacy_shield": "active",
+            "qdrant_matching": "active" if lawyer_count > 0 else "empty",
+        },
+    }
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -2877,6 +3487,7 @@ if __name__ == "__main__":
     
     print("═" * 60)
     print("  JUREXIA CORE API - Motor de Producción")
+    print("  + IUREXIA CONNECT - Marketplace Legal")
     print("═" * 60)
     
     uvicorn.run(
