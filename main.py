@@ -3383,19 +3383,20 @@ async def sepomex_lookup(cp: str):
 @app.post("/connect/lawyers/search")
 async def search_lawyers(request: LawyerSearchRequest):
     """
-    Búsqueda semántica de abogados en Qdrant.
-    Usa embedding del problema legal del usuario para matching con perfiles.
-    Aplica filtro geográfico por estado.
+    Búsqueda de abogados.
+    Intenta búsqueda semántica en Qdrant primero.
+    Si Qdrant está vacío o falla, busca directamente en Supabase.
     """
+    lawyers = []
+
+    # ── Strategy 1: Qdrant semantic search ──
     try:
-        # Generate embedding for the user's legal problem
         embedding_response = await openai_client.embeddings.create(
             model="text-embedding-3-small",
             input=request.query,
         )
         query_vector = embedding_response.data[0].embedding
 
-        # Build Qdrant filter
         qdrant_filter = None
         if request.estado:
             qdrant_filter = Filter(
@@ -3407,39 +3408,78 @@ async def search_lawyers(request: LawyerSearchRequest):
                 ]
             )
 
-        # Search in lawyer_registry collection
-        try:
-            results = await async_qdrant.search(
-                collection_name="lawyer_registry",
-                query_vector=query_vector,
-                query_filter=qdrant_filter,
-                limit=request.limit,
-                with_payload=True,
-            )
+        results = await async_qdrant.search(
+            collection_name="lawyer_registry",
+            query_vector=query_vector,
+            query_filter=qdrant_filter,
+            limit=request.limit,
+            with_payload=True,
+        )
 
-            lawyers = []
-            for result in results:
-                payload = result.payload or {}
-                lawyers.append({
-                    "id": payload.get("user_id", ""),
-                    "full_name": payload.get("full_name", ""),
-                    "cedula_number": payload.get("cedula_number", ""),
-                    "specialties": payload.get("specialties", []),
-                    "bio": payload.get("bio", ""),
-                    "office_address": payload.get("office_address", {}),
-                    "verification_status": payload.get("verification_status", "pending"),
-                    "is_pro_active": payload.get("is_pro_active", False),
-                    "avatar_url": payload.get("avatar_url"),
-                    "score": result.score,
-                })
+        for result in results:
+            payload = result.payload or {}
+            lawyers.append({
+                "id": payload.get("user_id", ""),
+                "full_name": payload.get("full_name", ""),
+                "cedula_number": payload.get("cedula_number", ""),
+                "specialties": payload.get("specialties", []),
+                "bio": payload.get("bio", ""),
+                "office_address": payload.get("office_address", {}),
+                "verification_status": payload.get("verification_status", "pending"),
+                "is_pro_active": payload.get("is_pro_active", False),
+                "avatar_url": payload.get("avatar_url"),
+                "score": result.score,
+            })
 
+        if lawyers:
             return {"lawyers": lawyers, "total": len(lawyers)}
 
-        except Exception as qdrant_err:
-            # Collection may not exist yet
-            if "not found" in str(qdrant_err).lower():
-                return {"lawyers": [], "total": 0, "note": "Directorio vacío. Registra el primer abogado."}
-            raise
+    except Exception as qdrant_err:
+        print(f"[Connect] Qdrant search failed (falling back to Supabase): {qdrant_err}")
+
+    # ── Strategy 2: Supabase fallback ──
+    try:
+        query = supabase.table("lawyer_profiles").select("*").eq(
+            "is_pro_active", True
+        )
+
+        if request.estado:
+            query = query.ilike("office_address->>estado", f"%{request.estado}%")
+
+        result = query.limit(request.limit).execute()
+
+        if result.data:
+            search_terms = request.query.lower().split()
+            scored = []
+            for profile in result.data:
+                bio = (profile.get("bio") or "").lower()
+                specs = " ".join(profile.get("specialties") or []).lower()
+                name = (profile.get("full_name") or "").lower()
+                combined = f"{bio} {specs} {name}"
+
+                # Simple term-frequency scoring
+                score = sum(1 for term in search_terms if term in combined)
+                scored.append((score, profile))
+
+            # Sort by relevance, then return all active profiles
+            scored.sort(key=lambda x: x[0], reverse=True)
+
+            for score, profile in scored:
+                office = profile.get("office_address") or {}
+                lawyers.append({
+                    "id": profile.get("id", ""),
+                    "full_name": profile.get("full_name", ""),
+                    "cedula_number": profile.get("cedula_number", ""),
+                    "specialties": profile.get("specialties", []),
+                    "bio": profile.get("bio", ""),
+                    "office_address": office,
+                    "verification_status": profile.get("verification_status", "pending"),
+                    "is_pro_active": profile.get("is_pro_active", False),
+                    "avatar_url": profile.get("avatar_url"),
+                    "score": score / max(len(search_terms), 1),
+                })
+
+        return {"lawyers": lawyers, "total": len(lawyers)}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en búsqueda: {str(e)}")
