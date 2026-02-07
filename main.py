@@ -2944,25 +2944,70 @@ class ConnectMessageResponse(BaseModel):
 # ─────────────────────────────────────────
 # SERVICIO: Validación de Cédula Profesional
 # ─────────────────────────────────────────
-# La API de la SEP (cedulaprofesional.sep.gob.mx) usa reCAPTCHA v3
-# con dominio restringido, imposibilitando consultas server-to-server.
-# Estrategia: validación de formato + registro como pendiente.
-# El perfil se activa como "pending_verification" y puede ser
-# verificado manualmente por administradores.
+# Consulta los datos de cédula via BuhoLegal (buholegal.com).
+# BuhoLegal expone los datos del Registro Nacional de Profesionistas
+# en URL directa: https://www.buholegal.com/{cedula}/
+# Se parsea el HTML resultante para extraer nombre, carrera,
+# universidad, estado y año.
+
+import httpx
 
 class CedulaValidationService:
     """
-    Validates Mexican professional license (cédula profesional).
-    Performs strict format validation (7-8 digits as per SEP standard).
-    Marks profiles as 'pending_verification' for manual review.
+    Validates Mexican professional license (cédula profesional)
+    by scraping BuhoLegal which mirrors SEP's public data.
     """
 
-    # SEP verification link for manual cross-reference
-    SEP_VERIFY_URL = "https://cedulaprofesional.sep.gob.mx"
+    BUHOLEGAL_URL = "https://www.buholegal.com/{cedula}/"
+    USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0"
+
+    # Profesiones válidas para ejercer como abogado
+    VALID_PROFESSIONS = [
+        "LICENCIADO EN DERECHO",
+        "LICENCIATURA EN DERECHO",
+        "ABOGADO",
+        "MAESTRO EN DERECHO",
+        "MAESTRÍA EN DERECHO",
+        "MASTER EN DERECHO",
+        "DOCTOR EN DERECHO",
+        "DOCTORADO EN DERECHO",
+        "DERECHO",
+    ]
+
+    @classmethod
+    def _extract_td_value(cls, html: str, label: str) -> str:
+        """Extract the <td> value that follows a <td> with the given label."""
+        import re as _re
+        # Pattern: <td ...>Label</td> ... <td ...>VALUE</td>
+        pattern = (
+            r'<td[^>]*>\s*' + _re.escape(label) + r'\s*</td>'
+            r'\s*<td[^>]*[^>]*>\s*(.*?)\s*</td>'
+        )
+        match = _re.search(pattern, html, _re.IGNORECASE | _re.DOTALL)
+        if match:
+            # Strip HTML tags from the value
+            value = _re.sub(r'<[^>]+>', '', match.group(1)).strip()
+            return value
+        return ""
+
+    @classmethod
+    def _extract_name(cls, html: str) -> str:
+        """Extract name from card-header h3."""
+        import re as _re
+        match = _re.search(
+            r'<div\s+class="card-header[^"]*"[^>]*>\s*<h3[^>]*>\s*(.*?)\s*</h3>',
+            html, _re.IGNORECASE | _re.DOTALL
+        )
+        if match:
+            name = _re.sub(r'<[^>]+>', '', match.group(1)).strip()
+            # Filter out generic text like "Sobre Buholegal"
+            if name and "buholegal" not in name.lower() and len(name) > 3:
+                return name
+        return ""
 
     @classmethod
     async def validate(cls, cedula: str) -> CedulaValidationResponse:
-        """Validates cédula format and accepts as pending verification."""
+        """Validates a cédula by querying BuhoLegal for real SEP data."""
         cedula_clean = cedula.strip()
         digits_only = re.sub(r'\D', '', cedula_clean)
 
@@ -2984,7 +3029,7 @@ class CedulaValidationService:
                 verification_status="rejected",
             )
 
-        # ── Check if cédula is already registered by another user ──
+        # ── Check if cédula is already registered ──
         try:
             existing = supabase.table("lawyer_profiles").select("id").eq(
                 "cedula_number", digits_only
@@ -2999,14 +3044,102 @@ class CedulaValidationService:
         except Exception as e:
             print(f"[CedulaValidation] DB check error (non-blocking): {e}")
 
-        # ── Accepted: format valid, pending manual verification ──
-        print(f"[CedulaValidation] Cédula {digits_only} accepted (pending verification)")
-        return CedulaValidationResponse(
-            valid=True,
-            cedula=digits_only,
-            profesion="LICENCIADO EN DERECHO",
-            verification_status="pending",
-        )
+        # ── Query BuhoLegal for real SEP data ──
+        try:
+            url = cls.BUHOLEGAL_URL.format(cedula=digits_only)
+            print(f"[CedulaValidation] Querying BuhoLegal: {url}")
+
+            async with httpx.AsyncClient(
+                timeout=15.0,
+                follow_redirects=True,
+                headers={"User-Agent": cls.USER_AGENT},
+            ) as client:
+                resp = await client.get(url)
+
+            if resp.status_code != 200:
+                print(f"[CedulaValidation] BuhoLegal returned {resp.status_code}")
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=digits_only,
+                    error="No se pudo consultar la base de datos. Intenta más tarde.",
+                    verification_status="pending",
+                )
+
+            html = resp.text
+
+            # ── Parse the HTML response ──
+            nombre = cls._extract_name(html)
+            carrera = cls._extract_td_value(html, "Carrera")
+            universidad = cls._extract_td_value(html, "Universidad")
+            estado = cls._extract_td_value(html, "Estado")
+            anio = cls._extract_td_value(html, "Año")
+
+            print(f"[CedulaValidation] Parsed: nombre={nombre}, carrera={carrera}, "
+                  f"uni={universidad}, estado={estado}, anio={anio}")
+
+            # ── No data found → cédula doesn't exist ──
+            if not nombre and not carrera:
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=digits_only,
+                    error="Cédula no encontrada en el Registro Nacional de Profesionistas.",
+                    verification_status="rejected",
+                )
+
+            # ── Check if it's a law-related degree ──
+            carrera_upper = carrera.upper()
+            is_lawyer = any(p in carrera_upper for p in cls.VALID_PROFESSIONS)
+
+            if carrera and not is_lawyer:
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=digits_only,
+                    nombre=nombre or None,
+                    profesion=carrera or None,
+                    institucion=universidad or None,
+                    error=f"La cédula corresponde a '{carrera}', no a Licenciado en Derecho.",
+                    verification_status="rejected",
+                )
+
+            # ── Build institution string ──
+            inst_parts = []
+            if universidad:
+                inst_parts.append(universidad)
+            if estado:
+                inst_parts.append(estado)
+            if anio:
+                inst_parts.append(f"({anio})")
+            institucion = " — ".join(inst_parts[:2])
+            if anio:
+                institucion += f" ({anio})"
+
+            # ── SUCCESS: Cédula verified via SEP data ──
+            return CedulaValidationResponse(
+                valid=True,
+                cedula=digits_only,
+                nombre=nombre or None,
+                profesion=carrera or "LICENCIADO EN DERECHO",
+                institucion=institucion or None,
+                verification_status="verified",
+            )
+
+        except httpx.TimeoutException:
+            print("[CedulaValidation] BuhoLegal timeout")
+            return CedulaValidationResponse(
+                valid=False,
+                cedula=digits_only,
+                error="Tiempo de espera agotado al consultar la base de datos. Intenta más tarde.",
+                verification_status="pending",
+            )
+        except Exception as e:
+            print(f"[CedulaValidation] Error: {e}")
+            return CedulaValidationResponse(
+                valid=False,
+                cedula=digits_only,
+                error="Error al verificar la cédula. Intenta más tarde.",
+                verification_status="pending",
+            )
+
 
 
 # ─────────────────────────────────────────
