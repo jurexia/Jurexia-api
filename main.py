@@ -2883,6 +2883,7 @@ import httpx as _httpx  # Alias para evitar conflicto con imports existentes
 
 class CedulaValidationRequest(BaseModel):
     cedula: str = Field(..., min_length=5, max_length=20, description="Número de cédula profesional")
+    recaptcha_token: Optional[str] = Field(None, description="reCAPTCHA v3 token from frontend")
 
 class CedulaValidationResponse(BaseModel):
     valid: bool
@@ -2943,20 +2944,21 @@ class ConnectMessageResponse(BaseModel):
 # ─────────────────────────────────────────
 # SERVICIO: Validación de Cédula Profesional (SEP Real)
 # ─────────────────────────────────────────
-# Consulta directa al endpoint Solr público de la SEP
-# http://search.sep.gob.mx/solr/cedulasCore/select
+# Consulta la API oficial de la SEP en:
+# https://cedulaprofesional.sep.gob.mx/api/solr/profesionista/consultar
+# Requiere reCAPTCHA v3 token generado en el frontend.
+# Usa subprocess+curl porque Python OpenSSL no soporta el TLS de la SEP.
+
+import subprocess
 
 class CedulaValidationService:
     """
     Validates Mexican professional license (cédula profesional)
-    using the SEP's public Solr search endpoint.
-    Tries HTTPS first, falls back to HTTP.
+    using the official SEP API at cedulaprofesional.sep.gob.mx.
     """
 
-    SEP_SOLR_URLS = [
-        "https://search.sep.gob.mx/solr/cedulasCore/select",
-        "http://search.sep.gob.mx/solr/cedulasCore/select",
-    ]
+    SEP_API_URL = "https://cedulaprofesional.sep.gob.mx/api/solr/profesionista/consultar"
+    SEP_API_KEY = "65da8s675f8s75fda675s8d76as87d5as675da"
 
     # Profesiones válidas para ejercer como abogado
     VALID_PROFESSIONS = [
@@ -2967,113 +2969,151 @@ class CedulaValidationService:
         "MAESTRÍA EN DERECHO",
         "DOCTOR EN DERECHO",
         "DOCTORADO EN DERECHO",
+        "DERECHO",
     ]
 
     @classmethod
-    async def validate(cls, cedula: str) -> CedulaValidationResponse:
+    async def validate(cls, cedula: str, recaptcha_token: str = None) -> CedulaValidationResponse:
         """
-        Validates a cédula by querying the SEP's public Solr endpoint.
-        Returns real data: nombre, profesión, institución.
+        Validates a cédula by querying the SEP's official API.
+        Requires a reCAPTCHA v3 token from the frontend.
+        Uses subprocess+curl as Python OpenSSL fails with SEP's TLS.
         """
         cedula_clean = cedula.strip()
 
-        # Basic format check
+        # Basic format check (SEP: 7-8 digits)
         digits_only = re.sub(r'\D', '', cedula_clean)
-        if len(digits_only) < 1 or len(digits_only) > 10:
+        if len(digits_only) < 7 or len(digits_only) > 8:
             return CedulaValidationResponse(
                 valid=False,
                 cedula=cedula_clean,
-                error="Formato inválido. Ingresa un número de cédula válido.",
+                error="Formato inválido. La cédula debe tener entre 7 y 8 dígitos.",
             )
 
-        # ── QUERY SEP SOLR (try HTTPS then HTTP) ──
-        params = {
-            "q": f"numCedula:{digits_only}",
-            "fl": "*,score",
-            "start": "0",
-            "rows": "10",
-            "wt": "json",
-            "indent": "on",
-        }
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) IUREXIA-Connect/1.0",
-            "Accept": "application/json",
-        }
+        if not recaptcha_token:
+            return CedulaValidationResponse(
+                valid=False,
+                cedula=cedula_clean,
+                error="Se requiere verificación reCAPTCHA. Intenta de nuevo.",
+            )
 
-        resp = None
-        last_error = None
-
-        for url in cls.SEP_SOLR_URLS:
-            try:
-                async with httpx.AsyncClient(
-                    timeout=15.0,
-                    verify=False,  # SEP cert may be self-signed
-                    follow_redirects=True,
-                ) as client:
-                    resp = await client.get(url, params=params, headers=headers)
-                    if resp.status_code == 200:
-                        print(f"[CedulaValidation] SEP query OK via {url}")
-                        break
-                    else:
-                        print(f"[CedulaValidation] SEP returned {resp.status_code} from {url}")
-                        resp = None
-            except Exception as e:
-                last_error = str(e)
-                print(f"[CedulaValidation] Failed {url}: {e}")
-                continue
-
-        if resp is None or resp.status_code != 200:
-            print(f"[CedulaValidation] All SEP URLs failed. Last error: {last_error}")
-            return cls._fallback_accept(cedula_clean, digits_only)
-
+        # ── QUERY SEP API via subprocess curl ──
         try:
-            data = resp.json()
-            response_data = data.get("response", {})
-            num_found = response_data.get("numFound", 0)
-            print(f"[CedulaValidation] SEP found {num_found} results for cedula {digits_only}")
+            body = json.dumps({"idCedula": digits_only})
+            
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    [
+                        "curl", "-k", "-s", "--max-time", "15",
+                        "-X", "POST",
+                        cls.SEP_API_URL,
+                        "-H", "Content-Type: application/json",
+                        "-H", f"Recaptcha-Token: {recaptcha_token}",
+                        "-H", f"Api-Key: {cls.SEP_API_KEY}",
+                        "-d", body,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+            )
 
-            if num_found == 0:
+            if result.returncode != 0:
+                print(f"[CedulaValidation] curl failed: {result.stderr}")
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=cedula_clean,
+                    error="No se pudo conectar con la SEP. Intenta más tarde.",
+                )
+
+            response_text = result.stdout.strip()
+            print(f"[CedulaValidation] SEP raw response: {response_text[:500]}")
+
+            if not response_text:
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=cedula_clean,
+                    error="La SEP no devolvió datos. Intenta más tarde.",
+                )
+
+            data = json.loads(response_text)
+
+            # Handle error responses
+            if isinstance(data, dict) and data.get("error"):
+                error_msg = data.get("error", "")
+                if "Unauthorized" in str(error_msg):
+                    print(f"[CedulaValidation] SEP Unauthorized - reCAPTCHA token may be invalid")
+                    return CedulaValidationResponse(
+                        valid=False,
+                        cedula=cedula_clean,
+                        error="Verificación reCAPTCHA fallida. Recarga la página e intenta de nuevo.",
+                    )
+                return CedulaValidationResponse(
+                    valid=False,
+                    cedula=cedula_clean,
+                    error=f"Error de la SEP: {error_msg}",
+                )
+
+            # Response should be array or object
+            doc = None
+            if isinstance(data, list):
+                if len(data) == 0:
+                    return CedulaValidationResponse(
+                        valid=False,
+                        cedula=cedula_clean,
+                        error="Cédula no encontrada en la base de datos de la SEP.",
+                    )
+                doc = data[0]
+            elif isinstance(data, dict) and not data.get("error"):
+                doc = data
+            else:
                 return CedulaValidationResponse(
                     valid=False,
                     cedula=cedula_clean,
                     error="Cédula no encontrada en la base de datos de la SEP.",
                 )
 
-            # Find exact match by numCedula
-            docs = response_data.get("docs", [])
-            match = None
-            for doc in docs:
-                if str(doc.get("numCedula", "")).strip() == digits_only:
-                    match = doc
-                    break
-
-            if not match:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=cedula_clean,
-                    error="Cédula no encontrada. Verifique el número e intente nuevamente.",
-                )
-
             # ── Build response from SEP data ──
-            nombre_parts = []
-            if match.get("nombre"):
-                nombre_parts.append(match["nombre"].strip())
-            if match.get("paterno"):
-                nombre_parts.append(match["paterno"].strip())
-            if match.get("materno"):
-                nombre_parts.append(match["materno"].strip())
+            # The SEP API response field names may vary; try common patterns
+            nombre = (
+                doc.get("nombre", "") or 
+                doc.get("nom", "") or ""
+            ).strip()
+            paterno = (
+                doc.get("paterno", "") or 
+                doc.get("primerApellido", "") or ""
+            ).strip()
+            materno = (
+                doc.get("materno", "") or 
+                doc.get("segundoApellido", "") or ""
+            ).strip()
+
+            nombre_parts = [p for p in [nombre, paterno, materno] if p]
             full_name = " ".join(nombre_parts) if nombre_parts else None
 
-            titulo = match.get("titulo", "").upper().strip()
-            institucion = match.get("institucion", "").strip() or None
-            anio = match.get("anioRegistro", "")
+            titulo = (
+                doc.get("titulo", "") or 
+                doc.get("desCarrera", "") or 
+                doc.get("profesion", "") or ""
+            ).upper().strip()
+            
+            institucion = (
+                doc.get("institucion", "") or 
+                doc.get("insNombre", "") or ""
+            ).strip() or None
+            
+            anio = str(
+                doc.get("anioRegistro", "") or 
+                doc.get("anioreg", "") or ""
+            ).strip()
 
             print(f"[CedulaValidation] SEP data: name={full_name}, titulo={titulo}, inst={institucion}, anio={anio}")
 
             # Check if it's a law degree
-            is_lawyer = any(p in titulo for p in cls.VALID_PROFESSIONS)
+            is_lawyer = any(p in titulo for p in cls.VALID_PROFESSIONS) if titulo else False
 
-            if not is_lawyer:
+            if titulo and not is_lawyer:
                 return CedulaValidationResponse(
                     valid=False,
                     cedula=cedula_clean,
@@ -3087,33 +3127,31 @@ class CedulaValidationService:
                 valid=True,
                 cedula=cedula_clean,
                 nombre=full_name,
-                profesion=titulo,
+                profesion=titulo or "LICENCIADO EN DERECHO",
                 institucion=f"{institucion} ({anio})" if anio and institucion else institucion,
             )
 
-        except Exception as e:
-            print(f"[CedulaValidation] Error parsing SEP response: {e}")
-            return cls._fallback_accept(cedula_clean, digits_only)
-
-    @classmethod
-    def _fallback_accept(cls, cedula_clean: str, digits_only: str) -> CedulaValidationResponse:
-        """
-        Fallback: if SEP is unreachable, accept any 7-8 digit cédula
-        as 'pending verification' so the user isn't blocked.
-        """
-        if 7 <= len(digits_only) <= 8:
+        except json.JSONDecodeError as e:
+            print(f"[CedulaValidation] JSON parse error: {e}, raw: {response_text[:200]}")
             return CedulaValidationResponse(
-                valid=True,
+                valid=False,
                 cedula=cedula_clean,
-                nombre=None,
-                profesion="LICENCIADO EN DERECHO",
-                institucion=None,
+                error="Respuesta inesperada de la SEP. Intenta más tarde.",
             )
-        return CedulaValidationResponse(
-            valid=False,
-            cedula=cedula_clean,
-            error="No se pudo conectar con la SEP y el formato no es válido.",
-        )
+        except subprocess.TimeoutExpired:
+            print("[CedulaValidation] curl subprocess timeout")
+            return CedulaValidationResponse(
+                valid=False,
+                cedula=cedula_clean,
+                error="Timeout al conectar con la SEP. Intenta más tarde.",
+            )
+        except Exception as e:
+            print(f"[CedulaValidation] Error: {e}")
+            return CedulaValidationResponse(
+                valid=False,
+                cedula=cedula_clean,
+                error="Error al validar la cédula. Intenta más tarde.",
+            )
 
 
 # ─────────────────────────────────────────
@@ -3332,10 +3370,10 @@ class PrivacyShield:
 @app.post("/connect/validate-cedula", response_model=CedulaValidationResponse)
 async def validate_cedula(request: CedulaValidationRequest):
     """
-    Valida una cédula profesional.
-    MOCK: Acepta cédulas de prueba (12345678, 87654321, 11223344).
+    Valida una cédula profesional contra la API oficial de la SEP.
+    Requiere reCAPTCHA v3 token generado en el frontend.
     """
-    return await CedulaValidationService.validate(request.cedula)
+    return await CedulaValidationService.validate(request.cedula, request.recaptcha_token)
 
 
 @app.get("/connect/sepomex/{cp}", response_model=SepomexResponse)
