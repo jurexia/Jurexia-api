@@ -3439,19 +3439,23 @@ async def search_lawyers(request: LawyerSearchRequest):
 
     # ── Strategy 2: Supabase fallback ──
     try:
-        query = supabase.table("lawyer_profiles").select("*").eq(
+        print("[Connect] Using Supabase fallback for lawyer search")
+
+        # Fetch all active lawyer profiles (JSONB filtering not reliable via PostgREST)
+        result = supabase.table("lawyer_profiles").select("*").eq(
             "is_pro_active", True
-        )
-
-        if request.estado:
-            query = query.ilike("office_address->>estado", f"%{request.estado}%")
-
-        result = query.limit(request.limit).execute()
+        ).limit(50).execute()
 
         if result.data:
             search_terms = request.query.lower().split()
-            scored = []
+
             for profile in result.data:
+                # ── Estado filter (in Python since office_address is JSONB) ──
+                office = profile.get("office_address") or {}
+                profile_estado = (office.get("estado") or "").upper().replace(" ", "_")
+                if request.estado and request.estado.upper() not in profile_estado:
+                    continue
+
                 bio = (profile.get("bio") or "").lower()
                 specs = " ".join(profile.get("specialties") or []).lower()
                 name = (profile.get("full_name") or "").lower()
@@ -3459,13 +3463,7 @@ async def search_lawyers(request: LawyerSearchRequest):
 
                 # Simple term-frequency scoring
                 score = sum(1 for term in search_terms if term in combined)
-                scored.append((score, profile))
 
-            # Sort by relevance, then return all active profiles
-            scored.sort(key=lambda x: x[0], reverse=True)
-
-            for score, profile in scored:
-                office = profile.get("office_address") or {}
                 lawyers.append({
                     "id": profile.get("id", ""),
                     "full_name": profile.get("full_name", ""),
@@ -3479,9 +3477,14 @@ async def search_lawyers(request: LawyerSearchRequest):
                     "score": score / max(len(search_terms), 1),
                 })
 
-        return {"lawyers": lawyers, "total": len(lawyers)}
+            # Sort by relevance score
+            lawyers.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+        print(f"[Connect] Supabase fallback found {len(lawyers)} lawyers")
+        return {"lawyers": lawyers[:request.limit], "total": len(lawyers)}
 
     except Exception as e:
+        print(f"[Connect] Supabase fallback error: {e}")
         raise HTTPException(status_code=500, detail=f"Error en búsqueda: {str(e)}")
 
 
