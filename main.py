@@ -1291,6 +1291,153 @@ def expand_legal_query(query: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CNPCF — DETECCIÓN Y CONTEXTO TRANSITORIO
+# ══════════════════════════════════════════════════════════════════════════════
+
+_PROCESAL_CIVIL_KEYWORDS = {
+    # Procedimientos y vías jurisdiccionales
+    "demanda", "juzgado", "procedimiento", "emplazamiento", "notificación",
+    "juicio oral", "audiencia", "contestación", "reconvención", "pruebas",
+    "sentencia", "recurso", "apelación", "casación", "amparo directo",
+    "ejecución de sentencia", "embargo", "remate", "incidente",
+    "medida cautelar", "medidas provisionales",
+    # Materias civiles
+    "arrendamiento", "renta", "rescisión", "contrato", "cobro",
+    "daños y perjuicios", "responsabilidad civil", "prescripción",
+    "usucapión", "reivindicación", "interdicto", "posesión",
+    "compraventa", "hipoteca", "fianza", "obligaciones",
+    # Materias familiares
+    "divorcio", "custodia", "pensión alimenticia", "alimentos",
+    "patria potestad", "guarda", "adopción", "sucesión",
+    "testamento", "intestado", "régimen matrimonial",
+    "violencia familiar", "orden de protección",
+    # Procedimiento
+    "competencia", "jurisdicción", "tribunal", "juez civil",
+    "juez familiar", "primera instancia", "código de procedimientos",
+    "código procesal", "vía ordinaria", "vía sumaria", "vía ejecutiva",
+    "juicio especial", "mediación", "conciliación",
+}
+
+
+def is_procesal_civil_query(query: str) -> bool:
+    """
+    Detecta si la consulta involucra procedimientos civiles o familiares
+    donde el CNPCF podría ser relevante.
+    Umbral: al menos 2 keywords presentes para evitar falsos positivos.
+    """
+    query_lower = query.lower()
+    hits = sum(1 for kw in _PROCESAL_CIVIL_KEYWORDS if kw in query_lower)
+    return hits >= 2
+
+
+CNPCF_TRANSITIONAL_CONTEXT = """
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIÓN OBLIGATORIA: CÓDIGO NACIONAL DE PROCEDIMIENTOS
+   CIVILES Y FAMILIARES (CNPCF)
+═══════════════════════════════════════════════════════════════
+
+CONTEXTO LEGAL CRÍTICO:
+El 7 de junio de 2023 se publicó en el DOF el Código Nacional de Procedimientos
+Civiles y Familiares (CNPCF), que REEMPLAZA a los códigos procesales civiles
+y familiares de cada entidad federativa.
+
+RÉGIMEN TRANSITORIO:
+El CNPCF NO entra en vigor automáticamente. Cada estado tiene un plazo máximo
+para que su Congreso local emita una DECLARATORIA DE INICIO DE VIGENCIA.
+El plazo máximo es el 1 de abril de 2027.
+
+ESTADOS CON DECLARATORIA EMITIDA (el CNPCF ya se aplica o tiene fecha definida):
+• Aguascalientes, Baja California Sur, Campeche, Chiapas, Chihuahua,
+  Coahuila, Colima, Durango, Estado de México, Guanajuato, Guerrero,
+  Hidalgo, Jalisco, Michoacán, Morelos, Nayarit, Nuevo León,
+  Oaxaca, Puebla, Querétaro, Quintana Roo, San Luis Potosí,
+  Sinaloa, Sonora, Tabasco, Tamaulipas, Tlaxcala, Veracruz,
+  Yucatán, Zacatán
+
+ESTADOS PENDIENTES DE DECLARATORIA (aún aplica su código procesal local):
+• Baja California, Ciudad de México
+
+INSTRUCCIONES PARA TU RESPUESTA:
+1. SIEMPRE menciona el CNPCF cuando la consulta involucre procedimientos civiles o familiares
+2. Indica si el estado del usuario YA tiene declaratoria o si aún está pendiente
+3. Si el estado YA tiene declaratoria:
+   → Cita el CNPCF como marco procesal aplicable (no el código estatal antiguo)
+   → Aclara que el código procesal estatal anterior fue reemplazado
+4. Si el estado AÚN NO tiene declaratoria:
+   → Indica que sigue aplicando el código procesal estatal vigente
+   → Advierte que el CNPCF entrará en vigor a más tardar el 1 de abril de 2027
+5. En AMBOS casos, incluye una nota sobre esta transición legislativa
+6. Si no sabes el estado del usuario, pregunta o advierte en general
+
+FORMATO OBLIGATORIO — Incluir al inicio de la respuesta:
+> ⚠️ **Nota sobre el CNPCF**: [Estado] [ya emitió / aún no ha emitido] la
+> declaratoria de inicio de vigencia del Código Nacional de Procedimientos
+> Civiles y Familiares. [Consecuencia para el caso concreto].
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CoIDH — DETECCIÓN Y FORMATO DE RESPUESTA
+# ══════════════════════════════════════════════════════════════════════════════
+
+_COIDH_KEYWORDS = {
+    "corte interamericana", "cidh", "coidh", "comisión interamericana",
+    "convención americana", "pacto de san josé", "cadh",
+    "derechos humanos", "bloque de constitucionalidad",
+    "control de convencionalidad", "serie c", "cuadernillo",
+    "desaparición forzada", "tortura", "debido proceso interamericano",
+    "reparación integral", "víctimas", "medidas provisionales",
+    "opinión consultiva", "artículo 1 convencional",
+    "artículo 2 convencional", "artículo 8 convencional",
+    "artículo 25 convencional", "pro persona",
+}
+
+
+def is_coidh_query(query: str) -> bool:
+    """
+    Detecta si la consulta involucra jurisprudencia interamericana o DDHH.
+    Umbral: 1 keyword basta (los términos son muy específicos).
+    """
+    query_lower = query.lower()
+    return any(kw in query_lower for kw in _COIDH_KEYWORDS)
+
+
+CIDH_RESPONSE_INSTRUCTION = """
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIÓN: FORMATO PARA JURISPRUDENCIA INTERAMERICANA
+═══════════════════════════════════════════════════════════════
+
+Cuando el contexto recuperado contenga documentos de la Corte Interamericana
+de Derechos Humanos (Cuadernillos de Jurisprudencia), SIGUE ESTAS REGLAS:
+
+1. AGRUPACIÓN POR CASO: Cita los casos agrupados por nombre, no por documento.
+   ✅ Correcto: "Caso Radilla Pacheco Vs. México (Serie C No. 209)"
+   ❌ Incorrecto: "Según el Cuadernillo No. 6..."
+
+2. INCLUYE SERIE C: Siempre incluye el número de Serie C cuando esté disponible
+   en los metadatos o texto del contexto.
+
+3. ESTRUCTURA: Organiza la respuesta así:
+   a) Primero el estándar interamericano general sobre el tema
+   b) Luego los casos específicos que lo desarrollan
+   c) Finalmente, la aplicación al caso mexicano (control de convencionalidad)
+
+4. CITA CORRECTA: Usa el formato estándar:
+   > Corte IDH. Caso [Nombre] Vs. [Estado]. [Tipo]. Sentencia de [fecha].
+   > Serie C No. [número]. [Doc ID: uuid]
+
+5. CONEXIÓN CON DERECHO INTERNO: Cuando sea pertinente, conecta la
+   jurisprudencia interamericana con:
+   - Art. 1° CPEUM (principio pro persona)
+   - Tesis de la SCJN sobre control de convencionalidad
+   - Jurisprudencia nacional complementaria del contexto
+
+6. NUNCA inventes casos, números de Serie C, o sentencias que no estén
+   en el contexto proporcionado.
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # DOGMATIC QUERY EXPANSION - LLM-Based Legal Term Extraction
 # ══════════════════════════════════════════════════════════════════════════════
 
