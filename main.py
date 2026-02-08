@@ -999,6 +999,9 @@ class SearchResult(BaseModel):
     origen: Optional[str] = None
     jurisdiccion: Optional[str] = None
     entidad: Optional[str] = None
+    caso: Optional[str] = None
+    tema: Optional[str] = None
+    tipo: Optional[str] = None
     silo: str
 
 
@@ -1540,6 +1543,74 @@ INSTRUCCIONES OBLIGATORIAS PARA ESTA RESPUESTA:
 """
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# DETECCIÓN DE CONSULTAS SOBRE JURISPRUDENCIA CoIDH
+# ══════════════════════════════════════════════════════════════════════════════
+
+COIDH_KEYWORDS = {
+    "corte interamericana", "coidh", "cidh", "comisión interamericana",
+    "convención americana", "cadh", "pacto de san josé",
+    "caso vs", "caso contra", "vs.", "sentencia interamericana",
+    "jurisprudencia interamericana", "precedente interamericano",
+    "cuadernillo", "cuadernillos",
+    "control de convencionalidad", "estándar interamericano",
+    "reparación integral", "medidas provisionales",
+    "desaparición forzada", "tortura coidh",
+    "opinión consultiva", "oc-",
+}
+
+
+def is_coidh_query(query: str) -> bool:
+    """
+    Detecta si la consulta busca jurisprudencia de la Corte Interamericana.
+    Activa instrucciones especiales para agrupar fragmentos por caso.
+    """
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in COIDH_KEYWORDS)
+
+
+CIDH_RESPONSE_INSTRUCTION = """
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIÓN ESPECIAL: JURISPRUDENCIA DE LA CORTE INTERAMERICANA (CoIDH)
+═══════════════════════════════════════════════════════════════
+
+El usuario busca precedentes de la Corte Interamericana de Derechos Humanos.
+Los documentos del contexto con silo="bloque_constitucional" y atributo caso="" contienen
+fragmentos de cuadernillos de jurisprudencia de la CoIDH.
+
+INSTRUCCIONES OBLIGATORIAS:
+
+1. AGRUPA los fragmentos POR CASO. No presentes párrafos sueltos sin identificar el caso.
+   Para cada caso mencionado en el contexto, presenta:
+   
+   ### Corte IDH. Caso [Nombre] Vs. [País]
+   **Sentencia**: [fecha si aparece en el contexto, Serie C No. X]
+   **Tema**: [tema del cuadernillo si está disponible]
+   **Resumen del caso**: [breve descripción de los hechos — 1-2 oraciones basadas en el contexto]
+   
+   > **Párrafo [N]**: "[fragmento relevante del contexto]" [Doc ID: uuid]
+   
+   **Relevancia para tu caso**: [explicar cómo aplica al argumento del usuario]
+
+2. Si el atributo caso="" está vacío pero el texto menciona "Corte IDH. Caso X Vs. Y",
+   EXTRAE el nombre del caso del propio texto y úsalo como encabezado.
+
+3. PRIORIZA casos que involucren a MÉXICO cuando sea relevante para el usuario.
+
+4. CITA SIEMPRE con formato completo:
+   ✓ "Corte IDH. Caso Radilla Pacheco Vs. México. Sentencia de 23 de noviembre de 2009. Serie C No. 209, párr. 338"
+   ✗ "La Corte Interamericana ha señalado..." (SIN citar caso = PROHIBIDO)
+
+5. Si hay fragmentos de OPINIONES CONSULTIVAS, sepáralos:
+   ### Opinión Consultiva OC-X/YY
+   > [contenido]
+
+6. Al final, si aplica, señala al usuario cómo estos precedentes refuerzan su argumento
+   en el contexto del derecho mexicano (control de convencionalidad, Art. 1o CPEUM).
+═══════════════════════════════════════════════════════════════
+"""
+
+
 async def get_dense_embedding(text: str) -> List[float]:
     """Genera embedding denso usando OpenAI"""
     # text-embedding-3-small has 8191 token limit (~30K chars safety margin)
@@ -1604,6 +1675,7 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
     Formatea resultados en XML para inyección de contexto.
     Escapa caracteres HTML para seguridad.
     Trunca documentos largos inteligentemente para evitar exceder límite de tokens.
+    Para documentos de la CoIDH, incluye atributos caso y tema para citas correctas.
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
@@ -1617,9 +1689,17 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
         escaped_ref = html.escape(r.ref or "N/A")
         escaped_origen = html.escape(r.origen or "Desconocido")
         
+        # Atributos extra para jurisprudencia CoIDH
+        extra_attrs = ""
+        if r.tipo and "INTERAMERICANA" in (r.tipo or "").upper():
+            if r.caso and r.caso != "No especificado":
+                extra_attrs += f' caso="{html.escape(r.caso)}"'
+            if r.tema:
+                extra_attrs += f' tema="{html.escape(r.tema)}"'
+        
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
-            f'origen="{escaped_origen}" silo="{r.silo}" score="{r.score:.4f}">\n'
+            f'origen="{escaped_origen}" silo="{r.silo}" score="{r.score:.4f}"{extra_attrs}>\n'
             f'{escaped_texto}\n'
             f'</documento>'
         )
@@ -1822,6 +1902,9 @@ async def hybrid_search_single_silo(
                 origen=payload.get("origen"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
+                caso=payload.get("caso"),
+                tema=payload.get("tema"),
+                tipo=payload.get("tipo"),
                 silo=collection,
             ))
         
@@ -2450,6 +2533,11 @@ async def chat_endpoint(request: ChatRequest):
         if not has_document and not is_drafting and is_procesal_civil_query(last_user_message):
             llm_messages.append({"role": "system", "content": CNPCF_TRANSITIONAL_CONTEXT})
             print("  ⚖️ CNPCF: Inyectando contexto transitorio para consulta procesal civil/familiar")
+        
+        # Inyección condicional: CoIDH para consultas de jurisprudencia interamericana
+        if not has_document and not is_drafting and is_coidh_query(last_user_message):
+            llm_messages.append({"role": "system", "content": CIDH_RESPONSE_INSTRUCTION})
+            print("  🌎 CoIDH: Inyectando instrucciones de agrupación por caso interamericano")
         
         if context_xml:
             llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
