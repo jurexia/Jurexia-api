@@ -284,13 +284,29 @@ SOLO con fuentes del contexto proporcionado.
 PRIORIZA: Jurisprudencia sobre procedimientos LOCALES antes que amparo federal.
 Si no hay jurisprudencia específica, indicar: "No se encontró jurisprudencia específica."
 
-## Análisis y Argumentación
-Razonamiento jurídico desarrollado basado en las fuentes citadas arriba.
+## Análisis Estratégico y Argumentación
+Razonamiento jurídico PROFUNDO basado en las fuentes citadas arriba.
+
+INSTRUCCIONES PARA PROFUNDIDAD ANALÍTICA:
+1. **Contextualización dogmática**: Explica el fundamento teórico/histórico de las normas citadas
+2. **Interpretación sistemática**: Relaciona las fuentes entre sí (Constitución ↔ ley ↔ jurisprudencia)
+3. **Análisis de precedentes**: Si hay jurisprudencia, explica la ratio decidendi y su evolución
+4. **Consideraciones prácticas**: Menciona riesgos, excepciones, puntos de atención procesal
+5. **Argumentación adversarial**: Anticipa contraargumentos y cómo refutarlos
+
 PARA PREGUNTAS PROCESALES: Desarrolla la estrategia DENTRO del procedimiento local.
 El amparo es alternativa FINAL, no primera recomendación.
 
-## Conclusión
-Síntesis práctica con PASOS CONCRETOS basados en las fuentes del contexto.
+## Conclusión y Estrategia
+Síntesis práctica con ESTRATEGIA DETALLADA basada en las fuentes del contexto.
+
+INSTRUCCIONES PARA CONCLUSIÓN ESTRATÉGICA:
+1. **Ruta crítica**: Enumera pasos procesales con artículos aplicables
+2. **Plazos**: Menciona plazos fatales si están en el contexto
+3. **Pruebas**: Sugiere tipos de prueba aplicables al caso
+4. **Alertas**: Señala riesgos de preclusión, caducidad o inadmisibilidad
+5. **Alternativas**: Si hay vías paralelas (conciliación, mediación), mencionarlas
+
 Si falta información del contexto, indica qué términos de búsqueda podrían ayudar.
 """
 
@@ -830,6 +846,102 @@ REGLAS CRÍTICAS:
 5. Usa lenguaje formal pero accesible
 6. Adapta a la jurisdicción seleccionada
 """
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONTEXTUAL SUGGESTIONS SYSTEM
+# ══════════════════════════════════════════════════════════════════════════════
+
+def detect_query_intent(user_query: str) -> list[str]:
+    """
+    Detecta la intención de la consulta para sugerir herramientas de Iurexia.
+    Retorna lista de tool IDs a recomendar.
+    """
+    query_lower = user_query.lower()
+    suggestions = []
+    
+    # Detección: Problema que podría escalar a demanda
+    demanda_keywords = [
+        "demandar", "demanda", "me deben", "no paga", "no pagó", "adeudo",
+        "renta", "arrendamiento", "desalojo", "desocupación",
+        "incumplimiento", "rescisión", "daños", "perjuicios",
+        "cobro", "pensión alimenticia", "alimentos", "divorcio",
+        "custodia", "patria potestad", "reivindicación", "usucapión"
+    ]
+    if any(kw in query_lower for kw in demanda_keywords):
+        suggestions.append("draft_demanda")
+    
+    # Detección: Necesita contrato
+    contrato_keywords = [
+        "contrato", "acuerdo", "convenio", "arrendamiento", "compraventa",
+        "prestación de servicios", "confidencialidad", "comodato",
+        "mutuo", "donación", "fideicomiso", "hipoteca"
+    ]
+    if any(kw in query_lower for kw in contrato_keywords) and "incumpl" not in query_lower:
+        suggestions.append("draft_contrato")
+    
+    # Detección: Análisis de sentencia
+    sentencia_keywords = [
+        "sentencia", "ejecutoriada", "fallo", "resolución", "me fallaron",
+        "me condenaron", "condena", "sentenciaron", "resolvió", "dictó sentencia"
+    ]
+    if any(kw in query_lower for kw in sentencia_keywords):
+        suggestions.append("audit_sentencia")
+    
+    return list(dict.fromkeys(suggestions))  # Remove duplicates while preserving order
+
+
+TOOL_SUGGESTIONS = {
+    "draft_demanda": """
+### ⚖️ Redactar Demanda
+
+¿Necesitas formalizar tu reclamación? Puedo ayudarte a **redactar una demanda completa** con:
+- **Prestaciones** fundamentadas en las fuentes que acabamos de revisar
+- **Hechos** narrados de forma estratégica y cronológica
+- **Pruebas** sugeridas según tu caso
+- **Derecho** aplicable con cita precisa de artículos
+
+👉 **Activa el modo "Redactar Demanda"** en el menú superior y proporciona los detalles de tu caso.
+""",
+    
+    "draft_contrato": """
+### 📝 Redactar Contrato
+
+Si necesitas plasmar este acuerdo por escrito, puedo **generar un contrato profesional** con:
+- **Cláusulas** fundamentadas en las normas citadas arriba
+- **Protecciones** equilibradas para ambas partes
+- **Formato legal** válido para México con estructura completa
+
+👉 **Activa el modo "Redactar Contrato"** en el menú superior y describe el tipo de contrato que necesitas.
+""",
+    
+    "audit_sentencia": """
+### 🔍 Analizar Sentencia (Agente Centinela)
+
+¿Ya tienes una sentencia y quieres evaluarla? El **Agente Centinela** puede:
+- Identificar **fortalezas y debilidades** del fallo
+- Detectar **vicios procesales** o violaciones de derechos
+- Sugerir **fundamentos para recurrir**
+- Verificar **congruencia** con jurisprudencia
+
+👉 **Usa la función "Auditoría de Sentencia"** (menú lateral) y carga tu documento.
+"""
+}
+
+
+def generate_suggestions_block(tool_ids: list[str]) -> str:
+    """
+    Genera el bloque markdown de sugerencias contextuales.
+    Se agrega al final de la respuesta del chat.
+    """
+    if not tool_ids:
+        return ""
+    
+    suggestions_md = "\n\n---\n\n## 🚀 Próximos pasos sugeridos en Iurexia\n\n"
+    for tool_id in tool_ids:
+        suggestions_md += TOOL_SUGGESTIONS.get(tool_id, "")
+    
+    return suggestions_md
+
 
 def get_drafting_prompt(tipo: str, subtipo: str) -> str:
     """Retorna el prompt apropiado según el tipo de documento"""
@@ -2770,6 +2882,13 @@ async def chat_endpoint(request: ChatRequest):
                     if not in_content and reasoning_buffer:
                         yield "\n\n---\n\n*Consulta completada*\n"
                     
+                    # Inyectar sugerencias contextuales al final (solo para consultas normales, no documentos)
+                    if not has_document and not is_drafting:
+                        tool_suggestions = detect_query_intent(last_user_message)
+                        if tool_suggestions:
+                            suggestions_block = generate_suggestions_block(tool_suggestions)
+                            yield suggestions_block
+                    
                     print(f"✅ Respuesta reasoner ({len(reasoning_buffer)} chars reasoning, {len(content_buffer)} chars content)")
                     
                 except Exception as e:
@@ -2813,6 +2932,14 @@ async def chat_endpoint(request: ChatRequest):
                             print(f"⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
                         else:
                             print(f"✅ Validación OK: {validation.valid_count} citas verificadas")
+                    
+                    # Inyectar sugerencias contextuales al final (solo para consultas normales)
+                    if not has_document and not is_drafting:
+                        tool_suggestions = detect_query_intent(last_user_message)
+                        if tool_suggestions:
+                            suggestions_block = generate_suggestions_block(tool_suggestions)
+                            yield suggestions_block
+                            print(f"  💡 Sugerencias agregadas: {', '.join(tool_suggestions)}")
                     
                     print(f"✅ Respuesta chat directa ({len(content_buffer)} chars)")
                     
