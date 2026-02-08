@@ -943,6 +943,119 @@ def generate_suggestions_block(tool_ids: list[str]) -> str:
     return suggestions_md
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1 RAG OPTIMIZATION: QUERY INTELLIGENCE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def detect_query_complexity(query: str) -> str:
+    """
+    Detecta la complejidad de una query jurídica.
+    Retorna: 'simple', 'medium', 'complex'
+    """
+    query_lower = query.lower()
+    
+    # Indicadores de complejidad
+    legal_concepts = [
+        'artículo', 'fracción', 'jurisprudencia', 'tesis', 'contradicción',
+        'amparo', 'recurso', 'excepción', 'agravios', 'conceptos de violación',
+        'procedencia', 'improcedencia', 'sobreseimiento', 'prescripción'
+    ]
+    
+    complex_patterns = [
+        'en caso de',
+        'cuando',
+        'si',
+        'aunque',
+        'pero',
+        'excepto',
+        'sin embargo',
+        'a menos que',
+        'siempre que'
+    ]
+    
+    # Contar indicadores
+    concept_count = sum(1 for concept in legal_concepts if concept in query_lower)
+    pattern_count = sum(1 for pattern in complex_patterns if pattern in query_lower)
+    word_count = len(query.split())
+    
+    # Tiene múltiples prestaciones o preguntas
+    has_multiple_questions = query.count('?') > 1 or query.count(',') > 2
+    
+    # Clasificación
+    if concept_count >= 3 or pattern_count >= 2 or word_count > 50 or has_multiple_questions:
+        return 'complex'
+    elif concept_count >= 1 or pattern_count >= 1 or word_count > 20:
+        return 'medium'
+    else:
+        return 'simple'
+
+
+def adaptive_top_k(query: str, base_top_k: int = 4) -> int:
+    """
+    Ajusta el top_k basado en la complejidad de la query.
+    Simple: 3 chunks (rápido, preciso)
+    Medium: 6 chunks (balance)
+    Complex: 12 chunks (exhaustivo)
+    """
+    complexity = detect_query_complexity(query)
+    
+    if complexity == 'simple':
+        return 3
+    elif complexity == 'medium':
+        return 6
+    else:  # complex
+        return 12
+
+
+async def expand_query_intelligently(query: str, estado: Optional[str] = None) -> str:
+    """
+    Expande una query con sinónimos legales y términos relacionados usando DeepSeek.
+    Mantiene el estado en el query expandido si fue proporcionado.
+    """
+    expansion_prompt = f"""Eres un asistente experto en búsqueda jurídica mexicana.
+
+Tu tarea: Expandir la siguiente consulta con términos jurídicos alternativos, sinónimos legales, y conceptos relacionados que podrían aparecer en documentos legales.
+
+Consulta original: "{query}"
+
+INSTRUCCIONES:
+1. Genera 3-5 términos o frases alternativas que un abogado usaría para buscar lo mismo
+2. Incluye nombres técnicos, sinónimos procesales, y términos del Marco Jurídico
+3. NO inventes información, solo reformula con terminología legal precisa
+4. Formato: lista separada por comas, SIN explicaciones
+
+Ejemplo:
+Consulta: "¿Cuál es la pena por robar?"
+Expansión: robo, hurto, apoderamiento de cosa ajena, delito contra el patrimonio, sanción penal por sustracción
+
+Ahora expande la consulta del usuario. SOLO devuelve los términos, sin más texto:"""
+
+    try:
+        # Usar DeepSeek para expansión rápida
+        response = await deepseek_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[{"role": "user", "content": expansion_prompt}],
+            max_tokens=150,
+            temperature=0.3,  # Baja para consistencia
+        )
+        
+        expansion = response.choices[0].message.content.strip()
+        
+        # Combinar query original con expansión
+        expanded = f"{query} {expansion}"
+        
+        # Si hay estado, asegurarse que está en el query
+        if estado:
+            expanded += f" {estado}"
+        
+        print(f"  🔍 Query expansion: {query[:50]}... → +{len(expansion.split())} términos")
+        return expanded
+        
+    except Exception as e:
+        print(f"  ⚠️ Query expansion falló: {e}, usando original")
+        return query
+
+
 def get_drafting_prompt(tipo: str, subtipo: str) -> str:
     """Retorna el prompt apropiado según el tipo de documento"""
     if tipo == "contrato":
@@ -2777,14 +2890,31 @@ async def chat_endpoint(request: ChatRequest):
                 context_xml = format_results_as_xml(search_results)
                 print(f"  ✓ Encontrados {len(search_results)} documentos relevantes para contrastar")
         else:
-            # Consulta normal
+            # ══════════════════════════════════════════════════════════════════
+            # CONSULTA NORMAL — PHASE 1 RAG OPTIMIZATION
+            # ══════════════════════════════════════════════════════════════════
+            
+            # 1. Detectar complejidad de la query
+            complexity = detect_query_complexity(last_user_message)
+            print(f"  📊 Complejidad detectada: {complexity.upper()}")
+            
+            # 2. Expandir query con sinónimos legales (DeepSeek)
+            expanded_query = await expand_query_intelligently(last_user_message, request.estado)
+            
+            # 3. Calcular top_k adaptativo
+            optimal_top_k = adaptive_top_k(last_user_message, base_top_k=request.top_k)
+            print(f"  🎯 Top-K adaptativo: {optimal_top_k} chunks ({complexity})")
+            
+            # 4. Realizar búsqueda con query optimizada
             search_results = await hybrid_search_all_silos(
-                query=last_user_message,
+                query=expanded_query,
                 estado=request.estado,
-                top_k=request.top_k,
+                top_k=optimal_top_k,
             )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
+            print(f"  ✅ RAG optimizado: {len(search_results)} docs ({complexity} query, {optimal_top_k}K)")
+
         
         # ─────────────────────────────────────────────────────────────────────
         # PASO 2: Construir mensajes para LLM
