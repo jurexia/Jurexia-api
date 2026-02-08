@@ -2424,6 +2424,12 @@ class DocumentResponse(BaseModel):
     entidad: Optional[str] = None
     silo: str
     found: bool = True
+    # Additional fields for jurisprudencia (esp. TCC)
+    tipo_criterio: Optional[str] = None
+    materia: Optional[str] = None
+    instancia: Optional[str] = None
+    tesis_num: Optional[str] = None
+    registro: Optional[str] = None
 
 
 @app.get("/document/{doc_id}", response_model=DocumentResponse)
@@ -2451,11 +2457,16 @@ async def get_document(doc_id: str):
                         id=str(point.id),
                         texto=payload.get("texto", payload.get("text", "Contenido no disponible")),
                         ref=payload.get("ref", payload.get("referencia", None)),
-                        origen=payload.get("origen", payload.get("fuente", None)),
-                        jurisdiccion=payload.get("jurisdiccion", None),
+                        origen=payload.get("origen", payload.get("fuente", None)),                        jurisdiccion=payload.get("jurisdiccion", None),
                         entidad=payload.get("entidad", payload.get("estado", None)),
                         silo=silo_name,
                         found=True,
+                        # TCC metadata
+                        tipo_criterio=payload.get("tipo_criterio", None),
+                        materia=payload.get("materia", None),
+                        instancia=payload.get("instancia", None),
+                        tesis_num=payload.get("tesis_num", None),
+                        registro=payload.get("registro", None),
                     )
             except Exception:
                 # ID no encontrado en este silo, continuar
