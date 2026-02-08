@@ -2553,88 +2553,124 @@ async def chat_endpoint(request: ChatRequest):
             llm_messages.append({"role": msg.role, "content": msg.content})
         
         # ─────────────────────────────────────────────────────────────────────
-        # PASO 3: Generar respuesta con razonamiento visible
+        # PASO 3: Generar respuesta — Estrategia Híbrida
         # ─────────────────────────────────────────────────────────────────────
+        # deepseek-reasoner: Solo para documentos adjuntos (análisis profundo)
+        # deepseek-chat:     Para consultas normales (streaming directo, 12x más rápido)
         
-        # Determinar mensaje de inicio y header final según el tipo de consulta
-        if has_document:
+        use_reasoner = has_document  # Solo documentos usan el modelo de razonamiento
+        
+        if use_reasoner:
+            selected_model = REASONER_MODEL
             start_message = "🧠 **Analizando documento...**\n\n"
             final_header = "## ⚖️ Análisis Legal\n\n"
             max_tokens = 16000
         else:
-            start_message = "🧠 **Consultando...**\n\n"
-            final_header = "## ⚖️ Respuesta Legal\n\n"
+            selected_model = CHAT_MODEL
             max_tokens = 8000
         
-        async def generate_reasoning_stream() -> AsyncGenerator[str, None]:
-            """Stream con razonamiento visible para todas las consultas"""
-            try:
-                # Indicador de inicio
-                yield start_message
-                yield "💭 *Proceso de razonamiento:*\n\n> "
-                
-                reasoning_buffer = ""
-                content_buffer = ""
-                in_content = False
-                
-                stream = await deepseek_client.chat.completions.create(
-                    model=REASONER_MODEL,
-                    messages=llm_messages,
-                    stream=True,
-                    max_tokens=max_tokens,
-                )
-                
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta:
-                        delta = chunk.choices[0].delta
-                        
-                        # Verificar si hay reasoning_content
-                        reasoning_content = getattr(delta, 'reasoning_content', None)
-                        content = getattr(delta, 'content', None)
-                        
-                        if reasoning_content:
-                            # Streaming del razonamiento en formato blockquote
-                            reasoning_buffer += reasoning_content
-                            # Convertir saltos de línea a formato blockquote
-                            formatted = reasoning_content.replace('\n', '\n> ')
-                            yield formatted
-                        
-                        if content:
-                            # Transición a contenido final
-                            if not in_content:
-                                in_content = True
-                                yield f"\n\n---\n\n{final_header}"
-                            content_buffer += content
-                            yield content
-                
-                # Si no hubo contenido final pero sí razonamiento
-                if not in_content and reasoning_buffer:
-                    yield "\n\n---\n\n*Consulta completada*\n"
-                
-                # Validar citas para consultas sin documento (tienen doc_id_map poblado)
-                if not has_document and doc_id_map:
-                    validation = validate_citations(content_buffer, doc_id_map)
-                    if validation.invalid_count > 0:
-                        print(f"⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
-                    else:
-                        print(f"✅ Validación OK: {validation.valid_count} citas verificadas")
-                
-                # Log para debug
-                print(f"✅ Respuesta con razonamiento ({len(reasoning_buffer)} chars reasoning, {len(content_buffer)} chars content)")
-                
-            except Exception as e:
-                yield f"\n\n❌ Error: {str(e)}"
+        print(f"  🤖 Modelo seleccionado: {selected_model} ({'documento' if use_reasoner else 'consulta'})")
         
-        return StreamingResponse(
-            generate_reasoning_stream(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-                "X-Model-Used": "deepseek-reasoner",
-            },
-        )
+        if use_reasoner:
+            # ── MODO REASONER: Razonamiento visible + respuesta ──────────────
+            async def generate_reasoning_stream() -> AsyncGenerator[str, None]:
+                """Stream con razonamiento visible para análisis de documentos"""
+                try:
+                    yield start_message
+                    yield "💭 *Proceso de razonamiento:*\n\n> "
+                    
+                    reasoning_buffer = ""
+                    content_buffer = ""
+                    in_content = False
+                    
+                    stream = await deepseek_client.chat.completions.create(
+                        model=REASONER_MODEL,
+                        messages=llm_messages,
+                        stream=True,
+                        max_tokens=max_tokens,
+                    )
+                    
+                    async for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta:
+                            delta = chunk.choices[0].delta
+                            
+                            reasoning_content = getattr(delta, 'reasoning_content', None)
+                            content = getattr(delta, 'content', None)
+                            
+                            if reasoning_content:
+                                reasoning_buffer += reasoning_content
+                                formatted = reasoning_content.replace('\n', '\n> ')
+                                yield formatted
+                            
+                            if content:
+                                if not in_content:
+                                    in_content = True
+                                    yield f"\n\n---\n\n{final_header}"
+                                content_buffer += content
+                                yield content
+                    
+                    if not in_content and reasoning_buffer:
+                        yield "\n\n---\n\n*Consulta completada*\n"
+                    
+                    print(f"✅ Respuesta reasoner ({len(reasoning_buffer)} chars reasoning, {len(content_buffer)} chars content)")
+                    
+                except Exception as e:
+                    yield f"\n\n❌ Error: {str(e)}"
+            
+            return StreamingResponse(
+                generate_reasoning_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                    "X-Model-Used": "deepseek-reasoner",
+                },
+            )
+        else:
+            # ── MODO CHAT: Streaming directo token por token ─────────────────
+            async def generate_direct_stream() -> AsyncGenerator[str, None]:
+                """Stream directo sin razonamiento — typing progresivo"""
+                try:
+                    content_buffer = ""
+                    
+                    stream = await deepseek_client.chat.completions.create(
+                        model=CHAT_MODEL,
+                        messages=llm_messages,
+                        stream=True,
+                        max_tokens=max_tokens,
+                    )
+                    
+                    async for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta:
+                            content = chunk.choices[0].delta.content
+                            if content:
+                                content_buffer += content
+                                yield content
+                    
+                    # Validar citas
+                    if doc_id_map:
+                        validation = validate_citations(content_buffer, doc_id_map)
+                        if validation.invalid_count > 0:
+                            print(f"⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
+                        else:
+                            print(f"✅ Validación OK: {validation.valid_count} citas verificadas")
+                    
+                    print(f"✅ Respuesta chat directa ({len(content_buffer)} chars)")
+                    
+                except Exception as e:
+                    yield f"\n\n❌ Error: {str(e)}"
+            
+            return StreamingResponse(
+                generate_direct_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                    "X-Model-Used": "deepseek-chat",
+                },
+            )
     
     except HTTPException:
         raise
