@@ -107,6 +107,7 @@ SYSTEM_COVERAGE = {
         "Código Civil Federal",
         "Código de Comercio",
         "Código Nacional de Procedimientos Penales",
+        "Código Nacional de Procedimientos Civiles y Familiares (CNPCF)",
         "Código Fiscal de la Federación",
         "Ley Federal del Trabajo",
         "Ley de Amparo",
@@ -140,6 +141,7 @@ El sistema JUREXIA cuenta, verificada y físicamente en su base de datos, con:
 - Constitución Política de los Estados Unidos Mexicanos (CPEUM)
 - Código Penal Federal, Código Civil Federal, Código de Comercio
 - Código Nacional de Procedimientos Penales
+- Código Nacional de Procedimientos Civiles y Familiares (CNPCF) — vigencia gradual hasta 1/abr/2027
 - Ley Federal del Trabajo, Ley de Amparo, Ley General de Salud, entre otras
 
 🌍 TRATADOS INTERNACIONALES:
@@ -215,7 +217,8 @@ JERARQUÍA PARA CONSULTAS ESTATALES:
 1° Código sustantivo/procesal del ESTADO mencionado
 2° Jurisprudencia sobre procedimientos LOCALES
 3° Leyes federales aplicables supletoriamente
-4° Amparo (solo si agotó vías locales o pregunta específicamente)
+4° CPEUM y Tratados Internacionales aplicables (SIEMPRE incluirlos si están en el contexto)
+5° Amparo (solo si agotó vías locales o pregunta específicamente)
 
 JERARQUÍA PARA CONSULTAS FEDERALES/DDHH:
 1° CPEUM (Constitución Política de los Estados Unidos Mexicanos)
@@ -267,7 +270,9 @@ Breve definición de la figura jurídica consultada.
 
 ## Marco Constitucional y Convencional
 > "Artículo X.- [contenido exacto del contexto]" — *CPEUM* [Doc ID: uuid]
-SOLO si hay artículos constitucionales en el contexto. Si no hay, omitir sección.
+SIEMPRE incluir esta sección si hay artículos constitucionales o de tratados internacionales en el contexto.
+Incluso en consultas estatales, si la Constitución o tratados aplican, CÍTALOS.
+Si no hay ninguno en el contexto, omitir la sección.
 
 ## Fundamento Legal
 > "Artículo X.- [contenido]" — *[Ley/Código]* [Doc ID: uuid]
@@ -1286,20 +1291,26 @@ def expand_legal_query(query: str) -> str:
 # DOGMATIC QUERY EXPANSION - LLM-Based Legal Term Extraction
 # ══════════════════════════════════════════════════════════════════════════════
 
-DOGMATIC_EXPANSION_PROMPT = """Actúa como un experto penalista mexicano. Tu único trabajo es identificar el concepto jurídico de la consulta y devolver sus elementos normativos, verbos rectores y términos técnicos según la dogmática penal mexicana.
+DOGMATIC_EXPANSION_PROMPT = """Actúa como un experto jurista mexicano. Tu único trabajo es identificar el concepto jurídico de la consulta y devolver sus elementos normativos, verbos rectores y términos técnicos según la dogmática jurídica mexicana en TODAS las ramas del derecho.
 
 REGLAS ESTRICTAS:
 1. SOLO devuelve palabras clave separadas por espacio
 2. NO incluyas explicaciones ni puntuación
 3. Incluye sinónimos técnicos del derecho mexicano
-4. Prioriza términos que aparecerían en códigos penales
+4. Prioriza términos que aparecerían en códigos, leyes y tratados internacionales
+5. Si la consulta toca temas constitucionales, incluye "CPEUM constitución artículo"
+6. Si la consulta toca procedimiento civil o familiar, incluye "código nacional procedimientos civiles familiares CNPCF"
 
 EJEMPLOS:
-- Entrada: "Delito de violación" -> Salida: "violación cópula acceso carnal delito sexual"
-- Entrada: "Robo" -> Salida: "robo apoderamiento cosa mueble ajena sin consentimiento"  
-- Entrada: "Homicidio" -> Salida: "homicidio privar vida muerte lesiones mortales"
-- Entrada: "Fraude" -> Salida: "fraude engaño error lucro indebido perjuicio patrimonial"
-- Entrada: "Amparo" -> Salida: "amparo garantías acto reclamado queja suspensión"
+- Entrada: "Delito de violación" -> Salida: "violación cópula acceso carnal delito sexual código penal"
+- Entrada: "Robo" -> Salida: "robo apoderamiento cosa mueble ajena sin consentimiento"
+- Entrada: "Divorcio" -> Salida: "divorcio disolución matrimonial convenio custodia alimentos guarda régimen familiar CNPCF"
+- Entrada: "Demanda civil por incumplimiento de contrato" -> Salida: "incumplimiento contrato rescisión daños perjuicios obligaciones código civil procedimiento civil CNPCF"
+- Entrada: "Pensión alimenticia" -> Salida: "alimentos pensión alimenticia obligación alimentaria manutención código familiar CNPCF"
+- Entrada: "Amparo" -> Salida: "amparo garantías acto reclamado queja suspensión ley de amparo CPEUM"
+- Entrada: "Despido injustificado" -> Salida: "despido injustificado indemnización reinstalación salarios caídos ley federal trabajo artículo 123 CPEUM"
+- Entrada: "Compraventa de inmueble" -> Salida: "compraventa inmueble enajenación transmisión dominio escritura código civil contrato"
+- Entrada: "Derechos humanos tortura" -> Salida: "tortura tratos crueles derechos humanos CPEUM artículo 1 convención americana CADH pro persona"
 
 Ahora procesa esta consulta y devuelve SOLO las palabras clave:"""
 
@@ -1440,6 +1451,93 @@ def is_ddhh_query(query: str) -> bool:
     """
     query_lower = query.lower()
     return any(keyword in query_lower for keyword in DDHH_KEYWORDS)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DETECCIÓN DE CONSULTAS PROCESALES CIVILES/FAMILIARES (CNPCF)
+# ══════════════════════════════════════════════════════════════════════════════
+
+PROCESAL_CIVIL_KEYWORDS = {
+    # Procedimiento civil general
+    "procedimiento civil", "proceso civil", "juicio civil", "juicio ordinario civil",
+    "demanda civil", "contestación de demanda", "emplazamiento", "audiencia previa",
+    "código procesal civil", "código de procedimientos civiles",
+    "juicio oral civil", "juicio ejecutivo", "vía ordinaria civil",
+    # Procedimiento familiar
+    "juicio familiar", "procedimiento familiar", "juicio oral familiar",
+    "divorcio", "custodia", "guardia y custodia", "guarda",
+    "pensión alimenticia", "alimentos", "régimen de visitas", "convivencia",
+    "patria potestad", "adopción", "reconocimiento de paternidad",
+    "violencia familiar", "medidas de protección familiar",
+    # Recursos procesales civiles/familiares
+    "apelación civil", "recurso de apelación", "recurso de revocación",
+    "incidente", "excepción procesal", "reconvención",
+    "pruebas en juicio civil", "ofrecimiento de pruebas", "desahogo de pruebas",
+    "alegatos", "sentencia civil", "ejecución de sentencia",
+    # CNPCF directamente
+    "cnpcf", "código nacional de procedimientos civiles",
+    "código nacional de procedimientos civiles y familiares",
+    # Términos procesales clave
+    "contestar demanda", "plazo para contestar", "término para contestar",
+    "emplazar", "notificación personal", "exhorto",
+    "medidas cautelares civiles", "embargo", "secuestro de bienes",
+}
+
+
+def is_procesal_civil_query(query: str) -> bool:
+    """
+    Detecta si la consulta involucra procedimientos civiles o familiares.
+    Esto activa la inyección del contexto del CNPCF y su artículo transitorio.
+    """
+    query_lower = query.lower()
+    return any(keyword in query_lower for keyword in PROCESAL_CIVIL_KEYWORDS)
+
+
+CNPCF_TRANSITIONAL_CONTEXT = """
+═══════════════════════════════════════════════════════════════
+   INSTRUCCIÓN ESPECIAL: CÓDIGO NACIONAL DE PROCEDIMIENTOS CIVILES Y FAMILIARES (CNPCF)
+═══════════════════════════════════════════════════════════════
+
+CONTEXTO CRÍTICO: México publicó el Código Nacional de Procedimientos Civiles y Familiares (CNPCF)
+que UNIFICA los procedimientos civiles y familiares en todo el país. Sin embargo, su entrada en vigor
+es GRADUAL según el Artículo Segundo Transitorio del decreto:
+
+"La aplicación del CNPCF entrará en vigor gradualmente:
+- En el Orden Federal: mediante Declaratoria del Congreso de la Unión, previa solicitud del PJF.
+- En Entidades Federativas: mediante Declaratoria del Congreso Local, previa solicitud del PJ estatal.
+- PLAZO MÁXIMO: 1o. de abril de 2027 (entrada automática si no hay Declaratoria).
+- Entre la Declaratoria y la entrada en vigor deben mediar máximo 120 días naturales."
+
+INSTRUCCIONES OBLIGATORIAS PARA ESTA RESPUESTA:
+
+1. PRESENTA PRIMERO el fundamento del CNPCF si existe en el contexto recuperado.
+   Advierte al usuario: "El Código Nacional de Procedimientos Civiles y Familiares (CNPCF) aplica
+   si en su entidad ya se emitió la Declaratoria de entrada en vigor del Congreso Local.
+   Verifique si su estado ya adoptó el CNPCF."
+
+2. PRESENTA TAMBIÉN el fundamento del Código de Procedimientos Civiles ESTATAL que aparezca
+   en el contexto. Esto es indispensable porque en estados donde el CNPCF aún NO está vigente,
+   el código procesal local sigue siendo la norma aplicable.
+
+3. ESTRUCTURA la respuesta con AMBAS fuentes claramente diferenciadas:
+   
+   ### Según el CNPCF (si ya es vigente en su estado)
+   > [Artículos del CNPCF del contexto]
+   
+   ### Según el Código de Procedimientos Civiles de [Estado]
+   > [Artículos del código estatal del contexto]
+   
+   ### ⚠️ Nota sobre vigencia
+   > Verifique si su entidad federativa ya emitió la Declaratoria de entrada en vigor
+   > del CNPCF ante el Congreso Local. El plazo máximo es el 1o. de abril de 2027.
+
+4. Si el contexto NO contiene artículos del CNPCF, responde con el código procesal estatal
+   y menciona que el CNPCF puede estar vigente en la entidad del usuario.
+
+5. Si el contexto NO contiene artículos del código procesal estatal, responde con el CNPCF
+   y advierte que el código estatal aún podría ser aplicable si no hay Declaratoria.
+═══════════════════════════════════════════════════════════════
+"""
 
 
 async def get_dense_embedding(text: str) -> List[float]:
@@ -1836,11 +1934,11 @@ async def hybrid_search_all_silos(
         min_estatales = min(2, len(estatales))             
     else:
         # Modo estándar: Balance entre todos los silos
-        # INCREASED estatales from 5 to 12 for better recall on state-specific queries
-        # This ensures important short articles like "Art 2280 interés legal = 20%" appear
-        min_constitucional = min(5, len(constitucional))   
+        # INCREASED constitucional and federales for more comprehensive responses
+        # Ensures Constitution, Treaties, and Federal legislation always accompany state results
+        min_constitucional = min(7, len(constitucional))   
         min_jurisprudencia = min(4, len(jurisprudencia))   
-        min_federales = min(5, len(federales))             
+        min_federales = min(6, len(federales))             
         min_estatales = min(5, len(estatales))             
     
     merged = []
@@ -2347,6 +2445,11 @@ async def chat_endpoint(request: ChatRequest):
         # Inyección de Contexto Global: Inventario del Sistema
         # Esto da al modelo "Scope Awareness" para responder preguntas de cobertura
         llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
+        
+        # Inyección condicional: CNPCF para consultas procesales civiles/familiares
+        if not has_document and not is_drafting and is_procesal_civil_query(last_user_message):
+            llm_messages.append({"role": "system", "content": CNPCF_TRANSITIONAL_CONTEXT})
+            print("  ⚖️ CNPCF: Inyectando contexto transitorio para consulta procesal civil/familiar")
         
         if context_xml:
             llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
