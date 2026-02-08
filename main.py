@@ -1339,6 +1339,71 @@ async def expand_legal_query_llm(query: str) -> str:
         return expand_legal_query(query)
 
 
+def extract_legal_citations(text: str) -> List[str]:
+    """
+    Extract specific legal citations from sentencia text for targeted RAG searches.
+    Returns a list of search queries derived from:
+    - Tesis/Jurisprudencia numbers (e.g., '2a./J. 58/2010', 'P. XXXIV/96')
+    - Article references with law names (e.g., 'artículo 802 del Código Civil')
+    - Registro numbers (e.g., 'Registro 200609')
+    """
+    import re
+    citations = []
+    seen = set()
+    
+    # Pattern 1: Tesis numbers — e.g. "2a./J. 58/2010", "P./J. 11/2015", "1a. XII/2015"
+    tesis_pattern = re.compile(
+        r'(?:(?:1a|2a|P)\.?(?:/J)?[.]?\s*(?:[IVXLCDM]+|\d+)/\d{2,4})',
+        re.IGNORECASE
+    )
+    for match in tesis_pattern.finditer(text):
+        tesis = match.group().strip()
+        if tesis not in seen and len(tesis) > 4:
+            seen.add(tesis)
+            citations.append(tesis)
+    
+    # Pattern 2: Contradicción de tesis — e.g. "contradicción de tesis 204/2014"
+    ct_pattern = re.compile(
+        r'contradicci[oó]n\s+(?:de\s+)?tesis\s+(\d+/\d{4})',
+        re.IGNORECASE
+    )
+    for match in ct_pattern.finditer(text):
+        ct = f"contradicción de tesis {match.group(1)}"
+        if ct not in seen:
+            seen.add(ct)
+            citations.append(ct)
+    
+    # Pattern 3: Specific article + law name — e.g. "artículo 802 del Código Civil"
+    art_pattern = re.compile(
+        r'art[íi]culos?\s+(\d{1,4}(?:\s*,\s*\d{1,4})*)\s+(?:del?\s+)?'
+        r'((?:C[oó]digo|Ley|Constituci[oó]n|Reglamento)\s+[\w\s]{5,40})',
+        re.IGNORECASE
+    )
+    for match in art_pattern.finditer(text):
+        arts = match.group(1)
+        law = match.group(2).strip()
+        # Only take first article number to keep query focused
+        first_art = arts.split(',')[0].strip()
+        query = f"artículo {first_art} {law}"
+        if query not in seen:
+            seen.add(query)
+            citations.append(query)
+    
+    # Pattern 4: Registro numbers — e.g. "Registro 200609", "registro digital: 2008257"
+    reg_pattern = re.compile(
+        r'registro\s+(?:digital:?\s+)?(\d{5,7})',
+        re.IGNORECASE
+    )
+    for match in reg_pattern.finditer(text):
+        reg = match.group(1)
+        query = f"Registro {reg}"
+        if query not in seen:
+            seen.add(query)
+            citations.append(query)
+    
+    return citations
+
+
 # Términos que indican query sobre derechos humanos
 DDHH_KEYWORDS = {
     # Derechos fundamentales
@@ -2180,29 +2245,80 @@ async def chat_endpoint(request: ChatRequest):
             context_xml = format_results_as_xml(search_results)
             print(f"  ✓ Encontrados {len(search_results)} documentos para fundamentar redacción")
         elif has_document:
-            # Para documentos: extraer términos clave y buscar contexto relevante
-            print("📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
+            # Detect sentencia vs generic document
+            is_sentencia = "AUDITAR_SENTENCIA" in last_user_message or "SENTENCIA_INICIO" in last_user_message
             
-            # Extraer los primeros 2000 caracteres del contenido para buscar términos relevantes
+            # Extract document content from markers
             doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
             if doc_start_idx == -1:
                 doc_start_idx = last_user_message.find("<!-- SENTENCIA_INICIO -->")
             if doc_start_idx != -1:
-                doc_content = last_user_message[doc_start_idx:doc_start_idx + 3000]
+                doc_content = last_user_message[doc_start_idx:]
             else:
-                doc_content = last_user_message[:2000]
+                doc_content = last_user_message
             
-            # Crear query de búsqueda basada en términos legales del documento
-            search_query = f"análisis jurídico: {doc_content[:1500]}"
-            
-            search_results = await hybrid_search_all_silos(
-                query=search_query,
-                estado=request.estado,
-                top_k=15,  # Más resultados para documentos
-            )
-            doc_id_map = build_doc_id_map(search_results)
-            context_xml = format_results_as_xml(search_results)
-            print(f"  ✓ Encontrados {len(search_results)} documentos relevantes para contrastar")
+            if is_sentencia:
+                # ── SENTENCIA MODE: Multi-query citation extraction ──
+                print("⚖️ Sentencia detectada — extrayendo citas para búsqueda multi-query")
+                
+                # 1. Extract specific citations from the full sentencia text
+                citations = extract_legal_citations(doc_content)
+                print(f"  📑 Citas extraídas: {len(citations)}")
+                for i, c in enumerate(citations[:10]):
+                    print(f"    [{i+1}] {c}")
+                
+                # 2. Base search: general context from beginning of document
+                base_query = f"análisis jurídico: {doc_content[:1500]}"
+                base_task = hybrid_search_all_silos(
+                    query=base_query,
+                    estado=request.estado,
+                    top_k=10,
+                )
+                
+                # 3. Targeted searches per citation (parallel, max 6)
+                citation_tasks = []
+                for citation in citations[:6]:
+                    citation_tasks.append(
+                        hybrid_search_all_silos(
+                            query=citation,
+                            estado=request.estado,
+                            top_k=5,
+                        )
+                    )
+                
+                # 4. Run all searches in parallel
+                all_tasks = [base_task] + citation_tasks
+                all_results_raw = await asyncio.gather(*all_tasks)
+                
+                # 5. Merge and deduplicate
+                seen_ids = set()
+                search_results = []
+                for result_list in all_results_raw:
+                    for r in result_list:
+                        if r.id not in seen_ids:
+                            seen_ids.add(r.id)
+                            search_results.append(r)
+                
+                search_results.sort(key=lambda x: x.score, reverse=True)
+                search_results = search_results[:40]  # Top 40 for sentencia analysis
+                
+                doc_id_map = build_doc_id_map(search_results)
+                context_xml = format_results_as_xml(search_results)
+                print(f"  ✓ {len(search_results)} documentos únicos recuperados (multi-query)")
+            else:
+                # ── GENERIC DOCUMENT: existing logic ──
+                print("📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
+                
+                search_query = f"análisis jurídico: {doc_content[:1500]}"
+                
+                search_results = await hybrid_search_all_silos(
+                    query=search_query,
+                    estado=request.estado,
+                    top_k=15,
+                )
+                doc_id_map = build_doc_id_map(search_results)
+                context_xml = format_results_as_xml(search_results)
+                print(f"  ✓ Encontrados {len(search_results)} documentos relevantes para contrastar")
         else:
             # Consulta normal
             search_results = await hybrid_search_all_silos(
