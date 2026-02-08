@@ -1313,12 +1313,14 @@ async def expand_legal_query_llm(query: str) -> str:
     - Lenguaje coloquial del usuario: "violación"
     - Terminología técnica del legislador: "cópula"
     """
+    # Truncate to stay within LLM limits for query expansion
+    query_for_expansion = query[:6000]
     try:
         response = await deepseek_client.chat.completions.create(
             model="deepseek-chat",  # Modelo rápido, no reasoner
             messages=[
                 {"role": "system", "content": DOGMATIC_EXPANSION_PROMPT},
-                {"role": "user", "content": query}
+                {"role": "user", "content": query_for_expansion}
             ],
             temperature=0,  # Determinista
             max_tokens=100,  # Solo necesitamos palabras clave
@@ -1377,6 +1379,8 @@ def is_ddhh_query(query: str) -> bool:
 
 async def get_dense_embedding(text: str) -> List[float]:
     """Genera embedding denso usando OpenAI"""
+    # text-embedding-3-small has 8191 token limit (~30K chars safety margin)
+    text = text[:30000]
     response = await openai_client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=text,
@@ -2131,8 +2135,13 @@ async def chat_endpoint(request: ChatRequest):
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No se encontró mensaje del usuario")
     
-    # Detectar si hay documento adjunto
-    has_document = "DOCUMENTO ADJUNTO:" in last_user_message or "DOCUMENTO_INICIO" in last_user_message
+    # Detectar si hay documento adjunto (incluye sentencias enviadas desde el frontend)
+    has_document = (
+        "DOCUMENTO ADJUNTO:" in last_user_message
+        or "DOCUMENTO_INICIO" in last_user_message
+        or "SENTENCIA_INICIO" in last_user_message
+        or "AUDITAR_SENTENCIA" in last_user_message
+    )
     
     # Detectar si es una solicitud de redacción de documento
     is_drafting = "[REDACTAR_DOCUMENTO]" in last_user_message
@@ -2176,6 +2185,8 @@ async def chat_endpoint(request: ChatRequest):
             
             # Extraer los primeros 2000 caracteres del contenido para buscar términos relevantes
             doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
+            if doc_start_idx == -1:
+                doc_start_idx = last_user_message.find("<!-- SENTENCIA_INICIO -->")
             if doc_start_idx != -1:
                 doc_content = last_user_message[doc_start_idx:doc_start_idx + 3000]
             else:
