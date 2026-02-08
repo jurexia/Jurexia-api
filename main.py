@@ -1461,6 +1461,9 @@ def is_ddhh_query(query: str) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 PROCESAL_CIVIL_KEYWORDS = {
+    # Materia civil/familiar (expresiones generales)
+    "materia civil", "materia familiar", "en civil", "en lo civil",
+    "derecho procesal civil", "derecho procesal familiar",
     # Procedimiento civil general
     "procedimiento civil", "proceso civil", "juicio civil", "juicio ordinario civil",
     "demanda civil", "contestación de demanda", "emplazamiento", "audiencia previa",
@@ -1480,9 +1483,12 @@ PROCESAL_CIVIL_KEYWORDS = {
     # CNPCF directamente
     "cnpcf", "código nacional de procedimientos civiles",
     "código nacional de procedimientos civiles y familiares",
-    # Términos procesales clave
+    # Notificaciones y plazos (términos procesales clave)
+    "notificación", "notificaciones", "notificación personal",
+    "surten efectos", "surtir efectos",
+    "plazo procesal", "plazos procesales", "término procesal", "términos procesales",
     "contestar demanda", "plazo para contestar", "término para contestar",
-    "emplazar", "notificación personal", "exhorto",
+    "emplazar", "exhorto",
     "medidas cautelares civiles", "embargo", "secuestro de bienes",
 }
 
