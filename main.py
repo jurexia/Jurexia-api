@@ -1598,11 +1598,13 @@ _PROCESAL_CIVIL_KEYWORDS = {
     "sentencia", "recurso", "apelación", "casación", "amparo directo",
     "ejecución de sentencia", "embargo", "remate", "incidente",
     "medida cautelar", "medidas provisionales",
-    # Materias civiles
+    # Materias civiles - AMPLIADO
     "arrendamiento", "renta", "rescisión", "contrato", "cobro",
     "daños y perjuicios", "responsabilidad civil", "prescripción",
     "usucapión", "reivindicación", "interdicto", "posesión",
     "compraventa", "hipoteca", "fianza", "obligaciones",
+    "desalojo", "desahucio",  # ⬅️ AGREGADO para detectar queries de desalojo
+    "lanzamiento", "desocupación",  # ⬅️ AGREGADO sinónimos de desalojo
     # Materias familiares
     "divorcio", "custodia", "pensión alimenticia", "alimentos",
     "patria potestad", "guarda", "adopción", "sucesión",
@@ -1615,16 +1617,31 @@ _PROCESAL_CIVIL_KEYWORDS = {
     "juicio especial", "mediación", "conciliación",
 }
 
+# ⬅️ KEYWORDS PENALES para EXCLUIR (evitar falsos positivos)
+_PENAL_EXCLUDE_KEYWORDS = {
+    "penal", "delito", "fiscal", "fiscalía", "ministerio público",
+    "imputación", "vinculación a proceso", "flagrancia", "prisión preventiva"
+}
+
 
 def is_procesal_civil_query(query: str) -> bool:
     """
     Detecta si la consulta involucra procedimientos civiles o familiares
     donde el CNPCF podría ser relevante.
-    Umbral: al menos 2 keywords presentes para evitar falsos positivos.
+    
+    Cambio: threshold 2 → 1 (basta 1 keyword fuerte como 'demanda' o 'divorcio')
+    Excluye queries con keywords penales para evitar falsos positivos.
     """
     query_lower = query.lower()
+    
+    # Excluir si tiene keywords penales
+    if any(kw in query_lower for kw in _PENAL_EXCLUDE_KEYWORDS):
+        return False
+    
+    # Activar si tiene al menos 1 keyword civil/familiar
     hits = sum(1 for kw in _PROCESAL_CIVIL_KEYWORDS if kw in query_lower)
-    return hits >= 2
+    return hits >= 1  # ⬅️ CAMBIO: threshold 2 → 1
+
 
 
 CNPCF_TRANSITIONAL_CONTEXT = """
