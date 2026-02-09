@@ -143,20 +143,20 @@ INVENTORY_CONTEXT = """
 
 El sistema JUREXIA cuenta, verificada y físicamente en su base de datos, con:
 
-📚 LEGISLACIÓN FEDERAL:
+LEGISLACIÓN FEDERAL:
 - Constitución Política de los Estados Unidos Mexicanos (CPEUM)
 - Código Penal Federal, Código Civil Federal, Código de Comercio
 - Código Nacional de Procedimientos Penales
 - Código Nacional de Procedimientos Civiles y Familiares (CNPCF) — vigencia gradual hasta 1/abr/2027
 - Ley Federal del Trabajo, Ley de Amparo, Ley General de Salud, entre otras
 
-🌍 TRATADOS INTERNACIONALES:
+TRATADOS INTERNACIONALES:
 - Convención Americana sobre Derechos Humanos (Pacto de San José)
 - Pacto Internacional de Derechos Civiles y Políticos
 - Convención sobre los Derechos del Niño
 - Otros tratados ratificados por México
 
-🗺️ LEGISLACIÓN DE LAS 32 ENTIDADES FEDERATIVAS:
+LEGISLACIÓN DE LAS 32 ENTIDADES FEDERATIVAS:
 Aguascalientes, Baja California, Baja California Sur, Campeche, Chiapas,
 Chihuahua, Ciudad de México, Coahuila, Colima, Durango, Guanajuato, Guerrero,
 Hidalgo, Jalisco, Estado de México, Michoacán, Morelos, Nayarit, Nuevo León,
@@ -164,7 +164,7 @@ Oaxaca, Puebla, Querétaro, Quintana Roo, San Luis Potosí, Sinaloa, Sonora,
 Tabasco, Tamaulipas, Tlaxcala, Veracruz, Yucatán, Zacatecas.
 (Incluye Códigos Penales, Civiles, Familiares y Procedimientos de cada entidad)
 
-⚖️ JURISPRUDENCIA:
+JURISPRUDENCIA:
 - Tesis y Jurisprudencias de la SCJN (1917-2025)
 - Tribunales Colegiados de Circuito
 - Plenos de Circuito
@@ -539,32 +539,32 @@ AL FINAL DE LA DEMANDA, INCLUYE SIEMPRE ESTA SECCIÓN:
 
 ---
 
-## 📋 ESTRATEGIA PROCESAL Y RECOMENDACIONES
+## ESTRATEGIA PROCESAL Y RECOMENDACIONES
 
-### ⚖️ Elementos de la Acción a Acreditar
+### Elementos de la Acción a Acreditar
 Para que prospere esta demanda, el actor DEBE demostrar:
 1. [Elemento 1 de la acción]
 2. [Elemento 2 de la acción]
 3. [Elemento n de la acción]
 
-### 📁 Pruebas Indispensables a Recabar
+### Pruebas Indispensables a Recabar
 Antes de presentar la demanda, asegúrese de contar con:
 - [ ] [Documento/prueba 1 y para qué sirve]
 - [ ] [Documento/prueba 2 y qué acredita]
 - [ ] [Testigos si aplica y qué deben declarar]
 
-### 📝 Hechos Esenciales que NO deben faltar
+### Hechos Esenciales que NO deben faltar
 La demanda DEBE narrar claramente:
 1. [Hecho indispensable 1 - sin esto no procede la acción]
 2. [Hecho indispensable 2 - requisito de procedibilidad]
 3. [Hecho que evita una excepción común]
 
-### ⚠️ Puntos de Atención
+### Puntos de Atención
 - [Posible excepción que opondrá el demandado y cómo prevenirla]
 - [Plazo de prescripción aplicable]
 - [Requisitos especiales de la jurisdicción seleccionada]
 
-### 💡 Recomendación de Jurisprudencia Adicional
+### Recomendación de Jurisprudencia Adicional
 Buscar jurisprudencia sobre:
 - [Tema 1 para fortalecer la demanda]
 - [Tema 2 sobre elementos de la acción]
@@ -640,12 +640,12 @@ Estructura:
    ESTRUCTURA DE RESPUESTA
 ═══════════════════════════════════════════════════════════════
 
-## ⚖️ Análisis de Argumentación Jurídica
+## Análisis de Argumentación Jurídica
 
-### 🎯 Posición a Defender
+### Posición a Defender
 [Resumen ejecutivo de la posición jurídica]
 
-### 📋 Argumentos Principales
+### Argumentos Principales
 
 #### Argumento 1: [Título descriptivo]
 **Premisa mayor (norma aplicable):**
@@ -660,23 +660,23 @@ Estructura:
 #### Argumento 2: [Título descriptivo]
 [Misma estructura]
 
-### 📚 Jurisprudencia que Sustenta la Posición
+### Jurisprudencia que Sustenta la Posición
 > "[Rubro de la tesis]" — *SCJN/TCC, Registro X* [Doc ID: uuid]
 **Aplicación al caso:** [Cómo fortalece el argumento]
 
-### ⚔️ Posibles Contraargumentos y su Refutación
+### Posibles Contraargumentos y su Refutación
 
 | Contraargumento | Refutación |
 |----------------|------------|
 | [Lo que podría alegar la contraparte] | [Por qué no prospera] |
 
-### 🛡️ Blindaje del Argumento
+### Blindaje del Argumento
 Para que este argumento sea más sólido, considera:
 - [Elemento adicional que fortalece]
 - [Prueba que sería útil]
 - [Tesis adicional a buscar]
 
-### ✍️ Redacción Sugerida (lista para usar)
+### Redacción Sugerida (lista para usar)
 [Párrafo(s) redactados profesionalmente, listos para copiar en un escrito]
 
 ---
@@ -728,7 +728,7 @@ Estructura:
    ESTRUCTURA DE PETICIÓN CIUDADANA
 ═══════════════════════════════════════════════════════════════
 
-## 📄 Petición ante [Autoridad]
+## Petición ante [Autoridad]
 
 **DATOS DEL PETICIONARIO**
 [Nombre completo], [nacionalidad], mayor de edad, con domicilio en [dirección], identificándome con [INE/Pasaporte] número [X], con CURP [X], señalando como domicilio para oír y recibir notificaciones [dirección o correo electrónico], ante Usted respetuosamente comparezco para exponer:
@@ -760,7 +760,7 @@ ________________________
    ESTRUCTURA DE OFICIO ENTRE AUTORIDADES
 ═══════════════════════════════════════════════════════════════
 
-## 📋 Oficio Oficial
+## Oficio Oficial
 
 **[DEPENDENCIA/JUZGADO EMISOR]**
 **[ÁREA O UNIDAD]**
