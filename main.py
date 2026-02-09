@@ -42,6 +42,8 @@ from qdrant_client.http.models import (
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
 from supabase import create_client, Client as SupabaseClient
+import cohere  # Reranking API
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -74,6 +76,10 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 
 # For embeddings, we still use OpenAI (DeepSeek doesn't have embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# Cohere API for Reranking (Phase 1 RAG Optimization)
+COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")  # Free tier: 1000 requests/month
+
 
 # Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
 SILOS = {
@@ -1054,6 +1060,72 @@ Ahora expande la consulta del usuario. SOLO devuelve los términos, sin más tex
     except Exception as e:
         print(f"  ⚠️ Query expansion falló: {e}, usando original")
         return query
+
+
+def rerank_results(
+    results: List[models.ScoredPoint], 
+    query: str, 
+    top_n: Optional[int] = None
+) -> List[models.ScoredPoint]:
+    """
+    Reordena resultados de búsqueda usando Cohere Rerank API.
+    
+    Args:
+        results: Lista de ScoredPoint de Qdrant
+        query: Query original del usuario
+        top_n: Número de resultados a retornar (default: mantener todos)
+    
+    Returns:
+        Lista reordenada por relevancia contextual, o lista original si falla
+    """
+    if not COHERE_API_KEY:
+        print(f"  ⚠️ Cohere API key no configurada, saltando reranking")
+        return results
+    
+    if not results:
+        return results
+    
+    try:
+        # Inicializar cliente Cohere
+        co = cohere.Client(api_key=COHERE_API_KEY)
+        
+        # Extraer textos de los resultados
+        documents = []
+        for r in results:
+            texto = r.payload.get('texto', r.payload.get('text', ''))
+            # Limitar a primeros 1000 chars para reranking (límite de Cohere)
+            documents.append(texto[:1000])
+        
+        # Llamar a rerank API
+        rerank_response = co.rerank(
+            model="rerank-multilingual-v3.0",  # Soporte español
+            query=query,
+            documents=documents,
+            top_n=top_n if top_n else len(results),
+        )
+        
+        # Reordenar resultados originales según scores de Cohere
+        reranked_results = []
+        original_scores = []
+        rerank_scores = []
+        
+        for rerank_item in rerank_response.results:
+            original_idx = rerank_item.index
+            reranked_results.append(results[original_idx])
+            original_scores.append(results[original_idx].score)
+            rerank_scores.append(rerank_item.relevance_score)
+        
+        # Logging de mejora
+        avg_orig = sum(original_scores) / len(original_scores) if original_scores else 0
+        avg_rerank = sum(rerank_scores) / len(rerank_scores) if rerank_scores else 0
+        print(f"  🎯 Reranking: {len(results)} → {len(reranked_results)} docs")
+        print(f"     Score promedio: {avg_orig:.3f} (orig) → {avg_rerank:.3f} (reranked)")
+        
+        return reranked_results
+        
+    except Exception as e:
+        print(f"  ⚠️ Reranking falló: {str(e)[:100]}, usando resultados originales")
+        return results
 
 
 def get_drafting_prompt(tipo: str, subtipo: str) -> str:
@@ -2909,11 +2981,20 @@ async def chat_endpoint(request: ChatRequest):
             search_results = await hybrid_search_all_silos(
                 query=expanded_query,
                 estado=request.estado,
-                top_k=optimal_top_k,
+                top_k=optimal_top_k * 2,  # Traer 2x para reranking (buffer)
             )
+            
+            # 5. Reranking con Cohere (Phase 1 final step)
+            # Reordena por relevancia contextual y reduce a optimal_top_k final
+            search_results = rerank_results(
+                results=search_results,
+                query=last_user_message,  # Usar query original, no expandida
+                top_n=optimal_top_k
+            )
+            
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
-            print(f"  ✅ RAG optimizado: {len(search_results)} docs ({complexity} query, {optimal_top_k}K)")
+            print(f"  ✅ RAG optimizado completo: {len(search_results)} docs finales ({complexity} query)")
 
         
         # ─────────────────────────────────────────────────────────────────────
