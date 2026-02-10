@@ -2654,9 +2654,18 @@ async def hybrid_search_all_silos(
     jurisprudencia.sort(key=lambda x: x.score, reverse=True)
     constitucional.sort(key=lambda x: x.score, reverse=True)
     
-    # Fusión balanceada DINÁMICA según tipo de query
-    # Para queries de DDHH, priorizar agresivamente el bloque constitucional
-    if is_ddhh_query(query):
+    # Fusión balanceada DINÁMICA según tipo de query Y estado seleccionado
+    # CRITICAL: Cuando hay estado seleccionado, PRIORIZAR leyes estatales sobre federales
+    
+    if estado:
+        # MODO ESTADO ESPECÍFICO: Usuario seleccionó jurisdicción estatal
+        # Prioridad: Estatales > Constitucional > Jurisprudencia > Federales (subsidiarias)
+        print(f"  📍 Estado seleccionado: {estado} → Priorizando leyes estatales")
+        min_estatales = min(10, len(estatales))        # MÁXIMA prioridad a leyes del estado
+        min_constitucional = min(5, len(constitucional))  # Constitución siempre relevante
+        min_jurisprudencia = min(3, len(jurisprudencia))  # Jurisprudencia relevante
+        min_federales = min(2, len(federales))           # Federales subsidiarias
+    elif is_ddhh_query(query):
         # Modo DDHH: Prioridad máxima a bloque constitucional
         min_constitucional = min(8, len(constitucional))  # ALTA prioridad
         min_jurisprudencia = min(3, len(jurisprudencia))   
@@ -2673,12 +2682,19 @@ async def hybrid_search_all_silos(
     
     merged = []
     
-    # Primero añadir los mejores de cada categoría garantizada
-    # Bloque constitucional primero (mayor jerarquía normativa)
-    merged.extend(constitucional[:min_constitucional])
-    merged.extend(federales[:min_federales])
-    merged.extend(estatales[:min_estatales])
-    merged.extend(jurisprudencia[:min_jurisprudencia])
+    # ORDEN DE FUSIÓN: Depende de si hay estado seleccionado
+    if estado:
+        # Estado seleccionado: ESTATALES PRIMERO
+        merged.extend(estatales[:min_estatales])           # 1. Leyes del estado (PRIORIDAD)
+        merged.extend(constitucional[:min_constitucional]) # 2. Bloque constitucional
+        merged.extend(jurisprudencia[:min_jurisprudencia]) # 3. Jurisprudencia
+        merged.extend(federales[:min_federales])           # 4. Federales (subsidiarias)
+    else:
+        # Sin estado: Orden jerárquico tradicional
+        merged.extend(constitucional[:min_constitucional]) # 1. Bloque constitucional
+        merged.extend(federales[:min_federales])           # 2. Leyes federales
+        merged.extend(estatales[:min_estatales])           # 3. Leyes estatales
+        merged.extend(jurisprudencia[:min_jurisprudencia]) # 4. Jurisprudencia
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
@@ -2688,6 +2704,7 @@ async def hybrid_search_all_silos(
     slots_remaining = top_k - len(merged)
     if slots_remaining > 0:
         merged.extend(remaining[:slots_remaining])
+
     
     # ═══════════════════════════════════════════════════════════════════════════
     # BLINDAJE JURISDICCIONAL: Post-check de contaminación de estados
