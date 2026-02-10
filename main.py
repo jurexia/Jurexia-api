@@ -914,6 +914,7 @@ class ChatRequest(BaseModel):
     messages: List[Message] = Field(..., min_length=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
     top_k: int = Field(20, ge=1, le=50)  # Recall Boost: captures Art 160-162 (def + pena + agravantes)
+    enable_reasoning: bool = Field(False, description="Activar razonamiento profundo con Query Expansion (~10s)")
 
 
 class AuditRequest(BaseModel):
@@ -1878,9 +1879,10 @@ async def chat_endpoint(request: ChatRequest):
     # Detectar si es una solicitud de redacción de documento (necesitamos saberlo antes)
     is_drafting_check = "[REDACTAR_DOCUMENTO]" in last_user_message
     
-    if not has_document and not is_drafting_check:  # Solo para consultas normales
+    # SOLO ejecutar Query Expansion si el usuario lo activó
+    if request.enable_reasoning and not has_document and not is_drafting_check:
         try:
-            print(f"🔍 Query Expansion: Analizando intención...")
+            print(f"🔍 Query Expansion: Analizando intención (usuario activó razonamiento)...")
             expander = get_query_expander(deepseek_client)
             expansion_result = await expander.analyze_query(last_user_message)
             
@@ -1890,6 +1892,8 @@ async def chat_endpoint(request: ChatRequest):
         except Exception as e:
             print(f"⚠️  Query Expansion falló (usando defaults): {e}")
             expansion_result = None  # Fallback a búsqueda normal
+    elif not request.enable_reasoning:
+        print(f"⚡ Modo rápido activado - omitiendo Query Expansion")
     
     # Detectar si es una solicitud de redacción de documento
     is_drafting = "[REDACTAR_DOCUMENTO]" in last_user_message
