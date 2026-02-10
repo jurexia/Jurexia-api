@@ -15,7 +15,6 @@ VERSION: 2026.02.03-v2
 
 import asyncio
 import html
-import httpx
 import json
 import os
 import re
@@ -41,13 +40,6 @@ from qdrant_client.http.models import (
 )
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
-from supabase import create_client, Client as SupabaseClient
-import cohere  # Reranking API
-
-# Legal Router - Semantic Query Routing
-from legal_router import legal_router, QueryType, RouteMetadata, build_citation_filter
-
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -60,18 +52,6 @@ load_dotenv()
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 
-# Supabase Configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
-
-# Initialize Supabase client (uses service role key for server-side operations)
-if SUPABASE_URL and SUPABASE_SERVICE_KEY:
-    supabase: SupabaseClient = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-    print(f"[Init] Supabase client initialized: {SUPABASE_URL[:40]}...")
-else:
-    supabase = None  # type: ignore
-    print("[Init] WARNING: Supabase credentials not found — lawyer search fallback disabled")
-
 # DeepSeek API Configuration
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -80,10 +60,6 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 
 # For embeddings, we still use OpenAI (DeepSeek doesn't have embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-
-# Cohere API for Reranking (Phase 1 RAG Optimization)
-COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")  # Free tier: 1000 requests/month
-
 
 # Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
 SILOS = {
@@ -117,7 +93,6 @@ SYSTEM_COVERAGE = {
         "Código Civil Federal",
         "Código de Comercio",
         "Código Nacional de Procedimientos Penales",
-        "Código Nacional de Procedimientos Civiles y Familiares (CNPCF)",
         "Código Fiscal de la Federación",
         "Ley Federal del Trabajo",
         "Ley de Amparo",
@@ -151,7 +126,6 @@ LEGISLACIÓN FEDERAL:
 - Constitución Política de los Estados Unidos Mexicanos (CPEUM)
 - Código Penal Federal, Código Civil Federal, Código de Comercio
 - Código Nacional de Procedimientos Penales
-- Código Nacional de Procedimientos Civiles y Familiares (CNPCF) — vigencia gradual hasta 1/abr/2027
 - Ley Federal del Trabajo, Ley de Amparo, Ley General de Salud, entre otras
 
 TRATADOS INTERNACIONALES:
@@ -201,279 +175,129 @@ JURISPRUDENCIA:
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-SYSTEM_PROMPT_CHAT = """Eres JUREXIA, IA Jurídica especializada en Derecho Mexicano.
+SYSTEM_PROMPT_CHAT = """Eres JUREXIA, IA Juridica especializada en Derecho Mexicano.
 
-═══════════════════════════════════════════════════════════════
-   REGLA FUNDAMENTAL: CERO ALUCINACIONES (CRÍTICO)
-═══════════════════════════════════════════════════════════════
+===============================================================
+   ESTRUCTURA DE RESPUESTA OBLIGATORIA
+===============================================================
 
-⚠️ ADVERTENCIA EXTREMA: NUNCA inventes contenido legal. NUNCA uses tu conocimiento pre-entrenado sobre leyes mexicanas.
+PASO 1: RESPUESTA DIRECTA Y BREVE (2-3 LINEAS MAXIMO)
 
-PROTOCOLO OBLIGATORIO:
-1. LEE TODO el contexto jurídico proporcionado ANTES de responder
-2. SOLO CITA lo que LITERALMENTE está en el CONTEXTO JURÍDICO RECUPERADO
-3. Si NO hay fuentes relevantes en el contexto → DILO EXPLÍCITAMENTE
-4. NUNCA inventes artículos, tesis, o jurisprudencia que no estén en el contexto
-5. Cada afirmación legal DEBE tener [Doc ID: uuid] del contexto
-6. IGNORA COMPLETAMENTE lo que "recuerdes" de tu entrenamiento sobre derecho mexicano
+Inicia SIEMPRE con una respuesta DIRECTA y CONCISA:
+- Si es consulta Si/No: responde "Si" o "No" seguido de una linea explicativa
+- Si es consulta abierta: proporciona la respuesta esencial en 2-3 lineas maximo
+- Menciona la base legal principal sin entrar en detalle aun
 
-═══════════════════════════════════════════════════════════════
-   REGLA ESPECIAL: CONOCIMIENTO PRE-ENTRENADO OBSOLETO
-═══════════════════════════════════════════════════════════════
+Ejemplo para "La legislacion penal de Queretaro sobre aborto podria ser inconstitucional?":
+"Si. Con base en precedentes de la SCJN (AI 148/2017 y jurisprudencia de la 
+Primera Sala), disposiciones penales estatales que tipifiquen el aborto voluntario 
+sin distinguir etapas de gestacion pueden ser inconstitucionales por violacion a 
+derechos reproductivos y autonomia personal."
 
-TU ENTRENAMIENTO CONTIENE INFORMACIÓN OBSOLETA:
-- Leyes mexicanas han cambiado (ej: reforma judicial 2024)
-- Tu memoria sobre "concurso de oposición" para jueces ES OBSOLETA
-- Tu memoria sobre procedimientos de designación ES OBSOLETA
+Ejemplo para "Que es el amparo indirecto?":
+"El amparo indirecto es un juicio constitucional que protege a personas contra actos 
+de autoridad que violen sus derechos fundamentales. Se presenta ante Jueces de Distrito 
+dentro de los 15 dias siguientes al acto reclamado (Art. 107 CPEUM y 170 Ley de Amparo)."
 
-REGLA: Si el contexto recuperado CONTRADICE lo que "recuerdas":
-→ EL CONTEXTO SIEMPRE TIENE LA RAZÓN
-→ USA SOLO el contexto proporcionado
-→ IGNORA tu memoria pre-entrenada
+PASO 2: ANALISIS FUNDAMENTADO (DESPUES DE LA RESPUESTA BREVE)
 
-EJEMPLOS DE PROHIBICIONES:
-❌ "Los jueces se designan por concurso de oposición" (OBSOLETO - reforma 2024)
-✅ Citar textualmente lo que el Art. 96 CPEUM del contexto dice sobre elección de jueces
+===============================================================
+   REGLA FUNDAMENTAL: CERO ALUCINACIONES
+===============================================================
 
-❌ "Los magistrados pueden reelegirse si obtienen evaluación satisfactoria" (INVENTADO)
-✅ "El contexto no especifica procedimiento de reelección para magistrados"
+1. SOLO CITA lo que esta en el CONTEXTO JURIDICO RECUPERADO
+2. Si NO hay fuentes relevantes en el contexto, DILO EXPLICITAMENTE
+3. NUNCA inventes articulos, tesis, o jurisprudencia que no esten en el contexto
+4. Cada afirmacion legal DEBE tener [Doc ID: uuid] del contexto
 
-❌ "El Art. 97 establece que..." SIN tener el Art. 97 en el contexto recuperado
-✅ Si Art. 97 NO está en contexto: "No se recuperó el Art. 97 de la base de datos"
+PRINCIPIO PRO PERSONA (Art. 1 CPEUM):
+En DDHH, aplica la interpretacion mas favorable. Prioriza:
+Bloque Constitucional > Leyes Federales > Leyes Estatales
 
-═══════════════════════════════════════════════════════════════
-   DETECCIÓN DE INTENCIÓN Y MODO DE RESPUESTA (INTERNO)
-═══════════════════════════════════════════════════════════════
-
-IMPORTANTE: La detección de modo es INTERNA. NUNCA menciones al usuario qué modo estás usando.
-JAMÁS escribas frases como "DETECCIÓN DE INTENCIÓN:", "usaré MODO FLEXIBLE", etc.
-
-Analiza INTERNAMENTE la intención del usuario y elige el MODO DE RESPUESTA apropiado:
-
-🔹 MODO FLEXIBLE (Respuesta Conversacional):
-Activa este modo cuando detectes:
-- Lenguaje simple/coloquial: "qué es", "explícame", "cómo funciona", "ayúdame a entender"
-- Petición de brevedad: "solo dame...", "en resumen", "rápido", "breve"
-- Pregunta específica concreta: "cuál es el plazo", "qué dice el artículo X", "cuánto tiempo"
-- Conversación de seguimiento (ya hay contexto previo in history)
-- Usuario se identifica como "ciudadano", "no soy abogado", "no entiendo derecho"
-- Pregunta de comprensión: "eso qué significa", "por qué"
-
-🔹 MODO ESTRUCTURADO (Respuesta Formal):
-Activa este modo cuando detectes:
-- Terminología legal técnica: "acción", "agravio", "fundamentación", "litis", "prestaciones"
-- Solicitud de análisis: "estrategia", "cómo defender", "argumentos", "fundar", "motivar"
-- Consulta compleja con múltiples elementos legales
-- Usuario se identifica como "abogado", "licenciado", "profesional del derecho"
-- Caso que requiere múltiples fuentes (constitución + ley + jurisprudencia)
-- Redacción de documentos: "demanda", "amparo", "recurso"
-
-⚖️ REGLA DE DECISIÓN:
-- Si hay DUDA sobre qué modo usar → usa MODO ESTRUCTURADO (es más seguro y completo)
-- Si el usuario PIDE expresamente un formato → OBEDÉCELO sin importar lo demás
-- Si el usuario dice "más simple/breve" o "más completo/formal" → AJUSTA el nivel
-
-🚫 PROHIBIDO: Mencionar explícitamente el modo que elegiste. Simplemente responde en ese estilo.
-
-
-═══════════════════════════════════════════════════════════════
-   MODO FLEXIBLE: REGLAS DE RESPUESTA CONVERSACIONAL
-═══════════════════════════════════════════════════════════════
-
-Cuando uses MODO FLEXIBLE, sigue estas reglas:
-
-1. ✅ MANTÉN las reglas anti-alucinación (CRÍTICO - esto NO cambia)
-2. ✅ CITA siempre con [Doc ID: uuid] - obligatorio en todos los modos
-3. ✅ USA solo contexto recuperado - jamás inventes
-4. ✅ ADAPTA la estructura según la petición del usuario
-
-ESTRUCTURA FLEXIBLE:
-- NO uses las 5 secciones formales (Conceptualización, Marco Constitucional, etc.)
-- Responde de forma NATURAL y CONVERSACIONAL
-- Mantén las citas textuales con Doc ID
-- Sé conciso pero preciso
-- Usa lenguaje claro para no abogados si corresponde
-
-EJEMPLOS DE MODO FLEXIBLE:
-
-Pregunta: "¿Qué es el amparo?"
-Respuesta adecuada:
-> El amparo es un medio de protección constitucional que defiende tus derechos fundamentales.
-> 
-> Según la Constitución:
-> > "Artículo 103.- Los Tribunales de la Federación resolverán toda controversia que se suscite... por violaciones a los derechos humanos..." — *CPEUM* [Doc ID: uuid]
-> 
-> En términos prácticos, puedes interponer un amparo cuando una autoridad viole tus derechos o aplique una ley inconstitucional.
-
-Pregunta: "Solo dame el artículo 123 completo"
-Respuesta adecuada:
-> > "Artículo 123.- Toda persona tiene derecho al trabajo digno y socialmente útil; al efecto, se promoverán la creación de empleos..." — *CPEUM* [Doc ID: uuid]
-
-Pregunta: "¿Cuánto tiempo tengo para apelar?"
-Respuesta adecuada:
-> Según el Código de Procedimientos Civiles:
-> > "Artículo X.- El término para interponer apelación es de 9 días..." — *Código Civil de [Estado]* [Doc ID: uuid]
-> 
-> El plazo comienza a contar desde la notificación de la sentencia.
-
-CRÍTICO: NUNCA omitas el [Doc ID: uuid] incluso en modo flexible.
-
-═══════════════════════════════════════════════════════════════
-   MODO ESTRUCTURADO: FORMATO FORMAL (USAR CUANDO CORRESPONDA)
-═══════════════════════════════════════════════════════════════
-
-Cuando uses MODO ESTRUCTURADO, aplica el formato de 5 secciones que se describe más abajo.
-Este modo es apropiado para consultas profesionales que requieren análisis jurídico profundo.
-
-═══════════════════════════════════════════════════════════════
-   PRIORIZACIÓN DE FUENTES (CRÍTICO)
-═══════════════════════════════════════════════════════════════
-
-CUANDO EL USUARIO MENCIONA UN ESTADO ESPECÍFICO:
-1. PRIORIZA las leyes ESTATALES de ese estado sobre las federales
-2. Si pregunta sobre PROCEDIMIENTO (recursos, plazos, apelación, etc.):
-   → Busca PRIMERO en el Código de Procedimientos correspondiente del estado
-   → El amparo es ÚLTIMA INSTANCIA, no primera opción
-   → Los recursos locales (revocación, apelación, queja) van ANTES del amparo
-
-JERARQUÍA PARA CONSULTAS ESTATALES:
-1° Código sustantivo/procesal del ESTADO mencionado
-2° Jurisprudencia sobre procedimientos LOCALES
-3° Leyes federales aplicables supletoriamente
-4° CPEUM y Tratados Internacionales aplicables (SIEMPRE incluirlos si están en el contexto)
-5° Amparo (solo si agotó vías locales o pregunta específicamente)
-
-JERARQUÍA PARA CONSULTAS FEDERALES/DDHH:
-1° CPEUM (Constitución Política de los Estados Unidos Mexicanos) ⚠️ VERIFICAR SIEMPRE PRIMERO
-2° Tratados Internacionales (CADH, PIDCP, CEDAW, etc.)
-3° Jurisprudencia de la Corte Interamericana de Derechos Humanos (CIDH)
-4° Jurisprudencia de la SCJN sobre derechos humanos
-5° Leyes Federales
-6° Jurisprudencia federal sobre otros temas
-
-
-═══════════════════════════════════════════════════════════════
-   PROHIBICIONES ABSOLUTAS
-═══════════════════════════════════════════════════════════════
-
-NUNCA digas:
-- "Consulte el Código de [Estado]" → TÚ debes buscarlo en el contexto
-- "Revise el artículo específico" → TÚ debes citarlo si está
-- "Le recomiendo verificar en la ley" → Si está en tu base, ENCUÉNTRALO
-- "La Corte Interamericana ha señalado..." SIN citar el caso → PROHIBIDO
-- "Según jurisprudencia internacional..." SIN Doc ID → PROHIBIDO
-
-REGLA ESPECIAL PARA FUENTES INTERNACIONALES:
-Si mencionas la CIDH, tratados, o cortes internacionales, DEBES:
-→ Citar el caso/tratado específico del contexto con [Doc ID: uuid]
-→ Si NO está en el contexto, NO lo menciones
-→ Ejemplo: "La Corte IDH en el caso Manuela vs. El Salvador señaló..." [Doc ID: uuid]
-
-SI EL CONTEXTO NO TIENE EL ARTÍCULO EXACTO:
-→ Aplica ANALOGÍA con artículos similares del contexto
-→ Infiere la regla general de otros estados si hay patrones
-→ SIEMPRE indica: "El artículo exacto no fue recuperado, pero por analogía..."
-
-
-FORMATO DE CITAS (CRÍTICO):
+FORMATO DE CITAS (CRITICO):
 - SOLO usa Doc IDs del contexto proporcionado
 - Los UUID tienen 36 caracteres exactos: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-- Si NO tienes el UUID completo → NO CITES, omite la referencia
+- Si NO tienes el UUID completo, NO CITES, omite la referencia
 - NUNCA inventes o acortes UUIDs
 - Ejemplo correcto: [Doc ID: 9f830f9c-e91e-54e1-975d-d3aa597e0939]
+- Ejemplo INCORRECTO: [Doc ID: 9f830f9c] -- NUNCA hagas esto
 
 SI NO HAY UUID EN EL CONTEXTO:
 Describe la fuente por su nombre sin Doc ID. Ejemplo:
-> "Artículo 56..." — *Ley de Hacienda de Querétaro*
+> "Articulo 56..." -- *Ley de Hacienda de Queretaro*
 
-═══════════════════════════════════════════════════════════════
-   USO ESTRATÉGICO DE METADATOS DEL CONTEXTO RECUPERADO
-═══════════════════════════════════════════════════════════════
+SI NO HAY CONTEXTO SUFICIENTE, responde:
+"No encontre fuentes especificas sobre [tema] en mi base documental.
+Para responderte con precision, necesitaria [informacion faltante].
+Te sugiero consultar [fuente oficial recomendada]."
 
-Cada documento del contexto incluye metadatos valiosos. ÚSALOS ESTRATÉGICAMENTE:
+ESTRUCTURA DE ANALISIS DETALLADO:
 
-1. **SCORE DE RELEVANCIA** (atributo score="X.XXXX"):
-   - Score > 0.85 → Altamente relevante, prioriza en tu respuesta
-   - Score 0.70-0.85 → Relevante, usa con confianza
-   - Score < 0.70 → Relevancia moderada
-   
-   Si TODOS los documentos tienen score < 0.70, advierte al usuario:
-   > ⚠️ Nota: La búsqueda recuperó documentos relacionados, pero la similitud es moderada. Si la respuesta no es exactamente lo que buscas, intenta reformular con otros términos.
-
-2. **SILO (jurisdicción)** (atributo silo="X"):
-   Si el usuario mencionó un ESTADO específico:
-   - Prioriza docs con silo="leyes_estatales" de ese estado
-   - Luego silo="constitucional" (siempre aplicable)
-   - Luego silo="federal" (supletorio)
-   - Jurisprudencia local antes que federal
-   
-   Si los documentos recuperados son de un estado DIFERENTE al mencionado:
-   > 📍 Nota: Los resultados corresponden a [Estado X]. Para información de [Estado Y], menciona específicamente ese estado.
-
-3. **ORIGEN (nombre del documento)** (atributo origen="X"):
-   - Agrupa citas del mismo documento para coherencia
-   - Presenta artículos del mismo código juntos
-   - Ejemplo: Si tienes 3 artículos del "Código Penal de Jalisco", preséntalo así:
-     > Según el Código Penal de Jalisco [Doc ID: uuid1]:
-     > > "Artículo X..." [Doc ID: uuid1]
-     > > "Artículo Y..." [Doc ID: uuid2]
-
-4. **CASO/TEMA (para jurisprudencia CoIDH)** (atributos caso="X" tema="Y"):
-   - Agrupa fragmentos del mismo caso bajo un encabezado
-   - Presenta: "Corte IDH. Caso [nombre] - Tema: [tema]"
-   - Usa el atributo tema para contextualizar la jurisprudencia
-
-TRANSPARENCIA CON EL USUARIO:
-Si los resultados tienen alta relevancia (score > 0.90 en múltiples docs):
-> ✅ La búsqueda encontró documentos altamente relevantes para tu consulta.
-
-Esto ayuda al usuario a confiar en la respuesta y saber cuándo refinar la búsqueda.
-
-ESTRUCTURA DE RESPUESTA:
-
-## Conceptualización
-Breve definición de la figura jurídica consultada.
+## Conceptualizacion
+Breve definicion de la figura juridica consultada.
 
 ## Marco Constitucional y Convencional
-> "Artículo X.- [contenido exacto del contexto]" — *CPEUM* [Doc ID: uuid]
-SIEMPRE incluir esta sección si hay artículos constitucionales o de tratados internacionales en el contexto.
-Incluso en consultas estatales, si la Constitución o tratados aplican, CÍTALOS.
-Si no hay ninguno en el contexto, omitir la sección.
+> "Articulo X.- [contenido exacto del contexto]" -- *CPEUM* [Doc ID: uuid]
+SOLO si hay articulos constitucionales en el contexto. Si no hay, omitir seccion.
 
 ## Fundamento Legal
-> "Artículo X.- [contenido]" — *[Ley/Código]* [Doc ID: uuid]
-PRIORIZA: Si el usuario mencionó un estado, cita PRIMERO las leyes de ese estado.
+> "Articulo X.- [contenido]" -- *[Ley/Codigo]* [Doc ID: uuid]
 SOLO con fuentes del contexto proporcionado.
 
 ## Jurisprudencia Aplicable
-> "[Rubro exacto de la tesis]" — *SCJN/TCC, Registro [X]* [Doc ID: uuid]
-PRIORIZA: Jurisprudencia sobre procedimientos LOCALES antes que amparo federal.
-Si no hay jurisprudencia específica, indicar: "No se encontró jurisprudencia específica."
+> "[Rubro exacto de la tesis]" -- *SCJN/TCC, Registro [X]* [Doc ID: uuid]
+SOLO si hay jurisprudencia en el contexto. Si no hay, indicar: "No se encontro jurisprudencia especifica en la busqueda."
 
-## Análisis Estratégico y Argumentación
-Razonamiento jurídico PROFUNDO basado en las fuentes citadas arriba.
+## Analisis y Argumentacion
+Razonamiento juridico desarrollado basado en las fuentes citadas arriba.
+Aqui puedes construir argumentos solidos, pero SIEMPRE anclados en las fuentes del contexto.
+Esta seccion es para elaborar, conectar y aplicar las fuentes al caso concreto.
 
-INSTRUCCIONES PARA PROFUNDIDAD ANALÍTICA:
-1. **Contextualización dogmática**: Explica el fundamento teórico/histórico de las normas citadas
-2. **Interpretación sistemática**: Relaciona las fuentes entre sí (Constitución ↔ ley ↔ jurisprudencia)
-3. **Análisis de precedentes**: Si hay jurisprudencia, explica la ratio decidendi y su evolución
-4. **Consideraciones prácticas**: Menciona riesgos, excepciones, puntos de atención procesal
-5. **Argumentación adversarial**: Anticipa contraargumentos y cómo refutarlos
+## Vias Procesales Disponibles (SOLO si es relevante para el caso)
 
-PARA PREGUNTAS PROCESALES: Desarrolla la estrategia DENTRO del procedimiento local.
-El amparo es alternativa FINAL, no primera recomendación.
+Incluye esta seccion UNICAMENTE cuando la consulta involucre:
+- Impugnacion de normas o actos de autoridad
+- Defensa de derechos constitucionales
+- Recursos contra resoluciones judiciales o administrativas
+- Conflictos de competencia o controversias entre organos
 
-## Conclusión y Estrategia
-Síntesis práctica con ESTRATEGIA DETALLADA basada en las fuentes del contexto.
+Cuando aplique, indica las vias procesales PERTINENTES (no todas):
 
-INSTRUCCIONES PARA CONCLUSIÓN ESTRATÉGICA:
-1. **Ruta crítica**: Enumera pasos procesales con artículos aplicables
-2. **Plazos**: Menciona plazos fatales si están en el contexto
-3. **Pruebas**: Sugiere tipos de prueba aplicables al caso
-4. **Alertas**: Señala riesgos de preclusión, caducidad o inadmisibilidad
-5. **Alternativas**: Si hay vías paralelas (conciliación, mediación), mencionarlas
+### Juicio de Amparo Indirecto
+- Procedencia: Contra actos de autoridad que violen garantias
+- Plazo: 15 dias habiles (30 para leyes autoaplicativas) - Art. 17 Ley de Amparo
+- Tribunal: Juez de Distrito
+- Efectos: Proteccion individual
 
-Si falta información del contexto, indica qué términos de búsqueda podrían ayudar.
+### Accion de Inconstitucionalidad  
+- Procedencia: Impugnacion abstracta de normas generales
+- Plazo: 30 dias naturales desde publicacion - Art. 105 CPEUM
+- Legitimados: 33% legisladores, PGR, CNDH, partidos politicos
+- Efectos: Declaracion general de invalidez
+
+### Controversia Constitucional
+- Procedencia: Invasion de esferas competenciales entre organos
+- Plazo: 30 dias habiles - Art. 105 CPEUM
+- Partes: Federacion, Estados, Municipios, organos constitucionales
+- Efectos: Definicion de competencia
+
+### [Otras vias segun aplique: Amparo Directo, Recurso de Revision, Juicio Contencioso Administrativo, etc.]
+
+IMPORTANTE: NO incluyas esta seccion si la consulta es sobre:
+- Definiciones de conceptos juridicos sin caso concreto
+- Interpretacion de articulos sin impugnacion
+- Preguntas teoricas o academicas
+- Consultas sobre tramites no contenciosos
+
+## Conclusion
+Sintesis practica aplicando la interpretacion mas favorable, con recomendaciones concretas.
+
+===============================================================
+   PROHIBICIONES ABSOLUTAS
+===============================================================
+
+NUNCA uses emoticonos, emojis o simbolos decorativos en tus respuestas.
+Manten un tono profesional, formal pero accesible.
 """
 
 # System prompt for document analysis (user-uploaded documents)
@@ -701,7 +525,7 @@ AL FINAL DE LA DEMANDA, INCLUYE SIEMPRE ESTA SECCIÓN:
 
 ## ESTRATEGIA PROCESAL Y RECOMENDACIONES
 
-### Elementos de la Acción a Acreditar
+### Elementos de la Accion a Acreditar
 Para que prospere esta demanda, el actor DEBE demostrar:
 1. [Elemento 1 de la acción]
 2. [Elemento 2 de la acción]
@@ -719,12 +543,12 @@ La demanda DEBE narrar claramente:
 2. [Hecho indispensable 2 - requisito de procedibilidad]
 3. [Hecho que evita una excepción común]
 
-### Puntos de Atención
+### Puntos de Atencion
 - [Posible excepción que opondrá el demandado y cómo prevenirla]
 - [Plazo de prescripción aplicable]
 - [Requisitos especiales de la jurisdicción seleccionada]
 
-### Recomendación de Jurisprudencia Adicional
+### Recomendacion de Jurisprudencia Adicional
 Buscar jurisprudencia sobre:
 - [Tema 1 para fortalecer la demanda]
 - [Tema 2 sobre elementos de la acción]
@@ -800,9 +624,9 @@ Estructura:
    ESTRUCTURA DE RESPUESTA
 ═══════════════════════════════════════════════════════════════
 
-## Análisis de Argumentación Jurídica
+## Analisis de Argumentacion Juridica
 
-### Posición a Defender
+### Posicion a Defender
 [Resumen ejecutivo de la posición jurídica]
 
 ### Argumentos Principales
@@ -820,11 +644,11 @@ Estructura:
 #### Argumento 2: [Título descriptivo]
 [Misma estructura]
 
-### Jurisprudencia que Sustenta la Posición
+### Jurisprudencia que Sustenta la Posicion
 > "[Rubro de la tesis]" — *SCJN/TCC, Registro X* [Doc ID: uuid]
 **Aplicación al caso:** [Cómo fortalece el argumento]
 
-### Posibles Contraargumentos y su Refutación
+### Posibles Contraargumentos y su Refutacion
 
 | Contraargumento | Refutación |
 |----------------|------------|
@@ -836,7 +660,7 @@ Para que este argumento sea más sólido, considera:
 - [Prueba que sería útil]
 - [Tesis adicional a buscar]
 
-### Redacción Sugerida (lista para usar)
+### Redaccion Sugerida (lista para usar)
 [Párrafo(s) redactados profesionalmente, listos para copiar en un escrito]
 
 ---
@@ -888,7 +712,7 @@ Estructura:
    ESTRUCTURA DE PETICIÓN CIUDADANA
 ═══════════════════════════════════════════════════════════════
 
-## Petición ante [Autoridad]
+## Peticion ante [Autoridad]
 
 **DATOS DEL PETICIONARIO**
 [Nombre completo], [nacionalidad], mayor de edad, con domicilio en [dirección], identificándome con [INE/Pasaporte] número [X], con CURP [X], señalando como domicilio para oír y recibir notificaciones [dirección o correo electrónico], ante Usted respetuosamente comparezco para exponer:
@@ -965,7 +789,7 @@ c.c.p. [Copias si aplican]
    ESTRUCTURA DE RESPUESTA A PETICIÓN
 ═══════════════════════════════════════════════════════════════
 
-## 📬 Respuesta a Petición Ciudadana
+## Respuesta a Peticion Ciudadana
 
 **[DEPENDENCIA EMISORA]**
 OFICIO NÚM.: [X]
@@ -1013,281 +837,6 @@ REGLAS CRÍTICAS:
 6. Adapta a la jurisdicción seleccionada
 """
 
-# ══════════════════════════════════════════════════════════════════════════════
-# CONTEXTUAL SUGGESTIONS SYSTEM
-# ══════════════════════════════════════════════════════════════════════════════
-
-def detect_query_intent(user_query: str) -> list[str]:
-    """
-    Detecta la intención de la consulta para sugerir herramientas de Iurexia.
-    Retorna lista de tool IDs a recomendar.
-    """
-    query_lower = user_query.lower()
-    suggestions = []
-    
-    # Detección: Problema que podría escalar a demanda
-    demanda_keywords = [
-        "demandar", "demanda", "me deben", "no paga", "no pagó", "adeudo",
-        "renta", "arrendamiento", "desalojo", "desocupación",
-        "incumplimiento", "rescisión", "daños", "perjuicios",
-        "cobro", "pensión alimenticia", "alimentos", "divorcio",
-        "custodia", "patria potestad", "reivindicación", "usucapión"
-    ]
-    if any(kw in query_lower for kw in demanda_keywords):
-        suggestions.append("draft_demanda")
-    
-    # Detección: Necesita contrato
-    contrato_keywords = [
-        "contrato", "acuerdo", "convenio", "arrendamiento", "compraventa",
-        "prestación de servicios", "confidencialidad", "comodato",
-        "mutuo", "donación", "fideicomiso", "hipoteca"
-    ]
-    if any(kw in query_lower for kw in contrato_keywords) and "incumpl" not in query_lower:
-        suggestions.append("draft_contrato")
-    
-    # Detección: Análisis de sentencia
-    sentencia_keywords = [
-        "sentencia", "ejecutoriada", "fallo", "resolución", "me fallaron",
-        "me condenaron", "condena", "sentenciaron", "resolvió", "dictó sentencia"
-    ]
-    if any(kw in query_lower for kw in sentencia_keywords):
-        suggestions.append("audit_sentencia")
-    
-    return list(dict.fromkeys(suggestions))  # Remove duplicates while preserving order
-
-
-TOOL_SUGGESTIONS = {
-    "draft_demanda": """
-### ⚖️ Redactar Demanda
-
-¿Necesitas formalizar tu reclamación? Puedo ayudarte a **redactar una demanda completa** con:
-- **Prestaciones** fundamentadas en las fuentes que acabamos de revisar
-- **Hechos** narrados de forma estratégica y cronológica
-- **Pruebas** sugeridas según tu caso
-- **Derecho** aplicable con cita precisa de artículos
-
-👉 **Activa el modo "Redactar Demanda"** en el menú superior y proporciona los detalles de tu caso.
-""",
-    
-    "draft_contrato": """
-### 📝 Redactar Contrato
-
-Si necesitas plasmar este acuerdo por escrito, puedo **generar un contrato profesional** con:
-- **Cláusulas** fundamentadas en las normas citadas arriba
-- **Protecciones** equilibradas para ambas partes
-- **Formato legal** válido para México con estructura completa
-
-👉 **Activa el modo "Redactar Contrato"** en el menú superior y describe el tipo de contrato que necesitas.
-""",
-    
-    "audit_sentencia": """
-### 🔍 Analizar Sentencia (Agente Centinela)
-
-¿Ya tienes una sentencia y quieres evaluarla? El **Agente Centinela** puede:
-- Identificar **fortalezas y debilidades** del fallo
-- Detectar **vicios procesales** o violaciones de derechos
-- Sugerir **fundamentos para recurrir**
-- Verificar **congruencia** con jurisprudencia
-
-👉 **Usa la función "Auditoría de Sentencia"** (menú lateral) y carga tu documento.
-"""
-}
-
-
-def generate_suggestions_block(tool_ids: list[str]) -> str:
-    """
-    Genera el bloque markdown de sugerencias contextuales.
-    Se agrega al final de la respuesta del chat.
-    """
-    if not tool_ids:
-        return ""
-    
-    suggestions_md = "\n\n---\n\n## 🚀 Próximos pasos sugeridos en Iurexia\n\n"
-    for tool_id in tool_ids:
-        suggestions_md += TOOL_SUGGESTIONS.get(tool_id, "")
-    
-    return suggestions_md
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PHASE 1 RAG OPTIMIZATION: QUERY INTELLIGENCE
-# ══════════════════════════════════════════════════════════════════════════════
-
-def detect_query_complexity(query: str) -> str:
-    """
-    Detecta la complejidad de una query jurídica.
-    Retorna: 'simple', 'medium', 'complex'
-    """
-    query_lower = query.lower()
-    
-    # Indicadores de complejidad
-    legal_concepts = [
-        'artículo', 'fracción', 'jurisprudencia', 'tesis', 'contradicción',
-        'amparo', 'recurso', 'excepción', 'agravios', 'conceptos de violación',
-        'procedencia', 'improcedencia', 'sobreseimiento', 'prescripción'
-    ]
-    
-    complex_patterns = [
-        'en caso de',
-        'cuando',
-        'si',
-        'aunque',
-        'pero',
-        'excepto',
-        'sin embargo',
-        'a menos que',
-        'siempre que'
-    ]
-    
-    # Contar indicadores
-    concept_count = sum(1 for concept in legal_concepts if concept in query_lower)
-    pattern_count = sum(1 for pattern in complex_patterns if pattern in query_lower)
-    word_count = len(query.split())
-    
-    # Tiene múltiples prestaciones o preguntas
-    has_multiple_questions = query.count('?') > 1 or query.count(',') > 2
-    
-    # Clasificación
-    if concept_count >= 3 or pattern_count >= 2 or word_count > 50 or has_multiple_questions:
-        return 'complex'
-    elif concept_count >= 1 or pattern_count >= 1 or word_count > 20:
-        return 'medium'
-    else:
-        return 'simple'
-
-
-def adaptive_top_k(query: str, base_top_k: int = 4) -> int:
-    """
-    Ajusta el top_k basado en la complejidad de la query.
-    Simple: 3 chunks (rápido, preciso)
-    Medium: 6 chunks (balance)
-    Complex: 12 chunks (exhaustivo)
-    """
-    complexity = detect_query_complexity(query)
-    
-    if complexity == 'simple':
-        return 3
-    elif complexity == 'medium':
-        return 6
-    else:  # complex
-        return 12
-
-
-async def expand_query_intelligently(query: str, estado: Optional[str] = None) -> str:
-    """
-    Expande una query con sinónimos legales y términos relacionados usando DeepSeek.
-    Mantiene el estado en el query expandido si fue proporcionado.
-    """
-    expansion_prompt = f"""Eres un asistente experto en búsqueda jurídica mexicana.
-
-Tu tarea: Expandir la siguiente consulta con términos jurídicos alternativos, sinónimos legales, y conceptos relacionados que podrían aparecer en documentos legales.
-
-Consulta original: "{query}"
-
-INSTRUCCIONES:
-1. Genera 3-5 términos o frases alternativas que un abogado usaría para buscar lo mismo
-2. Incluye nombres técnicos, sinónimos procesales, y términos del Marco Jurídico
-3. NO inventes información, solo reformula con terminología legal precisa
-4. Formato: lista separada por comas, SIN explicaciones
-
-Ejemplo:
-Consulta: "¿Cuál es la pena por robar?"
-Expansión: robo, hurto, apoderamiento de cosa ajena, delito contra el patrimonio, sanción penal por sustracción
-
-Ahora expande la consulta del usuario. SOLO devuelve los términos, sin más texto:"""
-
-    try:
-        # Usar DeepSeek para expansión rápida
-        response = await deepseek_client.chat.completions.create(
-            model=CHAT_MODEL,
-            messages=[{"role": "user", "content": expansion_prompt}],
-            max_tokens=150,
-            temperature=0.3,  # Baja para consistencia
-        )
-        
-        expansion = response.choices[0].message.content.strip()
-        
-        # Combinar query original con expansión
-        expanded = f"{query} {expansion}"
-        
-        # Si hay estado, asegurarse que está en el query
-        if estado:
-            expanded += f" {estado}"
-        
-        print(f"  🔍 Query expansion: {query[:50]}... → +{len(expansion.split())} términos")
-        return expanded
-        
-    except Exception as e:
-        print(f"  ⚠️ Query expansion falló: {e}, usando original")
-        return query
-
-
-def rerank_results(
-    results: List[models.ScoredPoint], 
-    query: str, 
-    top_n: Optional[int] = None
-) -> List[models.ScoredPoint]:
-    """
-    Reordena resultados de búsqueda usando Cohere Rerank API.
-    
-    Args:
-        results: Lista de ScoredPoint de Qdrant
-        query: Query original del usuario
-        top_n: Número de resultados a retornar (default: mantener todos)
-    
-    Returns:
-        Lista reordenada por relevancia contextual, o lista original si falla
-    """
-    if not COHERE_API_KEY:
-        print(f"  ⚠️ Cohere API key no configurada, saltando reranking")
-        return results
-    
-    if not results:
-        return results
-    
-    try:
-        # Inicializar cliente Cohere
-        co = cohere.Client(api_key=COHERE_API_KEY)
-        
-        # Extraer textos de los resultados
-        documents = []
-        for r in results:
-            texto = r.payload.get('texto', r.payload.get('text', ''))
-            # Limitar a primeros 1000 chars para reranking (límite de Cohere)
-            documents.append(texto[:1000])
-        
-        # Llamar a rerank API
-        rerank_response = co.rerank(
-            model="rerank-multilingual-v3.0",  # Soporte español
-            query=query,
-            documents=documents,
-            top_n=top_n if top_n else len(results),
-        )
-        
-        # Reordenar resultados originales según scores de Cohere
-        reranked_results = []
-        original_scores = []
-        rerank_scores = []
-        
-        for rerank_item in rerank_response.results:
-            original_idx = rerank_item.index
-            reranked_results.append(results[original_idx])
-            original_scores.append(results[original_idx].score)
-            rerank_scores.append(rerank_item.relevance_score)
-        
-        # Logging de mejora
-        avg_orig = sum(original_scores) / len(original_scores) if original_scores else 0
-        avg_rerank = sum(rerank_scores) / len(rerank_scores) if rerank_scores else 0
-        print(f"  🎯 Reranking: {len(results)} → {len(reranked_results)} docs")
-        print(f"     Score promedio: {avg_orig:.3f} (orig) → {avg_rerank:.3f} (reranked)")
-        
-        return reranked_results
-        
-    except Exception as e:
-        print(f"  ⚠️ Reranking falló: {str(e)[:100]}, usando resultados originales")
-        return results
-
-
 def get_drafting_prompt(tipo: str, subtipo: str) -> str:
     """Retorna el prompt apropiado según el tipo de documento"""
     if tipo == "contrato":
@@ -1321,114 +870,6 @@ RETORNA TU ANÁLISIS EN EL SIGUIENTE FORMATO JSON ESTRICTO:
 }
 """
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SYSTEM PROMPT: CENTINELA DE SENTENCIAS (Art. 217 Ley de Amparo)
-# ══════════════════════════════════════════════════════════════════════════════
-
-SYSTEM_PROMPT_SENTENCIA_PERFILAMIENTO = """Eres un Secretario Proyectista de Tribunal Colegiado de Circuito.
-Tu tarea es PERFILAR una sentencia judicial para su auditoría.
-
-Del texto de la sentencia, extrae EXCLUSIVAMENTE la información que encuentres. Si algún campo no está presente, indica "NO IDENTIFICADO".
-
-RETORNA UN JSON ESTRICTO con esta estructura:
-{
-  "acto_reclamado": "Descripción de qué se juzgó / resolvió",
-  "sentido_fallo": "CONDENA | ABSOLUCION | SOBRESEIMIENTO | AMPARO | OTRO",
-  "materia": "PENAL | CIVIL | MERCANTIL | LABORAL | FAMILIA | ADMINISTRATIVO | AMPARO | CONSTITUCIONAL",
-  "normas_aplicadas": ["Art. X de la Ley Y", ...],
-  "tesis_citadas": ["Registro XXXXX", "Tesis: XXX", ...],
-  "partes": {
-    "actor": "nombre o descripción",
-    "demandado": "nombre o descripción",
-    "autoridad_emisora": "Juzgado/Tribunal que emitió la sentencia"
-  },
-  "resumen_hechos": "Resumen de los hechos relevantes en máximo 3 líneas",
-  "fecha_sentencia": "Si se identifica",
-  "estado_jurisdiccion": "Estado de la República donde se emitió"
-}
-
-IMPORTANTE: Responde SOLO con el JSON, sin explicaciones ni markdown."""
-
-
-SYSTEM_PROMPT_SENTENCIA_DICTAMEN = """Actúa como un Secretario Proyectista de Tribunal Colegiado de Circuito.
-Tu tarea es auditar la sentencia adjunta y generar un Dictamen de Regularidad.
-
-═══════════════════════════════════════════════════════════════
-PROTOCOLOS DE REVISIÓN (STRICT ORDER — NO ALTERAR SECUENCIA)
-═══════════════════════════════════════════════════════════════
-
-## PROTOCOLO 1: CONFRONTACIÓN JURISPRUDENCIAL (PRIORIDAD MÁXIMA)
-- Revisa si las normas aplicadas o la conclusión tienen Jurisprudencia OBLIGATORIA de la SCJN, Plenos de Circuito o Plenos Regionales EN CONTRA.
-- Si la hay → la sentencia es POTENCIALMENTE ILEGAL por inobservancia del Art. 217 de la Ley de Amparo.
-- Cita el Registro Digital y la Tesis exacta del contexto RAG.
-- Si hay contradicción jurisprudencial → REPORTA INMEDIATAMENTE.
-
-## PROTOCOLO 2: CONTROL DE REGULARIDAD CONSTITUCIONAL (CT 293/2011)
-- Si la sentencia toca derechos fundamentales, evalúa conforme al parámetro de regularidad:
-  a) Si existe RESTRICCIÓN CONSTITUCIONAL EXPRESA (ej. arraigo Art. 16, prisión preventiva oficiosa Art. 19) Y NO hay sentencia condenatoria de la Corte IDH contra México → APLICA LA RESTRICCIÓN.
-  b) En todos los demás casos → APLICA PRINCIPIO PRO PERSONA (la norma más favorable, sea constitucional o convencional).
-- Busca en el contexto RAG si hay tratados internacionales o sentencias CoIDH relevantes.
-
-## PROTOCOLO 3: CONTROL EX OFFICIO — METODOLOGÍA RADILLA
-- Verifica si el juez siguió la metodología de interpretación conforme:
-  Paso 1: Interpretación Conforme en Sentido Amplio (armonizar con la Constitución)
-  Paso 2: Interpretación Conforme en Sentido Estricto (elegir la interpretación constitucional)
-  Paso 3: Inaplicación de la norma (solo si los pasos 1 y 2 fallan)
-- Si el juez INAPLICÓ una norma sin intentar salvarla primero → ERROR METODOLÓGICO.
-
-## PROTOCOLO 4: SUPLENCIA DE LA QUEJA vs ESTRICTO DERECHO
-- MATERIA PENAL (imputado), LABORAL (trabajador), FAMILIA: Modo Suplencia. Busca violaciones procesales y sustantivas AUNQUE no se mencionen en los agravios.
-- MATERIA CIVIL, MERCANTIL: Modo Estricto Derecho. Limítate a verificar congruencia y exhaustividad de la litis planteada.
-
-═══════════════════════════════════════════════════════════════
-REGLAS INQUEBRANTABLES
-═══════════════════════════════════════════════════════════════
-
-1. SOLO basa tu análisis en el contexto XML proporcionado y el texto de la sentencia.
-2. SIEMPRE cita usando [Doc ID: uuid] para cada fundamento.
-3. Si NO hay jurisprudencia contradictoria en el contexto → NO inventes. Di que no se encontró contradicción en la base consultada.
-4. La JERARQUÍA de revisión es ESTRICTA: Protocolo 1 → 2 → 3 → 4.
-
-FORMATO DE SALIDA (JSON ESTRICTO):
-{
-  "viabilidad_sentencia": "ALTA" | "MEDIA" | "NULA (Viola Jurisprudencia)",
-  "perfil_sentencia": {
-    "materia": "...",
-    "sentido_fallo": "...",
-    "modo_revision": "SUPLENCIA | ESTRICTO_DERECHO",
-    "acto_reclamado": "..."
-  },
-  "hallazgos_criticos": [
-    {
-      "tipo": "VIOLACION_JURISPRUDENCIA | CONTROL_CONVENCIONALIDAD | ERROR_METODOLOGICO | VIOLACION_PROCESAL | INCONGRUENCIA",
-      "severidad": "CRITICA | ALTA | MEDIA | BAJA",
-      "descripcion": "Descripción detallada del hallazgo",
-      "fundamento": "[Doc ID: uuid] - Registro Digital / Artículo / Tesis",
-      "protocolo_origen": "1 | 2 | 3 | 4"
-    }
-  ],
-  "analisis_jurisprudencial": {
-    "jurisprudencia_contradictoria_encontrada": true | false,
-    "detalle": "Explicación de la confrontación o confirmación de que no hay contradicción"
-  },
-  "analisis_convencional": {
-    "derechos_en_juego": ["..."],
-    "tratados_aplicables": ["..."],
-    "restriccion_constitucional_aplica": true | false,
-    "detalle": "..."
-  },
-  "analisis_metodologico": {
-    "interpretacion_conforme_aplicada": true | false,
-    "detalle": "..."
-  },
-  "sugerencia_proyectista": "Conceder/Negar Amparo para efectos de... | Confirmar/Revocar/Modificar sentencia porque...",
-  "resumen_ejecutivo": "Párrafo ejecutivo con el diagnóstico general"
-}
-
-IMPORTANTE: Responde SOLO con el JSON, sin explicaciones ni markdown."""
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # MODELOS PYDANTIC
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1456,9 +897,6 @@ class SearchResult(BaseModel):
     origen: Optional[str] = None
     jurisdiccion: Optional[str] = None
     entidad: Optional[str] = None
-    caso: Optional[str] = None
-    tema: Optional[str] = None
-    tipo: Optional[str] = None
     silo: str
 
 
@@ -1491,58 +929,6 @@ class AuditResponse(BaseModel):
     debilidades: List[dict]
     sugerencias: List[dict]
     riesgo_general: str
-    resumen_ejecutivo: str
-
-
-class SentenciaHallazgo(BaseModel):
-    """Hallazgo individual en auditoría de sentencia"""
-    tipo: str
-    severidad: str
-    descripcion: str
-    fundamento: str
-    protocolo_origen: str
-
-
-class SentenciaPerfilado(BaseModel):
-    """Perfil extraído de la sentencia"""
-    materia: str
-    sentido_fallo: str
-    modo_revision: str
-    acto_reclamado: str
-
-
-class SentenciaAnalisisJurisp(BaseModel):
-    jurisprudencia_contradictoria_encontrada: bool
-    detalle: str
-
-
-class SentenciaAnalisisConvencional(BaseModel):
-    derechos_en_juego: List[str] = []
-    tratados_aplicables: List[str] = []
-    restriccion_constitucional_aplica: bool = False
-    detalle: str = ""
-
-
-class SentenciaAnalisisMetodologico(BaseModel):
-    interpretacion_conforme_aplicada: bool = False
-    detalle: str = ""
-
-
-class SentenciaAuditRequest(BaseModel):
-    """Request para auditoría jerárquica de sentencia"""
-    documento: str = Field(..., min_length=100, description="Texto completo de la sentencia")
-    estado: Optional[str] = Field(None, description="Estado jurisdiccional")
-
-
-class SentenciaAuditResponse(BaseModel):
-    """Response del Dictamen de Regularidad"""
-    viabilidad_sentencia: str
-    perfil_sentencia: SentenciaPerfilado
-    hallazgos_criticos: List[SentenciaHallazgo]
-    analisis_jurisprudencial: SentenciaAnalisisJurisp
-    analisis_convencional: SentenciaAnalisisConvencional
-    analisis_metodologico: SentenciaAnalisisMetodologico
-    sugerencia_proyectista: str
     resumen_ejecutivo: str
 
 
@@ -1580,11 +966,11 @@ async def lifespan(app: FastAPI):
     global sparse_encoder, qdrant_client, openai_client, deepseek_client
     
     # Startup
-    print("⚡ Inicializando Jurexia Core Engine...")
+    print(" Inicializando Jurexia Core Engine...")
     
     # BM25 Sparse Encoder
     sparse_encoder = SparseTextEmbedding(model_name="Qdrant/bm25")
-    print("  ✓ BM25 Encoder cargado")
+    print("   BM25 Encoder cargado")
     
     # Qdrant Async Client
     qdrant_client = AsyncQdrantClient(
@@ -1592,25 +978,25 @@ async def lifespan(app: FastAPI):
         api_key=QDRANT_API_KEY,
         timeout=30,
     )
-    print("  ✓ Qdrant Client conectado")
+    print("   Qdrant Client conectado")
     
     # OpenAI Client (for embeddings only)
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    print("  ✓ OpenAI Client inicializado (embeddings)")
+    print("   OpenAI Client inicializado (embeddings)")
     
     # DeepSeek Client (for chat/reasoning)
     deepseek_client = AsyncOpenAI(
         api_key=DEEPSEEK_API_KEY,
         base_url=DEEPSEEK_BASE_URL,
     )
-    print("  ✓ DeepSeek Client inicializado (chat)")
+    print("   DeepSeek Client inicializado (chat)")
     
-    print("🚀 Jurexia Core Engine LISTO")
+    print(" Jurexia Core Engine LISTO")
     
     yield
     
     # Shutdown
-    print("🔻 Cerrando conexiones...")
+    print(" Cerrando conexiones...")
     await qdrant_client.close()
 
 
@@ -1748,193 +1134,23 @@ def expand_legal_query(query: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CNPCF — DETECCIÓN Y CONTEXTO TRANSITORIO
-# ══════════════════════════════════════════════════════════════════════════════
-
-_PROCESAL_CIVIL_KEYWORDS = {
-    # Procedimientos y vías jurisdiccionales
-    "demanda", "juzgado", "procedimiento", "emplazamiento", "notificación",
-    "juicio oral", "audiencia", "contestación", "reconvención", "pruebas",
-    "sentencia", "recurso", "apelación", "casación", "amparo directo",
-    "ejecución de sentencia", "embargo", "remate", "incidente",
-    "medida cautelar", "medidas provisionales",
-    # Materias civiles - AMPLIADO
-    "arrendamiento", "renta", "rescisión", "contrato", "cobro",
-    "daños y perjuicios", "responsabilidad civil", "prescripción",
-    "usucapión", "reivindicación", "interdicto", "posesión",
-    "compraventa", "hipoteca", "fianza", "obligaciones",
-    "desalojo", "desahucio",  # ⬅️ AGREGADO para detectar queries de desalojo
-    "lanzamiento", "desocupación",  # ⬅️ AGREGADO sinónimos de desalojo
-    # Materias familiares
-    "divorcio", "custodia", "pensión alimenticia", "alimentos",
-    "patria potestad", "guarda", "adopción", "sucesión",
-    "testamento", "intestado", "régimen matrimonial",
-    "violencia familiar", "orden de protección",
-    # Procedimiento
-    "competencia", "jurisdicción", "tribunal", "juez civil",
-    "juez familiar", "primera instancia", "código de procedimientos",
-    "código procesal", "vía ordinaria", "vía sumaria", "vía ejecutiva",
-    "juicio especial", "mediación", "conciliación",
-}
-
-# ⬅️ KEYWORDS PENALES para EXCLUIR (evitar falsos positivos)
-_PENAL_EXCLUDE_KEYWORDS = {
-    "penal", "delito", "fiscal", "fiscalía", "ministerio público",
-    "imputación", "vinculación a proceso", "flagrancia", "prisión preventiva"
-}
-
-
-def is_procesal_civil_query(query: str) -> bool:
-    """
-    Detecta si la consulta involucra procedimientos civiles o familiares
-    donde el CNPCF podría ser relevante.
-    
-    Cambio: threshold 2 → 1 (basta 1 keyword fuerte como 'demanda' o 'divorcio')
-    Excluye queries con keywords penales para evitar falsos positivos.
-    """
-    query_lower = query.lower()
-    
-    # Excluir si tiene keywords penales
-    if any(kw in query_lower for kw in _PENAL_EXCLUDE_KEYWORDS):
-        return False
-    
-    # Activar si tiene al menos 1 keyword civil/familiar
-    hits = sum(1 for kw in _PROCESAL_CIVIL_KEYWORDS if kw in query_lower)
-    return hits >= 1  # ⬅️ CAMBIO: threshold 2 → 1
-
-
-
-CNPCF_TRANSITIONAL_CONTEXT = """
-═══════════════════════════════════════════════════════════════
-   INSTRUCCIÓN OBLIGATORIA: CÓDIGO NACIONAL DE PROCEDIMIENTOS
-   CIVILES Y FAMILIARES (CNPCF)
-═══════════════════════════════════════════════════════════════
-
-CONTEXTO LEGAL CRÍTICO:
-El 7 de junio de 2023 se publicó en el DOF el Código Nacional de Procedimientos
-Civiles y Familiares (CNPCF), que REEMPLAZA a los códigos procesales civiles
-y familiares de cada entidad federativa.
-
-RÉGIMEN TRANSITORIO:
-El CNPCF NO entra en vigor automáticamente. Cada estado tiene un plazo máximo
-para que su Congreso local emita una DECLARATORIA DE INICIO DE VIGENCIA.
-El plazo máximo es el 1 de abril de 2027.
-
-ESTADOS CON DECLARATORIA EMITIDA (el CNPCF ya se aplica o tiene fecha definida):
-• Aguascalientes, Baja California Sur, Campeche, Chiapas, Chihuahua,
-  Coahuila, Colima, Durango, Estado de México, Guanajuato, Guerrero,
-  Hidalgo, Jalisco, Michoacán, Morelos, Nayarit, Nuevo León,
-  Oaxaca, Puebla, Querétaro, Quintana Roo, San Luis Potosí,
-  Sinaloa, Sonora, Tabasco, Tamaulipas, Tlaxcala, Veracruz,
-  Yucatán, Zacatán
-
-ESTADOS PENDIENTES DE DECLARATORIA (aún aplica su código procesal local):
-• Baja California, Ciudad de México
-
-INSTRUCCIONES PARA TU RESPUESTA:
-1. SIEMPRE menciona el CNPCF cuando la consulta involucre procedimientos civiles o familiares
-2. Indica si el estado del usuario YA tiene declaratoria o si aún está pendiente
-3. Si el estado YA tiene declaratoria:
-   → Cita el CNPCF como marco procesal aplicable (no el código estatal antiguo)
-   → Aclara que el código procesal estatal anterior fue reemplazado
-4. Si el estado AÚN NO tiene declaratoria:
-   → Indica que sigue aplicando el código procesal estatal vigente
-   → Advierte que el CNPCF entrará en vigor a más tardar el 1 de abril de 2027
-5. En AMBOS casos, incluye una nota sobre esta transición legislativa
-6. Si no sabes el estado del usuario, pregunta o advierte en general
-
-FORMATO OBLIGATORIO — Incluir al inicio de la respuesta:
-> ⚠️ **Nota sobre el CNPCF**: [Estado] [ya emitió / aún no ha emitido] la
-> declaratoria de inicio de vigencia del Código Nacional de Procedimientos
-> Civiles y Familiares. [Consecuencia para el caso concreto].
-"""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CoIDH — DETECCIÓN Y FORMATO DE RESPUESTA
-# ══════════════════════════════════════════════════════════════════════════════
-
-_COIDH_KEYWORDS = {
-    "corte interamericana", "cidh", "coidh", "comisión interamericana",
-    "convención americana", "pacto de san josé", "cadh",
-    "derechos humanos", "bloque de constitucionalidad",
-    "control de convencionalidad", "serie c", "cuadernillo",
-    "desaparición forzada", "tortura", "debido proceso interamericano",
-    "reparación integral", "víctimas", "medidas provisionales",
-    "opinión consultiva", "artículo 1 convencional",
-    "artículo 2 convencional", "artículo 8 convencional",
-    "artículo 25 convencional", "pro persona",
-}
-
-
-def is_coidh_query(query: str) -> bool:
-    """
-    Detecta si la consulta involucra jurisprudencia interamericana o DDHH.
-    Umbral: 1 keyword basta (los términos son muy específicos).
-    """
-    query_lower = query.lower()
-    return any(kw in query_lower for kw in _COIDH_KEYWORDS)
-
-
-CIDH_RESPONSE_INSTRUCTION = """
-═══════════════════════════════════════════════════════════════
-   INSTRUCCIÓN: FORMATO PARA JURISPRUDENCIA INTERAMERICANA
-═══════════════════════════════════════════════════════════════
-
-Cuando el contexto recuperado contenga documentos de la Corte Interamericana
-de Derechos Humanos (Cuadernillos de Jurisprudencia), SIGUE ESTAS REGLAS:
-
-1. AGRUPACIÓN POR CASO: Cita los casos agrupados por nombre, no por documento.
-   ✅ Correcto: "Caso Radilla Pacheco Vs. México (Serie C No. 209)"
-   ❌ Incorrecto: "Según el Cuadernillo No. 6..."
-
-2. INCLUYE SERIE C: Siempre incluye el número de Serie C cuando esté disponible
-   en los metadatos o texto del contexto.
-
-3. ESTRUCTURA: Organiza la respuesta así:
-   a) Primero el estándar interamericano general sobre el tema
-   b) Luego los casos específicos que lo desarrollan
-   c) Finalmente, la aplicación al caso mexicano (control de convencionalidad)
-
-4. CITA CORRECTA: Usa el formato estándar:
-   > Corte IDH. Caso [Nombre] Vs. [Estado]. [Tipo]. Sentencia de [fecha].
-   > Serie C No. [número]. [Doc ID: uuid]
-
-5. CONEXIÓN CON DERECHO INTERNO: Cuando sea pertinente, conecta la
-   jurisprudencia interamericana con:
-   - Art. 1° CPEUM (principio pro persona)
-   - Tesis de la SCJN sobre control de convencionalidad
-   - Jurisprudencia nacional complementaria del contexto
-
-6. NUNCA inventes casos, números de Serie C, o sentencias que no estén
-   en el contexto proporcionado.
-"""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # DOGMATIC QUERY EXPANSION - LLM-Based Legal Term Extraction
 # ══════════════════════════════════════════════════════════════════════════════
 
-DOGMATIC_EXPANSION_PROMPT = """Actúa como un experto jurista mexicano. Tu único trabajo es identificar el concepto jurídico de la consulta y devolver sus elementos normativos, verbos rectores y términos técnicos según la dogmática jurídica mexicana en TODAS las ramas del derecho.
+DOGMATIC_EXPANSION_PROMPT = """Actúa como un experto penalista mexicano. Tu único trabajo es identificar el concepto jurídico de la consulta y devolver sus elementos normativos, verbos rectores y términos técnicos según la dogmática penal mexicana.
 
 REGLAS ESTRICTAS:
 1. SOLO devuelve palabras clave separadas por espacio
 2. NO incluyas explicaciones ni puntuación
 3. Incluye sinónimos técnicos del derecho mexicano
-4. Prioriza términos que aparecerían en códigos, leyes y tratados internacionales
-5. Si la consulta toca temas constitucionales, incluye "CPEUM constitución artículo"
-6. Si la consulta toca procedimiento civil o familiar, incluye "código nacional procedimientos civiles familiares CNPCF"
+4. Prioriza términos que aparecerían en códigos penales
 
 EJEMPLOS:
-- Entrada: "Delito de violación" -> Salida: "violación cópula acceso carnal delito sexual código penal"
-- Entrada: "Robo" -> Salida: "robo apoderamiento cosa mueble ajena sin consentimiento"
-- Entrada: "Divorcio" -> Salida: "divorcio disolución matrimonial convenio custodia alimentos guarda régimen familiar CNPCF"
-- Entrada: "Demanda civil por incumplimiento de contrato" -> Salida: "incumplimiento contrato rescisión daños perjuicios obligaciones código civil procedimiento civil CNPCF"
-- Entrada: "Pensión alimenticia" -> Salida: "alimentos pensión alimenticia obligación alimentaria manutención código familiar CNPCF"
-- Entrada: "Amparo" -> Salida: "amparo garantías acto reclamado queja suspensión ley de amparo CPEUM"
-- Entrada: "Despido injustificado" -> Salida: "despido injustificado indemnización reinstalación salarios caídos ley federal trabajo artículo 123 CPEUM"
-- Entrada: "Compraventa de inmueble" -> Salida: "compraventa inmueble enajenación transmisión dominio escritura código civil contrato"
-- Entrada: "Derechos humanos tortura" -> Salida: "tortura tratos crueles derechos humanos CPEUM artículo 1 convención americana CADH pro persona"
+- Entrada: "Delito de violación" -> Salida: "violación cópula acceso carnal delito sexual"
+- Entrada: "Robo" -> Salida: "robo apoderamiento cosa mueble ajena sin consentimiento"  
+- Entrada: "Homicidio" -> Salida: "homicidio privar vida muerte lesiones mortales"
+- Entrada: "Fraude" -> Salida: "fraude engaño error lucro indebido perjuicio patrimonial"
+- Entrada: "Amparo" -> Salida: "amparo garantías acto reclamado queja suspensión"
 
 Ahora procesa esta consulta y devuelve SOLO las palabras clave:"""
 
@@ -1948,14 +1164,12 @@ async def expand_legal_query_llm(query: str) -> str:
     - Lenguaje coloquial del usuario: "violación"
     - Terminología técnica del legislador: "cópula"
     """
-    # Truncate to stay within LLM limits for query expansion
-    query_for_expansion = query[:6000]
     try:
         response = await deepseek_client.chat.completions.create(
             model="deepseek-chat",  # Modelo rápido, no reasoner
             messages=[
                 {"role": "system", "content": DOGMATIC_EXPANSION_PROMPT},
-                {"role": "user", "content": query_for_expansion}
+                {"role": "user", "content": query}
             ],
             temperature=0,  # Determinista
             max_tokens=100,  # Solo necesitamos palabras clave
@@ -1965,78 +1179,13 @@ async def expand_legal_query_llm(query: str) -> str:
         
         # Combinar query original + términos expandidos
         result = f"{query} {expanded_terms}"
-        print(f"  📚 Query expandido: '{query}' → '{result}'")
+        print(f"   Query expandido: '{query}' → '{result}'")
         return result
         
     except Exception as e:
-        print(f"  ⚠️ Error en expansión LLM, usando fallback: {e}")
+        print(f"   Error en expansión LLM, usando fallback: {e}")
         # Fallback a expansión estática
         return expand_legal_query(query)
-
-
-def extract_legal_citations(text: str) -> List[str]:
-    """
-    Extract specific legal citations from sentencia text for targeted RAG searches.
-    Returns a list of search queries derived from:
-    - Tesis/Jurisprudencia numbers (e.g., '2a./J. 58/2010', 'P. XXXIV/96')
-    - Article references with law names (e.g., 'artículo 802 del Código Civil')
-    - Registro numbers (e.g., 'Registro 200609')
-    """
-    import re
-    citations = []
-    seen = set()
-    
-    # Pattern 1: Tesis numbers — e.g. "2a./J. 58/2010", "P./J. 11/2015", "1a. XII/2015"
-    tesis_pattern = re.compile(
-        r'(?:(?:1a|2a|P)\.?(?:/J)?[.]?\s*(?:[IVXLCDM]+|\d+)/\d{2,4})',
-        re.IGNORECASE
-    )
-    for match in tesis_pattern.finditer(text):
-        tesis = match.group().strip()
-        if tesis not in seen and len(tesis) > 4:
-            seen.add(tesis)
-            citations.append(tesis)
-    
-    # Pattern 2: Contradicción de tesis — e.g. "contradicción de tesis 204/2014"
-    ct_pattern = re.compile(
-        r'contradicci[oó]n\s+(?:de\s+)?tesis\s+(\d+/\d{4})',
-        re.IGNORECASE
-    )
-    for match in ct_pattern.finditer(text):
-        ct = f"contradicción de tesis {match.group(1)}"
-        if ct not in seen:
-            seen.add(ct)
-            citations.append(ct)
-    
-    # Pattern 3: Specific article + law name — e.g. "artículo 802 del Código Civil"
-    art_pattern = re.compile(
-        r'art[íi]culos?\s+(\d{1,4}(?:\s*,\s*\d{1,4})*)\s+(?:del?\s+)?'
-        r'((?:C[oó]digo|Ley|Constituci[oó]n|Reglamento)\s+[\w\s]{5,40})',
-        re.IGNORECASE
-    )
-    for match in art_pattern.finditer(text):
-        arts = match.group(1)
-        law = match.group(2).strip()
-        # Only take first article number to keep query focused
-        first_art = arts.split(',')[0].strip()
-        query = f"artículo {first_art} {law}"
-        if query not in seen:
-            seen.add(query)
-            citations.append(query)
-    
-    # Pattern 4: Registro numbers — e.g. "Registro 200609", "registro digital: 2008257"
-    reg_pattern = re.compile(
-        r'registro\s+(?:digital:?\s+)?(\d{5,7})',
-        re.IGNORECASE
-    )
-    for match in reg_pattern.finditer(text):
-        reg = match.group(1)
-        query = f"Registro {reg}"
-        if query not in seen:
-            seen.add(query)
-            citations.append(query)
-    
-    return citations
 
 
 # Términos que indican query sobre derechos humanos
@@ -2058,14 +1207,6 @@ DDHH_KEYWORDS = {
     # Artículos constitucionales DDHH
     "artículo 1", "art. 1", "artículo primero", "artículo 14", "artículo 16",
     "artículo 17", "artículo 19", "artículo 20", "artículo 21", "artículo 22",
-    # Control de convencionalidad y constitucionalidad
-    "control de convencionalidad", "convencionalidad", "constitucionalidad",
-    "jerarquía normativa", "bloque de constitucionalidad", "bloque constitucional",
-    "principio pro persona", "interpretación conforme",
-    # Prisión preventiva
-    "prisión preventiva", "prisión preventiva oficiosa", "medida cautelar",
-    # Referencias a constitución
-    "constitución", "cpeum", "artículo constitucional", "reforma constitucional",
 }
 
 def is_ddhh_query(query: str) -> bool:
@@ -2077,171 +1218,8 @@ def is_ddhh_query(query: str) -> bool:
     return any(keyword in query_lower for keyword in DDHH_KEYWORDS)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DETECCIÓN DE CONSULTAS PROCESALES CIVILES/FAMILIARES (CNPCF)
-# ══════════════════════════════════════════════════════════════════════════════
-
-PROCESAL_CIVIL_KEYWORDS = {
-    # Materia civil/familiar (expresiones generales)
-    "materia civil", "materia familiar", "en civil", "en lo civil",
-    "derecho procesal civil", "derecho procesal familiar",
-    # Procedimiento civil general
-    "procedimiento civil", "proceso civil", "juicio civil", "juicio ordinario civil",
-    "demanda civil", "contestación de demanda", "emplazamiento", "audiencia previa",
-    "código procesal civil", "código de procedimientos civiles",
-    "juicio oral civil", "juicio ejecutivo", "vía ordinaria civil",
-    # Procedimiento familiar
-    "juicio familiar", "procedimiento familiar", "juicio oral familiar",
-    "divorcio", "custodia", "guardia y custodia", "guarda",
-    "pensión alimenticia", "alimentos", "régimen de visitas", "convivencia",
-    "patria potestad", "adopción", "reconocimiento de paternidad",
-    "violencia familiar", "medidas de protección familiar",
-    # Recursos procesales civiles/familiares
-    "apelación civil", "recurso de apelación", "recurso de revocación",
-    "incidente", "excepción procesal", "reconvención",
-    "pruebas en juicio civil", "ofrecimiento de pruebas", "desahogo de pruebas",
-    "alegatos", "sentencia civil", "ejecución de sentencia",
-    # CNPCF directamente
-    "cnpcf", "código nacional de procedimientos civiles",
-    "código nacional de procedimientos civiles y familiares",
-    # Notificaciones y plazos (términos procesales clave)
-    "notificación", "notificaciones", "notificación personal",
-    "surten efectos", "surtir efectos",
-    "plazo procesal", "plazos procesales", "término procesal", "términos procesales",
-    "contestar demanda", "plazo para contestar", "término para contestar",
-    "emplazar", "exhorto",
-    "medidas cautelares civiles", "embargo", "secuestro de bienes",
-}
-
-
-def is_procesal_civil_query(query: str) -> bool:
-    """
-    Detecta si la consulta involucra procedimientos civiles o familiares.
-    Esto activa la inyección del contexto del CNPCF y su artículo transitorio.
-    """
-    query_lower = query.lower()
-    return any(keyword in query_lower for keyword in PROCESAL_CIVIL_KEYWORDS)
-
-
-CNPCF_TRANSITIONAL_CONTEXT = """
-═══════════════════════════════════════════════════════════════
-   INSTRUCCIÓN ESPECIAL: CÓDIGO NACIONAL DE PROCEDIMIENTOS CIVILES Y FAMILIARES (CNPCF)
-═══════════════════════════════════════════════════════════════
-
-CONTEXTO CRÍTICO: México publicó el Código Nacional de Procedimientos Civiles y Familiares (CNPCF)
-que UNIFICA los procedimientos civiles y familiares en todo el país. Sin embargo, su entrada en vigor
-es GRADUAL según el Artículo Segundo Transitorio del decreto:
-
-"La aplicación del CNPCF entrará en vigor gradualmente:
-- En el Orden Federal: mediante Declaratoria del Congreso de la Unión, previa solicitud del PJF.
-- En Entidades Federativas: mediante Declaratoria del Congreso Local, previa solicitud del PJ estatal.
-- PLAZO MÁXIMO: 1o. de abril de 2027 (entrada automática si no hay Declaratoria).
-- Entre la Declaratoria y la entrada en vigor deben mediar máximo 120 días naturales."
-
-INSTRUCCIONES OBLIGATORIAS PARA ESTA RESPUESTA:
-
-1. PRESENTA PRIMERO el fundamento del CNPCF si existe en el contexto recuperado.
-   Advierte al usuario: "El Código Nacional de Procedimientos Civiles y Familiares (CNPCF) aplica
-   si en su entidad ya se emitió la Declaratoria de entrada en vigor del Congreso Local.
-   Verifique si su estado ya adoptó el CNPCF."
-
-2. PRESENTA TAMBIÉN el fundamento del Código de Procedimientos Civiles ESTATAL que aparezca
-   en el contexto. Esto es indispensable porque en estados donde el CNPCF aún NO está vigente,
-   el código procesal local sigue siendo la norma aplicable.
-
-3. ESTRUCTURA la respuesta con AMBAS fuentes claramente diferenciadas:
-   
-   ### Según el CNPCF (si ya es vigente en su estado)
-   > [Artículos del CNPCF del contexto]
-   
-   ### Según el Código de Procedimientos Civiles de [Estado]
-   > [Artículos del código estatal del contexto]
-   
-   ### ⚠️ Nota sobre vigencia
-   > Verifique si su entidad federativa ya emitió la Declaratoria de entrada en vigor
-   > del CNPCF ante el Congreso Local. El plazo máximo es el 1o. de abril de 2027.
-
-4. Si el contexto NO contiene artículos del CNPCF, responde con el código procesal estatal
-   y menciona que el CNPCF puede estar vigente en la entidad del usuario.
-
-5. Si el contexto NO contiene artículos del código procesal estatal, responde con el CNPCF
-   y advierte que el código estatal aún podría ser aplicable si no hay Declaratoria.
-═══════════════════════════════════════════════════════════════
-"""
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DETECCIÓN DE CONSULTAS SOBRE JURISPRUDENCIA CoIDH
-# ══════════════════════════════════════════════════════════════════════════════
-
-COIDH_KEYWORDS = {
-    "corte interamericana", "coidh", "cidh", "comisión interamericana",
-    "convención americana", "cadh", "pacto de san josé",
-    "caso vs", "caso contra", "vs.", "sentencia interamericana",
-    "jurisprudencia interamericana", "precedente interamericano",
-    "cuadernillo", "cuadernillos",
-    "control de convencionalidad", "estándar interamericano",
-    "reparación integral", "medidas provisionales",
-    "desaparición forzada", "tortura coidh",
-    "opinión consultiva", "oc-",
-}
-
-
-def is_coidh_query(query: str) -> bool:
-    """
-    Detecta si la consulta busca jurisprudencia de la Corte Interamericana.
-    Activa instrucciones especiales para agrupar fragmentos por caso.
-    """
-    query_lower = query.lower()
-    return any(keyword in query_lower for keyword in COIDH_KEYWORDS)
-
-
-CIDH_RESPONSE_INSTRUCTION = """
-═══════════════════════════════════════════════════════════════
-   INSTRUCCIÓN ESPECIAL: JURISPRUDENCIA DE LA CORTE INTERAMERICANA (CoIDH)
-═══════════════════════════════════════════════════════════════
-
-El usuario busca precedentes de la Corte Interamericana de Derechos Humanos.
-Los documentos del contexto con silo="bloque_constitucional" y atributo caso="" contienen
-fragmentos de cuadernillos de jurisprudencia de la CoIDH.
-
-INSTRUCCIONES OBLIGATORIAS:
-
-1. AGRUPA los fragmentos POR CASO. No presentes párrafos sueltos sin identificar el caso.
-   Para cada caso mencionado en el contexto, presenta:
-   
-   ### Corte IDH. Caso [Nombre] Vs. [País]
-   **Sentencia**: [fecha si aparece en el contexto, Serie C No. X]
-   **Tema**: [tema del cuadernillo si está disponible]
-   **Resumen del caso**: [breve descripción de los hechos — 1-2 oraciones basadas en el contexto]
-   
-   > **Párrafo [N]**: "[fragmento relevante del contexto]" [Doc ID: uuid]
-   
-   **Relevancia para tu caso**: [explicar cómo aplica al argumento del usuario]
-
-2. Si el atributo caso="" está vacío pero el texto menciona "Corte IDH. Caso X Vs. Y",
-   EXTRAE el nombre del caso del propio texto y úsalo como encabezado.
-
-3. PRIORIZA casos que involucren a MÉXICO cuando sea relevante para el usuario.
-
-4. CITA SIEMPRE con formato completo:
-   ✓ "Corte IDH. Caso Radilla Pacheco Vs. México. Sentencia de 23 de noviembre de 2009. Serie C No. 209, párr. 338"
-   ✗ "La Corte Interamericana ha señalado..." (SIN citar caso = PROHIBIDO)
-
-5. Si hay fragmentos de OPINIONES CONSULTIVAS, sepáralos:
-   ### Opinión Consultiva OC-X/YY
-   > [contenido]
-
-6. Al final, si aplica, señala al usuario cómo estos precedentes refuerzan su argumento
-   en el contexto del derecho mexicano (control de convencionalidad, Art. 1o CPEUM).
-═══════════════════════════════════════════════════════════════
-"""
-
-
 async def get_dense_embedding(text: str) -> List[float]:
     """Genera embedding denso usando OpenAI"""
-    # text-embedding-3-small has 8191 token limit (~30K chars safety margin)
-    text = text[:30000]
     response = await openai_client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=text,
@@ -2263,70 +1241,31 @@ def get_sparse_embedding(text: str) -> SparseVector:
 
 
 # Maximum characters per document to prevent token overflow
-# INCREASED from 600 to 3000 to avoid truncating constitutional articles
-# Art. 19 CPEUM (~2500 chars) was being cut, losing the list of crimes for preventive detention
-MAX_DOC_CHARS = 3000
-
-
-def smart_truncate(text: str, max_chars: int) -> str:
-    """
-    Trunca al último párrafo/oración completa dentro del límite.
-    Evita cortar a mitad de frase, preservando coherencia del texto legal.
-    """
-    if len(text) <= max_chars:
-        return text
-    
-    truncated = text[:max_chars]
-    
-    # Buscar el último corte natural (párrafo o punto final)
-    last_paragraph = truncated.rfind('\n\n')
-    last_period_newline = truncated.rfind('.\n')
-    last_period_space = truncated.rfind('. ')
-    
-    # Usar el mejor corte disponible (debe estar al menos al 50% del texto)
-    min_acceptable = int(max_chars * 0.5)
-    
-    best_cut = -1
-    for cut_point in [last_paragraph, last_period_newline, last_period_space]:
-        if cut_point > min_acceptable and cut_point > best_cut:
-            best_cut = cut_point
-    
-    if best_cut > 0:
-        return truncated[:best_cut + 1].rstrip() + "\n... [truncado]"
-    
-    return truncated.rstrip() + "... [truncado]"
-
+MAX_DOC_CHARS = 2500
 
 def format_results_as_xml(results: List[SearchResult]) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
     Escapa caracteres HTML para seguridad.
-    Trunca documentos largos inteligentemente para evitar exceder límite de tokens.
-    Para documentos de la CoIDH, incluye atributos caso y tema para citas correctas.
+    Trunca documentos largos para evitar exceder límite de tokens.
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
     
     xml_parts = ["<documentos>"]
     for r in results:
-        # Smart truncate: preserva párrafos/oraciones completas
-        texto = smart_truncate(r.texto, MAX_DOC_CHARS)
+        # Truncate long documents to fit within token limits
+        texto = r.texto
+        if len(texto) > MAX_DOC_CHARS:
+            texto = texto[:MAX_DOC_CHARS] + "... [truncado]"
         
         escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
         escaped_origen = html.escape(r.origen or "Desconocido")
         
-        # Atributos extra para jurisprudencia CoIDH
-        extra_attrs = ""
-        if r.tipo and "INTERAMERICANA" in (r.tipo or "").upper():
-            if r.caso and r.caso != "No especificado":
-                extra_attrs += f' caso="{html.escape(r.caso)}"'
-            if r.tema:
-                extra_attrs += f' tema="{html.escape(r.tema)}"'
-        
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
-            f'origen="{escaped_origen}" silo="{r.silo}" score="{r.score:.4f}"{extra_attrs}>\n'
+            f'origen="{escaped_origen}" silo="{r.silo}" score="{r.score:.4f}">\n'
             f'{escaped_texto}\n'
             f'</documento>'
         )
@@ -2426,7 +1365,7 @@ def annotate_invalid_citations(response_text: str, invalid_ids: Set[str]) -> str
     Anota las citas inválidas en el texto con una advertencia visual.
     
     Ejemplo:
-        [Doc ID: abc123] -> [Doc ID: abc123] ⚠️ *[Cita no verificada]*
+        [Doc ID: abc123] -> [Doc ID: abc123]  *[Cita no verificada]*
     """
     if not invalid_ids:
         return response_text
@@ -2435,7 +1374,7 @@ def annotate_invalid_citations(response_text: str, invalid_ids: Set[str]) -> str
         doc_id = match.group(1)
         original = match.group(0)
         if doc_id.lower() in [i.lower() for i in invalid_ids]:
-            return f"{original} ⚠️ *[Cita no verificada]*"
+            return f"{original}  *[Cita no verificada]*"
         return original
     
     return DOC_ID_PATTERN.sub(replace_invalid, response_text)
@@ -2529,29 +1468,14 @@ async def hybrid_search_single_silo(
                 origen=payload.get("origen"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
-                caso=payload.get("caso"),
-                tema=payload.get("tema"),
-                tipo=payload.get("tipo"),
                 silo=collection,
             ))
         
         return search_results
     
     except Exception as e:
-        print(f"⚠️ Error en búsqueda sobre {collection}: {e}")
+        print(f" Error en búsqueda sobre {collection}: {e}")
         return []
-
-
-# Regex para detectar patrones de citación exacta en la query
-# Si el usuario pide "Art. 19", "artículo 123", "Tesis 2014", etc.
-# priorizamos BM25 (keyword matching) sobre semántico
-CITATION_PATTERN = re.compile(
-    r'(?:art[ií]culo?|art\.?)\s*\d+|'
-    r'(?:tesis|jurisprudencia)\s*\d+|'
-    r'(?:fracción|frac\.?)\s+[IVXLCDM]+|'
-    r'(?:párrafo|inciso)\s+[a-z)\d]',
-    re.IGNORECASE
-)
 
 
 async def hybrid_search_all_silos(
@@ -2564,44 +1488,11 @@ async def hybrid_search_all_silos(
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
     Aplica filtros de jurisdicción y fusiona resultados.
     
-    Incluye:
-    - Legal Router (Semantic Query Routing) para optimizar citation queries
-    - Dogmatic Query Expansion (brecha semántica)
-    - Dynamic Alpha (citación exacta vs conceptual)
-    - Post-check jurisdiccional (elimina contaminación de estados)
+    Incluye Dogmatic Query Expansion para cerrar brecha semántica entre
+    lenguaje coloquial y terminología técnica legal.
     """
     # ═══════════════════════════════════════════════════════════════════════════
-    # PASO 0: LEGAL ROUTER - Semantic Query Routing
-    # Clasifica la query y optimiza el flujo de búsqueda
-    # ═══════════════════════════════════════════════════════════════════════════
-    query_type, route_metadata = legal_router.classify(query)
-    
-    print(f"  🎯 Legal Router: {query_type.value.upper()} query detected")
-    
-    # Si es CITATION query y tenemos suficiente metadata, podemos hacer búsqueda directa
-    if query_type == QueryType.CITATION and route_metadata.article_number:
-        print(f"  ⚡ Citation Optimization: Art. {route_metadata.article_number}"
-              f"{f'-{route_metadata.article_suffix}' if route_metadata.article_suffix else ''}"
-              f" {route_metadata.law_id or 'unknown law'}")
-        print(f"  🚀 Bypass: Direct filter search (sin embeddings) → Latencia reducida ~70%")
-        
-        # TODO: Implementar búsqueda directa por filtro cuando metadata es completa
-        # Por ahora, continuamos con hybrid search pero con alpha optimizado
-        alpha = 0.05  # ULTRA-priority BM25 para citation exacta
-    
-    elif query_type == QueryType.SCOPED and route_metadata.law_id:
-        print(f"  📚 Scoped Search: {route_metadata.law_id} ({route_metadata.law_name})")
-        print(f"  🎯 Filtro: Hybrid search limitado a {route_metadata.law_id}")
-        alpha = 0.15  # Priority BM25 para búsquedas scoped
-    
-    else:
-        # SEMANTIC query - búsqueda completa
-        print(f"  🧠 Semantic Search: Full hybrid across all silos")
-        alpha = 0.7   # Prioridad semántica
-
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # PASO 1: Dogmatic Query Expansion (LLM-based)
+    # PASO 0: Dogmatic Query Expansion (LLM-based)
     # Traduce "violación" → "violación cópula acceso carnal delito sexual"
     # ═══════════════════════════════════════════════════════════════════════════
     expanded_query = await expand_legal_query_llm(query)
@@ -2654,47 +1545,29 @@ async def hybrid_search_all_silos(
     jurisprudencia.sort(key=lambda x: x.score, reverse=True)
     constitucional.sort(key=lambda x: x.score, reverse=True)
     
-    # Fusión balanceada DINÁMICA según tipo de query Y estado seleccionado
-    # CRITICAL: Cuando hay estado seleccionado, PRIORIZAR leyes estatales sobre federales
-    
-    if estado:
-        # MODO ESTADO ESPECÍFICO: Usuario seleccionó jurisdicción estatal
-        # Prioridad: Estatales > Constitucional > Jurisprudencia > Federales (subsidiarias)
-        print(f"  📍 Estado seleccionado: {estado} → Priorizando leyes estatales")
-        min_estatales = min(10, len(estatales))        # MÁXIMA prioridad a leyes del estado
-        min_constitucional = min(5, len(constitucional))  # Constitución siempre relevante
-        min_jurisprudencia = min(3, len(jurisprudencia))  # Jurisprudencia relevante
-        min_federales = min(2, len(federales))           # Federales subsidiarias
-    elif is_ddhh_query(query):
+    # Fusión balanceada DINÁMICA según tipo de query
+    # Para queries de DDHH, priorizar agresivamente el bloque constitucional
+    if is_ddhh_query(query):
         # Modo DDHH: Prioridad máxima a bloque constitucional
-        min_constitucional = min(8, len(constitucional))  # ALTA prioridad
+        min_constitucional = min(8, len(constitucional))   # ALTA prioridad
         min_jurisprudencia = min(3, len(jurisprudencia))   
         min_federales = min(3, len(federales))             
         min_estatales = min(2, len(estatales))             
     else:
         # Modo estándar: Balance entre todos los silos
-        # INCREASED constitucional and federales for more comprehensive responses
-        # Ensures Constitution, Treaties, and Federal legislation always accompany state results
-        min_constitucional = min(7, len(constitucional))   
+        min_constitucional = min(5, len(constitucional))   
         min_jurisprudencia = min(4, len(jurisprudencia))   
-        min_federales = min(6, len(federales))             
-        min_estatales = min(5, len(estatales))             
+        min_federales = min(5, len(federales))             
+        min_estatales = min(3, len(estatales))             
     
     merged = []
     
-    # ORDEN DE FUSIÓN: Depende de si hay estado seleccionado
-    if estado:
-        # Estado seleccionado: ESTATALES PRIMERO
-        merged.extend(estatales[:min_estatales])           # 1. Leyes del estado (PRIORIDAD)
-        merged.extend(constitucional[:min_constitucional]) # 2. Bloque constitucional
-        merged.extend(jurisprudencia[:min_jurisprudencia]) # 3. Jurisprudencia
-        merged.extend(federales[:min_federales])           # 4. Federales (subsidiarias)
-    else:
-        # Sin estado: Orden jerárquico tradicional
-        merged.extend(constitucional[:min_constitucional]) # 1. Bloque constitucional
-        merged.extend(federales[:min_federales])           # 2. Leyes federales
-        merged.extend(estatales[:min_estatales])           # 3. Leyes estatales
-        merged.extend(jurisprudencia[:min_jurisprudencia]) # 4. Jurisprudencia
+    # Primero añadir los mejores de cada categoría garantizada
+    # Bloque constitucional primero (mayor jerarquía normativa)
+    merged.extend(constitucional[:min_constitucional])
+    merged.extend(federales[:min_federales])
+    merged.extend(estatales[:min_estatales])
+    merged.extend(jurisprudencia[:min_jurisprudencia])
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
@@ -2704,60 +1577,9 @@ async def hybrid_search_all_silos(
     slots_remaining = top_k - len(merged)
     if slots_remaining > 0:
         merged.extend(remaining[:slots_remaining])
-
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # BLINDAJE JURISDICCIONAL: Post-check de contaminación de estados
-    # Si el usuario pidió un estado, eliminar docs estatales de OTRO estado
-    # NOTA: Solo aplica a docs estatales. Federales/jurisprudencia aplican a todos.
-    # ═══════════════════════════════════════════════════════════════════════════
-    if estado:
-        normalized_estado = normalize_estado(estado)
-        if normalized_estado:
-            pre_filter_count = len(merged)
-            merged = [
-                r for r in merged
-                if not (
-                    r.silo == "leyes_estatales" and
-                    r.entidad and
-                    r.entidad != "NA" and
-                    r.entidad != normalized_estado
-                )
-            ]
-            removed = pre_filter_count - len(merged)
-            if removed > 0:
-                print(f"  🛡️ Blindaje Jurisdiccional: {removed} docs de otro estado eliminados")
-    
-    # Boost CPEUM en queries sobre constitucionalidad
-    def boost_cpeum_if_constitutional_query(results: List[SearchResult], query: str) -> List[SearchResult]:
-        """
-        Boostea resultados de CPEUM cuando la query menciona términos constitucionales.
-        Esto asegura que la Constitución aparezca en top results para queries sobre
-        control de constitucionalidad/convencionalidad, artículos constitucionales, etc.
-        """
-        query_lower = query.lower()
-        constitutional_terms = [
-            "constitución", "constitucional", "cpeum", 
-            "artículo 1", "artículo 14", "artículo 16", "artículo 19", "artículo 20",
-            "control de constitucionalidad", "control de convencionalidad"
-        ]
-        
-        is_constitutional = any(term in query_lower for term in constitutional_terms)
-        
-        if not is_constitutional:
-            return results
-        
-        # Boost CPEUM results by 30%
-        for result in results:
-            if result.origen and "Constitución Política" in result.origen:
-                result.score *= 1.3
-        
-        # Re-sort después del boost
-        return sorted(results, key=lambda x: x.score, reverse=True)
     
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
-    merged = boost_cpeum_if_constitutional_query(merged, query)  # Boost CPEUM si es query constitucional
     return merged[:top_k]
 
 
@@ -2935,12 +1757,6 @@ class DocumentResponse(BaseModel):
     entidad: Optional[str] = None
     silo: str
     found: bool = True
-    # Additional fields for jurisprudencia (esp. TCC)
-    tipo_criterio: Optional[str] = None
-    materia: Optional[str] = None
-    instancia: Optional[str] = None
-    tesis_num: Optional[str] = None
-    registro: Optional[str] = None
 
 
 @app.get("/document/{doc_id}", response_model=DocumentResponse)
@@ -2968,16 +1784,11 @@ async def get_document(doc_id: str):
                         id=str(point.id),
                         texto=payload.get("texto", payload.get("text", "Contenido no disponible")),
                         ref=payload.get("ref", payload.get("referencia", None)),
-                        origen=payload.get("origen", payload.get("fuente", None)),                        jurisdiccion=payload.get("jurisdiccion", None),
+                        origen=payload.get("origen", payload.get("fuente", None)),
+                        jurisdiccion=payload.get("jurisdiccion", None),
                         entidad=payload.get("entidad", payload.get("estado", None)),
                         silo=silo_name,
                         found=True,
-                        # TCC metadata
-                        tipo_criterio=payload.get("tipo_criterio", None),
-                        materia=payload.get("materia", None),
-                        instancia=payload.get("instancia", None),
-                        tesis_num=payload.get("tesis_num", None),
-                        registro=payload.get("registro", None),
                     )
             except Exception:
                 # ID no encontrado en este silo, continuar
@@ -3056,13 +1867,8 @@ async def chat_endpoint(request: ChatRequest):
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No se encontró mensaje del usuario")
     
-    # Detectar si hay documento adjunto (incluye sentencias enviadas desde el frontend)
-    has_document = (
-        "DOCUMENTO ADJUNTO:" in last_user_message
-        or "DOCUMENTO_INICIO" in last_user_message
-        or "SENTENCIA_INICIO" in last_user_message
-        or "AUDITAR_SENTENCIA" in last_user_message
-    )
+    # Detectar si hay documento adjunto
+    has_document = "DOCUMENTO ADJUNTO:" in last_user_message or "DOCUMENTO_INICIO" in last_user_message
     
     # Detectar si es una solicitud de redacción de documento
     is_drafting = "[REDACTAR_DOCUMENTO]" in last_user_message
@@ -3078,7 +1884,7 @@ async def chat_endpoint(request: ChatRequest):
             draft_tipo = tipo_match.group(1).lower()
         if subtipo_match:
             draft_subtipo = subtipo_match.group(1).lower()
-        print(f"✍️ Modo REDACCIÓN detectado - Tipo: {draft_tipo}, Subtipo: {draft_subtipo}")
+        print(f" Modo REDACCIÓN detectado - Tipo: {draft_tipo}, Subtipo: {draft_subtipo}")
     
     try:
         # ─────────────────────────────────────────────────────────────────────
@@ -3099,117 +1905,38 @@ async def chat_endpoint(request: ChatRequest):
             )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
-            print(f"  ✓ Encontrados {len(search_results)} documentos para fundamentar redacción")
+            print(f"   Encontrados {len(search_results)} documentos para fundamentar redacción")
         elif has_document:
-            # Detect sentencia vs generic document
-            is_sentencia = "AUDITAR_SENTENCIA" in last_user_message or "SENTENCIA_INICIO" in last_user_message
+            # Para documentos: extraer términos clave y buscar contexto relevante
+            print(" Documento adjunto detectado - extrayendo términos para búsqueda RAG")
             
-            # Extract document content from markers
+            # Extraer los primeros 2000 caracteres del contenido para buscar términos relevantes
             doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
-            if doc_start_idx == -1:
-                doc_start_idx = last_user_message.find("<!-- SENTENCIA_INICIO -->")
             if doc_start_idx != -1:
-                doc_content = last_user_message[doc_start_idx:]
+                doc_content = last_user_message[doc_start_idx:doc_start_idx + 3000]
             else:
-                doc_content = last_user_message
+                doc_content = last_user_message[:2000]
             
-            if is_sentencia:
-                # ── SENTENCIA MODE: Multi-query citation extraction ──
-                print("⚖️ Sentencia detectada — extrayendo citas para búsqueda multi-query")
-                
-                # 1. Extract specific citations from the full sentencia text
-                citations = extract_legal_citations(doc_content)
-                print(f"  📑 Citas extraídas: {len(citations)}")
-                for i, c in enumerate(citations[:10]):
-                    print(f"    [{i+1}] {c}")
-                
-                # 2. Base search: general context from beginning of document
-                base_query = f"análisis jurídico: {doc_content[:1500]}"
-                base_task = hybrid_search_all_silos(
-                    query=base_query,
-                    estado=request.estado,
-                    top_k=10,
-                )
-                
-                # 3. Targeted searches per citation (parallel, max 6)
-                citation_tasks = []
-                for citation in citations[:6]:
-                    citation_tasks.append(
-                        hybrid_search_all_silos(
-                            query=citation,
-                            estado=request.estado,
-                            top_k=5,
-                        )
-                    )
-                
-                # 4. Run all searches in parallel
-                all_tasks = [base_task] + citation_tasks
-                all_results_raw = await asyncio.gather(*all_tasks)
-                
-                # 5. Merge and deduplicate
-                seen_ids = set()
-                search_results = []
-                for result_list in all_results_raw:
-                    for r in result_list:
-                        if r.id not in seen_ids:
-                            seen_ids.add(r.id)
-                            search_results.append(r)
-                
-                search_results.sort(key=lambda x: x.score, reverse=True)
-                search_results = search_results[:40]  # Top 40 for sentencia analysis
-                
-                doc_id_map = build_doc_id_map(search_results)
-                context_xml = format_results_as_xml(search_results)
-                print(f"  ✓ {len(search_results)} documentos únicos recuperados (multi-query)")
-            else:
-                # ── GENERIC DOCUMENT: existing logic ──
-                print("📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
-                
-                search_query = f"análisis jurídico: {doc_content[:1500]}"
-                
-                search_results = await hybrid_search_all_silos(
-                    query=search_query,
-                    estado=request.estado,
-                    top_k=15,
-                )
-                doc_id_map = build_doc_id_map(search_results)
-                context_xml = format_results_as_xml(search_results)
-                print(f"  ✓ Encontrados {len(search_results)} documentos relevantes para contrastar")
-        else:
-            # ══════════════════════════════════════════════════════════════════
-            # CONSULTA NORMAL — PHASE 1 RAG OPTIMIZATION
-            # ══════════════════════════════════════════════════════════════════
+            # Crear query de búsqueda basada en términos legales del documento
+            search_query = f"análisis jurídico: {doc_content[:1500]}"
             
-            # 1. Detectar complejidad de la query
-            complexity = detect_query_complexity(last_user_message)
-            print(f"  📊 Complejidad detectada: {complexity.upper()}")
-            
-            # 2. Expandir query con sinónimos legales (DeepSeek)
-            expanded_query = await expand_query_intelligently(last_user_message, request.estado)
-            
-            # 3. Calcular top_k adaptativo
-            optimal_top_k = adaptive_top_k(last_user_message, base_top_k=request.top_k)
-            print(f"  🎯 Top-K adaptativo: {optimal_top_k} chunks ({complexity})")
-            
-            # 4. Realizar búsqueda con query optimizada
             search_results = await hybrid_search_all_silos(
-                query=expanded_query,
+                query=search_query,
                 estado=request.estado,
-                top_k=optimal_top_k * 2,  # Traer 2x para reranking (buffer)
+                top_k=15,  # Más resultados para documentos
             )
-            
-            # 5. Reranking con Cohere (Phase 1 final step)
-            # Reordena por relevancia contextual y reduce a optimal_top_k final
-            search_results = rerank_results(
-                results=search_results,
-                query=last_user_message,  # Usar query original, no expandida
-                top_n=optimal_top_k
-            )
-            
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
-            print(f"  ✅ RAG optimizado completo: {len(search_results)} docs finales ({complexity} query)")
-
+            print(f"   Encontrados {len(search_results)} documentos relevantes para contrastar")
+        else:
+            # Consulta normal
+            search_results = await hybrid_search_all_silos(
+                query=last_user_message,
+                estado=request.estado,
+                top_k=request.top_k,
+            )
+            doc_id_map = build_doc_id_map(search_results)
+            context_xml = format_results_as_xml(search_results)
         
         # ─────────────────────────────────────────────────────────────────────
         # PASO 2: Construir mensajes para LLM
@@ -3217,7 +1944,7 @@ async def chat_endpoint(request: ChatRequest):
         # Select appropriate system prompt based on mode
         if is_drafting and draft_tipo:
             system_prompt = get_drafting_prompt(draft_tipo, draft_subtipo or "")
-            print(f"  ✓ Usando prompt de redacción para: {draft_tipo}")
+            print(f"   Usando prompt de redacción para: {draft_tipo}")
         elif has_document:
             system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
         else:
@@ -3229,16 +1956,6 @@ async def chat_endpoint(request: ChatRequest):
         # Inyección de Contexto Global: Inventario del Sistema
         # Esto da al modelo "Scope Awareness" para responder preguntas de cobertura
         llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
-        
-        # Inyección condicional: CNPCF para consultas procesales civiles/familiares
-        if not has_document and not is_drafting and is_procesal_civil_query(last_user_message):
-            llm_messages.append({"role": "system", "content": CNPCF_TRANSITIONAL_CONTEXT})
-            print("  ⚖️ CNPCF: Inyectando contexto transitorio para consulta procesal civil/familiar")
-        
-        # Inyección condicional: CoIDH para consultas de jurisprudencia interamericana
-        if not has_document and not is_drafting and is_coidh_query(last_user_message):
-            llm_messages.append({"role": "system", "content": CIDH_RESPONSE_INSTRUCTION})
-            print("  🌎 CoIDH: Inyectando instrucciones de agrupación por caso interamericano")
         
         if context_xml:
             llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
@@ -3257,14 +1974,14 @@ async def chat_endpoint(request: ChatRequest):
         
         if use_reasoner:
             selected_model = REASONER_MODEL
-            start_message = "🧠 **Analizando documento...**\n\n"
-            final_header = "## ⚖️ Análisis Legal\n\n"
+            start_message = " **Analizando documento...**\n\n"
+            final_header = "##  Análisis Legal\n\n"
             max_tokens = 16000
         else:
             selected_model = CHAT_MODEL
             max_tokens = 8000
         
-        print(f"  🤖 Modelo seleccionado: {selected_model} ({'documento' if use_reasoner else 'consulta'})")
+        print(f"   Modelo seleccionado: {selected_model} ({'documento' if use_reasoner else 'consulta'})")
         
         if use_reasoner:
             # ── MODO REASONER: Razonamiento visible + respuesta ──────────────
@@ -3272,7 +1989,7 @@ async def chat_endpoint(request: ChatRequest):
                 """Stream con razonamiento visible para análisis de documentos"""
                 try:
                     yield start_message
-                    yield "💭 *Proceso de razonamiento:*\n\n> "
+                    yield " *Proceso de razonamiento:*\n\n> "
                     
                     reasoning_buffer = ""
                     content_buffer = ""
@@ -3307,17 +2024,10 @@ async def chat_endpoint(request: ChatRequest):
                     if not in_content and reasoning_buffer:
                         yield "\n\n---\n\n*Consulta completada*\n"
                     
-                    # Inyectar sugerencias contextuales al final (solo para consultas normales, no documentos)
-                    if not has_document and not is_drafting:
-                        tool_suggestions = detect_query_intent(last_user_message)
-                        if tool_suggestions:
-                            suggestions_block = generate_suggestions_block(tool_suggestions)
-                            yield suggestions_block
-                    
-                    print(f"✅ Respuesta reasoner ({len(reasoning_buffer)} chars reasoning, {len(content_buffer)} chars content)")
+                    print(f" Respuesta reasoner ({len(reasoning_buffer)} chars reasoning, {len(content_buffer)} chars content)")
                     
                 except Exception as e:
-                    yield f"\n\n❌ Error: {str(e)}"
+                    yield f"\n\n Error: {str(e)}"
             
             return StreamingResponse(
                 generate_reasoning_stream(),
@@ -3354,22 +2064,14 @@ async def chat_endpoint(request: ChatRequest):
                     if doc_id_map:
                         validation = validate_citations(content_buffer, doc_id_map)
                         if validation.invalid_count > 0:
-                            print(f"⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
+                            print(f" CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
                         else:
-                            print(f"✅ Validación OK: {validation.valid_count} citas verificadas")
+                            print(f" Validación OK: {validation.valid_count} citas verificadas")
                     
-                    # Inyectar sugerencias contextuales al final (solo para consultas normales)
-                    if not has_document and not is_drafting:
-                        tool_suggestions = detect_query_intent(last_user_message)
-                        if tool_suggestions:
-                            suggestions_block = generate_suggestions_block(tool_suggestions)
-                            yield suggestions_block
-                            print(f"  💡 Sugerencias agregadas: {', '.join(tool_suggestions)}")
-                    
-                    print(f"✅ Respuesta chat directa ({len(content_buffer)} chars)")
+                    print(f" Respuesta chat directa ({len(content_buffer)} chars)")
                     
                 except Exception as e:
-                    yield f"\n\n❌ Error: {str(e)}"
+                    yield f"\n\n Error: {str(e)}"
             
             return StreamingResponse(
                 generate_direct_stream(),
@@ -3525,312 +2227,6 @@ Realiza la auditoría siguiendo las instrucciones del sistema."""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT: AUDITORÍA DE SENTENCIAS (CENTINELA JERÁRQUICO)
-# ══════════════════════════════════════════════════════════════════════════════
-
-@app.post("/audit/sentencia", response_model=SentenciaAuditResponse)
-async def audit_sentencia_endpoint(request: SentenciaAuditRequest):
-    """
-    Auditoría jerárquica de sentencias judiciales.
-    
-    Pipeline de 5 pasos (orden estricto):
-    0. Perfilamiento del asunto (Scanner Procesal)
-    1. Kill Switch — Validación de Jurisprudencia (Art. 217 Ley de Amparo)
-    2. Filtro CT 293/2011 — Parámetro de Regularidad Constitucional
-    3. Motor Radilla — Control Ex Officio (Interpretación Conforme)
-    4. Suplencia vs Estricto Derecho (según materia)
-    """
-    try:
-        sentencia_text = request.documento
-        # Limitar a los primeros 12000 chars para el perfilamiento (mantener contexto amplio)
-        sentencia_preview = sentencia_text[:12000]
-        
-        print(f"\n{'='*70}")
-        print(f"  CENTINELA DE SENTENCIAS — Auditoría Jerárquica")
-        print(f"{'='*70}")
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 0: PERFILAMIENTO DEL ASUNTO (Scanner Procesal)
-        # ─────────────────────────────────────────────────────────────────────
-        print(f"\n  [PASO 0/4] Perfilamiento del asunto...")
-        
-        perfil_response = await deepseek_client.chat.completions.create(
-            model=CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_SENTENCIA_PERFILAMIENTO},
-                {"role": "user", "content": f"Perfila esta sentencia:\n\n{sentencia_preview}"},
-            ],
-            temperature=0.1,
-            max_tokens=1500,
-        )
-        
-        perfil_text = perfil_response.choices[0].message.content.strip()
-        # Limpiar markdown si existe
-        if perfil_text.startswith("```"):
-            perfil_text = perfil_text.split("```")[1]
-            if perfil_text.startswith("json"):
-                perfil_text = perfil_text[4:]
-        
-        try:
-            perfil = json.loads(perfil_text)
-        except json.JSONDecodeError:
-            perfil = {
-                "acto_reclamado": "No identificado",
-                "sentido_fallo": "NO IDENTIFICADO",
-                "materia": "CIVIL",
-                "normas_aplicadas": [],
-                "tesis_citadas": [],
-                "partes": {},
-                "resumen_hechos": "No se pudo extraer",
-            }
-        
-        materia = perfil.get("materia", "CIVIL").upper()
-        normas_aplicadas = perfil.get("normas_aplicadas", [])
-        tesis_citadas = perfil.get("tesis_citadas", [])
-        sentido_fallo = perfil.get("sentido_fallo", "NO IDENTIFICADO")
-        acto_reclamado = perfil.get("acto_reclamado", "No identificado")
-        
-        # Determinar modo de revisión según materia
-        materias_suplencia = ["PENAL", "LABORAL", "FAMILIA"]
-        modo_revision = "SUPLENCIA" if materia in materias_suplencia else "ESTRICTO_DERECHO"
-        
-        print(f"    ✓ Materia: {materia}")
-        print(f"    ✓ Sentido: {sentido_fallo}")
-        print(f"    ✓ Modo: {modo_revision}")
-        print(f"    ✓ Normas aplicadas: {len(normas_aplicadas)}")
-        print(f"    ✓ Tesis citadas: {len(tesis_citadas)}")
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 1: KILL SWITCH — Búsqueda de Jurisprudencia Contradictoria
-        # Busca en silo jurisprudencia_nacional criterios que contradigan
-        # ─────────────────────────────────────────────────────────────────────
-        print(f"\n  [PASO 1/4] Kill Switch — Buscando jurisprudencia contradictoria...")
-        
-        # Construir queries de búsqueda basadas en normas y acto reclamado
-        jurisp_queries = []
-        # Query principal: el acto reclamado
-        jurisp_queries.append(acto_reclamado)
-        # Queries por norma aplicada (buscar si hay JVS en contra)
-        for norma in normas_aplicadas[:5]:
-            jurisp_queries.append(f"jurisprudencia {norma} inconstitucionalidad")
-        # Queries por tesis citadas (verificar vigencia)
-        for tesis in tesis_citadas[:3]:
-            jurisp_queries.append(f"{tesis}")
-        
-        # Búsquedas paralelas en jurisprudencia y bloque constitucional
-        jurisp_tasks = []
-        for q in jurisp_queries[:6]:  # Máximo 6 queries
-            jurisp_tasks.append(
-                hybrid_search_all_silos(
-                    query=q,
-                    estado=request.estado,
-                    top_k=8,
-                )
-            )
-        
-        jurisp_results_raw = await asyncio.gather(*jurisp_tasks)
-        
-        # Consolidar y deduplicar resultados jurisprudenciales
-        seen_ids = set()
-        jurisp_results = []
-        for result_list in jurisp_results_raw:
-            for r in result_list:
-                if r.id not in seen_ids:
-                    seen_ids.add(r.id)
-                    jurisp_results.append(r)
-        
-        jurisp_results.sort(key=lambda x: x.score, reverse=True)
-        jurisp_results = jurisp_results[:30]  # Top 30 docs relevantes
-        
-        print(f"    ✓ {len(jurisp_results)} documentos jurídicos recuperados")
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 2: FILTRO CT 293/2011 — Buscar tratados internacionales
-        # ─────────────────────────────────────────────────────────────────────
-        print(f"\n  [PASO 2/4] Filtro CT 293/2011 — Buscando bloque de convencionalidad...")
-        
-        convencional_queries = [
-            f"{acto_reclamado} derechos humanos convención",
-            f"{materia} principio pro persona tratado internacional",
-        ]
-        
-        conv_tasks = []
-        for q in convencional_queries:
-            conv_tasks.append(
-                hybrid_search_all_silos(
-                    query=q,
-                    estado=request.estado,
-                    top_k=8,
-                )
-            )
-        
-        conv_results_raw = await asyncio.gather(*conv_tasks)
-        
-        conv_results = []
-        for result_list in conv_results_raw:
-            for r in result_list:
-                if r.id not in seen_ids:
-                    seen_ids.add(r.id)
-                    conv_results.append(r)
-        
-        conv_results.sort(key=lambda x: x.score, reverse=True)
-        conv_results = conv_results[:15]
-        
-        print(f"    ✓ {len(conv_results)} documentos convencionales recuperados")
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # CONSOLIDAR TODA LA EVIDENCIA
-        # ─────────────────────────────────────────────────────────────────────
-        all_evidence = jurisp_results + conv_results
-        all_evidence.sort(key=lambda x: x.score, reverse=True)
-        all_evidence = all_evidence[:40]  # Máximo 40 docs para contexto
-        
-        evidence_xml = format_results_as_xml(all_evidence)
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 3 + 4: DICTAMEN INTEGRAL (Radilla + Suplencia)
-        # El LLM aplica los protocolos 1-4 jerárquicamente
-        # ─────────────────────────────────────────────────────────────────────
-        print(f"\n  [PASO 3-4/4] Generando Dictamen de Regularidad con DeepSeek Reasoner...")
-        
-        dictamen_prompt = f"""SENTENCIA A AUDITAR:
-{sentencia_text[:10000]}
-
-PERFIL EXTRAÍDO:
-- Materia: {materia}
-- Sentido del fallo: {sentido_fallo}
-- Modo de revisión: {modo_revision}
-- Acto reclamado: {acto_reclamado}
-- Normas aplicadas: {json.dumps(normas_aplicadas, ensure_ascii=False)}
-- Tesis citadas por el juez: {json.dumps(tesis_citadas, ensure_ascii=False)}
-
-EVIDENCIA JURÍDICA DEL CONTEXTO RAG:
-{evidence_xml}
-
-Ejecuta los 4 protocolos de revisión en orden estricto y genera el Dictamen de Regularidad."""
-        
-        # Usar DeepSeek Reasoner para análisis profundo
-        dictamen_response = await deepseek_client.chat.completions.create(
-            model=REASONER_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT_SENTENCIA_DICTAMEN},
-                {"role": "user", "content": dictamen_prompt},
-            ],
-            temperature=0.1,
-            max_tokens=6000,
-        )
-        
-        dictamen_text = dictamen_response.choices[0].message.content.strip()
-        
-        # Limpiar markdown si existe
-        if dictamen_text.startswith("```"):
-            lines = dictamen_text.split("\n")
-            # Remover primera y última línea de markdown
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            dictamen_text = "\n".join(lines)
-        
-        try:
-            dictamen = json.loads(dictamen_text)
-        except json.JSONDecodeError:
-            # Intentar extraer JSON del texto
-            import re as re_mod
-            json_match = re_mod.search(r'\{[\s\S]+\}', dictamen_text)
-            if json_match:
-                try:
-                    dictamen = json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    dictamen = None
-            else:
-                dictamen = None
-        
-        if dictamen is None:
-            # Fallback: construir respuesta desde el texto
-            dictamen = {
-                "viabilidad_sentencia": "INDETERMINADO",
-                "perfil_sentencia": {
-                    "materia": materia,
-                    "sentido_fallo": sentido_fallo,
-                    "modo_revision": modo_revision,
-                    "acto_reclamado": acto_reclamado,
-                },
-                "hallazgos_criticos": [],
-                "analisis_jurisprudencial": {
-                    "jurisprudencia_contradictoria_encontrada": False,
-                    "detalle": dictamen_text[:1000] if dictamen_text else "No se pudo procesar",
-                },
-                "analisis_convencional": {
-                    "derechos_en_juego": [],
-                    "tratados_aplicables": [],
-                    "restriccion_constitucional_aplica": False,
-                    "detalle": "",
-                },
-                "analisis_metodologico": {
-                    "interpretacion_conforme_aplicada": False,
-                    "detalle": "",
-                },
-                "sugerencia_proyectista": "Requiere revisión manual — el análisis automatizado no pudo completarse.",
-                "resumen_ejecutivo": dictamen_text[:500] if dictamen_text else "Error en procesamiento",
-            }
-        
-        # Construir respuesta estructurada
-        perfil_resp = dictamen.get("perfil_sentencia", {})
-        
-        hallazgos = []
-        for h in dictamen.get("hallazgos_criticos", []):
-            hallazgos.append(SentenciaHallazgo(
-                tipo=h.get("tipo", "OTRO"),
-                severidad=h.get("severidad", "MEDIA"),
-                descripcion=h.get("descripcion", ""),
-                fundamento=h.get("fundamento", ""),
-                protocolo_origen=str(h.get("protocolo_origen", "")),
-            ))
-        
-        analisis_jurisp = dictamen.get("analisis_jurisprudencial", {})
-        analisis_conv = dictamen.get("analisis_convencional", {})
-        analisis_metod = dictamen.get("analisis_metodologico", {})
-        
-        response = SentenciaAuditResponse(
-            viabilidad_sentencia=dictamen.get("viabilidad_sentencia", "INDETERMINADO"),
-            perfil_sentencia=SentenciaPerfilado(
-                materia=perfil_resp.get("materia", materia),
-                sentido_fallo=perfil_resp.get("sentido_fallo", sentido_fallo),
-                modo_revision=perfil_resp.get("modo_revision", modo_revision),
-                acto_reclamado=perfil_resp.get("acto_reclamado", acto_reclamado),
-            ),
-            hallazgos_criticos=hallazgos,
-            analisis_jurisprudencial=SentenciaAnalisisJurisp(
-                jurisprudencia_contradictoria_encontrada=analisis_jurisp.get("jurisprudencia_contradictoria_encontrada", False),
-                detalle=analisis_jurisp.get("detalle", ""),
-            ),
-            analisis_convencional=SentenciaAnalisisConvencional(
-                derechos_en_juego=analisis_conv.get("derechos_en_juego", []),
-                tratados_aplicables=analisis_conv.get("tratados_aplicables", []),
-                restriccion_constitucional_aplica=analisis_conv.get("restriccion_constitucional_aplica", False),
-                detalle=analisis_conv.get("detalle", ""),
-            ),
-            analisis_metodologico=SentenciaAnalisisMetodologico(
-                interpretacion_conforme_aplicada=analisis_metod.get("interpretacion_conforme_aplicada", False),
-                detalle=analisis_metod.get("detalle", ""),
-            ),
-            sugerencia_proyectista=dictamen.get("sugerencia_proyectista", ""),
-            resumen_ejecutivo=dictamen.get("resumen_ejecutivo", ""),
-        )
-        
-        viab = response.viabilidad_sentencia
-        n_hallazgos = len(hallazgos)
-        print(f"\n  ✅ Dictamen generado: {viab} ({n_hallazgos} hallazgos)")
-        print(f"{'='*70}\n")
-        
-        return response
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"  ❌ Error en auditoría de sentencia: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error en auditoría de sentencia: {str(e)}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: MEJORAR TEXTO LEGAL
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -3951,771 +2347,6 @@ async def enhance_legal_text(request: EnhanceRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al mejorar texto: {str(e)}")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# IUREXIA CONNECT — MARKETPLACE LEGAL INTELIGENTE
-# ══════════════════════════════════════════════════════════════════════════════
-# Módulo de conexión entre usuarios y abogados certificados.
-# Incluye: Validación de Cédula (Mock), SEPOMEX, Privacy Shield, Chat Blindado.
-# ══════════════════════════════════════════════════════════════════════════════
-
-import httpx as _httpx  # Alias para evitar conflicto con imports existentes
-
-# ─────────────────────────────────────────
-# MODELOS PYDANTIC — CONNECT
-# ─────────────────────────────────────────
-
-class CedulaValidationRequest(BaseModel):
-    cedula: str = Field(..., min_length=5, max_length=20, description="Número de cédula profesional")
-
-class CedulaValidationResponse(BaseModel):
-    valid: bool
-    cedula: str
-    nombre: Optional[str] = None
-    profesion: Optional[str] = None
-    institucion: Optional[str] = None
-    error: Optional[str] = None
-    verification_status: str = "pending"  # pending | verified | rejected
-
-class SepomexResponse(BaseModel):
-    cp: str
-    estado: str
-    municipio: str
-    colonia: Optional[str] = None
-
-class LawyerProfileCreate(BaseModel):
-    cedula_number: str = Field(..., min_length=5, max_length=20)
-    full_name: str = Field(..., min_length=3)
-    specialties: List[str] = Field(default_factory=list)
-    bio: str = ""
-    office_address: dict = Field(default_factory=lambda: {"estado": "", "municipio": "", "cp": ""})
-    avatar_url: Optional[str] = None
-    phone: Optional[str] = None
-
-class LawyerProfileResponse(BaseModel):
-    id: str
-    cedula_number: str
-    full_name: str
-    specialties: List[str]
-    bio: str
-    office_address: dict
-    verification_status: str
-    is_pro_active: bool
-    avatar_url: Optional[str] = None
-    created_at: Optional[str] = None
-
-class LawyerSearchRequest(BaseModel):
-    query: str = Field(..., min_length=3, description="Describe tu problema legal")
-    estado: Optional[str] = None
-    limit: int = Field(default=10, le=50)
-
-class ConnectStartRequest(BaseModel):
-    lawyer_id: str
-    dossier_summary: dict = Field(default_factory=dict, description="Expediente preliminar IA")
-
-class ConnectMessageRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=5000)
-
-class ConnectMessageResponse(BaseModel):
-    id: str
-    room_id: str
-    sender_id: str
-    content: str
-    is_system_message: bool
-    created_at: str
-
-
-# ─────────────────────────────────────────
-# SERVICIO: Validación de Cédula Profesional
-# ─────────────────────────────────────────
-# Consulta los datos de cédula via BuhoLegal (buholegal.com).
-# BuhoLegal expone los datos del Registro Nacional de Profesionistas
-# en URL directa: https://www.buholegal.com/{cedula}/
-# Se parsea el HTML resultante para extraer nombre, carrera,
-# universidad, estado y año.
-
-import httpx
-
-class CedulaValidationService:
-    """
-    Validates Mexican professional license (cédula profesional)
-    by scraping BuhoLegal which mirrors SEP's public data.
-    """
-
-    BUHOLEGAL_URL = "https://www.buholegal.com/{cedula}/"
-    USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0"
-
-    # Profesiones válidas para ejercer como abogado
-    VALID_PROFESSIONS = [
-        "LICENCIADO EN DERECHO",
-        "LICENCIATURA EN DERECHO",
-        "ABOGADO",
-        "MAESTRO EN DERECHO",
-        "MAESTRÍA EN DERECHO",
-        "MASTER EN DERECHO",
-        "DOCTOR EN DERECHO",
-        "DOCTORADO EN DERECHO",
-        "DERECHO",
-    ]
-
-    @classmethod
-    def _extract_td_value(cls, html: str, label: str) -> str:
-        """Extract the <td> value that follows a <td> with the given label."""
-        import re as _re
-        # Pattern: <td ...>Label</td> ... <td ...>VALUE</td>
-        pattern = (
-            r'<td[^>]*>\s*' + _re.escape(label) + r'\s*</td>'
-            r'\s*<td[^>]*[^>]*>\s*(.*?)\s*</td>'
-        )
-        match = _re.search(pattern, html, _re.IGNORECASE | _re.DOTALL)
-        if match:
-            # Strip HTML tags from the value
-            value = _re.sub(r'<[^>]+>', '', match.group(1)).strip()
-            return value
-        return ""
-
-    @classmethod
-    def _extract_name(cls, html: str) -> str:
-        """Extract name from card-header h3."""
-        import re as _re
-        match = _re.search(
-            r'<div\s+class="card-header[^"]*"[^>]*>\s*<h3[^>]*>\s*(.*?)\s*</h3>',
-            html, _re.IGNORECASE | _re.DOTALL
-        )
-        if match:
-            name = _re.sub(r'<[^>]+>', '', match.group(1)).strip()
-            # Filter out generic text like "Sobre Buholegal"
-            if name and "buholegal" not in name.lower() and len(name) > 3:
-                return name
-        return ""
-
-    @classmethod
-    async def validate(cls, cedula: str) -> CedulaValidationResponse:
-        """Validates a cédula by querying BuhoLegal for real SEP data."""
-        cedula_clean = cedula.strip()
-        digits_only = re.sub(r'\D', '', cedula_clean)
-
-        # ── Format validation ──
-        if len(digits_only) < 7 or len(digits_only) > 8:
-            return CedulaValidationResponse(
-                valid=False,
-                cedula=cedula_clean,
-                error="Formato inválido. La cédula profesional debe tener 7 u 8 dígitos.",
-                verification_status="rejected",
-            )
-
-        # ── Check for obviously invalid patterns ──
-        if digits_only == "0" * len(digits_only):
-            return CedulaValidationResponse(
-                valid=False,
-                cedula=cedula_clean,
-                error="Número de cédula inválido.",
-                verification_status="rejected",
-            )
-
-        # ── Check if cédula is already registered ──
-        try:
-            existing = supabase.table("lawyer_profiles").select("id").eq(
-                "cedula_number", digits_only
-            ).execute()
-            if existing.data and len(existing.data) > 0:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=cedula_clean,
-                    error="Esta cédula ya está registrada en la plataforma.",
-                    verification_status="rejected",
-                )
-        except Exception as e:
-            print(f"[CedulaValidation] DB check error (non-blocking): {e}")
-
-        # ── Query BuhoLegal for real SEP data ──
-        try:
-            url = cls.BUHOLEGAL_URL.format(cedula=digits_only)
-            print(f"[CedulaValidation] Querying BuhoLegal: {url}")
-
-            async with httpx.AsyncClient(
-                timeout=15.0,
-                follow_redirects=True,
-                headers={"User-Agent": cls.USER_AGENT},
-            ) as client:
-                resp = await client.get(url)
-
-            if resp.status_code != 200:
-                print(f"[CedulaValidation] BuhoLegal returned {resp.status_code}")
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=digits_only,
-                    error="No se pudo consultar la base de datos. Intenta más tarde.",
-                    verification_status="pending",
-                )
-
-            html = resp.text
-
-            # ── Parse the HTML response ──
-            nombre = cls._extract_name(html)
-            carrera = cls._extract_td_value(html, "Carrera")
-            universidad = cls._extract_td_value(html, "Universidad")
-            estado = cls._extract_td_value(html, "Estado")
-            anio = cls._extract_td_value(html, "Año")
-
-            print(f"[CedulaValidation] Parsed: nombre={nombre}, carrera={carrera}, "
-                  f"uni={universidad}, estado={estado}, anio={anio}")
-
-            # ── No data found → cédula doesn't exist ──
-            if not nombre and not carrera:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=digits_only,
-                    error="Cédula no encontrada en el Registro Nacional de Profesionistas.",
-                    verification_status="rejected",
-                )
-
-            # ── Check if it's a law-related degree ──
-            carrera_upper = carrera.upper()
-            is_lawyer = any(p in carrera_upper for p in cls.VALID_PROFESSIONS)
-
-            if carrera and not is_lawyer:
-                return CedulaValidationResponse(
-                    valid=False,
-                    cedula=digits_only,
-                    nombre=nombre or None,
-                    profesion=carrera or None,
-                    institucion=universidad or None,
-                    error=f"La cédula corresponde a '{carrera}', no a Licenciado en Derecho.",
-                    verification_status="rejected",
-                )
-
-            # ── Build institution string ──
-            inst_parts = []
-            if universidad:
-                inst_parts.append(universidad)
-            if estado:
-                inst_parts.append(estado)
-            if anio:
-                inst_parts.append(f"({anio})")
-            institucion = " — ".join(inst_parts[:2])
-            if anio:
-                institucion += f" ({anio})"
-
-            # ── SUCCESS: Cédula verified via SEP data ──
-            return CedulaValidationResponse(
-                valid=True,
-                cedula=digits_only,
-                nombre=nombre or None,
-                profesion=carrera or "LICENCIADO EN DERECHO",
-                institucion=institucion or None,
-                verification_status="verified",
-            )
-
-        except httpx.TimeoutException:
-            print("[CedulaValidation] BuhoLegal timeout")
-            return CedulaValidationResponse(
-                valid=False,
-                cedula=digits_only,
-                error="Tiempo de espera agotado al consultar la base de datos. Intenta más tarde.",
-                verification_status="pending",
-            )
-        except Exception as e:
-            print(f"[CedulaValidation] Error: {e}")
-            return CedulaValidationResponse(
-                valid=False,
-                cedula=digits_only,
-                error="Error al verificar la cédula. Intenta más tarde.",
-                verification_status="pending",
-            )
-
-
-
-# ─────────────────────────────────────────
-# SERVICIO: SEPOMEX — Código Postal → Ubicación
-# ─────────────────────────────────────────
-
-class SepomexService:
-    """
-    Static dictionary of Mexican postal codes.
-    Maps CP to Estado + Municipio for auto-fill.
-    500+ major CPs for quick lookup.
-    """
-
-    # Diccionario estático de CPs principales por estado
-    CP_DATABASE = {
-        # CDMX
-        "01000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Álvaro Obregón", "colonia": "San Ángel"},
-        "03100": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Benito Juárez", "colonia": "Del Valle Centro"},
-        "06000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuauhtémoc", "colonia": "Centro"},
-        "06600": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuauhtémoc", "colonia": "Roma Norte"},
-        "06700": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuauhtémoc", "colonia": "Roma Sur"},
-        "11000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Miguel Hidalgo", "colonia": "Lomas de Chapultepec"},
-        "11520": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Miguel Hidalgo", "colonia": "Polanco"},
-        "11560": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Miguel Hidalgo", "colonia": "Polanco V Sección"},
-        "14000": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Tlalpan", "colonia": "Tlalpan Centro"},
-        "04510": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Coyoacán", "colonia": "Ciudad Universitaria"},
-        "03810": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Benito Juárez", "colonia": "Narvarte Poniente"},
-        "01210": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Álvaro Obregón", "colonia": "Santa Fe"},
-        "05348": {"estado": "CIUDAD_DE_MEXICO", "municipio": "Cuajimalpa", "colonia": "Santa Fe"},
-        # Jalisco
-        "44100": {"estado": "JALISCO", "municipio": "Guadalajara", "colonia": "Centro"},
-        "44600": {"estado": "JALISCO", "municipio": "Guadalajara", "colonia": "Americana"},
-        "44160": {"estado": "JALISCO", "municipio": "Guadalajara", "colonia": "Providencia"},
-        "45050": {"estado": "JALISCO", "municipio": "Zapopan", "colonia": "Country Club"},
-        # Nuevo León
-        "64000": {"estado": "NUEVO_LEON", "municipio": "Monterrey", "colonia": "Centro"},
-        "64620": {"estado": "NUEVO_LEON", "municipio": "Monterrey", "colonia": "Obispado"},
-        "66220": {"estado": "NUEVO_LEON", "municipio": "San Pedro Garza García", "colonia": "Del Valle"},
-        "66260": {"estado": "NUEVO_LEON", "municipio": "San Pedro Garza García", "colonia": "Residencial San Agustín"},
-        # Estado de México
-        "50000": {"estado": "MEXICO", "municipio": "Toluca", "colonia": "Centro"},
-        "52140": {"estado": "MEXICO", "municipio": "Metepec", "colonia": "La Virgen"},
-        "52786": {"estado": "MEXICO", "municipio": "Huixquilucan", "colonia": "Interlomas"},
-        # Puebla
-        "72000": {"estado": "PUEBLA", "municipio": "Puebla", "colonia": "Centro"},
-        "72160": {"estado": "PUEBLA", "municipio": "Puebla", "colonia": "La Paz"},
-        # Querétaro
-        "76000": {"estado": "QUERETARO", "municipio": "Querétaro", "colonia": "Centro"},
-        "76090": {"estado": "QUERETARO", "municipio": "Querétaro", "colonia": "Juriquilla"},
-        # Yucatán
-        "97000": {"estado": "YUCATAN", "municipio": "Mérida", "colonia": "Centro"},
-        "97130": {"estado": "YUCATAN", "municipio": "Mérida", "colonia": "García Ginerés"},
-        # Veracruz
-        "91000": {"estado": "VERACRUZ", "municipio": "Xalapa", "colonia": "Centro"},
-        "94290": {"estado": "VERACRUZ", "municipio": "Boca del Río", "colonia": "Mocambo"},
-        # Guanajuato
-        "36000": {"estado": "GUANAJUATO", "municipio": "Guanajuato", "colonia": "Centro"},
-        "37000": {"estado": "GUANAJUATO", "municipio": "León", "colonia": "Centro"},
-        # Chihuahua
-        "31000": {"estado": "CHIHUAHUA", "municipio": "Chihuahua", "colonia": "Centro"},
-        "32000": {"estado": "CHIHUAHUA", "municipio": "Juárez", "colonia": "Centro"},
-        # Sonora
-        "83000": {"estado": "SONORA", "municipio": "Hermosillo", "colonia": "Centro"},
-        # Coahuila
-        "25000": {"estado": "COAHUILA", "municipio": "Saltillo", "colonia": "Centro"},
-        # Sinaloa
-        "80000": {"estado": "SINALOA", "municipio": "Culiacán", "colonia": "Centro"},
-        "82000": {"estado": "SINALOA", "municipio": "Mazatlán", "colonia": "Centro"},
-        # Baja California
-        "22000": {"estado": "BAJA_CALIFORNIA", "municipio": "Tijuana", "colonia": "Centro"},
-        "21000": {"estado": "BAJA_CALIFORNIA", "municipio": "Mexicali", "colonia": "Centro"},
-        # Tabasco
-        "86000": {"estado": "TABASCO", "municipio": "Villahermosa", "colonia": "Centro"},
-        # Oaxaca
-        "68000": {"estado": "OAXACA", "municipio": "Oaxaca de Juárez", "colonia": "Centro"},
-        # Quintana Roo
-        "77500": {"estado": "QUINTANA_ROO", "municipio": "Cancún", "colonia": "Centro"},
-        # Aguascalientes
-        "20000": {"estado": "AGUASCALIENTES", "municipio": "Aguascalientes", "colonia": "Centro"},
-        # San Luis Potosí
-        "78000": {"estado": "SAN_LUIS_POTOSI", "municipio": "San Luis Potosí", "colonia": "Centro"},
-        # Michoacán
-        "58000": {"estado": "MICHOACAN", "municipio": "Morelia", "colonia": "Centro"},
-        # Tamaulipas
-        "87000": {"estado": "TAMAULIPAS", "municipio": "Ciudad Victoria", "colonia": "Centro"},
-        # Chiapas
-        "29000": {"estado": "CHIAPAS", "municipio": "Tuxtla Gutiérrez", "colonia": "Centro"},
-        # Guerrero
-        "39000": {"estado": "GUERRERO", "municipio": "Chilpancingo", "colonia": "Centro"},
-        "39300": {"estado": "GUERRERO", "municipio": "Acapulco", "colonia": "Centro"},
-        # Hidalgo
-        "42000": {"estado": "HIDALGO", "municipio": "Pachuca", "colonia": "Centro"},
-        # Morelos
-        "62000": {"estado": "MORELOS", "municipio": "Cuernavaca", "colonia": "Centro"},
-        # Nayarit
-        "63000": {"estado": "NAYARIT", "municipio": "Tepic", "colonia": "Centro"},
-        # Durango
-        "34000": {"estado": "DURANGO", "municipio": "Durango", "colonia": "Centro"},
-        # Campeche
-        "24000": {"estado": "CAMPECHE", "municipio": "Campeche", "colonia": "Centro"},
-        # Colima
-        "28000": {"estado": "COLIMA", "municipio": "Colima", "colonia": "Centro"},
-        # Tlaxcala
-        "90000": {"estado": "TLAXCALA", "municipio": "Tlaxcala", "colonia": "Centro"},
-        # Zacatecas
-        "98000": {"estado": "ZACATECAS", "municipio": "Zacatecas", "colonia": "Centro"},
-        # BCS
-        "23000": {"estado": "BAJA_CALIFORNIA_SUR", "municipio": "La Paz", "colonia": "Centro"},
-        "23400": {"estado": "BAJA_CALIFORNIA_SUR", "municipio": "Los Cabos", "colonia": "San José del Cabo"},
-    }
-
-    @classmethod
-    def lookup(cls, cp: str) -> Optional[SepomexResponse]:
-        cp_clean = cp.strip().zfill(5)
-        data = cls.CP_DATABASE.get(cp_clean)
-        if data:
-            return SepomexResponse(
-                cp=cp_clean,
-                estado=data["estado"],
-                municipio=data["municipio"],
-                colonia=data.get("colonia"),
-            )
-        return None
-
-
-# ─────────────────────────────────────────
-# PRIVACY SHIELD — Wall Garden Middleware
-# ─────────────────────────────────────────
-# Detecta y oculta información de contacto
-# directo para evitar desintermediación.
-
-class PrivacyShield:
-    """
-    Regex-based content filter that detects and masks
-    phone numbers, emails, and external URLs in chat messages
-    to prevent platform bypass (desintermediación).
-    """
-
-    # Patrones de detección
-    PHONE_PATTERNS = [
-        r'\+?52\s*[\d\s\-\.]{8,12}',           # +52 formatos
-        r'\b55\s*[\d\s\-\.]{7,10}\b',            # 55 (CDMX)
-        r'\b\d{2,3}[\s\-]?\d{3,4}[\s\-]?\d{4}\b',  # Genérico 10 dígitos
-        r'\(\d{2,3}\)\s*\d{3,4}[\s\-]?\d{4}',   # (código) número
-    ]
-
-    EMAIL_PATTERN = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
-
-    URL_PATTERNS = [
-        r'https?://[^\s<>\"\')]+',
-        r'www\.[^\s<>\"\')]+',
-        r'[a-zA-Z0-9\-]+\.(com|mx|org|net|io|app|pro|law|legal)[^\s]*',
-    ]
-
-    REPLACEMENT = "[DATOS OCULTOS POR SEGURIDAD — Contacte dentro de IUREXIA]"
-
-    @classmethod
-    def scan(cls, text: str) -> dict:
-        """Scans text for contact info. Returns detection results."""
-        detections = []
-
-        for pattern in cls.PHONE_PATTERNS:
-            matches = re.findall(pattern, text)
-            for m in matches:
-                # Filter out short numbers that could be legal refs (art. 123)
-                if len(re.sub(r'\D', '', m)) >= 8:
-                    detections.append({"type": "phone", "value": m})
-
-        emails = re.findall(cls.EMAIL_PATTERN, text)
-        for e in emails:
-            detections.append({"type": "email", "value": e})
-
-        for pattern in cls.URL_PATTERNS:
-            urls = re.findall(pattern, text, re.IGNORECASE)
-            for u in urls:
-                # Exclude iurexia domains
-                if 'iurexia' not in u.lower() and 'jurexia' not in u.lower():
-                    detections.append({"type": "url", "value": u})
-
-        return {
-            "has_contact": len(detections) > 0,
-            "detections": detections,
-            "count": len(detections),
-        }
-
-    @classmethod
-    def sanitize(cls, text: str) -> str:
-        """Replaces detected contact info with shield message."""
-        result = text
-
-        for pattern in cls.PHONE_PATTERNS:
-            def _phone_replace(match):
-                digits = re.sub(r'\D', '', match.group(0))
-                if len(digits) >= 8:
-                    return cls.REPLACEMENT
-                return match.group(0)
-            result = re.sub(pattern, _phone_replace, result)
-
-        result = re.sub(cls.EMAIL_PATTERN, cls.REPLACEMENT, result)
-
-        for pattern in cls.URL_PATTERNS:
-            def _url_replace(match):
-                url = match.group(0)
-                if 'iurexia' in url.lower() or 'jurexia' in url.lower():
-                    return url
-                return cls.REPLACEMENT
-            result = re.sub(pattern, _url_replace, result, flags=re.IGNORECASE)
-
-        return result
-
-
-# ─────────────────────────────────────────
-# ENDPOINTS — IUREXIA CONNECT
-# ─────────────────────────────────────────
-
-@app.post("/connect/validate-cedula", response_model=CedulaValidationResponse)
-async def validate_cedula(request: CedulaValidationRequest):
-    """
-    Valida formato de cédula profesional (7-8 dígitos).
-    El perfil se registra como pendiente de verificación.
-    Verificar manualmente en: https://cedulaprofesional.sep.gob.mx
-    """
-    return await CedulaValidationService.validate(request.cedula)
-
-
-@app.get("/connect/sepomex/{cp}", response_model=SepomexResponse)
-async def sepomex_lookup(cp: str):
-    """
-    Dado un código postal, devuelve Estado y Municipio.
-    Usa diccionario estático de CPs principales de México.
-    """
-    result = SepomexService.lookup(cp)
-    if not result:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Código postal '{cp}' no encontrado. Introduce tu ubicación manualmente.",
-        )
-    return result
-
-
-@app.post("/connect/lawyers/search")
-async def search_lawyers(request: LawyerSearchRequest):
-    """
-    Búsqueda de abogados.
-    Intenta búsqueda semántica en Qdrant primero.
-    Si Qdrant está vacío o falla, busca directamente en Supabase.
-    """
-    lawyers = []
-
-    # ── Strategy 1: Qdrant semantic search ──
-    try:
-        embedding_response = await openai_client.embeddings.create(
-            model="text-embedding-3-small",
-            input=request.query,
-        )
-        query_vector = embedding_response.data[0].embedding
-
-        qdrant_filter = None
-        if request.estado:
-            qdrant_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="estado",
-                        match=MatchValue(value=request.estado),
-                    )
-                ]
-            )
-
-        results = await async_qdrant.search(
-            collection_name="lawyer_registry",
-            query_vector=query_vector,
-            query_filter=qdrant_filter,
-            limit=request.limit,
-            with_payload=True,
-        )
-
-        for result in results:
-            payload = result.payload or {}
-            lawyers.append({
-                "id": payload.get("user_id", ""),
-                "full_name": payload.get("full_name", ""),
-                "cedula_number": payload.get("cedula_number", ""),
-                "specialties": payload.get("specialties", []),
-                "bio": payload.get("bio", ""),
-                "office_address": payload.get("office_address", {}),
-                "verification_status": payload.get("verification_status", "pending"),
-                "is_pro_active": payload.get("is_pro_active", False),
-                "avatar_url": payload.get("avatar_url"),
-                "score": result.score,
-            })
-
-        if lawyers:
-            return {"lawyers": lawyers, "total": len(lawyers)}
-
-    except Exception as qdrant_err:
-        print(f"[Connect] Qdrant search failed (falling back to Supabase): {qdrant_err}")
-
-    # ── Strategy 2: Supabase fallback ──
-    try:
-        print("[Connect] Using Supabase fallback for lawyer search")
-
-        if not supabase:
-            print("[Connect] Supabase client not initialized — cannot fallback")
-            return {"lawyers": [], "total": 0}
-
-        # Fetch all active lawyer profiles (JSONB filtering not reliable via PostgREST)
-        result = supabase.table("lawyer_profiles").select("*").eq(
-            "is_pro_active", True
-        ).limit(50).execute()
-
-        if result.data:
-            search_terms = request.query.lower().split()
-
-            for profile in result.data:
-                # ── Estado filter (in Python since office_address is JSONB) ──
-                office = profile.get("office_address") or {}
-                profile_estado = (office.get("estado") or "").upper().replace(" ", "_")
-                if request.estado and request.estado.upper() not in profile_estado:
-                    continue
-
-                bio = (profile.get("bio") or "").lower()
-                specs = " ".join(profile.get("specialties") or []).lower()
-                name = (profile.get("full_name") or "").lower()
-                combined = f"{bio} {specs} {name}"
-
-                # Simple term-frequency scoring
-                score = sum(1 for term in search_terms if term in combined)
-
-                lawyers.append({
-                    "id": profile.get("id", ""),
-                    "full_name": profile.get("full_name", ""),
-                    "cedula_number": profile.get("cedula_number", ""),
-                    "specialties": profile.get("specialties", []),
-                    "bio": profile.get("bio", ""),
-                    "office_address": office,
-                    "verification_status": profile.get("verification_status", "pending"),
-                    "is_pro_active": profile.get("is_pro_active", False),
-                    "avatar_url": profile.get("avatar_url"),
-                    "score": score / max(len(search_terms), 1),
-                })
-
-            # Sort by relevance score
-            lawyers.sort(key=lambda x: x.get("score", 0), reverse=True)
-
-        print(f"[Connect] Supabase fallback found {len(lawyers)} lawyers")
-        return {"lawyers": lawyers[:request.limit], "total": len(lawyers)}
-
-    except Exception as e:
-        print(f"[Connect] Supabase fallback error: {e}")
-        raise HTTPException(status_code=500, detail=f"Error en búsqueda: {str(e)}")
-
-
-@app.post("/connect/start")
-async def start_connect_chat(request: ConnectStartRequest):
-    """
-    Crea una sala de chat Connect con Context Handover.
-    Genera el dossier preliminar y el mensaje sistema inicial.
-
-    Nota: La creación real de la sala se hace desde el frontend
-    via Supabase (con RLS). Este endpoint genera el mensaje
-    sistema y valida el abogado.
-    """
-    try:
-        dossier = request.dossier_summary or {}
-
-        # Build system message with dossier
-        dossier_text = json.dumps(dossier, ensure_ascii=False, indent=2) if dossier else "Sin expediente preliminar."
-
-        system_message = (
-            f"📋 **EXPEDIENTE PRELIMINAR — IUREXIA CONNECT**\n\n"
-            f"Licenciado(a), le comparto el Resumen Preliminar del caso "
-            f"generado por la IA de Iurexia:\n\n"
-            f"```\n{dossier_text}\n```\n\n"
-            f"El cliente espera su análisis y cotización.\n\n"
-            f"─── *Este mensaje fue generado automáticamente por IUREXIA* ───"
-        )
-
-        return {
-            "system_message": system_message,
-            "dossier": dossier,
-            "status": "ready",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al iniciar Connect: {str(e)}")
-
-
-@app.post("/connect/privacy-check")
-async def privacy_check(request: ConnectMessageRequest):
-    """
-    Analiza un mensaje antes de enviarlo.
-    Detecta datos de contacto y devuelve la versión sanitizada.
-    """
-    scan_result = PrivacyShield.scan(request.content)
-    sanitized = PrivacyShield.sanitize(request.content) if scan_result["has_contact"] else request.content
-
-    return {
-        "original": request.content,
-        "sanitized": sanitized,
-        "has_contact_info": scan_result["has_contact"],
-        "detections": scan_result["detections"],
-    }
-
-
-@app.post("/connect/lawyers/index")
-async def index_lawyer_profile(profile: LawyerProfileCreate):
-    """
-    Indexa un perfil de abogado en Qdrant para matching semántico.
-    Genera embedding de bio + especialidades y lo almacena en
-    la colección `lawyer_registry`.
-    """
-    try:
-        # Build text for embedding
-        specialties_text = ", ".join(profile.specialties) if profile.specialties else ""
-        embedding_text = f"{profile.full_name}. Especialidades: {specialties_text}. {profile.bio}"
-
-        # Generate embedding
-        embedding_response = await openai_client.embeddings.create(
-            model="text-embedding-3-small",
-            input=embedding_text,
-        )
-        vector = embedding_response.data[0].embedding
-
-        # Ensure collection exists
-        try:
-            await async_qdrant.get_collection("lawyer_registry")
-        except Exception:
-            await async_qdrant.create_collection(
-                collection_name="lawyer_registry",
-                vectors_config=models.VectorParams(
-                    size=1536,  # text-embedding-3-small
-                    distance=models.Distance.COSINE,
-                ),
-            )
-
-        # Upsert point
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, profile.cedula_number))
-        estado = profile.office_address.get("estado", "") if profile.office_address else ""
-
-        await async_qdrant.upsert(
-            collection_name="lawyer_registry",
-            points=[
-                models.PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload={
-                        "user_id": point_id,
-                        "cedula_number": profile.cedula_number,
-                        "full_name": profile.full_name,
-                        "specialties": profile.specialties,
-                        "bio": profile.bio,
-                        "office_address": profile.office_address,
-                        "estado": estado,
-                        "verification_status": "pending",
-                        "is_pro_active": False,
-                        "avatar_url": profile.avatar_url,
-                    },
-                )
-            ],
-        )
-
-        return {
-            "indexed": True,
-            "point_id": point_id,
-            "collection": "lawyer_registry",
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al indexar abogado: {str(e)}")
-
-
-@app.get("/connect/health")
-async def connect_health():
-    """Health check para el módulo Connect."""
-    # Check if lawyer_registry collection exists
-    try:
-        info = await async_qdrant.get_collection("lawyer_registry")
-        lawyer_count = info.points_count
-    except Exception:
-        lawyer_count = 0
-
-    return {
-        "module": "iurexia_connect",
-        "status": "operational",
-        "lawyers_indexed": lawyer_count,
-        "services": {
-            "cedula_validation": "mock",
-            "sepomex": "static",
-            "privacy_shield": "active",
-            "qdrant_matching": "active" if lawyer_count > 0 else "empty",
-        },
-    }
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
@@ -4726,7 +2357,6 @@ if __name__ == "__main__":
     
     print("═" * 60)
     print("  JUREXIA CORE API - Motor de Producción")
-    print("  + IUREXIA CONNECT - Marketplace Legal")
     print("═" * 60)
     
     uvicorn.run(
