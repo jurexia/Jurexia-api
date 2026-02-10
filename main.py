@@ -40,6 +40,7 @@ from qdrant_client.http.models import (
 )
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
+from query_expansion import get_query_expander
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -1870,6 +1871,26 @@ async def chat_endpoint(request: ChatRequest):
     # Detectar si hay documento adjunto
     has_document = "DOCUMENTO ADJUNTO:" in last_user_message or "DOCUMENTO_INICIO" in last_user_message
     
+    # ═══════════════════════════════════════════════════════════════════════
+    # QUERY EXPANSION: Análisis de Intención con DeepSeek Reasoner
+    # ═══════════════════════════════════════════════════════════════════════
+    expansion_result = None
+    # Detectar si es una solicitud de redacción de documento (necesitamos saberlo antes)
+    is_drafting_check = "[REDACTAR_DOCUMENTO]" in last_user_message
+    
+    if not has_document and not is_drafting_check:  # Solo para consultas normales
+        try:
+            print(f"🔍 Query Expansion: Analizando intención...")
+            expander = get_query_expander(deepseek_client)
+            expansion_result = await expander.analyze_query(last_user_message)
+            
+            print(f"   ✓ Marco constitucional: {expansion_result.get('requiere_marco_constitucional', False)}")
+            print(f"   ✓ Jurisprudencia: {expansion_result.get('requiere_jurisprudencia', False)}")
+            print(f"   ✓ Materia: {expansion_result.get('materia_principal', 'N/A')}")
+        except Exception as e:
+            print(f"⚠️  Query Expansion falló (usando defaults): {e}")
+            expansion_result = None  # Fallback a búsqueda normal
+    
     # Detectar si es una solicitud de redacción de documento
     is_drafting = "[REDACTAR_DOCUMENTO]" in last_user_message
     draft_tipo = None
@@ -1929,12 +1950,37 @@ async def chat_endpoint(request: ChatRequest):
             context_xml = format_results_as_xml(search_results)
             print(f"   Encontrados {len(search_results)} documentos relevantes para contrastar")
         else:
-            # Consulta normal
+            # Consulta normal - con Query Expansion si está disponible
+            search_query = last_user_message
+            
+            # Usar Query Expansion para mejorar la búsqueda
+            if expansion_result:
+                expander = get_query_expander(deepseek_client)
+                expanded_query = expander.build_expanded_query(last_user_message, expansion_result)
+                
+                if expanded_query != last_user_message:
+                    search_query = expanded_query
+                    print(f"   ✨ Query expandida con términos adicionales")
+            
             search_results = await hybrid_search_all_silos(
-                query=last_user_message,
+                query=search_query,
                 estado=request.estado,
                 top_k=request.top_k,
             )
+            
+            # Si requiere marco constitucional, asegurar que bloque constitucional esté presente
+            if expansion_result and expansion_result.get('requiere_marco_constitucional'):
+                # Hacer búsqueda adicional específica en bloque constitucional
+                const_results = await hybrid_search(
+                    collection_name=SILOS["constitucional"],
+                    query=search_query,
+                    estado=None,  # Sin filtro de estado para constitución
+                    top_k=5,
+                )
+                # Agregar resultados constitucionales al principio (prioridad)
+                search_results = const_results + [r for r in search_results if r not in const_results]
+                print(f"   ⚖️  Agregados {len(const_results)} docs del bloque constitucional")
+            
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
         
