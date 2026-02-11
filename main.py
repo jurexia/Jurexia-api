@@ -40,7 +40,6 @@ from qdrant_client.http.models import (
 )
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
-from query_expansion import get_query_expander
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -914,7 +913,10 @@ class ChatRequest(BaseModel):
     messages: List[Message] = Field(..., min_length=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
     top_k: int = Field(20, ge=1, le=50)  # Recall Boost: captures Art 160-162 (def + pena + agravantes)
-    enable_reasoning: bool = Field(False, description="Activar razonamiento profundo con Query Expansion (~10s)")
+    enable_reasoning: bool = Field(
+        False,
+        description="Si True, usa Query Expansion con metadata jerárquica (más lento ~10s pero más preciso). Si False, modo rápido ~2s."
+    )
 
 
 class AuditRequest(BaseModel):
@@ -1077,6 +1079,34 @@ def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filte
     return None
 
 
+def build_metadata_filter(materia: Optional[str]) -> Optional[Filter]:
+    """
+    Construye filtro de Qdrant basado en metadata jerárquica.
+    
+    Usa filtro SHOULD (soft filter) para aumentar score de chunks  
+    que matchean materia, pero NO excluye chunks de otras materias.
+    
+    Args:
+        materia: Materia legal (penal, civil, mercantil, laboral, etc.)
+    
+    Returns:
+        Filter de Qdrant o None si no hay materia
+    """
+    if not materia:
+        return None
+    
+    # SHOULD filter: Aumenta score si match, pero no excluye
+    # Permite flexibilidad para casos que involucran múltiples materias
+    return Filter(
+        should=[
+            FieldCondition(
+                key="materia",
+                match=MatchAny(any=[materia])
+            )
+        ]
+    )
+
+
 # Sinónimos legales para query expansion (mejora recall BM25)
 LEGAL_SYNONYMS = {
     "derecho del tanto": [
@@ -1188,6 +1218,152 @@ async def expand_legal_query_llm(query: str) -> str:
         print(f"   Error en expansión LLM, usando fallback: {e}")
         # Fallback a expansión estática
         return expand_legal_query(query)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# QUERY EXPANSION CON METADATA JERÁRQUICA - FASE 1 RAG IMPROVEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+
+METADATA_EXTRACTION_PROMPT = """Analiza esta consulta legal y extrae metadata estructurada.
+
+Consulta: {query}
+
+Devuelve SOLO un JSON válido con esta estructura exacta:
+{{
+    "materia_principal": "penal" | "civil" | "mercantil" | "laboral" | "administrativo" | "fiscal" | "familiar" | "constitucional",
+    "temas_clave": ["tema1", "tema2", "tema3"],
+    "requiere_constitucion": true | false,
+    "requiere_jurisprudencia": true | false,
+    "terminos_expansion": ["término técnico 1", "término 2", ...]
+}}
+
+REGLAS:
+- materia_principal: La rama del derecho principal de la consulta
+- temas_clave: 2-4 conceptos jurídicos específicos
+- requiere_constitucion: true si involucra derechos fundamentales o control constitucional
+- requiere_jurisprudencia: true si necesita interpretar criterios judiciales
+- terminos_expansion: Sinónimos jurídicos y términos técnicos relacionados (máximo 5)
+
+IMPORTANTE: Devuelve SOLO el JSON, sin texto adicional ni markdown."""
+
+
+async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
+    """
+    Expande query y extrae metadata relevante usando LLM.
+    
+    Esta función analiza la consulta para:
+    1. Detectar materia legal (penal, civil, laboral, etc.)
+    2. Extraer temas jurídicos clave
+    3. Identificar si requiere análisis constitucional
+    4. Generar términos de expansión específicos de la materia
+    
+    Args:
+        query: Consulta del usuario
+    
+    Returns:
+        Dict con query expandido y metadata para filtros:
+        {
+            "expanded_query": str,
+            "materia": str | None,
+            "temas": List[str],
+            "requiere_constitucion": bool,
+            "requiere_jurisprudencia": bool
+        }
+    """
+    try:
+        prompt = METADATA_EXTRACTION_PROMPT.format(query=query)
+        
+        response = await deepseek_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=300
+        )
+        
+        content = response.choices[0].message.content.strip()
+        
+        # Limpiar markdown si existe
+        if content.startswith("```json"):
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif content.startswith("```"):
+            content = content.split("```")[1].split("```")[0].strip()
+        
+        metadata = json.loads(content)
+        
+        # Construir query expandido combinando query original + términos de expansión
+        expanded_terms = [query] + metadata.get("terminos_expansion", [])
+        expanded_query = " ".join(expanded_terms[:8])  # Limitar a 8 términos totales
+        
+        result = {
+            "expanded_query": expanded_query,
+            "materia": metadata.get("materia_principal"),
+            "temas": metadata.get("temas_clave", []),
+            "requiere_constitucion": metadata.get("requiere_constitucion", False),
+            "requiere_jurisprudencia": metadata.get("requiere_jurisprudencia", False)
+        }
+        
+        print(f"   🧠 Metadata extraction exitosa:")
+        print(f"      Materia: {result['materia']}")
+        print(f"      Temas: {', '.join(result['temas'][:3])}")
+        print(f"      Query expandido: '{expanded_query}'")
+        
+        return result
+        
+    except Exception as e:
+        print(f"   ⚠️  Error en metadata extraction, usando fallback: {e}")
+        # Fallback: solo expansión dogmática tradicional sin metadata
+        expanded = await expand_legal_query_llm(query)
+        return {
+            "expanded_query": expanded,
+            "materia": None,
+            "temas": [],
+            "requiere_constitucion": False,
+            "requiere_jurisprudencia": False
+        }
+
+
+def build_metadata_filter(
+    materia: Optional[str],
+    nivel_jerarquico: Optional[str] = None
+) -> Optional[Filter]:
+    """
+    Construye filtro de Qdrant basado en metadata jerárquica enriquecida.
+    
+    Los filtros se aplican con lógica SHOULD (OR), permitiendo que chunks
+    que coincidan con CUALQUIERA de las condiciones sean incluidos.
+    
+    Args:
+        materia: Materia legal (penal, civil, laboral, etc.)
+        nivel_jerarquico: constitucional, federal, estatal
+    
+    Returns:
+        Filter de Qdrant o None si no hay condiciones
+    """
+    conditions = []
+    
+    if materia:
+        # Filtrar por materia (debe contener la materia en el array metadata.materia)
+        conditions.append(
+            FieldCondition(
+                key="materia",
+                match=MatchValue(value=materia)
+            )
+        )
+    
+    if nivel_jerarquico:
+        conditions.append(
+            FieldCondition(
+                key="nivel_jerarquico",
+                match=MatchValue(value=nivel_jerarquico)
+            )
+        )
+    
+    if not conditions:
+        return None
+    
+    # SHOULD = OR lógico: cumple con al menos una condición
+    return Filter(should=conditions)
+
 
 
 # Términos que indican query sobre derechos humanos
@@ -1485,6 +1661,7 @@ async def hybrid_search_all_silos(
     estado: Optional[str],
     top_k: int,
     alpha: float = 0.7,
+    enable_reasoning: bool = False,  # NUEVO: Activar Query Expansion con metadata
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
@@ -1492,30 +1669,71 @@ async def hybrid_search_all_silos(
     
     Incluye Dogmatic Query Expansion para cerrar brecha semántica entre
     lenguaje coloquial y terminología técnica legal.
+    
+    Args:
+        query: Consulta del usuario
+        estado: Estado para filtro jurisdiccional (opcional)
+        top_k: Número máximo de resultados
+        alpha: Balance entre dense y sparse (no usado actualmente)
+        enable_reasoning: Si True, usa Query Expansion con metadata jerárquica
+    
+    Returns:
+        Lista de SearchResults ordenados por relevancia
     """
     # ═══════════════════════════════════════════════════════════════════════════
-    # PASO 0: Dogmatic Query Expansion (LLM-based)
-    # Traduce "violación" → "violación cópula acceso carnal delito sexual"
+    # PASO 0: Query Expansion - Modo Avanzado vs Rápido
     # ═══════════════════════════════════════════════════════════════════════════
-    expanded_query = await expand_legal_query_llm(query)
+    
+    if enable_reasoning:
+        # MODO REASONING: Expansión con metadata jerárquica
+        # Más lento (~10s) pero más preciso - usa metadata enriquecida
+        print(f"   🧠 MODO REASONING activado - Query Expansion con metadata")
+        expansion_result = await expand_query_with_metadata(query)
+        expanded_query = expansion_result["expanded_query"]
+        materia_filter = expansion_result["materia"]
+        print(f"      Materia detectada para filtros: {materia_filter}")
+    else:
+        # MODO RÁPIDO: Solo expansión dogmática básica  
+        # Rápido (~2s) - no usa metadata
+        print(f"   ⚡ MODO RÁPIDO - Solo expansión dogmática")
+        expanded_query = await expand_legal_query_llm(query)
+        materia_filter = None
     
     # Generar embeddings: AMBOS usan query expandido para consistencia
     dense_task = get_dense_embedding(expanded_query)  # Expandido para mejor comprensión semántica
     sparse_vector = get_sparse_embedding(expanded_query)  # Expandido para mejor recall BM25
     dense_vector = await dense_task
     
-    # Búsqueda paralela en los 3 silos CON FILTROS ESPECÍFICOS POR SILO
+    # Búsqueda paralela en los 4 silos CON FILTROS ESPECÍFICOS POR SILO
     tasks = []
     for silo_name in SILOS.values():
-        # Obtener filtro específico para este silo
-        silo_filter = get_filter_for_silo(silo_name, estado)
+        # Filtro por estado (para leyes_estatales solamente)
+        state_filter = get_filter_for_silo(silo_name, estado)
+        
+        # Filtro por metadata (si enable_reasoning y hay materia detectada)
+        metadata_filter = None
+        if enable_reasoning and materia_filter:
+            metadata_filter = build_metadata_filter(materia_filter)
+        
+        # Combinar filtros si ambos existen
+        combined_filter = state_filter
+        if state_filter and metadata_filter:
+            # Ambos filtros: MUST state + SHOULD materia (refina pero no restringe demasiado)
+            combined_filter = Filter(
+                must=[state_filter.must[0]] if state_filter.must else [],
+                should=metadata_filter.should if metadata_filter.should else []
+            )
+        elif metadata_filter:
+            # Solo metadata filter
+            combined_filter = metadata_filter
+        
         tasks.append(
             hybrid_search_single_silo(
                 collection=silo_name,
                 query=query,
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
-                filter_=silo_filter,
+                filter_=combined_filter,  # Filtro combinado (estado + metadata)
                 top_k=top_k,
                 alpha=alpha,
             )
@@ -1872,29 +2090,6 @@ async def chat_endpoint(request: ChatRequest):
     # Detectar si hay documento adjunto
     has_document = "DOCUMENTO ADJUNTO:" in last_user_message or "DOCUMENTO_INICIO" in last_user_message
     
-    # ═══════════════════════════════════════════════════════════════════════
-    # QUERY EXPANSION: Análisis de Intención con DeepSeek Reasoner
-    # ═══════════════════════════════════════════════════════════════════════
-    expansion_result = None
-    # Detectar si es una solicitud de redacción de documento (necesitamos saberlo antes)
-    is_drafting_check = "[REDACTAR_DOCUMENTO]" in last_user_message
-    
-    # SOLO ejecutar Query Expansion si el usuario lo activó
-    if request.enable_reasoning and not has_document and not is_drafting_check:
-        try:
-            print(f"🔍 Query Expansion: Analizando intención (usuario activó razonamiento)...")
-            expander = get_query_expander(deepseek_client)
-            expansion_result = await expander.analyze_query(last_user_message)
-            
-            print(f"   ✓ Marco constitucional: {expansion_result.get('requiere_marco_constitucional', False)}")
-            print(f"   ✓ Jurisprudencia: {expansion_result.get('requiere_jurisprudencia', False)}")
-            print(f"   ✓ Materia: {expansion_result.get('materia_principal', 'N/A')}")
-        except Exception as e:
-            print(f"⚠️  Query Expansion falló (usando defaults): {e}")
-            expansion_result = None  # Fallback a búsqueda normal
-    elif not request.enable_reasoning:
-        print(f"⚡ Modo rápido activado - omitiendo Query Expansion")
-    
     # Detectar si es una solicitud de redacción de documento
     is_drafting = "[REDACTAR_DOCUMENTO]" in last_user_message
     draft_tipo = None
@@ -1927,6 +2122,7 @@ async def chat_endpoint(request: ChatRequest):
                 query=search_query,
                 estado=request.estado,
                 top_k=15,  # Más resultados para redacción
+                enable_reasoning=request.enable_reasoning,  # FASE 1: Query Expansion
             )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
@@ -1949,42 +2145,19 @@ async def chat_endpoint(request: ChatRequest):
                 query=search_query,
                 estado=request.estado,
                 top_k=15,  # Más resultados para documentos
+                enable_reasoning=request.enable_reasoning,  # FASE 1: Query Expansion
             )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
             print(f"   Encontrados {len(search_results)} documentos relevantes para contrastar")
         else:
-            # Consulta normal - con Query Expansion si está disponible
-            search_query = last_user_message
-            
-            # Usar Query Expansion para mejorar la búsqueda
-            if expansion_result:
-                expander = get_query_expander(deepseek_client)
-                expanded_query = expander.build_expanded_query(last_user_message, expansion_result)
-                
-                if expanded_query != last_user_message:
-                    search_query = expanded_query
-                    print(f"   ✨ Query expandida con términos adicionales")
-            
+            # Consulta normal
             search_results = await hybrid_search_all_silos(
-                query=search_query,
+                query=last_user_message,
                 estado=request.estado,
                 top_k=request.top_k,
+                enable_reasoning=request.enable_reasoning,  # FASE 1: Query Expansion
             )
-            
-            # Si requiere marco constitucional, asegurar que bloque constitucional esté presente
-            if expansion_result and expansion_result.get('requiere_marco_constitucional'):
-                # Hacer búsqueda adicional específica en bloque constitucional
-                const_results = await hybrid_search(
-                    collection_name=SILOS["constitucional"],
-                    query=search_query,
-                    estado=None,  # Sin filtro de estado para constitución
-                    top_k=5,
-                )
-                # Agregar resultados constitucionales al principio (prioridad)
-                search_results = const_results + [r for r in search_results if r not in const_results]
-                print(f"   ⚖️  Agregados {len(const_results)} docs del bloque constitucional")
-            
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
         
