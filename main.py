@@ -31,6 +31,7 @@ from qdrant_client.http import models
 from qdrant_client.http.models import (
     FieldCondition,
     Filter,
+    MatchAny,
     MatchValue,
     NamedVector,
     NamedSparseVector,
@@ -1169,22 +1170,27 @@ def expand_legal_query(query: str) -> str:
 # DOGMATIC QUERY EXPANSION - LLM-Based Legal Term Extraction
 # ══════════════════════════════════════════════════════════════════════════════
 
-DOGMATIC_EXPANSION_PROMPT = """Actúa como un experto penalista mexicano. Tu único trabajo es identificar el concepto jurídico de la consulta y devolver sus elementos normativos, verbos rectores y términos técnicos según la dogmática penal mexicana.
+DOGMATIC_EXPANSION_PROMPT = """Eres un jurista experto en TODAS las ramas del derecho mexicano. Tu trabajo es identificar la MATERIA JURÍDICA de la consulta y devolver los términos técnicos correctos de ESA materia específica.
 
 REGLAS ESTRICTAS:
-1. SOLO devuelve palabras clave separadas por espacio
+1. SOLO devuelve palabras clave separadas por espacio (máximo 6 términos)
 2. NO incluyas explicaciones ni puntuación
-3. Incluye sinónimos técnicos del derecho mexicano
-4. Prioriza términos que aparecerían en códigos penales
+3. Identifica la materia (penal, civil, mercantil, laboral, constitucional, familiar, administrativo, fiscal)
+4. Genera términos técnicos de ESA materia, NO de otras
+5. Incluye artículos de ley clave si aplica
 
-EJEMPLOS:
-- Entrada: "Delito de violación" -> Salida: "violación cópula acceso carnal delito sexual"
-- Entrada: "Robo" -> Salida: "robo apoderamiento cosa mueble ajena sin consentimiento"  
-- Entrada: "Homicidio" -> Salida: "homicidio privar vida muerte lesiones mortales"
-- Entrada: "Fraude" -> Salida: "fraude engaño error lucro indebido perjuicio patrimonial"
-- Entrada: "Amparo" -> Salida: "amparo garantías acto reclamado queja suspensión"
+EJEMPLOS POR MATERIA:
+- "violación" → "violación cópula acceso carnal delito sexual artículo 265 CPF"
+- "títulos de crédito autonomía" → "títulos crédito autonomía abstracción incorporación legitimación pagaré LGTOC"
+- "abstracción cambiaria pagaré" → "abstracción cambiaria obligación cartular pagaré LGTOC artículo 17 juicio ejecutivo mercantil"
+- "despido injustificado" → "despido injustificado rescisión relación laboral indemnización artículo 48 LFT"
+- "divorcio" → "divorcio disolución matrimonio convenio pensión alimentos guarda custodia"
+- "amparo" → "amparo garantías acto reclamado queja suspensión artículo 103 CPEUM"
+- "contrato mercantil" → "contrato mercantil compraventa obligaciones comerciante Código Comercio"
+- "derechos humanos" → "derechos humanos bloque constitucionalidad control convencionalidad pro persona"
+- "pensión alimenticia" → "pensión alimentos obligación alimentaria acreedor deudor proporcionalidad"
 
-Ahora procesa esta consulta y devuelve SOLO las palabras clave:"""
+Procesa esta consulta y devuelve SOLO las palabras clave:"""
 
 
 async def expand_legal_query_llm(query: str) -> str:
@@ -1209,13 +1215,15 @@ async def expand_legal_query_llm(query: str) -> str:
         
         expanded_terms = response.choices[0].message.content.strip()
         
-        # Combinar query original + términos expandidos
-        result = f"{query} {expanded_terms}"
-        print(f"   Query expandido: '{query}' → '{result}'")
+        # Limitar a máximo 6 términos para no diluir la búsqueda
+        terms = expanded_terms.split()[:6]
+        result = f"{query} {' '.join(terms)}"
+        print(f"   ⚡ Query expandido: '{query}' → '{result}'")
         return result
         
     except Exception as e:
-        print(f"   Error en expansión LLM, usando fallback: {e}")
+        print(f"   ⚠️ ERROR en expansión LLM: {type(e).__name__}: {e}")
+        print(f"   ⚠️ Usando fallback estático para query: '{query}'")
         # Fallback a expansión estática
         return expand_legal_query(query)
 
@@ -1310,7 +1318,8 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
         return result
         
     except Exception as e:
-        print(f"   ⚠️  Error en metadata extraction, usando fallback: {e}")
+        print(f"   ❌ ERROR en metadata extraction: {type(e).__name__}: {e}")
+        print(f"   ❌ Usando fallback dogmático para query: '{query}'")
         # Fallback: solo expansión dogmática tradicional sin metadata
         expanded = await expand_legal_query_llm(query)
         return {
