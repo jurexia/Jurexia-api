@@ -1606,48 +1606,46 @@ async def hybrid_search_single_silo(
     """
     Ejecuta búsqueda en un silo.
     Auto-detecta si la colección tiene sparse vectors para usar híbrido o solo dense.
+    RESILIENTE: Si el filtro causa error 400 (índice faltante), reintenta SIN filtro.
     """
-    try:
-        
-        # Obtener info de la colección para detectar tipos de vectores
+    async def _do_search(search_filter: Optional[Filter]) -> list:
+        """Ejecuta la búsqueda con el filtro dado."""
         col_info = await qdrant_client.get_collection(collection)
         vectors_config = col_info.config.params.vectors
-        
-        # Detectar si tiene vectores sparse
         has_sparse = isinstance(vectors_config, dict) and "sparse" in vectors_config
         
         if has_sparse:
-            # Búsqueda Híbrida: Prefetch Sparse -> Rerank Dense
-            # IMPORTANTE: El filtro se aplica tanto en prefetch como en query principal
-            results = await qdrant_client.query_points(
+            return await qdrant_client.query_points(
                 collection_name=collection,
                 prefetch=[
                     Prefetch(
                         query=sparse_vector,
                         using="sparse",
-                        limit=top_k * 5,  # Pool amplio para mejor reranking
-                        filter=filter_,
+                        limit=top_k * 5,
+                        filter=search_filter,
                     ),
                 ],
                 query=dense_vector,
                 using="dense",
                 limit=top_k,
-                query_filter=filter_,  # CRÍTICO: Filtro también en rerank denso
+                query_filter=search_filter,
                 with_payload=True,
-                score_threshold=0.05,  # Threshold bajo para no perder resultados relevantes
+                score_threshold=0.05,
             )
-
         else:
-            # Búsqueda Solo Dense (colecciones sin sparse)
-            results = await qdrant_client.query_points(
+            return await qdrant_client.query_points(
                 collection_name=collection,
                 query=dense_vector,
                 using="dense",
                 limit=top_k,
-                query_filter=filter_,
+                query_filter=search_filter,
                 with_payload=True,
-                score_threshold=0.05,  # Threshold bajo para no perder resultados relevantes
+                score_threshold=0.05,
             )
+    
+    try:
+        # Intento 1: Con filtro completo
+        results = await _do_search(filter_)
         
         search_results = []
         for point in results.points:
@@ -1666,8 +1664,33 @@ async def hybrid_search_single_silo(
         return search_results
     
     except Exception as e:
-        print(f" Error en búsqueda sobre {collection}: {e}")
+        error_msg = str(e)
+        # Si el error es por índice faltante, reintentar SIN filtro de metadata
+        if "400" in error_msg or "Index required" in error_msg:
+            print(f"   ⚠️  Filtro falló en {collection} (índice faltante), reintentando sin filtro...")
+            try:
+                results = await _do_search(None)  # Sin filtro
+                search_results = []
+                for point in results.points:
+                    payload = point.payload or {}
+                    search_results.append(SearchResult(
+                        id=str(point.id),
+                        score=point.score,
+                        texto=payload.get("texto", payload.get("text", "")),
+                        ref=payload.get("ref"),
+                        origen=payload.get("origen"),
+                        jurisdiccion=payload.get("jurisdiccion"),
+                        entidad=payload.get("entidad"),
+                        silo=collection,
+                    ))
+                return search_results
+            except Exception as retry_e:
+                print(f"   ❌ Retry sin filtro también falló en {collection}: {retry_e}")
+                return []
+        
+        print(f"   ❌ Error en búsqueda sobre {collection}: {e}")
         return []
+
 
 
 async def hybrid_search_all_silos(
