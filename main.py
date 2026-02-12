@@ -2176,41 +2176,52 @@ async def chat_endpoint(request: ChatRequest):
             system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
         else:
             system_prompt = SYSTEM_PROMPT_CHAT
-        llm_messages = [
-            {"role": "system", "content": system_prompt},
-        ]
-        
-        # Inyección de Contexto Global: Inventario del Sistema
-        # Esto da al modelo "Scope Awareness" para responder preguntas de cobertura
-        llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
-        
-        if context_xml:
-            llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
-        
-        # Agregar historial conversacional
-        for msg in request.messages:
-            llm_messages.append({"role": msg.role, "content": msg.content})
         
         # ─────────────────────────────────────────────────────────────────────
-        # PASO 3: Generar respuesta
+        # PASO 3: Generar respuesta — SIEMPRE deepseek-reasoner
         # ─────────────────────────────────────────────────────────────────────
-        # deepseek-reasoner: SOLO documentos adjuntos (contexto va en user message)
-        # deepseek-chat: Consultas normales (soporta role:system con contexto RAG)
-        # NOTA: deepseek-reasoner NO soporta mensajes system — el contexto
-        # jurídico recuperado se perdería silenciosamente.
+        # deepseek-reasoner NO soporta role:system, pero sí entiende
+        # instrucciones y contexto dentro de mensajes role:user.
+        # Fusionamos system_prompt + RAG context en un prefijo del user message.
         
-        use_reasoner = has_document  # Solo documentos usan reasoner
+        use_reasoner = True  # SIEMPRE usar reasoner para máxima calidad
+        selected_model = REASONER_MODEL
         
-        if use_reasoner:
-            selected_model = REASONER_MODEL
+        if has_document:
             start_message = " **Analizando documento...**\n\n"
             final_header = "##  Análisis Legal\n\n"
-            max_tokens = 16000
         else:
-            selected_model = CHAT_MODEL
-            max_tokens = 16000  # Respuestas amplias y profundas
+            start_message = ""
+            final_header = ""
+        max_tokens = 16000
         
-        print(f"   Modelo seleccionado: {selected_model} ({'documento-reasoner' if use_reasoner else 'chat-con-RAG'})")
+        # Construir el prefijo con instrucciones + contexto RAG
+        context_prefix_parts = [
+            f"<instrucciones_sistema>\n{system_prompt}\n</instrucciones_sistema>",
+            f"\n<inventario_sistema>\n{INVENTORY_CONTEXT}\n</inventario_sistema>",
+        ]
+        if context_xml:
+            context_prefix_parts.append(f"\n<contexto_juridico_recuperado>\n{context_xml}\n</contexto_juridico_recuperado>")
+        
+        context_prefix = "\n".join(context_prefix_parts)
+        
+        # Construir mensajes para deepseek-reasoner (solo user/assistant, NO system)
+        llm_messages = []
+        
+        # Inyectar contexto en el primer user message del historial
+        first_user_injected = False
+        for msg in request.messages:
+            if msg.role == "user" and not first_user_injected:
+                # Fusionar contexto RAG con el primer mensaje del usuario
+                llm_messages.append({
+                    "role": "user",
+                    "content": f"{context_prefix}\n\n<consulta_usuario>\n{msg.content}\n</consulta_usuario>"
+                })
+                first_user_injected = True
+            else:
+                llm_messages.append({"role": msg.role, "content": msg.content})
+        
+        print(f"   Modelo: {selected_model} (reasoner+RAG) | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         if use_reasoner:
             # ── MODO REASONER: Razonamiento visible + respuesta ──────────────
