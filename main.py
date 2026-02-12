@@ -913,7 +913,7 @@ class ChatRequest(BaseModel):
     """Request para chat conversacional"""
     messages: List[Message] = Field(..., min_length=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
-    top_k: int = Field(20, ge=1, le=50)  # Recall Boost: captures Art 160-162 (def + pena + agravantes)
+    top_k: int = Field(30, ge=1, le=80)  # Recall Boost: 30 results across 4 silos = ~8 per silo
     enable_reasoning: bool = Field(
         False,
         description="Si True, usa Query Expansion con metadata jerárquica (más lento ~10s pero más preciso). Si False, modo rápido ~2s."
@@ -1598,11 +1598,6 @@ async def hybrid_search_single_silo(
     Auto-detecta si la colección tiene sparse vectors para usar híbrido o solo dense.
     """
     try:
-        # Verificar que la colección existe
-        collections = await qdrant_client.get_collections()
-        existing = [c.name for c in collections.collections]
-        if collection not in existing:
-            return []
         
         # Obtener info de la colección para detectar tipos de vectores
         col_info = await qdrant_client.get_collection(collection)
@@ -1620,7 +1615,7 @@ async def hybrid_search_single_silo(
                     Prefetch(
                         query=sparse_vector,
                         using="sparse",
-                        limit=top_k * 3,
+                        limit=top_k * 5,  # Pool amplio para mejor reranking
                         filter=filter_,
                     ),
                 ],
@@ -1629,7 +1624,7 @@ async def hybrid_search_single_silo(
                 limit=top_k,
                 query_filter=filter_,  # CRÍTICO: Filtro también en rerank denso
                 with_payload=True,
-                score_threshold=0.1,
+                score_threshold=0.05,  # Threshold bajo para no perder resultados relevantes
             )
 
         else:
@@ -1641,7 +1636,7 @@ async def hybrid_search_single_silo(
                 limit=top_k,
                 query_filter=filter_,
                 with_payload=True,
-                score_threshold=0.1,
+                score_threshold=0.05,  # Threshold bajo para no perder resultados relevantes
             )
         
         search_results = []
@@ -1778,16 +1773,16 @@ async def hybrid_search_all_silos(
     # Para queries de DDHH, priorizar agresivamente el bloque constitucional
     if is_ddhh_query(query):
         # Modo DDHH: Prioridad máxima a bloque constitucional
-        min_constitucional = min(8, len(constitucional))   # ALTA prioridad
-        min_jurisprudencia = min(3, len(jurisprudencia))   
-        min_federales = min(3, len(federales))             
-        min_estatales = min(2, len(estatales))             
-    else:
-        # Modo estándar: Balance entre todos los silos
-        min_constitucional = min(5, len(constitucional))   
-        min_jurisprudencia = min(4, len(jurisprudencia))   
-        min_federales = min(5, len(federales))             
+        min_constitucional = min(12, len(constitucional))  # MÁXIMA prioridad DDHH
+        min_jurisprudencia = min(6, len(jurisprudencia))   
+        min_federales = min(6, len(federales))             
         min_estatales = min(3, len(estatales))             
+    else:
+        # Modo estándar: Balance amplio entre todos los silos
+        min_constitucional = min(8, len(constitucional))   
+        min_jurisprudencia = min(8, len(jurisprudencia))   
+        min_federales = min(8, len(federales))             
+        min_estatales = min(5, len(estatales))             
     
     merged = []
     
