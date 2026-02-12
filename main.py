@@ -2207,7 +2207,7 @@ async def chat_endpoint(request: ChatRequest):
             max_tokens = 16000
         else:
             selected_model = CHAT_MODEL
-            max_tokens = 16000  # Respuestas amplias y detalladas
+            max_tokens = 8192  # deepseek-chat limit (reasoner supports 16000)
         
         print(f"   Modelo: {selected_model} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
