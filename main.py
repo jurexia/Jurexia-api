@@ -2192,25 +2192,25 @@ async def chat_endpoint(request: ChatRequest):
             llm_messages.append({"role": msg.role, "content": msg.content})
         
         # ─────────────────────────────────────────────────────────────────────
-        # PASO 3: Generar respuesta — SIEMPRE con deepseek-reasoner
+        # PASO 3: Generar respuesta
         # ─────────────────────────────────────────────────────────────────────
-        # deepseek-reasoner: Para TODAS las consultas (razonamiento profundo)
-        # Esto garantiza respuestas más completas y fundamentadas
+        # deepseek-reasoner: SOLO documentos adjuntos (contexto va en user message)
+        # deepseek-chat: Consultas normales (soporta role:system con contexto RAG)
+        # NOTA: deepseek-reasoner NO soporta mensajes system — el contexto
+        # jurídico recuperado se perdería silenciosamente.
         
-        use_reasoner = True  # SIEMPRE usar reasoner para máxima calidad
+        use_reasoner = has_document  # Solo documentos usan reasoner
         
-        if has_document:
+        if use_reasoner:
             selected_model = REASONER_MODEL
             start_message = " **Analizando documento...**\n\n"
             final_header = "##  Análisis Legal\n\n"
             max_tokens = 16000
         else:
-            selected_model = REASONER_MODEL
-            start_message = ""
-            final_header = ""
+            selected_model = CHAT_MODEL
             max_tokens = 16000  # Respuestas amplias y profundas
         
-        print(f"   Modelo seleccionado: {selected_model} (reasoner always-on)")
+        print(f"   Modelo seleccionado: {selected_model} ({'documento-reasoner' if use_reasoner else 'chat-con-RAG'})")
         
         if use_reasoner:
             # ── MODO REASONER: Razonamiento visible + respuesta ──────────────
