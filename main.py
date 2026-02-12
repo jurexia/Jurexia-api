@@ -2095,7 +2095,44 @@ async def search_endpoint(request: SearchRequest):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ENDPOINT: CHAT (STREAMING SSE CON VALIDACIÓN DE CITAS)
+# AUTO-DETECCIÓN DE COMPLEJIDAD PARA THINKING MODE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def should_use_thinking(query: str, has_document: bool) -> bool:
+    """Auto-detecta si la query se beneficia de chain-of-thought reasoning.
+    
+    Criterios:
+    - Documentos adjuntos: siempre thinking
+    - Keywords de análisis complejo: thinking
+    - Queries largas (>15 palabras): thinking
+    - Queries simples/definiciones: modo rápido
+    """
+    if has_document:
+        return True
+    
+    THINKING_KEYWORDS = {
+        "analiza", "evalúa", "evalua", "argumenta", "fundamenta",
+        "inconstitucional", "constitucionalidad", "convencionalidad",
+        "recurso de", "amparo indirecto", "amparo directo",
+        "nulidad", "impugnación", "impugnacion", "controversia",
+        "procedencia", "compara", "diferencia entre", "qué vías",
+        "que vias", "estrategia", "interpreta", "interpretación",
+        "principio pro persona", "control difuso", "control de convencionalidad",
+        "podría ser", "podria ser", "es posible que",
+        "cómo se relaciona", "como se relaciona",
+        "qué alcance", "que alcance", "qué efectos", "que efectos",
+        "redacta", "elabora", "genera un",
+    }
+    
+    query_lower = query.lower()
+    has_complex_keyword = any(kw in query_lower for kw in THINKING_KEYWORDS)
+    is_long_query = len(query.split()) > 15
+    
+    return has_complex_keyword or is_long_query
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: CHAT (STREAMING SSE CON THINKING MODE + RAG)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/chat")
@@ -2224,126 +2261,76 @@ async def chat_endpoint(request: ChatRequest):
             llm_messages.append({"role": msg.role, "content": msg.content})
         
         # ─────────────────────────────────────────────────────────────────────
-        # PASO 3: Generar respuesta
+        # PASO 3: Generar respuesta con Thinking Mode auto-detectado
         # ─────────────────────────────────────────────────────────────────────
-        # deepseek-chat: Para consultas normales (RAG context via system messages)
-        # deepseek-reasoner: SOLO para documentos adjuntos (análisis profundo)
-        # NOTA: deepseek-reasoner NO procesa system messages ni contexto
-        #       inyectado en user messages — INCOMPATIBLE con RAG.
+        # Usa SIEMPRE deepseek-chat (soporta system messages = RAG funciona)
+        # Thinking mode se activa vía extra_body cuando la query lo amerita
+        # Esto da chain-of-thought reasoning + RAG context simultáneamente
         
-        use_reasoner = has_document  # Solo documentos usan reasoner
+        use_thinking = should_use_thinking(last_user_message, has_document)
+        max_tokens = 16000 if use_thinking else 8192
         
-        if use_reasoner:
-            selected_model = REASONER_MODEL
-            start_message = " **Analizando documento...**\n\n"
-            final_header = "##  Análisis Legal\n\n"
-            max_tokens = 16000
-        else:
-            selected_model = CHAT_MODEL
-            max_tokens = 8192  # deepseek-chat limit (reasoner supports 16000)
+        print(f"   Modelo: {CHAT_MODEL} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
-        print(f"   Modelo: {selected_model} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
+        # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
+        async def generate_stream() -> AsyncGenerator[str, None]:
+            """Stream unificado — thinking mode envía reasoning con marcadores."""
+            try:
+                reasoning_buffer = ""
+                content_buffer = ""
+                
+                api_kwargs = {
+                    "model": CHAT_MODEL,
+                    "messages": llm_messages,
+                    "stream": True,
+                    "max_tokens": max_tokens,
+                }
+                if use_thinking:
+                    api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                
+                stream = await deepseek_client.chat.completions.create(**api_kwargs)
+                
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta:
+                        delta = chunk.choices[0].delta
+                        
+                        reasoning_content = getattr(delta, 'reasoning_content', None)
+                        content = getattr(delta, 'content', None)
+                        
+                        if reasoning_content:
+                            reasoning_buffer += reasoning_content
+                            # Enviar reasoning con marcador para el frontend
+                            yield f"<!--thinking-->{reasoning_content}"
+                        
+                        if content:
+                            content_buffer += content
+                            yield content
+                
+                # Validar citas
+                if doc_id_map:
+                    validation = validate_citations(content_buffer, doc_id_map)
+                    if validation.invalid_count > 0:
+                        print(f"   ⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
+                    else:
+                        print(f"   ✅ Validación OK: {validation.valid_count} citas verificadas")
+                
+                thinking_info = f", {len(reasoning_buffer)} chars reasoning" if reasoning_buffer else ""
+                print(f"   📝 Respuesta ({len(content_buffer)} chars content{thinking_info})")
+                
+            except Exception as e:
+                yield f"\n\n❌ Error: {str(e)}"
         
-        if use_reasoner:
-            # ── MODO REASONER: Razonamiento visible + respuesta ──────────────
-            async def generate_reasoning_stream() -> AsyncGenerator[str, None]:
-                """Stream con razonamiento visible para análisis de documentos"""
-                try:
-                    yield start_message
-                    yield " *Proceso de razonamiento:*\n\n> "
-                    
-                    reasoning_buffer = ""
-                    content_buffer = ""
-                    in_content = False
-                    
-                    stream = await deepseek_client.chat.completions.create(
-                        model=REASONER_MODEL,
-                        messages=llm_messages,
-                        stream=True,
-                        max_tokens=max_tokens,
-                    )
-                    
-                    async for chunk in stream:
-                        if chunk.choices and chunk.choices[0].delta:
-                            delta = chunk.choices[0].delta
-                            
-                            reasoning_content = getattr(delta, 'reasoning_content', None)
-                            content = getattr(delta, 'content', None)
-                            
-                            if reasoning_content:
-                                reasoning_buffer += reasoning_content
-                                formatted = reasoning_content.replace('\n', '\n> ')
-                                yield formatted
-                            
-                            if content:
-                                if not in_content:
-                                    in_content = True
-                                    yield f"\n\n---\n\n{final_header}"
-                                content_buffer += content
-                                yield content
-                    
-                    if not in_content and reasoning_buffer:
-                        yield "\n\n---\n\n*Consulta completada*\n"
-                    
-                    print(f" Respuesta reasoner ({len(reasoning_buffer)} chars reasoning, {len(content_buffer)} chars content)")
-                    
-                except Exception as e:
-                    yield f"\n\n Error: {str(e)}"
-            
-            return StreamingResponse(
-                generate_reasoning_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                    "X-Model-Used": "deepseek-reasoner",
-                },
-            )
-        else:
-            # ── MODO CHAT: Streaming directo token por token ─────────────────
-            async def generate_direct_stream() -> AsyncGenerator[str, None]:
-                """Stream directo sin razonamiento — typing progresivo"""
-                try:
-                    content_buffer = ""
-                    
-                    stream = await deepseek_client.chat.completions.create(
-                        model=CHAT_MODEL,
-                        messages=llm_messages,
-                        stream=True,
-                        max_tokens=max_tokens,
-                    )
-                    
-                    async for chunk in stream:
-                        if chunk.choices and chunk.choices[0].delta:
-                            content = chunk.choices[0].delta.content
-                            if content:
-                                content_buffer += content
-                                yield content
-                    
-                    # Validar citas
-                    if doc_id_map:
-                        validation = validate_citations(content_buffer, doc_id_map)
-                        if validation.invalid_count > 0:
-                            print(f" CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
-                        else:
-                            print(f" Validación OK: {validation.valid_count} citas verificadas")
-                    
-                    print(f" Respuesta chat directa ({len(content_buffer)} chars)")
-                    
-                except Exception as e:
-                    yield f"\n\n Error: {str(e)}"
-            
-            return StreamingResponse(
-                generate_direct_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                    "X-Model-Used": "deepseek-chat",
-                },
-            )
+        return StreamingResponse(
+            generate_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Model-Used": CHAT_MODEL,
+                "X-Thinking-Mode": "on" if use_thinking else "off",
+            },
+        )
     
     except HTTPException:
         raise
