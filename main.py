@@ -2538,68 +2538,25 @@ async def search_endpoint(request: SearchRequest):
 # AUTO-DETECCIÓN DE COMPLEJIDAD PARA THINKING MODE
 # ══════════════════════════════════════════════════════════════════════════════
 
-def should_use_thinking(query: str, has_document: bool) -> bool:
-    """Detección inteligente de complejidad para activar thinking mode.
+def should_use_thinking(has_document: bool, is_drafting: bool) -> bool:
+    """Activa thinking mode SOLO para modos especiales.
     
-    Thinking mode genera reasoning tokens adicionales (cobrados como output).
-    Solo se activa cuando la query realmente lo amerita:
-    - Documentos adjuntos (análisis Centinela)
-    - Análisis jurídicos complejos
+    Thinking ON (50K tokens, reasoning CoT):
+    - Documentos adjuntos (Centinela: análisis de demandas/sentencias)
     - Redacción de documentos legales
-    - Argumentación constitucional / convencional
     
-    Para consultas simples ("¿qué dice el artículo X?"), se usa modo
-    estándar que es ~6x más económico y ~5x más rápido.
+    Thinking OFF (8192 tokens, respuesta directa):
+    - Modo pregunta/chat normal (consultas jurídicas)
     """
-    # 1. Documentos adjuntos SIEMPRE usan thinking (análisis profundo)
     if has_document:
-        print("   🧠 Thinking ON: documento adjunto detectado")
+        print("   🧠 Thinking ON: documento adjunto (Centinela)")
         return True
     
-    query_lower = query.lower()
-    
-    # 2. Análisis complejo / argumentación
-    COMPLEX_KEYWORDS = [
-        # Argumentación jurídica
-        "analiza", "análisis", "analisis", "argumenta", "argumentos",
-        "impugna", "impugnar", "refuta", "controvierte",
-        # Constitucional / convencional
-        "inconstitucionalidad", "inconvencionalidad", "constitucionalidad",
-        "amparo", "control de convencionalidad", "control difuso",
-        "derechos humanos", "garantías",
-        # Estrategia legal
-        "estrategia", "defensa", "contraargumento", "debilidades",
-        "fortalezas", "riesgos", "probabilidad",
-        # Comparación profunda
-        "compara", "comparativa", "diferencias entre", "similitudes",
-        "versus", "vs",
-    ]
-    
-    # 3. Redacción de documentos
-    DRAFTING_KEYWORDS = [
-        "redacta", "elabora", "escribe", "genera", "prepara",
-        "demanda", "recurso", "oficio", "petición", "peticion",
-        "contestación", "contestacion", "alegatos", "agravios",
-        "proyecto de sentencia", "dictamen",
-    ]
-    
-    for kw in COMPLEX_KEYWORDS:
-        if kw in query_lower:
-            print(f"   🧠 Thinking ON: keyword complejo '{kw}'")
-            return True
-    
-    for kw in DRAFTING_KEYWORDS:
-        if kw in query_lower:
-            print(f"   🧠 Thinking ON: redacción '{kw}'")
-            return True
-    
-    # 4. Queries largas (>200 chars) sugieren complejidad
-    if len(query) > 200:
-        print(f"   🧠 Thinking ON: query larga ({len(query)} chars)")
+    if is_drafting:
+        print("   🧠 Thinking ON: modo redacción")
         return True
     
-    # Default: modo rápido sin thinking
-    print("   ⚡ Thinking OFF: consulta directa/simple")
+    print("   ⚡ Thinking OFF: modo chat")
     return False
 
 
@@ -2816,7 +2773,7 @@ async def chat_endpoint(request: ChatRequest):
         # Thinking mode se activa vía extra_body cuando la query lo amerita
         # Esto da chain-of-thought reasoning + RAG context simultáneamente
         
-        use_thinking = should_use_thinking(last_user_message, has_document)
+        use_thinking = should_use_thinking(has_document, is_drafting)
         # DeepSeek API limits: sin thinking max=8192, con thinking max=64K
         max_tokens = 50000 if use_thinking else 8192
         
