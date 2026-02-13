@@ -1858,6 +1858,9 @@ async def hybrid_search_single_silo(
         vectors_config = col_info.config.params.vectors
         has_sparse = isinstance(vectors_config, dict) and "sparse" in vectors_config
         
+        # Threshold diferenciado: jurisprudencia necesita mayor recall
+        threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
+        
         if has_sparse:
             return await qdrant_client.query_points(
                 collection_name=collection,
@@ -1874,7 +1877,7 @@ async def hybrid_search_single_silo(
                 limit=top_k,
                 query_filter=search_filter,
                 with_payload=True,
-                score_threshold=0.05,
+                score_threshold=threshold,
             )
         else:
             return await qdrant_client.query_points(
@@ -1884,7 +1887,7 @@ async def hybrid_search_single_silo(
                 limit=top_k,
                 query_filter=search_filter,
                 with_payload=True,
-                score_threshold=0.05,
+                score_threshold=threshold,
             )
     
     try:
@@ -2078,8 +2081,8 @@ async def hybrid_search_all_silos(
         expanded_query = await expand_legal_query_llm(query)
         materia_filter = None
     
-    # Generar embeddings: AMBOS usan query expandido para consistencia
-    dense_task = get_dense_embedding(expanded_query)  # Expandido para mejor comprensión semántica
+    # Generar embeddings: dense=ORIGINAL (preserva intención), sparse=EXPANDIDO (recall BM25)
+    dense_task = get_dense_embedding(query)  # ORIGINAL para preservar intención semántica exacta
     sparse_vector = get_sparse_embedding(expanded_query)  # Expandido para mejor recall BM25
     dense_vector = await dense_task
     
@@ -2156,7 +2159,7 @@ async def hybrid_search_all_silos(
         # Modo con ESTADO seleccionado: Priorizar leyes estatales
         # El usuario eligió un estado específico → quiere resultados de ese estado
         min_constitucional = min(6, len(constitucional))   
-        min_jurisprudencia = min(6, len(jurisprudencia))   
+        min_jurisprudencia = min(8, len(jurisprudencia))   
         min_federales = min(6, len(federales))             
         min_estatales = min(12, len(estatales))  # BOOST: 12 slots para estatales
         print(f"   📍 Boost estatal activo: {min_estatales} slots para leyes de {estado}")
