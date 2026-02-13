@@ -41,6 +41,7 @@ from qdrant_client.http.models import (
 )
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
+from supabase import create_client as supabase_create_client
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -49,6 +50,13 @@ from openai import AsyncOpenAI
 # Cargar variables de entorno desde .env
 from dotenv import load_dotenv
 load_dotenv()
+
+# Supabase Admin Client (for quota enforcement)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+supabase_admin = None
+if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+    supabase_admin = supabase_create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
@@ -959,6 +967,7 @@ class ChatRequest(BaseModel):
         False,
         description="Si True, usa Query Expansion con metadata jerárquica (más lento ~10s pero más preciso). Si False, modo rápido ~2s."
     )
+    user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
 
 
 class AuditRequest(BaseModel):
@@ -1927,6 +1936,27 @@ async def wake_endpoint():
     return {"status": "awake"}
 
 
+@app.get("/quota/status/{user_id}")
+async def quota_status_endpoint(user_id: str):
+    """
+    Returns current quota status for a user (read-only, does not consume).
+    Used by frontend to display usage counters.
+    """
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+
+    try:
+        result = supabase_admin.rpc(
+            'get_quota_status', {'p_user_id': user_id}
+        ).execute()
+
+        if result.data:
+            return result.data
+        return {"error": "user_not_found"}
+    except Exception as e:
+        print(f"⚠️ Quota status check failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch quota status")
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: EXTRACT TEXT FROM DOCUMENT
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2160,6 +2190,35 @@ async def chat_endpoint(request: ChatRequest):
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # QUOTA CHECK: Server-side enforcement via Supabase consume_query RPC
+    # ─────────────────────────────────────────────────────────────────────
+    if request.user_id and supabase_admin:
+        try:
+            quota_result = supabase_admin.rpc(
+                'consume_query', {'p_user_id': request.user_id}
+            ).execute()
+
+            if quota_result.data:
+                quota_data = quota_result.data
+                if not quota_data.get('allowed', True):
+                    return StreamingResponse(
+                        iter([json.dumps({
+                            "error": "quota_exceeded",
+                            "message": "Has alcanzado tu límite de consultas para este período.",
+                            "used": quota_data.get('used', 0),
+                            "limit": quota_data.get('limit', 0),
+                            "subscription_type": quota_data.get('subscription_type', 'gratuito'),
+                        })]),
+                        status_code=403,
+                        media_type="application/json",
+                    )
+                print(f"✅ Quota OK: {quota_data.get('used')}/{quota_data.get('limit')} "
+                      f"({quota_data.get('subscription_type')})")
+        except Exception as e:
+            # Don't block chat on quota check failure — log and continue
+            print(f"⚠️ Quota check failed (proceeding anyway): {e}")
     
     # Extraer última pregunta del usuario
     last_user_message = None
