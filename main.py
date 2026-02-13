@@ -2154,6 +2154,108 @@ async def _do_enrichment_search(
         return []
 
 
+def _parse_article_number(text: str) -> Optional[int]:
+    """Extrae el número de artículo de un campo ref o texto."""
+    import re
+    # Match: "Artículo 19", "Art. 123", "ARTÍCULO 45"
+    match = re.search(r'[Aa]rt[íi]culos?\s*\.?\s*(\d+)', text or "")
+    if match:
+        return int(match.group(1))
+    return None
+
+
+async def _fetch_neighbor_chunks(
+    results: List[SearchResult],
+    max_neighbors: int = 6,
+) -> List[SearchResult]:
+    """
+    Neighbor Chunk Retrieval: para resultados de legislación con score alto,
+    busca los artículos adyacentes (N-1, N+1) de la misma ley.
+    
+    Esto da al LLM contexto circundante: definiciones, excepciones y sanciones
+    que suelen estar en artículos contiguos.
+    """
+    # Solo tomar top 3 de legislación con score alto
+    legislation = [r for r in results 
+                   if r.silo in ("leyes_federales", "leyes_estatales") 
+                   and r.score > 0.4][:3]
+    
+    if not legislation:
+        return []
+    
+    neighbors = []
+    existing_ids = {r.id for r in results}
+    
+    for r in legislation:
+        art_num = _parse_article_number(r.ref or r.texto)
+        if not art_num:
+            continue
+        
+        collection = r.silo
+        
+        # Buscar artículos N-1 y N+1 en la misma ley
+        for neighbor_num in [art_num - 1, art_num + 1]:
+            if neighbor_num < 1:
+                continue
+            
+            neighbor_ref_pattern = f"Artículo {neighbor_num}"
+            
+            try:
+                # Build filter: same source file = same law
+                must_conditions = []
+                if r.origen:
+                    must_conditions.append(
+                        FieldCondition(
+                            key="origen",
+                            match=MatchValue(value=r.origen),
+                        )
+                    )
+                
+                scroll_filter = Filter(must=must_conditions) if must_conditions else None
+                
+                # Scroll con filtro: mismo origen
+                scroll_results = await qdrant_client.scroll(
+                    collection_name=collection,
+                    scroll_filter=scroll_filter,
+                    limit=50,  # Scan up to 50 to find the neighbor
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                
+                # Buscar el artículo vecino en los resultados del scroll
+                for point in scroll_results[0]:
+                    point_id = str(point.id)
+                    if point_id in existing_ids:
+                        continue
+                    
+                    payload = point.payload or {}
+                    point_ref = payload.get("ref", "")
+                    point_text = payload.get("texto", payload.get("text", ""))
+                    
+                    # Verificar que es el artículo vecino correcto
+                    point_art_num = _parse_article_number(point_ref or point_text)
+                    if point_art_num == neighbor_num:
+                        neighbors.append(SearchResult(
+                            id=point_id,
+                            score=0.15,  # Score bajo: contexto, no resultado principal
+                            texto=point_text,
+                            ref=point_ref or payload.get("ref"),
+                            origen=payload.get("origen"),
+                            jurisdiccion=payload.get("jurisdiccion"),
+                            entidad=payload.get("entidad"),
+                            silo=collection,
+                        ))
+                        existing_ids.add(point_id)
+                        break  # Encontrado, siguiente vecino
+                
+            except Exception as e:
+                print(f"      ⚠️ Neighbor search falló para Art. {neighbor_num}: {e}")
+                continue
+    
+    print(f"   📄 Neighbor chunks: {len(neighbors)} artículos adyacentes encontrados")
+    return neighbors[:max_neighbors]
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -2387,6 +2489,19 @@ async def hybrid_search_all_silos(
             print(f"   🔗 CROSS-SILO ENRICHMENT: +{len(new_enriched)} documentos de segunda pasada")
     except Exception as e:
         print(f"   ⚠️ Cross-silo enrichment falló (continuando): {e}")
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # NEIGHBOR CHUNK RETRIEVAL: Artículos adyacentes para contexto completo
+    # ═══════════════════════════════════════════════════════════════════════════
+    try:
+        neighbor_results = await _fetch_neighbor_chunks(merged)
+        if neighbor_results:
+            existing_ids = {r.id for r in merged}
+            new_neighbors = [r for r in neighbor_results if r.id not in existing_ids]
+            merged.extend(new_neighbors)
+            print(f"   📄 NEIGHBOR CHUNKS: +{len(new_neighbors)} artículos adyacentes")
+    except Exception as e:
+        print(f"   ⚠️ Neighbor chunk retrieval falló (continuando): {e}")
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
