@@ -1166,7 +1166,9 @@ LEGAL_SYNONYMS = {
         "copropiedad preferencia", "colindantes vía pública",
         "propietarios predios colindantes", "retracto legal",
         "usufructuario goza del tanto", "copropiedad indivisa",
-        "rescisión contrato ocho días", "aparcería enajenar"
+        "rescisión contrato ocho días", "aparcería enajenar",
+        "condueño plena propiedad parte alícuota", "copropiedad condueño",
+        "copropietario enajenación", "derecho preferente adquisición"
     ],
     "amparo indirecto": [
         "juicio de amparo", "amparo ante juez de distrito", 
@@ -1228,6 +1230,7 @@ REGLAS ESTRICTAS:
 3. Identifica la materia (penal, civil, mercantil, laboral, constitucional, familiar, administrativo, fiscal)
 4. Genera términos técnicos de ESA materia, NO de otras
 5. Incluye artículos de ley clave si aplica
+6. Si la consulta menciona un CONCEPTO JURÍDICO, incluye los términos del articulado que lo regulan
 
 EJEMPLOS POR MATERIA:
 - "violación" → "violación cópula acceso carnal delito sexual artículo 265 CPF"
@@ -1239,6 +1242,7 @@ EJEMPLOS POR MATERIA:
 - "contrato mercantil" → "contrato mercantil compraventa obligaciones comerciante Código Comercio"
 - "derechos humanos" → "derechos humanos bloque constitucionalidad control convencionalidad pro persona"
 - "pensión alimenticia" → "pensión alimentos obligación alimentaria acreedor deudor proporcionalidad"
+- "derecho del tanto" → "derecho tanto copropiedad condueño parte alícuota preferencia adquirir enajenación"
 
 Procesa esta consulta y devuelve SOLO las palabras clave:"""
 
@@ -1636,6 +1640,37 @@ def get_valid_doc_ids_prompt(retrieved_docs: Dict[str, SearchResult]) -> str:
 
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ARTICLE-AWARE RERANKING
+# ══════════════════════════════════════════════════════════════════════════════
+
+def detect_article_numbers(query: str) -> List[str]:
+    """Detecta números de artículos mencionados explícitamente en la query."""
+    pattern = r'art[ií]culos?\s+(\d+(?:\s*(?:bis|ter|qu[aá]ter))?)'
+    matches = re.findall(pattern, query, re.IGNORECASE)
+    return [m.strip() for m in matches]
+
+
+def rerank_by_article_match(results: List[SearchResult], article_numbers: List[str]) -> List[SearchResult]:
+    """
+    Boostea resultados que contienen el número de artículo específico solicitado.
+    Esto resuelve el problema de que artículos semánticamente lejanos pero
+    específicamente solicitados no aparezcan en los resultados.
+    """
+    if not article_numbers:
+        return results
+    
+    for r in results:
+        for num in article_numbers:
+            # Buscar "Artículo 941" o "Art. 941" en el texto del chunk
+            if re.search(rf'art[ií]culos?\.?\s*{re.escape(num)}\b', r.texto, re.IGNORECASE):
+                r.score += 0.5  # Boost significativo para match exacto
+                print(f"   🎯 BOOST artículo {num} encontrado en {r.silo}: +0.5 score")
+    
+    results.sort(key=lambda x: x.score, reverse=True)
+    return results
+
+
 async def hybrid_search_single_silo(
     collection: str,
     query: str,
@@ -1852,12 +1887,20 @@ async def hybrid_search_all_silos(
         min_jurisprudencia = min(6, len(jurisprudencia))   
         min_federales = min(6, len(federales))             
         min_estatales = min(3, len(estatales))             
+    elif estado:
+        # Modo con ESTADO seleccionado: Priorizar leyes estatales
+        # El usuario eligió un estado específico → quiere resultados de ese estado
+        min_constitucional = min(6, len(constitucional))   
+        min_jurisprudencia = min(6, len(jurisprudencia))   
+        min_federales = min(6, len(federales))             
+        min_estatales = min(12, len(estatales))  # BOOST: 12 slots para estatales
+        print(f"   📍 Boost estatal activo: {min_estatales} slots para leyes de {estado}")
     else:
-        # Modo estándar: Balance amplio entre todos los silos
+        # Modo estándar sin estado: Balance amplio entre todos los silos
         min_constitucional = min(8, len(constitucional))   
         min_jurisprudencia = min(8, len(jurisprudencia))   
         min_federales = min(8, len(federales))             
-        min_estatales = min(5, len(estatales))             
+        min_estatales = min(8, len(estatales))  # Era 5, ahora 8
     
     merged = []
     
@@ -1867,6 +1910,40 @@ async def hybrid_search_all_silos(
     merged.extend(federales[:min_federales])
     merged.extend(estatales[:min_estatales])
     merged.extend(jurisprudencia[:min_jurisprudencia])
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MULTI-QUERY: Búsqueda adicional para artículos específicos
+    # ═══════════════════════════════════════════════════════════════════════════
+    article_numbers = detect_article_numbers(query)
+    if article_numbers and estado:
+        print(f"   🔍 Multi-query: buscando artículo(s) {article_numbers} en leyes estatales")
+        for art_num in article_numbers[:2]:  # Máximo 2 artículos por query
+            article_query = f"artículo {art_num}"
+            try:
+                art_dense = await get_dense_embedding(article_query)
+                art_sparse = get_sparse_embedding(article_query)
+                extra_results = await hybrid_search_single_silo(
+                    collection="leyes_estatales",
+                    query=article_query,
+                    dense_vector=art_dense,
+                    sparse_vector=art_sparse,
+                    filter_=get_filter_for_silo("leyes_estatales", estado),
+                    top_k=5,
+                    alpha=0.7,
+                )
+                # Agregar solo los que no estén ya
+                existing_ids = {r.id for r in merged}
+                new_results = [r for r in extra_results if r.id not in existing_ids]
+                merged.extend(new_results)
+                print(f"   🔍 Multi-query artículo {art_num}: +{len(new_results)} resultados nuevos")
+            except Exception as e:
+                print(f"   ⚠️ Multi-query falló para artículo {art_num}: {e}")
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ARTICLE-AWARE RERANKING
+    # ═══════════════════════════════════════════════════════════════════════════
+    if article_numbers:
+        merged = rerank_by_article_match(merged, article_numbers)
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
