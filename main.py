@@ -2114,6 +2114,33 @@ async def hybrid_search_all_silos(
     if article_numbers:
         merged = rerank_by_article_match(merged, article_numbers)
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # JURISPRUDENCIA BOOST: Búsqueda adicional cuando hay poca jurisprudencia
+    # ═══════════════════════════════════════════════════════════════════════════
+    juris_in_merged = [r for r in merged if r.silo == "jurisprudencia_nacional"]
+    if len(juris_in_merged) < 3:
+        print(f"   ⚖️ JURISPRUDENCIA BOOST: Solo {len(juris_in_merged)} tesis encontradas, buscando más...")
+        try:
+            # Query optimizada para jurisprudencia: usar terminología de tesis
+            juris_query = f"tesis jurisprudencia criterio judicial: {query}"
+            juris_dense = await get_dense_embedding(juris_query)
+            juris_sparse = get_sparse_embedding(juris_query)
+            juris_extra = await hybrid_search_single_silo(
+                collection="jurisprudencia_nacional",
+                query=juris_query,
+                dense_vector=juris_dense,
+                sparse_vector=juris_sparse,
+                filter_=None,  # Sin filtro para máximo recall
+                top_k=8,
+                alpha=0.7,
+            )
+            existing_ids = {r.id for r in merged}
+            new_juris = [r for r in juris_extra if r.id not in existing_ids]
+            merged.extend(new_juris[:6])  # Máximo 6 tesis adicionales
+            print(f"   ⚖️ JURISPRUDENCIA BOOST: +{len(new_juris[:6])} tesis adicionales")
+        except Exception as e:
+            print(f"   ⚠️ Jurisprudencia boost falló: {e}")
+    
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
     remaining = [r for results in all_results for r in results if r.id not in already_added]
