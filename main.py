@@ -962,7 +962,7 @@ class ChatRequest(BaseModel):
     """Request para chat conversacional"""
     messages: List[Message] = Field(..., min_length=1)
     estado: Optional[str] = Field(None, description="Estado para filtrado jurisdiccional")
-    top_k: int = Field(30, ge=1, le=80)  # Recall Boost: 30 results across 4 silos = ~8 per silo
+    top_k: int = Field(40, ge=1, le=80)  # Expanded: 40 results across 4 silos = ~10 per silo
     enable_reasoning: bool = Field(
         False,
         description="Si True, usa Query Expansion con metadata jerárquica (más lento ~10s pero más preciso). Si False, modo rápido ~2s."
@@ -1649,7 +1649,7 @@ def get_sparse_embedding(text: str) -> SparseVector:
 
 
 # Maximum characters per document to prevent token overflow
-MAX_DOC_CHARS = 4000
+MAX_DOC_CHARS = 6000
 
 def format_results_as_xml(results: List[SearchResult]) -> str:
     """
@@ -2036,6 +2036,124 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
         return []
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# CROSS-SILO ENRICHMENT: Segunda pasada para encadenar fuentes
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _extract_legal_refs(results: List[SearchResult], max_refs: int = 3) -> List[str]:
+    """
+    Extrae referencias legales (ley + artículo) de los textos recuperados.
+    Retorna queries de enriquecimiento como: "artículo 17 CPEUM acceso justicia"
+    """
+    import re
+    refs = []
+    seen = set()
+    
+    # Patrones para extraer referencias legales mexicanas
+    patterns = [
+        # "artículo 19 Bis de la Ley de Procedimientos Administrativos"
+        r'[Aa]rt[íi]culo\s+(\d+(?:\s*[Bb]is)?(?:\s*[A-Z])?)\s+(?:de\s+la\s+|del\s+)?(.{10,60}?)(?:\.|,|;|\n)',
+        # "art. 17 CPEUM" or "art. 123 LFT"  
+        r'[Aa]rt\.?\s*(\d+(?:\s*[Bb]is)?)\s+(?:de\s+la\s+|del\s+)?([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]{3,40})',
+        # "Ley Federal del Trabajo" sin artículo específico
+        r'(Ley\s+(?:Federal|General|Org[áa]nica)\s+(?:del?\s+)?[A-Za-záéíóúñ\s]{5,50})',
+    ]
+    
+    for r in results:
+        text = r.text[:2000] if r.text else ""
+        ref_str = r.ref or ""
+        combined = f"{text} {ref_str}"
+        
+        for pattern in patterns[:2]:  # Solo los que tienen artículo + ley
+            matches = re.findall(pattern, combined)
+            for match in matches:
+                if isinstance(match, tuple) and len(match) == 2:
+                    art_num, ley_name = match
+                    ley_clean = ley_name.strip()
+                    key = f"{art_num}_{ley_clean[:20]}"
+                    if key not in seen and len(refs) < max_refs:
+                        refs.append(f"artículo {art_num} {ley_clean}")
+                        seen.add(key)
+    
+    return refs
+
+
+async def _cross_silo_enrichment(
+    initial_results: List[SearchResult],
+    query: str,
+) -> List[SearchResult]:
+    """
+    Segunda pasada: busca jurisprudencia y constitución que fundamenten
+    los artículos/leyes encontrados en la primera pasada.
+    
+    Lógica:
+    1. Extraer refs legales (ley + artículo) de resultados iniciales
+    2. Buscar en jurisprudencia_nacional tesis que citen esas leyes/artículos
+    3. Buscar en bloque_constitucional artículos constitucionales relevantes
+    4. Retornar resultados nuevos (sin duplicados)
+    """
+    refs = _extract_legal_refs(initial_results)
+    if not refs:
+        return []
+    
+    print(f"   🔗 Cross-silo refs extraídas: {refs}")
+    
+    enrichment_results = []
+    existing_ids = {r.id for r in initial_results}
+    
+    # Formular queries de enriquecimiento
+    enrichment_tasks = []
+    
+    for ref in refs[:3]:
+        # Buscar jurisprudencia que cite este artículo/ley
+        juris_query = f"tesis jurisprudencia criterio judicial {ref}"
+        enrichment_tasks.append(
+            _do_enrichment_search("jurisprudencia_nacional", juris_query)
+        )
+        
+        # Buscar fundamento constitucional relacionado
+        const_query = f"constitución derecho fundamental garantía {ref}"
+        enrichment_tasks.append(
+            _do_enrichment_search("bloque_constitucional", const_query)
+        )
+    
+    # Ejecutar todas las búsquedas en paralelo
+    all_enriched = await asyncio.gather(*enrichment_tasks)
+    
+    for results in all_enriched:
+        for r in results:
+            if r.id not in existing_ids:
+                enrichment_results.append(r)
+                existing_ids.add(r.id)
+    
+    # Ordenar por score
+    enrichment_results.sort(key=lambda x: x.score, reverse=True)
+    return enrichment_results[:8]  # Max 8 resultados de enrichment
+
+
+async def _do_enrichment_search(
+    collection: str,
+    query: str,
+) -> List[SearchResult]:
+    """Ejecuta una búsqueda ligera para enrichment (solo dense, sin filtros)."""
+    try:
+        dense_vector = await get_dense_embedding(query)
+        sparse_vector = get_sparse_embedding(query)
+        results = await hybrid_search_single_silo(
+            collection=collection,
+            query=query,
+            dense_vector=dense_vector,
+            sparse_vector=sparse_vector,
+            filter_=None,
+            top_k=4,
+            alpha=0.7,
+        )
+        return results
+    except Exception as e:
+        print(f"      ⚠️ Enrichment search falló en {collection}: {e}")
+        return []
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -2158,17 +2276,17 @@ async def hybrid_search_all_silos(
     elif estado:
         # Modo con ESTADO seleccionado: Priorizar leyes estatales
         # El usuario eligió un estado específico → quiere resultados de ese estado
-        min_constitucional = min(6, len(constitucional))   
+        min_constitucional = min(8, len(constitucional))   
         min_jurisprudencia = min(8, len(jurisprudencia))   
         min_federales = min(6, len(federales))             
         min_estatales = min(12, len(estatales))  # BOOST: 12 slots para estatales
         print(f"   📍 Boost estatal activo: {min_estatales} slots para leyes de {estado}")
     else:
         # Modo estándar sin estado: Balance amplio entre todos los silos
-        min_constitucional = min(8, len(constitucional))   
-        min_jurisprudencia = min(8, len(jurisprudencia))   
-        min_federales = min(8, len(federales))             
-        min_estatales = min(8, len(estatales))  # Era 5, ahora 8
+        min_constitucional = min(10, len(constitucional))   
+        min_jurisprudencia = min(10, len(jurisprudencia))   
+        min_federales = min(10, len(federales))             
+        min_estatales = min(10, len(estatales))  # Expanded: 10 slots por silo
     
     merged = []
     
@@ -2256,6 +2374,19 @@ async def hybrid_search_all_silos(
             print(f"   ⚖️ JURISPRUDENCIA BOOST V2: +{len(all_new_juris)} tesis adicionales de {len(juris_queries)} queries")
         except Exception as e:
             print(f"   ⚠️ Jurisprudencia boost V2 falló: {e}")
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CROSS-SILO ENRICHMENT: Segunda pasada para encadenar fuentes
+    # ═══════════════════════════════════════════════════════════════════════════
+    try:
+        enrichment_results = await _cross_silo_enrichment(merged, query)
+        if enrichment_results:
+            existing_ids = {r.id for r in merged}
+            new_enriched = [r for r in enrichment_results if r.id not in existing_ids]
+            merged.extend(new_enriched)
+            print(f"   🔗 CROSS-SILO ENRICHMENT: +{len(new_enriched)} documentos de segunda pasada")
+    except Exception as e:
+        print(f"   ⚠️ Cross-silo enrichment falló (continuando): {e}")
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
