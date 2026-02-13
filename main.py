@@ -82,7 +82,7 @@ SILOS = {
 ESTADOS_MEXICO = [
     "AGUASCALIENTES", "BAJA_CALIFORNIA", "BAJA_CALIFORNIA_SUR", "CAMPECHE",
     "CHIAPAS", "CHIHUAHUA", "CIUDAD_DE_MEXICO", "COAHUILA", "COLIMA",
-    "DURANGO", "GUANAJUATO", "GUERRERO", "HIDALGO", "JALISCO", "MEXICO",
+    "DURANGO", "ESTADO_DE_MEXICO", "GUANAJUATO", "GUERRERO", "HIDALGO", "JALISCO",
     "MICHOACAN", "MORELOS", "NAYARIT", "NUEVO_LEON", "OAXACA", "PUEBLA",
     "QUERETARO", "QUINTANA_ROO", "SAN_LUIS_POTOSI", "SINALOA", "SONORA",
     "TABASCO", "TAMAULIPAS", "TLAXCALA", "VERACRUZ", "YUCATAN", "ZACATECAS",
@@ -1060,28 +1060,35 @@ async def lifespan(app: FastAPI):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def normalize_estado(estado: Optional[str]) -> Optional[str]:
-    """Normaliza el nombre del estado a formato esperado"""
+    """
+    Normaliza el nombre del estado al formato EXACTO almacenado en Qdrant.
+    Qdrant usa UPPERCASE con UNDERSCORES: CIUDAD_DE_MEXICO, NUEVO_LEON, etc.
+    """
     if not estado:
         return None
-    normalized = estado.upper().replace(" ", "_").replace("-", "_")
+    normalized = estado.upper().strip().replace(" ", "_").replace("-", "_")
+    # Colapsar múltiples underscores
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+    normalized = normalized.strip("_")
     
-    # Mapeo de variantes a nombres canónicos
+    # Mapeo de variantes/aliases a nombres canónicos en Qdrant (con underscores)
     ESTADO_ALIASES = {
         # Nuevo León
-        "NUEVO_LEON": "NUEVO_LEON", "NL": "NUEVO_LEON", "NUEVOLEON": "NUEVO_LEON",
-        "NUEVO LEON": "NUEVO_LEON",
+        "NL": "NUEVO_LEON", "NUEVOLEON": "NUEVO_LEON",
         # CDMX
-        "CDMX": "CIUDAD_DE_MEXICO", "DF": "CIUDAD_DE_MEXICO", 
-        "CIUDAD_DE_MEXICO": "CIUDAD_DE_MEXICO", "CIUDAD DE MEXICO": "CIUDAD_DE_MEXICO",
-        # Coahuila (Da Vinci: normalizado a COAHUILA en Qdrant)
-        "COAHUILA": "COAHUILA", "COAHUILA_DE_ZARAGOZA": "COAHUILA",
+        "CDMX": "CIUDAD_DE_MEXICO", "DF": "CIUDAD_DE_MEXICO",
+        "DISTRITO_FEDERAL": "CIUDAD_DE_MEXICO",
+        # Coahuila (Qdrant almacena como COAHUILA, no COAHUILA_DE_ZARAGOZA)
+        "COAHUILA_DE_ZARAGOZA": "COAHUILA",
         # Estado de México
-        "MEXICO": "ESTADO_DE_MEXICO", "ESTADO_DE_MEXICO": "ESTADO_DE_MEXICO",
+        "MEXICO": "ESTADO_DE_MEXICO",
         "EDO_MEXICO": "ESTADO_DE_MEXICO", "EDOMEX": "ESTADO_DE_MEXICO",
+        "EDO_MEX": "ESTADO_DE_MEXICO",
         # Michoacán
-        "MICHOACAN": "MICHOACAN", "MICHOACAN_DE_OCAMPO": "MICHOACAN",
+        "MICHOACAN_DE_OCAMPO": "MICHOACAN",
         # Veracruz
-        "VERACRUZ": "VERACRUZ", "VERACRUZ_DE_IGNACIO_DE_LA_LLAVE": "VERACRUZ",
+        "VERACRUZ_DE_IGNACIO_DE_LA_LLAVE": "VERACRUZ",
     }
     
     # Primero buscar en aliases
@@ -1101,6 +1108,7 @@ def normalize_estado(estado: Optional[str]) -> Optional[str]:
 
 # Mapeo de nombres coloquiales de estados a nombres canónicos en Qdrant
 ESTADO_KEYWORDS = {
+    # Canonical values MUST match Qdrant's entidad field (UPPERCASE with UNDERSCORES)
     "aguascalientes": "AGUASCALIENTES",
     "baja california sur": "BAJA_CALIFORNIA_SUR",
     "baja california": "BAJA_CALIFORNIA",
@@ -1108,11 +1116,13 @@ ESTADO_KEYWORDS = {
     "chiapas": "CHIAPAS",
     "chihuahua": "CHIHUAHUA",
     "ciudad de mexico": "CIUDAD_DE_MEXICO", "cdmx": "CIUDAD_DE_MEXICO",
+    "ciudad de méxico": "CIUDAD_DE_MEXICO",
     "distrito federal": "CIUDAD_DE_MEXICO",
     "coahuila": "COAHUILA",
     "colima": "COLIMA",
     "durango": "DURANGO",
     "estado de mexico": "ESTADO_DE_MEXICO", "edomex": "ESTADO_DE_MEXICO",
+    "estado de méxico": "ESTADO_DE_MEXICO",
     "guanajuato": "GUANAJUATO",
     "guerrero": "GUERRERO",
     "hidalgo": "HIDALGO",
@@ -2529,13 +2539,68 @@ async def search_endpoint(request: SearchRequest):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def should_use_thinking(query: str, has_document: bool) -> bool:
-    """Always enable thinking mode for maximum response quality.
+    """Detección inteligente de complejidad para activar thinking mode.
     
-    DeepSeek V3.2 thinking mode produces significantly better responses
-    with chain-of-thought reasoning. With 64K max_tokens budget,
-    there is ample room for both reasoning and a complete answer.
+    Thinking mode genera reasoning tokens adicionales (cobrados como output).
+    Solo se activa cuando la query realmente lo amerita:
+    - Documentos adjuntos (análisis Centinela)
+    - Análisis jurídicos complejos
+    - Redacción de documentos legales
+    - Argumentación constitucional / convencional
+    
+    Para consultas simples ("¿qué dice el artículo X?"), se usa modo
+    estándar que es ~6x más económico y ~5x más rápido.
     """
-    return True
+    # 1. Documentos adjuntos SIEMPRE usan thinking (análisis profundo)
+    if has_document:
+        print("   🧠 Thinking ON: documento adjunto detectado")
+        return True
+    
+    query_lower = query.lower()
+    
+    # 2. Análisis complejo / argumentación
+    COMPLEX_KEYWORDS = [
+        # Argumentación jurídica
+        "analiza", "análisis", "analisis", "argumenta", "argumentos",
+        "impugna", "impugnar", "refuta", "controvierte",
+        # Constitucional / convencional
+        "inconstitucionalidad", "inconvencionalidad", "constitucionalidad",
+        "amparo", "control de convencionalidad", "control difuso",
+        "derechos humanos", "garantías",
+        # Estrategia legal
+        "estrategia", "defensa", "contraargumento", "debilidades",
+        "fortalezas", "riesgos", "probabilidad",
+        # Comparación profunda
+        "compara", "comparativa", "diferencias entre", "similitudes",
+        "versus", "vs",
+    ]
+    
+    # 3. Redacción de documentos
+    DRAFTING_KEYWORDS = [
+        "redacta", "elabora", "escribe", "genera", "prepara",
+        "demanda", "recurso", "oficio", "petición", "peticion",
+        "contestación", "contestacion", "alegatos", "agravios",
+        "proyecto de sentencia", "dictamen",
+    ]
+    
+    for kw in COMPLEX_KEYWORDS:
+        if kw in query_lower:
+            print(f"   🧠 Thinking ON: keyword complejo '{kw}'")
+            return True
+    
+    for kw in DRAFTING_KEYWORDS:
+        if kw in query_lower:
+            print(f"   🧠 Thinking ON: redacción '{kw}'")
+            return True
+    
+    # 4. Queries largas (>200 chars) sugieren complejidad
+    if len(query) > 200:
+        print(f"   🧠 Thinking ON: query larga ({len(query)} chars)")
+        return True
+    
+    # Default: modo rápido sin thinking
+    print("   ⚡ Thinking OFF: consulta directa/simple")
+    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2752,7 +2817,7 @@ async def chat_endpoint(request: ChatRequest):
         # Esto da chain-of-thought reasoning + RAG context simultáneamente
         
         use_thinking = should_use_thinking(last_user_message, has_document)
-        max_tokens = 64000 if use_thinking else 16000
+        max_tokens = 50000 if use_thinking else 16000
         
         print(f"   Modelo: {CHAT_MODEL} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
