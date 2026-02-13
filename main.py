@@ -2454,6 +2454,12 @@ class DocumentResponse(BaseModel):
     entidad: Optional[str] = None
     silo: str
     found: bool = True
+    # Campos de localización para jurisprudencia
+    registro: Optional[str] = None
+    instancia: Optional[str] = None
+    materia: Optional[str] = None
+    tesis_num: Optional[str] = None
+    tipo_criterio: Optional[str] = None
 
 
 @app.get("/document/{doc_id}", response_model=DocumentResponse)
@@ -2477,6 +2483,13 @@ async def get_document(doc_id: str):
                     point = points[0]
                     payload = point.payload or {}
                     
+                    # Materia puede ser string o lista
+                    materia_raw = payload.get("materia")
+                    if isinstance(materia_raw, list):
+                        materia_str = ", ".join(str(m).upper() for m in materia_raw)
+                    else:
+                        materia_str = str(materia_raw).upper() if materia_raw else None
+                    
                     return DocumentResponse(
                         id=str(point.id),
                         texto=payload.get("texto", payload.get("text", "Contenido no disponible")),
@@ -2486,6 +2499,12 @@ async def get_document(doc_id: str):
                         entidad=payload.get("entidad", payload.get("estado", None)),
                         silo=silo_name,
                         found=True,
+                        # Jurisprudencia: normalizar ambos esquemas de nombres
+                        registro=str(payload.get("registro")) if payload.get("registro") else None,
+                        instancia=payload.get("instancia", None),
+                        materia=materia_str,
+                        tesis_num=payload.get("tesis", payload.get("tesis_num", None)),
+                        tipo_criterio=payload.get("tipo", payload.get("tipo_criterio", None)),
                     )
             except Exception:
                 # ID no encontrado en este silo, continuar
