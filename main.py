@@ -182,12 +182,11 @@ SYSTEM_PROMPT_CHAT = """Eres JUREXIA, IA Juridica especializada en Derecho Mexic
    ESTRUCTURA DE RESPUESTA OBLIGATORIA
 ===============================================================
 
-PASO 1: RESPUESTA DIRECTA Y BREVE (2-3 LINEAS MAXIMO)
+PASO 1: RESPUESTA DIRECTA (3-5 LINEAS)
 
-Inicia SIEMPRE con una respuesta DIRECTA y CONCISA:
-- Si es consulta Si/No: responde "Si" o "No" seguido de una linea explicativa
-- Si es consulta abierta: proporciona la respuesta esencial en 2-3 lineas maximo
-- Menciona la base legal principal sin entrar en detalle aun
+Inicia SIEMPRE con una respuesta DIRECTA:
+- Si es consulta Si/No: responde "Si" o "No" seguido de la explicacion legal clave
+- Si es consulta abierta: proporciona la respuesta esencial con la base legal principal
 
 Ejemplo para "La legislacion penal de Queretaro sobre aborto podria ser inconstitucional?":
 "Si. Con base en precedentes de la SCJN (AI 148/2017 y jurisprudencia de la 
@@ -221,6 +220,14 @@ y el contexto tiene articulos de la ley aplicable (ej: LGTOC), DEBES:
 - Explicar como esos articulos fundamentan el concepto preguntado
 - Aplicar interpretacion juridica para conectar norma con doctrina
 
+Si el contexto recuperado no contiene la norma EXACTA del estado consultado
+pero SI contiene normas de otros estados o jurisprudencia ANALOGA sobre el
+mismo tema, DEBES:
+- Citar las normas/jurisprudencia analogas disponibles
+- Explicar su relevancia comparativa
+- Señalar que se trata de analisis por analogia
+- Este razonamiento es VALIOSO y demuestra rigor juridico
+
 REGLA #3 - CERO ALUCINACIONES:
 1. CITA el contenido textual que esta en el CONTEXTO JURIDICO RECUPERADO
 2. NUNCA inventes articulos, tesis, o jurisprudencia que no esten en el contexto
@@ -230,6 +237,19 @@ REGLA #3 - CERO ALUCINACIONES:
 SOLO di "no encontre fuentes" cuando NINGUNO de los documentos recuperados
 tenga NINGUNA relacion con el tema consultado. Esto es EXTREMADAMENTE raro
 porque el sistema de busqueda ya filtro por relevancia.
+
+REGLA #4 - EXHAUSTIVIDAD EN FUENTES:
+DEBES utilizar el MAXIMO de fuentes relevantes del contexto recuperado.
+NO te limites a 2-3 fuentes si hay 10 disponibles sobre el tema.
+Para cada fuente pertinente:
+1. Cita el articulo o tesis textualmente con [Doc ID: uuid]
+2. Explica su conexion con la consulta
+3. Construye argumentos cruzando fuentes entre si
+
+Cuando el tema lo amerite (derechos humanos, constitucionalidad, analisis
+complejo), tu respuesta DEBE ser un analisis PROFUNDO y COMPLETO que
+aproveche TODAS las fuentes disponibles. Una respuesta de 5 fuentes cuando
+hay 15 relevantes es una respuesta INCOMPLETA.
 
 PRINCIPIO PRO PERSONA (Art. 1 CPEUM):
 En DDHH, aplica la interpretacion mas favorable. Prioriza:
@@ -1438,7 +1458,7 @@ def get_sparse_embedding(text: str) -> SparseVector:
 
 
 # Maximum characters per document to prevent token overflow
-MAX_DOC_CHARS = 2500
+MAX_DOC_CHARS = 4000
 
 def format_results_as_xml(results: List[SearchResult]) -> str:
     """
@@ -1460,9 +1480,11 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
         escaped_ref = html.escape(r.ref or "N/A")
         escaped_origen = html.escape(r.origen or "Desconocido")
         
+        escaped_jurisdiccion = html.escape(r.jurisdiccion or "N/A")
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
-            f'origen="{escaped_origen}" silo="{r.silo}" score="{r.score:.4f}">\n'
+            f'origen="{escaped_origen}" silo="{r.silo}" '
+            f'jurisdiccion="{escaped_jurisdiccion}" score="{r.score:.4f}">\n'
             f'{escaped_texto}\n'
             f'</documento>'
         )
@@ -2099,36 +2121,13 @@ async def search_endpoint(request: SearchRequest):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def should_use_thinking(query: str, has_document: bool) -> bool:
-    """Auto-detecta si la query se beneficia de chain-of-thought reasoning.
+    """Always enable thinking mode for maximum response quality.
     
-    Criterios:
-    - Documentos adjuntos: siempre thinking
-    - Keywords de análisis complejo: thinking
-    - Queries largas (>15 palabras): thinking
-    - Queries simples/definiciones: modo rápido
+    DeepSeek V3.2 thinking mode produces significantly better responses
+    with chain-of-thought reasoning. With 64K max_tokens budget,
+    there is ample room for both reasoning and a complete answer.
     """
-    if has_document:
-        return True
-    
-    THINKING_KEYWORDS = {
-        "analiza", "evalúa", "evalua", "argumenta", "fundamenta",
-        "inconstitucional", "constitucionalidad", "convencionalidad",
-        "recurso de", "amparo indirecto", "amparo directo",
-        "nulidad", "impugnación", "impugnacion", "controversia",
-        "procedencia", "compara", "diferencia entre", "qué vías",
-        "que vias", "estrategia", "interpreta", "interpretación",
-        "principio pro persona", "control difuso", "control de convencionalidad",
-        "podría ser", "podria ser", "es posible que",
-        "cómo se relaciona", "como se relaciona",
-        "qué alcance", "que alcance", "qué efectos", "que efectos",
-        "redacta", "elabora", "genera un",
-    }
-    
-    query_lower = query.lower()
-    has_complex_keyword = any(kw in query_lower for kw in THINKING_KEYWORDS)
-    is_long_query = len(query.split()) > 15
-    
-    return has_complex_keyword or is_long_query
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2268,7 +2267,7 @@ async def chat_endpoint(request: ChatRequest):
         # Esto da chain-of-thought reasoning + RAG context simultáneamente
         
         use_thinking = should_use_thinking(last_user_message, has_document)
-        max_tokens = 32000 if use_thinking else 8192
+        max_tokens = 64000 if use_thinking else 16000
         
         print(f"   Modelo: {CHAT_MODEL} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
