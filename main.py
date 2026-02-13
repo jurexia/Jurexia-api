@@ -2268,13 +2268,21 @@ async def chat_endpoint(request: ChatRequest):
         # Esto da chain-of-thought reasoning + RAG context simultáneamente
         
         use_thinking = should_use_thinking(last_user_message, has_document)
-        max_tokens = 16000 if use_thinking else 8192
+        max_tokens = 32000 if use_thinking else 8192
         
         print(f"   Modelo: {CHAT_MODEL} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
         async def generate_stream() -> AsyncGenerator[str, None]:
-            """Stream unificado — thinking mode envía reasoning con marcadores."""
+            """Stream unificado — thinking mode envía reasoning con marcadores.
+            
+            PROTOCOL:
+            - Reasoning tokens: prefixed with <!--thinking--> marker
+            - Content tokens: sent as plain text (no prefix)
+            - The <!--thinking--> marker is ALWAYS yielded atomically (never split)
+            - If thinking produces reasoning but ZERO content, we surface the
+              reasoning as content so the user isn't left with an empty response.
+            """
             try:
                 reasoning_buffer = ""
                 content_buffer = ""
@@ -2299,12 +2307,28 @@ async def chat_endpoint(request: ChatRequest):
                         
                         if reasoning_content:
                             reasoning_buffer += reasoning_content
-                            # Enviar reasoning con marcador para el frontend
+                            # Send reasoning with marker — the marker and content
+                            # are yielded as a SINGLE string to avoid TCP splitting
                             yield f"<!--thinking-->{reasoning_content}"
                         
                         if content:
                             content_buffer += content
                             yield content
+                
+                # Edge case: thinking mode produced reasoning but ZERO content
+                # (model exhausted tokens during reasoning phase)
+                if use_thinking and reasoning_buffer and not content_buffer.strip():
+                    print(f"   ⚠️ Thinking exhausted tokens — {len(reasoning_buffer)} chars reasoning, 0 content")
+                    # Yield a visible fallback so the user sees SOMETHING
+                    fallback = (
+                        "\n\n**Análisis completado.**\n\n"
+                        "El razonamiento jurídico completo se encuentra en la pestaña "
+                        "'Ver razonamiento jurídico' arriba. "
+                        "Envía un mensaje de seguimiento como *\"responde\"* o *\"continúa\"* "
+                        "para obtener la respuesta estructurada."
+                    )
+                    content_buffer = fallback
+                    yield fallback
                 
                 # Validar citas
                 if doc_id_map:
