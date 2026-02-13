@@ -1937,6 +1937,102 @@ async def hybrid_search_single_silo(
 
 
 
+async def _extract_juris_concepts(query: str) -> str:
+    """
+    Extrae conceptos jurídicos clave de la consulta para buscar jurisprudencia.
+    Devuelve una cadena de términos optimizados para matching con tesis.
+    """
+    try:
+        response = await deepseek_client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": (
+                    "Eres un experto en jurisprudencia mexicana. Dado un query legal, "
+                    "extrae 5-8 conceptos clave que aparecerían en tesis de la SCJN o "
+                    "tribunales colegiados sobre este tema. Incluye: derechos involucrados, "
+                    "figuras jurídicas, términos procesales y sinónimos jurídicos. "
+                    "Responde SOLO con los términos separados por espacios, sin explicación."
+                )},
+                {"role": "user", "content": query}
+            ],
+            temperature=0,
+            max_tokens=80,
+        )
+        concepts = response.choices[0].message.content.strip()
+        print(f"   ⚖️ Conceptos jurisprudencia extraídos: {concepts}")
+        return concepts
+    except Exception as e:
+        print(f"   ⚠️ Extracción de conceptos falló: {e}")
+        return query  # Fallback: usar el query original
+
+
+async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[SearchResult]:
+    """
+    Búsqueda enfocada en jurisprudencia_nacional con score_threshold bajo
+    para maximizar recall de tesis relevantes.
+    """
+    try:
+        dense_vector = await get_dense_embedding(query)
+        sparse_vector = get_sparse_embedding(query)
+        
+        # Verificar si tiene sparse vectors
+        col_info = await qdrant_client.get_collection("jurisprudencia_nacional")
+        vectors_config = col_info.config.params.vectors
+        has_sparse = isinstance(vectors_config, dict) and "sparse" in vectors_config
+        
+        if has_sparse:
+            results = await qdrant_client.query_points(
+                collection_name="jurisprudencia_nacional",
+                prefetch=[
+                    Prefetch(
+                        query=sparse_vector,
+                        using="sparse",
+                        limit=50,
+                        filter=None,
+                    ),
+                ],
+                query=dense_vector,
+                using="dense",
+                limit=10,
+                query_filter=None,
+                with_payload=True,
+                score_threshold=0.01,  # Muy bajo para máximo recall
+            )
+        else:
+            results = await qdrant_client.query_points(
+                collection_name="jurisprudencia_nacional",
+                query=dense_vector,
+                using="dense",
+                limit=10,
+                query_filter=None,
+                with_payload=True,
+                score_threshold=0.01,  # Muy bajo para máximo recall
+            )
+        
+        search_results = []
+        for point in results.points:
+            if str(point.id) in exclude_ids:
+                continue
+            payload = point.payload or {}
+            search_results.append(SearchResult(
+                id=str(point.id),
+                score=point.score,
+                texto=payload.get("texto", payload.get("text", "")),
+                ref=payload.get("ref"),
+                origen=payload.get("origen"),
+                jurisdiccion=payload.get("jurisdiccion"),
+                entidad=payload.get("entidad"),
+                silo="jurisprudencia_nacional",
+            ))
+        
+        print(f"      ⚖️ Boost query '{query[:60]}...' → {len(search_results)} tesis")
+        return search_results
+        
+    except Exception as e:
+        print(f"      ⚠️ Boost search falló: {e}")
+        return []
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -2115,31 +2211,48 @@ async def hybrid_search_all_silos(
         merged = rerank_by_article_match(merged, article_numbers)
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # JURISPRUDENCIA BOOST: Búsqueda adicional cuando hay poca jurisprudencia
+    # JURISPRUDENCIA BOOST V2: Multi-query agresivo para maximizar recall
     # ═══════════════════════════════════════════════════════════════════════════
     juris_in_merged = [r for r in merged if r.silo == "jurisprudencia_nacional"]
-    if len(juris_in_merged) < 3:
-        print(f"   ⚖️ JURISPRUDENCIA BOOST: Solo {len(juris_in_merged)} tesis encontradas, buscando más...")
+    if len(juris_in_merged) < 5:
+        print(f"   ⚖️ JURISPRUDENCIA BOOST V2: Solo {len(juris_in_merged)} tesis, ejecutando multi-query...")
         try:
-            # Query optimizada para jurisprudencia: usar terminología de tesis
-            juris_query = f"tesis jurisprudencia criterio judicial: {query}"
-            juris_dense = await get_dense_embedding(juris_query)
-            juris_sparse = get_sparse_embedding(juris_query)
-            juris_extra = await hybrid_search_single_silo(
-                collection="jurisprudencia_nacional",
-                query=juris_query,
-                dense_vector=juris_dense,
-                sparse_vector=juris_sparse,
-                filter_=None,  # Sin filtro para máximo recall
-                top_k=8,
-                alpha=0.7,
-            )
+            # Extraer conceptos jurídicos clave para formular queries de jurisprudencia
+            juris_concepts = await _extract_juris_concepts(query)
+            
+            juris_queries = [
+                # Query 1: Original con prefijo de jurisprudencia
+                f"tesis jurisprudencia SCJN tribunales colegiados: {query}",
+                # Query 2: Conceptos jurídicos extraídos por LLM
+                f"tesis aislada jurisprudencia criterio: {juris_concepts}",
+                # Query 3: Expanded query también con prefijo judicial  
+                f"primera sala segunda sala pleno SCJN: {expanded_query}",
+            ]
+            
             existing_ids = {r.id for r in merged}
-            new_juris = [r for r in juris_extra if r.id not in existing_ids]
-            merged.extend(new_juris[:6])  # Máximo 6 tesis adicionales
-            print(f"   ⚖️ JURISPRUDENCIA BOOST: +{len(new_juris[:6])} tesis adicionales")
+            all_new_juris = []
+            
+            # Ejecutar las 3 queries en paralelo
+            boost_tasks = []
+            for jq in juris_queries:
+                boost_tasks.append(
+                    _jurisprudencia_boost_search(jq, existing_ids)
+                )
+            
+            boost_results = await asyncio.gather(*boost_tasks)
+            
+            for results in boost_results:
+                for r in results:
+                    if r.id not in existing_ids:
+                        all_new_juris.append(r)
+                        existing_ids.add(r.id)
+            
+            # Ordenar por score y tomar los mejores
+            all_new_juris.sort(key=lambda x: x.score, reverse=True)
+            merged.extend(all_new_juris[:10])  # Hasta 10 tesis adicionales
+            print(f"   ⚖️ JURISPRUDENCIA BOOST V2: +{len(all_new_juris[:10])} tesis adicionales de {len(juris_queries)} queries")
         except Exception as e:
-            print(f"   ⚠️ Jurisprudencia boost falló: {e}")
+            print(f"   ⚠️ Jurisprudencia boost V2 falló: {e}")
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
