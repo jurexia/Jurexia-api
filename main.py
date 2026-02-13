@@ -251,6 +251,17 @@ complejo), tu respuesta DEBE ser un analisis PROFUNDO y COMPLETO que
 aproveche TODAS las fuentes disponibles. Una respuesta de 5 fuentes cuando
 hay 15 relevantes es una respuesta INCOMPLETA.
 
+REGLA #5 - JURISPRUDENCIA OBLIGATORIA:
+Tu respuesta SIEMPRE DEBE incluir una seccion "## Jurisprudencia Aplicable".
+Si el contexto recuperado contiene documentos del silo "jurisprudencia_nacional":
+- DEBES citar el RUBRO EXACTO de cada tesis/jurisprudencia relevante
+- Formato: > "[RUBRO COMPLETO DE LA TESIS]" -- *[Tribunal], [Epoca], Registro digital: [numero]* [Doc ID: uuid]
+- Incluye TODAS las tesis relevantes del contexto, no solo 1 o 2
+- Explica brevemente como cada tesis aplica al caso consultado
+Si NO hay jurisprudencia en el contexto, indica explicitamente:
+"No se encontro jurisprudencia especifica sobre este tema en la busqueda actual."
+NUNCA omitas esta seccion.
+
 PRINCIPIO PRO PERSONA (Art. 1 CPEUM):
 En DDHH, aplica la interpretacion mas favorable. Prioriza:
 Bloque Constitucional > Leyes Federales > Leyes Estatales
@@ -2306,9 +2317,10 @@ async def chat_endpoint(request: ChatRequest):
                         
                         if reasoning_content:
                             reasoning_buffer += reasoning_content
-                            # Send reasoning with marker — the marker and content
-                            # are yielded as a SINGLE string to avoid TCP splitting
-                            yield f"<!--thinking-->{reasoning_content}"
+                            # Thinking mode improves response quality but the raw
+                            # reasoning_content is garbled/compressed by DeepSeek
+                            # (truncated syllables, not meant for display).
+                            # We buffer it for logging but do NOT stream to client.
                         
                         if content:
                             content_buffer += content
@@ -2321,8 +2333,7 @@ async def chat_endpoint(request: ChatRequest):
                     # Yield a visible fallback so the user sees SOMETHING
                     fallback = (
                         "\n\n**Análisis completado.**\n\n"
-                        "El razonamiento jurídico completo se encuentra en la pestaña "
-                        "'Ver razonamiento jurídico' arriba. "
+                        "El modelo utilizó todos los tokens disponibles durante el análisis interno. "
                         "Envía un mensaje de seguimiento como *\"responde\"* o *\"continúa\"* "
                         "para obtener la respuesta estructurada."
                     )
