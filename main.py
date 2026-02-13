@@ -2817,7 +2817,8 @@ async def chat_endpoint(request: ChatRequest):
         # Esto da chain-of-thought reasoning + RAG context simultáneamente
         
         use_thinking = should_use_thinking(last_user_message, has_document)
-        max_tokens = 50000 if use_thinking else 16000
+        # DeepSeek API limits: sin thinking max=8192, con thinking max=64K
+        max_tokens = 50000 if use_thinking else 8192
         
         print(f"   Modelo: {CHAT_MODEL} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
