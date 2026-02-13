@@ -2247,10 +2247,10 @@ async def hybrid_search_all_silos(
                         all_new_juris.append(r)
                         existing_ids.add(r.id)
             
-            # Ordenar por score y tomar los mejores
+            # Ordenar por score y agregar todas las tesis únicas
             all_new_juris.sort(key=lambda x: x.score, reverse=True)
-            merged.extend(all_new_juris[:10])  # Hasta 10 tesis adicionales
-            print(f"   ⚖️ JURISPRUDENCIA BOOST V2: +{len(all_new_juris[:10])} tesis adicionales de {len(juris_queries)} queries")
+            merged.extend(all_new_juris)
+            print(f"   ⚖️ JURISPRUDENCIA BOOST V2: +{len(all_new_juris)} tesis adicionales de {len(juris_queries)} queries")
         except Exception as e:
             print(f"   ⚠️ Jurisprudencia boost V2 falló: {e}")
     
