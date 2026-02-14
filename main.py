@@ -3373,7 +3373,7 @@ async def chat_endpoint(request: ChatRequest):
             if is_sentencia:
                 # Usar más contenido para queries de sentencia (mejor cobertura)
                 search_query = f"análisis de sentencia judicial fundamento legal jurisprudencia: {doc_content[:2500]}"
-                sentencia_top_k = 40  # Máxima cobertura para análisis de sentencia
+                sentencia_top_k = 20  # Ampliado pero dentro del token budget de o3
             else:
                 search_query = f"análisis jurídico: {doc_content[:1500]}"
                 sentencia_top_k = 15
@@ -3468,7 +3468,25 @@ async def chat_endpoint(request: ChatRequest):
         
         # Agregar historial conversacional
         for msg in request.messages:
-            llm_messages.append({"role": msg.role, "content": msg.content})
+            msg_content = msg.content
+            # Para sentencias con o3: truncar el documento para caber en el token budget
+            # o3 tiene límite de 30K TPM en este tier, necesitamos ~5K para system+RAG, ~16K para output
+            if is_sentencia and msg.role == "user" and "SENTENCIA_INICIO" in msg_content:
+                # Extraer y truncar solo el contenido de la sentencia
+                s_start = msg_content.find("<!-- SENTENCIA_INICIO -->")
+                s_end = msg_content.find("<!-- SENTENCIA_FIN -->")
+                if s_start != -1 and s_end != -1:
+                    sentencia_text = msg_content[s_start:s_end + len("<!-- SENTENCIA_FIN -->")]
+                    # Cap sentencia at ~40K chars (~10K tokens) to leave room for system+RAG+output
+                    max_sentencia_chars = 40000
+                    if len(sentencia_text) > max_sentencia_chars:
+                        truncated_sentencia = sentencia_text[:max_sentencia_chars]
+                        pct = round(max_sentencia_chars / len(sentencia_text) * 100)
+                        truncated_sentencia += f"\n\n[NOTA: Sentencia truncada al {pct}% para análisis. Se analizan las secciones principales.]"
+                        truncated_sentencia += "\n<!-- SENTENCIA_FIN -->"
+                        msg_content = msg_content[:s_start] + truncated_sentencia + msg_content[s_end + len("<!-- SENTENCIA_FIN -->"):]
+                        print(f"   ⚖️ Sentencia truncada: {len(sentencia_text)} → {max_sentencia_chars} chars ({pct}%)")
+            llm_messages.append({"role": msg.role, "content": msg_content})
         
         # ─────────────────────────────────────────────────────────────────────
         # PASO 3: Generar respuesta con Thinking Mode auto-detectado
@@ -3484,7 +3502,7 @@ async def chat_endpoint(request: ChatRequest):
             # o3 does internal reasoning — no extra_body needed
             active_client = chat_client  # Same OpenAI API key
             active_model = O3_MODEL
-            max_tokens = 32000
+            max_tokens = 16000  # Balanced: detailed analysis within 30K TPM tier
             use_thinking = False  # o3 handles reasoning internally
             print(f"   ⚖️ Modelo SENTENCIA: {O3_MODEL} | max_tokens: {max_tokens}")
         elif use_thinking:
