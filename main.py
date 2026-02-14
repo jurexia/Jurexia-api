@@ -1566,6 +1566,61 @@ def humanize_origen(origen: Optional[str]) -> Optional[str]:
     fallback = clean.replace('JSON_', '').replace('_', ' ').title()
     return fallback
 
+
+def infer_source_from_text(texto: str) -> tuple:
+    """
+    Infer origen (law name) and ref (article) from the chunk text itself
+    when Qdrant metadata is missing.
+    
+    Returns:
+        (origen, ref) tuple — either may be None if not detected
+    """
+    if not texto:
+        return (None, None)
+    
+    # Try to extract article number: "Artículo 261." or "Artículo 261.."
+    ref = None
+    art_match = re.match(r'Art[ií]culo\s+(\d+[\w]*)', texto)
+    if art_match:
+        ref = f"Art. {art_match.group(1)}"
+    
+    # Try to detect law name from common patterns in text
+    origen = None
+    
+    # Pattern: "del Código Urbano del Estado de Querétaro"
+    law_match = re.search(
+        r'(?:del?\s+)?((?:C[oó]digo|Ley|Constituci[oó]n|Reglamento)\s+[A-ZÁÉÍÓÚa-záéíóúü\s]+(?:del?\s+Estado\s+de\s+[A-ZÁÉÍÓÚa-záéíóúü]+)?)',
+        texto
+    )
+    if law_match:
+        origen = law_match.group(1).strip()
+        # Clean up trailing prepositions/articles
+        origen = re.sub(r'\s+(el|la|los|las|del|de|en|que|y|se|por|para|con|un|una|al|su|sus)\s*$', '', origen, flags=re.IGNORECASE).strip()
+    
+    # If no explicit law name found in text, try breadcrumb pattern:
+    # [Código Urbano del Estado de Querétaro > LIBRO CUARTO > ...]
+    if not origen:
+        bracket_match = re.match(r'\[([^\]>]+?)(?:\s*>|\])', texto)
+        if bracket_match:
+            origen = bracket_match.group(1).strip()
+    
+    return (origen, ref)
+
+
+def enrich_missing_metadata(results: list) -> list:
+    """
+    For SearchResult objects missing origen/ref, try to infer from text content.
+    Modifies results in-place and returns them.
+    """
+    for r in results:
+        if not r.origen or not r.ref:
+            inferred_origen, inferred_ref = infer_source_from_text(r.texto)
+            if not r.origen and inferred_origen:
+                r.origen = inferred_origen
+            if not r.ref and inferred_ref:
+                r.ref = inferred_ref
+    return results
+
 def normalize_estado(estado: Optional[str]) -> Optional[str]:
     """
     Normaliza el nombre del estado al formato EXACTO almacenado en Qdrant.
@@ -2174,6 +2229,9 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
+    
+    # Enrich results missing metadata (origen/ref) by inferring from text
+    enrich_missing_metadata(results)
     
     xml_parts = ["<documentos>"]
     for r in results:
