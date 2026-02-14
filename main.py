@@ -3479,7 +3479,7 @@ async def chat_endpoint(request: ChatRequest):
                 search_results = []
                 for result_set in [results_legislacion, results_jurisprudencia, results_constitucional]:
                     for r in result_set:
-                        rid = r.get("id", r.get("doc_id", ""))
+                        rid = r.id if hasattr(r, 'id') else str(r)
                         if rid not in seen_ids:
                             seen_ids.add(rid)
                             search_results.append(r)
