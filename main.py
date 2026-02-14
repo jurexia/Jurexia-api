@@ -67,10 +67,10 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_CHAT_MODEL = "deepseek-chat"  # Used with thinking mode enabled
 REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thought
 
-# OpenAI API Configuration (GPT-5 Mini for chat + o3 for sentencia analysis + embeddings)
+# OpenAI API Configuration (GPT-5 Mini for chat + o3-mini for sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (high quality, OpenAI)
-O3_MODEL = "o3"  # For sentencia analysis (most powerful reasoning model)
+SENTENCIA_MODEL = "o3-mini"  # For sentencia analysis (powerful reasoning, cost-effective)
 
 # Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
 SILOS = {
@@ -3469,118 +3469,26 @@ async def chat_endpoint(request: ChatRequest):
         # Agregar historial conversacional
         for msg in request.messages:
             msg_content = msg.content
-            llm_messages.append({"role": msg.role, "content": msg_content})
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 2.5: TWO-PASS SENTENCIA — Resumir con GPT-5 Mini antes de o3
-        # ─────────────────────────────────────────────────────────────────────
-        # Problema: o3 tiene límite de 30K TPM en este tier.
-        # Solución: GPT-5 Mini resume la sentencia completa (ágil, barato),
-        #           luego o3 analiza el resumen + RAG con toda su capacidad.
-        sentencia_summary = None
-        if is_sentencia:
-            # Extraer el texto completo de la sentencia del mensaje del usuario
-            full_sentencia_text = ""
-            for msg in request.messages:
-                if msg.role == "user" and "SENTENCIA_INICIO" in msg.content:
-                    s_start = msg.content.find("<!-- SENTENCIA_INICIO -->")
-                    s_end = msg.content.find("<!-- SENTENCIA_FIN -->")
-                    print(f"   ⚖️ Markers encontrados: INICIO={s_start}, FIN={s_end}")
-                    if s_start != -1 and s_end != -1:
-                        full_sentencia_text = msg.content[s_start + len("<!-- SENTENCIA_INICIO -->"):s_end].strip()
-                        print(f"   ⚖️ Texto sentencia extraído: {len(full_sentencia_text)} chars (primeros 200: {full_sentencia_text[:200]}...)")
-                    break
             
-            if full_sentencia_text:
-                print(f"   ⚖️ PASO 1: Resumiendo sentencia ({len(full_sentencia_text)} chars) con GPT-5 Mini...")
-                try:
-                    summary_response = await chat_client.chat.completions.create(
-                        model=CHAT_MODEL,  # GPT-5 Mini: rápido, maneja documentos largos
-                        messages=[
-                            {"role": "system", "content": """Eres un relator judicial experto del Poder Judicial de la Federación de México.
-Tu tarea es crear un RESUMEN ESTRUCTURADO Y EXHAUSTIVO de la sentencia proporcionada.
-
-EL RESUMEN DEBE INCLUIR OBLIGATORIAMENTE:
-
-1. **DATOS DE IDENTIFICACIÓN**: Tipo de juicio, número de expediente, tribunal, partes procesales, materia.
-
-2. **ANTECEDENTES PROCESALES**: Historia procesal completa, desde la demanda hasta la sentencia.
-
-3. **ACTO RECLAMADO / LITIS**: Qué se reclama, pretensiones de cada parte.
-
-4. **CONSIDERANDOS**: Resume CADA considerando de la sentencia, incluyendo:
-   - Los argumentos jurídicos esgrimidos
-   - Los artículos y leyes citados (textualmente si es posible)
-   - La jurisprudencia citada (con rubros y registros si aparecen)
-   - La valoración probatoria realizada
-   - El razonamiento del juzgador
-
-5. **PUNTOS RESOLUTIVOS**: Transcribe o resume los puntos resolutivos.
-
-6. **FUNDAMENTOS LEGALES CITADOS**: Lista completa de todos los artículos, leyes, códigos y jurisprudencia que se mencionan en la sentencia.
-
-REGLAS:
-- NO omitas ningún argumento jurídico relevante
-- NO omitas ninguna cita legal o jurisprudencial
-- Sé lo más fiel posible al contenido original
-- El resumen puede ser extenso, lo importante es que sea COMPLETO
-- Usa formato markdown estructurado"""},
-                            {"role": "user", "content": f"Resume exhaustivamente la siguiente sentencia:\n\n{full_sentencia_text[:100000]}"}
-                        ],
-                        max_completion_tokens=4096,
-                    )
-                    raw_summary = summary_response.choices[0].message.content
-                    if raw_summary and len(raw_summary.strip()) > 100:
-                        sentencia_summary = raw_summary
-                        print(f"   ⚖️ PASO 1 completado: Resumen de {len(sentencia_summary)} chars generado")
+            # Para sentencias: truncar si es necesario para token budget
+            if is_sentencia and msg.role == "user" and "SENTENCIA_INICIO" in msg_content:
+                s_start = msg_content.find("<!-- SENTENCIA_INICIO -->")
+                s_end = msg_content.find("<!-- SENTENCIA_FIN -->")
+                if s_start != -1 and s_end != -1:
+                    sentencia_text = msg_content[s_start:s_end + len("<!-- SENTENCIA_FIN -->")]
+                    # o3-mini tiene un TPM más alto, pero truncamos a 80K chars (~20K tokens) por seguridad
+                    max_chars = 80000
+                    if len(sentencia_text) > max_chars:
+                        truncated = sentencia_text[:max_chars]
+                        pct = round(max_chars / len(sentencia_text) * 100)
+                        truncated += f"\n\n[NOTA: Sentencia truncada al {pct}% para análisis. Se incluyen las secciones principales.]"
+                        truncated += "\n<!-- SENTENCIA_FIN -->"
+                        msg_content = msg_content[:s_start] + truncated + msg_content[s_end + len("<!-- SENTENCIA_FIN -->"):]
+                        print(f"   ⚖️ Sentencia truncada: {len(sentencia_text)} → {max_chars} chars ({pct}%)")
                     else:
-                        print(f"   ⚠️ PASO 1: Resumen vacío o demasiado corto ({len(raw_summary) if raw_summary else 0} chars)")
-                        sentencia_summary = None
-                except Exception as e:
-                    print(f"   ⚠️ Error en resumen de sentencia (PASO 1): {type(e).__name__}: {e}")
-                    sentencia_summary = None
-            else:
-                print("   ⚠️ No se pudo extraer texto de la sentencia de los markers")
+                        print(f"   ⚖️ Sentencia completa: {len(sentencia_text)} chars (dentro del límite)")
             
-            # Reemplazar: si hay resumen, inyectar; si no, truncar como fallback
-            replaced = False
-            for i, llm_msg in enumerate(llm_messages):
-                if llm_msg["role"] == "user" and "SENTENCIA_INICIO" in llm_msg["content"]:
-                    s_start = llm_msg["content"].find("<!-- SENTENCIA_INICIO -->")
-                    s_end = llm_msg["content"].find("<!-- SENTENCIA_FIN -->")
-                    if s_start != -1 and s_end != -1:
-                        before = llm_msg["content"][:s_start]
-                        after = llm_msg["content"][s_end + len("<!-- SENTENCIA_FIN -->"):]
-                        
-                        if sentencia_summary:
-                            # Inyectar resumen estructurado en lugar del texto completo
-                            replacement = (
-                                "<!-- SENTENCIA_RESUMIDA -->\n"
-                                + f"A continuación se presenta el RESUMEN ESTRUCTURADO DE LA SENTENCIA, generado a partir del documento completo ({len(full_sentencia_text)} caracteres). "
-                                + "Analiza este resumen confrontándolo con el CONTEXTO JURÍDICO RECUPERADO.\n\n"
-                                + sentencia_summary
-                                + "\n<!-- FIN_SENTENCIA_RESUMIDA -->"
-                            )
-                            print(f"   ⚖️ PASO 2: Inyectando resumen ({len(replacement)} chars) para análisis con o3")
-                        else:
-                            # Fallback: truncar el texto original a ~40K chars
-                            original_content = llm_msg["content"][s_start:s_end]
-                            replacement = original_content[:40000]
-                            if len(original_content) > 40000:
-                                replacement += "\n\n[NOTA: Sentencia truncada para análisis. Se incluye el contenido principal.]"
-                            print(f"   ⚠️ Fallback: Sentencia truncada a {len(replacement)} chars")
-                        
-                        llm_messages[i]["content"] = before + replacement + after
-                        replaced = True
-                    break
-            
-            if not replaced:
-                print("   ⚠️ No se encontró mensaje con markers SENTENCIA_INICIO en llm_messages")
-                # Debug: show what's in the messages
-                for i, llm_msg in enumerate(llm_messages):
-                    if llm_msg["role"] == "user":
-                        content_preview = llm_msg["content"][:200]
-                        print(f"   DEBUG msg[{i}] ({llm_msg['role']}): {content_preview}...")
+            llm_messages.append({"role": msg.role, "content": msg_content})
         
         # ─────────────────────────────────────────────────────────────────────
         # PASO 3: Generar respuesta con Thinking Mode auto-detectado
@@ -3592,13 +3500,12 @@ REGLAS:
         use_thinking = should_use_thinking(has_document, is_drafting)
         
         if is_sentencia:
-            # Sentencia analysis: OpenAI o3 (most powerful reasoning model)
-            # o3 does internal reasoning — no extra_body needed
+            # Sentencia analysis: OpenAI o3-mini (powerful reasoning, cost-effective)
             active_client = chat_client  # Same OpenAI API key
-            active_model = O3_MODEL
-            max_tokens = 16000  # Balanced: detailed analysis within 30K TPM tier
-            use_thinking = False  # o3 handles reasoning internally
-            print(f"   ⚖️ Modelo SENTENCIA: {O3_MODEL} | max_tokens: {max_tokens}")
+            active_model = SENTENCIA_MODEL
+            max_tokens = 16000  # Máximo output para análisis exhaustivo
+            use_thinking = False  # o3-mini handles reasoning internally
+            print(f"   ⚖️ Modelo SENTENCIA: {SENTENCIA_MODEL} | max_tokens: {max_tokens}")
         elif use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
