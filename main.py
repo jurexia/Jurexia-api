@@ -1489,6 +1489,7 @@ _CODE_ABBREVIATIONS = {
     "CF": "Código Fiscal",
     "CM": "Código de Comercio",
     "CA": "Código Administrativo",
+    "CU": "Código Urbano",
     "CPACA": "Código de Procedimiento y Justicia Administrativa",
     "LF": "Ley de la Familia",
     "LP": "Ley de Profesiones",
@@ -1731,12 +1732,20 @@ def detect_tipo_codigo(query: str) -> Optional[str]:
         r"licitaci[oó]n", r"servidor\s+p[uú]blico",
     ]
     
+    URBANO_INDICATORS = [
+        r"urban", r"condomini", r"r[eé]gimen\s+de\s+propiedad",
+        r"construcci[oó]n", r"uso\s+de\s+suelo", r"asentamiento",
+        r"fraccionamiento", r"edificaci[oó]n", r"zonificaci[oó]n",
+        r"c[oó]digo\s+urbano", r"desarrollo\s+urbano",
+    ]
+    
     # Contar matches por tipo
     scores = {
         "PENAL": sum(1 for p in PENAL_INDICATORS if re.search(p, query_lower)),
         "CIVIL": sum(1 for p in CIVIL_INDICATORS if re.search(p, query_lower)),
         "FISCAL": sum(1 for p in FISCAL_INDICATORS if re.search(p, query_lower)),
         "ADMIN": sum(1 for p in ADMIN_INDICATORS if re.search(p, query_lower)),
+        "URBANO": sum(1 for p in URBANO_INDICATORS if re.search(p, query_lower)),
     }
     
     best = max(scores, key=scores.get)
