@@ -8,9 +8,9 @@ FastAPI backend para plataforma LegalTech con:
 - Agente Centinela para auditoría legal
 - Memoria conversacional stateless con streaming
 - Grounding con citas documentales
-- DeepSeek Reasoner con reasoning visible
+- GPT-5 Mini for chat, DeepSeek Reasoner for thinking/reasoning
 
-VERSION: 2026.02.03-v2
+VERSION: 2026.02.14-v3 (GPT-5 Mini migration)
 """
 
 import asyncio
@@ -61,14 +61,15 @@ if SUPABASE_URL and SUPABASE_SERVICE_KEY:
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 
-# DeepSeek API Configuration
+# DeepSeek API Configuration (used ONLY for reasoning/thinking mode)
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-CHAT_MODEL = "deepseek-chat"  # For regular queries
+DEEPSEEK_CHAT_MODEL = "deepseek-chat"  # Used with thinking mode enabled
 REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thought
 
-# For embeddings, we still use OpenAI (DeepSeek doesn't have embeddings)
+# OpenAI API Configuration (GPT-5 Mini for chat + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+CHAT_MODEL = "gpt-5-mini"  # For regular queries (high quality, OpenAI)
 
 # Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
 SILOS = {
@@ -1012,13 +1013,14 @@ class ValidationResult(BaseModel):
 sparse_encoder: SparseTextEmbedding = None
 qdrant_client: AsyncQdrantClient = None
 openai_client: AsyncOpenAI = None  # For embeddings only
-deepseek_client: AsyncOpenAI = None  # For chat/reasoning
+chat_client: AsyncOpenAI = None  # For chat (GPT-5 Mini)
+deepseek_client: AsyncOpenAI = None  # For reasoning/thinking (DeepSeek)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicialización y cleanup de recursos"""
-    global sparse_encoder, qdrant_client, openai_client, deepseek_client
+    global sparse_encoder, qdrant_client, openai_client, chat_client, deepseek_client
     
     # Startup
     print(" Inicializando Jurexia Core Engine...")
@@ -1039,12 +1041,16 @@ async def lifespan(app: FastAPI):
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     print("   OpenAI Client inicializado (embeddings)")
     
-    # DeepSeek Client (for chat/reasoning)
+    # Chat Client (GPT-5 Mini via OpenAI API — for regular chat queries)
+    chat_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    print(f"   Chat Client inicializado (GPT-5 Mini: {CHAT_MODEL})")
+    
+    # DeepSeek Client (for thinking/reasoning mode only)
     deepseek_client = AsyncOpenAI(
         api_key=DEEPSEEK_API_KEY,
         base_url=DEEPSEEK_BASE_URL,
     )
-    print("   DeepSeek Client inicializado (chat)")
+    print("   DeepSeek Client inicializado (reasoning)")
     
     print(" Jurexia Core Engine LISTO")
     
@@ -1424,8 +1430,8 @@ async def expand_legal_query_llm(query: str) -> str:
     - Terminología técnica del legislador: "cópula"
     """
     try:
-        response = await deepseek_client.chat.completions.create(
-            model="deepseek-chat",  # Modelo rápido, no reasoner
+        response = await chat_client.chat.completions.create(
+            model=CHAT_MODEL,  # GPT-5 Mini para expansión
             messages=[
                 {"role": "system", "content": DOGMATIC_EXPANSION_PROMPT},
                 {"role": "user", "content": query}
@@ -1502,8 +1508,8 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
     try:
         prompt = METADATA_EXTRACTION_PROMPT.format(query=query)
         
-        response = await deepseek_client.chat.completions.create(
-            model="deepseek-chat",
+        response = await chat_client.chat.completions.create(
+            model=CHAT_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=300
@@ -1946,8 +1952,8 @@ async def _extract_juris_concepts(query: str) -> str:
     Devuelve una cadena de términos optimizados para matching con tesis.
     """
     try:
-        response = await deepseek_client.chat.completions.create(
-            model="deepseek-chat",
+        response = await chat_client.chat.completions.create(
+            model=CHAT_MODEL,
             messages=[
                 {"role": "system", "content": (
                     "Eres un experto en jurisprudencia mexicana. Dado un query legal, "
@@ -3177,15 +3183,24 @@ async def chat_endpoint(request: ChatRequest):
         # ─────────────────────────────────────────────────────────────────────
         # PASO 3: Generar respuesta con Thinking Mode auto-detectado
         # ─────────────────────────────────────────────────────────────────────
-        # Usa SIEMPRE deepseek-chat (soporta system messages = RAG funciona)
-        # Thinking mode se activa vía extra_body cuando la query lo amerita
-        # Esto da chain-of-thought reasoning + RAG context simultáneamente
+        # MODELO DUAL:
+        # - Thinking OFF → GPT-5 Mini (chat_client) para calidad superior
+        # - Thinking ON → DeepSeek Chat con thinking enabled (deepseek_client) para CoT
         
         use_thinking = should_use_thinking(has_document, is_drafting)
-        # DeepSeek API limits: sin thinking max=8192, con thinking max=64K
-        max_tokens = 50000 if use_thinking else 8192
         
-        print(f"   Modelo: {CHAT_MODEL} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
+        if use_thinking:
+            # DeepSeek with thinking: max 50K tokens, uses extra_body
+            active_client = deepseek_client
+            active_model = DEEPSEEK_CHAT_MODEL
+            max_tokens = 50000
+        else:
+            # GPT-5 Mini: high quality chat, max 8192 tokens
+            active_client = chat_client
+            active_model = CHAT_MODEL
+            max_tokens = 8192
+        
+        print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
         async def generate_stream() -> AsyncGenerator[str, None]:
@@ -3203,7 +3218,7 @@ async def chat_endpoint(request: ChatRequest):
                 content_buffer = ""
                 
                 api_kwargs = {
-                    "model": CHAT_MODEL,
+                    "model": active_model,
                     "messages": llm_messages,
                     "stream": True,
                     "max_tokens": max_tokens,
@@ -3211,7 +3226,7 @@ async def chat_endpoint(request: ChatRequest):
                 if use_thinking:
                     api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                 
-                stream = await deepseek_client.chat.completions.create(**api_kwargs)
+                stream = await active_client.chat.completions.create(**api_kwargs)
                 
                 async for chunk in stream:
                     if chunk.choices and chunk.choices[0].delta:
@@ -3266,7 +3281,7 @@ async def chat_endpoint(request: ChatRequest):
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
-                "X-Model-Used": CHAT_MODEL,
+                "X-Model-Used": active_model,
                 "X-Thinking-Mode": "on" if use_thinking else "off",
             },
         )
@@ -3306,7 +3321,7 @@ Responde SOLO con un JSON array de strings:
 ["punto 1", "punto 2", ...]
 """
         
-        extraction_response = await deepseek_client.chat.completions.create(
+        extraction_response = await chat_client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[{"role": "user", "content": extraction_prompt}],
             temperature=0.2,
@@ -3373,7 +3388,7 @@ EVIDENCIA JURÍDICA:
 
 Realiza la auditoría siguiendo las instrucciones del sistema."""
         
-        audit_response = await deepseek_client.chat.completions.create(
+        audit_response = await chat_client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT_AUDIT},
@@ -3511,8 +3526,8 @@ async def enhance_legal_text(request: EnhanceRequest):
             context=context_xml,
         )
         
-        # Llamar a DeepSeek
-        response = await deepseek_client.chat.completions.create(
+        # Llamar a GPT-5 Mini
+        response = await chat_client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
