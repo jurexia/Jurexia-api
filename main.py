@@ -3485,8 +3485,10 @@ async def chat_endpoint(request: ChatRequest):
                 if msg.role == "user" and "SENTENCIA_INICIO" in msg.content:
                     s_start = msg.content.find("<!-- SENTENCIA_INICIO -->")
                     s_end = msg.content.find("<!-- SENTENCIA_FIN -->")
+                    print(f"   ⚖️ Markers encontrados: INICIO={s_start}, FIN={s_end}")
                     if s_start != -1 and s_end != -1:
                         full_sentencia_text = msg.content[s_start + len("<!-- SENTENCIA_INICIO -->"):s_end].strip()
+                        print(f"   ⚖️ Texto sentencia extraído: {len(full_sentencia_text)} chars (primeros 200: {full_sentencia_text[:200]}...)")
                     break
             
             if full_sentencia_text:
@@ -3527,34 +3529,58 @@ REGLAS:
                         ],
                         max_completion_tokens=4096,
                     )
-                    sentencia_summary = summary_response.choices[0].message.content
-                    print(f"   ⚖️ PASO 1 completado: Resumen de {len(sentencia_summary)} chars generado")
-                    
-                    # Reemplazar el contenido de la sentencia en los mensajes del LLM
-                    # con el resumen estructurado para que o3 trabaje con información densa
-                    for i, llm_msg in enumerate(llm_messages):
-                        if llm_msg["role"] == "user" and "SENTENCIA_INICIO" in llm_msg["content"]:
-                            s_start = llm_msg["content"].find("<!-- SENTENCIA_INICIO -->")
-                            s_end = llm_msg["content"].find("<!-- SENTENCIA_FIN -->")
-                            if s_start != -1 and s_end != -1:
-                                before = llm_msg["content"][:s_start]
-                                after = llm_msg["content"][s_end + len("<!-- SENTENCIA_FIN -->"):]
-                                llm_messages[i]["content"] = (
-                                    before
-                                    + "<!-- SENTENCIA_RESUMIDA -->\n"
-                                    + f"[RESUMEN ESTRUCTURADO DE LA SENTENCIA — generado por IA a partir del documento completo de {len(full_sentencia_text)} caracteres]\n\n"
-                                    + sentencia_summary
-                                    + "\n<!-- FIN_SENTENCIA_RESUMIDA -->" 
-                                    + after
-                                )
-                            break
+                    raw_summary = summary_response.choices[0].message.content
+                    if raw_summary and len(raw_summary.strip()) > 100:
+                        sentencia_summary = raw_summary
+                        print(f"   ⚖️ PASO 1 completado: Resumen de {len(sentencia_summary)} chars generado")
+                    else:
+                        print(f"   ⚠️ PASO 1: Resumen vacío o demasiado corto ({len(raw_summary) if raw_summary else 0} chars)")
+                        sentencia_summary = None
                 except Exception as e:
-                    print(f"   ⚠️ Error en resumen de sentencia (PASO 1): {e}")
-                    print("   Continuando con sentencia truncada como fallback...")
-                    # Fallback: truncar a 40K como antes
-                    for i, llm_msg in enumerate(llm_messages):
-                        if llm_msg["role"] == "user" and "SENTENCIA_INICIO" in llm_msg["content"]:
-                            llm_messages[i]["content"] = llm_msg["content"][:40000]
+                    print(f"   ⚠️ Error en resumen de sentencia (PASO 1): {type(e).__name__}: {e}")
+                    sentencia_summary = None
+            else:
+                print("   ⚠️ No se pudo extraer texto de la sentencia de los markers")
+            
+            # Reemplazar: si hay resumen, inyectar; si no, truncar como fallback
+            replaced = False
+            for i, llm_msg in enumerate(llm_messages):
+                if llm_msg["role"] == "user" and "SENTENCIA_INICIO" in llm_msg["content"]:
+                    s_start = llm_msg["content"].find("<!-- SENTENCIA_INICIO -->")
+                    s_end = llm_msg["content"].find("<!-- SENTENCIA_FIN -->")
+                    if s_start != -1 and s_end != -1:
+                        before = llm_msg["content"][:s_start]
+                        after = llm_msg["content"][s_end + len("<!-- SENTENCIA_FIN -->"):]
+                        
+                        if sentencia_summary:
+                            # Inyectar resumen estructurado en lugar del texto completo
+                            replacement = (
+                                "<!-- SENTENCIA_RESUMIDA -->\n"
+                                + f"A continuación se presenta el RESUMEN ESTRUCTURADO DE LA SENTENCIA, generado a partir del documento completo ({len(full_sentencia_text)} caracteres). "
+                                + "Analiza este resumen confrontándolo con el CONTEXTO JURÍDICO RECUPERADO.\n\n"
+                                + sentencia_summary
+                                + "\n<!-- FIN_SENTENCIA_RESUMIDA -->"
+                            )
+                            print(f"   ⚖️ PASO 2: Inyectando resumen ({len(replacement)} chars) para análisis con o3")
+                        else:
+                            # Fallback: truncar el texto original a ~40K chars
+                            original_content = llm_msg["content"][s_start:s_end]
+                            replacement = original_content[:40000]
+                            if len(original_content) > 40000:
+                                replacement += "\n\n[NOTA: Sentencia truncada para análisis. Se incluye el contenido principal.]"
+                            print(f"   ⚠️ Fallback: Sentencia truncada a {len(replacement)} chars")
+                        
+                        llm_messages[i]["content"] = before + replacement + after
+                        replaced = True
+                    break
+            
+            if not replaced:
+                print("   ⚠️ No se encontró mensaje con markers SENTENCIA_INICIO en llm_messages")
+                # Debug: show what's in the messages
+                for i, llm_msg in enumerate(llm_messages):
+                    if llm_msg["role"] == "user":
+                        content_preview = llm_msg["content"][:200]
+                        print(f"   DEBUG msg[{i}] ({llm_msg['role']}): {content_preview}...")
         
         # ─────────────────────────────────────────────────────────────────────
         # PASO 3: Generar respuesta con Thinking Mode auto-detectado
