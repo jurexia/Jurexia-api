@@ -602,10 +602,19 @@ Cada propuesta anclada en fuentes [Doc ID: uuid]
    "⚠️ La base de datos no contiene fuentes adicionales sobre este punto.
    Se recomienda consulta manual de: [fuentes específicas]."
 5. NUNCA inventes UUIDs. Si no tienes el UUID, no lo incluyas.
+6. FORMATO DE TABLAS: Para TODA información tabulada usa EXCLUSIVAMENTE
+   tablas markdown con pipes (|). Ejemplo:
+   | Columna 1 | Columna 2 |
+   |-----------|-----------|
+   | dato | dato |
+   NUNCA uses caracteres Unicode de dibujo de caja (┌─┬─┐│├└ etc.)
+7. Al final del análisis, incluye una sección "## Fuentes citadas" listando
+   cada fuente usada con su Doc ID y descripción breve.
 
 IMPORTANTE: Este es un ANÁLISIS PROFESIONAL para uso del magistrado o juez.
 NO es una resolución judicial. NO incluyas frases como "Notifíquese",
-"Archívese" o similares. El tono debe ser de dictamen técnico pericial.
+"Archívese", "Anótese en el Libro de Gobierno" o similares.
+El tono debe ser de dictamen técnico pericial.
 """
 
 # ═══════════════════════════════════════════════════════════════
