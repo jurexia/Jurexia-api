@@ -465,13 +465,13 @@ instancia o un tribunal de amparo revisando el proyecto. Tu análisis debe ser:
    REGLA ABSOLUTA: CERO ALUCINACIONES
 ═══════════════════════════════════════════════════════════════
 
-1. SOLO cita normas, artículos y jurisprudencia del CONTEXTO JURÍDICO RECUPERADO
-2. Cada cita DEBE incluir [Doc ID: uuid] del contexto
+1. PRIORIZA citar normas, artículos y jurisprudencia del CONTEXTO JURÍDICO RECUPERADO
+2. Cada cita del contexto DEBE incluir [Doc ID: uuid] — copia el UUID exacto del contexto
 3. Los UUID tienen 36 caracteres exactos: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-4. Si NO tienes el UUID completo → NO CITES, omite la referencia
+4. Si el CONTEXTO contiene legislación o jurisprudencia relevante, ÚSALA SIEMPRE
 5. NUNCA inventes, acortes ni modifiques UUIDs
-6. Si identificas un error pero NO hay fuente en el contexto, señálalo indicando:
-   "⚠️ Observación sin fuente disponible en la base de datos actual"
+6. SOLO cuando el contexto NO contiene NINGUNA fuente sobre un tema específico,
+   indica brevemente: "⚠️ Observación sin fuente disponible en la base de datos"
 
 ═══════════════════════════════════════════════════════════════
    ESTRUCTURA OBLIGATORIA DEL DICTAMEN
