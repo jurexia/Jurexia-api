@@ -1437,7 +1437,7 @@ async def expand_legal_query_llm(query: str) -> str:
                 {"role": "user", "content": query}
             ],
             temperature=0,  # Determinista
-            max_tokens=100,  # Solo necesitamos palabras clave
+            max_completion_tokens=100,  # Solo necesitamos palabras clave
         )
         
         expanded_terms = response.choices[0].message.content.strip()
@@ -1512,7 +1512,7 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
             model=CHAT_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=300
+            max_completion_tokens=300
         )
         
         content = response.choices[0].message.content.strip()
@@ -1965,7 +1965,7 @@ async def _extract_juris_concepts(query: str) -> str:
                 {"role": "user", "content": query}
             ],
             temperature=0,
-            max_tokens=80,
+            max_completion_tokens=80,
         )
         concepts = response.choices[0].message.content.strip()
         print(f"   ⚖️ Conceptos jurisprudencia extraídos: {concepts}")
@@ -3221,10 +3221,13 @@ async def chat_endpoint(request: ChatRequest):
                     "model": active_model,
                     "messages": llm_messages,
                     "stream": True,
-                    "max_tokens": max_tokens,
                 }
+                # GPT-5 Mini uses max_completion_tokens; DeepSeek uses max_tokens
                 if use_thinking:
+                    api_kwargs["max_tokens"] = max_tokens
                     api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                else:
+                    api_kwargs["max_completion_tokens"] = max_tokens
                 
                 stream = await active_client.chat.completions.create(**api_kwargs)
                 
@@ -3325,7 +3328,7 @@ Responde SOLO con un JSON array de strings:
             model=CHAT_MODEL,
             messages=[{"role": "user", "content": extraction_prompt}],
             temperature=0.2,
-            max_tokens=500,
+            max_completion_tokens=500,
         )
         
         try:
@@ -3395,7 +3398,7 @@ Realiza la auditoría siguiendo las instrucciones del sistema."""
                 {"role": "user", "content": audit_prompt},
             ],
             temperature=0.2,
-            max_tokens=3000,
+            max_completion_tokens=3000,
         )
         
         # Parsear respuesta JSON
@@ -3534,7 +3537,7 @@ async def enhance_legal_text(request: EnhanceRequest):
                 {"role": "user", "content": f"Mejora el siguiente texto legal:\n\n{request.texto}"},
             ],
             temperature=0.3,  # Más conservador para mantener fidelidad
-            max_tokens=8000,
+            max_completion_tokens=8000,
         )
         
         enhanced_text = response.choices[0].message.content
