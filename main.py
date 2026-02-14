@@ -3586,6 +3586,12 @@ async def chat_endpoint(request: ChatRequest):
         if context_xml:
             llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
         
+        # FIX A: Inject compact Doc ID inventory to reduce UUID hallucination
+        # Gives the LLM a "cheat sheet" of valid UUIDs to copy from
+        if doc_id_map:
+            valid_ids_prompt = get_valid_doc_ids_prompt(doc_id_map)
+            llm_messages.append({"role": "system", "content": valid_ids_prompt})
+        
         # Agregar historial conversacional
         for msg in request.messages:
             msg_content = msg.content
@@ -3705,6 +3711,18 @@ async def chat_endpoint(request: ChatRequest):
                     validation = validate_citations(content_buffer, doc_id_map)
                     if validation.invalid_count > 0:
                         print(f"   ⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
+                        for cv in validation.citations:
+                            if cv.status == "invalid":
+                                print(f"      ❌ UUID no encontrado: {cv.doc_id}")
+                        # FIX B: Emit citation validation metadata as final SSE chunk
+                        # Frontend can parse this to show a warning badge
+                        meta = json.dumps({
+                            "valid": validation.valid_count,
+                            "invalid": validation.invalid_count,
+                            "total": validation.total_citations,
+                            "invalid_ids": [c.doc_id for c in validation.citations if c.status == "invalid"]
+                        })
+                        yield f"\n\n<!-- CITATION_META:{meta} -->"
                     else:
                         print(f"   ✅ Validación OK: {validation.valid_count} citas verificadas")
                 
