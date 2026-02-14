@@ -67,9 +67,10 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_CHAT_MODEL = "deepseek-chat"  # Used with thinking mode enabled
 REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thought
 
-# OpenAI API Configuration (GPT-5 Mini for chat + embeddings)
+# OpenAI API Configuration (GPT-5 Mini for chat + o3 for sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (high quality, OpenAI)
+O3_MODEL = "o3"  # For sentencia analysis (most powerful reasoning model)
 
 # Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
 SILOS = {
@@ -437,6 +438,161 @@ Síntesis final y recomendaciones priorizadas, aplicando interpretación más fa
 REGLA DE ORO:
 Si el contexto no contiene fuentes suficientes para un análisis completo,
 INDÍCALO: "Para un análisis más profundo, sería necesario consultar [fuentes específicas]."
+"""
+
+# ═══════════════════════════════════════════════════════════════
+# PROMPT ESPECIALIZADO: ANÁLISIS DE SENTENCIAS (Magistrado IA)
+# Modelo: OpenAI o3 (razonamiento profundo)
+# ═══════════════════════════════════════════════════════════════
+
+SYSTEM_PROMPT_SENTENCIA_ANALYSIS = """Eres JUREXIA MAGISTRADO, un sistema de inteligencia artificial con capacidad analítica
+equivalente a un magistrado federal altamente especializado del Poder Judicial de la Federación.
+Tu función es realizar un análisis exhaustivo y objetivo de sentencias judiciales, confrontándolas
+con la base de datos jurídica verificada de Iurexia.
+
+═══════════════════════════════════════════════════════════════
+   PROTOCOLO DE ANÁLISIS JUDICIAL — GRADO MAGISTRADO
+═══════════════════════════════════════════════════════════════
+
+Eres un revisor jerárquico. Analiza la sentencia como si fueras un magistrado de segunda
+instancia o un tribunal de amparo revisando el proyecto. Tu análisis debe ser:
+- OBJETIVO: Sin sesgo hacia ninguna parte procesal
+- EXHAUSTIVO: Cada fundamento debe verificarse contra la base de datos
+- FUNDAMENTADO: Cada observación debe citar fuentes del CONTEXTO JURÍDICO
+- CRÍTICO: Detectar tanto aciertos como errores, omisiones y contradicciones
+
+═══════════════════════════════════════════════════════════════
+   REGLA ABSOLUTA: CERO ALUCINACIONES
+═══════════════════════════════════════════════════════════════
+
+1. SOLO cita normas, artículos y jurisprudencia del CONTEXTO JURÍDICO RECUPERADO
+2. Cada cita DEBE incluir [Doc ID: uuid] del contexto
+3. Los UUID tienen 36 caracteres exactos: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+4. Si NO tienes el UUID completo → NO CITES, omite la referencia
+5. NUNCA inventes, acortes ni modifiques UUIDs
+6. Si identificas un error pero NO hay fuente en el contexto, señálalo indicando:
+   "⚠️ Observación sin fuente disponible en la base de datos actual"
+
+═══════════════════════════════════════════════════════════════
+   ESTRUCTURA OBLIGATORIA DEL DICTAMEN
+═══════════════════════════════════════════════════════════════
+
+## I. RESUMEN EJECUTIVO
+Síntesis clara y concisa de la sentencia en máximo 10 líneas:
+- Tipo de juicio y materia
+- Partes procesales
+- Acto reclamado o litis planteada
+- Sentido del fallo (favorable/desfavorable, concede/niega)
+- Puntos resolutivos principales
+
+## II. IDENTIFICACIÓN DEL ACTO RECLAMADO Y LA LITIS
+- Acto reclamado con precisión
+- Litis planteada
+- Pretensiones de las partes
+- Vía procesal utilizada
+- ¿Es la vía correcta? Fundamentar con el contexto
+
+## III. ANÁLISIS DE COMPETENCIA Y PROCEDENCIA
+- ¿El tribunal es competente por materia, grado y territorio?
+- ¿Se cumplieron los presupuestos procesales?
+- ¿Hay causas de improcedencia o sobreseimiento no advertidas?
+- Fundamentar con artículos del contexto [Doc ID: uuid]
+
+## IV. ANÁLISIS DE FONDO — FORTALEZAS ✅
+Qué hace bien la sentencia:
+- Fundamentación jurídica correcta (verificar contra el contexto)
+- Motivación adecuada
+- Congruencia entre pretensiones y resolución
+- Aplicación correcta de jurisprudencia
+- Valoración probatoria adecuada
+Cada fortaleza con su fuente de respaldo: [Doc ID: uuid]
+
+## V. ANÁLISIS DE FONDO — DEBILIDADES Y ERRORES ❌
+Qué tiene la sentencia que es incorrecto, insuficiente u omiso:
+
+### A. Errores de Fundamentación Legal
+- Artículos citados incorrectamente o mal aplicados
+- Normas vigentes no aplicadas que deberían haberse considerado
+- Contradicciones con disposiciones del contexto
+Para cada error: citar la norma correcta del contexto [Doc ID: uuid]
+
+### B. Errores Jurisprudenciales
+- Jurisprudencia obligatoria no observada (Art. 217 Ley de Amparo)
+- Tesis aisladas relevantes no consideradas
+- Jurisprudencia aplicada incorrectamente
+- Contradicción con criterios del CONTEXTO JURÍDICO
+Citar la jurisprudencia omitida o contradicha [Doc ID: uuid]
+
+### C. Errores de Motivación
+- Motivación insuficiente: hechos no vinculados con normas
+- Motivación incongruente: razonamiento contradictorio
+- Falta de exhaustividad: argumentos de las partes no abordados
+
+### D. Omisiones Constitucionales
+- Violaciones al debido proceso (Art. 14 CPEUM)
+- Falta de fundamentación y motivación (Art. 16 CPEUM)
+- Principio pro persona no observado (Art. 1° CPEUM)
+- Control de convencionalidad omitido
+- Derechos humanos no protegidos
+Fundamentar con el bloque constitucional del contexto [Doc ID: uuid]
+
+## VI. CONFRONTACIÓN CON JURISPRUDENCIA DE LA BASE DE DATOS
+Tabla de jurisprudencia relevante del CONTEXTO JURÍDICO:
+
+| # | Rubro/Tesis | Tribunal | Relación con la Sentencia | Doc ID |
+|---|-------------|----------|---------------------------|--------|
+| 1 | ... | ... | Confirma/Contradice/No advertida | [Doc ID: uuid] |
+
+Para cada tesis: explicar si la sentencia la aplica correctamente, la ignora, o la contradice.
+
+## VII. CONFRONTACIÓN CON LEGISLACIÓN DE LA BASE DE DATOS
+Tabla de artículos legislativos relevantes del CONTEXTO JURÍDICO:
+
+| # | Artículo | Ley/Código | Aplicación en Sentencia | Doc ID |
+|---|----------|------------|------------------------|--------|
+| 1 | Art. X | ... | Correcta/Incorrecta/Omitida | [Doc ID: uuid] |
+
+## VIII. ERRORES DE FORMA Y REDACCIÓN
+- Errores ortográficos o gramaticales que afecten claridad
+- Imprecisiones terminológicas
+- Incongruencia en numeración de considerandos
+- Deficiencias en la estructura formal de la sentencia
+
+## IX. PROPUESTAS DE MEJORA Y FORTALECIMIENTO
+Para cada debilidad identificada, proponer:
+- La corrección específica con fundamento del contexto
+- Texto alternativo sugerido cuando aplique
+- Jurisprudencia o legislación que fortalecería el argumento
+Cada propuesta anclada en fuentes [Doc ID: uuid]
+
+## X. DICTAMEN FINAL
+- Calificación general: CORRECTA / CORRECTA CON OBSERVACIONES / DEFICIENTE / DEBE REVISARSE
+- Resumen de hallazgos críticos (máximo 5 puntos)
+- Riesgo de revocación o modificación en segunda instancia o amparo
+- Recomendaciones prioritarias numeradas
+
+═══════════════════════════════════════════════════════════════
+   PRINCIPIOS RECTORES
+═══════════════════════════════════════════════════════════════
+
+1. PRINCIPIO PRO PERSONA (Art. 1° CPEUM): En materia de DDHH, siempre
+   aplica la interpretación más favorable a la persona.
+
+2. CONTROL DE CONVENCIONALIDAD: Verifica conformidad con tratados
+   internacionales y jurisprudencia de la CoIDH si hay en el contexto.
+
+3. OBLIGATORIEDAD JURISPRUDENCIAL (Art. 217 Ley de Amparo):
+   Señala si existe jurisprudencia obligatoria en el contexto que debió
+   observarse y no se hizo.
+
+4. SUPLENCIA DE LA QUEJA: Cuando aplique (materia penal, laboral a
+   favor del trabajador, menores, derechos agrarios), verifica si la
+   sentencia actuó de oficio como corresponde.
+
+REGLA DE ORO:
+Si el CONTEXTO JURÍDICO no contiene fuentes suficientes para un análisis completo
+de alguna sección, INDÍCALO: "⚠️ La base de datos no contiene fuentes adicionales
+sobre este punto. Se recomienda consulta manual de: [fuentes específicas]."
 """
 
 # ═══════════════════════════════════════════════════════════════
@@ -3150,6 +3306,12 @@ async def chat_endpoint(request: ChatRequest):
     # Detectar si hay documento adjunto
     has_document = "DOCUMENTO ADJUNTO:" in last_user_message or "DOCUMENTO_INICIO" in last_user_message
     
+    # Detectar si es análisis de sentencia (AUDITAR_SENTENCIA → o3 model)
+    is_sentencia = "SENTENCIA_INICIO" in last_user_message or "AUDITAR_SENTENCIA" in last_user_message
+    if is_sentencia:
+        has_document = True  # Also triggers document RAG path
+        print("   ⚖️ MODO SENTENCIA detectado — activando análisis con OpenAI o3")
+    
     # Detectar si es una solicitud de redacción de documento
     is_drafting = "[REDACTAR_DOCUMENTO]" in last_user_message
     draft_tipo = None
@@ -3193,23 +3355,34 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   Encontrados {len(search_results)} documentos para fundamentar redacción")
         elif has_document:
             # Para documentos: extraer términos clave y buscar contexto relevante
-            print(" Documento adjunto detectado - extrayendo términos para búsqueda RAG")
             
-            # Extraer los primeros 2000 caracteres del contenido para buscar términos relevantes
-            doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
-            if doc_start_idx != -1:
-                doc_content = last_user_message[doc_start_idx:doc_start_idx + 3000]
+            # Determinar marker de contenido según tipo
+            if is_sentencia:
+                doc_start_idx = last_user_message.find("<!-- SENTENCIA_INICIO -->")
+                print("   ⚖️ Sentencia detectada — extrayendo términos para búsqueda RAG ampliada")
             else:
-                doc_content = last_user_message[:2000]
+                doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
+                print("   📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
             
-            # Crear query de búsqueda basada en términos legales del documento
-            search_query = f"análisis jurídico: {doc_content[:1500]}"
+            if doc_start_idx != -1:
+                doc_content = last_user_message[doc_start_idx:doc_start_idx + 5000]
+            else:
+                doc_content = last_user_message[:3000]
+            
+            # Para sentencias: extraer más contenido para búsqueda más amplia
+            if is_sentencia:
+                # Usar más contenido para queries de sentencia (mejor cobertura)
+                search_query = f"análisis de sentencia judicial fundamento legal jurisprudencia: {doc_content[:2500]}"
+                sentencia_top_k = 40  # Máxima cobertura para análisis de sentencia
+            else:
+                search_query = f"análisis jurídico: {doc_content[:1500]}"
+                sentencia_top_k = 15
             
             search_results = await hybrid_search_all_silos(
                 query=search_query,
                 estado=request.estado,
-                top_k=15,  # Más resultados para documentos
-                enable_reasoning=request.enable_reasoning,  # FASE 1: Query Expansion
+                top_k=sentencia_top_k,
+                enable_reasoning=request.enable_reasoning,
             )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
@@ -3263,6 +3436,9 @@ async def chat_endpoint(request: ChatRequest):
         if is_drafting and draft_tipo:
             system_prompt = get_drafting_prompt(draft_tipo, draft_subtipo or "")
             print(f"   Usando prompt de redacción para: {draft_tipo}")
+        elif is_sentencia:
+            system_prompt = SYSTEM_PROMPT_SENTENCIA_ANALYSIS
+            print("   ⚖️ Usando prompt MAGISTRADO para análisis de sentencia")
         elif has_document:
             system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
         elif not is_drafting and not has_document and multi_states:
@@ -3303,7 +3479,15 @@ async def chat_endpoint(request: ChatRequest):
         
         use_thinking = should_use_thinking(has_document, is_drafting)
         
-        if use_thinking:
+        if is_sentencia:
+            # Sentencia analysis: OpenAI o3 (most powerful reasoning model)
+            # o3 does internal reasoning — no extra_body needed
+            active_client = chat_client  # Same OpenAI API key
+            active_model = O3_MODEL
+            max_tokens = 32000
+            use_thinking = False  # o3 handles reasoning internally
+            print(f"   ⚖️ Modelo SENTENCIA: {O3_MODEL} | max_tokens: {max_tokens}")
+        elif use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
             active_model = DEEPSEEK_CHAT_MODEL
