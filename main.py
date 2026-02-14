@@ -1578,31 +1578,69 @@ def infer_source_from_text(texto: str) -> tuple:
     if not texto:
         return (None, None)
     
-    # Try to extract article number: "Artículo 261." or "Artículo 261.."
+    # Normalize whitespace from PDF line breaks
+    normalized = re.sub(r'\s+', ' ', texto).strip()
+    
+    # ── Extract article number ──
     ref = None
-    art_match = re.match(r'Art[ií]culo\s+(\d+[\w]*)', texto)
+    art_match = re.match(r'Art[ií]culo\s+(\d+[\w]*)', normalized)
     if art_match:
         ref = f"Art. {art_match.group(1)}"
     
-    # Try to detect law name from common patterns in text
+    # ── Extract law name ──
     origen = None
     
-    # Pattern: "del Código Urbano del Estado de Querétaro"
+    # False-positive fragments to reject
+    _FALSE_POSITIVES = {
+        "ley", "ley se", "ley y", "ley es", "ley no", "ley de", "ley se entenderá",
+        "ley y su reglamento", "ley y otras disposiciones aplicables",
+        "ley y demás disposiciones aplicables", "ley es de orden público",
+        "ley entrará en vigor", "ley general", "ley que",
+        "reglamento interior", "código", "constitución",
+    }
+    
+    # Pattern 1: Explicit law name
     law_match = re.search(
-        r'(?:del?\s+)?((?:C[oó]digo|Ley|Constituci[oó]n|Reglamento)\s+[A-ZÁÉÍÓÚa-záéíóúü\s]+(?:del?\s+Estado\s+de\s+[A-ZÁÉÍÓÚa-záéíóúü]+)?)',
-        texto
+        r'(?:del?\s+)?'
+        r'((?:C[oó]digo|Ley|Constituci[oó]n|Reglamento)'
+        r'(?:\s+(?:de|del|para|que|General|Federal|Org[aá]nica|Reglamentaria|Urbano|'
+        r'Civil|Penal|Administrativo|Fiscal|Municipal|Familiar|Electoral|Ambiental|'
+        r'Notarial|Agrario|Nacional|Estatal|Pol[ií]tica|sobre))?'
+        r'(?:\s+[A-ZÁÉÍÓÚa-záéíóúü]+)*'
+        r'(?:\s+del?\s+Estado\s+(?:Libre\s+y\s+Soberano\s+)?de\s+[A-ZÁÉÍÓÚa-záéíóúü]+)?'
+        r'(?:\s+de\s+los\s+Estados\s+Unidos\s+Mexicanos)?)',
+        normalized
     )
     if law_match:
-        origen = law_match.group(1).strip()
-        # Clean up trailing prepositions/articles
-        origen = re.sub(r'\s+(el|la|los|las|del|de|en|que|y|se|por|para|con|un|una|al|su|sus)\s*$', '', origen, flags=re.IGNORECASE).strip()
+        candidate = law_match.group(1).strip()
+        candidate = re.sub(
+            r'\s+(el|la|los|las|del|de|en|que|y|se|por|para|con|un|una|al|su|sus|a|o|como|no|si|más|este|esta|dicha|dicho|presente|será|deberá|podrá|entrará)\s*$',
+            '', candidate, flags=re.IGNORECASE
+        ).strip()
+        candidate = re.sub(r'[\.:;,]+$', '', candidate).strip()
+        
+        if len(candidate) > 15 and candidate.lower() not in _FALSE_POSITIVES:
+            origen = candidate
     
-    # If no explicit law name found in text, try breadcrumb pattern:
-    # [Código Urbano del Estado de Querétaro > LIBRO CUARTO > ...]
+    # Pattern 2: Breadcrumb [Law Name > ...]
     if not origen:
-        bracket_match = re.match(r'\[([^\]>]+?)(?:\s*>|\])', texto)
+        bracket_match = re.match(r'\[([^\]>]+?)(?:\s*>|\])', normalized)
         if bracket_match:
-            origen = bracket_match.group(1).strip()
+            candidate = bracket_match.group(1).strip()
+            if len(candidate) > 10:
+                origen = candidate
+    
+    # Pattern 3: "de este Código" — find explicit code name
+    if not origen and re.search(r'(?:este|presente)\s+[Cc][oó]digo', normalized):
+        deep_law = re.search(
+            r'(C[oó]digo\s+(?:Urbano|Civil|Penal|Administrativo|Fiscal|Municipal|Familiar|'
+            r'de\s+Procedimientos?\s+(?:Civiles?|Penales?|Administrativos?)|'
+            r'de\s+Comercio|Financiero|Electoral|Ambiental|Notarial|Agrario)'
+            r'(?:\s+del?\s+Estado\s+de\s+[A-ZÁÉÍÓÚa-záéíóúü]+)?)',
+            normalized
+        )
+        if deep_law:
+            origen = deep_law.group(1).strip()
     
     return (origen, ref)
 
