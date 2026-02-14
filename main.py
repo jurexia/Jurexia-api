@@ -3926,22 +3926,39 @@ async def chat_endpoint(request: ChatRequest):
                 # Validar citas
                 if doc_id_map:
                     validation = validate_citations(content_buffer, doc_id_map)
+                    
+                    # Build sources map: uuid → {origen, ref} for ALL cited docs
+                    sources_map = {}
+                    for cv in validation.citations:
+                        doc = doc_id_map.get(cv.doc_id)
+                        if doc:
+                            sources_map[cv.doc_id] = {
+                                "origen": humanize_origen(doc.origen) or "Fuente legal",
+                                "ref": doc.ref or ""
+                            }
+                        else:
+                            sources_map[cv.doc_id] = {
+                                "origen": "Fuente no verificada",
+                                "ref": ""
+                            }
+                    
                     if validation.invalid_count > 0:
                         print(f"   ⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
                         for cv in validation.citations:
                             if cv.status == "invalid":
                                 print(f"      ❌ UUID no encontrado: {cv.doc_id}")
-                        # FIX B: Emit citation validation metadata as final SSE chunk
-                        # Frontend can parse this to show a warning badge
-                        meta = json.dumps({
-                            "valid": validation.valid_count,
-                            "invalid": validation.invalid_count,
-                            "total": validation.total_citations,
-                            "invalid_ids": [c.doc_id for c in validation.citations if c.status == "invalid"]
-                        })
-                        yield f"\n\n<!-- CITATION_META:{meta} -->"
                     else:
                         print(f"   ✅ Validación OK: {validation.valid_count} citas verificadas")
+                    
+                    # Always emit CITATION_META with sources map
+                    meta = json.dumps({
+                        "valid": validation.valid_count,
+                        "invalid": validation.invalid_count,
+                        "total": validation.total_citations,
+                        "invalid_ids": [c.doc_id for c in validation.citations if c.status == "invalid"],
+                        "sources": sources_map
+                    })
+                    yield f"\n\n<!-- CITATION_META:{meta} -->"
                 
                 thinking_info = f", {len(reasoning_buffer)} chars reasoning" if reasoning_buffer else ""
                 print(f"   📝 Respuesta ({len(content_buffer)} chars content{thinking_info})")
