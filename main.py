@@ -2499,8 +2499,8 @@ async def hybrid_search_single_silo(
     async def _do_search(search_filter: Optional[Filter]) -> list:
         """Ejecuta la búsqueda con el filtro dado."""
         col_info = await qdrant_client.get_collection(collection)
-        vectors_config = col_info.config.params.vectors
-        has_sparse = isinstance(vectors_config, dict) and "sparse" in vectors_config
+        sparse_vectors_config = col_info.config.params.sparse_vectors
+        has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         # Threshold diferenciado: jurisprudencia necesita mayor recall
         threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
@@ -2624,8 +2624,8 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
         
         # Verificar si tiene sparse vectors
         col_info = await qdrant_client.get_collection("jurisprudencia_nacional")
-        vectors_config = col_info.config.params.vectors
-        has_sparse = isinstance(vectors_config, dict) and "sparse" in vectors_config
+        sparse_vectors_config = col_info.config.params.sparse_vectors
+        has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         if has_sparse:
             results = await qdrant_client.query_points(
