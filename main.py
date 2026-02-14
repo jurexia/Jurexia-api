@@ -4378,6 +4378,137 @@ async def enhance_legal_text(request: EnhanceRequest):
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
+# ADMIN: One-time BM25 sparse vector re-ingestion
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ReingestRequest(BaseModel):
+    entidad: Optional[str] = None  # Filter by state, or None for all
+    admin_key: str  # Simple auth to prevent abuse
+
+_reingest_running = False
+_reingest_status = {"status": "idle", "processed": 0, "total": 0, "errors": 0}
+
+@app.post("/admin/reingest-sparse")
+async def admin_reingest_sparse(req: ReingestRequest):
+    """
+    Genera BM25 sparse vectors reales para leyes_estatales.
+    Corre como background task. Solo permite una ejecución a la vez.
+    """
+    global _reingest_running, _reingest_status
+    
+    # Auth simple
+    expected_key = os.getenv("ADMIN_KEY", "jurexia-reingest-2026")
+    if req.admin_key != expected_key:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    if _reingest_running:
+        return {"status": "already_running", **_reingest_status}
+    
+    async def _run_reingest(entidad: Optional[str]):
+        global _reingest_running, _reingest_status
+        _reingest_running = True
+        _reingest_status = {"status": "running", "processed": 0, "total": 0, "errors": 0}
+        
+        try:
+            from qdrant_client.models import PointVectors
+            
+            # Count
+            filter_ = None
+            if entidad:
+                filter_ = Filter(
+                    must=[FieldCondition(key="entidad", match=MatchValue(value=entidad))]
+                )
+            count_result = await qdrant_client.count(
+                collection_name="leyes_estatales", count_filter=filter_
+            )
+            _reingest_status["total"] = count_result.count
+            print(f"[REINGEST] Starting BM25 re-ingestion: {count_result.count} points, entidad={entidad}")
+            
+            # Scroll and process
+            offset = None
+            batch_size = 50
+            
+            while True:
+                results, next_offset = await qdrant_client.scroll(
+                    collection_name="leyes_estatales",
+                    scroll_filter=filter_,
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                
+                if not results:
+                    break
+                
+                # Generate sparse vectors in mini-batches
+                updates = []
+                for point in results:
+                    payload = point.payload or {}
+                    texto = payload.get("texto", payload.get("text", ""))
+                    if not texto:
+                        continue
+                    
+                    try:
+                        embeddings = list(sparse_encoder.passage_embed([texto]))
+                        if embeddings and len(embeddings[0].indices) > 0:
+                            sparse = embeddings[0]
+                            updates.append(PointVectors(
+                                id=point.id,
+                                vector={
+                                    "sparse": SparseVector(
+                                        indices=sparse.indices.tolist(),
+                                        values=sparse.values.tolist(),
+                                    )
+                                }
+                            ))
+                    except Exception as e:
+                        _reingest_status["errors"] += 1
+                
+                # Upload batch
+                if updates:
+                    try:
+                        await qdrant_client.update_vectors(
+                            collection_name="leyes_estatales",
+                            points=updates,
+                        )
+                    except Exception as e:
+                        print(f"[REINGEST] Batch update error: {e}")
+                        _reingest_status["errors"] += 1
+                
+                _reingest_status["processed"] += len(results)
+                
+                if _reingest_status["processed"] % 1000 < 100:
+                    print(f"[REINGEST] Progress: {_reingest_status['processed']}/{_reingest_status['total']}")
+                
+                if next_offset is None:
+                    break
+                offset = next_offset
+                
+                await asyncio.sleep(0.1)  # Yield to event loop
+            
+            _reingest_status["status"] = "completed"
+            print(f"[REINGEST] Done! {_reingest_status['processed']} processed, {_reingest_status['errors']} errors")
+            
+        except Exception as e:
+            _reingest_status["status"] = f"error: {str(e)}"
+            print(f"[REINGEST] Fatal error: {e}")
+        finally:
+            _reingest_running = False
+    
+    # Launch as background task
+    asyncio.create_task(_run_reingest(req.entidad))
+    
+    return {"status": "started", "entidad": req.entidad, "message": "Check GET /admin/reingest-status for progress"}
+
+
+@app.get("/admin/reingest-status")
+async def admin_reingest_status():
+    """Check the status of BM25 re-ingestion."""
+    return {"running": _reingest_running, **_reingest_status}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import uvicorn
