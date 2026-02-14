@@ -589,10 +589,23 @@ Cada propuesta anclada en fuentes [Doc ID: uuid]
    favor del trabajador, menores, derechos agrarios), verifica si la
    sentencia actuó de oficio como corresponde.
 
-REGLA DE ORO:
-Si el CONTEXTO JURÍDICO no contiene fuentes suficientes para un análisis completo
-de alguna sección, INDÍCALO: "⚠️ La base de datos no contiene fuentes adicionales
-sobre este punto. Se recomienda consulta manual de: [fuentes específicas]."
+═══════════════════════════════════════════════════════════════
+   REGLAS DE CITACIÓN Y FORMATO
+═══════════════════════════════════════════════════════════════
+
+1. Utiliza AMPLIAMENTE el CONTEXTO JURÍDICO RECUPERADO para fundamentar tu análisis.
+   El contexto contiene legislación y jurisprudencia real de la base de datos.
+2. Cuando cites, incluye [Doc ID: uuid] del contexto.
+3. Si un artículo constitucional, ley o tesis aparece en el contexto, CÍTALO.
+   No seas restrictivo: si el contenido del contexto es relevante, úsalo.
+4. Si el CONTEXTO JURÍDICO no contiene fuentes sobre un punto específico:
+   "⚠️ La base de datos no contiene fuentes adicionales sobre este punto.
+   Se recomienda consulta manual de: [fuentes específicas]."
+5. NUNCA inventes UUIDs. Si no tienes el UUID, no lo incluyas.
+
+IMPORTANTE: Este es un ANÁLISIS PROFESIONAL para uso del magistrado o juez.
+NO es una resolución judicial. NO incluyas frases como "Notifíquese",
+"Archívese" o similares. El tono debe ser de dictamen técnico pericial.
 """
 
 # ═══════════════════════════════════════════════════════════════
@@ -3359,31 +3372,129 @@ async def chat_endpoint(request: ChatRequest):
             # Determinar marker de contenido según tipo
             if is_sentencia:
                 doc_start_idx = last_user_message.find("<!-- SENTENCIA_INICIO -->")
+                doc_end_idx = last_user_message.find("<!-- SENTENCIA_FIN -->")
                 print("   ⚖️ Sentencia detectada — extrayendo términos para búsqueda RAG ampliada")
             else:
                 doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
+                doc_end_idx = -1
                 print("   📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
             
             if doc_start_idx != -1:
-                doc_content = last_user_message[doc_start_idx:doc_start_idx + 5000]
+                if doc_end_idx != -1:
+                    doc_content = last_user_message[doc_start_idx:doc_end_idx]
+                else:
+                    doc_content = last_user_message[doc_start_idx:doc_start_idx + 5000]
             else:
                 doc_content = last_user_message[:3000]
             
-            # Para sentencias: extraer más contenido para búsqueda más amplia
             if is_sentencia:
-                # Usar más contenido para queries de sentencia (mejor cobertura)
-                search_query = f"análisis de sentencia judicial fundamento legal jurisprudencia: {doc_content[:2500]}"
-                sentencia_top_k = 40  # Máxima cobertura para análisis de sentencia (viable con two-pass)
+                # ─────────────────────────────────────────────────────────────
+                # SMART RAG para sentencias: extrae términos legales clave
+                # del documento completo y hace múltiples búsquedas dirigidas
+                # ─────────────────────────────────────────────────────────────
+                import re
+                
+                # Extraer artículos citados ("artículo 14", "Art. 193", etc.)
+                articulos = re.findall(
+                    r'(?:art[ií]culo|art\.?)\s*(\d+[\w°]*(?:\s*(?:,|y|al)\s*\d+[\w°]*)*)',
+                    doc_content, re.IGNORECASE
+                )
+                
+                # Extraer leyes/códigos mencionados
+                leyes_patterns = [
+                    r'(?:Ley\s+(?:de|del|Nacional|Federal|General|Orgánica|para)\s+[\w\s]+?)(?:\.|\ |,|;)',
+                    r'(?:Código\s+(?:Penal|Civil|Nacional|de\s+\w+)[\w\s]*?)(?:\.|\ |,|;)',
+                    r'(?:Constitución\s+Política[\w\s]*)',
+                    r'CPEUM',
+                    r'(?:Ley\s+de\s+Amparo)',
+                ]
+                leyes_encontradas = []
+                for pat in leyes_patterns:
+                    matches = re.findall(pat, doc_content, re.IGNORECASE)
+                    leyes_encontradas.extend([m.strip() for m in matches[:5]])
+                
+                # Extraer temas jurídicos clave
+                temas_patterns = [
+                    r'(?:juicio\s+de\s+amparo)',
+                    r'(?:recurso\s+de\s+revisión)',
+                    r'(?:principio\s+(?:pro persona|de legalidad|de retroactividad))',
+                    r'(?:control\s+(?:de convencionalidad|difuso|concentrado))',
+                    r'(?:derechos humanos)',
+                    r'(?:debido proceso)',
+                    r'(?:retroactividad)',
+                    r'(?:cosa juzgada)',
+                    r'(?:suplencia\s+de\s+la\s+queja)',
+                    r'(?:interés\s+(?:jurídico|legítimo|superior))',
+                ]
+                temas = []
+                for pat in temas_patterns:
+                    if re.search(pat, doc_content, re.IGNORECASE):
+                        temas.append(re.search(pat, doc_content, re.IGNORECASE).group())
+                
+                # Construir queries dirigidas
+                articulos_str = ", ".join(set(articulos[:10]))
+                leyes_str = ", ".join(set(leyes_encontradas[:8]))
+                temas_str = ", ".join(set(temas[:6]))
+                
+                # Query 1: Legislación (artículos + leyes específicas)
+                query_legislacion = f"fundamentación legal artículos {articulos_str} {leyes_str}".strip()
+                # Query 2: Jurisprudencia (temas jurídicos + materia)
+                query_jurisprudencia = f"jurisprudencia tesis {temas_str} {leyes_str} aplicación retroactiva derechos".strip()
+                # Query 3: Materia constitucional
+                query_constitucional = f"constitución derechos humanos principio pro persona debido proceso artículos 1 14 16 17 CPEUM"
+                
+                print(f"   ⚖️ SMART RAG — Queries construidas:")
+                print(f"      Legislación: {query_legislacion[:120]}...")
+                print(f"      Jurisprudencia: {query_jurisprudencia[:120]}...")
+                print(f"      Constitucional: {query_constitucional[:80]}...")
+                print(f"      Artículos detectados: {articulos_str[:100]}")
+                print(f"      Leyes detectadas: {leyes_str[:100]}")
+                print(f"      Temas detectados: {temas_str[:100]}")
+                
+                # Ejecutar 3 búsquedas en paralelo
+                import asyncio
+                results_legislacion, results_jurisprudencia, results_constitucional = await asyncio.gather(
+                    hybrid_search_all_silos(
+                        query=query_legislacion,
+                        estado=request.estado,
+                        top_k=15,
+                        enable_reasoning=request.enable_reasoning,
+                    ),
+                    hybrid_search_all_silos(
+                        query=query_jurisprudencia,
+                        estado=request.estado,
+                        top_k=15,
+                        enable_reasoning=request.enable_reasoning,
+                    ),
+                    hybrid_search_all_silos(
+                        query=query_constitucional,
+                        estado=request.estado,
+                        top_k=10,
+                        enable_reasoning=request.enable_reasoning,
+                    ),
+                )
+                
+                # Merge results, deduplicando por ID
+                seen_ids = set()
+                search_results = []
+                for result_set in [results_legislacion, results_jurisprudencia, results_constitucional]:
+                    for r in result_set:
+                        rid = r.get("id", r.get("doc_id", ""))
+                        if rid not in seen_ids:
+                            seen_ids.add(rid)
+                            search_results.append(r)
+                
+                print(f"   ⚖️ SMART RAG — Total: {len(search_results)} docs únicos")
+                print(f"      Legislación: {len(results_legislacion)}, Jurisprudencia: {len(results_jurisprudencia)}, Constitucional: {len(results_constitucional)}")
             else:
                 search_query = f"análisis jurídico: {doc_content[:1500]}"
-                sentencia_top_k = 15
+                search_results = await hybrid_search_all_silos(
+                    query=search_query,
+                    estado=request.estado,
+                    top_k=15,
+                    enable_reasoning=request.enable_reasoning,
+                )
             
-            search_results = await hybrid_search_all_silos(
-                query=search_query,
-                estado=request.estado,
-                top_k=sentencia_top_k,
-                enable_reasoning=request.enable_reasoning,
-            )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
             print(f"   Encontrados {len(search_results)} documentos relevantes para contrastar")
