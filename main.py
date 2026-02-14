@@ -343,31 +343,6 @@ IMPORTANTE: NO incluyas esta seccion si la consulta es sobre:
 Sintesis practica aplicando la interpretacion mas favorable, con recomendaciones concretas.
 
 ===============================================================
-   SUGERENCIA DE BUSQUEDA EN SCJN
-===============================================================
-
-REGLA #6 - ENLACE AL SEMANARIO JUDICIAL:
-Cuando el usuario pregunte por una tesis, jurisprudencia o precedente ESPECIFICO
-que NO se encuentre en el contexto recuperado, DEBES incluir al final de tu
-respuesta (despues de la seccion de Jurisprudencia) un bloque especial con este
-formato EXACTO:
-
-[SCJN_BUSCAR: termino de busqueda | Epoca: Xa | Materia: Civil/Penal/etc]
-
-Ejemplos:
-- Si buscan "derecho del tanto": [SCJN_BUSCAR: derecho del tanto | Epoca: 10a, 11a | Materia: Civil]
-- Si buscan una tesis por registro: [SCJN_BUSCAR: 2031696 | Registro digital]
-- Si buscan jurisprudencia de amparo: [SCJN_BUSCAR: amparo indirecto suspension | Epoca: 10a, 11a | Materia: Comun]
-
-REGLAS para usar este bloque:
-1. SOLO usalo cuando NO encuentres la tesis/jurisprudencia especifica en el contexto
-2. El termino de busqueda debe ser CONCISO y optimizado para el buscador de la SCJN
-3. Sugiere la epoca y materia mas probables segun el tema consultado
-4. Si el usuario menciona un numero de registro digital, usalo directamente
-5. Puedes incluir MULTIPLES bloques si hay varias tesis que buscar
-6. NUNCA incluyas este bloque si ya encontraste jurisprudencia relevante en el contexto
-
-===============================================================
    PROHIBICIONES ABSOLUTAS
 ===============================================================
 
