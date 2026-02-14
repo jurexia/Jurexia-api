@@ -1089,6 +1089,96 @@ async def lifespan(app: FastAPI):
 # UTILIDADES
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── Humanize Origen: Filenames → Display Names ───────────────────────────────
+# Maps raw filename-style origen values from Qdrant (e.g. JSON_QRO_CC_QRO)
+# to human-readable law names (e.g. Código Civil del Estado de Querétaro)
+
+_CODE_ABBREVIATIONS = {
+    "CC": "Código Civil",
+    "CP": "Código Penal",
+    "CPC": "Código de Procedimientos Civiles",
+    "CPP": "Código de Procedimientos Penales",
+    "CNPP": "Código Nacional de Procedimientos Penales",
+    "CT": "Código de Trabajo",
+    "CF": "Código Fiscal",
+    "CM": "Código de Comercio",
+    "CA": "Código Administrativo",
+    "CPACA": "Código de Procedimiento y Justicia Administrativa",
+    "LF": "Ley de la Familia",
+    "LP": "Ley de Profesiones",
+    "LGTOC": "Ley General de Títulos y Operaciones de Crédito",
+    "LGS": "Ley General de Sociedades",
+    "LA": "Ley de Amparo",
+    "LFTR": "Ley Federal de Telecomunicaciones y Radiodifusión",
+    "LFT": "Ley Federal del Trabajo",
+    "LISR": "Ley del Impuesto sobre la Renta",
+    "LIVA": "Ley del Impuesto al Valor Agregado",
+    "LGSPD": "Ley General del Servicio Profesional Docente",
+    "CPEUM": "Constitución Política de los Estados Unidos Mexicanos",
+}
+
+_STATE_NAMES = {
+    "AGS": "Aguascalientes", "BC": "Baja California", "BCS": "Baja California Sur",
+    "CAMP": "Campeche", "CHIA": "Chiapas", "CHIH": "Chihuahua",
+    "CDMX": "Ciudad de México", "COAH": "Coahuila", "COL": "Colima",
+    "DGO": "Durango", "GTO": "Guanajuato", "GRO": "Guerrero",
+    "HGO": "Hidalgo", "JAL": "Jalisco", "MEX": "Estado de México",
+    "MICH": "Michoacán", "MOR": "Morelos", "NAY": "Nayarit",
+    "NL": "Nuevo León", "OAX": "Oaxaca", "PUE": "Puebla",
+    "QRO": "Querétaro", "QROO": "Quintana Roo", "SLP": "San Luis Potosí",
+    "SIN": "Sinaloa", "SON": "Sonora", "TAB": "Tabasco",
+    "TAMPS": "Tamaulipas", "TLAX": "Tlaxcala", "VER": "Veracruz",
+    "YUC": "Yucatán", "ZAC": "Zacatecas",
+}
+
+def humanize_origen(origen: Optional[str]) -> Optional[str]:
+    """
+    Converts filename-style origen values into human-readable law names.
+    
+    Examples:
+        JSON_QRO_CC_QRO → Código Civil del Estado de Querétaro
+        JSON_JAL_CP_JAL → Código Penal del Estado de Jalisco
+        JSON_CDMX_CPC_CDMX → Código de Procedimientos Civiles de Ciudad de México
+        Ley de Profesiones del Estado de Querétaro → (unchanged, already clean)
+    """
+    if not origen:
+        return origen
+    
+    # Strip .txt/.json extensions
+    clean = re.sub(r'\.(txt|json)$', '', origen, flags=re.IGNORECASE).strip()
+    
+    # If it already looks human-readable (contains spaces and no JSON_ prefix), return as-is
+    if ' ' in clean and not clean.startswith('JSON_'):
+        return clean
+    
+    # Try to parse JSON_{STATE}_{CODE}_{STATE} pattern
+    # Pattern: JSON_{STATE_ABBREV}_{CODE_ABBREV}_{STATE_ABBREV}
+    match = re.match(r'^JSON_([A-Z]+)_([A-Z]+)_([A-Z]+)$', clean, re.IGNORECASE)
+    if match:
+        state_abbrev = match.group(1).upper()
+        code_abbrev = match.group(2).upper()
+        
+        code_name = _CODE_ABBREVIATIONS.get(code_abbrev, code_abbrev)
+        state_name = _STATE_NAMES.get(state_abbrev, state_abbrev)
+        
+        return f"{code_name} del Estado de {state_name}"
+    
+    # Try simpler pattern: {CODE}_{STATE} or {STATE}_{CODE}
+    match = re.match(r'^JSON_?([A-Z]+)_([A-Z]+)$', clean, re.IGNORECASE)
+    if match:
+        part1 = match.group(1).upper()
+        part2 = match.group(2).upper()
+        
+        # Check if part1 is a code and part2 is a state
+        if part1 in _CODE_ABBREVIATIONS and part2 in _STATE_NAMES:
+            return f"{_CODE_ABBREVIATIONS[part1]} del Estado de {_STATE_NAMES[part2]}"
+        elif part2 in _CODE_ABBREVIATIONS and part1 in _STATE_NAMES:
+            return f"{_CODE_ABBREVIATIONS[part2]} del Estado de {_STATE_NAMES[part1]}"
+    
+    # Fallback: replace underscores with spaces and title-case, strip JSON_ prefix
+    fallback = clean.replace('JSON_', '').replace('_', ' ').title()
+    return fallback
+
 def normalize_estado(estado: Optional[str]) -> Optional[str]:
     """
     Normaliza el nombre del estado al formato EXACTO almacenado en Qdrant.
@@ -1699,7 +1789,7 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
         
         escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
-        escaped_origen = html.escape(r.origen or "Desconocido")
+        escaped_origen = html.escape(humanize_origen(r.origen) or "Desconocido")
         
         escaped_jurisdiccion = html.escape(r.jurisdiccion or "N/A")
         xml_parts.append(
@@ -2913,7 +3003,7 @@ async def get_document(doc_id: str):
                         id=str(point.id),
                         texto=payload.get("texto", payload.get("text", "Contenido no disponible")),
                         ref=payload.get("ref", payload.get("referencia", None)),
-                        origen=payload.get("origen", payload.get("fuente", None)),
+                        origen=humanize_origen(payload.get("origen", payload.get("fuente", None))),
                         jurisdiccion=payload.get("jurisdiccion", None),
                         entidad=payload.get("entidad", payload.get("estado", None)),
                         silo=silo_name,
