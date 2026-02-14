@@ -2320,15 +2320,15 @@ async def hybrid_search_all_silos(
         materia_filter = expansion_result["materia"]
         print(f"      Materia detectada para filtros: {materia_filter}")
     else:
-        # MODO RÁPIDO: Solo expansión dogmática básica  
-        # Rápido (~2s) - no usa metadata
-        print(f"   ⚡ MODO RÁPIDO - Solo expansión dogmática")
-        expanded_query = await expand_legal_query_llm(query)
+        # MODO RÁPIDO: SIN expansión — query original para máxima precisión BM25
+        # Rápido (~2s) - no usa metadata, BM25 busca exactamente lo que pidió el usuario
+        print(f"   ⚡ MODO RÁPIDO - Sin expansión, query original para BM25")
+        expanded_query = query  # Usar query original sin modificar
         materia_filter = None
     
-    # Generar embeddings: dense=ORIGINAL (preserva intención), sparse=EXPANDIDO (recall BM25)
+    # Generar embeddings: dense=ORIGINAL (preserva intención), sparse=query (original o expandido según modo)
     dense_task = get_dense_embedding(query)  # ORIGINAL para preservar intención semántica exacta
-    sparse_vector = get_sparse_embedding(expanded_query)  # Expandido para mejor recall BM25
+    sparse_vector = get_sparse_embedding(expanded_query)  # En modo rápido = original, en reasoning = expandido
     dense_vector = await dense_task
     
     # Búsqueda paralela en los 4 silos CON FILTROS ESPECÍFICOS POR SILO
