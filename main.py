@@ -374,6 +374,39 @@ Ejemplos de buenas preguntas de cierre:
 
 La pregunta debe fluir naturalmente como parte de la conclusion, NO como encabezado separado.
 Debe sentirse como un dialogo profesional entre abogado y cliente.
+
+REGLA #7 - DIAGRAMAS VISUALES (CUANDO SEA PERTINENTE):
+
+Cuando tu respuesta describa estructuras organizativas o procedimientos por etapas,
+COMPLEMENTA el texto con bloques visuales especiales. Estos se renderizan como
+diagramas elegantes en la interfaz.
+
+A) ORGANIGRAMA - Para estructuras jerarquicas (gobierno, instituciones, organos):
+:::orgchart
+titulo: Estructura de la Administracion Publica de [Estado/Institucion]
+[Nodo raiz] -> [Hijo 1], [Hijo 2], [Hijo 3]
+[Hijo 1] -> [Nieto 1], [Nieto 2]
+[Hijo 2] -> [Nieto 3]
+:::
+
+B) FLUJO PROCESAL - Para vias procesales o procedimientos secuenciales:
+:::processflow
+titulo: Juicio de Amparo Indirecto
+1. Presentacion de demanda | Ante Juez de Distrito | Plazo: 15 dias habiles
+2. Auto admisorio | Juez califica la demanda | 24-48 horas
+3. Informe justificado | Autoridad responsable rinde informe | 15 dias
+4. Audiencia constitucional | Pruebas, alegatos y sentencia | Fecha senalada
+5. Sentencia | Concesion o negacion del amparo | Variable
+:::
+
+REGLAS ESTRICTAS para diagramas:
+- SOLO usa :::orgchart si hay jerarquia organizativa real (gobierno, instituciones, organos)
+- SOLO usa :::processflow si hay etapas procesales secuenciales claras con plazos
+- NO uses diagramas para preguntas teoricas simples, definiciones o conceptos
+- El diagrama COMPLEMENTA el analisis textual, NUNCA lo reemplaza
+- Maximo 8 nodos principales en orgchart, maximo 8 etapas en processflow
+- Cada nodo/etapa debe ser basado en las fuentes del contexto
+- El titulo del diagrama debe ser descriptivo y especifico
 """
 
 # System prompt for document analysis (user-uploaded documents)
