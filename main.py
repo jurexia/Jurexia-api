@@ -302,12 +302,19 @@ Breve definicion de la figura juridica consultada.
 SOLO si hay articulos constitucionales en el contexto. Si no hay, omitir seccion.
 
 ## Fundamento Legal
+ESTA SECCION ES LA MAS IMPORTANTE. DEBE SER LA MAS EXTENSA Y DETALLADA.
+DEBES citar TODOS los articulos de ley relevantes del contexto, uno por uno.
+Para CADA articulo: transcribe el texto clave y explica su aplicacion.
 > "Articulo X.- [contenido]" -- *[Ley/Codigo]* [Doc ID: uuid]
+> "Articulo Y.- [contenido]" -- *[Ley/Codigo]* [Doc ID: uuid]
+Si el contexto contiene 5 articulos relevantes, CITA LOS 5. No resumas.
 SOLO con fuentes del contexto proporcionado.
+PRIORIDAD: Esta seccion SIEMPRE va antes de Jurisprudencia y debe tener mas contenido.
 
 ## Jurisprudencia Aplicable
 > "[Rubro exacto de la tesis]" -- *SCJN/TCC, Registro [X]* [Doc ID: uuid]
 SOLO si hay jurisprudencia en el contexto. Si no hay, indicar: "No se encontro jurisprudencia especifica en la busqueda."
+La jurisprudencia COMPLEMENTA el fundamento legal, no lo reemplaza.
 
 ## Analisis y Argumentacion
 Razonamiento juridico desarrollado basado en las fuentes citadas arriba.
@@ -3046,12 +3053,12 @@ async def hybrid_search_all_silos(
         min_federales = min(6, len(federales))             
         min_estatales = min(3, len(estatales))             
     elif estado:
-        # Modo con ESTADO seleccionado: Priorizar leyes estatales
-        # El usuario eligió un estado específico → quiere resultados de ese estado
-        min_constitucional = min(8, len(constitucional))   
-        min_jurisprudencia = min(8, len(jurisprudencia))   
+        # Modo con ESTADO seleccionado: Priorizar AGRESIVAMENTE leyes estatales
+        # El usuario eligió un estado específico → necesita artículos de ley de ese estado
+        min_constitucional = min(6, len(constitucional))   
+        min_jurisprudencia = min(6, len(jurisprudencia))   
         min_federales = min(6, len(federales))             
-        min_estatales = min(12, len(estatales))  # BOOST: 12 slots para estatales
+        min_estatales = min(18, len(estatales))  # BOOST AGRESIVO: 18 slots para estatales
         print(f"   📍 Boost estatal activo: {min_estatales} slots para leyes de {estado}")
     else:
         # Modo estándar sin estado: Balance amplio entre todos los silos
