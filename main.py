@@ -1865,63 +1865,6 @@ def detect_single_estado_from_query(query: str) -> Optional[str]:
     return None
 
 
-def detect_tipo_codigo(query: str) -> Optional[str]:
-    """
-    Auto-detecta el tipo de código legal que el usuario está buscando.
-    Retorna el tipo_codigo para filtrar en Qdrant.
-    
-    Ejemplo: "homicidio" → "PENAL", "divorcio" → "CIVIL"
-    """
-    query_lower = query.lower()
-    
-    # Patrones que indican materia penal
-    PENAL_INDICATORS = [
-        r"homicidio", r"lesiones", r"robo", r"fraude", r"abuso",
-        r"violaci[oó]n", r"secuestro", r"extorsi[oó]n", r"delito",
-        r"penal", r"c[oó]digo\s+penal", r"tipific", r"pena\s+de",
-        r"prisi[oó]n", r"culp", r"dolo", r"imputad", r"v[ií]ctima",
-    ]
-    
-    CIVIL_INDICATORS = [
-        r"divorcio", r"matrimonio", r"alimentos", r"custodia",
-        r"herencia", r"testamento", r"propiedad", r"arrendamiento",
-        r"contrato", r"obligaci", r"civil", r"c[oó]digo\s+civil",
-        r"compraventa", r"usucapi[oó]n", r"prescripci[oó]n",
-        r"copropiedad", r"derecho\s+del\s+tanto",
-    ]
-    
-    FISCAL_INDICATORS = [
-        r"fiscal", r"impuesto", r"tribut", r"contribuci[oó]n",
-        r"hacienda", r"iva", r"isr", r"deducci[oó]n",
-    ]
-    
-    ADMIN_INDICATORS = [
-        r"administrativ", r"permiso", r"licencia", r"concesi[oó]n",
-        r"licitaci[oó]n", r"servidor\s+p[uú]blico",
-    ]
-    
-    URBANO_INDICATORS = [
-        r"urban", r"condomini", r"r[eé]gimen\s+de\s+propiedad",
-        r"construcci[oó]n", r"uso\s+de\s+suelo", r"asentamiento",
-        r"fraccionamiento", r"edificaci[oó]n", r"zonificaci[oó]n",
-        r"c[oó]digo\s+urbano", r"desarrollo\s+urbano",
-    ]
-    
-    # Contar matches por tipo
-    scores = {
-        "PENAL": sum(1 for p in PENAL_INDICATORS if re.search(p, query_lower)),
-        "CIVIL": sum(1 for p in CIVIL_INDICATORS if re.search(p, query_lower)),
-        "FISCAL": sum(1 for p in FISCAL_INDICATORS if re.search(p, query_lower)),
-        "ADMIN": sum(1 for p in ADMIN_INDICATORS if re.search(p, query_lower)),
-        "URBANO": sum(1 for p in URBANO_INDICATORS if re.search(p, query_lower)),
-    }
-    
-    best = max(scores, key=scores.get)
-    if scores[best] > 0:
-        print(f"   🏷️ DA VINCI: tipo_codigo detectado = {best} (score: {scores[best]})")
-        return best
-    
-    return None
 
 
 def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
@@ -1945,18 +1888,13 @@ def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
     )
 
 
-def get_filter_for_silo(silo_name: str, estado: Optional[str], tipo_codigo: Optional[str] = None) -> Optional[Filter]:
+def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filter]:
     """
     Retorna el filtro apropiado para cada silo.
     - leyes_estatales: Filtra por estado seleccionado
     - leyes_federales: Sin filtro (todo es aplicable a cualquier estado)
     - jurisprudencia_nacional: Sin filtro (toda es aplicable)
     - bloque_constitucional: Sin filtro (CPEUM, tratados y CoIDH aplican a todo)
-    
-    NOTA: tipo_codigo se IGNORA en el filtro porque Qdrant trata `should` combinado
-    con `must` como filtro DURO (excluye docs que no matchean). Esto causaba que
-    leyes como la Ley de Propiedad en Condominio (tipo_codigo=CIVIL) fueran excluidas
-    cuando Da Vinci detectaba tipo_codigo=URBANO para queries de "condominio".
     """
     if silo_name == "leyes_estatales":
         if estado:
@@ -2986,11 +2924,10 @@ async def hybrid_search_all_silos(
     top_k: int,
     alpha: float = 0.7,
     enable_reasoning: bool = False,  # NUEVO: Activar Query Expansion con metadata
-    tipo_codigo: Optional[str] = None,  # DA VINCI: filtro por tipo de código legal
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
-    Aplica filtros de jurisdicción, tipo_codigo (Da Vinci) y fusiona resultados.
+    Aplica filtros de jurisdicción y fusiona resultados.
     
     Incluye Dogmatic Query Expansion para cerrar brecha semántica entre
     lenguaje coloquial y terminología técnica legal.
@@ -3001,7 +2938,6 @@ async def hybrid_search_all_silos(
         top_k: Número máximo de resultados
         alpha: Balance entre dense y sparse (no usado actualmente)
         enable_reasoning: Si True, usa Query Expansion con metadata jerárquica
-        tipo_codigo: Da Vinci - tipo de código para filtro SHOULD (PENAL, CIVIL, etc.)
     
     Returns:
         Lista de SearchResults ordenados por relevancia
@@ -3033,8 +2969,8 @@ async def hybrid_search_all_silos(
     # Búsqueda paralela en los 4 silos CON FILTROS ESPECÍFICOS POR SILO
     tasks = []
     for silo_name in SILOS.values():
-        # Filtro por estado + tipo_codigo (Da Vinci) para leyes_estatales
-        state_filter = get_filter_for_silo(silo_name, estado, tipo_codigo=tipo_codigo)
+        # Filtro por estado para leyes_estatales
+        state_filter = get_filter_for_silo(silo_name, estado)
         
         # Filtro por metadata (si enable_reasoning y hay materia detectada)
         metadata_filter = None
@@ -3265,7 +3201,6 @@ async def hybrid_search_all_silos(
 async def hybrid_search_multi_state(
     query: str,
     estados: List[str],
-    tipo_codigo: Optional[str] = None,
     top_k_per_state: int = 5,
 ) -> dict:
     """
@@ -3275,7 +3210,6 @@ async def hybrid_search_multi_state(
     Args:
         query: Query del usuario (sin nombres de estados)
         estados: Lista de estados canónicos (ej: ["JALISCO", "QUERETARO"])
-        tipo_codigo: Tipo de código para filtrar (PENAL, CIVIL, etc.)
         top_k_per_state: Resultados por estado
     
     Returns:
@@ -3285,9 +3219,8 @@ async def hybrid_search_multi_state(
             "context_xml": str
         }
     """
-    print(f"   🎨 DA VINCI MULTI-STATE: Buscando en {len(estados)} estados")
+    print(f"   🎨 MULTI-STATE: Buscando en {len(estados)} estados")
     print(f"      Estados: {estados}")
-    print(f"      tipo_codigo: {tipo_codigo}")
     
     # Generar embeddings UNA SOLA VEZ (reutilizar para todos los estados)
     expanded_query = await expand_legal_query_llm(query)
@@ -3296,20 +3229,11 @@ async def hybrid_search_multi_state(
     
     # Búsqueda paralela: un task por estado
     async def search_one_state(estado_name: str) -> tuple:
-        """Busca en leyes_estatales filtrado por estado + tipo_codigo"""
-        must_conditions = [
-            FieldCondition(key="entidad", match=MatchValue(value=estado_name))
-        ]
-        should_conditions = []
-        
-        if tipo_codigo:
-            should_conditions.append(
-                FieldCondition(key="tipo_codigo", match=MatchValue(value=tipo_codigo))
-            )
-        
+        """Busca en leyes_estatales filtrado por estado"""
         state_filter = Filter(
-            must=must_conditions,
-            should=should_conditions if should_conditions else None,
+            must=[
+                FieldCondition(key="entidad", match=MatchValue(value=estado_name))
+            ]
         )
         
         results = await hybrid_search_single_silo(
@@ -3385,7 +3309,7 @@ async def hybrid_search_multi_state(
         "all_results": all_results,
         "context_xml": context_xml,
         "estados": estados,
-        "tipo_codigo": tipo_codigo,
+
     }
 
 
@@ -3954,10 +3878,9 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   Encontrados {len(search_results)} documentos relevantes para contrastar")
         else:
             # ─────────────────────────────────────────────────────────────────
-            # DA VINCI: Detección multi-estado y tipo_codigo
+            # Detección multi-estado para comparaciones
             # ─────────────────────────────────────────────────────────────────
             multi_states = detect_multi_state_query(last_user_message)
-            auto_tipo_codigo = detect_tipo_codigo(last_user_message)
             is_comparative = multi_states is not None
             
             if is_comparative:
@@ -3966,7 +3889,7 @@ async def chat_endpoint(request: ChatRequest):
                 multi_result = await hybrid_search_multi_state(
                     query=last_user_message,
                     estados=multi_states,
-                    tipo_codigo=auto_tipo_codigo,
+
                     top_k_per_state=5,
                 )
                 search_results = multi_result["all_results"]
@@ -3983,7 +3906,7 @@ async def chat_endpoint(request: ChatRequest):
                     + context_xml
                 )
             else:
-                # Consulta normal (con tipo_codigo boost si detectado)
+                # Consulta normal
                 # AUTO-DETECT: Si el usuario no seleccionó estado, intentar detectar uno de la query
                 effective_estado = request.estado
                 if not effective_estado:
@@ -3997,7 +3920,7 @@ async def chat_endpoint(request: ChatRequest):
                     estado=effective_estado,
                     top_k=request.top_k,
                     enable_reasoning=request.enable_reasoning,
-                    tipo_codigo=auto_tipo_codigo,  # DA VINCI: boost por tipo de código
+
                 )
                 doc_id_map = build_doc_id_map(search_results)
                 context_xml = format_results_as_xml(search_results, estado=effective_estado)
