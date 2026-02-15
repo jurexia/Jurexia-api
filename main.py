@@ -1948,33 +1948,25 @@ def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
 def get_filter_for_silo(silo_name: str, estado: Optional[str], tipo_codigo: Optional[str] = None) -> Optional[Filter]:
     """
     Retorna el filtro apropiado para cada silo.
-    - leyes_estatales: Filtra por estado seleccionado + tipo_codigo (Da Vinci)
+    - leyes_estatales: Filtra por estado seleccionado
     - leyes_federales: Sin filtro (todo es aplicable a cualquier estado)
     - jurisprudencia_nacional: Sin filtro (toda es aplicable)
     - bloque_constitucional: Sin filtro (CPEUM, tratados y CoIDH aplican a todo)
+    
+    NOTA: tipo_codigo se IGNORA en el filtro porque Qdrant trata `should` combinado
+    con `must` como filtro DURO (excluye docs que no matchean). Esto causaba que
+    leyes como la Ley de Propiedad en Condominio (tipo_codigo=CIVIL) fueran excluidas
+    cuando Da Vinci detectaba tipo_codigo=URBANO para queries de "condominio".
     """
     if silo_name == "leyes_estatales":
-        must_conditions = []
-        should_conditions = []
-        
         if estado:
             normalized = normalize_estado(estado)
             if normalized:
-                must_conditions.append(
-                    FieldCondition(key="entidad", match=MatchValue(value=normalized))
+                return Filter(
+                    must=[
+                        FieldCondition(key="entidad", match=MatchValue(value=normalized))
+                    ]
                 )
-        
-        # Da Vinci: tipo_codigo como SHOULD filter (boost, no excluye)
-        if tipo_codigo:
-            should_conditions.append(
-                FieldCondition(key="tipo_codigo", match=MatchValue(value=tipo_codigo))
-            )
-        
-        if must_conditions or should_conditions:
-            return Filter(
-                must=must_conditions if must_conditions else None,
-                should=should_conditions if should_conditions else None,
-            )
     
     # Para federales, jurisprudencia y bloque constitucional, no se aplica filtro de estado
     return None
