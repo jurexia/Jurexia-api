@@ -3088,13 +3088,14 @@ async def hybrid_search_all_silos(
         min_federales = min(6, len(federales))             
         min_estatales = min(3, len(estatales))             
     elif estado:
-        # Modo con ESTADO seleccionado: Priorizar AGRESIVAMENTE leyes estatales
-        # El usuario eligió un estado específico → necesita artículos de ley de ese estado
-        min_constitucional = min(6, len(constitucional))   
-        min_jurisprudencia = min(6, len(jurisprudencia))   
-        min_federales = min(6, len(federales))             
-        min_estatales = min(18, len(estatales))  # BOOST AGRESIVO: 18 slots para estatales
-        print(f"   📍 Boost estatal activo: {min_estatales} slots para leyes de {estado}")
+        # Modo con ESTADO seleccionado: Balance entre estatales y fuentes complementarias
+        # El usuario necesita TODAS las fuentes: estatales + federales + constitución + jurisprudencia
+        # Respuestas ricas requieren TODAS las capas normativas, no solo artículos estatales
+        min_constitucional = min(8, len(constitucional))   # Garantías constitucionales siempre relevantes
+        min_jurisprudencia = min(10, len(jurisprudencia))  # Jurisprudencia da criterios de aplicación
+        min_federales = min(10, len(federales))            # Leyes federales complementan estatales
+        min_estatales = min(12, len(estatales))            # Estatales: prioridad pero NO monopolio
+        print(f"   📍 Modo estatal BALANCEADO: {min_estatales} estatales + {min_federales} fed + {min_jurisprudencia} juris + {min_constitucional} const para {estado}")
     else:
         # Modo estándar sin estado: Balance amplio entre todos los silos
         min_constitucional = min(10, len(constitucional))   
