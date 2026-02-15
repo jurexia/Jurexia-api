@@ -1830,6 +1830,41 @@ def detect_multi_state_query(query: str) -> Optional[List[str]]:
     return None
 
 
+def detect_single_estado_from_query(query: str) -> Optional[str]:
+    """
+    Auto-detecta un ÚNICO estado mencionado en el texto de la query.
+    Se usa como fallback cuando el usuario NO seleccionó un estado en el dropdown.
+    
+    Solo retorna un estado si hay EXACTAMENTE 1 mención clara.
+    Si hay 0 o 2+ estados, retorna None (dejar que el flujo normal lo maneje).
+    
+    Ejemplo: "multa condominio cdmx" → "CIUDAD_DE_MEXICO"
+    Ejemplo: "divorcio en jalisco" → "JALISCO"  
+    Ejemplo: "multa estacionamiento" → None (no hay estado mencionado)
+    Ejemplo: "compara jalisco y cdmx" → None (multi-estado, se maneja aparte)
+    """
+    query_lower = query.lower()
+    
+    # Detect states mentioned (longest first to avoid partial matches)
+    found_states = []
+    sorted_keywords = sorted(ESTADO_KEYWORDS.keys(), key=len, reverse=True)
+    
+    remaining = query_lower
+    for keyword in sorted_keywords:
+        if keyword in remaining:
+            canonical = ESTADO_KEYWORDS[keyword]
+            if canonical not in found_states:
+                found_states.append(canonical)
+            remaining = remaining.replace(keyword, "")
+    
+    # Only return if exactly 1 state found
+    if len(found_states) == 1:
+        print(f"   🔍 AUTO-DETECT: Estado '{found_states[0]}' detectado en query")
+        return found_states[0]
+    
+    return None
+
+
 def detect_tipo_codigo(query: str) -> Optional[str]:
     """
     Auto-detecta el tipo de código legal que el usuario está buscando.
@@ -3920,9 +3955,17 @@ async def chat_endpoint(request: ChatRequest):
                 )
             else:
                 # Consulta normal (con tipo_codigo boost si detectado)
+                # AUTO-DETECT: Si el usuario no seleccionó estado, intentar detectar uno de la query
+                effective_estado = request.estado
+                if not effective_estado:
+                    auto_estado = detect_single_estado_from_query(last_user_message)
+                    if auto_estado:
+                        effective_estado = auto_estado
+                        print(f"   📍 AUTO-DETECT: Usando estado '{auto_estado}' detectado de la query")
+                
                 search_results = await hybrid_search_all_silos(
                     query=last_user_message,
-                    estado=request.estado,
+                    estado=effective_estado,
                     top_k=request.top_k,
                     enable_reasoning=request.enable_reasoning,
                     tipo_codigo=auto_tipo_codigo,  # DA VINCI: boost por tipo de código
