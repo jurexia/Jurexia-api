@@ -67,9 +67,9 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_CHAT_MODEL = "deepseek-chat"  # Used with thinking mode enabled
 REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thought
 
-# OpenAI API Configuration (GPT-5 Mini for chat + o3-mini for sentencia analysis + embeddings)
+# OpenAI API Configuration (o4-mini for chat + o3-mini for sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-CHAT_MODEL = "gpt-5-mini"  # For regular queries (high quality, OpenAI)
+CHAT_MODEL = "o4-mini"  # For regular queries (cost-effective reasoning, long output)
 SENTENCIA_MODEL = "o3-mini"  # For sentencia analysis (powerful reasoning, cost-effective)
 
 # Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
@@ -4001,7 +4001,7 @@ async def chat_endpoint(request: ChatRequest):
         # PASO 3: Generar respuesta con Thinking Mode auto-detectado
         # ─────────────────────────────────────────────────────────────────────
         # MODELO DUAL:
-        # - Thinking OFF → GPT-5 Mini (chat_client) para calidad superior
+        # - Thinking OFF → o4-mini (chat_client) para calidad + costo eficiente
         # - Thinking ON → DeepSeek Chat con thinking enabled (deepseek_client) para CoT
         
         use_thinking = should_use_thinking(has_document, is_drafting)
@@ -4019,10 +4019,10 @@ async def chat_endpoint(request: ChatRequest):
             active_model = DEEPSEEK_CHAT_MODEL
             max_tokens = 50000
         else:
-            # GPT-5 Mini: high quality chat, max 8192 tokens
+            # o4-mini: cost-effective reasoning model, max 16384 output tokens
             active_client = chat_client
             active_model = CHAT_MODEL
-            max_tokens = 8192
+            max_tokens = 16384
         
         print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
