@@ -69,7 +69,7 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 
 # OpenAI API Configuration (o4-mini for chat + o3-mini for sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-CHAT_MODEL = "o4-mini"  # For regular queries (cost-effective reasoning, long output)
+CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 SENTENCIA_MODEL = "o3-mini"  # For sentencia analysis (powerful reasoning, cost-effective)
 
 # Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
