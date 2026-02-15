@@ -2534,14 +2534,12 @@ async def hybrid_search_single_silo(
                 score_threshold=threshold,
             )
     
-    try:
-        # Intento 1: Con filtro completo
-        results = await _do_search(filter_)
-        
-        search_results = []
+    def _parse_results(results) -> List[SearchResult]:
+        """Convierte puntos de Qdrant en SearchResult."""
+        parsed = []
         for point in results.points:
             payload = point.payload or {}
-            search_results.append(SearchResult(
+            parsed.append(SearchResult(
                 id=str(point.id),
                 score=point.score,
                 texto=payload.get("texto", payload.get("text", "")),
@@ -2551,6 +2549,34 @@ async def hybrid_search_single_silo(
                 entidad=payload.get("entidad"),
                 silo=collection,
             ))
+        return parsed
+    
+    try:
+        # Intento 1: Búsqueda híbrida (prefetch sparse → dense rerank)
+        results = await _do_search(filter_)
+        search_results = _parse_results(results)
+        
+        # FALLBACK: Si hybrid devuelve 0 resultados pero la colección tiene sparse,
+        # reintentar con SOLO dense. Esto ocurre cuando el sparse prefetch no encuentra
+        # candidatos (ej: modelo BM25 diferente entre indexación y query).
+        if not search_results:
+            col_info = await qdrant_client.get_collection(collection)
+            sparse_cfg = col_info.config.params.sparse_vectors
+            has_sparse = sparse_cfg is not None and len(sparse_cfg) > 0
+            if has_sparse:
+                print(f"   ⚠️ Hybrid devolvió 0 en {collection}, fallback a dense-only...")
+                threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
+                dense_results = await qdrant_client.query_points(
+                    collection_name=collection,
+                    query=dense_vector,
+                    using="dense",
+                    limit=top_k,
+                    query_filter=filter_,
+                    with_payload=True,
+                    score_threshold=threshold,
+                )
+                search_results = _parse_results(dense_results)
+                print(f"   ✅ Dense-only fallback: {len(search_results)} resultados en {collection}")
         
         return search_results
     
