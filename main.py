@@ -72,12 +72,31 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 SENTENCIA_MODEL = "o3-mini"  # For sentencia analysis (powerful reasoning, cost-effective)
 
-# Silos V4.2 de Jurexia (incluye Bloque de Constitucionalidad)
-SILOS = {
+# Silos V5.0 de Jurexia — Arquitectura 32 Silos por Estado
+# Silos FIJOS: siempre se buscan independientemente del estado
+FIXED_SILOS = {
     "federal": "leyes_federales",
-    "estatal": "leyes_estatales",
     "jurisprudencia": "jurisprudencia_nacional",
     "constitucional": "bloque_constitucional",  # Constitución, Tratados DDHH, Jurisprudencia CoIDH
+}
+
+# Mapa estado → colección dedicada en Qdrant
+# Se agregan progresivamente conforme se ingestan estados
+ESTADO_SILO = {
+    "QUERETARO": "leyes_queretaro",
+    "CDMX": "leyes_cdmx",
+    # Próximos estados:
+    # "JALISCO": "leyes_jalisco",
+    # "NUEVO_LEON": "leyes_nuevo_leon",
+}
+
+# Fallback: colección legacy para estados no migrados
+LEGACY_ESTATAL_SILO = "leyes_estatales"
+
+# Alias de compatibilidad: SILOS ahora incluye fijos + legacy
+SILOS = {
+    **FIXED_SILOS,
+    "estatal": LEGACY_ESTATAL_SILO,  # Legacy fallback
 }
 
 # Estados mexicanos válidos (normalizados a mayúsculas)
@@ -1891,11 +1910,14 @@ def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
 def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filter]:
     """
     Retorna el filtro apropiado para cada silo.
-    - leyes_estatales: Filtra por estado seleccionado
-    - leyes_federales: Sin filtro (todo es aplicable a cualquier estado)
-    - jurisprudencia_nacional: Sin filtro (toda es aplicable)
-    - bloque_constitucional: Sin filtro (CPEUM, tratados y CoIDH aplican a todo)
+    V5.0: Las colecciones dedicadas por estado NO necesitan filtro.
+    Solo el silo legacy leyes_estatales necesita filtro por entidad.
     """
+    # Colecciones dedicadas por estado (leyes_queretaro, leyes_cdmx, etc.) → sin filtro
+    if silo_name.startswith("leyes_") and silo_name not in ("leyes_federales", "leyes_estatales"):
+        return None
+    
+    # Silo legacy: leyes_estatales → filtrar por entidad
     if silo_name == "leyes_estatales":
         if estado:
             normalized = normalize_estado(estado)
@@ -1906,7 +1928,7 @@ def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filte
                     ]
                 )
     
-    # Para federales, jurisprudencia y bloque constitucional, no se aplica filtro de estado
+    # Para federales, jurisprudencia y bloque constitucional, no se aplica filtro
     return None
 
 
@@ -2967,9 +2989,30 @@ async def hybrid_search_all_silos(
     dense_vector = await dense_task
     
     # Búsqueda paralela en los 4 silos CON FILTROS ESPECÍFICOS POR SILO
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PASO 1b: Determinar silos a buscar (V5.0 — dinámico por estado)
+    # ═══════════════════════════════════════════════════════════════════════════
+    silos_to_search = list(FIXED_SILOS.values())  # Siempre: federal + juris + constitucional
+    
+    if estado:
+        normalized_estado = normalize_estado(estado)
+        if normalized_estado and normalized_estado in ESTADO_SILO:
+            # Estado con colección dedicada → buscar directamente (sin filtro)
+            silos_to_search.append(ESTADO_SILO[normalized_estado])
+            print(f"   📍 Estado '{normalized_estado}' → silo dedicado: {ESTADO_SILO[normalized_estado]}")
+        else:
+            # Estado sin colección dedicada → fallback al silo legacy con filtro
+            silos_to_search.append(LEGACY_ESTATAL_SILO)
+            print(f"   📍 Estado '{estado}' → fallback a silo legacy: {LEGACY_ESTATAL_SILO}")
+    else:
+        # Sin estado seleccionado → buscar en TODOS los silos estatales disponibles
+        silos_to_search.extend(ESTADO_SILO.values())
+        silos_to_search.append(LEGACY_ESTATAL_SILO)  # Incluir legacy para estados no migrados
+        print(f"   📍 Sin estado → buscando en {len(ESTADO_SILO) + 1} silos estatales")
+    
     tasks = []
-    for silo_name in SILOS.values():
-        # Filtro por estado para leyes_estatales
+    for silo_name in silos_to_search:
+        # Filtro por estado: solo necesario para el silo legacy
         state_filter = get_filter_for_silo(silo_name, estado)
         
         # Filtro por metadata (si enable_reasoning y hay materia detectada)
@@ -2978,10 +3021,8 @@ async def hybrid_search_all_silos(
             metadata_filter = build_metadata_filter(materia_filter)
         
         # Combinar filtros: NUNCA mezclar must+should (Qdrant hard filter bug)
-        # Si hay state_filter, SOLO usar ese — la materia se resuelve por scoring semántico
         combined_filter = state_filter
         if not state_filter and metadata_filter:
-            # Solo metadata filter (sin estado seleccionado)
             combined_filter = metadata_filter
         
         tasks.append(
@@ -2990,7 +3031,7 @@ async def hybrid_search_all_silos(
                 query=query,
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
-                filter_=combined_filter,  # Filtro combinado (estado + metadata)
+                filter_=combined_filter,
                 top_k=top_k,
                 alpha=alpha,
             )
@@ -3009,12 +3050,13 @@ async def hybrid_search_all_silos(
         for r in results:
             if r.silo == "leyes_federales":
                 federales.append(r)
-            elif r.silo == "leyes_estatales":
-                estatales.append(r)
             elif r.silo == "jurisprudencia_nacional":
                 jurisprudencia.append(r)
             elif r.silo == "bloque_constitucional":
                 constitucional.append(r)
+            elif r.silo.startswith("leyes_") or r.silo == LEGACY_ESTATAL_SILO:
+                # Todos los silos estatales (dedicados + legacy) van a «estatales»
+                estatales.append(r)
     
     # Ordenar cada grupo por score
     federales.sort(key=lambda x: x.score, reverse=True)
@@ -3074,7 +3116,7 @@ async def hybrid_search_all_silos(
     silo_counts = {}
     for r in merged:
         silo_counts[r.silo] = silo_counts.get(r.silo, 0) + 1
-        if r.silo == "leyes_estatales":
+        if r.silo.startswith("leyes_") and r.silo != "leyes_federales":
             print(f"      ⭐ [{r.silo}] ref={r.ref} origen={r.origen[:60] if r.origen else 'N/A'} score={r.score:.4f}")
     for silo, count in silo_counts.items():
         print(f"      📊 {silo}: {count} documentos")
@@ -3085,17 +3127,20 @@ async def hybrid_search_all_silos(
     article_numbers = detect_article_numbers(query)
     if article_numbers and estado:
         print(f"   🔍 Multi-query: buscando artículo(s) {article_numbers} en leyes estatales")
+        # Determinar colección estatal: silo dedicado o legacy
+        normalized_est = normalize_estado(estado)
+        estatal_col = ESTADO_SILO.get(normalized_est, LEGACY_ESTATAL_SILO) if normalized_est else LEGACY_ESTATAL_SILO
         for art_num in article_numbers[:2]:  # Máximo 2 artículos por query
             article_query = f"artículo {art_num}"
             try:
                 art_dense = await get_dense_embedding(article_query)
                 art_sparse = get_sparse_embedding(article_query)
                 extra_results = await hybrid_search_single_silo(
-                    collection="leyes_estatales",
+                    collection=estatal_col,
                     query=article_query,
                     dense_vector=art_dense,
                     sparse_vector=art_sparse,
-                    filter_=get_filter_for_silo("leyes_estatales", estado),
+                    filter_=get_filter_for_silo(estatal_col, estado),
                     top_k=5,
                     alpha=0.7,
                 )
@@ -3232,15 +3277,21 @@ async def hybrid_search_multi_state(
     
     # Búsqueda paralela: un task por estado
     async def search_one_state(estado_name: str) -> tuple:
-        """Busca en leyes_estatales filtrado por estado"""
-        state_filter = Filter(
-            must=[
-                FieldCondition(key="entidad", match=MatchValue(value=estado_name))
-            ]
-        )
+        """Busca en la colección del estado (dedicada o legacy)"""
+        # Determinar colección: silo dedicado o legacy con filtro
+        if estado_name in ESTADO_SILO:
+            collection = ESTADO_SILO[estado_name]
+            state_filter = None  # Sin filtro en colección dedicada
+        else:
+            collection = LEGACY_ESTATAL_SILO
+            state_filter = Filter(
+                must=[
+                    FieldCondition(key="entidad", match=MatchValue(value=estado_name))
+                ]
+            )
         
         results = await hybrid_search_single_silo(
-            collection="leyes_estatales",
+            collection=collection,
             query=query,
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
@@ -4447,6 +4498,7 @@ async def enhance_legal_text(request: EnhanceRequest):
 
 class ReingestRequest(BaseModel):
     entidad: Optional[str] = None  # Filter by state, or None for all
+    collection: str = "leyes_estatales"  # V5.0: accept any collection name
     admin_key: str  # Simple auth to prevent abuse
 
 _reingest_running = False
@@ -4455,7 +4507,8 @@ _reingest_status = {"status": "idle", "processed": 0, "total": 0, "errors": 0}
 @app.post("/admin/reingest-sparse")
 async def admin_reingest_sparse(req: ReingestRequest):
     """
-    Genera BM25 sparse vectors reales para leyes_estatales.
+    Genera BM25 sparse vectors reales para una colección.
+    V5.0: Soporta leyes_estatales (legacy) y colecciones por estado.
     Corre como background task. Solo permite una ejecución a la vez.
     """
     global _reingest_running, _reingest_status
@@ -4468,7 +4521,7 @@ async def admin_reingest_sparse(req: ReingestRequest):
     if _reingest_running:
         return {"status": "already_running", **_reingest_status}
     
-    async def _run_reingest(entidad: Optional[str]):
+    async def _run_reingest(entidad: Optional[str], collection_name: str):
         global _reingest_running, _reingest_status
         _reingest_running = True
         _reingest_status = {"status": "running", "processed": 0, "total": 0, "errors": 0}
@@ -4483,10 +4536,10 @@ async def admin_reingest_sparse(req: ReingestRequest):
                     must=[FieldCondition(key="entidad", match=MatchValue(value=entidad))]
                 )
             count_result = await qdrant_client.count(
-                collection_name="leyes_estatales", count_filter=filter_
+                collection_name=collection_name, count_filter=filter_
             )
             _reingest_status["total"] = count_result.count
-            print(f"[REINGEST] Starting BM25 re-ingestion: {count_result.count} points, entidad={entidad}")
+            print(f"[REINGEST] Starting BM25 re-ingestion: {count_result.count} points in {collection_name}, entidad={entidad}")
             
             # Scroll and process
             offset = None
@@ -4494,7 +4547,7 @@ async def admin_reingest_sparse(req: ReingestRequest):
             
             while True:
                 results, next_offset = await qdrant_client.scroll(
-                    collection_name="leyes_estatales",
+                    collection_name=collection_name,
                     scroll_filter=filter_,
                     limit=100,
                     offset=offset,
@@ -4533,7 +4586,7 @@ async def admin_reingest_sparse(req: ReingestRequest):
                 if updates:
                     try:
                         await qdrant_client.update_vectors(
-                            collection_name="leyes_estatales",
+                            collection_name=collection_name,
                             points=updates,
                         )
                     except Exception as e:
@@ -4561,7 +4614,7 @@ async def admin_reingest_sparse(req: ReingestRequest):
             _reingest_running = False
     
     # Launch as background task
-    asyncio.create_task(_run_reingest(req.entidad))
+    asyncio.create_task(_run_reingest(req.entidad, req.collection))
     
     return {"status": "started", "entidad": req.entidad, "message": "Check GET /admin/reingest-status for progress"}
 
