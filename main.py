@@ -3108,14 +3108,13 @@ async def hybrid_search_all_silos(
         min_federales = min(6, len(federales))             
         min_estatales = min(3, len(estatales))             
     elif estado:
-        # Modo con ESTADO seleccionado: Balance entre estatales y fuentes complementarias
-        # El usuario necesita TODAS las fuentes: estatales + federales + constitución + jurisprudencia
-        # Respuestas ricas requieren TODAS las capas normativas, no solo artículos estatales
-        min_constitucional = min(8, len(constitucional))   # Garantías constitucionales siempre relevantes
-        min_jurisprudencia = min(10, len(jurisprudencia))  # Jurisprudencia da criterios de aplicación
-        min_federales = min(10, len(federales))            # Leyes federales complementan estatales
-        min_estatales = min(12, len(estatales))            # Estatales: prioridad pero NO monopolio
-        print(f"   📍 Modo estatal BALANCEADO: {min_estatales} estatales + {min_federales} fed + {min_jurisprudencia} juris + {min_constitucional} const para {estado}")
+        # Modo con ESTADO seleccionado: LEYES ESTATALES SON LA PRIORIDAD
+        # Cuando el usuario selecciona un estado, la legislación local es lo principal
+        min_estatales = min(15, len(estatales))            # MÁXIMA prioridad: legislación local
+        min_jurisprudencia = min(8, len(jurisprudencia))   # Jurisprudencia complementa
+        min_federales = min(5, len(federales))             # Federales supletorias
+        min_constitucional = min(4, len(constitucional))   # Constitucional solo si aplica
+        print(f"   📍 Modo estatal PRIORIZADO: {min_estatales} estatales + {min_jurisprudencia} juris + {min_federales} fed + {min_constitucional} const para {estado}")
     else:
         # Modo estándar sin estado: Balance amplio entre todos los silos
         min_constitucional = min(10, len(constitucional))   
@@ -3125,12 +3124,29 @@ async def hybrid_search_all_silos(
     
     merged = []
     
-    # Primero añadir los mejores de cada categoría garantizada
-    # Bloque constitucional primero (mayor jerarquía normativa)
-    merged.extend(constitucional[:min_constitucional])
-    merged.extend(federales[:min_federales])
-    merged.extend(estatales[:min_estatales])
-    merged.extend(jurisprudencia[:min_jurisprudencia])
+    if estado:
+        # CUANDO HAY ESTADO: leyes estatales VAN PRIMERO en el contexto
+        # El LLM procesa los primeros documentos con mayor atención
+        merged.extend(estatales[:min_estatales])
+        merged.extend(jurisprudencia[:min_jurisprudencia])
+        merged.extend(federales[:min_federales])
+        merged.extend(constitucional[:min_constitucional])
+    else:
+        # Sin estado: orden estándar por jerarquía normativa
+        merged.extend(constitucional[:min_constitucional])
+        merged.extend(federales[:min_federales])
+        merged.extend(estatales[:min_estatales])
+        merged.extend(jurisprudencia[:min_jurisprudencia])
+    
+    # === PRODUCTION LOGGING: qué documentos van al contexto ===
+    print(f"\n   📋 MERGED RESULTS ({len(merged)} total):")
+    silo_counts = {}
+    for r in merged:
+        silo_counts[r.silo] = silo_counts.get(r.silo, 0) + 1
+        if r.silo == "leyes_estatales":
+            print(f"      ⭐ [{r.silo}] ref={r.ref} origen={r.origen[:60] if r.origen else 'N/A'} score={r.score:.4f}")
+    for silo, count in silo_counts.items():
+        print(f"      📊 {silo}: {count} documentos")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # MULTI-QUERY: Búsqueda adicional para artículos específicos
@@ -3993,6 +4009,15 @@ async def chat_endpoint(request: ChatRequest):
                 )
                 doc_id_map = build_doc_id_map(search_results)
                 context_xml = format_results_as_xml(search_results, estado=effective_estado)
+                
+                # === PRODUCTION LOG: verificar qué documentos van al LLM ===
+                estatales_in_context = [r for r in search_results if r.silo == "leyes_estatales"]
+                print(f"\n   🔬 CONTEXT AUDIT (estado={effective_estado}):")
+                print(f"      Total docs en contexto: {len(search_results)}")
+                print(f"      Leyes estatales: {len(estatales_in_context)}")
+                for r in estatales_in_context[:5]:
+                    print(f"         → ref={r.ref}, origen={r.origen[:50] if r.origen else 'N/A'}, score={r.score:.4f}")
+                print(f"      context_xml length: {len(context_xml)} chars")
         
         # ─────────────────────────────────────────────────────────────────────
         # PASO 2: Construir mensajes para LLM
