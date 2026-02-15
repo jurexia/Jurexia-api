@@ -83,7 +83,7 @@ SILOS = {
 # Estados mexicanos válidos (normalizados a mayúsculas)
 ESTADOS_MEXICO = [
     "AGUASCALIENTES", "BAJA_CALIFORNIA", "BAJA_CALIFORNIA_SUR", "CAMPECHE",
-    "CHIAPAS", "CHIHUAHUA", "CIUDAD_DE_MEXICO", "COAHUILA", "COLIMA",
+    "CHIAPAS", "CHIHUAHUA", "CDMX", "COAHUILA", "COLIMA",
     "DURANGO", "ESTADO_DE_MEXICO", "GUANAJUATO", "GUERRERO", "HIDALGO", "JALISCO",
     "MICHOACAN", "MORELOS", "NAYARIT", "NUEVO_LEON", "OAXACA", "PUEBLA",
     "QUERETARO", "QUINTANA_ROO", "SAN_LUIS_POTOSI", "SINALOA", "SONORA",
@@ -1716,9 +1716,9 @@ def normalize_estado(estado: Optional[str]) -> Optional[str]:
     ESTADO_ALIASES = {
         # Nuevo León
         "NL": "NUEVO_LEON", "NUEVOLEON": "NUEVO_LEON",
-        # CDMX
-        "CDMX": "CIUDAD_DE_MEXICO", "DF": "CIUDAD_DE_MEXICO",
-        "DISTRITO_FEDERAL": "CIUDAD_DE_MEXICO",
+        # CDMX — Qdrant almacena como "CDMX", no "CIUDAD_DE_MEXICO"
+        "CIUDAD_DE_MEXICO": "CDMX", "DF": "CDMX",
+        "DISTRITO_FEDERAL": "CDMX",
         # Coahuila (Qdrant almacena como COAHUILA, no COAHUILA_DE_ZARAGOZA)
         "COAHUILA_DE_ZARAGOZA": "COAHUILA",
         # Estado de México
@@ -1755,9 +1755,9 @@ ESTADO_KEYWORDS = {
     "campeche": "CAMPECHE",
     "chiapas": "CHIAPAS",
     "chihuahua": "CHIHUAHUA",
-    "ciudad de mexico": "CIUDAD_DE_MEXICO", "cdmx": "CIUDAD_DE_MEXICO",
-    "ciudad de méxico": "CIUDAD_DE_MEXICO",
-    "distrito federal": "CIUDAD_DE_MEXICO",
+    "ciudad de mexico": "CDMX", "cdmx": "CDMX",
+    "ciudad de méxico": "CDMX",
+    "distrito federal": "CDMX",
     "coahuila": "COAHUILA",
     "colima": "COLIMA",
     "durango": "DURANGO",
@@ -1825,7 +1825,7 @@ def detect_multi_state_query(query: str) -> Optional[List[str]]:
     if is_comparative and "todos" in query_lower:
         print(f"   🔍 DA VINCI: Query comparativa para TODOS los estados")
         # Retornar top 5 estados con más datos para no saturar
-        return ["QUERETARO", "NUEVO_LEON", "JALISCO", "CIUDAD_DE_MEXICO", "PUEBLA"]
+        return ["QUERETARO", "NUEVO_LEON", "JALISCO", "CDMX", "PUEBLA"]
     
     return None
 
