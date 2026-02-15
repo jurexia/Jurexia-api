@@ -3519,6 +3519,7 @@ class DocumentResponse(BaseModel):
     materia: Optional[str] = None
     tesis_num: Optional[str] = None
     tipo_criterio: Optional[str] = None
+    url_pdf: Optional[str] = None
 
 
 @app.get("/document/{doc_id}", response_model=DocumentResponse)
@@ -3564,6 +3565,7 @@ async def get_document(doc_id: str):
                         materia=materia_str,
                         tesis_num=payload.get("tesis", payload.get("tesis_num", None)),
                         tipo_criterio=payload.get("tipo", payload.get("tipo_criterio", None)),
+                        url_pdf=payload.get("url_pdf", None),
                     )
             except Exception:
                 # ID no encontrado en este silo, continuar
