@@ -4014,13 +4014,19 @@ async def chat_endpoint(request: ChatRequest):
         if _estado_for_llm:
             estado_humano = _estado_for_llm.replace("_", " ").title()
             llm_messages.append({"role": "system", "content": (
-                f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n"
-                f"INSTRUCCIÓN CRÍTICA: El usuario está consultando desde {estado_humano}. "
-                f"PRIORIZA las leyes y códigos de {estado_humano} del contexto recuperado "
-                f"sobre las leyes federales cuando ambas apliquen al mismo tema. "
-                f"Cita los artículos ESPECÍFICOS de la legislación de {estado_humano} "
-                f"antes de mencionar la legislación federal. "
-                f"NUNCA digas 'consulte la ley local' — TÚ tienes la ley local en el contexto."
+                f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                f"INSTRUCCIÓN CRÍTICA — PRIORIDAD DE FUENTES:\n"
+                f"1. El usuario consulta desde {estado_humano}. Los documentos del contexto "
+                f"que provienen de leyes de {estado_humano} son la FUENTE PRINCIPAL.\n"
+                f"2. En la sección '## Fundamento Legal', TRANSCRIBE PRIMERO los artículos "
+                f"TEXTUALES de las leyes de {estado_humano} que estén en el contexto. "
+                f"Copia el texto del artículo tal como aparece en el contexto con su [Doc ID: uuid].\n"
+                f"3. Las leyes federales (Código Civil Federal, etc.) son SUPLETORIAS — "
+                f"cítalas DESPUÉS de los artículos locales, no en lugar de ellos.\n"
+                f"4. La jurisprudencia COMPLEMENTA el fundamento legal, no lo reemplaza. "
+                f"Primero cita el artículo de la ley local, luego la tesis que lo interpreta.\n"
+                f"5. NUNCA digas 'consulte la ley local' ni 'esos textos no se transcriben aquí' "
+                f"— TÚ tienes los artículos de la ley local en el contexto, TRANSCRÍBELOS."
             )})
             print(f"   📍 Estado inyectado al LLM: {estado_humano}")
         
