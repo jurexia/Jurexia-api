@@ -2977,16 +2977,11 @@ async def hybrid_search_all_silos(
         if enable_reasoning and materia_filter:
             metadata_filter = build_metadata_filter(materia_filter)
         
-        # Combinar filtros si ambos existen
+        # Combinar filtros: NUNCA mezclar must+should (Qdrant hard filter bug)
+        # Si hay state_filter, SOLO usar ese — la materia se resuelve por scoring semántico
         combined_filter = state_filter
-        if state_filter and metadata_filter:
-            # Ambos filtros: MUST state + SHOULD materia (refina pero no restringe demasiado)
-            combined_filter = Filter(
-                must=[state_filter.must[0]] if state_filter.must else [],
-                should=metadata_filter.should if metadata_filter.should else []
-            )
-        elif metadata_filter:
-            # Solo metadata filter
+        if not state_filter and metadata_filter:
+            # Solo metadata filter (sin estado seleccionado)
             combined_filter = metadata_filter
         
         tasks.append(
@@ -3026,6 +3021,14 @@ async def hybrid_search_all_silos(
     estatales.sort(key=lambda x: x.score, reverse=True)
     jurisprudencia.sort(key=lambda x: x.score, reverse=True)
     constitucional.sort(key=lambda x: x.score, reverse=True)
+    
+    # === DIAGNOSTIC LOGGING: TOP-3 per silo para diagnóstico de relevancia ===
+    print(f"\n   🔎 RAW RETRIEVAL SCORES (pre-merge):")
+    for label, group in [("ESTATALES", estatales), ("FEDERALES", federales), ("JURIS", jurisprudencia), ("CONST", constitucional)]:
+        print(f"      {label} ({len(group)} results):")
+        for r in group[:3]:
+            origen_short = r.origen[:55] if r.origen else 'N/A'
+            print(f"         {r.score:.4f} | ref={r.ref} | {origen_short}")
     
     # Fusión balanceada DINÁMICA según tipo de query
     # Para queries de DDHH, priorizar agresivamente el bloque constitucional
