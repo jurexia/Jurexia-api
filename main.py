@@ -4008,6 +4008,22 @@ async def chat_endpoint(request: ChatRequest):
         # Inyección de Contexto Global: Inventario del Sistema
         llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
         
+        # Inyectar estado seleccionado para que el LLM priorice leyes locales
+        # effective_estado sólo existe en el flujo normal; usar request.estado como fallback
+        _estado_for_llm = locals().get("effective_estado") or request.estado
+        if _estado_for_llm:
+            estado_humano = _estado_for_llm.replace("_", " ").title()
+            llm_messages.append({"role": "system", "content": (
+                f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n"
+                f"INSTRUCCIÓN CRÍTICA: El usuario está consultando desde {estado_humano}. "
+                f"PRIORIZA las leyes y códigos de {estado_humano} del contexto recuperado "
+                f"sobre las leyes federales cuando ambas apliquen al mismo tema. "
+                f"Cita los artículos ESPECÍFICOS de la legislación de {estado_humano} "
+                f"antes de mencionar la legislación federal. "
+                f"NUNCA digas 'consulte la ley local' — TÚ tienes la ley local en el contexto."
+            )})
+            print(f"   📍 Estado inyectado al LLM: {estado_humano}")
+        
         if context_xml:
             llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
         
