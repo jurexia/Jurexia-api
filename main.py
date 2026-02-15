@@ -2334,11 +2334,12 @@ def get_sparse_embedding(text: str) -> SparseVector:
 # Maximum characters per document to prevent token overflow
 MAX_DOC_CHARS = 6000
 
-def format_results_as_xml(results: List[SearchResult]) -> str:
+def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = None) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
     Escapa caracteres HTML para seguridad.
     Trunca documentos largos para evitar exceder límite de tokens.
+    Si estado está presente, marca documentos estatales como FUENTE_PRINCIPAL.
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
@@ -2347,6 +2348,17 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
     enrich_missing_metadata(results)
     
     xml_parts = ["<documentos>"]
+    
+    # Si hay estado, inyectar instrucción de prioridad DENTRO del XML
+    if estado:
+        estado_humano = estado.replace("_", " ").title()
+        xml_parts.append(
+            f'<!-- INSTRUCCIÓN: Los documentos marcados tipo="LEGISLACION_ESTATAL" de '
+            f'{estado_humano} son la FUENTE PRINCIPAL. En tu sección Fundamento Legal, '
+            f'TRANSCRIBE el texto de estos artículos PRIMERO con su [Doc ID: uuid]. '
+            f'La jurisprudencia va DESPUÉS como complemento interpretativo. -->'
+        )
+    
     for r in results:
         # Truncate long documents to fit within token limits
         texto = r.texto
@@ -2358,10 +2370,18 @@ def format_results_as_xml(results: List[SearchResult]) -> str:
         escaped_origen = html.escape(humanize_origen(r.origen) or "Desconocido")
         
         escaped_jurisdiccion = html.escape(r.jurisdiccion or "N/A")
+        
+        # Marcar documentos estatales como FUENTE PRINCIPAL cuando hay estado seleccionado
+        tipo_tag = ""
+        if estado and r.silo == "leyes_estatales":
+            tipo_tag = ' tipo="LEGISLACION_ESTATAL" prioridad="PRINCIPAL"'
+        elif r.silo == "jurisprudencia_nacional":
+            tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
+        
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
             f'origen="{escaped_origen}" silo="{r.silo}" '
-            f'jurisdiccion="{escaped_jurisdiccion}" score="{r.score:.4f}">\n'
+            f'jurisdiccion="{escaped_jurisdiccion}" score="{r.score:.4f}"{tipo_tag}>\n'
             f'{escaped_texto}\n'
             f'</documento>'
         )
@@ -3972,7 +3992,7 @@ async def chat_endpoint(request: ChatRequest):
                     tipo_codigo=auto_tipo_codigo,  # DA VINCI: boost por tipo de código
                 )
                 doc_id_map = build_doc_id_map(search_results)
-                context_xml = format_results_as_xml(search_results)
+                context_xml = format_results_as_xml(search_results, estado=effective_estado)
         
         # ─────────────────────────────────────────────────────────────────────
         # PASO 2: Construir mensajes para LLM
