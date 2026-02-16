@@ -4832,6 +4832,206 @@ async def draft_sentencia(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# EXPORT — Download sentencia as formatted DOCX
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SENTENCIA_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "sentencia_tcc_template.docx")
+
+
+class ExportSentenciaRequest(BaseModel):
+    sentencia_text: str
+    tipo: str = "amparo_directo"
+    numero_expediente: str = ""
+    materia: str = "CIVIL"
+    quejoso: str = ""
+    magistrado: str = ""
+    secretario: str = ""
+    user_email: str = ""
+
+
+@app.post("/export-sentencia-docx")
+async def export_sentencia_docx(req: ExportSentenciaRequest):
+    """
+    Exporta el texto de sentencia generado en un DOCX con formato oficial TCC.
+    Usa el template con sellos, membrete, y formato Arial 14pt justificado.
+    """
+    import io
+    from docx import Document as DocxDocument
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    # ── Admin validation ─────────────────────────────────────────────────
+    if req.user_email and ADMIN_EMAILS:
+        if req.user_email.strip().lower() not in ADMIN_EMAILS:
+            raise HTTPException(403, "Acceso restringido a administradores")
+
+    if not req.sentencia_text.strip():
+        raise HTTPException(400, "El texto de la sentencia está vacío")
+
+    # ── Load template ────────────────────────────────────────────────────
+    if not os.path.exists(SENTENCIA_TEMPLATE_PATH):
+        raise HTTPException(500, "Template DOCX no encontrado en el servidor")
+
+    try:
+        doc = DocxDocument(SENTENCIA_TEMPLATE_PATH)
+    except Exception as e:
+        raise HTTPException(500, f"Error al abrir template: {e}")
+
+    # ── Type display names ───────────────────────────────────────────────
+    tipo_display = {
+        "amparo_directo": "AMPARO DIRECTO",
+        "amparo_revision": "AMPARO EN REVISIÓN",
+        "revision_fiscal": "REVISIÓN FISCAL",
+        "queja": "RECURSO DE QUEJA",
+    }.get(req.tipo, "AMPARO DIRECTO")
+
+    # ── Update header text with expediente number ────────────────────────
+    for section in doc.sections:
+        header = section.header
+        for para in header.paragraphs:
+            if para.text.strip():
+                # Replace the case number in header
+                if req.numero_expediente:
+                    para.text = f"{tipo_display} {req.materia.upper()} {req.numero_expediente}"
+                    for run in para.runs:
+                        run.font.name = "Arial"
+                        run.font.size = Pt(14)
+                        run.bold = True
+
+    # ── Clear existing body paragraphs (keep only format) ────────────────
+    # Remove all paragraphs except the last empty one
+    for para in doc.paragraphs:
+        p_element = para._element
+        p_element.getparent().remove(p_element)
+
+    # ── Build metadata header ────────────────────────────────────────────
+    metadata_lines = []
+    if req.numero_expediente:
+        metadata_lines.append(
+            (f"{tipo_display}: {req.numero_expediente}", True)
+        )
+    else:
+        metadata_lines.append((f"{tipo_display}:", True))
+
+    metadata_lines.append(("", False))  # blank line
+
+    if req.materia:
+        metadata_lines.append((f"MATERIA: {req.materia.upper()}", True))
+        metadata_lines.append(("", False))
+
+    if req.quejoso:
+        metadata_lines.append((f"QUEJOSO(A): {req.quejoso.upper()}", True))
+        metadata_lines.append(("", False))
+
+    if req.magistrado:
+        metadata_lines.append(("MAGISTRADO PONENTE:", True))
+        metadata_lines.append((req.magistrado.upper(), False))
+        metadata_lines.append(("", False))
+
+    if req.secretario:
+        metadata_lines.append(("SECRETARIO:", True))
+        metadata_lines.append((req.secretario.upper(), False))
+        metadata_lines.append(("", False))
+
+    # Add blank lines before body
+    metadata_lines.append(("", False))
+    metadata_lines.append(("", False))
+
+    # ── Write metadata paragraphs ────────────────────────────────────────
+    for text, is_bold in metadata_lines:
+        para = doc.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        if text:
+            run = para.add_run(text)
+            run.font.name = "Arial"
+            run.font.size = Pt(14)
+            run.bold = is_bold
+        else:
+            run = para.add_run("")
+            run.font.name = "Arial"
+            run.font.size = Pt(14)
+
+    # ── Write sentencia body ─────────────────────────────────────────────
+    # Split text into paragraphs and write each one
+    body_lines = req.sentencia_text.split("\n")
+    for line in body_lines:
+        para = doc.add_paragraph()
+        para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        clean_line = line.strip()
+
+        if not clean_line:
+            # Empty paragraph
+            run = para.add_run("")
+            run.font.name = "Arial"
+            run.font.size = Pt(14)
+        else:
+            # Check if this line should be bold (headers, section titles)
+            is_header = (
+                clean_line.startswith("#")
+                or clean_line.isupper()
+                or clean_line.startswith("PRIMERO")
+                or clean_line.startswith("SEGUNDO")
+                or clean_line.startswith("TERCERO")
+                or clean_line.startswith("CUARTO")
+                or clean_line.startswith("QUINTO")
+                or clean_line.startswith("SEXTO")
+                or clean_line.startswith("SÉPTIMO")
+                or clean_line.startswith("OCTAVO")
+                or clean_line.startswith("NOVENO")
+                or clean_line.startswith("DÉCIMO")
+                or clean_line.startswith("R E S U L T A N D O")
+                or clean_line.startswith("C O N S I D E R A N D O")
+                or clean_line.startswith("V I S T O")
+                or clean_line.startswith("P U N T O S")
+                or clean_line.startswith("RESULTANDO")
+                or clean_line.startswith("CONSIDERANDO")
+                or clean_line.startswith("RESUELVE")
+            )
+
+            # Remove markdown # headers
+            display_text = clean_line.lstrip("# ").strip() if clean_line.startswith("#") else clean_line
+
+            # Handle **bold** markdown within text
+            import re
+            bold_pattern = re.compile(r'\*\*(.*?)\*\*')
+            parts = bold_pattern.split(display_text)
+
+            if len(parts) > 1:
+                # Has inline bold markers
+                for idx, part in enumerate(parts):
+                    if part:
+                        run = para.add_run(part)
+                        run.font.name = "Arial"
+                        run.font.size = Pt(14)
+                        # Odd indices are the bold parts (inside **)
+                        run.bold = (idx % 2 == 1) or is_header
+            else:
+                run = para.add_run(display_text)
+                run.font.name = "Arial"
+                run.font.size = Pt(14)
+                run.bold = is_header
+
+    # ── Save to buffer ───────────────────────────────────────────────────
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    filename = f"Sentencia_{req.tipo}_{req.numero_expediente or 'borrador'}.docx".replace("/", "-").replace(" ", "_")
+
+    print(f"   📄 DOCX exportado: {filename} ({buffer.getbuffer().nbytes:,} bytes)")
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ADMIN — Reingest Sparse Vectors
 # ═══════════════════════════════════════════════════════════════════════════════
 
