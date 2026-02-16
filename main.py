@@ -3316,7 +3316,7 @@ async def hybrid_search_multi_state(
     # También buscar en bloque constitucional + federales (aplican a todos)
     fed_const_tasks = []
     for silo_name in ["bloque_constitucional", "leyes_federales"]:
-        if silo_name in SILOS.values():
+        if silo_name in FIXED_SILOS.values():
             fed_const_tasks.append(
                 hybrid_search_single_silo(
                     collection=silo_name,
@@ -3399,14 +3399,15 @@ async def health_check():
         # Test Qdrant
         collections = await qdrant_client.get_collections()
         qdrant_status = "connected"
-        silos_activos = [c.name for c in collections.collections if c.name in SILOS.values()]
+        all_known = set(FIXED_SILOS.values()) | set(ESTADO_SILO.values()) | {LEGACY_ESTATAL_SILO}
+        silos_activos = [c.name for c in collections.collections if c.name in all_known]
     except Exception as e:
         qdrant_status = f"error: {e}"
         silos_activos = []
     
     return {
         "status": "healthy" if qdrant_status == "connected" else "degraded",
-        "version": "2026.02.12-v4",
+        "version": "2026.02.15-v5.0",
         "model": CHAT_MODEL,
         "qdrant": qdrant_status,
         "silos_activos": silos_activos,
@@ -3579,7 +3580,8 @@ async def get_document(doc_id: str):
     """
     try:
         # Buscar en cada silo
-        for silo_name in SILOS.values():
+        all_silos = list(FIXED_SILOS.values()) + list(ESTADO_SILO.values()) + [LEGACY_ESTATAL_SILO]
+        for silo_name in all_silos:
             try:
                 # Intentar obtener el punto por ID
                 points = await qdrant_client.retrieve(

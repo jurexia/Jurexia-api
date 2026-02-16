@@ -39,8 +39,11 @@ from qdrant_client.http.models import (
     MatchValue,
     NamedVector,
     PointStruct,
+    SparseVector,
     VectorParams,
     VectorsConfig,
+    SparseVectorParams,
+    SparseIndexParams,
 )
 
 from terminator_leyes import procesar_ley, ArticuloLimpio, diagnostico
@@ -64,6 +67,24 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIM = 1536
 EMBED_BATCH_SIZE = 50
 QDRANT_BATCH_SIZE = 50
+
+# BM25 Sparse Encoder (fastembed) — lazy init to avoid Windows encoding crash
+HAS_SPARSE = False
+sparse_encoder = None
+
+def _init_sparse_encoder():
+    global HAS_SPARSE, sparse_encoder
+    if sparse_encoder is not None:
+        return
+    try:
+        from fastembed import SparseTextEmbedding
+        sparse_encoder = SparseTextEmbedding(model_name="Qdrant/bm25")
+        HAS_SPARSE = True
+        print("   [OK] BM25 sparse encoder loaded")
+    except ImportError:
+        sparse_encoder = None
+        HAS_SPARSE = False
+        print("   [WARN] fastembed not installed -- BM25 sparse vectors will be skipped")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -440,8 +461,13 @@ def ensure_collection(qdrant: QdrantClient, collection_name: str):
                 distance=Distance.COSINE,
             ),
         },
+        sparse_vectors_config={
+            "sparse": SparseVectorParams(
+                index=SparseIndexParams(on_disk=False)
+            )
+        },
     )
-    print(f"   ✅ Collection '{collection_name}' created")
+    print(f"   ✅ Collection '{collection_name}' created (with dense + sparse)")
 
 
 def delete_existing_data(qdrant: QdrantClient, collection_name: str):
@@ -523,6 +549,10 @@ async def run_ingestion(estado: str, dry_run: bool = False, skip_download: bool 
     entidad = config["entidad"]
     
     start_time = time.time()
+    
+    # NOTE: _init_sparse_encoder() segfaults on Windows (onnxruntime crash)
+    # BM25 sparse vectors will be generated server-side via /admin/reingest-sparse
+    # _init_sparse_encoder()
     
     print("═══════════════════════════════════════════════════════════════")
     print(f"  INGESTA: {estado}")
@@ -656,9 +686,27 @@ async def run_ingestion(estado: str, dry_run: bool = False, skip_download: bool 
             "seccion": art.seccion,
         }
         
+        # Generate BM25 sparse vector
+        sparse_dict = {}
+        if HAS_SPARSE and sparse_encoder:
+            try:
+                embeddings_sparse = list(sparse_encoder.passage_embed([art.texto]))
+                if embeddings_sparse and len(embeddings_sparse[0].indices) > 0:
+                    sp = embeddings_sparse[0]
+                    sparse_dict["sparse"] = SparseVector(
+                        indices=sp.indices.tolist(),
+                        values=sp.values.tolist(),
+                    )
+            except Exception:
+                pass
+        
+        vector = {"dense": embedding}
+        if sparse_dict:
+            vector.update(sparse_dict)
+        
         point = PointStruct(
             id=point_id,
-            vector={"dense": embedding},
+            vector=vector,
             payload=payload,
         )
         points.append(point)
@@ -693,9 +741,7 @@ async def run_ingestion(estado: str, dry_run: bool = False, skip_download: bool 
     print(f"      Collection: {collection}")
     print(f"      Points: {final_count.count}")
     print(f"      Time: {elapsed:.1f}s")
-    print(f"\n   ⚠️  NEXT STEP: Generate BM25 sparse vectors")
-    print(f"      POST https://api.iurexia.com/admin/reingest-sparse")
-    print(f"      Body: {{\"admin_key\": \"...\", \"collection\": \"{collection}\"}}")
+    print(f"      Sparse BM25: {'YES' if HAS_SPARSE else 'NO (run reingest-sparse later)'}")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -703,6 +749,11 @@ async def run_ingestion(estado: str, dry_run: bool = False, skip_download: bool 
 # ══════════════════════════════════════════════════════════════════════
 
 def main():
+    # Fix Windows encoding for emoji output
+    import sys
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    
     parser = argparse.ArgumentParser(
         description="Ingest state laws into dedicated Qdrant collections"
     )
