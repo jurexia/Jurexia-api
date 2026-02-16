@@ -2066,7 +2066,7 @@ async def expand_legal_query_llm(query: str) -> str:
                 {"role": "system", "content": DOGMATIC_EXPANSION_PROMPT},
                 {"role": "user", "content": query}
             ],
-            temperature=0,  # Determinista
+            temperature=0.1,  # Cuasi-determinista (GPT-5 Mini no soporta 0)
             max_completion_tokens=100,  # Solo necesitamos palabras clave
         )
         
@@ -2607,6 +2607,28 @@ async def hybrid_search_single_silo(
     
     except Exception as e:
         error_msg = str(e)
+        # FALLBACK: typing.Union error (Python 3.14 + qdrant-client compat)
+        # → bypass Prefetch/Query construction, use dense-only search
+        if "typing.Union" in error_msg or "Cannot instantiate" in error_msg:
+            print(f"   ⚠️ typing.Union error en {collection}, fallback a dense-only...")
+            try:
+                threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
+                dense_results = await qdrant_client.query_points(
+                    collection_name=collection,
+                    query=dense_vector,
+                    using="dense",
+                    limit=top_k,
+                    query_filter=filter_,
+                    with_payload=True,
+                    score_threshold=threshold,
+                )
+                search_results = _parse_results(dense_results)
+                print(f"   ✅ Dense-only fallback: {len(search_results)} resultados en {collection}")
+                return search_results
+            except Exception as dense_e:
+                print(f"   ❌ Dense-only fallback también falló en {collection}: {dense_e}")
+                return []
+
         # Si el error es por índice faltante, reintentar SIN filtro de metadata
         if "400" in error_msg or "Index required" in error_msg:
             print(f"   ⚠️  Filtro falló en {collection} (índice faltante), reintentando sin filtro...")
@@ -2653,7 +2675,7 @@ async def _extract_juris_concepts(query: str) -> str:
                 )},
                 {"role": "user", "content": query}
             ],
-            temperature=0,
+            temperature=0.1,  # GPT-5 Mini no soporta 0
             max_completion_tokens=80,
         )
         concepts = response.choices[0].message.content.strip()
@@ -2679,23 +2701,36 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
         has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         if has_sparse:
-            results = await qdrant_client.query_points(
-                collection_name="jurisprudencia_nacional",
-                prefetch=[
-                    Prefetch(
-                        query=sparse_vector,
-                        using="sparse",
-                        limit=50,
-                        filter=None,
-                    ),
-                ],
-                query=dense_vector,
-                using="dense",
-                limit=10,
-                query_filter=None,
-                with_payload=True,
-                score_threshold=0.01,  # Muy bajo para máximo recall
-            )
+            try:
+                results = await qdrant_client.query_points(
+                    collection_name="jurisprudencia_nacional",
+                    prefetch=[
+                        Prefetch(
+                            query=sparse_vector,
+                            using="sparse",
+                            limit=50,
+                            filter=None,
+                        ),
+                    ],
+                    query=dense_vector,
+                    using="dense",
+                    limit=10,
+                    query_filter=None,
+                    with_payload=True,
+                    score_threshold=0.01,  # Muy bajo para máximo recall
+                )
+            except Exception as prefetch_err:
+                # Fallback if Prefetch crashes (typing.Union on Python 3.14)
+                print(f"      ⚠️ Prefetch falló en juris boost: {prefetch_err}, usando dense-only...")
+                results = await qdrant_client.query_points(
+                    collection_name="jurisprudencia_nacional",
+                    query=dense_vector,
+                    using="dense",
+                    limit=10,
+                    query_filter=None,
+                    with_payload=True,
+                    score_threshold=0.01,
+                )
         else:
             results = await qdrant_client.query_points(
                 collection_name="jurisprudencia_nacional",
