@@ -3570,6 +3570,8 @@ class DocumentResponse(BaseModel):
     tesis_num: Optional[str] = None
     tipo_criterio: Optional[str] = None
     url_pdf: Optional[str] = None
+    chunk_index: int = 0  # 0 = inicio del artículo, >0 = continuación
+    jerarquia_txt: Optional[str] = None  # e.g. "Título Quinto > Capítulo II > Sección Primera"
 
 
 @app.get("/document/{doc_id}", response_model=DocumentResponse)
@@ -3617,6 +3619,8 @@ async def get_document(doc_id: str):
                         tesis_num=payload.get("tesis", payload.get("tesis_num", None)),
                         tipo_criterio=payload.get("tipo", payload.get("tipo_criterio", None)),
                         url_pdf=payload.get("url_pdf", None),
+                        chunk_index=payload.get("chunk_index", 0),
+                        jerarquia_txt=payload.get("jerarquia_txt", None),
                     )
             except Exception:
                 # ID no encontrado en este silo, continuar
