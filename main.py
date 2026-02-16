@@ -31,6 +31,7 @@ from qdrant_client.http import models
 from qdrant_client.http.models import (
     FieldCondition,
     Filter,
+    Fusion,
     MatchAny,
     MatchValue,
     NamedVector,
@@ -2520,6 +2521,11 @@ async def hybrid_search_single_silo(
         threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
         
         if has_sparse:
+            # Dual prefetch con RRF fusion:
+            # - Prefetch 1 (sparse/BM25): encuentra candidatos por keywords
+            # - Prefetch 2 (dense): encuentra candidatos por semántica
+            #   (incluye chunks SIN sparse vectors, ej: reglamentos recién ingestados)
+            # Fusión RRF combina ambos pools → mejor recall
             return await qdrant_client.query_points(
                 collection_name=collection,
                 prefetch=[
@@ -2529,13 +2535,18 @@ async def hybrid_search_single_silo(
                         limit=top_k * 5,
                         filter=search_filter,
                     ),
+                    Prefetch(
+                        query=dense_vector,
+                        using="dense",
+                        limit=top_k * 5,
+                        filter=search_filter,
+                    ),
                 ],
-                query=dense_vector,
-                using="dense",
+                query=Query(fusion=Fusion.RRF),
                 limit=top_k,
                 query_filter=search_filter,
                 with_payload=True,
-                score_threshold=threshold,
+                score_threshold=None,  # RRF scores are on a different scale
             )
         else:
             return await qdrant_client.query_points(
