@@ -4524,7 +4524,7 @@ class ReingestRequest(BaseModel):
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_EMAILS = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
-GEMINI_MODEL = "gemini-2.5-pro-preview-06-05"
+GEMINI_MODEL = "gemini-2.5-pro"
 
 # ── Document labels per sentence type ────────────────────────────────────────
 SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
