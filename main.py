@@ -4719,6 +4719,143 @@ Sentidos posibles:
 """,
 }
 
+# ── Secretary instructions addendum for system prompt ────────────────────────
+INSTRUCCIONES_ADDENDUM = """
+
+INSTRUCCIONES CRÍTICAS DEL SECRETARIO PROYECTISTA:
+El secretario proyectista — experto en la materia — ha indicado el sentido
+en que DEBE resolverse este asunto. DEBES seguir ESTRICTAMENTE sus instrucciones
+respecto a:
+- El sentido del fallo (conceder/negar amparo, confirmar/revocar, fundada/infundada la queja)
+- La calificación de CADA concepto de violación o agravio (fundado, infundado, inoperante)
+- Las razones por las que cada concepto/agravio se califica de esa manera
+
+El secretario NO necesita proporcionar todas las leyes o jurisprudencia — el sistema
+ha consultado la base de datos legal y te proporciona fundamentación RAG adicional.
+USA esa fundamentación para enriquecer y respaldar el sentido indicado.
+
+Si se proporcionan artículos o tesis de jurisprudencia del RAG, cítalos textualmente
+en los considerandos correspondientes.
+"""
+
+# ── RAG query extraction from secretary instructions ─────────────────────────
+async def extract_rag_queries_from_instructions(instrucciones: str, tipo: str) -> List[str]:
+    """
+    Uses GPT-5-mini to extract 3-5 concise legal search queries from the
+    secretary's instructions. These queries will be used to search Qdrant.
+    """
+    if not instrucciones.strip() or not OPENAI_API_KEY:
+        return []
+
+    try:
+        extraction_prompt = f"""Eres un asistente jurídico. A partir de las instrucciones de un secretario
+proyectista de un Tribunal Colegiado de Circuito, extrae entre 3 y 5 consultas
+concisas de búsqueda legal para encontrar jurisprudencia y artículos de ley relevantes.
+
+Tipo de asunto: {tipo}
+
+Instrucciones del secretario:
+{instrucciones}
+
+Genera SOLO las consultas de búsqueda, una por línea, sin numeración ni explicaciones.
+Cada consulta debe ser concisa (5-15 palabras) y enfocada en un concepto jurídico específico.
+Incluye artículos de ley mencionados, principios invocados, y temas de jurisprudencia relevantes."""
+
+        response = openai_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[{"role": "user", "content": extraction_prompt}],
+            temperature=0.2,
+            max_tokens=500,
+        )
+        raw = response.choices[0].message.content or ""
+        queries = [q.strip() for q in raw.strip().split("\n") if q.strip() and len(q.strip()) > 5]
+        return queries[:5]  # Max 5 queries
+    except Exception as e:
+        print(f"   ⚠️ Error extrayendo queries RAG: {e}")
+        return []
+
+
+async def run_rag_for_sentencia(instrucciones: str, tipo: str) -> str:
+    """
+    Full RAG pipeline for sentencia drafting:
+    1. Extract search queries from secretary's instructions
+    2. Search all Qdrant silos in parallel
+    3. Compile context string (max ~8000 chars)
+    """
+    queries = await extract_rag_queries_from_instructions(instrucciones, tipo)
+    if not queries:
+        print("   ℹ️ No RAG queries extracted — skipping RAG")
+        return ""
+
+    print(f"   🔍 RAG: {len(queries)} queries extraídas:")
+    for i, q in enumerate(queries):
+        print(f"      {i+1}. {q}")
+
+    # Search all silos in parallel for each query
+    all_results = []
+    seen_ids = set()
+
+    tasks = []
+    for q in queries:
+        tasks.append(hybrid_search_all_silos(
+            query=q,
+            estado=None,  # Federal-level search (no state filter)
+            top_k=5,
+            alpha=0.7,
+            enable_reasoning=False,  # Fast mode for speed
+        ))
+
+    results_per_query = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for query_results in results_per_query:
+        if isinstance(query_results, Exception):
+            print(f"   ⚠️ RAG search error: {query_results}")
+            continue
+        for r in query_results:
+            if r.id not in seen_ids:
+                seen_ids.add(r.id)
+                all_results.append(r)
+
+    if not all_results:
+        print("   ℹ️ No RAG results found")
+        return ""
+
+    # Sort by score descending and take top 15
+    all_results.sort(key=lambda r: r.score, reverse=True)
+    top_results = all_results[:15]
+
+    print(f"   ✅ RAG: {len(top_results)} resultados únicos (de {len(all_results)} totales)")
+
+    # Compile context string
+    context_parts = []
+    total_chars = 0
+    MAX_CHARS = 12000  # ~3000 tokens
+
+    for r in top_results:
+        source = r.payload.get("fuente", r.payload.get("source", "Fuente desconocida"))
+        titulo = r.payload.get("titulo", r.payload.get("ley", ""))
+        text = r.payload.get("text", r.payload.get("contenido", ""))
+        articulo = r.payload.get("articulo", "")
+        rubro = r.payload.get("rubro", "")
+        collection = r.payload.get("collection", "")
+
+        # Build entry
+        entry = f"\n--- [{collection}] {titulo}"
+        if articulo:
+            entry += f" | Art. {articulo}"
+        if rubro:
+            entry += f" | Rubro: {rubro}"
+        entry += f" (relevancia: {r.score:.2f}) ---\n"
+        entry += text[:800]  # Truncate individual entries
+
+        if total_chars + len(entry) > MAX_CHARS:
+            break
+        context_parts.append(entry)
+        total_chars += len(entry)
+
+    return "\n".join(context_parts)
+
+
 # ── Pydantic model for the response ──────────────────────────────────────────
 class DraftSentenciaRequest(BaseModel):
     """Query model used when tipo is passed as JSON (not form)."""
@@ -4730,12 +4867,14 @@ class DraftSentenciaResponse(BaseModel):
     tokens_input: Optional[int] = None
     tokens_output: Optional[int] = None
     model: str = GEMINI_MODEL
+    rag_results_count: int = 0
 
 
 @app.post("/draft-sentencia")
 async def draft_sentencia(
     tipo: str = Form(...),
     user_email: str = Form(...),
+    instrucciones: str = Form(""),
     doc1: UploadFile = File(...),
     doc2: UploadFile = File(...),
     doc3: UploadFile = File(...),
@@ -4775,6 +4914,28 @@ async def draft_sentencia(
         pdf_data.append((data, label, doc_file.filename or f"doc{i+1}.pdf"))
         print(f"   📄 {label}: {doc_file.filename} ({size_mb:.1f} MB)")
 
+    # ── RAG Search (if instructions provided) ────────────────────────────
+    rag_context = ""
+    rag_count = 0
+    if instrucciones.strip():
+        print(f"\n   📝 Instrucciones del secretario ({len(instrucciones)} chars):")
+        print(f"      {instrucciones[:200]}{'...' if len(instrucciones) > 200 else ''}")
+        try:
+            rag_context = await run_rag_for_sentencia(instrucciones, tipo)
+            rag_count = rag_context.count("---") // 2 if rag_context else 0
+            if rag_context:
+                print(f"   ✅ RAG context: {len(rag_context)} chars, ~{rag_count} resultados")
+        except Exception as e:
+            print(f"   ⚠️ RAG search failed (continuing without): {e}")
+            rag_context = ""
+    else:
+        print("   ℹ️ Sin instrucciones del secretario — generando sin RAG")
+
+    # ── Build system prompt with instructions ────────────────────────────
+    system_prompt = SENTENCIA_PROMPTS[tipo]
+    if instrucciones.strip():
+        system_prompt += INSTRUCCIONES_ADDENDUM
+
     # ── Build Gemini request ─────────────────────────────────────────────
     try:
         from google import genai
@@ -4782,27 +4943,61 @@ async def draft_sentencia(
 
         client = genai.Client(api_key=GEMINI_API_KEY)
 
-        # Build content parts: system prompt + 3 PDFs with labels
+        # Build content parts
         parts = []
+
+        # 1. Secretary instructions (if any)
+        if instrucciones.strip():
+            parts.append(gtypes.Part.from_text(
+                text=f"\n═══ INSTRUCCIONES DEL SECRETARIO PROYECTISTA ═══\n\n{instrucciones}\n"
+            ))
+
+        # 2. RAG context (if any)
+        if rag_context:
+            parts.append(gtypes.Part.from_text(
+                text=f"\n═══ FUNDAMENTACIÓN LEGAL DE LA BASE DE DATOS (RAG) ═══\n"
+                     f"A continuación se presentan artículos de ley, tesis y jurisprudencia "
+                     f"encontrados en la base de datos legal que son relevantes para este asunto. "
+                     f"Úsalos para fundamentar los considerandos según las instrucciones del secretario.\n"
+                     f"{rag_context}\n"
+                     f"\n═══ FIN DEL CONTEXTO RAG ═══\n"
+            ))
+
+        # 3. PDFs with labels
         for pdf_bytes, label, filename in pdf_data:
             parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} (archivo: {filename}) ---\n"))
             parts.append(gtypes.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
 
-        parts.append(gtypes.Part.from_text(
-            text="\n\nCon base en los tres documentos anteriores, redacta el PROYECTO DE SENTENCIA COMPLETO. "
-                 "Extrae TODOS los datos relevantes directamente de los PDFs: número de expediente, nombres de las partes, "
-                 "fechas, actos reclamados, argumentos, agravios/conceptos de violación, y fundamentos legales. "
-                 "La sentencia debe estar lista para revisión del Magistrado Ponente."
-        ))
+        # 4. Final instruction
+        final_instruction = (
+            "\n\nCon base en los tres documentos anteriores"
+        )
+        if instrucciones.strip():
+            final_instruction += ", las INSTRUCCIONES DEL SECRETARIO PROYECTISTA"
+        if rag_context:
+            final_instruction += ", y la FUNDAMENTACIÓN LEGAL del RAG"
+        final_instruction += (
+            ", redacta el PROYECTO DE SENTENCIA COMPLETO. "
+            "Extrae TODOS los datos relevantes directamente de los PDFs: número de expediente, "
+            "nombres de las partes, fechas, actos reclamados, argumentos, agravios/conceptos de "
+            "violación, y fundamentos legales. "
+        )
+        if instrucciones.strip():
+            final_instruction += (
+                "SIGUE ESTRICTAMENTE el sentido indicado por el secretario para la resolución "
+                "y la calificación de cada concepto de violación o agravio. "
+            )
+        final_instruction += "La sentencia debe estar lista para revisión del Magistrado Ponente."
+        parts.append(gtypes.Part.from_text(text=final_instruction))
 
         print(f"\n🏛️ REDACTOR DE SENTENCIAS — Tipo: {tipo}")
-        print(f"   🤖 Enviando {len(pdf_data)} PDFs a {GEMINI_MODEL}...")
+        print(f"   🤖 Enviando {len(pdf_data)} PDFs + {'instrucciones + RAG' if rag_context else 'sin RAG'} a {GEMINI_MODEL}...")
 
         response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=parts,
             config=gtypes.GenerateContentConfig(
-                system_instruction=SENTENCIA_PROMPTS[tipo],
+                system_instruction=system_prompt,
                 temperature=0.3,
                 max_output_tokens=65536,
             ),
@@ -4822,6 +5017,7 @@ async def draft_sentencia(
             tokens_input=tokens_in,
             tokens_output=tokens_out,
             model=GEMINI_MODEL,
+            rag_results_count=rag_count,
         )
 
     except ImportError:
