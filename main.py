@@ -22,7 +22,7 @@ import uuid
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -4517,6 +4517,267 @@ class ReingestRequest(BaseModel):
     entidad: Optional[str] = None  # Filter by state, or None for all
     collection: str = "leyes_estatales"  # V5.0: accept any collection name
     admin_key: str  # Simple auth to prevent abuse
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REDACTOR DE SENTENCIAS FEDERALES — Gemini 2.5 Pro Multimodal
+# ═══════════════════════════════════════════════════════════════════════════════
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+ADMIN_EMAILS = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+GEMINI_MODEL = "gemini-2.5-pro-preview-06-05"
+
+# ── Document labels per sentence type ────────────────────────────────────────
+SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
+    "amparo_directo": ["Demanda de Amparo", "Acto Reclamado", "Auto de Trámite"],
+    "amparo_revision": ["Recurso de Revisión", "Sentencia Recurrida", "Auto de Trámite"],
+    "revision_fiscal": ["Recurso de Revisión Fiscal", "Sentencia Recurrida", "Auto de Trámite"],
+    "recurso_queja": ["Recurso de Queja", "Determinación Recurrida", "Admisión del Recurso"],
+}
+
+# ── Base system prompt (shared across all types) ─────────────────────────────
+SENTENCIA_SYSTEM_BASE = """Eres un Secretario Proyectista de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México. Tu función es redactar PROYECTOS DE SENTENCIA completos, listos para revisión del Magistrado Ponente.
+
+REGLAS ABSOLUTAS:
+1. Redacta en TERCERA PERSONA con el estilo formal judicial mexicano
+2. Usa la estructura exacta: RESULTANDOS → CONSIDERANDOS → PUNTOS RESOLUTIVOS
+3. Cita TEXTUALMENTE los argumentos de las partes usando "[…]" y comillas
+4. Fundamenta CADA considerando en artículos específicos de ley y jurisprudencia aplicable
+5. Usa la numeración: PRIMERO, SEGUNDO, TERCERO... (en letras, con punto final)
+6. El encabezado debe incluir: tipo de asunto, número de expediente, quejoso/recurrente, magistrado ponente, secretario
+7. La fecha de resolución debe ser en letras completas ("quince de enero de dos mil veintiséis")
+8. Al citar jurisprudencia usa: rubro completo, sala/tribunal, número de tesis
+9. Incluye notas al pie para fundamentación legal
+10. El estilo debe ser IDÉNTICO al de un Tribunal Colegiado real: frases largas, subordinadas, lenguaje técnico-jurídico
+
+ESTRUCTURA OBLIGATORIA:
+
+RESULTANDOS:
+- PRIMERO: Presentación de la demanda/recurso (quién, cuándo, ante quién, contra qué acto)
+- SEGUNDO: Trámite (registro, admisión, notificaciones, informes justificados)
+- TERCERO: Terceros interesados (si aplica)
+- CUARTO: Turno a ponencia
+- QUINTO: Integración del tribunal (si hay cambios)
+- SEXTO/SÉPTIMO: Returno (si aplica)
+
+CONSIDERANDOS:
+- PRIMERO: Competencia del tribunal (con fundamento legal preciso)
+- SEGUNDO: Existencia del acto reclamado (con referencia a constancias)
+- TERCERO: Legitimación y oportunidad (plazos, personalidad)
+- CUARTO: Procedencia / Fijación de la litis
+- QUINTO en adelante: ESTUDIO DE FONDO (análisis de conceptos de violación / agravios)
+
+PUNTOS RESOLUTIVOS:
+- PRIMERO: Sentido del fallo (conceder/negar amparo, confirmar/revocar, etc.)
+- SEGUNDO: Efectos específicos si aplican
+- TERCERO: Notificaciones
+
+IMPORTANTE: Lee TODOS los documentos adjuntos minuciosamente. Extrae los datos del expediente, las partes, los hechos, los argumentos y los fundamentos directamente de los PDFs.
+"""
+
+# ── Type-specific prompts ────────────────────────────────────────────────────
+SENTENCIA_PROMPTS: Dict[str, str] = {
+    "amparo_directo": SENTENCIA_SYSTEM_BASE + """
+TIPO ESPECÍFICO: AMPARO DIRECTO (Arts. 170-189 Ley de Amparo)
+
+Documentos que recibirás:
+1. DEMANDA DE AMPARO: Contiene los conceptos de violación, el acto reclamado señalado, las autoridades responsables, y los derechos humanos cuya violación se alega
+2. ACTO RECLAMADO: Es la sentencia o laudo contra la que se promueve el amparo. Analízala en detalle para confrontar con los conceptos de violación
+3. AUTO DE TRÁMITE: Contiene el número de expediente, la fecha de admisión, y datos procesales
+
+En el ESTUDIO DE FONDO:
+- Analiza CADA concepto de violación individualmente
+- Confronta cada argumento del quejoso contra lo resuelto en el acto reclamado
+- Determina si los conceptos son fundados, infundados o inoperantes
+- Si son fundados: explica por qué y señala efectos
+- Cita jurisprudencia y tesis aplicables
+- Aplica suplencia de la queja si procede conforme al artículo 79 de la Ley de Amparo
+
+Sentidos posibles del fallo:
+- CONCEDER el amparo (total o para efectos)
+- NEGAR el amparo
+- SOBRESEER (si hay causa de improcedencia)
+""",
+
+    "amparo_revision": SENTENCIA_SYSTEM_BASE + """
+TIPO ESPECÍFICO: AMPARO EN REVISIÓN (Arts. 81-96 Ley de Amparo)
+
+Documentos que recibirás:
+1. RECURSO DE REVISIÓN: Contiene los agravios del recurrente contra la sentencia del Juzgado de Distrito
+2. SENTENCIA RECURRIDA: Es la sentencia del amparo indirecto que se recurre
+3. AUTO DE TRÁMITE: Datos procesales del recurso
+
+En el ESTUDIO DE FONDO:
+- Analiza la procedencia del recurso (Arts. 81 y 83 Ley de Amparo)
+- Examina CADA agravio individualmente
+- Confronta con las consideraciones de la sentencia recurrida
+- Determina si los agravios son fundados, infundados o inoperantes
+- Analiza si hay materia de revisión oficiosa
+- Verifica constitucionalidad de normas si se planteó
+
+Sentidos posibles:
+- CONFIRMAR la sentencia recurrida
+- REVOCAR la sentencia recurrida
+- MODIFICAR la sentencia
+""",
+
+    "revision_fiscal": SENTENCIA_SYSTEM_BASE + """
+TIPO ESPECÍFICO: REVISIÓN FISCAL (Art. 63 Ley Federal de Procedimiento Contencioso Administrativo)
+
+Documentos que recibirás:
+1. RECURSO DE REVISIÓN FISCAL: Agravios del recurrente (generalmente autoridad hacendaria o IMSS)
+2. SENTENCIA RECURRIDA: Sentencia del Tribunal Federal de Justicia Administrativa
+3. AUTO DE TRÁMITE: Datos procesales
+
+En el ESTUDIO DE FONDO:
+- Verifica PRIMERO la procedencia del recurso conforme al Art. 63 LFPCA (importancia y trascendencia o supuestos específicos)
+- Si es procedente, analiza cada agravio
+- Confronta agravios con las consideraciones del TFJA
+- Aplica criterios de procedencia restrictiva de la revisión fiscal
+- Considera la materia fiscal/administrativa
+
+Sentidos posibles:
+- CONFIRMAR la sentencia recurrida (la más común si no hay vicios)
+- REVOCAR la sentencia
+- DESECHAR por improcedente
+""",
+
+    "recurso_queja": SENTENCIA_SYSTEM_BASE + """
+TIPO ESPECÍFICO: RECURSO DE QUEJA (Arts. 97-103 Ley de Amparo)
+
+Documentos que recibirás:
+1. RECURSO DE QUEJA: Agravios contra el auto o resolución recurrida
+2. DETERMINACIÓN RECURRIDA: El auto o resolución del Juzgado de Distrito que se impugna
+3. ADMISIÓN DEL RECURSO: Auto de admisión con datos procesales
+
+En el ESTUDIO DE FONDO:
+- Identifica la fracción del artículo 97 de la Ley de Amparo aplicable
+- Verifica oportunidad (plazo de 5 días, Art. 98 Ley de Amparo)
+- Analiza cada agravio contra el auto recurrido
+- Determina si los agravios logran desvirtuar las consideraciones del auto
+- La queja es un recurso de estricto derecho (salvo excepciones del Art. 79)
+
+Sentidos posibles:
+- DECLARAR FUNDADA la queja (revocar el auto recurrido)
+- DECLARAR INFUNDADA la queja (confirmar el auto)
+- DESECHAR por improcedente o extemporánea
+""",
+}
+
+# ── Pydantic model for the response ──────────────────────────────────────────
+class DraftSentenciaRequest(BaseModel):
+    """Query model used when tipo is passed as JSON (not form)."""
+    tipo: Literal["amparo_directo", "amparo_revision", "revision_fiscal", "recurso_queja"]
+
+class DraftSentenciaResponse(BaseModel):
+    sentencia_text: str
+    tipo: str
+    tokens_input: Optional[int] = None
+    tokens_output: Optional[int] = None
+    model: str = GEMINI_MODEL
+
+
+@app.post("/draft-sentencia")
+async def draft_sentencia(
+    tipo: str = Form(...),
+    user_email: str = Form(...),
+    doc1: UploadFile = File(...),
+    doc2: UploadFile = File(...),
+    doc3: UploadFile = File(...),
+):
+    """
+    Redactor de Sentencias Federales (TCC).
+    Recibe 3 PDFs del expediente y genera un proyecto de sentencia completo
+    usando Gemini 2.5 Pro con procesamiento multimodal de documentos.
+    Solo accesible para administradores.
+    """
+
+    # ── Admin validation ─────────────────────────────────────────────────
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "Gemini API key not configured")
+
+    if not ADMIN_EMAILS:
+        raise HTTPException(500, "Admin emails not configured")
+
+    if user_email.strip().lower() not in ADMIN_EMAILS:
+        raise HTTPException(403, "Acceso restringido a administradores")
+
+    # ── Validate tipo ────────────────────────────────────────────────────
+    valid_types = list(SENTENCIA_PROMPTS.keys())
+    if tipo not in valid_types:
+        raise HTTPException(400, f"Tipo inválido. Opciones: {valid_types}")
+
+    # ── Read PDF files ───────────────────────────────────────────────────
+    doc_labels = SENTENCIA_DOC_LABELS[tipo]
+    pdf_data = []
+    for i, (doc_file, label) in enumerate(zip([doc1, doc2, doc3], doc_labels)):
+        data = await doc_file.read()
+        size_mb = len(data) / (1024 * 1024)
+        if size_mb > 50:
+            raise HTTPException(400, f"Archivo '{label}' excede 50MB ({size_mb:.1f}MB)")
+        if not data:
+            raise HTTPException(400, f"Archivo '{label}' está vacío")
+        pdf_data.append((data, label, doc_file.filename or f"doc{i+1}.pdf"))
+        print(f"   📄 {label}: {doc_file.filename} ({size_mb:.1f} MB)")
+
+    # ── Build Gemini request ─────────────────────────────────────────────
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        # Build content parts: system prompt + 3 PDFs with labels
+        parts = []
+        for pdf_bytes, label, filename in pdf_data:
+            parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} (archivo: {filename}) ---\n"))
+            parts.append(gtypes.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
+
+        parts.append(gtypes.Part.from_text(
+            text="\n\nCon base en los tres documentos anteriores, redacta el PROYECTO DE SENTENCIA COMPLETO. "
+                 "Extrae TODOS los datos relevantes directamente de los PDFs: número de expediente, nombres de las partes, "
+                 "fechas, actos reclamados, argumentos, agravios/conceptos de violación, y fundamentos legales. "
+                 "La sentencia debe estar lista para revisión del Magistrado Ponente."
+        ))
+
+        print(f"\n🏛️ REDACTOR DE SENTENCIAS — Tipo: {tipo}")
+        print(f"   🤖 Enviando {len(pdf_data)} PDFs a {GEMINI_MODEL}...")
+
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=parts,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=SENTENCIA_PROMPTS[tipo],
+                temperature=0.3,
+                max_output_tokens=65536,
+            ),
+        )
+
+        sentencia_text = response.text or ""
+        tokens_in = getattr(response.usage_metadata, 'prompt_token_count', None) if hasattr(response, 'usage_metadata') else None
+        tokens_out = getattr(response.usage_metadata, 'candidates_token_count', None) if hasattr(response, 'usage_metadata') else None
+
+        print(f"   ✅ Sentencia generada: {len(sentencia_text)} caracteres")
+        if tokens_in:
+            print(f"   📊 Tokens: {tokens_in:,} input, {tokens_out:,} output")
+
+        return DraftSentenciaResponse(
+            sentencia_text=sentencia_text,
+            tipo=tipo,
+            tokens_input=tokens_in,
+            tokens_output=tokens_out,
+            model=GEMINI_MODEL,
+        )
+
+    except ImportError:
+        raise HTTPException(500, "google-genai SDK not installed. Run: pip install google-genai")
+    except Exception as e:
+        print(f"   ❌ Error Gemini: {e}")
+        raise HTTPException(500, f"Error al generar sentencia: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN — Reingest Sparse Vectors
+# ═══════════════════════════════════════════════════════════════════════════════
 
 _reingest_running = False
 _reingest_status = {"status": "idle", "processed": 0, "total": 0, "errors": 0}

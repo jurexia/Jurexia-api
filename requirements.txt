@@ -11,4 +11,5 @@ olefile>=0.47
 python-multipart>=0.0.6
 supabase>=2.0.0
 cohere>=5.0.0  # Reranking API (Phase 1 RAG optimization)
+google-genai>=1.0.0  # Gemini 2.5 Pro for sentence drafting
 
