@@ -4632,9 +4632,9 @@ CONSIDERANDOS:
 - QUINTO en adelante: ESTUDIO DE FONDO (análisis de conceptos de violación / agravios)
 
 PUNTOS RESOLUTIVOS:
-- PRIMERO: Sentido del fallo (conceder/negar amparo, confirmar/revocar, etc.)
-- SEGUNDO: Efectos específicos si aplican
-- TERCERO: Notificaciones
+- PRIMERO: Sentido del fallo (conceder/negar amparo, confirmar/revocar, fundada/infundada la queja)
+- SEGUNDO en adelante: Según el tipo de asunto (efectos si aplican, notificaciones, archivación)
+- Fórmula de cierre con votación y firmas
 
 IMPORTANTE: Lee TODOS los documentos adjuntos minuciosamente. Extrae los datos del expediente, las partes, los hechos, los argumentos y los fundamentos directamente de los PDFs.
 """
@@ -4929,11 +4929,8 @@ Tu tarea es redactar el ESTUDIO DE FONDO (Considerandos QUINTO en adelante) y lo
 4. LONGITUD: El estudio de fondo debe ser la sección MÁS EXTENSA de toda la sentencia.
    Mínimo 15,000 caracteres. Si hay múltiples agravios, puede llegar a 30,000+.
 
-5. PUNTOS RESOLUTIVOS al final:
-   - PRIMERO: Sentido del fallo
-   - SEGUNDO: Efectos específicos si aplican
-   - TERCERO: Notificaciones
-   - Fórmula de cierre: votación, tipo de resolución
+5. NO incluyas PUNTOS RESOLUTIVOS ni Efectos de la Sentencia — eso se genera en una fase posterior.
+   Tu tarea termina con la CONCLUSIÓN del último agravio analizado.
 
 6. ESTILO: Frases largas, subordinadas, lenguaje técnico-jurídico federal.
    Usa transiciones como "En efecto...", "Contrario a lo que sostiene...", "No le asiste razón...",
@@ -4967,13 +4964,7 @@ En su primer agravio/concepto de violación, el recurrente/quejoso aduce que...
 [Agravio/Concepto 2]
 ...
 
-P U N T O S  R E S O L U T I V O S:
-
-PRIMERO. [Sentido del fallo]
-SEGUNDO. [Efectos]
-TERCERO. Notifíquese...
-
-[Fórmula de votación y cierre]
+[Conclusión general del estudio]
 """
 
 # ── Phase 3: Polish & Assembly ────────────────────────────────────────────────
@@ -5438,8 +5429,12 @@ Los fundamentos y motivos del secretario DEBEN guiar tu argumentación.
         ))
 
         try:
+            # ── Hybrid Smart: Pro for fundados (deep reasoning), Flash for infundados/inoperantes (formulaic) ──
+            step_b_model = GEMINI_MODEL if calificacion == "fundado" else GEMINI_MODEL_FAST
+            print(f"         🤖 Modelo: {step_b_model} ({'Pro — razonamiento profundo' if calificacion == 'fundado' else 'Flash — patrón formulaico'})")
+
             response_b = client.models.generate_content(
-                model=GEMINI_MODEL,
+                model=step_b_model,
                 contents=parts_b,
                 config=gtypes.GenerateContentConfig(
                     system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
@@ -5641,17 +5636,23 @@ async def phase_final_efectos_resolutivos(
     tipo: str, calificaciones: List[dict]
 ) -> str:
     """
-    Final Phase: Draft EFECTOS DE LA SENTENCIA and PUNTOS RESOLUTIVOS.
-    Uses one Gemini call that receives the complete estudio de fondo
-    to produce coherent efectos and resolution based on the analysis.
+    Final Phase: Draft PUNTOS RESOLUTIVOS (and EFECTOS only when applicable).
+    
+    Structure rules based on analysis of real sentencias:
+    - recurso_queja: NO Efectos → direct RESUELVE (FUNDADA/INFUNDADA)
+    - amparo_directo concede: Efectos de la concesión → RESUELVE
+    - amparo_directo niega: NO Efectos → direct RESUELVE (NIEGA)
+    - revision_fiscal: NO Efectos → direct RESUELVE (CONFIRMA/REVOCA)
+    - amparo_revision: NO Efectos → direct RESUELVE with numbered points
     """
     from google.genai import types as gtypes
     import time
 
-    print(f"\n   ⚖️ FASE FINAL: Efectos + Puntos Resolutivos...")
+    print(f"\n   ⚖️ FASE FINAL: Puntos Resolutivos (tipo: {tipo})...")
     start = time.time()
 
     sentido = _determine_sentido(calificaciones, tipo)
+    has_fundados = any(c.get("calificacion") == "fundado" for c in calificaciones)
 
     # Build calificaciones summary
     calif_summary = "\n".join([
@@ -5659,11 +5660,68 @@ async def phase_final_efectos_resolutivos(
         for i, c in enumerate(calificaciones)
     ])
 
+    # ── Tipo-specific instructions for structure ──────────────────────────
+    if tipo == "recurso_queja":
+        structure_instructions = """ESTRUCTURA PARA RECURSO DE QUEJA:
+- NO incluyas sección "Efectos de la Sentencia" — los recursos de queja NO la tienen
+- Ve DIRECTO a los PUNTOS RESOLUTIVOS con la fórmula:
+  "Por lo expuesto y fundado, se resuelve:"
+- Si la queja es FUNDADA: "ÚNICO. Se declara FUNDADA la queja [...], en consecuencia,
+  se revoca el auto de [fecha] dictado por [juzgado] en el juicio de amparo [número],
+  y se ordena [lo que proceda]."
+- Si la queja es INFUNDADA: "ÚNICO. Se declara INFUNDADA la queja [...], en consecuencia,
+  se confirma el auto de [fecha] dictado por [juzgado] en el juicio de amparo [número]."
+- Fórmula de cierre: votación, firmas, "Notifíquese; devuélvanse los autos..."
+- Mínimo 800 caracteres."""
+    elif tipo == "amparo_directo" and has_fundados:
+        structure_instructions = """ESTRUCTURA PARA AMPARO DIRECTO (CONCEDE):
+- Incluye sección "Efectos de la concesión" ANTES de los puntos resolutivos:
+  - Para qué efectos se concede el amparo
+  - Qué debe hacer la autoridad responsable (dejar insubsistente, reponer, dictar nueva)
+  - Plazos aplicables
+- PUNTOS RESOLUTIVOS:
+  PRIMERO. La Justicia de la Unión AMPARA Y PROTEGE a [quejoso]...
+  SEGUNDO. [Efectos específicos de la concesión]
+  TERCERO. Notifíquese...
+- Fórmula de cierre: votación, firmas
+- Mínimo 2,000 caracteres."""
+    elif tipo == "amparo_directo" and not has_fundados:
+        structure_instructions = """ESTRUCTURA PARA AMPARO DIRECTO (NIEGA):
+- NO incluyas sección "Efectos de la Sentencia" — cuando se niega el amparo NO hay efectos
+- Ve DIRECTO a los PUNTOS RESOLUTIVOS:
+  "Por lo expuesto y fundado, se resuelve:"
+  PRIMERO. La Justicia de la Unión NO AMPARA NI PROTEGE a [quejoso]...
+  SEGUNDO. Notifíquese...
+- Fórmula de cierre: votación, firmas
+- Mínimo 800 caracteres."""
+    elif tipo == "revision_fiscal":
+        structure_instructions = """ESTRUCTURA PARA REVISIÓN FISCAL:
+- NO incluyas sección "Efectos de la Sentencia" — las revisiones fiscales NO la tienen
+- Ve DIRECTO a los PUNTOS RESOLUTIVOS:
+  "Por lo expuesto y fundado, se resuelve:"
+- Si CONFIRMA: "ÚNICO. Se CONFIRMA la sentencia de [fecha] dictada por [sala del TFJA]..."
+- Si REVOCA: "PRIMERO. Se REVOCA la sentencia... SEGUNDO. [Nueva resolución]..."
+- Si DESECHA: "ÚNICO. Se DESECHA el recurso de revisión fiscal..."
+- Fórmula de cierre: votación, firmas, "Notifíquese; devuélvanse los autos..."
+- Mínimo 800 caracteres."""
+    elif tipo == "amparo_revision":
+        structure_instructions = """ESTRUCTURA PARA AMPARO EN REVISIÓN:
+- NO incluyas sección "Efectos de la Sentencia" separada
+- Ve DIRECTO a los PUNTOS RESOLUTIVOS con puntos NUMERADOS:
+  "Por lo expuesto, fundado y con apoyo en los artículos [...], se resuelve:"
+  PRIMERO. Se [CONFIRMA/REVOCA/MODIFICA] la sentencia de [fecha]...
+  SEGUNDO. La Justicia de la Unión [AMPARA Y PROTEGE / NO AMPARA NI PROTEGE]...
+  TERCERO. [Si hay revisión adhesiva: queda sin materia / se desecha]
+  CUARTO. Notifíquese...
+- Fórmula de cierre: votación, firmas
+- Mínimo 1,200 caracteres."""
+    else:
+        structure_instructions = """PUNTOS RESOLUTIVOS directos. NO incluyas Efectos de la Sentencia.
+- Mínimo 800 caracteres."""
+
     prompt_text = f"""Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito.
 
-Tu tarea es redactar ÚNICAMENTE:
-1. Los EFECTOS DE LA SENTENCIA (qué consecuencias concretas tiene el fallo)
-2. Los PUNTOS RESOLUTIVOS formales
+Tu tarea es redactar ÚNICAMENTE los PUNTOS RESOLUTIVOS (y Efectos SOLO si las instrucciones lo indican).
 
 ═══ TIPO DE ASUNTO: {tipo} ═══
 
@@ -5679,51 +5737,47 @@ Tu tarea es redactar ÚNICAMENTE:
 ═══ ESTUDIO DE FONDO (referencia para coherencia) ═══
 {estudio_fondo[:15000]}
 
-═══ INSTRUCCIONES ═══
-1. Redacta los EFECTOS con detalle:
-   - Si es concesión de amparo: para qué efectos se concede, qué debe hacer la autoridad responsable
-   - Si es revocación: qué parte se revoca, qué sustituye
-   - Si es parcial: distingue efectos para agravios fundados vs infundados
-   - Incluye plazos y obligaciones específicas
+═══ INSTRUCCIONES DE ESTRUCTURA ═══
+{structure_instructions}
 
-2. Redacta los PUNTOS RESOLUTIVOS formales:
-   PRIMERO. [Sentido del fallo con datos del expediente]
-   SEGUNDO. [Efectos específicos]
-   TERCERO. [Notificaciones]
-   CUARTO. [Archivación // Devolución de autos]
-   
-3. Incluye la fórmula de cierre:
-   "Así, por unanimidad/mayoría de votos lo resolvió el [Tribunal]. Firma el Magistrado [Ponente]
+═══ REGLAS GENERALES ═══
+1. Usa lenguaje jurídico formal, preciso.
+2. Incluye la fórmula de cierre con votación y firmas.
+3. "Notifíquese; con testimonio de esta resolución, devuélvanse los autos al lugar de su origen..."
+4. "Así, por unanimidad/mayoría de votos lo resolvió el [Tribunal]. Firma el Magistrado [Ponente]
     como ponente, con el Secretario [Secretario] que autoriza y da fe."
-
-4. Usa lenguaje jurídico formal, preciso y extenso.
-5. Mínimo 2,000 caracteres para esta sección.
 """
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL_FAST,  # Efectos/Resolutivos → Flash
+            model=GEMINI_MODEL_FAST,  # Resolutivos → Flash
             contents=[gtypes.Part.from_text(text=prompt_text)],
             config=gtypes.GenerateContentConfig(
-                system_instruction="Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México. Redacta con máximo rigor formal los efectos y puntos resolutivos de una sentencia.",
+                system_instruction="Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México. Redacta con máximo rigor formal los puntos resolutivos de una sentencia, siguiendo ESTRICTAMENTE las instrucciones de estructura proporcionadas.",
                 temperature=0.2,
                 max_output_tokens=16384,
             ),
         )
         text = _strip_ai_preamble(response.text or "")
         elapsed = time.time() - start
-        print(f"   ✅ Efectos + Resolutivos: {len(text)} chars en {elapsed:.1f}s")
+        print(f"   ✅ Resolutivos: {len(text)} chars en {elapsed:.1f}s")
         return text
     except Exception as e:
         print(f"   ❌ Fase Final error: {e}")
-        # Fallback to template
-        return f"""
+        # Fallback: minimal template per tipo
+        if tipo == "recurso_queja":
+            return f"""
+Por lo expuesto y fundado, se resuelve:
 
-EFECTOS DE LA SENTENCIA:
+ÚNICO. {sentido}
 
-{sentido}
+Notifíquese; con testimonio de esta resolución, devuélvanse los autos al lugar de su origen y, en su oportunidad, archívese el presente toca como asunto concluido.
 
-P U N T O S   R E S O L U T I V O S:
+Así lo resolvió el Tribunal Colegiado de Circuito. Firma el Magistrado ponente con el Secretario que autoriza y da fe.
+"""
+        else:
+            return f"""
+Por lo expuesto y fundado, se resuelve:
 
 PRIMERO. {sentido}
 
