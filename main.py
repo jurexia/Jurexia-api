@@ -4953,42 +4953,79 @@ indicados por el secretario. El secretario es el experto en la materia.
 
 ═══ FORMATO ═══
 
-QUINTO. Estudio de fondo. [Introducción general de la litis]
+IMPORTANTE: Tú redactas UN SOLO agravio/concepto a la vez (NO todo el estudio completo).
+Tu texto será insertado dentro de un estudio de fondo más amplio.
 
-[Agravio/Concepto 1]
-En su primer agravio/concepto de violación, el recurrente/quejoso aduce que...
-[análisis extenso]
+NO incluyas encabezados como "QUINTO. Estudio de fondo." ni introducciones generales.
+Comienza DIRECTAMENTE con el título y análisis del agravio asignado:
+
+[Título del agravio/concepto, ej: "AGRAVIO 1. Falta de fundamentación"]
+En su primer agravio, el recurrente aduce que...
+[análisis extenso con citas RAG]
 [calificación y razonamiento]
-[jurisprudencia]
-
-[Agravio/Concepto 2]
-...
-
-[Conclusión general del estudio]
+[jurisprudencia verificada del RAG]
+[CONCLUSIÓN: Este agravio resulta FUNDADO/INFUNDADO/INOPERANTE]
 """
 
-# ── Phase 3: Polish & Assembly ────────────────────────────────────────────────
-PHASE3_POLISH_PROMPT = """Eres un Secretario Proyectista de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México.
+# ── Phase 3: Structural Coherence + Polish & Assembly ─────────────────────────
+PHASE3_POLISH_PROMPT = """Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México.
 
 Se te proporcionan las diferentes secciones del proyecto de sentencia redactadas por separado.
-Tu tarea es ENSAMBLAR Y PULIR el documento final.
+Tu tarea es VERIFICAR LA COHERENCIA ESTRUCTURAL y luego ENSAMBLAR Y PULIR el documento final.
 
-TAREAS ESPECÍFICAS:
-1. ENCABEZADO: Genera el encabezado oficial con tipo de asunto, número de expediente, partes, magistrado ponente, secretario, lugar y fecha
-2. NUMERACIÓN: Asegura que la numeración sea continua y coherente (PRIMERO, SEGUNDO, TERCERO...)
-3. TRANSICIONES: Añade transiciones fluidas entre secciones
-4. NOTAS AL PIE: Genera notas al pie numeradas para TODAS las referencias legales citadas en el cuerpo
-5. FÓRMULA DE CIERRE: Si no está completa, añade:
-   - Tipo de votación (unanimidad/mayoría)
-   - Identidad de los magistrados
-   - Firma del ponente
-   - "Notifíquese; con testimonio de esta resolución, devuélvanse los autos..."
-6. CONSISTENCIA: Verifica que nombres, fechas y números sean consistentes en todo el documento
-7. NO RECORTES CONTENIDO: Tu tarea es AÑADIR, no quitar. Mantén toda la extensión de las secciones originales
+=== PASO 1: VERIFICACION DE COHERENCIA ESTRUCTURAL (CRITICO) ===
 
-FORMATO DE SALIDA: El proyecto de sentencia COMPLETO, listo para revisión del Magistrado Ponente.
-NO uses formato markdown. Usa texto plano con las convenciones judiciales:
-- Títulos en MAYÚSCULAS CON ESPACIOS (R E S U L T A N D O:)
+Antes de ensamblar, ANALIZA todo el texto recibido y corrige estos problemas:
+
+1. DEDUPLICACION DE HEADERS:
+   - El header "QUINTO. Estudio de fondo." (o cualquier considerando) debe aparecer UNA SOLA VEZ.
+   - Si aparece repetido, ELIMINA las repeticiones y conserva solo la primera instancia.
+   - Cada considerando (PRIMERO, SEGUNDO, TERCERO, CUARTO, QUINTO) debe ser UNICO.
+
+2. DEDUPLICACION DE PARRAFOS INTRODUCTORIOS:
+   - Si hay parrafos introductorios casi identicos (ej: "Previo al analisis de los conceptos...",
+     "La litis se constrine a...", "La materia del presente juicio..."), conserva SOLO UNO.
+   - Ese parrafo introductorio debe aparecer UNA VEZ al inicio del estudio de fondo,
+     NO repetirse antes de cada agravio/concepto.
+
+3. LIMPIEZA DE ERRORES TECNICOS:
+   - ELIMINA cualquier texto que contenga errores tecnicos como:
+     "[Error al redactar...]", "503 UNAVAILABLE", "request timed out",
+     "status: 'UNAVAILABLE'", o cualquier traza de error de API.
+   - Si un agravio quedo incompleto por error, senala con:
+     "[Nota: El analisis de este agravio requiere complementacion]"
+
+4. FLUJO DE AGRAVIOS/CONCEPTOS:
+   - Los agravios/conceptos de violacion deben fluir como secciones DENTRO de un solo
+     considerando (QUINTO), no como considerandos separados.
+   - Cada agravio debe tener su titulo ("CONCEPTO DE VIOLACION 1", "AGRAVIO 2", etc.)
+     seguido de su analisis, sin repetir la introduccion general.
+
+5. PUNTOS RESOLUTIVOS:
+   - Los PUNTOS RESOLUTIVOS deben aparecer UNA SOLA VEZ al final del documento.
+   - Si estan duplicados, conserva la version mas completa y elimina las demas.
+
+=== PASO 2: ENSAMBLAJE Y PULIDO ===
+
+1. ENCABEZADO: Genera el encabezado oficial con tipo de asunto, numero de expediente,
+   partes, magistrado ponente, secretario, lugar y fecha.
+2. NUMERACION: Asegura numeracion continua y coherente (PRIMERO, SEGUNDO, TERCERO...)
+3. TRANSICIONES: Anade transiciones fluidas entre secciones.
+4. NOTAS AL PIE: Genera notas al pie numeradas para las referencias legales.
+5. FORMULA DE CIERRE: Anade votacion, identidad de magistrados, firma del ponente,
+   y "Notifiquese; con testimonio de esta resolucion, devuelvanse los autos..."
+6. CONSISTENCIA: Verifica nombres, fechas y numeros en todo el documento.
+
+=== REGLAS DE CONTENIDO ===
+- CONSERVA toda la extension y profundidad del analisis juridico de cada agravio.
+- NO recortes el analisis sustantivo (argumentos, jurisprudencia, razonamiento).
+- SI elimina contenido DUPLICADO (intros repetidas, headers repetidos, resolutivos repetidos).
+- SI elimina errores tecnicos y mensajes de sistema.
+- Diferencia entre contenido sustantivo (CONSERVAR) y ruido estructural (ELIMINAR).
+
+FORMATO DE SALIDA: Proyecto de sentencia COMPLETO, coherente, listo para el Magistrado Ponente.
+NO uses formato markdown. Usa texto plano con convenciones judiciales:
+- Titulos en MAYUSCULAS CON ESPACIOS (R E S U L T A N D O:)
 - Negritas indicadas con **texto** solo para nombres y rubros de jurisprudencia
 - Numerales en palabras (PRIMERO, SEGUNDO, etc.)
 """
@@ -5411,14 +5448,33 @@ Los fundamentos y motivos del secretario DEBEN guiar tu argumentación.
         if type_specific.startswith(SENTENCIA_SYSTEM_BASE):
             type_specific = type_specific[len(SENTENCIA_SYSTEM_BASE):]
 
+        # Determine agravio label based on tipo
+        if tipo == "amparo_directo":
+            agravio_label = f"CONCEPTO DE VIOLACIÓN {num}"
+        elif tipo == "recurso_queja":
+            agravio_label = f"AGRAVIO {num}"
+        elif tipo == "revision_fiscal":
+            agravio_label = f"AGRAVIO {num}"
+        elif tipo == "amparo_revision":
+            agravio_label = f"AGRAVIO {num}"
+        else:
+            agravio_label = f"AGRAVIO {num}"
+
         parts_b.append(gtypes.Part.from_text(
             text=f"\n═══ INSTRUCCIONES DE REDACCIÓN ═══\n{type_specific}\n"
-                 f"\nRedacta ÚNICAMENTE el análisis del AGRAVIO {num} ({agravio_titulo}).\n"
+                 f"\nRedacta ÚNICAMENTE el análisis del {agravio_label} ({agravio_titulo}).\n"
                  f"Este agravio ha sido calificado como: {calificacion.upper()}\n\n"
+                 f"REGLAS CRÍTICAS DE FORMATO:\n"
+                 f"- NO incluyas encabezado 'QUINTO. Estudio de fondo.' ni ningún encabezado de considerando.\n"
+                 f"- NO incluyas párrafo introductorio general del estudio. Eso ya existe.\n"
+                 f"- Comienza DIRECTAMENTE con el título del agravio/concepto, por ejemplo:\n"
+                 f"  '{agravio_label}. {agravio_titulo}'\n"
+                 f"- Tu texto es UN FRAGMENTO que será insertado dentro de un estudio de fondo más amplio.\n"
+                 f"- NO repitas información de otros agravios — concéntrate solo en ESTE.\n\n"
                  f"Tu análisis DEBE ser MUY EXTENSO — mínimo 3,000 caracteres.\n"
                  f"DEBES citar jurisprudencia de las fuentes RAG proporcionadas.\n"
                  f"DEBES citar artículos de ley de las fuentes RAG proporcionadas.\n\n"
-                 f"Estructura OBLIGATORIA:\n"
+                 f"Estructura OBLIGATORIA del análisis:\n"
                  f"a) Síntesis fiel del agravio (transcripción parcial con comillas)\n"
                  f"b) Marco jurídico aplicable (artículos de ley citados con texto)\n"
                  f"c) Análisis del acto reclamado / sentencia recurrida\n"
@@ -5596,8 +5652,40 @@ Devuelve el borrador ENRIQUECIDO con las nuevas fuentes integradas naturalmente 
     print(f"   ⏱️ {total_elapsed:.1f}s total")
     print(f"   {'═' * 60}")
 
-    # Combine all agravios into estudio de fondo
-    combined = "\n\n".join(agravio_texts)
+    # Combine all agravios into a single, cohesive estudio de fondo
+    # Add unified header + introduction (avoids each agravio repeating it)
+    if tipo == "amparo_directo":
+        intro_label_plural = "conceptos de violación"
+        intro_label_singular = "concepto de violación"
+    elif tipo == "recurso_queja":
+        intro_label_plural = "agravios"
+        intro_label_singular = "agravio"
+    elif tipo == "revision_fiscal":
+        intro_label_plural = "agravios"
+        intro_label_singular = "agravio"
+    elif tipo == "amparo_revision":
+        intro_label_plural = "agravios"
+        intro_label_singular = "agravio"
+    else:
+        intro_label_plural = "agravios"
+        intro_label_singular = "agravio"
+
+    # Extract quejoso/recurrente name from extracted data for the intro
+    quejoso_name = extracted_data.get("quejoso_recurrente", extracted_data.get("partes", {}).get("quejoso", "la parte quejosa"))
+    if isinstance(quejoso_name, list):
+        quejoso_name = quejoso_name[0] if quejoso_name else "la parte quejosa"
+
+    num_agravios = len(calificaciones)
+    header = f"QUINTO. Estudio de fondo.\n\n"
+    header += (
+        f"Una vez demostrados los requisitos de procedencia, este Tribunal Colegiado "
+        f"procede al análisis de los {num_agravios} {intro_label_plural} formulados por "
+        f"{quejoso_name}, los cuales se estudiarán de manera individual, confrontando "
+        f"cada {intro_label_singular} con las consideraciones del acto reclamado, "
+        f"el marco jurídico aplicable y la jurisprudencia pertinente.\n"
+    )
+
+    combined = header + "\n\n" + "\n\n".join(agravio_texts)
     return combined
 
 
@@ -5807,24 +5895,29 @@ async def phase3_polish_assembly(client, extracted_data: dict, resultandos: str,
 
     parts = [gtypes.Part.from_text(text=assembly_text)]
     parts.append(gtypes.Part.from_text(
-        text="\n\nEnsambla las tres secciones en un PROYECTO DE SENTENCIA COMPLETO y coherente. "
-             "Añade el encabezado oficial, notas al pie, y la fórmula de cierre. "
-             "NO recortes contenido — mantén toda la extensión de cada sección."
+        text="\n\nVERIFICA LA COHERENCIA ESTRUCTURAL del documento (deduplica headers, "
+             "elimina intros repetidas, limpia errores técnicos, unifica resolutivos). "
+             "Luego ENSAMBLA en un proyecto de sentencia COMPLETO y coherente. "
+             "Añade encabezado oficial, notas al pie, y fórmula de cierre. "
+             "CONSERVA toda la extensión del análisis jurídico, pero ELIMINA duplicados y errores."
     ))
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL_FAST,  # Polish/Assembly → Flash
+            model=GEMINI_MODEL_FAST,  # 2.5 Flash with Thinking for structural coherence
             contents=parts,
             config=gtypes.GenerateContentConfig(
                 system_instruction=PHASE3_POLISH_PROMPT,
-                temperature=0.2,
+                temperature=0.1,
+                thinking_config=gtypes.ThinkingConfig(
+                    thinking_budget=8192,
+                ),
                 max_output_tokens=65536,
             ),
         )
         text = response.text or ""
         elapsed = time.time() - start
-        print(f"   ✅ Fase 3: {len(text)} chars en {elapsed:.1f}s")
+        print(f"   ✅ Fase 3 (Thinking): {len(text)} chars en {elapsed:.1f}s")
         return text
     except Exception as e:
         print(f"   ❌ Fase 3 error: {e}")
