@@ -4592,10 +4592,10 @@ GEMINI_MODEL = "gemini-2.5-pro"
 
 # ── Document labels per sentence type ────────────────────────────────────────
 SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
-    "amparo_directo": ["Demanda de Amparo", "Acto Reclamado", "Auto de Trámite"],
-    "amparo_revision": ["Recurso de Revisión", "Sentencia Recurrida", "Auto de Trámite"],
-    "revision_fiscal": ["Recurso de Revisión Fiscal", "Sentencia Recurrida", "Auto de Trámite"],
-    "recurso_queja": ["Recurso de Queja", "Determinación Recurrida", "Admisión del Recurso"],
+    "amparo_directo": ["Demanda de Amparo", "Acto Reclamado"],
+    "amparo_revision": ["Recurso de Revisión", "Sentencia Recurrida"],
+    "revision_fiscal": ["Recurso de Revisión Fiscal", "Sentencia Recurrida"],
+    "recurso_queja": ["Recurso de Queja", "Determinación Recurrida"],
 }
 
 # ── Base system prompt (shared across all types) ─────────────────────────────
@@ -4646,7 +4646,6 @@ TIPO ESPECÍFICO: AMPARO DIRECTO (Arts. 170-189 Ley de Amparo)
 Documentos que recibirás:
 1. DEMANDA DE AMPARO: Contiene los conceptos de violación, el acto reclamado señalado, las autoridades responsables, y los derechos humanos cuya violación se alega
 2. ACTO RECLAMADO: Es la sentencia o laudo contra la que se promueve el amparo. Analízala en detalle para confrontar con los conceptos de violación
-3. AUTO DE TRÁMITE: Contiene el número de expediente, la fecha de admisión, y datos procesales
 
 En el ESTUDIO DE FONDO:
 - Analiza CADA concepto de violación individualmente
@@ -4668,7 +4667,6 @@ TIPO ESPECÍFICO: AMPARO EN REVISIÓN (Arts. 81-96 Ley de Amparo)
 Documentos que recibirás:
 1. RECURSO DE REVISIÓN: Contiene los agravios del recurrente contra la sentencia del Juzgado de Distrito
 2. SENTENCIA RECURRIDA: Es la sentencia del amparo indirecto que se recurre
-3. AUTO DE TRÁMITE: Datos procesales del recurso
 
 En el ESTUDIO DE FONDO:
 - Analiza la procedencia del recurso (Arts. 81 y 83 Ley de Amparo)
@@ -4690,7 +4688,6 @@ TIPO ESPECÍFICO: REVISIÓN FISCAL (Art. 63 Ley Federal de Procedimiento Contenc
 Documentos que recibirás:
 1. RECURSO DE REVISIÓN FISCAL: Agravios del recurrente (generalmente autoridad hacendaria o IMSS)
 2. SENTENCIA RECURRIDA: Sentencia del Tribunal Federal de Justicia Administrativa
-3. AUTO DE TRÁMITE: Datos procesales
 
 En el ESTUDIO DE FONDO:
 - Verifica PRIMERO la procedencia del recurso conforme al Art. 63 LFPCA (importancia y trascendencia o supuestos específicos)
@@ -4711,7 +4708,6 @@ TIPO ESPECÍFICO: RECURSO DE QUEJA (Arts. 97-103 Ley de Amparo)
 Documentos que recibirás:
 1. RECURSO DE QUEJA: Agravios contra el auto o resolución recurrida
 2. DETERMINACIÓN RECURRIDA: El auto o resolución del Juzgado de Distrito que se impugna
-3. ADMISIÓN DEL RECURSO: Auto de admisión con datos procesales
 
 En el ESTUDIO DE FONDO:
 - Identifica la fracción del artículo 97 de la Ley de Amparo aplicable
@@ -6190,7 +6186,7 @@ async def analyze_expediente(
     user_email: str = Form(...),
     doc1: UploadFile = File(...),
     doc2: UploadFile = File(...),
-    doc3: UploadFile = File(...),
+    doc3: Optional[UploadFile] = File(None),
 ):
     """
     Phase 0.5: Analyze the expediente before drafting.
@@ -6216,7 +6212,8 @@ async def analyze_expediente(
     # ── Read PDF files ───────────────────────────────────────────────────
     doc_labels = SENTENCIA_DOC_LABELS[tipo]
     pdf_data = []
-    for i, (doc_file, label) in enumerate(zip([doc1, doc2, doc3], doc_labels)):
+    doc_files = [doc1, doc2] + ([doc3] if doc3 else [])
+    for i, (doc_file, label) in enumerate(zip(doc_files, doc_labels)):
         data = await doc_file.read()
         size_mb = len(data) / (1024 * 1024)
         if size_mb > 50:
@@ -6298,7 +6295,7 @@ async def draft_sentencia(
     calificaciones: str = Form(""),
     doc1: UploadFile = File(...),
     doc2: UploadFile = File(...),
-    doc3: UploadFile = File(...),
+    doc3: Optional[UploadFile] = File(None),
 ):
     """
     Redactor de Sentencias Federales (TCC) — Multi-Pass Pipeline.
@@ -6334,7 +6331,8 @@ async def draft_sentencia(
     # ── Read PDF files ───────────────────────────────────────────────────
     doc_labels = SENTENCIA_DOC_LABELS[tipo]
     pdf_data = []
-    for i, (doc_file, label) in enumerate(zip([doc1, doc2, doc3], doc_labels)):
+    doc_files = [doc1, doc2] + ([doc3] if doc3 else [])
+    for i, (doc_file, label) in enumerate(zip(doc_files, doc_labels)):
         data = await doc_file.read()
         size_mb = len(data) / (1024 * 1024)
         if size_mb > 50:
