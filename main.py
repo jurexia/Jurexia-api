@@ -5317,29 +5317,22 @@ async def phase2c_adaptive_estudio_fondo(
         top_sentencias = sentencia_results[:8]
         total_rag_hits += len(top_standard) + len(top_sentencias)
 
-        # Build RAG text
         agravio_rag_text = ""
         for r in top_standard:
-            payload = r.payload or {}
-            source = payload.get("source", payload.get("titulo_ley", ""))
-            articulo = payload.get("articulo", "")
-            text_content = payload.get("text", payload.get("content", ""))
-            silo = payload.get("_silo", "")
+            source = r.ref or r.origen or ""
+            text_content = r.texto or ""
+            silo = r.silo or ""
 
             tag = "[JURISPRUDENCIA VERIFICADA]" if "jurisprudencia" in silo.lower() else "[LEGISLACIÓN VERIFICADA]"
             agravio_rag_text += f"\n--- {tag} ---\n"
             if source:
                 agravio_rag_text += f"Fuente: {source}\n"
-            if articulo:
-                agravio_rag_text += f"Artículo: {articulo}\n"
             agravio_rag_text += f"{text_content}\n"
 
         for r in top_sentencias:
-            payload = r.payload or {}
-            source = payload.get("source", payload.get("titulo", ""))
-            section = payload.get("section_type", "")
-            text_content = payload.get("text", payload.get("content", ""))
-            agravio_rag_text += f"\n--- [EJEMPLO SENTENCIA — {section}] ---\n"
+            source = r.ref or r.origen or ""
+            text_content = r.texto or ""
+            agravio_rag_text += f"\n--- [EJEMPLO SENTENCIA] ---\n"
             if source:
                 agravio_rag_text += f"Expediente: {source}\n"
             agravio_rag_text += f"{text_content}\n"
@@ -5493,17 +5486,13 @@ Genera SOLO las consultas, una por línea, sin numeración. Cada consulta debe s
                 if top_enrich:
                     enrichment_rag = "\n"
                     for r in top_enrich:
-                        payload = r.payload or {}
-                        source = payload.get("source", payload.get("titulo_ley", ""))
-                        articulo = payload.get("articulo", "")
-                        text_content = payload.get("text", payload.get("content", ""))
-                        silo = payload.get("_silo", "")
+                        source = r.ref or r.origen or ""
+                        text_content = r.texto or ""
+                        silo = r.silo or ""
                         tag = "[JURISPRUDENCIA VERIFICADA]" if "jurisprudencia" in silo.lower() else "[LEGISLACIÓN VERIFICADA]"
                         enrichment_rag += f"\n--- {tag} ---\n"
                         if source:
                             enrichment_rag += f"Fuente: {source}\n"
-                        if articulo:
-                            enrichment_rag += f"Artículo: {articulo}\n"
                         enrichment_rag += f"{text_content}\n"
 
                     print(f"         ✅ Enriquecimiento: {len(top_enrich)} fuentes adicionales")
