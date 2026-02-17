@@ -91,6 +91,14 @@ ESTADO_SILO = {
     # "NUEVO_LEON": "leyes_nuevo_leon",
 }
 
+# Silos de SENTENCIAS DE EJEMPLO — usados como few-shot por el redactor multi-pass
+SENTENCIA_SILOS = {
+    "amparo_directo": "sentencias_amparo_directo",
+    "amparo_revision": "sentencias_amparo_revision",
+    "recurso_queja": "sentencias_recurso_queja",
+    "revision_fiscal": "sentencias_revision_fiscal",
+}
+
 # Fallback: colección legacy para estados no migrados
 LEGACY_ESTATAL_SILO = "leyes_estatales"
 
@@ -4738,6 +4746,708 @@ Si se proporcionan artículos o tesis de jurisprudencia del RAG, cítalos textua
 en los considerandos correspondientes.
 """
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# MULTI-PASS PHASE PROMPTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Phase 1: Structured Data Extraction from PDFs ─────────────────────────────
+PHASE1_EXTRACTION_PROMPT = """Eres un asistente jurídico de alta precisión. Tu ÚNICA tarea es EXTRAER datos estructurados de los documentos del expediente judicial proporcionados.
+
+REGLAS:
+1. Extrae TEXTUALMENTE — no parafrasees, no resumas, no inventes datos
+2. Usa "[…]" solo cuando un fragmento es demasiado largo (>500 palabras)
+3. Si un dato no aparece en los documentos, indica "NO ENCONTRADO"
+4. Los conceptos de violación / agravios deben ser extraídos COMPLETOS, no resumidos
+
+Responde EXCLUSIVAMENTE con el siguiente JSON (sin markdown, sin ```json):
+
+{
+  "expediente": {
+    "numero": "",
+    "tipo_asunto": "",
+    "tribunal": "",
+    "circuito": ""
+  },
+  "partes": {
+    "quejoso_recurrente": "",
+    "tercero_interesado": "",
+    "autoridades_responsables": [""],
+    "magistrado_ponente": "",
+    "secretario": ""
+  },
+  "fechas": {
+    "presentacion_demanda": "",
+    "admision": "",
+    "sentencia_recurrida": "",
+    "interposicion_recurso": "",
+    "admision_recurso": "",
+    "turno_ponencia": ""
+  },
+  "acto_reclamado": {
+    "descripcion_completa": "",
+    "autoridad_emisora": "",
+    "fecha_emision": "",
+    "resumen_contenido": ""
+  },
+  "tramite_procesal": {
+    "historia_procesal_detallada": "",
+    "terceros_interesados_datos": "",
+    "cambios_integracion": "",
+    "returno_datos": ""
+  },
+  "conceptos_violacion_o_agravios": [
+    {
+      "numero": 1,
+      "titulo_o_tema": "",
+      "texto_integro": "",
+      "articulos_invocados": [""],
+      "jurisprudencia_citada": [""],
+      "pretension_concreta": ""
+    }
+  ],
+  "sentencia_recurrida_resumen": {
+    "sentido_fallo": "",
+    "consideraciones_clave": "",
+    "fundamentos_principales": ""
+  },
+  "datos_adicionales": {
+    "materia": "",
+    "via_procesal": "",
+    "causas_improcedencia_opuestas": [""],
+    "notas": ""
+  }
+}
+"""
+
+# ── Phase 2A: RESULTANDOS ────────────────────────────────────────────────────
+PHASE2A_RESULTANDOS_PROMPT = """Eres un Secretario Proyectista de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México.
+
+Tu ÚNICA tarea ahora es redactar la sección de RESULTANDOS del proyecto de sentencia.
+
+ESTILO OBLIGATORIO:
+- TERCERA PERSONA, estilo formal judicial mexicano
+- Frases largas con oraciones subordinadas, lenguaje técnico-jurídico
+- Numeración: PRIMERO, SEGUNDO, TERCERO... (en letras, con punto final)
+- Cada resultando debe ser un párrafo extenso y detallado
+- Cita fechas en letras completas ("quince de enero de dos mil veintiséis")
+
+CONTENIDO DE CADA RESULTANDO:
+- PRIMERO: Presentación detallada de la demanda/recurso (quién, cuándo, ante quién, contra qué acto, en qué términos, con qué pretensiones)
+- SEGUNDO: Trámite completo (registro, admisión, auto admisorio, notificaciones, informes justificados, pruebas ofrecidas, audiencia)
+- TERCERO: Terceros interesados (identificación, emplazamiento, si comparecieron)
+- CUARTO: Dictamen del Ministerio Público si aplica
+- QUINTO: Turno a ponencia con datos específicos
+- SEXTO: Returno si hubo cambios de integración (con fundamento)
+- SÉPTIMO: Cualquier incidencia procesal adicional
+
+SIGUE EXACTAMENTE este formato:
+
+R E S U L T A N D O:
+
+PRIMERO. [título descriptivo en negritas]. [contenido extenso del resultando]
+
+SEGUNDO. [título descriptivo en negritas]. [contenido extenso]
+
+[...continúa con todos los resultandos necesarios]
+
+EXTENSIÓN ESPERADA: Mínimo 3,000 caracteres. Sé exhaustivo con los datos procesales.
+
+USA los datos estructurados proporcionados. NO inventes datos que no aparezcan en la extracción.
+"""
+
+# ── Phase 2B: CONSIDERANDOS (Marco Legal) ────────────────────────────────────
+PHASE2B_CONSIDERANDOS_PROMPT = """Eres un Secretario Proyectista de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México.
+
+Tu ÚNICA tarea ahora es redactar los CONSIDERANDOS PRELIMINARES (competencia, existencia del acto reclamado, legitimación, oportunidad y procedencia). NO redactes el estudio de fondo — eso se hará después.
+
+ESTILO OBLIGATORIO:
+- TERCERA PERSONA, estilo formal judicial mexicano
+- Frases largas con oraciones subordinadas
+- Fundamenta CADA considerando en artículos específicos de ley
+- Cita jurisprudencia con rubro completo, sala/tribunal, número de tesis cuando estén disponibles del RAG
+- Usa notas al pie para fundamentación legal
+
+CONSIDERANDOS A REDACTAR:
+
+PRIMERO. Competencia.
+- Fundamento constitucional (Art. 107 CPEUM, fracción aplicable)
+- Fundamento en Ley de Amparo (Arts. 81, 83, 92, según el tipo)
+- Fundamento en Ley Orgánica del PJF (Art. 35 u otro aplicable)
+- Explicar POR QUÉ este tribunal es competente (materia, territorio, cuantía)
+
+SEGUNDO. Existencia del acto reclamado.
+- Referencia a constancias que acreditan el acto
+- Certificación del secretario del tribunal de origen
+- Análisis completo de la existencia o inexistencia
+
+TERCERO. Legitimación y oportunidad.
+- Análisis de personalidad del promovente/recurrente
+- Cómputo detallado de plazos (fecha de notificación, días hábiles/inhábiles, fecha de presentación)
+- Fundamento legal del plazo aplicable
+
+CUARTO. Procedencia / Fijación de la litis.
+- Causas de improcedencia (si las hay, análisis de cada una)
+- Definición precisa de la materia del estudio (qué se va a analizar)
+- Si hay cuestiones firmes por falta de impugnación, señalarlas aquí
+
+EXTENSIÓN ESPERADA: Mínimo 5,000 caracteres. Cada considerando debe ser extenso y rigurosamente fundamentado.
+
+FORMATO:
+C O N S I D E R A N D O:
+
+PRIMERO. Competencia. [análisis extenso con fundamentación]
+
+SEGUNDO. Existencia del acto reclamado. [análisis con referencias a constancias]
+
+[...continúa]
+"""
+
+# ── Phase 2C: ESTUDIO DE FONDO — The critical section ────────────────────────
+PHASE2C_ESTUDIO_FONDO_PROMPT = """Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México. Esta es la parte MÁS IMPORTANTE del proyecto de sentencia.
+
+Tu tarea es redactar el ESTUDIO DE FONDO (Considerandos QUINTO en adelante) y los PUNTOS RESOLUTIVOS.
+
+═══ REGLAS ABSOLUTAS PARA EL ESTUDIO DE FONDO ═══
+
+1. ANALIZA CADA CONCEPTO DE VIOLACIÓN / AGRAVIO EN SU PROPIA SECCIÓN NUMERADA
+   - Si hay 5 agravios, debe haber 5 sub-secciones de análisis
+   - Cada análisis debe ser EXTENSO (mínimo 1,500 caracteres por agravio)
+
+2. ESTRUCTURA DE CADA ANÁLISIS DE AGRAVIO/CONCEPTO:
+   a) SÍNTESIS del argumento: Transcribe o sintetiza fielmente lo que dice el promovente
+   b) REPRODUCCIÓN TEXTUAL de las partes clave usando comillas y "[…]"
+   c) CONFRONTACIÓN: Analiza qué dijo la sentencia/acto reclamado sobre ese punto
+   d) CALIFICACIÓN: Aplica la calificación indicada por el secretario (fundado/infundado/inoperante)
+   e) RAZONAMIENTO: Explica con profundidad POR QUÉ se califica de esa manera
+   f) FUNDAMENTACIÓN: Cita artículos de ley y jurisprudencia que respaldan la calificación
+   g) CONCLUSIÓN del agravio
+
+3. CITAS DE JURISPRUDENCIA:
+   - Rubro COMPLETO en negritas
+   - Sala/Tribunal emisor
+   - Época
+   - Registro digital
+   - Transcripción relevante del criterio
+
+4. LONGITUD: El estudio de fondo debe ser la sección MÁS EXTENSA de toda la sentencia.
+   Mínimo 15,000 caracteres. Si hay múltiples agravios, puede llegar a 30,000+.
+
+5. PUNTOS RESOLUTIVOS al final:
+   - PRIMERO: Sentido del fallo
+   - SEGUNDO: Efectos específicos si aplican
+   - TERCERO: Notificaciones
+   - Fórmula de cierre: votación, tipo de resolución
+
+6. ESTILO: Frases largas, subordinadas, lenguaje técnico-jurídico federal.
+   Usa transiciones como "En efecto...", "Contrario a lo que sostiene...", "No le asiste razón...",
+   "Resulta aplicable la jurisprudencia...", "En esa tesitura...", "De lo anterior se colige..."
+
+=== REGLA ANTI-ALUCINACION PARA JURISPRUDENCIA ===
+- SOLO cita tesis de jurisprudencia y rubros que esten TEXTUALMENTE proporcionados
+  en el contexto RAG con la etiqueta [JURISPRUDENCIA VERIFICADA].
+- NUNCA inventes numeros de registro digital, rubros, o tesis que no aparezcan en el RAG.
+- Si no hay jurisprudencia relevante en el RAG, argumenta con fundamentacion legal (articulos de ley)
+  y razonamiento doctrinario, pero NO fabriques citas jurisprudenciales ficticias.
+- Los fragmentos etiquetados como [EJEMPLO SENTENCIA] son solo REFERENCIA DE ESTILO
+  y ARGUMENTACION. NO los cites como fuente. Usa su estructura y nivel de detalle como modelo.
+- La CREATIVIDAD es bienvenida para la argumentacion (razonamiento, analogias, interpretacion
+  juridica), pero NUNCA para fabricar fuentes legales inexistentes.
+
+═══ INSTRUCCIONES DEL SECRETARIO ═══
+SIGUE ESTRICTAMENTE el sentido del fallo y la calificación de cada agravio/concepto
+indicados por el secretario. El secretario es el experto en la materia.
+
+═══ FORMATO ═══
+
+QUINTO. Estudio de fondo. [Introducción general de la litis]
+
+[Agravio/Concepto 1]
+En su primer agravio/concepto de violación, el recurrente/quejoso aduce que...
+[análisis extenso]
+[calificación y razonamiento]
+[jurisprudencia]
+
+[Agravio/Concepto 2]
+...
+
+P U N T O S  R E S O L U T I V O S:
+
+PRIMERO. [Sentido del fallo]
+SEGUNDO. [Efectos]
+TERCERO. Notifíquese...
+
+[Fórmula de votación y cierre]
+"""
+
+# ── Phase 3: Polish & Assembly ────────────────────────────────────────────────
+PHASE3_POLISH_PROMPT = """Eres un Secretario Proyectista de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México.
+
+Se te proporcionan las diferentes secciones del proyecto de sentencia redactadas por separado.
+Tu tarea es ENSAMBLAR Y PULIR el documento final.
+
+TAREAS ESPECÍFICAS:
+1. ENCABEZADO: Genera el encabezado oficial con tipo de asunto, número de expediente, partes, magistrado ponente, secretario, lugar y fecha
+2. NUMERACIÓN: Asegura que la numeración sea continua y coherente (PRIMERO, SEGUNDO, TERCERO...)
+3. TRANSICIONES: Añade transiciones fluidas entre secciones
+4. NOTAS AL PIE: Genera notas al pie numeradas para TODAS las referencias legales citadas en el cuerpo
+5. FÓRMULA DE CIERRE: Si no está completa, añade:
+   - Tipo de votación (unanimidad/mayoría)
+   - Identidad de los magistrados
+   - Firma del ponente
+   - "Notifíquese; con testimonio de esta resolución, devuélvanse los autos..."
+6. CONSISTENCIA: Verifica que nombres, fechas y números sean consistentes en todo el documento
+7. NO RECORTES CONTENIDO: Tu tarea es AÑADIR, no quitar. Mantén toda la extensión de las secciones originales
+
+FORMATO DE SALIDA: El proyecto de sentencia COMPLETO, listo para revisión del Magistrado Ponente.
+NO uses formato markdown. Usa texto plano con las convenciones judiciales:
+- Títulos en MAYÚSCULAS CON ESPACIOS (R E S U L T A N D O:)
+- Negritas indicadas con **texto** solo para nombres y rubros de jurisprudencia
+- Numerales en palabras (PRIMERO, SEGUNDO, etc.)
+"""
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MULTI-PASS PHASE FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def phase1_extract_data(client, pdf_parts: list, tipo: str) -> dict:
+    """
+    Phase 1: Extract structured data from 3 PDFs into JSON.
+    Returns parsed dict or empty dict on failure.
+    """
+    from google.genai import types as gtypes
+    import time
+
+    print(f"\n   🔬 FASE 1: Extrayendo datos estructurados de los PDFs...")
+    start = time.time()
+
+    parts = list(pdf_parts)  # Copy PDF parts
+    parts.append(gtypes.Part.from_text(
+        text="\n\nExtrae TODOS los datos estructurados de los documentos anteriores siguiendo el formato JSON indicado en las instrucciones del sistema. "
+             "Sé exhaustivo: extrae cada concepto de violación / agravio de forma ÍNTEGRA, no resumida."
+    ))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=parts,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=PHASE1_EXTRACTION_PROMPT,
+                temperature=0.1,
+                max_output_tokens=32768,
+            ),
+        )
+        raw = response.text or ""
+        elapsed = time.time() - start
+        print(f"   ✅ Fase 1 completada: {len(raw)} chars en {elapsed:.1f}s")
+
+        # Clean markdown fences if present
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("```", 2)[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+            # Find closing fence
+            if "```" in cleaned:
+                cleaned = cleaned[:cleaned.rfind("```")]
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            print(f"   ⚠️ Fase 1: JSON parse error: {e}")
+            # Return raw text as fallback
+            return {"_raw_extraction": raw}
+    except Exception as e:
+        print(f"   ❌ Fase 1 error: {e}")
+        return {}
+
+
+async def phase2a_draft_resultandos(client, extracted_data: dict, pdf_parts: list, tipo: str) -> str:
+    """Phase 2A: Draft RESULTANDOS section."""
+    from google.genai import types as gtypes
+    import time
+
+    print(f"\n   📜 FASE 2A: Redactando RESULTANDOS...")
+    start = time.time()
+
+    parts = list(pdf_parts)
+    parts.append(gtypes.Part.from_text(
+        text=f"\n\n═══ DATOS EXTRAÍDOS DEL EXPEDIENTE ═══\n{json.dumps(extracted_data, ensure_ascii=False, indent=2)}\n"
+             f"\n═══ TIPO DE ASUNTO: {tipo} ═══\n"
+             f"\nRedacta la sección completa de RESULTANDOS usando los datos extraídos y los documentos originales."
+    ))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=parts,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=PHASE2A_RESULTANDOS_PROMPT,
+                temperature=0.3,
+                max_output_tokens=16384,
+            ),
+        )
+        text = response.text or ""
+        elapsed = time.time() - start
+        print(f"   ✅ Fase 2A: {len(text)} chars en {elapsed:.1f}s")
+        return text
+    except Exception as e:
+        print(f"   ❌ Fase 2A error: {e}")
+        return ""
+
+
+async def phase2b_draft_considerandos(client, extracted_data: dict, pdf_parts: list, tipo: str, rag_context: str) -> str:
+    """Phase 2B: Draft preliminary CONSIDERANDOS (competencia, legitimación, etc.)."""
+    from google.genai import types as gtypes
+    import time
+
+    print(f"\n   ⚖️ FASE 2B: Redactando CONSIDERANDOS preliminares...")
+    start = time.time()
+
+    parts = list(pdf_parts)
+    parts.append(gtypes.Part.from_text(
+        text=f"\n\n═══ DATOS EXTRAÍDOS DEL EXPEDIENTE ═══\n{json.dumps(extracted_data, ensure_ascii=False, indent=2)}\n"
+    ))
+    if rag_context:
+        parts.append(gtypes.Part.from_text(
+            text=f"\n═══ FUNDAMENTACIÓN RAG (jurisprudencia y legislación) ═══\n{rag_context}\n═══ FIN RAG ═══\n"
+        ))
+    parts.append(gtypes.Part.from_text(
+        text=f"\n═══ TIPO DE ASUNTO: {tipo} ═══\n"
+             f"\nRedacta los CONSIDERANDOS PRELIMINARES (competencia, existencia del acto, legitimación, oportunidad, procedencia)."
+             f"\nNO redactes el estudio de fondo."
+    ))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=parts,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=PHASE2B_CONSIDERANDOS_PROMPT,
+                temperature=0.3,
+                max_output_tokens=16384,
+            ),
+        )
+        text = response.text or ""
+        elapsed = time.time() - start
+        print(f"   ✅ Fase 2B: {len(text)} chars en {elapsed:.1f}s")
+        return text
+    except Exception as e:
+        print(f"   ❌ Fase 2B error: {e}")
+        return ""
+
+
+async def phase2c_draft_estudio_fondo(
+    client, extracted_data: dict, pdf_parts: list,
+    tipo: str, instrucciones: str, rag_context: str
+) -> str:
+    """Phase 2C: Draft ESTUDIO DE FONDO (the core analysis) + PUNTOS RESOLUTIVOS."""
+    from google.genai import types as gtypes
+    import time
+
+    print(f"\n   🔍 FASE 2C: Redactando ESTUDIO DE FONDO (sección crítica)...")
+    start = time.time()
+
+    parts = list(pdf_parts)
+
+    # Extracted data
+    parts.append(gtypes.Part.from_text(
+        text=f"\n\n═══ DATOS EXTRAÍDOS DEL EXPEDIENTE ═══\n{json.dumps(extracted_data, ensure_ascii=False, indent=2)}\n"
+    ))
+
+    # Secretary instructions
+    if instrucciones.strip():
+        parts.append(gtypes.Part.from_text(
+            text=f"\n═══ INSTRUCCIONES DEL SECRETARIO PROYECTISTA ═══\n{instrucciones}\n═══ FIN INSTRUCCIONES ═══\n"
+        ))
+
+    # RAG context
+    if rag_context:
+        parts.append(gtypes.Part.from_text(
+            text=f"\n═══ FUNDAMENTACIÓN RAG (jurisprudencia y legislación) ═══\n"
+                 f"Usa estos artículos, tesis y jurisprudencia para fundamentar cada considerando.\n"
+                 f"{rag_context}\n═══ FIN RAG ═══\n"
+        ))
+
+    # Type-specific additional instructions
+    type_specific = SENTENCIA_PROMPTS.get(tipo, "")
+    # Extract only the type-specific part (after SENTENCIA_SYSTEM_BASE)
+    if type_specific.startswith(SENTENCIA_SYSTEM_BASE):
+        type_specific = type_specific[len(SENTENCIA_SYSTEM_BASE):]
+
+    parts.append(gtypes.Part.from_text(
+        text=f"\n═══ INSTRUCCIONES ESPECÍFICAS DEL TIPO DE ASUNTO ═══\n{type_specific}\n"
+             f"\nRedacta el ESTUDIO DE FONDO COMPLETO y los PUNTOS RESOLUTIVOS.\n"
+             f"Analiza CADA concepto de violación / agravio en su propia sección.\n"
+             f"El estudio de fondo debe ser la sección MÁS EXTENSA de toda la sentencia.\n"
+             f"NO omitas ningún agravio. Cada uno requiere análisis profundo de mínimo 1,500 caracteres."
+    ))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=parts,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
+                temperature=0.3,
+                max_output_tokens=65536,
+            ),
+        )
+        text = response.text or ""
+        elapsed = time.time() - start
+        print(f"   ✅ Fase 2C: {len(text)} chars en {elapsed:.1f}s")
+        return text
+    except Exception as e:
+        print(f"   ❌ Fase 2C error: {e}")
+        return ""
+
+
+async def phase2c_adaptive_estudio_fondo(
+    client, extracted_data: dict, pdf_parts: list,
+    tipo: str, calificaciones: List[dict], rag_context: str
+) -> str:
+    """
+    Phase 2C ADAPTIVE: Draft ESTUDIO DE FONDO with one Gemini call per agravio.
+    Each agravio gets its own dedicated RAG + calificación + secretary notes.
+    Returns the complete estudio de fondo text.
+    """
+    from google.genai import types as gtypes
+    import time
+
+    print(f"\n   🔍 FASE 2C ADAPTATIVA: {len(calificaciones)} agravios a procesar individualmente...")
+    total_start = time.time()
+
+    # Build calificaciones lookup
+    calif_map = {}
+    for c in calificaciones:
+        calif_map[c.get("numero", 0)] = c
+
+    agravio_texts = []
+
+    for i, calif in enumerate(calificaciones):
+        num = calif.get("numero", i + 1)
+        calificacion = calif.get("calificacion", "sin_calificar")
+        notas = calif.get("notas", "")
+
+        print(f"\n      📌 Agravio {num}: {calificacion.upper()}")
+        if notas:
+            print(f"         📝 Notas: {notas[:100]}{'...' if len(notas) > 100 else ''}")
+
+        start = time.time()
+
+        # Build per-agravio RAG context
+        agravio_rag = ""
+        # Search for agravio-specific RAG if the agravio has details
+        agravio_titulo = calif.get("titulo", "")
+        agravio_resumen = calif.get("resumen", "")
+        if agravio_titulo or agravio_resumen:
+            search_query = f"{agravio_titulo} {agravio_resumen}".strip()
+            try:
+                agravio_rag = await run_rag_for_sentencia(
+                    search_query[:500], tipo,
+                    secondary_queries=None
+                )
+                if agravio_rag:
+                    print(f"         📚 RAG dedicado: {len(agravio_rag)} chars")
+            except Exception as e:
+                print(f"         ⚠️ RAG para agravio {num} falló: {e}")
+
+        # Combine global RAG + agravio-specific RAG
+        combined_rag = ""
+        if rag_context:
+            combined_rag += rag_context[:10000]  # Global context (truncated)
+        if agravio_rag:
+            combined_rag += f"\n\n═══ FUNDAMENTACIÓN ESPECÍFICA PARA AGRAVIO {num} ═══\n"
+            combined_rag += agravio_rag[:8000]
+
+        # Build per-agravio prompt parts
+        parts = list(pdf_parts)
+
+        # Extracted data
+        parts.append(gtypes.Part.from_text(
+            text=f"\n\n═══ DATOS EXTRAÍDOS DEL EXPEDIENTE ═══\n{json.dumps(extracted_data, ensure_ascii=False, indent=2)}\n"
+        ))
+
+        # Secretary calificación for this agravio
+        calif_instruction = f"""
+═══ CALIFICACIÓN DEL SECRETARIO PARA AGRAVIO {num} ═══
+Título del agravio: {agravio_titulo}
+Calificación: {calificacion.upper()}
+"""
+        if notas:
+            calif_instruction += f"Notas del secretario: {notas}\n"
+        calif_instruction += f"""
+DEBES calificar este agravio como {calificacion.upper()}. El secretario proyectista
+es el experto en la materia y su calificación es VINCULANTE.
+═══ FIN CALIFICACIÓN ═══
+"""
+        parts.append(gtypes.Part.from_text(text=calif_instruction))
+
+        # RAG context
+        if combined_rag:
+            parts.append(gtypes.Part.from_text(
+                text=f"\n═══ FUNDAMENTACIÓN RAG (jurisprudencia y legislación) ═══\n"
+                     f"Usa estos artículos, tesis y jurisprudencia para fundamentar tu análisis.\n"
+                     f"{combined_rag}\n═══ FIN RAG ═══\n"
+            ))
+
+        # Type-specific instructions
+        type_specific = SENTENCIA_PROMPTS.get(tipo, "")
+        if type_specific.startswith(SENTENCIA_SYSTEM_BASE):
+            type_specific = type_specific[len(SENTENCIA_SYSTEM_BASE):]
+
+        parts.append(gtypes.Part.from_text(
+            text=f"\n═══ INSTRUCCIONES ═══\n{type_specific}\n"
+                 f"\nRedacta ÚNICAMENTE el análisis del AGRAVIO {num} ({agravio_titulo}).\n"
+                 f"Este agravio ha sido calificado como: {calificacion.upper()}\n"
+                 f"Tu análisis de este agravio debe tener MÍNIMO 2,000 caracteres.\n"
+                 f"Sigue esta estructura:\n"
+                 f"a) Transcripción o síntesis del agravio\n"
+                 f"b) Marco jurídico aplicable\n"
+                 f"c) Análisis del tribunal de alzada\n"
+                 f"d) Confrontación con la sentencia recurrida\n"
+                 f"e) Fundamentación legal y jurisprudencial\n"
+                 f"f) Razonamiento lógico-jurídico\n"
+                 f"g) CONCLUSIÓN: Este agravio resulta {calificacion.upper()}\n"
+        ))
+
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=parts,
+                config=gtypes.GenerateContentConfig(
+                    system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
+                    temperature=0.3,
+                    max_output_tokens=32768,
+                ),
+            )
+            text = response.text or ""
+            elapsed = time.time() - start
+            print(f"         ✅ Agravio {num}: {len(text)} chars en {elapsed:.1f}s")
+            agravio_texts.append(text)
+        except Exception as e:
+            print(f"         ❌ Agravio {num} error: {e}")
+            agravio_texts.append(f"\n[Error al procesar agravio {num}: {str(e)}]\n")
+
+    total_elapsed = time.time() - total_start
+    print(f"\n   ✅ Fase 2C Adaptativa: {len(agravio_texts)} agravios en {total_elapsed:.1f}s")
+
+    # Combine all agravios into a single estudio de fondo
+    combined = "\n\n".join(agravio_texts)
+
+    # Generate PUNTOS RESOLUTIVOS based on calificaciones
+    sentido = _determine_sentido(calificaciones)
+    puntos = f"""
+
+P U N T O S   R E S O L U T I V O S:
+
+PRIMERO. {sentido}
+
+SEGUNDO. Notifíquese personalmente a las partes.
+
+TERCERO. En su oportunidad, archívese el expediente como asunto concluido.
+"""
+    return combined + puntos
+
+
+def _determine_sentido(calificaciones: List[dict]) -> str:
+    """Determine the overall fallo sentido based on calificaciones."""
+    fundados = sum(1 for c in calificaciones if c.get("calificacion") == "fundado")
+    total = len(calificaciones)
+    if fundados == 0:
+        return "Se NIEGA el amparo / Se CONFIRMA la sentencia recurrida / Se declara INFUNDADO el recurso."
+    elif fundados == total:
+        return "Se CONCEDE el amparo / Se REVOCA la sentencia recurrida / Se declara FUNDADO el recurso."
+    else:
+        return (f"Se CONCEDE parcialmente el amparo / Se MODIFICA la sentencia recurrida, "
+                f"al resultar FUNDADOS {fundados} de {total} agravios y los restantes INFUNDADOS o INOPERANTES.")
+
+
+async def phase3_polish_assembly(client, extracted_data: dict, resultandos: str, considerandos: str, estudio_fondo: str, tipo: str) -> str:
+    """Phase 3: Polish and assemble the final sentencia document."""
+    from google.genai import types as gtypes
+    import time
+
+    print(f"\n   ✨ FASE 3: Ensamblando y puliendo la sentencia final...")
+    start = time.time()
+
+    assembly_text = (
+        f"═══ DATOS DEL EXPEDIENTE ═══\n"
+        f"{json.dumps(extracted_data, ensure_ascii=False, indent=2)}\n\n"
+        f"═══ TIPO DE ASUNTO: {tipo} ═══\n\n"
+        f"═══ SECCIÓN 1: RESULTANDOS ═══\n{resultandos}\n\n"
+        f"═══ SECCIÓN 2: CONSIDERANDOS PRELIMINARES ═══\n{considerandos}\n\n"
+        f"═══ SECCIÓN 3: ESTUDIO DE FONDO Y PUNTOS RESOLUTIVOS ═══\n{estudio_fondo}\n"
+    )
+
+    parts = [gtypes.Part.from_text(text=assembly_text)]
+    parts.append(gtypes.Part.from_text(
+        text="\n\nEnsambla las tres secciones en un PROYECTO DE SENTENCIA COMPLETO y coherente. "
+             "Añade el encabezado oficial, notas al pie, y la fórmula de cierre. "
+             "NO recortes contenido — mantén toda la extensión de cada sección."
+    ))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=parts,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=PHASE3_POLISH_PROMPT,
+                temperature=0.2,
+                max_output_tokens=65536,
+            ),
+        )
+        text = response.text or ""
+        elapsed = time.time() - start
+        print(f"   ✅ Fase 3: {len(text)} chars en {elapsed:.1f}s")
+        return text
+    except Exception as e:
+        print(f"   ❌ Fase 3 error: {e}")
+        # Fallback: concatenate sections directly
+        return f"{resultandos}\n\n{considerandos}\n\n{estudio_fondo}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENHANCED RAG — More queries, more results, secondary extraction queries
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def extract_rag_queries_from_extraction(extracted_data: dict) -> List[str]:
+    """
+    Generate additional RAG queries from Phase 1 extracted data.
+    Looks for article references, legal concepts, and jurisprudence cited by parties.
+    """
+    queries = []
+    if not extracted_data or "_raw_extraction" in extracted_data:
+        return queries
+
+    # Extract article references
+    for concepto in extracted_data.get("conceptos_violacion_o_agravios", []):
+        for art in concepto.get("articulos_invocados", []):
+            if art and art != "NO ENCONTRADO":
+                queries.append(art)
+        for juris in concepto.get("jurisprudencia_citada", []):
+            if juris and juris != "NO ENCONTRADO":
+                queries.append(juris[:100])  # Truncate long rubros
+        # Add topic as query
+        titulo = concepto.get("titulo_o_tema", "")
+        if titulo and titulo != "NO ENCONTRADO":
+            queries.append(titulo)
+
+    # Add data about the case type
+    materia = extracted_data.get("datos_adicionales", {}).get("materia", "")
+    if materia and materia != "NO ENCONTRADO":
+        queries.append(f"jurisprudencia {materia}")
+
+    # Deduplicate and limit
+    seen = set()
+    unique = []
+    for q in queries:
+        q_lower = q.strip().lower()
+        if q_lower not in seen and len(q_lower) > 5:
+            seen.add(q_lower)
+            unique.append(q.strip())
+    return unique[:8]
+
+
 # ── RAG query extraction from secretary instructions ─────────────────────────
 async def extract_rag_queries_from_instructions(instrucciones: str, tipo: str) -> List[str]:
     """
@@ -4775,23 +5485,58 @@ Incluye artículos de ley mencionados, principios invocados, y temas de jurispru
         return []
 
 
-async def run_rag_for_sentencia(instrucciones: str, tipo: str) -> str:
+async def _search_single_silo_for_sentencia(query: str, silo_name: str) -> List[SearchResult]:
+    """Search a single sentencia example silo for relevant chunks."""
+    try:
+        dense_vector = await get_dense_embedding(query)
+        sparse_vector = get_sparse_embedding(query)
+        results = await hybrid_search_single_silo(
+            collection=silo_name,
+            query=query,
+            dense_vector=dense_vector,
+            sparse_vector=sparse_vector,
+            filter_=None,
+            top_k=5,
+            alpha=0.7,
+        )
+        return results
+    except Exception as e:
+        print(f"   ⚠️ Error searching sentencia silo '{silo_name}': {e}")
+        return []
+
+
+async def run_rag_for_sentencia(instrucciones: str, tipo: str, secondary_queries: List[str] = None) -> str:
     """
-    Full RAG pipeline for sentencia drafting:
+    Enhanced RAG pipeline for sentencia drafting:
     1. Extract search queries from secretary's instructions
-    2. Search all Qdrant silos in parallel
-    3. Compile context string (max ~8000 chars)
+    2. Merge with secondary queries from Phase 1 extraction
+    3. Search all Qdrant silos in parallel (including sentencia examples)
+    4. Compile context string (max ~25000 chars) with tagged sources
     """
     queries = await extract_rag_queries_from_instructions(instrucciones, tipo)
+
+    # Merge secondary queries from Phase 1 extraction
+    if secondary_queries:
+        seen = set(q.strip().lower() for q in queries)
+        for sq in secondary_queries:
+            if sq.strip().lower() not in seen:
+                queries.append(sq)
+                seen.add(sq.strip().lower())
+
     if not queries:
         print("   ℹ️ No RAG queries extracted — skipping RAG")
         return ""
+
+    # Limit to 8 queries max
+    queries = queries[:8]
 
     print(f"   🔍 RAG: {len(queries)} queries extraídas:")
     for i, q in enumerate(queries):
         print(f"      {i+1}. {q}")
 
-    # Search all silos in parallel for each query
+    # ═══════════════════════════════════════════════════════════════
+    # SEARCH 1: Standard silos (jurisprudencia, leyes, constitucional)
+    # ═══════════════════════════════════════════════════════════════
     all_results = []
     seen_ids = set()
 
@@ -4800,7 +5545,7 @@ async def run_rag_for_sentencia(instrucciones: str, tipo: str) -> str:
         tasks.append(hybrid_search_all_silos(
             query=q,
             estado=None,  # Federal-level search (no state filter)
-            top_k=5,
+            top_k=8,
             alpha=0.7,
             enable_reasoning=False,  # Fast mode for speed
         ))
@@ -4816,44 +5561,248 @@ async def run_rag_for_sentencia(instrucciones: str, tipo: str) -> str:
                 seen_ids.add(r.id)
                 all_results.append(r)
 
-    if not all_results:
+    # ═══════════════════════════════════════════════════════════════
+    # SEARCH 2: Sentencia example silos (cross-silo for style/patterns)
+    # ═══════════════════════════════════════════════════════════════
+    sentencia_results = []
+    sentencia_silos_to_search = []
+
+    # Primary: the silo matching the current sentencia type
+    if tipo in SENTENCIA_SILOS:
+        sentencia_silos_to_search.append(SENTENCIA_SILOS[tipo])
+
+    # Cross-silo: also search other types for richer argumentation patterns
+    for silo_tipo, silo_name in SENTENCIA_SILOS.items():
+        if silo_tipo != tipo and silo_name not in sentencia_silos_to_search:
+            sentencia_silos_to_search.append(silo_name)
+
+    if sentencia_silos_to_search:
+        print(f"   📚 Buscando en {len(sentencia_silos_to_search)} silos de sentencias ejemplo...")
+
+        # Use top 3 queries for sentencia search (avoid over-querying)
+        sentencia_queries = queries[:3]
+        sentencia_tasks = []
+
+        for q in sentencia_queries:
+            for silo_name in sentencia_silos_to_search:
+                sentencia_tasks.append(
+                    _search_single_silo_for_sentencia(q, silo_name)
+                )
+
+        sentencia_results_raw = await asyncio.gather(*sentencia_tasks, return_exceptions=True)
+
+        for sr_batch in sentencia_results_raw:
+            if isinstance(sr_batch, Exception):
+                continue
+            for r in sr_batch:
+                if r.id not in seen_ids:
+                    seen_ids.add(r.id)
+                    sentencia_results.append(r)
+
+        if sentencia_results:
+            print(f"   ✅ Sentencias ejemplo: {len(sentencia_results)} resultados")
+
+    if not all_results and not sentencia_results:
         print("   ℹ️ No RAG results found")
         return ""
 
-    # Sort by score descending and take top 15
+    # Sort by score descending and take top 30 from standard, top 10 from sentencias
     all_results.sort(key=lambda r: r.score, reverse=True)
-    top_results = all_results[:15]
+    top_standard = all_results[:30]
 
-    print(f"   ✅ RAG: {len(top_results)} resultados únicos (de {len(all_results)} totales)")
+    sentencia_results.sort(key=lambda r: r.score, reverse=True)
+    top_sentencias = sentencia_results[:10]
 
-    # Compile context string
+    total_results = len(top_standard) + len(top_sentencias)
+    print(f"   ✅ RAG total: {total_results} resultados únicos "
+          f"({len(top_standard)} jurídicos + {len(top_sentencias)} sentencias ejemplo)")
+
+    # Compile context string with tagged sources
     context_parts = []
     total_chars = 0
-    MAX_CHARS = 12000  # ~3000 tokens
+    MAX_CHARS = 25000  # ~6000 tokens
 
-    for r in top_results:
-        source = r.payload.get("fuente", r.payload.get("source", "Fuente desconocida"))
-        titulo = r.payload.get("titulo", r.payload.get("ley", ""))
-        text = r.payload.get("text", r.payload.get("contenido", ""))
-        articulo = r.payload.get("articulo", "")
-        rubro = r.payload.get("rubro", "")
-        collection = r.payload.get("collection", "")
+    # First: standard results (jurisprudencia, leyes)
+    for r in top_standard:
+        text = r.texto or ""
+        collection = r.silo or ""
+        ref = r.ref or ""
 
-        # Build entry
-        entry = f"\n--- [{collection}] {titulo}"
-        if articulo:
-            entry += f" | Art. {articulo}"
-        if rubro:
-            entry += f" | Rubro: {rubro}"
+        # Tag by source type
+        if "jurisprudencia" in collection.lower():
+            tag = "JURISPRUDENCIA VERIFICADA"
+        elif "constitucional" in collection.lower():
+            tag = "BLOQUE CONSTITUCIONAL"
+        else:
+            tag = "LEGISLACIÓN"
+
+        entry = f"\n--- [{tag}] [{collection}] {ref}"
         entry += f" (relevancia: {r.score:.2f}) ---\n"
-        entry += text[:800]  # Truncate individual entries
+        entry += text[:1200]
 
         if total_chars + len(entry) > MAX_CHARS:
             break
         context_parts.append(entry)
         total_chars += len(entry)
 
+    # Then: sentencia examples (for style/argumentation patterns)
+    SENTENCIA_MAX_CHARS = 8000  # Reserve up to 8K for sentencia examples
+    sentencia_chars = 0
+
+    if top_sentencias and total_chars < MAX_CHARS:
+        context_parts.append("\n\n═══ EJEMPLOS DE SENTENCIAS REALES (solo referencia de estilo y argumentación, NO citar como fuente) ═══\n")
+        total_chars += 120
+
+        for r in top_sentencias:
+            text = r.texto or ""
+            ref = r.ref or ""
+            collection = r.silo or ""
+
+            entry = f"\n--- [EJEMPLO SENTENCIA] [{collection}] {ref} ---\n"
+            entry += text[:1500]
+
+            if sentencia_chars + len(entry) > SENTENCIA_MAX_CHARS:
+                break
+            if total_chars + len(entry) > MAX_CHARS + SENTENCIA_MAX_CHARS:
+                break
+            context_parts.append(entry)
+            total_chars += len(entry)
+            sentencia_chars += len(entry)
+
     return "\n".join(context_parts)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 0.5 — Análisis Inteligente Pre-Redacción
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PHASE05_ANALYSIS_PROMPT = """Eres un asistente jurídico de alta precisión que analiza expedientes judiciales.
+Tu tarea es leer los documentos del expediente y producir un ANÁLISIS ESTRUCTURADO en JSON.
+
+REGLAS ESTRICTAS:
+1. Extrae TEXTUALMENTE los agravios / conceptos de violación — NO resumas, NO parafrasees
+2. El campo "resumen" de cada agravio debe ser una síntesis de 2-3 oraciones
+3. El campo "texto_integro" debe contener el texto COMPLETO del agravio tal como aparece en el documento
+4. Si un agravio es muy extenso (>2000 palabras), usa "[…]" para la parte central pero conserva inicio y final
+5. Identifica TODOS los agravios — no omitas ninguno
+6. Para el "titulo" usa la temática principal del agravio (ej: "Indebida valoración de pruebas")
+
+Responde EXCLUSIVAMENTE con JSON válido (sin markdown, sin ```json):
+
+{
+  "resumen_caso": "Síntesis del caso en 3-5 oraciones. Qué se reclama, en qué vía, quién reclama.",
+  "resumen_acto_reclamado": "Descripción del acto o sentencia que se impugna. Qué resolvió la autoridad responsable.",
+  "datos_expediente": {
+    "numero": "",
+    "tipo_asunto": "",
+    "quejoso_recurrente": "",
+    "autoridades_responsables": [""],
+    "materia": "",
+    "tribunal": ""
+  },
+  "agravios": [
+    {
+      "numero": 1,
+      "titulo": "Título temático corto del agravio",
+      "resumen": "Síntesis de 2-3 oraciones sobre qué argumenta el agravio",
+      "texto_integro": "Texto COMPLETO del agravio tal como aparece en el documento",
+      "articulos_mencionados": ["Art. 14 CPEUM", "Art. 16 CPEUM"],
+      "derechos_invocados": ["Debido proceso", "Legalidad"]
+    }
+  ],
+  "observaciones_preliminares": "Notas sobre posibles problemas de procedencia, causales de improcedencia visibles, o cuestiones de oficio que el tribunal debe abordar"
+}
+"""
+
+
+# ── Pydantic models for Phase 0.5 ────────────────────────────────────────────
+class AgravioAnalysis(BaseModel):
+    numero: int
+    titulo: str
+    resumen: str
+    texto_integro: str = ""
+    articulos_mencionados: List[str] = []
+    derechos_invocados: List[str] = []
+
+class DatosExpediente(BaseModel):
+    numero: str = ""
+    tipo_asunto: str = ""
+    quejoso_recurrente: str = ""
+    autoridades_responsables: List[str] = []
+    materia: str = ""
+    tribunal: str = ""
+
+class AnalysisResponse(BaseModel):
+    resumen_caso: str = ""
+    resumen_acto_reclamado: str = ""
+    datos_expediente: DatosExpediente = DatosExpediente()
+    agravios: List[AgravioAnalysis] = []
+    observaciones_preliminares: str = ""
+    analysis_time_seconds: float = 0.0
+
+class CalificacionAgravio(BaseModel):
+    numero: int
+    calificacion: Literal["fundado", "infundado", "inoperante", "sin_calificar"] = "sin_calificar"
+    notas: str = ""
+
+
+async def phase05_analyze_expediente(client, pdf_parts: list, tipo: str) -> dict:
+    """
+    Phase 0.5: Analyze the expediente and extract a structured summary
+    with individual agravios/conceptos de violación.
+    Returns parsed dict or empty dict on failure.
+    """
+    from google.genai import types as gtypes
+    import time
+
+    print(f"\n   🔎 FASE 0.5: Analizando expediente para identificar agravios...")
+    start = time.time()
+
+    parts = list(pdf_parts)
+    parts.append(gtypes.Part.from_text(
+        text="\n\nAnaliza TODOS los documentos anteriores y extrae la información estructurada "
+             "según el formato JSON indicado en las instrucciones del sistema. "
+             "Identifica CADA agravio / concepto de violación individualmente. "
+             "Sé exhaustivo: no omitas ningún agravio."
+    ))
+
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=parts,
+            config=gtypes.GenerateContentConfig(
+                system_instruction=PHASE05_ANALYSIS_PROMPT,
+                temperature=0.1,
+                max_output_tokens=32768,
+            ),
+        )
+        raw = response.text or ""
+        elapsed = time.time() - start
+        print(f"   ✅ Fase 0.5 completada: {len(raw)} chars en {elapsed:.1f}s")
+
+        # Clean markdown fences if present
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("```", 2)[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+            if "```" in cleaned:
+                cleaned = cleaned[:cleaned.rfind("```")]
+
+        try:
+            result = json.loads(cleaned)
+            agravios = result.get("agravios", [])
+            print(f"   📋 {len(agravios)} agravios identificados")
+            for a in agravios:
+                print(f"      {a.get('numero', '?')}. {a.get('titulo', 'Sin título')}")
+            result["_analysis_time"] = round(elapsed, 1)
+            return result
+        except json.JSONDecodeError as e:
+            print(f"   ⚠️ Fase 0.5: JSON parse error: {e}")
+            return {"_raw_analysis": raw, "_analysis_time": round(elapsed, 1)}
+    except Exception as e:
+        print(f"   ❌ Fase 0.5 error: {e}")
+        return {}
 
 
 # ── Pydantic model for the response ──────────────────────────────────────────
@@ -4868,6 +5817,119 @@ class DraftSentenciaResponse(BaseModel):
     tokens_output: Optional[int] = None
     model: str = GEMINI_MODEL
     rag_results_count: int = 0
+    phases_completed: int = 0
+    total_chars: int = 0
+    generation_time_seconds: float = 0.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: PHASE 0.5 — Análisis Pre-Redacción
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/analyze-expediente")
+async def analyze_expediente(
+    tipo: str = Form(...),
+    user_email: str = Form(...),
+    doc1: UploadFile = File(...),
+    doc2: UploadFile = File(...),
+    doc3: UploadFile = File(...),
+):
+    """
+    Phase 0.5: Analyze the expediente before drafting.
+    Returns a structured analysis with case summary and individual agravios.
+    The secretary can then qualify each agravio before proceeding to draft.
+    """
+    import time as time_module
+    total_start = time_module.time()
+
+    # ── Admin validation ─────────────────────────────────────────────────
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "Gemini API key not configured")
+    if not ADMIN_EMAILS:
+        raise HTTPException(500, "Admin emails not configured")
+    if user_email.strip().lower() not in ADMIN_EMAILS:
+        raise HTTPException(403, "Acceso restringido a administradores")
+
+    # ── Validate tipo ────────────────────────────────────────────────────
+    valid_types = list(SENTENCIA_PROMPTS.keys())
+    if tipo not in valid_types:
+        raise HTTPException(400, f"Tipo inválido. Opciones: {valid_types}")
+
+    # ── Read PDF files ───────────────────────────────────────────────────
+    doc_labels = SENTENCIA_DOC_LABELS[tipo]
+    pdf_data = []
+    for i, (doc_file, label) in enumerate(zip([doc1, doc2, doc3], doc_labels)):
+        data = await doc_file.read()
+        size_mb = len(data) / (1024 * 1024)
+        if size_mb > 50:
+            raise HTTPException(400, f"Archivo '{label}' excede 50MB ({size_mb:.1f}MB)")
+        if not data:
+            raise HTTPException(400, f"Archivo '{label}' está vacío")
+        pdf_data.append((data, label, doc_file.filename or f"doc{i+1}.pdf"))
+        print(f"   📄 {label}: {doc_file.filename} ({size_mb:.1f} MB)")
+
+    # ── Build Gemini client and PDF parts ─────────────────────────────────
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        pdf_parts = []
+        for pdf_bytes, label, filename in pdf_data:
+            pdf_parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} (archivo: {filename}) ---\n"))
+            pdf_parts.append(gtypes.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
+
+        print(f"\n🔎 ANÁLISIS PRE-REDACCIÓN — Tipo: {tipo}")
+
+        # ── Run Phase 0.5 analysis ─────────────────────────────────────
+        analysis_data = await phase05_analyze_expediente(client, pdf_parts, tipo)
+
+        if not analysis_data:
+            raise HTTPException(500, "Fase 0.5 falló: no se pudo analizar el expediente")
+
+        total_elapsed = time_module.time() - total_start
+
+        # Build response
+        agravios_list = []
+        for a in analysis_data.get("agravios", []):
+            agravios_list.append(AgravioAnalysis(
+                numero=a.get("numero", 0),
+                titulo=a.get("titulo", "Sin título"),
+                resumen=a.get("resumen", ""),
+                texto_integro=a.get("texto_integro", ""),
+                articulos_mencionados=a.get("articulos_mencionados", []),
+                derechos_invocados=a.get("derechos_invocados", []),
+            ))
+
+        datos = analysis_data.get("datos_expediente", {})
+        datos_exp = DatosExpediente(
+            numero=datos.get("numero", ""),
+            tipo_asunto=datos.get("tipo_asunto", ""),
+            quejoso_recurrente=datos.get("quejoso_recurrente", ""),
+            autoridades_responsables=datos.get("autoridades_responsables", []),
+            materia=datos.get("materia", ""),
+            tribunal=datos.get("tribunal", ""),
+        )
+
+        print(f"\n   ✅ ANÁLISIS COMPLETADO en {total_elapsed:.1f}s — {len(agravios_list)} agravios")
+
+        return AnalysisResponse(
+            resumen_caso=analysis_data.get("resumen_caso", ""),
+            resumen_acto_reclamado=analysis_data.get("resumen_acto_reclamado", ""),
+            datos_expediente=datos_exp,
+            agravios=agravios_list,
+            observaciones_preliminares=analysis_data.get("observaciones_preliminares", ""),
+            analysis_time_seconds=round(total_elapsed, 1),
+        )
+
+    except ImportError:
+        raise HTTPException(500, "google-genai SDK not installed. Run: pip install google-genai")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"   ❌ Error en análisis: {e}")
+        raise HTTPException(500, f"Error al analizar expediente: {str(e)}")
 
 
 @app.post("/draft-sentencia")
@@ -4875,16 +5937,26 @@ async def draft_sentencia(
     tipo: str = Form(...),
     user_email: str = Form(...),
     instrucciones: str = Form(""),
+    calificaciones: str = Form(""),
     doc1: UploadFile = File(...),
     doc2: UploadFile = File(...),
     doc3: UploadFile = File(...),
 ):
     """
-    Redactor de Sentencias Federales (TCC).
-    Recibe 3 PDFs del expediente y genera un proyecto de sentencia completo
-    usando Gemini 2.5 Pro con procesamiento multimodal de documentos.
-    Solo accesible para administradores.
+    Redactor de Sentencias Federales (TCC) — Multi-Pass Pipeline.
+    
+    5-PHASE ARCHITECTURE:
+    Phase 1: Extract structured data from 3 PDFs (JSON)
+    Phase 2A: Draft RESULTANDOS
+    Phase 2B: Draft CONSIDERANDOS (competencia, legitimación, procedencia)
+    Phase 2C: Draft ESTUDIO DE FONDO + PUNTOS RESOLUTIVOS (the critical section)
+    Phase 3: Polish and assemble final document
+    
+    Enhanced RAG: 8 queries, 30 results, 25K chars context.
+    Secondary RAG queries generated from Phase 1 extracted data.
     """
+    import time as time_module
+    total_start = time_module.time()
 
     # ── Admin validation ─────────────────────────────────────────────────
     if not GEMINI_API_KEY:
@@ -4914,116 +5986,146 @@ async def draft_sentencia(
         pdf_data.append((data, label, doc_file.filename or f"doc{i+1}.pdf"))
         print(f"   📄 {label}: {doc_file.filename} ({size_mb:.1f} MB)")
 
-    # ── RAG Search (if instructions provided) ────────────────────────────
-    rag_context = ""
-    rag_count = 0
-    if instrucciones.strip():
-        print(f"\n   📝 Instrucciones del secretario ({len(instrucciones)} chars):")
-        print(f"      {instrucciones[:200]}{'...' if len(instrucciones) > 200 else ''}")
-        try:
-            rag_context = await run_rag_for_sentencia(instrucciones, tipo)
-            rag_count = rag_context.count("---") // 2 if rag_context else 0
-            if rag_context:
-                print(f"   ✅ RAG context: {len(rag_context)} chars, ~{rag_count} resultados")
-        except Exception as e:
-            print(f"   ⚠️ RAG search failed (continuing without): {e}")
-            rag_context = ""
-    else:
-        print("   ℹ️ Sin instrucciones del secretario — generando sin RAG")
-
-    # ── Build system prompt with instructions ────────────────────────────
-    system_prompt = SENTENCIA_PROMPTS[tipo]
-    if instrucciones.strip():
-        system_prompt += INSTRUCCIONES_ADDENDUM
-
-    # ── Build Gemini request ─────────────────────────────────────────────
+    # ── Build Gemini client and PDF parts ─────────────────────────────────
     try:
         from google import genai
         from google.genai import types as gtypes
 
         client = genai.Client(api_key=GEMINI_API_KEY)
 
-        # Build content parts
-        parts = []
-
-        # 1. Secretary instructions (if any)
-        if instrucciones.strip():
-            parts.append(gtypes.Part.from_text(
-                text=f"\n═══ INSTRUCCIONES DEL SECRETARIO PROYECTISTA ═══\n\n{instrucciones}\n"
-            ))
-
-        # 2. RAG context (if any)
-        if rag_context:
-            parts.append(gtypes.Part.from_text(
-                text=f"\n═══ FUNDAMENTACIÓN LEGAL DE LA BASE DE DATOS (RAG) ═══\n"
-                     f"A continuación se presentan artículos de ley, tesis y jurisprudencia "
-                     f"encontrados en la base de datos legal que son relevantes para este asunto. "
-                     f"Úsalos para fundamentar los considerandos según las instrucciones del secretario.\n"
-                     f"{rag_context}\n"
-                     f"\n═══ FIN DEL CONTEXTO RAG ═══\n"
-            ))
-
-        # 3. PDFs with labels
+        # Build reusable PDF parts (used by multiple phases)
+        pdf_parts = []
         for pdf_bytes, label, filename in pdf_data:
-            parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} (archivo: {filename}) ---\n"))
-            parts.append(gtypes.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
+            pdf_parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} (archivo: {filename}) ---\n"))
+            pdf_parts.append(gtypes.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
 
-        # 4. Final instruction
-        final_instruction = (
-            "\n\nCon base en los tres documentos anteriores"
+        print(f"\n🏛️ REDACTOR DE SENTENCIAS MULTI-PASS — Tipo: {tipo}")
+        print(f"   📂 {len(pdf_data)} PDFs cargados")
+        total_tokens_in = 0
+        total_tokens_out = 0
+        phases_done = 0
+
+        # ═════════════════════════════════════════════════════════════════
+        # PHASE 1: Structured Data Extraction
+        # ═════════════════════════════════════════════════════════════════
+        extracted_data = await phase1_extract_data(client, pdf_parts, tipo)
+        phases_done = 1
+
+        if not extracted_data:
+            raise HTTPException(500, "Fase 1 falló: no se pudieron extraer datos de los PDFs")
+
+        # ═════════════════════════════════════════════════════════════════
+        # ENHANCED RAG: Secretary instructions + Phase 1 secondary queries
+        # ═════════════════════════════════════════════════════════════════
+        rag_context = ""
+        rag_count = 0
+
+        # Get secondary queries from extracted data
+        secondary_queries = await extract_rag_queries_from_extraction(extracted_data)
+        if secondary_queries:
+            print(f"   🔎 RAG secundario: {len(secondary_queries)} queries de la extracción")
+
+        if instrucciones.strip() or secondary_queries:
+            if instrucciones.strip():
+                print(f"\n   📝 Instrucciones del secretario ({len(instrucciones)} chars):")
+                print(f"      {instrucciones[:200]}{'...' if len(instrucciones) > 200 else ''}")
+            try:
+                rag_context = await run_rag_for_sentencia(
+                    instrucciones, tipo,
+                    secondary_queries=secondary_queries
+                )
+                rag_count = rag_context.count("---") // 2 if rag_context else 0
+                if rag_context:
+                    print(f"   ✅ RAG context: {len(rag_context)} chars, ~{rag_count} resultados")
+            except Exception as e:
+                print(f"   ⚠️ RAG search failed (continuing without): {e}")
+                rag_context = ""
+        else:
+            print("   ℹ️ Sin instrucciones ni datos extraídos para RAG")
+
+        # ═════════════════════════════════════════════════════════════════
+        # PHASE 2A: Draft RESULTANDOS
+        # ═════════════════════════════════════════════════════════════════
+        resultandos = await phase2a_draft_resultandos(client, extracted_data, pdf_parts, tipo)
+        phases_done = 2
+
+        # ═════════════════════════════════════════════════════════════════
+        # PHASE 2B: Draft CONSIDERANDOS (preliminary)
+        # ═════════════════════════════════════════════════════════════════
+        considerandos = await phase2b_draft_considerandos(
+            client, extracted_data, pdf_parts, tipo, rag_context
         )
-        if instrucciones.strip():
-            final_instruction += ", las INSTRUCCIONES DEL SECRETARIO PROYECTISTA"
-        if rag_context:
-            final_instruction += ", y la FUNDAMENTACIÓN LEGAL del RAG"
-        final_instruction += (
-            ", redacta el PROYECTO DE SENTENCIA COMPLETO. "
-            "Extrae TODOS los datos relevantes directamente de los PDFs: número de expediente, "
-            "nombres de las partes, fechas, actos reclamados, argumentos, agravios/conceptos de "
-            "violación, y fundamentos legales. "
-        )
-        if instrucciones.strip():
-            final_instruction += (
-                "SIGUE ESTRICTAMENTE el sentido indicado por el secretario para la resolución "
-                "y la calificación de cada concepto de violación o agravio. "
+        phases_done = 3
+
+        # ═════════════════════════════════════════════════════════════════
+        # PHASE 2C: Draft ESTUDIO DE FONDO (the critical section)
+        # ═════════════════════════════════════════════════════════════════
+
+        # Parse calificaciones if provided (from Phase 0.5 UI)
+        parsed_calificaciones = []
+        if calificaciones.strip():
+            try:
+                parsed_calificaciones = json.loads(calificaciones)
+                if not isinstance(parsed_calificaciones, list):
+                    parsed_calificaciones = []
+                print(f"\n   📋 Calificaciones del secretario: {len(parsed_calificaciones)} agravios")
+                for c in parsed_calificaciones:
+                    print(f"      Agravio {c.get('numero', '?')}: {c.get('calificacion', 'sin_calificar').upper()}")
+            except json.JSONDecodeError:
+                print("   ⚠️ No se pudieron parsear las calificaciones, usando modo estándar")
+                parsed_calificaciones = []
+
+        if parsed_calificaciones:
+            # ADAPTIVE MODE: one Gemini call per agravio
+            estudio_fondo = await phase2c_adaptive_estudio_fondo(
+                client, extracted_data, pdf_parts,
+                tipo, parsed_calificaciones, rag_context
             )
-        final_instruction += "La sentencia debe estar lista para revisión del Magistrado Ponente."
-        parts.append(gtypes.Part.from_text(text=final_instruction))
+        else:
+            # STANDARD MODE: single call for all agravios
+            estudio_fondo = await phase2c_draft_estudio_fondo(
+                client, extracted_data, pdf_parts,
+                tipo, instrucciones, rag_context
+            )
+        phases_done = 4
 
-        print(f"\n🏛️ REDACTOR DE SENTENCIAS — Tipo: {tipo}")
-        print(f"   🤖 Enviando {len(pdf_data)} PDFs + {'instrucciones + RAG' if rag_context else 'sin RAG'} a {GEMINI_MODEL}...")
-
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=parts,
-            config=gtypes.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0.3,
-                max_output_tokens=65536,
-            ),
+        # ═════════════════════════════════════════════════════════════════
+        # PHASE 3: Polish & Assembly
+        # ═════════════════════════════════════════════════════════════════
+        sentencia_text = await phase3_polish_assembly(
+            client, extracted_data, resultandos, considerandos, estudio_fondo, tipo
         )
+        phases_done = 5
 
-        sentencia_text = response.text or ""
-        tokens_in = getattr(response.usage_metadata, 'prompt_token_count', None) if hasattr(response, 'usage_metadata') else None
-        tokens_out = getattr(response.usage_metadata, 'candidates_token_count', None) if hasattr(response, 'usage_metadata') else None
+        total_elapsed = time_module.time() - total_start
 
-        print(f"   ✅ Sentencia generada: {len(sentencia_text)} caracteres")
-        if tokens_in:
-            print(f"   📊 Tokens: {tokens_in:,} input, {tokens_out:,} output")
+        print(f"\n   ═══════════════════════════════════════════")
+        print(f"   ✅ SENTENCIA MULTI-PASS COMPLETADA")
+        print(f"   📊 {len(sentencia_text):,} caracteres totales")
+        print(f"   ⏱️ {total_elapsed:.1f} segundos totales")
+        print(f"   🔄 {phases_done} fases completadas")
+        if rag_count:
+            print(f"   📚 {rag_count} resultados RAG utilizados")
+        print(f"   ═══════════════════════════════════════════")
 
         return DraftSentenciaResponse(
             sentencia_text=sentencia_text,
             tipo=tipo,
-            tokens_input=tokens_in,
-            tokens_output=tokens_out,
+            tokens_input=None,  # Multi-pass doesn't aggregate easily
+            tokens_output=None,
             model=GEMINI_MODEL,
             rag_results_count=rag_count,
+            phases_completed=phases_done,
+            total_chars=len(sentencia_text),
+            generation_time_seconds=round(total_elapsed, 1),
         )
 
     except ImportError:
         raise HTTPException(500, "google-genai SDK not installed. Run: pip install google-genai")
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"   ❌ Error Gemini: {e}")
+        print(f"   ❌ Error Multi-Pass: {e}")
         raise HTTPException(500, f"Error al generar sentencia: {str(e)}")
 
 
