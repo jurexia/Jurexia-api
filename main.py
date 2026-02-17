@@ -5197,6 +5197,34 @@ async def phase2c_draft_estudio_fondo(
         return ""
 
 
+def _strip_ai_preamble(text: str) -> str:
+    """Remove common AI preamble/courtesy patterns from Gemini output."""
+    lines = text.split('\n')
+    clean_lines = []
+    skip_until_content = True
+    for line in lines:
+        stripped = line.strip().lower()
+        if skip_until_content:
+            # Skip known preamble patterns
+            if any(p in stripped for p in [
+                'claro,', 'claro ', 'procedo a redactar', 'aquí está',
+                'conforme a la técnica', 'en mi calidad de',
+                'a continuación', 'por supuesto', 'con gusto',
+                'aqui está', 'aqui esta',
+                'apegándome estrictamente', 'apegandome estrictamente',
+            ]):
+                continue
+            # Skip markdown separators at top (e.g. ***)
+            if stripped in ('***', '---', '===', '* * *'):
+                continue
+            # Skip blank lines before content starts
+            if not stripped:
+                continue
+            skip_until_content = False
+        clean_lines.append(line)
+    return '\n'.join(clean_lines)
+
+
 async def phase2c_adaptive_estudio_fondo(
     client, extracted_data: dict, pdf_parts: list,
     tipo: str, calificaciones: List[dict], rag_context: str
@@ -5418,7 +5446,7 @@ Los fundamentos y motivos del secretario DEBEN guiar tu argumentación.
                     max_output_tokens=32768,
                 ),
             )
-            draft_text = response_b.text or ""
+            draft_text = _strip_ai_preamble(response_b.text or "")
             step_b_elapsed = time.time() - step_b_start
             print(f"         ✅ Borrador: {len(draft_text)} chars ({step_b_elapsed:.1f}s)")
         except Exception as e:
@@ -5681,7 +5709,7 @@ Tu tarea es redactar ÚNICAMENTE:
                 max_output_tokens=16384,
             ),
         )
-        text = response.text or ""
+        text = _strip_ai_preamble(response.text or "")
         elapsed = time.time() - start
         print(f"   ✅ Efectos + Resolutivos: {len(text)} chars en {elapsed:.1f}s")
         return text
@@ -6597,19 +6625,8 @@ async def export_sentencia_docx(req: ExportSentenciaRequest):
         metadata_lines.append((f"MATERIA: {req.materia.upper()}", True))
         metadata_lines.append(("", False))
 
-    if req.quejoso:
-        metadata_lines.append((f"QUEJOSO(A): {req.quejoso.upper()}", True))
-        metadata_lines.append(("", False))
-
-    if req.magistrado:
-        metadata_lines.append(("MAGISTRADO PONENTE:", True))
-        metadata_lines.append((req.magistrado.upper(), False))
-        metadata_lines.append(("", False))
-
-    if req.secretario:
-        metadata_lines.append(("SECRETARIO:", True))
-        metadata_lines.append((req.secretario.upper(), False))
-        metadata_lines.append(("", False))
+    # Note: Quejoso, Magistrado, Secretario removed from DOCX header
+    # as estudio de fondo output doesn't need these metadata fields
 
     # Add blank lines before body
     metadata_lines.append(("", False))
