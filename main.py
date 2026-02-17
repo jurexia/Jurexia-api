@@ -4588,7 +4588,8 @@ class ReingestRequest(BaseModel):
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_EMAILS = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
-GEMINI_MODEL = "gemini-2.5-pro"
+GEMINI_MODEL = "gemini-2.5-pro"         # Critical reasoning (Step B, legacy 2C)
+GEMINI_MODEL_FAST = "gemini-2.5-flash"  # Auxiliary tasks (extraction, enrichment, assembly)
 
 # ── Document labels per sentence type ────────────────────────────────────────
 SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
@@ -5024,7 +5025,7 @@ async def phase1_extract_data(client, pdf_parts: list, tipo: str) -> dict:
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=GEMINI_MODEL_FAST,  # Extraction task → Flash
             contents=parts,
             config=gtypes.GenerateContentConfig(
                 system_instruction=PHASE1_EXTRACTION_PROMPT,
@@ -5074,7 +5075,7 @@ async def phase2a_draft_resultandos(client, extracted_data: dict, pdf_parts: lis
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=GEMINI_MODEL_FAST,  # Resultandos → Flash
             contents=parts,
             config=gtypes.GenerateContentConfig(
                 system_instruction=PHASE2A_RESULTANDOS_PROMPT,
@@ -5115,7 +5116,7 @@ async def phase2b_draft_considerandos(client, extracted_data: dict, pdf_parts: l
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=GEMINI_MODEL_FAST,  # Considerandos → Flash
             contents=parts,
             config=gtypes.GenerateContentConfig(
                 system_instruction=PHASE2B_CONSIDERANDOS_PROMPT,
@@ -5562,7 +5563,7 @@ Devuelve el borrador ENRIQUECIDO con las nuevas fuentes integradas naturalmente 
 
             try:
                 response_d = client.models.generate_content(
-                    model=GEMINI_MODEL,
+                    model=GEMINI_MODEL_FAST,  # Enrichment → Flash
                     contents=[gtypes.Part.from_text(text=enrichment_instruction)],
                     config=gtypes.GenerateContentConfig(
                         system_instruction="Eres un Secretario Proyectista EXPERTO. Tu tarea es enriquecer un borrador jurídico con nuevas fuentes verificadas sin perder contenido.",
@@ -5701,7 +5702,7 @@ Tu tarea es redactar ÚNICAMENTE:
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=GEMINI_MODEL_FAST,  # Efectos/Resolutivos → Flash
             contents=[gtypes.Part.from_text(text=prompt_text)],
             config=gtypes.GenerateContentConfig(
                 system_instruction="Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México. Redacta con máximo rigor formal los efectos y puntos resolutivos de una sentencia.",
@@ -5759,7 +5760,7 @@ async def phase3_polish_assembly(client, extracted_data: dict, resultandos: str,
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=GEMINI_MODEL_FAST,  # Polish/Assembly → Flash
             contents=parts,
             config=gtypes.GenerateContentConfig(
                 system_instruction=PHASE3_POLISH_PROMPT,
@@ -6139,7 +6140,7 @@ async def phase05_analyze_expediente(client, pdf_parts: list, tipo: str) -> dict
 
     try:
         response = client.models.generate_content(
-            model=GEMINI_MODEL,
+            model=GEMINI_MODEL_FAST,  # Analysis/Extraction → Flash
             contents=parts,
             config=gtypes.GenerateContentConfig(
                 system_instruction=PHASE05_ANALYSIS_PROMPT,
