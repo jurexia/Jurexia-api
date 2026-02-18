@@ -1441,6 +1441,7 @@ class ChatRequest(BaseModel):
         description="Si True, usa Query Expansion con metadata jerárquica (más lento ~10s pero más preciso). Si False, modo rápido ~2s."
     )
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
+    materia: Optional[str] = Field(None, description="Materia jurídica forzada (PENAL, CIVIL, FAMILIAR, etc.). Si None, auto-detecta por keywords.")
 
 
 class AuditRequest(BaseModel):
@@ -1937,27 +1938,47 @@ def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filte
 
 def build_metadata_filter(materia: Optional[str]) -> Optional[Filter]:
     """
-    Construye filtro de Qdrant basado en metadata jerárquica.
-    
-    Usa filtro SHOULD (soft filter) para aumentar score de chunks  
-    que matchean materia, pero NO excluye chunks de otras materias.
-    
-    Args:
-        materia: Materia legal (penal, civil, mercantil, laboral, etc.)
-    
-    Returns:
-        Filter de Qdrant o None si no hay materia
+    LEGACY: Construye filtro por campo 'materia' (pocas colecciones lo tienen).
+    Usar build_materia_boost_filter() para el campo 'jurisdiccion' enriquecido.
     """
     if not materia:
         return None
-    
-    # SHOULD filter: Aumenta score si match, pero no excluye
-    # Permite flexibilidad para casos que involucran múltiples materias
     return Filter(
         should=[
             FieldCondition(
                 key="materia",
                 match=MatchAny(any=[materia])
+            )
+        ]
+    )
+
+
+def build_materia_boost_filter(materias: List[str]) -> Optional[Filter]:
+    """
+    Construye filtro SHOULD (soft boost) basado en campo 'jurisdiccion'.
+    
+    Aumenta el score de chunks cuya jurisdiccion coincide, pero NO excluye
+    chunks de otras materias. Esto permite que artículos relevantes de
+    materias adyacentes sigan apareciendo.
+    
+    Args:
+        materias: Lista de materias jurídicas (e.g. ["PENAL"], ["CIVIL", "FAMILIAR"])
+    
+    Returns:
+        Filter de Qdrant con should conditions, o None si lista vacía
+    """
+    if not materias:
+        return None
+    
+    # Normalizar a uppercase para matching con payloads enriquecidos
+    normalized = [m.upper() for m in materias]
+    
+    # SHOULD filter: boost, no exclusión
+    return Filter(
+        should=[
+            FieldCondition(
+                key="jurisdiccion",
+                match=MatchAny(any=normalized)
             )
         ]
     )
@@ -2262,6 +2283,207 @@ def is_ddhh_query(query: str) -> bool:
     """
     query_lower = query.lower()
     return any(keyword in query_lower for keyword in DDHH_KEYWORDS)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MATERIA-AWARE RETRIEVAL — Capa 1: Detección por Keywords (0 latencia)
+# ══════════════════════════════════════════════════════════════════════════════
+
+MATERIA_KEYWORDS = {
+    "PENAL": {
+        "delito", "robo", "homicidio", "violencia", "penal", "imputado",
+        "víctima", "ministerio público", "fiscalía", "carpeta de investigación",
+        "audiencia inicial", "vinculación a proceso", "prisión preventiva",
+        "sentencia condenatoria", "sentencia absolutoria", "tipicidad",
+        "antijuridicidad", "culpabilidad", "punibilidad", "dolo", "culpa",
+        "tentativa", "coautoría", "cómplice", "encubrimiento", "reincidencia",
+        "lesiones", "fraude", "abuso de confianza", "extorsión", "secuestro",
+        "violación", "feminicidio", "narcotráfico", "portación de arma",
+        "código penal", "cnpp", "procedimiento penal", "acusatorio",
+        "medida cautelar", "suspensión condicional", "procedimiento abreviado",
+        "nulidad de actuaciones", "cadena de custodia", "dato de prueba",
+    },
+    "FAMILIAR": {
+        "divorcio", "custodia", "alimentos", "pensión alimenticia",
+        "guarda", "patria potestad", "régimen de convivencia", "adopción",
+        "matrimonio", "concubinato", "filiación", "paternidad",
+        "reconocimiento de hijo", "tutela", "curatela", "interdicción",
+        "violencia familiar", "separación de cuerpos", "sociedad conyugal",
+        "separación de bienes", "gananciales", "acta de nacimiento",
+        "acta de matrimonio", "registro civil", "familiar", "familia",
+        "menor", "menores", "niño", "niña", "infancia", "adolescente",
+        "hijos", "cónyuge", "esposo", "esposa", "convivencia",
+    },
+    "LABORAL": {
+        "despido", "laboral", "patrón", "trabajador", "salario",
+        "contrato de trabajo", "relación laboral", "indemnización",
+        "salarios caídos", "reinstalación", "junta de conciliación",
+        "tribunal laboral", "sindicato", "huelga", "contrato colectivo",
+        "jornada", "horas extras", "vacaciones", "prima vacacional",
+        "aguinaldo", "ptu", "reparto de utilidades", "seguro social",
+        "imss", "infonavit", "incapacidad", "riesgo de trabajo",
+        "accidente laboral", "enfermedad profesional", "ley federal del trabajo",
+        "rescisión laboral", "liquidación", "finiquito", "antigüedad",
+        "subordinación", "outsourcing", "subcontratación",
+    },
+    "CIVIL": {
+        "contrato", "arrendamiento", "compraventa", "daños y perjuicios",
+        "responsabilidad civil", "obligaciones", "prescripción",
+        "usucapión", "posesión", "propiedad", "servidumbre", "hipoteca",
+        "prenda", "fianza civil", "mandato", "comodato", "mutuo",
+        "donación", "permuta", "arrendatario", "arrendador", "renta",
+        "desalojo", "desahucio", "lanzamiento", "juicio ordinario civil",
+        "código civil", "acción reivindicatoria", "nulidad de contrato",
+        "rescisión de contrato", "incumplimiento", "cláusula penal",
+        "caso fortuito", "fuerza mayor", "vicios ocultos", "evicción",
+        "sucesión", "herencia", "testamento", "intestado", "heredero",
+        "legado", "albacea", "copropiedad", "condominio",
+        "derecho del tanto", "usufructo", "embargo", "remate",
+    },
+    "MERCANTIL": {
+        "sociedad mercantil", "pagaré", "letra de cambio", "cheque",
+        "título de crédito", "código de comercio", "lgsm",
+        "juicio ejecutivo mercantil", "juicio oral mercantil",
+        "acción cambiaria", "endoso", "aval", "protesto",
+        "quiebra", "concurso mercantil", "liquidación mercantil",
+        "comerciante", "acto de comercio", "comisión mercantil",
+        "contrato mercantil", "compraventa mercantil", "factoraje",
+        "arrendamiento financiero", "franquicia", "sociedad anónima",
+        "sapi", "sas", "s de rl", "lgtoc",
+    },
+    "ADMINISTRATIVO": {
+        "clausura", "multa administrativa", "licitación", "concesión",
+        "permiso", "licencia", "autorización", "acto administrativo",
+        "procedimiento administrativo", "recurso de revisión",
+        "juicio contencioso administrativo", "tribunal administrativo",
+        "tfja", "servidor público", "responsabilidad administrativa",
+        "sanción administrativa", "inspección", "verificación",
+        "medio ambiente", "uso de suelo", "construcción",
+        "protección civil", "cofepris", "profeco", "regulación",
+        "administrativo", "gobernación",
+    },
+    "FISCAL": {
+        "impuesto", "sat", "contribución", "cfdi", "factura",
+        "isr", "iva", "ieps", "predial", "tributario", "fiscal",
+        "código fiscal", "ley de ingresos", "devolución de impuestos",
+        "crédito fiscal", "embargo fiscal", "procedimiento administrativo de ejecución",
+        "recurso de revocación fiscal", "juicio de nulidad fiscal",
+        "auditoría fiscal", "visita domiciliaria", "revisión de gabinete",
+        "determinación de créditos", "caducidad fiscal", "prescripción fiscal",
+        "declaración anual", "deducción", "acreditamiento",
+    },
+    "AGRARIO": {
+        "ejido", "ejidatario", "comunal", "parcela", "agrario",
+        "tribunal agrario", "procuraduría agraria", "ran",
+        "registro agrario nacional", "asamblea ejidal", "comisariado",
+        "ley agraria", "dotación", "restitución de tierras",
+        "certificado parcelario", "dominio pleno", "avecindado",
+        "pequeña propiedad", "comunidad agraria", "tierras comunales",
+    },
+    "CONSTITUCIONAL": {
+        "amparo", "juicio de amparo", "amparo indirecto", "amparo directo",
+        "suspensión del acto", "acto reclamado", "autoridad responsable",
+        "quejoso", "tercero interesado", "ley de amparo",
+        "inconstitucionalidad", "acción de inconstitucionalidad",
+        "controversia constitucional", "control de constitucionalidad",
+        "supremacía constitucional", "artículo constitucional",
+    },
+}
+
+
+def _detect_materia(query: str, forced_materia: Optional[str] = None) -> Optional[List[str]]:
+    """
+    Detecta la materia jurídica de una consulta usando keywords.
+    Capa 1 del Materia-Aware Retrieval: 0 latencia, 0 costo.
+    
+    Args:
+        query: Consulta del usuario
+        forced_materia: Si se proporciona, se usa directamente (override del frontend)
+    
+    Returns:
+        Lista de máximo 2 materias detectadas, o None si no detecta ninguna
+    """
+    # Override: si el frontend forzó una materia, usarla directamente
+    if forced_materia:
+        normalized = forced_materia.upper().strip()
+        if normalized in MATERIA_KEYWORDS:
+            return [normalized]
+        return None
+    
+    query_lower = query.lower()
+    scores = {}
+    
+    for materia, keywords in MATERIA_KEYWORDS.items():
+        # Contar cuántos keywords de cada materia aparecen
+        count = sum(1 for kw in keywords if kw in query_lower)
+        if count > 0:
+            scores[materia] = count
+    
+    if not scores:
+        return None
+    
+    # Ordenar por score descendente, tomar máximo 2
+    sorted_materias = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    
+    # Si la top materia tiene 2+ hits más que la segunda, solo devolver la top
+    if len(sorted_materias) >= 2:
+        top_score = sorted_materias[0][1]
+        second_score = sorted_materias[1][1]
+        if top_score >= second_score + 2:
+            return [sorted_materias[0][0]]
+        return [sorted_materias[0][0], sorted_materias[1][0]]
+    
+    return [sorted_materias[0][0]]
+
+
+def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25) -> list:
+    """
+    Capa 3 del Materia-Aware Retrieval: Post-retrieval threshold.
+    Descarta resultados de materia ajena SOLO si tienen score bajo.
+    
+    Args:
+        results: Lista de SearchResult ordenados por score
+        detected_materias: Materias detectadas por _detect_materia()
+        threshold_gap: Diferencia máxima tolerada vs top score (0.25 = 25%)
+    
+    Returns:
+        Lista filtrada de SearchResult
+    """
+    if not detected_materias or not results:
+        return results
+    
+    top_score = results[0].score if results else 0
+    threshold = top_score - threshold_gap
+    materias_upper = {m.upper() for m in detected_materias}
+    
+    filtered = []
+    dropped_count = 0
+    for r in results:
+        # SIEMPRE mantener jurisprudencia y constitucional (supremacía constitucional)
+        if r.silo in ("jurisprudencia_nacional", "bloque_constitucional"):
+            filtered.append(r)
+            continue
+        
+        # Si la jurisdiccion coincide con la materia detectada, mantener
+        if r.jurisdiccion and r.jurisdiccion.upper() in materias_upper:
+            filtered.append(r)
+            continue
+        
+        # Si no tiene jurisdiccion asignada, mantener (no podemos filtrar)
+        if not r.jurisdiccion:
+            filtered.append(r)
+            continue
+        
+        # Si la jurisdiccion NO coincide, mantener SOLO si el score es decente
+        if r.score >= threshold:
+            filtered.append(r)
+        else:
+            dropped_count += 1
+    
+    if dropped_count > 0:
+        print(f"   🧹 MATERIA THRESHOLD: Descartados {dropped_count} resultados de materia ajena (score < {threshold:.4f})")
+    
+    return filtered
 
 
 async def get_dense_embedding(text: str) -> List[float]:
@@ -2994,6 +3216,7 @@ async def hybrid_search_all_silos(
     top_k: int,
     alpha: float = 0.7,
     enable_reasoning: bool = False,  # NUEVO: Activar Query Expansion con metadata
+    forced_materia: Optional[str] = None,  # Materia-Aware: override de materia desde frontend
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
@@ -3031,6 +3254,13 @@ async def hybrid_search_all_silos(
         expanded_query = query  # Usar query original sin modificar
         materia_filter = None
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MATERIA-AWARE RETRIEVAL — Capa 1+2: Detección + Should Filter
+    # ═══════════════════════════════════════════════════════════════════════════
+    detected_materias = _detect_materia(query, forced_materia=forced_materia)
+    if detected_materias:
+        print(f"   🎯 MATERIA DETECTADA: {detected_materias} (forced={forced_materia is not None})")
+    
     # Generar embeddings: dense=ORIGINAL (preserva intención), sparse=query (original o expandido según modo)
     dense_task = get_dense_embedding(query)  # ORIGINAL para preservar intención semántica exacta
     sparse_vector = get_sparse_embedding(expanded_query)  # En modo rápido = original, en reasoning = expandido
@@ -3063,15 +3293,26 @@ async def hybrid_search_all_silos(
         # Filtro por estado: solo necesario para el silo legacy
         state_filter = get_filter_for_silo(silo_name, estado)
         
-        # Filtro por metadata (si enable_reasoning y hay materia detectada)
+        # Filtro por metadata (reasoning mode o materia-aware)
         metadata_filter = None
         if enable_reasoning and materia_filter:
             metadata_filter = build_metadata_filter(materia_filter)
         
-        # Combinar filtros: NUNCA mezclar must+should (Qdrant hard filter bug)
+        # Materia-Aware: should filter por jurisdiccion (Capa 2)
+        # SOLO para silos de legislación, NUNCA para jurisprudencia/constitucional
+        materia_boost = None
+        if detected_materias and silo_name not in ("jurisprudencia_nacional", "bloque_constitucional"):
+            materia_boost = build_materia_boost_filter(detected_materias)
+        
+        # Combinar filtros con prioridad:
+        # 1. state_filter (must) — siempre tiene prioridad
+        # 2. materia_boost (should) — solo si no hay state_filter ni metadata_filter
+        # NOTA: Qdrant no mezcla bien must+should en un solo Filter
         combined_filter = state_filter
         if not state_filter and metadata_filter:
             combined_filter = metadata_filter
+        elif not state_filter and not metadata_filter and materia_boost:
+            combined_filter = materia_boost
         
         tasks.append(
             hybrid_search_single_silo(
@@ -3284,6 +3525,12 @@ async def hybrid_search_all_silos(
     slots_remaining = top_k - len(merged)
     if slots_remaining > 0:
         merged.extend(remaining[:slots_remaining])
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
+    # ═══════════════════════════════════════════════════════════════════════════
+    if detected_materias:
+        merged = _apply_materia_threshold(merged, detected_materias)
     
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
@@ -3855,6 +4102,7 @@ async def chat_endpoint(request: ChatRequest):
                 estado=request.estado,
                 top_k=15,  # Más resultados para redacción
                 enable_reasoning=request.enable_reasoning,  # FASE 1: Query Expansion
+                forced_materia=request.materia,
             )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
@@ -4035,7 +4283,7 @@ async def chat_endpoint(request: ChatRequest):
                     estado=effective_estado,
                     top_k=request.top_k,
                     enable_reasoning=request.enable_reasoning,
-
+                    forced_materia=request.materia,
                 )
                 doc_id_map = build_doc_id_map(search_results)
                 context_xml = format_results_as_xml(search_results, estado=effective_estado)
