@@ -6437,59 +6437,129 @@ async def phase05_analyze_expediente(client, pdf_parts: list, tipo: str) -> dict
     """
     Phase 0.5: Analyze the expediente and extract a structured summary
     with individual agravios/conceptos de violación.
-    Returns parsed dict or empty dict on failure.
+    Returns parsed dict with agravios, or raises an Exception on failure.
+    Includes retry logic for transient failures.
     """
     from google.genai import types as gtypes
     import time
 
-    print(f"\n   🔎 FASE 0.5: Analizando expediente para identificar agravios...")
-    start = time.time()
+    MAX_RETRIES = 2
+    last_error = None
 
-    parts = list(pdf_parts)
-    parts.append(gtypes.Part.from_text(
-        text="\n\nAnaliza TODOS los documentos anteriores y extrae la información estructurada "
-             "según el formato JSON indicado en las instrucciones del sistema. "
-             "Identifica CADA agravio / concepto de violación individualmente. "
-             "Sé exhaustivo: no omitas ningún agravio."
-    ))
+    for attempt in range(1, MAX_RETRIES + 1):
+        print(f"\n   🔎 FASE 0.5 (intento {attempt}/{MAX_RETRIES}): Analizando expediente...")
+        start = time.time()
 
-    try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL_FAST,  # Analysis/Extraction → Flash
-            contents=parts,
-            config=gtypes.GenerateContentConfig(
-                system_instruction=PHASE05_ANALYSIS_PROMPT,
-                temperature=0.1,
-                max_output_tokens=32768,
-            ),
-        )
-        raw = response.text or ""
-        elapsed = time.time() - start
-        print(f"   ✅ Fase 0.5 completada: {len(raw)} chars en {elapsed:.1f}s")
-
-        # Clean markdown fences if present
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("```", 2)[1]
-            if cleaned.startswith("json"):
-                cleaned = cleaned[4:]
-            if "```" in cleaned:
-                cleaned = cleaned[:cleaned.rfind("```")]
+        parts = list(pdf_parts)
+        parts.append(gtypes.Part.from_text(
+            text="\n\nAnaliza TODOS los documentos anteriores y extrae la información estructurada "
+                 "según el formato JSON indicado en las instrucciones del sistema. "
+                 "Identifica CADA agravio / concepto de violación individualmente. "
+                 "Sé exhaustivo: no omitas ningún agravio."
+        ))
 
         try:
-            result = json.loads(cleaned)
+            response = client.models.generate_content(
+                model=GEMINI_MODEL_FAST,
+                contents=parts,
+                config=gtypes.GenerateContentConfig(
+                    system_instruction=PHASE05_ANALYSIS_PROMPT,
+                    temperature=0.1,
+                    max_output_tokens=32768,
+                ),
+            )
+
+            # Check for blocked/empty responses
+            raw = response.text or ""
+            elapsed = time.time() - start
+
+            if not raw.strip():
+                # Try to get finish reason for diagnostics
+                finish_reason = "unknown"
+                try:
+                    if response.candidates and len(response.candidates) > 0:
+                        finish_reason = str(response.candidates[0].finish_reason)
+                except Exception:
+                    pass
+                last_error = f"Gemini returned empty response (finish_reason={finish_reason}, elapsed={elapsed:.1f}s)"
+                print(f"   ⚠️ Fase 0.5: Respuesta vacía (finish_reason={finish_reason}) — {elapsed:.1f}s")
+                if attempt < MAX_RETRIES:
+                    print(f"   🔄 Reintentando en 3 segundos...")
+                    import asyncio
+                    await asyncio.sleep(3)
+                    continue
+                else:
+                    break
+
+            print(f"   ✅ Fase 0.5 completada: {len(raw)} chars en {elapsed:.1f}s")
+
+            # Clean markdown fences if present
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```", 2)[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+                if "```" in cleaned:
+                    cleaned = cleaned[:cleaned.rfind("```")]
+
+            try:
+                result = json.loads(cleaned)
+            except json.JSONDecodeError as e:
+                last_error = f"JSON parse error: {e} — raw_len={len(raw)}"
+                print(f"   ⚠️ Fase 0.5: JSON parse error: {e}")
+                print(f"      Primeros 500 chars: {raw[:500]}")
+                if attempt < MAX_RETRIES:
+                    print(f"   🔄 Reintentando en 3 segundos...")
+                    import asyncio
+                    await asyncio.sleep(3)
+                    continue
+                else:
+                    break
+
+            # Validate we actually got agravios
             agravios = result.get("agravios", [])
+            if not agravios:
+                last_error = f"No agravios found in parsed JSON (keys: {list(result.keys())})"
+                print(f"   ⚠️ Fase 0.5: JSON válido pero sin agravios. Keys: {list(result.keys())}")
+                if attempt < MAX_RETRIES:
+                    print(f"   🔄 Reintentando en 3 segundos...")
+                    import asyncio
+                    await asyncio.sleep(3)
+                    continue
+                else:
+                    break
+
+            # Success!
             print(f"   📋 {len(agravios)} agravios identificados")
             for a in agravios:
                 print(f"      {a.get('numero', '?')}. {a.get('titulo', 'Sin título')}")
             result["_analysis_time"] = round(elapsed, 1)
             return result
-        except json.JSONDecodeError as e:
-            print(f"   ⚠️ Fase 0.5: JSON parse error: {e}")
-            return {"_raw_analysis": raw, "_analysis_time": round(elapsed, 1)}
-    except Exception as e:
-        print(f"   ❌ Fase 0.5 error: {e}")
-        return {}
+
+        except Exception as e:
+            elapsed = time.time() - start
+            error_str = str(e)
+            last_error = f"{error_str} (elapsed={elapsed:.1f}s)"
+            print(f"   ❌ Fase 0.5 error (intento {attempt}): {error_str}")
+
+            # Check for quota/rate limit errors
+            is_retryable = any(kw in error_str.lower() for kw in [
+                "resource_exhausted", "rate_limit", "quota", "429",
+                "503", "unavailable", "deadline", "timeout"
+            ])
+
+            if is_retryable and attempt < MAX_RETRIES:
+                wait_time = 5 * attempt  # exponential backoff
+                print(f"   🔄 Error transitorio, reintentando en {wait_time}s...")
+                import asyncio
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                break
+
+    # All retries exhausted
+    print(f"   ❌ Fase 0.5 fallida tras {MAX_RETRIES} intentos: {last_error}")
+    raise Exception(f"No se pudo analizar el expediente: {last_error}")
 
 
 # ── Pydantic model for the response ──────────────────────────────────────────
@@ -6571,10 +6641,23 @@ async def analyze_expediente(
         print(f"\n🔎 ANÁLISIS PRE-REDACCIÓN — Tipo: {tipo}")
 
         # ── Run Phase 0.5 analysis ─────────────────────────────────────
-        analysis_data = await phase05_analyze_expediente(client, pdf_parts, tipo)
+        try:
+            analysis_data = await phase05_analyze_expediente(client, pdf_parts, tipo)
+        except Exception as phase05_err:
+            error_msg = str(phase05_err)
+            print(f"   ❌ Phase 0.5 failed: {error_msg}")
 
-        if not analysis_data:
-            raise HTTPException(500, "Fase 0.5 falló: no se pudo analizar el expediente")
+            # Provide user-friendly error messages
+            if any(kw in error_msg.lower() for kw in ["resource_exhausted", "quota", "rate_limit", "429"]):
+                raise HTTPException(
+                    429,
+                    "Límite de uso de la API Gemini alcanzado. Por favor espera unos minutos e intenta de nuevo."
+                )
+            else:
+                raise HTTPException(
+                    500,
+                    f"Error al analizar el expediente: {error_msg}. Intenta de nuevo."
+                )
 
         total_elapsed = time_module.time() - total_start
 
