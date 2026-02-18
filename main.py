@@ -6373,6 +6373,7 @@ REGLAS ESTRICTAS:
 4. Si un agravio es muy extenso (>2000 palabras), usa "[…]" para la parte central pero conserva inicio y final
 5. Identifica TODOS los agravios — no omitas ninguno
 6. Para el "titulo" usa la temática principal del agravio (ej: "Indebida valoración de pruebas")
+7. AGRUPA los agravios por tema en "grupos_tematicos" — agravios que comparten la misma temática jurídica deben ir juntos
 
 Responde EXCLUSIVAMENTE con JSON válido (sin markdown, sin ```json):
 
@@ -6397,6 +6398,13 @@ Responde EXCLUSIVAMENTE con JSON válido (sin markdown, sin ```json):
       "derechos_invocados": ["Debido proceso", "Legalidad"]
     }
   ],
+  "grupos_tematicos": [
+    {
+      "tema": "Nombre del tema que agrupa estos agravios (ej: Valoración de pruebas)",
+      "agravios_nums": [1, 3],
+      "descripcion": "Breve explicación de por qué se agrupan estos agravios"
+    }
+  ],
   "observaciones_preliminares": "Notas sobre posibles problemas de procedencia, causales de improcedencia visibles, o cuestiones de oficio que el tribunal debe abordar"
 }
 """
@@ -6411,6 +6419,11 @@ class AgravioAnalysis(BaseModel):
     articulos_mencionados: List[str] = []
     derechos_invocados: List[str] = []
 
+class GrupoTematico(BaseModel):
+    tema: str
+    agravios_nums: List[int]
+    descripcion: str = ""
+
 class DatosExpediente(BaseModel):
     numero: str = ""
     tipo_asunto: str = ""
@@ -6424,6 +6437,7 @@ class AnalysisResponse(BaseModel):
     resumen_acto_reclamado: str = ""
     datos_expediente: DatosExpediente = DatosExpediente()
     agravios: List[AgravioAnalysis] = []
+    grupos_tematicos: List[GrupoTematico] = []
     observaciones_preliminares: str = ""
     analysis_time_seconds: float = 0.0
 
@@ -6685,11 +6699,29 @@ async def analyze_expediente(
 
         print(f"\n   ✅ ANÁLISIS COMPLETADO en {total_elapsed:.1f}s — {len(agravios_list)} agravios")
 
+        # Build thematic groups
+        grupos_list = []
+        for g in analysis_data.get("grupos_tematicos", []):
+            grupos_list.append(GrupoTematico(
+                tema=g.get("tema", "Sin tema"),
+                agravios_nums=g.get("agravios_nums", []),
+                descripcion=g.get("descripcion", ""),
+            ))
+
+        # If no groups from Gemini, create one group per agravio
+        if not grupos_list and agravios_list:
+            grupos_list = [GrupoTematico(
+                tema=a.titulo,
+                agravios_nums=[a.numero],
+                descripcion=a.resumen,
+            ) for a in agravios_list]
+
         return AnalysisResponse(
             resumen_caso=analysis_data.get("resumen_caso", ""),
             resumen_acto_reclamado=analysis_data.get("resumen_acto_reclamado", ""),
             datos_expediente=datos_exp,
             agravios=agravios_list,
+            grupos_tematicos=grupos_list,
             observaciones_preliminares=analysis_data.get("observaciones_preliminares", ""),
             analysis_time_seconds=round(total_elapsed, 1),
         )
