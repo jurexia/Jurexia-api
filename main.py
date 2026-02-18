@@ -22,7 +22,7 @@ import uuid
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Form, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -7146,6 +7146,185 @@ async def export_sentencia_docx(req: ExportSentenciaRequest):
     filename = f"Sentencia_{req.tipo}_{req.numero_expediente or 'borrador'}.docx".replace("/", "-").replace(" ", "_")
 
     print(f"   📄 DOCX exportado: {filename} ({buffer.getbuffer().nbytes:,} bytes)")
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MERGE — Combine adelanto DOCX (consideraciones previas) with estudio de fondo
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/merge-sentencia-docx")
+async def merge_sentencia_docx(
+    adelanto_file: UploadFile = File(..., description="DOCX del adelanto (consideraciones previas)"),
+    estudio_text: str = Form(..., description="Texto del estudio de fondo generado"),
+    tipo: str = Form("amparo_directo"),
+    user_email: str = Form(""),
+):
+    """
+    Recibe el DOCX del adelanto del secretario y el texto del estudio de fondo
+    generado por Gemini. Detecta el punto de inserción (SIGUIENTE CONSIDERANDO,
+    Estudio de fondo, o fin del documento) y acopla el estudio al formato del adelanto.
+    """
+    import io
+    import re as re_mod
+    from docx import Document as DocxDocument
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from copy import deepcopy
+
+    # ── Admin validation ─────────────────────────────────────────────────
+    if user_email and ADMIN_EMAILS:
+        if user_email.strip().lower() not in ADMIN_EMAILS:
+            raise HTTPException(403, "Acceso restringido a administradores")
+
+    if not estudio_text.strip():
+        raise HTTPException(400, "El texto del estudio de fondo está vacío")
+
+    # ── Validate file ────────────────────────────────────────────────────
+    if not adelanto_file.filename or not adelanto_file.filename.lower().endswith(".docx"):
+        raise HTTPException(400, "El archivo debe ser un documento .docx")
+
+    # ── Read uploaded DOCX ───────────────────────────────────────────────
+    try:
+        contents = await adelanto_file.read()
+        doc = DocxDocument(io.BytesIO(contents))
+    except Exception as e:
+        raise HTTPException(400, f"Error al leer el archivo DOCX: {e}")
+
+    # ── Detect insertion point ───────────────────────────────────────────
+    # Search for markers like "SIGUIENTE CONSIDERANDO", "Estudio de fondo",
+    # or a combination. Fall back to the last paragraph.
+    insertion_index = None
+    markers = [
+        "SIGUIENTE CONSIDERANDO",
+        "ESTUDIO DE FONDO",
+        "SIGUIENTE CONSIDERANDO. ESTUDIO DE FONDO",
+    ]
+
+    for i, para in enumerate(doc.paragraphs):
+        text_upper = para.text.strip().upper()
+        for marker in markers:
+            if marker in text_upper:
+                insertion_index = i
+                break
+        if insertion_index is not None:
+            break
+
+    # If no marker found, insert at the end
+    if insertion_index is None:
+        insertion_index = len(doc.paragraphs) - 1
+        print(f"   ⚠️ No se encontró marcador de inserción, se agrega al final del documento")
+    else:
+        print(f"   ✅ Marcador encontrado en párrafo [{insertion_index}]: '{doc.paragraphs[insertion_index].text[:80]}...'")
+
+    # ── Detect reference formatting from the document ────────────────────
+    # Use the formatting of the paragraph nearest to the insertion point
+    ref_para = doc.paragraphs[insertion_index] if insertion_index < len(doc.paragraphs) else doc.paragraphs[-1]
+    ref_font_name = "Arial"
+    ref_font_size = Pt(14)
+    ref_alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+    # Try to extract font from reference paragraph's runs
+    for run in ref_para.runs:
+        if run.font.name:
+            ref_font_name = run.font.name
+        if run.font.size:
+            ref_font_size = run.font.size
+        break  # Use first run's formatting
+
+    if ref_para.alignment is not None:
+        ref_alignment = ref_para.alignment
+
+    print(f"   📝 Formato de referencia: {ref_font_name} {ref_font_size}, align={ref_alignment}")
+
+    # ── Helper to add a paragraph after a specific index ──────────────────
+    # python-docx doesn't have "insert after" natively, so we manipulate the XML
+    def add_paragraph_after(doc, index, text="", bold=False):
+        """Add a new paragraph after the paragraph at `index`."""
+        ref_element = doc.paragraphs[index]._element
+        new_para = doc.add_paragraph()  # This adds at the end temporarily
+        new_element = new_para._element
+
+        # Move it to right after the reference element
+        ref_element.addnext(new_element)
+
+        # Apply formatting
+        new_para.alignment = ref_alignment
+        if text:
+            # Handle markdown **bold** inline markers
+            bold_pattern = re_mod.compile(r'\*\*(.*?)\*\*')
+            parts = bold_pattern.split(text)
+
+            if len(parts) > 1:
+                for idx, part in enumerate(parts):
+                    if part:
+                        run = new_para.add_run(part)
+                        run.font.name = ref_font_name
+                        run.font.size = ref_font_size
+                        run.bold = (idx % 2 == 1) or bold
+            else:
+                run = new_para.add_run(text)
+                run.font.name = ref_font_name
+                run.font.size = ref_font_size
+                run.bold = bold
+        else:
+            run = new_para.add_run("")
+            run.font.name = ref_font_name
+            run.font.size = ref_font_size
+
+        return new_para
+
+    # ── Insert estudio de fondo text ─────────────────────────────────────
+    body_lines = estudio_text.split("\n")
+    current_index = insertion_index
+
+    # Add a blank line separator after the marker
+    add_paragraph_after(doc, current_index, "")
+    current_index += 1
+
+    # Section header detection keywords
+    header_keywords = (
+        "PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO",
+        "SEXTO", "SÉPTIMO", "OCTAVO", "NOVENO", "DÉCIMO",
+        "R E S U L T A N D O", "C O N S I D E R A N D O",
+        "V I S T O", "P U N T O S", "RESULTANDO", "CONSIDERANDO",
+        "RESUELVE",
+    )
+
+    for line in body_lines:
+        clean_line = line.strip()
+
+        # Determine if this line should be bold
+        is_header = (
+            clean_line.startswith("#")
+            or clean_line.isupper()
+            or any(clean_line.startswith(k) for k in header_keywords)
+        )
+
+        # Remove markdown # headers
+        display_text = clean_line.lstrip("# ").strip() if clean_line.startswith("#") else clean_line
+
+        add_paragraph_after(doc, current_index, display_text, bold=is_header)
+        current_index += 1
+
+    # ── Save to buffer ───────────────────────────────────────────────────
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    # Build filename from original
+    original_name = adelanto_file.filename.rsplit(".", 1)[0] if adelanto_file.filename else "Sentencia"
+    filename = f"{original_name}_ConEstudioDeFondo.docx".replace(" ", "_")
+
+    print(f"   📄 DOCX merged: {filename} ({buffer.getbuffer().nbytes:,} bytes), {len(body_lines)} líneas insertadas")
 
     return StreamingResponse(
         buffer,
