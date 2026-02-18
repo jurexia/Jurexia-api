@@ -3293,26 +3293,22 @@ async def hybrid_search_all_silos(
         # Filtro por estado: solo necesario para el silo legacy
         state_filter = get_filter_for_silo(silo_name, estado)
         
-        # Filtro por metadata (reasoning mode o materia-aware)
+        # Filtro por metadata (reasoning mode)
         metadata_filter = None
         if enable_reasoning and materia_filter:
             metadata_filter = build_metadata_filter(materia_filter)
         
-        # Materia-Aware: should filter por jurisdiccion (Capa 2)
-        # SOLO para silos de legislación, NUNCA para jurisprudencia/constitucional
-        materia_boost = None
-        if detected_materias and silo_name not in ("jurisprudencia_nacional", "bloque_constitucional"):
-            materia_boost = build_materia_boost_filter(detected_materias)
+        # NOTE: Materia-Aware Capa 2 (Qdrant should-filter) DISABLED.
+        # Qdrant's Filter(should=[...]) acts as a hard OR filter that excludes
+        # documents without the `jurisdiccion` field, breaking retrieval on
+        # un-enriched collections. Materia filtering is handled purely by:
+        #   - Capa 1: _detect_materia() keyword detection (pre-retrieval)
+        #   - Capa 3: _apply_materia_threshold() post-retrieval cleanup
         
-        # Combinar filtros con prioridad:
-        # 1. state_filter (must) — siempre tiene prioridad
-        # 2. materia_boost (should) — solo si no hay state_filter ni metadata_filter
-        # NOTA: Qdrant no mezcla bien must+should en un solo Filter
+        # Combinar filtros: state_filter > metadata_filter
         combined_filter = state_filter
         if not state_filter and metadata_filter:
             combined_filter = metadata_filter
-        elif not state_filter and not metadata_filter and materia_boost:
-            combined_filter = materia_boost
         
         tasks.append(
             hybrid_search_single_silo(
