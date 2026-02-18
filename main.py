@@ -4819,6 +4819,312 @@ async def enhance_legal_text(request: EnhanceRequest):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CHAT DE ASISTENCIA EN REDACCIÓN DE SENTENCIAS — Gemini 2.5 Pro Streaming
+# ══════════════════════════════════════════════════════════════════════════════
+
+SYSTEM_PROMPT_SENTENCIA_CHAT = """Eres JUREXIA REDACTOR JUDICIAL, un sistema de inteligencia artificial
+especializado en la redacción de sentencias para Tribunales Colegiados de Circuito del Poder Judicial
+de la Federación de México. Tu función es asistir a secretarios de tribunal en la elaboración,
+modificación, mejora y continuación de proyectos de sentencia con la máxima calidad jurídica.
+
+═══════════════════════════════════════════════════════════════
+   ROL Y ESPECIALIZACIÓN
+═══════════════════════════════════════════════════════════════
+
+Eres un redactor judicial experto, NO un chatbot generalista. Tu especialización es:
+- Redactar ESTUDIOS DE FONDO para amparos directos, revisión, queja y revisión fiscal
+- Continuar redacciones interrumpidas manteniendo coherencia de estilo y argumento
+- Modificar el sentido de un agravio (de fundado a infundado o viceversa) con re-fundamentación
+- Ampliar considerandos con mayor profundidad jurídica
+- Restructurar argumentos manteniendo la lógica del silogismo jurídico
+- Mejorar redacción con citas textuales de legislación y jurisprudencia
+
+═══════════════════════════════════════════════════════════════
+   FORMATO JUDICIAL OBLIGATORIO
+═══════════════════════════════════════════════════════════════
+
+Tu redacción SIEMPRE debe seguir el estilo judicial formal de los TCC:
+- Párrafos extensos y bien fundamentados (NO bullets ni listas)
+- Lenguaje formal de sentencia: "este tribunal advierte", "contrario a lo aducido por el quejoso",
+  "de la lectura integral del acto reclamado se desprende", etc.
+- Citas textuales de artículos con número de ley y artículo específico
+- Referencia a tesis y jurisprudencia con formato: Registro digital [número], [Época], [Tribunal]
+- Silogismo jurídico: premisa mayor (norma), premisa menor (hechos), conclusión
+- Transiciones fluidas entre argumentos ("En ese orden de ideas...", "Aunado a lo anterior...",
+  "Robustece lo anterior...", "No es óbice a lo anterior...")
+
+═══════════════════════════════════════════════════════════════
+   MODOS DE OPERACIÓN
+═══════════════════════════════════════════════════════════════
+
+1. **CONTINUAR REDACCIÓN**: Si el usuario pega texto de una sentencia en proceso, CONTINÚA
+   la redacción de forma natural, manteniendo el mismo estilo, voz narrativa y profundidad.
+   NO repitas lo que ya escribió. Inicia exactamente donde terminó.
+
+2. **MODIFICAR SENTIDO**: Si el usuario pide cambiar el sentido de un agravio:
+   - Analiza los fundamentos del texto original
+   - Reconstruye el argumento con el nuevo sentido
+   - Mantén las citas de ley que apliquen y sustituye las que contradigan el nuevo sentido
+   - Fundamenta exhaustivamente la nueva postura
+
+3. **AMPLIAR/MEJORAR**: Si el usuario pide ampliar o mejorar una sección:
+   - Identifica qué elementos faltan (fundamentación, motivación, análisis comparativo)
+   - Agrega análisis más profundo SIN eliminar lo existente
+   - Integra jurisprudencia aplicable cuando sea pertinente
+
+4. **REDACCIÓN NUEVA**: Si el usuario describe un caso y pide redactar, genera texto judicial
+   completo con estructura de sentencia.
+
+═══════════════════════════════════════════════════════════════
+   USO DEL CONTEXTO RAG
+═══════════════════════════════════════════════════════════════
+
+Si se proporciona CONTEXTO JURÍDICO RECUPERADO:
+- INTEGRA las fuentes en tu redacción como citas textuales
+- Usa [Doc ID: uuid] para cada fuente citada
+- Transcribe artículos relevantes, no solo los menciones
+- La jurisprudencia fortalece enormemente el argumento — úsala siempre que aplique
+
+Si NO se proporciona contexto RAG:
+- Redacta con tu conocimiento jurídico
+- Las citas a legislación y jurisprudencia son basadas en tu entrenamiento
+- NO inventes números de registro digital ni rubros de tesis específicos
+- En su lugar, describe la tesis por su contenido: "existe criterio jurisprudencial que establece..."
+
+═══════════════════════════════════════════════════════════════
+   PROHIBICIONES Y CALIDAD
+═══════════════════════════════════════════════════════════════
+
+- NUNCA uses emojis, emoticonos ni lenguaje coloquial
+- NUNCA generes listas con bullets en el texto de sentencia (solo en comentarios al usuario)
+- NUNCA uses el formato de chatbot — tu output debe poder insertarse directamente en un DOCX de sentencia
+- MANTÉN la coherencia narrativa con el texto previo del usuario
+- Cuando el usuario te da instrucciones, distingue claramente entre:
+  a) Instrucciones META (qué hacer) → responde brevemente y ejecuta
+  b) Texto de sentencia para continuar → continúa directamente sin preámbulo
+"""
+
+
+class ChatSentenciaMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ChatSentenciaRequest(BaseModel):
+    messages: List[ChatSentenciaMessage]
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    use_rag: bool = True
+    attached_document: Optional[str] = None  # extracted text from uploaded file
+
+
+@app.post("/chat-sentencia")
+async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
+    """
+    Chat de Asistencia en Redacción de Sentencias — Gemini 2.5 Pro Streaming.
+    
+    Specialized chat for TCC secretaries to modify, adjust, improve, or continue
+    sentence drafts. Uses Gemini 2.5 Pro with SSE streaming.
+    
+    Features:
+    - RAG toggle (use_rag=true → searches verified database)
+    - Attached document support (extracted text injected as context)
+    - Conversation memory (stateless, full history sent from frontend)
+    - SSE streaming response
+    """
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
+    
+    # ── Gemini API key check ──────────────────────────────────────────────
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key:
+        raise HTTPException(500, "Gemini API key not configured")
+    
+    # ── Quota check (reuse /chat pattern) ─────────────────────────────────
+    if request.user_id and supabase_admin:
+        try:
+            quota_result = supabase_admin.rpc(
+                'consume_query', {'p_user_id': request.user_id}
+            ).execute()
+            if quota_result.data:
+                quota_data = quota_result.data
+                if not quota_data.get('allowed', True):
+                    return StreamingResponse(
+                        iter([json.dumps({
+                            "error": "quota_exceeded",
+                            "message": "Has alcanzado tu límite de consultas para este período.",
+                            "used": quota_data.get('used', 0),
+                            "limit": quota_data.get('limit', 0),
+                            "subscription_type": quota_data.get('subscription_type', 'gratuito'),
+                        })]),
+                        status_code=403,
+                        media_type="application/json",
+                    )
+        except Exception as e:
+            print(f"⚠️ Quota check failed for chat-sentencia (proceeding): {e}")
+    
+    # ── Extract last user message ─────────────────────────────────────────
+    last_user_message = None
+    for msg in reversed(request.messages):
+        if msg.role == "user":
+            last_user_message = msg.content
+            break
+    
+    if not last_user_message:
+        raise HTTPException(status_code=400, detail="No se encontró mensaje del usuario")
+    
+    print(f"\n🏛️ CHAT SENTENCIA — user: {request.user_email or 'anon'}")
+    print(f"   📝 Query ({len(last_user_message)} chars): {last_user_message[:200]}...")
+    print(f"   🔍 RAG: {'ON' if request.use_rag else 'OFF'}")
+    print(f"   📎 Documento adjunto: {'Sí' if request.attached_document else 'No'}")
+    
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+        
+        # ── RAG search (optional) ────────────────────────────────────────
+        rag_context = ""
+        rag_count = 0
+        if request.use_rag:
+            try:
+                search_results = await hybrid_search_all_silos(
+                    query=last_user_message,
+                    estado=None,
+                    top_k=15,
+                    enable_reasoning=False,
+                )
+                if search_results:
+                    rag_context = format_results_as_xml(search_results, estado=None)
+                    rag_count = len(search_results)
+                    print(f"   ✅ RAG: {rag_count} resultados, {len(rag_context)} chars contexto")
+            except Exception as e:
+                print(f"   ⚠️ RAG search failed (continuing without): {e}")
+                rag_context = ""
+        
+        # ── Build conversation for Gemini ─────────────────────────────────
+        # Gemini uses contents=[...] with role "user"/"model"
+        system_instruction = SYSTEM_PROMPT_SENTENCIA_CHAT
+        
+        # Add RAG context to system instruction if available
+        if rag_context:
+            system_instruction += f"""
+
+═══════════════════════════════════════════════════════════════
+   CONTEXTO JURÍDICO RECUPERADO (BASE DE DATOS VERIFICADA)
+═══════════════════════════════════════════════════════════════
+
+Los siguientes documentos fueron recuperados de la base de datos verificada de Iurexia.
+USA estas fuentes para fundamentar tu redacción. CITA con [Doc ID: uuid] cada fuente que uses.
+
+{rag_context}
+"""
+        elif not request.use_rag:
+            system_instruction += """
+
+⚠️ MODO SIN BASE DE DATOS: El usuario ha desactivado la búsqueda en la base de datos verificada.
+Tus respuestas se basan exclusivamente en tu conocimiento de entrenamiento.
+NO inventes números de registro digital ni rubros exactos de tesis.
+Si necesitas citar jurisprudencia, descríbela por su contenido, no por datos específicos que podrías alucinar.
+"""
+        
+        # Add attached document context if provided
+        if request.attached_document:
+            doc_text = request.attached_document[:50000]  # Cap at 50K chars
+            system_instruction += f"""
+
+═══════════════════════════════════════════════════════════════
+   DOCUMENTO ADJUNTO DEL USUARIO
+═══════════════════════════════════════════════════════════════
+
+El secretario ha adjuntado el siguiente documento para referencia.
+Usa este texto como base para continuar, modificar o mejorar según las instrucciones del usuario.
+
+{doc_text}
+"""
+            print(f"   📎 Documento adjunto inyectado: {len(doc_text)} chars")
+        
+        # Build Gemini conversation
+        gemini_contents = []
+        for msg in request.messages:
+            role = "model" if msg.role == "assistant" else "user"
+            gemini_contents.append(
+                gtypes.Content(
+                    role=role,
+                    parts=[gtypes.Part.from_text(text=msg.content)]
+                )
+            )
+        
+        # ── Streaming Generation ──────────────────────────────────────────
+        client = genai.Client(api_key=gemini_key)
+        
+        async def generate_sentencia_stream():
+            """SSE streaming from Gemini 2.5 Pro for sentencia chat."""
+            try:
+                content_buffer = ""
+                
+                response_stream = client.models.generate_content_stream(
+                    model="gemini-2.5-pro",
+                    contents=gemini_contents,
+                    config=gtypes.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.7,
+                        max_output_tokens=16384,
+                    ),
+                )
+                
+                for chunk in response_stream:
+                    if chunk.text:
+                        content_buffer += chunk.text
+                        yield chunk.text
+                
+                print(f"   📝 Chat sentencia respuesta: {len(content_buffer)} chars")
+                
+                # Emit metadata if RAG was used
+                if rag_context and search_results:
+                    doc_id_map = build_doc_id_map(search_results)
+                    if doc_id_map:
+                        validation = validate_citations(content_buffer, doc_id_map)
+                        sources_map = {}
+                        for cv in validation.citations:
+                            doc = doc_id_map.get(cv.doc_id)
+                            if doc:
+                                sources_map[cv.doc_id] = {
+                                    "origen": humanize_origen(doc.origen) or "Fuente legal",
+                                    "ref": doc.ref or "",
+                                    "texto": (doc.texto or "")[:2000]
+                                }
+                        meta = json.dumps({
+                            "valid": validation.valid_count,
+                            "invalid": validation.invalid_count,
+                            "total": validation.total_citations,
+                            "sources": sources_map
+                        })
+                        yield f"\n\n<!-- CITATION_META:{meta} -->"
+                
+            except Exception as e:
+                print(f"   ❌ Chat sentencia error: {e}")
+                yield f"\n\n❌ Error: {str(e)}"
+        
+        return StreamingResponse(
+            generate_sentencia_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Model-Used": "gemini-2.5-pro",
+                "X-RAG-Enabled": "true" if request.use_rag else "false",
+                "X-RAG-Results": str(rag_count),
+            },
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en chat sentencia: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 # ADMIN: One-time BM25 sparse vector re-ingestion
