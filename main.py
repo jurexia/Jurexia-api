@@ -4936,16 +4936,37 @@ Tu tarea es redactar el ESTUDIO DE FONDO (Considerandos QUINTO en adelante) y lo
    Usa transiciones como "En efecto...", "Contrario a lo que sostiene...", "No le asiste razón...",
    "Resulta aplicable la jurisprudencia...", "En esa tesitura...", "De lo anterior se colige..."
 
-=== REGLA ANTI-ALUCINACION PARA JURISPRUDENCIA ===
-- SOLO cita tesis de jurisprudencia y rubros que esten TEXTUALMENTE proporcionados
-  en el contexto RAG con la etiqueta [JURISPRUDENCIA VERIFICADA].
-- NUNCA inventes numeros de registro digital, rubros, o tesis que no aparezcan en el RAG.
-- Si no hay jurisprudencia relevante en el RAG, argumenta con fundamentacion legal (articulos de ley)
-  y razonamiento doctrinario, pero NO fabriques citas jurisprudenciales ficticias.
+=== REGLA ANTI-ALUCINACION PARA JURISPRUDENCIA (CRITICA — LEER 3 VECES) ===
+
+PROHIBICION ABSOLUTA #1: NO INVENTES TESIS DE JURISPRUDENCIA.
+Si una tesis, rubro, o registro digital NO aparece TEXTUALMENTE en las fuentes RAG
+que te proporciono, NO LA CITES. Es preferible escribir argumentacion doctrinaria
+o citar solo articulos de ley, a inventar una tesis falsa.
+
+PROHIBICION ABSOLUTA #2: CADA REGISTRO DIGITAL ES UNICO.
+Cada tesis del Semanario Judicial de la Federacion tiene un registro digital UNICO.
+NUNCA uses el mismo numero de registro para dos tesis diferentes. Si no sabes el
+registro exacto, NO lo incluyas — describe el criterio sin numero.
+
+PROHIBICION ABSOLUTA #3: NO FILTRES MARCADORES INTERNOS AL OUTPUT.
+Las etiquetas [JURISPRUDENCIA VERIFICADA], [LEGISLACION VERIFICADA] y
+[EJEMPLO SENTENCIA] son marcadores INTERNOS del sistema. NUNCA los reproduzcas
+en el texto de la sentencia. Cita la jurisprudencia con formato judicial estandar:
+"Resulta aplicable la tesis [rubro], consultable con registro digital: [numero]"
+
+QUE SI PUEDES HACER:
+- Citar TEXTUALMENTE las tesis que aparecen en las fuentes RAG proporcionadas
+- Argumentar con razonamiento juridico propio (analogias, interpretacion, doctrina)
+- Citar articulos especificos de ley con su texto
+- La CREATIVIDAD es bienvenida para argumentacion, pero NUNCA para fabricar fuentes
+
 - Los fragmentos etiquetados como [EJEMPLO SENTENCIA] son solo REFERENCIA DE ESTILO
   y ARGUMENTACION. NO los cites como fuente. Usa su estructura y nivel de detalle como modelo.
-- La CREATIVIDAD es bienvenida para la argumentacion (razonamiento, analogias, interpretacion
-  juridica), pero NUNCA para fabricar fuentes legales inexistentes.
+
+FORMATO DE CITA DE JURISPRUDENCIA (cuando venga del RAG):
+- Rubro completo entre comillas
+- Tribunal emisor, Epoca, Registro digital
+- Transcripcion relevante del criterio
 
 ═══ INSTRUCCIONES DEL SECRETARIO ═══
 SIGUE ESTRICTAMENTE el sentido del fallo y la calificación de cada agravio/concepto
@@ -4957,14 +4978,16 @@ IMPORTANTE: Tú redactas UN SOLO agravio/concepto a la vez (NO todo el estudio c
 Tu texto será insertado dentro de un estudio de fondo más amplio.
 
 NO incluyas encabezados como "QUINTO. Estudio de fondo." ni introducciones generales.
-Comienza DIRECTAMENTE con el título y análisis del agravio asignado:
+Comienza DIRECTAMENTE con el título y análisis del agravio asignado.
 
-[Título del agravio/concepto, ej: "AGRAVIO 1. Falta de fundamentación"]
+USA TITULOS ORDINALES: "Primer concepto de violación", "Segundo agravio", etc.
+(NO uses "CONCEPTO DE VIOLACION 1" ni "AGRAVIO 1" con numerales arabigos).
+
 En su primer agravio, el recurrente aduce que...
 [análisis extenso con citas RAG]
 [calificación y razonamiento]
-[jurisprudencia verificada del RAG]
-[CONCLUSIÓN: Este agravio resulta FUNDADO/INFUNDADO/INOPERANTE]
+[jurisprudencia del RAG citada con formato judicial]
+[CONCLUSIÓN: Este agravio/concepto de violación resulta FUNDADO/INFUNDADO/INOPERANTE]
 """
 
 # ── Phase 3: Structural Coherence + Polish & Assembly ─────────────────────────
@@ -5252,6 +5275,76 @@ def _strip_ai_preamble(text: str) -> str:
             skip_until_content = False
         clean_lines.append(line)
     return '\n'.join(clean_lines)
+
+
+def _sanitize_sentencia_output(text: str) -> str:
+    """
+    Post-generation sanitizer for sentencia output. Addresses hallucination patterns:
+    1. Detects and warns about duplicate registro digital numbers
+    2. Strips leaked internal markers ([JURISPRUDENCIA VERIFICADA], etc.)
+    3. Appends verification disclaimer
+    """
+    import re
+
+    # ── Step 1: Strip leaked internal markers ────────────────────────────────
+    markers_to_remove = [
+        r'\[JURISPRUDENCIA VERIFICADA\]',
+        r'\[LEGISLACION VERIFICADA\]',
+        r'\[LEGISLACIÓN VERIFICADA\]',
+        r'\[EJEMPLO SENTENCIA\]',
+        r'\[VERIFICAR\]',
+        r'\[PENDIENTE DE VERIFICACIÓN\]',
+        r'\[PENDIENTE DE VERIFICACION\]',
+    ]
+    for pattern in markers_to_remove:
+        text = re.sub(pattern, '', text)
+
+    # Clean up any double spaces left by marker removal
+    text = re.sub(r'  +', ' ', text)
+    # Clean up lines that are now just whitespace
+    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+
+    # ── Step 2: Detect duplicate registro digital numbers ────────────────────
+    # Match patterns like "Registro: 2025644", "registro digital: 2025644", "Registro digital: 2025644"
+    registro_pattern = re.compile(
+        r'[Rr]egistro(?:\s+[Dd]igital)?[:\s]+([0-9]{4,8})',
+        re.IGNORECASE
+    )
+    registros_found = registro_pattern.findall(text)
+
+    if registros_found:
+        from collections import Counter
+        registro_counts = Counter(registros_found)
+        duplicates = {reg: count for reg, count in registro_counts.items() if count > 1}
+
+        if duplicates:
+            print(f"   ⚠️ ALERTA ANTI-ALUCINACIÓN: Registros digitales duplicados detectados:")
+            for reg, count in duplicates.items():
+                print(f"      Registro {reg} aparece {count} veces — posible alucinación")
+
+            # Add inline warning after each duplicate occurrence (except the first)
+            for reg, count in duplicates.items():
+                # Find all occurrences and mark the 2nd+ with a warning
+                occurrences = list(registro_pattern.finditer(text))
+                reg_occurrences = [m for m in occurrences if m.group(1) == reg]
+                for m in reg_occurrences[1:]:
+                    # Insert warning after the matched text
+                    warning = f" [⚠️ VERIFICAR: este registro digital aparece múltiples veces en el documento]"
+                    insert_pos = m.end()
+                    text = text[:insert_pos] + warning + text[insert_pos:]
+
+    # ── Step 3: Append verification disclaimer ──────────────────────────────
+    disclaimer = (
+        "\n\n────────────────────────────────────────\n"
+        "NOTA DE VERIFICACIÓN: Las citas de jurisprudencia incluidas en este "
+        "proyecto fueron generadas con apoyo de inteligencia artificial. "
+        "Se recomienda verificar cada registro digital en el Semanario Judicial "
+        "de la Federación (https://sjf2.scjn.gob.mx) antes de su uso en actuaciones oficiales.\n"
+        "────────────────────────────────────────\n"
+    )
+    text += disclaimer
+
+    return text
 
 
 def _group_agravios_by_theme(calificaciones: List[dict]) -> List[List[dict]]:
@@ -5621,7 +5714,11 @@ Los fundamentos y motivos del secretario DEBEN guiar tu argumentacion.
                      f"- NO repitas informacion de otros agravios -- concentrate solo en ESTE.\n\n"
                      f"Tu analisis DEBE ser MUY EXTENSO -- minimo 3,000 caracteres.\n"
                      f"DEBES citar jurisprudencia de las fuentes RAG proporcionadas.\n"
-                     f"DEBES citar articulos de ley de las fuentes RAG proporcionadas.\n\n"
+                     f"DEBES citar articulos de ley de las fuentes RAG proporcionadas.\n"
+                     f"PROHIBIDO ABSOLUTO: NO inventes tesis que no esten en el RAG.\n"
+                     f"Si necesitas mas jurisprudencia de la que el RAG proporciona, usa argumentacion doctrinaria.\n"
+                     f"NUNCA reutilices un mismo numero de registro digital para tesis distintas.\n"
+                     f"NUNCA escribas etiquetas [JURISPRUDENCIA VERIFICADA] o [LEGISLACION VERIFICADA] en el texto.\n\n"
                      f"Estructura OBLIGATORIA del analisis:\n"
                      f"a) Sintesis fiel del agravio (transcripcion parcial con comillas)\n"
                      f"b) Marco juridico aplicable (articulos de ley citados con texto)\n"
@@ -5743,6 +5840,7 @@ REGLAS:
 5. SOLO usa fuentes etiquetadas como [JURISPRUDENCIA VERIFICADA] o [LEGISLACION VERIFICADA]
 6. NO inventes citas -- solo usa las proporcionadas
 7. El resultado debe ser MAS EXTENSO que el borrador (no mas corto)
+8. NUNCA incluyas las etiquetas [JURISPRUDENCIA VERIFICADA] o [LEGISLACION VERIFICADA] en el texto de salida -- son marcadores internos
 
 === BORRADOR ORIGINAL ===
 {draft_text}
@@ -6886,7 +6984,7 @@ async def draft_sentencia(
             phases_done = 3
 
             # Assemble focused output
-            sentencia_text = f"{estudio_fondo}\n\n{efectos_resolutivos}"
+            sentencia_text = _sanitize_sentencia_output(f"{estudio_fondo}\n\n{efectos_resolutivos}")
 
             total_elapsed = time_module.time() - total_start
             print(f"\n   {'═' * 50}")
@@ -6932,9 +7030,9 @@ async def draft_sentencia(
             phases_done = 4
 
             # Phase 3: Polish & Assembly
-            sentencia_text = await phase3_polish_assembly(
+            sentencia_text = _sanitize_sentencia_output(await phase3_polish_assembly(
                 client, extracted_data, resultandos, considerandos, estudio_fondo, tipo
-            )
+            ))
             phases_done = 5
 
             total_elapsed = time_module.time() - total_start
