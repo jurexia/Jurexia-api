@@ -5254,6 +5254,101 @@ def _strip_ai_preamble(text: str) -> str:
     return '\n'.join(clean_lines)
 
 
+def _group_agravios_by_theme(calificaciones: List[dict]) -> List[List[dict]]:
+    """
+    Group agravios with similar themes to share RAG context.
+    
+    Rules:
+    - Only group agravios with the SAME calificación (fundado with fundado, etc.)
+    - Similarity based on Jaccard overlap of key terms from título + resumen
+    - Threshold: 0.3 (30% term overlap)
+    - Dispositivo agravios are NEVER grouped (processed solo first)
+    
+    Returns list of groups. Each group is a list of calificación dicts.
+    Groups are ordered: dispositivo agravios first, then by original order.
+    """
+    import re
+
+    def extract_terms(text: str) -> set:
+        """Extract meaningful terms from legal text (skip stopwords)."""
+        stopwords = {
+            'el', 'la', 'los', 'las', 'de', 'del', 'en', 'un', 'una', 'que',
+            'por', 'con', 'para', 'al', 'se', 'su', 'no', 'es', 'y', 'o',
+            'lo', 'como', 'más', 'a', 'este', 'esta', 'esto', 'sin', 'sobre',
+            'entre', 'tiene', 'fue', 'ser', 'ha', 'sus', 'le', 'ya', 'son',
+            'del', 'las', 'los', 'una', 'pero', 'si', 'ante', 'todo', 'nos',
+        }
+        text = text.lower()
+        words = re.findall(r'[a-záéíóúñü]+', text)
+        return {w for w in words if len(w) > 3 and w not in stopwords}
+
+    def jaccard(a: set, b: set) -> float:
+        if not a or not b:
+            return 0.0
+        return len(a & b) / len(a | b)
+
+    n = len(calificaciones)
+    if n <= 1:
+        return [calificaciones] if calificaciones else []
+
+    # Separate dispositivo agravios (process solo, first)
+    dispositivo = [c for c in calificaciones if c.get("dispositivo")]
+    regular = [c for c in calificaciones if not c.get("dispositivo")]
+
+    # Build term sets for regular agravios
+    term_sets = []
+    for c in regular:
+        text = f"{c.get('titulo', '')} {c.get('resumen', '')}"
+        term_sets.append(extract_terms(text))
+
+    # Union-Find grouping
+    parent = list(range(len(regular)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    # Group by similarity + same calificación
+    for i in range(len(regular)):
+        for j in range(i + 1, len(regular)):
+            if regular[i].get("calificacion") == regular[j].get("calificacion"):
+                sim = jaccard(term_sets[i], term_sets[j])
+                if sim >= 0.3:
+                    union(i, j)
+
+    # Collect groups
+    from collections import defaultdict
+    group_map = defaultdict(list)
+    for i, c in enumerate(regular):
+        group_map[find(i)].append(c)
+
+    # Build final list: dispositivo agravios first (each solo), then themed groups
+    groups = []
+    for d in dispositivo:
+        groups.append([d])
+    for root in sorted(group_map.keys()):
+        groups.append(group_map[root])
+
+    # Log grouping
+    if len(groups) < n:
+        print(f"   🧩 Agrupación temática: {n} agravios → {len(groups)} grupos")
+        for gi, g in enumerate(groups):
+            nums = [c.get('numero', '?') for c in g]
+            label = "DISPOSITIVO" if g[0].get('dispositivo') else g[0].get('calificacion', '?').upper()
+            print(f"      Grupo {gi+1} ({label}): agravios {nums}")
+    else:
+        print(f"   📋 Sin agrupación temática ({n} agravios independientes)")
+
+    return groups
+
+
 async def phase2c_adaptive_estudio_fondo(
     client, extracted_data: dict, pdf_parts: list,
     tipo: str, calificaciones: List[dict], rag_context: str
@@ -5261,65 +5356,103 @@ async def phase2c_adaptive_estudio_fondo(
     """
     Phase 2C DEEP PIPELINE: Draft ESTUDIO DE FONDO with maximum depth per agravio.
 
+    OPTIMIZED with:
+    - Thematic grouping: similar agravios share RAG context (Step A runs once per group)
+    - Strategic early termination: if a dispositivo+fundado agravio completes,
+      remaining agravios get a template paragraph and are skipped.
+
     Each agravio goes through 4 steps:
-      A. Deep multi-silo RAG (4 targeted queries across ALL silos)
+      A. Deep multi-silo RAG (4 targeted queries across ALL silos) — SHARED per group
       B. Gemini drafts extensive analysis with all RAG context
-      C. Post-enrichment RAG (extract terms from draft → second search)
+      C. Post-enrichment RAG (extract terms from draft -> second search)
       D. Gemini enriches citations in the draft
 
-    Returns the complete estudio de fondo text + efectos + resolutivos.
+    Returns the complete estudio de fondo text.
     """
     from google.genai import types as gtypes
     import time
 
-    print(f"\n   🔍 PIPELINE PROFUNDO: {len(calificaciones)} agravios × 4 pasos cada uno")
+    print(f"\n   PIPELINE PROFUNDO: {len(calificaciones)} agravios x 4 pasos cada uno")
     total_start = time.time()
+
+    # Thematic Grouping
+    groups = _group_agravios_by_theme(calificaciones)
 
     agravio_texts = []
     total_rag_hits = 0
+    early_terminated = False
+    skipped_agravios = []
 
-    for i, calif in enumerate(calificaciones):
-        num = calif.get("numero", i + 1)
-        calificacion = calif.get("calificacion", "sin_calificar")
-        notas = calif.get("notas", "")
-        agravio_titulo = calif.get("titulo", "")
-        agravio_resumen = calif.get("resumen", "")
+    # Determine agravio label based on tipo (used for all agravios)
+    if tipo == "amparo_directo":
+        agravio_label_base = "CONCEPTO DE VIOLACION"
+    else:
+        agravio_label_base = "AGRAVIO"
 
-        print(f"\n      {'═' * 60}")
-        print(f"      📌 AGRAVIO {num}/{len(calificaciones)}: {calificacion.upper()}")
-        print(f"         {agravio_titulo[:80]}")
-        if notas:
-            print(f"         📝 Notas: {notas[:100]}{'...' if len(notas) > 100 else ''}")
+    for group_idx, group in enumerate(groups):
+        if early_terminated:
+            # All remaining agravios get the template paragraph
+            for calif in group:
+                num = calif.get("numero", "?")
+                skipped_agravios.append(num)
+                agravio_texts.append(
+                    _build_early_termination_paragraph(
+                        num, calif.get("titulo", ""),
+                        agravio_label_base, tipo
+                    )
+                )
+            continue
 
-        agravio_start = time.time()
+        group_nums = [c.get("numero", "?") for c in group]
+        is_grouped = len(group) > 1
+        print(f"\n      {'=' * 60}")
+        if is_grouped:
+            print(f"      GRUPO {group_idx+1}: agravios {group_nums} (RAG compartido)")
+        else:
+            print(f"      AGRAVIO {group_nums[0]}/{len(calificaciones)}: {group[0].get('calificacion', '?').upper()}")
 
-        # ═══════════════════════════════════════════════════════════
-        # STEP A: Deep Multi-Silo RAG (4 targeted queries)
-        # ═══════════════════════════════════════════════════════════
-        print(f"\n         🔎 Paso A: RAG profundo multi-silo...")
+        # ==========================================================
+        # STEP A: Deep Multi-Silo RAG -- SHARED for the whole group
+        # ==========================================================
+        print(f"\n         Paso A: RAG profundo multi-silo {'(compartido)' if is_grouped else ''}...")
         step_a_start = time.time()
 
-        # Build 4 targeted queries for this agravio
+        # Build targeted queries from ALL agravios in the group
         rag_queries = []
-        # Q1: Título + calificación → jurisprudencia
-        if agravio_titulo:
-            rag_queries.append(f"{agravio_titulo} {calificacion}")
-        # Q2: Resumen del agravio → leyes y criterios
-        if agravio_resumen:
-            rag_queries.append(agravio_resumen[:300])
-        # Q3: Secretary notes → targeted search
-        if notas:
-            rag_queries.append(notas[:300])
-        # Q4: Combined juridical terms
+        for calif in group:
+            agravio_titulo = calif.get("titulo", "")
+            agravio_resumen = calif.get("resumen", "")
+            calificacion = calif.get("calificacion", "sin_calificar")
+            notas = calif.get("notas", "")
+
+            if agravio_titulo:
+                rag_queries.append(f"{agravio_titulo} {calificacion}")
+            if agravio_resumen:
+                rag_queries.append(agravio_resumen[:300])
+            if notas:
+                rag_queries.append(notas[:300])
+
+        # Add materia-based query
         materia = extracted_data.get("datos_adicionales", {}).get("materia", "")
         if materia and materia != "NO ENCONTRADO":
-            rag_queries.append(f"jurisprudencia {materia} {agravio_titulo}")
+            first_titulo = group[0].get("titulo", "")
+            rag_queries.append(f"jurisprudencia {materia} {first_titulo}")
 
         # Ensure at least 2 queries
         if len(rag_queries) < 2:
-            rag_queries.append(f"agravio {calificacion} tribunal colegiado")
+            rag_queries.append(f"agravio {group[0].get('calificacion', '')} tribunal colegiado")
 
-        # Search ALL standard silos (jurisprudencia, leyes, constitución)
+        # Deduplicate and limit queries (avoid too many for large groups)
+        seen_q = set()
+        unique_queries = []
+        for q in rag_queries:
+            q_key = q.strip().lower()[:50]
+            if q_key not in seen_q:
+                seen_q.add(q_key)
+                unique_queries.append(q)
+        rag_queries = unique_queries[:6]  # Max 6 queries per group
+
+        # Search ALL standard silos
         all_rag_results = []
         seen_ids = set()
 
@@ -5342,7 +5475,7 @@ async def phase2c_adaptive_estudio_fondo(
                     seen_ids.add(r.id)
                     all_rag_results.append(r)
 
-        # Search sentencia silos (both matching type and cross-silo)
+        # Search sentencia silos
         sentencia_silos = []
         if tipo in SENTENCIA_SILOS:
             sentencia_silos.append(SENTENCIA_SILOS[tipo])
@@ -5351,7 +5484,7 @@ async def phase2c_adaptive_estudio_fondo(
                 sentencia_silos.append(silo_name)
 
         sentencia_tasks = []
-        for q in rag_queries[:2]:  # Top 2 queries for sentencia silos
+        for q in rag_queries[:2]:
             for silo_name in sentencia_silos:
                 sentencia_tasks.append(
                     _search_single_silo_for_sentencia(q, silo_name)
@@ -5374,298 +5507,303 @@ async def phase2c_adaptive_estudio_fondo(
         top_sentencias = sentencia_results[:8]
         total_rag_hits += len(top_standard) + len(top_sentencias)
 
-        agravio_rag_text = ""
+        # Build shared RAG text
+        shared_agravio_rag_text = ""
         for r in top_standard:
             source = r.ref or r.origen or ""
             text_content = r.texto or ""
             silo = r.silo or ""
-
-            tag = "[JURISPRUDENCIA VERIFICADA]" if "jurisprudencia" in silo.lower() else "[LEGISLACIÓN VERIFICADA]"
-            agravio_rag_text += f"\n--- {tag} ---\n"
+            tag = "[JURISPRUDENCIA VERIFICADA]" if "jurisprudencia" in silo.lower() else "[LEGISLACION VERIFICADA]"
+            shared_agravio_rag_text += f"\n--- {tag} ---\n"
             if source:
-                agravio_rag_text += f"Fuente: {source}\n"
-            agravio_rag_text += f"{text_content}\n"
+                shared_agravio_rag_text += f"Fuente: {source}\n"
+            shared_agravio_rag_text += f"{text_content}\n"
 
         for r in top_sentencias:
             source = r.ref or r.origen or ""
             text_content = r.texto or ""
-            agravio_rag_text += f"\n--- [EJEMPLO SENTENCIA] ---\n"
+            shared_agravio_rag_text += f"\n--- [EJEMPLO SENTENCIA] ---\n"
             if source:
-                agravio_rag_text += f"Expediente: {source}\n"
-            agravio_rag_text += f"{text_content}\n"
+                shared_agravio_rag_text += f"Expediente: {source}\n"
+            shared_agravio_rag_text += f"{text_content}\n"
 
         step_a_elapsed = time.time() - step_a_start
-        print(f"         ✅ RAG: {len(top_standard)} jurídicos + {len(top_sentencias)} sentencias ({step_a_elapsed:.1f}s)")
+        print(f"         RAG: {len(top_standard)} juridicos + {len(top_sentencias)} sentencias ({step_a_elapsed:.1f}s)")
 
-        # ═══════════════════════════════════════════════════════════
-        # STEP B: Gemini Drafts Agravio (extensive analysis)
-        # ═══════════════════════════════════════════════════════════
-        print(f"         ✍️ Paso B: Gemini redacta agravio...")
-        step_b_start = time.time()
+        # ==========================================================
+        # STEPS B-D: Per agravio within the group (using shared RAG)
+        # ==========================================================
+        for calif in group:
+            if early_terminated:
+                num = calif.get("numero", "?")
+                skipped_agravios.append(num)
+                agravio_texts.append(
+                    _build_early_termination_paragraph(
+                        num, calif.get("titulo", ""),
+                        agravio_label_base, tipo
+                    )
+                )
+                continue
 
-        parts_b = list(pdf_parts)
+            num = calif.get("numero", "?")
+            calificacion = calif.get("calificacion", "sin_calificar")
+            notas = calif.get("notas", "")
+            agravio_titulo = calif.get("titulo", "")
+            agravio_resumen = calif.get("resumen", "")
+            is_dispositivo = calif.get("dispositivo", False)
 
-        # Extracted data
-        parts_b.append(gtypes.Part.from_text(
-            text=f"\n\n═══ DATOS EXTRAÍDOS DEL EXPEDIENTE ═══\n{json.dumps(extracted_data, ensure_ascii=False, indent=2)}\n"
-        ))
+            if is_grouped:
+                print(f"\n         AGRAVIO {num} ({calificacion.upper()}) dentro del grupo")
+            agravio_start = time.time()
 
-        # Secretary calificación
-        calif_instruction = f"""
-═══ CALIFICACIÓN DEL SECRETARIO PARA AGRAVIO {num} ═══
-Título: {agravio_titulo}
+            # -- STEP B: Gemini Drafts Agravio --
+            print(f"         Paso B: Gemini redacta agravio {num}...")
+            step_b_start = time.time()
+
+            parts_b = list(pdf_parts)
+
+            # Extracted data
+            parts_b.append(gtypes.Part.from_text(
+                text=f"\n\n=== DATOS EXTRAIDOS DEL EXPEDIENTE ===\n{json.dumps(extracted_data, ensure_ascii=False, indent=2)}\n"
+            ))
+
+            # Secretary calificacion
+            agravio_label = f"{agravio_label_base} {num}"
+            calif_instruction = f"""
+=== CALIFICACION DEL SECRETARIO PARA {agravio_label} ===
+Titulo: {agravio_titulo}
 Resumen: {agravio_resumen}
-Calificación: {calificacion.upper()}
+Calificacion: {calificacion.upper()}
 """
-        if notas:
-            calif_instruction += f"Fundamentos y motivos del secretario: {notas}\n"
-        calif_instruction += f"""
+            if notas:
+                calif_instruction += f"Fundamentos y motivos del secretario: {notas}\n"
+            if is_dispositivo:
+                calif_instruction += f"AGRAVIO DISPOSITIVO: Este agravio es considerado por el secretario como DETERMINANTE para resolver todo el caso.\n"
+            calif_instruction += f"""
 DEBES calificar este agravio como {calificacion.upper()}. El secretario proyectista
-es el experto en la materia y su calificación es VINCULANTE.
-Los fundamentos y motivos del secretario DEBEN guiar tu argumentación.
-═══ FIN CALIFICACIÓN ═══
+es el experto en la materia y su calificacion es VINCULANTE.
+Los fundamentos y motivos del secretario DEBEN guiar tu argumentacion.
+=== FIN CALIFICACION ===
 """
-        parts_b.append(gtypes.Part.from_text(text=calif_instruction))
+            parts_b.append(gtypes.Part.from_text(text=calif_instruction))
 
-        # Full RAG context for this agravio
-        if agravio_rag_text:
+            # Full shared RAG context
+            if shared_agravio_rag_text:
+                parts_b.append(gtypes.Part.from_text(
+                    text=f"\n=== FUNDAMENTACION RAG -- {agravio_label} ===\n"
+                         f"UTILIZA estos articulos, tesis y jurisprudencia para fundamentar tu analisis.\n"
+                         f"Las fuentes con [JURISPRUDENCIA VERIFICADA] y [LEGISLACION VERIFICADA] son CITAS REALES de la base de datos.\n"
+                         f"Las fuentes con [EJEMPLO SENTENCIA] son referencia de ESTILO -- NO las cites como fuente.\n"
+                         f"{shared_agravio_rag_text}\n=== FIN RAG ===\n"
+                ))
+
+            # Also include global RAG context (truncated)
+            if rag_context:
+                parts_b.append(gtypes.Part.from_text(
+                    text=f"\n=== CONTEXTO RAG GENERAL (referencia adicional) ===\n{rag_context[:8000]}\n=== FIN RAG GENERAL ===\n"
+                ))
+
+            # Detailed drafting instructions
+            type_specific = SENTENCIA_PROMPTS.get(tipo, "")
+            if type_specific.startswith(SENTENCIA_SYSTEM_BASE):
+                type_specific = type_specific[len(SENTENCIA_SYSTEM_BASE):]
+
             parts_b.append(gtypes.Part.from_text(
-                text=f"\n═══ FUNDAMENTACIÓN RAG — AGRAVIO {num} ═══\n"
-                     f"UTILIZA estos artículos, tesis y jurisprudencia para fundamentar tu análisis.\n"
-                     f"Las fuentes con [JURISPRUDENCIA VERIFICADA] y [LEGISLACIÓN VERIFICADA] son CITAS REALES de la base de datos.\n"
-                     f"Las fuentes con [EJEMPLO SENTENCIA] son referencia de ESTILO — NO las cites como fuente.\n"
-                     f"{agravio_rag_text}\n═══ FIN RAG ═══\n"
+                text=f"\n=== INSTRUCCIONES DE REDACCION ===\n{type_specific}\n"
+                     f"\nRedacta UNICAMENTE el analisis del {agravio_label} ({agravio_titulo}).\n"
+                     f"Este agravio ha sido calificado como: {calificacion.upper()}\n\n"
+                     f"REGLAS CRITICAS DE FORMATO:\n"
+                     f"- NO incluyas encabezado 'QUINTO. Estudio de fondo.' ni ningun encabezado de considerando.\n"
+                     f"- NO incluyas parrafo introductorio general del estudio. Eso ya existe.\n"
+                     f"- Comienza DIRECTAMENTE con el titulo del agravio/concepto, por ejemplo:\n"
+                     f"  '{agravio_label}. {agravio_titulo}'\n"
+                     f"- Tu texto es UN FRAGMENTO que sera insertado dentro de un estudio de fondo mas amplio.\n"
+                     f"- NO repitas informacion de otros agravios -- concentrate solo en ESTE.\n\n"
+                     f"Tu analisis DEBE ser MUY EXTENSO -- minimo 3,000 caracteres.\n"
+                     f"DEBES citar jurisprudencia de las fuentes RAG proporcionadas.\n"
+                     f"DEBES citar articulos de ley de las fuentes RAG proporcionadas.\n\n"
+                     f"Estructura OBLIGATORIA del analisis:\n"
+                     f"a) Sintesis fiel del agravio (transcripcion parcial con comillas)\n"
+                     f"b) Marco juridico aplicable (articulos de ley citados con texto)\n"
+                     f"c) Analisis del acto reclamado / sentencia recurrida\n"
+                     f"d) Confrontacion punto por punto del agravio vs. acto reclamado\n"
+                     f"e) Fundamentacion con jurisprudencia VERIFICADA (rubro, tribunal, epoca, registro)\n"
+                     f"f) Razonamiento logico-juridico extenso y propio del tribunal\n"
+                     f"g) CONCLUSION: Este agravio resulta {calificacion.upper()}\n"
             ))
 
-        # Also include global RAG context (truncated)
-        if rag_context:
-            parts_b.append(gtypes.Part.from_text(
-                text=f"\n═══ CONTEXTO RAG GENERAL (referencia adicional) ═══\n{rag_context[:8000]}\n═══ FIN RAG GENERAL ═══\n"
-            ))
+            try:
+                step_b_model = GEMINI_MODEL if calificacion == "fundado" else GEMINI_MODEL_FAST
+                print(f"         Modelo: {step_b_model} ({'Pro -- razonamiento profundo' if calificacion == 'fundado' else 'Flash -- patron formulaico'})")
 
-        # Detailed drafting instructions
-        type_specific = SENTENCIA_PROMPTS.get(tipo, "")
-        if type_specific.startswith(SENTENCIA_SYSTEM_BASE):
-            type_specific = type_specific[len(SENTENCIA_SYSTEM_BASE):]
+                response_b = client.models.generate_content(
+                    model=step_b_model,
+                    contents=parts_b,
+                    config=gtypes.GenerateContentConfig(
+                        system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
+                        temperature=0.3,
+                        max_output_tokens=32768,
+                    ),
+                )
+                draft_text = _strip_ai_preamble(response_b.text or "")
+                step_b_elapsed = time.time() - step_b_start
+                print(f"         Borrador: {len(draft_text)} chars ({step_b_elapsed:.1f}s)")
+            except Exception as e:
+                print(f"         Paso B error: {e}")
+                agravio_texts.append(f"\n[Error al redactar agravio {num}: {str(e)}]\n")
+                continue
 
-        # Determine agravio label based on tipo
-        if tipo == "amparo_directo":
-            agravio_label = f"CONCEPTO DE VIOLACIÓN {num}"
-        elif tipo == "recurso_queja":
-            agravio_label = f"AGRAVIO {num}"
-        elif tipo == "revision_fiscal":
-            agravio_label = f"AGRAVIO {num}"
-        elif tipo == "amparo_revision":
-            agravio_label = f"AGRAVIO {num}"
-        else:
-            agravio_label = f"AGRAVIO {num}"
+            # -- STEP C: Post-Enrichment RAG --
+            print(f"         Paso C: RAG de enriquecimiento post-redaccion...")
+            step_c_start = time.time()
 
-        parts_b.append(gtypes.Part.from_text(
-            text=f"\n═══ INSTRUCCIONES DE REDACCIÓN ═══\n{type_specific}\n"
-                 f"\nRedacta ÚNICAMENTE el análisis del {agravio_label} ({agravio_titulo}).\n"
-                 f"Este agravio ha sido calificado como: {calificacion.upper()}\n\n"
-                 f"REGLAS CRÍTICAS DE FORMATO:\n"
-                 f"- NO incluyas encabezado 'QUINTO. Estudio de fondo.' ni ningún encabezado de considerando.\n"
-                 f"- NO incluyas párrafo introductorio general del estudio. Eso ya existe.\n"
-                 f"- Comienza DIRECTAMENTE con el título del agravio/concepto, por ejemplo:\n"
-                 f"  '{agravio_label}. {agravio_titulo}'\n"
-                 f"- Tu texto es UN FRAGMENTO que será insertado dentro de un estudio de fondo más amplio.\n"
-                 f"- NO repitas información de otros agravios — concéntrate solo en ESTE.\n\n"
-                 f"Tu análisis DEBE ser MUY EXTENSO — mínimo 3,000 caracteres.\n"
-                 f"DEBES citar jurisprudencia de las fuentes RAG proporcionadas.\n"
-                 f"DEBES citar artículos de ley de las fuentes RAG proporcionadas.\n\n"
-                 f"Estructura OBLIGATORIA del análisis:\n"
-                 f"a) Síntesis fiel del agravio (transcripción parcial con comillas)\n"
-                 f"b) Marco jurídico aplicable (artículos de ley citados con texto)\n"
-                 f"c) Análisis del acto reclamado / sentencia recurrida\n"
-                 f"d) Confrontación punto por punto del agravio vs. acto reclamado\n"
-                 f"e) Fundamentación con jurisprudencia VERIFICADA (rubro, tribunal, época, registro)\n"
-                 f"f) Razonamiento lógico-jurídico extenso y propio del tribunal\n"
-                 f"g) CONCLUSIÓN: Este agravio resulta {calificacion.upper()}\n"
-        ))
-
-        try:
-            # ── Hybrid Smart: Pro for fundados (deep reasoning), Flash for infundados/inoperantes (formulaic) ──
-            step_b_model = GEMINI_MODEL if calificacion == "fundado" else GEMINI_MODEL_FAST
-            print(f"         🤖 Modelo: {step_b_model} ({'Pro — razonamiento profundo' if calificacion == 'fundado' else 'Flash — patrón formulaico'})")
-
-            response_b = client.models.generate_content(
-                model=step_b_model,
-                contents=parts_b,
-                config=gtypes.GenerateContentConfig(
-                    system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
-                    temperature=0.3,
-                    max_output_tokens=32768,
-                ),
-            )
-            draft_text = _strip_ai_preamble(response_b.text or "")
-            step_b_elapsed = time.time() - step_b_start
-            print(f"         ✅ Borrador: {len(draft_text)} chars ({step_b_elapsed:.1f}s)")
-        except Exception as e:
-            print(f"         ❌ Paso B error: {e}")
-            agravio_texts.append(f"\n[Error al redactar agravio {num}: {str(e)}]\n")
-            continue
-
-        # ═══════════════════════════════════════════════════════════
-        # STEP C: Post-Enrichment RAG (search based on the draft)
-        # ═══════════════════════════════════════════════════════════
-        print(f"         🔬 Paso C: RAG de enriquecimiento post-redacción...")
-        step_c_start = time.time()
-
-        enrichment_rag = ""
-        try:
-            # Extract key legal terms from the draft for a second search
-            enrichment_prompt = f"""Extrae de este borrador de análisis jurídico entre 3 y 5 consultas de búsqueda 
-para encontrar jurisprudencia y artículos de ley adicionales que refuercen la argumentación.
-Enfócate en:
-- Tesis o jurisprudencia mencionadas que necesiten verificación
-- Artículos de ley citados que podrían complementarse
-- Conceptos jurídicos que beneficiarían de citas adicionales
+            enrichment_rag = ""
+            try:
+                enrichment_prompt = f"""Extrae de este borrador de analisis juridico entre 3 y 5 consultas de busqueda 
+para encontrar jurisprudencia y articulos de ley adicionales que refuercen la argumentacion.
+Enfocate en:
+- Tesis o jurisprudencia mencionadas que necesiten verificacion
+- Articulos de ley citados que podrian complementarse
+- Conceptos juridicos que beneficiarian de citas adicionales
 
 Borrador:
 {draft_text[:4000]}
 
-Genera SOLO las consultas, una por línea, sin numeración. Cada consulta debe ser 5-15 palabras."""
+Genera SOLO las consultas, una por linea, sin numeracion. Cada consulta debe ser 5-15 palabras."""
 
-            enrichment_response = openai_client.chat.completions.create(
-                model=CHAT_MODEL,
-                messages=[{"role": "user", "content": enrichment_prompt}],
-                temperature=0.2,
-                max_tokens=300,
-            )
-            enrichment_queries = [
-                q.strip() for q in (enrichment_response.choices[0].message.content or "").split("\n")
-                if q.strip() and len(q.strip()) > 5
-            ][:4]
+                enrichment_response = openai_client.chat.completions.create(
+                    model=CHAT_MODEL,
+                    messages=[{"role": "user", "content": enrichment_prompt}],
+                    temperature=0.2,
+                    max_tokens=300,
+                )
+                enrichment_queries = [
+                    q.strip() for q in (enrichment_response.choices[0].message.content or "").split("\n")
+                    if q.strip() and len(q.strip()) > 5
+                ][:4]
 
-            if enrichment_queries:
-                print(f"         📋 {len(enrichment_queries)} queries de enriquecimiento")
+                if enrichment_queries:
+                    print(f"         {len(enrichment_queries)} queries de enriquecimiento")
 
-                enrich_tasks = []
-                for eq in enrichment_queries:
-                    enrich_tasks.append(hybrid_search_all_silos(
-                        query=eq, estado=None, top_k=6, alpha=0.7, enable_reasoning=False
-                    ))
+                    enrich_tasks = []
+                    for eq in enrichment_queries:
+                        enrich_tasks.append(hybrid_search_all_silos(
+                            query=eq, estado=None, top_k=6, alpha=0.7, enable_reasoning=False
+                        ))
 
-                enrich_results_raw = await asyncio.gather(*enrich_tasks, return_exceptions=True)
-                enrich_results = []
-                enrich_seen = set(seen_ids)  # Avoid duplicates from Step A
+                    enrich_results_raw = await asyncio.gather(*enrich_tasks, return_exceptions=True)
+                    enrich_results = []
+                    enrich_seen = set(seen_ids)
 
-                for batch in enrich_results_raw:
-                    if isinstance(batch, Exception):
-                        continue
-                    for r in batch:
-                        if r.id not in enrich_seen:
-                            enrich_seen.add(r.id)
-                            enrich_results.append(r)
+                    for batch in enrich_results_raw:
+                        if isinstance(batch, Exception):
+                            continue
+                        for r in batch:
+                            if r.id not in enrich_seen:
+                                enrich_seen.add(r.id)
+                                enrich_results.append(r)
 
-                enrich_results.sort(key=lambda r: r.score, reverse=True)
-                top_enrich = enrich_results[:15]
-                total_rag_hits += len(top_enrich)
+                    enrich_results.sort(key=lambda r: r.score, reverse=True)
+                    top_enrich = enrich_results[:15]
+                    total_rag_hits += len(top_enrich)
 
-                if top_enrich:
-                    enrichment_rag = "\n"
-                    for r in top_enrich:
-                        source = r.ref or r.origen or ""
-                        text_content = r.texto or ""
-                        silo = r.silo or ""
-                        tag = "[JURISPRUDENCIA VERIFICADA]" if "jurisprudencia" in silo.lower() else "[LEGISLACIÓN VERIFICADA]"
-                        enrichment_rag += f"\n--- {tag} ---\n"
-                        if source:
-                            enrichment_rag += f"Fuente: {source}\n"
-                        enrichment_rag += f"{text_content}\n"
+                    if top_enrich:
+                        enrichment_rag = "\n"
+                        for r in top_enrich:
+                            source = r.ref or r.origen or ""
+                            text_content = r.texto or ""
+                            silo = r.silo or ""
+                            tag = "[JURISPRUDENCIA VERIFICADA]" if "jurisprudencia" in silo.lower() else "[LEGISLACION VERIFICADA]"
+                            enrichment_rag += f"\n--- {tag} ---\n"
+                            if source:
+                                enrichment_rag += f"Fuente: {source}\n"
+                            enrichment_rag += f"{text_content}\n"
 
-                    print(f"         ✅ Enriquecimiento: {len(top_enrich)} fuentes adicionales")
+                        print(f"         Enriquecimiento: {len(top_enrich)} fuentes adicionales")
 
-        except Exception as e:
-            print(f"         ⚠️ Paso C error (continuando sin enriquecimiento): {e}")
+            except Exception as e:
+                print(f"         Paso C error (continuando sin enriquecimiento): {e}")
 
-        step_c_elapsed = time.time() - step_c_start
-        print(f"         ⏱️ Paso C: {step_c_elapsed:.1f}s")
+            step_c_elapsed = time.time() - step_c_start
+            print(f"         Paso C: {step_c_elapsed:.1f}s")
 
-        # ═══════════════════════════════════════════════════════════
-        # STEP D: Gemini Enriches Citations
-        # ═══════════════════════════════════════════════════════════
-        if enrichment_rag:
-            print(f"         ✨ Paso D: Gemini enriquece citas...")
-            step_d_start = time.time()
+            # -- STEP D: Gemini Enriches Citations --
+            if enrichment_rag:
+                print(f"         Paso D: Gemini enriquece citas...")
+                step_d_start = time.time()
 
-            enrichment_instruction = f"""Tu tarea es MEJORAR el siguiente borrador de análisis jurídico incorporando las NUEVAS 
+                enrichment_instruction = f"""Tu tarea es MEJORAR el siguiente borrador de analisis juridico incorporando las NUEVAS 
 fuentes verificadas que te proporciono. 
 
 REGLAS:
 1. CONSERVA todo el contenido y estructura del borrador original
-2. AÑADE citas de jurisprudencia y artículos de ley de las NUEVAS fuentes donde sean relevantes
+2. ANADE citas de jurisprudencia y articulos de ley de las NUEVAS fuentes donde sean relevantes
 3. REFUERZA los argumentos existentes con las nuevas fuentes
 4. NUNCA elimines contenido del borrador original
-5. SOLO usa fuentes etiquetadas como [JURISPRUDENCIA VERIFICADA] o [LEGISLACIÓN VERIFICADA]
-6. NO inventes citas — solo usa las proporcionadas
-7. El resultado debe ser MÁS EXTENSO que el borrador (no más corto)
+5. SOLO usa fuentes etiquetadas como [JURISPRUDENCIA VERIFICADA] o [LEGISLACION VERIFICADA]
+6. NO inventes citas -- solo usa las proporcionadas
+7. El resultado debe ser MAS EXTENSO que el borrador (no mas corto)
 
-═══ BORRADOR ORIGINAL ═══
+=== BORRADOR ORIGINAL ===
 {draft_text}
 
-═══ NUEVAS FUENTES DE ENRIQUECIMIENTO ═══
+=== NUEVAS FUENTES DE ENRIQUECIMIENTO ===
 {enrichment_rag}
 
-═══ INSTRUCCIÓN ═══
-Devuelve el borrador ENRIQUECIDO con las nuevas fuentes integradas naturalmente en la argumentación.
+=== INSTRUCCION ===
+Devuelve el borrador ENRIQUECIDO con las nuevas fuentes integradas naturalmente en la argumentacion.
 """
 
-            try:
-                response_d = client.models.generate_content(
-                    model=GEMINI_MODEL_FAST,  # Enrichment → Flash
-                    contents=[gtypes.Part.from_text(text=enrichment_instruction)],
-                    config=gtypes.GenerateContentConfig(
-                        system_instruction="Eres un Secretario Proyectista EXPERTO. Tu tarea es enriquecer un borrador jurídico con nuevas fuentes verificadas sin perder contenido.",
-                        temperature=0.2,
-                        max_output_tokens=32768,
-                    ),
-                )
-                enriched_text = response_d.text or ""
-                step_d_elapsed = time.time() - step_d_start
+                try:
+                    response_d = client.models.generate_content(
+                        model=GEMINI_MODEL_FAST,
+                        contents=[gtypes.Part.from_text(text=enrichment_instruction)],
+                        config=gtypes.GenerateContentConfig(
+                            system_instruction="Eres un Secretario Proyectista EXPERTO. Tu tarea es enriquecer un borrador juridico con nuevas fuentes verificadas sin perder contenido.",
+                            temperature=0.2,
+                            max_output_tokens=32768,
+                        ),
+                    )
+                    enriched_text = response_d.text or ""
+                    step_d_elapsed = time.time() - step_d_start
 
-                # Sanity check: enriched should be at least 80% of draft length
-                if len(enriched_text) >= len(draft_text) * 0.8:
-                    print(f"         ✅ Enriquecido: {len(draft_text)} → {len(enriched_text)} chars (+{len(enriched_text) - len(draft_text)}) ({step_d_elapsed:.1f}s)")
-                    agravio_texts.append(enriched_text)
-                else:
-                    print(f"         ⚠️ Enriquecido demasiado corto ({len(enriched_text)} vs {len(draft_text)}), usando borrador original")
+                    if len(enriched_text) >= len(draft_text) * 0.8:
+                        print(f"         Enriquecido: {len(draft_text)} -> {len(enriched_text)} chars (+{len(enriched_text) - len(draft_text)}) ({step_d_elapsed:.1f}s)")
+                        agravio_texts.append(enriched_text)
+                    else:
+                        print(f"         Enriquecido demasiado corto ({len(enriched_text)} vs {len(draft_text)}), usando borrador original")
+                        agravio_texts.append(draft_text)
+
+                except Exception as e:
+                    print(f"         Paso D error (usando borrador): {e}")
                     agravio_texts.append(draft_text)
-
-            except Exception as e:
-                print(f"         ❌ Paso D error (usando borrador): {e}")
+            else:
+                print(f"         Sin fuentes adicionales, usando borrador directo")
                 agravio_texts.append(draft_text)
-        else:
-            # No enrichment sources found — use draft as-is
-            print(f"         ℹ️ Sin fuentes adicionales, usando borrador directo")
-            agravio_texts.append(draft_text)
 
-        agravio_elapsed = time.time() - agravio_start
-        print(f"      ✅ Agravio {num} completo: {len(agravio_texts[-1])} chars en {agravio_elapsed:.1f}s")
+            agravio_elapsed = time.time() - agravio_start
+            print(f"      Agravio {num} completo: {len(agravio_texts[-1])} chars en {agravio_elapsed:.1f}s")
+
+            # -- Check for early termination --
+            if is_dispositivo and calificacion == "fundado":
+                print(f"\n      TERMINACION ANTICIPADA: Agravio {num} es DISPOSITIVO y FUNDADO")
+                print(f"         Los agravios restantes recibiran parrafo de omision estandar")
+                early_terminated = True
 
     total_elapsed = time.time() - total_start
-    print(f"\n   {'═' * 60}")
-    print(f"   ✅ PIPELINE PROFUNDO COMPLETADO")
-    print(f"   📊 {len(agravio_texts)} agravios procesados")
-    print(f"   📚 {total_rag_hits} resultados RAG utilizados")
-    print(f"   ⏱️ {total_elapsed:.1f}s total")
-    print(f"   {'═' * 60}")
+    print(f"\n   {'=' * 60}")
+    print(f"   PIPELINE PROFUNDO COMPLETADO")
+    print(f"   {len(agravio_texts)} agravios procesados")
+    if skipped_agravios:
+        print(f"   {len(skipped_agravios)} agravios omitidos por terminacion anticipada: {skipped_agravios}")
+    print(f"   {total_rag_hits} resultados RAG utilizados")
+    print(f"   {total_elapsed:.1f}s total")
+    print(f"   {'=' * 60}")
 
     # Combine all agravios into a single, cohesive estudio de fondo
-    # Add unified header + introduction (avoids each agravio repeating it)
     if tipo == "amparo_directo":
-        intro_label_plural = "conceptos de violación"
-        intro_label_singular = "concepto de violación"
-    elif tipo == "recurso_queja":
-        intro_label_plural = "agravios"
-        intro_label_singular = "agravio"
-    elif tipo == "revision_fiscal":
-        intro_label_plural = "agravios"
-        intro_label_singular = "agravio"
-    elif tipo == "amparo_revision":
-        intro_label_plural = "agravios"
-        intro_label_singular = "agravio"
+        intro_label_plural = "conceptos de violacion"
+        intro_label_singular = "concepto de violacion"
     else:
         intro_label_plural = "agravios"
         intro_label_singular = "agravio"
@@ -5679,14 +5817,44 @@ Devuelve el borrador ENRIQUECIDO con las nuevas fuentes integradas naturalmente 
     header = f"QUINTO. Estudio de fondo.\n\n"
     header += (
         f"Una vez demostrados los requisitos de procedencia, este Tribunal Colegiado "
-        f"procede al análisis de los {num_agravios} {intro_label_plural} formulados por "
-        f"{quejoso_name}, los cuales se estudiarán de manera individual, confrontando "
+        f"procede al analisis de los {num_agravios} {intro_label_plural} formulados por "
+        f"{quejoso_name}, los cuales se estudiaran de manera individual, confrontando "
         f"cada {intro_label_singular} con las consideraciones del acto reclamado, "
-        f"el marco jurídico aplicable y la jurisprudencia pertinente.\n"
+        f"el marco juridico aplicable y la jurisprudencia pertinente.\n"
     )
 
     combined = header + "\n\n" + "\n\n".join(agravio_texts)
     return combined
+
+
+def _build_early_termination_paragraph(
+    num, titulo: str, agravio_label_base: str, tipo: str
+) -> str:
+    """Build standard paragraph for agravios skipped due to early termination."""
+    agravio_label = f"{agravio_label_base} {num}"
+    
+    if tipo == "amparo_directo":
+        recurso_text = "el amparo solicitado"
+    elif tipo == "amparo_revision":
+        recurso_text = "el recurso de revision"
+    elif tipo == "revision_fiscal":
+        recurso_text = "el recurso de revision fiscal"
+    elif tipo == "recurso_queja":
+        recurso_text = "el recurso de queja"
+    else:
+        recurso_text = "el recurso interpuesto"
+    
+    return (
+        f"{agravio_label}. {titulo}\n\n"
+        f"Habida cuenta de que en el analisis precedente se determino fundado "
+        f"un agravio cuyo efecto es suficiente para resolver {recurso_text} en su "
+        f"integridad, resulta innecesario el estudio del presente agravio, de "
+        f"conformidad con el criterio sustentado por la Segunda Sala de la Suprema "
+        f"Corte de Justicia de la Nacion, en la jurisprudencia de rubro: "
+        f"\"AGRAVIOS EN LA REVISION. CUANDO SU ESTUDIO ES INNECESARIO.\", "
+        f"toda vez que, aun en el supuesto de que resultaran fundados, en nada "
+        f"variaria el sentido de la presente resolucion.\n"
+    )
 
 
 def _determine_sentido(calificaciones: List[dict], tipo: str = "") -> str:
@@ -6575,7 +6743,8 @@ async def draft_sentencia(
                     parsed_calificaciones = []
                 print(f"\n   📋 Calificaciones del secretario: {len(parsed_calificaciones)} agravios")
                 for c in parsed_calificaciones:
-                    print(f"      Agravio {c.get('numero', '?')}: {c.get('calificacion', 'sin_calificar').upper()}")
+                    disp_tag = " [DISPOSITIVO]" if c.get("dispositivo") else ""
+                    print(f"      Agravio {c.get('numero', '?')}: {c.get('calificacion', 'sin_calificar').upper()}{disp_tag}")
             except json.JSONDecodeError:
                 print("   ⚠️ No se pudieron parsear las calificaciones, usando modo estándar")
                 parsed_calificaciones = []
