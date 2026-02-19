@@ -58,6 +58,10 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 supabase_admin = None
 if SUPABASE_URL and SUPABASE_SERVICE_KEY:
     supabase_admin = supabase_create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    print(f"✅ Supabase admin client initialized (quota enforcement ACTIVE)")
+else:
+    print(f"⚠️ Supabase admin NOT configured — quota enforcement DISABLED")
+    print(f"   SUPABASE_URL={'SET' if SUPABASE_URL else 'MISSING'}, SUPABASE_SERVICE_ROLE_KEY={'SET' if SUPABASE_SERVICE_KEY else 'MISSING'}")
 
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
@@ -4092,9 +4096,13 @@ async def chat_endpoint(request: ChatRequest):
                     )
                 print(f"✅ Quota OK: {quota_data.get('used')}/{quota_data.get('limit')} "
                       f"({quota_data.get('subscription_type')})")
+            else:
+                print(f"⚠️ consume_query returned no data for user_id={request.user_id}")
         except Exception as e:
             # Don't block chat on quota check failure — log and continue
             print(f"⚠️ Quota check failed (proceeding anyway): {e}")
+    else:
+        print(f"⚠️ Quota check SKIPPED — user_id={'SET' if request.user_id else 'MISSING'}, supabase_admin={'SET' if supabase_admin else 'NONE'}")
     
     # Extraer última pregunta del usuario
     last_user_message = None
