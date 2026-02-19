@@ -8265,6 +8265,288 @@ async def admin_reingest_status():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SALVAME — Amparo de Emergencia por Salud (DeepSeek)
+# ══════════════════════════════════════════════════════════════════════════════
+
+SALVAME_SYSTEM_PROMPT = """Eres IUREXIA, un abogado constitucionalista mexicano experto en amparo en materia de salud y litigio estratégico. Redacta una DEMANDA DE AMPARO INDIRECTO con solicitud de SUSPENSIÓN DE OFICIO Y DE PLANO, con enfoque de urgencia y protección inmediata de la vida e integridad.
+
+Reglas:
+- Produce un escrito listo para imprimirse: formal, claro, sin relleno.
+- Usa español jurídico mexicano, pero comprensible.
+- Prioridad máxima: Capítulo de SUSPENSIÓN (de oficio y de plano) con solicitud explícita y medidas concretas.
+- Fundamenta: Derecho a la Salud (art. 4º Constitucional), vida e integridad, y argumenta riesgo grave por omisión. Vincula con dignidad e integridad cuando proceda.
+
+Citas obligatorias:
+- Tesis aislada II.3o.A.29 A (Registro 2027839) sobre suspensión de plano cuando se compromete dignidad e integridad al grado de tormento.
+- Jurisprudencia 2a./J. 52/2025 (11a.) sobre legitimación para promover en nombre de otro.
+- Jurisprudencia PR.A.C.CS. J/14 A (11a.) sobre suspensión de oficio y de plano contra omisión de atención médica urgente del IMSS.
+- Criterio del Segundo Tribunal Colegiado en Materias Penal y Administrativa del Décimo Séptimo Circuito sobre suspensión de plano contra instituciones privadas que condicionan atención de urgencia a pago.
+- Criterio del Tercer Tribunal Colegiado en Materia Administrativa del Segundo Circuito sobre falta de atención que compromete dignidad equiparándose a tormento.
+- Criterio del Décimo Octavo Tribunal Colegiado en Materia Administrativa del Primer Circuito sobre que la forma no puede prevalecer sobre el fondo en la suspensión de plano.
+
+Efectos solicitados: valoración inmediata, suministro de medicamentos, realización de cirugía/atención inaplazable; y si no hay capacidad, ordenar acciones para garantizar la atención (incluida subrogación cuando proceda).
+
+Estructura obligatoria (con encabezados en MAYÚSCULAS):
+- Encabezado: EXTREMA URGENCIA / AMPARO INDIRECTO
+- QUEJOSO
+- PROMOVENTE (con art. 15 LA si aplica)
+- ASUNTO
+- Dirigido al C. JUEZ DE DISTRITO...
+- Proemio con datos del promovente y paciente
+- I. NOMBRE Y DOMICILIO DE LA PERSONA QUEJOSA Y DE QUIEN PROMUEVE EN SU NOMBRE
+- II. NOMBRE Y DOMICILIO DE LA PERSONA TERCERA INTERESADA
+- III. AUTORIDADES RESPONSABLES
+- IV. ACTO RECLAMADO
+- V. HECHOS (bajo protesta de decir verdad, primera persona, urgencia, cronología)
+- VI. PRECEPTOS CONSTITUCIONALES VIOLADOS
+- VII. CONCEPTOS DE VIOLACIÓN
+- VIII. SUSPENSIÓN DE OFICIO Y DE PLANO (PRIORIDAD MÁXIMA — desarrollar extensamente con jurisprudencia)
+- Puntos petitorios (PRIMERO, SEGUNDO, TERCERO)
+- PROTESTO LO NECESARIO
+- Lugar y fecha
+- Nombre y firma
+
+FORMATO DE REFERENCIA (sigue esta estructura y estilo):
+
+---
+EXTREMA URGENCIA
+AMPARO INDIRECTO
+QUEJOSO: [NOMBRE DEL PACIENTE EN PELIGRO]
+PROMOVENTE: [NOMBRE], en términos del artículo 15 de la Ley de Amparo.
+ASUNTO: SE PROMUEVE DEMANDA DE AMPARO INDIRECTO Y SE SOLICITA SUSPENSIÓN DE OFICIO Y DE PLANO.
+
+C. JUEZ DE DISTRITO EN MATERIA DE AMPARO CIVIL, ADMINISTRATIVO Y DE TRABAJO Y DE JUICIOS FEDERALES EN TURNO
+P R E S E N T E.
+
+[Proemio con datos, domicilio y autorizaciones]
+
+Que por medio del presente escrito, vengo a solicitar el AMPARO Y PROTECCIÓN DE LA JUSTICIA FEDERAL a favor de [PACIENTE]...
+
+I. NOMBRE Y DOMICILIO DE LA PERSONA QUEJOSA Y DE QUIEN PROMUEVE EN SU NOMBRE:
+Quejoso (Paciente agraviado): [datos y ubicación hospitalaria]
+Promovente: [datos]
+
+II. NOMBRE Y DOMICILIO DE LA PERSONA TERCERA INTERESADA:
+Bajo protesta de decir verdad, manifiesto que no existe tercero interesado...
+
+III. AUTORIDADES RESPONSABLES:
+[Director del hospital, Titular de Secretaría de Salud / IMSS / ISSSTE, médicos responsables]
+
+IV. ACTO RECLAMADO:
+La omisión y negativa de brindar atención médica integral...
+
+V. HECHOS:
+[Cronología detallada]
+
+VI. PRECEPTOS CONSTITUCIONALES VIOLADOS:
+Artículos 1, 4 y 22 de la Constitución...
+
+VII. CONCEPTOS DE VIOLACIÓN:
+[Desarrollo jurídico extenso]
+
+VIII. SUSPENSIÓN DE OFICIO Y DE PLANO:
+[Desarrollo extenso con TODAS las jurisprudencias citadas, fundamentación en art. 126 LA, efectos concretos: valoración, medicamentos, cirugía, subrogación]
+
+PUNTOS PETITORIOS:
+PRIMERO. Tenerme por presentado en términos del artículo 15 de la Ley de Amparo...
+SEGUNDO. Admitir el presente escrito en cualquier día y hora (art. 20 LA)...
+TERCERO. Decretar la suspensión de oficio y de plano...
+
+PROTESTO LO NECESARIO
+[Lugar y Fecha]
+[NOMBRE Y FIRMA DEL PROMOVENTE]
+---
+
+REGLAS FINALES:
+- No agregues comentarios, no expliques: entrega SOLO el texto del escrito.
+- El capítulo de SUSPENSIÓN debe ser el más extenso y desarrollado, con todas las jurisprudencias citadas textualmente.
+- Adapta los hechos al relato del usuario, haciéndolos vívidos y urgentes pero formales.
+- El escrito completo debe tener entre 3000 y 5000 palabras."""
+
+
+class AmparoSaludRequest(BaseModel):
+    promovente_nombre: str
+    promovente_telefono: str = ""
+    promovente_correo: str = ""
+    promovente_domicilio: str
+    promueve_por_paciente: bool = False
+    paciente_nombre: str
+    paciente_edad: str
+    paciente_diagnostico: str
+    paciente_riesgo: str
+    institucion: str
+    hospital_nombre: str
+    hospital_ciudad: str
+    hospital_estado: str
+    director_nombre: str = ""
+    situaciones: list[str]
+    descripcion_libre: str = ""
+    confirma_veracidad: bool = True
+    user_email: str = ""
+
+
+@app.post("/generate-amparo-salud")
+async def generate_amparo_salud(req: AmparoSaludRequest):
+    """
+    SALVAME: Genera una Demanda de Amparo Indirecto en materia de salud
+    usando DeepSeek Chat con streaming.
+    """
+    from fastapi.responses import StreamingResponse
+
+    # ── Build user prompt from form data ─────────────────────────────────
+    riesgo_map = {
+        "muerte": "riesgo inminente de muerte",
+        "deterioro": "deterioro grave e irreversible de salud",
+        "dolor": "dolor extremo e insoportable",
+        "discapacidad": "discapacidad inminente e irreversible",
+        "otro": "otro riesgo grave para la salud",
+    }
+    riesgo_desc = riesgo_map.get(req.paciente_riesgo, req.paciente_riesgo)
+
+    user_prompt = f"""Genera la demanda de amparo indirecto con los siguientes datos:
+
+PROMOVENTE: {req.promovente_nombre}
+Domicilio para notificaciones: {req.promovente_domicilio}
+{'Teléfono: ' + req.promovente_telefono if req.promovente_telefono else ''}
+{'Correo: ' + req.promovente_correo if req.promovente_correo else ''}
+{'Promueve en nombre del paciente por imposibilidad (art. 15 LA)' if req.promueve_por_paciente else 'Promueve por derecho propio'}
+
+PACIENTE (QUEJOSO): {req.paciente_nombre}
+Edad: {req.paciente_edad} años
+Diagnóstico: {req.paciente_diagnostico}
+Riesgo actual: {riesgo_desc}
+
+AUTORIDAD RESPONSABLE:
+Institución: {req.institucion}
+Hospital/Clínica: {req.hospital_nombre}
+Ubicación: {req.hospital_ciudad}, {req.hospital_estado}
+{'Director/Médico responsable: ' + req.director_nombre if req.director_nombre else ''}
+
+SITUACIÓN:
+Actos reclamados: {', '.join(req.situaciones)}
+{'Relato del promovente: ' + req.descripcion_libre if req.descripcion_libre else ''}
+
+Genera el escrito completo siguiendo EXACTAMENTE la estructura y formato del modelo de referencia."""
+
+    print(f"\n🏥 SALVAME — Generando amparo de salud")
+    print(f"   Paciente: {req.paciente_nombre}")
+    print(f"   Riesgo: {riesgo_desc}")
+    print(f"   Hospital: {req.hospital_nombre} ({req.institucion})")
+    print(f"   Situaciones: {', '.join(req.situaciones)}")
+
+    # ── Stream from DeepSeek ─────────────────────────────────────────────
+    async def stream_response():
+        try:
+            response = await deepseek_client.chat.completions.create(
+                model=DEEPSEEK_CHAT_MODEL,
+                messages=[
+                    {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=8000,
+                temperature=0.3,
+                stream=True,
+            )
+
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+
+        except Exception as e:
+            print(f"   ❌ SALVAME error: {e}")
+            yield f"\n\n[Error al generar el amparo: {str(e)}]"
+
+    return StreamingResponse(stream_response(), media_type="text/plain")
+
+
+class ExportAmparoSaludRequest(BaseModel):
+    amparo_text: str
+    promovente_nombre: str = ""
+    paciente_nombre: str = ""
+
+
+@app.post("/export-amparo-salud-docx")
+async def export_amparo_salud_docx(req: ExportAmparoSaludRequest):
+    """
+    Exporta el amparo de salud generado como DOCX con formato judicial.
+    """
+    import io
+    from docx import Document as DocxDocument
+    from docx.shared import Pt, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from fastapi.responses import StreamingResponse
+
+    if not req.amparo_text.strip():
+        raise HTTPException(400, "El texto del amparo está vacío")
+
+    try:
+        doc = DocxDocument()
+
+        # ── Page margins ─────────────────────────────────────────────────
+        for section in doc.sections:
+            section.top_margin = Cm(2.5)
+            section.bottom_margin = Cm(2.5)
+            section.left_margin = Cm(3)
+            section.right_margin = Cm(2.5)
+
+        # ── Default style ────────────────────────────────────────────────
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Arial'
+        font.size = Pt(14)
+        style.paragraph_format.line_spacing = 1.5
+        style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+        # ── Parse text into paragraphs ───────────────────────────────────
+        lines = req.amparo_text.split('\n')
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                doc.add_paragraph('')
+                continue
+
+            para = doc.add_paragraph()
+
+            # Check if it's a header-style line (all caps or known patterns)
+            is_header = (
+                stripped.isupper() and len(stripped) < 120
+            ) or stripped.startswith('I.') or stripped.startswith('II.') or stripped.startswith('III.') or stripped.startswith('IV.') or stripped.startswith('V.') or stripped.startswith('VI.') or stripped.startswith('VII.') or stripped.startswith('VIII.') or stripped.startswith('PRIMERO') or stripped.startswith('SEGUNDO') or stripped.startswith('TERCERO')
+
+            run = para.add_run(stripped)
+            run.font.name = 'Arial'
+            run.font.size = Pt(14)
+
+            if is_header:
+                run.bold = True
+                if stripped in ['EXTREMA URGENCIA', 'AMPARO INDIRECTO', 'PROTESTO LO NECESARIO', 'P R E S E N T E.']:
+                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                else:
+                    para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            else:
+                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+        # ── Save to buffer ───────────────────────────────────────────────
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        buffer.seek(0)
+
+        safe_name = (req.paciente_nombre or "paciente").replace(" ", "_").replace("/", "-")
+        filename = f"Amparo_Salud_{safe_name}.docx"
+
+        print(f"   📄 SALVAME DOCX exportado: {filename} ({buffer.getbuffer().nbytes:,} bytes)")
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    except Exception as e:
+        print(f"   ❌ SALVAME DOCX error: {e}")
+        raise HTTPException(500, f"Error al generar DOCX: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import uvicorn
