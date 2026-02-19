@@ -5368,6 +5368,21 @@ respecto a:
 - La calificación de CADA concepto de violación o agravio (fundado, infundado, inoperante)
 - Las razones por las que cada concepto/agravio se califica de esa manera
 
+ESTRATEGIA DE FOCO TEMÁTICO:
+- CONCENTRA el estudio extenso y profundo ÚNICAMENTE en los agravios/grupos
+  calificados como FUNDADOS. Estos requieren análisis exhaustivo con fundamentación
+  legal, jurisprudencial y constitucional completa (mínimo 2,000 palabras cada uno).
+- Los agravios/grupos calificados como INFUNDADOS respóndelos con formato breve
+  (~500-800 palabras), señalando que no satisfacen la carga argumentativa o que
+  la autoridad responsable actuó conforme a derecho.
+- Los agravios/grupos calificados como INOPERANTES respóndelos con formato
+  formulaico (~300-500 palabras), usando expresiones como:
+  "Es inoperante pues no combate las consideraciones que sustentan el fallo..."
+  "Resulta inoperante al no controvertir los fundamentos y motivos..."
+  "Se califica de inoperante al ser genérico e impreciso..."
+
+Esto EVITA sentencias kilométricas concentrando la capacidad analítica donde importa.
+
 El secretario NO necesita proporcionar todas las leyes o jurisprudencia — el sistema
 ha consultado la base de datos legal y te proporciona fundamentación RAG adicional.
 USA esa fundamentación para enriquecer y respaldar el sentido indicado.
@@ -5375,6 +5390,44 @@ USA esa fundamentación para enriquecer y respaldar el sentido indicado.
 Si se proporcionan artículos o tesis de jurisprudencia del RAG, cítalos textualmente
 en los considerandos correspondientes.
 """
+
+
+def _build_auto_mode_instructions(sentido: str, tipo: str, calificaciones: list) -> str:
+    """Build synthetic instructions for auto-draft mode."""
+    label_map = {
+        "amparo_directo": "conceptos de violación",
+        "amparo_revision": "agravios",
+        "revision_fiscal": "agravios",
+        "recurso_queja": "agravios",
+    }
+    agravio_label = label_map.get(tipo, "agravios")
+    
+    lines = [
+        "MODO AUTOMÁTICO — BORRADOR A RAÍZ DE PRECEDENTES Y JURISPRUDENCIA",
+        f"El secretario ha solicitado un borrador automático.",
+        f"Sentido del fallo: {sentido.upper()}" if sentido else "Sentido: determinar con base en precedentes RAG.",
+        "",
+    ]
+    
+    if calificaciones:
+        lines.append(f"Calificación de {agravio_label}:")
+        for c in calificaciones:
+            num = c.get("numero", "?")
+            calif = c.get("calificacion", "sin_calificar").upper()
+            titulo = c.get("titulo", "")
+            disp = " [DISPOSITIVO]" if c.get("dispositivo") else ""
+            lines.append(f"  - {agravio_label.capitalize()} {num}: {calif}{disp} — {titulo}")
+        lines.append("")
+    
+    lines.extend([
+        "INSTRUCCIÓN GLOBAL:",
+        f"Centra el análisis profundo en los {agravio_label} calificados como FUNDADOS.",
+        f"Los {agravio_label} INFUNDADOS/INOPERANTES respóndelos con formato breve.",
+        "Basa toda la argumentación en los precedentes y jurisprudencia proporcionados por el RAG.",
+        "NO inventes tesis ni jurisprudencia — usa EXCLUSIVAMENTE la que se te proporciona.",
+    ])
+    
+    return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MULTI-PASS PHASE PROMPTS
@@ -7470,6 +7523,8 @@ async def draft_sentencia(
     user_email: str = Form(...),
     instrucciones: str = Form(""),
     calificaciones: str = Form(""),
+    sentido: str = Form(""),
+    auto_mode: str = Form("false"),
     doc1: UploadFile = File(...),
     doc2: UploadFile = File(...),
     doc3: Optional[UploadFile] = File(None),
@@ -7555,13 +7610,26 @@ async def draft_sentencia(
         if secondary_queries:
             print(f"   🔎 RAG secundario: {len(secondary_queries)} queries de la extracción")
 
-        if instrucciones.strip() or secondary_queries:
-            if instrucciones.strip():
-                print(f"\n   📝 Instrucciones del secretario ({len(instrucciones)} chars):")
-                print(f"      {instrucciones[:200]}{'...' if len(instrucciones) > 200 else ''}")
+        # ── Auto-mode: build synthetic instructions if needed ─────────
+        is_auto = auto_mode.lower() == "true"
+        effective_instrucciones = instrucciones.strip()
+        
+        if is_auto and not effective_instrucciones:
+            effective_instrucciones = _build_auto_mode_instructions(
+                sentido, tipo, parsed_calificaciones
+            )
+            print(f"\n   🤖 MODO AUTOMÁTICO activado — instrucciones sintéticas generadas ({len(effective_instrucciones)} chars)")
+        
+        if sentido:
+            print(f"   ⚖️ Sentido del fallo: {sentido.upper()}")
+        
+        if effective_instrucciones or secondary_queries:
+            if effective_instrucciones:
+                print(f"\n   📝 Instrucciones {'(auto)' if is_auto else '(secretario)'} ({len(effective_instrucciones)} chars):")
+                print(f"      {effective_instrucciones[:200]}{'...' if len(effective_instrucciones) > 200 else ''}")
             try:
                 rag_context = await run_rag_for_sentencia(
-                    instrucciones, tipo,
+                    effective_instrucciones, tipo,
                     secondary_queries=secondary_queries
                 )
                 rag_count = rag_context.count("---") // 2 if rag_context else 0
@@ -7590,12 +7658,19 @@ async def draft_sentencia(
                 print("   ⚠️ No se pudieron parsear las calificaciones, usando modo estándar")
                 parsed_calificaciones = []
 
-        if parsed_calificaciones:
+        # ── Inject sentido into instrucciones for legacy pipeline ──────
+        if sentido and not is_auto:
+            sentido_addendum = f"\n\nSENTIDO DEL FALLO INDICADO POR EL SECRETARIO: {sentido.upper()}\nDEBES redactar el proyecto en este sentido."
+            effective_instrucciones = (effective_instrucciones or "") + sentido_addendum
+        
+        if parsed_calificaciones or sentido:
             # ═══════════════════════════════════════════════════════════
             # FOCUSED PIPELINE: Skip 2A/2B/3, concentrate on ESTUDIO DE FONDO
             # ═══════════════════════════════════════════════════════════
             print(f"\n   🎯 PIPELINE ENFOCADO: Estudio de Fondo + Efectos + Resolutivos")
             print(f"   ⏭️ Saltando Resultandos, Considerandos y Ensamblaje")
+            if sentido:
+                print(f"   ⚖️ Sentido: {sentido.upper()}")
 
             # Deep per-agravio pipeline (Steps A→B→C→D per agravio)
             estudio_fondo = await phase2c_adaptive_estudio_fondo(
@@ -7653,7 +7728,7 @@ async def draft_sentencia(
             # Phase 2C: Draft ESTUDIO DE FONDO (standard mode)
             estudio_fondo = await phase2c_draft_estudio_fondo(
                 client, extracted_data, pdf_parts,
-                tipo, instrucciones, rag_context
+                tipo, effective_instrucciones, rag_context
             )
             phases_done = 4
 
