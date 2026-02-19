@@ -2045,6 +2045,14 @@ LEGAL_SYNONYMS = {
     "delito": [
         "ilícito penal", "hecho punible", "conducta típica"
     ],
+    "lfpca": [
+        "Ley Federal de Procedimiento Contencioso Administrativo",
+        "juicio contencioso administrativo", "tribunal fiscal"
+    ],
+    "cpeum": ["Constitución Política de los Estados Unidos Mexicanos", "carta magna"],
+    "lft": ["Ley Federal del Trabajo"],
+    "cnpp": ["Código Nacional de Procedimientos Penales"],
+    "amparo": ["Ley de Amparo"],
 }
 
 
@@ -2380,7 +2388,8 @@ MATERIA_KEYWORDS = {
         "sanción administrativa", "inspección", "verificación",
         "medio ambiente", "uso de suelo", "construcción",
         "protección civil", "cofepris", "profeco", "regulación",
-        "administrativo", "gobernación",
+        "administrativo", "gobernación", "lfpca",
+        "ley federal de procedimiento contencioso administrativo",
     },
     "FISCAL": {
         "impuesto", "sat", "contribución", "cfdi", "factura",
@@ -3268,10 +3277,10 @@ async def hybrid_search_all_silos(
         materia_filter = expansion_result["materia"]
         print(f"      Materia detectada para filtros: {materia_filter}")
     else:
-        # MODO RÁPIDO: SIN expansión — query original para máxima precisión BM25
-        # Rápido (~2s) - no usa metadata, BM25 busca exactamente lo que pidió el usuario
-        print(f"   ⚡ MODO RÁPIDO - Sin expansión, query original para BM25")
-        expanded_query = query  # Usar query original sin modificar
+        # MODO RÁPIDO: Legacy Expansion para acrónimos básicos (LFPCA -> Ley Federal...)
+        # Rápido (<1ms) - no usa LLM pero resuelve abreviaturas comunes
+        print(f"   ⚡ MODO RÁPIDO - Usando expansión legacy para acrónimos")
+        expanded_query = expand_legal_query(query)
         materia_filter = None
     
     # ═══════════════════════════════════════════════════════════════════════════
@@ -3429,33 +3438,57 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     # MULTI-QUERY: Búsqueda adicional para artículos específicos
     # ═══════════════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MULTI-QUERY: Búsqueda adicional para artículos específicos
+    # ═══════════════════════════════════════════════════════════════════════════
     article_numbers = detect_article_numbers(query)
-    if article_numbers and estado:
-        print(f"   🔍 Multi-query: buscando artículo(s) {article_numbers} en leyes estatales")
-        # Determinar colección estatal: silo dedicado o legacy
-        normalized_est = normalize_estado(estado)
-        estatal_col = ESTADO_SILO.get(normalized_est, LEGACY_ESTATAL_SILO) if normalized_est else LEGACY_ESTATAL_SILO
-        for art_num in article_numbers[:2]:  # Máximo 2 artículos por query
-            article_query = f"artículo {art_num}"
-            try:
-                art_dense = await get_dense_embedding(article_query)
-                art_sparse = get_sparse_embedding(article_query)
-                extra_results = await hybrid_search_single_silo(
-                    collection=estatal_col,
-                    query=article_query,
-                    dense_vector=art_dense,
-                    sparse_vector=art_sparse,
-                    filter_=get_filter_for_silo(estatal_col, estado),
-                    top_k=5,
-                    alpha=0.7,
-                )
-                # Agregar solo los que no estén ya
-                existing_ids = {r.id for r in merged}
-                new_results = [r for r in extra_results if r.id not in existing_ids]
-                merged.extend(new_results)
-                print(f"   🔍 Multi-query artículo {art_num}: +{len(new_results)} resultados nuevos")
-            except Exception as e:
-                print(f"   ⚠️ Multi-query falló para artículo {art_num}: {e}")
+    
+    if article_numbers:
+        # Definir target silos y estrategia de query según si hay estado o no
+        multi_query_targets = []
+        
+        if estado:
+            print(f"   🔍 Multi-query STATE: buscando artículo(s) {article_numbers} en leyes estatales")
+            normalized_est = normalize_estado(estado)
+            silo = ESTADO_SILO.get(normalized_est, LEGACY_ESTATAL_SILO) if normalized_est else LEGACY_ESTATAL_SILO
+            # En estado, el "artículo X" puro suele funcionar mejor
+            multi_query_targets.append({"silo": silo, "strategy": "pure", "filter": get_filter_for_silo(silo, estado)})
+        else:
+            print(f"   🔍 Multi-query FEDERAL: buscando artículo(s) {article_numbers} en leyes federales")
+            # En federal, necesitamos contexto para desambiguar entre cientos de leyes
+            multi_query_targets.append({"silo": "leyes_federales", "strategy": "context", "filter": None})
+            
+        for target in multi_query_targets:
+            silo_col = target["silo"]
+            strategy = target["strategy"]
+            silo_filter = target["filter"]
+            
+            for art_num in article_numbers[:2]:  # Máximo 2 artículos por query
+                if strategy == "pure":
+                    article_query = f"artículo {art_num}"
+                else:
+                    # Context strategy: "artículo 41" + expanded query (Ley Federal de Procedimiento...)
+                    article_query = f"artículo {art_num} {expanded_query}"
+
+                try:
+                    art_dense = await get_dense_embedding(article_query)
+                    art_sparse = get_sparse_embedding(article_query)
+                    extra_results = await hybrid_search_single_silo(
+                        collection=silo_col,
+                        query=article_query,
+                        dense_vector=art_dense,
+                        sparse_vector=art_sparse,
+                        filter_=silo_filter,
+                        top_k=5,
+                        alpha=0.7,
+                    )
+                    # Agregar solo los que no estén ya
+                    existing_ids = {r.id for r in merged}
+                    new_results = [r for r in extra_results if r.id not in existing_ids]
+                    merged.extend(new_results)
+                    print(f"   🔍 Multi-query artículo {art_num} en {silo_col}: +{len(new_results)} resultados nuevos")
+                except Exception as e:
+                    print(f"   ⚠️ Multi-query falló para artículo {art_num} en {silo_col}: {e}")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # ARTICLE-AWARE RERANKING
