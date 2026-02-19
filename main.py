@@ -5182,6 +5182,37 @@ class ReingestRequest(BaseModel):
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 ADMIN_EMAILS = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+
+# ── Subscription-aware access check for Redactor ─────────────────────────────
+def _can_access_sentencia(user_email: str) -> bool:
+    """
+    Check if a user can access the Redactor de Sentencias.
+    Returns True if the user is an admin OR has ultra_secretarios subscription.
+    """
+    email_lower = user_email.strip().lower()
+
+    # Fast path: admin list (no network call)
+    if email_lower in ADMIN_EMAILS:
+        return True
+
+    # Supabase path: check subscription_type
+    if supabase_admin:
+        try:
+            result = supabase_admin.table('user_profiles') \
+                .select('subscription_type') \
+                .eq('email', email_lower) \
+                .limit(1) \
+                .execute()
+            if result.data and len(result.data) > 0:
+                sub_type = result.data[0].get('subscription_type', '')
+                if sub_type == 'ultra_secretarios':
+                    print(f"   ✅ Acceso Redactor concedido: {email_lower} (suscripción {sub_type})")
+                    return True
+        except Exception as e:
+            print(f"   ⚠️ Error checking subscription for {email_lower}: {e}")
+
+    return False
+
 GEMINI_MODEL = "gemini-2.5-pro"         # Critical reasoning (Step B, legacy 2C)
 GEMINI_MODEL_FAST = "gemini-2.5-flash"  # Auxiliary tasks (extraction, enrichment, assembly)
 
@@ -7305,13 +7336,11 @@ async def analyze_expediente(
     import time as time_module
     total_start = time_module.time()
 
-    # ── Admin validation ─────────────────────────────────────────────────
+    # ── Access validation (admin OR ultra_secretarios) ────────────────────
     if not GEMINI_API_KEY:
         raise HTTPException(500, "Gemini API key not configured")
-    if not ADMIN_EMAILS:
-        raise HTTPException(500, "Admin emails not configured")
-    if user_email.strip().lower() not in ADMIN_EMAILS:
-        raise HTTPException(403, "Acceso restringido a administradores")
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
 
     # ── Validate tipo ────────────────────────────────────────────────────
     valid_types = list(SENTENCIA_PROMPTS.keys())
@@ -7453,15 +7482,12 @@ async def draft_sentencia(
     import time as time_module
     total_start = time_module.time()
 
-    # ── Admin validation ─────────────────────────────────────────────────
+    # ── Access validation (admin OR ultra_secretarios) ────────────────────
     if not GEMINI_API_KEY:
         raise HTTPException(500, "Gemini API key not configured")
 
-    if not ADMIN_EMAILS:
-        raise HTTPException(500, "Admin emails not configured")
-
-    if user_email.strip().lower() not in ADMIN_EMAILS:
-        raise HTTPException(403, "Acceso restringido a administradores")
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
 
     # ── Validate tipo ────────────────────────────────────────────────────
     valid_types = list(SENTENCIA_PROMPTS.keys())
@@ -7690,10 +7716,9 @@ async def export_sentencia_docx(req: ExportSentenciaRequest):
     from docx.shared import Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-    # ── Admin validation ─────────────────────────────────────────────────
-    if req.user_email and ADMIN_EMAILS:
-        if req.user_email.strip().lower() not in ADMIN_EMAILS:
-            raise HTTPException(403, "Acceso restringido a administradores")
+    # ── Access validation (admin OR ultra_secretarios) ────────────────────
+    if req.user_email and not _can_access_sentencia(req.user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
 
     if not req.sentencia_text.strip():
         raise HTTPException(400, "El texto de la sentencia está vacío")
@@ -7872,10 +7897,9 @@ async def merge_sentencia_docx(
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from copy import deepcopy
 
-    # ── Admin validation ─────────────────────────────────────────────────
-    if user_email and ADMIN_EMAILS:
-        if user_email.strip().lower() not in ADMIN_EMAILS:
-            raise HTTPException(403, "Acceso restringido a administradores")
+    # ── Access validation (admin OR ultra_secretarios) ────────────────────
+    if user_email and not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
 
     if not estudio_text.strip():
         raise HTTPException(400, "El texto del estudio de fondo está vacío")
