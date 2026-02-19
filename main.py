@@ -2047,7 +2047,15 @@ LEGAL_SYNONYMS = {
     ],
     "lfpca": [
         "Ley Federal de Procedimiento Contencioso Administrativo",
-        "juicio contencioso administrativo", "tribunal fiscal"
+        "juicio contencioso administrativo", "tribunal fiscal", "LFPCA"
+    ],
+    "contencioso administrativo": [
+        "Ley Federal de Procedimiento Contencioso Administrativo",
+        "juicio contencioso administrativo", "tribunal fiscal", "LFPCA"
+    ],
+    "procedimiento contencioso": [
+        "Ley Federal de Procedimiento Contencioso Administrativo",
+        "juicio contencioso administrativo", "LFPCA"
     ],
     "cpeum": ["Constitución Política de los Estados Unidos Mexicanos", "carta magna"],
     "lft": ["Ley Federal del Trabajo"],
