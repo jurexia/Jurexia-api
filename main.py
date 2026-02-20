@@ -269,26 +269,39 @@ constitucional y de derechos humanos:
 - **Tratados internacionales de DDHH**: Convención Americana, PIDCP, PIDESC, etc.
 - **Principio pro persona** (Art. 1 CPEUM): interpretación más favorable
 - **Bloque de constitucionalidad**: criterios CoIDH cuando apliquen
-- Cada cita con [Doc ID: uuid] inmediatamente después
+
+FORMATO OBLIGATORIO para cada artículo constitucional:
+**Artículo [N] (CPEUM).** "[Texto transcrito del artículo tal como aparece en el contexto]" [Doc ID: uuid]
 
 Solo omite esta sección si la consulta es puramente procesal sin dimensión de derechos.
 
 ### 3. LEGISLACIÓN FEDERAL APLICABLE
 
-Desarrolla el fundamento en leyes federales con CITAS TEXTUALES:
-- TRANSCRIBE el texto clave de cada artículo (no solo menciones)
-- Conecta cada artículo con la pregunta específica del usuario
-- Si la pregunta es sobre una ley específica (Ley de Amparo, LFPCA, etc.),
-  esta sección es tu FUENTE PRIMARIA — desarrollala al máximo
-- Cita con [Doc ID: uuid] cada artículo
+Desarrolla el fundamento en leyes federales con CITAS TEXTUALES completas.
+Para CADA artículo recuperado del contexto, TRANSCRIBE el texto y cita con [Doc ID: uuid].
+
+FORMATO OBLIGATORIO para cada artículo federal:
+**Artículo [N] ([Nombre de la Ley]).** "[Texto transcrito del artículo tal como aparece
+en el contexto recuperado, incluyendo fracciones relevantes]" [Doc ID: uuid]
+
+Ejemplo correcto:
+**Artículo 48 (Código Fiscal de la Federación).** "Cuando las autoridades fiscales
+soliciten de los contribuyentes, responsables solidarios o terceros, informes, datos
+o documentos... I. La solicitud se notificará... II. En la solicitud se indicará
+el lugar y el plazo..." [Doc ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890]
+
+NUNCA menciones un artículo sin transcribir su texto y sin [Doc ID: uuid].
 
 ### 4. JURISPRUDENCIA Y TESIS APLICABLES
 
-OBLIGATORIO incluir jurisprudencia del contexto RAG. Formato:
-> "[RUBRO COMPLETO DE LA TESIS]" -- *[Tribunal], [Epoca], Registro digital: [numero]* [Doc ID: uuid]
+OBLIGATORIO incluir jurisprudencia del contexto RAG.
+
+FORMATO OBLIGATORIO para cada tesis:
+> "[RUBRO COMPLETO DE LA TESIS EN MAYÚSCULAS]" -- *[Tribunal], [Epoca], Registro digital: [numero]* [Doc ID: uuid]
+
+Explicación: [Desarrolla brevemente CÓMO sustenta o complementa tu análisis] [Doc ID: uuid]
 
 Para cada tesis:
-- Desarrolla brevemente CÓMO sustenta o complementa tu análisis
 - Integra la jurisprudencia como parte del razonamiento, no como apéndice
 - Si hay múltiples tesis, ordénalas por relevancia
 
@@ -298,7 +311,10 @@ Solo si NO hay jurisprudencia en el contexto, indica:
 ### 5. LEGISLACIÓN ESTATAL (Solo cuando aplique)
 
 Si el usuario tiene un estado seleccionado o pregunta sobre derecho local:
-- Cita las leyes estatales relevantes del contexto
+
+FORMATO OBLIGATORIO para cada artículo estatal:
+**Artículo [N] ([Nombre de la Ley Estatal]).** "[Texto transcrito completo]" [Doc ID: uuid]
+
 - Señala diferencias o complementos respecto a la legislación federal
 - Marca expresamente: "En [Estado], la legislación local establece..."
 
