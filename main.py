@@ -10,7 +10,7 @@ FastAPI backend para plataforma LegalTech con:
 - Grounding con citas documentales
 - GPT-5 Mini for chat, DeepSeek Reasoner for thinking/reasoning
 
-VERSION: 2026.02.14-v3 (GPT-5 Mini migration)
+VERSION: 2026.02.20-v4 (Advanced RAG: Cohere Rerank + HyDE + Query Decomposition)
 """
 
 import asyncio
@@ -43,6 +43,7 @@ from qdrant_client.http.models import (
 from fastembed import SparseTextEmbedding
 from openai import AsyncOpenAI
 from supabase import create_client as supabase_create_client
+import httpx  # For Cohere Rerank API calls
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -76,6 +77,19 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 SENTENCIA_MODEL = "o3-mini"  # For sentencia analysis (powerful reasoning, cost-effective)
+
+# Cohere Rerank Configuration (cross-encoder for post-retrieval reranking)
+COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
+COHERE_RERANK_MODEL = "rerank-v3.5"  # Multilingual, best for Spanish legal text
+COHERE_RERANK_ENABLED = bool(COHERE_API_KEY)
+print(f"   Cohere Rerank: {'✅ ENABLED' if COHERE_RERANK_ENABLED else '⚠️ DISABLED (no API key)'}")
+
+# HyDE Configuration (Hypothetical Document Embeddings)
+HYDE_ENABLED = True  # Generate hypothetical legal document for dense search
+HYDE_MODEL = "gpt-5-mini"  # Use fast model for HyDE generation
+
+# Query Decomposition Configuration
+QUERY_DECOMPOSITION_ENABLED = True  # Break complex queries into sub-queries
 
 # Silos V5.0 de Jurexia — Arquitectura 32 Silos por Estado
 # Silos FIJOS: siempre se buscan independientemente del estado
@@ -3251,6 +3265,181 @@ async def _fetch_neighbor_chunks(
     return neighbors[:max_neighbors]
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# ADVANCED RAG: HyDE (Hypothetical Document Embeddings)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _generate_hyde_document(query: str) -> Optional[str]:
+    """
+    HyDE: Genera un documento jurídico hipotético que respondería a la query.
+    Este documento hipotético se usa para generar el dense embedding,
+    mejorando la recuperación para queries coloquiales.
+    
+    Ejemplo:
+      Query: "me corrieron del trabajo sin razón"
+      HyDE genera: "Artículo 47.- Son causas de rescisión de la relación de trabajo..."
+      El embedding del HyDE doc es más cercano a los artículos reales.
+    """
+    if not HYDE_ENABLED:
+        return None
+    
+    # No usar HyDE para queries que ya son técnicas o mencionan artículos
+    if re.search(r'artículo\s+\d+', query, re.IGNORECASE):
+        return None
+    if len(query.split()) < 3:
+        return None
+    
+    try:
+        response = await chat_client.chat.completions.create(
+            model=HYDE_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Eres un experto en derecho mexicano. Genera un fragmento breve (150-250 palabras) "
+                        "de un artículo de ley o tesis de jurisprudencia mexicana que respondería "
+                        "directamente a la consulta del usuario. Escribe SOLO el texto legal, "
+                        "sin explicaciones ni preámbulos. Usa terminología jurídica técnica mexicana."
+                    )
+                },
+                {"role": "user", "content": query}
+            ],
+            max_tokens=350,
+            temperature=0.3,
+        )
+        hyde_doc = response.choices[0].message.content.strip()
+        if hyde_doc and len(hyde_doc) > 50:
+            print(f"   🔮 HyDE generado ({len(hyde_doc)} chars): {hyde_doc[:100]}...")
+            return hyde_doc
+    except Exception as e:
+        print(f"   ⚠️ HyDE falló (usando query original): {e}")
+    
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ADVANCED RAG: Query Decomposition
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _decompose_query(query: str) -> list[str]:
+    """
+    Descompone queries complejas multi-hop en sub-queries más específicas.
+    
+    Ejemplo:
+      "¿Cuáles son los requisitos para un amparo indirecto y ante quién se presenta?"
+      → ["requisitos amparo indirecto", "competencia amparo indirecto juez distrito"]
+    """
+    if not QUERY_DECOMPOSITION_ENABLED:
+        return []
+    
+    # Solo descomponer queries largas (>10 palabras) o con "y", "además", "también"
+    words = query.split()
+    has_conjunction = any(w in query.lower() for w in [' y ', ' además ', ' también ', ' pero ', ' sin embargo ', ' asimismo '])
+    if len(words) < 10 and not has_conjunction:
+        return []
+    
+    try:
+        response = await chat_client.chat.completions.create(
+            model=HYDE_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Eres un experto en derecho mexicano. El usuario hace una consulta compleja. "
+                        "Descompón la consulta en 2-3 sub-consultas independientes y específicas que "
+                        "juntas cubran toda la información necesaria. Responde SOLO con las sub-consultas, "
+                        "una por línea, sin numeración ni viñetas."
+                    )
+                },
+                {"role": "user", "content": query}
+            ],
+            max_tokens=200,
+            temperature=0.2,
+        )
+        sub_queries = [
+            sq.strip() for sq in response.choices[0].message.content.strip().split('\n')
+            if sq.strip() and len(sq.strip()) > 10
+        ][:3]  # Máximo 3 sub-queries
+        
+        if sub_queries:
+            print(f"   🔀 Query Decomposition: {len(sub_queries)} sub-queries generadas")
+            for i, sq in enumerate(sub_queries):
+                print(f"      [{i+1}] {sq[:80]}")
+        return sub_queries
+    except Exception as e:
+        print(f"   ⚠️ Query Decomposition falló: {e}")
+        return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ADVANCED RAG: Cohere Rerank (Cross-Encoder)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 25) -> List[SearchResult]:
+    """
+    Usa Cohere Rerank V3.5 (cross-encoder) para re-ordenar los resultados.
+    El cross-encoder analiza cada par (query, document) juntos, produciendo
+    scores de relevancia mucho más precisos que los bi-encoders.
+    
+    Mejora típica: 33-40% en retrieval accuracy.
+    """
+    if not COHERE_RERANK_ENABLED or not results:
+        return results
+    
+    try:
+        # Preparar documentos para Cohere
+        documents = []
+        for r in results:
+            doc_text = r.texto[:2000] if r.texto else ""  # Cohere limit
+            if r.origen:
+                doc_text = f"[{r.origen}] {doc_text}"
+            documents.append(doc_text)
+        
+        # Llamar Cohere Rerank API
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://api.cohere.com/v2/rerank",
+                headers={
+                    "Authorization": f"Bearer {COHERE_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": COHERE_RERANK_MODEL,
+                    "query": query,
+                    "documents": documents,
+                    "top_n": min(top_n, len(documents)),
+                },
+            )
+            
+            if response.status_code != 200:
+                print(f"   ⚠️ Cohere Rerank HTTP {response.status_code}: {response.text[:200]}")
+                return results
+            
+            rerank_data = response.json()
+        
+        # Re-ordenar resultados según Cohere scores
+        reranked = []
+        for item in rerank_data.get("results", []):
+            idx = item["index"]
+            relevance = item["relevance_score"]
+            if idx < len(results):
+                r = results[idx]
+                r.score = relevance  # Actualizar score con Cohere relevance
+                reranked.append(r)
+        
+        print(f"   🎯 Cohere Rerank: {len(reranked)} resultados re-ordenados")
+        if reranked:
+            print(f"      Top-3 post-rerank:")
+            for r in reranked[:3]:
+                print(f"         {r.score:.4f} | {r.ref} | {r.origen[:50] if r.origen else 'N/A'}")
+        
+        return reranked
+    
+    except Exception as e:
+        print(f"   ⚠️ Cohere Rerank falló (usando orden original): {e}")
+        return results
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -3302,10 +3491,29 @@ async def hybrid_search_all_silos(
     if detected_materias:
         print(f"   🎯 MATERIA DETECTADA: {detected_materias} (forced={forced_materia is not None})")
     
-    # Generar embeddings: dense=ORIGINAL (preserva intención), sparse=query (original o expandido según modo)
-    dense_task = get_dense_embedding(query)  # ORIGINAL para preservar intención semántica exacta
+    # ═══════════════════════════════════════════════════════════════════════════
+    # HyDE: Hypothetical Document Embeddings
+    # Genera un doc jurídico hipotético para mejorar el dense embedding en queries coloquiales
+    # ═══════════════════════════════════════════════════════════════════════════
+    hyde_doc = await _generate_hyde_document(query)
+    
+    if hyde_doc:
+        # Usar el HyDE doc para dense Y el query original para sparse
+        # Esto combina la especificidad semántica del HyDE con la keyword precision del BM25
+        dense_text = hyde_doc
+        print(f"   🔮 Dense embedding usando HyDE document")
+    else:
+        dense_text = query
+    
+    # Generar embeddings: dense=HyDE o query, sparse=expanded (BM25 keywords)
+    dense_task = get_dense_embedding(dense_text)
     sparse_vector = get_sparse_embedding(expanded_query)  # En modo rápido = original, en reasoning = expandido
     dense_vector = await dense_task
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # QUERY DECOMPOSITION: Sub-queries para queries complejas multi-hop
+    # ═══════════════════════════════════════════════════════════════════════════
+    sub_queries = await _decompose_query(query)
     
     # Búsqueda paralela en los 4 silos CON FILTROS ESPECÍFICOS POR SILO
     # ═══════════════════════════════════════════════════════════════════════════
@@ -3588,10 +3796,51 @@ async def hybrid_search_all_silos(
         merged.extend(remaining[:slots_remaining])
     
     # ═══════════════════════════════════════════════════════════════════════════
+    # QUERY DECOMPOSITION: Búsqueda adicional con sub-queries descompuestas
+    # ═══════════════════════════════════════════════════════════════════════════
+    if sub_queries:
+        existing_ids = {r.id for r in merged}
+        decomp_new = 0
+        for sq in sub_queries:
+            try:
+                sq_dense = await get_dense_embedding(sq)
+                sq_sparse = get_sparse_embedding(sq)
+                for silo_name in silos_to_search[:4]:  # Top 4 silos only for speed
+                    sq_filter = get_filter_for_silo(silo_name, estado)
+                    sq_results = await hybrid_search_single_silo(
+                        collection=silo_name,
+                        query=sq,
+                        dense_vector=sq_dense,
+                        sparse_vector=sq_sparse,
+                        filter_=sq_filter,
+                        top_k=5,
+                        alpha=0.7,
+                    )
+                    for r in sq_results:
+                        if r.id not in existing_ids:
+                            merged.append(r)
+                            existing_ids.add(r.id)
+                            decomp_new += 1
+            except Exception as e:
+                print(f"   ⚠️ Sub-query búsqueda falló: {e}")
+        if decomp_new > 0:
+            print(f"   🔀 Query Decomposition: +{decomp_new} resultados nuevos de sub-queries")
+    
+    # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
     # ═══════════════════════════════════════════════════════════════════════════
     if detected_materias:
         merged = _apply_materia_threshold(merged, detected_materias)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # COHERE RERANK: Cross-encoder final reranking (ÚLTIMA CAPA)
+    # El cross-encoder analiza (query, document) juntos → scores mucho más precisos
+    # ═══════════════════════════════════════════════════════════════════════════
+    merged.sort(key=lambda x: x.score, reverse=True)
+    merged = merged[:top_k + 10]  # Pre-filter before expensive rerank
+    
+    if COHERE_RERANK_ENABLED:
+        merged = await _cohere_rerank(query, merged, top_n=top_k)
     
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
