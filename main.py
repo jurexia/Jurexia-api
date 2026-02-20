@@ -4052,6 +4052,45 @@ def should_use_thinking(has_document: bool, is_drafting: bool) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SECURITY: Malicious Prompt Detection
+# ══════════════════════════════════════════════════════════════════════════════
+
+import re as _security_re
+
+_SECURITY_PATTERNS = [
+    (_security_re.compile(r'(?i)(?:c[oó]mo\s+funciona|c[oó]digo\s+fuente|arquitectura|backend|frontend|api\s*key|system\s*prompt|dame\s+(?:el|tu)\s+prompt).*(?:iurexia|jurexia|esta\s+(?:plataforma|herramienta|app))'), 'architecture_probe', 'high'),
+    (_security_re.compile(r'(?i)(?:mu[eé]strame|revela|dame|ense[ñn]a|comparte).*(?:prompt|instrucciones|system|configuraci[oó]n)'), 'prompt_extraction', 'high'),
+    (_security_re.compile(r'(?i)(?:token|api\s*key|password|contrase[ñn]a|secret|clave).*(?:iurexia|jurexia|supabase|openai|deepseek|stripe|qdrant)'), 'credential_probe', 'critical'),
+    (_security_re.compile(r'(?i)(?:ignore|forget|olvida|ignora).*(?:previous|previas|anteriores|instrucciones|instructions)'), 'prompt_injection', 'critical'),
+    (_security_re.compile(r'(?i)(?:eres|act[uú]a\s+como|you\s+are|pretend).*(?:chatgpt|claude|llama|gpt|asistente\s+sin\s+restricciones)'), 'jailbreak', 'high'),
+    (_security_re.compile(r'(?i)(?:qu[eé]\s+modelo|qu[eé]\s+llm|qu[eé]\s+api|qu[eé]\s+base\s+de\s+datos|stack\s+tecnol[oó]gico|tech\s*stack).*(?:usas|utilizas|tienes|empleas|usa\s+iurexia)'), 'architecture_probe', 'medium'),
+    (_security_re.compile(r'(?i)(?:scrap|copia|clona|replica|reverse\s*engineer|descompil).*(?:iurexia|jurexia|c[oó]digo|sistema|plataforma)'), 'reverse_engineering', 'critical'),
+]
+
+def _check_security_patterns(message: str) -> tuple:
+    """Check if message matches any security pattern. Returns (alert_type, severity) or (None, None)."""
+    for pattern, alert_type, severity in _SECURITY_PATTERNS:
+        if pattern.search(message):
+            return alert_type, severity
+    return None, None
+
+def _log_security_alert(user_id: str, user_email: str, query: str, alert_type: str, severity: str):
+    """Log a security alert to Supabase (fire-and-forget)."""
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("security_alerts").insert({
+            "user_id": user_id if user_id and user_id != "anonymous" else None,
+            "user_email": user_email or "unknown",
+            "query_text": query[:500],
+            "alert_type": alert_type,
+            "severity": severity,
+        }).execute()
+        print(f"🚨 SECURITY ALERT [{severity.upper()}]: {alert_type} by {user_email or user_id}")
+    except Exception as e:
+        print(f"⚠️ Failed to log security alert: {e}")
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: CHAT (STREAMING SSE CON THINKING MODE + RAG)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -4070,6 +4109,56 @@ async def chat_endpoint(request: ChatRequest):
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # BLOCKED USER CHECK
+    # ─────────────────────────────────────────────────────────────────────
+    if request.user_id and supabase_admin:
+        try:
+            blocked_result = supabase_admin.rpc(
+                'is_user_blocked', {'p_user_id': request.user_id}
+            ).execute()
+            if blocked_result.data:
+                print(f"🚫 BLOCKED USER attempted chat: {request.user_id}")
+                return StreamingResponse(
+                    iter([json.dumps({
+                        "error": "account_suspended",
+                        "message": "Tu cuenta ha sido suspendida. Contacta a soporte para más información.",
+                    })]),
+                    status_code=403,
+                    media_type="application/json",
+                )
+        except Exception as e:
+            print(f"⚠️ Blocked check failed (proceeding): {e}")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # SECURITY: Malicious prompt detection
+    # ─────────────────────────────────────────────────────────────────────
+    _last_msg_for_sec = None
+    for msg in reversed(request.messages):
+        if msg.role == "user":
+            _last_msg_for_sec = msg.content
+            break
+    if _last_msg_for_sec:
+        _alert_type, _alert_severity = _check_security_patterns(_last_msg_for_sec)
+        if _alert_type:
+            _log_security_alert(
+                user_id=request.user_id or "anonymous",
+                user_email="",
+                query=_last_msg_for_sec,
+                alert_type=_alert_type,
+                severity=_alert_severity,
+            )
+            # For critical severity, block the request entirely
+            if _alert_severity == "critical":
+                return StreamingResponse(
+                    iter([json.dumps({
+                        "error": "security_blocked",
+                        "message": "Tu consulta no puede ser procesada. Si crees que esto es un error, contacta a soporte.",
+                    })]),
+                    status_code=403,
+                    media_type="application/json",
+                )
 
     # ─────────────────────────────────────────────────────────────────────
     # QUOTA CHECK: Server-side enforcement via Supabase consume_query RPC
@@ -8134,6 +8223,205 @@ async def merge_sentencia_docx(
         },
     )
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN PANEL — Dashboard API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from fastapi import Header
+
+ADMIN_EMAILS = {"administracion@iurexia.com"}
+
+async def _verify_admin(authorization: str = Header(...)) -> dict:
+    """Verify JWT token and check if email is in admin whitelist."""
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = supabase_admin.auth.get_user(token)
+        user = user_resp.user
+        if not user or user.email not in ADMIN_EMAILS:
+            raise HTTPException(status_code=403, detail="Acceso denegado")
+        return {"id": user.id, "email": user.email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"⚠️ Admin auth error: {e}")
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+def _log_admin_action(admin_email: str, action: str, target_id: str = None, details: dict = None):
+    """Log an admin action for audit trail."""
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("admin_audit_log").insert({
+            "admin_email": admin_email,
+            "action": action,
+            "target_user_id": target_id,
+            "details": details or {},
+        }).execute()
+    except Exception as e:
+        print(f"⚠️ Failed to log admin action: {e}")
+
+
+@app.get("/admin/users")
+async def admin_list_users(authorization: str = Header(...)):
+    """List all users with subscription info, usage, and blocked status."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        result = supabase_admin.rpc('admin_get_users').execute()
+        users = result.data or []
+        return {"users": users, "total": len(users) if isinstance(users, list) else 0}
+    except Exception as e:
+        print(f"❌ Admin users error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al listar usuarios: {str(e)}")
+
+
+@app.post("/admin/users/{user_id}/block")
+async def admin_block_user(user_id: str, authorization: str = Header(...)):
+    """Block a user from using the platform."""
+    admin = await _verify_admin(authorization)
+
+    # Prevent self-blocking
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="No puedes bloquearte a ti mismo")
+
+    try:
+        # Check if already blocked
+        existing = supabase_admin.table("blocked_users").select("user_id").eq("user_id", user_id).execute()
+        if existing.data:
+            return {"status": "already_blocked", "user_id": user_id}
+
+        # Get user info for audit log
+        user_info = supabase_admin.table("user_profiles").select("email").eq("id", user_id).execute()
+        user_email = user_info.data[0]["email"] if user_info.data else "unknown"
+
+        supabase_admin.table("blocked_users").insert({
+            "user_id": user_id,
+            "blocked_by": admin["email"],
+            "reason": "Bloqueado por administrador",
+        }).execute()
+
+        _log_admin_action(admin["email"], "block_user", user_id, {"user_email": user_email})
+        print(f"🚫 Admin blocked user: {user_email} ({user_id})")
+
+        return {"status": "blocked", "user_id": user_id, "user_email": user_email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Block user error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al bloquear usuario: {str(e)}")
+
+
+@app.post("/admin/users/{user_id}/unblock")
+async def admin_unblock_user(user_id: str, authorization: str = Header(...)):
+    """Unblock a previously blocked user."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        result = supabase_admin.table("blocked_users").delete().eq("user_id", user_id).execute()
+
+        user_info = supabase_admin.table("user_profiles").select("email").eq("id", user_id).execute()
+        user_email = user_info.data[0]["email"] if user_info.data else "unknown"
+
+        _log_admin_action(admin["email"], "unblock_user", user_id, {"user_email": user_email})
+        print(f"✅ Admin unblocked user: {user_email} ({user_id})")
+
+        return {"status": "unblocked", "user_id": user_id, "user_email": user_email}
+    except Exception as e:
+        print(f"❌ Unblock user error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al desbloquear usuario: {str(e)}")
+
+
+@app.get("/admin/alerts")
+async def admin_list_alerts(
+    reviewed: bool = False,
+    limit: int = 50,
+    authorization: str = Header(...),
+):
+    """List security alerts, optionally filtered by review status."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        query = supabase_admin.table("security_alerts").select("*").order("created_at", desc=True).limit(limit)
+        if not reviewed:
+            query = query.eq("reviewed", False)
+        result = query.execute()
+        return {"alerts": result.data or [], "total": len(result.data or [])}
+    except Exception as e:
+        print(f"❌ Admin alerts error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al listar alertas: {str(e)}")
+
+
+@app.post("/admin/alerts/{alert_id}/review")
+async def admin_review_alert(alert_id: int, authorization: str = Header(...)):
+    """Mark a security alert as reviewed."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        supabase_admin.table("security_alerts").update({
+            "reviewed": True,
+            "reviewed_by": admin["email"],
+            "reviewed_at": "now()",
+        }).eq("id", alert_id).execute()
+
+        _log_admin_action(admin["email"], "review_alert", details={"alert_id": alert_id})
+        return {"status": "reviewed", "alert_id": alert_id}
+    except Exception as e:
+        print(f"❌ Review alert error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al revisar alerta: {str(e)}")
+
+
+@app.get("/admin/stats")
+async def admin_stats(authorization: str = Header(...)):
+    """Dashboard statistics: total users, subscribers by plan, active users, alerts."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        # Total users
+        all_users = supabase_admin.table("user_profiles").select("id", count="exact").execute()
+        total_users = all_users.count or 0
+
+        # Subscribers by plan
+        plan_data = supabase_admin.table("user_profiles").select(
+            "subscription_type"
+        ).execute()
+        plans = {}
+        for row in (plan_data.data or []):
+            st = row.get("subscription_type", "gratuito")
+            plans[st] = plans.get(st, 0) + 1
+
+        # Active users (last 7 days)
+        from datetime import datetime, timedelta
+        seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        active_result = supabase_admin.table("user_profiles").select(
+            "id", count="exact"
+        ).gte("last_query_at", seven_days_ago).execute()
+        active_7d = active_result.count or 0
+
+        # Pending security alerts
+        pending_alerts = supabase_admin.table("security_alerts").select(
+            "id", count="exact"
+        ).eq("reviewed", False).execute()
+        pending_count = pending_alerts.count or 0
+
+        # Blocked users count
+        blocked_result = supabase_admin.table("blocked_users").select(
+            "user_id", count="exact"
+        ).execute()
+        blocked_count = blocked_result.count or 0
+
+        return {
+            "total_users": total_users,
+            "active_7d": active_7d,
+            "blocked_users": blocked_count,
+            "pending_alerts": pending_count,
+            "plans": plans,
+        }
+    except Exception as e:
+        print(f"❌ Admin stats error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener estadísticas: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
