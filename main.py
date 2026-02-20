@@ -4045,12 +4045,19 @@ async def health_check():
     
     return {
         "status": "healthy" if qdrant_status == "connected" else "degraded",
-        "version": "2026.02.15-v5.0",
+        "version": "2026.02.20-v4 (Advanced RAG)",
         "model": CHAT_MODEL,
         "qdrant": qdrant_status,
         "silos_activos": silos_activos,
         "sparse_encoder": "Qdrant/bm25",
         "dense_model": EMBEDDING_MODEL,
+        "rag_features": {
+            "cohere_rerank": COHERE_RERANK_ENABLED,
+            "cohere_model": COHERE_RERANK_MODEL if COHERE_RERANK_ENABLED else None,
+            "hyde": HYDE_ENABLED,
+            "hyde_model": HYDE_MODEL if HYDE_ENABLED else None,
+            "query_decomposition": QUERY_DECOMPOSITION_ENABLED,
+        },
     }
 
 
