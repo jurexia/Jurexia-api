@@ -8361,7 +8361,8 @@ REGLAS FINALES:
 - No agregues comentarios, no expliques: entrega SOLO el texto del escrito.
 - El capítulo de SUSPENSIÓN debe ser el más extenso y desarrollado, con todas las jurisprudencias citadas textualmente.
 - Adapta los hechos al relato del usuario, haciéndolos vívidos y urgentes pero formales.
-- El escrito completo debe tener entre 3000 y 5000 palabras."""
+- El escrito completo debe tener entre 3000 y 5000 palabras.
+- FORMATO: NO uses asteriscos (**), markdown ni caracteres especiales de formato. Los encabezados deben ir en MAYÚSCULAS sin marcadores. Escribe texto plano formal, sin ningún tipo de formato markdown."""
 
 
 class AmparoSaludRequest(BaseModel):
@@ -8498,6 +8499,7 @@ async def export_amparo_salud_docx(req: ExportAmparoSaludRequest):
         style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
         # ── Parse text into paragraphs ───────────────────────────────────
+        import re
         lines = req.amparo_text.split('\n')
         for line in lines:
             stripped = line.strip()
@@ -8507,18 +8509,49 @@ async def export_amparo_salud_docx(req: ExportAmparoSaludRequest):
 
             para = doc.add_paragraph()
 
+            # Handle markdown headings (## or #)
+            is_md_heading = False
+            if stripped.startswith('## '):
+                stripped = stripped.lstrip('#').strip()
+                is_md_heading = True
+            elif stripped.startswith('# '):
+                stripped = stripped.lstrip('#').strip()
+                is_md_heading = True
+
+            # Handle bullet points
+            is_bullet = False
+            if re.match(r'^[-•]\s+', stripped):
+                stripped = re.sub(r'^[-•]\s+', '', stripped)
+                is_bullet = True
+
             # Check if it's a header-style line (all caps or known patterns)
-            is_header = (
+            is_header = is_md_heading or (
                 stripped.isupper() and len(stripped) < 120
             ) or stripped.startswith('I.') or stripped.startswith('II.') or stripped.startswith('III.') or stripped.startswith('IV.') or stripped.startswith('V.') or stripped.startswith('VI.') or stripped.startswith('VII.') or stripped.startswith('VIII.') or stripped.startswith('PRIMERO') or stripped.startswith('SEGUNDO') or stripped.startswith('TERCERO')
 
-            run = para.add_run(stripped)
-            run.font.name = 'Arial'
-            run.font.size = Pt(14)
+            # Add bullet prefix if needed
+            if is_bullet:
+                bullet_run = para.add_run('• ')
+                bullet_run.font.name = 'Arial'
+                bullet_run.font.size = Pt(14)
+
+            # Parse **bold** markers into separate runs
+            parts = re.split(r'(\*\*.*?\*\*)', stripped)
+            for part in parts:
+                if part.startswith('**') and part.endswith('**'):
+                    run = para.add_run(part[2:-2])
+                    run.bold = True
+                else:
+                    run = para.add_run(part)
+                    if is_header:
+                        run.bold = True
+                run.font.name = 'Arial'
+                run.font.size = Pt(14)
 
             if is_header:
-                run.bold = True
                 if stripped in ['EXTREMA URGENCIA', 'AMPARO INDIRECTO', 'PROTESTO LO NECESARIO', 'P R E S E N T E.']:
+                    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                elif is_md_heading:
                     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 else:
                     para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
