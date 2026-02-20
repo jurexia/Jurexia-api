@@ -8429,6 +8429,26 @@ Actos reclamados: {', '.join(req.situaciones)}
 
 Genera el escrito completo siguiendo EXACTAMENTE la estructura y formato del modelo de referencia."""
 
+    # ── Lookup correct Juzgado de Distrito ────────────────────────────────
+    juzgado_info = ""
+    if supabase_admin:
+        try:
+            # Query juzgados for the hospital's state, prioritize Administrativa for health amparos
+            result = supabase_admin.table("juzgados_distrito").select("denominacion,direccion,telefono,materia").eq("estado", req.hospital_estado).execute()
+            if result.data:
+                # Priority order for health amparos: Administrativa > Mixto > others
+                admin_courts = [j for j in result.data if j["materia"] == "Administrativa"]
+                mixto_courts = [j for j in result.data if j["materia"] == "Mixto"]
+                chosen = (admin_courts or mixto_courts or result.data)[0]
+                juzgado_info = f"""\n\nJUZGADO COMPETENTE (usar esta denominación exacta en el escrito):
+Dirigir a: {chosen['denominacion']}
+Dirección del juzgado: {chosen['direccion']}
+{'Teléfono: ' + chosen['telefono'] if chosen.get('telefono') else ''}"""
+                user_prompt += juzgado_info
+                print(f"   🏛️  Juzgado inyectado: {chosen['denominacion']}")
+        except Exception as e:
+            print(f"   ⚠️  No se pudo buscar juzgado: {e}")
+
     print(f"\n🏥 SALVAME — Generando amparo de salud")
     print(f"   Paciente: {req.paciente_nombre}")
     print(f"   Riesgo: {riesgo_desc}")
@@ -8580,6 +8600,51 @@ async def export_amparo_salud_docx(req: ExportAmparoSaludRequest):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# JUZGADOS DE DISTRITO — Directorio CJF
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@app.get("/juzgados-distrito")
+async def get_juzgados_distrito(
+    estado: str = "",
+    materia: str = "",
+    limit: int = 50,
+):
+    """
+    Devuelve Juzgados de Distrito filtrados por estado y/o materia.
+    Para amparos de salud, usa materia='Administrativa'.
+    """
+    if not supabase_admin:
+        raise HTTPException(503, "Base de datos no configurada")
+
+    try:
+        query = supabase_admin.table("juzgados_distrito").select(
+            "id,denominacion,materia,circuito,estado,ciudad,direccion,telefono"
+        )
+
+        if estado:
+            query = query.eq("estado", estado)
+        if materia:
+            query = query.eq("materia", materia)
+
+        result = query.limit(limit).execute()
+
+        # For health amparos, sort: Administrativa first, then Mixto, then others
+        courts = result.data or []
+        materia_priority = {"Administrativa": 0, "Mixto": 1}
+        courts.sort(key=lambda c: materia_priority.get(c.get("materia", ""), 99))
+
+        return {
+            "total": len(courts),
+            "estado": estado,
+            "juzgados": courts,
+        }
+
+    except Exception as e:
+        print(f"❌ Error querying juzgados: {e}")
+        raise HTTPException(500, f"Error al consultar juzgados: {str(e)}")
+
+
 
 if __name__ == "__main__":
     import uvicorn
