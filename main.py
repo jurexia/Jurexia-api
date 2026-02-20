@@ -78,6 +78,13 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 SENTENCIA_MODEL = "o3-mini"  # For sentencia analysis (powerful reasoning, cost-effective)
 
+# ── Chat Engine Toggle ──────────────────────────────────────────────────────
+# Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
+# DeepSeek V3 is ~65-75% cheaper for equivalent quality in Spanish legal text.
+# Switch in Render env vars without redeploy needed (restart service only).
+CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek (cost-optimized)
+print(f"   Chat Engine: {'🟢 DeepSeek V3 (cost-optimized)' if CHAT_ENGINE == 'deepseek' else '🔵 GPT-5 Mini (premium)'}")
+
 # Cohere Rerank Configuration (cross-encoder for post-retrieval reranking)
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
 COHERE_RERANK_MODEL = "rerank-v3.5"  # Multilingual, best for Spanish legal text
@@ -4823,10 +4830,15 @@ async def chat_endpoint(request: ChatRequest):
             active_model = DEEPSEEK_CHAT_MODEL
             max_tokens = 50000
         else:
-            # GPT-5 Mini: powerful reasoning model, max 32768 output tokens for exhaustive responses
-            active_client = chat_client
-            active_model = CHAT_MODEL
-            max_tokens = 32768
+            # Chat Engine Toggle: DeepSeek V3 (cost-optimized) or GPT-5 Mini (premium)
+            if CHAT_ENGINE == "deepseek" and deepseek_client:
+                active_client = deepseek_client
+                active_model = DEEPSEEK_CHAT_MODEL  # deepseek-chat (V3)
+                max_tokens = 32768
+            else:
+                active_client = chat_client
+                active_model = CHAT_MODEL  # gpt-5-mini
+                max_tokens = 32768
         
         print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
