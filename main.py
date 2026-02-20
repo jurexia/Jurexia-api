@@ -8433,19 +8433,26 @@ Genera el escrito completo siguiendo EXACTAMENTE la estructura y formato del mod
     juzgado_info = ""
     if supabase_admin:
         try:
-            # Query juzgados for the hospital's state, prioritize Administrativa for health amparos
             result = supabase_admin.table("juzgados_distrito").select("denominacion,direccion,telefono,materia").eq("estado", req.hospital_estado).execute()
             if result.data:
-                # Priority order for health amparos: Administrativa > Mixto > others
-                admin_courts = [j for j in result.data if j["materia"] == "Administrativa"]
-                mixto_courts = [j for j in result.data if j["materia"] == "Mixto"]
-                chosen = (admin_courts or mixto_courts or result.data)[0]
-                juzgado_info = f"""\n\nJUZGADO COMPETENTE (usar esta denominación exacta en el escrito):
-Dirigir a: {chosen['denominacion']}
-Dirección del juzgado: {chosen['direccion']}
-{'Teléfono: ' + chosen['telefono'] if chosen.get('telefono') else ''}"""
+                courts = result.data
+                # Priority: amparo courts > Administrativa > Mixto > others
+                amparo_courts = [j for j in courts if 'amparo' in j["denominacion"].lower()]
+                admin_courts  = [j for j in courts if j["materia"] == "Administrativa"]
+                mixto_courts  = [j for j in courts if j["materia"] == "Mixto"]
+                chosen = (amparo_courts or admin_courts or mixto_courts or courts)[0]
+
+                turno_name = _build_turno_denomination(chosen["denominacion"])
+                oficialia_addr = _extract_building_address(chosen["direccion"])
+
+                juzgado_info = f"""\n\nJUZGADO COMPETENTE (usar esta denominación en el escrito):
+Dirigir a: {turno_name}
+Oficialía de Partes Común de los Juzgados de Distrito: {oficialia_addr}
+{'Teléfono: ' + chosen['telefono'] if chosen.get('telefono') else ''}
+IMPORTANTE: La demanda se presenta ante la Oficialía de Partes Común de los Juzgados de Distrito, NO ante un juzgado específico. La Oficialía opera las 24 horas, los 365 días del año."""
                 user_prompt += juzgado_info
-                print(f"   🏛️  Juzgado inyectado: {chosen['denominacion']}")
+                print(f"   🏛️  Juzgado en turno: {turno_name}")
+                print(f"   📍  Oficialía: {oficialia_addr}")
         except Exception as e:
             print(f"   ⚠️  No se pudo buscar juzgado: {e}")
 
@@ -8602,6 +8609,57 @@ async def export_amparo_salud_docx(req: ExportAmparoSaludRequest):
 # ══════════════════════════════════════════════════════════════════════════════
 # JUZGADOS DE DISTRITO — Directorio CJF
 # ══════════════════════════════════════════════════════════════════════════════
+import re as _re
+
+# ── Ordinals to strip from court names ────────────────────────────────────────
+_ORDINALS = [
+    "PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO",
+    "SEXTO", "SÉPTIMO", "OCTAVO", "NOVENO", "DÉCIMO",
+    "DÉCIMO PRIMERO", "DÉCIMO SEGUNDO", "DÉCIMO TERCERO",
+    "DÉCIMO CUARTO", "DÉCIMO QUINTO", "DÉCIMO SEXTO",
+    "DÉCIMO SÉPTIMO", "DÉCIMO OCTAVO", "DÉCIMO NOVENO",
+    "VIGÉSIMO",
+]
+
+def _build_turno_denomination(denominacion: str) -> str:
+    """
+    Strips the ordinal from a specific court name and replaces with 'EN TURNO'.
+    E.g.  'JUZGADO CUARTO DE DISTRITO EN MATERIA DE AMPARO CIVIL...'
+       -> 'JUZGADO DE DISTRITO EN MATERIA DE AMPARO CIVIL... EN TURNO'
+    """
+    name = denominacion.strip().rstrip(".")
+    upper = name.upper()
+    # Sort longest-first so 'DÉCIMO PRIMERO' is matched before 'DÉCIMO'
+    for ordinal in sorted(_ORDINALS, key=len, reverse=True):
+        pattern = f"JUZGADO {ordinal} DE DISTRITO"
+        if pattern in upper:
+            idx = upper.index(pattern)
+            rest = name[idx + len(pattern):]
+            return f"JUZGADO DE DISTRITO{rest} EN TURNO"
+    # If no ordinal found, just append EN TURNO
+    return f"{name} EN TURNO"
+
+
+def _extract_building_address(direccion: str) -> str:
+    """
+    Strips floor/wing/piso details to extract the building-level address
+    for the Oficialía de Partes Común.
+    E.g.  'BLVD RUIZ CORTINES 2311-A (PISO 04; ALA "A") FRACC...' 
+       -> 'BLVD RUIZ CORTINES 2311-A FRACC...'
+    """
+    # Remove parenthetical (PISO X; ALA Y) patterns
+    cleaned = _re.sub(r'\s*\([^)]*(?:PISO|ALA|PLANTA)[^)]*\)\s*', ' ', direccion, flags=_re.IGNORECASE)
+    # Remove standalone ", PISO X" or ", PLANTA BAJA" etc.
+    cleaned = _re.sub(r',?\s*(?:PISO|PLANTA)\s+[^,]+,?', ', ', cleaned, flags=_re.IGNORECASE)
+    # Remove EDIFICIO A/B/C/D/E references (individual buildings within complex)
+    cleaned = _re.sub(r',?\s*EDIFICIO\s+[A-E]\b,?', ' ', cleaned, flags=_re.IGNORECASE)
+    # Remove " ALA " references that may remain  
+    cleaned = _re.sub(r',?\s*ALA\s+["\']?[A-Z]["\']?\s*,?', ' ', cleaned, flags=_re.IGNORECASE)
+    # Clean up CORREO: email addresses (not useful for physical address)
+    cleaned = _re.sub(r'CORREO:\s*\S+@\S+', '', cleaned, flags=_re.IGNORECASE)
+    # Clean up double spaces and trailing commas
+    cleaned = _re.sub(r'\s{2,}', ' ', cleaned).strip().rstrip(',')
+    return cleaned
 
 
 @app.get("/juzgados-distrito")
@@ -8611,8 +8669,8 @@ async def get_juzgados_distrito(
     limit: int = 50,
 ):
     """
-    Devuelve Juzgados de Distrito filtrados por estado y/o materia.
-    Para amparos de salud, usa materia='Administrativa'.
+    Devuelve info de Juzgados de Distrito para un estado.
+    Incluye denominación 'en turno' y dirección de Oficialía de Partes.
     """
     if not supabase_admin:
         raise HTTPException(503, "Base de datos no configurada")
@@ -8628,16 +8686,32 @@ async def get_juzgados_distrito(
             query = query.eq("materia", materia)
 
         result = query.limit(limit).execute()
-
-        # For health amparos, sort: Administrativa first, then Mixto, then others
         courts = result.data or []
-        materia_priority = {"Administrativa": 0, "Mixto": 1}
-        courts.sort(key=lambda c: materia_priority.get(c.get("materia", ""), 99))
+
+        # Priority: amparo > Administrativa > Mixto > others
+        amparo_courts = [c for c in courts if 'amparo' in c.get('denominacion', '').lower()]
+        admin_courts  = [c for c in courts if c.get('materia') == 'Administrativa']
+        mixto_courts  = [c for c in courts if c.get('materia') == 'Mixto']
+        best = (amparo_courts or admin_courts or mixto_courts or courts)
+
+        if best:
+            chosen = best[0]
+            turno = _build_turno_denomination(chosen["denominacion"])
+            oficialia = _extract_building_address(chosen["direccion"])
+            return {
+                "total": len(courts),
+                "estado": estado,
+                "denominacion_turno": turno,
+                "direccion_oficialia": oficialia,
+                "telefono": chosen.get("telefono", ""),
+                "nota": "La demanda se presenta ante la Oficialía de Partes Común de los Juzgados de Distrito. Funciona las 24 horas, los 365 días del año.",
+                "juzgados": courts,
+            }
 
         return {
-            "total": len(courts),
+            "total": 0,
             "estado": estado,
-            "juzgados": courts,
+            "juzgados": [],
         }
 
     except Exception as e:
