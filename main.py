@@ -8313,6 +8313,46 @@ Reglas generales:
 - Prioridad máxima: Capítulo de SUSPENSIÓN (de oficio y de plano) con solicitud explícita y medidas concretas.
 - Fundamenta: Derecho a la Salud (art. 4º Constitucional), vida e integridad, y argumenta riesgo grave por omisión. Vincula con dignidad e integridad cuando proceda.
 - Legitima al promovente con el artículo 15 de la Ley de Amparo cuando promueva en nombre de otro.
+- NUNCA autorices a un abogado, licenciado, pasante, ni "Lic." alguno en el proemio ni en ninguna parte del escrito. El promovente actúa POR SU PROPIO DERECHO en términos del artículo 15 de la Ley de Amparo. No existen autorizados, representantes legales ni abogados patronos. NO inventes nombres de licenciados (como "Lic. Iurexia" o similar). Solo el promovente firma.
+- La demanda se DIRIGE al C. JUEZ DE DISTRITO competente EN TURNO (según los datos proporcionados). La demanda NUNCA se dirige a una Oficialía de Partes. La Oficialía de Partes es solo el lugar físico donde se entrega el escrito, pero el encabezado del escrito siempre dice "C. JUEZ DE DISTRITO...".
+
+═══════════════════════════════════════════════════════════════════════
+AUTORIDADES RESPONSABLES POR TIPO DE INSTITUCIÓN
+═══════════════════════════════════════════════════════════════════════
+
+Según la institución de salud involucrada, SIEMPRE señala las siguientes autoridades responsables (incluso si no se conocen los nombres exactos de los titulares):
+
+• IMSS:
+  1. Titular del Órgano de Operación Administrativa Desconcentrada del IMSS en el estado correspondiente, con domicilio en [usar domicilio conocido o señalar "domicilio que se solicita sea requerido por este H. Juzgado"]
+  2. Director/a del Hospital o Unidad Médica específica
+  3. Médico(s) tratante(s) que nieguen o retarden la atención (si se conocen nombres)
+
+• ISSSTE:
+  1. Delegado/a del ISSSTE en el estado correspondiente
+  2. Director/a del Hospital o Clínica específica
+  3. Médico(s) tratante(s) (si se conocen nombres)
+
+• Secretaría de Salud (hospital estatal):
+  1. Secretario/a de Salud del Estado correspondiente
+  2. Director/a del Hospital estatal específico
+  3. Médico(s) tratante(s) (si se conocen nombres)
+
+• IMSS-Bienestar:
+  1. Director General del IMSS-Bienestar
+  2. Coordinador/a estatal del IMSS-Bienestar
+  3. Director/a o encargado/a del centro de salud específico
+
+• Hospital municipal:
+  1. Presidente Municipal del municipio correspondiente
+  2. Director/a del Hospital municipal
+  3. Médico(s) tratante(s) (si se conocen nombres)
+
+• Institución privada:
+  1. Representante legal del hospital/clínica privada
+  2. Director médico del hospital/clínica
+  3. Médico(s) que condicionan o niegan la atención
+
+NOTA: Cuando no se conozcan los nombres de los titulares, señálalos por su cargo oficial completo. Cuando no se conozca el domicilio exacto de una autoridad jerárquica, usa la fórmula: "con domicilio que se solicita sea requerido mediante informe justificado".
 
 Efectos solicitados: valoración inmediata, suministro de medicamentos, realización de cirugía/atención inaplazable; y si no hay capacidad, ordenar acciones para garantizar la atención (incluida subrogación cuando proceda).
 
@@ -8402,6 +8442,7 @@ class AmparoSaludRequest(BaseModel):
     promovente_correo: str = ""
     promovente_domicilio: str
     promueve_por_paciente: bool = False
+    parentesco: str = ""  # Parentesco con el paciente (padre, cónyuge, hijo, etc.)
     paciente_nombre: str
     paciente_edad: str
     paciente_diagnostico: str
@@ -8410,9 +8451,11 @@ class AmparoSaludRequest(BaseModel):
     hospital_nombre: str
     hospital_ciudad: str
     hospital_estado: str
+    hospital_direccion: str = ""  # Dirección completa del hospital
     director_nombre: str = ""
     situaciones: list[str]
     descripcion_libre: str = ""
+    detalles_medicos_adicionales: str = ""  # Nombres de médicos que niegan atención, circunstancias
     confirma_veracidad: bool = True
     user_email: str = ""
 
@@ -8435,6 +8478,10 @@ async def generate_amparo_salud(req: AmparoSaludRequest):
     }
     riesgo_desc = riesgo_map.get(req.paciente_riesgo, req.paciente_riesgo)
 
+    parentesco_info = f"Parentesco con el paciente: {req.parentesco}" if req.parentesco else ""
+    hospital_dir_info = f"Dirección del hospital: {req.hospital_direccion}" if req.hospital_direccion else ""
+    detalles_med_info = f"Detalles adicionales sobre personal médico/circunstancias: {req.detalles_medicos_adicionales}" if req.detalles_medicos_adicionales else ""
+
     user_prompt = f"""Genera la demanda de amparo indirecto con los siguientes datos:
 
 PROMOVENTE: {req.promovente_nombre}
@@ -8442,6 +8489,7 @@ Domicilio para notificaciones: {req.promovente_domicilio}
 {'Teléfono: ' + req.promovente_telefono if req.promovente_telefono else ''}
 {'Correo: ' + req.promovente_correo if req.promovente_correo else ''}
 {'Promueve en nombre del paciente por imposibilidad (art. 15 LA)' if req.promueve_por_paciente else 'Promueve por derecho propio'}
+{parentesco_info}
 
 PACIENTE (QUEJOSO): {req.paciente_nombre}
 Edad: {req.paciente_edad} años
@@ -8452,11 +8500,18 @@ AUTORIDAD RESPONSABLE:
 Institución: {req.institucion}
 Hospital/Clínica: {req.hospital_nombre}
 Ubicación: {req.hospital_ciudad}, {req.hospital_estado}
+{hospital_dir_info}
 {'Director/Médico responsable: ' + req.director_nombre if req.director_nombre else ''}
+{detalles_med_info}
 
 SITUACIÓN:
 Actos reclamados: {', '.join(req.situaciones)}
 {'Relato del promovente: ' + req.descripcion_libre if req.descripcion_libre else ''}
+
+IMPORTANTE:
+- La demanda se DIRIGE al Juzgado de Distrito competente en turno, NUNCA a una Oficialía de Partes.
+- NO autorices a ningún abogado, licenciado ni "Lic.". El promovente actúa por su propio derecho bajo el artículo 15 de la Ley de Amparo.
+- Señala las autoridades responsables según la tabla de institución proporcionada en tus instrucciones.
 
 Genera el escrito completo siguiendo EXACTAMENTE la estructura y formato del modelo de referencia."""
 
@@ -8476,11 +8531,11 @@ Genera el escrito completo siguiendo EXACTAMENTE la estructura y formato del mod
                 turno_name = _build_turno_denomination(chosen["denominacion"])
                 oficialia_addr = _extract_building_address(chosen["direccion"])
 
-                juzgado_info = f"""\n\nJUZGADO COMPETENTE (usar esta denominación en el escrito):
-Dirigir a: {turno_name}
-Oficialía de Partes Común de los Juzgados de Distrito: {oficialia_addr}
+                juzgado_info = f"""\n\nJUZGADO COMPETENTE (usar esta denominación en el ENCABEZADO del escrito):
+DIRIGIR LA DEMANDA A: {turno_name}
+Dirección para presentación física (Oficialía de Partes): {oficialia_addr}
 {'Teléfono: ' + chosen['telefono'] if chosen.get('telefono') else ''}
-IMPORTANTE: La demanda se presenta ante la Oficialía de Partes Común de los Juzgados de Distrito, NO ante un juzgado específico. La Oficialía opera las 24 horas, los 365 días del año."""
+IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E N T E.'. La Oficialía de Partes es solo el lugar donde se entrega físicamente el escrito, pero la demanda se DIRIGE al Juzgado."""
                 user_prompt += juzgado_info
                 print(f"   🏛️  Juzgado en turno: {turno_name}")
                 print(f"   📍  Oficialía: {oficialia_addr}")
