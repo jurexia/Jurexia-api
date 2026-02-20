@@ -1513,6 +1513,7 @@ class ChatRequest(BaseModel):
     )
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
     materia: Optional[str] = Field(None, description="Materia jurídica forzada (PENAL, CIVIL, FAMILIAR, etc.). Si None, auto-detecta por keywords.")
+    fuero: Optional[str] = Field(None, description="Filtro por fuero: constitucional, federal, estatal. Si None, busca en todos los silos.")
 
 
 class AuditRequest(BaseModel):
@@ -3478,44 +3479,25 @@ async def hybrid_search_all_silos(
     estado: Optional[str],
     top_k: int,
     alpha: float = 0.7,
-    enable_reasoning: bool = False,  # NUEVO: Activar Query Expansion con metadata
-    forced_materia: Optional[str] = None,  # Materia-Aware: override de materia desde frontend
+    enable_reasoning: bool = False,
+    forced_materia: Optional[str] = None,
+    fuero: Optional[str] = None,  # NUEVO: Filtro por fuero (constitucional/federal/estatal)
 ) -> List[SearchResult]:
     """
-    Ejecuta búsqueda híbrida paralela en todos los silos relevantes.
-    Aplica filtros de jurisdicción y fusiona resultados.
+    Ejecuta búsqueda híbrida paralela en silos relevantes según fuero.
     
-    Incluye Dogmatic Query Expansion para cerrar brecha semántica entre
-    lenguaje coloquial y terminología técnica legal.
+    Fuero routing:
+        constitucional → bloque_constitucional + jurisprudencia_nacional
+        federal → leyes_federales + jurisprudencia_nacional
+        estatal → leyes_[estado] + jurisprudencia_nacional
+        None → todos los silos (comportamiento original)
     
-    Args:
-        query: Consulta del usuario
-        estado: Estado para filtro jurisdiccional (opcional)
-        top_k: Número máximo de resultados
-        alpha: Balance entre dense y sparse (no usado actualmente)
-        enable_reasoning: Si True, usa Query Expansion con metadata jerárquica
-    
-    Returns:
-        Lista de SearchResults ordenados por relevancia
+    jurisprudencia_nacional SIEMPRE se incluye.
     """
     # ═══════════════════════════════════════════════════════════════════════════
-    # PASO 0: Query Expansion - Modo Avanzado vs Rápido
+    # PASO 0: Query Expansion - Acrónimos legales (local, <1ms)
     # ═══════════════════════════════════════════════════════════════════════════
-    
-    if enable_reasoning:
-        # MODO REASONING: Expansión con metadata jerárquica
-        # Más lento (~10s) pero más preciso - usa metadata enriquecida
-        print(f"   🧠 MODO REASONING activado - Query Expansion con metadata")
-        expansion_result = await expand_query_with_metadata(query)
-        expanded_query = expansion_result["expanded_query"]
-        materia_filter = expansion_result["materia"]
-        print(f"      Materia detectada para filtros: {materia_filter}")
-    else:
-        # MODO RÁPIDO: Legacy Expansion para acrónimos básicos (LFPCA -> Ley Federal...)
-        # Rápido (<1ms) - no usa LLM pero resuelve abreviaturas comunes
-        print(f"   ⚡ MODO RÁPIDO - Usando expansión legacy para acrónimos")
-        expanded_query = expand_legal_query(query)
-        materia_filter = None
+    expanded_query = expand_legal_query(query)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 1+2: Detección + Should Filter
@@ -3531,8 +3513,6 @@ async def hybrid_search_all_silos(
     hyde_doc = await _generate_hyde_document(query)
     
     if hyde_doc:
-        # Usar el HyDE doc para dense Y el query original para sparse
-        # Esto combina la especificidad semántica del HyDE con la keyword precision del BM25
         dense_text = hyde_doc
         print(f"   🔮 Dense embedding usando HyDE document")
     else:
@@ -3540,7 +3520,7 @@ async def hybrid_search_all_silos(
     
     # Generar embeddings: dense=HyDE o query, sparse=expanded (BM25 keywords)
     dense_task = get_dense_embedding(dense_text)
-    sparse_vector = get_sparse_embedding(expanded_query)  # En modo rápido = original, en reasoning = expandido
+    sparse_vector = get_sparse_embedding(expanded_query)
     dense_vector = await dense_task
     
     # ═══════════════════════════════════════════════════════════════════════════
@@ -3548,49 +3528,52 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     sub_queries = await _decompose_query(query)
     
-    # Búsqueda paralela en los 4 silos CON FILTROS ESPECÍFICOS POR SILO
     # ═══════════════════════════════════════════════════════════════════════════
-    # PASO 1b: Determinar silos a buscar (V5.0 — dinámico por estado)
+    # FILTRO POR FUERO: Determinar silos a buscar
+    # jurisprudencia_nacional SIEMPRE se incluye
     # ═══════════════════════════════════════════════════════════════════════════
-    silos_to_search = list(FIXED_SILOS.values())  # Siempre: federal + juris + constitucional
+    fuero_normalized = fuero.lower().strip() if fuero else None
     
-    if estado:
-        normalized_estado = normalize_estado(estado)
-        if normalized_estado and normalized_estado in ESTADO_SILO:
-            # Estado con colección dedicada → buscar directamente (sin filtro)
-            silos_to_search.append(ESTADO_SILO[normalized_estado])
-            print(f"   📍 Estado '{normalized_estado}' → silo dedicado: {ESTADO_SILO[normalized_estado]}")
+    if fuero_normalized == "constitucional":
+        silos_to_search = ["bloque_constitucional", "jurisprudencia_nacional"]
+        print(f"   ⚖️ FUERO: Constitucional → bloque_constitucional + jurisprudencia_nacional")
+    elif fuero_normalized == "federal":
+        silos_to_search = ["leyes_federales", "jurisprudencia_nacional"]
+        print(f"   ⚖️ FUERO: Federal → leyes_federales + jurisprudencia_nacional")
+    elif fuero_normalized == "estatal":
+        silos_to_search = ["jurisprudencia_nacional"]  # Siempre
+        if estado:
+            normalized_estado = normalize_estado(estado)
+            if normalized_estado and normalized_estado in ESTADO_SILO:
+                silos_to_search.append(ESTADO_SILO[normalized_estado])
+                print(f"   ⚖️ FUERO: Estatal → {ESTADO_SILO[normalized_estado]} + jurisprudencia_nacional")
+            else:
+                silos_to_search.append(LEGACY_ESTATAL_SILO)
+                print(f"   ⚖️ FUERO: Estatal → {LEGACY_ESTATAL_SILO} (legacy) + jurisprudencia_nacional")
         else:
-            # Estado sin colección dedicada → fallback al silo legacy con filtro
+            # Fuero estatal sin estado seleccionado → buscar TODOS los estatales
+            silos_to_search.extend(ESTADO_SILO.values())
             silos_to_search.append(LEGACY_ESTATAL_SILO)
-            print(f"   📍 Estado '{estado}' → fallback a silo legacy: {LEGACY_ESTATAL_SILO}")
+            print(f"   ⚖️ FUERO: Estatal (sin estado) → todos los silos estatales + jurisprudencia_nacional")
     else:
-        # Sin estado seleccionado → buscar en TODOS los silos estatales disponibles
-        silos_to_search.extend(ESTADO_SILO.values())
-        silos_to_search.append(LEGACY_ESTATAL_SILO)  # Incluir legacy para estados no migrados
-        print(f"   📍 Sin estado → buscando en {len(ESTADO_SILO) + 1} silos estatales")
+        # Sin fuero = comportamiento original: TODOS los silos
+        silos_to_search = list(FIXED_SILOS.values())
+        if estado:
+            normalized_estado = normalize_estado(estado)
+            if normalized_estado and normalized_estado in ESTADO_SILO:
+                silos_to_search.append(ESTADO_SILO[normalized_estado])
+                print(f"   📍 Estado '{normalized_estado}' → silo dedicado: {ESTADO_SILO[normalized_estado]}")
+            else:
+                silos_to_search.append(LEGACY_ESTATAL_SILO)
+                print(f"   📍 Estado '{estado}' → fallback a silo legacy: {LEGACY_ESTATAL_SILO}")
+        else:
+            silos_to_search.extend(ESTADO_SILO.values())
+            silos_to_search.append(LEGACY_ESTATAL_SILO)
+            print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + 1 + len(FIXED_SILOS)} silos")
     
     tasks = []
     for silo_name in silos_to_search:
-        # Filtro por estado: solo necesario para el silo legacy
         state_filter = get_filter_for_silo(silo_name, estado)
-        
-        # Filtro por metadata (reasoning mode)
-        metadata_filter = None
-        if enable_reasoning and materia_filter:
-            metadata_filter = build_metadata_filter(materia_filter)
-        
-        # NOTE: Materia-Aware Capa 2 (Qdrant should-filter) DISABLED.
-        # Qdrant's Filter(should=[...]) acts as a hard OR filter that excludes
-        # documents without the `jurisdiccion` field, breaking retrieval on
-        # un-enriched collections. Materia filtering is handled purely by:
-        #   - Capa 1: _detect_materia() keyword detection (pre-retrieval)
-        #   - Capa 3: _apply_materia_threshold() post-retrieval cleanup
-        
-        # Combinar filtros: state_filter > metadata_filter
-        combined_filter = state_filter
-        if not state_filter and metadata_filter:
-            combined_filter = metadata_filter
         
         tasks.append(
             hybrid_search_single_silo(
@@ -3598,7 +3581,7 @@ async def hybrid_search_all_silos(
                 query=query,
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
-                filter_=combined_filter,
+                filter_=state_filter,
                 top_k=top_k,
                 alpha=alpha,
             )
@@ -4543,9 +4526,9 @@ async def chat_endpoint(request: ChatRequest):
             search_results = await hybrid_search_all_silos(
                 query=search_query,
                 estado=request.estado,
-                top_k=15,  # Más resultados para redacción
-                enable_reasoning=request.enable_reasoning,  # FASE 1: Query Expansion
+                top_k=15,
                 forced_materia=request.materia,
+                fuero=request.fuero,
             )
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
@@ -4642,19 +4625,19 @@ async def chat_endpoint(request: ChatRequest):
                         query=query_legislacion,
                         estado=request.estado,
                         top_k=15,
-                        enable_reasoning=request.enable_reasoning,
+                        fuero=request.fuero,
                     ),
                     hybrid_search_all_silos(
                         query=query_jurisprudencia,
                         estado=request.estado,
                         top_k=15,
-                        enable_reasoning=request.enable_reasoning,
+                        fuero=request.fuero,
                     ),
                     hybrid_search_all_silos(
                         query=query_constitucional,
                         estado=request.estado,
                         top_k=10,
-                        enable_reasoning=request.enable_reasoning,
+                        fuero=request.fuero,
                     ),
                 )
                 
@@ -4676,7 +4659,7 @@ async def chat_endpoint(request: ChatRequest):
                     query=search_query,
                     estado=request.estado,
                     top_k=15,
-                    enable_reasoning=request.enable_reasoning,
+                    fuero=request.fuero,
                 )
             
             doc_id_map = build_doc_id_map(search_results)
@@ -4725,8 +4708,8 @@ async def chat_endpoint(request: ChatRequest):
                     query=last_user_message,
                     estado=effective_estado,
                     top_k=request.top_k,
-                    enable_reasoning=request.enable_reasoning,
                     forced_materia=request.materia,
+                    fuero=request.fuero,
                 )
                 doc_id_map = build_doc_id_map(search_results)
                 context_xml = format_results_as_xml(search_results, estado=effective_estado)
