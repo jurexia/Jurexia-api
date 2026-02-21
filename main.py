@@ -4323,30 +4323,48 @@ async def get_full_document(
         # ── Buscar TODOS los chunks con este origen ──
         from qdrant_client.models import FieldCondition, MatchValue, ScrollRequest
         
+        # Try multiple variations of origen (data has inconsistent trailing whitespace)
+        origen_variants = list(dict.fromkeys([
+            origen,
+            origen.strip(),
+            origen.strip() + " ",
+            origen.rstrip(":").strip() + ": ",
+            origen.rstrip(": ").strip() + ":",
+        ]))
+        
         all_points = []
-        offset = None
-        SCROLL_LIMIT = 100
+        matched_origen = origen
         
-        while True:
-            result = await qdrant_client.scroll(
-                collection_name="bloque_constitucional",
-                scroll_filter=Filter(
-                    must=[FieldCondition(key="origen", match=MatchValue(value=origen))]
-                ),
-                limit=SCROLL_LIMIT,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
-            )
+        for variant in origen_variants:
+            offset = None
+            variant_points = []
             
-            points, next_offset = result
-            all_points.extend(points)
+            while True:
+                result = await qdrant_client.scroll(
+                    collection_name="bloque_constitucional",
+                    scroll_filter=Filter(
+                        must=[FieldCondition(key="origen", match=MatchValue(value=variant))]
+                    ),
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                
+                points, next_offset = result
+                variant_points.extend(points)
+                
+                if next_offset is None or len(points) < 100:
+                    break
+                offset = next_offset
             
-            if next_offset is None or len(points) < SCROLL_LIMIT:
+            if variant_points:
+                all_points = variant_points
+                matched_origen = variant
+                print(f"   📖 Matched {len(all_points)} chunks with variant: '{variant}'")
                 break
-            offset = next_offset
         
-        print(f"   📖 Found {len(all_points)} chunks for origen='{origen}'")
+        print(f"   📖 Total: {len(all_points)} chunks for origen='{origen}' (matched='{matched_origen}')")
         
         if not all_points:
             raise HTTPException(
