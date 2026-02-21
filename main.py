@@ -22,7 +22,7 @@ import uuid
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -4294,7 +4294,7 @@ PROTOCOLO_SCJN_KEYWORDS = [
 
 @app.get("/document-full", response_model=FullDocumentResponse)
 async def get_full_document(
-    origen: str = Query(..., description="Valor exacto del campo 'origen' en Qdrant"),
+    origen: str,
     highlight_chunk_id: Optional[str] = None,
 ):
     """
