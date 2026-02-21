@@ -22,7 +22,7 @@ import uuid
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -4292,9 +4292,9 @@ PROTOCOLO_SCJN_KEYWORDS = [
 ]
 
 
-@app.get("/document-full/{origen_encoded}", response_model=FullDocumentResponse)
+@app.get("/document-full", response_model=FullDocumentResponse)
 async def get_full_document(
-    origen_encoded: str,
+    origen: str = Query(..., description="Valor exacto del campo 'origen' en Qdrant"),
     highlight_chunk_id: Optional[str] = None,
 ):
     """
@@ -4304,8 +4304,7 @@ async def get_full_document(
     Para protocolos SCJN: devuelve external_url en lugar de texto.
     Para casos CIDH PDF: devuelve source_doc_url si existe.
     """
-    import urllib.parse
-    origen = urllib.parse.unquote(origen_encoded)
+    print(f"   📖 /document-full called | origen='{origen}' | highlight={highlight_chunk_id}")
     
     # ── Detectar si es un Protocolo SCJN → link externo ──
     origen_lower = origen.lower()
@@ -4346,6 +4345,8 @@ async def get_full_document(
             if next_offset is None or len(points) < SCROLL_LIMIT:
                 break
             offset = next_offset
+        
+        print(f"   📖 Found {len(all_points)} chunks for origen='{origen}'")
         
         if not all_points:
             raise HTTPException(
