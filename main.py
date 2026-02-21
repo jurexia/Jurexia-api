@@ -4267,6 +4267,148 @@ async def get_document(doc_id: str):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: DOCUMENTO COMPLETO (reconstruido desde chunks)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class FullDocumentResponse(BaseModel):
+    """Documento completo reconstruido desde chunks de Qdrant."""
+    origen: str
+    titulo: str
+    tipo: Optional[str] = None  # constitucion, convencion, cuadernillo, sentencia_cidh, protocolo
+    texto_completo: str  # Texto completo reconstruido
+    total_chunks: int
+    highlight_chunk_index: Optional[int] = None  # Chunk que el usuario citó
+    source_doc_url: Optional[str] = None  # URL del PDF original (CIDH cases)
+    external_url: Optional[str] = None  # Link externo (protocolos SCJN)
+    metadata: dict = {}  # Metadata adicional (caso, vs, cuadernillo_num, etc.)
+
+
+# Mapeo de protocolos SCJN → URL externa
+PROTOCOLO_SCJN_KEYWORDS = [
+    "protocolo para juzgar",
+    "protocolo-sobre-",
+    "protocolo_",
+    "protocolo osiegcs",
+]
+
+
+@app.get("/document-full/{origen_encoded}", response_model=FullDocumentResponse)
+async def get_full_document(
+    origen_encoded: str,
+    highlight_chunk_id: Optional[str] = None,
+):
+    """
+    Reconstruye el documento completo buscando todos los chunks con el mismo
+    'origen' en bloque_constitucional, ordenados por chunk_index.
+    
+    Para protocolos SCJN: devuelve external_url en lugar de texto.
+    Para casos CIDH PDF: devuelve source_doc_url si existe.
+    """
+    import urllib.parse
+    origen = urllib.parse.unquote(origen_encoded)
+    
+    # ── Detectar si es un Protocolo SCJN → link externo ──
+    origen_lower = origen.lower()
+    is_protocolo = any(kw in origen_lower for kw in PROTOCOLO_SCJN_KEYWORDS)
+    if is_protocolo:
+        return FullDocumentResponse(
+            origen=origen,
+            titulo=origen,
+            tipo="protocolo",
+            texto_completo="",
+            total_chunks=0,
+            external_url="https://www.scjn.gob.mx/derechos-humanos/protocolos-de-actuacion",
+        )
+    
+    try:
+        # ── Buscar TODOS los chunks con este origen ──
+        from qdrant_client.models import FieldCondition, MatchValue, ScrollRequest
+        
+        all_points = []
+        offset = None
+        SCROLL_LIMIT = 100
+        
+        while True:
+            result = await qdrant_client.scroll(
+                collection_name="bloque_constitucional",
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="origen", match=MatchValue(value=origen))]
+                ),
+                limit=SCROLL_LIMIT,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            
+            points, next_offset = result
+            all_points.extend(points)
+            
+            if next_offset is None or len(points) < SCROLL_LIMIT:
+                break
+            offset = next_offset
+        
+        if not all_points:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No se encontraron chunks para origen: {origen}"
+            )
+        
+        # ── Ordenar por chunk_index ──
+        all_points.sort(key=lambda p: p.payload.get("chunk_index", 0))
+        
+        # ── Reconstruir texto completo ──
+        textos = []
+        highlight_chunk_index = None
+        first_payload = all_points[0].payload
+        
+        for i, point in enumerate(all_points):
+            payload = point.payload or {}
+            texto = payload.get("texto", payload.get("texto_visible", ""))
+            textos.append(texto)
+            
+            # Encontrar el chunk que el usuario citó
+            if highlight_chunk_id and str(point.id) == highlight_chunk_id:
+                highlight_chunk_index = i
+        
+        texto_completo = "\n\n".join(textos)
+        
+        # ── Extraer metadata del primer chunk ──
+        metadata = {}
+        for key in ["caso", "vs", "serie_c", "cuadernillo_num", "cuadernillo_tema",
+                     "instrumento", "jurisdiccion", "materia"]:
+            val = first_payload.get(key)
+            if val:
+                metadata[key] = val
+        
+        # ── Generar título legible ──
+        tipo = first_payload.get("tipo", first_payload.get("source_type", "unknown"))
+        titulo = origen
+        if tipo == "cuadernillo" and first_payload.get("cuadernillo_tema"):
+            titulo = f"Cuadernillo CIDH No. {first_payload.get('cuadernillo_num', '?')}: {first_payload['cuadernillo_tema']}"
+        elif tipo == "sentencia_cidh" and first_payload.get("caso"):
+            titulo = f"Caso {first_payload['caso']}"
+            if first_payload.get("vs"):
+                titulo += f" Vs. {first_payload['vs']}"
+        
+        return FullDocumentResponse(
+            origen=origen,
+            titulo=titulo,
+            tipo=tipo,
+            texto_completo=texto_completo,
+            total_chunks=len(all_points),
+            highlight_chunk_index=highlight_chunk_index,
+            source_doc_url=first_payload.get("source_doc_url") or first_payload.get("url_pdf"),
+            metadata=metadata,
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"   ❌ Error reconstruyendo documento '{origen}': {e}")
+        raise HTTPException(status_code=500, detail=f"Error al reconstruir documento: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: BÚSQUEDA HÍBRIDA
 # ══════════════════════════════════════════════════════════════════════════════
 
