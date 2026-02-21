@@ -3634,6 +3634,77 @@ async def hybrid_search_all_silos(
     jurisprudencia.sort(key=lambda x: x.score, reverse=True)
     constitucional.sort(key=lambda x: x.score, reverse=True)
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CPEUM ARTICLE INJECTION: Si el query pide un artículo específico, inyectar
+    # Resuelve la limitación de semantic search con números de artículos
+    # ═══════════════════════════════════════════════════════════════════════════
+    import re as _re
+    cpeum_article_match = _re.search(
+        r'art[ií]culo\s+(\d+)\s*(?:o|°|º)?\s*(?:de\s+la\s+)?(?:constituci[oó]n|cpeum|constitucional)',
+        query.lower()
+    )
+    if not cpeum_article_match:
+        # Also try reverse: "constitucion articulo N"
+        cpeum_article_match = _re.search(
+            r'(?:constituci[oó]n|cpeum|constitucional)\s.*?art[ií]culo\s+(\d+)',
+            query.lower()
+        )
+    
+    if cpeum_article_match:
+        art_num = int(cpeum_article_match.group(1))
+        ref_variants = [
+            f"Art. {art_num}o CPEUM",
+            f"Art. {art_num} CPEUM",
+            f"Art. {art_num}o CPEUM (parte 1)",
+            f"Art. {art_num} CPEUM (parte 1)",
+        ]
+        print(f"   📜 CPEUM INJECTION: Detectado artículo {art_num}, buscando refs: {ref_variants}")
+        
+        # Search for ALL chunks with matching ref from bloque_constitucional
+        existing_refs = {r.ref for r in constitucional}
+        injected_count = 0
+        
+        try:
+            cpeum_pts, _ = await qdrant_client.scroll(
+                collection_name="bloque_constitucional",
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="origen", match=MatchValue(
+                        value="Constitución Política de los Estados Unidos Mexicanos"
+                    )),
+                ]),
+                limit=400,
+                with_payload=True,
+                with_vectors=False,
+            )
+            
+            # Find matching articles (sustantivo=True preferred, then by ref match)
+            for pt in cpeum_pts:
+                ref = pt.payload.get("ref", "")
+                is_sustantivo = pt.payload.get("sustantivo", False)
+                
+                # Match by ref prefix (handles parte 1, parte 2, etc.)
+                matches_ref = any(ref.startswith(rv.replace(" (parte 1)", "")) for rv in ref_variants)
+                
+                if matches_ref and is_sustantivo and ref not in existing_refs:
+                    injected_result = SearchResult(
+                        id=str(pt.id),
+                        texto=pt.payload.get("texto", ""),
+                        ref=ref,
+                        origen=pt.payload.get("origen", ""),
+                        score=0.95,  # High score to ensure top ranking
+                        silo="bloque_constitucional",
+                    )
+                    constitucional.insert(0, injected_result)
+                    existing_refs.add(ref)
+                    injected_count += 1
+            
+            if injected_count > 0:
+                print(f"   ✅ CPEUM INJECTION: {injected_count} chunks del Art. {art_num} inyectados con score=0.95")
+            else:
+                print(f"   ⚠️ CPEUM INJECTION: No se encontraron chunks sustantivos para Art. {art_num}")
+        except Exception as e:
+            print(f"   ❌ CPEUM INJECTION error: {e}")
+    
     # === DIAGNOSTIC LOGGING: TOP-3 per silo para diagnóstico de relevancia ===
     print(f"\n   🔎 RAW RETRIEVAL SCORES (pre-merge):")
     for label, group in [("ESTATALES", estatales), ("FEDERALES", federales), ("JURIS", jurisprudencia), ("CONST", constitucional)]:
