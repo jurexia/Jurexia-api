@@ -3555,8 +3555,9 @@ async def hybrid_search_all_silos(
     fuero_normalized = fuero.lower().strip() if fuero else None
     
     if fuero_normalized == "constitucional":
-        silos_to_search = ["bloque_constitucional", "jurisprudencia_nacional"]
-        print(f"   ⚖️ FUERO: Constitucional → bloque_constitucional + jurisprudencia_nacional")
+        # leyes_federales se incluye porque la CPEUM sustantiva (reforma 2011) está ahí
+        silos_to_search = ["bloque_constitucional", "leyes_federales", "jurisprudencia_nacional"]
+        print(f"   ⚖️ FUERO: Constitucional → bloque_constitucional + leyes_federales + jurisprudencia_nacional")
     elif fuero_normalized == "federal":
         silos_to_search = ["leyes_federales", "jurisprudencia_nacional"]
         print(f"   ⚖️ FUERO: Federal → leyes_federales + jurisprudencia_nacional")
