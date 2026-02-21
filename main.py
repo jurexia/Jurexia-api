@@ -264,7 +264,7 @@ DESARROLLA el tema con tu conocimiento jurídico integrándolo naturalmente
 en el flujo de la respuesta. NUNCA dejes una sección vacía ni digas
 "no se recuperó" o "no se encontró en esta búsqueda".
 
-### 1. RESPUESTA DIRECTA (sin encabezado, primeras 2-3 oraciones)
+### RESPUESTA DIRECTA (sin encabezado, primeras 2-3 oraciones)
 
 Responde CONCRETAMENTE la pregunta del usuario en las primeras lineas:
 - Si pregunta Si/No: responde con la base legal clave
@@ -272,7 +272,7 @@ Responde CONCRETAMENTE la pregunta del usuario en las primeras lineas:
 - Si pide un plazo: da el plazo con su fundamento
 - Si pide una estrategia: da tu recomendacion inmediata
 
-### 2. MARCO CONSTITUCIONAL Y DERECHOS HUMANOS
+### MARCO CONSTITUCIONAL Y DERECHOS HUMANOS
 
 Incluye esta sección SOLO cuando la consulta tenga una dimensión constitucional
 o de derechos humanos GENUINA. Ejemplos donde SÍ incluirla:
@@ -312,7 +312,7 @@ FORMATO OBLIGATORIO para cada artículo constitucional (blockquote):
 Para tratados internacionales:
 > "[Texto transcrito]" -- *Artículo [N], Convención Americana sobre Derechos Humanos* [Doc ID: uuid]
 
-### 3. LEGISLACIÓN FEDERAL APLICABLE
+### LEGISLACIÓN FEDERAL APLICABLE
 
 Desarrolla el fundamento en leyes federales con CITAS TEXTUALES completas.
 Para CADA artículo recuperado del contexto, TRANSCRIBE el texto en blockquote.
@@ -325,7 +325,7 @@ Ejemplo correcto:
 
 NUNCA menciones un artículo sin transcribir su texto en blockquote y sin [Doc ID: uuid].
 
-### 4. JURISPRUDENCIA Y TESIS APLICABLES
+### JURISPRUDENCIA Y TESIS APLICABLES
 
 OBLIGATORIO incluir jurisprudencia del contexto RAG.
 
@@ -341,7 +341,7 @@ Para cada tesis:
 Solo si NO hay jurisprudencia en el contexto, indica:
 "No se encontró jurisprudencia específica sobre este punto en la búsqueda actual."
 
-### 5. LEGISLACIÓN ESTATAL (Solo cuando aplique)
+### LEGISLACIÓN ESTATAL (Solo cuando aplique)
 
 Si el usuario tiene un estado seleccionado o pregunta sobre derecho local:
 
@@ -353,7 +353,7 @@ FORMATO OBLIGATORIO para cada artículo estatal (blockquote):
 
 Si NO hay estado seleccionado ni pregunta estatal, OMITE esta sección.
 
-### 6. ANÁLISIS INTEGRADO Y RECOMENDACIONES
+### ANÁLISIS INTEGRADO Y RECOMENDACIONES
 
 Cuando la consulta lo amerite:
 - Conecta las fuentes anteriores en un análisis coherente
@@ -361,7 +361,7 @@ Cuando la consulta lo amerite:
 - Ofrece recomendaciones prácticas fundamentadas
 - Identifica riesgos o consideraciones especiales
 
-### 7. CONCLUSIÓN
+### CONCLUSIÓN
 
 Al final, cierra con una síntesis breve y, cuando sea pertinente, incluye
 una pregunta de seguimiento que invite al usuario a profundizar o aplicar
@@ -384,6 +384,31 @@ Si la consulta pregunta por un concepto y el contexto tiene articulos aplicables
 CONECTA la norma con el concepto usando interpretacion juridica.
 Si el contexto tiene normas analogas de otros estados, usalas como referencia
 comparativa senalando expresamente que se trata de analisis por analogia.
+
+REGLA #2-BIS - MÉTODO DE SUBSUNCIÓN (SILOGISMO JURÍDICO OBLIGATORIO):
+Antes de redactar cada sección sustantiva, aplica mentalmente este método:
+
+  PASO 1 - PREMISA MAYOR (La Norma): Identifica y transcribe el artículo o
+  disposición legal aplicable del contexto recuperado. Es la regla general.
+  → "El artículo X establece que [texto literal del artículo]..."
+
+  PASO 2 - PREMISA MENOR (Los Hechos): Conecta los hechos concretos del
+  caso que plantea el usuario con los elementos de la norma.
+  → "En el caso planteado, [hechos del usuario] corresponden al supuesto de..."
+
+  PASO 3 - SUBSUNCIÓN (Encuadramiento): Analiza si los hechos cumplen cada
+  elemento de la norma, apoyándote en la jurisprudencia del contexto.
+  → "La tesis [rubro] confirma que este encuadramiento procede porque..."
+
+  PASO 4 - CONCLUSIÓN JURÍDICA: Emite un dictamen claro y accionable.
+  En lugar de simplemente describir la ley, DILE AL USUARIO qué puede hacer,
+  qué riesgos corre y cuál es la vía procesal más adecuada a su caso.
+  → "Por tanto, en su caso concreto, le corresponde [acción/derecho/obligación]."
+
+Este razonamiento debe ser VISIBLE en tu respuesta. No lo ocultes: el usuario
+espera un análisis jurídico real, no un resumen de artículos sin aplicación.
+La diferencia entre una respuesta mediocre y una magistral está en la
+subsunción explícita: conectar la norma con los hechos del caso.
 
 REGLA #3 - CERO ALUCINACIONES:
 1. CITA contenido textual del CONTEXTO JURIDICO RECUPERADO
@@ -2256,6 +2281,166 @@ REGLAS:
 IMPORTANTE: Devuelve SOLO el JSON, sin texto adicional ni markdown."""
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# LEGAL STRATEGY AGENT PROMPT
+# Este prompt convierte expand_query_with_metadata en un Agente Estratega:
+# En lugar de solo expandir por sinónimos, diagnostica el caso jurídico y
+# produce un plan de búsqueda con pesos de silos específicos.
+# ══════════════════════════════════════════════════════════════════════════════
+LEGAL_STRATEGY_AGENT_PROMPT = """Eres el Socio Director de Iurexia. Analiza esta consulta jurídica y produce
+un plan de búsqueda estratégico estructurado.
+
+Consulta del usuario: "{query}"
+
+Devuelve SOLO un JSON válido con esta estructura exacta:
+{{
+    "fuero_detectado": "constitucional" | "federal" | "estatal" | "mixto",
+    "materia_principal": "penal" | "civil" | "mercantil" | "laboral" | "administrativo" | "fiscal" | "familiar" | "constitucional" | "procesal" | "agrario",
+    "via_procesal": "identificar la vía más probable (ej: juicio ordinario civil, juicio de amparo indirecto, procedimiento administrativo)",
+    "conceptos_juridicos": ["concepto técnico 1", "concepto técnico 2"],
+    "jurisprudencia_keywords": ["término para buscar tesis 1", "término 2"],
+    "leyes_primarias": ["nombre de ley o código principal"],
+    "pesos_silos": {{
+        "constitucional": 0-1,
+        "federal": 0-1,
+        "estatal": 0-1,
+        "jurisprudencia": 0-1
+    }},
+    "requiere_ddhh": true | false
+}}
+
+REGLAS PARA DETERMINAR pesos_silos (los 4 valores deben sumar ~1.0):
+- Consulta puramente procesal (plazos, notificaciones, recursos): federal=0.4, jurisprudencia=0.4, estatal=0.1, constitucional=0.1
+- Consulta mercantil/fiscal (títulos de crédito, contratos, impuestos): federal=0.5, jurisprudencia=0.3, estatal=0.1, constitucional=0.1
+- Consulta penal/familiar con estado específico: estatal=0.5, jurisprudencia=0.3, federal=0.15, constitucional=0.05
+- Consulta sobre derechos fundamentales / amparo / DDHH: constitucional=0.5, jurisprudencia=0.3, federal=0.15, estatal=0.05
+- Consulta laboral: federal=0.4, jurisprudencia=0.35, estatal=0.1, constitucional=0.15
+- Consulta civil patrimonial sin estado específico: federal=0.35, jurisprudencia=0.35, estatal=0.2, constitucional=0.1
+
+REGLAS para fuero_detectado:
+- constitucional: pregunta por artículos CPEUM, amparo, control constitucional, DDHH
+- federal: leyes federales, impuestos, mercantil, laboral federal
+- estatal: derecho penal, civil familiar, procesal con mención de estado
+- mixto: cuando la consulta abarca tanto derecho federal como estatal
+
+IMPORTANTE: El campo jurisprudencia_keywords es CLAVE. Genera 2-3 términos técnicos
+jurídicos exactos que un abogado usaría para buscar tesis de la SCJN sobre este tema.
+Ejemplo para arrendamiento: ["rescisión arrendamiento falta pago", "emplazamiento desahucio"]
+
+Devuelve SOLO el JSON, sin texto adicional ni markdown."""
+
+
+async def _legal_strategy_agent(query: str, fuero_manual: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Agente Estratega Pre-Búsqueda — Socio Director de Iurexia.
+
+    En lugar de solo expandir la query con sinónimos, este agente:
+    1. Diagnostica el caso jurídico completo
+    2. Detecta el fuero automáticamente (si el usuario no lo seleccionó)
+    3. Genera keywords técnicos de jurisprudencia que un abogado usaría
+    4. Produce pesos de silos para uso en la fusión balanceada
+    5. Identifica la vía procesal más probable
+
+    Reemplaza la llamada a expand_query_with_metadata() en el pipeline.
+    Misma latencia (1 llamada LLM), resultado cualitativamente superior.
+
+    Returns:
+        Dict con:
+        - fuero_detectado: str ('constitucional', 'federal', 'estatal', 'mixto')
+        - materia_principal: str
+        - via_procesal: str
+        - conceptos_juridicos: List[str]
+        - jurisprudencia_keywords: List[str]
+        - leyes_primarias: List[str]
+        - pesos_silos: Dict[str, float]  ← NUEVO: alimenta slot allocation
+        - requiere_ddhh: bool
+        - expanded_query: str (backcompat)
+    """
+    try:
+        prompt = LEGAL_STRATEGY_AGENT_PROMPT.format(query=query)
+
+        # Usar DeepSeek (mismo modelo que el chat principal) para consistencia
+        # y costo-efectividad. Si no disponible, usar chat_client (OpenAI).
+        llm_client = deepseek_client if deepseek_client else chat_client
+        llm_model = DEEPSEEK_CHAT_MODEL if deepseek_client else CHAT_MODEL
+
+        response = await llm_client.chat.completions.create(
+            model=llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,  # Bajo: queremos respuestas deterministas
+            max_completion_tokens=400,
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        # Limpiar markdown si el LLM lo añadió
+        if content.startswith("```json"):
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif content.startswith("```"):
+            content = content.split("```")[1].split("```")[0].strip()
+
+        plan = json.loads(content)
+
+        # Enriquecer la query expandida combinando conceptos + keywords
+        conceptos = plan.get("conceptos_juridicos", [])
+        juris_kw = plan.get("jurisprudencia_keywords", [])
+        leyes = plan.get("leyes_primarias", [])
+        expanded_parts = [query] + conceptos[:3] + juris_kw[:2] + leyes[:1]
+        expanded_query = " ".join(expanded_parts[:8])
+
+        # Si el usuario seleccionó un fuero manual, respetarlo
+        fuero_final = fuero_manual if fuero_manual else plan.get("fuero_detectado", "mixto")
+
+        result = {
+            "fuero_detectado": fuero_final,
+            "materia_principal": plan.get("materia_principal"),
+            "via_procesal": plan.get("via_procesal", ""),
+            "conceptos_juridicos": conceptos,
+            "jurisprudencia_keywords": juris_kw,
+            "leyes_primarias": leyes,
+            "pesos_silos": plan.get("pesos_silos", {
+                "constitucional": 0.25,
+                "federal": 0.25,
+                "estatal": 0.25,
+                "jurisprudencia": 0.25,
+            }),
+            "requiere_ddhh": plan.get("requiere_ddhh", False),
+            # Backcompat fields (para no romper código que usa el return de metadata)
+            "expanded_query": expanded_query,
+            "materia": plan.get("materia_principal"),
+            "temas": conceptos,
+            "requiere_constitucion": plan.get("requiere_ddhh", False),
+            "requiere_jurisprudencia": True,
+        }
+
+        print(f"   ⚖️ AGENTE ESTRATEGA:")
+        print(f"      Fuero detectado: {result['fuero_detectado']} (manual={fuero_manual or 'N/A'})")
+        print(f"      Materia: {result['materia_principal']} | Vía: {result['via_procesal'][:60]}")
+        print(f"      Conceptos: {', '.join(conceptos[:3])}")
+        print(f"      Juris keywords: {', '.join(juris_kw[:2])}")
+        print(f"      Pesos silos: {result['pesos_silos']}")
+
+        return result
+
+    except Exception as e:
+        print(f"   ❌ Legal Strategy Agent falló ({type(e).__name__}: {e}) — usando defaults")
+        return {
+            "fuero_detectado": fuero_manual or "mixto",
+            "materia_principal": None,
+            "via_procesal": "",
+            "conceptos_juridicos": [],
+            "jurisprudencia_keywords": [],
+            "leyes_primarias": [],
+            "pesos_silos": {"constitucional": 0.25, "federal": 0.25, "estatal": 0.25, "jurisprudencia": 0.25},
+            "requiere_ddhh": False,
+            "expanded_query": query,
+            "materia": None,
+            "temas": [],
+            "requiere_constitucion": False,
+            "requiere_jurisprudencia": True,
+        }
+
+
 async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
     """
     Expande query y extrae metadata relevante usando LLM.
@@ -3531,6 +3716,21 @@ async def hybrid_search_all_silos(
     # PASO 0: Query Expansion - Acrónimos legales (local, <1ms)
     # ═══════════════════════════════════════════════════════════════════════════
     expanded_query = expand_legal_query(query)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PASO 0-BIS: AGENTE ESTRATEGA (Legal Strategy Agent)
+    # Diagnóstico jurídico del caso → Plan de búsqueda con pesos de silos
+    # Reemplaza la expansión ciega por sinónimos con razonamiento legal real
+    # ═══════════════════════════════════════════════════════════════════════════
+    legal_plan = await _legal_strategy_agent(query, fuero_manual=fuero)
+    # Usar jurisprudencia_keywords del plan para enriquecer la expanded_query
+    if legal_plan["jurisprudencia_keywords"]:
+        jk = " ".join(legal_plan["jurisprudencia_keywords"][:2])
+        expanded_query = f"{expanded_query} {jk}"
+    # Si el fuero no fue seleccionado manualmente, usar el detectado por el agente
+    if not fuero and legal_plan["fuero_detectado"] not in ("mixto", None):
+        fuero = legal_plan["fuero_detectado"]
+        print(f"   ⚖️ FUERO AUTO-DETECTADO por Agente Estratega: {fuero}")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 1+2: Detección + Should Filter
@@ -3728,26 +3928,45 @@ async def hybrid_search_all_silos(
     
     # Fusión balanceada DINÁMICA según tipo de query
     # Para queries de DDHH, priorizar agresivamente el bloque constitucional
-    if is_ddhh_query(query):
-        # Modo DDHH: Prioridad máxima a bloque constitucional
-        min_constitucional = min(12, len(constitucional))  # MÁXIMA prioridad DDHH
-        min_jurisprudencia = min(6, len(jurisprudencia))   
-        min_federales = min(6, len(federales))             
-        min_estatales = min(3, len(estatales))             
+    # ── Fusión Balanceada DINÁMICA — Pesos desde el Agente Estratega ──────────
+    # El Agente Estratega diagnosticó el caso y produjo pesos específicos.
+    # Esto reemplaza los valores hardcodeados por una asignación inteligente.
+    # Override: DDHH y modo estatal siguen teniendo prioridad fija (lógica crítica).
+    _agent_pesos = legal_plan.get("pesos_silos", {})
+    _agent_const = _agent_pesos.get("constitucional", 0.25)
+    _agent_fed   = _agent_pesos.get("federal", 0.25)
+    _agent_est   = _agent_pesos.get("estatal", 0.25)
+    _agent_juris = _agent_pesos.get("jurisprudencia", 0.25)
+
+    if is_ddhh_query(query) or legal_plan.get("requiere_ddhh"):
+        # Modo DDHH: Prioridad máxima a bloque constitucional (override del agente)
+        min_constitucional = min(12, len(constitucional))
+        min_jurisprudencia = min(6, len(jurisprudencia))
+        min_federales = min(6, len(federales))
+        min_estatales = min(3, len(estatales))
+        print(f"   🏛️ Modo DDHH: const={min_constitucional} juris={min_jurisprudencia} fed={min_federales} est={min_estatales}")
     elif estado:
         # Modo con ESTADO seleccionado: LEYES ESTATALES SON LA PRIORIDAD
-        # Cuando el usuario selecciona un estado, la legislación local es lo principal
-        min_estatales = min(15, len(estatales))            # MÁXIMA prioridad: legislación local
-        min_jurisprudencia = min(8, len(jurisprudencia))   # Jurisprudencia complementa
-        min_federales = min(5, len(federales))             # Federales supletorias
-        min_constitucional = min(4, len(constitucional))   # Constitucional solo si aplica
-        print(f"   📍 Modo estatal PRIORIZADO: {min_estatales} estatales + {min_jurisprudencia} juris + {min_federales} fed + {min_constitucional} const para {estado}")
+        # Mantener prioridad fija para estado, ya que es selección explícita del usuario
+        min_estatales = min(15, len(estatales))
+        min_jurisprudencia = min(8, len(jurisprudencia))
+        min_federales = min(5, len(federales))
+        min_constitucional = min(4, len(constitucional))
+        print(f"   📍 Modo estatal PRIORIZADO: est={min_estatales} juris={min_jurisprudencia} fed={min_federales} const={min_constitucional} para {estado}")
     else:
-        # Modo estándar sin estado: Balance amplio entre todos los silos
-        min_constitucional = min(10, len(constitucional))   
-        min_jurisprudencia = min(10, len(jurisprudencia))   
-        min_federales = min(10, len(federales))             
-        min_estatales = min(10, len(estatales))  # Expanded: 10 slots por silo
+        # Modo con Agente Estratega: pesos dinámicos basados en el diagnóstico del caso
+        # Escalar los pesos del agente a slots enteros (top_k base = 25)
+        _base = top_k
+        min_constitucional = min(int(_base * _agent_const * 1.5), len(constitucional))
+        min_jurisprudencia = min(int(_base * _agent_juris * 1.5), len(jurisprudencia))
+        min_federales      = min(int(_base * _agent_fed   * 1.5), len(federales))
+        min_estatales      = min(int(_base * _agent_est   * 1.5), len(estatales))
+        # Garantizar al menos 3 slots por silo para evitar silos vacíos
+        min_constitucional = max(min_constitucional, min(3, len(constitucional)))
+        min_jurisprudencia = max(min_jurisprudencia, min(3, len(jurisprudencia)))
+        min_federales      = max(min_federales,      min(3, len(federales)))
+        min_estatales      = max(min_estatales,      min(3, len(estatales)))
+        print(f"   🧠 Agente Estratega pesos → const={min_constitucional} fed={min_federales} est={min_estatales} juris={min_jurisprudencia} (materia={legal_plan.get('materia_principal')}|via={legal_plan.get('via_procesal','?')[:40]})") 
     
     merged = []
     
