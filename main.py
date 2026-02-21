@@ -1760,6 +1760,44 @@ def humanize_origen(origen: Optional[str]) -> Optional[str]:
     return fallback
 
 
+def extract_ley_from_texto(texto: Optional[str]) -> Optional[str]:
+    """
+    Extrae el nombre de la ley del campo texto cuando origen es None.
+    Las leyes federales ingestadas sin 'origen' en Qdrant contienen el
+    nombre de la ley embebido en el texto como:
+    '[Ley GENERAL DE TITULOS Y OPERACIONES DE CREDITO | TITULO I...]'
+
+    Retorna un nombre correctamente capitalizado, e.g.:
+    'Ley General de Títulos y Operaciones de Crédito'
+    """
+    if not texto:
+        return None
+    # Extraer el contenido del primer bracket antes del pipe o cierre
+    m = re.match(r'^\[([^\]|]+)', texto.strip())
+    if not m:
+        return None
+    raw = m.group(1).strip()
+    # Validar que parece un nombre de ley
+    if not re.search(
+        r'\b(Ley|C[oó]digo|Reglamento|Decreto|Estatuto|Constituci[oó]n)\b',
+        raw, re.IGNORECASE
+    ):
+        return None
+    # Convertir a title case con excepciones de preposiciones
+    words = raw.split()
+    LOWERCASE = {'de', 'del', 'y', 'o', 'e', 'la', 'el', 'los', 'las',
+                 'para', 'en', 'con', 'por', 'a', 'al', 'un', 'una'}
+    result = []
+    for i, word in enumerate(words):
+        w = word.lower()
+        if i == 0 or w not in LOWERCASE:
+            # Preserve accented capital letters (e.g. Ó stays, not lowercased)
+            result.append(word.capitalize())
+        else:
+            result.append(w)
+    return ' '.join(result)
+
+
 def infer_source_from_text(texto: str) -> tuple:
     """
     Infer origen (law name) and ref (article) from the chunk text itself
@@ -4554,11 +4592,16 @@ async def get_document(doc_id: str):
                     else:
                         materia_str = str(materia_raw).upper() if materia_raw else None
                     
+                    texto_val = payload.get("texto", payload.get("text", "Contenido no disponible"))
+                    # Prioridad de origen: campo Qdrant → extraído del texto → None
+                    _origen_raw = payload.get("origen", payload.get("fuente", None))
+                    _origen = humanize_origen(_origen_raw) or extract_ley_from_texto(texto_val)
+
                     return DocumentResponse(
                         id=str(point.id),
-                        texto=payload.get("texto", payload.get("text", "Contenido no disponible")),
+                        texto=texto_val,
                         ref=payload.get("ref", payload.get("referencia", None)),
-                        origen=humanize_origen(payload.get("origen", payload.get("fuente", None))),
+                        origen=_origen,
                         jurisdiccion=payload.get("jurisdiccion", None),
                         entidad=payload.get("entidad", payload.get("estado", None)),
                         silo=silo_name,
