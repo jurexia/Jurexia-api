@@ -2882,7 +2882,10 @@ async def get_dense_embedding(text: str) -> List[float]:
 
 
 def get_sparse_embedding(text: str) -> SparseVector:
-    """Genera embedding sparse usando BM25"""
+    """Genera embedding sparse usando BM25. Degrada a sparse vacío si el modelo aún carga."""
+    if sparse_encoder is None:
+        # Modelo BM25 todavía cargando en background — degradar a dense-only search
+        return SparseVector(indices=[], values=[])
     embeddings = list(sparse_encoder.query_embed(text))
     if not embeddings:
         return SparseVector(indices=[], values=[])
