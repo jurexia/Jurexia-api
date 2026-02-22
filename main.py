@@ -10,7 +10,7 @@ FastAPI backend para plataforma LegalTech con:
 - Grounding con citas documentales
 - GPT-5 Mini for chat, DeepSeek Reasoner for thinking/reasoning
 
-VERSION: 2026.02.20-v4 (Advanced RAG: Cohere Rerank + HyDE + Query Decomposition)
+VERSION: 2026.02.22-v5 (Anti-alucinación 3 capas: Deterministic Fetch + Prompt Guard + Structural Grounding)
 """
 
 import asyncio
