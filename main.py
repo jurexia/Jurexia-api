@@ -5005,9 +5005,11 @@ async def chat_endpoint(request: ChatRequest):
     # ─────────────────────────────────────────────────────────────────────
     if request.user_id and supabase_admin:
         try:
-            blocked_result = supabase_admin.rpc(
-                'is_user_blocked', {'p_user_id': request.user_id}
-            ).execute()
+            blocked_result = await asyncio.to_thread(
+                lambda: supabase_admin.rpc(
+                    'is_user_blocked', {'p_user_id': request.user_id}
+                ).execute()
+            )
             if blocked_result.data:
                 print(f"🚫 BLOCKED USER attempted chat: {request.user_id}")
                 return StreamingResponse(
@@ -5055,9 +5057,11 @@ async def chat_endpoint(request: ChatRequest):
     # ─────────────────────────────────────────────────────────────────────
     if request.user_id and supabase_admin:
         try:
-            quota_result = supabase_admin.rpc(
-                'consume_query', {'p_user_id': request.user_id}
-            ).execute()
+            quota_result = await asyncio.to_thread(
+                lambda: supabase_admin.rpc(
+                    'consume_query', {'p_user_id': request.user_id}
+                ).execute()
+            )
 
             if quota_result.data:
                 quota_data = quota_result.data
@@ -5976,9 +5980,11 @@ async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
     # ── Quota check (reuse /chat pattern) ─────────────────────────────────
     if request.user_id and supabase_admin:
         try:
-            quota_result = supabase_admin.rpc(
-                'consume_query', {'p_user_id': request.user_id}
-            ).execute()
+            quota_result = await asyncio.to_thread(
+                lambda: supabase_admin.rpc(
+                    'consume_query', {'p_user_id': request.user_id}
+                ).execute()
+            )
             if quota_result.data:
                 quota_data = quota_result.data
                 if not quota_data.get('allowed', True):
