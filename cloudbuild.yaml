@@ -1,0 +1,57 @@
+steps:
+  # Paso 1: Build de la imagen Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:$COMMIT_SHA'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:latest'
+      - '.'
+
+  # Paso 2: Push a Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:latest'
+
+  # Paso 3: Deploy automático a Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'jurexia-api'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '4Gi'
+      - '--cpu'
+      - '2'
+      - '--min-instances'
+      - '1'
+      - '--max-instances'
+      - '20'
+      - '--cpu-boost'
+      - '--no-cpu-throttling'
+      - '--timeout'
+      - '300'
+
+images:
+  - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'  # Más CPU = build más rápido
