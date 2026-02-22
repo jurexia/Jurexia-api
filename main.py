@@ -73,10 +73,10 @@ DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_CHAT_MODEL = "deepseek-chat"  # Used with thinking mode enabled
 REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thought
 
-# OpenAI API Configuration (o4-mini for chat + o3-mini for sentencia analysis + embeddings)
+# OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
-SENTENCIA_MODEL = "o3-mini"  # For sentencia analysis (powerful reasoning, cost-effective)
+SENTENCIA_MODEL = "gpt-5-mini"  # For sentencia analysis (premium quality for ultra_secretarios)
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
