@@ -432,6 +432,47 @@ Desarrolla brevemente como la tesis sustenta o complementa tu analisis.
 Si no hay jurisprudencia en el contexto, indica: "No se encontro jurisprudencia especifica
 sobre este punto en la busqueda actual."
 
+REGLA #6 — JERARQUÍA NORMATIVA ABSOLUTA Y VIGENCIA TEMPORAL:
+
+ORDEN DE AUTORIDAD LEGAL (de mayor a menor — NUNCA violes este orden):
+  1. CONSTITUCION (CPEUM) — texto literal vigente, ley suprema
+  2. TRATADOS INTERNACIONALES DE DDHH (bloque de constitucionalidad)
+  3. LEYES FEDERALES y CODIGO NACIONAL (vigentes tras la ultima reforma)
+  4. LEGISLACION ESTATAL (en su ambito)
+  5. JURISPRUDENCIA / TESIS — solo si es CONSISTENTE con 1-4
+
+CUANDO EXISTE CONFLICTO NORMA vs. JURISPRUDENCIA:
+Si el contexto incluye TANTO articulos constitucionales/legales vigentes COMO
+jurisprudencia de un sistema ANTERIOR, OBLIGATORIAMENTE debes:
+  a) Aplicar la NORMA CONSTITUCIONAL/LEGAL ACTUAL como respuesta principal
+  b) Citar la jurisprudencia SOLO como referencia historica del sistema previo,
+     indicando EXPRESAMENTE: "Esta tesis corresponde al sistema anterior a la
+     Reforma [año]. Bajo el marco constitucional vigente, la regla es..."
+  c) NUNCA presentar como vigente una tesis que contradiga el texto actual de la CPEUM
+
+SEÑALES DE QUE UNA TESIS PUEDE ESTAR SUPERADA POR REFORMA:
+  - Tesis de Novena Epoca (antes de 2011): verificar si la norma cambio despues
+  - Tesis de Decima Epoca (2011-2021): verificar si hay reforma post-2021 que la supere
+  - Cualquier tesis que cite al "Consejo de la Judicatura Federal" en materia de
+    DESIGNACION, CONCURSOS o ADSCRIPCION de Magistrados/Jueces federales:
+    → SUPERADA por REFORMA JUDICIAL 2024
+  - Cualquier tesis sobre "concurso de oposicion" para designar Magistrados de
+    Circuito o Jueces de Distrito: → SUPERADA por Reforma Judicial 2024
+
+CONOCIMIENTO CRITICO — REFORMA JUDICIAL 2024 (DOF 15-sep-2024 y 14-oct-2024):
+Esta reforma modifico radicalmente los articulos 94, 96, 97, 99, 100, 116 y 122 CPEUM.
+Sus efectos son IRREVERSIBLES Y VIGENTES desde su publicacion:
+  - Los Jueces de Distrito y Magistrados de Circuito se eligen por VOTO POPULAR DIRECTO
+  - El Consejo de la Judicatura Federal fue DISUELTO y sustituido por el
+    Tribunal de Disciplina Judicial y el Organo de Administracion Judicial
+  - Los concursos de oposicion administrados por el CJF YA NO ESTAN VIGENTES
+  - Primera eleccion extraordinaria: 2025
+  - Duracion del encargo: 9 años (8 años para los electos en 2025)
+  
+Si el contexto contiene tesis sobre concursos CJF para designar juzgadores federales
+Y TAMBIEN contiene articulos 94, 96 o 97 CPEUM, SIEMPRE aplica el texto constitucional
+como derecho vigente. Las tesis son del sistema anterior y deben citarse como tal.
+
 FORMATO DE CITAS:
 - Usa [Doc ID: uuid] del contexto proporcionado para respaldar cada afirmacion
 - Los UUID tienen 36 caracteres: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -2856,6 +2897,56 @@ def get_sparse_embedding(text: str) -> SparseVector:
 # Maximum characters per document to prevent token overflow
 MAX_DOC_CHARS = 6000
 
+# ── JERARQUÍA NORMATIVA: Orden de autoridad legal (menor número = mayor jerarquía) ──
+SILO_HIERARCHY_PRIORITY: Dict[str, int] = {
+    # Nivel 0: Constitución y bloque constitucionalidad
+    "bloque_constitucional": 0,
+    # Nivel 1: Leyes federales / código nacional
+    "leyes_federales": 1,
+    "codigo_nacional": 1,
+    # Nivel 2: Leyes estatales
+    "leyes_estatales": 2,
+    # Nivel 3: Jurisprudencia (complementaria, subordinada a norma)
+    "jurisprudencia_nacional": 3,
+    "jurisprudencia_tcc": 3,
+    "jurisprudencia": 3,
+}
+
+
+def _get_jerarquia_label(silo: str) -> str:
+    """
+    Retorna una etiqueta de jerarquía normativa para un silo dado.
+    Esta etiqueta se incluye en el XML del contexto para que el LLM
+    pueda aplicar la regla de supremacía (REGLA #6 del system prompt).
+    """
+    level = SILO_HIERARCHY_PRIORITY.get(silo, 2)
+    if level == 0:
+        return "CONSTITUCION"
+    if level == 1:
+        return "LEY_FEDERAL"
+    if level == 2:
+        return "LEY_ESTATAL"
+    if level == 3:
+        return "JURISPRUDENCIA"
+    return "DOCUMENTO"
+
+
+def reorder_by_hierarchy(results: List[SearchResult]) -> List[SearchResult]:
+    """
+    Reordena resultados RAG respetando la jerarquía normativa mexicana:
+    CONSTITUCION > LEY_FEDERAL > LEY_ESTATAL > JURISPRUDENCIA
+
+    Dentro de cada nivel, mantiene el orden por score descendente (Cohere rerank).
+    Esto asegura que el LLM vea primero la norma constitucional/legal vigente
+    y después la jurisprudencia, evitando que tesis antiguas (ej. pre-Reforma 2024)
+    dominen el contexto y generen respuestas obsoletas.
+    """
+    def sort_key(r: SearchResult):
+        silo_priority = SILO_HIERARCHY_PRIORITY.get(r.silo, 2)
+        return (silo_priority, -r.score)  # Menor level primero; mayor score primero
+    return sorted(results, key=sort_key)
+
+
 def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = None) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
@@ -2881,6 +2972,11 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             f'La jurisprudencia va DESPUÉS como complemento interpretativo. -->'
         )
     
+    # ── REGLA DE JERARQUÍA: Reordenar para que CPEUM/leyes precedan jurisprudencia ──
+    # Esto garantiza que el LLM vea primero la norma vigente y después las tesis.
+    # Evita que jurisprudencia pre-reforma 2024 domine el análisis.
+    results = reorder_by_hierarchy(results)
+
     for r in results:
         # Truncate long documents to fit within token limits
         texto = r.texto
@@ -2890,19 +2986,26 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
         escaped_origen = html.escape(humanize_origen(r.origen) or "Desconocido")
-        
         escaped_jurisdiccion = html.escape(r.jurisdiccion or "N/A")
-        
+
+        # Etiqueta de jerarquía normativa — visible para el LLM para aplicar REGLA #6
+        jerarquia = _get_jerarquia_label(r.silo)
+
         # Marcar documentos estatales como FUENTE PRINCIPAL cuando hay estado seleccionado
         tipo_tag = ""
         if estado and r.silo == "leyes_estatales":
             tipo_tag = ' tipo="LEGISLACION_ESTATAL" prioridad="PRINCIPAL"'
-        elif r.silo == "jurisprudencia_nacional":
+        elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
+        elif r.silo == "bloque_constitucional":
+            tipo_tag = ' tipo="CONSTITUCION" prioridad="SUPREMA"'
+        elif r.silo in ("leyes_federales", "codigo_nacional"):
+            tipo_tag = ' tipo="LEY_FEDERAL" prioridad="PRIMARIA"'
         
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
             f'origen="{escaped_origen}" silo="{r.silo}" '
+            f'jerarquia="{jerarquia}" '
             f'jurisdiccion="{escaped_jurisdiccion}" score="{r.score:.4f}"{tipo_tag}>\n'
             f'{escaped_texto}\n'
             f'</documento>'
