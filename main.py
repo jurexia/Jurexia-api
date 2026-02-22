@@ -1603,6 +1603,7 @@ class SearchResult(BaseModel):
     jurisdiccion: Optional[str] = None
     entidad: Optional[str] = None
     silo: str
+    pdf_url: Optional[str] = None  # URL del PDF oficial (GCS o fuente gubernamental)
 
 
 class SearchResponse(BaseModel):
@@ -1611,6 +1612,16 @@ class SearchResponse(BaseModel):
     estado_filtrado: Optional[str]
     resultados: List[SearchResult]
     total: int
+
+
+# ── PDF Fallback URLs por silo ─────────────────────────────────────────────────
+# URL oficial del PDF de cada fuente legal (GCS bucket o fuente gubernamental).
+# Se asigna a SearchResult.pdf_url cuando el payload de Qdrant no lo trae.
+PDF_FALLBACK_URLS: Dict[str, str] = {
+    "bloque_constitucional": "https://storage.googleapis.com/iurexia-leyes/constitucion/CPEUM-2024.pdf",
+    # Agregar más silos aquí conforme se suban PDFs al bucket GCS:
+    # "leyes_federales": "...",
+}
 
 
 class ChatRequest(BaseModel):
@@ -5708,10 +5719,14 @@ async def chat_endpoint(request: ChatRequest):
                         if doc:
                             # Truncate texto to 2000 chars to avoid bloating SSE
                             texto_truncated = (doc.texto or "")[:2000]
+                            # Determinar pdf_url: payload de Qdrant > fallback por silo
+                            pdf_url = doc.pdf_url or PDF_FALLBACK_URLS.get(doc.silo)
                             sources_map[cv.doc_id] = {
                                 "origen": humanize_origen(doc.origen) or "Fuente legal",
                                 "ref": doc.ref or "",
-                                "texto": texto_truncated
+                                "texto": texto_truncated,
+                                "pdf_url": pdf_url or None,
+                                "silo": doc.silo,
                             }
                         else:
                             sources_map[cv.doc_id] = {
