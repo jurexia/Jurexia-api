@@ -1,0 +1,41 @@
+# This file controls what gets uploaded to Cloud Build
+# It's like .dockerignore but for gcloud commands
+
+# Python cache — never needed
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# Dev tools — large, not needed in build
+_tools/
+
+# Audit output files
+audit_results.txt
+*.txt
+*.log
+
+# Virtual environments
+venv/
+env/
+.env/
+
+# Git history
+.git/
+.gitignore
+
+# Local env files (secrets managed via Cloud Run env vars)
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# Test files
+tests/
+test_*.py
+
+# OS
+.DS_Store
+Thumbs.db

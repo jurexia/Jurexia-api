@@ -1657,9 +1657,21 @@ async def lifespan(app: FastAPI):
     # Startup
     print(" Inicializando Jurexia Core Engine...")
     
-    # BM25 Sparse Encoder
-    sparse_encoder = SparseTextEmbedding(model_name="Qdrant/bm25")
-    print("   BM25 Encoder cargado")
+    # BM25 Sparse Encoder — load in background thread to avoid blocking Cloud Run startup probe
+    # HuggingFace can rate-limit on first download; app starts healthy while model loads
+    async def _load_sparse_encoder():
+        global sparse_encoder
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            def _download():
+                return SparseTextEmbedding(model_name="Qdrant/bm25")
+            sparse_encoder = await loop.run_in_executor(None, _download)
+            print("   BM25 Encoder cargado")
+        except Exception as e:
+            print(f"   WARN: BM25 Encoder falló al cargar: {e}. RAG sparse deshabilitado hasta reinicio.")
+    asyncio.ensure_future(_load_sparse_encoder())
+
     
     # Qdrant Async Client
     qdrant_client = AsyncQdrantClient(

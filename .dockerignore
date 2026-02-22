@@ -1,0 +1,36 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+.env/
+ENV/
+
+# Dev files
+.git/
+.gitignore
+*.md
+*.txt
+!requirements.txt
+
+# Tools & scripts (not needed in production)
+_tools/
+audit_results.txt
+
+# IDE
+.vscode/
+.idea/
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# OS
+.DS_Store
+Thumbs.db
