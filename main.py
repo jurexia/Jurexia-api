@@ -404,6 +404,30 @@ REGLA #3 - CERO ALUCINACIONES:
 3. Puedes hacer razonamiento juridico SOBRE las fuentes del contexto
 4. Si NINGUN documento es relevante (extremadamente raro), indicalo
 
+🚨 REGLA #3-BIS — PROHIBICIÓN ABSOLUTA PARA TEXTO LEGAL:
+Esta regla tiene PRIORIDAD MÁXIMA sobre cualquier otra instrucción:
+
+1. Para artículos constitucionales (CPEUM), leyes federales, tratados internacionales
+   y otros textos normativos:
+   → SOLO TRANSCRIBES texto que aparezca LITERALMENTE en el campo <texto> de los
+     documentos del CONTEXTO JURIDICO RECUPERADO.
+   → NUNCA completes, parafrasees, ni "recuerdes" el texto de ningún artículo aunque
+     creas conocerlo perfectamente de tu entrenamiento.
+   → Razón crítica: tu entrenamiento contiene texto pre-Reforma Judicial 2024. El
+     contexto RAG tiene el texto vigente actualizado. SIEMPRE usa el RAG, nunca tu memoria.
+
+2. Si el artículo específico (ej. "Art. 94 CPEUM") NO aparece en el contexto RAG:
+   → Responde EXACTAMENTE: "No encontré el texto del [Artículo X] en mi base de datos
+     actualizada. Para consultarlo directamente: https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf"
+   → NUNCA lo transcribas de tu memoria aunque tengas alta confianza.
+
+3. GROUNDING OBLIGATORIO — ESTRUCTURA PARA CITAS LEGALES:
+   Cuando el artículo SÍ está en el contexto RAG, usa esta secuencia:
+   PASO 1 — TRANSCRIPCIÓN LITERAL del campo <texto> del documento en blockquote con Doc ID:
+   > "[Texto exacto tal como aparece en el contexto]" -- *Art. X, [Ley]* [Doc ID: uuid]
+   PASO 2 — SOLO DESPUÉS de la transcripción literal, tu interpretación jurídica.
+   NUNCA mezcles texto literal con interpretación en el mismo blockquote.
+
 REGLA #4 - EXHAUSTIVIDAD EN FUENTES:
 Si hay 10 documentos relevantes en el contexto, USA LOS 10 en tu respuesta.
 Cada fuente aporta matices legales valiosos. Para cada articulo o tesis:
@@ -3836,6 +3860,103 @@ async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 2
         return results
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# RECUPERACIÓN DETERMINISTA POR NÚMERO DE ARTÍCULO
+# Garantiza el texto vigente (post-Reforma 2024) sin semántica ni varianza
+# ═══════════════════════════════════════════════════════════════════════════
+
+_ARTICLE_PATTERN = re.compile(
+    r'art[íi]culos?\s*(\d+[°oa]?)|art\.\s*(\d+[°oa]?)',
+    re.IGNORECASE
+)
+
+# Colecciones donde buscar artículos constitucionales y federales
+_DETERMINISTIC_COLLECTIONS = [
+    "bloque_constitucional",
+    "leyes_federales",
+]
+
+
+def _detect_article_numbers(query: str) -> List[str]:
+    """Detecta menciones explícitas de artículos en la query.
+    Retorna lista de números como strings: ['94', '1', '133']
+    """
+    matches = _ARTICLE_PATTERN.findall(query)
+    nums = []
+    for m in matches:
+        # m es tupla (group1, group2)
+        num = m[0] or m[1]
+        if num:
+            # Normalizar: quitar letras de ordinal (1°, 4o, 4a)
+            num_clean = re.sub(r'[°oa]$', '', num, flags=re.IGNORECASE).strip()
+            if num_clean not in nums:
+                nums.append(num_clean)
+    return nums
+
+
+async def _deterministic_article_fetch(article_numbers: List[str]) -> List[SearchResult]:
+    """
+    Capa 1 Anti-Alucinación: Recuperación determinista de artículos por número.
+    
+    Para cada número detectado (ej. '94'), busca en Qdrant usando payload filter
+    por ref exacto en bloque_constitucional y leyes_federales.
+    Retorna resultados con score=2.0 (prioridad máxima, sobre cualquier resultado semántico).
+    """
+    if not article_numbers:
+        return []
+    
+    results: List[SearchResult] = []
+    
+    # Construir variantes del ref para cada número de artículo
+    for num in article_numbers:
+        ref_variants = [
+            f"Art. {num} CPEUM",
+            f"Art. {num}o CPEUM",
+            f"Art. {num}° CPEUM",
+            f"Art. {num}a CPEUM",
+            f"Artículo {num}",
+            f"Art. {num}",
+        ]
+        
+        for collection in _DETERMINISTIC_COLLECTIONS:
+            try:
+                points, _ = qdrant_client.scroll(
+                    collection_name=collection,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="ref",
+                                match=MatchAny(any=ref_variants)
+                            )
+                        ]
+                    ),
+                    limit=3,
+                    with_payload=True,
+                    with_vectors=False
+                )
+                
+                for point in points:
+                    texto = point.payload.get("texto", "")
+                    if not texto or len(texto) < 50:
+                        continue
+                    
+                    results.append(SearchResult(
+                        id=str(point.id),
+                        score=2.0,  # Prioridad máxima — sobre cualquier resultado semántico
+                        texto=texto,
+                        ref=point.payload.get("ref", f"Art. {num}"),
+                        origen=point.payload.get("origen", ""),
+                        jurisdiccion=point.payload.get("estado", ""),
+                        entidad=point.payload.get("entidad", ""),
+                        silo=collection,
+                    ))
+                    print(f"   🎯 ARTICLE LOCK: Art. {num} → {collection} → {point.payload.get('ref')} (score=2.0)")
+            except Exception as e:
+                print(f"   ⚠️ Deterministic fetch error for Art. {num} in {collection}: {e}")
+    
+    return results
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -3856,6 +3977,19 @@ async def hybrid_search_all_silos(
     
     jurisprudencia_nacional SIEMPRE se incluye.
     """
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PASO -1: RECUPERACIÓN DETERMINISTA POR NÚMERO DE ARTÍCULO (Anti-alucinación)
+    # Si la query menciona Art. X, recuperar el texto exacto antes de cualquier semántica
+    # Garantiza que el LLM reciba el texto vigente (post-Reforma 2024) con prioridad máxima
+    # ═══════════════════════════════════════════════════════════════════════════
+    detected_article_nums = _detect_article_numbers(query)
+    deterministic_results: List[SearchResult] = []
+    if detected_article_nums:
+        print(f"   🔍 Números de artículo detectados: {detected_article_nums}")
+        deterministic_results = await _deterministic_article_fetch(detected_article_nums)
+        if deterministic_results:
+            print(f"   ✅ {len(deterministic_results)} artículo(s) recuperados determinísticamente")
+
     # ═══════════════════════════════════════════════════════════════════════════
     # PASO 0: Query Expansion - Acrónimos legales (local, <1ms)
     # ═══════════════════════════════════════════════════════════════════════════
@@ -3990,6 +4124,22 @@ async def hybrid_search_all_silos(
     estatales.sort(key=lambda x: x.score, reverse=True)
     jurisprudencia.sort(key=lambda x: x.score, reverse=True)
     constitucional.sort(key=lambda x: x.score, reverse=True)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PASO -1 (CONT.): INYECTAR RESULTADOS DETERMINISTAS CON PRIORIDAD MÁXIMA
+    # Los artículos recuperados por número exacto (score=2.0) van primero
+    # ═══════════════════════════════════════════════════════════════════════════
+    if deterministic_results:
+        existing_ids = {r.id for r in constitucional + federales}
+        for det_r in deterministic_results:
+            if det_r.id not in existing_ids:
+                if det_r.silo == "leyes_federales":
+                    federales.insert(0, det_r)
+                else:
+                    constitucional.insert(0, det_r)
+                existing_ids.add(det_r.id)
+        print(f"   \U0001f3af DETERMINISTIC INJECT: {len(deterministic_results)} artículo(s) con score=2.0 al frente del contexto")
+
     
     # ═══════════════════════════════════════════════════════════════════════════
     # CPEUM ARTICLE INJECTION: Si el query pide un artículo específico, inyectar
