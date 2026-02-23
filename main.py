@@ -1648,8 +1648,6 @@ TREATY_PDF_URLS: Dict[str, str] = {
     "cedaw": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
     "discriminación contra la mujer": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
     "discapacidad": f"{_GCS_T}/Convencion%20Derechos%20Personas%20con%20Discapacidad%20(CRPD).pdf",
-    "desaparición forzada": f"{_GCS_T}/Convencion%20Desapariciones%20Forzadas%20ONU%20(CED).pdf",
-    "desapariciones forzadas": f"{_GCS_T}/Convencion%20Desapariciones%20Forzadas%20ONU%20(CED).pdf",
     "discriminación racial": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20Racial%20(ICERD).pdf",
     "trabajadores migratorios": f"{_GCS_T}/Convencion%20Derechos%20Trabajadores%20Migratorios%20(CMW).pdf",
     # Instrumentos penitenciarios
@@ -1658,8 +1656,6 @@ TREATY_PDF_URLS: Dict[str, str] = {
     "estambul": f"{_GCS_T}/Protocolo%20de%20Estambul%20-%20Investigacion%20Tortura%20(OHCHR).pdf",
     # Otros
     "yogyakarta": f"{_GCS_T}/Principios%20de%20Yogyakarta%20-%20Orientacion%20Sexual%20e%20Identidad%20de%20Genero.pdf",
-    "convenio 108": f"{_GCS_T}/Convenio%20108%20Proteccion%20Datos%20Personales%20(C108).pdf",
-    "datos personales": f"{_GCS_T}/Convenio%20108%20Proteccion%20Datos%20Personales%20(C108).pdf",
 }
 
 
