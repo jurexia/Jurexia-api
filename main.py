@@ -1623,6 +1623,62 @@ PDF_FALLBACK_URLS: Dict[str, str] = {
     # "leyes_federales": "...",
 }
 
+# ─── Per-treaty PDF URLs (GCS bucket iurexia-leyes/Tratados/) ──────
+# Keyed by lowercase keyword that matches the treaty's `origen` in Qdrant.
+# When silo=bloque_constitucional and origen contains one of these keywords,
+# the specific treaty PDF is returned instead of the CPEUM fallback.
+_GCS_T = "https://storage.googleapis.com/iurexia-leyes/Tratados"
+
+TREATY_PDF_URLS: Dict[str, str] = {
+    # OEA
+    "convención americana": f"{_GCS_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
+    "pacto de san josé": f"{_GCS_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
+    "belém do pará": f"{_GCS_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
+    "belem do para": f"{_GCS_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
+    "racismo": f"{_GCS_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
+    "intolerancia": f"{_GCS_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
+    "personas mayores": f"{_GCS_T}/Convencion%20Interamericana%20Derechos%20Personas%20Mayores%20(CIPM).pdf",
+    "protocolo de san salvador": f"{_GCS_T}/Protocolo%20de%20San%20Salvador%20-%20Derechos%20Economicos%20Sociales%20(PSS).pdf",
+    # ONU / OHCHR
+    "declaración universal": f"{_GCS_T}/Declaracion%20Universal%20de%20Derechos%20Humanos%20(DUDH).pdf",
+    "derechos civiles y políticos": f"{_GCS_T}/Pacto%20Internacional%20Derechos%20Civiles%20y%20Politicos%20(PIDCP).pdf",
+    "derechos económicos, sociales y culturales": f"{_GCS_T}/Pacto%20Internacional%20Derechos%20Economicos%20Sociales%20y%20Culturales%20(PIDESC).pdf",
+    "derechos del niño": f"{_GCS_T}/Convencion%20sobre%20los%20Derechos%20del%20Nino%20(CDN).pdf",
+    "tortura": f"{_GCS_T}/Convencion%20contra%20la%20Tortura%20ONU%20(CAT).pdf",
+    "cedaw": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
+    "discriminación contra la mujer": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
+    "discapacidad": f"{_GCS_T}/Convencion%20Derechos%20Personas%20con%20Discapacidad%20(CRPD).pdf",
+    "desaparición forzada": f"{_GCS_T}/Convencion%20Desapariciones%20Forzadas%20ONU%20(CED).pdf",
+    "desapariciones forzadas": f"{_GCS_T}/Convencion%20Desapariciones%20Forzadas%20ONU%20(CED).pdf",
+    "discriminación racial": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20Racial%20(ICERD).pdf",
+    "trabajadores migratorios": f"{_GCS_T}/Convencion%20Derechos%20Trabajadores%20Migratorios%20(CMW).pdf",
+    # Instrumentos penitenciarios
+    "mandela": f"{_GCS_T}/Reglas%20Nelson%20Mandela%20-%20Tratamiento%20Reclusos%20(ONU).pdf",
+    "bangkok": f"{_GCS_T}/Reglas%20de%20Bangkok%20-%20Tratamiento%20Reclusas%20(ONU).pdf",
+    "estambul": f"{_GCS_T}/Protocolo%20de%20Estambul%20-%20Investigacion%20Tortura%20(OHCHR).pdf",
+    # Otros
+    "yogyakarta": f"{_GCS_T}/Principios%20de%20Yogyakarta%20-%20Orientacion%20Sexual%20e%20Identidad%20de%20Genero.pdf",
+    "convenio 108": f"{_GCS_T}/Convenio%20108%20Proteccion%20Datos%20Personales%20(C108).pdf",
+    "datos personales": f"{_GCS_T}/Convenio%20108%20Proteccion%20Datos%20Personales%20(C108).pdf",
+}
+
+
+def _resolve_treaty_pdf(origen: str) -> Optional[str]:
+    """
+    Given a document's `origen` (e.g. 'Convención Americana sobre Derechos Humanos'),
+    return the GCS PDF URL for that specific treaty, or None.
+    """
+    if not origen:
+        return None
+    origen_lower = origen.lower()
+    # Don't match the Constitution itself — it has its own fallback
+    if "constitución" in origen_lower or "cpeum" in origen_lower:
+        return None
+    for keyword, url in TREATY_PDF_URLS.items():
+        if keyword in origen_lower:
+            return url
+    return None
+
 
 class ChatRequest(BaseModel):
     """Request para chat conversacional"""
@@ -5719,8 +5775,8 @@ async def chat_endpoint(request: ChatRequest):
                         if doc:
                             # Truncate texto to 2000 chars to avoid bloating SSE
                             texto_truncated = (doc.texto or "")[:2000]
-                            # Determinar pdf_url: payload de Qdrant > fallback por silo
-                            pdf_url = doc.pdf_url or PDF_FALLBACK_URLS.get(doc.silo)
+                            # Determinar pdf_url: Qdrant payload > treaty-specific > silo fallback
+                            pdf_url = doc.pdf_url or _resolve_treaty_pdf(doc.origen) or PDF_FALLBACK_URLS.get(doc.silo)
                             sources_map[cv.doc_id] = {
                                 "origen": humanize_origen(doc.origen) or "Fuente legal",
                                 "ref": doc.ref or "",
