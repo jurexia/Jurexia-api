@@ -1,0 +1,38 @@
+# ── Secrets & Environment ──────────────────────────────
+.env
+.env.*
+*.env
+.env.cloudrun.yaml
+
+# ── Python ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Tools & Scripts (dev-only, NOT deployed) ───────────
+_tools/__pycache__/
+
+# ── Debug & Temp Output ────────────────────────────────
+*.log
+audit_results.txt
+debug_output.txt
+quality_output.txt
+terminator_results.txt
+terminator_results_full.txt
+ingest_dryrun.txt
+ingest_live.txt
+test_results.txt
+
+# ── IDE ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
