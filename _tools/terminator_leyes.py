@@ -183,16 +183,26 @@ _TRANSITORIOS = re.compile(
 )
 
 # Regex para detectar encabezados de estructura
+# Improved: captures full title text including mixed-case, stops at next structure boundary
 _TITULO = re.compile(
-    r'(?:^|\n)\s*(TÍTULO\s+[IVXLCDM\d]+(?:\s+[A-ZÁÉÍÓÚÑ,\s]+)?)',
+    r'(?:^|\n)\s*'
+    r'(T[ÍI]TULO\s+(?:[IVXLCDM]+|\d+|PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|'
+    r'SÉPTIMO|OCTAVO|NOVENO|DÉCIMO|ÚNICO|PRELIMINAR)'
+    r'(?:\s+[^\n]{0,120})?)',   # Capture rest of line (up to 120 chars)
     re.IGNORECASE | re.MULTILINE
 )
 _CAPITULO = re.compile(
-    r'(?:^|\n)\s*(CAP[ÍI]TULO\s+[IVXLCDM\d]+(?:\s+[A-ZÁÉÍÓÚÑ,\s]+)?)',
+    r'(?:^|\n)\s*'
+    r'(CAP[ÍI]TULO\s+(?:[IVXLCDM]+|\d+|PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|'
+    r'SÉPTIMO|OCTAVO|NOVENO|DÉCIMO|ÚNICO|PRELIMINAR)'
+    r'(?:\s+[^\n]{0,120})?)',
     re.IGNORECASE | re.MULTILINE
 )
 _SECCION = re.compile(
-    r'(?:^|\n)\s*(SECCI[ÓO]N\s+[IVXLCDM\d]+(?:\s+[A-ZÁÉÍÓÚÑ,\s]+)?)',
+    r'(?:^|\n)\s*'
+    r'(SECCI[ÓO]N\s+(?:[IVXLCDM]+|\d+|PRIMERA|SEGUNDA|TERCERA|CUARTA|QUINTA|SEXTA|'
+    r'SÉPTIMA|OCTAVA|NOVENA|DÉCIMA|ÚNICA)'
+    r'(?:\s+[^\n]{0,120})?)',
     re.IGNORECASE | re.MULTILINE
 )
 
@@ -205,16 +215,20 @@ def _extraer_jerarquia(texto_previo: str, titulo_actual: str,
     """
     # Buscar el último Título, Capítulo y Sección en el texto previo
     for m in _TITULO.finditer(texto_previo):
-        titulo_actual = m.group(1).strip()
+        raw = m.group(1).strip()
+        # Clean: remove trailing whitespace and truncate at reasonable boundary
+        titulo_actual = re.sub(r'\s+', ' ', raw).strip()[:150]
         capitulo_actual = ""      # Reset capítulo al cambiar de título
         seccion_actual = ""       # Reset sección al cambiar de título
     
     for m in _CAPITULO.finditer(texto_previo):
-        capitulo_actual = m.group(1).strip()
+        raw = m.group(1).strip()
+        capitulo_actual = re.sub(r'\s+', ' ', raw).strip()[:150]
         seccion_actual = ""       # Reset sección al cambiar de capítulo
     
     for m in _SECCION.finditer(texto_previo):
-        seccion_actual = m.group(1).strip()
+        raw = m.group(1).strip()
+        seccion_actual = re.sub(r'\s+', ' ', raw).strip()[:150]
     
     return titulo_actual, capitulo_actual, seccion_actual
 

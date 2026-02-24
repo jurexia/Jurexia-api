@@ -470,6 +470,44 @@ def ensure_collection(qdrant: QdrantClient, collection_name: str):
     print(f"   ✅ Collection '{collection_name}' created (with dense + sparse)")
 
 
+def create_payload_indexes(qdrant: QdrantClient, collection_name: str):
+    """Create keyword indexes on payload fields for deterministic lookups."""
+    print(f"   📇 Creating payload indexes on '{collection_name}'...")
+    keyword_fields = ["ref", "entidad", "origen", "jurisdiccion", "tipo_codigo", "categoria"]
+    for field in keyword_fields:
+        try:
+            qdrant.create_payload_index(
+                collection_name=collection_name,
+                field_name=field,
+                field_schema="keyword",
+                wait=True,
+            )
+            print(f"      ✅ Index created: {field} (keyword)")
+        except Exception as e:
+            # Index might already exist
+            if "already exists" in str(e).lower():
+                print(f"      ⏭️  Index already exists: {field}")
+            else:
+                print(f"      ⚠️  Index error for {field}: {e}")
+    
+    # Integer index for articulo_num
+    try:
+        qdrant.create_payload_index(
+            collection_name=collection_name,
+            field_name="articulo_num",
+            field_schema="integer",
+            wait=True,
+        )
+        print(f"      ✅ Index created: articulo_num (integer)")
+    except Exception as e:
+        if "already exists" in str(e).lower():
+            print(f"      ⏭️  Index already exists: articulo_num")
+        else:
+            print(f"      ⚠️  Index error for articulo_num: {e}")
+    
+    print(f"   ✅ All payload indexes created")
+
+
 def delete_existing_data(qdrant: QdrantClient, collection_name: str):
     """Delete all data in the state collection (clean re-ingest)."""
     try:
@@ -535,6 +573,13 @@ async def download_pdfs(laws: list[LawDef], pdf_dir: Path) -> dict[str, Path]:
 # MAIN PIPELINE
 # ══════════════════════════════════════════════════════════════════════
 
+def _extract_article_number(ref: str) -> int | None:
+    """Extract the numeric article number from ref like 'Art. 163' → 163."""
+    import re
+    m = re.search(r'(\d+)', ref)
+    return int(m.group(1)) if m else None
+
+
 def generate_point_id(entidad: str, law_name: str, ref: str, chunk_index: int) -> str:
     """Generate deterministic UUID for a chunk."""
     raw = f"{entidad}::{law_name}::{ref}::{chunk_index}"
@@ -575,6 +620,7 @@ async def run_ingestion(estado: str, dry_run: bool = False, skip_download: bool 
     print("  PHASE 1: COLLECTION SETUP")
     print("═══════════════════════════════════════════════════════════════")
     ensure_collection(qdrant, collection)
+    create_payload_indexes(qdrant, collection)
     delete_existing_data(qdrant, collection)
     
     # Phase 2: Download PDFs
@@ -684,6 +730,7 @@ async def run_ingestion(estado: str, dry_run: bool = False, skip_download: bool 
             "titulo": art.titulo,
             "capitulo": art.capitulo,
             "seccion": art.seccion,
+            "articulo_num": _extract_article_number(art.ref),
         }
         
         # Generate BM25 sparse vector
