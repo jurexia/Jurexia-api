@@ -1,24 +1,32 @@
 steps:
-  # Paso 1: Build de la imagen Docker
+  # Paso 0: Pull imagen anterior para usar como caché de layers Docker
+  # Si no existe (primer build), falla silenciosamente y continúa
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:latest || true'
+
+  # Paso 1: Build con --cache-from (reutiliza layers de pip install si requirements.txt no cambió)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--build-arg'
+      - 'BUILDKIT_INLINE_CACHE=1'
+      - '--cache-from'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:latest'
       - '-t'
       - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:$COMMIT_SHA'
       - '-t'
       - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:latest'
       - '.'
 
-  # Paso 2: Push a Artifact Registry
+  # Paso 2: Push ambas tags a Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:$COMMIT_SHA'
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api:latest'
+      - '--all-tags'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0981303295/cloud-run-source-deploy/jurexia-api'
 
   # Paso 3: Deploy automático a Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -54,4 +62,4 @@ images:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'  # Más CPU = build más rápido
+  machineType: 'E2_HIGHCPU_8'

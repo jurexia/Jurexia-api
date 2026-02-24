@@ -1,5 +1,6 @@
 # ── Stage 1: Build ───────────────────────────────────────────────────────────
 FROM python:3.11-slim AS builder
+ARG BUILDKIT_INLINE_CACHE=1
 
 WORKDIR /app
 
@@ -17,6 +18,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
+# Enable inline cache metadata for --cache-from to work across builds
+ARG BUILDKIT_INLINE_CACHE=1
 
 WORKDIR /app
 
