@@ -3088,7 +3088,12 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
         elif r.silo == "bloque_constitucional":
-            tipo_tag = ' tipo="CONSTITUCION" prioridad="SUPREMA"'
+            # Distinguish CPEUM from treaties/conventions within bloque_constitucional
+            _o = (r.origen or "").lower()
+            if any(kw in _o for kw in ("convención", "convencion", "pacto", "protocolo", "declaración", "declaracion", "reglas", "principios", "tratado", "pidcp", "pidesc", "cedaw", "cadh", "dudh", "cat")):
+                tipo_tag = ' tipo="TRATADO_DDHH" prioridad="SUPREMA"'
+            else:
+                tipo_tag = ' tipo="CONSTITUCION" prioridad="SUPREMA"'
         elif r.silo in ("leyes_federales", "codigo_nacional"):
             tipo_tag = ' tipo="LEY_FEDERAL" prioridad="PRIMARIA"'
         
@@ -4652,7 +4657,7 @@ async def hybrid_search_multi_state(
         for r in results:
             context_parts.append(
                 f'<doc id="{r.id}" silo="{r.silo}" '
-                f'ref="{r.ref or ""}">\n{r.texto[:1500]}\n</doc>'
+                f'ref="{r.ref or ""}" origen="{r.origen or ""}">\n{r.texto[:1500]}\n</doc>'
             )
     
     context_xml = "\n".join(context_parts)
@@ -6040,7 +6045,7 @@ async def enhance_legal_text(request: EnhanceRequest):
         context_parts = []
         for result in search_results:
             context_parts.append(
-                f'<documento id="{result.id}" silo="{result.silo}" ref="{result.ref or "N/A"}">\n'
+                f'<documento id="{result.id}" silo="{result.silo}" ref="{result.ref or "N/A"}" origen="{result.origen or ""}">\n'
                 f'{result.texto[:800]}\n'
                 f'</documento>'
             )
