@@ -5279,6 +5279,13 @@ def _extract_legal_citations(text: str) -> dict:
                 "state_hint": state_hint,
             })
     
+    # ── Deduplicate article numbers across all groups ──
+    all_nums = set()
+    for group in result["articles"]:
+        all_nums.update(group["nums"])
+    print(f"   📌 CITATIONS EXTRACTED: {len(all_nums)} unique article numbers across {len(result['articles'])} groups")
+    print(f"   📌 ARTICLE NUMS: {sorted(all_nums, key=lambda x: int(x) if x.isdigit() else 0)[:30]}")
+    
     # ── 2. Registro numbers: 7-digit numbers (e.g., 2031072) ──
     # Must be 7 digits to avoid false positives with years, article numbers, etc.
     registro_pattern = _dl_re.compile(
@@ -5334,7 +5341,7 @@ async def _direct_article_lookup(
     results = []
     seen_ids = set()
     lookup_count = 0
-    MAX_LOOKUPS = 40  # Safety cap
+    MAX_LOOKUPS = 80  # Safety cap — legal documents often cite 20+ articles
     
     # ── Determine which collections to search for articles ──
     article_collections = []
@@ -5366,6 +5373,8 @@ async def _direct_article_lookup(
     
     print(f"   📌 DIRECT LOOKUP: collections={article_collections}, estado={effective_estado}")
     print(f"   📌 DIRECT LOOKUP: articles={len(citations.get('articles', []))} groups, registros={len(citations.get('registros', []))}, tesis={len(citations.get('tesis_nums', []))}")
+    found_refs = []
+    not_found_refs = []
     
     # ── 1. Direct Article Lookup ──
     for cite_group in citations.get("articles", []):
@@ -5475,6 +5484,7 @@ async def _direct_article_lookup(
                         
                         if points:
                             found_in_collection = True
+                            found_refs.append(f"Art. {art_num}")
                             break  # Found with this ref variant, skip other variants
                     except Exception as e:
                         print(f"   ⚠️ Direct lookup error for {ref_val} in {collection}: {e}")
@@ -5482,6 +5492,8 @@ async def _direct_article_lookup(
                 
                 if found_in_collection:
                     break  # Found in this collection, skip other collections
+            if not found_in_collection:
+                not_found_refs.append(art_num)
     
     # ── 2. Direct Jurisprudencia Lookup by Registro ──
     juris_collection = FIXED_SILOS["jurisprudencia"]  # jurisprudencia_nacional
@@ -5570,11 +5582,12 @@ async def _direct_article_lookup(
         except Exception as e:
             print(f"   ⚠️ Direct lookup error for tesis {tesis_num}: {e}")
     
-    print(f"   📌 DIRECT LOOKUP: Found {len(results)} items from "
-          f"{len(citations.get('articles', []))} article groups, "
-          f"{len(citations.get('registros', []))} registros, "
-          f"{len(citations.get('tesis_nums', []))} tesis numbers "
-          f"({lookup_count} queries executed)")
+    print(f"   📌 DIRECT LOOKUP SUMMARY: Found {len(results)} items "
+          f"({lookup_count}/{MAX_LOOKUPS} queries used)")
+    if found_refs:
+        print(f"   ✅ FOUND: {found_refs[:20]}")
+    if not_found_refs:
+        print(f"   ❌ NOT FOUND: {not_found_refs[:20]}")
     
     return results
 
@@ -5593,7 +5606,7 @@ async def _smart_rag_for_document(
     import re
     
     # Use more of the document (up to 15K chars) to capture fundamentos de derecho
-    full_text = doc_content[:15000]
+    full_text = doc_content[:30000]
     
     # ── Extract articles cited ──
     articulos = re.findall(
@@ -5924,10 +5937,10 @@ async def chat_endpoint(request: ChatRequest):
                     doc_content = last_user_message[doc_start_idx:doc_end_idx]
                 else:
                     # Capture up to 20K chars to include fundamentos de derecho
-                    doc_content = last_user_message[doc_start_idx:doc_start_idx + 20000]
+                    doc_content = last_user_message[doc_start_idx:doc_start_idx + 30000]
             else:
                 # No markers — use full message (up to 20K chars)
-                doc_content = last_user_message[:20000]
+                doc_content = last_user_message[:30000]
             
             if is_sentencia:
                 # ─────────────────────────────────────────────────────────────
@@ -5997,7 +6010,7 @@ async def chat_endpoint(request: ChatRequest):
                 import asyncio
                 
                 # Direct Lookup: extract citations from sentencia and look up by filter
-                sentencia_citations = _extract_legal_citations(doc_content[:15000])
+                sentencia_citations = _extract_legal_citations(doc_content[:30000])
                 
                 direct_task = _direct_article_lookup(sentencia_citations, request.estado)
                 
@@ -6051,7 +6064,7 @@ async def chat_endpoint(request: ChatRequest):
                 print("   📄 CENTINELA 3-LAYER — Starting layered retrieval for document analysis")
                 
                 # Use full document content (up to 15K chars), not just 1500
-                full_doc_for_rag = doc_content[:15000]
+                full_doc_for_rag = doc_content[:30000]
                 
                 # Layer 1: Direct Lookup — parse citations and look up by filter
                 citations = _extract_legal_citations(full_doc_for_rag)
