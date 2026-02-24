@@ -5774,14 +5774,14 @@ async def chat_endpoint(request: ChatRequest):
                     for cv in validation.citations:
                         doc = doc_id_map.get(cv.doc_id)
                         if doc:
-                            # Send full texto for proper tesis display
-                            texto_truncated = (doc.texto or "")[:8000]
+                            # Send full texto for proper tesis display (no truncation)
+                            texto_full = doc.texto or ""
                             # Determinar pdf_url: Qdrant payload > treaty-specific > silo fallback
                             pdf_url = doc.pdf_url or _resolve_treaty_pdf(doc.origen) or PDF_FALLBACK_URLS.get(doc.silo)
                             sources_map[cv.doc_id] = {
                                 "origen": humanize_origen(doc.origen) or "Fuente legal",
                                 "ref": doc.ref or "",
-                                "texto": texto_truncated,
+                                "texto": texto_full,
                                 "pdf_url": pdf_url or None,
                                 "silo": doc.silo,
                             }
@@ -6367,7 +6367,7 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
                                 sources_map[cv.doc_id] = {
                                     "origen": humanize_origen(doc.origen) or "Fuente legal",
                                     "ref": doc.ref or "",
-                                    "texto": (doc.texto or "")[:8000]
+                                    "texto": doc.texto or ""
                                 }
                         meta = json.dumps({
                             "valid": validation.valid_count,
