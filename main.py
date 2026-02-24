@@ -5784,6 +5784,7 @@ async def chat_endpoint(request: ChatRequest):
                                 "texto": texto_full,
                                 "pdf_url": pdf_url or None,
                                 "silo": doc.silo,
+                                "entidad": doc.entidad or None,
                             }
                         else:
                             sources_map[cv.doc_id] = {
