@@ -13,8 +13,8 @@ dist/
 build/
 *.egg
 
-# ── Tools & Scripts (dev-only, NOT deployed) ───────────
-_tools/__pycache__/
+# ── Tools & Scripts (dev-only, contain hardcoded keys) ──
+_tools/
 
 # ── Debug & Temp Output ────────────────────────────────
 *.log
