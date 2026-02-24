@@ -5265,25 +5265,62 @@ async def chat_endpoint(request: ChatRequest):
             _last_msg_for_sec = msg.content
             break
     if _last_msg_for_sec:
-        _alert_type, _alert_severity = _check_security_patterns(_last_msg_for_sec)
-        if _alert_type:
-            _log_security_alert(
-                user_id=request.user_id or "anonymous",
-                user_email="",
-                query=_last_msg_for_sec,
-                alert_type=_alert_type,
-                severity=_alert_severity,
-            )
-            # For critical severity, block the request entirely
-            if _alert_severity == "critical":
-                return StreamingResponse(
-                    iter([json.dumps({
-                        "error": "security_blocked",
-                        "message": "Tu consulta no puede ser procesada. Si crees que esto es un error, contacta a soporte.",
-                    })]),
-                    status_code=403,
-                    media_type="application/json",
+        # ── Strip attached document content before security scan ──
+        # Legal documents naturally contain words like "instrucciones", "sistema",
+        # "código" etc. that trigger false positives. Only scan the user's question.
+        _sec_text = _last_msg_for_sec
+        # Remove DOCUMENTO content
+        _doc_start = _sec_text.find("<!-- DOCUMENTO_INICIO -->")
+        if _doc_start != -1:
+            _doc_end = _sec_text.find("<!-- DOCUMENTO_FIN -->")
+            if _doc_end != -1:
+                _sec_text = _sec_text[:_doc_start] + _sec_text[_doc_end + len("<!-- DOCUMENTO_FIN -->"):]
+            else:
+                _sec_text = _sec_text[:_doc_start]
+        # Remove SENTENCIA content
+        _sen_start = _sec_text.find("<!-- SENTENCIA_INICIO -->")
+        if _sen_start != -1:
+            _sen_end = _sec_text.find("<!-- SENTENCIA_FIN -->")
+            if _sen_end != -1:
+                _sec_text = _sec_text[:_sen_start] + _sec_text[_sen_end + len("<!-- SENTENCIA_FIN -->"):]
+            else:
+                _sec_text = _sec_text[:_sen_start]
+        # Remove any remaining raw document block (fallback: strip everything after [DOCUMENTO ADJUNTO: ...])
+        _adj_marker = _sec_text.find("[DOCUMENTO ADJUNTO:")
+        if _adj_marker != -1:
+            # Keep the marker line but strip the massive document text after it
+            _newline_after = _sec_text.find("\n", _adj_marker)
+            if _newline_after != -1:
+                # Find where the actual question starts (after all the doc text)
+                # Look for the user's question which is typically before the marker
+                _before_marker = _sec_text[:_adj_marker].strip()
+                _after_marker_line = _sec_text[_adj_marker:_newline_after].strip()
+                # The user prompt is usually AFTER the [DOCUMENTO ADJUNTO:...] line
+                # but document text follows. We keep only the first 500 chars after marker
+                _remaining = _sec_text[_newline_after:].strip()
+                _sec_text = _before_marker + " " + _after_marker_line + " " + _remaining[:500]
+        
+        _sec_text = _sec_text.strip()
+        if _sec_text:
+            _alert_type, _alert_severity = _check_security_patterns(_sec_text)
+            if _alert_type:
+                _log_security_alert(
+                    user_id=request.user_id or "anonymous",
+                    user_email="",
+                    query=_sec_text[:500],
+                    alert_type=_alert_type,
+                    severity=_alert_severity,
                 )
+                # For critical severity, block the request entirely
+                if _alert_severity == "critical":
+                    return StreamingResponse(
+                        iter([json.dumps({
+                            "error": "security_blocked",
+                            "message": "Tu consulta no puede ser procesada. Si crees que esto es un error, contacta a soporte.",
+                        })]),
+                        status_code=403,
+                        media_type="application/json",
+                    )
 
     # ─────────────────────────────────────────────────────────────────────
     # QUOTA CHECK: Server-side enforcement via Supabase consume_query RPC
