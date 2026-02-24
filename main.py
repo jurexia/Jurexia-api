@@ -4127,12 +4127,12 @@ async def hybrid_search_all_silos(
                 silos_to_search.append(ESTADO_SILO[normalized_estado])
                 print(f"   ⚖️ FUERO: Estatal → {ESTADO_SILO[normalized_estado]} + jurisprudencia_nacional")
             else:
-                silos_to_search.append(LEGACY_ESTATAL_SILO)
-                print(f"   ⚖️ FUERO: Estatal → {LEGACY_ESTATAL_SILO} (legacy) + jurisprudencia_nacional")
+                # Unknown state → search ALL state silos
+                silos_to_search.extend(ESTADO_SILO.values())
+                print(f"   ⚖️ FUERO: Estatal → all state silos + jurisprudencia_nacional")
         else:
             # Fuero estatal sin estado seleccionado → buscar TODOS los estatales
             silos_to_search.extend(ESTADO_SILO.values())
-            silos_to_search.append(LEGACY_ESTATAL_SILO)
             print(f"   ⚖️ FUERO: Estatal (sin estado) → todos los silos estatales + jurisprudencia_nacional")
     else:
         # Sin fuero = comportamiento original: TODOS los silos
@@ -4143,12 +4143,12 @@ async def hybrid_search_all_silos(
                 silos_to_search.append(ESTADO_SILO[normalized_estado])
                 print(f"   📍 Estado '{normalized_estado}' → silo dedicado: {ESTADO_SILO[normalized_estado]}")
             else:
-                silos_to_search.append(LEGACY_ESTATAL_SILO)
-                print(f"   📍 Estado '{estado}' → fallback a silo legacy: {LEGACY_ESTATAL_SILO}")
+                # Unknown state → search all state silos
+                silos_to_search.extend(ESTADO_SILO.values())
+                print(f"   📍 Estado '{estado}' → all state silos")
         else:
             silos_to_search.extend(ESTADO_SILO.values())
-            silos_to_search.append(LEGACY_ESTATAL_SILO)
-            print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + 1 + len(FIXED_SILOS)} silos")
+            print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + len(FIXED_SILOS)} silos")
     
     tasks = []
     for silo_name in silos_to_search:
@@ -5340,10 +5340,32 @@ async def _direct_article_lookup(
     article_collections = []
     effective_estado = normalize_estado(estado) if estado else None
     
+    # If no estado from request, try to infer from citations
+    if not effective_estado:
+        for cite_group in citations.get("articles", []):
+            if cite_group.get("state_hint"):
+                effective_estado = cite_group["state_hint"]
+                print(f"   📌 DIRECT LOOKUP: Inferred estado from citations: {effective_estado}")
+                break
+    
+    # Priority 1: State-specific collection (leyes_queretaro, leyes_cdmx, etc.)
     if effective_estado and effective_estado in ESTADO_SILO:
         article_collections.append(ESTADO_SILO[effective_estado])
-    article_collections.append(LEGACY_ESTATAL_SILO)  # leyes_estatales
+    
+    # Priority 2: Try ALL state collections if no specific state
+    if not article_collections:
+        for estado_key, silo_name in ESTADO_SILO.items():
+            if silo_name not in article_collections:
+                article_collections.append(silo_name)
+    
+    # Priority 3: Federal laws (always search)
     article_collections.append(FIXED_SILOS["federal"])  # leyes_federales
+    
+    # NOTE: LEGACY_ESTATAL_SILO (leyes_estatales) intentionally NOT added
+    # — collection no longer exists; data lives in state-specific silos
+    
+    print(f"   📌 DIRECT LOOKUP: collections={article_collections}, estado={effective_estado}")
+    print(f"   📌 DIRECT LOOKUP: articles={len(citations.get('articles', []))} groups, registros={len(citations.get('registros', []))}, tesis={len(citations.get('tesis_nums', []))}")
     
     # ── 1. Direct Article Lookup ──
     for cite_group in citations.get("articles", []):
