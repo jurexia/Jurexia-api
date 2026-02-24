@@ -5355,38 +5355,84 @@ async def _direct_article_lookup(
                 break
             lookup_count += 1
             
-            # Build filter: ref contains "Artículo {num}"
+            # Build filter: ref matching article number
+            # Qdrant stores ref in various formats depending on the ingestion script:
+            # - "Art. 163" (Querétaro ingestion)
+            # - "Artículo 163" (some other states)
+            # - "ARTÍCULO 163" (uppercase variant)
             ref_variants = [
-                f"Artículo {art_num}",
-                f"ARTÍCULO {art_num}",
-                f"Articulo {art_num}",
-                f"ARTICULO {art_num}",
+                f"Art. {art_num}",         # Querétaro/CDMX format
+                f"Artículo {art_num}",     # Full word format
+                f"ARTÍCULO {art_num}",     # Uppercase full word
+                f"Articulo {art_num}",     # No accent
+                f"ARTICULO {art_num}",     # Uppercase no accent
+                f"ART. {art_num}",         # Uppercase abbreviated
             ]
             
             for collection in article_collections:
                 if len(results) > 50:  # Safety cap on total results
                     break
-                    
+                
+                found_in_collection = False
                 for ref_val in ref_variants:
                     try:
                         filter_conditions = [
                             FieldCondition(key="ref", match=MatchValue(value=ref_val))
                         ]
                         
-                        # Add state filter if available
+                        # Add state filter if available — try multiple formats
+                        # Qdrant stores entidad as: "QUERETARO" (ingestion) or "Querétaro" (some)
                         if state_hint:
-                            state_normalized = state_hint.replace("_", " ").title()
-                            filter_conditions.append(
-                                FieldCondition(key="entidad", match=MatchValue(value=state_normalized))
+                            # Try the raw state_hint first (e.g., "QUERETARO")
+                            state_variants_to_try = [
+                                state_hint,                                    # QUERETARO
+                                state_hint.replace("_", " ").title(),          # Queretaro
+                                state_hint.replace("_", " "),                  # QUERETARO (same if no _)
+                                state_hint.replace("_", " ").upper(),          # QUERETARO
+                            ]
+                            # Add accent variants for known states
+                            if "QUERETARO" in state_hint.upper():
+                                state_variants_to_try.extend(["Querétaro", "QUERÉTARO", "QUERETARO"])
+                            if "CDMX" in state_hint.upper() or "CIUDAD" in state_hint.upper():
+                                state_variants_to_try.extend(["CDMX", "Ciudad de México", "CIUDAD_DE_MEXICO"])
+                            
+                            # Remove duplicates while preserving order
+                            seen_states = set()
+                            unique_state_variants = []
+                            for sv in state_variants_to_try:
+                                if sv not in seen_states:
+                                    seen_states.add(sv)
+                                    unique_state_variants.append(sv)
+                            
+                            # Try each state variant
+                            for state_val in unique_state_variants:
+                                try:
+                                    state_filter = [
+                                        FieldCondition(key="ref", match=MatchValue(value=ref_val)),
+                                        FieldCondition(key="entidad", match=MatchValue(value=state_val)),
+                                    ]
+                                    points, _ = await qdrant_client.scroll(
+                                        collection_name=collection,
+                                        scroll_filter=Filter(must=state_filter),
+                                        limit=3,
+                                        with_payload=True,
+                                        with_vectors=False,
+                                    )
+                                    if points:
+                                        break
+                                except Exception:
+                                    continue
+                            else:
+                                points = []
+                        else:
+                            # No state filter — just search by ref
+                            points, _ = await qdrant_client.scroll(
+                                collection_name=collection,
+                                scroll_filter=Filter(must=filter_conditions),
+                                limit=3,
+                                with_payload=True,
+                                with_vectors=False,
                             )
-                        
-                        points, _ = await qdrant_client.scroll(
-                            collection_name=collection,
-                            scroll_filter=Filter(must=filter_conditions),
-                            limit=3,  # Max 3 chunks per article
-                            with_payload=True,
-                            with_vectors=False,
-                        )
                         
                         for point in points:
                             pid = str(point.id)
@@ -5406,14 +5452,14 @@ async def _direct_article_lookup(
                                 ))
                         
                         if points:
-                            # Found in this collection, no need to check others for this ref
-                            break
+                            found_in_collection = True
+                            break  # Found with this ref variant, skip other variants
                     except Exception as e:
                         print(f"   ⚠️ Direct lookup error for {ref_val} in {collection}: {e}")
                         continue
                 
-                if any(r.ref and art_num in r.ref for r in results):
-                    break  # Found, skip other collections
+                if found_in_collection:
+                    break  # Found in this collection, skip other collections
     
     # ── 2. Direct Jurisprudencia Lookup by Registro ──
     juris_collection = FIXED_SILOS["jurisprudencia"]  # jurisprudencia_nacional
@@ -5855,9 +5901,11 @@ async def chat_endpoint(request: ChatRequest):
                 if doc_end_idx != -1:
                     doc_content = last_user_message[doc_start_idx:doc_end_idx]
                 else:
-                    doc_content = last_user_message[doc_start_idx:doc_start_idx + 5000]
+                    # Capture up to 20K chars to include fundamentos de derecho
+                    doc_content = last_user_message[doc_start_idx:doc_start_idx + 20000]
             else:
-                doc_content = last_user_message[:3000]
+                # No markers — use full message (up to 20K chars)
+                doc_content = last_user_message[:20000]
             
             if is_sentencia:
                 # ─────────────────────────────────────────────────────────────
