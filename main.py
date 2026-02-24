@@ -5214,6 +5214,419 @@ def _log_security_alert(user_id: str, user_email: str, query: str, alert_type: s
         print(f"⚠️ Failed to log security alert: {e}")
 
 # ══════════════════════════════════════════════════════════════════════════════
+# DIRECT ARTICLE LOOKUP — Deterministic Retrieval for Cited Articles & Tesis
+# ══════════════════════════════════════════════════════════════════════════════
+
+import re as _dl_re
+
+def _extract_legal_citations(text: str) -> dict:
+    """
+    Parse a legal document text to extract specific citations for direct lookup.
+    
+    Returns dict with:
+    - articles: list of {"nums": ["163", "8"], "law_hint": "Código Civil", "state_hint": "Querétaro"}
+    - registros: list of str (e.g., ["2031072", "2028456"])
+    - tesis_nums: list of str (e.g., ["P./J. 15/2025 (11a.)"])
+    """
+    result = {"articles": [], "registros": [], "tesis_nums": []}
+    
+    # ── 1. Article citations: "artículo(s) 163, 8 y 2110 del Código Civil..." ──
+    # Pattern: captures article numbers + the law name that follows "del/de la/de"
+    art_pattern = _dl_re.compile(
+        r'(?:art[ií]culos?|arts?\.?)\s+'
+        r'([\d]+(?:\s*(?:,\s*|\s+y\s+|\s+al?\s+)\s*[\d]+)*)'  # article numbers
+        r'(?:\s*(?:,?\s*(?:fracci[oó]n(?:es)?\s+[IVXLCDM]+(?:\s*[,y]\s*[IVXLCDM]+)*))?)?'  # optional fractions
+        r'(?:\s+(?:del?|de\s+la|de\s+los?)\s+'
+        r'((?:C[oó]digo|Ley|Constituci[oó]n|Reglamento)[^.;,\n]{3,80}))?',  # law name
+        _dl_re.IGNORECASE
+    )
+    
+    for match in art_pattern.finditer(text):
+        nums_raw = match.group(1)
+        law_hint = match.group(2)
+        
+        # Parse individual numbers from "163, 8 y 2110" or "14 al 16"
+        nums = _dl_re.findall(r'\d+', nums_raw)
+        if nums:
+            # Detect state from nearby context (within 200 chars after the match)
+            state_hint = None
+            context_after = text[match.end():match.end() + 200]
+            context_before = text[max(0, match.start() - 200):match.start()]
+            nearby = context_before + " " + (law_hint or "") + " " + context_after
+            
+            for estado in ESTADOS_MEXICO:
+                estado_variants = [
+                    estado.replace("_", " ").title(),
+                    estado.replace("_", " "),
+                    estado,
+                ]
+                # Also handle CDMX / Ciudad de México
+                if estado == "CIUDAD_DE_MEXICO":
+                    estado_variants.extend(["CDMX", "Ciudad de México", "Ciudad de Mexico"])
+                if estado == "QUERETARO":
+                    estado_variants.extend(["Querétaro"])
+                    
+                for variant in estado_variants:
+                    if variant.lower() in nearby.lower():
+                        state_hint = estado
+                        break
+                if state_hint:
+                    break
+            
+            result["articles"].append({
+                "nums": nums[:15],  # Cap at 15 articles per citation group
+                "law_hint": (law_hint or "").strip()[:120],
+                "state_hint": state_hint,
+            })
+    
+    # ── 2. Registro numbers: 7-digit numbers (e.g., 2031072) ──
+    # Must be 7 digits to avoid false positives with years, article numbers, etc.
+    registro_pattern = _dl_re.compile(
+        r'(?:registro\s*(?:digital\s*)?(?:n[uú]m\.?\s*)?:?\s*)?'
+        r'\b(2\d{6})\b'  # 7 digits starting with 2 (all SCJN registros start with 2)
+    )
+    registros_found = set()
+    for match in registro_pattern.finditer(text):
+        num = match.group(1)
+        # Avoid false positives: check it's not a year (2020-2030) or phone-like
+        if not (2020000 <= int(num) <= 2030000):  # Not a year range
+            registros_found.add(num)
+    result["registros"] = list(registros_found)[:20]  # Cap at 20
+    
+    # ── 3. Tesis numbers: "P./J. 15/2025 (11a.)", "I.1o.C.15 K (10a.)", etc. ──
+    tesis_pattern = _dl_re.compile(
+        r'(?:tesis\s*:?\s*)?'
+        r'([PIXV]+[./]\s*[J]?\s*\.?\s*\d+/\d{4}'  # Base: P./J. 15/2025 or I.3o.A.5/2024
+        r'(?:\s*\(\d{1,2}a?\.\))?)',  # Optional epoch: (11a.)
+        _dl_re.IGNORECASE
+    )
+    tesis_found = set()
+    for match in tesis_pattern.finditer(text):
+        tesis_found.add(match.group(1).strip())
+    
+    # Also catch more complex TCC tesis patterns: "I.1o.C.15 K (10a.)"
+    tesis_pattern_2 = _dl_re.compile(
+        r'([IVXLC]+\.\d+[oa]\.(?:[A-Z]\.)*\d+\s*[A-Z]*'
+        r'(?:\s*\(\d{1,2}a?\.\))?)',
+        _dl_re.IGNORECASE  
+    )
+    for match in tesis_pattern_2.finditer(text):
+        tesis_found.add(match.group(1).strip())
+    
+    result["tesis_nums"] = list(tesis_found)[:20]  # Cap at 20
+    
+    return result
+
+
+async def _direct_article_lookup(
+    citations: dict,
+    estado: Optional[str] = None,
+) -> List[SearchResult]:
+    """
+    Deterministic lookup: query Qdrant by exact payload filters.
+    Returns articles and tesis with score=1.0 (exact match = max confidence).
+    
+    For articles: filters by ref + entidad in leyes collections
+    For tesis: filters by registro or tesis in jurisprudencia_nacional
+    """
+    from qdrant_client.models import FieldCondition, MatchValue, MatchText
+    
+    results = []
+    seen_ids = set()
+    lookup_count = 0
+    MAX_LOOKUPS = 40  # Safety cap
+    
+    # ── Determine which collections to search for articles ──
+    article_collections = []
+    effective_estado = normalize_estado(estado) if estado else None
+    
+    if effective_estado and effective_estado in ESTADO_SILO:
+        article_collections.append(ESTADO_SILO[effective_estado])
+    article_collections.append(LEGACY_ESTATAL_SILO)  # leyes_estatales
+    article_collections.append(FIXED_SILOS["federal"])  # leyes_federales
+    
+    # ── 1. Direct Article Lookup ──
+    for cite_group in citations.get("articles", []):
+        law_hint = cite_group.get("law_hint", "")
+        state_hint = cite_group.get("state_hint") or effective_estado
+        
+        for art_num in cite_group["nums"]:
+            if lookup_count >= MAX_LOOKUPS:
+                break
+            lookup_count += 1
+            
+            # Build filter: ref contains "Artículo {num}"
+            ref_variants = [
+                f"Artículo {art_num}",
+                f"ARTÍCULO {art_num}",
+                f"Articulo {art_num}",
+                f"ARTICULO {art_num}",
+            ]
+            
+            for collection in article_collections:
+                if len(results) > 50:  # Safety cap on total results
+                    break
+                    
+                for ref_val in ref_variants:
+                    try:
+                        filter_conditions = [
+                            FieldCondition(key="ref", match=MatchValue(value=ref_val))
+                        ]
+                        
+                        # Add state filter if available
+                        if state_hint:
+                            state_normalized = state_hint.replace("_", " ").title()
+                            filter_conditions.append(
+                                FieldCondition(key="entidad", match=MatchValue(value=state_normalized))
+                            )
+                        
+                        points, _ = await qdrant_client.scroll(
+                            collection_name=collection,
+                            scroll_filter=Filter(must=filter_conditions),
+                            limit=3,  # Max 3 chunks per article
+                            with_payload=True,
+                            with_vectors=False,
+                        )
+                        
+                        for point in points:
+                            pid = str(point.id)
+                            if pid not in seen_ids:
+                                seen_ids.add(pid)
+                                payload = point.payload or {}
+                                results.append(SearchResult(
+                                    id=pid,
+                                    score=1.0,  # Exact match = max confidence
+                                    texto=payload.get("texto", payload.get("text", "")),
+                                    ref=payload.get("ref"),
+                                    origen=payload.get("origen"),
+                                    jurisdiccion=payload.get("jurisdiccion"),
+                                    entidad=payload.get("entidad", payload.get("estado")),
+                                    silo=collection,
+                                    pdf_url=payload.get("pdf_url", payload.get("url_pdf")),
+                                ))
+                        
+                        if points:
+                            # Found in this collection, no need to check others for this ref
+                            break
+                    except Exception as e:
+                        print(f"   ⚠️ Direct lookup error for {ref_val} in {collection}: {e}")
+                        continue
+                
+                if any(r.ref and art_num in r.ref for r in results):
+                    break  # Found, skip other collections
+    
+    # ── 2. Direct Jurisprudencia Lookup by Registro ──
+    juris_collection = FIXED_SILOS["jurisprudencia"]  # jurisprudencia_nacional
+    
+    for registro in citations.get("registros", []):
+        if lookup_count >= MAX_LOOKUPS:
+            break
+        lookup_count += 1
+        
+        try:
+            # Registro can be stored as int or string
+            for reg_val in [registro, int(registro)]:
+                points, _ = await qdrant_client.scroll(
+                    collection_name=juris_collection,
+                    scroll_filter=Filter(must=[
+                        FieldCondition(key="registro", match=MatchValue(value=reg_val))
+                    ]),
+                    limit=3,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                if points:
+                    break
+            
+            for point in points:
+                pid = str(point.id)
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
+                    payload = point.payload or {}
+                    results.append(SearchResult(
+                        id=pid,
+                        score=1.0,
+                        texto=payload.get("texto", payload.get("text", "")),
+                        ref=payload.get("ref", payload.get("rubro")),
+                        origen=payload.get("origen"),
+                        jurisdiccion=payload.get("jurisdiccion"),
+                        entidad=payload.get("entidad"),
+                        silo=juris_collection,
+                        pdf_url=payload.get("url_pdf"),
+                    ))
+        except Exception as e:
+            print(f"   ⚠️ Direct lookup error for registro {registro}: {e}")
+    
+    # ── 3. Direct Jurisprudencia Lookup by Tesis Number ──
+    for tesis_num in citations.get("tesis_nums", []):
+        if lookup_count >= MAX_LOOKUPS:
+            break
+        lookup_count += 1
+        
+        try:
+            # Try both "tesis" and "tesis_num" field names
+            points = []
+            for field_name in ["tesis", "tesis_num"]:
+                try:
+                    pts, _ = await qdrant_client.scroll(
+                        collection_name=juris_collection,
+                        scroll_filter=Filter(must=[
+                            FieldCondition(key=field_name, match=MatchValue(value=tesis_num))
+                        ]),
+                        limit=3,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                    if pts:
+                        points = pts
+                        break
+                except Exception:
+                    continue
+            
+            for point in points:
+                pid = str(point.id)
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
+                    payload = point.payload or {}
+                    results.append(SearchResult(
+                        id=pid,
+                        score=1.0,
+                        texto=payload.get("texto", payload.get("text", "")),
+                        ref=payload.get("ref", payload.get("rubro")),
+                        origen=payload.get("origen"),
+                        jurisdiccion=payload.get("jurisdiccion"),
+                        entidad=payload.get("entidad"),
+                        silo=juris_collection,
+                        pdf_url=payload.get("url_pdf"),
+                    ))
+        except Exception as e:
+            print(f"   ⚠️ Direct lookup error for tesis {tesis_num}: {e}")
+    
+    print(f"   📌 DIRECT LOOKUP: Found {len(results)} items from "
+          f"{len(citations.get('articles', []))} article groups, "
+          f"{len(citations.get('registros', []))} registros, "
+          f"{len(citations.get('tesis_nums', []))} tesis numbers "
+          f"({lookup_count} queries executed)")
+    
+    return results
+
+
+async def _smart_rag_for_document(
+    doc_content: str,
+    estado: Optional[str] = None,
+    fuero: Optional[str] = None,
+    top_k: int = 15,
+) -> List[SearchResult]:
+    """
+    Smart RAG: Extract legal themes from a document and run 3 parallel
+    targeted searches (legislation + jurisprudencia + constitutional).
+    Same proven pattern as the SMART RAG for sentencias.
+    """
+    import re
+    
+    # Use more of the document (up to 15K chars) to capture fundamentos de derecho
+    full_text = doc_content[:15000]
+    
+    # ── Extract articles cited ──
+    articulos = re.findall(
+        r'(?:art[ií]culo|art\.?)\s*(\d+[\w°]*(?:\s*(?:,|y|al)\s*\d+[\w°]*)*)',
+        full_text, re.IGNORECASE
+    )
+    
+    # ── Extract laws/codes mentioned ──
+    leyes_patterns = [
+        r'(?:Ley\s+(?:de|del|Nacional|Federal|General|Orgánica|para)\s+[\w\s]+?)(?:\.|\ |,|;)',
+        r'(?:Código\s+(?:Penal|Civil|Nacional|de\s+\w+|Urbano)[\w\s]*?)(?:\.|\ |,|;)',
+        r'(?:Constitución\s+Política[\w\s]*)',
+        r'CPEUM',
+        r'(?:Ley\s+de\s+Amparo)',
+    ]
+    leyes_encontradas = []
+    for pat in leyes_patterns:
+        matches = re.findall(pat, full_text, re.IGNORECASE)
+        leyes_encontradas.extend([m.strip() for m in matches[:5]])
+    
+    # ── Extract key legal themes ──
+    temas_patterns = [
+        r'(?:juicio\s+de\s+amparo)',
+        r'(?:recurso\s+de\s+revisión)',
+        r'(?:acción\s+de\s+nulidad)',
+        r'(?:principio\s+(?:pro persona|de legalidad|de retroactividad))',
+        r'(?:control\s+(?:de convencionalidad|difuso|concentrado))',
+        r'(?:derechos humanos)',
+        r'(?:debido proceso)',
+        r'(?:cosa juzgada)',
+        r'(?:interés\s+(?:jurídico|legítimo|superior))',
+        r'(?:competencia\s+(?:territorial|por materia))',
+        r'(?:prescripción)',
+        r'(?:caducidad)',
+        r'(?:daños?\s+(?:y\s+perjuicios|moral(?:es)?))',
+        r'(?:obligaciones?\s+(?:de\s+dar|de\s+hacer|alimentarias?))',
+        r'(?:divorcio|guarda\s+y\s+custodia|pensión\s+alimenticia)',
+        r'(?:contrato|arrendamiento|compraventa|mandato)',
+        r'(?:nulidad|rescisión|resolución)',
+    ]
+    temas = []
+    for pat in temas_patterns:
+        match = re.search(pat, full_text, re.IGNORECASE)
+        if match:
+            temas.append(match.group())
+    
+    articulos_str = ", ".join(set(articulos[:10]))
+    leyes_str = ", ".join(set(leyes_encontradas[:8]))
+    temas_str = ", ".join(set(temas[:6]))
+    
+    # ── Build targeted queries ──
+    query_legislacion = f"fundamento legal artículos {articulos_str} {leyes_str}".strip()
+    query_jurisprudencia = f"jurisprudencia tesis {temas_str} {leyes_str}".strip()
+    query_constitucional = f"constitución derechos humanos principio pro persona debido proceso artículos 1 14 16 17 CPEUM"
+    
+    print(f"   🧠 SMART RAG DOCS — Queries:")
+    print(f"      Legislación: {query_legislacion[:120]}...")
+    print(f"      Jurisprudencia: {query_jurisprudencia[:120]}...")
+    print(f"      Artículos detectados: {articulos_str[:100]}")
+    print(f"      Leyes detectadas: {leyes_str[:100]}")
+    print(f"      Temas detectados: {temas_str[:100]}")
+    
+    # ── Execute 3 parallel searches ──
+    results_leg, results_juris, results_const = await asyncio.gather(
+        hybrid_search_all_silos(
+            query=query_legislacion,
+            estado=estado,
+            top_k=top_k,
+            fuero=fuero,
+        ),
+        hybrid_search_all_silos(
+            query=query_jurisprudencia,
+            estado=estado,
+            top_k=top_k,
+            fuero=fuero,
+        ),
+        hybrid_search_all_silos(
+            query=query_constitucional,
+            estado=estado,
+            top_k=10,
+            fuero=fuero,
+        ),
+    )
+    
+    # ── Merge and deduplicate ──
+    seen_ids = set()
+    merged = []
+    for result_set in [results_leg, results_juris, results_const]:
+        for r in result_set:
+            rid = r.id if hasattr(r, 'id') else str(r)
+            if rid not in seen_ids:
+                seen_ids.add(rid)
+                merged.append(r)
+    
+    print(f"   🧠 SMART RAG DOCS — Total: {len(merged)} docs únicos "
+          f"(Leg: {len(results_leg)}, Juris: {len(results_juris)}, Const: {len(results_const)})")
+    
+    return merged
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: CHAT (STREAMING SSE CON THINKING MODE + RAG)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -5510,9 +5923,15 @@ async def chat_endpoint(request: ChatRequest):
                 print(f"      Leyes detectadas: {leyes_str[:100]}")
                 print(f"      Temas detectados: {temas_str[:100]}")
                 
-                # Ejecutar 3 búsquedas en paralelo
+                # Ejecutar 3 búsquedas semánticas + Direct Lookup en paralelo
                 import asyncio
-                results_legislacion, results_jurisprudencia, results_constitucional = await asyncio.gather(
+                
+                # Direct Lookup: extract citations from sentencia and look up by filter
+                sentencia_citations = _extract_legal_citations(doc_content[:15000])
+                
+                direct_task = _direct_article_lookup(sentencia_citations, request.estado)
+                
+                results_legislacion, results_jurisprudencia, results_constitucional, direct_results = await asyncio.gather(
                     hybrid_search_all_silos(
                         query=query_legislacion,
                         estado=request.estado,
@@ -5531,11 +5950,18 @@ async def chat_endpoint(request: ChatRequest):
                         top_k=10,
                         fuero=request.fuero,
                     ),
+                    direct_task,
                 )
                 
-                # Merge results, deduplicando por ID
+                # Merge results: Direct Lookup first (score=1.0), then semantic
                 seen_ids = set()
                 search_results = []
+                # Priority 1: Direct Lookup results (exact matches)
+                for r in direct_results:
+                    if r.id not in seen_ids:
+                        seen_ids.add(r.id)
+                        search_results.append(r)
+                # Priority 2: Semantic search results
                 for result_set in [results_legislacion, results_jurisprudencia, results_constitucional]:
                     for r in result_set:
                         rid = r.id if hasattr(r, 'id') else str(r)
@@ -5543,16 +5969,46 @@ async def chat_endpoint(request: ChatRequest):
                             seen_ids.add(rid)
                             search_results.append(r)
                 
-                print(f"   ⚖️ SMART RAG — Total: {len(search_results)} docs únicos")
-                print(f"      Legislación: {len(results_legislacion)}, Jurisprudencia: {len(results_jurisprudencia)}, Constitucional: {len(results_constitucional)}")
+                print(f"   ⚖️ SMART RAG + DIRECT — Total: {len(search_results)} docs únicos")
+                print(f"      Direct: {len(direct_results)}, Legislación: {len(results_legislacion)}, Jurisprudencia: {len(results_jurisprudencia)}, Constitucional: {len(results_constitucional)}")
             else:
-                search_query = f"análisis jurídico: {doc_content[:1500]}"
-                search_results = await hybrid_search_all_silos(
-                    query=search_query,
+                # ─────────────────────────────────────────────────────────────
+                # 3-LAYER RETRIEVAL for document analysis (Centinela mode)
+                # Layer 1: Direct Article Lookup (exact filter queries)
+                # Layer 2: Smart RAG (3 parallel semantic queries)
+                # Layer 3: Merge + deduplicate
+                # ─────────────────────────────────────────────────────────────
+                print("   📄 CENTINELA 3-LAYER — Starting layered retrieval for document analysis")
+                
+                # Use full document content (up to 15K chars), not just 1500
+                full_doc_for_rag = doc_content[:15000]
+                
+                # Layer 1: Direct Lookup — parse citations and look up by filter
+                citations = _extract_legal_citations(full_doc_for_rag)
+                direct_results = await _direct_article_lookup(citations, request.estado)
+                
+                # Layer 2: Smart RAG — targeted semantic search
+                smart_results = await _smart_rag_for_document(
+                    full_doc_for_rag,
                     estado=request.estado,
-                    top_k=15,
                     fuero=request.fuero,
+                    top_k=15,
                 )
+                
+                # Layer 3: Merge — direct results first (score=1.0), then smart RAG
+                seen_ids = set()
+                search_results = []
+                for r in direct_results:
+                    if r.id not in seen_ids:
+                        seen_ids.add(r.id)
+                        search_results.append(r)
+                for r in smart_results:
+                    if r.id not in seen_ids:
+                        seen_ids.add(r.id)
+                        search_results.append(r)
+                
+                print(f"   📄 CENTINELA 3-LAYER — Final: {len(search_results)} docs "
+                      f"(Direct: {len(direct_results)}, Smart RAG: {len(smart_results)})")
             
             doc_id_map = build_doc_id_map(search_results)
             context_xml = format_results_as_xml(search_results)
