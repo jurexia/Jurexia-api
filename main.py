@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import (
@@ -8462,6 +8462,17 @@ class DatosExpediente(BaseModel):
     autoridades_responsables: List[str] = []
     materia: str = ""
     tribunal: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_lists(cls, values):
+        """Gemini sometimes returns strings instead of lists."""
+        if isinstance(values, dict):
+            for field in ["autoridades_responsables"]:
+                v = values.get(field)
+                if isinstance(v, str):
+                    values[field] = [v] if v else []
+        return values
 
 class GrupoTematico(BaseModel):
     tema: str
