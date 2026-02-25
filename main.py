@@ -744,59 +744,94 @@ Síntesis del proyecto en máximo 10 líneas:
 
 ═══════════════════════════════════════════════════════════════
    FASE A: ANÁLISIS ESTRUCTURAL (FORMA)
+   Fuentes: Manual de Redacción Jurisdiccional SCJN +
+   "Sobre la estructura de las sentencias en México" (Lara Chagoyán)
 ═══════════════════════════════════════════════════════════════
 
 ## IV. ANÁLISIS ESTRUCTURAL — FORMA Y ESTILO
 
-Evalúa la estructura y redacción del proyecto de sentencia contra los
-estándares de redacción judicial del Manual de la SCJN. Verifica cada uno
-de los siguientes criterios:
+Evalúa el proyecto contra DOS fuentes de estándares judiciales:
 
-### A. Estructura Formal (Manual SCJN, Cap. I)
-El Manual establece tres apartados obligatorios:
-- **Resultandos**: ¿Contiene resultandos que narren antecedentes procesales de forma clara y completa?
-- **Considerandos**: ¿Cada considerando aborda UN SOLO argumento o tema? (Regla: un considerando = un argumento).
-  ¿Las razones se expresan en oraciones simples conjugadas en PRESENTE?
-  ¿La numeración es consistente y ordenada?
-- **Puntos Resolutivos**: ¿Se derivan DIRECTAMENTE de los considerandos?
-  ¿Son claros, precisos y congruentes con el análisis?
-- ¿Hay congruencia entre el encabezado del asunto y el contenido?
+### A. LOS 5 PRINCIPIOS ESTRUCTURALES (Lara Chagoyán, SCJN)
+Evalúa si el proyecto cumple los principios que Roberto Lara Chagoyán
+prescribe para la estructura de las sentencias mexicanas:
 
-### B. Calidad de Redacción (Manual de Redacción Jurisdiccional para la Primera Sala, SCJN)
-Evalúa el proyecto contra la lista de verificación de RE-ESCRITURA del Manual (Cap. I, Sección 2.4):
+**1. PRINCIPIO DE PRECISIÓN DE LOS HECHOS**
+- ¿El proyecto presenta una narración SUCINTA y CONCISA de los hechos probados?
+- ¿Usa narración INDIRECTA (voz del tribunal como narrador, no transcripciones)?
+- ¿Los hechos están delimitados por tiempo, modo y lugar?
+- ¿El orden es cronológico/histórico (directo)?
+- ¿EVITA transcripciones innecesarias? (regla: la transcripción es EXCEPCIONAL)
+- NOTA NEGATIVA: La sentencia NO debe ser una bitácora de trabajo ni un catálogo de
+  todo lo que el juez estudió. Solo muestra el proceso argumentativo final, no los procesos
+  mentales parciales que se descartaron.
 
-**CLARIDAD Y SENCILLEZ** (Propósito central del Manual):
-1. **Lenguaje accesible**: ¿El texto es comprensible para un lector no especializado? El Manual exige que las sentencias sean accesibles para todo lector, no solo jueces y abogados.
-2. **Oraciones simples**: ¿Las oraciones están conjugadas en presente y tienen estructura sujeto-verbo-complemento? Señalar oraciones excesivamente largas o subordinadas múltiples.
-3. **Voz activa**: ¿Predomina la voz activa? ("Este tribunal determina..." vs. "fue determinado por..."). La voz pasiva oscurece quién actúa.
+**2. PRINCIPIO DE DELIMITACIÓN**
+- ¿El proyecto fija con PRECISIÓN la cuestión que va a resolverse (la litis)?
+- ¿Utiliza la PREGUNTA EXPRESA para plantear el problema?
+  (Ej: "¿Asiste la razón al quejoso cuando señala que el tribunal omitió...?")
+- ¿La delimitación distingue claramente el problema jurídico de los hechos procesales?
 
-**ESTRUCTURA Y ORGANIZACIÓN**:
-4. **Párrafo deductivo**: ¿Cada párrafo inicia con la oración temática (idea principal), seguida del desarrollo y la consecuencia?
-5. **Un argumento por considerando**: ¿Cada considerando aborda un solo punto? El Manual recomienda que cada considerando trate un argumento distinto, no que todos integren uno solo.
-6. **Punto medular primero**: ¿El proyecto aborda primero el agravio/concepto de violación más relevante?
-7. **Extensión proporcional**: ¿La extensión de cada sección es proporcional a su importancia? Agravios infundados: breves. Fundados: análisis profundo.
-8. **Títulos descriptivos**: ¿Los considerandos tienen títulos que anticipen su contenido y faciliten la lectura?
+**3. PRINCIPIO DE ECONOMÍA**
+- ¿Contiene TODO lo necesario y SOLO lo necesario para la argumentación?
+- ¿EVITA ser un catálogo de precedentes o jurisprudencia?
+  (Una buena motivación no se mide por cantidad de tesis citadas sino por su pertinencia)
+- ¿EVITA transcribir la demanda, la sentencia recurrida, los recursos completos?
+  (Debe hacer SÍNTESIS, no transcripciones)
+- ¿La extensión es razonable? Una sentencia NO es mejor por ser más larga.
+  Extensión excesiva oculta información importante y crea sospecha.
+- NOTA NEGATIVA: La sentencia NO debe reflejar la complejidad del sistema jurídico ni
+  demostrar la erudición del juez. Esos ejercicios pertenecen al cuaderno de trabajo.
+
+**4. PRINCIPIO DE COHERENCIA INTERNA**
+- ¿La sentencia sigue una línea conductora sencilla: problema → argumentación → solución?
+- ¿Los apartados son EXCLUYENTES? (no repite información de un apartado en otro)
+- ¿Los puntos resolutivos son CLAROS y especifican: qué, por qué y para qué se decidió?
+- ¿Los reenvíos entre secciones son comprensibles?
+
+**5. PRINCIPIO DE CLARIDAD**
+- ¿Usa lenguaje sencillo y comprensible para un lector no especializado?
+- ¿EVITA barroquismos, circularidad de argumentos y falacias?
+- ¿Diferencia profundidad de oscuridad? ("Lo oscuro no refleja profundidad sino desorden")
+
+### B. Estructura Formal de Apartados
+Según la propuesta de Lara Chagoyán:
+- **VISTOS**: ¿Contiene anuncio concreto y sintético del problema a resolver?
+- **RESULTANDOS/ANTECEDENTES**: ¿Énfasis en hechos probados con referencia a autos?
+  ¿El periplo procesal está reducido al mínimo? ¿Omite diligencias irrelevantes?
+- **CONSIDERANDOS/RAZONAMIENTOS DE FONDO**: ¿Es el corazón de la sentencia?
+  ¿Cada sub-apartado tiene título descriptivo? (Ej: "PRIMERO. Competencia.", "CUARTO. Estudio de fondo.")
+  ¿Cada argumento aísla un problema y lo resuelve en orden?
+  ¿Usa numeración para marcar líneas argumentales?
+- **PUNTOS RESOLUTIVOS**: ¿Constituyen un genuino epílogo — claro, preciso, con nombres,
+  normas, sentido del fallo y remisión adecuada a los considerandos?
+
+### C. Calidad de Redacción (Manual de Redacción Jurisdiccional SCJN)
+Evalúa contra la lista de RE-ESCRITURA del Manual:
+
+**CLARIDAD Y SENCILLEZ**:
+1. **Lenguaje accesible**: Comprensible para todo lector, no solo juristas.
+2. **Oraciones simples**: En presente, estructura sujeto-verbo-complemento. Señalar oraciones excesivamente largas.
+3. **Voz activa**: "Este tribunal determina..." vs. "fue determinado por...".
 
 **CONSISTENCIA Y ESTILO**:
-9. **Tono adecuado**: ¿El tono es profesional y neutral? El Manual subraya que el estilo y tono son cruciales para la comprensión del criterio interpretativo.
-10. **Ausencia de repeticiones innecesarias**: ¿Evita redundancia? El Manual distingue entre repetición con propósito (énfasis legítimo) y repetición por descuido.
-11. **Ausencia de clichés judiciales**: Señalar frases arcaicas o vacías que el Manual prohíbe:
-    - "en la especie", "se desprende que", "estar en aptitud de"
-    - "de esta guisa", "impetrante de garantías", "elementos convictivos"
-    - "auto de marras", "obrar en autos", "no pasa desapercibido"
-    - "a mayor abundamiento", "robustecido con", "adminiculado con"
-12. **Preposiciones correctas**: "con base en" (no "en base a"), "respecto de" (no "respecto a"), "conforme a".
+4. **Tono profesional y neutral**: Crucial para la comprensión del criterio interpretativo.
+5. **Sin repeticiones por descuido**: Distinguir repetición legítima (énfasis) vs. redundancia.
+6. **Sin clichés judiciales**: "en la especie", "se desprende que", "estar en aptitud de",
+   "de esta guisa", "impetrante de garantías", "elementos convictivos",
+   "auto de marras", "obrar en autos", "a mayor abundamiento", "robustecido con".
+7. **Preposiciones correctas**: "con base en", "respecto de", "conforme a".
 
-**ORTOGRAFÍA Y PUNTUACIÓN** (Manual SCJN, Recomendaciones Editoriales):
-13. **Puntuación**: ¿Usa correctamente coma, punto y coma, dos puntos, puntos suspensivos? El Manual dedica secciones completas a cada signo de puntuación.
-14. **Formato de citas y transcripciones**: ¿Las citas textuales están delimitadas con comillas, cursivas o sangría? ¿Las citas judiciales siguen el formato establecido?
-15. **Mayúsculas**: ¿Se usan según las reglas del Manual? (nombres de leyes, tribunales, pero NO sustantivos comunes en mayúscula enfática).
+**ORTOGRAFÍA Y PUNTUACIÓN**:
+8. **Puntuación correcta**: Coma, punto y coma, dos puntos según reglas del Manual.
+9. **Formato de citas**: Citas textuales delimitadas con comillas, cursivas o sangría.
+10. **Mayúsculas**: Solo para nombres propios de leyes/tribunales, NO enfáticas.
 
-### C. Calificación Estructural
-Emitir una calificación de forma basada en el Manual SCJN:
-- ✅ EXCELENTE: Cumple al menos 12 de las 15 reglas. Redacción clara y accesible.
-- ⚠️ ACEPTABLE: Cumple 8-11 reglas. Observaciones menores de estilo.
-- ❌ DEFICIENTE: Cumple menos de 8 reglas. Requiere re-escritura significativa conforme al Manual.
+### D. Calificación Estructural
+Emitir calificación basada en los 5 principios + 10 reglas de redacción:
+- ✅ EXCELENTE: Cumple los 5 principios y al menos 8 de las 10 reglas. Sentencia clara y comunicativa.
+- ⚠️ ACEPTABLE: Cumple 3-4 principios y 6-7 reglas. Correcciones menores de estilo.
+- ❌ DEFICIENTE: Incumple 3+ principios o menos de 6 reglas. Requiere re-escritura significativa.
 
 ═══════════════════════════════════════════════════════════════
    FASE B: ANÁLISIS DE FONDO (RAZONAMIENTO SECUENCIAL)
