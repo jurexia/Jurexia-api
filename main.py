@@ -9997,8 +9997,9 @@ async def redaccion_sentencias_gemini(
     doc2: UploadFile = File(...),
 ):
     """
-    Redacción de Sentencias con Gemini 3.1 Pro Preview — streaming text/plain.
-    Flash lee PDFs → 3.1 Pro Preview genera estudio de fondo token por token.
+    Redacción de Sentencias — Gemini 3.1 Pro Preview streaming text/plain.
+    PDFs van DIRECTO al modelo (sin paso intermedio de extracción).
+    Fully async — no bloquea el event loop.
     """
     if tipo not in REDACCION_TIPOS:
         raise HTTPException(400, f"Tipo inválido. Opciones: {list(REDACCION_TIPOS.keys())}")
@@ -10015,67 +10016,37 @@ async def redaccion_sentencias_gemini(
     if not doc1_bytes or not doc2_bytes:
         raise HTTPException(400, "Ambos documentos deben tener contenido")
 
-    print(f"\n🏛️ REDACCIÓN GEMINI 3.1 PRO — {tipo_config['label']} — {user_email}")
+    print(f"\n🏛️ REDACCIÓN GEMINI DIRECTO — {tipo_config['label']} — {user_email}")
     print(f"   📄 {doc1.filename} ({len(doc1_bytes)/1024:.0f}KB) + {doc2.filename} ({len(doc2_bytes)/1024:.0f}KB)")
 
-    # ── Phase 1: Extract with Gemini Flash ────────────────────────────────
-    try:
-        from google import genai
-        from google.genai import types as gtypes
+    # ── Build parts: PDFs go DIRECTLY to 3.1 Pro (no Flash extraction) ───
+    from google import genai
+    from google.genai import types as gtypes
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
-        extract_prompt = f"""Lee estos 2 documentos judiciales ({tipo_config['docs'][0]} y {tipo_config['docs'][1]}) y extrae TODA la información relevante.
-
-Incluye:
-- Datos del expediente (número, tribunal, partes, fechas)
-- Cada agravio o concepto de violación COMPLETO (transcripción textual íntegra)
-- Fundamentos legales citados
-- El acto reclamado y su contenido
-- Cualquier información relevante para el estudio de fondo
-
-IMPORTANTE: Transcribe cada agravio COMPLETO, sin resumir."""
-
-        pdf_parts = [
-            gtypes.Part.from_text(text=f"--- {tipo_config['docs'][0]} ---"),
-            gtypes.Part.from_bytes(data=doc1_bytes, mime_type="application/pdf"),
-            gtypes.Part.from_text(text=f"--- {tipo_config['docs'][1]} ---"),
-            gtypes.Part.from_bytes(data=doc2_bytes, mime_type="application/pdf"),
-            gtypes.Part.from_text(text=extract_prompt),
-        ]
-
-        extraction = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=pdf_parts,
-            config=gtypes.GenerateContentConfig(temperature=0.1, max_output_tokens=65536),
-        )
-
-        extracted_text = extraction.text or ""
-        print(f"   📋 Extracción Flash: {len(extracted_text)} chars")
-
-    except Exception as e:
-        print(f"   ❌ Extracción error: {e}")
-        raise HTTPException(500, f"Error al leer los PDFs: {str(e)}")
-
-    # ── Phase 2: Stream with Gemini 3.1 Pro Preview ──────────────────────
-    generation_prompt = f"""Información completa del expediente de {tipo_config['label']}:
+    generation_prompt = f"""Analiza los 2 documentos PDF adjuntos de un expediente de {tipo_config['label']}.
 
 {tipo_config['instruccion']}
 
-═══ DATOS EXTRAÍDOS DEL EXPEDIENTE ═══
+INSTRUCCIÓN: Redacta el ESTUDIO DE FONDO completo del proyecto de sentencia.
+Comienza con "QUINTO. Estudio de fondo." y analiza CADA agravio o concepto de violación individualmente.
+Sé profundo en los agravios fundados y conciso en los infundados/inoperantes."""
 
-{extracted_text}
+    contents = [
+        gtypes.Part.from_text(text=f"--- {tipo_config['docs'][0]} ---"),
+        gtypes.Part.from_bytes(data=doc1_bytes, mime_type="application/pdf"),
+        gtypes.Part.from_text(text=f"--- {tipo_config['docs'][1]} ---"),
+        gtypes.Part.from_bytes(data=doc2_bytes, mime_type="application/pdf"),
+        gtypes.Part.from_text(text=generation_prompt),
+    ]
 
-═══ INSTRUCCIÓN ═══
-
-Redacta el ESTUDIO DE FONDO completo. Comienza con "QUINTO. Estudio de fondo."
-Analiza CADA agravio/concepto de violación individualmente."""
-
+    # ── Stream DIRECTLY from Gemini 3.1 Pro Preview (1 call, not 2) ──────
     async def stream_gemini():
         try:
             async for chunk in await client.aio.models.generate_content_stream(
                 model=REDACTOR_MODEL_GENERATE,
-                contents=[gtypes.Part.from_text(text=generation_prompt)],
+                contents=contents,
                 config=gtypes.GenerateContentConfig(
                     system_instruction=REDACCION_GEMINI_SYSTEM,
                     temperature=0.3,
