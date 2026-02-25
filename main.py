@@ -9496,7 +9496,7 @@ async def phase05_analyze_expediente(client, pdf_parts: list, tipo: str) -> dict
     from google.genai import types as gtypes
     import time
 
-    MAX_RETRIES = 2
+    MAX_RETRIES = 3
     last_error = None
 
     for attempt in range(1, MAX_RETRIES + 1):
@@ -9508,7 +9508,8 @@ async def phase05_analyze_expediente(client, pdf_parts: list, tipo: str) -> dict
             text="\n\nAnaliza TODOS los documentos anteriores y extrae la información estructurada "
                  "según el formato JSON indicado en las instrucciones del sistema. "
                  "Identifica CADA agravio / concepto de violación individualmente. "
-                 "Sé exhaustivo: no omitas ningún agravio."
+                 "Sé exhaustivo: no omitas ningún agravio. "
+                 "IMPORTANTE: Tu respuesta debe ser EXCLUSIVAMENTE JSON válido, sin texto adicional."
         ))
 
         try:
@@ -9518,7 +9519,8 @@ async def phase05_analyze_expediente(client, pdf_parts: list, tipo: str) -> dict
                 config=gtypes.GenerateContentConfig(
                     system_instruction=PHASE05_ANALYSIS_PROMPT,
                     temperature=0.1,
-                    max_output_tokens=32768,
+                    max_output_tokens=65536,
+                    response_mime_type="application/json",
                 ),
             )
 
@@ -9558,16 +9560,76 @@ async def phase05_analyze_expediente(client, pdf_parts: list, tipo: str) -> dict
             try:
                 result = json.loads(cleaned)
             except json.JSONDecodeError as e:
-                last_error = f"JSON parse error: {e} — raw_len={len(raw)}"
+                # ── JSON REPAIR: try to fix truncated output ──
                 print(f"   ⚠️ Fase 0.5: JSON parse error: {e}")
-                print(f"      Primeros 500 chars: {raw[:500]}")
-                if attempt < MAX_RETRIES:
-                    print(f"   🔄 Reintentando en 3 segundos...")
-                    import asyncio
-                    await asyncio.sleep(3)
-                    continue
+                print(f"      raw_len={len(raw)}, intentando reparar JSON truncado...")
+                
+                repaired = None
+                repair_text = cleaned.rstrip()
+                
+                # Strategy 1: Close unclosed strings and brackets
+                # Count open brackets/braces to determine what needs closing
+                in_string = False
+                escape_next = False
+                open_brackets = []
+                
+                for ch in repair_text:
+                    if escape_next:
+                        escape_next = False
+                        continue
+                    if ch == '\\' and in_string:
+                        escape_next = True
+                        continue
+                    if ch == '"' and not escape_next:
+                        in_string = not in_string
+                        continue
+                    if not in_string:
+                        if ch in ('{', '['):
+                            open_brackets.append(ch)
+                        elif ch == '}' and open_brackets and open_brackets[-1] == '{':
+                            open_brackets.pop()
+                        elif ch == ']' and open_brackets and open_brackets[-1] == '[':
+                            open_brackets.pop()
+                
+                # If we're inside a string, close it first
+                if in_string:
+                    repair_text += '"'
+                
+                # Close all open brackets in reverse order
+                for bracket in reversed(open_brackets):
+                    if bracket == '{':
+                        repair_text += '}'
+                    elif bracket == '[':
+                        repair_text += ']'
+                
+                try:
+                    repaired = json.loads(repair_text)
+                    print(f"   🔧 JSON reparado exitosamente (cerrado {len(open_brackets)} brackets)")
+                except json.JSONDecodeError:
+                    # Strategy 2: Find the last complete agravio and truncate
+                    last_complete = repair_text.rfind('},')
+                    if last_complete > 0:
+                        truncated = repair_text[:last_complete + 1]
+                        # Close remaining brackets
+                        truncated += ']}'
+                        try:
+                            repaired = json.loads(truncated)
+                            print(f"   🔧 JSON reparado por truncamiento en último agravio completo")
+                        except json.JSONDecodeError:
+                            pass
+                
+                if repaired:
+                    result = repaired
                 else:
-                    break
+                    last_error = f"JSON parse error: {e} — raw_len={len(raw)}"
+                    print(f"      Reparación fallida. Primeros 500 chars: {raw[:500]}")
+                    if attempt < MAX_RETRIES:
+                        print(f"   🔄 Reintentando en 3 segundos...")
+                        import asyncio
+                        await asyncio.sleep(3)
+                        continue
+                    else:
+                        break
 
             # Validate we actually got agravios
             agravios = result.get("agravios", [])
