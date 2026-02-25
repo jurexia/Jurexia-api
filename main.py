@@ -10088,6 +10088,210 @@ async def draft_sentencia(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# STREAMING VERSION — SSE real-time visibility for draft-sentencia
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/draft-sentencia-stream")
+async def draft_sentencia_stream(
+    tipo: str = Form(...),
+    user_email: str = Form(...),
+    instrucciones: str = Form(""),
+    calificaciones: str = Form(""),
+    sentido: str = Form(""),
+    auto_mode: str = Form("false"),
+    doc1: UploadFile = File(...),
+    doc2: UploadFile = File(...),
+    doc3: Optional[UploadFile] = File(None),
+):
+    """
+    SSE Streaming version of draft-sentencia.
+    Sends real-time progress events and text chunks as they're generated.
+    
+    Event types:
+    - phase: {"step": "description", "progress": 0-100}
+    - text: {"chunk": "generated text chunk"}
+    - done: {"total_chars": N, "elapsed": N, "rag_count": N}
+    - error: {"message": "error description"}
+    """
+    from starlette.responses import StreamingResponse
+    import time as time_module
+
+    # ── Pre-validation (before starting stream) ──────────────────────
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "Gemini API key not configured")
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
+    valid_types = list(SENTENCIA_PROMPTS.keys())
+    if tipo not in valid_types:
+        raise HTTPException(400, f"Tipo inválido. Opciones: {valid_types}")
+
+    # Read PDF files before starting stream
+    doc_labels = SENTENCIA_DOC_LABELS[tipo]
+    pdf_data = []
+    doc_files = [doc1, doc2] + ([doc3] if doc3 else [])
+    for i, (doc_file, label) in enumerate(zip(doc_files, doc_labels)):
+        data = await doc_file.read()
+        size_mb = len(data) / (1024 * 1024)
+        if size_mb > 50:
+            raise HTTPException(400, f"Archivo '{label}' excede 50MB ({size_mb:.1f}MB)")
+        if not data:
+            raise HTTPException(400, f"Archivo '{label}' está vacío")
+        pdf_data.append((data, label, doc_file.filename or f"doc{i+1}.pdf"))
+
+    async def generate_sse():
+        """Generator that yields SSE events as the pipeline processes."""
+        import asyncio
+
+        def sse_event(event_type: str, data: dict) -> str:
+            """Format a Server-Sent Event."""
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        total_start = time_module.time()
+        accumulated_text = ""
+        rag_count = 0
+
+        try:
+            from google import genai
+            from google.genai import types as gtypes
+
+            client = genai.Client(api_key=GEMINI_API_KEY)
+
+            # Build PDF parts
+            pdf_parts = []
+            for pdf_bytes, label, filename in pdf_data:
+                pdf_parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} (archivo: {filename}) ---\n"))
+                pdf_parts.append(gtypes.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
+
+            print(f"\n🏛️ REDACTOR STREAMING — Tipo: {tipo}")
+
+            # ── Phase 1: Extraction ────────────────────────────────────────
+            yield sse_event("phase", {"step": "Extrayendo datos estructurados de los PDFs...", "progress": 5})
+            extracted_data = await phase1_extract_data(client, pdf_parts, tipo)
+            if not extracted_data:
+                yield sse_event("error", {"message": "No se pudieron extraer datos de los PDFs"})
+                return
+            yield sse_event("phase", {"step": "Datos extraídos. Preparando RAG...", "progress": 15})
+
+            # ── Parse calificaciones ───────────────────────────────────────
+            parsed_calificaciones = []
+            if calificaciones.strip():
+                try:
+                    parsed_calificaciones = json.loads(calificaciones)
+                    if not isinstance(parsed_calificaciones, list):
+                        parsed_calificaciones = []
+                except json.JSONDecodeError:
+                    parsed_calificaciones = []
+
+            # ── Build effective instructions ──────────────────────────────
+            is_auto = auto_mode.lower() == "true"
+            effective_instrucciones = instrucciones.strip()
+
+            if is_auto and not effective_instrucciones:
+                effective_instrucciones = _build_auto_mode_instructions(
+                    sentido, tipo, parsed_calificaciones
+                )
+
+            if sentido and not is_auto:
+                sentido_addendum = f"\n\nSENTIDO DEL FALLO INDICADO POR EL SECRETARIO: {sentido.upper()}\nDEBES redactar el proyecto en este sentido."
+                effective_instrucciones = (effective_instrucciones or "") + sentido_addendum
+
+            # ── Phase 2: RAG ──────────────────────────────────────────────
+            yield sse_event("phase", {"step": "Buscando jurisprudencia y legislación relevante (RAG)...", "progress": 20})
+            rag_context = ""
+
+            secondary_queries = await extract_rag_queries_from_extraction(extracted_data)
+
+            if effective_instrucciones or secondary_queries:
+                try:
+                    rag_context = await run_rag_for_sentencia(
+                        effective_instrucciones, tipo,
+                        secondary_queries=secondary_queries
+                    )
+                    rag_count = rag_context.count("---") // 2 if rag_context else 0
+                except Exception as e:
+                    print(f"   ⚠️ RAG search failed: {e}")
+                    rag_context = ""
+
+            yield sse_event("phase", {"step": f"RAG completado: {rag_count} fuentes encontradas", "progress": 30})
+
+            # ── Phase 3: Estudio de Fondo ─────────────────────────────────
+            if parsed_calificaciones or sentido:
+                # FOCUSED PIPELINE
+                n_agravios = len(parsed_calificaciones) if parsed_calificaciones else 1
+                yield sse_event("phase", {"step": f"Redactando estudio de fondo ({n_agravios} agravios)...", "progress": 35})
+
+                estudio_fondo = await phase2c_adaptive_estudio_fondo(
+                    client, extracted_data, pdf_parts,
+                    tipo, parsed_calificaciones, rag_context
+                )
+
+                # Send the estudio text as a big chunk
+                yield sse_event("text", {"chunk": estudio_fondo})
+                accumulated_text = estudio_fondo
+
+                yield sse_event("phase", {"step": "Redactando efectos y puntos resolutivos...", "progress": 85})
+
+                # ── Phase 4: Efectos + Resolutivos ────────────────────────
+                efectos_resolutivos = await phase_final_efectos_resolutivos(
+                    client, extracted_data, estudio_fondo,
+                    tipo, parsed_calificaciones
+                )
+
+                yield sse_event("text", {"chunk": "\n\n" + efectos_resolutivos})
+                accumulated_text += "\n\n" + efectos_resolutivos
+
+                sentencia_text = _sanitize_sentencia_output(accumulated_text)
+            else:
+                # LEGACY PIPELINE
+                yield sse_event("phase", {"step": "Redactando Resultandos...", "progress": 35})
+                resultandos = await phase2a_draft_resultandos(client, extracted_data, pdf_parts, tipo)
+                yield sse_event("text", {"chunk": resultandos})
+
+                yield sse_event("phase", {"step": "Redactando Considerandos...", "progress": 50})
+                considerandos = await phase2b_draft_considerandos(
+                    client, extracted_data, pdf_parts, tipo, rag_context
+                )
+                yield sse_event("text", {"chunk": "\n\n" + considerandos})
+
+                yield sse_event("phase", {"step": "Redactando Estudio de Fondo...", "progress": 70})
+                estudio_fondo = await phase2c_draft_estudio_fondo(
+                    client, extracted_data, pdf_parts,
+                    tipo, effective_instrucciones, rag_context
+                )
+                yield sse_event("text", {"chunk": "\n\n" + estudio_fondo})
+
+                yield sse_event("phase", {"step": "Puliendo y ensamblando documento final...", "progress": 90})
+                sentencia_text = _sanitize_sentencia_output(await phase3_polish_assembly(
+                    client, extracted_data, resultandos, considerandos, estudio_fondo, tipo
+                ))
+
+            total_elapsed = time_module.time() - total_start
+
+            yield sse_event("done", {
+                "total_chars": len(sentencia_text),
+                "elapsed": round(total_elapsed, 1),
+                "rag_count": rag_count,
+                "final_text": sentencia_text,
+            })
+
+            print(f"\n   ✅ STREAMING PIPELINE COMPLETADO — {len(sentencia_text):,} chars en {total_elapsed:.1f}s")
+
+        except Exception as e:
+            print(f"   ❌ Error en streaming pipeline: {e}")
+            yield sse_event("error", {"message": str(e)})
+
+    return StreamingResponse(
+        generate_sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # EXPORT — Download sentencia as formatted DOCX
 # ═══════════════════════════════════════════════════════════════════════════════
 
