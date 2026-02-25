@@ -9883,14 +9883,16 @@ Sé profundo en los agravios fundados y conciso en los infundados/inoperantes.""
 
     async def stream_response():
         try:
+            # DeepSeek Reasoner: no temperature, no system message
+            # System instructions merged into user prompt
+            full_prompt = REDACCION_SYSTEM_PROMPT + "\n\n" + user_prompt
+
             response = await deepseek_client.chat.completions.create(
-                model=DEEPSEEK_CHAT_MODEL,
+                model="deepseek-reasoner",
                 messages=[
-                    {"role": "system", "content": REDACCION_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
+                    {"role": "user", "content": full_prompt},
                 ],
                 max_tokens=8192,
-                temperature=0.3,
                 stream=True,
             )
 
