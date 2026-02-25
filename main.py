@@ -9743,9 +9743,169 @@ async def export_amparo_salud_docx(req: ExportAmparoSaludRequest):
         print(f"   ❌ SALVAME DOCX error: {e}")
         raise HTTPException(500, f"Error al generar DOCX: {str(e)}")
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# REDACCIÓN DE SENTENCIAS — NUEVA FUNCIÓN (desde cero, patrón Sálvame)
+#
+# Gemini Flash → lee PDFs → DeepSeek Chat → streaming text/plain
+# ═══════════════════════════════════════════════════════════════════════════════
+
+REDACCION_TIPOS = {
+    "amparo_directo": {
+        "label": "Amparo Directo",
+        "docs": ["Demanda de Amparo", "Acto Reclamado"],
+        "instruccion": "Analiza los conceptos de violación contra el acto reclamado. Determina si son fundados, infundados o inoperantes.",
+    },
+    "amparo_revision": {
+        "label": "Amparo en Revisión",
+        "docs": ["Recurso de Revisión", "Sentencia Recurrida"],
+        "instruccion": "Analiza los agravios del recurrente contra la sentencia del Juzgado de Distrito.",
+    },
+    "revision_fiscal": {
+        "label": "Revisión Fiscal",
+        "docs": ["Recurso de Revisión Fiscal", "Sentencia Recurrida"],
+        "instruccion": "Verifica procedencia del recurso (Art. 63 LFPCA) y analiza cada agravio.",
+    },
+    "recurso_queja": {
+        "label": "Recurso de Queja",
+        "docs": ["Recurso de Queja", "Determinación Recurrida"],
+        "instruccion": "Identifica la fracción del Art. 97 aplicable y analiza cada agravio.",
+    },
+}
+
+REDACCION_SYSTEM_PROMPT = """Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México.
+
+Tu tarea es redactar el ESTUDIO DE FONDO completo de un proyecto de sentencia.
+
+REGLAS DE REDACCIÓN:
+1. Tercera persona formal: "Este Tribunal Colegiado advierte...", "Se considera que..."
+2. Voz activa siempre. Oraciones de máximo 30 palabras
+3. Estructura por agravio: síntesis → marco jurídico → análisis → conclusión
+4. Cita textualmente los argumentos de las partes entre comillas
+5. Fundamenta con artículos de ley y jurisprudencia cuando sea posible
+6. PROHIBIDO: "en la especie", "se desprende que", "estar en aptitud", "de esta guisa"
+7. Preposiciones correctas: "con base en" (no "en base a")
+
+EXTENSIÓN POR TIPO DE AGRAVIO:
+- FUNDADO: 800-1,200 palabras — análisis profundo
+- INFUNDADO: 200-400 palabras — breve, señala por qué no prospera
+- INOPERANTE: 100-250 palabras — formulaico
+
+ESTRUCTURA DEL DOCUMENTO:
+Comienza con "QUINTO. Estudio de fondo." y analiza cada agravio/concepto de violación individualmente."""
+
+
+@app.post("/redaccion-sentencias")
+async def redaccion_sentencias(
+    tipo: str = Form(...),
+    user_email: str = Form(...),
+    doc1: UploadFile = File(...),
+    doc2: UploadFile = File(...),
+):
+    """
+    Redacción de Sentencias — Streaming text/plain (patrón Sálvame).
+    Gemini Flash lee los PDFs → DeepSeek Chat escribe el estudio de fondo.
+    """
+    # ── Validation ────────────────────────────────────────────────────────
+    if tipo not in REDACCION_TIPOS:
+        raise HTTPException(400, f"Tipo inválido. Opciones: {list(REDACCION_TIPOS.keys())}")
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
+    if not deepseek_client:
+        raise HTTPException(500, "DeepSeek client no configurado")
+
+    tipo_config = REDACCION_TIPOS[tipo]
+
+    # ── Read PDFs ─────────────────────────────────────────────────────────
+    doc1_bytes = await doc1.read()
+    doc2_bytes = await doc2.read()
+    if not doc1_bytes or not doc2_bytes:
+        raise HTTPException(400, "Ambos documentos deben tener contenido")
+
+    print(f"\n🏛️ REDACCIÓN SENTENCIAS v3 — {tipo_config['label']} — {user_email}")
+    print(f"   📄 {doc1.filename} ({len(doc1_bytes)/1024:.0f}KB) + {doc2.filename} ({len(doc2_bytes)/1024:.0f}KB)")
+
+    # ── Phase 1: Extract data with Gemini Flash ──────────────────────────
+    try:
+        from google import genai
+        from google.genai import types as gtypes
+
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+        extract_prompt = f"""Lee estos 2 documentos judiciales ({tipo_config['docs'][0]} y {tipo_config['docs'][1]}) y extrae toda la información relevante.
+
+Devuelve un resumen detallado incluyendo:
+- Datos del expediente (número, tribunal, partes, fechas)
+- Cada agravio o concepto de violación COMPLETO (transcripción textual)
+- Fundamentos legales citados por las partes
+- El acto reclamado y su contenido
+- Cualquier otra información relevante para redactar el estudio de fondo
+
+Sé MUY detallado en la transcripción de los agravios — necesito el texto íntegro."""
+
+        pdf_parts = [
+            gtypes.Part.from_text(text=f"--- {tipo_config['docs'][0]} ---"),
+            gtypes.Part.from_bytes(data=doc1_bytes, mime_type="application/pdf"),
+            gtypes.Part.from_text(text=f"--- {tipo_config['docs'][1]} ---"),
+            gtypes.Part.from_bytes(data=doc2_bytes, mime_type="application/pdf"),
+            gtypes.Part.from_text(text=extract_prompt),
+        ]
+
+        extraction = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=pdf_parts,
+            config=gtypes.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=65536,
+            ),
+        )
+
+        extracted_text = extraction.text or ""
+        print(f"   📋 Extracción: {len(extracted_text)} chars")
+
+    except Exception as e:
+        print(f"   ❌ Extracción error: {e}")
+        raise HTTPException(500, f"Error al leer los PDFs: {str(e)}")
+
+    # ── Phase 2: Stream estudio de fondo with DeepSeek ───────────────────
+    user_prompt = f"""A continuación tienes la información completa extraída de un expediente de {tipo_config['label']}.
+
+{tipo_config['instruccion']}
+
+═══ DATOS DEL EXPEDIENTE ═══
+
+{extracted_text}
+
+═══ INSTRUCCIÓN ═══
+
+Redacta el ESTUDIO DE FONDO completo del proyecto de sentencia.
+Comienza con "QUINTO. Estudio de fondo." y analiza CADA agravio o concepto de violación.
+Sé profundo en los agravios fundados y conciso en los infundados/inoperantes."""
+
+    async def stream_response():
+        try:
+            response = await deepseek_client.chat.completions.create(
+                model=DEEPSEEK_CHAT_MODEL,
+                messages=[
+                    {"role": "system", "content": REDACCION_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=16000,
+                temperature=0.3,
+                stream=True,
+            )
+
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+
+        except Exception as e:
+            print(f"   ❌ DeepSeek streaming error: {e}")
+            yield f"\n\n[Error al generar el estudio de fondo: {str(e)}]"
+
+    return StreamingResponse(stream_response(), media_type="text/plain")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# JUZGADOS DE DISTRITO — Directorio CJF
 # ══════════════════════════════════════════════════════════════════════════════
 import re as _re
 
