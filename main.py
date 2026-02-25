@@ -8447,6 +8447,36 @@ class DraftSentenciaResponse(BaseModel):
 # ENDPOINT: Análisis Pre-Redacción (uses extract_expediente)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class AgravioAnalysis(BaseModel):
+    numero: int
+    titulo: str
+    resumen: str
+    texto_integro: str = ""
+    articulos_mencionados: List[str] = []
+    derechos_invocados: List[str] = []
+
+class DatosExpediente(BaseModel):
+    numero: str = ""
+    tipo_asunto: str = ""
+    quejoso_recurrente: str = ""
+    autoridades_responsables: List[str] = []
+    materia: str = ""
+    tribunal: str = ""
+
+class GrupoTematico(BaseModel):
+    tema: str
+    agravios_nums: List[int]
+    descripcion: str = ""
+
+class AnalysisResponse(BaseModel):
+    resumen_caso: str = ""
+    resumen_acto_reclamado: str = ""
+    datos_expediente: DatosExpediente = DatosExpediente()
+    agravios: List[AgravioAnalysis] = []
+    grupos_tematicos: List[GrupoTematico] = []
+    observaciones_preliminares: str = ""
+    analysis_time_seconds: float = 0.0
+
 @app.post("/analyze-expediente")
 async def analyze_expediente(
     tipo: str = Form(...),
