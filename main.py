@@ -9800,6 +9800,7 @@ async def redaccion_sentencias(
     user_email: str = Form(...),
     doc1: UploadFile = File(...),
     doc2: UploadFile = File(...),
+    instrucciones: str = Form(""),
 ):
     """
     Redacción de Sentencias — Streaming text/plain (patrón Sálvame).
@@ -9880,6 +9881,9 @@ Sé MUY detallado en la transcripción de los agravios — necesito el texto ín
 Redacta el ESTUDIO DE FONDO completo del proyecto de sentencia.
 Comienza con "QUINTO. Estudio de fondo." y analiza CADA agravio o concepto de violación.
 Sé profundo en los agravios fundados y conciso en los infundados/inoperantes."""
+
+    if instrucciones.strip():
+        user_prompt += f"""\n\n═══ DIRECTRIZ DEL SECRETARIO ═══\n\n{instrucciones.strip()}\n\nSigue esta directriz al pie de la letra en tu redacción."""
 
     async def stream_response():
         try:
