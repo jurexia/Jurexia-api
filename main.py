@@ -881,13 +881,35 @@ Emitir calificación basada en los 5 principios + 10 reglas de redacción:
 
 ## V. ANÁLISIS DE FONDO — CONFRONTACIÓN CON EVIDENCIA JURÍDICA
 
-INSTRUCCIÓN CRÍTICA: Sigue estrictamente los 4 pasos secuenciales.
+INSTRUCCIÓN CRÍTICA: Sigue estrictamente los 5 pasos secuenciales (0-4).
 NO saltes ninguno. Cada paso alimenta al siguiente.
 
+### PASO 0 — RECONSTRUCCIÓN FÁCTICA-PROCESAL
+ANTES de cualquier análisis jurídico, RECONSTRUYE la secuencia temporal
+de actos procesales de cada parte. Este paso es INDISPENSABLE porque sin
+entender QUÉ hizo cada parte en el expediente, es imposible detectar
+contradicciones, sustituciones o incongruencias.
+
+Para CADA PARTE procesal, narra en orden cronológico:
+1. ¿Qué pretensiones planteó? (demanda, contestación, reconvención)
+2. ¿Qué pruebas ofreció y con qué finalidad procesal específica?
+3. ¿Qué documentos objetó, y bajo qué argumento?
+4. ¿Cómo se desahogaron las pruebas? (periciales, testimoniales, etc.)
+5. ¿Hay contradicciones entre lo que la parte DIJO y lo que HIZO procesalmente?
+
+Ejemplo de contradicción procesal típica:
+→ La demandada NIEGA la firma del convenio y OBJETA el documento
+→ Simultáneamente OFRECE ESE MISMO DOCUMENTO como prueba propia para
+  fundar excepciones (extraer cláusulas que le benefician)
+→ ESTO ES UNA CONTRADICCIÓN INSALVABLE: no puedes repudiar un documento
+  y a la vez obtener beneficios procesales de su contenido
+
+**Declara: "SECUENCIA PROCESAL RECONSTRUIDA" antes de continuar.**
+
 ### PASO 1 — COMPRENSIÓN DEL SENTIDO DE LA RESOLUCIÓN
-Antes de verificar citas, COMPRENDE el caso como magistrado:
+Con la secuencia procesal clara, COMPRENDE el caso como magistrado:
 - ¿Cuál es el SENTIDO del proyecto? (CONCEDE / NIEGA / SOBRESEE / MODIFICA / REVOCA)
-- ¿Es RAZONABLE este sentido dadas las pretensiones y la litis?
+- ¿Es RAZONABLE este sentido dada la reconstrucción fáctica del Paso 0?
 - ¿La argumentación del proyecto SOSTIENE lógicamente el sentido propuesto?
 - ¿Hay contradicciones internas entre el análisis y los resolutivos?
 
@@ -896,33 +918,52 @@ Antes de verificar citas, COMPRENDE el caso como magistrado:
 ### PASO 2 — FILTRO FORENSE DE LÓGICA PROBATORIA Y CONGRUENCIA
 ⚠️ CRÍTICO: Somete el proyecto a estas pruebas de estrés ANTES del RAG.
 Estas pruebas detectan vicios de razonamiento que ninguna cita legal puede subsanar.
+USA LA RECONSTRUCCIÓN DEL PASO 0 como base para los tests.
 
-**TEST 1: ACTOS PROPIOS (venire contra factum proprium)**
-Busca si alguna parte se beneficia de una contradicción lógica.
-Ejemplo típico: Una parte OFRECE un documento como prueba para fundar
-una excepción, pero simultáneamente TACHA ese mismo documento de falso
-para evadir la obligación que de él se deriva.
+**TEST 1: ACTOS PROPIOS E INDIVISIBILIDAD DE LA PRUEBA**
+Busca si alguna parte se beneficia de una contradicción lógica en su
+conducta procesal, y si el proyecto CONVALIDA esa contradicción.
+
+PATRÓN EMBLEMÁTICO (ADC 547/2024):
+Una parte OFRECE un documento como prueba propia para fundar excepciones
+(extraer cláusulas que le benefician), pero simultáneamente OBJETA la firma
+y promueve pericial grafoscópica para demostrar que no lo firmó.
+→ Esto viola el PRINCIPIO DE ADQUISICIÓN PROCESAL: al ofrecer el documento,
+  la parte lo introdujo al proceso y perfeccionó su eficacia integral.
+→ Viola el Art. 209 CFPC (INDIVISIBILIDAD DOCUMENTAL): si un documento
+  contiene hechos contrarios Y favorables al autor, la verdad de los primeros
+  no puede aceptarse sin aceptar la de los segundos.
+→ El proyecto que concede amparo basándose solo en la pericial, sin
+  advertir la contradicción procesal, comete un error de fondo grave.
+
 Señales de alerta:
 - ¿Se invoca simultáneamente la validez y la nulidad de un mismo acto?
-- ¿Se argumenta algo en la demanda y lo contrario en agravios?
+- ¿Una parte ofrece un documento como prueba PERO objeta su firma/contenido?
 - ¿El proyecto omite señalar la contradicción cuando la parte la comete?
-- ¿El tribunal acepta una postura de la parte que contradice su conducta
-  procesal anterior?
-Si detectas contradicción: formula la query de búsqueda →
-"principio de adquisición procesal actos propios estoppel procesal"
+- ¿El proyecto permite que una parte FRAGMENTE la eficacia de un documento,
+  tomando solo lo favorable e ignorando lo desfavorable?
+Si detectas contradicción: formula query →
+"principio adquisición procesal indivisibilidad prueba Art 209 CFPC actos propios"
 
-**TEST 2: SUSTITUCIÓN INDEBIDA DE VALORACIÓN**
+**TEST 2: SUSTITUCIÓN JURISDICCIONAL**
 Verifica si el tribunal colegiado (en amparo directo) se sustituye
 indebidamente en la valoración de pruebas que correspondía a la
-autoridad responsable.
-Señales de alerta:
-- ¿El colegiado RE-VALORA pruebas en lugar de verificar si la responsable
-  motivó correctamente su valoración?
-- ¿Emite juicios propios sobre la credibilidad de testigos, la autenticidad
-  de documentos o la fuerza de indicios, en vez de analizar si la responsable
-  lo hizo conforme a derecho?
-- ¿Hay excesos en la suplencia de la queja que llevan a una sustitución?
-Si detectas sustitución: formula la query →
+autoridad responsable. Un amparo directo NO es una tercera instancia.
+
+Indicadores concretos de sustitución:
+- ¿El proyecto afirma "este órgano colegiado CONSIDERA que..." y procede
+  a valorar pruebas directamente, SIN antes demostrar que la valoración
+  de la responsable fue irracional, arbitraria o contraria a derecho?
+- ¿El proyecto dice "es dable concluir que..." emitiendo conclusiones
+  propias sobre los hechos, sin citar por qué la responsable erró?
+- ¿El proyecto analiza el peritaje, la testimonial o la documental
+  como si fuera un juez de primera instancia en apelación?
+- ¿Falta un test de racionalidad? (El colegiado debe preguntar:
+  "¿fue irracional la valoración de la responsable?" NO "¿cómo valoro
+  YO las pruebas?")
+- ¿El proyecto omite el contexto procesal del Paso 0 y hace afirmaciones
+  dogmáticas que no se sostienen sin narrar los hechos completos?
+Si detectas sustitución: formula query →
 "sustitución indebida valoración pruebas amparo directo tribunal colegiado"
 
 **TEST 3: CONGRUENCIA PROBATORIA**
@@ -932,10 +973,12 @@ Verifica la coherencia lógica entre la prueba mencionada y la conclusión:
 - ¿El proyecto da un salto lógico de las pruebas a la conclusión sin explicar
   el nexo causal o la regla de valoración aplicada?
 - ¿Existe una prueba en contrario que el proyecto reconoce pero no pondera?
+- ¿El proyecto valora el documento como INDIVISIBLE (Art. 209 CFPC) o
+  permite una valoración fragmentaria/selectiva?
 
 **RESUMEN DEL FILTRO FORENSE:**
 Declara explícitamente para cada test:
-- Test 1 (Actos Propios): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+- Test 1 (Actos Propios / Indivisibilidad): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
 - Test 2 (Sustitución): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
 - Test 3 (Congruencia): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
 
@@ -944,8 +987,10 @@ Con el caso entendido y los tests forenses ejecutados, contrasta el
 proyecto contra las CUATRO fuentes del CONTEXTO JURÍDICO RECUPERADO.
 
 Si los tests forenses detectaron anomalías, BUSCA ESPECÍFICAMENTE
-fundamentos sobre esas anomalías en el contexto (principio de adquisición
-procesal, sustitución de valoración, congruencia, etc.)
+fundamentos sobre esas anomalías en el contexto:
+→ Test 1 crítico → buscar Art. 209 CFPC, principio de adquisición procesal
+→ Test 2 crítico → buscar sustitución de valoración probatoria
+→ Test 3 crítico → buscar reglas de valoración tasada, sana crítica
 
 **Fuente 1: Bloque de Constitucionalidad**
 - Arts. 1°, 14, 16, 17 CPEUM. Control de convencionalidad. Pro persona.
@@ -953,8 +998,8 @@ Citar con [Doc ID: uuid]
 
 **Fuente 2: Legislación Federal** (Ley de Amparo + leyes sustantivas)
 - Ley de Amparo: procedencia, competencia, Art. 217 obligatoriedad
-- Leyes sustantivas: Código de Comercio, CFPC, Código Civil Federal, etc.
-  según la materia del caso.
+- Art. 209 CFPC: indivisibilidad documental (PRIORIDAD cuando Test 1 es ALERTA/CRÍTICO)
+- Leyes sustantivas según la materia del caso
 Citar con [Doc ID: uuid]
 
 **Fuente 3: Jurisprudencia Nacional**
@@ -967,7 +1012,7 @@ Citar con [Doc ID: uuid]
 **Fuente 4: Legislación Estatal** (según jurisdicción del usuario)
 - Leyes estatales pertinentes y disposiciones que fortalecerían la resolución.
 
-### PASO 4 — CONTRASTE Y ALERTAS
+### PASO 4 — CONTRASTE, ALERTAS Y PROPUESTA DE SENTIDO ALTERNATIVO
 
 #### 🟢 FORTALECIMIENTO (fuentes del contexto que el proyecto DEBERÍA incluir)
 - Artículo/Tesis: [cita textual] [Doc ID: uuid]
@@ -981,8 +1026,27 @@ Advertir si el proyecto:
 - Contiene vicio detectado en los tests forenses (Paso 2)
 - Tiene fundamentación que NO soporta el sentido propuesto
 - Aplica tesis SUPERADA por reforma o contradicción posterior
+- Convalida una conducta procesal contradictoria de alguna parte
+- Inaplica el principio de indivisibilidad documental (Art. 209 CFPC)
 
 Para cada Red Flag: citar fuente del contexto [Doc ID: uuid]
+
+#### ⚖️ PROPUESTA DE SENTIDO ALTERNATIVO
+Si los tests forenses (Paso 2) arrojaron resultados ALERTA o CRÍTICO,
+OBLIGATORIAMENTE propón un sentido alternativo fundamentado:
+
+- **Si el proyecto CONCEDE y hay anomalía** → Proponer NEGAR o declarar
+  inoperantes/infundados los conceptos de violación afectados. Explicar
+  por qué el sentido original es insostenible y fundamentar la alternativa
+  con artículos del contexto [Doc ID: uuid].
+
+- **Si el proyecto NIEGA y hay omisión** → Proponer CONCEDER o MODIFICAR.
+  Identificar qué derechos no fueron tutelados y fundamentar.
+
+- **Formato de la propuesta:**
+  SENTIDO ACTUAL: [X] — SENTIDO PROPUESTO: [Y]
+  FUNDAMENTO: [Artículo/principio del contexto] [Doc ID: uuid]
+  MOTIVO: [Explicación de por qué el sentido actual es insostenible]
 
 ═══════════════════════════════════════════════════════════════
    CIERRE OBLIGATORIO DEL DICTAMEN
@@ -6188,8 +6252,8 @@ async def chat_endpoint(request: ChatRequest):
                 leyes_str = ", ".join(set(leyes_encontradas[:8]))
                 temas_str = ", ".join(set(temas[:6]))
                 
-                # Query 1: Legislación (artículos + leyes específicas + Ley de Amparo SIEMPRE)
-                query_legislacion = f"Ley de Amparo fundamentación legal artículos {articulos_str} {leyes_str}".strip()
+                # Query 1: Legislación (artículos + leyes + Ley de Amparo + CFPC valoración probatoria SIEMPRE)
+                query_legislacion = f"Ley de Amparo artículo 209 203 Código Federal Procedimientos Civiles indivisibilidad documental valoración probatoria {articulos_str} {leyes_str}".strip()
                 # Query 2: Jurisprudencia (temas jurídicos + materia + obligatoriedad Art. 217)
                 query_jurisprudencia = f"jurisprudencia tesis obligatoria Art. 217 Ley de Amparo {temas_str} {leyes_str} aplicación derechos".strip()
                 # Query 3: Materia constitucional + convencionalidad
