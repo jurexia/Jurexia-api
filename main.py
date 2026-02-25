@@ -6116,24 +6116,29 @@ async def chat_endpoint(request: ChatRequest):
                 
                 direct_task = _direct_article_lookup(sentencia_citations, request.estado)
                 
+                # ⚠️ CLAVE: fuero=None → buscar en TODOS los silos.
+                # Un amparo puede versar sobre CUALQUIER materia (civil, mercantil,
+                # laboral, penal, fiscal, etc.). Si dejamos fuero=constitucional,
+                # el sistema solo busca bloque_constitucional + jurisprudencia
+                # y OMITE leyes_federales (donde vive Código de Comercio, CFPC, etc.)
                 results_legislacion, results_jurisprudencia, results_constitucional, direct_results = await asyncio.gather(
                     hybrid_search_all_silos(
                         query=query_legislacion,
                         estado=request.estado,
                         top_k=15,
-                        fuero=request.fuero,
+                        fuero=None,  # SIEMPRE buscar en todos los silos para sentencias
                     ),
                     hybrid_search_all_silos(
                         query=query_jurisprudencia,
                         estado=request.estado,
                         top_k=15,
-                        fuero=request.fuero,
+                        fuero=None,
                     ),
                     hybrid_search_all_silos(
                         query=query_constitucional,
                         estado=request.estado,
                         top_k=10,
-                        fuero=request.fuero,
+                        fuero=None,
                     ),
                     direct_task,
                 )
