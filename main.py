@@ -76,7 +76,7 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
-SENTENCIA_MODEL = "gpt-5-mini"  # For sentencia analysis (premium quality for ultra_secretarios)
+SENTENCIA_MODEL = "gemini-2.5-pro"  # Gemini for sentencia analysis (superior reasoning + 1M context)
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
@@ -834,70 +834,113 @@ Emitir calificación basada en los 5 principios + 10 reglas de redacción:
 - ❌ DEFICIENTE: Incumple 3+ principios o menos de 6 reglas. Requiere re-escritura significativa.
 
 ═══════════════════════════════════════════════════════════════
-   FASE B: ANÁLISIS DE FONDO (RAZONAMIENTO SECUENCIAL)
+   FASE B: ANÁLISIS DE FONDO (RAZONAMIENTO FORENSE SECUENCIAL)
 ═══════════════════════════════════════════════════════════════
 
 ## V. ANÁLISIS DE FONDO — CONFRONTACIÓN CON EVIDENCIA JURÍDICA
 
-INSTRUCCIÓN CRÍTICA: Antes de evaluar las citas del proyecto, sigue este
-razonamiento secuencial obligatorio (Chain of Thought):
+INSTRUCCIÓN CRÍTICA: Sigue estrictamente los 4 pasos secuenciales.
+NO saltes ninguno. Cada paso alimenta al siguiente.
 
 ### PASO 1 — COMPRENSIÓN DEL SENTIDO DE LA RESOLUCIÓN
-Antes de verificar citas, COMPRENDE el caso:
+Antes de verificar citas, COMPRENDE el caso como magistrado:
 - ¿Cuál es el SENTIDO del proyecto? (CONCEDE / NIEGA / SOBRESEE / MODIFICA / REVOCA)
 - ¿Es RAZONABLE este sentido dadas las pretensiones y la litis?
 - ¿La argumentación del proyecto SOSTIENE lógicamente el sentido propuesto?
-- ¿Hay contradicciones entre el análisis y los resolutivos?
+- ¿Hay contradicciones internas entre el análisis y los resolutivos?
 
-**Declara explícitamente el sentido identificado antes de continuar.**
+**Declara explícitamente: "SENTIDO IDENTIFICADO: [X]" antes de continuar.**
 
-### PASO 2 — BÚSQUEDA EN LA EVIDENCIA JURÍDICA (RAG MULTI-SILO)
-Con el caso entendido, contrasta el proyecto contra las CUATRO fuentes del
-CONTEXTO JURÍDICO RECUPERADO:
+### PASO 2 — FILTRO FORENSE DE LÓGICA PROBATORIA Y CONGRUENCIA
+⚠️ CRÍTICO: Somete el proyecto a estas pruebas de estrés ANTES del RAG.
+Estas pruebas detectan vicios de razonamiento que ninguna cita legal puede subsanar.
 
-**Fuente 1: Bloque de Constitucionalidad** (Constitución, Tratados DDHH, CoIDH)
-- ¿El proyecto observa los artículos constitucionales aplicables? (1°, 14, 16, 17 CPEUM)
-- ¿Aplica control de convencionalidad cuando es necesario?
-- ¿Respeta el principio pro persona?
-Citar artículos y tratados del contexto [Doc ID: uuid]
+**TEST 1: ACTOS PROPIOS (venire contra factum proprium)**
+Busca si alguna parte se beneficia de una contradicción lógica.
+Ejemplo típico: Una parte OFRECE un documento como prueba para fundar
+una excepción, pero simultáneamente TACHA ese mismo documento de falso
+para evadir la obligación que de él se deriva.
+Señales de alerta:
+- ¿Se invoca simultáneamente la validez y la nulidad de un mismo acto?
+- ¿Se argumenta algo en la demanda y lo contrario en agravios?
+- ¿El proyecto omite señalar la contradicción cuando la parte la comete?
+- ¿El tribunal acepta una postura de la parte que contradice su conducta
+  procesal anterior?
+Si detectas contradicción: formula la query de búsqueda →
+"principio de adquisición procesal actos propios estoppel procesal"
 
-**Fuente 2: Ley de Amparo y Legislación Federal** (PRIORIDAD ALTA)
-- ¿Los artículos de la Ley de Amparo citados son correctos y vigentes?
-- ¿Se observan los artículos de procedencia/improcedencia aplicables?
-- ¿El proyecto aplica correctamente el Art. 217 (obligatoriedad jurisprudencial)?
-- ¿Hay leyes federales sustantivas relevantes omitidas?
-Citar cada artículo con [Doc ID: uuid]
+**TEST 2: SUSTITUCIÓN INDEBIDA DE VALORACIÓN**
+Verifica si el tribunal colegiado (en amparo directo) se sustituye
+indebidamente en la valoración de pruebas que correspondía a la
+autoridad responsable.
+Señales de alerta:
+- ¿El colegiado RE-VALORA pruebas en lugar de verificar si la responsable
+  motivó correctamente su valoración?
+- ¿Emite juicios propios sobre la credibilidad de testigos, la autenticidad
+  de documentos o la fuerza de indicios, en vez de analizar si la responsable
+  lo hizo conforme a derecho?
+- ¿Hay excesos en la suplencia de la queja que llevan a una sustitución?
+Si detectas sustitución: formula la query →
+"sustitución indebida valoración pruebas amparo directo tribunal colegiado"
+
+**TEST 3: CONGRUENCIA PROBATORIA**
+Verifica la coherencia lógica entre la prueba mencionada y la conclusión:
+- ¿La conclusión del proyecto se SIGUE lógicamente de las pruebas citadas?
+- ¿Hay pruebas mencionadas en los antecedentes que DESAPARECEN del análisis?
+- ¿El proyecto da un salto lógico de las pruebas a la conclusión sin explicar
+  el nexo causal o la regla de valoración aplicada?
+- ¿Existe una prueba en contrario que el proyecto reconoce pero no pondera?
+
+**RESUMEN DEL FILTRO FORENSE:**
+Declara explícitamente para cada test:
+- Test 1 (Actos Propios): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+- Test 2 (Sustitución): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+- Test 3 (Congruencia): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+
+### PASO 3 — BÚSQUEDA EN LA EVIDENCIA JURÍDICA (RAG MULTI-SILO)
+Con el caso entendido y los tests forenses ejecutados, contrasta el
+proyecto contra las CUATRO fuentes del CONTEXTO JURÍDICO RECUPERADO.
+
+Si los tests forenses detectaron anomalías, BUSCA ESPECÍFICAMENTE
+fundamentos sobre esas anomalías en el contexto (principio de adquisición
+procesal, sustitución de valoración, congruencia, etc.)
+
+**Fuente 1: Bloque de Constitucionalidad**
+- Arts. 1°, 14, 16, 17 CPEUM. Control de convencionalidad. Pro persona.
+Citar con [Doc ID: uuid]
+
+**Fuente 2: Legislación Federal** (Ley de Amparo + leyes sustantivas)
+- Ley de Amparo: procedencia, competencia, Art. 217 obligatoriedad
+- Leyes sustantivas: Código de Comercio, CFPC, Código Civil Federal, etc.
+  según la materia del caso.
+Citar con [Doc ID: uuid]
 
 **Fuente 3: Jurisprudencia Nacional**
-- ¿Las tesis citadas en el proyecto son REALES y están correctamente aplicadas?
-- ¿Existe jurisprudencia OBLIGATORIA en el contexto que el proyecto IGNORÓ?
-- ¿Alguna tesis citada fue SUPERADA por reforma legislativa o por contradicción de tesis posterior?
-Tabla de confrontación:
-| # | Tesis/Rubro | Estado en el Proyecto | Relación | Doc ID |
+- ¿Las tesis citadas son REALES y correctamente aplicadas?
+- ¿Existe jurisprudencia OBLIGATORIA que el proyecto IGNORÓ?
+| # | Tesis/Rubro | Estado | Relación | Doc ID |
 |---|---|---|---|---|
-| 1 | ... | Citada/Omitida/Mal aplicada | Confirma/Contradice | [Doc ID] |
+| 1 | ... | Citada/Omitida | Confirma/Contradice | [Doc ID] |
 
 **Fuente 4: Legislación Estatal** (según jurisdicción del usuario)
-- ¿Se aplican correctamente las leyes estatales pertinentes?
-- ¿Hay disposiciones estatales en el contexto que fortalecerían la resolución?
+- Leyes estatales pertinentes y disposiciones que fortalecerían la resolución.
 
-### PASO 3 — CONTRASTE Y ALERTAS
+### PASO 4 — CONTRASTE Y ALERTAS
 
-#### 🟢 FORTALECIMIENTO (lo que el proyecto OMITIÓ pero DEBERÍA incluir)
-Para cada fuente relevante del contexto que el proyecto no citó:
-- Artículo/Tesis del contexto: [cita textual] [Doc ID: uuid]
-- Cómo fortalece el sentido de la resolución
-- Dónde debería insertarse en el proyecto
+#### 🟢 FORTALECIMIENTO (fuentes del contexto que el proyecto DEBERÍA incluir)
+- Artículo/Tesis: [cita textual] [Doc ID: uuid]
+- Cómo fortalece la resolución
+- Dónde insertarse en el proyecto
 
 #### 🔴 RED FLAGS (ALERTAS CRÍTICAS)
 Advertir si el proyecto:
-- Resuelve EN CONTRA de una ley vigente encontrada en el contexto
-- Ignora jurisprudencia OBLIGATORIA (Art. 217 Ley de Amparo)
-- Aplica una tesis SUPERADA por reforma
-- Contradice un artículo constitucional del bloque de constitucionalidad
-- Tiene fundamentación que NO soporta lógicamente el sentido propuesto
+- Resuelve EN CONTRA de ley vigente del contexto
+- Ignora jurisprudencia OBLIGATORIA (Art. 217)
+- Contiene vicio detectado en los tests forenses (Paso 2)
+- Tiene fundamentación que NO soporta el sentido propuesto
+- Aplica tesis SUPERADA por reforma o contradicción posterior
 
-Para cada Red Flag: citar la fuente del contexto que contradice [Doc ID: uuid]
+Para cada Red Flag: citar fuente del contexto [Doc ID: uuid]
 
 ═══════════════════════════════════════════════════════════════
    CIERRE OBLIGATORIO DEL DICTAMEN
@@ -6363,13 +6406,20 @@ async def chat_endpoint(request: ChatRequest):
         use_thinking = should_use_thinking(has_document, is_drafting)
         
         if is_sentencia:
-            # Sentencia analysis: OpenAI o3-mini (powerful reasoning, cost-effective)
-            active_client = chat_client  # Same OpenAI API key
-            active_model = SENTENCIA_MODEL
-            max_tokens = 16000  # Máximo output para análisis exhaustivo
-            use_thinking = False  # o3-mini handles reasoning internally
-            print(f"   ⚖️ Modelo SENTENCIA: {SENTENCIA_MODEL} | max_tokens: {max_tokens}")
-        elif use_thinking:
+            # Sentencia analysis: Gemini 2.5 Pro (superior reasoning + 1M context)
+            # Uses google-genai SDK, NOT OpenAI client
+            is_sentencia_gemini = True
+            active_model = SENTENCIA_MODEL  # For logging only
+            max_tokens = 65536  # Gemini allows much larger output
+            use_thinking = False
+            _gemini_key = os.getenv("GEMINI_API_KEY", "")
+            if not _gemini_key:
+                raise HTTPException(500, "GEMINI_API_KEY not configured for sentencia analysis")
+            print(f"   ⚖️ Modelo SENTENCIA: {SENTENCIA_MODEL} (Gemini) | max_output: {max_tokens}")
+        else:
+            is_sentencia_gemini = False
+        
+        if not is_sentencia_gemini and use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
             active_model = DEEPSEEK_CHAT_MODEL
@@ -6402,51 +6452,112 @@ async def chat_endpoint(request: ChatRequest):
                 reasoning_buffer = ""
                 content_buffer = ""
                 
-                api_kwargs = {
-                    "model": active_model,
-                    "messages": llm_messages,
-                    "stream": True,
-                }
-                # GPT-5 Mini uses max_completion_tokens; DeepSeek uses max_tokens
-                if use_thinking:
-                    api_kwargs["max_tokens"] = max_tokens
-                    api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-                else:
-                    api_kwargs["max_completion_tokens"] = max_tokens
-                
-                stream = await active_client.chat.completions.create(**api_kwargs)
-                
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta:
-                        delta = chunk.choices[0].delta
-                        
-                        reasoning_content = getattr(delta, 'reasoning_content', None)
-                        content = getattr(delta, 'content', None)
-                        
-                        if reasoning_content:
-                            reasoning_buffer += reasoning_content
-                            # Thinking mode improves response quality but the raw
-                            # reasoning_content is garbled/compressed by DeepSeek
-                            # (truncated syllables, not meant for display).
-                            # We buffer it for logging but do NOT stream to client.
-                        
-                        if content:
-                            content_buffer += content
-                            yield content
-                
-                # Edge case: thinking mode produced reasoning but ZERO content
-                # (model exhausted tokens during reasoning phase)
-                if use_thinking and reasoning_buffer and not content_buffer.strip():
-                    print(f"   ⚠️ Thinking exhausted tokens — {len(reasoning_buffer)} chars reasoning, 0 content")
-                    # Yield a visible fallback so the user sees SOMETHING
-                    fallback = (
-                        "\n\n**Análisis completado.**\n\n"
-                        "El modelo utilizó todos los tokens disponibles durante el análisis interno. "
-                        "Envía un mensaje de seguimiento como *\"responde\"* o *\"continúa\"* "
-                        "para obtener la respuesta estructurada."
+                # ── GEMINI BRANCH: Sentencia analysis via google-genai SDK ──
+                if is_sentencia_gemini:
+                    from google import genai
+                    from google.genai import types as gtypes
+                    
+                    gemini_client = genai.Client(api_key=_gemini_key)
+                    
+                    # Convert llm_messages to Gemini format:
+                    # system messages → system_instruction
+                    # user/assistant → contents with role "user"/"model"
+                    system_parts = []
+                    gemini_contents = []
+                    for msg in llm_messages:
+                        if msg["role"] == "system":
+                            system_parts.append(msg["content"])
+                        elif msg["role"] == "user":
+                            gemini_contents.append(
+                                gtypes.Content(role="user", parts=[gtypes.Part(text=msg["content"])])
+                            )
+                        elif msg["role"] == "assistant":
+                            gemini_contents.append(
+                                gtypes.Content(role="model", parts=[gtypes.Part(text=msg["content"])])
+                            )
+                    
+                    system_instruction = "\n\n".join(system_parts)
+                    
+                    gemini_config = gtypes.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        max_output_tokens=max_tokens,
+                        temperature=0.3,
+                        thinking_config=gtypes.ThinkingConfig(
+                            thinking_budget=8192,
+                        ),
                     )
-                    content_buffer = fallback
-                    yield fallback
+                    
+                    print(f"   🔮 Gemini stream starting: {SENTENCIA_MODEL} | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
+                    
+                    stream = gemini_client.models.generate_content_stream(
+                        model=SENTENCIA_MODEL,
+                        contents=gemini_contents,
+                        config=gemini_config,
+                    )
+                    
+                    for chunk in stream:
+                        if chunk.candidates:
+                            for part in chunk.candidates[0].content.parts:
+                                if hasattr(part, 'thought') and part.thought:
+                                    # Internal thinking — don't stream to user
+                                    reasoning_buffer += (part.text or "")
+                                elif part.text:
+                                    content_buffer += part.text
+                                    yield part.text
+                    
+                    if not content_buffer.strip():
+                        print(f"   ⚠️ Gemini produced no content ({len(reasoning_buffer)} chars thinking)")
+                        fallback = (
+                            "\n\n**Análisis completado.**\n\n"
+                            "El modelo agotó tokens durante el razonamiento. "
+                            "Envía *\"continúa\"* para obtener la respuesta."
+                        )
+                        content_buffer = fallback
+                        yield fallback
+                    
+                    print(f"   ✅ Gemini stream complete: {len(content_buffer)} chars content, {len(reasoning_buffer)} chars thinking")
+                
+                # ── OPENAI/DEEPSEEK BRANCH: Regular chat ─────────────────
+                else:
+                    api_kwargs = {
+                        "model": active_model,
+                        "messages": llm_messages,
+                        "stream": True,
+                    }
+                    # GPT-5 Mini uses max_completion_tokens; DeepSeek uses max_tokens
+                    if use_thinking:
+                        api_kwargs["max_tokens"] = max_tokens
+                        api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                    else:
+                        api_kwargs["max_completion_tokens"] = max_tokens
+                    
+                    stream = await active_client.chat.completions.create(**api_kwargs)
+                    
+                    async for chunk in stream:
+                        if chunk.choices and chunk.choices[0].delta:
+                            delta = chunk.choices[0].delta
+                            
+                            reasoning_content = getattr(delta, 'reasoning_content', None)
+                            content = getattr(delta, 'content', None)
+                            
+                            if reasoning_content:
+                                reasoning_buffer += reasoning_content
+                            
+                            if content:
+                                content_buffer += content
+                                yield content
+                    
+                    # Edge case: thinking mode produced reasoning but ZERO content
+                    if use_thinking and reasoning_buffer and not content_buffer.strip():
+                        print(f"   ⚠️ Thinking exhausted tokens — {len(reasoning_buffer)} chars reasoning, 0 content")
+                        fallback = (
+                            "\n\n**Análisis completado.**\n\n"
+                            "El modelo utilizó todos los tokens disponibles durante el análisis interno. "
+                            "Envía un mensaje de seguimiento como *\"responde\"* o *\"continúa\"* "
+                            "para obtener la respuesta estructurada."
+                        )
+                        content_buffer = fallback
+                        yield fallback
                 
                 # Validar citas
                 if doc_id_map:
