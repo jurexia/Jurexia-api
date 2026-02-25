@@ -8385,7 +8385,8 @@ def _group_agravios_by_theme(calificaciones: List[dict]) -> List[List[dict]]:
 
 async def phase2c_adaptive_estudio_fondo(
     client, extracted_data: dict, pdf_parts: list,
-    tipo: str, calificaciones: List[dict], rag_context: str
+    tipo: str, calificaciones: List[dict], rag_context: str,
+    stream_callback=None
 ) -> str:
     """
     Phase 2C DEEP PIPELINE: Draft ESTUDIO DE FONDO with maximum depth per agravio.
@@ -8565,7 +8566,8 @@ async def phase2c_adaptive_estudio_fondo(
         print(f"         RAG: {len(top_standard)} juridicos + {len(top_sentencias)} sentencias ({step_a_elapsed:.1f}s)")
 
         # ==========================================================
-        # STEPS B-D: Per agravio within the group (using shared RAG)
+        # STEP B: Per agravio within the group (using shared RAG)
+        # Steps C+D eliminated — Step A RAG provides sufficient context
         # ==========================================================
         for calif in group:
             if early_terminated:
@@ -8590,7 +8592,7 @@ async def phase2c_adaptive_estudio_fondo(
                 print(f"\n         AGRAVIO {num} ({calificacion.upper()}) dentro del grupo")
             agravio_start = time.time()
 
-            # -- STEP B: Gemini Drafts Agravio --
+            # -- STEP B: Gemini Drafts Agravio (with streaming) --
             print(f"         Paso B: Gemini redacta agravio {num}...")
             step_b_start = time.time()
 
@@ -8674,16 +8676,36 @@ Los fundamentos y motivos del secretario DEBEN guiar tu argumentacion.
                 step_b_model = GEMINI_MODEL if calificacion == "fundado" else GEMINI_MODEL_FAST
                 print(f"         Modelo: {step_b_model} ({'Pro -- razonamiento profundo' if calificacion == 'fundado' else 'Flash -- patron formulaico'})")
 
-                response_b = client.models.generate_content(
-                    model=step_b_model,
-                    contents=parts_b,
-                    config=gtypes.GenerateContentConfig(
-                        system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
-                        temperature=0.3,
-                        max_output_tokens=32768,
-                    ),
-                )
-                draft_text = _strip_ai_preamble(response_b.text or "")
+                # ── Token-level streaming (Sálvame pattern) ──────────────
+                if stream_callback:
+                    draft_text = ""
+                    async for chunk in client.aio.models.generate_content_stream(
+                        model=step_b_model,
+                        contents=parts_b,
+                        config=gtypes.GenerateContentConfig(
+                            system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
+                            temperature=0.3,
+                            max_output_tokens=32768,
+                        ),
+                    ):
+                        token = chunk.text or ""
+                        if token:
+                            draft_text += token
+                            await stream_callback(token)
+                    draft_text = _strip_ai_preamble(draft_text)
+                else:
+                    # Non-streaming fallback (original endpoint)
+                    response_b = client.models.generate_content(
+                        model=step_b_model,
+                        contents=parts_b,
+                        config=gtypes.GenerateContentConfig(
+                            system_instruction=PHASE2C_ESTUDIO_FONDO_PROMPT,
+                            temperature=0.3,
+                            max_output_tokens=32768,
+                        ),
+                    )
+                    draft_text = _strip_ai_preamble(response_b.text or "")
+
                 step_b_elapsed = time.time() - step_b_start
                 print(f"         Borrador: {len(draft_text)} chars ({step_b_elapsed:.1f}s)")
             except Exception as e:
@@ -8691,134 +8713,8 @@ Los fundamentos y motivos del secretario DEBEN guiar tu argumentacion.
                 agravio_texts.append(f"\n[Error al redactar agravio {num}: {str(e)}]\n")
                 continue
 
-            # -- STEP C: Post-Enrichment RAG --
-            print(f"         Paso C: RAG de enriquecimiento post-redaccion...")
-            step_c_start = time.time()
-
-            enrichment_rag = ""
-            try:
-                enrichment_prompt = f"""Extrae de este borrador de analisis juridico entre 3 y 5 consultas de busqueda 
-para encontrar jurisprudencia y articulos de ley adicionales que refuercen la argumentacion.
-Enfocate en:
-- Tesis o jurisprudencia mencionadas que necesiten verificacion
-- Articulos de ley citados que podrian complementarse
-- Conceptos juridicos que beneficiarian de citas adicionales
-
-Borrador:
-{draft_text[:4000]}
-
-Genera SOLO las consultas, una por linea, sin numeracion. Cada consulta debe ser 5-15 palabras."""
-
-                enrichment_response = openai_client.chat.completions.create(
-                    model=CHAT_MODEL,
-                    messages=[{"role": "user", "content": enrichment_prompt}],
-                    temperature=0.2,
-                    max_tokens=300,
-                )
-                enrichment_queries = [
-                    q.strip() for q in (enrichment_response.choices[0].message.content or "").split("\n")
-                    if q.strip() and len(q.strip()) > 5
-                ][:4]
-
-                if enrichment_queries:
-                    print(f"         {len(enrichment_queries)} queries de enriquecimiento")
-
-                    enrich_tasks = []
-                    for eq in enrichment_queries:
-                        enrich_tasks.append(hybrid_search_all_silos(
-                            query=eq, estado=None, top_k=6, alpha=0.7, enable_reasoning=False
-                        ))
-
-                    enrich_results_raw = await asyncio.gather(*enrich_tasks, return_exceptions=True)
-                    enrich_results = []
-                    enrich_seen = set(seen_ids)
-
-                    for batch in enrich_results_raw:
-                        if isinstance(batch, Exception):
-                            continue
-                        for r in batch:
-                            if r.id not in enrich_seen:
-                                enrich_seen.add(r.id)
-                                enrich_results.append(r)
-
-                    enrich_results.sort(key=lambda r: r.score, reverse=True)
-                    top_enrich = enrich_results[:15]
-                    total_rag_hits += len(top_enrich)
-
-                    if top_enrich:
-                        enrichment_rag = "\n"
-                        for r in top_enrich:
-                            source = r.ref or r.origen or ""
-                            text_content = r.texto or ""
-                            silo = r.silo or ""
-                            tag = "[JURISPRUDENCIA VERIFICADA]" if "jurisprudencia" in silo.lower() else "[LEGISLACION VERIFICADA]"
-                            enrichment_rag += f"\n--- {tag} ---\n"
-                            if source:
-                                enrichment_rag += f"Fuente: {source}\n"
-                            enrichment_rag += f"{text_content}\n"
-
-                        print(f"         Enriquecimiento: {len(top_enrich)} fuentes adicionales")
-
-            except Exception as e:
-                print(f"         Paso C error (continuando sin enriquecimiento): {e}")
-
-            step_c_elapsed = time.time() - step_c_start
-            print(f"         Paso C: {step_c_elapsed:.1f}s")
-
-            # -- STEP D: Gemini Enriches Citations --
-            if enrichment_rag:
-                print(f"         Paso D: Gemini enriquece citas...")
-                step_d_start = time.time()
-
-                enrichment_instruction = f"""Tu tarea es MEJORAR el siguiente borrador de analisis juridico incorporando las NUEVAS 
-fuentes verificadas que te proporciono. 
-
-REGLAS:
-1. CONSERVA todo el contenido y estructura del borrador original
-2. ANADE citas de jurisprudencia y articulos de ley de las NUEVAS fuentes donde sean relevantes
-3. REFUERZA los argumentos existentes con las nuevas fuentes
-4. NUNCA elimines contenido del borrador original
-5. SOLO usa fuentes etiquetadas como [JURISPRUDENCIA VERIFICADA] o [LEGISLACION VERIFICADA]
-6. NO inventes citas -- solo usa las proporcionadas
-7. El resultado debe ser MAS EXTENSO que el borrador (no mas corto)
-8. NUNCA incluyas las etiquetas [JURISPRUDENCIA VERIFICADA] o [LEGISLACION VERIFICADA] en el texto de salida -- son marcadores internos
-
-=== BORRADOR ORIGINAL ===
-{draft_text}
-
-=== NUEVAS FUENTES DE ENRIQUECIMIENTO ===
-{enrichment_rag}
-
-=== INSTRUCCION ===
-Devuelve el borrador ENRIQUECIDO con las nuevas fuentes integradas naturalmente en la argumentacion.
-"""
-
-                try:
-                    response_d = client.models.generate_content(
-                        model=GEMINI_MODEL_FAST,
-                        contents=[gtypes.Part.from_text(text=enrichment_instruction)],
-                        config=gtypes.GenerateContentConfig(
-                            system_instruction="Eres un Secretario Proyectista EXPERTO. Tu tarea es enriquecer un borrador juridico con nuevas fuentes verificadas sin perder contenido.",
-                            temperature=0.2,
-                            max_output_tokens=32768,
-                        ),
-                    )
-                    enriched_text = response_d.text or ""
-                    step_d_elapsed = time.time() - step_d_start
-
-                    if len(enriched_text) >= len(draft_text) * 0.8:
-                        print(f"         Enriquecido: {len(draft_text)} -> {len(enriched_text)} chars (+{len(enriched_text) - len(draft_text)}) ({step_d_elapsed:.1f}s)")
-                        agravio_texts.append(enriched_text)
-                    else:
-                        print(f"         Enriquecido demasiado corto ({len(enriched_text)} vs {len(draft_text)}), usando borrador original")
-                        agravio_texts.append(draft_text)
-
-                except Exception as e:
-                    print(f"         Paso D error (usando borrador): {e}")
-                    agravio_texts.append(draft_text)
-            else:
-                print(f"         Sin fuentes adicionales, usando borrador directo")
-                agravio_texts.append(draft_text)
+            # Directly use draft (Steps C+D eliminated)
+            agravio_texts.append(draft_text)
 
             agravio_elapsed = time.time() - agravio_start
             print(f"      Agravio {num} completo: {len(agravio_texts[-1])} chars en {agravio_elapsed:.1f}s")
@@ -10216,24 +10112,51 @@ async def draft_sentencia_stream(
 
             # ── Phase 3: Estudio de Fondo ─────────────────────────────────
             if parsed_calificaciones or sentido:
-                # FOCUSED PIPELINE
+                # FOCUSED PIPELINE with token-level streaming (Sálvame pattern)
                 n_agravios = len(parsed_calificaciones) if parsed_calificaciones else 1
                 yield sse_event("phase", {"step": f"Redactando estudio de fondo ({n_agravios} agravios)...", "progress": 35})
 
-                estudio_fondo = await phase2c_adaptive_estudio_fondo(
-                    client, extracted_data, pdf_parts,
-                    tipo, parsed_calificaciones, rag_context
-                )
+                # ── asyncio.Queue bridge for token streaming ──────────────
+                token_queue = asyncio.Queue()
 
-                # Send the estudio text as a big chunk
-                yield sse_event("text", {"chunk": estudio_fondo})
-                accumulated_text = estudio_fondo
+                async def token_callback(token: str):
+                    """Push each token to the queue for SSE delivery."""
+                    await token_queue.put(token)
+
+                async def run_pipeline():
+                    """Run estudio de fondo in background, streaming tokens via queue."""
+                    try:
+                        result = await phase2c_adaptive_estudio_fondo(
+                            client, extracted_data, pdf_parts,
+                            tipo, parsed_calificaciones, rag_context,
+                            stream_callback=token_callback
+                        )
+                        await token_queue.put(None)  # Sentinel: estudio complete
+                        return result
+                    except Exception as e:
+                        await token_queue.put(None)
+                        raise
+
+                pipeline_task = asyncio.create_task(run_pipeline())
+
+                # Drain tokens from queue → SSE text events
+                estudio_fondo = ""
+                while True:
+                    token = await token_queue.get()
+                    if token is None:
+                        break
+                    estudio_fondo += token
+                    yield sse_event("text", {"chunk": token})
+
+                # Wait for pipeline to finish and get sanitized result
+                estudio_result = await pipeline_task
+                accumulated_text = estudio_result
 
                 yield sse_event("phase", {"step": "Redactando efectos y puntos resolutivos...", "progress": 85})
 
                 # ── Phase 4: Efectos + Resolutivos ────────────────────────
                 efectos_resolutivos = await phase_final_efectos_resolutivos(
-                    client, extracted_data, estudio_fondo,
+                    client, extracted_data, estudio_result,
                     tipo, parsed_calificaciones
                 )
 
