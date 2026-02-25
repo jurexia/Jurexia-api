@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import (
@@ -8454,6 +8454,29 @@ class AgravioAnalysis(BaseModel):
     texto_integro: str = ""
     articulos_mencionados: List[str] = []
     derechos_invocados: List[str] = []
+
+    @field_validator("numero", mode="before")
+    @classmethod
+    def parse_numero(cls, v):
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            ordinals = {
+                "PRIMERO": 1, "SEGUNDO": 2, "TERCERO": 3, "CUARTO": 4,
+                "QUINTO": 5, "SEXTO": 6, "SÉPTIMO": 7, "SEPTIMO": 7,
+                "OCTAVO": 8, "NOVENO": 9, "DÉCIMO": 10, "DECIMO": 10,
+                "PRIMER": 1, "PRIMERA": 1, "SEGUNDA": 2, "TERCERA": 3,
+                "ÚNICO": 1, "UNICO": 1,
+            }
+            upper = v.strip().upper()
+            if upper in ordinals:
+                return ordinals[upper]
+            # Try parsing as digit string
+            try:
+                return int(v)
+            except ValueError:
+                return 1  # fallback
+        return 1
 
 class DatosExpediente(BaseModel):
     numero: str = ""
