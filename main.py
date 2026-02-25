@@ -9889,7 +9889,7 @@ Sé profundo en los agravios fundados y conciso en los infundados/inoperantes.""
                     {"role": "system", "content": REDACCION_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=16000,
+                max_tokens=8192,
                 temperature=0.3,
                 stream=True,
             )
