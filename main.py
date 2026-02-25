@@ -8502,6 +8502,35 @@ class GrupoTematico(BaseModel):
     agravios_nums: List[int]
     descripcion: str = ""
 
+    @field_validator("agravios_nums", mode="before")
+    @classmethod
+    def parse_agravios_nums(cls, v):
+        if not isinstance(v, list):
+            return v
+        ordinals = {
+            "PRIMERO": 1, "SEGUNDO": 2, "TERCERO": 3, "CUARTO": 4,
+            "QUINTO": 5, "SEXTO": 6, "SÉPTIMO": 7, "SEPTIMO": 7,
+            "OCTAVO": 8, "NOVENO": 9, "DÉCIMO": 10, "DECIMO": 10,
+            "PRIMER": 1, "PRIMERA": 1, "SEGUNDA": 2, "TERCERA": 3,
+            "ÚNICO": 1, "UNICO": 1,
+        }
+        result = []
+        for item in v:
+            if isinstance(item, int):
+                result.append(item)
+            elif isinstance(item, str):
+                upper = item.strip().upper()
+                if upper in ordinals:
+                    result.append(ordinals[upper])
+                else:
+                    try:
+                        result.append(int(item))
+                    except ValueError:
+                        result.append(1)
+            else:
+                result.append(1)
+        return result
+
 class AnalysisResponse(BaseModel):
     resumen_caso: str = ""
     resumen_acto_reclamado: str = ""
