@@ -8615,7 +8615,40 @@ Responde SOLO con JSON válido."""
         if text.startswith("```"):
             text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-        analysis_data = json.loads(text)
+        # Robust JSON parsing with repair
+        analysis_data = None
+        try:
+            analysis_data = json.loads(text)
+        except json.JSONDecodeError:
+            # Attempt repair: fix trailing commas, control chars
+            import re
+            repaired = text
+            # Remove trailing commas before } or ]
+            repaired = re.sub(r',\s*([}\]])', r'\1', repaired)
+            # Remove control characters that break JSON
+            repaired = re.sub(r'[\x00-\x1f]', ' ', repaired)
+            try:
+                analysis_data = json.loads(repaired)
+            except json.JSONDecodeError:
+                # Last resort: try to find the JSON object boundaries
+                start = repaired.find('{')
+                end = repaired.rfind('}')
+                if start >= 0 and end > start:
+                    try:
+                        analysis_data = json.loads(repaired[start:end+1])
+                    except json.JSONDecodeError:
+                        pass
+
+        if analysis_data is None:
+            # Fallback: return minimal valid structure
+            print(f"   ⚠️ JSON parse failed, using fallback structure")
+            analysis_data = {
+                "resumen_caso": "No se pudo parsear el análisis JSON. Los documentos fueron leídos pero el formato de respuesta fue inválido.",
+                "agravios": [{"numero": 1, "titulo": "Análisis completo pendiente", "resumen": text[:500] if text else "Sin contenido", "texto_integro": ""}],
+                "datos_expediente": {},
+                "grupos_tematicos": [],
+                "observaciones_preliminares": "Error de parsing JSON — reintente el análisis"
+            }
         total_elapsed = time_module.time() - total_start
 
         # Build response with Pydantic models
