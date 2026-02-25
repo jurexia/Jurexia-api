@@ -752,39 +752,51 @@ Evalúa la estructura y redacción del proyecto de sentencia contra los
 estándares de redacción judicial del Manual de la SCJN. Verifica cada uno
 de los siguientes criterios:
 
-### A. Estructura Formal
-- ¿Contiene todos los apartados obligatorios? (Resultandos, Considerandos, Puntos Resolutivos)
-- ¿La numeración de considerandos es consistente y ordenada?
+### A. Estructura Formal (Manual SCJN, Cap. I)
+El Manual establece tres apartados obligatorios:
+- **Resultandos**: ¿Contiene resultandos que narren antecedentes procesales de forma clara y completa?
+- **Considerandos**: ¿Cada considerando aborda UN SOLO argumento o tema? (Regla: un considerando = un argumento).
+  ¿Las razones se expresan en oraciones simples conjugadas en PRESENTE?
+  ¿La numeración es consistente y ordenada?
+- **Puntos Resolutivos**: ¿Se derivan DIRECTAMENTE de los considerandos?
+  ¿Son claros, precisos y congruentes con el análisis?
 - ¿Hay congruencia entre el encabezado del asunto y el contenido?
-- ¿Los puntos resolutivos son claros, precisos y congruentes con el análisis?
 
-### B. Calidad de Redacción (Reglas del Manual de Redacción Jurisdiccional SCJN)
-Evalúa la calidad de escritura contra estas 12 reglas:
+### B. Calidad de Redacción (Manual de Redacción Jurisdiccional para la Primera Sala, SCJN)
+Evalúa el proyecto contra la lista de verificación de RE-ESCRITURA del Manual (Cap. I, Sección 2.4):
 
-1. **Voz activa**: ¿Usa predominantemente voz activa? ("Este tribunal determina..." vs. "fue determinado por...")
-2. **Oraciones cortas**: ¿Las oraciones tienen máximo 30 palabras? Señalar párrafos excesivamente largos
-3. **Párrafo deductivo**: ¿Cada párrafo inicia con la oración temática, seguida del desarrollo y la consecuencia?
-4. **Modelo Toulmin**: ¿Los argumentos siguen la estructura Aserción → Datos → Garantía → Cualificador?
-5. **Preposiciones correctas**: ¿Usa "con base en" (no "en base a"), "respecto de" (no "respecto a"), "conforme a"?
-6. **Ausencia de clichés judiciales**: Señalar si el proyecto usa frases prohibidas:
-   - "en la especie", "se desprende que", "estar en aptitud de"
-   - "de esta guisa", "impetrante de garantías", "elementos convictivos"
-   - "auto de marras", "obrar en autos", "no pasa desapercibido"
-   - "a mayor abundamiento", "dicho sea de paso", "al efecto"
-   - "robustecido con", "adminiculado con"
-7. **Lenguaje ciudadano**: ¿El texto es comprensible sin necesidad de formación jurídica especializada?
-8. **Ausencia de muletillas**: ¿Evita repeticiones innecesarias como "mismo/a", "en ese sentido", "cabe señalar"?
-9. **Títulos informativos**: ¿Los considerandos tienen títulos que anticipen el contenido?
-10. **Formato de citas**: ¿Las transcripciones están debidamente delimitadas (comillas, cursivas, sangría)?
-11. **Punto medular primero**: ¿El proyecto aborda primero el agravio/concepto de violación más relevante?
-12. **Extensión proporcional**: ¿La extensión de cada sección es proporcional a su importancia?
-    Agravios infundados deben ser breves. Agravios fundados merecen análisis profundo.
+**CLARIDAD Y SENCILLEZ** (Propósito central del Manual):
+1. **Lenguaje accesible**: ¿El texto es comprensible para un lector no especializado? El Manual exige que las sentencias sean accesibles para todo lector, no solo jueces y abogados.
+2. **Oraciones simples**: ¿Las oraciones están conjugadas en presente y tienen estructura sujeto-verbo-complemento? Señalar oraciones excesivamente largas o subordinadas múltiples.
+3. **Voz activa**: ¿Predomina la voz activa? ("Este tribunal determina..." vs. "fue determinado por..."). La voz pasiva oscurece quién actúa.
+
+**ESTRUCTURA Y ORGANIZACIÓN**:
+4. **Párrafo deductivo**: ¿Cada párrafo inicia con la oración temática (idea principal), seguida del desarrollo y la consecuencia?
+5. **Un argumento por considerando**: ¿Cada considerando aborda un solo punto? El Manual recomienda que cada considerando trate un argumento distinto, no que todos integren uno solo.
+6. **Punto medular primero**: ¿El proyecto aborda primero el agravio/concepto de violación más relevante?
+7. **Extensión proporcional**: ¿La extensión de cada sección es proporcional a su importancia? Agravios infundados: breves. Fundados: análisis profundo.
+8. **Títulos descriptivos**: ¿Los considerandos tienen títulos que anticipen su contenido y faciliten la lectura?
+
+**CONSISTENCIA Y ESTILO**:
+9. **Tono adecuado**: ¿El tono es profesional y neutral? El Manual subraya que el estilo y tono son cruciales para la comprensión del criterio interpretativo.
+10. **Ausencia de repeticiones innecesarias**: ¿Evita redundancia? El Manual distingue entre repetición con propósito (énfasis legítimo) y repetición por descuido.
+11. **Ausencia de clichés judiciales**: Señalar frases arcaicas o vacías que el Manual prohíbe:
+    - "en la especie", "se desprende que", "estar en aptitud de"
+    - "de esta guisa", "impetrante de garantías", "elementos convictivos"
+    - "auto de marras", "obrar en autos", "no pasa desapercibido"
+    - "a mayor abundamiento", "robustecido con", "adminiculado con"
+12. **Preposiciones correctas**: "con base en" (no "en base a"), "respecto de" (no "respecto a"), "conforme a".
+
+**ORTOGRAFÍA Y PUNTUACIÓN** (Manual SCJN, Recomendaciones Editoriales):
+13. **Puntuación**: ¿Usa correctamente coma, punto y coma, dos puntos, puntos suspensivos? El Manual dedica secciones completas a cada signo de puntuación.
+14. **Formato de citas y transcripciones**: ¿Las citas textuales están delimitadas con comillas, cursivas o sangría? ¿Las citas judiciales siguen el formato establecido?
+15. **Mayúsculas**: ¿Se usan según las reglas del Manual? (nombres de leyes, tribunales, pero NO sustantivos comunes en mayúscula enfática).
 
 ### C. Calificación Estructural
-Emitir una calificación de forma:
-- ✅ EXCELENTE: Cumple con al menos 10 de las 12 reglas
-- ⚠️ ACEPTABLE: Cumple 7-9 reglas, con observaciones menores
-- ❌ DEFICIENTE: Cumple menos de 7 reglas, requiere revisión significativa
+Emitir una calificación de forma basada en el Manual SCJN:
+- ✅ EXCELENTE: Cumple al menos 12 de las 15 reglas. Redacción clara y accesible.
+- ⚠️ ACEPTABLE: Cumple 8-11 reglas. Observaciones menores de estilo.
+- ❌ DEFICIENTE: Cumple menos de 8 reglas. Requiere re-escritura significativa conforme al Manual.
 
 ═══════════════════════════════════════════════════════════════
    FASE B: ANÁLISIS DE FONDO (RAZONAMIENTO SECUENCIAL)
