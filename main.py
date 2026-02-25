@@ -10073,7 +10073,7 @@ Analiza CADA agravio/concepto de violación individualmente."""
 
     async def stream_gemini():
         try:
-            async for chunk in client.aio.models.generate_content_stream(
+            async for chunk in await client.aio.models.generate_content_stream(
                 model=REDACTOR_MODEL_GENERATE,
                 contents=[gtypes.Part.from_text(text=generation_prompt)],
                 config=gtypes.GenerateContentConfig(
