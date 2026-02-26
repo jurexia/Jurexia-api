@@ -2117,10 +2117,8 @@ async def lifespan(app: FastAPI):
     # Gemini Legal Cache — initialize in background (non-blocking)
     async def _init_gemini_cache():
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
             from cache_manager import initialize_cache
-            cache_name = await loop.run_in_executor(None, initialize_cache)
+            cache_name = await initialize_cache()
             if cache_name:
                 print(f"   🏛️ Gemini Cache LISTO: {cache_name}")
             else:
@@ -6310,264 +6308,236 @@ async def chat_endpoint(request: ChatRequest):
             doc_id_map = {}
             context_xml = ""
 
-        if is_drafting:
-            # Para redacción: buscar contexto legal relevante para el tipo de documento
-            descripcion_match = re.search(r'Descripción del caso:\s*(.+)', last_user_message, re.DOTALL)
-            descripcion = descripcion_match.group(1).strip() if descripcion_match else last_user_message
-            
-            # Crear query de búsqueda enfocada en el tipo de documento y su contenido
-            search_query = f"{draft_tipo} {draft_subtipo} artículos fundamento legal: {descripcion[:1500]}"
-            
-            search_results = await hybrid_search_all_silos(
-                query=search_query,
-                estado=request.estado,
-                top_k=15,
-                forced_materia=request.materia,
-                fuero=request.fuero,
-            )
-            doc_id_map = build_doc_id_map(search_results)
-            context_xml = format_results_as_xml(search_results)
-            print(f"   Encontrados {len(search_results)} documentos para fundamentar redacción")
-        elif has_document:
-            # Para documentos: extraer términos clave y buscar contexto relevante
-            
-            # Determinar marker de contenido según tipo
-            if is_sentencia:
-                doc_start_idx = last_user_message.find("<!-- SENTENCIA_INICIO -->")
-                doc_end_idx = last_user_message.find("<!-- SENTENCIA_FIN -->")
-                print("   ⚖️ Sentencia detectada — extrayendo términos para búsqueda RAG ampliada")
-            else:
-                doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
-                doc_end_idx = -1
-                print("   📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
-            
-            if doc_start_idx != -1:
-                if doc_end_idx != -1:
-                    doc_content = last_user_message[doc_start_idx:doc_end_idx]
-                else:
-                    # Capture up to 20K chars to include fundamentos de derecho
-                    doc_content = last_user_message[doc_start_idx:doc_start_idx + 30000]
-            else:
-                # No markers — use full message (up to 20K chars)
-                doc_content = last_user_message[:30000]
-            
-            if is_sentencia:
-                # ─────────────────────────────────────────────────────────────
-                # SMART RAG para sentencias: extrae términos legales clave
-                # del documento completo y hace múltiples búsquedas dirigidas
-                # ─────────────────────────────────────────────────────────────
-                import re
+            if is_drafting:
+                # Para redacción: buscar contexto legal relevante para el tipo de documento
+                descripcion_match = re.search(r'Descripción del caso:\s*(.+)', last_user_message, re.DOTALL)
+                descripcion = descripcion_match.group(1).strip() if descripcion_match else last_user_message
                 
-                # Extraer artículos citados ("artículo 14", "Art. 193", etc.)
-                articulos = re.findall(
-                    r'(?:art[ií]culo|art\.?)\s*(\d+[\w°]*(?:\s*(?:,|y|al)\s*\d+[\w°]*)*)',
-                    doc_content, re.IGNORECASE
-                )
-                
-                # Extraer leyes/códigos mencionados
-                leyes_patterns = [
-                    r'(?:Ley\s+(?:de|del|Nacional|Federal|General|Orgánica|para)\s+[\w\s]+?)(?:\.|\ |,|;)',
-                    r'(?:Código\s+(?:Penal|Civil|Nacional|de\s+\w+)[\w\s]*?)(?:\.|\ |,|;)',
-                    r'(?:Constitución\s+Política[\w\s]*)',
-                    r'CPEUM',
-                    r'(?:Ley\s+de\s+Amparo)',
-                ]
-                leyes_encontradas = []
-                for pat in leyes_patterns:
-                    matches = re.findall(pat, doc_content, re.IGNORECASE)
-                    leyes_encontradas.extend([m.strip() for m in matches[:5]])
-                
-                # Extraer temas jurídicos clave
-                temas_patterns = [
-                    r'(?:juicio\s+de\s+amparo)',
-                    r'(?:recurso\s+de\s+revisión)',
-                    r'(?:principio\s+(?:pro persona|de legalidad|de retroactividad))',
-                    r'(?:control\s+(?:de convencionalidad|difuso|concentrado))',
-                    r'(?:derechos humanos)',
-                    r'(?:debido proceso)',
-                    r'(?:retroactividad)',
-                    r'(?:cosa juzgada)',
-                    r'(?:suplencia\s+de\s+la\s+queja)',
-                    r'(?:interés\s+(?:jurídico|legítimo|superior))',
-                ]
-                temas = []
-                for pat in temas_patterns:
-                    if re.search(pat, doc_content, re.IGNORECASE):
-                        temas.append(re.search(pat, doc_content, re.IGNORECASE).group())
-                
-                # Construir queries dirigidas
-                articulos_str = ", ".join(set(articulos[:10]))
-                leyes_str = ", ".join(set(leyes_encontradas[:8]))
-                temas_str = ", ".join(set(temas[:6]))
-                
-                # Query 1: Legislación (artículos + leyes + Ley de Amparo + CFPC valoración probatoria SIEMPRE)
-                query_legislacion = f"Ley de Amparo artículo 209 203 Código Federal Procedimientos Civiles indivisibilidad documental valoración probatoria {articulos_str} {leyes_str}".strip()
-                # Query 2: Jurisprudencia (temas jurídicos + materia + obligatoriedad Art. 217)
-                query_jurisprudencia = f"jurisprudencia tesis obligatoria Art. 217 Ley de Amparo {temas_str} {leyes_str} aplicación derechos".strip()
-                # Query 3: Materia constitucional + convencionalidad
-                query_constitucional = f"constitución derechos humanos principio pro persona debido proceso control convencionalidad artículos 1 14 16 17 CPEUM"
-                
-                print(f"   ⚖️ SMART RAG — Queries construidas:")
-                print(f"      Legislación: {query_legislacion[:120]}...")
-                print(f"      Jurisprudencia: {query_jurisprudencia[:120]}...")
-                print(f"      Constitucional: {query_constitucional[:80]}...")
-                print(f"      Artículos detectados: {articulos_str[:100]}")
-                print(f"      Leyes detectadas: {leyes_str[:100]}")
-                print(f"      Temas detectados: {temas_str[:100]}")
-                
-                # Ejecutar 3 búsquedas semánticas + Direct Lookup en paralelo
-                import asyncio
-                
-                # Direct Lookup: extract citations from sentencia and look up by filter
-                sentencia_citations = _extract_legal_citations(doc_content[:30000])
-                
-                direct_task = _direct_article_lookup(sentencia_citations, request.estado)
-                
-                # ⚠️ CLAVE: fuero=None → buscar en TODOS los silos.
-                # Un amparo puede versar sobre CUALQUIER materia (civil, mercantil,
-                # laboral, penal, fiscal, etc.). Si dejamos fuero=constitucional,
-                # el sistema solo busca bloque_constitucional + jurisprudencia
-                # y OMITE leyes_federales (donde vive Código de Comercio, CFPC, etc.)
-                results_legislacion, results_jurisprudencia, results_constitucional, direct_results = await asyncio.gather(
-                    hybrid_search_all_silos(
-                        query=query_legislacion,
-                        estado=request.estado,
-                        top_k=15,
-                        fuero=None,  # SIEMPRE buscar en todos los silos para sentencias
-                    ),
-                    hybrid_search_all_silos(
-                        query=query_jurisprudencia,
-                        estado=request.estado,
-                        top_k=15,
-                        fuero=None,
-                    ),
-                    hybrid_search_all_silos(
-                        query=query_constitucional,
-                        estado=request.estado,
-                        top_k=10,
-                        fuero=None,
-                    ),
-                    direct_task,
-                )
-                
-                # Merge results: Direct Lookup first (score=1.0), then semantic
-                seen_ids = set()
-                search_results = []
-                # Priority 1: Direct Lookup results (exact matches)
-                for r in direct_results:
-                    if r.id not in seen_ids:
-                        seen_ids.add(r.id)
-                        search_results.append(r)
-                # Priority 2: Semantic search results
-                for result_set in [results_legislacion, results_jurisprudencia, results_constitucional]:
-                    for r in result_set:
-                        rid = r.id if hasattr(r, 'id') else str(r)
-                        if rid not in seen_ids:
-                            seen_ids.add(rid)
-                            search_results.append(r)
-                
-                print(f"   ⚖️ SMART RAG + DIRECT — Total: {len(search_results)} docs únicos")
-                print(f"      Direct: {len(direct_results)}, Legislación: {len(results_legislacion)}, Jurisprudencia: {len(results_jurisprudencia)}, Constitucional: {len(results_constitucional)}")
-            else:
-                # ─────────────────────────────────────────────────────────────
-                # 3-LAYER RETRIEVAL for document analysis (Centinela mode)
-                # Layer 1: Direct Article Lookup (exact filter queries)
-                # Layer 2: Smart RAG (3 parallel semantic queries)
-                # Layer 3: Merge + deduplicate
-                # ─────────────────────────────────────────────────────────────
-                print("   📄 CENTINELA 3-LAYER — Starting layered retrieval for document analysis")
-                
-                # Use full document content (up to 15K chars), not just 1500
-                full_doc_for_rag = doc_content[:30000]
-                
-                # Layer 1: Direct Lookup — parse citations and look up by filter
-                citations = _extract_legal_citations(full_doc_for_rag)
-                direct_results = await _direct_article_lookup(citations, request.estado)
-                
-                # Layer 2: Smart RAG — targeted semantic search
-                smart_results = await _smart_rag_for_document(
-                    full_doc_for_rag,
-                    estado=request.estado,
-                    fuero=request.fuero,
-                    top_k=15,
-                )
-                
-                # Layer 3: Merge — direct results first (score=1.0), then smart RAG
-                seen_ids = set()
-                search_results = []
-                for r in direct_results:
-                    if r.id not in seen_ids:
-                        seen_ids.add(r.id)
-                        search_results.append(r)
-                for r in smart_results:
-                    if r.id not in seen_ids:
-                        seen_ids.add(r.id)
-                        search_results.append(r)
-                
-                print(f"   📄 CENTINELA 3-LAYER — Final: {len(search_results)} docs "
-                      f"(Direct: {len(direct_results)}, Smart RAG: {len(smart_results)})")
-            
-            doc_id_map = build_doc_id_map(search_results)
-            context_xml = format_results_as_xml(search_results)
-            print(f"   Encontrados {len(search_results)} documentos relevantes para contrastar")
-        else:
-            # ─────────────────────────────────────────────────────────────────
-            # Detección multi-estado para comparaciones
-            # ─────────────────────────────────────────────────────────────────
-            multi_states = detect_multi_state_query(last_user_message)
-            is_comparative = multi_states is not None
-            
-            if is_comparative:
-                # MODO COMPARATIVO: Búsqueda paralela por estado
-                print(f"   🎨 MODO COMPARATIVO activado: {len(multi_states)} estados")
-                multi_result = await hybrid_search_multi_state(
-                    query=last_user_message,
-                    estados=multi_states,
-
-                    top_k_per_state=5,
-                )
-                search_results = multi_result["all_results"]
-                doc_id_map = build_doc_id_map(search_results)
-                context_xml = multi_result["context_xml"]
-                
-                # Inyectar instrucción comparativa en el contexto
-                estados_str = ", ".join(multi_states)
-                context_xml = (
-                    f"\n<!-- INSTRUCCIÓN COMPARATIVA: El usuario quiere comparar legislación entre: {estados_str}. "
-                    f"Los documentos están agrupados por estado. Genera una respuesta comparativa "
-                    f"organizada por estado, citando artículos específicos de cada uno. "
-                    f"Usa una tabla comparativa cuando sea apropiado. -->\n"
-                    + context_xml
-                )
-            else:
-                # Consulta normal
-                # AUTO-DETECT: Si el usuario no seleccionó estado, intentar detectar uno de la query
-                effective_estado = request.estado
-                if not effective_estado:
-                    auto_estado = detect_single_estado_from_query(last_user_message)
-                    if auto_estado:
-                        effective_estado = auto_estado
-                        print(f"   📍 AUTO-DETECT: Usando estado '{auto_estado}' detectado de la query")
+                # Crear query de búsqueda enfocada en el tipo de documento y su contenido
+                search_query = f"{draft_tipo} {draft_subtipo} artículos fundamento legal: {descripcion[:1500]}"
                 
                 search_results = await hybrid_search_all_silos(
-                    query=last_user_message,
-                    estado=effective_estado,
-                    top_k=request.top_k,
+                    query=search_query,
+                    estado=request.estado,
+                    top_k=15,
                     forced_materia=request.materia,
                     fuero=request.fuero,
                 )
                 doc_id_map = build_doc_id_map(search_results)
-                context_xml = format_results_as_xml(search_results, estado=effective_estado)
+                context_xml = format_results_as_xml(search_results)
+                print(f"   Encontrados {len(search_results)} documentos para fundamentar redacción")
+            elif has_document:
+                # Para documentos: extraer términos clave y buscar contexto relevante
                 
-                # === PRODUCTION LOG: verificar qué documentos van al LLM ===
-                estatales_in_context = [r for r in search_results if r.silo == "leyes_estatales"]
-                print(f"\n   🔬 CONTEXT AUDIT (estado={effective_estado}):")
-                print(f"      Total docs en contexto: {len(search_results)}")
-                print(f"      Leyes estatales: {len(estatales_in_context)}")
-                for r in estatales_in_context[:5]:
-                    print(f"         → ref={r.ref}, origen={r.origen[:50] if r.origen else 'N/A'}, score={r.score:.4f}")
-                print(f"      context_xml length: {len(context_xml)} chars")
-        
+                # Determinar marker de contenido según tipo
+                if is_sentencia:
+                    doc_start_idx = last_user_message.find("<!-- SENTENCIA_INICIO -->")
+                    doc_end_idx = last_user_message.find("<!-- SENTENCIA_FIN -->")
+                    print("   ⚖️ Sentencia detectada — extrayendo términos para búsqueda RAG ampliada")
+                else:
+                    doc_start_idx = last_user_message.find("<!-- DOCUMENTO_INICIO -->")
+                    doc_end_idx = -1
+                    print("   📄 Documento adjunto detectado - extrayendo términos para búsqueda RAG")
+                
+                if doc_start_idx != -1:
+                    if doc_end_idx != -1:
+                        doc_content = last_user_message[doc_start_idx:doc_end_idx]
+                    else:
+                        # Capture up to 20K chars to include fundamentos de derecho
+                        doc_content = last_user_message[doc_start_idx:doc_start_idx + 30000]
+                else:
+                    # No markers — use full message (up to 20K chars)
+                    doc_content = last_user_message[:30000]
+                
+                if is_sentencia:
+                    # ─────────────────────────────────────────────────────────────
+                    # SMART RAG para sentencias: extrae términos legales clave
+                    # del documento completo y hace múltiples búsquedas dirigidas
+                    # ─────────────────────────────────────────────────────────────
+                    import re
+                    
+                    # Extraer artículos citados ("artículo 14", "Art. 193", etc.)
+                    articulos = re.findall(
+                        r'(?:art[ií]culo|art\.?)\s*(\d+[\w°]*(?:\s*(?:,|y|al)\s*\d+[\w°]*)*)',
+                        doc_content, re.IGNORECASE
+                    )
+                    
+                    # Extraer leyes/códigos mencionados
+                    leyes_patterns = [
+                        r'(?:Ley\s+(?:de|del|Nacional|Federal|General|Orgánica|para)\s+[\w\s]+?)(?:\.|\ |,|;)',
+                        r'(?:Código\s+(?:Penal|Civil|Nacional|de\s+\w+)[\w\s]*?)(?:\.|\ |,|;)',
+                        r'(?:Constitución\s+Política[\w\s]*)',
+                        r'CPEUM',
+                        r'(?:Ley\s+de\s+Amparo)',
+                    ]
+                    leyes_encontradas = []
+                    for pat in leyes_patterns:
+                        matches = re.findall(pat, doc_content, re.IGNORECASE)
+                        leyes_encontradas.extend([m.strip() for m in matches[:5]])
+                    
+                    # Extraer temas jurídicos clave
+                    temas_patterns = [
+                        r'(?:juicio\s+de\s+amparo)',
+                        r'(?:recurso\s+de\s+revisión)',
+                        r'(?:principio\s+(?:pro persona|de legalidad|de retroactividad))',
+                        r'(?:control\s+(?:de convencionalidad|difuso|concentrado))',
+                        r'(?:derechos humanos)',
+                        r'(?:debido proceso)',
+                        r'(?:retroactividad)',
+                        r'(?:cosa juzgada)',
+                        r'(?:suplencia\s+de\s+la\s+queja)',
+                        r'(?:interés\s+(?:jurídico|legítimo|superior))',
+                    ]
+                    temas = []
+                    for pat in temas_patterns:
+                        if re.search(pat, doc_content, re.IGNORECASE):
+                            temas.append(re.search(pat, doc_content, re.IGNORECASE).group())
+                    
+                    # Construir queries dirigidas
+                    articulos_str = ", ".join(set(articulos[:10]))
+                    leyes_str = ", ".join(set(leyes_encontradas[:8]))
+                    temas_str = ", ".join(set(temas[:6]))
+                    
+                    # Query 1: Legislación (artículos + leyes + Ley de Amparo + CFPC valoración probatoria SIEMPRE)
+                    query_legislacion = f"Ley de Amparo artículo 209 203 Código Federal Procedimientos Civiles indivisibilidad documental valoración probatoria {articulos_str} {leyes_str}".strip()
+                    # Query 2: Jurisprudencia (temas jurídicos + materia + obligatoriedad Art. 217)
+                    query_jurisprudencia = f"jurisprudencia tesis obligatoria Art. 217 Ley de Amparo {temas_str} {leyes_str} aplicación derechos".strip()
+                    # Query 3: Materia constitucional + convencionalidad
+                    query_constitucional = f"constitución derechos humanos principio pro persona debido proceso control convencionalidad artículos 1 14 16 17 CPEUM"
+                    
+                    print(f"   ⚖️ SMART RAG — Queries construidas:")
+                    print(f"      Legislación: {query_legislacion[:120]}...")
+                    print(f"      Jurisprudencia: {query_jurisprudencia[:120]}...")
+                    print(f"      Constitucional: {query_constitucional[:80]}...")
+                    
+                    # Ejecutar 3 búsquedas semánticas + Direct Lookup en paralelo
+                    import asyncio
+                    
+                    # Direct Lookup: extract citations from sentencia and look up by filter
+                    sentencia_citations = _extract_legal_citations(doc_content[:30000])
+                    
+                    direct_task = _direct_article_lookup(sentencia_citations, request.estado)
+                    
+                    results_legislacion, results_jurisprudencia, results_constitucional, direct_results = await asyncio.gather(
+                        hybrid_search_all_silos(
+                            query=query_legislacion,
+                            estado=request.estado,
+                            top_k=15,
+                            fuero=None,  # SIEMPRE buscar en todos los silos para sentencias
+                        ),
+                        hybrid_search_all_silos(
+                            query=query_jurisprudencia,
+                            estado=request.estado,
+                            top_k=15,
+                            fuero=None,
+                        ),
+                        hybrid_search_all_silos(
+                            query=query_constitucional,
+                            estado=request.estado,
+                            top_k=10,
+                            fuero=None,
+                        ),
+                        direct_task,
+                    )
+                    
+                    # Merge results: Direct Lookup first (score=1.0), then semantic
+                    seen_ids = set()
+                    search_results = []
+                    # Priority 1: Direct Lookup results (exact matches)
+                    for r in direct_results:
+                        if r.id not in seen_ids:
+                            seen_ids.add(r.id)
+                            search_results.append(r)
+                    # Priority 2: Semantic search results
+                    for result_set in [results_legislacion, results_jurisprudencia, results_constitucional]:
+                        for r in result_set:
+                            rid = r.id if hasattr(r, 'id') else str(r)
+                            if rid not in seen_ids:
+                                seen_ids.add(rid)
+                                search_results.append(r)
+                    
+                    print(f"   ⚖️ SMART RAG + DIRECT — Total: {len(search_results)} docs únicos")
+                else:
+                    # ─────────────────────────────────────────────────────────────
+                    # 3-LAYER RETRIEVAL for document analysis (Centinela mode)
+                    # ─────────────────────────────────────────────────────────────
+                    print("   📄 CENTINELA 3-LAYER — Starting layered retrieval")
+                    
+                    # Use full document content (up to 15K chars)
+                    full_doc_for_rag = doc_content[:30000]
+                    
+                    # Layer 1: Direct Lookup
+                    citations = _extract_legal_citations(full_doc_for_rag)
+                    direct_results = await _direct_article_lookup(citations, request.estado)
+                    
+                    # Layer 2: Smart RAG
+                    smart_results = await _smart_rag_for_document(
+                        full_doc_for_rag,
+                        estado=request.estado,
+                        fuero=request.fuero,
+                        top_k=15,
+                    )
+                    
+                    # Layer 3: Merge
+                    seen_ids = set()
+                    search_results = []
+                    for r in direct_results:
+                        if r.id not in seen_ids:
+                            seen_ids.add(r.id)
+                            search_results.append(r)
+                    for r in smart_results:
+                        if r.id not in seen_ids:
+                            seen_ids.add(r.id)
+                            search_results.append(r)
+                    
+                    print(f"   📄 CENTINELA 3-LAYER — Final: {len(search_results)} docs")
+                
+                doc_id_map = build_doc_id_map(search_results)
+                context_xml = format_results_as_xml(search_results)
+                print(f"   Encontrados {len(search_results)} documentos relevantes para contrastar")
+            else:
+                # ─────────────────────────────────────────────────────────────────
+                # Detección multi-estado para comparaciones
+                # ─────────────────────────────────────────────────────────────────
+                multi_states = detect_multi_state_query(last_user_message)
+                is_comparative = multi_states is not None
+                
+                if is_comparative:
+                    # MODO COMPARATIVO: Búsqueda paralela por estado
+                    print(f"   🎨 MODO COMPARATIVO activado: {len(multi_states)} estados")
+                    multi_result = await hybrid_search_multi_state(
+                        query=last_user_message,
+                        estados=multi_states,
+                        top_k_per_state=5,
+                    )
+                    search_results = multi_result["all_results"]
+                    doc_id_map = build_doc_id_map(search_results)
+                    context_xml = multi_result["context_xml"]
+                    
+                    # Inyectar instrucción comparativa en el contexto
+                    estados_str = ", ".join(multi_states)
+                    context_xml = (
+                        f"\n<!-- INSTRUCCIÓN COMPARATIVA: El usuario quiere comparar legislación entre: {estados_str}. -->\n"
+                        + context_xml
+                    )
+                else:
+                    # Consulta normal
+                    effective_estado = request.estado
+                    if not effective_estado:
+                        auto_estado = detect_single_estado_from_query(last_user_message)
+                        if auto_estado:
+                            effective_estado = auto_estado
+                    
+                    search_results = await hybrid_search_all_silos(
+                        query=last_user_message,
+                        estado=effective_estado,
+                        top_k=request.top_k,
+                        forced_materia=request.materia,
+                        fuero=request.fuero,
+                    )
+                    doc_id_map = build_doc_id_map(search_results)
+                    context_xml = format_results_as_xml(search_results, estado=effective_estado)
+            
             return search_results, doc_id_map, context_xml
 
         # Launch RAG search concurrently with infra and cache tasks
