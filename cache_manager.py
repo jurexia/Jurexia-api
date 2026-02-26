@@ -69,8 +69,8 @@ def _load_corpus_texts() -> list[str]:
     return texts
 
 
-def _create_cache() -> Optional[str]:
-    """Create a new Gemini cache with the legal corpus."""
+async def _create_cache_async() -> Optional[str]:
+    """Create a new Gemini cache with the legal corpus (Async)."""
     global _cache_name, _cache_created_at
     
     if not GEMINI_API_KEY:
@@ -81,9 +81,10 @@ def _create_cache() -> Optional[str]:
         from google import genai
         from google.genai import types as gtypes
         
+        # Use aio for non-blocking IO
         client = genai.Client(api_key=GEMINI_API_KEY)
         
-        # Load corpus
+        # Load corpus (CPU bound, slightly blocking but okay for now)
         texts = _load_corpus_texts()
         if not texts:
             logger.error("No corpus texts loaded — cache disabled")
@@ -107,9 +108,9 @@ def _create_cache() -> Optional[str]:
             "Nunca inventes contenido legal. Si un artículo no está en tu contexto, dilo explícitamente."
         )
         
-        logger.info(f"🔄 Creating Gemini cache: model={CACHE_MODEL}, ttl={CACHE_TTL_HOURS}h, files={len(texts)}")
+        logger.info(f"🔄 Creating Gemini cache (ASYNC): model={CACHE_MODEL}, ttl={CACHE_TTL_HOURS}h")
         
-        cache = client.caches.create(
+        cache = await client.aio.caches.create(
             model=CACHE_MODEL,
             config=gtypes.CreateCachedContentConfig(
                 display_name=CACHE_DISPLAY_NAME,
@@ -123,21 +124,16 @@ def _create_cache() -> Optional[str]:
         _cache_name = cache.name
         _cache_created_at = time.time()
         
-        logger.info(f"✅ Cache created: {_cache_name} (expires in {CACHE_TTL_HOURS}h)")
-        
-        # Log usage metadata if available
-        if hasattr(cache, 'usage_metadata'):
-            logger.info(f"   📊 Cache usage: {cache.usage_metadata}")
-        
+        logger.info(f"✅ Cache created (ASYNC): {_cache_name}")
         return _cache_name
         
     except Exception as e:
-        logger.error(f"❌ Cache creation failed: {e}", exc_info=True)
+        logger.error(f"❌ Async Cache creation failed: {e}")
         return None
 
 
-def _refresh_if_needed():
-    """Refresh cache if it's close to expiring (within 20% of TTL)."""
+async def _refresh_if_needed_async():
+    """Refresh cache asynchronously if needed."""
     global _cache_name
     
     if not _cache_name:
@@ -145,37 +141,29 @@ def _refresh_if_needed():
     
     elapsed = time.time() - _cache_created_at
     ttl_seconds = CACHE_TTL_HOURS * 3600
-    refresh_threshold = ttl_seconds * 0.8  # Refresh at 80% of TTL
+    if elapsed > (ttl_seconds * 0.8):
+        await _create_cache_async()
+
+
+async def initialize_cache():
+    """Initialize the Gemini cache. Optimized for async startup."""
+    # Note: Using a lock here is tricky for async, but since this is called
+    # usually at startup via ensure_future, it should be fine.
+    if _cache_name is not None:
+        return _cache_name
     
-    if elapsed > refresh_threshold:
-        logger.info(f"🔄 Cache approaching expiry ({elapsed/3600:.1f}h/{CACHE_TTL_HOURS}h), refreshing...")
-        _create_cache()
-
-
-def initialize_cache():
-    """Initialize the Gemini cache at API startup. Call from lifespan."""
-    with _cache_lock:
-        if _cache_name is not None:
-            logger.info(f"Cache already initialized: {_cache_name}")
-            return _cache_name
-        
-        logger.info("=" * 60)
-        logger.info("  🏛️  INITIALIZING IUREXIA LEGAL CACHE")
-        logger.info("=" * 60)
-        
-        result = _create_cache()
-        
-        if result:
-            logger.info(f"  ✅ Cache ready: {result}")
-        else:
-            logger.warning("  ⚠️ Cache NOT available — running without cache")
-        
-        return result
+    return await _create_cache_async()
 
 
 def get_cache_name() -> Optional[str]:
-    """Get the current cache name. Returns None if cache unavailable."""
-    _refresh_if_needed()
+    """Get the current cache name (Sync version)."""
+    # Still keep sync version for simplicity where needed
+    return _cache_name
+
+
+async def get_cache_name_async() -> Optional[str]:
+    """Get the current cache name (Async version)."""
+    await _refresh_if_needed_async()
     return _cache_name
 
 

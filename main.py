@@ -6114,27 +6114,55 @@ async def chat_endpoint(request: ChatRequest):
         pass  # Sanitizer not available, skip
 
     # ─────────────────────────────────────────────────────────────────────
-    # BLOCKED USER CHECK
+    # PARALLEL STEP 1: Launch Infrastructure & Security Checks in background
     # ─────────────────────────────────────────────────────────────────────
-    if request.user_id and supabase_admin:
+    async def _run_infra_checks():
+        """Combined check for blocked users and quota consumption."""
+        if not request.user_id or not supabase_admin:
+            return None
+
         try:
-            blocked_result = await asyncio.to_thread(
-                lambda: supabase_admin.rpc(
-                    'is_user_blocked', {'p_user_id': request.user_id}
-                ).execute()
+            # Run both Supabase RPCs in parallel
+            blocked_task = asyncio.to_thread(
+                lambda: supabase_admin.rpc('is_user_blocked', {'p_user_id': request.user_id}).execute()
             )
-            if blocked_result.data:
+            quota_task = asyncio.to_thread(
+                lambda: supabase_admin.rpc('consume_query', {'p_user_id': request.user_id}).execute()
+            )
+            
+            blocked_res, quota_res = await asyncio.gather(blocked_task, quota_task)
+            
+            # Check blocked
+            if blocked_res.data:
                 print(f"🚫 BLOCKED USER attempted chat: {request.user_id}")
-                return StreamingResponse(
-                    iter([json.dumps({
-                        "error": "account_suspended",
-                        "message": "Tu cuenta ha sido suspendida. Contacta a soporte para más información.",
-                    })]),
-                    status_code=403,
-                    media_type="application/json",
-                )
+                return {
+                    "error": "account_suspended",
+                    "message": "Tu cuenta ha sido suspendida. Contacta a soporte para más información.",
+                    "status_code": 403
+                }
+                
+            # Check quota
+            if quota_res.data:
+                q_data = quota_res.data
+                if not q_data.get('allowed', True):
+                    return {
+                        "error": "quota_exceeded",
+                        "message": "Has alcanzado tu límite de consultas para este período.",
+                        "used": q_data.get('used', 0),
+                        "limit": q_data.get('limit', 0),
+                        "subscription_type": q_data.get('subscription_type', 'gratuito'),
+                        "status_code": 403
+                    }
+                print(f"✅ Quota OK: {q_data.get('used')}/{q_data.get('limit')}")
+            
+            return None
         except Exception as e:
-            print(f"⚠️ Blocked check failed (proceeding): {e}")
+            print(f"⚠️ Infra check failed (proceeding): {e}")
+            return None
+
+    # Start infrastructure check early
+    infra_check_task = asyncio.create_task(_run_infra_checks())
+
 
     # ─────────────────────────────────────────────────────────────────────
     # SECURITY: Malicious prompt detection
@@ -6202,40 +6230,7 @@ async def chat_endpoint(request: ChatRequest):
                         media_type="application/json",
                     )
 
-    # ─────────────────────────────────────────────────────────────────────
-    # QUOTA CHECK: Server-side enforcement via Supabase consume_query RPC
-    # ─────────────────────────────────────────────────────────────────────
-    if request.user_id and supabase_admin:
-        try:
-            quota_result = await asyncio.to_thread(
-                lambda: supabase_admin.rpc(
-                    'consume_query', {'p_user_id': request.user_id}
-                ).execute()
-            )
 
-            if quota_result.data:
-                quota_data = quota_result.data
-                if not quota_data.get('allowed', True):
-                    return StreamingResponse(
-                        iter([json.dumps({
-                            "error": "quota_exceeded",
-                            "message": "Has alcanzado tu límite de consultas para este período.",
-                            "used": quota_data.get('used', 0),
-                            "limit": quota_data.get('limit', 0),
-                            "subscription_type": quota_data.get('subscription_type', 'gratuito'),
-                        })]),
-                        status_code=403,
-                        media_type="application/json",
-                    )
-                print(f"✅ Quota OK: {quota_data.get('used')}/{quota_data.get('limit')} "
-                      f"({quota_data.get('subscription_type')})")
-            else:
-                print(f"⚠️ consume_query returned no data for user_id={request.user_id}")
-        except Exception as e:
-            # Don't block chat on quota check failure — log and continue
-            print(f"⚠️ Quota check failed (proceeding anyway): {e}")
-    else:
-        print(f"⚠️ Quota check SKIPPED — user_id={'SET' if request.user_id else 'MISSING'}, supabase_admin={'SET' if supabase_admin else 'NONE'}")
     
     # Extraer última pregunta del usuario
     last_user_message = None
@@ -6293,10 +6288,28 @@ async def chat_endpoint(request: ChatRequest):
     multi_states = None
     is_comparative = False
     
+    # ─────────────────────────────────────────────────────────────────────
+    # PARALLEL STEP 2: Launch Gemini Cache check in background
+    # ─────────────────────────────────────────────────────────────────────
+    async def _probe_cache():
+        try:
+            from cache_manager import get_cache_name_async
+            return await get_cache_name_async()
+        except:
+            return None
+    cache_task = asyncio.create_task(_probe_cache())
+
+    # ─────────────────────────────────────────────────────────────────────
+    # PASO 1: Búsqueda Híbrida en Qdrant (Knowledge Retrieval)
+    # ─────────────────────────────────────────────────────────────────────
     try:
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 1: Búsqueda Híbrida en Qdrant
-        # ─────────────────────────────────────────────────────────────────────
+        # Define search as a local async block for gather
+        async def _perform_retrieval():
+            nonlocal multi_states, is_comparative
+            search_results = []
+            doc_id_map = {}
+            context_xml = ""
+
         if is_drafting:
             # Para redacción: buscar contexto legal relevante para el tipo de documento
             descripcion_match = re.search(r'Descripción del caso:\s*(.+)', last_user_message, re.DOTALL)
@@ -6555,9 +6568,31 @@ async def chat_endpoint(request: ChatRequest):
                     print(f"         → ref={r.ref}, origen={r.origen[:50] if r.origen else 'N/A'}, score={r.score:.4f}")
                 print(f"      context_xml length: {len(context_xml)} chars")
         
+            return search_results, doc_id_map, context_xml
+
+        # Launch RAG search concurrently with infra and cache tasks
+        retrieval_task = asyncio.create_task(_perform_retrieval())
+
+        # ══ WAITING FOR ALL CONCURRENT TASKS ══
+        # Infrastructure Check (Blocked/Quota) + Retrieval Search + Cache Probe
+        infra_error, (search_results, doc_id_map, context_xml), _cached = await asyncio.gather(
+            infra_check_task,
+            retrieval_task,
+            cache_task
+        )
+
+        # Handle infrastructure errors (blocking)
+        if infra_error:
+            return StreamingResponse(
+                iter([json.dumps(infra_error)]),
+                status_code=infra_error.get("status_code", 403),
+                media_type="application/json",
+            )
+
         # ─────────────────────────────────────────────────────────────────────
         # PASO 2: Construir mensajes para LLM
         # ─────────────────────────────────────────────────────────────────────
+
         # Select appropriate system prompt based on mode
         if is_drafting and draft_tipo:
             system_prompt = get_drafting_prompt(draft_tipo, draft_subtipo or "")
@@ -6656,13 +6691,9 @@ async def chat_endpoint(request: ChatRequest):
         
         use_thinking = should_use_thinking(has_document, is_drafting)
         
-        # ── Gemini cache probe (all non-thinking queries benefit from cached legal corpus) ──
+        # _cached results already retrieved in Paso 1 gather
         _gemini_key = os.getenv("GEMINI_API_KEY", "")
-        try:
-            from cache_manager import get_cache_name
-            _cached = get_cache_name()
-        except Exception:
-            _cached = None
+
         
         use_gemini = False
         
