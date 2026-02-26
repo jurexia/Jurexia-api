@@ -34,6 +34,10 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY main.py .
+COPY cache_manager.py .
+
+# Copy legal corpus for Gemini context caching (12 files, ~4.1MB)
+COPY cache_corpus/ ./cache_corpus/
 
 # Cloud Run injects $PORT at runtime — uvicorn must listen on it
 # BM25 model loads asynchronously in background at startup (see main.py lifespan)

@@ -76,7 +76,7 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
-SENTENCIA_MODEL = "gemini-2.5-pro"  # Gemini for sentencia analysis (superior reasoning + 1M context)
+SENTENCIA_MODEL = "gemini-3-flash-preview"  # Gemini Flash + 1M cached legal corpus
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
@@ -2043,6 +2043,21 @@ async def lifespan(app: FastAPI):
         base_url=DEEPSEEK_BASE_URL,
     )
     print("   DeepSeek Client inicializado (reasoning)")
+    
+    # Gemini Legal Cache — initialize in background (non-blocking)
+    async def _init_gemini_cache():
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            from cache_manager import initialize_cache
+            cache_name = await loop.run_in_executor(None, initialize_cache)
+            if cache_name:
+                print(f"   🏛️ Gemini Cache LISTO: {cache_name}")
+            else:
+                print("   ⚠️ Gemini Cache no disponible — modo sin caché")
+        except Exception as e:
+            print(f"   ❌ Gemini Cache error: {e}")
+    asyncio.ensure_future(_init_gemini_cache())
     
     print(" Jurexia Core Engine LISTO")
     
@@ -4996,6 +5011,16 @@ async def wake_endpoint():
     return {"status": "awake"}
 
 
+@app.get("/cache-status")
+async def cache_status():
+    """Gemini cache diagnostics — check if legal corpus cache is active."""
+    try:
+        from cache_manager import get_cache_status
+        return get_cache_status()
+    except Exception as e:
+        return {"cache_available": False, "error": str(e)}
+
+
 @app.get("/quota/status/{user_id}")
 async def quota_status_endpoint(user_id: str):
     """
@@ -6594,8 +6619,16 @@ async def chat_endpoint(request: ChatRequest):
                     
                     system_instruction = "\n\n".join(system_parts)
                     
+                    # Try to use Gemini cached legal corpus
+                    try:
+                        from cache_manager import get_cache_name
+                        _cached = get_cache_name()
+                    except Exception:
+                        _cached = None
+                    
                     gemini_config = gtypes.GenerateContentConfig(
-                        system_instruction=system_instruction,
+                        system_instruction=system_instruction if not _cached else None,
+                        cached_content=_cached,
                         max_output_tokens=max_tokens,
                         temperature=0.3,
                         thinking_config=gtypes.ThinkingConfig(
@@ -6603,7 +6636,8 @@ async def chat_endpoint(request: ChatRequest):
                         ),
                     )
                     
-                    print(f"   🔮 Gemini stream starting: {SENTENCIA_MODEL} | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
+                    _cache_label = "CACHED" if _cached else "no-cache"
+                    print(f"   🔮 Gemini stream starting: {SENTENCIA_MODEL} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
                     
                     stream = gemini_client.models.generate_content_stream(
                         model=SENTENCIA_MODEL,
@@ -7299,16 +7333,26 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
         # ── Streaming Generation ──────────────────────────────────────────
         client = genai.Client(api_key=gemini_key)
         
+        # Try to use cached legal corpus
+        try:
+            from cache_manager import get_cache_name, get_cache_model
+            _cached = get_cache_name()
+            _model = get_cache_model() if _cached else "gemini-2.5-pro"
+        except Exception:
+            _cached = None
+            _model = "gemini-2.5-pro"
+        
         async def generate_sentencia_stream():
-            """SSE streaming from Gemini 2.5 Pro for sentencia chat."""
+            """SSE streaming from Gemini for sentencia chat."""
             try:
                 content_buffer = ""
                 
                 response_stream = client.models.generate_content_stream(
-                    model="gemini-2.5-pro",
+                    model=_model,
                     contents=gemini_contents,
                     config=gtypes.GenerateContentConfig(
-                        system_instruction=system_instruction,
+                        system_instruction=system_instruction if not _cached else None,
+                        cached_content=_cached,
                         temperature=0.7,
                         max_output_tokens=16384,
                     ),
@@ -7414,8 +7458,8 @@ def _can_access_sentencia(user_email: str) -> bool:
 
     return False
 
-GEMINI_MODEL = "gemini-2.5-pro"         # Critical reasoning (Step B, legacy 2C)
-GEMINI_MODEL_FAST = "gemini-2.5-flash"  # Auxiliary tasks (extraction, enrichment, assembly)
+GEMINI_MODEL = "gemini-3-flash-preview"         # With 1M cached legal corpus
+GEMINI_MODEL_FAST = "gemini-3-flash-preview"  # Same model for cache efficiency
 
 # ── Document labels per sentence type ────────────────────────────────────────
 SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
@@ -7650,8 +7694,24 @@ def _build_auto_mode_instructions(sentido: str, tipo: str, calificaciones: list)
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
-REDACTOR_MODEL_EXTRACT = "gemini-2.5-flash"         # PDF OCR + extraction
-REDACTOR_MODEL_GENERATE = "gemini-3.1-pro-preview"   # Estudio de fondo + efectos
+REDACTOR_MODEL_EXTRACT = "gemini-2.5-flash"         # PDF OCR + extraction (no cache needed)
+REDACTOR_MODEL_GENERATE = "gemini-3-flash-preview"   # Estudio de fondo + efectos (with cache)
+
+def _redactor_gen_config(system_instruction: str, temperature: float = 0.3, max_output_tokens: int = 32768):
+    """Build GenerateContentConfig with cached content injection when available."""
+    from google.genai import types as gtypes
+    try:
+        from cache_manager import get_cache_name
+        _cached = get_cache_name()
+    except Exception:
+        _cached = None
+    
+    return gtypes.GenerateContentConfig(
+        system_instruction=system_instruction if not _cached else None,
+        cached_content=_cached,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+    )
 
 # ── Extraction prompt ─────────────────────────────────────────────────────────
 EXTRACTION_PROMPT = """Eres un asistente jurídico de precisión. Extrae TODOS los datos de estos documentos judiciales.
@@ -7974,11 +8034,7 @@ DEBES calificar este agravio como {calificacion.upper()}.
                 async for chunk in client.aio.models.generate_content_stream(
                     model=REDACTOR_MODEL_GENERATE,
                     contents=parts,
-                    config=gtypes.GenerateContentConfig(
-                        system_instruction=ESTUDIO_FONDO_SYSTEM,
-                        temperature=0.3,
-                        max_output_tokens=32768,
-                    ),
+                    config=_redactor_gen_config(ESTUDIO_FONDO_SYSTEM, temperature=0.3, max_output_tokens=32768),
                 ):
                     token = chunk.text or ""
                     if token:
@@ -7989,11 +8045,7 @@ DEBES calificar este agravio como {calificacion.upper()}.
                 response = client.models.generate_content(
                     model=REDACTOR_MODEL_GENERATE,
                     contents=parts,
-                    config=gtypes.GenerateContentConfig(
-                        system_instruction=ESTUDIO_FONDO_SYSTEM,
-                        temperature=0.3,
-                        max_output_tokens=32768,
-                    ),
+                    config=_redactor_gen_config(ESTUDIO_FONDO_SYSTEM, temperature=0.3, max_output_tokens=32768),
                 )
                 draft_text = response.text or ""
             
@@ -8087,11 +8139,7 @@ Partes:
             async for chunk in client.aio.models.generate_content_stream(
                 model=REDACTOR_MODEL_GENERATE,
                 contents=[gtypes.Part.from_text(text=prompt)],
-                config=gtypes.GenerateContentConfig(
-                    system_instruction=EFECTOS_SYSTEM,
-                    temperature=0.2,
-                    max_output_tokens=8192,
-                ),
+                config=_redactor_gen_config(EFECTOS_SYSTEM, temperature=0.2, max_output_tokens=8192),
             ):
                 token = chunk.text or ""
                 if token:
@@ -8101,11 +8149,7 @@ Partes:
             response = client.models.generate_content(
                 model=REDACTOR_MODEL_GENERATE,
                 contents=[gtypes.Part.from_text(text=prompt)],
-                config=gtypes.GenerateContentConfig(
-                    system_instruction=EFECTOS_SYSTEM,
-                    temperature=0.2,
-                    max_output_tokens=8192,
-                ),
+                config=_redactor_gen_config(EFECTOS_SYSTEM, temperature=0.2, max_output_tokens=8192),
             )
             text = response.text or ""
         
