@@ -6754,7 +6754,6 @@ async def chat_endpoint(request: ChatRequest):
                             cached_content=_cached,
                             max_output_tokens=max_tokens,
                             temperature=0.3,
-                            tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
                             **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=8192)} if is_sentencia else {}),
                         )
                     else:
