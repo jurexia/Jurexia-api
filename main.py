@@ -76,7 +76,7 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
-SENTENCIA_MODEL = "gemini-3-flash-preview"  # Gemini Flash + 1M cached legal corpus
+SENTENCIA_MODEL = "gemini-2.5-flash"  # Gemini 2.5 Flash — stable, higher quota (4M+ TPM)
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
@@ -7509,8 +7509,8 @@ def _can_access_sentencia(user_email: str) -> bool:
 
     return False
 
-GEMINI_MODEL = "gemini-3-flash-preview"         # With 1M cached legal corpus
-GEMINI_MODEL_FAST = "gemini-3-flash-preview"  # Same model for cache efficiency
+GEMINI_MODEL = "gemini-2.5-flash"         # Stable, higher quota (4M+ TPM)
+GEMINI_MODEL_FAST = "gemini-2.5-flash"  # Same model for cache efficiency
 
 # ── Document labels per sentence type ────────────────────────────────────────
 SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
@@ -7746,7 +7746,7 @@ def _build_auto_mode_instructions(sentido: str, tipo: str, calificaciones: list)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 REDACTOR_MODEL_EXTRACT = "gemini-2.5-flash"         # PDF OCR + extraction (no cache needed)
-REDACTOR_MODEL_GENERATE = "gemini-3-flash-preview"   # Estudio de fondo + efectos (with cache)
+REDACTOR_MODEL_GENERATE = "gemini-2.5-flash"   # Estudio de fondo + efectos (stable, higher quota)
 
 def _redactor_gen_config(system_instruction: str, temperature: float = 0.3, max_output_tokens: int = 32768, contents=None):
     """Build GenerateContentConfig with cached content injection when available.

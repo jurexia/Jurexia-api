@@ -30,7 +30,7 @@ from typing import Optional
 logger = logging.getLogger("iurexia.cache")
 
 # ── Configuration ────────────────────────────────────────────────────────────
-CACHE_MODEL = os.getenv("CACHE_MODEL", "models/gemini-3-flash-preview")
+CACHE_MODEL = os.getenv("CACHE_MODEL", "models/gemini-2.5-flash")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "/app/cache_corpus")
 CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
 CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v1"
