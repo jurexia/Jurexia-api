@@ -4969,6 +4969,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate limiting middleware (sliding window per user/IP)
+try:
+    from rate_limiter import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
+    print("✅ Rate limiter middleware enabled")
+except ImportError:
+    print("⚠️ rate_limiter.py not found — rate limiting disabled")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: HEALTH CHECK
@@ -6012,6 +6020,28 @@ async def chat_endpoint(request: ChatRequest):
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # INPUT SANITIZATION: XSS, SQL injection, enhanced prompt injection
+    # ─────────────────────────────────────────────────────────────────────
+    try:
+        from input_sanitizer import sanitize_input
+        for msg in request.messages:
+            if msg.role == "user" and msg.content:
+                sanitized, rejection = sanitize_input(msg.content)
+                if rejection:
+                    print(f"🛡️ INPUT SANITIZER blocked: {rejection[:100]}")
+                    return StreamingResponse(
+                        iter([json.dumps({
+                            "error": "input_rejected",
+                            "message": rejection,
+                        })]),
+                        status_code=400,
+                        media_type="application/json",
+                    )
+                msg.content = sanitized
+    except ImportError:
+        pass  # Sanitizer not available, skip
 
     # ─────────────────────────────────────────────────────────────────────
     # BLOCKED USER CHECK
