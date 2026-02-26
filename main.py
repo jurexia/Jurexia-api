@@ -6657,13 +6657,11 @@ async def chat_endpoint(request: ChatRequest):
                     _cache_label = "CACHED" if _cached else "no-cache"
                     print(f"   🔮 Gemini stream starting: {active_model} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
                     
-                    stream = gemini_client.models.generate_content_stream(
+                    async for chunk in gemini_client.aio.models.generate_content_stream(
                         model=active_model,
                         contents=gemini_contents,
                         config=gemini_config,
-                    )
-                    
-                    for chunk in stream:
+                    ):
                         if chunk.candidates:
                             for part in chunk.candidates[0].content.parts:
                                 if hasattr(part, 'thought') and part.thought:
@@ -7372,7 +7370,7 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
             try:
                 content_buffer = ""
                 
-                response_stream = client.models.generate_content_stream(
+                async for chunk in client.aio.models.generate_content_stream(
                     model=_model,
                     contents=gemini_contents,
                     config=gtypes.GenerateContentConfig(
@@ -7381,9 +7379,7 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
                         temperature=0.7,
                         max_output_tokens=16384,
                     ),
-                )
-                
-                for chunk in response_stream:
+                ):
                     if chunk.text:
                         content_buffer += chunk.text
                         yield chunk.text
