@@ -116,6 +116,7 @@ def _create_cache() -> Optional[str]:
                 system_instruction=system_instruction,
                 contents=contents,
                 ttl=f"{ttl_seconds}s",
+                tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
             )
         )
         
