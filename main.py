@@ -6661,21 +6661,33 @@ async def chat_endpoint(request: ChatRequest):
         
         use_gemini = False
         
+        # ── TOKEN BUDGET GUARD ──
+        # Cache = ~968K tokens. Gemini limit = 1,048,576 tokens.
+        # Remaining budget with cache = ~80K tokens.
+        # Documents (DOCX, sentencias) can easily exceed 80K tokens.
+        # SOLUTION: When document is attached, SKIP cache to avoid 400 INVALID_ARGUMENT.
+        _effective_cached = _cached
+        if _cached and has_document:
+            _effective_cached = None
+            print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
+        
         if is_sentencia:
-            # Sentencia analysis: Gemini (superior reasoning + 1M cached legal corpus)
+            # Sentencia analysis: Gemini (superior reasoning + legal corpus)
+            # Cache disabled for sentencias (document too large)
             use_gemini = True
             active_model = SENTENCIA_MODEL
             max_tokens = 65536
             use_thinking = False
+            _effective_cached = None  # SIEMPRE sin cache para sentencias grandes
             if not _gemini_key:
                 raise HTTPException(500, "GEMINI_API_KEY not configured for sentencia analysis")
-            print(f"   ⚖️ Modelo SENTENCIA: {SENTENCIA_MODEL} (Gemini) | max_output: {max_tokens}")
+            print(f"   ⚖️ Modelo SENTENCIA: {SENTENCIA_MODEL} (Gemini, sin cache) | max_output: {max_tokens}")
         elif use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
             active_model = DEEPSEEK_CHAT_MODEL
             max_tokens = 50000
-        elif _cached and _gemini_key:
+        elif _effective_cached and _gemini_key:
             # Regular chat WITH cache: Gemini (12 legal texts always available)
             use_gemini = True
             active_model = SENTENCIA_MODEL  # gemini-2.5-flash
@@ -6739,14 +6751,14 @@ async def chat_endpoint(request: ChatRequest):
                     # When cache is active, its system_instruction is fixed (generic legal assistant).
                     # Dynamic context (RAG results, prompts, estado) MUST go as user content
                     # so it's not silently dropped.
-                    if _cached:
+                    if _effective_cached:
                         if system_instruction.strip():
                             gemini_contents.insert(0, gtypes.Content(
                                 role="user",
                                 parts=[gtypes.Part(text=f"INSTRUCCIONES DEL SISTEMA Y CONTEXTO JURÍDICO:\n{system_instruction}")]
                             ))
                         gemini_config = gtypes.GenerateContentConfig(
-                            cached_content=_cached,
+                            cached_content=_effective_cached,
                             max_output_tokens=max_tokens,
                             temperature=0.3,
                             **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=8192)} if is_sentencia else {}),
@@ -6760,8 +6772,8 @@ async def chat_endpoint(request: ChatRequest):
                             **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=8192)} if is_sentencia else {}),
                         )
                     
-                    _cache_label = "CACHED" if _cached else "no-cache"
-                    print(f"   🔮 Gemini stream starting: {active_model} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
+                    _cache_label = "CACHED" if _effective_cached else "no-cache"
+                    print(f"   Gemini stream starting: {active_model} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
                     
                     async for chunk in await gemini_client.aio.models.generate_content_stream(
                         model=active_model,
