@@ -6603,7 +6603,7 @@ async def chat_endpoint(request: ChatRequest):
         elif _cached and _gemini_key:
             # Regular chat WITH cache: Gemini (12 legal texts always available)
             use_gemini = True
-            active_model = SENTENCIA_MODEL  # gemini-3-flash-preview
+            active_model = SENTENCIA_MODEL  # gemini-2.5-flash
             max_tokens = 32768
             print(f"   🏛️ Chat + CACHE: {SENTENCIA_MODEL} (corpus cached)")
         else:
