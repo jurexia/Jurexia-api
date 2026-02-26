@@ -10407,49 +10407,62 @@ class LawyerSearchRequest(PydanticBaseModel):
     limit: int = 10
 
 
-# ── SEP Cédula Validation ─────────────────────────────────────────────────────
+# ── SEP Cédula Validation (via BuhoLegal public registry) ─────────────────────
 
-SEP_SOLR_URL = "https://search.sep.gob.mx/solr/cedulasCore/select"
+import re as _re_cedula
+
+BUHOLEGAL_URL = "https://www.buholegal.com"
 
 async def _query_sep_cedula(cedula: str) -> dict | None:
     """
-    Query the SEP public Solr API for cédula data.
+    Query cédula data from the Registro Nacional de Profesionistas.
+    Scrapes BuhoLegal.com which mirrors SEP official data.
     Returns dict with nombre, profesion, institucion on success, None on failure.
     """
     try:
-        params = {
-            "q": f"idCedula:{cedula}",
-            "wt": "json",
-            "rows": 5,
-            "fl": "*,score",
-        }
-        async with httpx.AsyncClient(timeout=12.0, verify=False) as client:
-            resp = await client.get(SEP_SOLR_URL, params=params)
+        url = f"{BUHOLEGAL_URL}/{cedula}/"
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            resp = await client.get(url)
             if resp.status_code != 200:
-                print(f"⚠️ SEP API returned {resp.status_code}")
+                print(f"⚠️ BuhoLegal returned {resp.status_code} for cédula {cedula}")
                 return None
             
-            data = resp.json()
-            docs = data.get("response", {}).get("docs", [])
+            html = resp.text
             
-            # Find exact match
-            for doc in docs:
-                if str(doc.get("numCedula", "")) == str(cedula):
-                    nombre = doc.get("nombre", "")
-                    paterno = doc.get("paterno", "")
-                    materno = doc.get("materno", "")
-                    full_name = f"{nombre} {paterno} {materno}".strip()
-                    return {
-                        "nombre": full_name,
-                        "profesion": doc.get("titulo", ""),
-                        "institucion": doc.get("institucion", ""),
-                        "anio_registro": doc.get("anioRegistro", ""),
-                        "tipo": doc.get("tipo", ""),
-                    }
+            # Extract name from <title>NAME - Cédula Profesional</title>
+            title_match = _re_cedula.search(r'<title>\s*(.+?)\s*-\s*C[eé]dula', html)
+            nombre = title_match.group(1).strip() if title_match else None
             
-            return None  # No exact match
+            if not nombre or "Buscar" in nombre or "consulta" in nombre.lower():
+                # Page didn't return a valid result (possibly a search page)
+                return None
+            
+            # Extract fields from <td>Label</td><td>VALUE</td> pattern
+            def _extract_field(label: str) -> str:
+                pattern = rf'<td[^>]*>\s*{label}\s*</td>\s*<td[^>]*>\s*(.*?)\s*</td>'
+                m = _re_cedula.search(pattern, html, _re_cedula.IGNORECASE | _re_cedula.DOTALL)
+                return m.group(1).strip() if m else ""
+            
+            profesion = _extract_field("Carrera")
+            institucion = _extract_field("Universidad")
+            estado = _extract_field("Estado")
+            anio = _extract_field("A[ñn]o")  # Handle ñ and encoded ñ
+            
+            # Extract tipo from "Tipo: C1" in header
+            tipo_match = _re_cedula.search(r'Tipo:\s*(C\d+)', html)
+            tipo = tipo_match.group(1) if tipo_match else ""
+            
+            print(f"✅ Cédula {cedula} validada: {nombre} — {profesion} ({institucion})")
+            return {
+                "nombre": nombre,
+                "profesion": profesion,
+                "institucion": institucion,
+                "anio_registro": anio,
+                "tipo": tipo,
+                "estado": estado,
+            }
     except Exception as e:
-        print(f"⚠️ SEP API error: {e}")
+        print(f"⚠️ Cédula lookup error: {e}")
         return None
 
 
@@ -10457,7 +10470,7 @@ async def _query_sep_cedula(cedula: str) -> dict | None:
 async def connect_validate_cedula(req: CedulaRequest):
     """
     Validate a cédula profesional against the SEP Registro Nacional de Profesionistas.
-    Falls back to format validation if SEP API is unreachable.
+    Falls back to format validation if the registry is unreachable.
     """
     cedula = req.cedula.strip()
     
@@ -10469,12 +10482,11 @@ async def connect_validate_cedula(req: CedulaRequest):
             "error": "La cédula debe contener entre 6 y 9 dígitos numéricos.",
         }
     
-    # Query SEP
+    # Query SEP registry
     sep_data = await _query_sep_cedula(cedula)
     
     if sep_data:
-        # Found in SEP registry
-        print(f"✅ Cédula {cedula} validada: {sep_data['nombre']} — {sep_data['profesion']}")
+        # Found in registry
         return {
             "valid": True,
             "cedula": cedula,
@@ -10483,40 +10495,8 @@ async def connect_validate_cedula(req: CedulaRequest):
             "institucion": sep_data["institucion"],
         }
     
-    # SEP did not return a match — could be API down or cédula not found
-    # Try with HTTP fallback (some servers only respond via HTTP)
-    try:
-        params = {
-            "q": f"idCedula:{cedula}",
-            "wt": "json",
-            "rows": 5,
-            "fl": "*,score",
-        }
-        http_url = SEP_SOLR_URL.replace("https://", "http://")
-        async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(http_url, params=params)
-            if resp.status_code == 200:
-                data = resp.json()
-                docs = data.get("response", {}).get("docs", [])
-                for doc in docs:
-                    if str(doc.get("numCedula", "")) == str(cedula):
-                        nombre = doc.get("nombre", "")
-                        paterno = doc.get("paterno", "")
-                        materno = doc.get("materno", "")
-                        full_name = f"{nombre} {paterno} {materno}".strip()
-                        print(f"✅ Cédula {cedula} validada (HTTP): {full_name}")
-                        return {
-                            "valid": True,
-                            "cedula": cedula,
-                            "nombre": full_name,
-                            "profesion": doc.get("titulo", ""),
-                            "institucion": doc.get("institucion", ""),
-                        }
-    except Exception:
-        pass
-    
     # Graceful fallback: accept with pending status
-    print(f"⚠️ Cédula {cedula}: SEP API no disponible, aceptada como pendiente de verificación")
+    print(f"⚠️ Cédula {cedula}: registro no disponible, aceptada como pendiente")
     return {
         "valid": True,
         "cedula": cedula,
