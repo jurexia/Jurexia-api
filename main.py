@@ -10686,6 +10686,7 @@ async def connect_admin_register_lawyer(
         "municipio": req.municipio,
         "cp": req.cp,
         "phone": req.phone,
+        "phone_visible": True if req.phone else False,
     }
     
     if not profile_data["full_name"]:
