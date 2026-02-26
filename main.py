@@ -6657,7 +6657,7 @@ async def chat_endpoint(request: ChatRequest):
                     _cache_label = "CACHED" if _cached else "no-cache"
                     print(f"   🔮 Gemini stream starting: {active_model} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
                     
-                    async for chunk in gemini_client.aio.models.generate_content_stream(
+                    async for chunk in await gemini_client.aio.models.generate_content_stream(
                         model=active_model,
                         contents=gemini_contents,
                         config=gemini_config,
@@ -7370,7 +7370,7 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
             try:
                 content_buffer = ""
                 
-                async for chunk in client.aio.models.generate_content_stream(
+                async for chunk in await client.aio.models.generate_content_stream(
                     model=_model,
                     contents=gemini_contents,
                     config=gtypes.GenerateContentConfig(
