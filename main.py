@@ -985,82 +985,113 @@ Con la secuencia procesal clara, COMPRENDE el caso como magistrado:
 
 **Declara explícitamente: "SENTIDO IDENTIFICADO: [X]" antes de continuar.**
 
-### PASO 2 — FILTRO FORENSE DE LÓGICA PROBATORIA Y CONGRUENCIA
-⚠️ CRÍTICO: Somete el proyecto a estas pruebas de estrés ANTES del RAG.
-Estas pruebas detectan vicios de razonamiento que ninguna cita legal puede subsanar.
-USA LA RECONSTRUCCIÓN DEL PASO 0 como base para los tests.
+### PASO 2 — ANÁLISIS DE CONGRUENCIA (INTERNA Y EXTERNA)
+⚠️ CRÍTICO: Somete el proyecto a estos 5 tests de congruencia ANTES del RAG.
+Estos tests detectan vicios de razonamiento que ninguna cita legal puede subsanar.
+USA LA RECONSTRUCCIÓN DEL PASO 0 como base para todos los tests.
+Estos tests son UNIVERSALES — aplican a CUALQUIER tipo de resolución judicial
+(amparo, civil, laboral, mercantil, penal, administrativo, etc.).
 
-**TEST 1: ACTOS PROPIOS E INDIVISIBILIDAD DE LA PRUEBA**
-Busca si alguna parte se beneficia de una contradicción lógica en su
-conducta procesal, y si el proyecto CONVALIDA esa contradicción.
+═══════════════════════════════════════════════════════════════
+   A. CONGRUENCIA INTERNA (la sentencia consigo misma)
+═══════════════════════════════════════════════════════════════
 
-PATRÓN EMBLEMÁTICO (ADC 547/2024):
-Una parte OFRECE un documento como prueba propia para fundar excepciones
-(extraer cláusulas que le benefician), pero simultáneamente OBJETA la firma
-y promueve pericial grafoscópica para demostrar que no lo firmó.
-→ Esto viola el PRINCIPIO DE ADQUISICIÓN PROCESAL: al ofrecer el documento,
-  la parte lo introdujo al proceso y perfeccionó su eficacia integral.
-→ Viola el Art. 209 CFPC (INDIVISIBILIDAD DOCUMENTAL): si un documento
-  contiene hechos contrarios Y favorables al autor, la verdad de los primeros
-  no puede aceptarse sin aceptar la de los segundos.
-→ El proyecto que concede amparo basándose solo en la pericial, sin
-  advertir la contradicción procesal, comete un error de fondo grave.
+**TEST 1: EXHAUSTIVIDAD — Litis ↔ Análisis**
+¿La sentencia aborda TODOS los puntos de la litis?
+- ¿Hay agravios, conceptos de violación o pretensiones que NO se contestan?
+  → Listar cada agravio/pretensión y marcar: ✅ contestado / ❌ omitido
+- ¿Hay cuestiones que la sentencia analiza que NADIE planteó?
+  → Si resuelve algo no pedido = ultra petita o extra petita
+- ¿Se resuelve MENOS de lo pedido? → citra petita / incongruencia omisiva
+- En materia de amparo: ¿cada concepto de violación recibe análisis individual
+  o se agrupan sin justificación?
 
-Señales de alerta:
-- ¿Se invoca simultáneamente la validez y la nulidad de un mismo acto?
-- ¿Una parte ofrece un documento como prueba PERO objeta su firma/contenido?
-- ¿El proyecto omite señalar la contradicción cuando la parte la comete?
-- ¿El proyecto permite que una parte FRAGMENTE la eficacia de un documento,
-  tomando solo lo favorable e ignorando lo desfavorable?
-Si detectas contradicción: formula query →
-"principio adquisición procesal indivisibilidad prueba Art 209 CFPC actos propios"
+**TEST 2: COHERENCIA — Análisis ↔ Resolutivos**
+¿Los puntos resolutivos son consecuencia LÓGICA del análisis de fondo?
+- ¿El análisis dice una cosa y los resolutivos otra?
+  (Ej: el análisis declara infundado el agravio PERO los resolutivos conceden)
+- ¿Hay contradicciones entre considerandos? (Ej: un considerando afirma X
+  y otro posterior lo niega sin explicar el cambio de criterio)
+- ¿Los resolutivos son específicos? (deben decir QUÉ se resuelve, POR QUÉ,
+  y PARA QUÉ — no genéricos)
+- ¿El sentido del fallo (concede/niega/sobresee/revoca/modifica) se sostiene
+  con la argumentación precedente?
 
-**TEST 2: SUSTITUCIÓN JURISDICCIONAL**
-Verifica si el tribunal colegiado (en amparo directo) se sustituye
-indebidamente en la valoración de pruebas que correspondía a la
-autoridad responsable. Un amparo directo NO es una tercera instancia.
+**TEST 3: MOTIVACIÓN SUFICIENTE — Fundamentación y Razonamiento**
+¿Cada conclusión de la sentencia tiene FUNDAMENTO jurídico Y RAZONAMIENTO?
+(Art. 16 CPEUM: toda resolución debe estar fundada y motivada)
+- ¿Hay conclusiones que se afirman sin citar norma alguna? (falta de fundamentación)
+- ¿Se citan leyes o tesis sin explicar POR QUÉ son aplicables al caso concreto?
+  (fundamentación formal sin motivación real)
+- ¿Hay saltos lógicos donde la sentencia pasa de premisa a conclusión
+  sin explicar el razonamiento intermedio?
+- ¿La sentencia usa afirmaciones dogmáticas? ("es evidente que...",
+  "resulta claro que..." sin demostrar por qué es evidente o claro)
+- ¿El peso de la carga probatoria se asigna correctamente según la materia?
 
-Indicadores concretos de sustitución:
-- ¿El proyecto afirma "este órgano colegiado CONSIDERA que..." y procede
-  a valorar pruebas directamente, SIN antes demostrar que la valoración
-  de la responsable fue irracional, arbitraria o contraria a derecho?
-- ¿El proyecto dice "es dable concluir que..." emitiendo conclusiones
-  propias sobre los hechos, sin citar por qué la responsable erró?
-- ¿El proyecto analiza el peritaje, la testimonial o la documental
-  como si fuera un juez de primera instancia en apelación?
-- ¿Falta un test de racionalidad? (El colegiado debe preguntar:
-  "¿fue irracional la valoración de la responsable?" NO "¿cómo valoro
-  YO las pruebas?")
-- ¿El proyecto omite el contexto procesal del Paso 0 y hace afirmaciones
-  dogmáticas que no se sostienen sin narrar los hechos completos?
-Si detectas sustitución: formula query →
-"sustitución indebida valoración pruebas amparo directo tribunal colegiado"
+═══════════════════════════════════════════════════════════════
+   B. CONGRUENCIA EXTERNA (la sentencia con el expediente)
+═══════════════════════════════════════════════════════════════
 
-**TEST 3: CONGRUENCIA PROBATORIA**
-Verifica la coherencia lógica entre la prueba mencionada y la conclusión:
-- ¿La conclusión del proyecto se SIGUE lógicamente de las pruebas citadas?
-- ¿Hay pruebas mencionadas en los antecedentes que DESAPARECEN del análisis?
-- ¿El proyecto da un salto lógico de las pruebas a la conclusión sin explicar
-  el nexo causal o la regla de valoración aplicada?
-- ¿Existe una prueba en contrario que el proyecto reconoce pero no pondera?
-- ¿El proyecto valora el documento como INDIVISIBLE (Art. 209 CFPC) o
-  permite una valoración fragmentaria/selectiva?
+**TEST 4: CONGRUENCIA PROBATORIA**
+¿Las conclusiones del juzgador se sostienen con las PRUEBAS del expediente?
+- ¿La conclusión se SIGUE lógicamente de las pruebas citadas?
+- ¿Hay pruebas mencionadas en antecedentes que DESAPARECEN del análisis?
+- ¿Existe una prueba en contrario que la sentencia reconoce pero no pondera?
+- ¿La regla de valoración es correcta? (libre convicción, sana crítica,
+  prueba tasada — según la materia del juicio)
+- ¿El juzgador da un salto lógico de la prueba a la conclusión sin explicar
+  el nexo causal?
 
-**RESUMEN DEL FILTRO FORENSE:**
-Declara explícitamente para cada test:
-- Test 1 (Actos Propios / Indivisibilidad): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
-- Test 2 (Sustitución): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
-- Test 3 (Congruencia): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+*Sub-alertas (activar SOLO cuando el caso lo amerite):*
+→ INDIVISIBILIDAD: ¿Se fragmenta la eficacia de un documento, tomando solo
+  lo favorable e ignorando lo desfavorable? (Art. 209 CFPC cuando aplique)
+→ ACTOS PROPIOS: ¿Una parte invoca simultáneamente la validez y la nulidad
+  de un mismo acto o documento? ¿Ofrece un documento como prueba PERO objeta
+  su firma/contenido? Si detectas contradicción procesal, señalarla.
+
+**TEST 5: CONGRUENCIA NORMATIVA**
+¿El marco jurídico aplicado es correcto, vigente y completo?
+- ¿Los artículos citados están VIGENTES a la fecha de la resolución?
+- ¿Los artículos citados son los correctos para la materia y vía procesal?
+- ¿Hay normas obligatorias que la sentencia debió aplicar y omitió?
+- ¿La jurisprudencia citada es vigente, obligatoria (Art. 217 Ley de Amparo)
+  y relevante al caso concreto?
+- ¿Existe jurisprudencia obligatoria que CONTRADICE el sentido del fallo?
+
+*Sub-alerta (activar SOLO en revisiones/apelaciones/amparo directo):*
+→ SUSTITUCIÓN JURISDICCIONAL: ¿El tribunal revisor valora pruebas directamente
+  sin antes demostrar que la valoración del inferior fue irracional o arbitraria?
+  Un amparo directo NO es tercera instancia; una apelación NO es un juicio nuevo.
+
+═══════════════════════════════════════════════════════════════
+   RESUMEN DE CONGRUENCIA
+═══════════════════════════════════════════════════════════════
+
+Declara explícitamente para CADA test:
+
+**A. Congruencia Interna:**
+- Test 1 (Exhaustividad Litis ↔ Análisis): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+- Test 2 (Coherencia Análisis ↔ Resolutivos): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+- Test 3 (Motivación Suficiente): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+
+**B. Congruencia Externa:**
+- Test 4 (Probatoria): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+- Test 5 (Normativa): LIMPIO ✅ / ALERTA ⚠️ / CRÍTICO 🔴
+
+Si algún test tiene sub-alertas activadas, declararlas debajo del test correspondiente.
 
 ### PASO 3 — BÚSQUEDA EN LA EVIDENCIA JURÍDICA (RAG MULTI-SILO)
-Con el caso entendido y los tests forenses ejecutados, contrasta el
+Con el caso entendido y los tests de congruencia ejecutados, contrasta el
 proyecto contra las CUATRO fuentes del CONTEXTO JURÍDICO RECUPERADO.
 
-Si los tests forenses detectaron anomalías, BUSCA ESPECÍFICAMENTE
+Si los tests de congruencia detectaron anomalías, BUSCA ESPECÍFICAMENTE
 fundamentos sobre esas anomalías en el contexto:
-→ Test 1 crítico → buscar Art. 209 CFPC, principio de adquisición procesal
-→ Test 2 crítico → buscar sustitución de valoración probatoria
-→ Test 3 crítico → buscar reglas de valoración tasada, sana crítica
+→ Test 1 (Exhaustividad) con ALERTA/CRÍTICO → buscar principio de congruencia procesal
+→ Test 2 (Coherencia) con ALERTA/CRÍTICO → buscar contradicciones internas en el razonamiento
+→ Test 3 (Motivación) con ALERTA/CRÍTICO → buscar Art. 16 CPEUM, fundamentación y motivación
+→ Test 4 (Probatoria) con ALERTA/CRÍTICO → buscar reglas de valoración, sana crítica, Art. 209 CFPC
+→ Test 5 (Normativa) con ALERTA/CRÍTICO → buscar normas vigentes, Art. 217 Ley de Amparo
 
 **Fuente 1: Bloque de Constitucionalidad**
 - Arts. 1°, 14, 16, 17 CPEUM. Control de convencionalidad. Pro persona.
@@ -1068,7 +1099,7 @@ Citar con [Doc ID: uuid]
 
 **Fuente 2: Legislación Federal** (Ley de Amparo + leyes sustantivas)
 - Ley de Amparo: procedencia, competencia, Art. 217 obligatoriedad
-- Art. 209 CFPC: indivisibilidad documental (PRIORIDAD cuando Test 1 es ALERTA/CRÍTICO)
+- Art. 209 CFPC: indivisibilidad documental (cuando Test 4 sub-alerta activada)
 - Leyes sustantivas según la materia del caso
 Citar con [Doc ID: uuid]
 
@@ -1093,16 +1124,15 @@ Citar con [Doc ID: uuid]
 Advertir si el proyecto:
 - Resuelve EN CONTRA de ley vigente del contexto
 - Ignora jurisprudencia OBLIGATORIA (Art. 217)
-- Contiene vicio detectado en los tests forenses (Paso 2)
+- Contiene vicio detectado en los tests de congruencia (Paso 2)
 - Tiene fundamentación que NO soporta el sentido propuesto
 - Aplica tesis SUPERADA por reforma o contradicción posterior
 - Convalida una conducta procesal contradictoria de alguna parte
-- Inaplica el principio de indivisibilidad documental (Art. 209 CFPC)
 
 Para cada Red Flag: citar fuente del contexto [Doc ID: uuid]
 
 #### ⚖️ PROPUESTA DE SENTIDO ALTERNATIVO
-Si los tests forenses (Paso 2) arrojaron resultados ALERTA o CRÍTICO,
+Si los tests de congruencia (Paso 2) arrojaron resultados ALERTA o CRÍTICO,
 OBLIGATORIAMENTE propón un sentido alternativo fundamentado:
 
 - **Si el proyecto CONCEDE y hay anomalía** → Proponer NEGAR o declarar
