@@ -10412,6 +10412,16 @@ class LawyerSearchRequest(PydanticBaseModel):
 import re as _re_cedula
 
 BUHOLEGAL_URL = "https://www.buholegal.com"
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.buholegal.com/consultasep/",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 async def _query_sep_cedula(cedula: str) -> dict | None:
     """
@@ -10421,7 +10431,11 @@ async def _query_sep_cedula(cedula: str) -> dict | None:
     """
     try:
         url = f"{BUHOLEGAL_URL}/{cedula}/"
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            follow_redirects=True,
+            headers=_BROWSER_HEADERS,
+        ) as client:
             resp = await client.get(url)
             if resp.status_code != 200:
                 print(f"⚠️ BuhoLegal returned {resp.status_code} for cédula {cedula}")
@@ -10429,12 +10443,16 @@ async def _query_sep_cedula(cedula: str) -> dict | None:
             
             html = resp.text
             
+            # Debug: log first 300 chars of response
+            print(f"🔍 BuhoLegal response length: {len(html)}, first 200: {html[:200]}")
+            
             # Extract name from <title>NAME - Cédula Profesional</title>
             title_match = _re_cedula.search(r'<title>\s*(.+?)\s*-\s*C[eé]dula', html)
             nombre = title_match.group(1).strip() if title_match else None
             
             if not nombre or "Buscar" in nombre or "consulta" in nombre.lower():
-                # Page didn't return a valid result (possibly a search page)
+                # Page didn't return a valid result (possibly Cloudflare or search page)
+                print(f"⚠️ BuhoLegal: no valid name found in title. Title tag content: {html[html.find('<title>'):html.find('</title>')+8][:200] if '<title>' in html else 'NO TITLE TAG'}")
                 return None
             
             # Extract fields from <td>Label</td><td>VALUE</td> pattern
@@ -10464,6 +10482,35 @@ async def _query_sep_cedula(cedula: str) -> dict | None:
     except Exception as e:
         print(f"⚠️ Cédula lookup error: {e}")
         return None
+
+
+@app.get("/connect/debug-cedula/{cedula}")
+async def connect_debug_cedula(cedula: str):
+    """Debug endpoint to see raw BuhoLegal response from Cloud Run."""
+    try:
+        url = f"{BUHOLEGAL_URL}/{cedula}/"
+        async with httpx.AsyncClient(
+            timeout=15.0,
+            follow_redirects=True,
+            headers=_BROWSER_HEADERS,
+        ) as client:
+            resp = await client.get(url)
+            html = resp.text
+            title_match = _re_cedula.search(r'<title>\s*(.+?)\s*</title>', html)
+            title = title_match.group(1) if title_match else "NO_TITLE"
+            has_carrera = "Carrera" in html
+            has_universidad = "Universidad" in html
+            return {
+                "status_code": resp.status_code,
+                "response_length": len(html),
+                "title": title,
+                "has_carrera": has_carrera,
+                "has_universidad": has_universidad,
+                "first_500_chars": html[:500],
+                "headers_sent": dict(_BROWSER_HEADERS),
+            }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/connect/validate-cedula")
