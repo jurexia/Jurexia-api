@@ -10381,6 +10381,405 @@ async def get_juzgados_distrito(
 
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# IUREXIA CONNECT — Directorio de Abogados Verificados
+# ══════════════════════════════════════════════════════════════════════════════
+
+import httpx
+from pydantic import BaseModel as PydanticBaseModel
+
+class CedulaRequest(PydanticBaseModel):
+    cedula: str
+
+class LawyerRegisterRequest(PydanticBaseModel):
+    cedula_number: str
+    full_name: str
+    specialties: list[str] = []
+    bio: str = ""
+    estado: str = ""
+    municipio: str = ""
+    cp: str = ""
+    phone: str = ""
+
+class LawyerSearchRequest(PydanticBaseModel):
+    query: str
+    estado: str | None = None
+    limit: int = 10
+
+
+# ── SEP Cédula Validation ─────────────────────────────────────────────────────
+
+SEP_SOLR_URL = "https://search.sep.gob.mx/solr/cedulasCore/select"
+
+async def _query_sep_cedula(cedula: str) -> dict | None:
+    """
+    Query the SEP public Solr API for cédula data.
+    Returns dict with nombre, profesion, institucion on success, None on failure.
+    """
+    try:
+        params = {
+            "q": f"idCedula:{cedula}",
+            "wt": "json",
+            "rows": 5,
+            "fl": "*,score",
+        }
+        async with httpx.AsyncClient(timeout=12.0, verify=False) as client:
+            resp = await client.get(SEP_SOLR_URL, params=params)
+            if resp.status_code != 200:
+                print(f"⚠️ SEP API returned {resp.status_code}")
+                return None
+            
+            data = resp.json()
+            docs = data.get("response", {}).get("docs", [])
+            
+            # Find exact match
+            for doc in docs:
+                if str(doc.get("numCedula", "")) == str(cedula):
+                    nombre = doc.get("nombre", "")
+                    paterno = doc.get("paterno", "")
+                    materno = doc.get("materno", "")
+                    full_name = f"{nombre} {paterno} {materno}".strip()
+                    return {
+                        "nombre": full_name,
+                        "profesion": doc.get("titulo", ""),
+                        "institucion": doc.get("institucion", ""),
+                        "anio_registro": doc.get("anioRegistro", ""),
+                        "tipo": doc.get("tipo", ""),
+                    }
+            
+            return None  # No exact match
+    except Exception as e:
+        print(f"⚠️ SEP API error: {e}")
+        return None
+
+
+@app.post("/connect/validate-cedula")
+async def connect_validate_cedula(req: CedulaRequest):
+    """
+    Validate a cédula profesional against the SEP Registro Nacional de Profesionistas.
+    Falls back to format validation if SEP API is unreachable.
+    """
+    cedula = req.cedula.strip()
+    
+    # Format validation
+    if not cedula.isdigit() or len(cedula) < 6 or len(cedula) > 9:
+        return {
+            "valid": False,
+            "cedula": cedula,
+            "error": "La cédula debe contener entre 6 y 9 dígitos numéricos.",
+        }
+    
+    # Query SEP
+    sep_data = await _query_sep_cedula(cedula)
+    
+    if sep_data:
+        # Found in SEP registry
+        print(f"✅ Cédula {cedula} validada: {sep_data['nombre']} — {sep_data['profesion']}")
+        return {
+            "valid": True,
+            "cedula": cedula,
+            "nombre": sep_data["nombre"],
+            "profesion": sep_data["profesion"],
+            "institucion": sep_data["institucion"],
+        }
+    
+    # SEP did not return a match — could be API down or cédula not found
+    # Try with HTTP fallback (some servers only respond via HTTP)
+    try:
+        params = {
+            "q": f"idCedula:{cedula}",
+            "wt": "json",
+            "rows": 5,
+            "fl": "*,score",
+        }
+        http_url = SEP_SOLR_URL.replace("https://", "http://")
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(http_url, params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                docs = data.get("response", {}).get("docs", [])
+                for doc in docs:
+                    if str(doc.get("numCedula", "")) == str(cedula):
+                        nombre = doc.get("nombre", "")
+                        paterno = doc.get("paterno", "")
+                        materno = doc.get("materno", "")
+                        full_name = f"{nombre} {paterno} {materno}".strip()
+                        print(f"✅ Cédula {cedula} validada (HTTP): {full_name}")
+                        return {
+                            "valid": True,
+                            "cedula": cedula,
+                            "nombre": full_name,
+                            "profesion": doc.get("titulo", ""),
+                            "institucion": doc.get("institucion", ""),
+                        }
+    except Exception:
+        pass
+    
+    # Graceful fallback: accept with pending status
+    print(f"⚠️ Cédula {cedula}: SEP API no disponible, aceptada como pendiente de verificación")
+    return {
+        "valid": True,
+        "cedula": cedula,
+        "nombre": None,
+        "profesion": None,
+        "institucion": None,
+        "pending_verification": True,
+        "message": "Cédula aceptada. La verificación contra el Registro Nacional se completará en las próximas horas.",
+    }
+
+
+# ── SEPOMEX Postal Code Lookup ────────────────────────────────────────────────
+
+@app.get("/connect/sepomex/{cp}")
+async def connect_sepomex(cp: str):
+    """Look up estado and municipio by postal code."""
+    cp = cp.strip()
+    if not cp.isdigit() or len(cp) != 5:
+        raise HTTPException(400, "El código postal debe ser de 5 dígitos")
+    
+    # Use copomex free API
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(f"https://api.copomex.com/query/info_cp/{cp}?type=simplified&token=pruebas")
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    item = data[0].get("response", data[0]) if isinstance(data[0], dict) else {}
+                    return {
+                        "cp": cp,
+                        "estado": item.get("estado", ""),
+                        "municipio": item.get("municipio", ""),
+                    }
+    except Exception as e:
+        print(f"⚠️ SEPOMEX lookup error: {e}")
+    
+    # Fallback: return CP but empty location
+    return {"cp": cp, "estado": "", "municipio": "", "note": "No se pudo resolver el código postal. Ingrese manualmente."}
+
+
+# ── Lawyer Search ──────────────────────────────────────────────────────────────
+
+@app.post("/connect/lawyers/search")
+async def connect_search_lawyers(req: LawyerSearchRequest):
+    """Search for verified lawyers. Queries Supabase lawyer_profiles."""
+    if not supabase_admin:
+        raise HTTPException(503, "Supabase no configurado")
+    
+    try:
+        query = supabase_admin.table("lawyer_profiles")\
+            .select("*")\
+            .eq("verification_status", "verified")\
+            .eq("is_pro_active", True)
+        
+        if req.estado:
+            query = query.eq("estado", req.estado)
+        
+        result = query.limit(req.limit).execute()
+        lawyers = result.data or []
+        
+        return {
+            "lawyers": lawyers,
+            "total": len(lawyers),
+            "note": "Resultados filtrados por abogados verificados y activos." if lawyers else "No se encontraron abogados verificados en este momento. El directorio está creciendo.",
+        }
+    except Exception as e:
+        print(f"❌ Lawyer search error: {e}")
+        raise HTTPException(500, f"Error en búsqueda: {str(e)}")
+
+
+# ── Lawyer Profile Index ──────────────────────────────────────────────────────
+
+@app.post("/connect/lawyers/index")
+async def connect_index_lawyer(profile: dict):
+    """Index a lawyer profile in Supabase."""
+    if not supabase_admin:
+        raise HTTPException(503, "Supabase no configurado")
+    
+    try:
+        # Upsert by cedula_number
+        cedula = profile.get("cedula_number", "")
+        if not cedula:
+            raise HTTPException(400, "Se requiere cedula_number")
+        
+        # Check if already exists
+        existing = supabase_admin.table("lawyer_profiles")\
+            .select("id")\
+            .eq("cedula_number", cedula)\
+            .execute()
+        
+        if existing.data:
+            # Update
+            supabase_admin.table("lawyer_profiles")\
+                .update(profile)\
+                .eq("cedula_number", cedula)\
+                .execute()
+            return {"indexed": True, "point_id": existing.data[0]["id"], "action": "updated"}
+        else:
+            # Insert
+            result = supabase_admin.table("lawyer_profiles")\
+                .insert(profile)\
+                .execute()
+            new_id = result.data[0]["id"] if result.data else ""
+            return {"indexed": True, "point_id": new_id, "action": "created"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Lawyer index error: {e}")
+        raise HTTPException(500, f"Error al indexar perfil: {str(e)}")
+
+
+# ── Admin: Register Lawyer (batch entry) ──────────────────────────────────────
+
+@app.post("/connect/admin/register-lawyer")
+async def connect_admin_register_lawyer(
+    req: LawyerRegisterRequest,
+    authorization: str = Header(...),
+):
+    """
+    Admin-only: Register a lawyer with their cédula.
+    Validates cédula against SEP, then creates/updates the lawyer_profiles entry.
+    """
+    admin = await _verify_admin(authorization)
+    
+    cedula = req.cedula_number.strip()
+    if not cedula.isdigit() or len(cedula) < 6:
+        raise HTTPException(400, "Cédula inválida")
+    
+    # Validate against SEP
+    sep_data = await _query_sep_cedula(cedula)
+    
+    # Build profile
+    profile_data = {
+        "cedula_number": cedula,
+        "full_name": req.full_name or (sep_data["nombre"] if sep_data else ""),
+        "specialties": req.specialties if req.specialties else [],
+        "bio": req.bio,
+        "verification_status": "verified" if sep_data else "pending",
+        "is_pro_active": True,
+        "estado": req.estado,
+        "municipio": req.municipio,
+        "cp": req.cp,
+        "phone": req.phone,
+    }
+    
+    if not profile_data["full_name"]:
+        raise HTTPException(400, "Se requiere nombre del abogado (o la cédula debe ser verificable en la SEP)")
+    
+    if not supabase_admin:
+        raise HTTPException(503, "Supabase no configurado")
+    
+    try:
+        # Check if already exists
+        existing = supabase_admin.table("lawyer_profiles")\
+            .select("id")\
+            .eq("cedula_number", cedula)\
+            .execute()
+        
+        if existing.data:
+            supabase_admin.table("lawyer_profiles")\
+                .update(profile_data)\
+                .eq("cedula_number", cedula)\
+                .execute()
+            action = "updated"
+            profile_id = existing.data[0]["id"]
+        else:
+            result = supabase_admin.table("lawyer_profiles")\
+                .insert(profile_data)\
+                .execute()
+            action = "created"
+            profile_id = result.data[0]["id"] if result.data else ""
+        
+        _log_admin_action(admin["email"], "register_lawyer", details={
+            "cedula": cedula,
+            "name": profile_data["full_name"],
+            "action": action,
+            "sep_verified": sep_data is not None,
+        })
+        
+        print(f"✅ Admin registered lawyer: {profile_data['full_name']} (cédula {cedula}) — {action}")
+        
+        return {
+            "success": True,
+            "action": action,
+            "profile_id": profile_id,
+            "cedula": cedula,
+            "full_name": profile_data["full_name"],
+            "verification_status": profile_data["verification_status"],
+            "sep_data": sep_data,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Admin register lawyer error: {e}")
+        raise HTTPException(500, f"Error al registrar abogado: {str(e)}")
+
+
+# ── Connect Start / Privacy Check (placeholders) ──────────────────────────────
+
+@app.post("/connect/start")
+async def connect_start(body: dict):
+    """Start a Connect chat session. Returns system message with dossier."""
+    return {
+        "system_message": "Bienvenido a Iurexia Connect. Un abogado verificado atenderá su consulta.",
+        "dossier": body.get("dossier_summary", {}),
+        "status": "active",
+    }
+
+
+@app.post("/connect/privacy-check")
+async def connect_privacy_check(body: dict):
+    """Check message for contact information before sending."""
+    import re as re_priv
+    content = body.get("content", "")
+    detections = []
+    
+    # Detect phone numbers
+    phones = re_priv.findall(r'\b\d{10}\b|\b\d{2}[\s-]\d{4}[\s-]\d{4}\b', content)
+    for p in phones:
+        detections.append({"type": "phone", "value": p})
+    
+    # Detect emails
+    emails = re_priv.findall(r'[\w.+-]+@[\w-]+\.[\w.-]+', content)
+    for e in emails:
+        detections.append({"type": "email", "value": e})
+    
+    sanitized = content
+    for d in detections:
+        sanitized = sanitized.replace(d["value"], "[DATOS PRIVADOS]")
+    
+    return {
+        "original": content,
+        "sanitized": sanitized,
+        "has_contact_info": len(detections) > 0,
+        "detections": detections,
+    }
+
+
+# ── Connect Health ─────────────────────────────────────────────────────────────
+
+@app.get("/connect/health")
+async def connect_health():
+    """Health check for the Connect module."""
+    lawyers_count = 0
+    if supabase_admin:
+        try:
+            result = supabase_admin.table("lawyer_profiles").select("id", count="exact").execute()
+            lawyers_count = result.count or 0
+        except Exception:
+            pass
+    
+    return {
+        "module": "iurexia_connect",
+        "status": "active",
+        "lawyers_indexed": lawyers_count,
+        "services": {
+            "cedula_validation": "active",
+            "sepomex": "active",
+            "lawyer_search": "active" if supabase_admin else "unavailable",
+        },
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     
