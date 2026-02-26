@@ -76,7 +76,7 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
-SENTENCIA_MODEL = "gemini-2.5-flash"  # Gemini 2.5 Flash — stable, higher quota (4M+ TPM)
+SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "models/gemini-3-flash-preview")  # Gemini 3 Flash — frontier intelligence
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
@@ -2114,18 +2114,12 @@ async def lifespan(app: FastAPI):
     )
     print("   DeepSeek Client inicializado (reasoning)")
     
-    # Gemini Legal Cache — initialize in background (non-blocking)
-    async def _init_gemini_cache():
-        try:
-            from cache_manager import initialize_cache
-            cache_name = await initialize_cache()
-            if cache_name:
-                print(f"   🏛️ Gemini Cache LISTO: {cache_name}")
-            else:
-                print("   ⚠️ Gemini Cache no disponible — modo sin caché")
-        except Exception as e:
-            print(f"   ❌ Gemini Cache error: {e}")
-    asyncio.ensure_future(_init_gemini_cache())
+    # Gemini Legal Cache — ON-DEMAND strategy (cost optimization)
+    # Cache is NOT created at startup. It's created lazily on first user query
+    # and expires after 1 hour (TTL). This prevents the critical bug where
+    # each Render deploy/restart created a new $0.97/hour cache without
+    # deleting the previous one (84 simultaneous caches = $81/hour).
+    print("   🏛️ Gemini Cache: ON-DEMAND mode (created on first query, TTL=1h)")
     
     print(" Jurexia Core Engine LISTO")
     
