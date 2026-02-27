@@ -1,0 +1,34 @@
+{
+  "texto": "[TIPO: TESIS AISLADA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a. XII/2015 (10a.)] [REGISTRO: 2008257]\n---------------------------------------------------------------------------------------------------------------------------\nCONDONACI\u00d3N DE DEUDAS TRIBUTARIAS. LA PROPORCIONALIDAD Y RAZONABILIDAD JUR\u00cdDICA DE LA ELECCI\u00d3N DEL LEGISLADOR FEDERAL DE EXCLUIR DE AQU\u00c9LLA A LOS CR\u00c9DITOS FISCALES PAGADOS, DEBEN SOMETERSE AL M\u00c1S FLEXIBLE DE LOS ESCRUTINIOS.\n\nLas justificaciones, los motivos o las razones que el legislador debe o no proporcionar al establecer un trato diferenciado en materia de condonaciones, deben partir de la base de que \u00e9stas no son exigibles desde el punto de vista del principio de la generalidad tributaria. Ello, en raz\u00f3n de que es radicalmente distinto acercarse al tema de la proporcionalidad y razonabilidad jur\u00eddica de la exclusi\u00f3n del beneficio de la condonaci\u00f3n, frente a la privaci\u00f3n de un derecho constitucionalmente tutelado -restando a la esfera jur\u00eddica del quejoso-, en tanto que el primer supuesto no es exigible desde el punto de vista del principio de la generalidad tributaria. Ahora bien, si conforme a dicho principio lo ordinario no es la condonaci\u00f3n, sino el pago de contribuciones, es inconcuso que la carga argumentativa al legislar no debe, en estos casos, pesar sobre las razones por las que se limita ese beneficio, es decir, por las que no se otorga la condonaci\u00f3n a quienes ya pagaron el cr\u00e9dito fiscal, pues tales extremos no son s\u00f3lo \"ordinarios\" o \"esperados\", sino que son demandados por la propia Constituci\u00f3n, al derivar del principio de generalidad en la tributaci\u00f3n cuyo contenido ha sido desarrollado por esta Primera Sala en su jurisprudencia. De ah\u00ed que la proporcionalidad y razonabilidad jur\u00eddica de la elecci\u00f3n del legislador federal de excluir de la condonaci\u00f3n a los cr\u00e9ditos fiscales pagados, deben someterse al m\u00e1s flexible de los escrutinios.",
+  "origen": "2008257_1a. XII2015 (10a.).txt",
+  "ref": "1a. XII/2015 (10a.) | Registro 2008257",
+  "tipo": "TESIS AISLADA",
+  "materia": [
+    "constitucional",
+    "fiscal"
+  ],
+  "instancia": "Primera Sala",
+  "tesis": "1a. XII/2015 (10a.)",
+  "registro": "2008257",
+  "rubro": "CONDONACI\u00d3N DE DEUDAS TRIBUTARIAS. LA PROPORCIONALIDAD Y RAZONABILIDAD JUR\u00cdDICA DE LA ELECCI\u00d3N DEL LEGISLADOR FEDERAL DE EXCLUIR DE AQU\u00c9LLA A LOS CR\u00c9DITOS FISCALES PAGADOS, DEBEN SOMETERSE AL M\u00c1S FLEXIBLE DE LOS ESCRUTINIOS.",
+  "jurisdiccion": "FEDERAL",
+  "entidad": "NA",
+  "silo": "jurisprudencia_nacional",
+  "temas": [
+    "condonaci\u00f3n de deudas tributarias",
+    "proporcionalidad y razonabilidad jur\u00eddica",
+    "principio de generalidad tributaria",
+    "trato diferenciado legislativo",
+    "escrutinio judicial de leyes"
+  ],
+  "nivel_jerarquico": "federal",
+  "vias_procesales_aplicables": [
+    "amparo_indirecto",
+    "contencioso_administrativo"
+  ],
+  "requiere_analisis_constitucional": true,
+  "requiere_jurisprudencia": true,
+  "articulos_relacionados": [],
+  "metadata_enriched_at": "2026-02-10T02:55:25.952349",
+  "metadata_version": "v1.0_phase1"
+}

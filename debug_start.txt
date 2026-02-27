@@ -1,0 +1,95 @@
+﻿python.exe : C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\start_tuning.py:54: 
+ExperimentalWarning: The SDK's tuning implementation is experimental, and may change in future versions.
+En línea: 1 Carácter: 1
++ & "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jur ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\jdmju\...uture versions.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  tuning_job = client.tunings.tune(
+Subiendo dataset y lanzando tuning en Google AI Studio...
+Base: models/gemini-1.5-flash-001
+Nombre objetivo: iurexia-redactor-v1-amparo
+Cargados 200 ejemplos. Iniciando Job via client.tunings.tune...
+Traceback (most recent call last):
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\start_tuning.py", line 54, in 
+start_tuning
+    tuning_job = client.tunings.tune(
+        base_model=BASE_MODEL,
+    ...<8 lines>...
+        )
+    )
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\_common.py", line 730, in wrapper
+    return func(*args, **kwargs)
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\tunings.py", line 1783, in tune
+    operation = self._tune_mldev(
+        base_model=base_model,
+        training_dataset=training_dataset,
+        config=config,
+    )
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\tunings.py", line 1683, in _tune_mldev
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\_api_client.py", line 1401, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\_api_client.py", line 1237, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\tenac
+ity\__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\tenac
+ity\__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\tenac
+ity\__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\tenac
+ity\__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\jdmju\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\jdmju\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\_base.py", line 401, in 
+__get_result
+    raise self._exception
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\tenac
+ity\__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\_api_client.py", line 1214, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\errors.py", line 134, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\.venv313\Lib\site-packages\googl
+e\genai\errors.py", line 159, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': '* 
+CreateTunedModelRequest.tuned_model.tuning_task.training_data: missing field.\n', 'status': 'INVALID_ARGUMENT'}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\start_tuning.py", line 76, in 
+<module>
+    start_tuning()
+    ~~~~~~~~~~~~^^
+  File "C:\Users\jdmju\.gemini\antigravity\playground\obsidian-expanse\jurexia-api-git\start_tuning.py", line 73, in 
+start_tuning
+    print(f"\u274c Error al iniciar el tuning: {e}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\jdmju\AppData\Local\Programs\Python\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 0: character maps to <undefined>
