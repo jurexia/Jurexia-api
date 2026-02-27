@@ -76,7 +76,10 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
+# Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "models/gemini-3-flash-preview")  # Gemini 3 Flash — frontier intelligence
+REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-2.5-flash")  # PDF OCR
+REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-flash")  # Estudio de fondo + efectos
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
@@ -138,6 +141,7 @@ def get_gemini_model_name(base_model: str) -> str:
 
 # Normalize at startup
 SENTENCIA_MODEL = get_gemini_model_name(SENTENCIA_MODEL)
+REDACTOR_MODEL_EXTRACT = get_gemini_model_name(REDACTOR_MODEL_EXTRACT)
 REDACTOR_MODEL_GENERATE = get_gemini_model_name(REDACTOR_MODEL_GENERATE)
 
 # Silos V5.0 de Jurexia — Arquitectura 32 Silos por Estado
@@ -7904,8 +7908,7 @@ def _build_auto_mode_instructions(sentido: str, tipo: str, calificaciones: list)
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
-REDACTOR_MODEL_EXTRACT = "gemini-2.5-flash"         # PDF OCR + extraction (no cache needed)
-# (Global model already defined at Top Config)
+# (Model constants moved to Top Config — see lines 79-82)
 
 def _redactor_gen_config(system_instruction: str, temperature: float = 0.3, max_output_tokens: int = 32768, contents=None):
     """Build GenerateContentConfig with cached content injection when available.
