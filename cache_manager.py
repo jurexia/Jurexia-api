@@ -25,11 +25,17 @@ from typing import Optional
 logger = logging.getLogger("iurexia.cache")
 
 # ── Configuration ────────────────────────────────────────────────────────────
-CACHE_MODEL = os.getenv("CACHE_MODEL", "models/gemini-3-flash-preview")
+# Vertex AI uses a different model path prefix
+CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-3-flash-preview")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "/app/cache_corpus")
-CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "1"))  # 1 hour default (was 24!)
+CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "1"))  # 1 hour default
 CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v1"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+# GCP Credentials for Vertex AI (to use GenAI App Builder Credits)
+GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0981303295")
+GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")  # Keep for fallback or AI Studio
+USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"
 
 # ── Global State ─────────────────────────────────────────────────────────────
 _cache_name: Optional[str] = None
@@ -71,12 +77,9 @@ async def _cleanup_orphan_caches():
     creates a new cache without deleting the old one, leading to
     N caches running simultaneously at $0.97/hour EACH.
     """
-    if not GEMINI_API_KEY:
-        return
-    
     try:
         from google import genai
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = get_gemini_client()
         
         caches = list(client.caches.list())
         orphans = [c for c in caches if getattr(c, 'display_name', '') == CACHE_DISPLAY_NAME]
@@ -100,10 +103,6 @@ async def _create_cache() -> Optional[str]:
     """
     global _cache_name, _cache_created_at
     
-    if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY not set — cache disabled")
-        return None
-    
     try:
         # Step 1: Clean up any orphan caches
         await _cleanup_orphan_caches()
@@ -111,7 +110,7 @@ async def _create_cache() -> Optional[str]:
         from google import genai
         from google.genai import types as gtypes
         
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = get_gemini_client()
         
         # Step 2: Load corpus
         texts = _load_corpus_texts()
@@ -213,7 +212,17 @@ def get_gemini_client():
     
     if _gemini_client is None:
         from google import genai
-        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        
+        if USE_VERTEX:
+            logger.info(f"Initializing Gemini Client via VERTEX AI (Project: {GCP_PROJECT})")
+            _gemini_client = genai.Client(
+                vertexai=True,
+                project=GCP_PROJECT,
+                location=GCP_LOCATION
+            )
+        else:
+            logger.info("Initializing Gemini Client via AI STUDIO (shared key)")
+            _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     
     return _gemini_client
 

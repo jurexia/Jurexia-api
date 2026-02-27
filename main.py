@@ -98,6 +98,48 @@ HYDE_MODEL = "gpt-5-mini"  # Use fast model for HyDE generation
 # Query Decomposition Configuration
 QUERY_DECOMPOSITION_ENABLED = True  # Break complex queries into sub-queries
 
+# GCP Configuration (Vertex AI migration to use credits)
+GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0981303295")
+GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
+USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+
+_gemini_client = None
+
+def get_gemini_client():
+    """Get or create a shared Gemini client instance (Vertex AI or AI Studio)."""
+    global _gemini_client
+    if _gemini_client is None:
+        from google import genai
+        if USE_VERTEX:
+            print(f"🚀 Initializing Gemini via VERTEX AI (Project: {GCP_PROJECT})")
+            _gemini_client = genai.Client(
+                vertexai=True,
+                project=GCP_PROJECT,
+                location=GCP_LOCATION
+            )
+        else:
+            print("🔗 Initializing Gemini via AI STUDIO (shared key)")
+            _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    return _gemini_client
+
+def get_gemini_model_name(base_model: str) -> str:
+    """Normalizes model names for Vertex AI vs AI Studio."""
+    if not USE_VERTEX:
+        return base_model
+    # Vertex AI requires 'publishers/google/models/' prefix if not present
+    # Some models might already have publishers/ as prefix
+    if base_model.startswith("publishers/"):
+        return base_model
+    
+    # Clean up 'models/' prefix if present before adding publishers prefix
+    clean_model = base_model[7:] if base_model.startswith("models/") else base_model
+    return f"publishers/google/models/{clean_model}"
+
+# Normalize at startup
+SENTENCIA_MODEL = get_gemini_model_name(SENTENCIA_MODEL)
+REDACTOR_MODEL_GENERATE = get_gemini_model_name(REDACTOR_MODEL_GENERATE)
+
 # Silos V5.0 de Jurexia — Arquitectura 32 Silos por Estado
 # Silos FIJOS: siempre se buscan independientemente del estado
 FIXED_SILOS = {
@@ -6753,10 +6795,9 @@ async def chat_endpoint(request: ChatRequest):
                 
                 # ── GEMINI BRANCH: Cached legal corpus via google-genai SDK ──
                 if use_gemini:
-                    from google import genai
                     from google.genai import types as gtypes
                     
-                    gemini_client = genai.Client(api_key=_gemini_key)
+                    gemini_client = get_gemini_client()
                     
                     # Convert llm_messages to Gemini format:
                     # system messages → system_instruction (or user content when cached)
@@ -7495,7 +7536,7 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
             )
         
         # ── Streaming Generation ──────────────────────────────────────────
-        client = genai.Client(api_key=gemini_key)
+        client = get_gemini_client()
         
         # Try to use cached legal corpus
         try:
@@ -7864,7 +7905,7 @@ def _build_auto_mode_instructions(sentido: str, tipo: str, calificaciones: list)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 REDACTOR_MODEL_EXTRACT = "gemini-2.5-flash"         # PDF OCR + extraction (no cache needed)
-REDACTOR_MODEL_GENERATE = "gemini-2.5-flash"   # Estudio de fondo + efectos (stable, higher quota)
+# (Global model already defined at Top Config)
 
 def _redactor_gen_config(system_instruction: str, temperature: float = 0.3, max_output_tokens: int = 32768, contents=None):
     """Build GenerateContentConfig with cached content injection when available.
@@ -8400,7 +8441,7 @@ async def draft_sentencia_stream(
             from google import genai
             from google.genai import types as gtypes
 
-            client = genai.Client(api_key=GEMINI_API_KEY)
+            client = get_gemini_client()
 
             # Build PDF parts
             pdf_parts = []
@@ -8582,9 +8623,8 @@ async def draft_sentencia(
     
     total_start = time_module.time()
     
-    from google import genai
     from google.genai import types as gtypes
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = get_gemini_client()
     
     # Build PDF parts
     doc_labels = SENTENCIA_DOC_LABELS[tipo]
@@ -8793,7 +8833,7 @@ async def analyze_expediente(
         from google import genai
         from google.genai import types as gtypes
 
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = get_gemini_client()
 
         # Build PDF parts
         doc_labels = SENTENCIA_DOC_LABELS[tipo]
@@ -10140,7 +10180,7 @@ async def redaccion_sentencias(
         from google import genai
         from google.genai import types as gtypes
 
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        gemini_client = get_gemini_client()
 
         extract_prompt = f"""Lee estos 2 documentos judiciales ({tipo_config['docs'][0]} y {tipo_config['docs'][1]}) y extrae toda la información relevante.
 
@@ -10345,7 +10385,7 @@ async def redaccion_sentencias_gemini(
     from google import genai
     from google.genai import types as gtypes
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = get_gemini_client()
 
     generation_prompt = f"""Analiza los 2 documentos PDF adjuntos de un expediente de {tipo_config['label']}.
 
