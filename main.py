@@ -5135,7 +5135,7 @@ async def health_check():
     
     return {
         "status": "healthy" if qdrant_status == "connected" else "degraded",
-        "version": "2026.02.20-v4 (Advanced RAG)",
+        "version": "2026.02.22-v5 (Anti-alucinación 3 capas: DETERMINISTIC)",
         "model": CHAT_MODEL,
         "qdrant": qdrant_status,
         "silos_activos": silos_activos,
