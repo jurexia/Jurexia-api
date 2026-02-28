@@ -26,10 +26,10 @@ logger = logging.getLogger("iurexia.cache")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Vertex AI uses a different model path prefix
-CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-3-flash-preview")
+CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-2.0-flash-001")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "/app/cache_corpus")
-CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "1"))  # 1 hour default
-CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v1"
+CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))  # 8 minutes as requested by user
+CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v5"
 
 # GCP Credentials for Vertex AI (to use GenAI App Builder Credits)
 GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0981303295")
@@ -40,7 +40,7 @@ USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"
 # ── Global State ─────────────────────────────────────────────────────────────
 _cache_name: Optional[str] = None
 _cache_created_at: float = 0
-_cache_lock = asyncio.Lock() if asyncio.get_event_loop().is_running() else None
+_cache_lock = None # Will be initialized in get_or_create_cache
 _gemini_client = None
 
 
@@ -126,7 +126,7 @@ async def _create_cache() -> Optional[str]:
             )
         ]
         
-        ttl_seconds = CACHE_TTL_HOURS * 3600
+        ttl_seconds = CACHE_TTL_MINUTES * 60
         
         system_instruction = (
             "Eres Iurexia, un asistente jurídico mexicano de élite. "
@@ -136,7 +136,7 @@ async def _create_cache() -> Optional[str]:
             "Nunca inventes contenido legal. Si un artículo no está en tu contexto, dilo explícitamente."
         )
         
-        logger.info(f"Creating Gemini cache ON-DEMAND: model={CACHE_MODEL}, ttl={CACHE_TTL_HOURS}h")
+        logger.info(f"Creating Gemini cache ON-DEMAND: model={CACHE_MODEL}, ttl={CACHE_TTL_MINUTES}m")
         
         cache = await client.aio.caches.create(
             model=CACHE_MODEL,
@@ -152,8 +152,7 @@ async def _create_cache() -> Optional[str]:
         _cache_name = cache.name
         _cache_created_at = time.time()
         
-        hourly_cost = 0.97  # ~968K tokens at $1/M/hour
-        logger.info(f"Cache created: {_cache_name} (TTL={CACHE_TTL_HOURS}h, cost=~${hourly_cost:.2f}/h)")
+        logger.info(f"Cache created: {_cache_name} (TTL={CACHE_TTL_MINUTES}m, cost=~$0.09/h (Flash))")
         return _cache_name
         
     except Exception as e:
@@ -166,37 +165,62 @@ def _is_cache_valid() -> bool:
     if not _cache_name:
         return False
     elapsed = time.time() - _cache_created_at
-    ttl_seconds = CACHE_TTL_HOURS * 3600
-    return elapsed < (ttl_seconds * 0.9)  # 90% of TTL
+    ttl_seconds = CACHE_TTL_MINUTES * 60
+    return elapsed < (ttl_seconds * 0.98)  # 98% of TTL (more aggressive retention)
 
+
+async def _refresh_cache_ttl(cache_name: str):
+    """Background task to extend the TTL of an active cache in Vertex AI."""
+    try:
+        from google.genai import types as gtypes
+        client = get_gemini_client()
+        ttl_seconds = CACHE_TTL_MINUTES * 60
+        
+        await client.aio.caches.update(
+            name=cache_name,
+            config=gtypes.UpdateCachedContentConfig(
+                ttl=f"{ttl_seconds}s"
+            )
+        )
+        logger.info(f"  Cache TTL refreshed for: {cache_name}")
+    except Exception as e:
+        logger.error(f"  Failed to refresh cache TTL: {e}")
 
 async def get_or_create_cache() -> Optional[str]:
     """Get existing cache or create one on-demand.
     
     This is the MAIN entry point. Called from chat/sentencia endpoints.
-    Thread-safe via asyncio.Lock to prevent duplicate cache creation.
+    Updates _cache_created_at to implement an inactivity-based timeout.
     """
-    global _cache_lock
+    global _cache_lock, _cache_created_at
     
     # Fast path: cache exists and is valid
     if _is_cache_valid():
+        # Update local timestamp for inactivity timeout logic
+        _cache_created_at = time.time()
+        # Optionally update Vertex AI TTL in background (don't wait)
+        asyncio.create_task(_refresh_cache_ttl(_cache_name))
         return _cache_name
     
-    # Ensure lock exists (handles import-time vs runtime)
+    # Ensure lock exists
     if _cache_lock is None:
         _cache_lock = asyncio.Lock()
     
     async with _cache_lock:
-        # Double-check after acquiring lock
+        # Double-check
         if _is_cache_valid():
+            _cache_created_at = time.time()
+            asyncio.create_task(_refresh_cache_ttl(_cache_name))
             return _cache_name
         
         return await _create_cache()
 
-
 def get_cache_name() -> Optional[str]:
-    """Get the current cache name (Sync version). Returns None if no active cache."""
+    """Get current active cache name."""
+    global _cache_created_at
     if _is_cache_valid():
+        # Update timestamp on hit (Sync version used by some paths)
+        _cache_created_at = time.time()
         return _cache_name
     return None
 
@@ -235,18 +259,18 @@ def get_cache_model() -> str:
 def get_cache_status() -> dict:
     """Return cache status for diagnostics."""
     elapsed = time.time() - _cache_created_at if _cache_created_at else 0
-    ttl_seconds = CACHE_TTL_HOURS * 3600
+    ttl_seconds = CACHE_TTL_MINUTES * 60
     
     return {
         "cache_name": _cache_name,
         "cache_model": CACHE_MODEL,
         "cache_available": _is_cache_valid(),
         "cache_age_minutes": round(elapsed / 60, 1) if elapsed else 0,
-        "cache_ttl_hours": CACHE_TTL_HOURS,
+        "cache_ttl_minutes": CACHE_TTL_MINUTES,
         "cache_remaining_minutes": round(max(0, ttl_seconds - elapsed) / 60, 1) if elapsed else 0,
         "corpus_dir": CACHE_CORPUS_DIR,
         "strategy": "on-demand",
-        "est_hourly_cost": "$0.97" if _is_cache_valid() else "$0.00",
+        "est_hourly_cost": "$0.09" if _is_cache_valid() else "$0.00",
     }
 
 

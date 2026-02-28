@@ -2092,6 +2092,10 @@ class ChatRequest(BaseModel):
         False,
         description="Si True, usa Query Expansion con metadata jerárquica (más lento ~10s pero más preciso). Si False, modo rápido ~2s."
     )
+    enable_genio_juridico: bool = Field(
+        False, 
+        description="Si True, intenta usar Gemini Context Caching para precisión de 'Genio Jurídico'."
+    )
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
     materia: Optional[str] = Field(None, description="Materia jurídica forzada (PENAL, CIVIL, FAMILIAR, etc.). Si None, auto-detecta por keywords.")
     fuero: Optional[str] = Field(None, description="Filtro por fuero: constitucional, federal, estatal. Si None, busca en todos los silos.")
@@ -3699,7 +3703,7 @@ async def hybrid_search_single_silo(
         has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         # Threshold diferenciado: jurisprudencia necesita mayor recall
-        threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
+        threshold = 0.02 if collection == "jurisprudencia_nacional" else 0.03
         
         if has_sparse:
             # Dual prefetch con RRF fusion:
@@ -3772,7 +3776,7 @@ async def hybrid_search_single_silo(
             has_sparse = sparse_cfg is not None and len(sparse_cfg) > 0
             if has_sparse:
                 print(f"   ⚠️ Hybrid devolvió 0 en {collection}, fallback a dense-only...")
-                threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
+                threshold = 0.02 if collection == "jurisprudencia_nacional" else 0.03
                 dense_results = await qdrant_client.query_points(
                     collection_name=collection,
                     query=dense_vector,
@@ -3794,7 +3798,7 @@ async def hybrid_search_single_silo(
         if "typing.Union" in error_msg or "Cannot instantiate" in error_msg:
             print(f"   ⚠️ typing.Union error en {collection}, fallback a dense-only...")
             try:
-                threshold = 0.03 if collection == "jurisprudencia_nacional" else 0.05
+                threshold = 0.02 if collection == "jurisprudencia_nacional" else 0.03
                 dense_results = await qdrant_client.query_points(
                     collection_name=collection,
                     query=dense_vector,
@@ -4092,7 +4096,7 @@ async def _fetch_neighbor_chunks(
     # Solo tomar top 3 de legislación con score alto
     legislation = [r for r in results 
                    if r.silo in ("leyes_federales", "leyes_estatales") 
-                   and r.score > 0.4][:3]
+                   and r.score > 0.4][:5]
     
     if not legislation:
         return []
@@ -6085,7 +6089,7 @@ async def _smart_rag_for_document(
     doc_content: str,
     estado: Optional[str] = None,
     fuero: Optional[str] = None,
-    top_k: int = 15,
+    top_k: int = 25,
 ) -> List[SearchResult]:
     """
     Smart RAG: Extract legal themes from a document and run 3 parallel
@@ -6414,14 +6418,18 @@ async def chat_endpoint(request: ChatRequest):
     is_comparative = False
     
     # ─────────────────────────────────────────────────────────────────────
-    # PARALLEL STEP 2: Launch Gemini Cache check in background
+    # PARALLEL STEP 2: Launch Gemini Cache check in background (IF REQUESTED)
     # ─────────────────────────────────────────────────────────────────────
     async def _probe_cache():
+        if not request.enable_genio_juridico:
+            return None
         try:
             from cache_manager import get_cache_name_async
             return await get_cache_name_async()
-        except:
+        except Exception as e:
+            print(f"   ⚠️ Cache allocation failed: {e}")
             return None
+    
     cache_task = asyncio.create_task(_probe_cache())
 
     # ─────────────────────────────────────────────────────────────────────
@@ -6446,7 +6454,7 @@ async def chat_endpoint(request: ChatRequest):
                 search_results = await hybrid_search_all_silos(
                     query=search_query,
                     estado=request.estado,
-                    top_k=15,
+                    top_k=40,
                     forced_materia=request.materia,
                     fuero=request.fuero,
                 )
@@ -6549,13 +6557,13 @@ async def chat_endpoint(request: ChatRequest):
                         hybrid_search_all_silos(
                             query=query_legislacion,
                             estado=request.estado,
-                            top_k=15,
+                            top_k=40,
                             fuero=None,  # SIEMPRE buscar en todos los silos para sentencias
                         ),
                         hybrid_search_all_silos(
                             query=query_jurisprudencia,
                             estado=request.estado,
-                            top_k=15,
+                            top_k=40,
                             fuero=None,
                         ),
                         hybrid_search_all_silos(
@@ -6602,7 +6610,7 @@ async def chat_endpoint(request: ChatRequest):
                         full_doc_for_rag,
                         estado=request.estado,
                         fuero=request.fuero,
-                        top_k=15,
+                        top_k=40,
                     )
                     
                     # Layer 3: Merge
@@ -6658,7 +6666,7 @@ async def chat_endpoint(request: ChatRequest):
                     search_results = await hybrid_search_all_silos(
                         query=last_user_message,
                         estado=effective_estado,
-                        top_k=request.top_k,
+                        top_k=40,
                         forced_materia=request.materia,
                         fuero=request.fuero,
                     )
