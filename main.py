@@ -6545,8 +6545,6 @@ async def chat_endpoint(request: ChatRequest):
                     print(f"      Constitucional: {query_constitucional[:80]}...")
                     
                     # Ejecutar 3 búsquedas semánticas + Direct Lookup en paralelo
-                    import asyncio
-                    
                     # Direct Lookup: extract citations from sentencia and look up by filter
                     sentencia_citations = _extract_legal_citations(doc_content[:30000])
                     
