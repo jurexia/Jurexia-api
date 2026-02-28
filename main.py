@@ -6711,11 +6711,25 @@ async def chat_endpoint(request: ChatRequest):
         retrieval_task = asyncio.create_task(_perform_retrieval())
 
         # ══ WAITING FOR ALL CONCURRENT TASKS ══
-        # Infrastructure Check (Blocked/Quota) + Retrieval Search + Cache Probe
+        # IMPORTANTE: cache_task tiene timeout de 8s.
+        # Si Google AI Studio tarda más (cold start, latencia de red),
+        # el stream NUNCA se bloquea — el cache simplemente no se usa.
+        # Esto resuelve el reset en móvil causado por el carrier cerrando
+        # la conexión TCP cuando no llega ningún byte en >15s.
+        async def _cache_task_with_timeout():
+            try:
+                return await asyncio.wait_for(cache_task, timeout=8.0)
+            except asyncio.TimeoutError:
+                print(f"   ⏱️ CACHE TIMEOUT: cache_task excedió 8s — stream continua sin cache")
+                return None
+            except Exception as _e:
+                print(f"   ⚠️ CACHE ERROR: {_e}")
+                return None
+
         infra_error, (search_results, doc_id_map, context_xml), _cached = await asyncio.gather(
             infra_check_task,
             retrieval_task,
-            cache_task
+            _cache_task_with_timeout()
         )
 
         # Handle infrastructure errors (blocking)
@@ -6896,6 +6910,12 @@ async def chat_endpoint(request: ChatRequest):
             try:
                 reasoning_buffer = ""
                 content_buffer = ""
+                
+                # ── Heartbeat: primer byte inmediato para mantener TCP en móvil ──
+                # Los carriers móviles cierran conexiones sin actividad en ~15s.
+                # Este ping invisible llega al cliente en <100ms y mantiene la conexión viva.
+                # El frontend lo filtra (no empieza con "<!--") silenciosamente.
+                yield "<!--PING-->"
                 
                 # ── Emit cache status marker for frontend ──
                 if _effective_cached and use_gemini:
