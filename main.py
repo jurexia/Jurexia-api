@@ -103,7 +103,7 @@ HYDE_MODEL = "gpt-5-mini"  # Use fast model for HyDE generation
 QUERY_DECOMPOSITION_ENABLED = True  # Break complex queries into sub-queries
 
 # GCP Configuration (Vertex AI migration to use credits)
-GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0981303295")
+GCP_PROJECT = os.getenv("GCP_PROJECT", "iurexia-v")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -6798,6 +6798,7 @@ async def chat_endpoint(request: ChatRequest):
         
         # _cached results already retrieved in Paso 1 gather
         _gemini_key = os.getenv("GEMINI_API_KEY", "")
+        _can_use_gemini = bool(_gemini_key) or USE_VERTEX  # Vertex AI doesn't need API key
 
         
         use_gemini = False
@@ -6820,20 +6821,22 @@ async def chat_endpoint(request: ChatRequest):
             max_tokens = 65536
             use_thinking = False
             _effective_cached = None  # SIEMPRE sin cache para sentencias grandes
-            if not _gemini_key:
-                raise HTTPException(500, "GEMINI_API_KEY not configured for sentencia analysis")
+            if not _can_use_gemini:
+                raise HTTPException(500, "Gemini not configured (no API key or Vertex AI) for sentencia analysis")
             print(f"   ⚖️ Modelo SENTENCIA: {SENTENCIA_MODEL} (Gemini, sin cache) | max_output: {max_tokens}")
         elif use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
             active_model = DEEPSEEK_CHAT_MODEL
             max_tokens = 50000
-        elif _effective_cached and _gemini_key:
-            # Regular chat WITH cache: Gemini (12 legal texts always available)
+        elif _effective_cached and _can_use_gemini:
+            # Regular chat WITH cache: Gemini (legal texts cached)
+            # IMPORTANT: Must use the SAME model the cache was created with
+            from cache_manager import get_cache_model
             use_gemini = True
-            active_model = SENTENCIA_MODEL  # gemini-2.5-flash
+            active_model = get_cache_model()
             max_tokens = 32768
-            print(f"   🏛️ Chat + CACHE: {SENTENCIA_MODEL} (corpus cached)")
+            print(f"   🏛️ Chat + CACHE: {active_model} (corpus cached)")
         else:
             # Fallback: GPT-5 Mini or DeepSeek V3 (no cache available)
             if CHAT_ENGINE == "deepseek" and deepseek_client:
