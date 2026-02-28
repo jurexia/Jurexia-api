@@ -2194,12 +2194,15 @@ async def lifespan(app: FastAPI):
     )
     print("   DeepSeek Client inicializado (reasoning)")
     
-    # Gemini Legal Cache — ON-DEMAND strategy (cost optimization)
-    # Cache is NOT created at startup. It's created lazily on first user query
-    # and expires after 1 hour (TTL). This prevents the critical bug where
-    # each Render deploy/restart created a new $0.97/hour cache without
-    # deleting the previous one (84 simultaneous caches = $81/hour).
-    print("   🏛️ Gemini Cache: ON-DEMAND mode (created on first query, TTL=1h)")
+    # Gemini Legal Cache — ON-DEMAND strategy v6 (cost optimization)
+    # SAFETY LOCK #9: Startup cleanup — deletes orphan caches, NEVER creates.
+    # This prevents each Render deploy/restart leaving orphan caches at $0.97/hr.
+    try:
+        from cache_manager import cleanup_on_startup
+        await cleanup_on_startup()
+        print("   🏛️ Gemini Cache: ON-DEMAND mode v6 (9 safety locks, TTL=8m)")
+    except Exception as e:
+        print(f"   ⚠️ Cache startup cleanup failed (non-fatal): {e}")
     
     print(" Jurexia Core Engine LISTO")
     

@@ -1,36 +1,47 @@
 """
-Iurexia Legal Cache Manager — ON-DEMAND Strategy
-=================================================
-Creates a Gemini cached context (~968K tokens of Mexican legal texts)
-ONLY when a user actually makes a query — NOT at server startup.
+Iurexia Legal Cache Manager — ON-DEMAND Strategy (v6 — Feb 2026)
+================================================================
+Creates a Gemini cached context (~950K tokens of Mexican legal texts)
+ONLY when a user explicitly activates "Genio Jurídico" — NOT at server startup.
 
-TTL is 1 hour to minimize storage costs ($0.97/hour).
+Corpus: 12 files (CPEUM, CCF, CPF, LFT, Amparo, CCom, LGTOC + 5 DDHH treaties)
+Limit: Gemini 3 Flash Preview = 1,048,576 tokens (1M) HARD LIMIT
+Actual: ~950K tokens → fits with ~97K margin for queries/responses
 
-CRITICAL FIX: Ensures only ONE cache exists at a time.
-Before creating, deletes any orphaned caches from previous deploys.
+SAFETY LOCKS (9 total):
+  1. Orphan Cleanup — deletes ALL existing caches before creating
+  2. asyncio.Lock — prevents concurrent creation (race conditions)
+  3. Double-check — re-verifies inside the lock
+  4. TTL 8 min — auto-expires in Google if unused
+  5. Frontend Timer — UI disables after 8 min inactivity
+  6. Kill Switch — /genio/kill endpoint for emergencies
+  7. Token Limit — ABORTS if corpus exceeds MAX_CACHE_TOKENS
+  8. Budget Guard — max 10 cache creates per day
+  9. Startup Cleanup — lifespan only DELETES, NEVER creates
 
 Usage:
-    # In your endpoint — lazy initialization:
     cache_name = await get_or_create_cache()
-    # Returns cache name if available, None otherwise
 """
 
 import os
 import time
 import asyncio
 import logging
+import datetime
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("iurexia.cache")
 
 # ── Configuration ────────────────────────────────────────────────────────────
-# When using API Key (AI Studio), model names don't need publishers/ prefix
-# When using Vertex AI, they do. We handle this dynamically.
 CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-3-flash-preview")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))  # 8 minutes as requested by user
-CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v5"
+CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v6"
+
+# ── Safety Limits ────────────────────────────────────────────────────────────
+MAX_CACHE_TOKENS = 950_000       # HARD SAFETY: abort if corpus exceeds this
+MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "10"))  # Budget guard
 
 # GCP Credentials — defaults to API Key mode for Render compatibility
 # (SA key creation blocked by org policy iam.disableServiceAccountKeyCreation)
@@ -42,13 +53,19 @@ USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"  # True for Rende
 # ── Global State ─────────────────────────────────────────────────────────────
 _cache_name: Optional[str] = None
 _cache_created_at: float = 0
-_cache_lock = None # Will be initialized in get_or_create_cache
+_cache_lock = None  # Will be initialized in get_or_create_cache
 _gemini_client = None
 _last_error: Optional[str] = None  # Last cache error for diagnostics
+_daily_create_count: int = 0
+_daily_create_date: str = ""  # YYYY-MM-DD format
 
 
 def _load_corpus_texts() -> list[str]:
-    """Load all TXT files from the corpus directory, sorted by name."""
+    """Load all TXT files from the corpus directory, sorted by name.
+    
+    SAFETY LOCK #7: Validates total tokens < MAX_CACHE_TOKENS.
+    Returns empty list if exceeded (prevents oversized cache creation).
+    """
     corpus_dir = Path(CACHE_CORPUS_DIR)
     if not corpus_dir.exists():
         logger.warning(f"Cache corpus dir not found: {corpus_dir}")
@@ -69,6 +86,14 @@ def _load_corpus_texts() -> list[str]:
     total_chars = sum(len(t) for t in texts)
     total_tokens = total_chars // 4
     logger.info(f"  Total corpus: {len(texts)} files, {total_chars:,} chars (~{total_tokens:,} tokens)")
+    
+    # SAFETY LOCK #7: Token limit validation
+    if total_tokens > MAX_CACHE_TOKENS:
+        logger.error(
+            f"🚨 CORPUS TOO BIG: {total_tokens:,} tokens > MAX {MAX_CACHE_TOKENS:,}. "
+            f"ABORTING cache creation to prevent API error/cost overrun."
+        )
+        return []  # Empty = cache won't be created
     
     return texts
 
@@ -99,14 +124,44 @@ async def _cleanup_orphan_caches():
         logger.error(f"Orphan cleanup failed: {e}")
 
 
+def _check_daily_budget() -> bool:
+    """SAFETY LOCK #8: Budget guard — max N cache creates per calendar day.
+    
+    Prevents runaway costs if something triggers repeated cache creation.
+    Resets at midnight (server time).
+    """
+    global _daily_create_count, _daily_create_date
+    
+    today = datetime.date.today().isoformat()
+    
+    if _daily_create_date != today:
+        _daily_create_count = 0
+        _daily_create_date = today
+    
+    if _daily_create_count >= MAX_DAILY_CREATES:
+        logger.error(
+            f"🚨 BUDGET GUARD: {_daily_create_count} cache creates today "
+            f"(max={MAX_DAILY_CREATES}). BLOCKING new cache creation."
+        )
+        return False
+    
+    return True
+
+
 async def _create_cache() -> Optional[str]:
     """Create a new Gemini cache with the legal corpus.
     
     ALWAYS cleans up orphans first to prevent cache multiplication.
+    Validates token count and daily budget before creating.
     """
-    global _cache_name, _cache_created_at
+    global _cache_name, _cache_created_at, _daily_create_count, _last_error
     
     try:
+        # SAFETY LOCK #8: Check daily budget
+        if not _check_daily_budget():
+            _last_error = f"Daily cache creation limit reached ({MAX_DAILY_CREATES})"
+            return None
+        
         # Step 1: Clean up any orphan caches
         await _cleanup_orphan_caches()
         
@@ -115,7 +170,7 @@ async def _create_cache() -> Optional[str]:
         
         client = get_gemini_client()
         
-        # Step 2: Load corpus
+        # Step 2: Load corpus (includes SAFETY LOCK #7: token validation)
         texts = _load_corpus_texts()
         if not texts:
             logger.error("No corpus texts loaded — cache disabled")
@@ -154,12 +209,15 @@ async def _create_cache() -> Optional[str]:
         
         _cache_name = cache.name
         _cache_created_at = time.time()
+        _daily_create_count += 1
         
-        logger.info(f"Cache created: {_cache_name} (TTL={CACHE_TTL_MINUTES}m, cost=~$0.09/h (Flash))")
+        logger.info(
+            f"Cache created: {_cache_name} (TTL={CACHE_TTL_MINUTES}m, "
+            f"daily_count={_daily_create_count}/{MAX_DAILY_CREATES}, cost=~$0.09/h)"
+        )
         return _cache_name
         
     except Exception as e:
-        global _last_error
         _last_error = f"{type(e).__name__}: {e}"
         logger.error(f"Cache creation failed: {_last_error}")
         import traceback
@@ -279,7 +337,20 @@ def get_cache_status() -> dict:
         "strategy": "on-demand",
         "est_hourly_cost": "$0.09" if _is_cache_valid() else "$0.00",
         "last_error": _last_error,
+        "daily_creates": f"{_daily_create_count}/{MAX_DAILY_CREATES}",
+        "max_tokens_limit": MAX_CACHE_TOKENS,
     }
+
+
+async def cleanup_on_startup():
+    """SAFETY LOCK #9: Called from app lifespan — ONLY deletes, NEVER creates.
+    
+    This ensures that server restarts/deploys don't leave orphan caches
+    running at $0.97/hour each, without creating new ones automatically.
+    """
+    logger.info("Startup cleanup: deleting any orphan caches...")
+    await _cleanup_orphan_caches()
+    logger.info("Startup cleanup complete — NO cache created (on-demand only)")
 
 
 async def delete_all_caches():
