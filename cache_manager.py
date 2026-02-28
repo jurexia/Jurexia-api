@@ -26,15 +26,16 @@ logger = logging.getLogger("iurexia.cache")
 
 # ── Configuration ────────────────────────────────────────────────────────────
 # Vertex AI uses a different model path prefix
-CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-2.0-flash-001")
-CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "/app/cache_corpus")
+# Updated to Gemini 3 Flash as per documentation (Feb 2026)
+CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-3.0-flash-preview-0125")
+CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))  # 8 minutes as requested by user
 CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v5"
 
-# GCP Credentials for Vertex AI (to use GenAI App Builder Credits)
-GCP_PROJECT = os.getenv("GCP_PROJECT", "gen-lang-client-0981303295")
+# GCP Credentials for Vertex AI (using the safe 'iurexia-v' project)
+GCP_PROJECT = os.getenv("GCP_PROJECT", "iurexia-v")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")  # Keep for fallback or AI Studio
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")  # Fallback
 USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"
 
 # ── Global State ─────────────────────────────────────────────────────────────
