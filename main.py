@@ -6881,18 +6881,18 @@ async def chat_endpoint(request: ChatRequest):
             from cache_manager import get_cache_model
             use_gemini = True
             active_model = get_cache_model()
-            max_tokens = 32768
-            print(f"   🏛️ Chat + CACHE: {active_model} (corpus cached)")
+            max_tokens = 16384  # Con cache: corpus completo disponible, puede ser detallado
+            print(f"   🏗️ Chat + CACHE: {active_model} (corpus cached)")
         else:
             # Fallback: GPT-5 Mini or DeepSeek V3 (no cache available)
             if CHAT_ENGINE == "deepseek" and deepseek_client:
                 active_client = deepseek_client
                 active_model = DEEPSEEK_CHAT_MODEL
-                max_tokens = 32768
+                max_tokens = 8192  # Cap: evita respuestas kilométricas sin cache
             else:
                 active_client = chat_client
                 active_model = CHAT_MODEL  # gpt-5-mini
-                max_tokens = 32768
+                max_tokens = 8192  # Cap respuestas largas en chat sin cache
         
         print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
@@ -6947,27 +6947,38 @@ async def chat_endpoint(request: ChatRequest):
                     system_instruction = "\n\n".join(system_parts)
                     
                     # ── Cache-aware config ──
-                    # When cache is active, its system_instruction is fixed (generic legal assistant).
-                    # Dynamic context (RAG results, prompts, estado) MUST go as user content
-                    # so it's not silently dropped.
+                    # IMPORTANTE: Con cache activo, el system_prompt YA está fijado
+                    # en el cache (no se puede cambiar). Solo se inyecta como user
+                    # message el CONTEXTO VARIABLE (RAG, estado) que NO se puede
+                    # cachear. Inyectar el system_prompt completo aqui causa que el
+                    # modelo lo reciba 2 veces → secciones duplicadas en la respuesta.
                     if _effective_cached:
-                        if system_instruction.strip():
+                        # Separar system parts: solo inyectar contexto RAG y estado
+                        # (todos los mensajes del sistema EXCEPTO SYSTEM_PROMPT_CHAT)
+                        dynamic_parts = []
+                        for part in system_parts:
+                            # El SYSTEM_PROMPT_CHAT ya está en el cache. Solo inyectar
+                            # el contexto dinámico (contexto RAG, estado, inventario).
+                            if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO"):
+                                dynamic_parts.append(part)
+                        if dynamic_parts:
                             gemini_contents.insert(0, gtypes.Content(
                                 role="user",
-                                parts=[gtypes.Part(text=f"INSTRUCCIONES DEL SISTEMA Y CONTEXTO JURÍDICO:\n{system_instruction}")]
+                                parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]
                             ))
                         gemini_config = gtypes.GenerateContentConfig(
                             cached_content=_effective_cached,
                             max_output_tokens=max_tokens,
                             temperature=0.3,
-                            **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=8192)} if is_sentencia else {}),
                         )
                     else:
                         gemini_config = gtypes.GenerateContentConfig(
                             system_instruction=system_instruction,
                             max_output_tokens=max_tokens,
                             temperature=0.3,
-                            tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+                            # IMPORTANTE: google_search tool desactivado —
+                            # causaba loops de búsqueda infinita. El RAG local
+                            # (Qdrant) es la fuente de verdad para leyes mexicanas.
                             **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=8192)} if is_sentencia else {}),
                         )
                     
