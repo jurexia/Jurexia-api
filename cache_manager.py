@@ -27,7 +27,7 @@ logger = logging.getLogger("iurexia.cache")
 # ── Configuration ────────────────────────────────────────────────────────────
 # When using API Key (AI Studio), model names don't need publishers/ prefix
 # When using Vertex AI, they do. We handle this dynamically.
-CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-2.0-flash")
+CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-3-flash-preview")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))  # 8 minutes as requested by user
 CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v5"

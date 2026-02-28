@@ -11060,14 +11060,25 @@ async def activate_genio():
     """
     from cache_manager import get_or_create_cache, get_cache_status
     
-    cache_name = await get_or_create_cache()
-    status = get_cache_status()
-    
-    return {
-        "success": cache_name is not None,
-        "cache_name": cache_name,
-        **status
-    }
+    try:
+        cache_name = await get_or_create_cache()
+        status = get_cache_status()
+        
+        return {
+            "success": cache_name is not None,
+            "cache_name": cache_name,
+            "error": None,
+            **status
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "success": False,
+            "cache_name": None,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc(),
+        }
 
 
 @app.get("/genio/status")
