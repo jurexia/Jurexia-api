@@ -5384,6 +5384,22 @@ async def get_document(doc_id: str):
                     _origen_raw = payload.get("origen", payload.get("fuente", None))
                     _origen = humanize_origen(_origen_raw) or extract_ley_from_texto(texto_val)
 
+                    # Resolver URL de PDF dinámicamente si no viene en payload o apunta a GCS viejo
+                    pdf_url = payload.get("url_pdf", payload.get("pdf_url", None))
+                    
+                    # Si es del bloque constitucional o leyes estatales, intentar resolver a Supabase
+                    if not pdf_url or "storage.googleapis.com" in str(pdf_url):
+                        resolved = _resolve_treaty_pdf(_origen)
+                        if resolved:
+                            pdf_url = resolved
+                        elif silo_name == "bloque_constitucional":
+                            pdf_url = PDF_FALLBACK_URLS.get("bloque_constitucional")
+                        elif silo_name == "queretaro":
+                            # Construir URL para leyes de Querétaro
+                            ref = payload.get("ref", "")
+                            if ref:
+                                pdf_url = f"{PDF_FALLBACK_URLS['queretaro']}/{ref}.pdf"
+
                     return DocumentResponse(
                         id=str(point.id),
                         texto=texto_val,
@@ -5399,7 +5415,7 @@ async def get_document(doc_id: str):
                         materia=materia_str,
                         tesis_num=payload.get("tesis", payload.get("tesis_num", None)),
                         tipo_criterio=payload.get("tipo", payload.get("tipo_criterio", None)),
-                        url_pdf=payload.get("url_pdf", None),
+                        url_pdf=pdf_url,
                         chunk_index=payload.get("chunk_index", 0),
                         jerarquia_txt=payload.get("jerarquia_txt", None),
                     )
@@ -5562,6 +5578,16 @@ async def get_full_document(
             if first_payload.get("vs"):
                 titulo += f" Vs. {first_payload['vs']}"
         
+        # ── Resolver URL de PDF para el documento completo ──
+        source_doc_url = first_payload.get("source_doc_url") or first_payload.get("url_pdf") or first_payload.get("pdf_url")
+        
+        if not source_doc_url or "storage.googleapis.com" in str(source_doc_url):
+            resolved = _resolve_treaty_pdf(origen)
+            if resolved:
+                source_doc_url = resolved
+            elif "constitución" in origen.lower() or "cpeum" in origen.lower():
+                source_doc_url = PDF_FALLBACK_URLS.get("bloque_constitucional")
+        
         return FullDocumentResponse(
             origen=origen,
             titulo=titulo,
@@ -5569,7 +5595,7 @@ async def get_full_document(
             texto_completo=texto_completo,
             total_chunks=len(all_points),
             highlight_chunk_index=highlight_chunk_index,
-            source_doc_url=first_payload.get("source_doc_url") or first_payload.get("url_pdf"),
+            source_doc_url=source_doc_url,
             metadata=metadata,
         )
     
