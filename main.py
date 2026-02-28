@@ -6879,7 +6879,7 @@ async def chat_endpoint(request: ChatRequest):
             from cache_manager import get_cache_model
             use_gemini = True
             active_model = get_cache_model()
-            max_tokens = 16384  # Con cache: corpus completo disponible, puede ser detallado
+            max_tokens = 32768  # Gemini con cache: respuestas completas sin cortar
             print(f"   🏗️ Chat + CACHE: {active_model} (corpus cached)")
         else:
             # Fallback: GPT-5 Mini or DeepSeek V3 (no cache available)
