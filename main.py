@@ -3529,8 +3529,8 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
 # VALIDADOR DE CITAS (Citation Grounding Verification)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Regex para extraer Doc IDs del formato [Doc ID: uuid]
-DOC_ID_PATTERN = re.compile(r'\[Doc ID:\s*([a-f0-9\-]{36})\]', re.IGNORECASE)
+# Regex para extraer Doc IDs del formato [Doc ID: uuid/id]
+DOC_ID_PATTERN = re.compile(r'\[Doc ID:\s*([^\]\s]+)\]', re.IGNORECASE)
 
 
 def extract_doc_ids(text: str) -> List[str]:
@@ -3755,6 +3755,7 @@ async def hybrid_search_single_silo(
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
                 silo=collection,
+                pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
             ))
         return parsed
     
@@ -3828,6 +3829,7 @@ async def hybrid_search_single_silo(
                         jurisdiccion=payload.get("jurisdiccion"),
                         entidad=payload.get("entidad"),
                         silo=collection,
+                        pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
                     ))
                 return search_results
             except Exception as retry_e:
@@ -3938,6 +3940,7 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
                 silo="jurisprudencia_nacional",
+                pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
             ))
         
         print(f"      ⚖️ Boost query '{query[:60]}...' → {len(search_results)} tesis")
@@ -4156,6 +4159,7 @@ async def _fetch_neighbor_chunks(
                             jurisdiccion=payload.get("jurisdiccion"),
                             entidad=payload.get("entidad"),
                             silo=collection,
+                            pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
                         ))
                         existing_ids.add(point_id)
                         break  # Encontrado, siguiente vecino
@@ -4432,6 +4436,7 @@ async def _deterministic_article_fetch(article_numbers: List[str]) -> List[Searc
                         jurisdiccion=point.payload.get("estado", ""),
                         entidad=point.payload.get("entidad", ""),
                         silo=collection,
+                        pdf_url=point.payload.get("pdf_url") or point.payload.get("url_pdf"),
                     ))
                     print(f"   🎯 ARTICLE LOCK: Art. {num} → {collection} → {point.payload.get('ref')} (score=2.0)")
             except Exception as e:
@@ -4685,8 +4690,9 @@ async def hybrid_search_all_silos(
                         texto=pt.payload.get("texto", ""),
                         ref=ref,
                         origen=pt.payload.get("origen", ""),
-                        score=0.95,  # High score to ensure top ranking
+                        score=0.95,
                         silo="bloque_constitucional",
+                        pdf_url=pt.payload.get("pdf_url") or pt.payload.get("url_pdf") or PDF_FALLBACK_URLS.get("bloque_constitucional"),
                     )
                     constitucional.insert(0, injected_result)
                     existing_refs.add(ref)
