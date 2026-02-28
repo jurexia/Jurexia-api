@@ -41,6 +41,7 @@ from qdrant_client.http.models import (
     SparseVector,
 )
 from fastembed import SparseTextEmbedding
+import time
 from openai import AsyncOpenAI
 from supabase import create_client as supabase_create_client
 import httpx  # For Cohere Rerank API calls
@@ -4475,14 +4476,22 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     # PASO 0: Query Expansion - Acrónimos legales (local, <1ms)
     # ═══════════════════════════════════════════════════════════════════════════
+    _t_pipeline = time.perf_counter()
     expanded_query = expand_legal_query(query)
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # PASO 0-BIS: AGENTE ESTRATEGA (Legal Strategy Agent)
-    # Diagnóstico jurídico del caso → Plan de búsqueda con pesos de silos
-    # Reemplaza la expansión ciega por sinónimos con razonamiento legal real
+    # PASO 0-BIS: PARALLEL LLM PRE-SEARCH
+    # Lanza Strategy Agent + HyDE + Query Decomposition en PARALELO
+    # (Antes eran 3 awaits secuenciales sumando ~5-7s, ahora corren simultáneas)
     # ═══════════════════════════════════════════════════════════════════════════
-    legal_plan = await _legal_strategy_agent(query, fuero_manual=fuero)
+    _t_llm = time.perf_counter()
+    legal_plan, hyde_doc, sub_queries = await asyncio.gather(
+        _legal_strategy_agent(query, fuero_manual=fuero),
+        _generate_hyde_document(query),
+        _decompose_query(query),
+    )
+    print(f"   ⏱ LLM paralelo (Strategy+HyDE+Decomp): {time.perf_counter() - _t_llm:.2f}s")
+
     # Usar jurisprudencia_keywords del plan para enriquecer la expanded_query
     if legal_plan["jurisprudencia_keywords"]:
         jk = " ".join(legal_plan["jurisprudencia_keywords"][:2])
@@ -4500,26 +4509,20 @@ async def hybrid_search_all_silos(
         print(f"   🎯 MATERIA DETECTADA: {detected_materias} (forced={forced_materia is not None})")
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # HyDE: Hypothetical Document Embeddings
-    # Genera un doc jurídico hipotético para mejorar el dense embedding en queries coloquiales
+    # EMBEDDINGS: Dense (HyDE o query) + Sparse (BM25 keywords)
     # ═══════════════════════════════════════════════════════════════════════════
-    hyde_doc = await _generate_hyde_document(query)
-    
     if hyde_doc:
         dense_text = hyde_doc
         print(f"   🔮 Dense embedding usando HyDE document")
     else:
         dense_text = query
     
-    # Generar embeddings: dense=HyDE o query, sparse=expanded (BM25 keywords)
+    # Generar embeddings en paralelo
+    _t_emb = time.perf_counter()
     dense_task = get_dense_embedding(dense_text)
     sparse_vector = get_sparse_embedding(expanded_query)
     dense_vector = await dense_task
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # QUERY DECOMPOSITION: Sub-queries para queries complejas multi-hop
-    # ═══════════════════════════════════════════════════════════════════════════
-    sub_queries = await _decompose_query(query)
+    print(f"   ⏱ Embeddings: {time.perf_counter() - _t_emb:.2f}s")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # FILTRO POR FUERO: Determinar silos a buscar
@@ -4564,6 +4567,7 @@ async def hybrid_search_all_silos(
             silos_to_search.extend(ESTADO_SILO.values())
             print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + len(FIXED_SILOS)} silos")
     
+    _t_search = time.perf_counter()
     tasks = []
     for silo_name in silos_to_search:
         state_filter = get_filter_for_silo(silo_name, estado)
@@ -4582,6 +4586,7 @@ async def hybrid_search_all_silos(
 
     
     all_results = await asyncio.gather(*tasks)
+    print(f"   ⏱ Búsqueda en {len(silos_to_search)} silos: {time.perf_counter() - _t_search:.2f}s")
     
     # Separar resultados por silo para garantizar representación balanceada
     federales = []
@@ -4876,30 +4881,35 @@ async def hybrid_search_all_silos(
             print(f"   ⚠️ Jurisprudencia boost V2 falló: {e}")
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # CROSS-SILO ENRICHMENT: Segunda pasada para encadenar fuentes
+    # CROSS-SILO ENRICHMENT + NEIGHBOR CHUNKS: En paralelo
+    # Ambos leen de merged (snapshot) sin modificarlo, así que son seguros
     # ═══════════════════════════════════════════════════════════════════════════
+    _t_enrich = time.perf_counter()
     try:
-        enrichment_results = await _cross_silo_enrichment(merged, query)
-        if enrichment_results:
-            existing_ids = {r.id for r in merged}
+        _enrich_task = _cross_silo_enrichment(merged, query)
+        _neighbor_task = _fetch_neighbor_chunks(merged)
+        enrichment_results, neighbor_results = await asyncio.gather(
+            _enrich_task, _neighbor_task, return_exceptions=True
+        )
+        
+        existing_ids = {r.id for r in merged}
+        if isinstance(enrichment_results, list) and enrichment_results:
             new_enriched = [r for r in enrichment_results if r.id not in existing_ids]
             merged.extend(new_enriched)
+            existing_ids.update(r.id for r in new_enriched)
             print(f"   🔗 CROSS-SILO ENRICHMENT: +{len(new_enriched)} documentos de segunda pasada")
-    except Exception as e:
-        print(f"   ⚠️ Cross-silo enrichment falló (continuando): {e}")
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # NEIGHBOR CHUNK RETRIEVAL: Artículos adyacentes para contexto completo
-    # ═══════════════════════════════════════════════════════════════════════════
-    try:
-        neighbor_results = await _fetch_neighbor_chunks(merged)
-        if neighbor_results:
-            existing_ids = {r.id for r in merged}
+        elif isinstance(enrichment_results, Exception):
+            print(f"   ⚠️ Cross-silo enrichment falló (continuando): {enrichment_results}")
+        
+        if isinstance(neighbor_results, list) and neighbor_results:
             new_neighbors = [r for r in neighbor_results if r.id not in existing_ids]
             merged.extend(new_neighbors)
             print(f"   📄 NEIGHBOR CHUNKS: +{len(new_neighbors)} artículos adyacentes")
+        elif isinstance(neighbor_results, Exception):
+            print(f"   ⚠️ Neighbor chunk retrieval falló (continuando): {neighbor_results}")
     except Exception as e:
-        print(f"   ⚠️ Neighbor chunk retrieval falló (continuando): {e}")
+        print(f"   ⚠️ Enrichment+Neighbors falló (continuando): {e}")
+    print(f"   ⏱ Enrichment+Neighbors: {time.perf_counter() - _t_enrich:.2f}s")
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
@@ -4911,35 +4921,48 @@ async def hybrid_search_all_silos(
         merged.extend(remaining[:slots_remaining])
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # QUERY DECOMPOSITION: Búsqueda adicional con sub-queries descompuestas
+    # QUERY DECOMPOSITION: Búsqueda PARALELA con sub-queries descompuestas
+    # (Antes: serial por sub-query × silos. Ahora: todas en paralelo)
     # ═══════════════════════════════════════════════════════════════════════════
     if sub_queries:
+        _t_decomp = time.perf_counter()
         existing_ids = {r.id for r in merged}
         decomp_new = 0
-        for sq in sub_queries:
+
+        async def _search_sub_query(sq: str):
+            """Busca una sub-query en los top 4 silos en paralelo."""
             try:
                 sq_dense = await get_dense_embedding(sq)
                 sq_sparse = get_sparse_embedding(sq)
-                for silo_name in silos_to_search[:4]:  # Top 4 silos only for speed
-                    sq_filter = get_filter_for_silo(silo_name, estado)
-                    sq_results = await hybrid_search_single_silo(
+                silo_tasks = [
+                    hybrid_search_single_silo(
                         collection=silo_name,
                         query=sq,
                         dense_vector=sq_dense,
                         sparse_vector=sq_sparse,
-                        filter_=sq_filter,
+                        filter_=get_filter_for_silo(silo_name, estado),
                         top_k=5,
                         alpha=0.7,
                     )
-                    for r in sq_results:
+                    for silo_name in silos_to_search[:4]
+                ]
+                return await asyncio.gather(*silo_tasks)
+            except Exception as e:
+                print(f"   ⚠️ Sub-query búsqueda falló: {e}")
+                return []
+
+        all_sq_results = await asyncio.gather(*[_search_sub_query(sq) for sq in sub_queries])
+        for sq_result_groups in all_sq_results:
+            for silo_results in sq_result_groups:
+                if isinstance(silo_results, list):
+                    for r in silo_results:
                         if r.id not in existing_ids:
                             merged.append(r)
                             existing_ids.add(r.id)
                             decomp_new += 1
-            except Exception as e:
-                print(f"   ⚠️ Sub-query búsqueda falló: {e}")
         if decomp_new > 0:
             print(f"   🔀 Query Decomposition: +{decomp_new} resultados nuevos de sub-queries")
+        print(f"   ⏱ Sub-queries: {time.perf_counter() - _t_decomp:.2f}s")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
@@ -4955,10 +4978,13 @@ async def hybrid_search_all_silos(
     merged = merged[:top_k + 10]  # Pre-filter before expensive rerank
     
     if COHERE_RERANK_ENABLED:
+        _t_rerank = time.perf_counter()
         merged = await _cohere_rerank(query, merged, top_n=top_k)
+        print(f"   ⏱ Cohere Rerank: {time.perf_counter() - _t_rerank:.2f}s")
     
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
+    print(f"   ⏱ PIPELINE TOTAL: {time.perf_counter() - _t_pipeline:.2f}s")
     return merged[:top_k]
 
 
