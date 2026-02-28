@@ -66,9 +66,11 @@ def _load_corpus_texts() -> list[str]:
     SAFETY LOCK #7: Validates total tokens < MAX_CACHE_TOKENS.
     Returns empty list if exceeded (prevents oversized cache creation).
     """
+    global _last_error
     corpus_dir = Path(CACHE_CORPUS_DIR)
     if not corpus_dir.exists():
-        logger.warning(f"Cache corpus dir not found: {corpus_dir}")
+        _last_error = f"Corpus dir not found: {corpus_dir.resolve()}"
+        logger.error(f"🚨 {_last_error}")
         return []
     
     texts = []
@@ -89,6 +91,7 @@ def _load_corpus_texts() -> list[str]:
     
     # SAFETY LOCK #7: Token limit validation
     if total_tokens > MAX_CACHE_TOKENS:
+        _last_error = f"Corpus too big: {total_tokens:,} > {MAX_CACHE_TOKENS:,} tokens"
         logger.error(
             f"🚨 CORPUS TOO BIG: {total_tokens:,} tokens > MAX {MAX_CACHE_TOKENS:,}. "
             f"ABORTING cache creation to prevent API error/cost overrun."
@@ -173,7 +176,9 @@ async def _create_cache() -> Optional[str]:
         # Step 2: Load corpus (includes SAFETY LOCK #7: token validation)
         texts = _load_corpus_texts()
         if not texts:
-            logger.error("No corpus texts loaded — cache disabled")
+            if not _last_error:
+                _last_error = f"No corpus texts loaded from {CACHE_CORPUS_DIR} (dir exists: {Path(CACHE_CORPUS_DIR).exists()}, cwd: {Path.cwd()})"
+            logger.error(f"No corpus texts loaded — cache disabled. {_last_error}")
             return None
         
         # Step 3: Build cache contents
