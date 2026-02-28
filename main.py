@@ -11051,55 +11051,76 @@ async def connect_health():
 @app.post("/genio/activate")
 async def activate_genio():
     """Pre-create the context cache when user clicks the Genio button.
-    
-    SAFETY: get_or_create_cache() internally:
-    1. Checks if a valid cache already exists (fast path, no duplication)
-    2. Acquires asyncio.Lock to prevent concurrent creation
-    3. Double-checks inside the lock
-    4. Deletes ALL orphan caches before creating a new one
-    5. Sets TTL of 8 minutes (auto-expires in Google)
-    
-    This means clicking the button multiple times is SAFE — it won't create duplicates.
+
+    Always returns the full status (including last_error) regardless of success/failure.
+    Safe to call multiple times — SAFETY LOCKs prevent duplicate caches.
     """
     from cache_manager import get_or_create_cache, get_cache_status
-    
+
     try:
         cache_name = await get_or_create_cache()
         status = get_cache_status()
-        
         return {
             "success": cache_name is not None,
             "cache_name": cache_name,
-            "error": None,
             **status
         }
     except Exception as e:
+        from cache_manager import get_cache_status
         import traceback
+        status = get_cache_status()
         return {
             "success": False,
             "cache_name": None,
             "error": str(e),
-            "error_type": type(e).__name__,
             "traceback": traceback.format_exc(),
+            **status
         }
 
 
 @app.get("/genio/status")
 async def genio_status():
-    """Return current cache status for frontend polling."""
+    """Return current cache status."""
     from cache_manager import get_cache_status
     return get_cache_status()
 
 
 @app.post("/genio/kill")
 async def kill_genio():
-    """Emergency kill switch — deletes ALL caches immediately.
-    
-    Use this if you suspect runaway costs.
-    """
+    """Emergency kill switch — deletes ALL caches immediately."""
     from cache_manager import delete_all_caches
     await delete_all_caches()
     return {"success": True, "message": "All caches deleted"}
+
+
+@app.get("/genio/debug")
+async def debug_genio():
+    """Diagnostic endpoint — attempts cache creation and returns full error detail.
+
+    Use this when /genio/activate fails silently to see the exact error.
+    """
+    from cache_manager import _create_cache, get_cache_status
+    import traceback as tb
+
+    result = {"attempted": True}
+    try:
+        cache_name = await _create_cache()
+        status = get_cache_status()
+        result.update({
+            "success": cache_name is not None,
+            "cache_name": cache_name,
+            **status,
+        })
+    except Exception as e:
+        status = get_cache_status()
+        result.update({
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": tb.format_exc(),
+            **status,
+        })
+    return result
 
 
 if __name__ == "__main__":
