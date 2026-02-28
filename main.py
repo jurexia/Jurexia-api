@@ -105,7 +105,7 @@ QUERY_DECOMPOSITION_ENABLED = True  # Break complex queries into sub-queries
 # GCP Configuration (Vertex AI migration to use credits)
 GCP_PROJECT = os.getenv("GCP_PROJECT", "iurexia-v")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"
+USE_VERTEX = os.getenv("USE_VERTEX", "false").lower() == "true"  # Default false for Render (no SA)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 _gemini_client = None
