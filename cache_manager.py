@@ -1,13 +1,18 @@
 """
-Iurexia Legal Cache Manager — ON-DEMAND Strategy (v7 — Feb 2026)
+Iurexia Legal Cache Manager — ON-DEMAND Strategy (v8 — Feb 2026)
 ================================================================
 Creates a Gemini cached context (~950K tokens of Mexican legal texts)
 ONLY when a user explicitly activates "Genio Jurídico" — NOT at server startup.
 
+│ REGLA PERMANENTE DEL MODELO │
+│ Modelo: gemini-3-flash-preview                              │
+│ Input token limit: 1,048,576 (fuente: ai.google.dev/docs)  │
+│ NO usar gemini-2.0 — está OBSOLETO                          │
+
 API: Gemini AI Studio (google-genai SDK) via GEMINI_API_KEY
-Model: gemini-2.0-flash-001 (or configured via CACHE_MODEL env var)
+Model: gemini-3-flash-preview
 Corpus: 12 files in cache_corpus/ — CPEUM, CCF, CPF, LFT, Amparo, CCom, LGTOC + 5 DDHH treaties
-Limit: ~1,048,576 tokens HARD LIMIT — corpus capped at 950,000 tokens
+Hard limit: 1,048,576 tokens (límite oficial del modelo según Google)
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -34,15 +39,18 @@ from typing import Optional
 
 logger = logging.getLogger("iurexia.cache")
 
-# ── Configuration ────────────────────────────────────────────────────────────
-CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-2.0-flash-001")
+# ══ MODELO OFICIAL ══════════════════════════════════════════════════════════════
+# SIEMPRE: gemini-3-flash-preview  (input limit 1,048,576 — fuente: ai.google.dev)
+# NUNCA:   gemini-2.0-flash ni ninguna variante 2.x — OBSOLETOS
+# ═══════════════════════════════════════════════════════════════════════════════
+CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-3-flash-preview")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))
 CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v7"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
-MAX_CACHE_TOKENS = 950_000       # HARD SAFETY: abort if corpus exceeds this
+MAX_CACHE_TOKENS = 1_048_576     # Límite oficial de gemini-3-flash-preview (fuente: ai.google.dev)
 MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "10"))  # Budget guard
 
 # ── Global State ─────────────────────────────────────────────────────────────
