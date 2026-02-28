@@ -44,6 +44,7 @@ _cache_name: Optional[str] = None
 _cache_created_at: float = 0
 _cache_lock = None # Will be initialized in get_or_create_cache
 _gemini_client = None
+_last_error: Optional[str] = None  # Last cache error for diagnostics
 
 
 def _load_corpus_texts() -> list[str]:
@@ -158,7 +159,11 @@ async def _create_cache() -> Optional[str]:
         return _cache_name
         
     except Exception as e:
-        logger.error(f"Cache creation failed: {e}")
+        global _last_error
+        _last_error = f"{type(e).__name__}: {e}"
+        logger.error(f"Cache creation failed: {_last_error}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 
@@ -273,6 +278,7 @@ def get_cache_status() -> dict:
         "corpus_dir": CACHE_CORPUS_DIR,
         "strategy": "on-demand",
         "est_hourly_cost": "$0.09" if _is_cache_valid() else "$0.00",
+        "last_error": _last_error,
     }
 
 
