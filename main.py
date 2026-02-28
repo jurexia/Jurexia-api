@@ -6865,6 +6865,10 @@ async def chat_endpoint(request: ChatRequest):
                 reasoning_buffer = ""
                 content_buffer = ""
                 
+                # ── Emit cache status marker for frontend ──
+                if _effective_cached and use_gemini:
+                    yield "<!--CACHE:ACTIVE-->"
+                
                 # ── GEMINI BRANCH: Cached legal corpus via google-genai SDK ──
                 if use_gemini:
                     from google.genai import types as gtypes
