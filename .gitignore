@@ -36,3 +36,6 @@ test_results.txt
 # ── OS ─────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+iurexia-render-key.json
+policy-override.yaml

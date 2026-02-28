@@ -27,7 +27,7 @@ logger = logging.getLogger("iurexia.cache")
 # ── Configuration ────────────────────────────────────────────────────────────
 # When using API Key (AI Studio), model names don't need publishers/ prefix
 # When using Vertex AI, they do. We handle this dynamically.
-CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-2.0-flash")
+CACHE_MODEL = os.getenv("CACHE_MODEL", "publishers/google/models/gemini-2.0-flash")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))  # 8 minutes as requested by user
 CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v5"
@@ -36,8 +36,8 @@ CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v5"
 # (SA key creation blocked by org policy iam.disableServiceAccountKeyCreation)
 GCP_PROJECT = os.getenv("GCP_PROJECT", "iurexia-v")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")  # Primary auth method on Render
-USE_VERTEX = os.getenv("USE_VERTEX", "false").lower() == "true"  # Default false for Render
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")  # Fallback if no SA credentials
+USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"  # True for Render with SA via entrypoint.sh
 
 # ── Global State ─────────────────────────────────────────────────────────────
 _cache_name: Optional[str] = None

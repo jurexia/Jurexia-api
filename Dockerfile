@@ -39,6 +39,9 @@ COPY cache_manager.py .
 # Copy legal corpus for Gemini context caching (12 files, ~4.1MB)
 COPY cache_corpus/ ./cache_corpus/
 
-# Cloud Run injects $PORT at runtime — uvicorn must listen on it
-# BM25 model loads asynchronously in background at startup (see main.py lifespan)
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 4 --timeout-keep-alive 120 --log-level info"]
+# Entrypoint script: writes GCP credentials from env var to file, then starts uvicorn
+# This avoids committing the SA key to git
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
+CMD ["./entrypoint.sh"]
