@@ -102,48 +102,37 @@ HYDE_MODEL = "gpt-5-mini"  # Use fast model for HyDE generation
 # Query Decomposition Configuration
 QUERY_DECOMPOSITION_ENABLED = True  # Break complex queries into sub-queries
 
-# GCP Configuration (Vertex AI migration to use credits)
-GCP_PROJECT = os.getenv("GCP_PROJECT", "iurexia-v")
-GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-USE_VERTEX = os.getenv("USE_VERTEX", "true").lower() == "true"  # True for Render with SA via entrypoint.sh
+# ══ GEMINI AI STUDIO ═══════════════════════════════════════════════════════════
+# SIEMPRE: AI Studio via GEMINI_API_KEY (NO Vertex AI, NO GCP, NO ADC)
+# Modelo para chat con cache: gemini-3-flash-preview
+# ═══════════════════════════════════════════════════════════════════════════════
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 _gemini_client = None
 
 def get_gemini_client():
-    """Get or create a shared Gemini client instance (Vertex AI or AI Studio)."""
+    """Get or create the shared Gemini AI Studio client (singleton).
+    
+    SIEMPRE usa AI Studio (GEMINI_API_KEY). NO Vertex AI.
+    """
     global _gemini_client
     if _gemini_client is None:
         from google import genai
-        if USE_VERTEX:
-            print(f"🚀 Initializing Gemini via VERTEX AI (Project: {GCP_PROJECT})")
-            _gemini_client = genai.Client(
-                vertexai=True,
-                project=GCP_PROJECT,
-                location=GCP_LOCATION
-            )
-        else:
-            print("🔗 Initializing Gemini via AI STUDIO (shared key)")
-            _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        if not GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY no configurada")
+        print("🔗 Initializing Gemini via AI STUDIO (GEMINI_API_KEY)")
+        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     return _gemini_client
 
 def get_gemini_model_name(base_model: str) -> str:
-    """Normalizes model names for Vertex AI vs AI Studio."""
-    if not USE_VERTEX:
-        return base_model
-    # Vertex AI requires 'publishers/google/models/' prefix if not present
-    # Some models might already have publishers/ as prefix
-    if base_model.startswith("publishers/"):
-        return base_model
-    
-    # Clean up 'models/' prefix if present before adding publishers prefix
-    clean_model = base_model[7:] if base_model.startswith("models/") else base_model
-    return f"publishers/google/models/{clean_model}"
+    """Returns model name as-is (AI Studio format — no Vertex prefix needed)."""
+    return base_model
 
-# Normalize at startup
-SENTENCIA_MODEL = get_gemini_model_name(SENTENCIA_MODEL)
-REDACTOR_MODEL_EXTRACT = get_gemini_model_name(REDACTOR_MODEL_EXTRACT)
-REDACTOR_MODEL_GENERATE = get_gemini_model_name(REDACTOR_MODEL_GENERATE)
+# No normalization needed with AI Studio
+SENTENCIA_MODEL = SENTENCIA_MODEL
+REDACTOR_MODEL_EXTRACT = REDACTOR_MODEL_EXTRACT
+REDACTOR_MODEL_GENERATE = REDACTOR_MODEL_GENERATE
+
 
 # Silos V5.0 de Jurexia — Arquitectura 32 Silos por Estado
 # Silos FIJOS: siempre se buscan independientemente del estado
@@ -6801,7 +6790,7 @@ async def chat_endpoint(request: ChatRequest):
         
         # _cached results already retrieved in Paso 1 gather
         _gemini_key = os.getenv("GEMINI_API_KEY", "")
-        _can_use_gemini = bool(_gemini_key) or USE_VERTEX  # Vertex AI doesn't need API key
+        _can_use_gemini = bool(_gemini_key)  # AI Studio — requiere GEMINI_API_KEY
 
         
         use_gemini = False
