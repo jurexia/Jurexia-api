@@ -11040,6 +11040,54 @@ async def connect_health():
     }
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GENIO JURÍDICO — Cache Management Endpoints
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/genio/activate")
+async def activate_genio():
+    """Pre-create the context cache when user clicks the Genio button.
+    
+    SAFETY: get_or_create_cache() internally:
+    1. Checks if a valid cache already exists (fast path, no duplication)
+    2. Acquires asyncio.Lock to prevent concurrent creation
+    3. Double-checks inside the lock
+    4. Deletes ALL orphan caches before creating a new one
+    5. Sets TTL of 8 minutes (auto-expires in Google)
+    
+    This means clicking the button multiple times is SAFE — it won't create duplicates.
+    """
+    from cache_manager import get_or_create_cache, get_cache_status
+    
+    cache_name = await get_or_create_cache()
+    status = get_cache_status()
+    
+    return {
+        "success": cache_name is not None,
+        "cache_name": cache_name,
+        **status
+    }
+
+
+@app.get("/genio/status")
+async def genio_status():
+    """Return current cache status for frontend polling."""
+    from cache_manager import get_cache_status
+    return get_cache_status()
+
+
+@app.post("/genio/kill")
+async def kill_genio():
+    """Emergency kill switch — deletes ALL caches immediately.
+    
+    Use this if you suspect runaway costs.
+    """
+    from cache_manager import delete_all_caches
+    await delete_all_caches()
+    return {"success": True, "message": "All caches deleted"}
+
+
 if __name__ == "__main__":
     import uvicorn
     
