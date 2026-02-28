@@ -2023,47 +2023,46 @@ class SearchResponse(BaseModel):
 
 
 # ── PDF Fallback URLs por silo ─────────────────────────────────────────────────
-# URL oficial del PDF de cada fuente legal (GCS bucket o fuente gubernamental).
+# URL oficial del PDF de cada fuente legal (Supabase Storage).
 # Se asigna a SearchResult.pdf_url cuando el payload de Qdrant no lo trae.
 PDF_FALLBACK_URLS: Dict[str, str] = {
-    "bloque_constitucional": "https://storage.googleapis.com/iurexia-leyes/constitucion/CPEUM-2024.pdf",
-    # Agregar más silos aquí conforme se suban PDFs al bucket GCS:
-    # "leyes_federales": "...",
+    "bloque_constitucional": "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/constitucion/CPEUM-2024.pdf",
+    "queretaro": "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/Queretaro/Leyes", # Base URL for state laws
 }
 
-# ─── Per-treaty PDF URLs (GCS bucket iurexia-leyes/Tratados/) ──────
+# ─── Per-treaty PDF URLs (Supabase Storage legal-docs/Tratados/) ──────
 # Keyed by lowercase keyword that matches the treaty's `origen` in Qdrant.
 # When silo=bloque_constitucional and origen contains one of these keywords,
 # the specific treaty PDF is returned instead of the CPEUM fallback.
-_GCS_T = "https://storage.googleapis.com/iurexia-leyes/Tratados"
+_S_T = "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/Tratados"
 
 TREATY_PDF_URLS: Dict[str, str] = {
     # OEA
-    "convención americana": f"{_GCS_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
-    "pacto de san josé": f"{_GCS_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
-    "belém do pará": f"{_GCS_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
-    "belem do para": f"{_GCS_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
-    "racismo": f"{_GCS_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
-    "intolerancia": f"{_GCS_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
-    "personas mayores": f"{_GCS_T}/Convencion%20Interamericana%20Derechos%20Personas%20Mayores%20(CIPM).pdf",
-    "protocolo de san salvador": f"{_GCS_T}/Protocolo%20de%20San%20Salvador%20-%20Derechos%20Economicos%20Sociales%20(PSS).pdf",
+    "convención americana": f"{_S_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
+    "pacto de san josé": f"{_S_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
+    "belém do pará": f"{_S_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
+    "belem do para": f"{_S_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
+    "racismo": f"{_S_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
+    "intolerancia": f"{_S_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
+    "personas mayores": f"{_S_T}/Convencion%20Interamericana%20Derechos%20Personas%20Mayores%20(CIPM).pdf",
+    "protocolo de san salvador": f"{_S_T}/Protocolo%20de%20San%20Salvador%20-%20Derechos%20Economicos%20Sociales%20(PSS).pdf",
     # ONU / OHCHR
-    "declaración universal": f"{_GCS_T}/Declaracion%20Universal%20de%20Derechos%20Humanos%20(DUDH).pdf",
-    "derechos civiles y políticos": f"{_GCS_T}/Pacto%20Internacional%20Derechos%20Civiles%20y%20Politicos%20(PIDCP).pdf",
-    "derechos económicos, sociales y culturales": f"{_GCS_T}/Pacto%20Internacional%20Derechos%20Economicos%20Sociales%20y%20Culturales%20(PIDESC).pdf",
-    "derechos del niño": f"{_GCS_T}/Convencion%20sobre%20los%20Derechos%20del%20Nino%20(CDN).pdf",
-    "tortura": f"{_GCS_T}/Convencion%20contra%20la%20Tortura%20ONU%20(CAT).pdf",
-    "cedaw": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
-    "discriminación contra la mujer": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
-    "discapacidad": f"{_GCS_T}/Convencion%20Derechos%20Personas%20con%20Discapacidad%20(CRPD).pdf",
-    "discriminación racial": f"{_GCS_T}/Convencion%20Eliminacion%20Discriminacion%20Racial%20(ICERD).pdf",
-    "trabajadores migratorios": f"{_GCS_T}/Convencion%20Derechos%20Trabajadores%20Migratorios%20(CMW).pdf",
+    "declaración universal": f"{_S_T}/Declaracion%20Universal%20de%20Derechos%20Humanos%20(DUDH).pdf",
+    "derechos civiles y políticos": f"{_S_T}/Pacto%20Internacional%20Derechos%20Civiles%20y%20Politicos%20(PIDCP).pdf",
+    "derechos económicos, sociales y culturales": f"{_S_T}/Pacto%20Internacional%20Derechos%20Economicos%20Sociales%20y%20Culturales%20(PIDESC).pdf",
+    "derechos del niño": f"{_S_T}/Convencion%20sobre%20los%20Derechos%20del%20Nino%20(CDN).pdf",
+    "tortura": f"{_S_T}/Convencion%20contra%20la%20Tortura%20ONU%20(CAT).pdf",
+    "cedaw": f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
+    "discriminación contra la mujer": f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
+    "discapacidad": f"{_S_T}/Convencion%20Derechos%20Personas%20con%20Discapacidad%20(CRPD).pdf",
+    "discriminación racial": f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20Racial%20(ICERD).pdf",
+    "trabajadores migratorios": f"{_S_T}/Convencion%20Derechos%20Trabajadores%20Migratorios%20(CMW).pdf",
     # Instrumentos penitenciarios
-    "mandela": f"{_GCS_T}/Reglas%20Nelson%20Mandela%20-%20Tratamiento%20Reclusos%20(ONU).pdf",
-    "bangkok": f"{_GCS_T}/Reglas%20de%20Bangkok%20-%20Tratamiento%20Reclusas%20(ONU).pdf",
-    "estambul": f"{_GCS_T}/Protocolo%20de%20Estambul%20-%20Investigacion%20Tortura%20(OHCHR).pdf",
+    "mandela": f"{_S_T}/Reglas%20Nelson%20Mandela%20-%20Tratamiento%20Reclusos%20(ONU).pdf",
+    "bangkok": f"{_S_T}/Reglas%20de%20Bangkok%20-%20Tratamiento%20Reclusas%20(ONU).pdf",
+    "estambul": f"{_S_T}/Protocolo%20de%20Estambul%20-%20Investigacion%20Tortura%20(OHCHR).pdf",
     # Otros
-    "yogyakarta": f"{_GCS_T}/Principios%20de%20Yogyakarta%20-%20Orientacion%20Sexual%20e%20Identidad%20de%20Genero.pdf",
+    "yogyakarta": f"{_S_T}/Principios%20de%20Yogyakarta%20-%20Orientacion%20Sexual%20e%20Identidad%20de%20Genero.pdf",
 }
 
 
