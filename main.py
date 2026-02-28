@@ -4633,28 +4633,34 @@ async def hybrid_search_all_silos(
     # Resuelve la limitación de semantic search con números de artículos
     # ═══════════════════════════════════════════════════════════════════════════
     import re as _re
-    cpeum_article_match = _re.search(
-        r'art[ií]culo\s+(\d+)\s*(?:o|°|º)?\s*(?:de\s+la\s+)?(?:constituci[oó]n|cpeum|constitucional)',
-        query.lower()
-    )
-    if not cpeum_article_match:
-        # Also try reverse: "constitucion articulo N"
-        cpeum_article_match = _re.search(
-            r'(?:constituci[oó]n|cpeum|constitucional)\s.*?art[ií]culo\s+(\d+)',
-            query.lower()
-        )
     
-    if cpeum_article_match:
-        art_num = int(cpeum_article_match.group(1))
-        ref_variants = [
-            f"Art. {art_num}o CPEUM",
-            f"Art. {art_num} CPEUM",
-            f"Art. {art_num}o CPEUM (parte 1)",
-            f"Art. {art_num} CPEUM (parte 1)",
-        ]
-        print(f"   📜 CPEUM INJECTION: Detectado artículo {art_num}, buscando refs: {ref_variants}")
+    # MULTI-ARTICLE CPEUM INJECTION
+    # Detecta lista de artículos + referencia a Constitución/CPEUM en el query
+    # Ej: "artículos 23, 27 y 32 de la CPEUM" → [23, 27, 32]
+    _query_lower = query.lower()
+    _cpeum_mentioned = bool(_re.search(
+        r'(?:constituci[oó]n|cpeum|constitucional|\bcpeum\b)',
+        _query_lower
+    ))
+    
+    _cpeum_art_nums: list[int] = []
+    if _cpeum_mentioned:
+        # Extraer TODOS los números de artículos en el query
+        _art_match_all = _re.findall(
+            r'art[ií]culo[s]?\s*([\d]+(?:\s*[,yY]\s*[\d]+)*)',
+            _query_lower
+        )
+        for _match in _art_match_all:
+            _nums = _re.findall(r'\d+', _match)
+            _cpeum_art_nums.extend(int(n) for n in _nums if int(n) not in _cpeum_art_nums)
         
-        # Search for ALL chunks with matching ref from bloque_constitucional
+        # Fallback: números solos si hay mención CPEUM clara
+        if not _cpeum_art_nums:
+            _nums_fallback = _re.findall(r'\b(\d+)\b', _query_lower)
+            _cpeum_art_nums = [int(n) for n in _nums_fallback if 1 <= int(n) <= 200]
+
+    if _cpeum_art_nums:
+        print(f"   📜 CPEUM MULTI-INJECTION: Artículos detectados: {_cpeum_art_nums}")
         existing_refs = {r.ref for r in constitucional}
         injected_count = 0
         
@@ -4666,39 +4672,40 @@ async def hybrid_search_all_silos(
                         value="Constitución Política de los Estados Unidos Mexicanos"
                     )),
                 ]),
-                limit=400,
+                limit=500,
                 with_payload=True,
                 with_vectors=False,
             )
             
-            # Find matching articles (sustantivo=True preferred, then by ref match)
-            for pt in cpeum_pts:
-                ref = pt.payload.get("ref", "")
-                is_sustantivo = pt.payload.get("sustantivo", False)
-                
-                # Match by ref prefix (handles parte 1, parte 2, etc.)
-                matches_ref = any(ref.startswith(rv.replace(" (parte 1)", "")) for rv in ref_variants)
-                
-                if matches_ref and is_sustantivo and ref not in existing_refs:
-                    injected_result = SearchResult(
-                        id=str(pt.id),
-                        texto=pt.payload.get("texto", ""),
-                        ref=ref,
-                        origen=pt.payload.get("origen", ""),
-                        score=0.95,
-                        silo="bloque_constitucional",
-                        pdf_url=pt.payload.get("pdf_url") or pt.payload.get("url_pdf") or PDF_FALLBACK_URLS.get("bloque_constitucional"),
-                    )
-                    constitucional.insert(0, injected_result)
-                    existing_refs.add(ref)
-                    injected_count += 1
+            for art_num in _cpeum_art_nums:
+                ref_variants = [
+                    f"Art. {art_num}o CPEUM",
+                    f"Art. {art_num} CPEUM",
+                ]
+                for pt in cpeum_pts:
+                    ref = pt.payload.get("ref", "")
+                    is_sustantivo = pt.payload.get("sustantivo", False)
+                    matches_ref = any(ref.startswith(rv) for rv in ref_variants)
+                    if matches_ref and is_sustantivo and ref not in existing_refs:
+                        injected_result = SearchResult(
+                            id=str(pt.id),
+                            texto=pt.payload.get("texto", ""),
+                            ref=ref,
+                            origen=pt.payload.get("origen", ""),
+                            score=0.95,
+                            silo="bloque_constitucional",
+                            pdf_url=pt.payload.get("pdf_url") or pt.payload.get("url_pdf") or PDF_FALLBACK_URLS.get("bloque_constitucional"),
+                        )
+                        constitucional.insert(0, injected_result)
+                        existing_refs.add(ref)
+                        injected_count += 1
             
             if injected_count > 0:
-                print(f"   ✅ CPEUM INJECTION: {injected_count} chunks del Art. {art_num} inyectados con score=0.95")
+                print(f"   ✅ CPEUM MULTI-INJECTION: {injected_count} chunks para artículos {_cpeum_art_nums}")
             else:
-                print(f"   ⚠️ CPEUM INJECTION: No se encontraron chunks sustantivos para Art. {art_num}")
+                print(f"   ⚠️ CPEUM MULTI-INJECTION: Sin chunks para artículos {_cpeum_art_nums}")
         except Exception as e:
-            print(f"   ❌ CPEUM INJECTION error: {e}")
+            print(f"   ❌ CPEUM MULTI-INJECTION error: {e}")
     
     # === DIAGNOSTIC LOGGING: TOP-3 per silo para diagnóstico de relevancia ===
     print(f"\n   🔎 RAW RETRIEVAL SCORES (pre-merge):")
@@ -6654,14 +6661,47 @@ async def chat_endpoint(request: ChatRequest):
                         auto_estado = detect_single_estado_from_query(last_user_message)
                         if auto_estado:
                             effective_estado = auto_estado
+
+                    # ── DIRECT LOOKUP: extrae artículos explícitos del query ──────
+                    # Corre en paralelo con la búsqueda semántica.
+                    # Garantiza recuperar "Art. 23, 27, 32 CPEUM" y "Art. 2, 8, 9 LGTOC"
+                    # aunque la búsqueda semántica no los recupere.
+                    _citations = _extract_legal_citations(last_user_message)
+                    _has_explicit_citations = bool(_citations)
                     
-                    search_results = await hybrid_search_all_silos(
+                    if _has_explicit_citations:
+                        print(f"   🎯 DIRECT LOOKUP: {len(_citations)} citas explícitas detectadas en query")
+                        _direct_task = asyncio.create_task(
+                            _direct_article_lookup(_citations, effective_estado)
+                        )
+                    
+                    # Búsqueda semántica hibrida (siempre)
+                    semantic_results = await hybrid_search_all_silos(
                         query=last_user_message,
                         estado=effective_estado,
                         top_k=40,
                         forced_materia=request.materia,
                         fuero=request.fuero,
                     )
+                    
+                    # Merge: Direct Lookup al frente (artículos exactos primero)
+                    if _has_explicit_citations:
+                        try:
+                            direct_results = await _direct_task
+                            seen_ids = {r.id for r in direct_results}
+                            # Añadir semánticos no duplicados al final
+                            for r in semantic_results:
+                                if r.id not in seen_ids:
+                                    seen_ids.add(r.id)
+                                    direct_results.append(r)
+                            search_results = direct_results
+                            print(f"   🎯 MERGE: {len(direct_results)} total ({len(direct_results)-len(semantic_results)+len(seen_ids - {r.id for r in direct_results})} direct + {len(semantic_results)} semantic)")
+                        except Exception as _dl_err:
+                            print(f"   ⚠️ Direct Lookup falló, usando solo semántico: {_dl_err}")
+                            search_results = semantic_results
+                    else:
+                        search_results = semantic_results
+                    
                     doc_id_map = build_doc_id_map(search_results)
                     context_xml = format_results_as_xml(search_results, estado=effective_estado)
             
