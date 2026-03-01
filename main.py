@@ -6952,23 +6952,36 @@ async def chat_endpoint(request: ChatRequest):
                     # modelo lo reciba 2 veces → secciones duplicadas en la respuesta.
                     if _effective_cached:
                         # Separar system parts: solo inyectar contexto RAG y estado
-                        # (todos los mensajes del sistema EXCEPTO SYSTEM_PROMPT_CHAT)
                         dynamic_parts = []
                         for part in system_parts:
-                            # El SYSTEM_PROMPT_CHAT ya está en el cache. Solo inyectar
-                            # el contexto dinámico (contexto RAG, estado, inventario).
                             if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO"):
                                 dynamic_parts.append(part)
-                        if dynamic_parts:
-                            gemini_contents.insert(0, gtypes.Content(
-                                role="user",
-                                parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]
-                            ))
+
+                        # CRÍTICO: sin esta instrucción, Gemini inventa Doc IDs desde memoria
+                        # de entrenamiento y el validador los marca como "Fuente no verificada".
+                        rag_ids = list(doc_id_map.keys()) if doc_id_map else []
+                        cache_rag_instruction = (
+                            "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
+                            "1. Los únicos Doc IDs válidos en esta sesión son los del contexto inyectado.\n"
+                            "2. NO INVENTES Doc IDs. Si jurisprudencia no está en el contexto con [Doc ID: uuid] real, NO LA CITES.\n"
+                            "3. Para cada tesis citada, INCLUYE SU RUBRO COMPLETO en la respuesta "
+                            "(el título exacto en mayúsculas tal como aparece en el contexto). "
+                            "Formato: \"RUBRO COMPLETO DE LA TESIS (Tesis X/J. N/AAAA) [Doc ID: uuid]\"\n"
+                            f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                        )
+                        dynamic_parts.insert(0, cache_rag_instruction)
+
+                        gemini_contents.insert(0, gtypes.Content(
+                            role="user",
+                            parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]
+                        ))
                         gemini_config = gtypes.GenerateContentConfig(
                             cached_content=_effective_cached,
                             max_output_tokens=max_tokens,
-                            temperature=0.3,
+                            temperature=0.25,
+                            thinking_config=gtypes.ThinkingConfig(thinking_budget=16384),
                         )
+
                     else:
                         gemini_config = gtypes.GenerateContentConfig(
                             system_instruction=system_instruction,
