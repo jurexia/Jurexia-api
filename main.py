@@ -6241,23 +6241,45 @@ async def chat_endpoint(request: ChatRequest):
     # INPUT SANITIZATION: XSS, SQL injection, enhanced prompt injection
     # ─────────────────────────────────────────────────────────────────────
     try:
-        from input_sanitizer import sanitize_input
+        from input_sanitizer import sanitize_input, sanitize_xss
+        
+        # We only perform REJECTION (SQLi/Prompt Injection) checks on the NEWEST message
+        # to prevent historic attached documents from blocking the conversation.
+        user_messages = [m for m in request.messages if m.role == "user"]
+        if user_messages:
+            last_user_msg = user_messages[-1]
+            content_for_scan = last_user_msg.content or ""
+            
+            # --- STRIP ATTACHED DOCUMENT FOR SCAN ---
+            # Legal documents are full of markers that trigger false positives (e.g., "--" or "/*")
+            if "<!-- DOCUMENTO_INICIO -->" in content_for_scan:
+                parts = content_for_scan.split("<!-- DOCUMENTO_INICIO -->", 1)
+                prefix = parts[0]
+                suffix = ""
+                if "<!-- DOCUMENTO_FIN -->" in parts[1]:
+                    suffix = parts[1].split("<!-- DOCUMENTO_FIN -->", 1)[1]
+                content_for_scan = prefix + "\n[DOC_OMITIDO_PARA_SECURITY_SCAN]\n" + suffix
+
+            _, rejection = sanitize_input(content_for_scan)
+            if rejection:
+                print(f"🛡️ INPUT SANITIZER blocked: {rejection[:100]}")
+                return StreamingResponse(
+                    iter([json.dumps({
+                        "error": "input_rejected",
+                        "message": rejection,
+                    })]),
+                    status_code=400,
+                    media_type="application/json",
+                )
+        
+        # Always apply cleaning (XSS) to all messages, but don't reject
         for msg in request.messages:
             if msg.role == "user" and msg.content:
-                sanitized, rejection = sanitize_input(msg.content)
-                if rejection:
-                    print(f"🛡️ INPUT SANITIZER blocked: {rejection[:100]}")
-                    return StreamingResponse(
-                        iter([json.dumps({
-                            "error": "input_rejected",
-                            "message": rejection,
-                        })]),
-                        status_code=400,
-                        media_type="application/json",
-                    )
-                msg.content = sanitized
-    except ImportError:
-        pass  # Sanitizer not available, skip
+                msg.content = sanitize_xss(msg.content)
+                
+    except (ImportError, Exception) as e:
+        print(f"⚠️ Sanitizer warning: {str(e)}")
+        pass 
 
     # ─────────────────────────────────────────────────────────────────────
     # PARALLEL STEP 1: Launch Infrastructure & Security Checks in background

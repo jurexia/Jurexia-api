@@ -47,8 +47,8 @@ _SQL_INJECTION_PATTERNS = [
     re.compile(r"UNION\s+SELECT", re.IGNORECASE),
     re.compile(r"'\s*OR\s+'1'\s*=\s*'1", re.IGNORECASE),
     re.compile(r"'\s*OR\s+1\s*=\s*1", re.IGNORECASE),
-    re.compile(r"--\s*$", re.MULTILINE),  # SQL comment at end of line
-    re.compile(r"/\*.*?\*/", re.DOTALL),  # Block comments
+    re.compile(r";\s*--", re.IGNORECASE),          # SQL comment after semicolon
+    re.compile(r";\s*/\*.*?\*/", re.DOTALL),      # Block comment after semicolon
     re.compile(r"xp_cmdshell", re.IGNORECASE),
     re.compile(r"EXEC\s+master", re.IGNORECASE),
 ]
