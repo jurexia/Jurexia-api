@@ -6874,11 +6874,11 @@ async def chat_endpoint(request: ChatRequest):
             if CHAT_ENGINE == "deepseek" and deepseek_client:
                 active_client = deepseek_client
                 active_model = DEEPSEEK_CHAT_MODEL
-                max_tokens = 8192  # Cap: evita respuestas kilométricas sin cache
+                max_tokens = 20000  # 20K: suficiente para análisis exhaustivo sin desperdicio
             else:
                 active_client = chat_client
                 active_model = CHAT_MODEL  # gpt-5-mini
-                max_tokens = 8192  # Cap respuestas largas en chat sin cache
+                max_tokens = 20000  # 20K: suficiente para análisis exhaustivo sin desperdicio
         
         print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
@@ -6966,7 +6966,7 @@ async def chat_endpoint(request: ChatRequest):
                         gemini_config = gtypes.GenerateContentConfig(
                             cached_content=_effective_cached,
                             max_output_tokens=max_tokens,
-                            temperature=0.25,
+                            temperature=0.35,  # Sube de 0.25→0.35: más fluidez sin perder rigor
                             thinking_config=gtypes.ThinkingConfig(thinking_budget=16384),
                         )
 
@@ -6974,7 +6974,7 @@ async def chat_endpoint(request: ChatRequest):
                         gemini_config = gtypes.GenerateContentConfig(
                             system_instruction=system_instruction,
                             max_output_tokens=max_tokens,
-                            temperature=0.3,
+                            temperature=0.4,  # Sube de 0.3→0.4: más creatividad, rigor RAG intacto
                             # IMPORTANTE: google_search tool desactivado —
                             # causaba loops de búsqueda infinita. El RAG local
                             # (Qdrant) es la fuente de verdad para leyes mexicanas.
@@ -7016,6 +7016,7 @@ async def chat_endpoint(request: ChatRequest):
                         "model": active_model,
                         "messages": llm_messages,
                         "stream": True,
+                        "temperature": 0.4,  # Creatividad controlada: rigor legal + fluidez
                     }
                     # GPT-5 Mini uses max_completion_tokens; DeepSeek uses max_tokens
                     if use_thinking:
