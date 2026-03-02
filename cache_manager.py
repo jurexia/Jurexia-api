@@ -340,9 +340,15 @@ async def cleanup_on_startup():
 
 
 async def delete_all_caches():
-    """Emergency kill switch: delete ALL caches immediately."""
-    global _cache_name, _cache_created_at
-    await _cleanup_orphan_caches()
+    """Emergency kill switch: delete ALL caches immediately and reset state."""
+    global _cache_name, _cache_created_at, _last_error
+    try:
+        await _cleanup_orphan_caches()
+        logger.info("✅ All Gemini caches deleted via kill switch.")
+    except Exception as e:
+        logger.error(f"Error during manual cache deletion: {e}")
+    
+    # RESET TOTAL: Esto asegura que la siguiente consulta no intente usar un ID muerto
     _cache_name = None
     _cache_created_at = 0
-    logger.info("All caches deleted via kill switch")
+    _last_error = "Cache desactivado manualmente por el usuario."
