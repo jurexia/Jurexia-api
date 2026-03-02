@@ -824,13 +824,14 @@ Tu dictamen debe ser:
    ESTRUCTURA OBLIGATORIA DEL DICTAMEN (7 SECCIONES)
 ═══════════════════════════════════════════════════════════════
 
-## I. RESUMEN EJECUTIVO
-Síntesis del proyecto en máximo 10 líneas:
-- Tipo de juicio y materia (amparo directo, recurso de revisión, queja, etc.)
-- Partes procesales
-- Sentido del fallo propuesto (CONCEDE / NIEGA / SOBRESEE / MODIFICA / REVOCA)
-- Puntos resolutivos principales
-- Observación general sobre la calidad del proyecto
+## I. RESUMEN NARRATIVO Y PROBLEMA JURÍDICO
+Elabora un resumen detallado del caso con una narrativa clara que lleve de la mano al lector.
+Este resumen debe:
+- Comenzar narrando los HECHOS DEL CASO (qué pasó en el mundo fáctico).
+- Continuar con la HISTORIA PROCESAL (cómo llegó el asunto al tribunal, partes procesales, tipo de juicio).
+- Culminar identificando con precisión quirúrgica el PUNTO MEDULAR o PROBLEMA JURÍDICO que será resuelto en la sentencia.
+- Mantener el estilo de alta calidad de la SCJN: oraciones cortas, voz activa y sin clichés procesales. Debe leerse como una historia persuasiva y técnica a la vez.
+- Concluir indicando el sentido del fallo propuesto (e.g., CONCEDE / NIEGA / SOBRESEE / MODIFICA / REVOCA).
 
 ## II. IDENTIFICACIÓN DEL ACTO RECLAMADO
 - Acto reclamado descrito con precisión
@@ -5248,11 +5249,44 @@ async def extract_text_from_document(file: UploadFile = File(...)):
                 )
                 
         elif extension == "pdf":
-            # Para PDF, devolver error - debe procesarse en frontend
-            raise HTTPException(
-                status_code=400,
-                detail="Los archivos PDF deben procesarse en el navegador. Use la función de upload normal."
-            )
+            # Usar Gemini para OCR avanzado de PDFs (Extracción Multimodal)
+            try:
+                import tempfile
+                import os
+                
+                gemini_client = get_gemini_client()
+                
+                # Guardar localmente para subir a Gemini
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
+                
+                try:
+                    # Upload a Google AI Studio
+                    uploaded_file = gemini_client.files.upload(file=tmp_path)
+                    
+                    # Extraer texto preservando estructura
+                    prompt = "Extrae absolutamente TODO el texto de este documento legal PDF con la máxima precisión posible, preservando el espaciado, párrafos y estructura de secciones. No omitas ninguna palabra, no hagas resúmenes. Si hay firmas o sellos extrae el texto si es legible. Si hay saltos de línea, presérvalos."
+                    
+                    response = gemini_client.models.generate_content(
+                        model=REDACTOR_MODEL_EXTRACT,
+                        contents=[uploaded_file, prompt]
+                    )
+                    
+                    text = response.text
+                    
+                    # Borrar archivo de Gemini por privacidad y cuotas
+                    try:
+                        gemini_client.files.delete(name=uploaded_file.name)
+                    except Exception as clean_e:
+                        print(f"   ⚠️ Aviso: no se pudo borrar archivo de Gemini {uploaded_file.name}: {clean_e}")
+                finally:
+                    # Borrar archivo temporal
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                        
+            except Exception as e:
+                raise ValueError(f"Fallo al procesar PDF con Gemini OCR: {str(e)}")
         else:
             raise HTTPException(
                 status_code=400,
@@ -6812,16 +6846,15 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
         
         if is_sentencia:
-            # Sentencia analysis: Gemini (superior reasoning + legal corpus)
-            # Cache disabled for sentencias (document too large)
-            use_gemini = True
-            active_model = SENTENCIA_MODEL
-            max_tokens = 65536
-            use_thinking = False
-            _effective_cached = None  # SIEMPRE sin cache para sentencias grandes
-            if not _can_use_gemini:
-                raise HTTPException(500, "Gemini not configured (no API key or Vertex AI) for sentencia analysis")
-            print(f"   ⚖️ Modelo SENTENCIA: {SENTENCIA_MODEL} (Gemini, sin cache) | max_output: {max_tokens}")
+            # Revisión de Sentencia: SIEMPRE prescinde de Genio Jurídico (Cache) por seguridad.
+            # Evita facturas enormes y el límite de 1M tokens al mezclar caché + documentos gigantes.
+            active_client = deepseek_client
+            active_model = DEEPSEEK_CHAT_MODEL
+            max_tokens = 50000
+            use_thinking = True
+            _effective_cached = None
+            use_gemini = False
+            print(f"   ⚖️ Modelo SENTENCIA MODO SEGURO: {active_model} (DeepSeek) | max_output: {max_tokens} | CACHE INHABILITADO")
         elif use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
