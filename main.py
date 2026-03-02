@@ -3477,6 +3477,9 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         elif r.silo in ("leyes_federales", "codigo_nacional"):
             tipo_tag = ' tipo="LEY_FEDERAL" prioridad="PRIMARIA"'
         
+        # Obtener jerarquía para el XML
+        jerarquia = _get_jerarquia_label(r.silo)
+        
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
             f'origen="{escaped_origen}" silo="{r.silo}" '
@@ -7000,15 +7003,12 @@ async def chat_endpoint(request: ChatRequest):
 
                     else:
                         # Configuración para consultas NO-CACHED (RAG normal)
-                        config_kwargs = {
-                            "system_instruction": system_instruction,
-                            "generation_config": {
-                                "temperature": 0.5, # Potencia máxima
-                                "max_output_tokens": 25000,
-                                **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}),
-                            }
-                        }
-                        gemini_config = gtypes.GenerateContentConfig(**config_kwargs)
+                        gemini_config = gtypes.GenerateContentConfig(
+                            system_instruction=system_instruction,
+                            temperature=0.5, # Potencia máxima
+                            max_output_tokens=25000,
+                            **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}),
+                        )
                     
                     _cache_label = "CACHED" if _effective_cached else "no-cache"
                     print(f"   Gemini stream starting: {active_model} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
