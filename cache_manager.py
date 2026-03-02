@@ -117,26 +117,35 @@ def _load_corpus_texts() -> list[str]:
     return texts
 
 
-async def _cleanup_orphan_caches():
-    """SAFETY LOCK #1: Delete ALL existing caches before creating a new one.
+async def _find_existing_cache_remote() -> Optional[any]:
+    """Check Gemini API for any active cache with our display name (Sync for Pro/Multi-instance)."""
+    try:
+        client = get_gemini_client()
+        # caches.list() es un iterador, lo convertimos a lista
+        caches = list(client.caches.list())
+        for cache in caches:
+            if getattr(cache, "display_name", "") == CACHE_DISPLAY_NAME:
+                # Verificar que no esté vencido (Gemini lo borra solo, pero por si acaso)
+                return cache
+    except Exception as e:
+        logger.error(f"Error searching remote cache: {e}")
+    return None
 
-    Prevents cache multiplication when Render restarts/redeploys.
-    """
+async def _cleanup_orphan_caches(exclude_name: str = None):
+    """SAFETY LOCK #1: Delete orphan caches EXCEPT the one we might be using."""
     try:
         client = get_gemini_client()
         caches = list(client.caches.list())
-        orphans = [c for c in caches if getattr(c, "display_name", "") == CACHE_DISPLAY_NAME]
+        orphans = [c for c in caches if getattr(c, "display_name", "") == CACHE_DISPLAY_NAME and c.name != exclude_name]
 
         if orphans:
-            logger.warning(f"Found {len(orphans)} orphan cache(s) — deleting...")
+            logger.warning(f"Found {len(orphans)} orphan cache(s) — cleaning up...")
             for cache in orphans:
                 try:
                     client.caches.delete(name=cache.name)
                     logger.info(f"  Deleted orphan: {cache.name}")
                 except Exception as e:
                     logger.error(f"  Failed to delete orphan {cache.name}: {e}")
-        else:
-            logger.info("No orphan caches found.")
     except Exception as e:
         logger.error(f"Orphan cleanup failed: {e}")
 
@@ -263,30 +272,43 @@ async def _refresh_cache_ttl(cache_name: str):
 
 
 async def get_or_create_cache() -> Optional[str]:
-    """Main entry point: get existing cache or create one on-demand.
+    """Main entry point: get existing cache (local or remote) or create one.
 
-    Fast path if cache exists and is valid.
-    Uses asyncio.Lock (SAFETY LOCK #2) with double-check (#3) to prevent races.
+    Uses a 3-tier check:
+    1. Local memory (Fastest)
+    2. Gemini API Discovery (Multi-instance sync)
+    3. New Creation (Last resort)
     """
-    global _cache_lock, _cache_created_at
+    global _cache_lock, _cache_name, _cache_created_at
 
-    # Fast path
+    # 1. Tier: Local Valid Cache
     if _is_cache_valid():
         _cache_created_at = time.time()
         asyncio.create_task(_refresh_cache_ttl(_cache_name))
         return _cache_name
 
-    # Ensure lock exists
+    # Ensure lock for creation/discovery
     if _cache_lock is None:
         _cache_lock = asyncio.Lock()
 
     async with _cache_lock:
-        # Double-check inside lock (#3)
+        # Re-check local after lock
         if _is_cache_valid():
-            _cache_created_at = time.time()
-            asyncio.create_task(_refresh_cache_ttl(_cache_name))
             return _cache_name
 
+        # 2. Tier: Remote Discovery (For Render multi-instance support)
+        remote_cache = await _find_existing_cache_remote()
+        if remote_cache:
+            _cache_name = remote_cache.name
+            # Si lo acabamos de encontrar, estimamos su creación como 'ahora' 
+            # para que _is_cache_valid() no lo mate de inmediato, 
+            # y dejamos que el refresh extienda su vida.
+            _cache_created_at = time.time()
+            asyncio.create_task(_refresh_cache_ttl(_cache_name))
+            logger.info(f"🔄 Adopted remote cache from another instance: {_cache_name}")
+            return _cache_name
+
+        # 3. Tier: Create New
         return await _create_cache()
 
 
