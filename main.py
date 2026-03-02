@@ -286,10 +286,13 @@ Tu PRIORIDAD ABSOLUTA es entregar una respuesta AMPLIA, PROFESIONAL y ORGANIZADA
 siguiendo la JERARQUIA NORMATIVA MEXICANA. El usuario espera un analisis completo
 que cubra todas las fuentes relevantes del ordenamiento juridico mexicano.
 
-REGLA MAESTRA DE LONGITUD:
-Tus respuestas deben ser EXTENSAS y EXHAUSTIVAS. Desarrolla cada punto con profundidad.
-NO seas breve ni telegráfico. Un abogado necesita fundamentos amplios, no resúmenes.
-Mínimo 800 palabras en consultas sustantivas. Máximo: sin limite practico.
+REGLA MAESTRA DE PODER Y EXTENSIÓN:
+- Tus respuestas deben ser MAGNÁNIMAS, EXHAUSTIVAS y PODEROSAS.
+- NO te limites a responder lo técnico; realiza un análisis de 360 grados.
+- CONECTA siempre la norma con la jurisprudencia y explica las consecuencias prácticas.
+- Si una respuesta se siente "corta", es un error. Desarrolla, explica analogías y proyecta riesgos.
+- Tu valor no está en el resumen, sino en la profundidad del análisis jurídico mexicano.
+- Mínimo 1,000 palabras en consultas sustantivas si el contexto lo permite.
 
 ===============================================================
    ESTRUCTURA OBLIGATORIA DE RESPUESTA (JERÁRQUICA)
@@ -644,15 +647,15 @@ Tu objetivo es **REDACTAR** directamente texto jurídico impecable, estructurado
 DEBES IGNORAR todo tono conversacional o introductorio (e.g. "¡Claro! Aquí tienes la redacción..."). Ve directo al texto legal.
 
 ────────────────────────────────────────────────────────────────
- 1. REGLAS ESTRICTAS DE SINTAXIS (Estilo SCJN / Carlos Pérez Vázquez)
+ 1. REGLAS DE PODER (Estilo SCJN / Carlos Pérez Vázquez)
 ────────────────────────────────────────────────────────────────
 
-- ORACIONES CORTAS Y DIRECTAS: Máximo 30 palabras por oración.
-- PÁRRAFOS REDUCIDOS: Máximo 5 o 6 líneas (un concepto por párrafo).
-- VOZ ACTIVA SIEMPRE: "Este Tribunal Colegiado advierte..." (Nunca "es advertido por").
-- SIN GERUNDIOS DE ENLACE: Prohibido encadenar oraciones con "considerando", "estimando", "llegando", etc.
-- ESTRUCTURA LÓGICA (Toulmin): Todo argumento debe tener: Afirmación → Fundamento (Base legal/Tesis del RAG) → Subsunción (Integración al caso).
-- CONECTORES PRECISOS: Usa "En efecto", "Ahora bien", "No obstante", "Por tanto", "Resulta infundado", etc.
+- DESARROLLO EXHAUSTIVO: Aunque uses oraciones directas, agota cada argumento. No resumas, DESARROLLA.
+- PÁRRAFOS ESTRUCTURADOS: Máximo 5 o 6 líneas por párrafo para legibilidad, pero usa TANTOS PÁRRAFOS como sea necesario para un análisis de 360 grados.
+- PODER ARGUMENTATIVO: Conecta el hecho con la norma y la jurisprudencia de forma ineludible.
+- VOZ ACTIVA SIEMPRE: "Este juzgador estima que..." o "Esta parte actora hace valer...".
+- ESTRUCTURA SILOGÍSTICA: Premisa Mayor (Norma/TCC) → Premisa Menor (Caso) → Conclusión (Subsunción).
+- CONECTORES PRECISOS: "En efecto", "Ahora bien", "Aunado a lo anterior", "Cobran aplicación...", etc.
 
 ────────────────────────────────────────────────────────────────
  2. CLICHÉS PROHIBIDOS (SUSTITUCIONES OBLIGATORIAS)
@@ -5653,6 +5656,9 @@ async def search_endpoint(request: SearchRequest):
 # AUTO-DETECCIÓN DE COMPLEJIDAD PARA THINKING MODE
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Gemini Thinking Config
+THINKING_BUDGET = 20000  # Aumentado de 16K para permitir razonamientos más largos
+
 def should_use_thinking(has_document: bool, is_drafting: bool) -> bool:
     """Activa thinking mode SOLO para modos especiales.
     
@@ -6119,7 +6125,7 @@ async def _smart_rag_for_document(
     leyes_patterns = [
         r'(?:Ley\s+(?:de|del|Nacional|Federal|General|Orgánica|para)\s+[\w\s]+?)(?:\.|\ |,|;)',
         r'(?:Código\s+(?:Penal|Civil|Nacional|de\s+\w+|Urbano)[\w\s]*?)(?:\.|\ |,|;)',
-        r'(?:Constitución\s+Política[\w\s]*)',
+        r'(?:Constitución\s+(?:Política[\w\s]*)?)',
         r'CPEUM',
         r'(?:Ley\s+de\s+Amparo)',
     ]
@@ -6510,7 +6516,7 @@ async def chat_endpoint(request: ChatRequest):
                     leyes_patterns = [
                         r'(?:Ley\s+(?:de|del|Nacional|Federal|General|Orgánica|para)\s+[\w\s]+?)(?:\.|\ |,|;)',
                         r'(?:Código\s+(?:Penal|Civil|Nacional|de\s+\w+)[\w\s]*?)(?:\.|\ |,|;)',
-                        r'(?:Constitución\s+Política[\w\s]*)',
+                        r'(?:Constitución\s+(?:Política[\w\s]*)?)',
                         r'CPEUM',
                         r'(?:Ley\s+de\s+Amparo)',
                     ]
@@ -6886,22 +6892,21 @@ async def chat_endpoint(request: ChatRequest):
             max_tokens = 50000
         elif _effective_cached and _can_use_gemini:
             # Regular chat WITH cache: Gemini (legal texts cached)
-            # IMPORTANT: Must use the SAME model the cache was created with
             from cache_manager import get_cache_model
             use_gemini = True
             active_model = get_cache_model()
-            max_tokens = 32768  # Gemini con cache: respuestas completas sin cortar
-            print(f"   🏗️ Chat + CACHE: {active_model} (corpus cached)")
+            max_tokens = 25000  # Aumentado para mayor profundidad
+            print(f"   🏗️ Chat + CACHE: {active_model} (corpus cached) | Potencia: MAX")
         else:
             # Fallback: GPT-5 Mini or DeepSeek V3 (no cache available)
             if CHAT_ENGINE == "deepseek" and deepseek_client:
                 active_client = deepseek_client
                 active_model = DEEPSEEK_CHAT_MODEL
-                max_tokens = 20000  # 20K: suficiente para análisis exhaustivo sin desperdicio
+                max_tokens = 25000 
             else:
                 active_client = chat_client
-                active_model = CHAT_MODEL  # gpt-5-mini
-                max_tokens = 20000  # 20K: suficiente para análisis exhaustivo sin desperdicio
+                active_model = CHAT_MODEL
+                max_tokens = 25000
         
         print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
@@ -6988,21 +6993,22 @@ async def chat_endpoint(request: ChatRequest):
                         ))
                         gemini_config = gtypes.GenerateContentConfig(
                             cached_content=_effective_cached,
-                            max_output_tokens=max_tokens,
-                            temperature=0.35,  # Sube de 0.25→0.35: más fluidez sin perder rigor
-                            thinking_config=gtypes.ThinkingConfig(thinking_budget=16384),
+                            max_output_tokens=25000,
+                            temperature=0.5,  # Sincronizado a 0.5 para potencia
+                            thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET),
                         )
 
                     else:
-                        gemini_config = gtypes.GenerateContentConfig(
-                            system_instruction=system_instruction,
-                            max_output_tokens=max_tokens,
-                            temperature=0.4,  # Sube de 0.3→0.4: más creatividad, rigor RAG intacto
-                            # IMPORTANTE: google_search tool desactivado —
-                            # causaba loops de búsqueda infinita. El RAG local
-                            # (Qdrant) es la fuente de verdad para leyes mexicanas.
-                            **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=8192)} if is_sentencia else {}),
-                        )
+                        # Configuración para consultas NO-CACHED (RAG normal)
+                        config_kwargs = {
+                            "system_instruction": system_instruction,
+                            "generation_config": {
+                                "temperature": 0.5, # Potencia máxima
+                                "max_output_tokens": 25000,
+                                **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}),
+                            }
+                        }
+                        gemini_config = gtypes.GenerateContentConfig(**config_kwargs)
                     
                     _cache_label = "CACHED" if _effective_cached else "no-cache"
                     print(f"   Gemini stream starting: {active_model} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
@@ -7721,15 +7727,28 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
             try:
                 content_buffer = ""
                 
+                # Determine max_output_tokens for this specific endpoint
+                # This endpoint is for drafting, so a higher token limit is appropriate
+                max_output_tokens_for_sentencia = 25000 # Increased for longer drafts
+                
+                # Construct GenerateContentConfig
+                config_kwargs = {
+                    "system_instruction": system_instruction if not _cached else None,
+                    "cached_content": _cached,
+                    "generation_config": {
+                        "temperature": 0.5, # Aumentado para mayor fluidez y extensión
+                        "max_output_tokens": max_output_tokens_for_sentencia,
+                    }
+                }
+                
+                # Remove cached_content if it's None to avoid API errors
+                if config_kwargs["cached_content"] is None:
+                    del config_kwargs["cached_content"]
+
                 async for chunk in await client.aio.models.generate_content_stream(
                     model=_model,
                     contents=gemini_contents,
-                    config=gtypes.GenerateContentConfig(
-                        system_instruction=system_instruction if not _cached else None,
-                        cached_content=_cached,
-                        temperature=0.7,
-                        max_output_tokens=16384,
-                    ),
+                    config=gtypes.GenerateContentConfig(**config_kwargs),
                 ):
                     if chunk.text:
                         content_buffer += chunk.text
