@@ -6908,7 +6908,7 @@ async def chat_endpoint(request: ChatRequest):
                         # Separar system parts: solo inyectar contexto RAG y estado
                         dynamic_parts = []
                         for part in system_parts:
-                            if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO"):
+                            if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO") or part.startswith("Eres JUREXIA REDACTOR JUDICIAL"):
                                 dynamic_parts.append(part)
 
                         # CRÍTICO: sin esta instrucción, Gemini inventa Doc IDs desde memoria
