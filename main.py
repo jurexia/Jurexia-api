@@ -698,6 +698,14 @@ Si el caso lo amerita, aplica la interpretación *sistemática*, *teleológica*,
 - NO USES *Markdown* exótico. Usa encabezados claros (##), viñetas simples o números romanos.
 - NO EXPLIQUES pasajes paso a paso. Entrega la prosa final ensamblada de inicio a fin.
 - Usa lenguaje sobrio, persuasivo e irrefutable.
+
+────────────────────────────────────────────────────────────────
+ 6. MODELOS DE EXCELENCIA (FEW-SHOT RAG)
+────────────────────────────────────────────────────────────────
+
+- En el Contexto RAG verás documentos marcados como tipo="MODELO_REDACCION_ALTO_NIVEL" (Sentencias Reales de TCC y SCJN).
+- ESTOS SON TUS ESPECIALISTAS A IMITAR. Úsalos como guía para la estructura lógica, la profundidad del análisis jurídico y el rigor expositivo.
+- NO son leyes, son MODELOS DE PROSA Y ARGUMENTACIÓN. Emula su elegancia y precisión técnica.
 """
 
 # Trigger phrases for natural language drafting detection (lowercase comparison)
@@ -3449,7 +3457,9 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
 
         # Marcar documentos estatales como FUENTE PRINCIPAL cuando hay estado seleccionado
         tipo_tag = ""
-        if estado and r.silo == "leyes_estatales":
+        if r.silo in SENTENCIA_SILOS.values():
+            tipo_tag = ' tipo="MODELO_REDACCION_ALTO_NIVEL" prioridad="GUIA_ESTILO_FEW_SHOT"'
+        elif estado and r.silo == "leyes_estatales":
             tipo_tag = ' tipo="LEGISLACION_ESTATAL" prioridad="PRINCIPAL"'
         elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
@@ -4403,7 +4413,8 @@ async def hybrid_search_all_silos(
     alpha: float = 0.7,
     enable_reasoning: bool = False,
     forced_materia: Optional[str] = None,
-    fuero: Optional[str] = None,  # NUEVO: Filtro por fuero (constitucional/federal/estatal)
+    fuero: Optional[str] = None,  # Filtro por fuero (constitucional/federal/estatal)
+    include_sentencias: bool = False, # ✅ NUEVO: Permite inyectar ejemplos de excelencia
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en silos relevantes según fuero.
@@ -4522,6 +4533,14 @@ async def hybrid_search_all_silos(
         else:
             silos_to_search.extend(ESTADO_SILO.values())
             print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + len(FIXED_SILOS)} silos")
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # INYECCIÓN DE SENTENCIAS (Few-Shot Excellence) — Si se solicita
+    # ═══════════════════════════════════════════════════════════════════════════
+    if include_sentencias:
+        _sentencias_list = list(SENTENCIA_SILOS.values())
+        silos_to_search.extend(_sentencias_list)
+        print(f"   🏛️ BÚSQUEDA AMPLIA: Incluyendo {len(_sentencias_list)} silos de SENTENCIAS (Few-Shot)")
     
     _t_search = time.perf_counter()
     tasks = []
@@ -6445,6 +6464,7 @@ async def chat_endpoint(request: ChatRequest):
                     top_k=40,
                     forced_materia=request.materia,
                     fuero=request.fuero,
+                    include_sentencias=True, # ✅ ACTIVA LOS 6+ EJEMPLOS DE ALTO NIVEL
                 )
                 doc_id_map = build_doc_id_map(search_results)
                 context_xml = format_results_as_xml(search_results)
@@ -6663,12 +6683,14 @@ async def chat_endpoint(request: ChatRequest):
                         )
                     
                     # Búsqueda semántica hibrida (siempre)
+                    # ✅ INTEGRACIÓN ALTO NIVEL: include_sentencias inyecta ejemplos si es modo redacción chat
                     semantic_results = await hybrid_search_all_silos(
                         query=last_user_message,
                         estado=effective_estado,
                         top_k=40,
                         forced_materia=request.materia,
                         fuero=request.fuero,
+                        include_sentencias=is_chat_drafting,
                     )
                     
                     # Merge: Direct Lookup al frente (artículos exactos primero)
