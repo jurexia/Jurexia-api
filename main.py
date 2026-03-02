@@ -700,12 +700,13 @@ Si el caso lo amerita, aplica la interpretación *sistemática*, *teleológica*,
 - Usa lenguaje sobrio, persuasivo e irrefutable.
 
 ────────────────────────────────────────────────────────────────
- 6. MODELOS DE EXCELENCIA (FEW-SHOT RAG)
+ 6. MODELOS DE ESTILO (PROHIBIDO CITAR)
 ────────────────────────────────────────────────────────────────
 
-- En el Contexto RAG verás documentos marcados como tipo="MODELO_REDACCION_ALTO_NIVEL" (Sentencias Reales de TCC y SCJN).
-- ESTOS SON TUS ESPECIALISTAS A IMITAR. Úsalos como guía para la estructura lógica, la profundidad del análisis jurídico y el rigor expositivo.
-- NO son leyes, son MODELOS DE PROSA Y ARGUMENTACIÓN. Emula su elegancia y precisión técnica.
+- Los ejemplos de sentencias recuperados son SOLO para que imites su prosa, estructura y tono.
+- NUNCA los cites como fuente, fundamento legal o jurisprudencia. 
+- Las ÚNICAS fuentes válidas para fundamentar son: Constitución (CPEUM), Leyes Federales, Leyes Estatales y Jurisprudencia Nacional oficial (Registro Digital).
+- Si un documento no tiene Registro Digital o Referencia de Ley, NO LO CITES.
 """
 
 # Trigger phrases for natural language drafting detection (lowercase comparison)
@@ -3452,14 +3453,14 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         escaped_origen = html.escape(humanize_origen(r.origen) or "Desconocido")
         escaped_jurisdiccion = html.escape(r.jurisdiccion or "N/A")
 
-        # Etiqueta de jerarquía normativa — visible para el LLM para aplicar REGLA #6
-        jerarquia = _get_jerarquia_label(r.silo)
+        # 🚫 EXCLUSIÓN DE CITAS: Las sentencias de ejemplo NO son fuentes. 
+        # Se usan solo para mimetizar estilo, por lo que las filtramos del XML de fuentes.
+        if r.silo in SENTENCIA_SILOS.values():
+            continue
 
         # Marcar documentos estatales como FUENTE PRINCIPAL cuando hay estado seleccionado
         tipo_tag = ""
-        if r.silo in SENTENCIA_SILOS.values():
-            tipo_tag = ' tipo="MODELO_REDACCION_ALTO_NIVEL" prioridad="GUIA_ESTILO_FEW_SHOT"'
-        elif estado and r.silo == "leyes_estatales":
+        if estado and r.silo == "leyes_estatales":
             tipo_tag = ' tipo="LEGISLACION_ESTATAL" prioridad="PRINCIPAL"'
         elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
