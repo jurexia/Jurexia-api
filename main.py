@@ -147,6 +147,7 @@ FIXED_SILOS = {
 ESTADO_SILO = {
     "QUERETARO": "leyes_queretaro",
     "CDMX": "leyes_cdmx",
+    "GUANAJUATO": "leyes_guanajuato",
     # Próximos estados:
     # "JALISCO": "leyes_jalisco",
     # "NUEVO_LEON": "leyes_nuevo_leon",
