@@ -6477,6 +6477,7 @@ async def chat_endpoint(request: ChatRequest):
     try:
         # Define search as a local async block for gather
         async def _perform_retrieval():
+            import re
             nonlocal multi_states, is_comparative
             search_results = []
             doc_id_map = {}
@@ -6529,7 +6530,6 @@ async def chat_endpoint(request: ChatRequest):
                     # SMART RAG para sentencias: extrae términos legales clave
                     # del documento completo y hace múltiples búsquedas dirigidas
                     # ─────────────────────────────────────────────────────────────
-                    import re
                     
                     # Extraer artículos citados ("artículo 14", "Art. 193", etc.)
                     articulos = re.findall(
