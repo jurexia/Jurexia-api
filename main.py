@@ -989,6 +989,21 @@ Con la secuencia procesal clara, COMPRENDE el caso como magistrado:
 
 **Declara explícitamente: "SENTIDO IDENTIFICADO: [X]" antes de continuar.**
 
+### PASO 1.5 — TEST DE PONDERACIÓN Y JUSTICIA MATERIAL
+Antes de validar si la ley aplicable es correcta, reflexiona profundamente sobre el resultado humano del fallo. Responde internamente:
+a) ¿Quiénes son las partes materiales? (Ej. familiares, ancianos, corporaciones).
+b) ¿La aplicación estricta del derecho está produciendo una consecuencia materialmente desproporcionada o profundamente injusta según las realidades del caso?
+c) ¿Existen principios constitucionales (Art. 1° CPEUM, Pro Persona, perspectiva de género, adulto mayor, equidad) o interpretaciones jurisprudenciales flexibles que el proyectista omitió y que podrían justificar un sentido diferente (más equitativo) sin violentar el sistema jurídico?
+
+Presenta este análisis en la salida con este formato:
+
+**PASO 1.5 — TEST DE JUSTICIA MATERIAL Y EQUIDAD**
+- **Contexto Humano y Vulnerabilidad:** [Breve análisis de quiénes son las partes y el drama subyacente. Ej. "Se trata de un conflicto fratricida de 30 años sobre el único patrimonio materno..."]
+- **Escrutinio de Justicia:** [Evaluación de si el fallo es justo. Ej. "Aunque técnicamente correcto, el fallo expulsa a los hermanos mayores de la casa que habitaron por décadas por un formalismo notarial."]
+- **Alternativa Hermenéutica (Si aplica):** [¿Hay alguna tesis o principio pro persona en el RAG que permita una interpretación más flexible para salvar el caso, o el rigorismo legal es insuperable? Citar con [Doc ID: uuid] cuando corresponda.]
+
+**Declara: "TEST DE JUSTICIA MATERIAL COMPLETADO" antes de continuar.**
+
 ### PASO 2 — ANÁLISIS DE CONGRUENCIA (INTERNA Y EXTERNA)
 ⚠️ CRÍTICO: Somete el proyecto a estos 5 tests de congruencia ANTES del RAG.
 Estos tests detectan vicios de razonamiento que ninguna cita legal puede subsanar.
