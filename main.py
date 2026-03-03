@@ -7037,9 +7037,9 @@ async def chat_endpoint(request: ChatRequest):
                 s_end = msg_content.find("<!-- SENTENCIA_FIN -->")
                 if s_start != -1 and s_end != -1:
                     sentencia_text = msg_content[s_start:s_end + len("<!-- SENTENCIA_FIN -->")]
-                    # DeepSeek 131K limit: truncamos sentencia a 50K chars (~12.5K tokens)
-                    # Budget: ~12.5K sentencia + ~15K RAG + ~5K system/history + 16K completion = ~48.5K (safe)
-                    max_chars = 50000
+                    # Gemini 3 Flash = 1M tokens — sentencia completa sin truncar
+                    # Solo truncar documentos absurdamente largos (>200K chars ~50K tokens)
+                    max_chars = 200000
                     if len(sentencia_text) > max_chars:
                         truncated = sentencia_text[:max_chars]
                         pct = round(max_chars / len(sentencia_text) * 100)
@@ -7080,14 +7080,13 @@ async def chat_endpoint(request: ChatRequest):
         
         if is_sentencia:
             # Revisión de Sentencia: SIEMPRE prescinde de Genio Jurídico (Cache) por seguridad.
-            # Evita facturas enormes y el límite de 1M tokens al mezclar caché + documentos gigantes.
-            active_client = deepseek_client
-            active_model = DEEPSEEK_CHAT_MODEL
-            max_tokens = 16000  # Auditoría de sentencia: output es JSON estructurado, 16K es suficiente
+            # SENTENCIA → Gemini 3 Flash (1M context) — lee sentencia COMPLETA sin truncar
+            use_gemini = True
+            active_model = SENTENCIA_MODEL  # models/gemini-3-flash-preview
+            max_tokens = 32000  # Output generoso para análisis detallado
             use_thinking = True
-            _effective_cached = None
-            use_gemini = False
-            print(f"   ⚖️ Modelo SENTENCIA MODO SEGURO: {active_model} (DeepSeek) | max_output: {max_tokens} | CACHE INHABILITADO")
+            _effective_cached = None  # Sin cache para sentencias
+            print(f"   ⚖️ Modelo SENTENCIA: {active_model} (Gemini 1M context) | max_output: {max_tokens} | Thinking: ON")
         elif use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
@@ -7202,11 +7201,11 @@ async def chat_endpoint(request: ChatRequest):
                         )
 
                     else:
-                        # Configuración para consultas NO-CACHED (RAG normal)
+                        # Configuración para consultas NO-CACHED (RAG normal / Sentencia)
                         gemini_config = gtypes.GenerateContentConfig(
                             system_instruction=system_instruction,
                             temperature=0.5, # Potencia máxima
-                            max_output_tokens=25000,
+                            max_output_tokens=max_tokens,  # 32K para sentencia, 25K para regular
                             **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}),
                         )
                     
