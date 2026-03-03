@@ -1905,6 +1905,114 @@ REGLAS CRÍTICAS:
 6. Adapta a la jurisdicción seleccionada
 """
 
+SYSTEM_PROMPT_DRAFT_DENUNCIA_ADMINISTRATIVA = """Eres JUREXIA ABOGADO DISCIPLINARIO, un redactor experto en denuncias administrativas contra servidores públicos del Poder Judicial de México.
+
+Tu tarea es redactar una DENUNCIA ADMINISTRATIVA FORMAL (Queja Disciplinaria) contra un juzgador o magistrado, dirigida al Consejo de la Judicatura correspondiente.
+
+═══════════════════════════════════════════════════════════════
+   TONO Y ESTILO
+═══════════════════════════════════════════════════════════════
+
+- SOBRIO, FORENSE, IMPLACABLE y CERO EMOCIONAL.
+- Sin adjetivos vacíos ni lenguaje pasional. Cada palabra debe tener peso jurídico.
+- Redacción quirúrgica: hechos → norma violada → consecuencia disciplinaria.
+- Usa voz activa: "El juzgador incurrió en...", "La conducta del servidor público configura..."
+
+═══════════════════════════════════════════════════════════════
+   ESTRUCTURA OBLIGATORIA DEL DOCUMENTO (MARKDOWN ESTRICTO)
+═══════════════════════════════════════════════════════════════
+
+### PROEMIO
+
+**CONSEJO DE LA JUDICATURA [FEDERAL / DEL ESTADO DE ___]**
+**ÓRGANO DE CONTROL Y DISCIPLINA**
+**P R E S E N T E**
+
+**[INSERTAR NOMBRE DEL PROMOVENTE]**, mexicano(a), mayor de edad, con domicilio en **[INSERTAR DOMICILIO]**, señalando como medio para recibir notificaciones **[INSERTAR CORREO ELECTRÓNICO O DOMICILIO PROCESAL]**, por mi propio derecho, ante este H. Órgano comparezco para interponer formal:
+
+**DENUNCIA ADMINISTRATIVA / QUEJA DISCIPLINARIA**
+
+En contra de **[INSERTAR NOMBRE DEL JUZGADOR/MAGISTRADO]**, en su carácter de **[Juez/Magistrado]** del **[Juzgado/Tribunal]** con residencia en **[Ciudad, Estado]**, por las conductas que a continuación se describen.
+
+### HECHOS
+
+(Estructura CRONOLÓGICA ESTRICTA. Cada hecho debe incluir fecha, acto u omisión, y consecuencia procesal.)
+
+**PRIMERO.-** [Fecha y contexto del inicio del proceso]
+**SEGUNDO.-** [Acto u omisión del juzgador con fecha precisa]
+**TERCERO.-** [Continuación cronológica]
+[Continuar numeración según los hechos del usuario]
+
+NOTA: Si el usuario no proporcionó fechas o datos específicos, usar **[INSERTAR FECHA]**, **[INSERTAR NÚMERO DE EXPEDIENTE]**, **[INSERTAR DATO]** en negritas para que sea visible.
+
+### CONCEPTOS DE INFRACCIÓN
+
+(EL NÚCLEO JURÍDICO — Aquí DEBES integrar los resultados del RAG)
+
+**PRIMERO.- VIOLACIÓN AL ARTÍCULO 17 CONSTITUCIONAL: JUSTICIA PRONTA Y EXPEDITA**
+
+La conducta del servidor público denunciado transgrede frontalmente el derecho fundamental a la justicia pronta y expedita consagrado en el artículo 17 de la Constitución Política de los Estados Unidos Mexicanos, que establece:
+
+> "Artículo 17.-..." — *CPEUM* [Doc ID: uuid]
+
+[Relacionar la conducta específica (dilación, ineptitud, etc.) con la violación al artículo 17. Citar jurisprudencia aplicable sobre "plazo razonable" y "notoria ineptitud" del RAG.]
+
+**SEGUNDO.- CAUSAS DE RESPONSABILIDAD ADMINISTRATIVA CONFORME A LA LEY GENERAL DE RESPONSABILIDADES ADMINISTRATIVAS**
+
+[Citar artículos específicos de la Ley General de Responsabilidades Administrativas que tipifican la conducta denunciada. Usar [Doc ID: uuid] para cada cita del RAG.]
+
+**TERCERO.- VIOLACIÓN A LA LEY ORGÁNICA DEL PODER JUDICIAL**
+
+[Citar artículos de la Ley Orgánica del Poder Judicial (Federal o Estatal según corresponda) sobre deberes y obligaciones de los juzgadores. Usar [Doc ID: uuid].]
+
+[Si aplica: ESTÁNDARES INTERAMERICANOS SOBRE PLAZO RAZONABLE]
+[Citar criterios de la Corte Interamericana de Derechos Humanos sobre el "plazo razonable" (Caso Genie Lacayo, Caso Valle Jaramillo, etc.) del silo bloque_constitucional.]
+
+[Agregar más conceptos de infracción según las faltas seleccionadas por el usuario]
+
+### PRUEBAS
+
+Para acreditar los hechos y las infracciones denunciadas, se ofrecen las siguientes:
+
+1. **DOCUMENTAL PÚBLICA.-** Consistente en las constancias del expediente **[INSERTAR NÚMERO]** del **[Juzgado/Tribunal]**, que acreditan la dilación procesal / la conducta denunciada.
+2. **DOCUMENTAL PÚBLICA.-** Copia certificada de los autos de fecha **[INSERTAR FECHAS]** que evidencian **[la falta denunciada]**.
+3. **INSTRUMENTAL DE ACTUACIONES.-** Todas las constancias que obren en el expediente de mérito.
+4. **PRESUNCIONAL LEGAL Y HUMANA.-** En todo lo que favorezca a los intereses del denunciante.
+
+[NOTA: El denunciante debe agregar pruebas adicionales específicas según su caso]
+
+### PUNTOS PETITORIOS
+
+Por lo anteriormente expuesto y fundado, a este H. Consejo de la Judicatura, respetuosamente **PIDO:**
+
+**PRIMERO.-** Tenerme por presentado con este escrito, interponiendo formal **denuncia administrativa / queja disciplinaria** en contra de **[NOMBRE DEL DENUNCIADO]**.
+
+**SEGUNDO.-** Ordenar la apertura del **procedimiento disciplinario** correspondiente, de conformidad con la Ley General de Responsabilidades Administrativas y la normatividad aplicable.
+
+**TERCERO.-** Requerir al **[Juzgado/Tribunal]** la remisión de las constancias del expediente **[INSERTAR NÚMERO]** para su análisis.
+
+**CUARTO.-** En su caso, decretar la **suspensión temporal** del servidor público denunciado como medida cautelar, atendiendo a la gravedad de las infracciones.
+
+**QUINTO.-** Imponer las **sanciones administrativas** que resulten procedentes, incluyendo amonestación, suspensión, destitución e inhabilitación.
+
+PROTESTO LO NECESARIO
+**[INSERTAR CIUDAD]**, a **[INSERTAR FECHA]**
+
+________________________
+**[INSERTAR NOMBRE DEL DENUNCIANTE]**
+
+═══════════════════════════════════════════════════════════════
+   REGLAS CRÍTICAS DE REDACCIÓN
+═══════════════════════════════════════════════════════════════
+
+1. **SIN PREÁMBULOS NI YAPPING**: Genera el documento inmediatamente. NO incluyas explicación, resumen, ni preámbulo. El output comienza con "### PROEMIO".
+2. **CITA AGRESIVA DEL RAG**: Cada Concepto de Infracción DEBE citar al menos 2-3 artículos del contexto recuperado usando [Doc ID: uuid].
+3. **DATOS FALTANTES**: Usa **[INSERTAR DATO]** en negritas para cualquier información que el usuario no proporcionó. Esto permite que el usuario rellene los huecos antes de imprimir.
+4. **NEGRITAS ESTRATÉGICAS**: Resalta con ** nombres, fechas clave, preceptos legales y artículos constitucionales para que el conversor DOCX los respete.
+5. **CREATIVIDAD JURÍDICA**: Sé creativo en la argumentación. Relaciona hechos con normas de forma contundente. Usa silogismos jurídicos implacables.
+6. **ADAPTACIÓN JURISDICCIONAL**: Si es Federal → Consejo de la Judicatura Federal + Ley Orgánica del PJF. Si es Estatal → Consejo de la Judicatura del Estado + Ley Orgánica del Poder Judicial del Estado.
+"""
+
 def get_drafting_prompt(tipo: str, subtipo: str) -> str:
     """Retorna el prompt apropiado según el tipo de documento"""
     if tipo == "contrato":
@@ -1917,6 +2025,8 @@ def get_drafting_prompt(tipo: str, subtipo: str) -> str:
         return SYSTEM_PROMPT_DRAFT_IMPUGNACION
     elif tipo == "peticion_oficio":
         return SYSTEM_PROMPT_PETICION_OFICIO
+    elif tipo == "denuncia_administrativa":
+        return SYSTEM_PROMPT_DRAFT_DENUNCIA_ADMINISTRATIVA
     else:
         return SYSTEM_PROMPT_CHAT  # Fallback
 
@@ -6445,12 +6555,28 @@ async def chat_endpoint(request: ChatRequest):
         # Extraer tipo y subtipo del mensaje de redacción (UI-triggered)
         import re
         tipo_match = re.search(r'Tipo:\s*(\w+)', last_user_message)
-        subtipo_match = re.search(r'Subtipo:\s*(\w+)', last_user_message)
+        subtipo_match = re.search(r'Subtipo:\s*(.+?)\n', last_user_message)
         if tipo_match:
             draft_tipo = tipo_match.group(1).lower()
         if subtipo_match:
-            draft_subtipo = subtipo_match.group(1).lower()
-        print(f" Modo REDACCIÓN detectado - Tipo: {draft_tipo}, Subtipo: {draft_subtipo}")
+            draft_subtipo = subtipo_match.group(1).strip().lower()
+        # Parsear campos adicionales para denuncia administrativa
+        draft_nivel = None
+        draft_cargo = None
+        draft_materia_denuncia = None
+        if draft_tipo == "denuncia_administrativa":
+            nivel_match = re.search(r'Nivel:\s*(.+?)\n', last_user_message)
+            cargo_match = re.search(r'Cargo:\s*(.+?)\n', last_user_message)
+            materia_match = re.search(r'Materia:\s*(.+?)\n', last_user_message)
+            if nivel_match:
+                draft_nivel = nivel_match.group(1).strip()
+            if cargo_match:
+                draft_cargo = cargo_match.group(1).strip()
+            if materia_match:
+                draft_materia_denuncia = materia_match.group(1).strip()
+            print(f"   🏛️ DENUNCIA ADMINISTRATIVA — Nivel: {draft_nivel}, Cargo: {draft_cargo}, Materia: {draft_materia_denuncia}, Faltas: {draft_subtipo}")
+        else:
+            print(f" Modo REDACCIÓN detectado - Tipo: {draft_tipo}, Subtipo: {draft_subtipo}")
     
     # DA VINCI: Inicializar variables de comparación multi-estado
     multi_states = None
@@ -6488,17 +6614,66 @@ async def chat_endpoint(request: ChatRequest):
                 descripcion_match = re.search(r'Descripción del caso:\s*(.+)', last_user_message, re.DOTALL)
                 descripcion = descripcion_match.group(1).strip() if descripcion_match else last_user_message
                 
-                # Crear query de búsqueda enfocada en el tipo de documento y su contenido
-                search_query = f"{draft_tipo} {draft_subtipo} artículos fundamento legal: {descripcion[:1500]}"
+                # ── DENUNCIA ADMINISTRATIVA: RAG ENRIQUECIDO ──
+                if draft_tipo == "denuncia_administrativa":
+                    # Búsqueda 1: Responsabilidades administrativas + Ley Orgánica PJF
+                    query_responsabilidades = (
+                        f"Ley General de Responsabilidades Administrativas servidores públicos "
+                        f"notoria ineptitud dilación procesal causas responsabilidad judicial "
+                        f"Ley Orgánica Poder Judicial obligaciones juzgadores "
+                        f"Consejo Judicatura procedimiento disciplinario: {descripcion[:800]}"
+                    )
+                    # Búsqueda 2: Art. 17 CPEUM + CIDH plazo razonable
+                    query_constitucional = (
+                        f"artículo 17 constitucional justicia pronta expedita plazo razonable "
+                        f"Corte Interamericana Derechos Humanos debido proceso acceso justicia "
+                        f"jurisprudencia notoria ineptitud negligencia judicial"
+                    )
+                    
+                    print(f"   🏛️ DENUNCIA ADMIN RAG — Query responsabilidades: {query_responsabilidades[:120]}...")
+                    print(f"   🏛️ DENUNCIA ADMIN RAG — Query constitucional: {query_constitucional[:120]}...")
+                    
+                    # Ejecutar 2 búsquedas en paralelo para cobertura amplia
+                    results_resp, results_const = await asyncio.gather(
+                        hybrid_search_all_silos(
+                            query=query_responsabilidades,
+                            estado=request.estado,
+                            top_k=25,
+                            forced_materia=request.materia,
+                            fuero=request.fuero,
+                        ),
+                        hybrid_search_all_silos(
+                            query=query_constitucional,
+                            estado=request.estado,
+                            top_k=20,
+                        ),
+                    )
+                    
+                    # Consolidar y deduplicar resultados
+                    seen_ids = set()
+                    for r in results_resp + results_const:
+                        if r.id not in seen_ids:
+                            seen_ids.add(r.id)
+                            search_results.append(r)
+                    
+                    # Ordenar por score y limitar
+                    search_results.sort(key=lambda x: x.score, reverse=True)
+                    search_results = search_results[:45]
+                    
+                    print(f"   🏛️ DENUNCIA ADMIN — {len(results_resp)} docs responsabilidades + {len(results_const)} docs constitucional = {len(search_results)} total (dedup)")
+                else:
+                    # Crear query de búsqueda enfocada en el tipo de documento y su contenido
+                    search_query = f"{draft_tipo} {draft_subtipo} artículos fundamento legal: {descripcion[:1500]}"
+                    
+                    search_results = await hybrid_search_all_silos(
+                        query=search_query,
+                        estado=request.estado,
+                        top_k=40,
+                        forced_materia=request.materia,
+                        fuero=request.fuero,
+                        include_sentencias=True, # ✅ ACTIVA LOS 6+ EJEMPLOS DE ALTO NIVEL
+                    )
                 
-                search_results = await hybrid_search_all_silos(
-                    query=search_query,
-                    estado=request.estado,
-                    top_k=40,
-                    forced_materia=request.materia,
-                    fuero=request.fuero,
-                    include_sentencias=True, # ✅ ACTIVA LOS 6+ EJEMPLOS DE ALTO NIVEL
-                )
                 doc_id_map = build_doc_id_map(search_results)
                 context_xml = format_results_as_xml(search_results)
                 print(f"   Encontrados {len(search_results)} documentos para fundamentar redacción")
