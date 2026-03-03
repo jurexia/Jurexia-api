@@ -7037,8 +7037,9 @@ async def chat_endpoint(request: ChatRequest):
                 s_end = msg_content.find("<!-- SENTENCIA_FIN -->")
                 if s_start != -1 and s_end != -1:
                     sentencia_text = msg_content[s_start:s_end + len("<!-- SENTENCIA_FIN -->")]
-                    # o3-mini tiene un TPM más alto, pero truncamos a 80K chars (~20K tokens) por seguridad
-                    max_chars = 80000
+                    # DeepSeek 131K limit: truncamos sentencia a 50K chars (~12.5K tokens)
+                    # Budget: ~12.5K sentencia + ~15K RAG + ~5K system/history + 16K completion = ~48.5K (safe)
+                    max_chars = 50000
                     if len(sentencia_text) > max_chars:
                         truncated = sentencia_text[:max_chars]
                         pct = round(max_chars / len(sentencia_text) * 100)
@@ -7082,7 +7083,7 @@ async def chat_endpoint(request: ChatRequest):
             # Evita facturas enormes y el límite de 1M tokens al mezclar caché + documentos gigantes.
             active_client = deepseek_client
             active_model = DEEPSEEK_CHAT_MODEL
-            max_tokens = 50000
+            max_tokens = 16000  # Auditoría de sentencia: output es JSON estructurado, 16K es suficiente
             use_thinking = True
             _effective_cached = None
             use_gemini = False
