@@ -7621,7 +7621,7 @@ Responde SOLO con un JSON array de strings:
 """
         
         extraction_response = await chat_client.chat.completions.create(
-            model=CHAT_MODEL,
+            model="gpt-4o",
             messages=[{"role": "user", "content": extraction_prompt}],
             temperature=0.2,
             max_completion_tokens=500,
@@ -7688,7 +7688,7 @@ EVIDENCIA JURÍDICA:
 Realiza la auditoría siguiendo las instrucciones del sistema."""
         
         audit_response = await chat_client.chat.completions.create(
-            model=CHAT_MODEL,
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT_AUDIT},
                 {"role": "user", "content": audit_prompt},
