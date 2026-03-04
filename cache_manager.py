@@ -1,8 +1,15 @@
 """
-Iurexia Legal Cache Manager — ON-DEMAND Strategy (v8 — Feb 2026)
-================================================================
-Creates a Gemini cached context (~950K tokens of Mexican legal texts)
-ONLY when a user explicitly activates "Genio Jurídico" — NOT at server startup.
+Iurexia Cache Manager — Genio Amparo (v9 — Mar 2026)
+====================================================
+Creates a Gemini cached context (~200K tokens) ONLY when a user explicitly
+activates "Genio Amparo" — NOT at server startup.
+
+Corpus (Amparo constitucional reducido):
+  - CPEUM arts. 1-30, 103-107
+  - Ley de Amparo completa
+  - Tratados DDHH: CADH, PIDCP, PIDESC, Conv. Niño, Conv. Mayores
+  - 22 Jurisprudencias obligatorias del Pleno y Salas (SCJN)
+  ~201K tokens total (~81% menos que el corpus anterior)
 
 │ REGLA PERMANENTE DEL MODELO │
 │ Modelo: gemini-3-flash-preview                              │
@@ -11,8 +18,8 @@ ONLY when a user explicitly activates "Genio Jurídico" — NOT at server startu
 
 API: Gemini AI Studio (google-genai SDK) via GEMINI_API_KEY
 Model: gemini-3-flash-preview
-Corpus: 12 files in cache_corpus/ — CPEUM, CCF, CPF, LFT, Amparo, CCom, LGTOC + 5 DDHH treaties
-Hard limit: 1,048,576 tokens (límite oficial del modelo según Google)
+Corpus: 7 files in cache_corpus/ — CPEUM, Amparo, 5 Tratados DDHH + Jurisprudencias
+Hard limit: 300,000 tokens (target corpus amparo — margen seguro anticrash)
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -46,11 +53,11 @@ logger = logging.getLogger("iurexia.cache")
 CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-3-flash-preview")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))
-CACHE_DISPLAY_NAME = "iurexia-legal-corpus-v7"
+CACHE_DISPLAY_NAME = "iurexia-amparo-corpus-v8"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
-MAX_CACHE_TOKENS = 1_048_576     # Límite oficial de gemini-3-flash-preview (fuente: ai.google.dev)
+MAX_CACHE_TOKENS = 300_000       # Target del corpus Genio Amparo (~201K tokens reales — margen anticrash)
 MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "10"))  # Budget guard
 
 # ── Global State ─────────────────────────────────────────────────────────────
@@ -205,11 +212,15 @@ async def _create_cache() -> Optional[str]:
         ttl_seconds = CACHE_TTL_MINUTES * 60
 
         system_instruction = (
-            "Eres Iurexia, un asistente jurídico mexicano de élite. "
-            "Tienes acceso directo al texto íntegro de las siguientes leyes y tratados "
-            "internacionales ratificados por México. Cuando el usuario haga una consulta legal, "
-            "cita TEXTUALMENTE los artículos relevantes con su número exacto y ley de origen. "
-            "Nunca inventes contenido legal. Si un artículo no está en tu contexto, dilo explícitamente."
+            "Eres el Genio Amparo de Iurexia, un asistente jurídico constitucional de élite "
+            "especializado en juicio de amparo, control de convencionalidad y derechos humanos. "
+            "Tienes acceso al texto íntegro de: CPEUM (arts. 1-30 y 103-107), Ley de Amparo completa, "
+            "5 tratados internacionales de DDHH (CADH, PIDCP, PIDESC, Convención Niño, Conv. Mayores) "
+            "y 22 jurisprudencias obligatorias del Pleno y Salas de la SCJN en materia constitucional. "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos o criterios jurisprudenciales "
+            "relevantes con su número exacto y fuente de origen. Aplica siempre el principio pro persona "
+            "e interpretación conforme. Nunca inventes contenido legal. "
+            "Si el artículo o tesis no está en tu contexto, dilo explícitamente."
         )
 
         logger.info(
