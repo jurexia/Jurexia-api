@@ -8262,7 +8262,8 @@ ADMIN_EMAILS = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split("
 def _can_access_sentencia(user_email: str) -> bool:
     """
     Check if a user can access the Redactor de Sentencias.
-    Returns True if the user is an admin OR has ultra_secretarios subscription.
+    Returns True if the user is an admin, has ultra_secretarios subscription,
+    OR has been manually granted access via can_access_sentencia flag.
     """
     email_lower = user_email.strip().lower()
 
@@ -8270,23 +8271,68 @@ def _can_access_sentencia(user_email: str) -> bool:
     if email_lower in ADMIN_EMAILS:
         return True
 
-    # Supabase path: check subscription_type
+    # Supabase path: check subscription_type AND can_access_sentencia flag
     if supabase_admin:
         try:
             result = supabase_admin.table('user_profiles') \
-                .select('subscription_type') \
+                .select('subscription_type, can_access_sentencia') \
                 .eq('email', email_lower) \
                 .limit(1) \
                 .execute()
             if result.data and len(result.data) > 0:
-                sub_type = result.data[0].get('subscription_type', '')
+                row = result.data[0]
+                sub_type = row.get('subscription_type', '')
                 if sub_type == 'ultra_secretarios':
                     print(f"   ✅ Acceso Redactor concedido: {email_lower} (suscripción {sub_type})")
+                    return True
+                if row.get('can_access_sentencia', False):
+                    print(f"   ✅ Acceso Redactor concedido: {email_lower} (habilitado manualmente por admin)")
                     return True
         except Exception as e:
             print(f"   ⚠️ Error checking subscription for {email_lower}: {e}")
 
     return False
+
+
+# ── Admin: Toggle sentencia access for a user ────────────────────────────────
+@app.post("/admin/users/{user_id}/toggle-sentencia")
+async def admin_toggle_sentencia(user_id: str, authorization: str = Header(...)):
+    """Toggle can_access_sentencia for a user (admin only)."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        # Get current value
+        result = supabase_admin.table('user_profiles') \
+            .select('can_access_sentencia, email') \
+            .eq('id', user_id) \
+            .limit(1) \
+            .execute()
+
+        if not result.data or len(result.data) == 0:
+            raise HTTPException(404, "User not found")
+
+        row = result.data[0]
+        current = row.get('can_access_sentencia', False)
+        user_email = row.get('email', 'unknown')
+        new_value = not current
+
+        supabase_admin.table('user_profiles') \
+            .update({'can_access_sentencia': new_value}) \
+            .eq('id', user_id) \
+            .execute()
+
+        action = "enable_sentencia" if new_value else "disable_sentencia"
+        _log_admin_action(admin["email"], action, user_id, {"user_email": user_email})
+        print(f"   🔄 Sentencia access for {user_email} ({user_id}): {current} → {new_value}")
+
+        return {"success": True, "can_access_sentencia": new_value}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Toggle sentencia error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al cambiar acceso: {str(e)}")
+
+
 
 GEMINI_MODEL = "gemini-2.5-flash"         # Stable, higher quota (4M+ TPM)
 GEMINI_MODEL_FAST = "gemini-2.5-flash"  # Same model for cache efficiency
