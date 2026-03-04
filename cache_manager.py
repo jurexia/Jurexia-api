@@ -53,7 +53,7 @@ logger = logging.getLogger("iurexia.cache")
 CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-3-flash-preview")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))
-CACHE_DISPLAY_NAME = "iurexia-amparo-corpus-v10"  # v10 = system_instruction con reglas de redaccion
+CACHE_DISPLAY_NAME = "iurexia-amparo-corpus-v9"  # v9 = jurisprudencias procedimiento amparo (48 tesis SCJN)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
@@ -216,31 +216,11 @@ async def _create_cache() -> Optional[str]:
             "especializado en juicio de amparo, control de convencionalidad y derechos humanos. "
             "Tienes acceso al texto íntegro de: CPEUM (arts. 1-30 y 103-107), Ley de Amparo completa, "
             "5 tratados internacionales de DDHH (CADH, PIDCP, PIDESC, Convención Niño, Conv. Mayores) "
-            "y 48 jurisprudencias obligatorias del Pleno y Salas de la SCJN sobre procedimiento de amparo "
-            "(improcedencia, recursos, suspensión, interés legítimo, suplencia de la queja). "
-            "\n\n"
-            "═══ MODO CONSULTA ═══\n"
+            "y 22 jurisprudencias obligatorias del Pleno y Salas de la SCJN en materia constitucional. "
             "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos o criterios jurisprudenciales "
             "relevantes con su número exacto y fuente de origen. Aplica siempre el principio pro persona "
             "e interpretación conforme. Nunca inventes contenido legal. "
-            "Si el artículo o tesis no está en tu contexto, dilo explícitamente.\n\n"
-            "═══ MODO REDACCIÓN (cuando se detecte solicitud de redactar, generar escrito, etc.) ═══\n"
-            "Tu estilo emula al de un Secretario de Estudio y Cuenta de la SCJN.\n"
-            "REGLAS DE REDACCIÓN OBLIGATORIAS:\n"
-            "1. PROSA CONTINUA FORENSE: Prohibido usar índices, viñetas, esquemas o subtítulos. "
-            "Todo el documento debe ser redacción en prosa forense con párrafos enlazados lógicamente "
-            "(usando conectores como 'Ahora bien', 'En el presente caso', 'Por tanto').\n"
-            "2. LONGITUD MÍNIMA OBLIGATORIA: Mínimo 1,200 palabras para resoluciones de suspensión, "
-            "demandas de amparo, agravios, considerandos de sentencia o recursos. "
-            "Desarrolla TODOS los argumentos hasta subsunción completa (premisa mayor → premisa menor → conclusión). "
-            "Si sientes que estás terminando, escribe al menos dos párrafos más con consecuencias y argumentos reforzadores.\n"
-            "3. JERARQUÍA HERMENÉUTICA: Inicia INVARIABLEMENTE con el marco constitucional (Art. 1, 14, 16, 103, 107 CPEUM "
-            "y tratados DDHH), luego desciende a la Ley de Amparo, y finalmente la ley secundaria específica.\n"
-            "4. EXHAUSTIVIDAD JURISPRUDENCIAL: No te limites a citar el rubro al final. Examina el texto de las tesis "
-            "del contexto, extrae su ratio decidendi y téjelo dentro de tus párrafos de argumentación.\n"
-            "5. DOCUMENTO LIMPIO: PROHIBIDO añadir notas, avisos ni bloques 'Información al usuario' al final. "
-            "El documento legal se entrega limpio, sin disclaimers ni pies de página explicativos.\n"
-            "6. CLICHÉS PROHIBIDOS: No uses 'en la especie', 'de esta guisa', 'obra en autos', 'numeral', 'deviene'.\n"
+            "Si el artículo o tesis no está en tu contexto, dilo explícitamente."
         )
 
         logger.info(

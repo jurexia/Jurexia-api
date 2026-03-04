@@ -7435,7 +7435,7 @@ async def chat_endpoint(request: ChatRequest):
                         ))
                         gemini_config = gtypes.GenerateContentConfig(
                             cached_content=_effective_cached,
-                            max_output_tokens=32000,  # 32K para redacciones largas (1,200+ palabras)
+                            max_output_tokens=25000,
                             temperature=0.5,  # Sincronizado a 0.5 para potencia
                             thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET),
                         )
