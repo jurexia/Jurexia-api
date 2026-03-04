@@ -22,7 +22,7 @@ import uuid
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -11043,6 +11043,296 @@ Sé profundo en los agravios fundados y conciso en los infundados/inoperantes.""
             yield f"\n\n[Error al generar: {str(e)}]"
 
     return StreamingResponse(stream_gemini(), media_type="text/plain")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REDACCIÓN DE SENTENCIAS — FUERO ESTATAL · PRIMERA INSTANCIA
+#
+# Gemini Flash → extrae PDFs → 3× DeepSeek Reasoner → streaming text/plain
+# ═══════════════════════════════════════════════════════════════════════════════
+
+REDACCION_ESTATAL_SYSTEM = """Eres un Secretario de Acuerdos EXPERTO de un Juzgado de Primera Instancia del Fuero Común en México.
+
+Tu tarea es redactar el ESTUDIO DE FONDO completo de una sentencia definitiva de primera instancia.
+
+═══ ESTRUCTURA DE LA SENTENCIA ═══
+
+PRIMERO. Competencia — Fundamento legal de la competencia del Juzgado.
+SEGUNDO. Vía — Procedencia de la vía ordinaria civil (u otra que corresponda).
+TERCERO. Secuela procesal — Resumen cronológico de TODO el procedimiento: demanda, emplazamiento, contestación(es) o rebeldía, audiencias, desahogo de pruebas.
+CUARTO. Presupuestos procesales y excepciones — Análisis de cada excepción opuesta por la(s) parte(s) demandada(s). Determina si proceden o no.
+QUINTO. Estudio de fondo — Análisis de la acción y cada una de las prestaciones reclamadas. Examina elementos constitutivos, pruebas que los acreditan, defensas del demandado.
+SEXTO. Puntos resolutivos — Conclusiones operativas de la sentencia.
+
+═══ REGLAS DE REDACCIÓN ═══
+
+1. Segunda persona formal del juzgador: "Esta Juzgadora advierte...", "Se tiene por acreditado...", "Este Juzgado considera..."
+2. Voz activa siempre. Oraciones de máximo 30 palabras.
+3. Fundamenta con artículos del Código de Procedimientos Civiles del Estado y supletoriamente el Código Federal de Procedimientos Civiles.
+4. Cita textualmente los argumentos de las partes entre comillas.
+5. Para el estudio de fondo, analiza CADA prestación reclamada por separado.
+6. En rebeldía: señala la consecuencia procesal (presunción de hechos o confesión ficta según la legislación estatal).
+7. Valora las pruebas conforme a las reglas de valoración del código procesal estatal.
+
+═══ PROHIBIDO ═══
+
+- "en la especie" → usar "en este caso"
+- "obra en autos" → usar "consta en el expediente"
+- "de esta guisa" → usar "así" o "de este modo"
+- "robustece" → usar "confirma" o "fortalece"
+- "estar en aptitud de" → usar "poder"
+- "se desprende que" → usar "resulta que"
+- "en base a" → usar "con base en"
+- "respecto a" → usar "respecto de"
+- "acorde con" → usar "conforme a"
+- "deviene" → usar "resulta"
+- "se colige" → usar "se concluye"
+- "numeral" → usar "artículo"
+
+═══ EXTENSIÓN ═══
+
+El documento completo debe tener entre 10 y 20 páginas."""
+
+
+@app.post("/redaccion-sentencias-estatal")
+async def redaccion_sentencias_estatal(request: Request):
+    """
+    Redacción de Sentencias — Fuero Estatal, Primera Instancia.
+    Gemini Flash extrae PDFs → 3 DeepSeek Reasoner calls → streaming text/plain.
+    Uses Request directly to handle dynamic contestacion_N file uploads.
+    """
+    import json as _json
+
+    # ── Parse multipart form data ────────────────────────────────────────
+    form = await request.form()
+
+    user_email = str(form.get("user_email", ""))
+    num_demandados = int(str(form.get("num_demandados", "1")))
+    demandado_nombres_str = str(form.get("demandado_nombres", "[]"))
+    demandados_rebeldia_str = str(form.get("demandados_rebeldia", "[]"))
+    decision_razonamiento = str(form.get("decision_razonamiento", ""))
+    pruebas_consideradas = str(form.get("pruebas_consideradas", ""))
+    instrucciones = str(form.get("instrucciones", ""))
+
+    demanda_upload = form.get("demanda")
+
+    # ── Validation ────────────────────────────────────────────────────────
+    if not user_email:
+        raise HTTPException(400, "user_email es requerido")
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
+    if not deepseek_client:
+        raise HTTPException(500, "DeepSeek client no configurado")
+
+    try:
+        nombres = _json.loads(demandado_nombres_str)
+        rebeldia_flags = _json.loads(demandados_rebeldia_str)
+    except Exception:
+        raise HTTPException(400, "Error al parsear datos de demandados (JSON inválido)")
+
+    if len(nombres) != num_demandados or len(rebeldia_flags) != num_demandados:
+        raise HTTPException(400, "Inconsistencia en número de demandados")
+
+    # ── Read demanda PDF ─────────────────────────────────────────────────
+    if not demanda_upload or not hasattr(demanda_upload, 'read'):
+        raise HTTPException(400, "El documento de demanda es requerido")
+    demanda_bytes = await demanda_upload.read()
+    if not demanda_bytes:
+        raise HTTPException(400, "El documento de demanda está vacío")
+
+    print(f"\n🏛️ REDACCIÓN ESTATAL 1RA INSTANCIA — {user_email}")
+    print(f"   📄 Demanda: {getattr(demanda_upload, 'filename', 'demanda.pdf')} ({len(demanda_bytes)/1024:.0f}KB)")
+    print(f"   👥 Demandados: {num_demandados} — {nombres}")
+
+    # ── Build PDF parts for Gemini ───────────────────────────────────────
+    from google import genai
+    from google.genai import types as gtypes
+
+    pdf_parts = [
+        gtypes.Part.from_text(text="--- DEMANDA (Escrito Inicial) ---"),
+        gtypes.Part.from_bytes(data=demanda_bytes, mime_type="application/pdf"),
+    ]
+
+    # Read contestación PDFs dynamically from form
+    for idx in range(num_demandados):
+        nombre = nombres[idx] if idx < len(nombres) else f"Demandado {idx+1}"
+        en_rebeldia = rebeldia_flags[idx] if idx < len(rebeldia_flags) else False
+
+        if en_rebeldia:
+            pdf_parts.append(gtypes.Part.from_text(
+                text=f"\n--- DEMANDADO {idx+1}: {nombre} — DECLARADO EN REBELDÍA (no contestó la demanda) ---\n"
+            ))
+            print(f"   ⚖️ {nombre}: EN REBELDÍA")
+        else:
+            contest_file = form.get(f"contestacion_{idx}")
+            if contest_file and hasattr(contest_file, 'read'):
+                contest_bytes = await contest_file.read()
+                if contest_bytes:
+                    pdf_parts.append(gtypes.Part.from_text(
+                        text=f"\n--- CONTESTACIÓN DE {nombre} (Demandado {idx+1}) ---"
+                    ))
+                    pdf_parts.append(gtypes.Part.from_bytes(data=contest_bytes, mime_type="application/pdf"))
+                    print(f"   📄 {nombre}: Contestación ({len(contest_bytes)/1024:.0f}KB)")
+                else:
+                    print(f"   ⚠️ {nombre}: Contestación vacía")
+            else:
+                print(f"   ⚠️ {nombre}: No se encontró archivo contestacion_{idx}")
+
+    # ── Phase 1: Extract ALL documents with Gemini Flash ─────────────────
+    try:
+        gemini_client = get_gemini_client()
+
+        extract_prompt = f"""Lee TODOS los documentos judiciales adjuntos de un juicio civil de primera instancia (Fuero Estatal).
+
+PARTES:
+- Parte actora (demandante): según demanda
+- Demandados: {', '.join(nombres)}
+- Demandados en rebeldía: {', '.join([nombres[i] for i in range(num_demandados) if rebeldia_flags[i]]  or ['Ninguno'])}
+
+EXTRAE DETALLADAMENTE:
+1. Datos del expediente (número, juzgado, partes, fechas)
+2. Prestaciones reclamadas por la parte actora (CADA UNA)
+3. Hechos de la demanda (cronología completa)
+4. Fundamentos de derecho citados por el actor
+5. Para cada demandado que contestó: excepciones, defensas, hechos que controvierte, pruebas que ofrece
+6. Para demandados en rebeldía: señalar las consecuencias procesales
+7. Pruebas ofrecidas por TODAS las partes
+8. Cualquier incidente procesal relevante
+
+Sé MUY detallado — necesito toda la información para redactar la sentencia completa."""
+
+        pdf_parts.append(gtypes.Part.from_text(text=extract_prompt))
+
+        extraction = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=pdf_parts,
+            config=gtypes.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=65536,
+            ),
+        )
+
+        extracted_text = extraction.text or ""
+        print(f"   📋 Extracción completa: {len(extracted_text)} chars")
+
+    except Exception as e:
+        print(f"   ❌ Extracción error: {e}")
+        raise HTTPException(500, f"Error al leer los PDFs: {str(e)}")
+
+    # ── Phase 2: 3 sequential DeepSeek calls, each streamed to client ────
+    decision_context = f"""═══ DECISIÓN DEL SECRETARIO ═══
+
+SENTIDO DE LA RESOLUCIÓN Y RAZONAMIENTO:
+{decision_razonamiento.strip()}
+
+PRUEBAS CONSIDERADAS:
+{pruebas_consideradas.strip()}"""
+
+    instrucciones_extra = ""
+    if instrucciones.strip():
+        instrucciones_extra = f"\n\n═══ INSTRUCCIONES ADICIONALES ═══\n\n{instrucciones.strip()}\n\nSigue estas instrucciones al pie de la letra."
+
+    base_context = f"""═══ DATOS EXTRAÍDOS DEL EXPEDIENTE ═══
+
+{extracted_text}
+
+{decision_context}{instrucciones_extra}"""
+
+    # The 3 DeepSeek calls:
+    deepseek_calls = [
+        {
+            "label": "Secuela Procesal",
+            "prompt": f"""{REDACCION_ESTATAL_SYSTEM}
+
+{base_context}
+
+═══ INSTRUCCIÓN ═══
+
+Redacta ÚNICAMENTE los considerandos PRIMERO, SEGUNDO y TERCERO de la sentencia:
+
+PRIMERO. Competencia — Fundamenta la competencia del Juzgado (artículos aplicables del código procesal estatal y la Ley Orgánica del Poder Judicial del Estado).
+
+SEGUNDO. Vía — Justifica la procedencia de la vía procesal elegida por la parte actora.
+
+TERCERO. Secuela procesal del juicio — Describe CRONOLÓGICAMENTE todo el procedimiento: admisión de la demanda, emplazamiento(s), contestación(es) o declaración de rebeldía, audiencias celebradas, apertura del periodo probatorio, desahogo de pruebas, alegatos y citación para sentencia.
+
+Sé preciso con datos, fechas y fojas del expediente.""",
+        },
+        {
+            "label": "Estudio de Fondo",
+            "prompt": f"""{REDACCION_ESTATAL_SYSTEM}
+
+{base_context}
+
+═══ INSTRUCCIÓN ═══
+
+Redacta ÚNICAMENTE los considerandos CUARTO y QUINTO de la sentencia:
+
+CUARTO. Presupuestos procesales y excepciones — Analiza:
+a) Los presupuestos procesales (personalidad, legitimación, interés jurídico)
+b) CADA excepción opuesta por los demandados (si las hay). Para cada excepción: describe el planteamiento, analiza los elementos, fundamenta jurídicamente y concluye si procede o no.
+c) Si algún demandado fue declarado en rebeldía, analiza las consecuencias procesales según la legislación estatal.
+
+QUINTO. Estudio de fondo — Analiza la acción ejercitada y CADA prestación reclamada:
+a) Identifica los elementos constitutivos de la acción
+b) Analiza las pruebas que acreditan o no cada elemento
+c) Valora las pruebas conforme a las reglas del código procesal
+d) Considera las defensas del demandado sobre cada punto
+e) Concluye si cada prestación procede o no, con fundamentación
+
+Este es el considerando MÁS EXTENSO y detallado de toda la sentencia. Sé profundo y exhaustivo.""",
+        },
+        {
+            "label": "Puntos Resolutivos",
+            "prompt": f"""{REDACCION_ESTATAL_SYSTEM}
+
+{base_context}
+
+═══ INSTRUCCIÓN ═══
+
+Redacta ÚNICAMENTE el considerando SEXTO y los PUNTOS RESOLUTIVOS de la sentencia:
+
+SEXTO. Consideraciones finales — Sintetiza las conclusiones de todo el análisis previo. Establece si la acción principal prosperó total o parcialmente. Determina la condena o absolución.
+
+PUNTOS RESOLUTIVOS:
+- Numera cada resolutivo (PRIMERO, SEGUNDO, TERCERO...)
+- Declara procedente/improcedente la acción
+- Condena o absuelve al(los) demandado(s) respecto de CADA prestación
+- Determina costas (si aplica)
+- Ordena notificación a las partes
+
+Redacta con precisión técnica. Los resolutivos deben ser autosuficientes — que se entiendan sin leer el resto de la sentencia.""",
+        },
+    ]
+
+    async def stream_3_passes():
+        try:
+            for i, call_config in enumerate(deepseek_calls):
+                if i > 0:
+                    yield "\n\n"  # Separator between sections
+
+                yield f"{'═' * 60}\n{call_config['label'].upper()}\n{'═' * 60}\n\n"
+
+                response = await deepseek_client.chat.completions.create(
+                    model="deepseek-reasoner",
+                    messages=[
+                        {"role": "user", "content": call_config["prompt"]},
+                    ],
+                    max_tokens=16384,
+                    stream=True,
+                )
+
+                async for chunk in response:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
+
+                print(f"   ✅ DeepSeek pasada {i+1}/3 ({call_config['label']}) completada")
+
+        except Exception as e:
+            print(f"   ❌ DeepSeek streaming error (estatal): {e}")
+            yield f"\n\n[Error al generar: {str(e)}]"
+
+    return StreamingResponse(stream_3_passes(), media_type="text/plain")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
