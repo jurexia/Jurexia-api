@@ -53,7 +53,7 @@ logger = logging.getLogger("iurexia.cache")
 CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-3-flash-preview")
 CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
 CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))
-CACHE_DISPLAY_NAME = "iurexia-amparo-corpus-v8"
+CACHE_DISPLAY_NAME = "iurexia-amparo-corpus-v9"  # v9 = jurisprudencias procedimiento amparo (48 tesis SCJN)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
