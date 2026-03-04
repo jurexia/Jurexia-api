@@ -1,140 +1,80 @@
-JURISPRUDENCIAS OBLIGATORIAS — MATERIA CONSTITUCIONAL
-Suprema Corte de Justicia de la Nacion — Pleno, Primera Sala y Segunda Sala
-Criterios aplicables en Amparo, Control de Convencionalidad y DDHH
+JURISPRUDENCIAS OBLIGATORIAS — PROCEDIMIENTO DE AMPARO
+Suprema Corte de Justicia de la Nación — Pleno, Primera Sala y Segunda Sala
+Fuente: Semanario Judicial de la Federación
 ================================================================================
 
-JURISPRUDENCIA: DERECHO DE ALIMENTOS (HABITACIÓN) DE LAS PERSONAS MENORES DE EDAD. ES DISTINTO DEL DERECHO DE USO QUE SUS PROGENITORES DEFIENDEN EN UN JUICIO DE TERMINACIÓN DE CONTRATO DE COMODATO RESPECTO DEL INMUEBLE DONDE HABITAN, POR LO QUE EN DICHO JUICIO NO PROCEDE ANALIZAR EL ASUNTO A LA LUZ DEL INTERÉS SUPE
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2023695
+ESTRUCTURA DE ESTE CORPUS:
+  - CAUSALES DE IMPROCEDENCIA Y SOBRESEIMIENTO: 10 jurisprudencias
+  - INTERÉS JURÍDICO E INTERÉS LEGÍTIMO: 6 jurisprudencias
+  - RECURSOS: QUEJA, REVISIÓN Y RECLAMACIÓN: 10 jurisprudencias
+  - AMPARO DIRECTO — PROCEDENCIA Y PROCESO: 8 jurisprudencias
+  - AMPARO INDIRECTO — PROCEDENCIA Y PROCESO: 8 jurisprudencias
+  - SUPLENCIA DE LA QUEJA DEFICIENTE: 6 jurisprudencias
+  - DERECHOS HUMANOS Y CONTROL DE CONVENCIONALIDAD EN AMPARO: 0 jurisprudencias
 
-[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 21/2021 (11a.)] [REGISTRO: 2023695]
----------------------------------------------------------------------------------------------------------------------
-DERECHO DE ALIMENTOS (HABITACIÓN) DE LAS PERSONAS MENORES DE EDAD. ES DISTINTO DEL DERECHO DE USO QUE SUS PROGENITORES DEFIENDEN EN UN JUICIO DE TERMINACIÓN DE CONTRATO DE COMODATO RESPECTO DEL INMUEBLE DONDE HABITAN, POR LO QUE EN DICHO JUICIO NO PROCEDE ANALIZAR EL ASUNTO A LA LUZ DEL INTERÉS SUPERIOR DE LA INFANCIA.
-
-
-
-Hechos: El padre y la madre de dos personas menores de edad fueron demandados por la abuela de éstas en un juicio sobre terminación de contrato verbal de comodato, respecto de un inmueble que ocupaban aquéllos como casa habitación. En primera y segunda instancia se determinó la improcedencia de la acción planteada por la abuela; razón por la cual esta última promovió juicio de amparo. El Tribunal Colegiado concedió protección constitucional para que la autoridad responsable emitiera una nueva resolución, en la que valorara debidamente las pruebas desahogadas en el juicio. Los padres de las menores de edad presentaron un recurso de revisión en el que alegaron que el Tribunal Colegiado debió analizar el impacto que tendría la concesión del amparo en los derechos humanos de sus hijas quienes habitaban el domicilio y por lo tanto se podrían ver desalojadas de dicho inmueble.
-
-
-Criterio jurídico: El derecho de alimentos de las hijas o hijos menores de edad (que comprende la habitación), es distinto del derecho de uso que sus padres, como parte en el proceso, defienden en un juicio de terminación de contrato de comodato, por lo que en estos casos la autoridad jurisdiccional no se encuentra constreñida a realizar ningún pronunciamiento sobre el impacto de la determinación en el interés superior de la infancia, ya que no existe disputa respecto de los derechos de niños, niñas o adolescentes.
+================================================================================
 
 
-Justificación: A pesar de la estrecha relación funcional que guarda el derecho de habitación de una persona menor de edad, respecto del satisfactor material (inmueble) que se emplea para colmar ese derecho, cuando la litis en el juicio natural versa sobre la determinación judicial de restitución de la posesión de un inmueble, mas no sobre el alcance, subsistencia y/o modificación del derecho de alimentos (habitación) de las personas menores de edad, el caso no amerita ser apreciado a la luz de su interés superior, ni con pers
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: DERECHOS POR INSCRIPCIÓN EN EL REGISTRO PÚBLICO DE LA PROPIEDAD Y DEL COMERCIO DEL ESTADO DE NAYARIT. CUANDO EL QUEJOSO AFIRMA QUE LOS PAGÓ DE MANERA ELECTRÓNICA A TRAVÉS DE UN DEPÓSITO INTERBANCARIO CON REFERENCIA CIE (CONCENTRACIÓN INMEDIATA EMPRESARIAL), INSTRUIDO A TRAVÉS DEL PORTAL DE UNA INSTI
-Tipo: JURISPRUDENCIA | Organo: Plenos de Circuito
-Numero/Registro: 2024913
-
-[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN,] [INSTANCIA: Plenos de Circuito] [TESIS: PC.XXIV. J/2 A (11a.)] [REGISTRO: 2024913]
----------------------------------------------------------------------------------------------------------------------------
-DERECHOS POR INSCRIPCIÓN EN EL REGISTRO PÚBLICO DE LA PROPIEDAD Y DEL COMERCIO DEL ESTADO DE NAYARIT. CUANDO EL QUEJOSO AFIRMA QUE LOS PAGÓ DE MANERA ELECTRÓNICA A TRAVÉS DE UN DEPÓSITO INTERBANCARIO CON REFERENCIA CIE (CONCENTRACIÓN INMEDIATA EMPRESARIAL), INSTRUIDO A TRAVÉS DEL PORTAL DE UNA INSTITUCIÓN PARTICIPANTE EN EL SISTEMA DE PAGOS ELECTRÓNICOS INTERBANCARIOS (SPEI), A MENOS DE QUE LA AUTORIDAD TRIBUTARIA RECONOZCA EXPRESAMENTE QUE SÍ RECIBIÓ EL PAGO, LA IMPRESIÓN DEL COMPROBANTE ELECTRÓNICO DE LA ORDEN DE TRANSFERENCIA BANCARIA CIE, LA IMPRESIÓN DEL FORMATO PARA LA DETERMINACIÓN DEL PAGO DE DERECHOS E IMPUESTOS EXPEDIDA POR LA SECRETARÍA DE ADMINISTRACIÓN Y FINANZAS DEL GOBIERNO DEL ESTADO DE NAYARIT, Y EL INSTRUMENTO PÚBLICO QUE, AL IGUAL QUE LOS DOCUMENTOS ALUDIDOS, CONTIENE EL DESGLOSE DE LAS CANTIDADES Y CONCEPTOS QUE DEBERÍA PAGAR EL CONTRIBUYENTE, POR SÍ MISMAS O ADMINICULADAS ENTRE ELLAS, SON INSUFICIENTES PARA ACREDITAR EL PAGO Y, POR ENDE, LA AFECTACIÓN A SU INTERÉS JURÍDICO.
-
-
-
-Hechos: Los Tribunales Colegiados de Circuito resolvieron de manera discrepante, pues mientras uno consideró que pese a la negativa del acto reclamado de la autoridad tributaria en cuanto a la certeza en el pago de un derecho, se acreditó la afectación al interés jurídico de la parte quejosa, pues al adminicular las pruebas consistentes en: I. La impresión del comprobante electrónico de la orden de transferencia bancaria CIE (Concentración Inmediata Empresarial) que entre otros datos contiene la clave de rastreo, el número de convenio, la cuenta de la dependencia beneficiaria, el folio de Internet, el monto y el concepto de la operación; II. La impresión de la determinación de pago de derechos e impuestos expedida por la Secretaría de Administración y Finanzas del Gobierno del Estado de Nayarit (formato con líneas de captura bancarias y/o código de barras para realizar el pago en ventanilla o en medios electrónicos); y III. El instrumento público que, al igual que los documentos aludidos, contiene el desglose de las cantidades y conceptos que debería pagar el contribuyente por la inscripción de un acto jurídico en el Registro Público de la Propiedad, sí se evidenció el acto de aplicación de los artículos tildados de inc
---------------------------------------------------------------------------------
+================================================================================
+SECCIÓN: CAUSALES DE IMPROCEDENCIA Y SOBRESEIMIENTO
+================================================================================
 
 JURISPRUDENCIA: SOBRESEIMIENTO FUERA DE AUDIENCIA CONSTITUCIONAL. POR REGLA GENERAL, LA NEGATIVA DEL ACTO RECLAMADO NO CONSTITUYE UNA CAUSA NOTORIA, MANIFIESTA E INDUDABLE DE IMPROCEDENCIA PARA DECRETARLO CON FUNDAMENTO EN LO DISPUESTO POR EL ARTÍCULO 63, FRACCIÓN IV, DE LA LEY DE AMPARO.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2015699
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2015699
 
 [TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 49/2017 (10a.)] [REGISTRO: 2015699]
 --------------------------------------------------------------------------------------------------------------------
 SOBRESEIMIENTO FUERA DE AUDIENCIA CONSTITUCIONAL. POR REGLA GENERAL, LA NEGATIVA DEL ACTO RECLAMADO NO CONSTITUYE UNA CAUSA NOTORIA, MANIFIESTA E INDUDABLE DE IMPROCEDENCIA PARA DECRETARLO CON FUNDAMENTO EN LO DISPUESTO POR EL ARTÍCULO 63, FRACCIÓN IV, DE LA LEY DE AMPARO.
 
-De la interpretación sistemática del contenido de los artículos comprendidos del 117 al 124 de la Ley de Amparo, se obtienen las reglas del procedimiento que deben respetarse durante el trámite del juicio de amparo indirecto, de donde se obtiene que rendidos los informes justificados por las autoridades responsables, con ellos debe darse vista a las partes, debiendo mediar un plazo de ocho días entre la fecha en que se ponen en su conocimiento y la diversa señalada para la celebración de la audiencia constitucional, lapso en que deberán aportar las pruebas que consideren necesarias de acuerdo con los lineamientos establecidos en el artículo 119 de la ley de la materia para acreditar sus pretensiones; tal prerrogativa resulta de mayor relevancia para la parte quejosa, porque cuando la autoridad responsable niega el acto reclamado, le genera una carga procesal probatoria, de la que debe hacer uso para controvertir el informe respectivo; para ello se requiere que el juicio se agote en todas sus etapas y que por tanto, la audiencia constitucional se celebre, porque ése es el último momento procesal en que puede aportar medios de prueba para lograr desvirtuar las manifestaciones de la autoridad y alegar lo que a su derecho convenga para demostrar que el acto sí existe y que es violatorio de sus derechos fundamentales; de manera que, por regla general, sobreseer en el juicio antes de que esa actuación ocurra, implica contrariar las reglas del procedimiento, pero sobre todo dejar en completo estado de indefensión a la parte quejosa, lo que indefectiblemente llevará a reponer el procedimiento respectivo, porque no constituye generalmente una justificación válida, el argumento de que se actúa así en aras de una impartición de justicia pronta y expedita conforme a lo que dispone el artículo 17 Constitucional, puesto que está por encima el derecho de defensa del actor constitucional que le otorga la posibilidad de contar con un recurso efectivo, como lo previene el pr
+De la interpretación sistemática del contenido de los artículos comprendidos del 117 al 124 de la Ley de Amparo, se obtienen las reglas del procedimiento que deben respetarse durante el trámite del juicio de amparo indirecto, de donde se obtiene que rendidos los informes justificados por las autoridades responsables, con ellos debe darse vista a las partes, debiendo mediar un plazo de ocho días entre la fecha en que se ponen en su conocimiento y la diversa señalada para la celebración de la audiencia constitucional, lapso en que deberán aportar las pruebas que consideren necesarias de acuerdo con los lineamientos establecidos en el artículo 119 de la ley de la materia para acreditar sus pretensiones; tal prerrogativa resulta de mayor relevancia para la parte quejosa, porque cuando la autoridad responsable niega el acto reclamado, le genera una carga procesal probatoria, de la que debe hacer uso para controvertir el informe respectivo; para ello se requiere que el juicio se agote en todas sus etapas y que por tanto, la audiencia constitucional se celebre, porque ése es el último momento procesal en que puede aportar medios de prueba para lograr desvirtuar las manifestaciones de la autoridad y alegar lo que a su derecho convenga para demostrar que el acto sí existe y que es violatorio de sus derechos fundamentales; de manera que, por regla general, sobreseer en el juicio antes de que esa actuación ocurra, implica contrariar las reglas del procedimiento, pero sobre todo dejar en completo estado de indefensión a la parte quejosa, lo que indefectiblemente llevará a reponer el procedimiento respectivo, porque no constituye generalmente una justificación válida, el argumento de que se actúa así en aras de una impartición de justicia pronta y expedita conforme a lo que dispone el artículo 17 Constitucional, puesto que está por encima el derecho de defensa del actor constitucional que le otorga la posibilidad de contar con un recurso efectivo, como lo previene el propio numeral constitucional invocado y el artículo 25 de la Convención Americana sobre Derechos Humanos.
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: SEGURIDAD SOCIAL PARA LAS FUERZAS ARMADAS MEXICANAS. EL ARTÍCULO PRIMERO TRANSITORIO, INCISO B), EN RELACIÓN CON EL NUMERAL 31, FRACCIÓN III, DE LA LEY DEL INSTITUTO RELATIVO, QUE PREVÉN EL HABER DE RETIRO DIFERENCIADO ENTRE LOS MILITARES, NO VIOLAN LA GARANTÍA DE IGUALDAD.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 164524
+JURISPRUDENCIA: RESPONSABILIDAD PATRIMONIAL DEL ESTADO. NO PROCEDE EL JUICIO DE NULIDAD PREVISTO EN EL ARTÍCULO 24 DE LA LEY RELATIVA, CUANDO SE IMPUGNA UNA RESOLUCIÓN QUE DECRETÓ EL SOBRESEIMIENTO EN EL PROCEDIMIENTO RESPECTIVO O CUANDO EL MAGISTRADO INSTRUCTOR DESECHA DE PLANO LA SOLICITUD DE RECLAMACIÓN PRESENTA
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 165408
 
-[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 48/2010] [REGISTRO: 164524]
+[TIPO: JURISPRUDENCIA] [MATERIA: ADMINISTRATIVA] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 216/2009] [REGISTRO: 165408]
 ----------------------------------------------------------------------------------------------------------------------
-SEGURIDAD SOCIAL PARA LAS FUERZAS ARMADAS MEXICANAS. EL ARTÍCULO PRIMERO TRANSITORIO, INCISO B), EN RELACIÓN CON EL NUMERAL 31, FRACCIÓN III, DE LA LEY DEL INSTITUTO RELATIVO, QUE PREVÉN EL HABER DE RETIRO DIFERENCIADO ENTRE LOS MILITARES, NO VIOLAN LA GARANTÍA DE IGUALDAD.
+RESPONSABILIDAD PATRIMONIAL DEL ESTADO. NO PROCEDE EL JUICIO DE NULIDAD PREVISTO EN EL ARTÍCULO 24 DE LA LEY RELATIVA, CUANDO SE IMPUGNA UNA RESOLUCIÓN QUE DECRETÓ EL SOBRESEIMIENTO EN EL PROCEDIMIENTO RESPECTIVO O CUANDO EL MAGISTRADO INSTRUCTOR DESECHA DE PLANO LA SOLICITUD DE RECLAMACIÓN PRESENTADA.
 
-El artículo primero transitorio, inciso b), en relación con el numeral 31, fracción III, de la Ley del Instituto de Seguridad Social para las Fuerzas Armadas Mexicanas, al establecer un haber de retiro diferenciado entre los militares retirados con treinta años de servicios efectivos o más, y los retirados que no cumplan con dichos años, no violan la garantía de igualdad contenida en el artículo 1o. de la Constitución Política de los Estados Unidos Mexicanos. Ello es así, porque el criterio de distinción utilizado por la Ley no es el origen étnico o nacional, el género, la edad, el hecho de tener capacidades diferentes, la religión, el estado civil, ni cualquier otro que permita identificar a una categoría de personas que compartan o compartieron, en una serie de contextos relevantes, una condición de exclusión o tengan por objeto anular o menoscabar los derechos y libertades de las personas, ya que la norma distingue entre unos individuos y otros por los años de servicios efectivos prestados, sin que ésta se ajuste en un elemento que atente contra la dignidad humana.
-De ahí que la distinción normativa obedece a una finalidad objetiva, contemplada en la Constitución:
-la protección a la seguridad social; además, es instrumentalmente adecuada para cumplir con su objeto constitucional, esto es, se trata de una medida que busca reconocer la permanencia en el servicio de los militares con treinta o más años de servicio, en aras de que mantengan una vida decorosa y digna acorde con su jerarquía militar.
+Si se considera que el Tribunal en Pleno de la ha distinguido entre "sentencia definitiva" y "resolución que pone fin al juicio", entendiendo por la primera la que decide el juicio en lo principal, es decir, la que se ocupa de las acciones y las excepciones planteadas en la demanda y en la contestación respectivas, respecto de la cual las leyes comunes no conceden recurso ordinario alguno por virtud del cual pueda modificarse o revocarse; y la segunda como la que, sin decidir el procedimiento en lo principal, lo da por concluido, respecto de la cual las leyes no conceden recurso ordinario alguno, es indudable que las resoluciones a que se refiere el artículo 24 de la Ley Federal de Responsabilidad Patrimonial del Estado se limitan a las que poseen la naturaleza de definitivas, por resolver precisamente el fondo de lo reclamado, a fin de establecer, en su caso, un monto concreto por concepto de indemnización, lo cual no sería posible si se decretara el sobreseimiento en ese procedimiento al actualizarse alguna causa de improcedencia, de manera que la resolución en la que se pronuncia la improcedencia de un juicio o de un procedimiento no tiene el carácter de una sentencia definitiva, porque no resuelve sobre la situación de fondo materia de la reclamación, pues únicamente declara una situación procesal que podrá o no ser violatoria de garantías, pero que no afecta el fondo del negocio. Esto es, el indicado artículo 24 al referirse a las resoluciones de la autoridad administrativa que nieguen la indemnización o que, por su monto, no satisfagan al reclamante, debe entenderse que alude a resoluciones finales dictadas por el Tribunal Federal de Justicia Fiscal y Administrativa en las que se resuelve el problema de fondo planteado en la reclamación, y no involucra decisiones que ponen fin al juicio, como ocurre cuando dicho Tribunal, actuando en Pleno, emite una resolución luego de haberse agotado el procedimiento respectivo y declara el sobreseimiento, por haberse actualizado una causa de improcedencia, o bien, cuando el Magistrado Instructor desecha de plano la solicitud de reclamación presentada, al estimarla notoriamente improcedente.
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: PRINCIPIO DE PROGRESIVIDAD DE LOS DERECHOS HUMANOS. SU CONCEPTO Y EXIGENCIAS POSITIVAS Y NEGATIVAS.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2015305
+JURISPRUDENCIA: IMPROCEDENCIA DEL JUICIO DE AMPARO. EL TRIBUNAL COLEGIADO DE CIRCUITO PUEDE CONFIRMAR EL AUTO QUE DECRETA EL SOBRESEIMIENTO FUERA DE LA AUDIENCIA CONSTITUCIONAL, POR UNA CAUSA DIVERSA A LA INVOCADA POR EL JUZGADOR DE PRIMER GRADO, SIEMPRE QUE SEA INDUDABLE Y MANIFIESTA.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 168120
 
-[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 85/2017 (10a.)] [REGISTRO: 2015305]
------------------------------------------------------------------------------------------------------------------------------
-PRINCIPIO DE PROGRESIVIDAD DE LOS DERECHOS HUMANOS. SU CONCEPTO Y EXIGENCIAS POSITIVAS Y NEGATIVAS.
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 110/2008] [REGISTRO: 168120]
+-------------------------------------------------------------------------------------------------------------
+IMPROCEDENCIA DEL JUICIO DE AMPARO. EL TRIBUNAL COLEGIADO DE CIRCUITO PUEDE CONFIRMAR EL AUTO QUE DECRETA EL SOBRESEIMIENTO FUERA DE LA AUDIENCIA CONSTITUCIONAL, POR UNA CAUSA DIVERSA A LA INVOCADA POR EL JUZGADOR DE PRIMER GRADO, SIEMPRE QUE SEA INDUDABLE Y MANIFIESTA.
 
-El principio de progresividad está previsto en el artículo 1o. constitucional y en diversos tratados internacionales ratificados por México. Dicho principio, en términos generales, ordena ampliar el alcance y la protección de los derechos humanos en la mayor medida posible hasta lograr su plena efectividad, de acuerdo con las circunstancias fácticas y jurídicas. Es posible diseccionar este principio en varias exigencias de carácter tanto positivo como negativo, dirigidas a los creadores de las normas jurídicas y a sus aplicadores, con independencia del carácter formal de las autoridades respectivas, ya sean legislativas, administrativas o judiciales. En sentido positivo, del principio de progresividad derivan para el legislador (sea formal o material) la obligación de ampliar el alcance y la tutela de los derechos humanos; y para el aplicador, el deber de interpretar las normas de manera que se amplíen, en lo posible jurídicamente, esos aspectos de los derechos. En sentido negativo, impone una prohibición de regresividad: el legislador tiene prohibido, en principio, emitir actos legislativos que limiten, restrinjan, eliminen o desconozcan el alcance y la tutela que en determinado momento ya se reconocía a los derechos humanos, y el aplicador tiene prohibido interpretar las normas sobre derechos humanos de manera regresiva, esto es, atribuyéndoles un sentido que implique desconocer la extensión de los derechos humanos y su nivel de tutela admitido previamente. En congruencia con este principio, el alcance y nivel de protección reconocidos a los derechos humanos tanto por la Constitución como por los tratados internacionales, deben ser concebidos como un mínimo que el Estado Mexicano tiene la obligación inmediata de respetar (no regresividad) y, a la vez, el punto de partida para su desarrollo gradual (deber positivo de progresar).
+Conforme al artículo 91, fracción III, de la Ley de Amparo y al criterio sostenido por el Tribunal en Pleno de la en la tesis P. LXV/99, de rubro:
+"IMPROCEDENCIA. SU ESTUDIO OFICIOSO, EN EL RECURSO DE REVISIÓN, PUEDE HACERSE SIN EXAMINAR LA CAUSA ADVERTIDA POR EL JUZGADOR DE PRIMER GRADO.", el tribunal que resuelve el recurso de revisión interpuesto contra el sobreseimiento dictado por un juez de distrito en la audiencia constitucional, incluso sin analizar la causal de improcedencia de que se trate, puede confirmar el sobreseimiento si advierte probado otro motivo legal para ello. En congruencia con lo anterior, se concluye que dicha facultad es aplicable por igualdad de razón cuando la materia de la revisión es el auto que decreta el sobreseimiento en el juicio fuera de la audiencia constitucional, siempre que la causal de improcedencia advertida sea indudable y manifiesta, ya que en este caso también rige el principio de que la procedencia del juicio de garantías es una cuestión de orden público cuyo análisis puede efectuarse en cualquier instancia sin importar que las partes la aleguen o no. Lo anterior, porque interpretar de manera rigorista el indicado artículo 91 en el sentido de que la facultad mencionada sólo puede ejercerse cuando el sobreseimiento en el juicio se decreta en la audiencia constitucional, no sólo implicaría desconocer el aludido principio, sino que contravendría la garantía de prontitud en la administración de justicia contenida en el artículo 17 de la Constitución Política de los Estados Unidos Mexicanos. Ello es así, pues a nada práctico conduciría ordenar reponer el procedimiento para la celebración de la audiencia de ley, en tanto que al existir diversa causa de improcedencia, el órgano revisor podrá invocarla de oficio y arribar a la misma conclusión, es decir, confirmar el auto recurrido y sobreseer en el juicio.
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: DAÑO EN PROPIEDAD AJENA CULPOSO CON MOTIVO DEL TRÁNSITO DE VEHÍCULOS. ES VÁLIDA LA QUERELLA FORMULADA POR EL POSEEDOR DEL BIEN A TÍTULO DE DUEÑO CUANDO VE AFECTADO SU PATRIMONIO.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2009539
+JURISPRUDENCIA: OMISIONES LEGISLATIVAS RELATIVAS Y ABSOLUTAS DE EJERCICIO OBLIGATORIO. NOTAS DISTINTIVAS PARA COMBATIRLAS EN EL JUICIO DE AMPARO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2024730
 
-[TIPO: JURISPRUDENCIA] [MATERIA: PENAL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 31/2015 (10a.)] [REGISTRO: 2009539]
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 63/2022 (11a.)] [REGISTRO: 2024730]
 --------------------------------------------------------------------------------------------------------------------
-DAÑO EN PROPIEDAD AJENA CULPOSO CON MOTIVO DEL TRÁNSITO DE VEHÍCULOS. ES VÁLIDA LA QUERELLA FORMULADA POR EL POSEEDOR DEL BIEN A TÍTULO DE DUEÑO CUANDO VE AFECTADO SU PATRIMONIO.
-
-El mencionado delito, tutela como bien jurídico no sólo la propiedad de los bienes, sino también y de manera preponderante el patrimonio de las personas; por ello, para satisfacer el requisito de procedibilidad, basta que se ocasione un menoscabo en el patrimonio del poseedor legítimo, ya que desde la lógica del principio de acceso a la justicia, toda persona que resiente un detrimento en su patrimonio está en aptitud de ejercer la acción de la justicia para alcanzar su resarcimiento. En ese tenor es válida la querella formulada por el poseedor a título de dueño del vehículo afectado que con motivo del percance resintió un perjuicio económico, con mayor razón si posterior a la querella, y antes de agotada la averiguación, se formaliza en su favor la propiedad del bien dañado.
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: RADICACIÓN E INTEGRACIÓN DE LA CARPETA DE INVESTIGACIÓN. EL JUICIO DE AMPARO PROMOVIDO EN SU CONTRA ES IMPROCEDENTE, SALVO QUE SE RECLAMEN AFECTACIONES A DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN GENERAL Y LOS SEÑALADOS EN EL ARTÍCULO 252 DEL CÓDIGO NACIONAL DE PROCEDIMIENTOS PENALES.
-Tipo: JURISPRUDENCIA | Organo: Plenos de Circuito
-Numero/Registro: 2025663
-
-[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN, PENAL] [INSTANCIA: Plenos de Circuito] [TESIS: PC.VII.P. J/1 P (11a.)] [REGISTRO: 2025663]
-----------------------------------------------------------------------------------------------------------------------------------
-RADICACIÓN E INTEGRACIÓN DE LA CARPETA DE INVESTIGACIÓN. EL JUICIO DE AMPARO PROMOVIDO EN SU CONTRA ES IMPROCEDENTE, SALVO QUE SE RECLAMEN AFECTACIONES A DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN GENERAL Y LOS SEÑALADOS EN EL ARTÍCULO 252 DEL CÓDIGO NACIONAL DE PROCEDIMIENTOS PENALES.
-
-De conformidad con los artículos 21 de la Constitución Política de los Estados Unidos Mexicanos y 131, 211, 212, 213, 251 y 252 del Código Nacional de Procedimientos Penales, se advierte que la integración de la carpeta de investigación tiene por objeto que el Ministerio Público reúna los requisitos o datos de prueba necesarios para el ejercicio de la acción penal; por ende, dada su naturaleza jurídica, no puede suspenderse, interrumpirse o cesar en su curso, salvo los casos autorizados constitucional y legalmente, previstos en el artículo 252 del Código Nacional de Procedimientos Penales. De ahí que, cuando se señale como acto reclamado la radicación e integración de la carpeta de investigación, sin impugnar actos en la investigación que pudieran comprometer derechos humanos, debe desecharse la demanda de amparo indirecto, pues es manifiesta e indudable la causa de improcedencia prevista en la fracción XII del artículo 61 de la Ley de Amparo, al no afectarse el interés jurídico del quejoso, pues en la etapa temprana del proceso penal en que se desarrollan tales actos –investigación inicial– el derecho de defensa del indiciado está salvaguardado en la medida en que con la judicialización de la carpeta se transitará a una etapa de investigación complementaria, a fin de que un Juez garantice el referido derecho fundamental –entre otros– y determine lo conducente respecto de la situación jurídica del imputado, máxime que ni siquiera con la rendición de informes justificados podría desvirtuarse dicha causal, pues la continuación del procedimiento penal (etapa de investigación) por mandato constitucional es de orden público y de interés social.
-PLENO EN MATERIA PENAL DEL SÉPTIMO CIRCUITO.
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: POLÍTICA AMBIENTAL LOCAL. LAS ENTIDADES FEDERATIVAS NO DEBEN ESTABLECER PARÁMETROS DE CONTAMINACIÓN MÁS LAXOS QUE LOS PREVISTOS EN LAS NORMAS OFICIALES MEXICANAS PARA ACTIVAR UNA FASE DE CONTINGENCIA, PORQUE ELLO CONTRAVIENE EL PRINCIPIO DE PREVENCIÓN EN MATERIA AMBIENTAL.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2030851
-
-[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 159/2025 (11a.)] [REGISTRO: 2030851]
--------------------------------------------------------------------------------------------------------------------------------
-POLÍTICA AMBIENTAL LOCAL. LAS ENTIDADES FEDERATIVAS NO DEBEN ESTABLECER PARÁMETROS DE CONTAMINACIÓN MÁS LAXOS QUE LOS PREVISTOS EN LAS NORMAS OFICIALES MEXICANAS PARA ACTIVAR UNA FASE DE CONTINGENCIA, PORQUE ELLO CONTRAVIENE EL PRINCIPIO DE PREVENCIÓN EN MATERIA AMBIENTAL.
+OMISIONES LEGISLATIVAS RELATIVAS Y ABSOLUTAS DE EJERCICIO OBLIGATORIO. NOTAS DISTINTIVAS PARA COMBATIRLAS EN EL JUICIO DE AMPARO.
 
 
 
-Hechos: Una asociación civil promovió juicio de amparo en contra de un acuerdo estatal que establecía parámetros para activar fases de contingencia ambiental en el Valle de Toluca y Santiago Tianguistenco. La quejosa sostuvo que los valores de contaminantes previstos en dicho acuerdo eran más altos que los establecidos en las normas oficiales mexicanas, por lo que resultaban inconstitucionales al permitir mayores niveles de contaminación sin adoptar medidas efectivas de mitigación del riesgo de daño ambiental. El Juez de Distrito negó el amparo, por lo que el tema de constitucionalidad subsistente se sometió al conocimiento de la a través del recurso de revisión que interpuso la quejosa.
+Hechos: Una comunidad indígena promovió demanda de amparo indirecto reclamando la inconstitucionalidad de los artículos 6o., párrafo primero, 10, párrafos primero y cuarto, 15 y 19, fracciones I, II, IV, V y VIII, de la Ley Minera, y como acto de aplicación el otorgamiento de diversos títulos para la explotación y exploración de minerales sobre las tierras que ésta habita. El Juzgado de Distrito del conocimiento determinó, en suplencia de la queja, la existencia de una omisión legislativa de ejercicio obligatorio toda vez que, a su juicio, el legislador federal omitió adecuar dicho ordenamiento conforme al mandato constitucional del artículo segundo transitorio de la reforma al artículo 2o. de la Constitución General, relativo a la consulta previa, libre e informada de las comunidades indígenas.
 
 
-Criterio jurídico: La Primera Sala de la determina que las entidades federativas, si bien cuentan con libertad configurativa para formular su política ambiental, no pueden válidamente establecer parámetros de contaminación más laxos que los fijados en las Normas Oficiales Mexicanas para la activación de fases de contingencia ambiental, las cuales están encaminadas a reducir la emisión de contaminantes y constituyen un piso mínimo de protección al derecho al medio ambiente sano y a la salud de las personas; ello, a fin de no vulnerar el principio de prevención y el modelo de concurrencia previsto constitucionalmente para el federalismo en materia ambiental.
+Criterio jurídico: La Primera Sala de la considera que cuando en la demanda de amparo no se advierta la voluntad de la parte quejosa para combatir una omisión legislativa absoluta, no puede realizarse su estudio, en suplencia de la queja, a partir del análisis de la inconstitucionalidad de una norma general que sí fue combatida.
 
 
-Justificación: De conformidad con la Ley General del Equilibrio Ecológico y la Protección al Ambiente, la federación, a través de la Secretaría del Medio Ambiente y Recursos Naturales y de la Secretaría de Salud, cuenta con la atribución de expedir Normas Oficiales Mexicanas que establezcan los valores máximos permisibles de contaminantes en el aire en el territorio nacional, con base en evidencia científica y criterios de salud pública. Estos valores determinan el punto a partir del cual la calidad del aire deja de ser satisfactoria y debe activarse una respuesta estatal eficaz.
-Con esa base,
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: SUSPENSIÓN PROVISIONAL EN AMPARO INDIRECTO. PROCEDE CONTRA LA OMISIÓN DE APLICAR EL PROCEDIMIENTO PARA EL CUMPLIMIENTO DE SENTENCIAS PREVISTO EN EL ARTÍCULO 96 DE LA LEY DE JUSTICIA ADMINISTRATIVA PARA EL ESTADO Y MUNICIPIOS DE NUEVO LEÓN.
-Tipo: JURISPRUDENCIA | Organo: Plenos Regionales
-Numero/Registro: 2031673
-
-[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN,] [INSTANCIA: Plenos Regionales] [TESIS: PR.A.C.CN. J/8 A (12a.)] [REGISTRO: 2031673]
-----------------------------------------------------------------------------------------------------------------------------
-SUSPENSIÓN PROVISIONAL EN AMPARO INDIRECTO. PROCEDE CONTRA LA OMISIÓN DE APLICAR EL PROCEDIMIENTO PARA EL CUMPLIMIENTO DE SENTENCIAS PREVISTO EN EL ARTÍCULO 96 DE LA LEY DE JUSTICIA ADMINISTRATIVA PARA EL ESTADO Y MUNICIPIOS DE NUEVO LEÓN.
-
-
-
-Hechos: Los Tribunales Colegiados de Circuito contendientes sustentaron criterios contradictorios al analizar si procede la suspensión provisional contra la omisión del Tribunal de Justicia Administrativa del Estado de Nuevo León de aplicar el procedimiento para el cumplimiento de sentencias previsto en el artículo referido. Mientras que uno consideró que no procede porque su otorgamiento dejaría sin materia el juicio; el otro estimó que debía concederse para vencer la contumacia de la autoridad responsable.
-
-
-Criterio jurídico: Procede conceder la suspensión provisional para el efecto de que la autoridad responsable actúe conforme al procedimiento de cumplimiento de sentencias previsto en el artículo 96 de la Ley de Justicia Administrativa para el Estado y Municipios de Nuevo León.
-
-
-Justificación: La Primera Sala de la ha sostenido que la efectividad en la ejecución de sentencias forma parte esencial del derecho de acceso a la justicia. El artículo 96 citado establece el procedimiento de cumplimiento de sentencias, el cual consiste en una serie de actos concatenados tendentes a lograr el acatamiento de la ejecutoria, mismo que no se agota con una sola actuación. Si la persona quejosa obtuvo sentencia ejecutoriada favorable en el juicio contencioso administrativo, conceder la suspensión no crea un derecho, sino que anticipa la eficacia de una prerrogativa ya reconocida. Además, al tratarse del cumplimiento de sentencias, existe interés de la sociedad en que las determinaciones emitidas por las autoridades sean acatadas. Por tanto, procede otorgar la suspensión provisional para el efecto de que la autoridad responsable actúe conforme al procedimiento de cumplimiento de sentencias, sin que ello implique dejar sin materia el juicio de amparo, ya que si bien los efectos de la medida coinciden con los de una eventual sentencia concesoria, se trata de una restitución provisional susceptible de retrotraerse, pues la autoridad puede dejar sin efectos las actuaciones realizadas pa
+Justificación: Cuando se habla de omisiones legislativas de ejercicio obligatorio, pueden existir varias condiciones dependiendo del contenido de la obligación. Esto es, la obligación puede consistir en legislar sobre una materia, expedir una norma en concreto, incluso, establecer o modificar un artículo en específico –cuando así se establezca expresamente–, o adecuar las normas al mandato constitucional. Por lo que el primer punto relevante, es determinar en qué consiste la obligación de legislar, a fin de estar en condiciones de examinar si el legislador la incumplió. Posteriormente, se debe identificar si lo que se reclama es una omisión relativa o absoluta. La omisión absoluta implica un reclamo al órgano legislativo por no dar cumplimiento alguno a un mandato exigible; mientras que la relativa, conlleva un actuar del legislador que se atribuye deficiente o incompleto al cumplir con la obligación. Así, cuando se trata de una omisión relativa, lo que se cuestiona es el actuar incompleto del legislador, por lo que es dable reclamar la omisión parcial en un precepto o cuerpo normativo concreto, al ser donde se atribuye el deficiente cumplimiento a la obligación. En este caso, el acto reclamado podrá ser la propia norma, cuerpo o cuerpos normativos a los que se atribuya
 --------------------------------------------------------------------------------
 
 JURISPRUDENCIA: BIEN JURÍDICO TUTELADO. PARA DETERMINARLO COMO MERECEDOR DE LA PROTECCIÓN POR LAS NORMAS PENALES, EL PODER LEGISLATIVO DEBE JUSTIFICAR SU IMPORTANCIA SOCIAL SUFICIENTE Y LA NECESIDAD DE SU PROTECCIÓN PENAL.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2028864
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2028864
 
 [TIPO: JURISPRUDENCIA] [MATERIA: PENAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 87/2024 (11a.)] [REGISTRO: 2028864]
 ---------------------------------------------------------------------------------------------------------------------
@@ -148,142 +88,174 @@ Hechos: Una persona dedicada a la prestación del servicio público de transport
 Criterio jurídico: La Primera Sala de la considera que, para la imposición de un bien jurídico como merecedor de protección por las normas penales, es indispensable que los presupuestos relativos a su importancia social suficiente y necesidad de protección penal hayan pasado por un ejercicio auténtico de discusión y consenso en sede legislativa.
 
 
-Justificación: La Primera Sala, en la jurisprudencia 1a./J. 114/2010 de rubro: "PENAS Y SISTEMA PARA SU APLICACIÓN. CORRESPONDE AL PODER LEGISLATIVO JUSTIFICAR EN TODOS LOS CASOS Y EN FORMA EXPRESA, LAS RAZONES DE SU ESTABLECIMIENTO EN LA LEY.", determinó que las autoridades legislativas están obligadas a justificar, en todos los casos y en forma expresa, las razones del establecimiento de las penas y el sistema de su aplicación cuando una persona despliega una conducta considerada como delito. Así, para la definición legislativa de un bien jurídico como tutelable por las normas penales, dentro de ese ejercicio de justificación se encuentra la obligación de los órganos legislativos de motivar la importancia social suficiente del bien en cuestión y la necesidad de su protección por las normas penales. Ahora bien, la autoridad legislativa correspondiente, para justificar la importancia social suficiente del bien jurídico en cuestión, debe realizar lo siguiente: a) identificar el fundamento constitucional sustantivo del bien cuya protección penal se pretenda; b) realizar un ejercicio reflexivo tendente a reconocer si se trata de un bi
+Justificación: La Primera Sala, en la jurisprudencia 1a./J. 114/2010 de rubro: "PENAS Y SISTEMA PARA SU APLICACIÓN. CORRESPONDE AL PODER LEGISLATIVO JUSTIFICAR EN TODOS LOS CASOS Y EN FORMA EXPRESA, LAS RAZONES DE SU ESTABLECIMIENTO EN LA LEY.", determinó que las autoridades legislativas están obligadas a justificar, en todos los casos y en forma expresa, las razones del establecimiento de las penas y el sistema de su aplicación cuando una persona despliega una conducta considerada como delito. Así, para la definición legislativa de un bien jurídico como tutelable por las normas penales, dentro de ese ejercicio de justificación se encuentra la obligación de los órganos legislativos de motivar la importancia social suficiente del bien en cuestión y la necesidad de su protección por las normas penales. Ahora bien, la autoridad legislativa correspondiente, para justificar la importancia social suficiente del bien jurídico en cuestión, debe realizar lo siguiente: a) identificar el fundamento constitucional sustantivo del bien cuya protección penal se pretenda; b) realizar un ejercicio reflexivo tendente a reconocer si se trata de un bien considerado socialmente como indiscutido, en la medida en que pertenece a una conciencia social determinada y cuya vulneración implique una afectación directa sobre la individualidad de las personas; y, c) identificar y graduar la afectación real que la conducta que se pretende disuadir ha provoc
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: PAGARÉ. SI EL JUZGADOR ADVIERTE QUE LA TASA DE INTERESES PACTADA CON BASE EN EL ARTÍCULO 174, PÁRRAFO SEGUNDO, DE LA LEY GENERAL DE TÍTULOS Y OPERACIONES DE CRÉDITO ES NOTORIAMENTE USURARIA PUEDE, DE OFICIO, REDUCIRLA PRUDENCIALMENTE.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2006795
+JURISPRUDENCIA: JUICIO DE AMPARO INDIRECTO DERIVADO DE UN PROCESO PENAL ACUSATORIO. POR REGLA GENERAL ES IMPROCEDENTE, EN CONTRA DE LA EXCLUSIÓN DE MEDIOS DE PRUEBA EN LA ETAPA INTERMEDIA DEL PROCESO PENAL ACUSATORIO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2023906
 
-[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 47/2014 (10a.)] [REGISTRO: 2006795]
-------------------------------------------------------------------------------------------------------------------------------
-PAGARÉ. SI EL JUZGADOR ADVIERTE QUE LA TASA DE INTERESES PACTADA CON BASE EN EL ARTÍCULO 174, PÁRRAFO SEGUNDO, DE LA LEY GENERAL DE TÍTULOS Y OPERACIONES DE CRÉDITO ES NOTORIAMENTE USURARIA PUEDE, DE OFICIO, REDUCIRLA PRUDENCIALMENTE.
-
-El párrafo segundo del citado precepto permite una interpretación conforme con la Constitución Política de los Estados Unidos Mexicanos, al prever que en el pagaré el rédito y los intereses que deban cubrirse se pactarán por las partes, y sólo ante la falta de tal pacto, operará el tipo legal; pues ese contenido normativo debe interpretarse en el sentido de que la permisión de acordar intereses no es ilimitada, sino que tiene como límite que una parte no obtenga en provecho propio y de modo abusivo sobre la propiedad de la otra, un interés excesivo derivado de un préstamo. Así, el juzgador que resuelve la litis sobre el reclamo de intereses pactados en un pagaré, para determinar la condena conducente (en su caso), debe aplicar de oficio el referido artículo 174, acorde con el contenido constitucionalmente válido de ese precepto y a la luz de las condiciones particulares y los elementos de convicción con que se cuente en cada caso, para que dicho numeral no pueda servir de fundamento para dictar una condena al pago de intereses usurarios, por lo que si el juzgador adquiere convicción de oficio de que el pacto de intereses es notoriamente usurario acorde con las circunstancias particulares del caso y las constancias de actuaciones, entonces debe proceder, también de oficio, a inhibir esa condición usuraria apartándose del contenido del interés pactado, para fijar la condena respectiva sobre una tasa de interés reducida prudencialmente para que no resulte excesiva, mediante la apreciación razonada, fundada y motivada, y con base en las circunstancias particulares del caso y de las constancias de actuaciones que válidamente tenga a la vista al momento de resolver. Ahora bien, cabe destacar que constituyen parámetros guía para evaluar objetivamente el carácter notoriamente excesivo de una tasa de interés -si de las constancias de actuaciones se aprecian los elementos de convicción respectivos- los siguientes: a) el tipo de relación existente entre las partes; b) la calidad de los
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: EXCEPCIÓN AL PRINCIPIO DE DEFINITIVIDAD PARA EFECTOS DE LA PROCEDENCIA DEL JUICIO DE AMPARO. OPERA SI SE IMPUGNA LA DETERMINACIÓN INCIDENTAL QUE RESOLVIÓ LA PETICIÓN DEL SENTENCIADO RELACIONADA CON EL CÓMPUTO PARA LA COMPURGACIÓN DE LA PENA IMPUESTA, AL AFECTAR SU LIBERTAD PERSONAL.
-Tipo: JURISPRUDENCIA | Organo: Plenos de Circuito
-Numero/Registro: 2013635
-
-[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN, PENAL] [INSTANCIA: Plenos de Circuito] [TESIS: PC.I.P. J/29 P (10a.)] [REGISTRO: 2013635]
----------------------------------------------------------------------------------------------------------------------------------
-EXCEPCIÓN AL PRINCIPIO DE DEFINITIVIDAD PARA EFECTOS DE LA PROCEDENCIA DEL JUICIO DE AMPARO. OPERA SI SE IMPUGNA LA DETERMINACIÓN INCIDENTAL QUE RESOLVIÓ LA PETICIÓN DEL SENTENCIADO RELACIONADA CON EL CÓMPUTO PARA LA COMPURGACIÓN DE LA PENA IMPUESTA, AL AFECTAR SU LIBERTAD PERSONAL.
-
-La Primera Sala de la , al resolver la contradicción de tesis 278/2011, señaló esencialmente, que la resolución que niega la petición del reo, relacionada con el cómputo para la compurgación de la pena, constituye un acto que afecta su libertad personal del individuo, esencialmente, porque continuará privado de ésta como consecuencia de dicha determinación. Acorde con lo anterior, cuando en amparo indirecto se impugna esa resolución, no es exigible que el quejoso agote el medio ordinario de defensa previsto por la ley, pues opera la excepción al principio de definitividad para efectos de la procedencia del juicio constitucional, conforme al artículo 61, fracción XVIII, inciso b), de la Ley de Amparo, lo que se justifica porque se está procurando el respeto al derecho a la libertad y a la dignidad humana; y por ello, el legislador consideró pertinente establecer una tutela privilegiada cuando se ponen en peligro esos derechos fundamentales; aunado a que el criterio tiene su justificación desde la perspectiva de la obligación del Estado de proteger los derechos humanos reconocidos por la Constitución Política de los Estados Unidos Mexicanos, bajo la perspectiva de universalidad de la que gozan, conforme al tercer párrafo de su artículo 1o.
-PLENO EN MATERIA PENAL DEL PRIMER CIRCUITO.
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: CONTRATO DE ARRENDAMIENTO. PLAZOS PARA HACER VALER ACCIONES Y EXCEPCIONES RELATIVAS AL PAGO DE RENTAS TOTAL O PARCIAL, CUANDO SE ACTUALICE CASO FORTUITO O FUERZA MAYOR DURANTE SU VIGENCIA [INTERPRETACIÓN DE LOS ARTÍCULOS 1,162, 1,796 BIS, 2,431 Y 2,432 DEL CÓDIGO CIVIL PARA EL DISTRITO FEDERAL (HOY
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2030399
-
-[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 57/2025 (11a.)] [REGISTRO: 2030399]
+[TIPO: JURISPRUDENCIA] [MATERIA: PENAL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 23/2021 (11a.)] [REGISTRO: 2023906]
 --------------------------------------------------------------------------------------------------------------------
-CONTRATO DE ARRENDAMIENTO. PLAZOS PARA HACER VALER ACCIONES Y EXCEPCIONES RELATIVAS AL PAGO DE RENTAS TOTAL O PARCIAL, CUANDO SE ACTUALICE CASO FORTUITO O FUERZA MAYOR DURANTE SU VIGENCIA [INTERPRETACIÓN DE LOS ARTÍCULOS 1,162, 1,796 BIS, 2,431 Y 2,432 DEL CÓDIGO CIVIL PARA EL DISTRITO FEDERAL (HOY CIUDAD DE MÉXICO)].
+JUICIO DE AMPARO INDIRECTO DERIVADO DE UN PROCESO PENAL ACUSATORIO. POR REGLA GENERAL ES IMPROCEDENTE, EN CONTRA DE LA EXCLUSIÓN DE MEDIOS DE PRUEBA EN LA ETAPA INTERMEDIA DEL PROCESO PENAL ACUSATORIO.
 
 
 
-Hechos: En una controversia de arrendamiento inmobiliario en la que se demandó el pago de rentas, la parte demandada reconvino la rescisión del contrato y solicitó la absolución y/o reducción de las rentas generadas durante el tiempo en que la pandemia ocasionada por el virus SARS COVID-19 impidió al arrendatario el uso total y parcial del inmueble arrendado. En primera instancia se consideraron parcialmente procedentes tanto la acción principal como la reconvención. Ambas partes apelaron y la alzada revocó la sentencia primigenia al considerar procedente la acción principal e improcedente la acción reconvencional porque se hizo valer una vez terminado el contrato.
-Contra esa determinación, la parte demandada promovió un juicio de amparo directo en el que el Tribunal Colegiado negó la protección constitucional, al considerar que de conformidad con los artículos 1,796, 1,796 Bis y 1,796 Ter del Código Civil para el Distrito Federal (hoy Ciudad de México), se autoriza la modificación de un contrato ante un evento de caso fortuito o fuerza mayor, de manera que a partir de que ocurre el impedimento para el uso total o parcial del bien arrendado, el arrendatario puede dejar de pagar la renta y, si el impedimento subsiste por más de dos meses, puede, dentro de los treinta días siguientes a esos dos meses, solicitar la rescisión a la contraparte o ejercer la acción correspondiente ante la autoridad judicial, a fin de no dejar al arbitrio de una de las partes el cumplimiento del contrato.
-Inconforme, la parte quejosa interpuso recurso de revisión en el que alegó que la interpretación que hizo el Tribunal Colegiado transgrede sus derechos a la seguridad jurídica, de acceso a la justicia y de tutela judicial efectiva.
+Hechos: Los Tribunales Colegiados de Circuito que participaron en la contradicción de tesis, en ejercicio de sus arbitrios judiciales realizaron un análisis interpretativo que los llevó a conclusiones distintas al resolver si la exclusión de medios de prueba en la etapa intermedia –su no admisión en el auto de apertura a juicio– constituye un "acto de imposible reparación" y, por tanto, si es o no procedente el juicio de amparo indirecto en su contra.
 
 
-Criterio jurídico: La Primera Sala de la , determina que las acciones a que se refieren los artículos 2,431 y 2,432 del Código Civil para el Distrito Federal (hoy Ciudad de México), relativas a la rescis
+Criterio jurídico: La Primera Sala de la determina que, por regla general, debe tenerse por actualizada la causal de improcedencia prevista por el artículo 61, fracción XXIII, en relación con el 107, fracción V, ambos de la Ley de Amparo, cuando se impugne la exclusión de medios de prueba. Al ser una regla general, no es absoluta, por lo que para que sea procedente, por excepción será necesario que afecte materialmente derechos sustantivos.
+
+
+Justificación: Se arriba a esta conclusión de conformidad con el parámetro legal regulado en el artículo 107, fracción V, de la Ley de Amparo, referente a que el juicio de amparo indirecto es procedente en contra de "actos de imposible reparación", entendiéndose por éstos aquellos que afecten materialmente derechos sustantivos. Para verificar la actualización del parámetro legal en tratándose de la exclusión probatoria, debe partirse de la relación paralela existente entre el proceso penal y el juicio de amparo indirecto. Si bien ambos juicios guardan puntos de toque inexorables, a su vez cada uno corre por cuerda separada y se actualiza a partir de hechos y finalidades generadas en distintos planos. En ese contexto debe ser entendido el acto que excluye pruebas y el auto de apertura a juicio que no las incluye. Éste es un acto de índole adjetiva –intraprocesal– que sirve como herramienta para formar el plexo probatorio que será discutido y valorado en el juicio oral (mediante la exclusión o no inclusión de algunos medios de prueba). Herramienta que está ya protegida de manera sustancial por la normativa procesal y orgánica, y que de ser detenido por la procedencia del amparo indirecto trastocaría de manera desnaturalizante los principios del proceso penal de corte acusatorio que llaman al equilibrio entre la protección de los derechos fundamentales y la eficacia en la resolución de los procesos. Además, debe tomarse en consideració
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: JUICIO DE AMPARO INDIRECTO. PROCEDE CUANDO SE IMPUGNAN CIERTOS ACTOS INTRA-LEGISLATIVOS COMO LA IMPOSICIÓN DE UNA VOTACIÓN POR CÉDULA SECRETA Y LA EJECUCIÓN DE DICHA VOTACIÓN PARA DESECHAR UN DICTAMEN DE REFORMA A UNA CONSTITUCIÓN LOCAL, PUES NO SE ACTUALIZA LA RAZÓN DE IMPROCEDENCIA RELATIVA A LA I
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2023822
+JURISPRUDENCIA: VISTA A QUE SE REFIERE EL ARTÍCULO 64 DE LA LEY DE AMPARO. NO ES EXCUSA PARA OMITIRLA QUE LA CAUSA DE IMPROCEDENCIA QUE SE ADVIERTA POR EL ÓRGANO COLEGIADO SÓLO AFECTE PARCIALMENTE LA PROCEDENCIA DEL JUICIO DE AMPARO.
+Tipo: JURISPRUDENCIA | Órgano: Pleno
+Número/Registro: 2013722
 
-[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 32/2021 (11a.)] [REGISTRO: 2023822]
-------------------------------------------------------------------------------------------------------------------------------
-JUICIO DE AMPARO INDIRECTO. PROCEDE CUANDO SE IMPUGNAN CIERTOS ACTOS INTRA-LEGISLATIVOS COMO LA IMPOSICIÓN DE UNA VOTACIÓN POR CÉDULA SECRETA Y LA EJECUCIÓN DE DICHA VOTACIÓN PARA DESECHAR UN DICTAMEN DE REFORMA A UNA CONSTITUCIÓN LOCAL, PUES NO SE ACTUALIZA LA RAZÓN DE IMPROCEDENCIA RELATIVA A LA INJUSTICIABILIDAD DE LOS ACTOS RECLAMADOS.
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Pleno] [TESIS: P./J. 6/2017 (10a.)] [REGISTRO: 2013722]
+-----------------------------------------------------------------------------------------------------------
+VISTA A QUE SE REFIERE EL ARTÍCULO 64 DE LA LEY DE AMPARO. NO ES EXCUSA PARA OMITIRLA QUE LA CAUSA DE IMPROCEDENCIA QUE SE ADVIERTA POR EL ÓRGANO COLEGIADO SÓLO AFECTE PARCIALMENTE LA PROCEDENCIA DEL JUICIO DE AMPARO.
 
-
-
-Hechos: El quince de julio de dos mil diecinueve, mediante la imposición de un mecanismo de votación por cédula secreta, el Pleno del Congreso del Estado de Yucatán desechó por mayoría de votos un dictamen de reforma a la Constitución Local, mediante el cual se pretendía derogar la definición del matrimonio y el concubinato como la unión entre una mujer y un hombre. En desacuerdo, un conjunto de personas, quienes manifestaron ser residentes en el Estado de Yucatán e integrantes de la comunidad LGBTI+ o familiares de personas de dicha comunidad, promovieron juicio de amparo indirecto, alegando que la imposición y ejecución de dicha votación por cédula violaba, entre otros, el derecho a participar activamente en la dirección de los asuntos públicos del Estado, en relación con la libertad de expresión y el acceso a la información pública. El Juez de Distrito sobreseyó en el juicio.
-
-
-Criterio jurídico: La Primera Sala de la determina que la imposición de una votación por cédula secreta y la celebración de dicha votación por parte del Pleno de un Congreso Local, aun cuando son actos intralegislativos que no dieron lugar a una norma jurídica, son actos de autoridad susceptibles de ser revisables a través del juicio de amparo indirecto.
-
-
-Justificación: En primer lugar, los referidos actos reclamados no entran en las hipótesis de las fracciones V y VII del artículo 61 de la Ley de Amparo. Las causas de improcedencia ahí previstas apuntan a actos del Congreso Federal o actos de los Congresos Locales en materia de juicio político y declaración de procedencia, así como de la elección, suspensión o remoción de funcionarios. En segundo lugar, no se advierte ninguna previsión constitucional o legal que lleve a concluir que los actos específicamente reclamados por las y los quejosos no pueden ser justiciables a través del juicio de amparo, que lleve a la improcedencia en razón de l
+De la apreciación contextual e íntegra del proceso legislativo de la reforma a la Ley de Amparo vigente, se advierte que el fin perseguido con la incorporación del artículo 64, párrafo segundo, es otorgar a la parte quejosa un medio de defensa, a través del cual se garanticen sus derechos de audiencia y de defensa, para que en caso de que el Tribunal Colegiado de Circuito o la , adviertan oficiosamente una causa de improcedencia, tenga la oportunidad de aportar los argumentos oportunos a fin de que cualquiera de dichos órganos de amparo decida conforme a derecho, de manera que la decisión que se adopte sea producto de un proceso de deliberación racional y no sólo de la autoridad que el Estado le confiere a la administración de justicia. Por ende, la vista referida en el precepto legal citado debe darse aun cuando el órgano jurisdiccional terminal estime que la causa de improcedencia es evidente y que su actualización sólo provocará el sobreseimiento parcial, como sucede cuando se tienen como actos reclamados la resolución de primera instancia y la de segundo grado y, respecto de la primera de ellas, el Tribunal Colegiado de Circuito considere actualizada la causal prevista en el artículo 61, fracción XXI, de la Ley de Amparo, relativa a la cesación de efectos por sustitución procesal.
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: SALARIOS CAÍDOS. LA LIMITANTE DE SU PAGO HASTA POR DOCE MESES DE LOS TRABAJADORES AL SERVICIO DEL ESTADO Y MUNICIPIOS DE GUANAJUATO, ES APLICABLE A LOS CASOS DE REINSTALACIÓN E INDEMNIZACIÓN CONSTITUCIONAL CUANDO LA RESCISIÓN FUE INJUSTIFICADA (INTERPRETACIÓN SISTEMÁTICA DE LOS ARTÍCULOS 51, 52 Y 54
-Tipo: JURISPRUDENCIA | Organo: Plenos de Circuito
-Numero/Registro: 2021591
+JURISPRUDENCIA: AMPARO. PROCEDE CONTRA LA NORMA EXPEDIDA POR UN CONGRESO LOCAL QUE ESTABLECE LA EXENCIÓN EN EL PAGO DEL IMPUESTO SOBRE ADQUISICIÓN DE BIENES INMUEBLES, IMPUGNADA POR LOS SUJETOS EXCLUIDOS POR CONSIDERARLA VIOLATORIA DEL PRINCIPIO DE EQUIDAD TRIBUTARIA.
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 164404
 
-[TIPO: JURISPRUDENCIA] [MATERIA: LABORAL] [INSTANCIA: Plenos de Circuito] [TESIS: PC.XVI.L. J/4 L (10a.)] [REGISTRO: 2021591]
------------------------------------------------------------------------------------------------------------------------------
-SALARIOS CAÍDOS. LA LIMITANTE DE SU PAGO HASTA POR DOCE MESES DE LOS TRABAJADORES AL SERVICIO DEL ESTADO Y MUNICIPIOS DE GUANAJUATO, ES APLICABLE A LOS CASOS DE REINSTALACIÓN E INDEMNIZACIÓN CONSTITUCIONAL CUANDO LA RESCISIÓN FUE INJUSTIFICADA (INTERPRETACIÓN SISTEMÁTICA DE LOS ARTÍCULOS 51, 52 Y 54 DE LA LEY DEL TRABAJO DE LOS SERVIDORES PÚBLICOS AL SERVICIO DEL ESTADO Y DE LOS MUNICIPIOS, Y ANÁLISIS TELEOLÓGICO DE LA REFORMA PUBLICADA EN EL PERIÓDICO OFICIAL DE 31 DE OCTUBRE DE 2014).
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 95/2010] [REGISTRO: 164404]
+----------------------------------------------------------------------------------------------------------------------
+AMPARO. PROCEDE CONTRA LA NORMA EXPEDIDA POR UN CONGRESO LOCAL QUE ESTABLECE LA EXENCIÓN EN EL PAGO DEL IMPUESTO SOBRE ADQUISICIÓN DE BIENES INMUEBLES, IMPUGNADA POR LOS SUJETOS EXCLUIDOS POR CONSIDERARLA VIOLATORIA DEL PRINCIPIO DE EQUIDAD TRIBUTARIA.
 
-Por reforma publicada en el Periódico Oficial del Gobierno del Estado de Guanajuato el 31 de octubre de 2014, fueron reformados, entre otros, los artículos 52 y 54 de la Ley del Trabajo de los Servidores Públicos al Servicio del Estado y de los Municipios de Guanajuato, sin que se advierta modificación al artículo 51 de esa ley; no obstante esa omisión, no puede considerarse que fue voluntad del legislador limitar el pago de los salarios caídos para los casos establecidos en dichos preceptos, es decir, cuando la entidad pública quede eximida de reinstalar al trabajador, o cuando éste se retire justificadamente de su empleo, sin que esté incluido el supuesto de rescisión injustificada (hipótesis prevista en el artículo 51 señalado). Lo anterior es así, porque en la iniciativa de la reforma se expuso que el pago de salarios caídos hasta la total cumplimentación del laudo, había generado a las administraciones públicas la falta de recursos para hacer frente a las obligaciones derivadas de laudos favorables a los trabajadores, emitidos por despidos injustificados y una constante postergación de pagos, los que en su mayor parte eran heredados a las administraciones subsecuentes, y que poco a poco se tradujo en pasivos, en detrimento de las finanzas públicas, y en cargas económicas imposibles de cubrir por éstas, por lo que era de trascendental importancia adecuar la legislación local en lo referente al pago de salarios caídos para disminuir la afectación económica que sufrían las haciendas públicas estatal y municipal por la prolongación de los juicios laborales, además de que, de esa manera los trabajadores accederían más rápidamente al pago respectivo. Al aprobarse la iniciativa, los legisladores consideraron necesario construir
+Tanto el Tribunal en Pleno como la Segunda Sala de la han sostenido que cuando se impugna la inequidad de la exención de una contribución pueden concretarse los efectos del amparo restituyendo al quejoso en el goce de la garantía individual violada mediante la extensión del beneficio relativo en su favor, como se advierte de las jurisprudencias 2a./J. 94/2009 y P./J. 18/2003, de rubros: "AMPARO INDIRECTO Y DIRECTO EN QUE SE CUESTIONA UNA NORMA FISCAL QUE SE ESTIMA INEQUITATIVA PORQUE OTORGA UN BENEFICIO SÓLO A DETERMINADOS CONTRIBUYENTES, RESPECTO DE LOS QUE JURÍDICAMENTE SON IGUALES. ANTE LA POSIBILIDAD JURÍDICA DE RESTITUIR AL QUEJOSO EN EL GOCE DE LA GARANTÍA CONSTITUCIONAL VIOLADA, EL JUICIO DE AMPARO INDIRECTO ES PROCEDENTE Y EN EL DIRECTO EL CONCEPTO DE VIOLACIÓN RELATIVO ES OPERANTE." y "EXENCIÓN PARCIAL DE UN TRIBUTO. LOS EFECTOS DEL AMPARO CONCEDIDO CONTRA UNA NORMA TRIBUTARIA INEQUITATIVA POR NO INCLUIR EL SUPUESTO EN QUE SE HALLA EL QUEJOSO DENTRO DE AQUÉLLA, SÓLO LO LIBERA PARCIALMENTE DEL PAGO.". Ahora bien, tratándose de una exención establecida por un Congreso Local respecto del impuesto sobre adquisición de bienes inmuebles, impugnada por considerarla violatoria del principio de equidad tributaria contenido en el artículo 31, fracción IV, de la Constitución Política de los Estados Unidos Mexicanos, la determinación relativa a la posibilidad jurídica de concretar los efectos del amparo en virtud de la prohibición expresa que el artículo 115, fracción IV, constitucional, prevé para las Legislaturas Locales de establecer exenciones o subsidios sobre las contribuciones señaladas en él, entre las que en el inciso a) se encuentran las recaídas sobre la traslación de la propiedad inmobiliaria, constituye una cuestión que atañe al fondo del asunto y, por tanto, no puede dar lugar a la improcedencia del juicio de garantías porque debe ponderarse, por una parte, el derecho legítimamente tutelado de los gobernados de contribuir a los gastos públicos de manera equitativa conforme al referido numeral 31, fracción IV, constitucional y, por otra, si la extensión del beneficio de exención a la quejosa se ubica dentro de la prohibición constitucional para las leyes locales de establecer exenciones respecto de las contribuciones que forman parte de la hacienda pública m
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: REGISTRO ESTATAL DE PERSONAS DEUDORAS ALIMENTARIAS MOROSAS DE CHIHUAHUA. ES CONSTITUCIONAL QUE SE INSCRIBA A QUIENES INCUMPLAN LAS OBLIGACIONES RESPECTIVAS.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2030506
+JURISPRUDENCIA: DESISTIMIENTO EXPRESO DE LA ACCIÓN LABORAL. EL AUTO DE LA JUNTA DE CONCILIACIÓN Y ARBITRAJE POR EL QUE ESTABLECE QUE NO HA LUGAR A TENERLO POR FORMULADO, ES IMPUGNABLE A TRAVÉS DEL AMPARO INDIRECTO, POR SER UN ACTO DE EJECUCIÓN IRREPARABLE.
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 187814
 
-[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 66/2025 (11a.)] [REGISTRO: 2030506]
----------------------------------------------------------------------------------------------------------------------
-REGISTRO ESTATAL DE PERSONAS DEUDORAS ALIMENTARIAS MOROSAS DE CHIHUAHUA. ES CONSTITUCIONAL QUE SE INSCRIBA A QUIENES INCUMPLAN LAS OBLIGACIONES RESPECTIVAS.
+[TIPO: JURISPRUDENCIA] [MATERIA: LABORAL] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 10/2002] [REGISTRO: 187814]
+--------------------------------------------------------------------------------------------------------------
+DESISTIMIENTO EXPRESO DE LA ACCIÓN LABORAL. EL AUTO DE LA JUNTA DE CONCILIACIÓN Y ARBITRAJE POR EL QUE ESTABLECE QUE NO HA LUGAR A TENERLO POR FORMULADO, ES IMPUGNABLE A TRAVÉS DEL AMPARO INDIRECTO, POR SER UN ACTO DE EJECUCIÓN IRREPARABLE.
 
-
-
-Hechos: Un hombre fue inscrito en el Registro Estatal de Personas Deudoras Alimentarias Morosas de Chihuahua debido a que incumplió el convenio de pago de pensión alimenticia a favor de sus hijos. Promovió juicio de amparo indirecto en el que argumentó que esa inscripción vulnera su derecho a la dignidad humana. El Juzgado de Distrito negó el amparo porque consideró que la inscripción tiene un fin constitucionalmente válido. El quejoso interpuso recurso de revisión del que la Primera Sala del Alto Tribunal reasumió competencia.
-
-
-Criterio jurídico: La Primera Sala de la determina que la inscripción en el Registro Estatal de Personas Deudoras Alimentarias Morosas de Chihuahua, establecida en los artículos 1, fracción I, 5, 6, 7 y 9 de la ley relativa, como consecuencia del incumplimiento de las obligaciones del deudor alimentario, es una medida constitucionalmente válida porque la afectación a su derecho a la dignidad humana cumple con la exigencia de proporcionalidad en sentido estricto.
-
-
-Justificación: Al no tratarse de una sanción absoluta y permanente, su grado de intervención en el derecho fundamental afectado guarda proporcionalidad con la satisfacción del fin perseguido:
-desincentivar la situación de adeudo de la obligación alimentaria que busca evitar una situación jurídica y materialmente indeseable para la persona acreedora, en tanto que, por medio de su subsistencia, encuentra su desarrollo personal y capacidad de gozar de una vida digna y de calidad.
-La vigencia de la inscripción se encuentra sujeta a una condición resolutiva, ya que depende del actuar del propio deudor alimentario moroso, pues se cancela cuando acredite ante la autoridad haber cumplido con el total de sus obligaciones en mora. Por tanto, se considera de mayor beneficio proteger y garantizar el derecho de alimentos, que el perjuicio en la esfera de derechos del deudor alimentario.
+Aun cuando, por regla general, los actos dentro de juicio o intraprocesales que ocasionen agravio a los gobernados deben reclamarse en la vía del amparo directo como violaciones al procedimiento, siempre que afecten las defensas del quejoso y trasciendan al resultado del fallo, tal como lo prevén los artículos 107, fracción III, inciso a), de la Constitución Política de los Estados Unidos Mexicanos y 158, párrafo primero, de la Ley de Amparo, cuando tales actos tienen sobre las personas o las cosas una ejecución que sea de imposible reparación, es decir, afectan de modo directo e inmediato derechos sustantivos, o bien, producen una afectación a las partes en grado predominante o superior, tratándose de derechos de carácter adjetivo o procesal, en forma excepcional debe proceder el amparo indirecto ante Juez de Distrito, como lo dispone el artículo 114, fracción IV, de la Ley de Amparo. En ese tenor, el auto de la Junta de Conciliación y Arbitraje por el que establece que no ha lugar a tener por desistida a la parte actora de la acción intentada, al ser un acto constitutivo, puesto que de él depende la prosecución del proceso, causa un perjuicio inmediato de imposible reparación que exige ser enmendado a través del amparo indirecto, pues afecta de manera cierta e inmediata el derecho sustantivo de justicia pronta, expedita, completa, imparcial y gratuita consagrado en el artículo 17 de la Constitución Federal, ya que la sentencia definitiva que se llegue a dictar, aun siendo favorable al quejoso, no lo restituiría en el goce del derecho que le otorga el propio Ordenamiento Supremo.
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: ORDEN DE TRASLADO Y PRINCIPIO DE DEFINITIVIDAD. ANTES DE PROMOVER JUICIO DE AMPARO INDIRECTO EN SU CONTRA, SE DEBE AGOTAR LA CONTROVERSIA JUDICIAL PREVISTA EN LA LEY NACIONAL DE EJECUCIÓN PENAL.
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2023736
+JURISPRUDENCIA: RECURSOS O MEDIOS DE DEFENSA ORDINARIOS. PUEDEN ESTABLECERSE EN ORDENAMIENTO LEGAL DIVERSO DEL QUE SIRVE DE FUNDAMENTO A LA EMISIÓN DEL ACTO RECLAMADO (INTERPRETACIÓN DE LOS ARTÍCULOS 107, FRACCIÓN IV, DE LA CONSTITUCIÓN Y 73, FRACCIÓN XV, DE LA LEY DE AMPARO).
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 193141
 
-[TIPO: JURISPRUDENCIA] [MATERIA: PENAL, COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 27/2021 (10a.)] [REGISTRO: 2023736]
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 116/99] [REGISTRO: 193141]
+-----------------------------------------------------------------------------------------------------------
+RECURSOS O MEDIOS DE DEFENSA ORDINARIOS. PUEDEN ESTABLECERSE EN ORDENAMIENTO LEGAL DIVERSO DEL QUE SIRVE DE FUNDAMENTO A LA EMISIÓN DEL ACTO RECLAMADO (INTERPRETACIÓN DE LOS ARTÍCULOS 107, FRACCIÓN IV, DE LA CONSTITUCIÓN Y 73, FRACCIÓN XV, DE LA LEY DE AMPARO).
+
+Para que opere la causal de improcedencia por incumplimiento al principio de definitividad que rige el juicio de amparo, basta con que en alguna ley, formal y material, se prevenga, de manera directa e inmediata, la procedencia de algún recurso o medio de defensa que posibilite la modificación, revocación o nulificación del acto reclamado, cuya tramitación permita la suspensión de sus efectos, sin exigir mayores requisitos que los consagrados en la Ley de Amparo. Ahora bien, el establecimiento de los aludidos medios de impugnación no está restringido solamente al ordenamiento del cual emane formalmente o en que encuentre su fundamento el acto de autoridad, puesto que ninguna de las disposiciones aplicables al juicio de garantías establece esa limitante, máxime que el legislador cuenta con plena libertad para instituir los recursos o medios ordinarios de defensa que estime pertinentes, sin quedar constreñido a algún ordenamiento en particular.
+--------------------------------------------------------------------------------
+
+
+================================================================================
+SECCIÓN: INTERÉS JURÍDICO E INTERÉS LEGÍTIMO
+================================================================================
+
+JURISPRUDENCIA: LEGITIMACIÓN ACTIVA DEL OFENDIDO O VÍCTIMA DEL DELITO PARA ACUDIR AL JUICIO DE AMPARO. NO SE LIMITA A LOS CASOS ESTABLECIDOS EXPRESAMENTE EN EL ARTÍCULO 10 DE LA LEY DE LA MATERIA, SINO QUE SE AMPLÍA A LOS SUPUESTOS EN QUE SE IMPUGNE VIOLACIÓN DE LAS GARANTÍAS CONTENIDAS EN EL ARTÍCULO 20, APARTADO
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 176253
+
+[TIPO: JURISPRUDENCIA] [MATERIA: PENAL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 170/2005] [REGISTRO: 176253]
+-------------------------------------------------------------------------------------------------------------
+LEGITIMACIÓN ACTIVA DEL OFENDIDO O VÍCTIMA DEL DELITO PARA ACUDIR AL JUICIO DE AMPARO. NO SE LIMITA A LOS CASOS ESTABLECIDOS EXPRESAMENTE EN EL ARTÍCULO 10 DE LA LEY DE LA MATERIA, SINO QUE SE AMPLÍA A LOS SUPUESTOS EN QUE SE IMPUGNE VIOLACIÓN DE LAS GARANTÍAS CONTENIDAS EN EL ARTÍCULO 20, APARTADO B, DE LA CONSTITUCIÓN FEDERAL.
+
+La reforma al artículo 20 de la Constitución Política de los Estados Unidos Mexicanos -en vigor a partir del 21 de marzo de 2001- adicionó un apartado B en el cual se establecen derechos con rango de garantías individuales a favor del ofendido o víctima del delito. Ahora bien, el hecho de que el texto del artículo 10 de la Ley de Amparo no se haya actualizado acorde a la reforma constitucional mencionada, no significa que la legitimación activa del ofendido para interponer juicio de garantías deba constreñirse a los casos establecidos expresamente en este numeral, sino que aquélla se amplía a todos aquellos supuestos en que sufra un agravio personal y directo en alguna de las garantías contenidas en el citado precepto constitucional. Lo anterior es así, toda vez que atendiendo al principio de supremacía constitucional, dicho numeral debe interpretarse a la luz de los artículos 103 y 107 de la Constitución Federal, de los cuales se desprende que el juicio de amparo tiene como propósito la protección de las garantías individuales cuando éstas son violadas por alguna ley o acto de autoridad y causan perjuicio al gobernado; así como que quien sufra un agravio personal y directo en ellas está legitimado para solicitar el amparo. En ese tenor, se concluye que si la víctima u ofendido del delito es titular de las garantías establecidas en el apartado B del artículo 20 constitucional, está legitimado para acudir al juicio de amparo cuando se actualice una violación a cualquiera de ellas, causándole un agravio personal y directo. Ello, con independencia de que el juicio pueda resultar improcedente al actualizarse algún supuesto normativo que así lo establezca.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: REVISIÓN EN AMPARO INDIRECTO. ES PROCEDENTE ESE RECURSO CUANDO LO QUE EL QUEJOSO COMBATE ES LA PRECISIÓN ERRÓNEA DE LOS EFECTOS DE LA CONCESIÓN DEL AMPARO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 177819
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 78/2005] [REGISTRO: 177819]
+------------------------------------------------------------------------------------------------------------
+REVISIÓN EN AMPARO INDIRECTO. ES PROCEDENTE ESE RECURSO CUANDO LO QUE EL QUEJOSO COMBATE ES LA PRECISIÓN ERRÓNEA DE LOS EFECTOS DE LA CONCESIÓN DEL AMPARO.
+
+Por regla general, el quejoso no puede impugnar una sentencia que le es favorable a sus intereses, pues ello es contrario al principio de agravio personal y directo que rige en el juicio de amparo en todas sus etapas e instancias. Sin embargo, si lo que combate es que el Juez del conocimiento precisó erróneamente los efectos de dicha concesión, el referido medio de impugnación debe considerarse procedente, pues aunque la concesión del amparo aparentemente no puede agraviarlo al no poder obtener en segunda instancia mayores beneficios que los generados por la sentencia recurrida, al haberse declarado la inconstitucionalidad de una ley, los alcances de la sentencia protectora sí pueden tener ese efecto desfavorable, ya que puede traer consigo, incluso, que no se le restituya en el pleno goce de la garantía individual violada.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: INTERÉS JURÍDICO EN EL AMPARO INDIRECTO. PARA ACREDITARLO PLENAMENTE CUANDO EL ACTO RECLAMADO CONSISTE EN LA MEDIDA PROVISIONAL DE RESTITUCIÓN DEL INMUEBLE MATERIA DEL DELITO DE DESPOJO, ES SUFICIENTE QUE EL QUEJOSO TENGA LA CALIDAD DE INDICIADO O PROCESADO EN LA AVERIGUACIÓN PREVIA O CAUSA PENAL DE
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2022467
+
+[TIPO: JURISPRUDENCIA] [MATERIA: PENAL, COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 48/2020 (10a.)] [REGISTRO: 2022467]
 ---------------------------------------------------------------------------------------------------------------------------
-ORDEN DE TRASLADO Y PRINCIPIO DE DEFINITIVIDAD. ANTES DE PROMOVER JUICIO DE AMPARO INDIRECTO EN SU CONTRA, SE DEBE AGOTAR LA CONTROVERSIA JUDICIAL PREVISTA EN LA LEY NACIONAL DE EJECUCIÓN PENAL.
+INTERÉS JURÍDICO EN EL AMPARO INDIRECTO. PARA ACREDITARLO PLENAMENTE CUANDO EL ACTO RECLAMADO CONSISTE EN LA MEDIDA PROVISIONAL DE RESTITUCIÓN DEL INMUEBLE MATERIA DEL DELITO DE DESPOJO, ES SUFICIENTE QUE EL QUEJOSO TENGA LA CALIDAD DE INDICIADO O PROCESADO EN LA AVERIGUACIÓN PREVIA O CAUSA PENAL DE LA QUE EMANA EL ACTO RECLAMADO.
 
 
 
-Hechos: Un Tribunal Colegiado consideró que los traslados involuntarios de un centro penitenciario a otro en los que no interviene la autoridad judicial constituyen una violación directa a la Constitución, razón por la cual puede promoverse amparo indirecto sin agotar previamente el recurso ordinario. A diferencia de ese Tribunal Colegiado, uno diverso consideró que en contra de una posible orden de traslado emitida sin intervención judicial, procede un recurso ordinario previsto en la Ley Nacional de Ejecución Penal, por lo que debe agotarse dicho recurso antes de promover el amparo, de lo contrario éste será improcedente por no cumplirse con el principio de definitividad.
+Hechos: Los Tribunales Colegiados de Circuito contendientes que conocieron de diversos amparos en revisión, sostuvieron un criterio distinto sobre la forma en que se acredita el interés jurídico en el amparo indirecto que promueva el inculpado o procesado contra la orden de restitución provisional en favor de la víctima, del bien inmueble objeto del delito de despojo.
 
 
-Criterio jurídico: La orden de traslado de un centro penitenciario a otro que se emite sin intervención judicial es un acto que se dicta dentro del procedimiento; por lo tanto, antes de promover juicio de amparo indirecto en su contra, se debe agotar la controversia judicial prevista en el artículo 117, fracción III, de la Ley Nacional de Ejecución Penal.
+Criterio jurídico: La Primera Sala de la considera que el interés jurídico en el juicio de amparo promovido en contra de la resolución que ordena la restitución provisional del inmueble materia del delito de despojo en favor de la víctima, se encuentra acreditado plenamente por el solo hecho de que el quejoso tenga la calidad de inculpado o procesado en la indagatoria o causa penal de la que emana el acto reclamado.
 
 
-Justificación: El artículo 117, fracción III, de la Ley Nacional de Ejecución Penal regula la controversia judicial, recurso que se interpone ante el Juez de Control o de Ejecución, según corresponda, con el objeto de resolver las controversias que surjan con motivo de los traslados de las personas privadas de la libertad. Por otra parte, el juicio de amparo, si bien puede promoverse contra actos de autoridad que vulneren los derechos de los gobernados, debe observar el principio de definitividad, según el cual, el amparo no procede contra violaciones cometidas en el procedimiento si en las leyes ordinarias se prevé un remedio legal por el cual puedan repararse, tal como sucede en el caso de las controversias judiciales establecidas en el ordenamiento penal en cita. Por lo tanto, cuando una persona privada de la libertad busque inconformarse con la orden de traslado de un centro penitenciario a otro, emitida sin autorización previa de la autoridad judicial, antes de la promoción del juicio de a
+Justificación: Se arriba a esa conclusión en razón de que, si bien del artículo 107, fracción I, de la Constitución General se colige que para la promoción del juicio de amparo debe tenerse en consideración que éste se rige por el principio de instancia de parte agraviada, el cual refiere, por un lado, que no puede ser iniciado de manera oficiosa y, por otro, que quien lo solicite debe sufrir un agravio personal y directo respecto del acto que reclame, en el caso, resulta innecesario acreditar ese interés jurídico a través de un documento que ampare la titularidad del bien inmueble, sino que basta con ser parte de la investigación o causa penal de origen para tenerlo por plenamente acreditado, porque si bien en la contienda constitucional se tiene la posibilidad de ofrecer pruebas, éstas estarían dirigidas a sustentar únicamente la inconstitucionalidad o ilegalidad del acto reclamado, porque en dicha litis no se decidirá si el quejoso tiene derecho de poseer el bien materia del delito. Por tanto, si el imputado o procesado promueve juicio de amparo para reclamar la orden de restitución del bien inmueble objeto del delito de despojo en favor de la víctima, es innecesario que exhiba documento que ampare la propiedad o posesión de dicho predio, pues su interés jurídico queda acreditado con la afectación directa que sobre él recae en la indagatoria o causa penal de donde emana el acto reclamado.
 --------------------------------------------------------------------------------
 
-JURISPRUDENCIA: JUICIO DE AMPARO INDIRECTO. ES IMPROCEDENTE CONTRA LA FALTA DE LLAMAMIENTO AL JUICIO ARBITRAL, PUES EN LA VÍA DE APREMIO CONTRA DICHO ACTO, DEBE AGOTARSE EL INCIDENTE DE OPOSICIÓN A LA EJECUCIÓN DE LAUDO ARBITRAL, EN EL QUE SE HAGA VALER LA EXCEPCIÓN PREVISTA EN EL ARTÍCULO 635, FRACCIÓN I, INCISO B
-Tipo: JURISPRUDENCIA | Organo: Plenos de Circuito
-Numero/Registro: 2022899
+JURISPRUDENCIA: INTERÉS JURÍDICO DEL DEUDOR. NO SE ACREDITA PARA LOS EFECTOS DEL AMPARO, CUANDO SE RECLAMA LA RESOLUCIÓN QUE APRUEBA UN CONVENIO DE DACIÓN EN PAGO, RESPECTO DE LOS DERECHOS LITIGIOSOS DERIVADOS DE LA CONDENA AL PAGO DE LOS GASTOS Y COSTAS DEL JUICIO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 176970
 
-[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN, CIVIL] [INSTANCIA: Plenos de Circuito] [TESIS: PC.I.C. J/111 C (10a.)] [REGISTRO: 2022899]
-----------------------------------------------------------------------------------------------------------------------------------
-JUICIO DE AMPARO INDIRECTO. ES IMPROCEDENTE CONTRA LA FALTA DE LLAMAMIENTO AL JUICIO ARBITRAL, PUES EN LA VÍA DE APREMIO CONTRA DICHO ACTO, DEBE AGOTARSE EL INCIDENTE DE OPOSICIÓN A LA EJECUCIÓN DE LAUDO ARBITRAL, EN EL QUE SE HAGA VALER LA EXCEPCIÓN PREVISTA EN EL ARTÍCULO 635, FRACCIÓN I, INCISO B), DEL CÓDIGO DE PROCEDIMIENTOS CIVILES PARA EL DISTRITO FEDERAL, APLICABLE PARA LA CIUDAD DE MÉXICO.
+[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 122/2004] [REGISTRO: 176970]
+-------------------------------------------------------------------------------------------------------------
+INTERÉS JURÍDICO DEL DEUDOR. NO SE ACREDITA PARA LOS EFECTOS DEL AMPARO, CUANDO SE RECLAMA LA RESOLUCIÓN QUE APRUEBA UN CONVENIO DE DACIÓN EN PAGO, RESPECTO DE LOS DERECHOS LITIGIOSOS DERIVADOS DE LA CONDENA AL PAGO DE LOS GASTOS Y COSTAS DEL JUICIO.
+
+Dado que el juicio de garantías podrá promoverse únicamente por la parte a quien perjudique el acto que se reclama, es indudable que la resolución que confirma una diversa en la que se aprobó el convenio de dación en pago celebrado entre la parte vencedora y sus abogados patronos, respecto de los derechos que le corresponden al pago de los gastos y costas del juicio, no ocasiona un agravio personal y directo en la esfera jurídica de quien resultó condenado a dicho pago, por tener como único efecto un cambio en el sujeto activo, dejando subsistente la obligación de aquél contenida en la condena. Por ende, no se actualiza la afectación de su interés jurídico para acudir al juicio de garantías reclamando la referida resolución, toda vez que durante la tramitación del incidente de liquidación respectivo, la parte condenada podrá manifestar lo que a su interés convenga y agotar los medios de defensa que en su caso procedan.
+Aclaración de sentencia en la contradicción de tesis 67/2003-PS, entre las sustentadas por los Tribunales Colegiados Segundo, Tercero y Cuarto, todos en Materia Civil del Tercer Circuito. 10 de agosto de 2005. Cinco votos. Ponente: Olga Sánchez Cordero de García Villegas. Secretaria:
+Beatriz Joaquina Jaimes Ramos.
+Tesis de jurisprudencia 122/2004. Aprobada por la Primera Sala de este Alto Tribunal, en sesión de fecha diez de agosto de dos mil cinco.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: JUICIO DE NULIDAD. LA DECLARACION DE LA SECRETARIA DE LA CONTRALORIA GENERAL DE LA FEDERACION, QUE IMPONE LA SANCION PREVISTA EN EL ARTICULO 81 DE LA LEY FEDERAL DE RESPONSABILIDADES DE LOS SERVIDORES PUBLICOS, Y EL ACTO ADMINISTRATIVO QUE LA APLICA, AFECTAN EL INTERES JURIDICO DEL SERVIDOR PUBLICO.
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 199426
+
+[TIPO: JURISPRUDENCIA] [MATERIA: ADMINISTRATIVA] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 6/97] [REGISTRO: 199426]
+------------------------------------------------------------------------------------------------------------------
+JUICIO DE NULIDAD. LA DECLARACION DE LA SECRETARIA DE LA CONTRALORIA GENERAL DE LA FEDERACION, QUE IMPONE LA SANCION PREVISTA EN EL ARTICULO 81 DE LA LEY FEDERAL DE RESPONSABILIDADES DE LOS SERVIDORES PUBLICOS, Y EL ACTO ADMINISTRATIVO QUE LA APLICA, AFECTAN EL INTERES JURIDICO DEL SERVIDOR PUBLICO.
+
+De conformidad con lo dispuesto en el artículo 202, fracción I, del Código Fiscal de la Federación, para acudir al juicio de nulidad se requiere acreditar que la resolución administrativa cause una lesión a los derechos subjetivos tutelados por las normas jurídicas objetivas. Ahora bien, la declaración de la Secretaría de la Contraloría General de la Federación en que solicita al superior jerárquico respectivo deje sin efectos el nombramiento del servidor público o lo inhabilite, por haber incumplido con su obligación de presentar su declaración patrimonial, es una auténtica resolución sancionadora, en la medida en que es la que impone al servidor público la sanción respectiva, causándole una lesión en su esfera jurídica, por lo que puede ser reclamada a través del juicio de nulidad desde el momento en que el servidor público se entera de la sanción, por cualquier medio, cuenta habida que la declaratoria respectiva sólo se dirige a su superior jerárquico y no se notifica a éste; asimismo, puede impugnar este último acto administrativo mediante el juicio de nulidad, pues es claro que le produce afectación en su interés jurídico al hacer efectiva la sanción impuesta, condicionados, ambos casos, al cumplimiento de los demás requisitos que establece la ley respectiva para su procedencia.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: VEHICULOS DE PROCEDENCIA EXTRANJERA. EL INTERES JURIDICO PARA PROMOVER EL AMPARO EN CONTRA DEL SECUESTRO, DESPOSEIMIENTO, DECOMISO O CUALQUIER ACTO DE AUTORIDAD QUE AFECTE EL DERECHO DE PROPIEDAD O POSESION DE LOS MISMOS, SE DEMUESTRA CON EL SOLO ACREDITAMIENTO, POR PARTE DE LA QUEJOSA, DE ESTOS DER
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 200504
+
+[TIPO: JURISPRUDENCIA] [MATERIA: ADMINISTRATIVA] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 53/96] [REGISTRO: 200504]
+-------------------------------------------------------------------------------------------------------------------
+VEHICULOS DE PROCEDENCIA EXTRANJERA. EL INTERES JURIDICO PARA PROMOVER EL AMPARO EN CONTRA DEL SECUESTRO, DESPOSEIMIENTO, DECOMISO O CUALQUIER ACTO DE AUTORIDAD QUE AFECTE EL DERECHO DE PROPIEDAD O POSESION DE LOS MISMOS, SE DEMUESTRA CON EL SOLO ACREDITAMIENTO, POR PARTE DE LA QUEJOSA, DE ESTOS DERECHOS.
+
+El interés jurídico se traduce en un derecho jurídicamente tutelado y es uno de los presupuestos para promover el juicio de garantías en los términos de lo que establecen los artículos 4o. y 73, fracción V, de la Ley de Amparo. Como derecho jurídicamente protegido, es incontrovertible que para promover un juicio de garantías, debe de estarse a la naturaleza del acto que se reclama. Por tanto, si los actos reclamados se hacen consistir en desposeimiento, secuestro o decomiso de vehículos de procedencia extranjera, entre otros actos de la misma naturaleza, que implican afectación o menoscabo del derecho de propiedad o posesión, resulta lógico que para comprobar el interés jurídico, sólo deben demostrarse tales derechos de propiedad o posesión respecto de los mismos, de manera fehaciente, con datos inequívocos, bien con la copia certificada de la tarjeta de circulación, de la que se desprenda que la propietaria del vehículo fronterizo es precisamente la quejosa; o bien con la factura en la que conste la adquisición del vehículo por la peticionaria de garantías; o con cualquier otra prueba idónea y fehaciente que demuestre esos extremos, así como la existencia de los actos reclamados consistentes en el desposeimiento, secuestro o decomiso del vehículo de procedencia extranjera. Ciertamente, porque quien es propietario o poseedor de un vehículo respecto del cual penden actos de autoridad tales como secuestro, desposeimiento o decomiso, el interés jurídico se demuestra con las documentales que acrediten que la quejosa es la propietaria o poseedora del mismo, puesto que su esfera de derecho de propiedad o posesión se vio afectada por el acto de autoridad, que como tal, debe cumplir con los extremos que la Constitución le impone. Lo anterior se desprende del artículo 4o. de la Ley de Amparo, en concordancia con lo que dispone el artículo 107, fracción I, de la Constitución General de la República, según los cuales el juicio de amparo puede promoverse por la parte a quien perjudique el acto reclamado y tal perjuicio inmediato y directo, da el presupuesto indispensable para la procedencia del juicio de garantías, sin que sea necesario para acudir a la instancia constitucional, el que también se demuestre la legal estancia en el pa
+--------------------------------------------------------------------------------
 
 
+================================================================================
+SECCIÓN: RECURSOS: QUEJA, REVISIÓN Y RECLAMACIÓN
+================================================================================
 
-Hechos: Los Tribunales Colegiados de Circuito contendientes adoptaron criterios discrepantes al analizar si procede el amparo indirecto contra la orden de ejecución de laudo arbitral en el que se haga valer la falta de llamamiento al juicio arbitral o si por el contrario, conforme al principio de definitividad que rige en los juicios de amparo, se debe agotar la oposición a la ejecución del laudo, por medio de la excepción prevista en el artículo 635, fracción I, inciso b), del Código de Procedimientos Civiles para el Distrito Federal, aplicable para la Ciudad de México, ante el Juez que conoce de la fase de ejecución del laudo arbitral.
+JURISPRUDENCIA: INCIDENTE DE INCONFORMIDAD IMPROCEDENTE. LO ES CUANDO SE CONTROVIERTE EL DEFECTUOSO CUMPLIMIENTO DE LA SENTENCIA DE AMPARO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 194988
 
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 60/98] [REGISTRO: 194988]
+----------------------------------------------------------------------------------------------------------
+INCIDENTE DE INCONFORMIDAD IMPROCEDENTE. LO ES CUANDO SE CONTROVIERTE EL DEFECTUOSO CUMPLIMIENTO DE LA SENTENCIA DE AMPARO.
 
-Criterio jurídico: El Pleno en Materia Civil del Primer de Circuito establece que el Código de Procedimientos Civiles para el Distrito Federal, aplicable para la Ciudad de México, prevé en el artículo 635, fracción I, inciso b), un medio de defensa contra la falta de llamamiento al juicio arbitral, el cual deberá hacerse valer en la fase de ejecución y tramitarse ante el Juez competente de la jurisdicción donde se ventiló el procedimiento arbitral, en virtud de que resulta suficiente para frenar el cumplimiento del laudo; así, una vez que se pronuncie dicho juzgador y agotado tal procedimiento ordinario, procederá el juicio de amparo indirecto en contra de la determinación judicial que resuelva la excepción.
-
-
-Justificación: El procedimiento arbitral es un medio alternativo de solución de conflictos que consiste en el sometimiento voluntario de las partes a un árbitro, las cuales optan por la no intervención de la autoridad judicial, esencialmente por cuestiones de celeridad, pragmatismo y expeditez procesal. En ese sentido, aun y cuando para la ejecución del laudo se haga valer la vía de apremio, en la que el objetivo es despachar ejecución dentro de un plazo de cin
+De acuerdo con lo dispuesto por el artículo 105, párrafo tercero, de la Ley de Amparo, el incidente de inconformidad es procedente cuando la parte interesada no está conforme con la resolución que tenga por cumplida la ejecutoria; por consiguiente, si dicha parte sólo alega defectuoso cumplimiento de la sentencia pronunciada en el juicio constitucional por parte de la autoridad responsable, es improcedente el incidente de inconformidad referido, pues en esa hipótesis la vía procedente es el recurso de queja, establecido en el artículo 95, fracción IV, de la Ley Reglamentaria de los Artículos 103 y 107 Constitucionales y no el incidente de inconformidad previsto en el invocado artículo 105 de la ley de la materia.
+Inconformidad 26/94. Inmobiliaria del Valle del Murúa, S.A. de C.V. 10 de octubre de 1994.
 --------------------------------------------------------------------------------
 
 JURISPRUDENCIA: INTERÉS JURÍDICO EN EL JUICIO DE AMPARO INDIRECTO. LO TIENE EL IMPUTADO PARA PROMOVERLO EN CONTRA DE LA RESOLUCIÓN DEL JUEZ DE CONTROL QUE REVOCA LA DETERMINACIÓN MINISTERIAL DE NO EJERCICIO DE LA ACCIÓN PENAL Y ORDENA LA CONTINUACIÓN DE LA INVESTIGACIÓN (SISTEMA PENAL ACUSATORIO).
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2024502
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2024502
 
 [TIPO: JURISPRUDENCIA] [MATERIA: PENAL, COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 6/2022 (11a.)] [REGISTRO: 2024502]
 --------------------------------------------------------------------------------------------------------------------------
@@ -298,43 +270,12 @@ Criterio jurídico: La Primera Sala de la determina que la persona imputada cuen
 
 
 Justificación: El ejercicio de la acción penal, como expresión del poder punitivo estatal, inevitablemente trae consigo actos que son susceptibles de trastocar la esfera jurídica del indiciado.
-Cuando el Ministerio Público decide no ejercer acción penal, genera un estado de cosas y provoca una situación favorable al indiciado, quien deja de tener tal calidad procesal. Por ello, respetando el derecho de acceso a la justicia, cuando el Juez de Control revoca la determinación de no ejercicio de la acción penal para efecto de continuar la investigación, es necesario contar con recursos judiciales efectivos que garanticen la posibilidad de someter a control constitucional esa determinación, ya que el procedimiento penal, como expresión del poder punitivo estatal, es el ámbito donde tanto víctimas como personas imputadas pueden enfrentar una mayor vulnerabilidad y asimetría respecto de las decisiones del Ministerio Público o de los Jueces. En consecuencia, el imputado cuenta con interés jurídico para acudir al juicio de amparo indirecto; de lo contrario, la imposibilidad de revisar constitucionalmente tal resolución dejaría al indiciado indefinidamente en esa categoría procesal, trastocando su seguridad jurídica, lo
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: COMISIÓN FEDERAL DE TELECOMUNICACIONES. LOS ACTOS EMITIDOS POR EL EXTINTO ORGANISMO MENCIONADO, CON POSTERIORIDAD A LA ENTRADA EN VIGOR DEL DECRETO DE REFORMA CONSTITUCIONAL PUBLICADO EN EL DIARIO OFICIAL DE LA FEDERACIÓN EL 11 DE JUNIO DE 2013, EN ATENCIÓN AL DERECHO FUNDAMENTAL DE TUTELA JUDICIAL
-Tipo: JURISPRUDENCIA | Organo: Plenos de Circuito
-Numero/Registro: 2009413
-
-[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Plenos de Circuito] [TESIS: PC.XXXIII.CRT. J/6 CS] [REGISTRO: 2009413]
-------------------------------------------------------------------------------------------------------------------------------------
-COMISIÓN FEDERAL DE TELECOMUNICACIONES. LOS ACTOS EMITIDOS POR EL EXTINTO ORGANISMO MENCIONADO, CON POSTERIORIDAD A LA ENTRADA EN VIGOR DEL DECRETO DE REFORMA CONSTITUCIONAL PUBLICADO EN EL DIARIO OFICIAL DE LA FEDERACIÓN EL 11 DE JUNIO DE 2013, EN ATENCIÓN AL DERECHO FUNDAMENTAL DE TUTELA JUDICIAL EFECTIVA PUEDEN IMPUGNARSE, POR EL GOBERNADO, A TRAVÉS DE LOS MEDIOS ORDINARIOS DE DEFENSA O EN AMPARO INDIRECTO.
-
-Aun cuando en los artículos 28 y séptimo transitorio del decreto mencionado, así como en el proceso legislativo correspondiente, no se advierte que el legislador hubiera previsto una forma específica para impugnar las resoluciones de ese organismo, una vez que ya estaban vigentes las nuevas reglas previstas para la impugnación de sus actos y antes de la integración del actual órgano constitucional autónomo denominado Instituto Federal de Telecomunicaciones, ante la falta de claridad y previsión expresa de solución en ese punto y conforme al criterio hermenéutico a que alude el principio pro personae, en observancia al derecho fundamental de tutela judicial efectiva consignado en el artículo 17 de la Ley Fundamental, hay razones para interpretar la disposición de tránsito aludida, en el sentido de favorecer la elección que el gobernado haya hecho, ya sea de someterse al marco jurídico previo a la entrada en vigor de ésta, o bien, al nuevo consignado en la Ley Fundamental, sin desconocer las restricciones ahí señaladas, así como aquellas relacionadas con los requisitos procesales (oportunidad, competencia, legitimación, verbigracia) que deben observarse en cada caso. Por tanto, no debe calificarse improcedente el medio de impugnación por el cual hubiera optado el justiciable, porque se traduciría en una injustificada denegación del mencionado derecho fundamental, de ahí que, será válida la impugnación por la que hubieren optado los gobernados en estos casos, de acudir a los mecanismos ordinarios de defensa a controvertir la legalidad del acto administrativo por ese órgano regulador, o bien, al amparo.
-PLENO DE CIRCUITO EN MATERIA ADMINISTRATIVA ESPECIALIZADO EN COMPETENCIA ECONÓMICA, RADIODIFUSIÓN Y TELECOMUNICACIONES.
---------------------------------------------------------------------------------
-
-JURISPRUDENCIA: DESECHAMIENTO DE LA DEMANDA DE AMPARO INDIRECTO. SE ACTUALIZA EN FORMA MANIFIESTA E INDUDABLE UNA CAUSA DE IMPROCEDENCIA, SI EL QUEJOSO PRIVADO DE LA LIBERTAD EN UN CENTRO PENITENCIARIO SEÑALA COMO ACTOS RECLAMADOS DE MANERA INDIRECTA O COMO CONSECUENCIA DE UN POSIBLE CAMBIO DE DORMITORIO O TRASLADO
-Tipo: JURISPRUDENCIA | Organo: Plenos Regionales
-Numero/Registro: 2026706
-
-[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN, PENAL] [INSTANCIA: Plenos Regionales] [TESIS: PR.P.CN. J/7 P (11a.)] [REGISTRO: 2026706]
---------------------------------------------------------------------------------------------------------------------------------
-DESECHAMIENTO DE LA DEMANDA DE AMPARO INDIRECTO. SE ACTUALIZA EN FORMA MANIFIESTA E INDUDABLE UNA CAUSA DE IMPROCEDENCIA, SI EL QUEJOSO PRIVADO DE LA LIBERTAD EN UN CENTRO PENITENCIARIO SEÑALA COMO ACTOS RECLAMADOS DE MANERA INDIRECTA O COMO CONSECUENCIA DE UN POSIBLE CAMBIO DE DORMITORIO O TRASLADO, ACTOS QUE SUBJETIVAMENTE CALIFICA COMO TORTURA O TORMENTO.
-
-
-
-Hechos: Los Tribunales Colegiados de Circuito contendientes sostuvieron criterios discrepantes con relación a una demanda de amparo indirecto formulada por personas privadas de la libertad en un centro de reclusión, en la que señalaron como actos reclamados, entre otros, la orden de traslado o reubicación de dormitorio y, en forma indirecta o como consecuencia de los mismos, tortura o tormento prohibidos por el artículo 22 constitucional y previstos en el artículo 15 de la Ley de Amparo, pues mientras uno de los tribunales concluyó que aun cuando pudiera considerarse que estos últimos actos se relacionan con los aludidos traslado y reubicación de los quejosos, no era obstáculo para admitir la demanda, los demás tribunales contendientes determinaron que si ésta se planteaba en tales términos, sí se actualizaba en forma manifiesta e indudable una causal de improcedencia y, por tanto, procedía desechar de plano la demanda de amparo.
-
-
-Criterio jurídico: El Pleno Regional en Materia Penal de la Región Centro-Norte, con residencia en la Ciudad de México determina que si el quejoso privado de la libertad en un centro penitenciario señala como actos reclamados de manera indirecta o como consecuencia de condiciones de internamiento o traslado, actos que califica subjetivamente como tortura o tormento, se actualiza en forma manifiesta e indudable una causal de improcedencia del juicio que amerita el desechamiento de la demanda de amparo.
-
-
-Justificación: En el contexto de las personas privadas de la libertad, la Corte Interamericana de Derechos Humanos ha reconocido que esa condición trae como consecuencia ineludible, la afectación de otros derechos humanos, además del de la libertad personal, pues las sanciones penales son una expresión de la potestad punitiva del Estado e implican menoscabo, privación o alteración de los derechos de las personas, como c
+Cuando el Ministerio Público decide no ejercer acción penal, genera un estado de cosas y provoca una situación favorable al indiciado, quien deja de tener tal calidad procesal. Por ello, respetando el derecho de acceso a la justicia, cuando el Juez de Control revoca la determinación de no ejercicio de la acción penal para efecto de continuar la investigación, es necesario contar con recursos judiciales efectivos que garanticen la posibilidad de someter a control constitucional esa determinación, ya que el procedimiento penal, como expresión del poder punitivo estatal, es el ámbito donde tanto víctimas como personas imputadas pueden enfrentar una mayor vulnerabilidad y asimetría respecto de las decisiones del Ministerio Público o de los Jueces. En consecuencia, el imputado cuenta con interés jurídico para acudir al juicio de amparo indirecto; de lo contrario, la imposibilidad de revisar constitucionalmente tal resolución dejaría al indiciado indefinidamente en esa categoría procesal, trastocando su seguridad jurídica, lo cual se traduce en una afectación a su esfera jurídica.
 --------------------------------------------------------------------------------
 
 JURISPRUDENCIA: SUSPENSIÓN EN EL AMPARO DIRECTO PENAL. NO IMPIDE EL EJERCICIO DE LAS FACULTADES ADMINISTRATIVAS DE LAS AUTORIDADES CARCELARIAS (INTERPRETACIÓN DEL ARTÍCULO 172 DE LA LEY DE AMPARO).
-Tipo: JURISPRUDENCIA | Organo: Primera Sala
-Numero/Registro: 2002071
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2002071
 
 [TIPO: JURISPRUDENCIA] [MATERIA: COMÚN, PENAL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 27/2012 (10a.)] [REGISTRO: 2002071]
 ---------------------------------------------------------------------------------------------------------------------------
@@ -343,5 +284,479 @@ SUSPENSIÓN EN EL AMPARO DIRECTO PENAL. NO IMPIDE EL EJERCICIO DE LAS FACULTADES
 De conformidad con dicho numeral, cuando la sentencia reclamada imponga la pena de privación de la libertad, la suspensión surtirá el efecto de que el quejoso quede a disposición del tribunal colegiado de circuito competente, por mediación de la autoridad que haya suspendido su ejecución.
 Ahora bien, de no proceder la libertad caucional, la suspensión no tendrá por efecto dejarlo en libertad, sino que se limita al hecho específico de que se paralice la ejecución de la condena y queden las cosas en el estado que guardan hasta en tanto se resuelva el fondo del amparo; es decir, el quejoso continuará privado de su libertad, por lo que el estatus de interno y el régimen de vida penitenciaria que padece dentro de determinado reclusorio, constituye una circunstancia no comprendida en los alcances de la medida precautoria concedida. En esa tesitura, el hecho de que el quejoso quede a disposición del tribunal colegiado, debido al otorgamiento de la suspensión, no implica que dentro de las facultades de dicho órgano esté la de intervenir en los actos de disposición que en el ejercicio de sus atribuciones despliega la autoridad carcelaria y administrativa respecto de la persona del quejoso, hecha excepción del supuesto en que llegaran a realizar algún acto vinculado directamente con la ejecución de la pena, objeto de la suspensión.
 Consecuentemente, frente a actos propios de tales autoridades administrativas que determinan el traslado del condenado o cualquier otra medida que modifique su situación de recluso, no procede el recurso de queja por incumplimiento de la suspensión, sino el amparo indirecto, sujeto al principio de definitividad, o no, según el caso.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: RECURSO DE QUEJA. CONTRA EL AUTO MEDIANTE EL QUE UN JUEZ DE DISTRITO SE ABSTENGA DE PROVEER SOBRE LA SUSPENSIÓN POR HABERSE EXCUSADO AL ADUCIR QUE TIENE INTERÉS PERSONAL EN EL ASUNTO, SE ACTUALIZA EL SUPUESTO DE PROCEDENCIA PREVISTO EN EL INCISO B) DE LA FRACCIÓN I DEL ARTÍCULO 97 DE LA LEY DE AMPAR
+Tipo: JURISPRUDENCIA | Órgano: Pleno
+Número/Registro: 2022909
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Pleno] [TESIS: P./J. 2/2021 (10a.)] [REGISTRO: 2022909]
+-----------------------------------------------------------------------------------------------------------
+RECURSO DE QUEJA. CONTRA EL AUTO MEDIANTE EL QUE UN JUEZ DE DISTRITO SE ABSTENGA DE PROVEER SOBRE LA SUSPENSIÓN POR HABERSE EXCUSADO AL ADUCIR QUE TIENE INTERÉS PERSONAL EN EL ASUNTO, SE ACTUALIZA EL SUPUESTO DE PROCEDENCIA PREVISTO EN EL INCISO B) DE LA FRACCIÓN I DEL ARTÍCULO 97 DE LA LEY DE AMPARO.
+
+
+
+Hechos: Los Tribunales Colegiados de Circuito contendientes, al analizar si procede el recurso de queja cuando el Juez de Distrito no provee sobre la suspensión, por haberse considerado impedido al tener un interés personal en el asunto, llegaron a soluciones contrarias, pues mientras uno determinó que sí procede dicho recurso por equipararse a la negativa de suspensión precisada en el inciso b) de la fracción I del artículo 97 de la Ley de Amparo, el otro estimó que no procede con base en el aludido inciso b), ya que la omisión del pronunciamiento expreso del Juez de Distrito respecto de la suspensión no puede equipararse a la negativa de la suspensión, pero sí procede ese medio de impugnación conforme al diverso supuesto de procedencia previsto en el inciso e) de la porción normativa en comento.
+
+
+Criterio jurídico: Cuando un Juez de Distrito se abstiene de proveer sobre la suspensión por estimar que se encuentra impedido por tener interés personal en el asunto, se actualiza el supuesto de procedencia del recurso de queja previsto en el inciso b) de la fracción I del artículo 97 de la Ley de Amparo.
+
+
+Justificación: La procedencia del recurso de queja, en términos de la porción normativa en comento, dota al justiciable de un medio de impugnación útil y eficaz que es acorde al principio pro actione y a la finalidad que subyace a dicha hipótesis de procedencia, mediante la que se instauró un recurso que, debido a su brevedad (plazo de interposición de dos días y de resolución en cuarenta y ocho horas), resuelve con la premura necesaria lo atinente a la suspensión del acto reclamado y, por ende, evita en mayor medida que la autoridad lo ejecute, para así preservar la materia del amparo.
+Ello, no obstante que pudiesen confluir en el juicio circunstancias personales del juzgador que le impidan conocer del mismo, sobre todo si se tiene en consideración que, con independencia de la diversidad de contingencias que se pueden dar en observancia a lo previsto en el artículo 53 de la Ley de Amparo, lo relevante es que esta disposición incide, primordialmente, en la materia de la suspensión porque, precisamente, privilegia que lo atinente a esa medida cautelar no quede sin resolverse y que ello sea a la brevedad, a pesar de que se declare impedido e
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: IMPROCEDENCIA DEL JUICIO DE AMPARO INDIRECTO. ES APLICABLE EL ARTÍCULO 64, PÁRRAFO SEGUNDO, DE LA LEY DE AMPARO, AL RESOLVER EL RECURSO DE QUEJA INTERPUESTO CONTRA EL DESECHAMIENTO DE PLANO DE LA DEMANDA, CUANDO SE ADVIERTE DE OFICIO UNA CAUSAL DISTINTA A LA EXAMINADA POR EL JUEZ DE DISTRITO.
+Tipo: JURISPRUDENCIA | Órgano: Pleno
+Número/Registro: 2008789
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Pleno] [TESIS: P./J. 4/2015 (10a.)] [REGISTRO: 2008789]
+-----------------------------------------------------------------------------------------------------------
+IMPROCEDENCIA DEL JUICIO DE AMPARO INDIRECTO. ES APLICABLE EL ARTÍCULO 64, PÁRRAFO SEGUNDO, DE LA LEY DE AMPARO, AL RESOLVER EL RECURSO DE QUEJA INTERPUESTO CONTRA EL DESECHAMIENTO DE PLANO DE LA DEMANDA, CUANDO SE ADVIERTE DE OFICIO UNA CAUSAL DISTINTA A LA EXAMINADA POR EL JUEZ DE DISTRITO.
+
+De la interpretación sistemática de la exposición de motivos del proyecto de decreto por el que se expidió la Ley de Amparo, así como de la reforma constitucional publicada en el Diario Oficial de la Federación el 10 de junio de 2011 en materia de derechos humanos y de los artículos 64 y 112 a 115 de la ley aludida, se aprecia la ampliación de la protección de los derechos fundamentales del gobernado. De este modo, en razón de esa salvaguarda ampliada, es que debe existir un procedimiento adecuado regido por el párrafo segundo del artículo 64 citado; de ahí que si en la resolución de un recurso de queja interpuesto en contra del desechamiento de plano de la demanda de amparo indirecto, el Tribunal Colegiado de Circuito advierte de oficio la actualización de una diversa causal de improcedencia que no fue alegada por las partes, ni analizada por el órgano inferior, dará vista a la parte recurrente para que, previa notificación por lista, manifieste lo que a su derecho convenga. Lo que resulta necesario, además, en virtud de que, al conocer del referido recurso y concluir que el respectivo juicio de amparo es improcedente por actualizarse una causa manifiesta e indudable de improcedencia, emite una resolución definitiva e inimpugnable, a diferencia de las determinaciones que sobre ese aspecto dicta el órgano jurisdiccional que en primera instancia conoce de la demanda de amparo indirecto.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: QUEJA PREVISTA EN LA FRACCIÓN XI DEL ARTÍCULO 95, DE LA LEY DE AMPARO. PARA DETERMINAR LA OPORTUNIDAD DE ESE RECURSO ES INDISPENSABLE QUE EN EL CUADERNILLO INCIDENTAL OBRE LA CONSTANCIA DE NOTIFICACIÓN A LA AUTORIDAD QUE RESIDE FUERA DEL LUGAR DEL JUICIO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 161013
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 79/2011] [REGISTRO: 161013]
+------------------------------------------------------------------------------------------------------------
+QUEJA PREVISTA EN LA FRACCIÓN XI DEL ARTÍCULO 95, DE LA LEY DE AMPARO. PARA DETERMINAR LA OPORTUNIDAD DE ESE RECURSO ES INDISPENSABLE QUE EN EL CUADERNILLO INCIDENTAL OBRE LA CONSTANCIA DE NOTIFICACIÓN A LA AUTORIDAD QUE RESIDE FUERA DEL LUGAR DEL JUICIO.
+
+El recurso de queja previsto en la fracción XI, del artículo 95 de la Ley de Amparo, procede contra las resoluciones del juez de distrito o del superior del tribunal responsable que concedan o nieguen la suspensión provisional. Por otra parte, conforme al artículo 99 del indicado ordenamiento, el mencionado recurso debe interponerse ante esas autoridades dentro del término de veinticuatro horas, contadas a partir del día siguiente a la fecha en que para la parte recurrente surta efectos la notificación que conceda o niegue la suspensión provisional. Para su tramitación, los jueces de distrito o el superior del tribunal remitirán de inmediato los escritos en los que se formule la queja, con las constancias pertinentes, al tribunal que deba conocer de ella, el cual, dentro de las cuarenta y ocho horas siguientes, resolverá de plano lo que proceda. Por lo anterior, el juez de distrito debe remitir el expediente al tribunal colegiado hasta que obre en autos la constancia de notificación a la autoridad que reside fuera del lugar del juicio, pues dicha constancia resulta indispensable para que el tribunal colegiado que debe conocer y resolver el recurso de queja, realice el cómputo del plazo para verificar la oportunidad. Lo anterior, porque el plazo para interponer el recurso de queja se cuenta a partir del día siguiente a la fecha en que para la recurrente surte efectos la notificación del auto recurrido, y la fecha fehaciente en que se notificó a la autoridad recurrente sólo se obtiene de la constancia de notificación; esto obedece a la finalidad de garantizar certeza y seguridad jurídica en el procedimiento de amparo. Sin perjuicio de que, en su caso, la autoridad recurrente estará en aptitud de anexar a su recurso de queja, copia certificada de la constancia de notificación del auto que recurre, para demostrar la oportunidad en su presentación.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: RECURSO DE QUEJA. EL ARTÍCULO 58, FRACCIÓN II, INCISO A), DE LA LEY FEDERAL DE PROCEDIMIENTO CONTENCIOSO ADMINISTRATIVO, NO VIOLA EL DERECHO DE TUTELA JUDICIAL.
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 2029427
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 88/2024 (11a.)] [REGISTRO: 2029427]
+-----------------------------------------------------------------------------------------------------------------------------
+RECURSO DE QUEJA. EL ARTÍCULO 58, FRACCIÓN II, INCISO A), DE LA LEY FEDERAL DE PROCEDIMIENTO CONTENCIOSO ADMINISTRATIVO, NO VIOLA EL DERECHO DE TUTELA JUDICIAL.
+
+
+
+Hechos: Una empresa demandó la nulidad de dos créditos fiscales. El Tribunal Federal de Justicia Administrativa declaró su nulidad lisa y llana al considerar que la autoridad determinante fundamentó de forma insuficiente su competencia. La autoridad determinó nuevamente dos créditos a la contribuyente por los mismos hechos que originaron los primeros. La empresa interpuso recurso de queja en el que alegó que la segunda resolución determinante le fue notificada después de que caducaron las facultades de la autoridad, por lo que procedía dejarla sin efectos al haberse incumplido la sentencia anulatoria. El Tribunal Federal de Justicia Administrativa declaró improcedente la queja sobre la base de que dentro de las hipótesis de procedencia del citado recurso, previstas en el artículo 58, fracción II, inciso a), numerales 1 a 4, de la Ley Federal de Procedimiento Contencioso Administrativo, no estaba la pretendida por la actora. Contra dicha resolución la empresa promovió amparo indirecto en el que argumentó que el artículo referido viola el derecho de tutela judicial efectiva, porque excluye de los supuestos de procedencia del recurso de queja en sede contenciosa administrativa a las resoluciones definitivas emitidas y notificadas después de caducadas las facultades de la autoridad administrativa. El Juzgado de Distrito negó el amparo al estimar que el razonamiento hecho valer por la quejosa no implica un planteamiento de inconstitucionalidad, porque no se tiene un referente normativo que pueda confrontarse con el orden constitucional. La persona moral interpuso recurso de revisión y el Tribunal Colegiado de Circuito reservó jurisdicción a la Suprema Corte para ocuparse del planteamiento de constitucionalidad del artículo mencionado.
+
+
+Criterio jurídico: La Segunda Sala de la determina que el artículo 58, fracción II, inciso a), numerales 1 a 4, de la Ley Federal de Procedimiento Contencioso Administrativo, no viola el derecho a la tutela judicial efectiva, aun cuando no prevea entre los supuestos de procedencia del recurso de queja los casos en que se declaró la nulidad por vicios de competencia y, posteriormente, la autoridad pretenda iniciar un procedimiento o dictar una nueva resolución a pesar de que caducaron sus facultades.
+
+
+Justificación: La obligación de las autoridades de observar el plazo de la caducidad cuando optan por emitir una nu
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: RECURSO DE QUEJA PREVISTO EN EL ARTÍCULO 97, FRACCIÓN II, INCISO A), DE LA LEY DE AMPARO. EL HECHO DE QUE QUEDE SIN MATERIA, NO ES OBSTÁCULO PARA QUE EL TRIBUNAL COLEGIADO DE CIRCUITO IMPONGA A LA AUTORIDAD RESPONSABLE LA MULTA PREVISTA EN EL NUMERAL 260, FRACCIÓN IV, DEL MISMO ORDENAMIENTO (LEGISLA
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2007291
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 41/2014 (10a.)] [REGISTRO: 2007291]
+--------------------------------------------------------------------------------------------------------------------
+RECURSO DE QUEJA PREVISTO EN EL ARTÍCULO 97, FRACCIÓN II, INCISO A), DE LA LEY DE AMPARO. EL HECHO DE QUE QUEDE SIN MATERIA, NO ES OBSTÁCULO PARA QUE EL TRIBUNAL COLEGIADO DE CIRCUITO IMPONGA A LA AUTORIDAD RESPONSABLE LA MULTA PREVISTA EN EL NUMERAL 260, FRACCIÓN IV, DEL MISMO ORDENAMIENTO (LEGISLACIÓN DE AMPARO VIGENTE A PARTIR DEL 3 DE ABRIL DE 2013).
+
+A juicio de esta Primera Sala de la , la finalidad u objeto de la multa en comento no es obtener el cumplimiento de los deberes procesales que impone a la responsable el artículo 178 de la Ley de Amparo, sino sancionar, en lo que aquí interesa, la falta de trámite de la demanda de amparo. Además, su naturaleza jurídica no es la de una medida de apremio o de una corrección disciplinaria, pues no deviene de un mandato del órgano de control constitucional, ni se encamina a la preservación del orden o respeto en un juicio, sino la de una sanción, pues constituye una consecuencia jurídica que resulta del desacato a un mandato directo de la Ley de Amparo, cuyo conocimiento sí es previo para la autoridad responsable. Por ello, aun cuando la finalidad de los órganos de amparo no es erigirse como meros sancionadores, per se, sino como guardianes del orden constitucional, en principio, la referida multa debe imponerse, de oficio y de manera general, sea en un apartado de la resolución que se emita al resolver la queja, o en una diversa resolución, incluso un auto emitido por el Magistrado que presida el tribunal colegiado que conozca del asunto, pues la sanción opera ante el solo hecho de que se haya materializado el supuesto correlativo de infracción a la ley. En esa medida, aun ante el hecho de que el recurso de queja en comento pudiera estimarse que habría de quedar sin materia, por la atención ulterior que la autoridad responsable efectúe de los lineamientos que le impuso el legislador en términos del artículo 178 de la Ley de Amparo, y que se llegara a demostrar en el informe de queja que debe rendir en acatamiento a lo dispuesto en el artículo 101 de ese mismo ordenamiento; legalmente no puede permitirse que por ese mero y eventual cumplimiento, que, de cualquier modo, aconteció fuera de plazo, se permita a la autoridad responsable evadir la imposición de la multa condigna que le debe ser impuesta por haberse ubicado previamente en el supuesto de infracción que el legislador expresamente ha dispuesto sancionar, al haber dejado de actuar en su debida oportunidad, en plena concordancia a los lineamientos relativos que le impone el numeral 178 de la Ley de Amparo. En ese senti
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: RECURSO DE QUEJA CONTRA EL DESECHAMIENTO DE PLANO DE LA DEMANDA DE AMPARO. SI DURANTE SU TRÁMITE LA PARTE QUEJOSA SE DESISTE DEL JUICIO, EL TRIBUNAL COLEGIADO SÓLO DEBE REFLEJAR ESE DESISTIMIENTO Y DECLARAR SIN MATERIA EL RECURSO EN CUESTIÓN.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2028843
+
+[TIPO: JURISPRUDENCIA] [MATERIA: ADMINISTRATIVA,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 66/2024 (11a.)] [REGISTRO: 2028843]
+------------------------------------------------------------------------------------------------------------------------------
+RECURSO DE QUEJA CONTRA EL DESECHAMIENTO DE PLANO DE LA DEMANDA DE AMPARO. SI DURANTE SU TRÁMITE LA PARTE QUEJOSA SE DESISTE DEL JUICIO, EL TRIBUNAL COLEGIADO SÓLO DEBE REFLEJAR ESE DESISTIMIENTO Y DECLARAR SIN MATERIA EL RECURSO EN CUESTIÓN.
+
+
+
+Hechos: Los tribunales contendientes sostuvieron criterios diferentes en cuanto a la forma en que se debe resolver un recurso de queja interpuesto contra el desechamiento de plano de una demanda de amparo indirecto, cuando, durante el trámite de dicho medio de impugnación, la parte quejosa se desiste del juicio constitucional.
+
+
+Criterio jurídico: La Primera Sala de la determina que, si durante el trámite de un recurso de queja interpuesto contra el desechamiento de plano de una demanda de amparo, la parte quejosa se desiste debidamente del juicio constitucional, el tribunal colegiado sólo debe reflejar dos aspectos en su resolución, a saber, tener por desistido al quejoso de su demanda y declarar sin materia el recurso en cuestión.
+
+
+Justificación: Si para promover el juicio de amparo se brinda una relevancia fundamental a la voluntad del quejoso para iniciarlo, entonces resulta lógico que esa misma voluntad sea respetada cuando se manifiesta en el sentido de no continuar con el juicio, inclusive si ello ocurre en una fase impugnativa, como lo es cuando se interpone un recurso de queja contra el desechamiento de plano de una demanda de amparo que inicialmente se tenía intención de hacer valer. Sin que ello dé lugar a que el tribunal colegiado sobresea el juicio con motivo del desistimiento, pues en estos escenarios no tiene efecto útil sobreseer un juicio constitucional en el que, de origen, la demanda no fue admitida por haberse advertido una causa notoria y manifiesta de improcedencia. De este modo, el recurso de queja debe quedar sin materia porque ya no subsiste el interés perseguido con su interposición, consistente en revocar o modificar el auto de desechamiento; máxime que este último será sustituido procesalmente por la resolución del propio tribunal colegiado en la que tenga por desistida a la parte quejosa de su acción de amparo.
+Contradicción de criterios 299/2023. Entre los sustentados por el Décimo Segundo Tribunal Colegiado en Materia Administrativa del Primer Circuito, el Cuarto Tribunal Colegiado en Materia Penal del Primer Circuito, el Tercer Tribunal Colegiado en Materias Penal y Administrativa del Quinto Circuito, el Primer Tribunal Colegiado en Materias Penal y Administrativa del Octavo Circuito, el Primer Tribunal Colegiado en Materias Ci
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: FORMAL PRISIÓN, AUTO DE. DICTADO POR UN DELITO DISTINTO, CON BASE EN LOS MISMOS HECHOS Y PRUEBAS TOMADAS EN CUENTA EN OTRO QUE FUE MOTIVO DE UN AMPARO DIVERSO, ES PROCEDENTE EL JUICIO DE GARANTÍAS QUE SE PROMUEVE EN SU CONTRA.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 179576
+
+[TIPO: JURISPRUDENCIA] [MATERIA: PENAL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 94/2004] [REGISTRO: 179576]
+------------------------------------------------------------------------------------------------------------
+FORMAL PRISIÓN, AUTO DE. DICTADO POR UN DELITO DISTINTO, CON BASE EN LOS MISMOS HECHOS Y PRUEBAS TOMADAS EN CUENTA EN OTRO QUE FUE MOTIVO DE UN AMPARO DIVERSO, ES PROCEDENTE EL JUICIO DE GARANTÍAS QUE SE PROMUEVE EN SU CONTRA.
+
+Si se concedió el amparo en contra de un auto de formal prisión por indebida fundamentación y motivación, como acontece cuando no se adecuó la conducta desplegada por el sujeto activo al supuesto de la norma, y el órgano jurisdiccional responsable, en cumplimiento de la ejecutoria de garantías que declara su plena nulidad, con motivo de los mismos hechos y material probatorio que fundamentaron al auto anterior, dicta un nuevo auto por un delito diverso, ello constituirá un acto de plena jurisdicción, porque su contenido está desvinculado totalmente de las consideraciones que rigieron a la ejecutoria de amparo en cuanto al fondo sustancial del negocio, por lo que en su contra procede el juicio de amparo y no el recurso de queja previsto en el artículo 95, fracción IV, de la Ley de Amparo y, en consecuencia, no se actualiza la causal de improcedencia prevista en el artículo 73, fracción II, de la ley de la materia.
+--------------------------------------------------------------------------------
+
+
+================================================================================
+SECCIÓN: AMPARO DIRECTO — PROCEDENCIA Y PROCESO
+================================================================================
+
+JURISPRUDENCIA: DERECHO DE ALIMENTOS (HABITACIÓN) DE LAS PERSONAS MENORES DE EDAD. ES DISTINTO DEL DERECHO DE USO QUE SUS PROGENITORES DEFIENDEN EN UN JUICIO DE TERMINACIÓN DE CONTRATO DE COMODATO RESPECTO DEL INMUEBLE DONDE HABITAN, POR LO QUE EN DICHO JUICIO NO PROCEDE ANALIZAR EL ASUNTO A LA LUZ DEL INTERÉS SUPE
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2023695
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 21/2021 (11a.)] [REGISTRO: 2023695]
+---------------------------------------------------------------------------------------------------------------------
+DERECHO DE ALIMENTOS (HABITACIÓN) DE LAS PERSONAS MENORES DE EDAD. ES DISTINTO DEL DERECHO DE USO QUE SUS PROGENITORES DEFIENDEN EN UN JUICIO DE TERMINACIÓN DE CONTRATO DE COMODATO RESPECTO DEL INMUEBLE DONDE HABITAN, POR LO QUE EN DICHO JUICIO NO PROCEDE ANALIZAR EL ASUNTO A LA LUZ DEL INTERÉS SUPERIOR DE LA INFANCIA.
+
+
+
+Hechos: El padre y la madre de dos personas menores de edad fueron demandados por la abuela de éstas en un juicio sobre terminación de contrato verbal de comodato, respecto de un inmueble que ocupaban aquéllos como casa habitación. En primera y segunda instancia se determinó la improcedencia de la acción planteada por la abuela; razón por la cual esta última promovió juicio de amparo. El Tribunal Colegiado concedió protección constitucional para que la autoridad responsable emitiera una nueva resolución, en la que valorara debidamente las pruebas desahogadas en el juicio. Los padres de las menores de edad presentaron un recurso de revisión en el que alegaron que el Tribunal Colegiado debió analizar el impacto que tendría la concesión del amparo en los derechos humanos de sus hijas quienes habitaban el domicilio y por lo tanto se podrían ver desalojadas de dicho inmueble.
+
+
+Criterio jurídico: El derecho de alimentos de las hijas o hijos menores de edad (que comprende la habitación), es distinto del derecho de uso que sus padres, como parte en el proceso, defienden en un juicio de terminación de contrato de comodato, por lo que en estos casos la autoridad jurisdiccional no se encuentra constreñida a realizar ningún pronunciamiento sobre el impacto de la determinación en el interés superior de la infancia, ya que no existe disputa respecto de los derechos de niños, niñas o adolescentes.
+
+
+Justificación: A pesar de la estrecha relación funcional que guarda el derecho de habitación de una persona menor de edad, respecto del satisfactor material (inmueble) que se emplea para colmar ese derecho, cuando la litis en el juicio natural versa sobre la determinación judicial de restitución de la posesión de un inmueble, mas no sobre el alcance, subsistencia y/o modificación del derecho de alimentos (habitación) de las personas menores de edad, el caso no amerita ser apreciado a la luz de su interés superior, ni con perspectiva de infancia. Lo anterior, aun tomando en consideración el alcance que jurisprudencialmente se ha dado al interés superior de la infancia y al derecho de participación de niños, niñas y adolescentes en los procedimientos en donde se ventilen sus derechos, pues no es posible atender a una even
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: HIPOTECA CONSTITUIDA POR PROPIETARIO APARENTE. ES INCONSTITUCIONAL QUE SUBSISTA SI SE DECLARA LA NULIDAD DEL TÍTULO DE PROPIEDAD QUE SIRVIÓ DE BASE PARA CONSTITUIRLA (INTERPRETACIÓN DEL CÓDIGO CIVIL PARA EL ESTADO DE PUEBLA).
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2027780
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 199/2023 (11a.)] [REGISTRO: 2027780]
+----------------------------------------------------------------------------------------------------------------------
+HIPOTECA CONSTITUIDA POR PROPIETARIO APARENTE. ES INCONSTITUCIONAL QUE SUBSISTA SI SE DECLARA LA NULIDAD DEL TÍTULO DE PROPIEDAD QUE SIRVIÓ DE BASE PARA CONSTITUIRLA (INTERPRETACIÓN DEL CÓDIGO CIVIL PARA EL ESTADO DE PUEBLA).
+
+
+
+Hechos: Dos personas propietarias de un inmueble demandaron por la vía civil, entre otras prestaciones, la nulidad de los instrumentos notariales en los que constaban un supuesto poder que otorgaron a otra persona, la compraventa del inmueble de su propiedad celebrada por esa persona en su representación, así como los contratos de crédito e hipoteca suscritos por los compradores con una institución bancaria. El Juez de primera instancia declaró la nulidad absoluta de los instrumentos notariales referidos y ordenó la cancelación de las respectivas inscripciones en el Registro Público de la Propiedad. En apelación, el tribunal de segunda instancia, si bien confirmó la nulidad del poder y del contrato de compraventa, consideró que debían prevalecer los contratos de crédito e hipoteca celebrados entre los compradores y la institución bancaria, con fundamento en el artículo 2947 del Código Civil para el Estado de Puebla. En contra de esa resolución, los propietarios promovieron un juicio de amparo directo en el que, entre otras cosas, alegaron la inconstitucionalidad del referido precepto. Sin embargo, el Tribunal Colegiado les negó el amparo, contra lo cual interpusieron un recurso de revisión.
+
+
+Criterio jurídico: El artículo 2947 del Código Civil para el Estado de Puebla, que establece que, bajo ciertos requisitos, la hipoteca constituida por propietario aparente es válida, a pesar de que se declare la nulidad o inexistencia del título de propiedad que sirvió de base para constituirla, es inconstitucional, al ser una medida restrictiva que afecta desproporcionadamente el derecho a la propiedad privada de los auténticos propietarios.
+
+
+Justificación: El artículo 2947 del Código Civil para el Estado de Puebla establece la validez de una hipoteca constituida por un propietario aparente, cuyo título de propiedad posteriormente es declarado nulo o inexistente. Al ser sometido dicho precepto a un test de proporcionalidad, se concluye que persigue una finalidad constitucionalmente válida consistente en brindar seguridad jurídica a los acreedores de buena fe sobre el adeudo garantizado a través de una hipoteca constituida por un propietario aparente, cuyo título de propiedad posteriormente es declarado nulo o inexistente. Asimismo, es una medida idónea debido a que sí contribuye, en alguna medida, a lo
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: PRUEBA TESTIMONIAL EN MATERIA LABORAL. LA RENDIDA POR UN SUPERVISOR DE LA EMPRESA NO PUEDE GENERAR VALOR PROBATORIO EN FAVOR DE LA PARTE PATRONAL, DEBIDO A QUE EL VÍNCULO Y LAS FUNCIONES QUE LLEVA A CABO IMPIDEN QUE GOCE DE LAS CONDICIONES DE INDEPENDENCIA E IMPARCIALIDAD NECESARIAS EN EL DESAHOGO D
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 2025858
+
+[TIPO: JURISPRUDENCIA] [MATERIA: LABORAL] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 72/2022 (11a.)] [REGISTRO: 2025858]
+----------------------------------------------------------------------------------------------------------------------
+PRUEBA TESTIMONIAL EN MATERIA LABORAL. LA RENDIDA POR UN SUPERVISOR DE LA EMPRESA NO PUEDE GENERAR VALOR PROBATORIO EN FAVOR DE LA PARTE PATRONAL, DEBIDO A QUE EL VÍNCULO Y LAS FUNCIONES QUE LLEVA A CABO IMPIDEN QUE GOCE DE LAS CONDICIONES DE INDEPENDENCIA E IMPARCIALIDAD NECESARIAS EN EL DESAHOGO DE LA PROBANZA.
+
+
+
+Hechos: Los Tribunales Colegiados de Circuito contendientes llegaron a conclusiones distintas al analizar si tratándose de la prueba testimonial rendida en un juicio laboral, por una persona que ostenta el cargo de supervisor, puede otorgársele valor probatorio en favor de los intereses de la demandada al no encontrarse dentro de los supuestos a que alude el artículo 11 de la Ley Federal del Trabajo o si, por el contrario, a pesar de que ese cargo no esté catalogado dentro de los supuestos a que hace referencia el citado artículo, no debe dársele validez dadas las funciones que conllevan dicho puesto.
+
+
+Criterio jurídico: La Segunda Sala de la establece que la prueba testimonial rendida por una persona que ostenta el cargo de supervisor de la empresa no puede generar valor probatorio en beneficio de la parte patronal, debido a que el vínculo que existe y las funciones que lleva a cabo impiden que goce de las condiciones de independencia e imparcialidad en su desahogo.
+
+
+Justificación: La persona que ostenta el cargo de supervisor en una empresa, de manera general, lleva a cabo funciones de administración del personal, ya que es quien asigna el trabajo a los empleados a su cargo, coordina la organización que está bajo su responsabilidad; asimismo, verifica y evalúa que las tareas encomendadas se realicen en la forma y los tiempos requeridos para la consecución de los fines de la empresa. En ese sentido, si bien las funciones que tiene a su cargo no lo sitúan en el mismo nivel que aquellas que desempeña un director, gerente o administrador, debido a que sus labores se limitan sólo a dirigir, coordinar y verificar el desempeño del grupo de empleados que se encuentran a su cargo, éstas no pueden considerarse como actividades ordinarias que efectúa cualquier otro trabajador, pues dentro de su ámbito de competencia lleva a cabo acciones que sí involucran la administración y vigilancia en la consecución de los fines de la empresa. Por lo que, si bien dicho cargo no se encuentra dentro de los puestos de más alto nivel en la toma de decisiones de una empresa, también lo es que al tener a personal a su mando y dirigirlo en sus actividades, puede equipararse a las funciones que desempeña un jefe dentro de la organiz
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: PAGARÉ. SI EL JUZGADOR ADVIERTE QUE LA TASA DE INTERESES PACTADA CON BASE EN EL ARTÍCULO 174, PÁRRAFO SEGUNDO, DE LA LEY GENERAL DE TÍTULOS Y OPERACIONES DE CRÉDITO ES NOTORIAMENTE USURARIA PUEDE, DE OFICIO, REDUCIRLA PRUDENCIALMENTE.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2006795
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 47/2014 (10a.)] [REGISTRO: 2006795]
+------------------------------------------------------------------------------------------------------------------------------
+PAGARÉ. SI EL JUZGADOR ADVIERTE QUE LA TASA DE INTERESES PACTADA CON BASE EN EL ARTÍCULO 174, PÁRRAFO SEGUNDO, DE LA LEY GENERAL DE TÍTULOS Y OPERACIONES DE CRÉDITO ES NOTORIAMENTE USURARIA PUEDE, DE OFICIO, REDUCIRLA PRUDENCIALMENTE.
+
+El párrafo segundo del citado precepto permite una interpretación conforme con la Constitución Política de los Estados Unidos Mexicanos, al prever que en el pagaré el rédito y los intereses que deban cubrirse se pactarán por las partes, y sólo ante la falta de tal pacto, operará el tipo legal; pues ese contenido normativo debe interpretarse en el sentido de que la permisión de acordar intereses no es ilimitada, sino que tiene como límite que una parte no obtenga en provecho propio y de modo abusivo sobre la propiedad de la otra, un interés excesivo derivado de un préstamo. Así, el juzgador que resuelve la litis sobre el reclamo de intereses pactados en un pagaré, para determinar la condena conducente (en su caso), debe aplicar de oficio el referido artículo 174, acorde con el contenido constitucionalmente válido de ese precepto y a la luz de las condiciones particulares y los elementos de convicción con que se cuente en cada caso, para que dicho numeral no pueda servir de fundamento para dictar una condena al pago de intereses usurarios, por lo que si el juzgador adquiere convicción de oficio de que el pacto de intereses es notoriamente usurario acorde con las circunstancias particulares del caso y las constancias de actuaciones, entonces debe proceder, también de oficio, a inhibir esa condición usuraria apartándose del contenido del interés pactado, para fijar la condena respectiva sobre una tasa de interés reducida prudencialmente para que no resulte excesiva, mediante la apreciación razonada, fundada y motivada, y con base en las circunstancias particulares del caso y de las constancias de actuaciones que válidamente tenga a la vista al momento de resolver. Ahora bien, cabe destacar que constituyen parámetros guía para evaluar objetivamente el carácter notoriamente excesivo de una tasa de interés -si de las constancias de actuaciones se aprecian los elementos de convicción respectivos- los siguientes: a) el tipo de relación existente entre las partes; b) la calidad de los sujetos que intervienen en la suscripción del pagaré y si la actividad del acreedor se encuentra regulada; c) el destino o finalidad del crédito; d) el monto del crédito; e) el plazo del crédito; f) la existencia de garantías para el pago del crédito; g) las tasas de interés de las instituciones ban
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: PLAZOS PROCESALES EN LOS JUICIOS MERCANTILES DURANTE EL PERIODO DE PANDEMIA DERIVADO DEL VIRUS SARS-COV-2. SON DÍAS INHÁBILES AQUELLOS EN LOS QUE LOS TRIBUNALES DE LA CIUDAD DE MÉXICO LABOREN A PUERTA CERRADA.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2026173
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 47/2023 (11a.)] [REGISTRO: 2026173]
+--------------------------------------------------------------------------------------------------------------------
+PLAZOS PROCESALES EN LOS JUICIOS MERCANTILES DURANTE EL PERIODO DE PANDEMIA DERIVADO DEL VIRUS SARS-COV-2. SON DÍAS INHÁBILES AQUELLOS EN LOS QUE LOS TRIBUNALES DE LA CIUDAD DE MÉXICO LABOREN A PUERTA CERRADA.
+
+
+
+Hechos: En un juicio ordinario mercantil la Sala responsable desechó el recurso de apelación interpuesto por la parte demandada en contra de una sentencia definitiva, bajo la consideración de que conforme al Acuerdo V-31/2020 (relativo a la suspensión de términos procesales de diversos órganos jurisdiccionales de la Ciudad de México única y exclusivamente en los días que laboran a puerta cerrada), emitido por el Consejo de la Judicatura de la Ciudad de México, la notificación de dicha sentencia definitiva puede surtir efectos incluso en aquellos días en los que el juzgado de origen haya laborado a puerta cerrada. En el juicio de amparo directo promovido en contra de esa determinación, el Tribunal Colegiado de Circuito determinó que los días en los que los órganos jurisdiccionales trabajen a puerta cerrada no puede correr ningún plazo procesal. Inconforme con esa determinación, la parte quejosa interpuso recurso de revisión.
+
+
+Criterio jurídico: Deben considerarse inhábiles los días en los que el Consejo de la Judicatura de la Ciudad de México determinó que los órganos jurisdiccionales trabajen a puerta cerrada para evitar la propagación del virus SARS-CoV-2, incluyendo aquellos en los que surten efectos las notificaciones, porque esos días los justiciables no puede ingresar a los tribunales y consultar los autos, con lo cual se garantizan los principios de seguridad jurídica, debido proceso y de acceso efectivo a la justicia.
+
+
+Justificación: En atención a la emergencia de salud generada por la pandemia del virus SARS-CoV2, el Consejo de la Judicatura de la Ciudad de México implementó a través de Acuerdos Generales que un día los tribunales trabajarían a puerta cerrada y al otro día a puerta abierta, con la finalidad de no seguir retrasando la impartición de justicia, pero al mismo tiempo con el propósito de reducir la propagación del virus.
+En ese sentido, de un análisis de los artículos 1064 y 1076 del Código de Comercio, se concluye que deben considerarse inhábiles los días en los que los tribunales no trabajen con normalidad, lo que ocurre cuando lo hacen a puerta cerrada, sin atención al público, ya que si bien de facto los empleados del juzgado se encuentran trabajando dentro del local del órgano jurisdiccional, también lo es que el servicio no es prestado en toda su amplitud, ya que los justiciables no ti
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: CONTRATO DE ARRENDAMIENTO. PLAZOS PARA HACER VALER ACCIONES Y EXCEPCIONES RELATIVAS AL PAGO DE RENTAS TOTAL O PARCIAL, CUANDO SE ACTUALICE CASO FORTUITO O FUERZA MAYOR DURANTE SU VIGENCIA [INTERPRETACIÓN DE LOS ARTÍCULOS 1,162, 1,796 BIS, 2,431 Y 2,432 DEL CÓDIGO CIVIL PARA EL DISTRITO FEDERAL (HOY
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2030399
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 57/2025 (11a.)] [REGISTRO: 2030399]
+--------------------------------------------------------------------------------------------------------------------
+CONTRATO DE ARRENDAMIENTO. PLAZOS PARA HACER VALER ACCIONES Y EXCEPCIONES RELATIVAS AL PAGO DE RENTAS TOTAL O PARCIAL, CUANDO SE ACTUALICE CASO FORTUITO O FUERZA MAYOR DURANTE SU VIGENCIA [INTERPRETACIÓN DE LOS ARTÍCULOS 1,162, 1,796 BIS, 2,431 Y 2,432 DEL CÓDIGO CIVIL PARA EL DISTRITO FEDERAL (HOY CIUDAD DE MÉXICO)].
+
+
+
+Hechos: En una controversia de arrendamiento inmobiliario en la que se demandó el pago de rentas, la parte demandada reconvino la rescisión del contrato y solicitó la absolución y/o reducción de las rentas generadas durante el tiempo en que la pandemia ocasionada por el virus SARS COVID-19 impidió al arrendatario el uso total y parcial del inmueble arrendado. En primera instancia se consideraron parcialmente procedentes tanto la acción principal como la reconvención. Ambas partes apelaron y la alzada revocó la sentencia primigenia al considerar procedente la acción principal e improcedente la acción reconvencional porque se hizo valer una vez terminado el contrato.
+Contra esa determinación, la parte demandada promovió un juicio de amparo directo en el que el Tribunal Colegiado negó la protección constitucional, al considerar que de conformidad con los artículos 1,796, 1,796 Bis y 1,796 Ter del Código Civil para el Distrito Federal (hoy Ciudad de México), se autoriza la modificación de un contrato ante un evento de caso fortuito o fuerza mayor, de manera que a partir de que ocurre el impedimento para el uso total o parcial del bien arrendado, el arrendatario puede dejar de pagar la renta y, si el impedimento subsiste por más de dos meses, puede, dentro de los treinta días siguientes a esos dos meses, solicitar la rescisión a la contraparte o ejercer la acción correspondiente ante la autoridad judicial, a fin de no dejar al arbitrio de una de las partes el cumplimiento del contrato.
+Inconforme, la parte quejosa interpuso recurso de revisión en el que alegó que la interpretación que hizo el Tribunal Colegiado transgrede sus derechos a la seguridad jurídica, de acceso a la justicia y de tutela judicial efectiva.
+
+
+Criterio jurídico: La Primera Sala de la , determina que las acciones a que se refieren los artículos 2,431 y 2,432 del Código Civil para el Distrito Federal (hoy Ciudad de México), relativas a la rescisión y modificación del contrato de arrendamiento cuando derivado de caso fortuito o fuerza mayor se genere el impedimento total o parcial del uso de la cosa arrendada por más de dos meses, deben ser ejercidas por el arrendatario en el plazo de treinta días a que se refiere el artículo 1,796 Bis del
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: ETAPA CONCILIATORIA EN EL JUICIO LABORAL. LAS PARTES DEBEN COMPARECER PERSONALMENTE (LEGISLACIÓN VIGENTE EN SU TEXTO ANTERIOR A LA REFORMA PUBLICADA EN EL DIARIO OFICIAL DE LA FEDERACIÓN EL 1 DE MAYO DE 2019).
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 2025756
+
+[TIPO: JURISPRUDENCIA] [MATERIA: LABORAL] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 64/2022 (11a.)] [REGISTRO: 2025756]
+----------------------------------------------------------------------------------------------------------------------
+ETAPA CONCILIATORIA EN EL JUICIO LABORAL. LAS PARTES DEBEN COMPARECER PERSONALMENTE (LEGISLACIÓN VIGENTE EN SU TEXTO ANTERIOR A LA REFORMA PUBLICADA EN EL DIARIO OFICIAL DE LA FEDERACIÓN EL 1 DE MAYO DE 2019).
+
+
+
+Hechos: Los Tribunales Colegiados de Circuito contendientes llegaron a posturas contrarias al analizar si en la etapa de conciliación del juicio laboral, las partes deben o no comparecer personalmente ante la Junta, pues mientras uno de los Tribunales estimó que de conformidad con el artículo 876, fracción I, de la Ley Federal del Trabajo, en su texto anterior a la reforma publicada en el Diario Oficial de la Federación el 1 de mayo de 2019, las partes sí deben comparecer personalmente, el otro Tribunal concluyó que el citado precepto establece la posibilidad de que dicha etapa pueda llevarse a cabo con la sola presencia de los apoderados o representantes de los contendientes.
+
+
+Criterio jurídico: La Segunda Sala de la determina que en la etapa conciliatoria del juicio laboral, las partes deben comparecer personalmente ante la Junta.
+
+
+Justificación: El artículo 876, fracción I, de la Ley Federal del Trabajo, en su texto anterior a la reforma publicada en el Diario Oficial de la Federación el 1 de mayo de 2019, establece que las partes se encuentran obligadas a comparecer personalmente ante la Junta a la etapa conciliatoria;
+diligencia en la que podrán ser asistidas por sus abogados patronos, asesores o apoderados. En ese sentido, durante la etapa conciliatoria, los abogados patronos, asesores o apoderados legales únicamente podrán comparecer a efecto de acompañar a los contendientes y asistirlos, y su intervención debe ser mínima, en tanto que al exigir la comparecencia personal de las partes, la finalidad es que de manera directa lleguen a una solución justa y satisfactoria a sus diferencias para evitar el litigio, con la única intermediación del funcionario conciliador de la Junta, quien además de llevar a cabo pláticas conciliatorias con las partes, estará en contacto personal con ellas hasta antes del cierre de la instrucción, a efecto de que lleguen a un acuerdo conciliatorio. Lo anterior, con excepción de los apoderados o representantes de las personas morales, en cuyo caso, la última parte de la mencionada fracción legislativa, exige que el representante o apoderado cuente con facultades para asumir una solución conciliatoria que obligue a su representada.
+Contradicción de criterios 201/2022. Entre los sustentados por los Tribunales Colegiados Primero en Materia de Trabajo del Décimo Sexto Circuito y
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: DERECHO A SER PUESTO A DISPOSICIÓN DEL MINISTERIO PÚBLICO SIN DEMORA. SE TRANSGREDE CUANDO SE CONSIDERA QUE LA DILACIÓN EN LA PUESTA A DISPOSICIÓN DEL POLICÍA INCULPADO ESTÁ JUSTIFICADA PORQUE DEBE RENDIR SU PARTE INFORMATIVO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2024747
+
+[TIPO: JURISPRUDENCIA] [MATERIA: PENAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 65/2022 (11a.)] [REGISTRO: 2024747]
+---------------------------------------------------------------------------------------------------------------------
+DERECHO A SER PUESTO A DISPOSICIÓN DEL MINISTERIO PÚBLICO SIN DEMORA. SE TRANSGREDE CUANDO SE CONSIDERA QUE LA DILACIÓN EN LA PUESTA A DISPOSICIÓN DEL POLICÍA INCULPADO ESTÁ JUSTIFICADA PORQUE DEBE RENDIR SU PARTE INFORMATIVO.
+
+
+
+Hechos: Un policía reportó que observó en tiempo real, a través de cámaras de vigilancia de un centro de monitoreo de seguridad pública, la comisión de hechos probablemente constitutivos de delito por parte de otro policía; sus superiores solicitaron que se extrajera del sistema informático la videograbación respectiva, la observaron y ordenaron la presentación del implicado; por lo que al terminar su turno fue trasladado a unas oficinas de la policía para que rindiera su parte informativo y, posteriormente, fue puesto a disposición del Ministerio Público junto con la videograbación.
+Seguido el cauce legal correspondiente el inconforme promovió juicio de amparo directo, en el cual el Tribunal Colegiado de Circuito negó el amparo al considerar que el artículo 16 constitucional debe interpretarse en el sentido de que la dilación en la puesta a disposición de detenidos con cargo de policías está justificada si obedece a su obligación de emitir su parte informativo. Inconforme con esa determinación interpuso recurso de revisión.
+
+
+Criterio jurídico: La Primera Sala de la determina que bajo ninguna interpretación procede establecer excepciones o matices al derecho a ser puesto a disposición del Ministerio Público sin demora que se traduzcan en una afectación mayor a la libertad personal autorizada constitucionalmente en razón de que la persona detenida desempeñe el cargo de policía; por lo que no es jurídicamente correcto considerar que cuando los detenidos tengan la calidad de policías debe entenderse que la dilación en su puesta a disposición está justificada si obedece a su obligación de emitir el parte informativo.
+
+
+Justificación: El artículo 16 constitucional reconoce el derecho fundamental a ser puesto a disposición del Ministerio Público sin demora, el cual deriva del principio de inmediatez que exige el régimen general de protección contra detenciones establecido en nuestra Constitución e impone que toda persona detenida tiene que ser presentada ante el Ministerio Público sin dilaciones injustificadas. Las dilaciones en la puesta a disposición sólo pueden justificarse por motivos razonables que tengan origen en impedimentos fácticos reales y comprobables, así como que sean compatibles con las facultades estrictamente concedidas a las autoridades. Este derecho, al tener lugar ante la injere
+--------------------------------------------------------------------------------
+
+
+================================================================================
+SECCIÓN: AMPARO INDIRECTO — PROCEDENCIA Y PROCESO
+================================================================================
+
+JURISPRUDENCIA: DERECHO HUMANO AL AGUA. LA DISPONIBILIDAD, CALIDAD Y ACCESIBILIDAD SON GARANTÍAS PARA SU PROTECCIÓN.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2026558
+
+[TIPO: JURISPRUDENCIA] [MATERIA: ADMINISTRATIVA] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 81/2023 (11a.)] [REGISTRO: 2026558]
+-----------------------------------------------------------------------------------------------------------------------------
+DERECHO HUMANO AL AGUA. LA DISPONIBILIDAD, CALIDAD Y ACCESIBILIDAD SON GARANTÍAS PARA SU PROTECCIÓN.
+
+
+
+Hechos: Diversas personas, físicas y morales, presentaron demanda de amparo indirecto en contra de tres autoridades encargadas de la protección del ambiente y de los recursos hídricos del Estado, de quienes reclamaron la omisión de adoptar medidas en aras de preservar los recursos hídricos del Acuífero Principal de la Región Lagunera clave 0523 en el Estado de Coahuila de Zaragoza, Región Hidrológico-Administrativa Cuencas Centrales del Norte. Seguida la secuela procesal correspondiente, el Juzgado de Distrito del conocimiento sobreseyó en el juicio por falta de interés legítimo de la parte quejosa. En contra de esa determinación, se interpuso recurso de revisión.
+
+
+Criterio jurídico: La Primera Sala de la considera que son garantías del derecho humano al agua las siguientes: 1) disponibilidad, de tal forma que su abastecimiento sea continuo y suficiente para usos personales y domésticos; 2) calidad, pues su uso personal y doméstico debe ser salubre y, por tanto, no contener microorganismos o sustancias químicas o radioactivas que puedan representar una amenaza para la salud de las personas, así como tener un color, olor y sabor aceptables para ese mismo fin; y, 3) accesibilidad, consistente en que sus instalaciones y servicios deben ser asequibles para todas las personas sin discriminación.
+
+
+Justificación: Tales garantías fueron reconocidas en la Observación General No. 15: el derecho al agua (artículos 11 y 12 del Pacto Internacional de Derechos Económicos, Sociales y Culturales) del Comité de Derechos Económicos, Sociales y Culturales de la Organización de las Naciones Unidas;
+que, a su vez, dispuso que el derecho al agua es de carácter prestacional (económico, social, cultural y ambiental) y es indispensable para que las personas vivan dignamente, así como condicionante previa para la realización de otros derechos.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: QUEJA PREVISTA EN EL ARTÍCULO 95, FRACCIÓN X, DE LA LEY DE AMPARO. PARA DETERMINAR SI DEBE CONOCER DE ELLA UNA SALA DE LA  , ES NECESARIO ANALIZAR, PREVIAMENTE, SI AQUÉLLA TIENE COMPETENCIA PARA CONOCER DEL JUICIO DE GARANTÍAS DEL QUE PROVENGA DICHO RECURSO, CONFORME AL SISTEMA ACTUAL DE COMPETENCIA
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 172942
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 19/2007] [REGISTRO: 172942]
+------------------------------------------------------------------------------------------------------------
+QUEJA PREVISTA EN EL ARTÍCULO 95, FRACCIÓN X, DE LA LEY DE AMPARO. PARA DETERMINAR SI DEBE CONOCER DE ELLA UNA SALA DE LA  , ES NECESARIO ANALIZAR, PREVIAMENTE, SI AQUÉLLA TIENE COMPETENCIA PARA CONOCER DEL JUICIO DE GARANTÍAS DEL QUE PROVENGA DICHO RECURSO, CONFORME AL SISTEMA ACTUAL DE COMPETENCIAS.
+
+De acuerdo con el artículo 21, fracción IV, de la Ley Orgánica del Poder , corresponde conocer a las Salas de la de la queja en los casos a que se refiere la fracción X del artículo 95 de la Ley de Amparo, siempre que el conocimiento del amparo en que dicho recurso se haga valer sea competencia de una de ellas, directamente o en revisión, en términos del artículo 99, párrafos segundo y tercero, de la misma Ley; por ende, para establecer si dichas Salas son competentes para resolver la queja contra la resolución dictada por un Juez de Distrito en el incidente de cumplimiento sustituto de una sentencia o sobre la caducidad en el procedimiento tendiente al cumplimiento de la ejecutoria, debe analizarse previamente, si conforme al sistema actual de competencias, se actualiza la competencia de la Sala para conocer directamente o en revisión del amparo indirecto del que provenga dicha queja, sin importar que el asunto lo haya resuelto este Alto Tribunal en una época anterior, dado que el conocimiento del referido recurso depende de que la competencia se surta también en relación con el juicio de garantías de origen, tomando en cuenta las normas en vigor y no las que rigieron otro momento histórico y han perdido su vigencia.
+Queja 13/2001. Salvador Quezada Ramírez y otros. 8 de febrero de 2002. Cinco votos. Ponente:
+Guillermo I. Ortiz Mayagoitia. Secretario: Alberto Díaz Díaz.
+Queja 16/2001. Enrique Eduardo Maciel Silva y otros. 8 de febrero de 2002. Cinco votos. Ponente:
+Guillermo I. Ortiz Mayagoitia. Secretaria: Lourdes Margarita García Galicia.
+Queja 2/2002. Diódoro de los Santos García y otros. 12 de abril de 2002. Cinco votos. Ponente:
+Juan Díaz Romero. Secretaria: Martha Elba Hurtado Ferrer.
+Reclamación 119/2002-PL. Ejido San Pedro Zacatenco, Delegación Gustavo A. Madero, Distrito Federal. 7 de junio de 2002. Unanimidad de cuatro votos. Ausente: José Vicente Aguinaco Alemán.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: APORTACIONES PATRONALES EN LOS RAMOS DE CESANTÍA EN EDAD AVANZADA Y VEJEZ. LOS ARTÍCULOS 168, FRACCIÓN II, INCISO A), DE LA LEY DEL SEGURO SOCIAL Y SEGUNDO TRANSITORIO DEL DECRETO QUE LA REFORMÓ, PUBLICADO EL 16 DE DICIEMBRE DE 2020, AL ESTABLECER UNA TARIFA PROGRESIVA PARA CALCULAR EL PAGO RESPECTI
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 2029232
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 60/2024 (11a.)] [REGISTRO: 2029232]
+-----------------------------------------------------------------------------------------------------------------------------
+APORTACIONES PATRONALES EN LOS RAMOS DE CESANTÍA EN EDAD AVANZADA Y VEJEZ. LOS ARTÍCULOS 168, FRACCIÓN II, INCISO A), DE LA LEY DEL SEGURO SOCIAL Y SEGUNDO TRANSITORIO DEL DECRETO QUE LA REFORMÓ, PUBLICADO EL 16 DE DICIEMBRE DE 2020, AL ESTABLECER UNA TARIFA PROGRESIVA PARA CALCULAR EL PAGO RESPECTIVO RESULTAN ADECUADOS Y PROPORCIONALES.
+
+
+
+Hechos: Diversas personas morales promovieron amparo indirecto contra los referidos preceptos contenidos en el Decreto por el que se reforman, adicionan y derogan diversas disposiciones de la Ley del Seguro Social y de la Ley de los Sistemas de Ahorro para el Retiro, publicado en el Diario Oficial de la Federación el 16 de diciembre de 2020, al considerar que la tarifa que establecen no es progresiva.
+
+
+Criterio jurídico: La Segunda Sala de la determina que los artículos 168, fracción II, inciso a), de la Ley del Seguro Social, y segundo transitorio del decreto mencionado, que establecen una tarifa progresiva para calcular las aportaciones patronales en los ramos de cesantía en edad avanzada y vejez, resultan adecuados y proporcionales.
+
+
+Justificación: Las referidas aportaciones de seguridad social tienen como objetivo obtener los recursos financieros que permitan cubrir las necesidades esenciales de las personas trabajadoras, y con ello otorgarles pensiones dignas y justas. De ahí que los artículos son adecuados, porque existe una relación directa entre los medios utilizados y el fin pretendido. Los incrementos en las aportaciones permiten acercarse al objetivo de justicia social buscado, en tanto los montos establecidos antes de su reforma resultaron insuficientes. Ello hizo patente la necesidad de elevar las aportaciones de los patrones de conformidad con su capacidad tributaria, para asegurar que las personas menos favorecidas tuvieran acceso a esos beneficios. Asimismo, las medidas impuestas resultan proporcionales entre los medios y los fines buscados, porque si bien establecen tasas diferenciadas entre las personas contribuyentes según el rango en que se ubiquen, no se afectan innecesaria o excesivamente sus derechos, porque el cambio de rango se justifica en el incremento de la base gravable, a la cual le corresponde una mayor cuota patronal. El cambio de un rango a otro a partir de un aumento mínimo en la base salarial no es desproporcionado en relación con la capacidad contributiva, pues debe tomarse en cuenta que tales incrementos son iguales para todos los que se encuentren dentro de un mismo rango, de manera que los que paguen salarios base de cotizació
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: APORTACIONES PATRONALES EN LOS RAMOS DE CESANTÍA EN EDAD AVANZADA Y VEJEZ. LOS ELEMENTOS ESENCIALES PARA QUE LOS PATRONES LAS CALCULEN SE DESPRENDEN DE UN ANÁLISIS SISTEMÁTICO DE LA LEY DEL SEGURO SOCIAL.
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 2029231
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 61/2024 (11a.)] [REGISTRO: 2029231]
+------------------------------------------------------------------------------------------------------------------------------
+APORTACIONES PATRONALES EN LOS RAMOS DE CESANTÍA EN EDAD AVANZADA Y VEJEZ. LOS ELEMENTOS ESENCIALES PARA QUE LOS PATRONES LAS CALCULEN SE DESPRENDEN DE UN ANÁLISIS SISTEMÁTICO DE LA LEY DEL SEGURO SOCIAL.
+
+
+
+Hechos: Una persona moral promovió amparo indirecto contra los artículos 168, fracción II, inciso
+a), de la Ley del Seguro Social, y segundo transitorio del Decreto por el que se reforman, adicionan y derogan diversas disposiciones de la Ley del Seguro Social y de la Ley de los Sistemas de Ahorro para el Retiro, publicado en el Diario Oficial de la Federación el 16 de diciembre de 2020.
+Argumentaron que no establecen claramente los elementos básicos para realizar el cálculo de las aportaciones en los ramos de cesantía en edad avanzada y vejez.
+
+
+Criterio jurídico: La Segunda Sala de la determina que los elementos esenciales para que los patrones realicen el cálculo de las aportaciones en los ramos de cesantía en edad avanzada y vejez a que aluden los artículos citados pueden identificarse a partir de un análisis sistemático de la Ley del Seguro Social.
+
+
+Justificación: El principio de legalidad tributaria conlleva que en un acto formal y materialmente legislativo se establezcan los elementos para realizar el cálculo de una contribución (sujeto, objeto, base, tasa o tarifa y fecha o época de pago). Dichos elementos deben fijarse con la precisión necesaria para que, por una parte, se impida el comportamiento arbitrario o caprichoso de las autoridades que directa o indirectamente participen en su recaudación y, por otra, se genere certidumbre a la persona contribuyente sobre qué hecho o circunstancia se encuentra gravado. Si bien las disposiciones referidas no contienen la totalidad de los elementos señalados, lo cierto es que del análisis sistemático de la Ley del Seguro Social es posible advertir los componentes que permiten dar certeza a los patrones para realizar el cálculo de las aportaciones. En cuanto al sujeto, el artículo 15, fracción III, establece que las personas empleadoras están obligadas a determinar las cuotas obrero-patronales a su cargo y enterar su importe al Instituto Mexicano del Seguro Social. El objeto, en términos del artículo 12, fracción I, se determina a partir de la existencia de la relación de trabajo. La base será el salario base de cotización, el cual, de acuerdo con el artículo 27, se integra con los pagos hechos en efectivo por cuota diaria, gratificaciones, percepciones, alimentación, habitación, primas, comisiones, prestaciones en especie y cualquiera otra cantidad
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: SUSPENSIÓN PROVISIONAL. MEDIDAS DE ASEGURAMIENTO QUE PUEDE IMPONER EL JUEZ DE AMPARO TRATÁNDOSE DE ACTOS RESTRICTIVOS DE LA LIBERTAD PERSONAL.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 198729
+
+[TIPO: JURISPRUDENCIA] [MATERIA: PENAL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 16/97] [REGISTRO: 198729]
+----------------------------------------------------------------------------------------------------------
+SUSPENSIÓN PROVISIONAL. MEDIDAS DE ASEGURAMIENTO QUE PUEDE IMPONER EL JUEZ DE AMPARO TRATÁNDOSE DE ACTOS RESTRICTIVOS DE LA LIBERTAD PERSONAL.
+
+De los artículos 124, 136 y 138 de la Ley de Amparo se desprende, entre otros aspectos, que la suspensión se decretará cuando no se siga perjuicio al interés social ni se contravengan disposiciones de orden público; que el Juez de amparo tiene las más amplias facultades para fijar las medidas de aseguramiento que estime convenientes, a fin de que el quejoso no se sustraiga a la acción de la justicia y que el otorgamiento de la medida cautelar no constituya un impedimento para la continuación del procedimiento que haya motivado el acto reclamado. Lo anterior lleva a considerar que al proveer respecto de la suspensión de los efectos del acto reclamado, tratándose de la restricción de la libertad personal, es menester que se guarde un prudente equilibrio entre la salvaguarda de esa delicadísima garantía constitucional, los objetivos propios de la persecución de los delitos y la continuación del procedimiento penal, aspectos sobre los que se encuentra interesada la sociedad. Para lograr dicho equilibrio, el artículo 136 de la Ley de Amparo dispone que en los juicios constitucionales en los que se reclamen actos restrictivos de la libertad, el Juez de Distrito dictará las medidas que estime necesarias, tendientes al aseguramiento del quejoso, con el fin de que sea devuelto a la autoridad responsable, en caso de que no se le concediera el amparo que hubiere solicitado, de donde se desprende que los Jueces de Distrito gozan de amplitud de criterio para fijar dichas medidas, tales como exigir fianza; establecer la obligación de que el quejoso proporcione su domicilio, a fin de que se le puedan hacer las citaciones respectivas; fijarle la obligación de presentarse al juzgado los días que se determinen y hacerle saber que está obligado a comparecer dentro de determinado plazo ante el Juez de su causa, debiendo allegar los criterios que acreditan esa comparecencia, o cualquier otra medida que considere conducente para el aseguramiento del agraviado. Asimismo, debe tomarse en cuenta que atento lo preceptuado por el artículo 138 de la Ley de Amparo, en los casos en que la suspensión sea procedente, ésta se concederá en forma tal que no impida la continuación del procedimiento en el asunto que haya motivado el acto reclamado. Por lo anterior, se concluye que los aludidos requisitos que se impongan al quejoso, al otorgar la suspensión provisional en el juicio de amparo en el que se reclamen actos restrictivos de l
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: JUICIO DE AMPARO INDIRECTO. PROCEDE CUANDO SE IMPUGNAN CIERTOS ACTOS INTRA-LEGISLATIVOS COMO LA IMPOSICIÓN DE UNA VOTACIÓN POR CÉDULA SECRETA Y LA EJECUCIÓN DE DICHA VOTACIÓN PARA DESECHAR UN DICTAMEN DE REFORMA A UNA CONSTITUCIÓN LOCAL, PUES NO SE ACTUALIZA LA RAZÓN DE IMPROCEDENCIA RELATIVA A LA I
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2023822
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 32/2021 (11a.)] [REGISTRO: 2023822]
+------------------------------------------------------------------------------------------------------------------------------
+JUICIO DE AMPARO INDIRECTO. PROCEDE CUANDO SE IMPUGNAN CIERTOS ACTOS INTRA-LEGISLATIVOS COMO LA IMPOSICIÓN DE UNA VOTACIÓN POR CÉDULA SECRETA Y LA EJECUCIÓN DE DICHA VOTACIÓN PARA DESECHAR UN DICTAMEN DE REFORMA A UNA CONSTITUCIÓN LOCAL, PUES NO SE ACTUALIZA LA RAZÓN DE IMPROCEDENCIA RELATIVA A LA INJUSTICIABILIDAD DE LOS ACTOS RECLAMADOS.
+
+
+
+Hechos: El quince de julio de dos mil diecinueve, mediante la imposición de un mecanismo de votación por cédula secreta, el Pleno del Congreso del Estado de Yucatán desechó por mayoría de votos un dictamen de reforma a la Constitución Local, mediante el cual se pretendía derogar la definición del matrimonio y el concubinato como la unión entre una mujer y un hombre. En desacuerdo, un conjunto de personas, quienes manifestaron ser residentes en el Estado de Yucatán e integrantes de la comunidad LGBTI+ o familiares de personas de dicha comunidad, promovieron juicio de amparo indirecto, alegando que la imposición y ejecución de dicha votación por cédula violaba, entre otros, el derecho a participar activamente en la dirección de los asuntos públicos del Estado, en relación con la libertad de expresión y el acceso a la información pública. El Juez de Distrito sobreseyó en el juicio.
+
+
+Criterio jurídico: La Primera Sala de la determina que la imposición de una votación por cédula secreta y la celebración de dicha votación por parte del Pleno de un Congreso Local, aun cuando son actos intralegislativos que no dieron lugar a una norma jurídica, son actos de autoridad susceptibles de ser revisables a través del juicio de amparo indirecto.
+
+
+Justificación: En primer lugar, los referidos actos reclamados no entran en las hipótesis de las fracciones V y VII del artículo 61 de la Ley de Amparo. Las causas de improcedencia ahí previstas apuntan a actos del Congreso Federal o actos de los Congresos Locales en materia de juicio político y declaración de procedencia, así como de la elección, suspensión o remoción de funcionarios. En segundo lugar, no se advierte ninguna previsión constitucional o legal que lleve a concluir que los actos específicamente reclamados por las y los quejosos no pueden ser justiciables a través del juicio de amparo, que lleve a la improcedencia en razón de la fracción XXIII del artículo 61 de la Ley de Amparo. Esto es así, ya que no se está ante un caso en que la revisión constitucional de estos actos intra-legislativos (que se dieron durante un procedimiento legislativo y se relacionan con una votación legislativa) ponga en entredicho nuestro modelo c
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: DECLARACIÓN DE PROCEDENCIA. LOS EFECTOS Y CONSECUENCIAS DERIVADOS DE DICHO PROCEDIMIENTO NO SON SUSCEPTIBLES DE SUSPENDERSE EN EL JUICIO DE AMPARO INDIRECTO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 181159
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 44/2004] [REGISTRO: 181159]
+----------------------------------------------------------------------------------------------------------------------
+DECLARACIÓN DE PROCEDENCIA. LOS EFECTOS Y CONSECUENCIAS DERIVADOS DE DICHO PROCEDIMIENTO NO SON SUSCEPTIBLES DE SUSPENDERSE EN EL JUICIO DE AMPARO INDIRECTO.
+
+En virtud de que la declaración de procedencia prevista por el artículo 111 de la Constitución Política de los Estados Unidos Mexicanos, sólo constituye un requisito de procedibilidad previo al ejercicio de la acción penal por parte del Ministerio Público, en contra de alguno de los servidores públicos señalados en el citado numeral, y tomando en consideración que para otorgar la suspensión, dentro de un juicio de amparo indirecto, debe verificarse si tal medida cautelar puede originar perjuicios al interés colectivo, se concluye que los efectos y consecuencias derivados del indicado procedimiento constitucional no son susceptibles de suspenderse, ya que ello irrogaría perjuicio al interés social, pues permitiría que al amparo de la inmunidad de que gozan los mencionados servidores públicos, pudieran quedar impunes delitos cometidos por ellos, lo que, evidentemente, contraviene el interés de la colectividad.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: AUTO DE EXEQUENDO DICTADO EN UN JUICIO EJECUTIVO MERCANTIL. EN SU CONTRA PROCEDE EL AMPARO INDIRECTO, AL CONSTITUIR UN ACTO DE EJECUCIÓN IRREPARABLE DENTRO DEL JUICIO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 164629
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CIVIL] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 6/2010] [REGISTRO: 164629]
+-----------------------------------------------------------------------------------------------------------
+AUTO DE EXEQUENDO DICTADO EN UN JUICIO EJECUTIVO MERCANTIL. EN SU CONTRA PROCEDE EL AMPARO INDIRECTO, AL CONSTITUIR UN ACTO DE EJECUCIÓN IRREPARABLE DENTRO DEL JUICIO.
+
+Conforme al artículo 1,392 del Código de Comercio, presentada la demanda en la vía ejecutiva mercantil, acompañada del título ejecutivo, el juez dictará auto con efectos de mandamiento en forma para que el deudor sea requerido de pago, y en caso de que no pague se le embarguen bienes suficientes para cubrir la deuda, los gastos y las costas del juicio, poniéndolos bajo la responsabilidad del acreedor, en depósito de la persona nombrada por éste. Ahora bien, el auto con efectos de mandamiento en forma o auto de exequendo no tiene meros efectos declarativos, sino que implica la comprobación por parte del juez del cumplimiento de los requisitos para disponer la intimación de pago al deudor y, en su defecto, el embargo de sus bienes, es decir, dicho auto ordena la afectación de un bien o de un conjunto de bienes del demandado para asegurar cautelarmente la eventual ejecución de una pretensión de condena planteada en juicio y que el demandado no pueda disponer de él, lo cual procede incluso con la autorización para hacer uso de la fuerza pública y allanar el domicilio del deudor en caso de resistencia. Esto es, el auto de exequendo contiene un mandato que se concreta con la sola emisión de la orden de requerir el pago de un adeudo en el acto mismo del requerimiento y una amenaza consistente en la prevención al deudor de que si no efectúa el pago se le embargarán bienes suficientes para cubrir el adeudo y las costas, lo que no será motivo de análisis en la resolución que ponga fin al juicio, la cual sólo decidirá la suerte de la pretensión de fondo del asunto, ni se examinará en otro momento del juicio, pues el ejecutado únicamente podrá oponer excepciones después de realizados el emplazamiento y el embargo, y reclamar su monto o la calidad de la cosa embargada una vez cumplida la diligencia, pero sin poder reclamar, por ejemplo, la emisión del auto de exequendo con apoyo en un título que no traiga aparejada ejecución. Sobre tales premisas, se concluye que contra el auto de exequendo dictado en un juicio ejecutivo mercantil procede el amparo indirecto, en términos de la fracción IV del artículo 114 de la Ley de Amparo, sin esperar a que se practique el embargo, por constituir un acto de ejecución irreparable dentro del juicio, pues una vez ejecutada la orden, la impugnación del embargo sólo puede tener por efecto remediar vicios propios de éste, pero no la legalidad de la propia
+--------------------------------------------------------------------------------
+
+
+================================================================================
+SECCIÓN: SUPLENCIA DE LA QUEJA DEFICIENTE
+================================================================================
+
+JURISPRUDENCIA: SUPLENCIA DE LA QUEJA DEFICIENTE. PROCEDE EN TÉRMINOS DEL ARTÍCULO 79, FRACCIÓN VI, DE LA LEY DE AMPARO, CUANDO EL JUEZ ANTE QUIEN SE PRESENTA LA DEMANDA MERCANTIL OMITE APLICAR EL CONTENIDO DEL ARTÍCULO 1127, SEGUNDO PÁRRAFO, DEL CÓDIGO DE COMERCIO.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2023514
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 3/2021 (11a.)] [REGISTRO: 2023514]
+-------------------------------------------------------------------------------------------------------------------
+SUPLENCIA DE LA QUEJA DEFICIENTE. PROCEDE EN TÉRMINOS DEL ARTÍCULO 79, FRACCIÓN VI, DE LA LEY DE AMPARO, CUANDO EL JUEZ ANTE QUIEN SE PRESENTA LA DEMANDA MERCANTIL OMITE APLICAR EL CONTENIDO DEL ARTÍCULO 1127, SEGUNDO PÁRRAFO, DEL CÓDIGO DE COMERCIO.
+
+
+
+Hechos: Los Tribunales Colegiados de Circuito contendientes conocieron de diversos amparos directos en los cuales el Juez ante quien se entabló una demanda mercantil omitió aplicar el segundo párrafo del artículo 1127 del Código de Comercio. Uno de los tribunales colegiados consideró que ello constituía una violación manifiesta de la ley que dejaba sin defensa a la parte quejosa, por lo que suplió la deficiencia de la queja, el otro órgano de amparo contendiente no efectuó tal suplencia de la queja.
+
+
+Criterio jurídico: La Primera Sala de la arriba a la convicción de que cuando el Juez ante quien se presentó una demanda mercantil omite aplicar el segundo párrafo del artículo 1127 del Código de Comercio, procede suplir la deficiencia de la queja, en términos del artículo 79, fracción VI, de la Ley de Amparo.
+
+
+Justificación: Lo anterior es así, porque el artículo 79, fracción VI, de la Ley de Amparo faculta para suplir la deficiencia de la queja en materias de estricto derecho, como la mercantil, cuando se hubiere actualizado una violación evidente de la ley que haya dejado sin defensa a la parte quejosa, entendiéndose por tal, aquella actuación que haga notoria e indiscutible la vulneración a los derechos de la parte quejosa, tutelados por la Constitución General o por los tratados internacionales en los que el Estado Mexicano sea parte, mediante la transgresión a las normas procedimentales o sustantivas que rigen el acto reclamado. En ese sentido, esta Primera Sala concluye que cuando al decidir sobre la procedencia de la vía mercantil intentada se omite aplicar el segundo párrafo del artículo 1127 del Código de Comercio, procede suplir la deficiencia de la queja en el juicio de amparo respectivo. Ello, pues el aludido precepto de la legislación mercantil es claro y preciso al señalar que si se verifica el supuesto en el cual el órgano jurisdiccional declare la improcedencia de la vía mercantil propuesta por la parte actora, la consecuencia será continuar el procedimiento para el trámite del juicio en la vía mercantil que se considere procedente declarando la validez de lo actuado; con la obligación del Juez de regularizar el procedimiento. Por ende, si no se aplica esa norma de derecho y en vez de reencausar el litigo en la vía mercantil adecuada se desecha la demanda, el
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: VIOLACIONES PROCESALES QUE TRASCIENDEN AL RESULTADO DEL FALLO. EL ARTÍCULO 174 DE LA LEY DE AMPARO NO VULNERA EL NUMERAL 107, FRACCIÓN III, INCISO A), DE LA CONSTITUCIÓN POLÍTICA DE LOS ESTADOS UNIDOS MEXICANOS.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2019692
+
+[TIPO: JURISPRUDENCIA] [MATERIA: CONSTITUCIONAL,] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 30/2019 (10a.)] [REGISTRO: 2019692]
+------------------------------------------------------------------------------------------------------------------------------
+VIOLACIONES PROCESALES QUE TRASCIENDEN AL RESULTADO DEL FALLO. EL ARTÍCULO 174 DE LA LEY DE AMPARO NO VULNERA EL NUMERAL 107, FRACCIÓN III, INCISO A), DE LA CONSTITUCIÓN POLÍTICA DE LOS ESTADOS UNIDOS MEXICANOS.
+
+La constitucionalidad de una norma secundaria no depende de que su contenido esté previsto expresamente en la Constitución, sino de que respete los principios constitucionales. De ahí que el mero hecho de que el artículo 107, fracción III, inciso a), de la Constitución Federal no establezca expresamente que la parte quejosa debe precisar en su demanda por qué la violación procesal trasciende al resultado del fallo, no convierte en inconstitucional el artículo 174 de la Ley de Amparo. De una interpretación teleológica, tanto del artículo 107, fracción III, inciso a), constitucional, como del artículo 174 de la Ley de Amparo, se advierte que el Constituyente fue claro en imponer a la parte quejosa la carga de invocar todas las violaciones procesales que estime hayan sido cometidas en el procedimiento de origen, y consideró que la suplencia de la queja por parte del Tribunal Colegiado del conocimiento sólo procede en las materias civil y administrativa en los casos previstos en el artículo 79, fracción VI, de la Ley de Amparo vigente. En otras palabras, cuando haya habido, en contra del recurrente, una violación evidente de la ley que lo haya dejado sin defensa por afectar los derechos previstos en el artículo 1o. de la propia Ley de Amparo. Lo anterior, se traduce en que los tribunales de amparo sólo están obligados a suplir la deficiencia de la queja cuando adviertan una violación clara, innegable, que afecte sustancialmente al quejoso en su defensa. Sólo en esos casos, no se exigirá al quejoso que haya hecho valer la violación de que se trate, ni que haya cumplido con los requisitos que establece la Ley de Amparo para el estudio de los conceptos de violación. Lo anterior es así, porque si el propio inciso a), de la fracción III, del artículo 107 constitucional, establece que en el amparo directo sólo se estudiarán las violaciones procesales ‘que afecten las defensas del quejoso trascendiendo al resultado del fallo’, y se parte de la base de que la suplencia de la queja sólo procede en los casos en que el Tribunal Colegiado advierta que hubo una violación evidente que dejó al quejoso sin defensa por afectar sus derechos fundamentales. Por demás, resulta razonable que la ley exija que la parte quejosa precise aquellas violaciones que no son evidentes, y que proporcione al tribunal de amparo tod
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: RECURSO DE INCONFORMIDAD. EL ÓRGANO JURISDICCIONAL DE AMPARO QUE CONOZCA DEL MISMO, DEBE SUPLIR LA DEFICIENCIA DE LA VÍA Y DE LOS ARGUMENTOS HECHOS VALER POR EL PROMOVENTE.
+Tipo: JURISPRUDENCIA | Órgano: Primera Sala
+Número/Registro: 2005225
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Primera Sala] [TESIS: 1a./J. 119/2013 (10a.)] [REGISTRO: 2005225]
+---------------------------------------------------------------------------------------------------------------------
+RECURSO DE INCONFORMIDAD. EL ÓRGANO JURISDICCIONAL DE AMPARO QUE CONOZCA DEL MISMO, DEBE SUPLIR LA DEFICIENCIA DE LA VÍA Y DE LOS ARGUMENTOS HECHOS VALER POR EL PROMOVENTE.
+
+Del artículo 213 de la Ley de Amparo, publicada en el Diario Oficial de la Federación el 2 de abril de 2013, deriva que en el recurso de inconformidad, el órgano jurisdiccional de amparo debe suplir la deficiencia de la vía y de los argumentos hechos valer por el promovente, con el fin de desentrañar la verdadera intención de los recurrentes. Lo anterior es así, toda vez que los juzgadores deben interpretar el sentido de las promociones presentadas por los justiciables para determinar con precisión su voluntad, para lo cual deben considerar el escrito presentado en su integridad, tomando en cuenta la norma que, en su caso, funde su promoción, lo aducido en su escrito respecto de la vía que intentan, así como lo esgrimido en los puntos petitorios.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: LAUDO. LA FALTA DE FIRMA DE ALGUNO DE LOS INTEGRANTES DE UN TRIBUNAL DE TRABAJO, CUANDO FUNCIONA EN JUNTA ESPECIAL O EN SALA, O DEL SECRETARIO QUE AUTORIZA Y DA FE, CONDUCE A DECLARAR DE OFICIO SU NULIDAD Y CONCEDER EL AMPARO PARA QUE SEA SUBSANADA TAL OMISIÓN, INDEPENDIENTEMENTE DE QUIÉN PROMUEVA L
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 162347
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN,] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 147/2007] [REGISTRO: 162347]
+--------------------------------------------------------------------------------------------------------------
+LAUDO. LA FALTA DE FIRMA DE ALGUNO DE LOS INTEGRANTES DE UN TRIBUNAL DE TRABAJO, CUANDO FUNCIONA EN JUNTA ESPECIAL O EN SALA, O DEL SECRETARIO QUE AUTORIZA Y DA FE, CONDUCE A DECLARAR DE OFICIO SU NULIDAD Y CONCEDER EL AMPARO PARA QUE SEA SUBSANADA TAL OMISIÓN, INDEPENDIENTEMENTE DE QUIÉN PROMUEVA LA DEMANDA.
+
+La ha sostenido que la falta de firma del laudo por parte de alguno de los integrantes de un Tribunal de trabajo o, del secretario de acuerdos, trae consigo su nulidad, sin que para el caso pueda hacerse pronunciamiento sobre su constitucionalidad, pues no debe surtir efecto jurídico alguno, ya que de lo contrario se estaría subsanando el vicio de origen.
+Conforme a ello, el órgano de control constitucional oficiosamente, sin necesidad de que en la demanda de amparo correspondiente se expresen conceptos de violación sobre tal aspecto e independientemente de quién la promueva, deberá declarar la nulidad del laudo y ordenarle al Tribunal que lo emitió subsanar tal formalidad, sin que ello se traduzca en suplir la deficiencia de la queja en un caso no permitido por la Ley de Amparo.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: CONCEPTOS DE VIOLACIÓN. SON INOPERANTES CUANDO LAS VIOLACIONES ALEGADAS EN UN SEGUNDO O ULTERIOR JUICIO DE AMPARO, SE COMETIERON EN UN LAUDO ANTERIOR, Y NO FUERON IMPUGNADAS OPORTUNAMENTE, AUNQUE NO SE HUBIERA SUPLIDO LA QUEJA DEFICIENTE.
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 183886
+
+[TIPO: JURISPRUDENCIA] [MATERIA: LABORAL] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 57/2003] [REGISTRO: 183886]
+--------------------------------------------------------------------------------------------------------------
+CONCEPTOS DE VIOLACIÓN. SON INOPERANTES CUANDO LAS VIOLACIONES ALEGADAS EN UN SEGUNDO O ULTERIOR JUICIO DE AMPARO, SE COMETIERON EN UN LAUDO ANTERIOR, Y NO FUERON IMPUGNADAS OPORTUNAMENTE, AUNQUE NO SE HUBIERA SUPLIDO LA QUEJA DEFICIENTE.
+
+Son inoperantes los conceptos de violación encaminados a combatir actos u omisiones de la autoridad responsable, cuando de autos se aprecia que se produjeron en un laudo contra el cual se promovió en su oportunidad juicio de amparo, sin haberse impugnado; por lo que debe entenderse que fueron consentidos y, por ende, el derecho a reclamarlos en amparos posteriores se encuentra precluido, ya que las cuestiones que no formaron parte de la litis constitucional, habrán quedado firmes sin posibilidad de una impugnación posterior, derivado precisamente de ese consentimiento, máxime que dichas violaciones, por virtud de la vinculación de la ejecutoria de amparo, deberán ser reiteradas por la autoridad responsable como cuestiones firmes en ese juicio de origen. Sin que sea óbice a lo anterior, el hecho de que el Tribunal Colegiado de Circuito no hubiera advertido deficiencia que diera lugar a la suplencia de la queja para estudiar cuestiones diversas de las planteadas por el quejoso, pues ello no puede ser causa para alterar los principios jurídicos respecto de las violaciones consentidas o los efectos protectores del fallo constitucional, ya que redundaría en perjuicio de la seguridad jurídica de las partes, así como de la firmeza de las determinaciones judiciales.
+--------------------------------------------------------------------------------
+
+JURISPRUDENCIA: REVISIÓN EN AMPARO DIRECTO. LA SUPLENCIA DE LA QUEJA DEFICIENTE, POR SÍ SOLA, NO HACE PROCEDENTE EL RECURSO.
+Tipo: JURISPRUDENCIA | Órgano: Segunda Sala
+Número/Registro: 174841
+
+[TIPO: JURISPRUDENCIA] [MATERIA: COMÚN] [INSTANCIA: Segunda Sala] [TESIS: 2a./J. 81/2006] [REGISTRO: 174841]
+------------------------------------------------------------------------------------------------------------
+REVISIÓN EN AMPARO DIRECTO. LA SUPLENCIA DE LA QUEJA DEFICIENTE, POR SÍ SOLA, NO HACE PROCEDENTE EL RECURSO.
+
+Conforme a los artículos 107, fracción IX, de la Constitución Política de los Estados Unidos Mexicanos; 83, fracción V, de la Ley de Amparo; 10, fracción III, y 21, fracción III, inciso a), de la Ley Orgánica del Poder , el recurso de revisión contra sentencias de Tribunales Colegiados de Circuito en amparo directo procede cuando decidan sobre la constitucionalidad de una ley, tratado internacional o reglamento, o bien, establezcan la interpretación directa de un precepto de la Constitución Federal, así como cuando el Tribunal Colegiado de Circuito omita el estudio y decisión de esas cuestiones a pesar de haberse planteado en la demanda de garantías.
+Ahora bien, si no se plantea problema de constitucionalidad alguno, el recurso de revisión únicamente procede cuando el tribunal de amparo oficiosamente introduce ese tema en la sentencia recurrida, o bien, omite aplicar la jurisprudencia de este Alto Tribunal en la que se declare la inconstitucionalidad de preceptos aplicados al quejoso, siempre que se adecue al caso específico, en cuyo supuesto opera la suplencia de los conceptos de violación o de los agravios, de acuerdo con el artículo 76 Bis, fracción I, de la Ley de Amparo; sin embargo, este beneficio por sí solo no conduce a estimar que proceda la revisión en amparo directo por existir algún problema de inconstitucionalidad o de interpretación directa de una norma constitucional, que de oficio estuviera obligado a abordar el Tribunal Colegiado de Circuito, ya que el análisis de esos aspectos depende, por regla general, de que el agraviado los impugne en el juicio de garantías; además, la no podría analizar de oficio, en suplencia de la queja deficiente, si las normas aplicadas al quejoso contienen o no un vicio de inconstitucionalidad, pues sería tanto como aceptar que son procedentes todos los recursos de revisión en amparo directo en los que opera ese beneficio, situación que resulta inadmisible porque daría lugar a una instancia oficiosa no establecida en la Ley Fundamental ni en la reglamentaria de la materia.
+Reclamación 145/2003-PL. Poblado San Pedro de Aconchi, Municipio de Aconchi, Sonora. 13 de junio de 2003. Unanimidad de cuatro votos. Ausente: Genaro David Góngora Pimentel. Ponente:
+Guillermo I. Ortiz Mayagoitia. Secretario: Marco Antonio Cepeda Anaya.
+Reclamación 232/2003-PL. Armando Hurtado García. 19 de septiembre de 2003. Cinco votos.
 --------------------------------------------------------------------------------
 
