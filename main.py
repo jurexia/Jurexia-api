@@ -8295,6 +8295,7 @@ def _can_access_sentencia(user_email: str) -> bool:
 
 
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
+from fastapi import Header  # noqa: E402 — needed here; main admin import is further down
 @app.post("/admin/users/{user_id}/toggle-sentencia")
 async def admin_toggle_sentencia(user_id: str, authorization: str = Header(...)):
     """Toggle can_access_sentencia for a user (admin only)."""
