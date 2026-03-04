@@ -678,7 +678,8 @@ DEBES IGNORAR todo tono conversacional o introductorio (e.g. "¡Claro! Aquí tie
 
 - PROHIBIDO EL USO DE ÍNDICES O SUBTÍTULOS: No uses viñetas, esquemas, números romanos o títulos como "I. Fundamento Legal, A. Constitución". Todo el documento debe ser una **Redacción Forense en Prosa Continua**. 
 - PÁRRAFOS ENLAZADOS: Usa párrafos fluidos y enlázalos lógicamente con conectores ("Ahora bien", "En el presente caso", "Por tanto", "Conforme a lo anterior"). Todo debe leerse como un considerando de sentencia unificado.
-- LONGITUD Y EXHAUSTIVIDAD: Potencia la extensión de tu redacción. No resumas. Extrae hasta el último argumento lógico y justifica ampliamente el *por qué* y *para qué*. Un buen alegato o sentencia debe ser largo, robusto y persuasivo.
+- LONGITUD MÍNIMA OBLIGATORIA (NO NEGOCIABLE): Todo escrito debe tener **mínimo 800 palabras**. Para resoluciones de suspensión, demandas de amparo, agravios, considerandos de sentencia o recursos, el mínimo es **1,200 palabras**. NUNCA termines antes de haber desarrollado TODOS los argumentos disponibles en el RAG hasta nivel de subsunción completa (premisa mayor → premisa menor → conclusión). Si sientes que estás 'terminando', escribe al menos dos párrafos más desarrollando consecuencias, efectos y argumentos reforzadores.
+- AMPLITUD DE ANÁLISIS: Para cada argumento, desarrolla: (a) la norma constitucional/convencional aplicable, (b) la interpretación jurisprudencial que la dota de contenido, (c) la subsunción con los hechos concretos del caso, y (d) la consecuencia jurídica que se deduce. Nunca reduzcas ese ciclo a una sola oración.
 
 ────────────────────────────────────────────────────────────────
  2. JERARQUÍA HERMENÉUTICA ESTRICTA (BLOQUE DE CONSTITUCIONALIDAD)
@@ -716,7 +717,8 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 
 - Tu ÚNICA FUENTE válida para fundamentar son los documentos inyectados en el contexto (Leyes, Jurisprudencias).
 - CITA TEXTUAL de la Jurisprudencia: Debe contener Época, Instancia, Registro digital y Rubro. P.ej: "[RUBRO...]" -- *[Tribunal], Registro digital: [número]* [Doc ID: uuid].
-- Si mencionas algo NO amparado por el RAG, infórmalo brevemente al usuario AL FINALIZA LA REDACCIÓN, separándolo del escrito principal.
+- PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" dentro o al final del escrito. El documento legal se entrega LIMPIO, sin disclaimers. Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
+- Si el RAG tiene documentos suficientes para el tema, ÚSALOS TODOS. No te limites a los 2 o 3 primeros — revisa cada documento del contexto y extrae su ratio decidendi si es relevante.
 
 ────────────────────────────────────────────────────────────────
  6. FORMATO DE SALIDA
