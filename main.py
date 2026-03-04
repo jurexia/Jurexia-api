@@ -601,10 +601,36 @@ hay un documento con ref "Art. [X]o CPEUM" o "Art. [X] CPEUM", entonces el texto
 del artículo SÍ ESTÁ en el contexto. TRANSCRÍBELO literalmente del campo <texto>.
 NUNCA digas que no encontraste el texto si el documento con esa ref existe.
 
-Si el contexto RAG no contiene un artículo específico, DESARROLLA
-el tema con tu conocimiento jurídico y cita las fuentes que SÍ tienes.
-El usuario NUNCA debe percibir que el sistema falló en encontrar algo.
-Trabaja SIEMPRE con confianza usando lo disponible.
+REGLA #7 — VERIFICACIÓN DE NÚMERO ANTES DE TRANSCRIBIR:
+ANTES de transcribir cualquier artículo en blockquote, VERIFICA que el número de
+artículo que vas a anunciar (ej: "Artículo 14") coincide EXACTAMENTE con el campo
+<ref> o <numero> del documento del contexto.
+Si el contexto tiene un doc con ref="Art. 23" pero el texto interno dice "Artículo 14",
+PRIORIZA el número de la referencia del documento, no el del texto interno.
+JAMÁS atribuyas el contenido de un artículo a un número incorrecto.
+
+===============================================================
+   MODO PRECISIÓN (ACTIVO POR DEFECTO)
+===============================================================
+
+El sistema opera en MODO PRECISIÓN: la respuesta se basa EXCLUSIVAMENTE en el
+contexto RAG recuperado. Si el contexto no contiene información suficiente para
+responder un punto concreto, INDICALO con precisión quirúrgica en lugar de inventar:
+
+CUANDO NO HAY SUFICIENTE CONTEXTO para un punto específico:
+→ Usa: "Para un análisis completo de [punto específico], sería necesario consultar
+  directamente [nombre de la ley/fuente]. Lo que sí puedo fundamentar con el contexto
+  disponible es: [desarrolla lo que SÍ tienes]."
+→ NUNCA inventes normas ni jurisprudencia para "completar" una respuesta.
+→ Es más valioso ser preciso con poco que impreciso con mucho.
+
+EXCEPCIÓN — MODO EXPANDIDO (activado automáticamente cuando):
+- El usuario pregunta "explícame más sobre..." (segunda vuelta de un tema)
+- La query es claramente conceptual/pedagógica (no de caso concreto)
+- El usuario pide comparativa doctrinal o contexto histórico
+En MODO EXPANDIDO: puedes desarrollar más allá del contexto RAG, pero SIEMPRE
+con un disclaimer: "Lo siguiente es de conocimiento jurídico general, no del contexto
+verificado de mi base de datos:"
 
 DIAGRAMAS VISUALES (CUANDO SEA PERTINENTE):
 
@@ -712,6 +738,7 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 
 # Trigger phrases for natural language drafting detection (lowercase comparison)
 _CHAT_DRAFTING_TRIGGERS = [
+    # Redacción directa
     "redacta ", "redáctame", "redactame", "ayúdame a redactar", "ayudame a redactar",
     "genera un escrito", "genera argumentos", "generar argumentos", "genera agravios",
     "vamos a generar", "vamos a redactar", "elabora un", "elabora una",
@@ -722,16 +749,118 @@ _CHAT_DRAFTING_TRIGGERS = [
     "ayúdame a generar", "ayudame a generar",
     "genera un agravio", "genera los agravios", "genera un concepto de violación",
     "genera un concepto de violacion",
+    # Triggers implícitos de redacción (frases que no empiezan con verbo pero piden texto legal)
+    "necesito un escrito", "necesito una demanda", "necesito los agravios",
+    "quiero los agravios", "quiero un escrito", "quiero una demanda",
+    "cómo alego", "como alego", "qué alego", "que alego",
+    "qué pongo en la demanda", "que pongo en la demanda",
+    "cómo redacto", "como redacto", "ayuda para redactar",
+    "necesito argumentar", "necesito fundamentar",
+    # Recursos e impugnaciones implícitas
+    "cómo impugnar", "como impugnar", "cómo recurrir", "como recurrir",
+    "cómo apelar", "como apelar", "cómo interponer", "como interponer",
+    "construye los agravios", "construye el agravio",
+    "arma la queja", "arma el recurso", "arma la apelación", "arma la apelacion",
+    # Amparo implícito
+    "cómo presentar el amparo", "como presentar el amparo",
+    "ayuda con el amparo", "necesito el amparo", "redacta el amparo",
+    "conceptos de violación para", "conceptos de violacion para",
+    "ayúdame con los conceptos", "ayudame con los conceptos",
+    # Peticiones y oficios
+    "redacta un oficio", "redacta la petición", "redacta la peticion",
+    "necesito un oficio", "quiero un oficio",
+]
+
+# Triggers en cualquier posición (NO solo al inicio)
+_CHAT_DRAFTING_ANYWHERE = [
+    "redacta para mí", "redacta para mi", "redacta esto",
+    "necesito que redactes", "puedes redactar", "puedes elaborar",
+    "puedes generar el escrito", "ayúdame a construir", "ayudame a construir",
 ]
 
 def _detect_chat_drafting(message: str) -> bool:
-    """Detect if the user's message is a natural language drafting request."""
+    """Detect if the user's message is a natural language drafting request.
+    
+    Detecta tanto triggers al inicio del mensaje (redacción directa) como
+    triggers en cualquier posición (redacción implícita).
+    """
     msg_lower = message.strip().lower()
     # Check if message STARTS with any trigger phrase
     for trigger in _CHAT_DRAFTING_TRIGGERS:
         if msg_lower.startswith(trigger):
             return True
+    # Check if message CONTAINS any "anywhere" trigger phrase
+    for trigger in _CHAT_DRAFTING_ANYWHERE:
+        if trigger in msg_lower:
+            return True
     return False
+
+
+def extract_session_context(messages: list) -> dict:
+    """Palanca 5: Extrae el contexto jurídico acumulado de la sesión.
+
+    Analiza el historial de mensajes para identificar:
+    - materia jurídica (penal, civil, amparo, laboral, mercantil, etc.)
+    - tipo de proceso (juicio ordinario, amparo, apelación, etc.)
+    - norma central mencionada (Código Penal, Ley de Amparo, etc.)
+
+    Returns un dict con los campos identificados (puede estar vacío si es el primer turno).
+    """
+    if len(messages) <= 1:
+        return {}  # Primer turno — no hay contexto previo que extraer
+
+    # Solo analizar mensajes del usuario (hasta últimos 6 para eficiencia)
+    user_messages = [m.content for m in messages if m.role == "user"][-6:]
+    combined = " ".join(user_messages).lower()
+
+    context = {}
+
+    # Detectar materia jurídica
+    materia_keywords = {
+        "penal": ["código penal", "delito", "pena", "prisión", "imputado", "ministerio público", "fiscal", "carpeta de investigación"],
+        "civil": ["código civil", "contrato", "daños", "herencia", "sucesión", "propiedad", "arrendamiento", "escritura"],
+        "amparo": ["amparo", "quejoso", "acto reclamado", "sobreseimiento", "concepto de violación", "tribunal colegiado"],
+        "laboral": ["despido", "finiquito", "liquidación", "junta de conciliación", "trabajador", "patrón", "lft"],
+        "mercantil": ["sociedad", "persona moral", "letra de cambio", "pagaré", "quiebra", "concurso mercantil"],
+        "administrativo": ["autoridad administrativa", "multa", "infracción", "recurso de revisión administrativo", "nulidad"],
+        "familiar": ["divorcio", "pensión alimenticia", "custodia", "guarda", "matrimonio", "adopción"],
+        "constitucional": ["constitución", "derechos humanos", "cpeum", "artículo 1", "control de convencionalidad"],
+    }
+    for materia, keywords in materia_keywords.items():
+        if any(kw in combined for kw in keywords):
+            context["materia_detectada"] = materia
+            break
+
+    # Detectar tipo de proceso
+    proceso_keywords = {
+        "amparo_directo": ["amparo directo", "tribunal colegiado", "senten cia definitiva"],
+        "amparo_indirecto": ["amparo indirecto", "juzgado de distrito", "suspensión del acto"],
+        "apelacion": ["apelación", "recurso de apelación", "tribunal superior", "agravio"],
+        "juicio_ordinario": ["juicio ordinario", "actor", "demandado", "contestación de demanda"],
+        "revision_fiscal": ["revisión fiscal", "sat", "crédito fiscal", "recurso de revocación"],
+    }
+    for proceso, keywords in proceso_keywords.items():
+        if any(kw in combined for kw in keywords):
+            context["proceso_detectado"] = proceso
+            break
+
+    # Detectar norma central
+    norma_keywords = {
+        "Ley de Amparo": ["ley de amparo", "artículo 107", "artículo 103"],
+        "Código Penal Federal": ["código penal federal", "cpf"],
+        "Código Civil Federal": ["código civil federal", "ccf"],
+        "Código Nacional de Procedimientos Penales": ["cnpp", "procedimientos penales", "carpeta de investigación"],
+        "Código de Comercio": ["código de comercio", "letra de cambio", "cheque", "pagaré"],
+        "Ley Federal del Trabajo": ["ley federal del trabajo", "lft", "artículo 123"],
+    }
+    for norma, keywords in norma_keywords.items():
+        if any(kw in combined for kw in keywords):
+            context["norma_central"] = norma
+            break
+
+    return context
+
+
 
 # System prompt for document analysis (user-uploaded documents)
 SYSTEM_PROMPT_DOCUMENT_ANALYSIS = """Eres JUREXIA, IA Jurídica para análisis de documentos legales mexicanos.
@@ -6904,16 +7033,87 @@ async def chat_endpoint(request: ChatRequest):
                             _direct_article_lookup(_citations, effective_estado)
                         )
                     
-                    # Búsqueda semántica hibrida (siempre)
-                    # ✅ INTEGRACIÓN ALTO NIVEL: include_sentencias inyecta ejemplos si es modo redacción chat
-                    semantic_results = await hybrid_search_all_silos(
-                        query=last_user_message,
-                        estado=effective_estado,
-                        top_k=40,
-                        forced_materia=request.materia,
-                        fuero=request.fuero,
-                        include_sentencias=is_chat_drafting,
-                    )
+                    # Búsqueda semántica híbrida — MULTI-QUERY PARALELO (Palanca 4)
+                    # ✅ 3 queries en paralelo para mayor recall y cobertura:
+                    # Q1: Query original del usuario (semántica directa)
+                    # Q2: Query jurídica expandida (terminología técnica para recuperar leyes relevantes)
+                    # Q3: Query constitucional/DDHH (solo si hay indicadores constitucionales)
+                    _msg_lower_rag = last_user_message.lower()
+                    _needs_const_query = any(kw in _msg_lower_rag for kw in [
+                        "derechos", "derecho human", "constitución", "cpeum", "amparo",
+                        "debido proceso", "garantía", "discriminación", "libertad", "dignidad",
+                        "convención americana", "tratado", "bloque de constitucionalidad",
+                    ])
+
+                    # Q2: Expandir la query con terminología jurídica relacionada
+                    # (ej: "me despidieron" → + "despido injustificado Ley Federal Trabajo artículo 48")
+                    _query_materias = {
+                        "laboral": "Ley Federal del Trabajo despido rescisión reinstalación artículo 48 LFT",
+                        "penal": "código penal federal delito elementos tipicidad antijuridicidad culpabilidad",
+                        "civil": "código civil federal obligaciones contratos responsabilidad civil daños perjuicios",
+                        "amparo": "Ley de Amparo juicio derechos fundamentales artículos 103 107 CPEUM suspensión acto reclamado",
+                        "mercantil": "código de comercio títulos crédito letra cambio pagaré cheque",
+                        "familiar": "código civil familia divorcio alimentos custodia pensión alimenticia",
+                        "administrativo": "Ley Federal Procedimiento Administrativo recurso revisión nulidad acto administrativo",
+                    }
+                    _materia_hint = request.materia or ""
+                    _expansion_suffix = _query_materias.get(_materia_hint.lower(), "")
+                    _query_expanded = f"{last_user_message} {_expansion_suffix}".strip() if _expansion_suffix else last_user_message
+
+                    # Construir tareas de búsqueda en paralelo
+                    _search_tasks = [
+                        hybrid_search_all_silos(
+                            query=last_user_message,
+                            estado=effective_estado,
+                            top_k=45 if is_chat_drafting else 35,
+                            forced_materia=request.materia,
+                            fuero=request.fuero,
+                            include_sentencias=is_chat_drafting,
+                        ),
+                    ]
+                    # Q2 solo si hay expansión de materia disponible (diferente a Q1)
+                    if _query_expanded != last_user_message:
+                        _search_tasks.append(
+                            hybrid_search_all_silos(
+                                query=_query_expanded,
+                                estado=effective_estado,
+                                top_k=20,
+                                forced_materia=request.materia,
+                                fuero=request.fuero,
+                            )
+                        )
+                    # Q3: Búsqueda constitucional si hay indicadores
+                    if _needs_const_query:
+                        _query_constitucional = (
+                            f"derechos humanos constitución CPEUM bloque constitucionalidad "
+                            f"artículos 1 14 16 17 20 CPEUM tratados internacionales DDHH principio pro persona "
+                            f"{last_user_message[:300]}"
+                        )
+                        _search_tasks.append(
+                            hybrid_search_all_silos(
+                                query=_query_constitucional,
+                                estado=effective_estado,
+                                top_k=15,
+                                forced_materia=None,  # No filtrar materia para constitucional
+                                fuero=None,
+                            )
+                        )
+
+                    print(f"   🔍 MULTI-QUERY: {len(_search_tasks)} búsquedas en paralelo (drafting={is_chat_drafting}, constitucional={_needs_const_query})")
+                    _multi_results = await asyncio.gather(*_search_tasks)
+
+                    # Fusionar resultados con deduplicación (el primero gana — mayor relevancia)
+                    _seen_ids = set()
+                    _merged = []
+                    for _result_set in _multi_results:
+                        for _r in _result_set:
+                            _rid = _r.id if hasattr(_r, "id") else str(_r)
+                            if _rid not in _seen_ids:
+                                _seen_ids.add(_rid)
+                                _merged.append(_r)
+                    semantic_results = _merged
+                    print(f"   🔍 MULTI-QUERY FUSIÓN: {len(semantic_results)} docs únicos tras deduplicación")
+
                     
                     # Merge: Direct Lookup al frente (artículos exactos primero)
                     if _has_explicit_citations:
@@ -7039,8 +7239,33 @@ async def chat_endpoint(request: ChatRequest):
         if doc_id_map:
             valid_ids_prompt = get_valid_doc_ids_prompt(doc_id_map)
             llm_messages.append({"role": "system", "content": valid_ids_prompt})
-        
+
+        # ── PALANCA 5: Session Context Accumulator ────────────────────────────
+        # En conversaciones multi-turno (más de 1 mensaje), extraer el contexto
+        # jurídico acumulado e inyectarlo para que el LLM mantenga coherencia.
+        _session_ctx = extract_session_context(request.messages)
+        if _session_ctx:
+            _ctx_lines = []
+            if "materia_detectada" in _session_ctx:
+                _ctx_lines.append(f"- Materia jurídica de la sesión: **{_session_ctx['materia_detectada'].upper()}**")
+            if "proceso_detectado" in _session_ctx:
+                proc_str = _session_ctx["proceso_detectado"].replace("_", " ").title()
+                _ctx_lines.append(f"- Tipo de proceso identificado: **{proc_str}**")
+            if "norma_central" in _session_ctx:
+                _ctx_lines.append(f"- Norma central de la sesión: **{_session_ctx['norma_central']}**")
+            if _ctx_lines:
+                _session_msg = (
+                    "CONTEXTO DE SESIÓN ACUMULADO (inferido del historial):\n"
+                    + "\n".join(_ctx_lines)
+                    + "\n\nInstrucción: Mantén coherencia con este contexto. Si el usuario hace una pregunta "
+                    "de seguimiento sin especificar materia o ley, asume que sigue en el mismo contexto jurídico "
+                    "identificado. Prioriza documentos del contexto RAG que correspondan a esta materia."
+                )
+                llm_messages.append({"role": "system", "content": _session_msg})
+                print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
+                
         # Agregar historial conversacional
+
         for msg in request.messages:
             msg_content = msg.content
             
