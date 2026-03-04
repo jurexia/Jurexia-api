@@ -57,7 +57,7 @@ CACHE_DISPLAY_NAME = "iurexia-amparo-corpus-v9"  # v9 = jurisprudencias procedim
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
-MAX_CACHE_TOKENS = 300_000       # Target del corpus Genio Amparo (~201K tokens reales — margen anticrash)
+MAX_CACHE_TOKENS = 320_000       # Corpus Genio Amparo real: ~303K tokens (Gemini) — margen seguro anticrash
 MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "10"))  # Budget guard
 
 # ── Global State ─────────────────────────────────────────────────────────────
