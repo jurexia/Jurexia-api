@@ -1,0 +1,955 @@
+LEY DE INSTITUCIONES DE SEGUROS Y DE FIANZAS
+
+LEY DE INSTITUCIONES DE SEGUROS Y DE FIANZAS
+
+## TÍTULO PRIMERO
+
+DE LAS DISPOSICIONES PRELIMINARES
+
+### CAPÍTULO ÚNICO
+
+#### ARTÍCULO 1.- La presente Ley es de interés público y tiene por objeto regular la organización, operación y funcionamiento de las Instituciones de Seguros, Instituciones de Fianzas y Sociedades Mutualistas de Seguros; las actividades y operaciones que las mismas podrán realizar, así como las de los agentes de seguros y de fianzas, y demás participantes en las actividades aseguradora y afianzadora previstos en este ordenamiento, en protección de los intereses del público usuario de estos servicios financieros.
+
+Las instituciones nacionales de seguros y las instituciones nacionales de fianzas se regirán por sus leyes especiales y, a falta de éstas o cuanto en ellas no esté previsto, por lo que estatuye el presente ordenamiento.
+
+#### ARTÍCULO 2.- Para efectos de esta Ley, se entenderá por:
+
+I. Actividad Empresarial, las señaladas en el Código Fiscal de la Federación, quedando excluidas las actividades habituales y profesionales de crédito que, en un ejercicio, representen la proporción de activos crediticios o ingresos asociados a dicha actividad, conforme a lo señalado en la Ley del Impuesto sobre la Renta;
+
+II. Base de Inversión, la suma de las reservas técnicas de las Instituciones y Sociedades Mutualistas, la cual, en el caso de las Instituciones de Seguros, incluirá adicionalmente las primas en depósito, los recursos de los fondos del seguro de vida inversión y los relativos a las operaciones a que se refieren las fracciones XXI y XXII del artículo 118 de esta Ley; y en el caso de las Sociedades Mutualistas, el fondo social y el fondo de reserva a que se refiere el artículo 353 de este ordenamiento;
+
+III. Base Neta de Inversión, el monto que resulte de deducir a la Base de Inversión de las Instituciones y Sociedades Mutualistas, los importes recuperables procedentes de los contratos de reaseguro y de reafianzamiento, determinados conforme a lo previsto en el artículo 230 de esta Ley;
+
+IV. Coafianzamiento, el contrato mediante el cual dos o más Instituciones otorgan fianzas ante un beneficiario, garantizando por un mismo o diverso monto e igual concepto, a un mismo fiado;
+
+V. Coaseguro, la participación de dos o más Instituciones de Seguros en un mismo riesgo, en virtud de contratos directos realizados por cada una de ellas con un mismo asegurado;
+
+VI. Comisión, la Comisión Nacional de Seguros y Fianzas;
+
+VII. Consorcio, el conjunto de personas morales vinculadas entre sí por una o más personas que, integrando un Grupo de Personas, tengan el Control de las primeras;
+
+VIII. Consorcios de Seguros y de Fianzas, las sociedades organizadas conforme a lo previsto en el artículo 90 de esta Ley;
+
+IX. Control, la capacidad de imponer, directa o indirectamente, decisiones en las asambleas generales de accionistas de una Institución; mantener la titularidad de derechos que permitan, directa o indirectamente, ejercer el voto respecto de más del 50% del capital social de la Institución de que se trate, dirigir, directa o indirectamente, la administración, la estrategia o las principales políticas de la Institución, ya sea a través de la propiedad de valores o por cualquier otro acto jurídico;
+
+X. Días de Salario, los días de salario mínimo general aplicable en el Distrito Federal;
+
+XI. Filial, la sociedad anónima mexicana autorizada para organizarse y operar conforme a esta Ley como Institución y en cuyo capital participe una Institución Financiera del Exterior o una Sociedad Controladora Filial;
+
+XII. Fondos Propios Admisibles, los fondos propios, determinados como el excedente de los activos respecto de los pasivos de las Instituciones, que, de conformidad con lo previsto en los artículos 241 a 244 de esta Ley, sean susceptibles de cubrir su requerimiento de capital de solvencia;
+
+XIII. Grupo de Personas, las personas que tengan acuerdos, de cualquier naturaleza, para tomar decisiones en un mismo sentido. Se presume, salvo prueba en contrario, que constituyen un Grupo de Personas:
+
+a) Las personas que tengan parentesco por consanguinidad, afinidad o civil hasta el cuarto grado, los cónyuges, la concubina y el concubinario, y
+
+b) Las sociedades que formen parte de un mismo Consorcio o Grupo Empresarial y la persona o conjunto de personas que tengan el Control de dichas sociedades;
+
+XIV. Grupo Empresarial, el conjunto de personas morales organizadas bajo esquemas de participación directa o indirecta del capital social, en las que una misma sociedad mantiene el Control de dichas personas morales. Asimismo, se considerarán como Grupo Empresarial a los grupos financieros constituidos conforme a la Ley para Regular las Agrupaciones Financieras;
+
+XV. Influencia Significativa, la titularidad de derechos que permitan, directa o indirectamente, ejercer el voto respecto de cuando menos el 20% del capital social de una persona moral;
+
+XVI. Institución de Seguros, la sociedad anónima autorizada para organizarse y operar conforme a esta Ley como institución de seguros, siendo su objeto la realización de operaciones en los términos del artículo 25 de esta Ley;
+
+XVII. Institución de Fianzas, la sociedad anónima autorizada para organizarse y operar conforme a esta Ley como institución de fianzas, siendo su objeto el otorgamiento de fianzas a título oneroso;
+
+XVIII. Institución Financiera del Exterior, la entidad financiera constituida en un país con el que México haya celebrado un tratado o acuerdo internacional, en virtud del cual se permita el establecimiento en territorio nacional de Filiales;
+
+XIX. Institución, la Institución de Seguros y la Institución de Fianzas;
+
+XX. Intermediario de Reaseguro, la persona moral domiciliada en el país, autorizada conforme a esta Ley para intermediar en la realización de operaciones de reaseguro y de reafianzamiento;
+
+XXI. Operaciones Financieras Derivadas, las que determine el Banco de México, mediante disposiciones de carácter general;
+
+XXII. Poder de Mando, la capacidad de hecho de influir de manera decisiva en los acuerdos adoptados en las asambleas de accionistas o sesiones del consejo de administración o en la gestión, conducción y ejecución de los negocios de una Institución, o de las personas morales que ésta controle. Se presume que tienen Poder de Mando en una Institución, salvo prueba en contrario, las personas que se ubiquen en cualquiera de los supuestos siguientes:
+
+a) Los accionistas que tengan el Control de la administración;
+
+b) Los individuos que tengan vínculos con la Institución de que se trate o las personas morales que integran el Grupo Empresarial o Consorcio al que aquélla pertenezca, a través de cargos vitalicios, honoríficos o con cualquier otro título análogo o semejante a los anteriores;
+
+c) Las personas que hayan transmitido el Control de la Institución de que se trate bajo cualquier título y de manera gratuita o a un valor inferior al de mercado o contable, en favor de individuos con los que tengan parentesco por consanguinidad, afinidad o civil hasta el cuarto grado, el cónyuge, la concubina o el concubinario, y
+
+d) Quienes instruyan a consejeros o directivos relevantes de la Institución de que se trate, la toma de decisiones o la ejecución de operaciones en la propia Institución o en las personas morales que ésta controle. Para estos efectos, se entenderá por directivo relevante, al director general de las Instituciones, así como a las personas físicas que, ocupando un empleo, cargo o comisión en aquéllas, o en las personas morales que controlen dichas Instituciones o que la controlen, adopten decisiones que trasciendan de forma significativa en la situación administrativa, financiera, técnica, operaciones o jurídica de la Institución de que se trate o del Grupo Empresarial al que ésta pertenezca;
+
+XXIII. Reafianzamiento, el contrato por el cual una Institución, una Reaseguradora Extranjera o una entidad reaseguradora o reafianzadora del extranjero, se obligan a pagar a una Institución, en la proporción correspondiente, las cantidades que ésta deba cubrir al beneficiario de su fianza;
+
+XXIV. Reaseguradora Extranjera, la entidad reaseguradora o reafianzadora del extranjero inscrita en el Registro General de Reaseguradoras Extranjeras a que se refiere el artículo 107 de esta Ley;
+
+XXV. Reaseguro, el contrato en virtud del cual una Institución de Seguros, una Reaseguradora Extranjera o una entidad reaseguradora del extranjero toma a su cargo total o parcialmente un riesgo ya cubierto por una Institución de Seguros o el remanente de daños que exceda de la cantidad asegurada por el asegurador directo;
+
+XXVI. Reaseguro Financiero, el contrato en virtud del cual una Institución de Seguros, en los términos de la fracción XXV del presente artículo, realiza una transferencia significativa de riesgo de seguro, pactando como parte de la operación la posibilidad de recibir financiamiento de la entidad reaseguradora; así como el contrato en virtud del cual una Institución de Fianzas, en términos de las fracciones XXIII o XXV de este artículo, realiza una transferencia significativa de responsabilidades asumidas por fianzas en vigor, pactando como parte de la operación la posibilidad de recibir financiamiento de la entidad reaseguradora o reafianzadora;
+
+XXVII. Secretaría, la Secretaría de Hacienda y Crédito Público;
+
+XXVIII. Sociedad Controladora Filial, la sociedad mexicana autorizada para constituirse y operar como sociedad controladora en los términos de la Ley para Regular las Agrupaciones Financieras, y en cuyo capital participe una Institución Financiera del Exterior;
+
+XXIX. Sociedad Mutualista, la sociedad autorizada para organizarse y operar conforme a esta Ley con el carácter de sociedad mutualista de seguros;
+
+XXX. Vínculo de Negocio, el que derive de la celebración de convenios de inversión en el capital de otras personas morales, en virtud de los cuales se obtenga Influencia Significativa, quedando incluidos cualquier otro tipo de actos jurídicos que produzcan efectos similares a tales convenios de inversión, y
+
+XXXI. Vínculo Patrimonial, el que derive de la pertenencia por parte de una Institución a un Consorcio o Grupo Empresarial, al que también pertenezca la persona moral a que se refiere el artículo 86 de esta Ley.
+
+Los términos señalados en este artículo podrán utilizarse en singular o en plural, sin que por ello deba entenderse que cambia su significado.
+
+#### ARTÍCULO 3.- La Secretaría será el órgano competente para interpretar, aplicar y resolver para efectos administrativos lo relacionado con los preceptos de esta Ley. Para estos efectos, podrá solicitar, cuando así lo estime conveniente, la opinión de la Comisión, del Banco de México o de algún otro organismo o dependencia en razón de la naturaleza de los casos que lo ameriten.
+
+En la aplicación de la presente Ley, la Secretaría y la Comisión deberán procurar un desarrollo equilibrado de los sistemas asegurador y afianzador, así como una competencia sana entre las instituciones que los integran. Igualmente, tomarán en consideración el principio de proporcionalidad en atención a la naturaleza, escala y complejidad de los riesgos que asuman las Instituciones y Sociedades Mutualistas.
+
+#### ARTÍCULO 4.- En lo no previsto en esta Ley o en sus leyes especiales, competerá a la Secretaría la adopción de todas las medidas relativas a la creación, funcionamiento y disolución de las instituciones nacionales de seguros y de las instituciones nacionales de fianzas.
+
+Las inversiones que conforme a esta Ley realicen las instituciones nacionales de seguros y las instituciones nacionales de fianzas en títulos representativos del capital social de personas morales, no computarán para considerar a las emisoras como empresas de participación estatal y no estarán sujetas a las disposiciones aplicables a las entidades de la Administración Pública Federal.
+
+Las instituciones nacionales de seguros y las instituciones nacionales de fianzas, en las contrataciones de servicios que requieran para realizar las operaciones y servicios previstos en los artículos 118 y 144 de esta Ley, no estarán sujetas a la Ley de Adquisiciones, Arrendamientos y Servicios del Sector Público.
+
+Las contrataciones que realicen las instituciones nacionales de seguros y las instituciones nacionales de fianzas relativas al gasto asociado con materiales y suministros, servicios generales, e inversión física en bienes muebles e inmuebles, conforme al artículo 30 del Reglamento de la Ley Federal de Presupuesto y Responsabilidad Hacendaria, se sujetarán a lo dispuesto en la Ley de Adquisiciones, Arrendamientos y Servicios del Sector Público.
+
+Para efectos de lo dispuesto en los dos párrafos anteriores, la Secretaría estará facultada para emitir lineamientos generales, así como para resolver consultas sobre contrataciones específicas, privilegiando en todo momento la eficiencia, eficacia y debida oportunidad en los servicios que prestan las instituciones nacionales de seguros y las instituciones nacionales de fianzas.
+
+En la liquidación administrativa o convencional de las instituciones nacionales de seguros y de las instituciones nacionales de fianzas, el cargo de liquidador recaerá en el Servicio de Administración y Enajenación de Bienes.
+
+#### ARTÍCULO 5.- Para efectos de la presente Ley, los plazos fijados en días se entenderán en días naturales, salvo que expresamente se señale que se trata de días hábiles. En los casos en que se haga referencia a un plazo en días naturales, si éste vence en un día inhábil, se entenderá concluido el primer día hábil siguiente.
+
+#### ARTÍCULO 6.- Salvo que en las disposiciones específicas se establezca otro plazo, éste no podrá exceder de ciento ochenta días para que las autoridades administrativas resuelvan lo que corresponda. Transcurrido el plazo aplicable, se entenderán las resoluciones en sentido negativo al promovente, a menos que en las disposiciones aplicables se prevea lo contrario. A petición del interesado, se deberá expedir constancia de tal circunstancia, dentro de los dos días hábiles siguientes a la presentación de la solicitud respectiva ante la autoridad competente que deba resolver, conforme al reglamento interior respectivo; igual constancia deberá expedirse cuando las disposiciones específicas prevean que transcurrido el plazo aplicable la resolución deba entenderse en sentido positivo. De no expedirse la constancia mencionada dentro del plazo citado, se fincará, en su caso, la responsabilidad que resulte aplicable.
+
+Cuando el escrito inicial no contenga los datos o no cumpla con los requisitos previstos en las disposiciones aplicables, la autoridad administrativa deberá prevenir al interesado, por escrito y por una sola vez, para que dentro de un término que no podrá ser menor de diez días hábiles subsane la omisión. Salvo que en las disposiciones específicas se establezca otro plazo, dicha prevención deberá hacerse a más tardar dentro de la mitad del plazo de respuesta de la autoridad y, cuando éste no sea expreso, dentro de los veinte días hábiles siguientes a la presentación del escrito inicial.
+
+Notificada la prevención, se suspenderá el plazo para que las autoridades administrativas resuelvan y se reanudará a partir del día hábil inmediato siguiente a aquél en que el interesado conteste. En el supuesto de que no se desahogue la prevención en el término señalado, las autoridades desecharán el escrito inicial.
+
+Si las autoridades no hacen el requerimiento de información dentro del plazo correspondiente, no podrán rechazar el escrito inicial por incompleto.
+
+Salvo disposición expresa en contrario, los plazos para que las autoridades contesten empezarán a correr el día hábil inmediato siguiente a la presentación del escrito correspondiente.
+
+#### ARTÍCULO 7.- Las notificaciones, citatorios, emplazamientos, requerimientos, solicitud de informes o documentos y las resoluciones administrativas definitivas podrán realizarse:
+
+I. Personalmente con quien deba entenderse la diligencia, en el domicilio del interesado;
+
+II. Mediante oficio entregado por mensajero o correo certificado, con acuse de recibo, telefax o cualquier otro medio por el que se pueda comprobar fehacientemente la recepción de los mismos;
+
+III. Cuando el interesado o su representante legal acudan al domicilio de la autoridad y acusen recibo del oficio respectivo, y
+
+IV. Por edicto, cuando se desconozca el domicilio del interesado o en caso de que la persona a quien deba notificarse haya desaparecido, se ignore su domicilio o se encuentre en el extranjero sin haber dejado representante legal.
+
+Tratándose de actos distintos a los señalados anteriormente, las notificaciones podrán realizarse por correo ordinario, mensajería, telegrama o, previa solicitud por escrito del interesado, a través del telefax.
+
+Salvo cuando exista impedimento jurídico para hacerlo, la resolución administrativa definitiva deberá notificarse al interesado por medio de correo certificado o mensajería, en ambos casos con acuse de recibo, siempre y cuando los solicitantes hayan adjuntado al promover el trámite, el comprobante de pago del servicio respectivo.
+
+#### ARTÍCULO 8.- En los trámites a que se refieren los artículos 13, 22, fracción II, 34, tercer párrafo, 49, 50, 66, 67, 80, 90, 107, 108, 114, 126, 165, 173, 194, 294, fracciones IX y X, 295, fracciones IX y X, y 309 del presente ordenamiento, no podrá exceder de noventa días el plazo para que las autoridades administrativas resuelvan lo que corresponda, siendo aplicables las demás reglas a que se refiere el artículo 6 de esta Ley.
+
+#### ARTÍCULO 9.- Las autoridades administrativas competentes para atender los trámites establecidos en esta Ley, o en las disposiciones que se deriven de la misma, podrán, mediante acuerdos de carácter general publicados en el Diario Oficial de la Federación, disminuir los plazos establecidos en las mismas.
+
+Las autoridades administrativas competentes, a solicitud de parte interesada, podrán ampliar los plazos establecidos en la presente Ley, sin que dicha ampliación exceda en ningún caso de la mitad del plazo previsto originalmente en las disposiciones aplicables, cuando así lo exija el asunto y no tengan conocimiento de que se perjudica a terceros en sus derechos.
+
+#### ARTÍCULO 10.- A las disposiciones a que se refieren el Título Sexto, Título Noveno, Capítulos Tercero y Cuarto, Título Décimo Segundo y Título Décimo Tercero de esta Ley, así como sus artículos 363 a 365, no se les aplicará lo establecido en los artículos 6 y 9 de este ordenamiento.
+
+#### ARTÍCULO 11.- Para organizarse y operar como Institución o Sociedad Mutualista se requiere autorización del Gobierno Federal, que compete otorgar discrecionalmente a la Comisión, previo acuerdo de su Junta de Gobierno. Por su naturaleza, estas autorizaciones serán intransmisibles.
+
+Dentro de los cinco días hábiles siguientes a la fecha en que la Junta de Gobierno de la Comisión haya resuelto otorgar la autorización a que se refiere el párrafo anterior, la Comisión notificará la resolución, así como su opinión favorable respecto del proyecto de estatutos de la sociedad de que se trate, a fin de que se realicen los actos tendientes a su constitución. El promovente, en un plazo de noventa días contado a partir de dicha notificación, deberá presentar a la propia Comisión, para su aprobación, el instrumento público en que consten los estatutos de la sociedad en términos de esta Ley, para posteriormente proceder a su inscripción en el Registro Público de Comercio sin que se requiera mandamiento judicial al respecto.
+
+La autorización que se otorgue conforme a este artículo, quedará sujeta a la condición de que se obtenga el dictamen favorable para iniciar las operaciones respectivas en términos del artículo 47 de esta Ley, el que deberá solicitarse dentro de un plazo de ciento ochenta días contado a partir de la aprobación del instrumento público a que se refiere el párrafo anterior. Al efectuarse la citada inscripción del instrumento público, deberá hacerse constar que la autorización para organizarse y operar como Institución o Sociedad Mutualista se encuentra sujeta a la condición señalada en este párrafo.
+
+Las autorizaciones para organizarse y operar como Institución o Sociedad Mutualista, así como sus modificaciones, se publicarán, a costa de la sociedad de que se trate, en el Diario Oficial de la Federación y en dos periódicos de amplia circulación de su domicilio social, dentro de los ciento veinte días siguientes a la fecha de notificación de la autorización respectiva.
+
+#### ARTÍCULO 12.- Sin perjuicio de lo señalado en el artículo 11 de esta Ley, hasta en tanto entre en vigor la autorización para organizarse y operar como Institución o Sociedad Mutualista, la sociedad correspondiente, una vez que se haya recibido la notificación mencionada en dicho artículo, podrá celebrar los actos necesarios para cumplir con los requisitos establecidos en el artículo 47 de este ordenamiento para el inicio de operaciones, sin que, durante dicho periodo, pueda celebrar ninguna de las operaciones señaladas, según corresponda, en los artículos 118, fracción XVII, y 144, fracción XV. Durante el periodo antes referido, la sociedad de que se trate estará exceptuada de la aplicación de lo dispuesto en el primer párrafo del artículo 13 de este ordenamiento.
+
+La autorización para organizarse y operar como Institución o Sociedad Mutualista conforme a esta Ley no surtirá sus efectos, sin que para ello sea necesaria declaración de autoridad alguna, cuando no se cumpla la condición de obtener la aprobación de sus estatutos sociales referida en el artículo 11 de este ordenamiento y el dictamen favorable para iniciar sus operaciones conforme a lo previsto en el artículo 47 de esta Ley.
+
+#### ARTÍCULO 13.- Las palabras seguro, reaseguro, aseguramiento, fianza, reafianzamiento, afianzamiento, caución, garantía u otras que expresen ideas semejantes en cualquier idioma, sólo podrán ser usadas en el nombre o denominación de las Instituciones o Sociedades Mutualistas, según corresponda.
+
+Se exceptúa de la aplicación del párrafo anterior a los agentes, intermediarios, ajustadores y demás personas o empresas cuyas actividades se sujetan a esta Ley o a las disposiciones administrativas que deriven de la misma, cuando cuenten con la autorización correspondiente, así como a las asociaciones de Instituciones, las organizaciones aseguradoras y afianzadoras u otras personas que sean autorizadas por la Comisión para estos efectos, siempre que no realicen operaciones activas de seguros u operaciones de fianzas en los términos de esta Ley.
+
+Asimismo, queda prohibido el uso de la palabra “nacional” en la denominación de las Instituciones que no tengan ese carácter.
+
+#### ARTÍCULO 14.- No podrán inscribirse en el Registro Público de Comercio, escrituras constitutivas o sus modificaciones, de sociedades en cuyo nombre, razón social o denominación se emplee cualquiera de las palabras a que se refiere el artículo 13 de esta Ley, o cuyo objeto sea operar en materia de seguros o de fianzas, si no se insertan los documentos oficiales que comprueben la existencia de la autorización que exige este ordenamiento.
+
+Tratándose de la escritura constitutiva de Instituciones o sus modificaciones, así como del contrato social o sus modificaciones de Sociedades Mutualistas, deberá comprobarse, además, que se cuenta con la aprobación de la Comisión en los términos de los artículos 66 y 337, fracción XIX, de este ordenamiento, sin la cual dichas inscripciones no producirán efectos legales.
+
+#### ARTÍCULO 15.- Mientras las Instituciones y Sociedades Mutualistas no sean puestas en liquidación o declaradas en quiebra, se considerarán de acreditada solvencia y no estarán obligadas, por tanto, a constituir depósitos o fianzas legales a excepción de las responsabilidades que puedan derivarles de juicios laborales, de amparo o por créditos fiscales.
+
+#### ARTÍCULO 16.- Sin perjuicio de lo señalado en el artículo 15 de este ordenamiento, las Instituciones, por las fianzas que otorguen, se considerarán de acreditada solvencia.
+
+Todas las fianzas que se emitan en papelería oficial de las Instituciones se presumirán, salvo prueba en contrario, legalmente válidas y dichas instituciones no podrán objetar la capacidad legal de quien las suscriba.
+
+#### ARTÍCULO 17.- Los contratos de seguro de caución y de fianza serán admisibles como garantía ante las dependencias y entidades de la Administración Pública Federal y ante las autoridades locales, en todos los supuestos que la legislación exija o permita constituir garantías ante aquéllas. En el caso del seguro de caución, tendrá la condición de contratante del seguro quien deba otorgar la garantía y la de asegurado la dependencia o entidad.
+
+#### ARTÍCULO 18.- Al admitir los seguros de caución y las fianzas, las autoridades federales y locales no podrán calificar la solvencia de las Instituciones, ni exigir su comprobación o la constitución de garantías que las respalden. Las mismas autoridades no podrán fijar mayor importe para los seguros de caución y las fianzas que otorguen las Instituciones, que el señalado para depósitos en efectivo u otras formas de garantía.
+
+Las pólizas y certificados en que se formalicen los contratos de seguro de caución y de fianza que sirvan como garantía ante la Administración Pública Federal, en su caso, se ajustarán a los modelos que apruebe la Secretaría mediante disposiciones de carácter general. En dichas disposiciones, la Secretaría podrá determinar, además, requisitos de carácter general en aspectos operativos y de servicio que deberán cumplir las Instituciones que expidan los seguros de caución y las fianzas que sirvan como garantía ante la Administración Pública Federal.
+
+## TÍTULO SEGUNDO
+
+DE LAS INSTITUCIONES
+
+### CAPÍTULO PRIMERO
+
+DE LAS INSTITUCIONES DE SEGUROS
+
+SECCIÓN I
+
+DE LAS DISPOSICIONES GENERALES
+
+#### ARTÍCULO 19.- Se considerarán operaciones de seguros sujetas a las disposiciones de las leyes mexicanas, las que se celebren en el territorio nacional.
+
+#### ARTÍCULO 20.- Se prohíbe a toda persona física o moral distinta a las Instituciones de Seguros y Sociedades Mutualistas autorizadas en los términos de esta Ley, la práctica de cualquier operación activa de seguros en territorio nacional.
+
+Para efectos de esta Ley, se considera que se realiza una operación activa de seguros cuando, en caso de que se presente un acontecimiento futuro e incierto previsto por las partes, una persona, contra el pago de una cantidad de dinero, se obliga a resarcir a otra un daño, de manera directa o indirecta o a pagar una suma de dinero.
+
+No se considerará operación activa de seguros la comercialización a futuro de bienes o servicios, cuando el cumplimiento de la obligación convenida, no obstante que dependa de la realización de un acontecimiento futuro e incierto, se satisfaga con recursos e instalaciones propias de quien ofrece el bien o el servicio y sin que se comprometa a resarcir algún daño o a pagar una prestación en dinero. Sin embargo, aun cuando se satisfagan con recursos e instalaciones propias, sí se considerará como operación activa de seguros la prestación de servicios dirigidos a prevenir o restaurar la salud a través de acciones que se realicen en beneficio del asegurado, mediante el pago de una cantidad de dinero, conforme a lo establecido en los artículos 25, fracción II, inciso c), y 27, fracción V, de esta Ley.
+
+La Secretaría, oyendo la opinión de la Comisión, podrá establecer criterios de aplicación general conforme a los cuales se precise si una operación, para efectos de este artículo, se considera operación activa de seguros, y deberá resolver las consultas que al efecto se le formulen.
+
+#### ARTÍCULO 21.- Se prohíbe contratar con empresas extranjeras:
+
+I. Seguros de personas:
+
+a) Cuando el contratante del seguro sea una persona física, si éste se encuentra en territorio nacional al celebrarse el contrato, o
+
+b) Cuando el contratante del seguro sea una persona moral, si los asegurados residen en territorio nacional;
+
+II. Seguros de cascos, de naves o aeronaves y de cualquier clase de vehículos, contra riesgos propios del ramo marítimo y transportes, siempre que dichas naves, aeronaves o vehículos sean de matrícula mexicana o propiedad de personas domiciliadas en la República;
+
+III. Seguros de crédito, seguros de caución, seguros de crédito a la vivienda y seguros de garantía financiera, cuando el asegurado esté sujeto a la legislación mexicana.
+
+En el caso de los seguros de garantía financiera, no será aplicable la prohibición señalada en el párrafo anterior cuando los valores, títulos de crédito o documentos emitidos que sean materia del seguro, sean objeto de oferta exclusivamente en mercados del exterior;
+
+IV. Seguros contra la responsabilidad civil, derivada de eventos que puedan ocurrir en territorio nacional, y
+
+V. Seguros de los demás ramos contra riesgos que puedan ocurrir en territorio nacional. No se considerarán como tales los seguros que se contraten fuera del territorio nacional sobre bienes que se transporten de territorio nacional a territorio extranjero o viceversa, así como los seguros que no residentes en territorio nacional contraten fuera del mismo para sus personas o sus vehículos, para cubrir riesgos durante sus internaciones eventuales.
+
+#### ARTÍCULO 22.- En los siguientes casos, la Comisión podrá exceptuar de lo dispuesto en los artículos 20 y 21 de esta Ley:
+
+I. A las empresas extranjeras que, previa autorización de la Comisión y cumpliendo con los requisitos que la misma establezca, celebren contratos de seguros en territorio nacional, que amparen aquellos riesgos que sólo puedan ocurrir en los países extranjeros en donde estén autorizadas para prestar servicios de seguros. Estas operaciones no estarán sujetas al régimen que esta Ley establece para las Instituciones de Seguros y Sociedades Mutualistas.
+
+La Comisión podrá revocar la autorización otorgada en los términos del párrafo anterior, cuando considere que están en peligro los intereses de los usuarios de los servicios de aseguramiento, oyendo previamente a la empresa de que se trate, y
+
+II. A la persona que compruebe que ninguna de las Instituciones de Seguros facultadas para operar en el país, pueda o estime conveniente realizar determinada operación de seguro que les hubiera propuesto. En este caso, se otorgará una autorización específica para que lo contrate con una empresa extranjera, directamente o a través de una Institución de Seguros.
+
+#### ARTÍCULO 23.- Se prohíbe a toda persona ofrecer, directamente o como intermediario, en territorio nacional, por cualquier medio público o privado, las operaciones a que se refieren los artículos 20 y 21 de este ordenamiento, así como seguros sobre bienes que se transporten de territorio nacional a territorio extranjero y viceversa.
+
+#### ARTÍCULO 24.- Los contratos concertados en contravención a lo dispuesto por los artículos 20 y 21 de esta Ley, no producirán efecto legal alguno, sin perjuicio del derecho del contratante o asegurado de pedir el reintegro de las primas pagadas, e independientemente de las responsabilidades en que incurra la persona o entidad de que se trate, frente al contratante, asegurado o beneficiario o sus causahabientes, de buena fe y de las sanciones penales o administrativas a que se haga acreedora dicha persona o entidad en los términos de esta Ley.
+
+SECCIÓN II
+
+DE LAS OPERACIONES Y RAMOS DE SEGUROS
+
+#### ARTÍCULO 25.- Las autorizaciones para organizarse, operar y funcionar como Institución de Seguros o Sociedad Mutualista, se referirán a una o más de las siguientes operaciones y ramos de seguro:
+
+I. Vida;
+
+II. Accidentes y enfermedades, en alguno o algunos de los ramos siguientes:
+
+a) Accidentes personales;
+
+b) Gastos médicos, y
+
+c) Salud, y
+
+III. Daños, en alguno o algunos de los ramos siguientes:
+
+a) Responsabilidad civil y riesgos profesionales;
+
+b) Marítimo y transportes;
+
+c) Incendio;
+
+d) Agrícola y de animales;
+
+e) Automóviles;
+
+f) Crédito;
+
+g) Caución;
+
+h) Crédito a la vivienda;
+
+i) Garantía financiera;
+
+j) Riesgos catastróficos;
+
+k) Diversos, y
+
+l) Los especiales que declare la Secretaría, conforme a lo dispuesto por el artículo 28 de esta Ley.
+
+Las Instituciones de Seguros, podrán realizar el reaseguro respecto de las operaciones y ramos comprendidos en su autorización.
+
+Las autorizaciones otorgadas a las Instituciones de Seguros para los ramos previstos en los incisos a) a g), j) y k) de la fracción III de este artículo, podrán comprender la práctica de las operaciones de reafianzamiento. Se exceptúa de lo previsto en este párrafo a las Instituciones de Seguros autorizadas para operar exclusivamente alguno de los ramos previstos en los incisos a) a e), j) y k) de la fracción III del presente artículo.
+
+Las autorizaciones podrán otorgarse también para practicar exclusivamente el reaseguro, en alguna o algunas de las operaciones y ramos mencionados en este artículo, así como el reafianzamiento, conforme a lo señalado en el artículo 39 de este ordenamiento.
+
+Las autorizaciones otorgadas a las Instituciones de Seguros para el ramo previsto en el inciso g) de la fracción III de este artículo, siempre que se cumpla con los requisitos de esta Ley, podrán comprender la práctica de las operaciones de fianzas en los ramos y subramos que se determinen en su autorización de conformidad con el artículo 36 de esta Ley, sujetándose en este caso a las disposiciones aplicables a las Instituciones de Fianzas.
+
+#### ARTÍCULO 26.- Una misma Institución de Seguros o Sociedad Mutualista no podrá contar con autorización para practicar las operaciones señaladas en las fracciones I y III del artículo 25 de esta Ley.
+
+Tratándose de los seguros relacionados con contratos que tengan como base planes de pensiones o de supervivencia derivados de las leyes de seguridad social a los que se refieren el párrafo segundo de la fracción I del artículo 27 de esta Ley, así como los indicados en la fracción II del propio artículo 27 de este ordenamiento, las autorizaciones se otorgarán solo a Instituciones de Seguros que las practiquen en forma exclusiva, sin que a las mismas se les pueda autorizar cualquiera otra operación de las señaladas en el artículo 25 de esta Ley. La operación de los seguros de pensiones derivados de las leyes de seguridad social estará sujeta a las disposiciones de carácter general que emita la Comisión, con acuerdo de su Junta de Gobierno.
+
+El ramo de salud a que se refiere el inciso c) fracción II del artículo 25 de esta Ley, sólo deberá practicarse por Instituciones de Seguros autorizadas exclusivamente para ese efecto y a las cuales únicamente se les podrá autorizar a practicar, de manera adicional, los ramos de gastos médicos y de accidentes personales. La operación del ramo de salud estará sujeta a las disposiciones de carácter general que emita la Comisión, con acuerdo de su Junta de Gobierno, y previa opinión de la Secretaría de Salud, según corresponda.
+
+Los ramos de seguro de crédito, de seguro de caución, de seguro de crédito a la vivienda y de seguro de garantía financiera a que se refieren los incisos f) a i) de la fracción III del artículo 25 de este ordenamiento, deberán practicarse por Instituciones de Seguros autorizadas exclusivamente para operar sólo uno de dichos ramos, salvo en los casos de los ramos de seguro de crédito y de seguro de caución, los cuales podrán practicarse por Instituciones de Seguros que operen de manera exclusiva ambos ramos. La operación de estos seguros a que se refiere este párrafo estará sujeta a las disposiciones de carácter general que emita la Comisión, con acuerdo de su Junta de Gobierno.
+
+#### ARTÍCULO 27.- Los seguros comprendidos dentro de la enumeración de operaciones y ramos señalados en los artículos 25 y 26 de esta Ley, son los siguientes:
+
+I. Para las operaciones de vida, los que tengan como base del contrato riesgos que puedan afectar la persona del asegurado en su existencia. Se considerarán comprendidos dentro de estas operaciones los beneficios adicionales que, basados en la salud o en accidentes personales, se incluyan en pólizas regulares de seguros de vida.
+
+También se considerarán comprendidas dentro de estas operaciones, los contratos de seguro que tengan como base planes de pensiones o de supervivencia relacionados con la edad, jubilación o retiro de personas, ya sea bajo esquemas privados o derivados de las leyes de seguridad social;
+
+II. Para los seguros de pensiones derivados de las leyes de seguridad social, el pago de las rentas periódicas durante la vida del asegurado o las que correspondan a sus beneficiarios de acuerdo con los contratos de seguro celebrados en los términos de las leyes aplicables;
+
+III. Para el ramo de accidentes personales, los contratos de seguro que tengan como base la lesión o incapacidad que afecte la integridad personal, salud o vigor vital del asegurado, como consecuencia de un evento externo, violento, súbito y fortuito;
+
+IV. Para el ramo de gastos médicos, los contratos de seguro que tengan por objeto cubrir los gastos médicos, hospitalarios y demás que sean necesarios para la recuperación de la salud o vigor vital del asegurado, cuando se hayan afectado por causa de un accidente o enfermedad. Las Instituciones de Seguros y Sociedades Mutualistas autorizadas para operar este ramo, podrán ofrecer como beneficio adicional dentro de sus pólizas, la cobertura de servicios de medicina preventiva, sólo con carácter indemnizatorio;
+
+Igualmente, las Instituciones de Seguros y Sociedades Mutualistas autorizadas para operar este ramo, para el caso de riesgos que puedan afectar la persona del asegurado generándole una discapacidad ofrecerán como cobertura dentro de un producto o beneficio adicional, que ampare el pago de gastos derivados de la atención médica, programas de rehabilitación, terapias rehabilitadoras y los servicios médicos adicionales que requieran los asegurados que sean necesarios para la atención de dicha discapacidad, de acuerdo con las sumas aseguradas y coberturas contratadas, esto mediante el procedimiento de selección de riesgo correspondiente y diseño del producto o beneficio adicional que se ofrezca al mercado para la cobertura de riesgos futuros, que preserve las condiciones técnicas y financieras del seguro y la sustentabilidad de las mutualidades de las que formen parte.
+
+V. Para el ramo de salud, los contratos de seguro que tengan como objeto la prestación de servicios dirigidos a prevenir enfermedades o restaurar la salud, a través de acciones que se realicen en beneficio del asegurado;
+
+VI. Para el ramo de responsabilidad civil y riesgos profesionales, el pago de la indemnización que el asegurado deba a un tercero a consecuencia de un hecho que cause un daño previsto en el contrato de seguro;
+
+VII. Para el ramo de marítimo y transportes, el pago de la indemnización por los daños y perjuicios que sufran los muebles y semovientes objeto del traslado. Pueden igualmente asegurarse los cascos de las embarcaciones y los aeroplanos, para obtener el pago de la indemnización que resulte por los daños o la pérdida de unos u otros, o por los daños o perjuicios causados a la propiedad ajena o a terceras personas con motivo de su funcionamiento. En estos casos, se podrá incluir en las pólizas regulares que se expidan el beneficio adicional de responsabilidad civil;
+
+VIII. Para el ramo de incendio, los que tengan por base la indemnización de todos los daños y pérdidas causados por incendio, explosión, fulminación o accidentes de naturaleza semejante;
+
+IX. Para el ramo de agrícola y de animales, el pago de indemnizaciones o resarcimiento de inversiones, por los daños o perjuicios que sufran los asegurados por pérdida parcial o total de los provechos esperados de la tierra o por muerte, pérdida o daños ocurridos a sus animales;
+
+X. Para el ramo de automóviles, el pago de la indemnización que corresponda a los daños o pérdida del automóvil, y a los daños o perjuicios causados a la propiedad ajena o a terceras personas con motivo del uso del automóvil. Asimismo, las Instituciones de Seguros y Sociedades Mutualistas autorizadas a operar este ramo, podrán incluir en las pólizas regulares, los beneficios adicionales de gastos médicos y funerarios, y accidentes personales a ocupantes del vehículo;
+
+XI. Para el ramo de crédito, el pago de la indemnización de una parte proporcional de las pérdidas que sufra el asegurado como consecuencia de la insolvencia total o parcial de sus clientes deudores por créditos comerciales;
+
+XII. Para el ramo de caución, el pago de una indemnización al asegurado a título de resarcimiento o penalidad por los daños patrimoniales sufridos, dentro de los límites previstos en el contrato de seguro, al producirse las circunstancias acordadas en relación con el incumplimiento por el contratante del seguro de sus obligaciones legales o contractuales, excluyendo las obligaciones relacionadas con contratos de naturaleza financiera. En este ramo, todo pago hecho por la Institución de Seguros deberá serle reembolsado por el contratante del seguro, para lo cual la Institución de Seguros podrá solicitar las garantías de recuperación que considere convenientes;
+
+XIII. Para el ramo de crédito a la vivienda, el pago por incumplimiento de los deudores de créditos a la vivienda otorgados por intermediarios financieros o por entidades dedicadas al financiamiento a la vivienda;
+
+XIV. Para el ramo de garantía financiera, el pago por incumplimiento de los emisores de valores, títulos de crédito o documentos que sean objeto de oferta pública o de intermediación en mercados de valores, en términos de lo previsto por la Ley del Mercado de Valores;
+
+XV. Para el ramo de riesgos catastróficos, los contratos de seguro que amparen daños y perjuicios ocasionados a personas o cosas como consecuencia de eventos de periodicidad y severidad no predecibles que, al ocurrir, generalmente producen una acumulación de responsabilidades para las Instituciones de Seguros por su cobertura, dentro de los que se incluyen los riesgos de terremoto, erupción volcánica, huracán y otros de naturaleza hidrometeorológica, y
+
+XVI. Para el ramo de diversos, el pago de la indemnización debida por daños y perjuicios ocasionados a personas o cosas por cualquiera otra eventualidad.
+
+#### ARTÍCULO 28.- Queda facultada la Secretaría para resolver qué riesgos pueden cubrirse dentro de cada una de las operaciones o ramos mencionados en el artículo 27 de esta Ley, siempre que los riesgos no enumerados tengan las características técnicas de los consignados para cada operación o ramo.
+
+Cuando alguna clase de riesgo de los comprendidos en los ramos a que se refiere el artículo 27 de este ordenamiento, adquiera una importancia tal que amerite considerarlo como ramo independiente, la Secretaría podrá declarar esa clase como ramo especial para los efectos de los artículos 25 y 27 de esta Ley.
+
+#### ARTÍCULO 29.- Los seguros colectivos, populares y de grupo o de empresa a que se refieren los artículos 199, 200 y 201 de la Ley sobre el Contrato de Seguro, así como aquellos que las leyes establezcan como obligatorios, los practicarán las Instituciones de Seguros y Sociedades Mutualistas de acuerdo con esta Ley y los reglamentos respectivos, así como con las disposiciones de carácter general que al efecto emitan la Secretaría y la Comisión, y con las demás disposiciones legales y administrativas aplicables.
+
+En los seguros de responsabilidad que por disposición legal tengan el carácter de obligatorios, las Instituciones de Seguros deberán dar cumplimiento a lo dispuesto por la Ley sobre el Contrato de Seguro.
+
+SECCIÓN III
+
+DE LAS MUTUALIDADES
+
+#### ARTÍCULO 30.- Las asociaciones de personas que sin expedir pólizas o contratos, concedan a sus miembros seguros en caso de muerte, beneficios en los de accidentes y enfermedades o indemnizaciones por daños, con excepción de las coberturas de alto riesgo por monto o acumulaciones y las de naturaleza catastrófica salvo que éstas se relacionen con las operaciones correspondientes al ramo agrícola y de animales o al aseguramiento de los bienes conexos a la actividad agropecuaria, podrán operar sin sujetarse a los requisitos exigidos por la presente Ley, pero deberán someterse a las disposiciones de carácter general que expida la Secretaría, donde se fijarán las bases para que, cuando proceda por el número de asociados, por la frecuencia e importancia de los seguros que concedan y de los siniestros pagados, la misma Secretaría ordene a estas asociaciones que se ajusten a la presente Ley, convirtiéndose en Sociedades Mutualistas.
+
+#### ARTÍCULO 31.- Esta Ley reconoce a los Fondos de Aseguramiento Agropecuario y Rural, los cuales se sujetarán en su operación al artículo 30 de este ordenamiento y serán regulados, para efectos de su organización, funcionamiento y actividades, por la Ley de Fondos de Aseguramiento Agropecuario y Rural.
+
+### CAPÍTULO SEGUNDO
+
+DE LAS INSTITUCIONES DE FIANZAS
+
+SECCIÓN I
+
+DE LAS DISPOSICIONES GENERALES
+
+#### ARTÍCULO 32.- Esta Ley se aplicará a las Instituciones de Fianzas cuyo objeto sea otorgar fianzas a título oneroso, a las Instituciones que sean autorizadas para practicar operaciones de reafianzamiento, en términos de lo previsto en el artículo 1 de este ordenamiento y a las Instituciones de Seguros que operen el ramo de caución autorizadas para otorgar fianzas.
+
+Las fianzas y los contratos, que en relación con ellas otorguen o celebren las Instituciones, serán mercantiles para todas las partes que intervengan, ya sea como beneficiarias, solicitantes, fiadas, contrafiadoras u obligadas solidarias, excepción hecha de la garantía hipotecaria.
+
+#### ARTÍCULO 33.- Se prohíbe a toda persona física o moral distinta a las Instituciones autorizadas en los términos de esta Ley, otorgar habitualmente fianzas a título oneroso.
+
+Salvo prueba en contrario se presume la infracción de este precepto, cuando el otorgamiento de fianzas se ofrezca al público por cualquier medio de publicidad, o se expidan pólizas, o se utilicen agentes.
+
+#### ARTÍCULO 34.- Se prohíbe contratar con empresas extranjeras fianzas para garantizar actos de personas físicas o morales que en el territorio nacional deban cumplir obligaciones, salvo los casos de reafianzamiento o cuando se reciban por las Instituciones como contragarantía.
+
+Las fianzas que en contravención a lo dispuesto en este artículo se llegaren a celebrar, no producirán efecto legal alguno, sin perjuicio del derecho del contratante o fiado de pedir el reintegro de las primas pagadas, e independientemente de las responsabilidades en que incurra la persona o entidad de que se trate, frente al contratante o fiado o sus causahabientes de buena fe, y de las sanciones a que se haga acreedora dicha persona o entidad en los términos de esta Ley.
+
+Cuando ninguna de las Instituciones facultadas para operar en el país, pueda o estime conveniente realizar determinada operación de fianzas que se le hubiera propuesto, la Comisión, previa comprobación de estas circunstancias, otorgará una autorización específica para que la persona que necesite la fianza la contrate con una empresa extranjera, directamente o a través de una Institución.
+
+#### ARTÍCULO 35.- Se prohíbe a toda persona ofrecer, directamente o como intermediario, las operaciones a que se refieren los artículos 33 y 34, primer párrafo, de esta Ley.
+
+SECCIÓN II
+
+DE LOS RAMOS Y SUBRAMOS DE FIANZAS
+
+#### ARTÍCULO 36.- Las autorizaciones para organizarse, operar y funcionar como Institución de Fianzas, se referirán a uno o más de los siguientes ramos y subramos de fianzas:
+
+I. Fianzas de fidelidad, en alguno o algunos de los subramos siguientes:
+
+a) Individuales, y
+
+b) Colectivas;
+
+II. Fianzas judiciales, en alguno o algunos de los subramos siguientes:
+
+a) Judiciales penales;
+
+b) Judiciales no penales, y
+
+c) Judiciales que amparen a los conductores de vehículos automotores;
+
+III. Fianzas administrativas, en alguno o algunos de los subramos siguientes:
+
+a) De obra;
+
+b) De proveeduría;
+
+c) Fiscales;
+
+d) De arrendamiento, y
+
+e) Otras fianzas administrativas;
+
+IV. Fianzas de crédito, en alguno o algunos de los subramos siguientes:
+
+a) De suministro;
+
+b) De compraventa, y
+
+c) Otras fianzas de crédito, y
+
+V. Fideicomisos de garantía, en alguno o algunos de los subramos siguientes:
+
+a) Relacionados con pólizas de fianza, y
+
+b) Sin relación con pólizas de fianza.
+
+La operación de las fianzas de crédito a que se refiere la fracción IV de este artículo, estará sujeta a las disposiciones de carácter general que emita la Comisión, con acuerdo de su Junta de Gobierno.
+
+Las Instituciones de Fianzas podrán realizar el reafianzamiento respecto de los ramos y subramos comprendidos en su autorización, con excepción de los previstos en la fracción V de este artículo.
+
+#### ARTÍCULO 37.- Cuando alguno de los subramos de fianzas a que se refiere el artículo 36 de este ordenamiento, adquiera una importancia tal que amerite considerarlo como ramo independiente, la Secretaría podrá declararlo como ramo especial para los efectos del referido artículo 36 de esta Ley.
+
+### CAPÍTULO TERCERO
+
+DE LAS REASEGURADORAS Y REAFIANZADORAS
+
+#### ARTÍCULO 38.- Las Instituciones de Seguros autorizadas para practicar exclusivamente el reaseguro o el reafianzamiento, o ambos, ajustarán sus operaciones a lo dispuesto en la presente Ley y a las disposiciones de carácter general que establezcan la Secretaría y la Comisión en uso de las facultades que a cada una corresponde, y tomando en cuenta la naturaleza y características de operación propias de este tipo de instituciones.
+
+#### ARTÍCULO 39.- Las autorizaciones que en términos del artículo 25 de esta Ley se otorguen a las Instituciones de Seguros autorizadas para practicar exclusivamente el reaseguro y, en su caso, el reafianzamiento, se referirán a lo siguiente:
+
+I. Personas;
+
+II. Bienes;
+
+III. Responsabilidades, y
+
+IV. Fianzas.
+
+#### ARTÍCULO 40.- Las Instituciones de Seguros autorizadas para practicar exclusivamente el reaseguro y, en su caso, el reafianzamiento, no podrán realizar las operaciones a que se refiere el artículo 118, fracciones XXI a XXIII, de este ordenamiento.
+
+## TÍTULO SEXTO
+
+DE LOS PROCEDIMIENTOS
+
+### CAPÍTULO PRIMERO
+
+DE LOS PROCEDIMIENTOS DE SEGUROS
+
+#### ARTÍCULO 276.- Si una Institución de Seguros no cumple con las obligaciones asumidas en el contrato de seguro dentro de los plazos con que cuente legalmente para su cumplimiento, deberá pagar al acreedor una indemnización por mora de acuerdo con lo siguiente:
+
+I. Las obligaciones en moneda nacional se denominarán en Unidades de Inversión, al valor de éstas en la fecha del vencimiento de los plazos referidos en la parte inicial de este artículo y su pago se hará en moneda nacional, al valor que las Unidades de Inversión tengan a la fecha en que se efectúe el mismo, de conformidad con lo dispuesto en el párrafo segundo de la fracción VIII de este artículo.
+
+Además, la Institución de Seguros pagará un interés moratorio sobre la obligación denominada en Unidades de Inversión conforme a lo dispuesto en el párrafo anterior, el cual se capitalizará mensualmente y cuya tasa será igual al resultado de multiplicar por 1.25 el costo de captación a plazo de pasivos denominados en Unidades de Inversión de las instituciones de banca múltiple del país, publicado por el Banco de México en el Diario Oficial de la Federación, correspondiente a cada uno de los meses en que exista mora;
+
+II. Cuando la obligación principal se denomine en moneda extranjera, adicionalmente al pago de esa obligación, la Institución de Seguros estará obligada a pagar un interés moratorio el cual se capitalizará mensualmente y se calculará aplicando al monto de la propia obligación, el porcentaje que resulte de multiplicar por 1.25 el costo de captación a plazo de pasivos denominados en dólares de los Estados Unidos de América, de las instituciones de banca múltiple del país, publicado por el Banco de México en el Diario Oficial de la Federación, correspondiente a cada uno de los meses en que exista mora;
+
+III. En caso de que a la fecha en que se realice el cálculo no se hayan publicado las tasas de referencia para el cálculo del interés moratorio a que aluden las fracciones I y II de este artículo, se aplicará la del mes inmediato anterior y, para el caso de que no se publiquen dichas tasas, el interés moratorio se computará multiplicando por 1.25 la tasa que las sustituya, conforme a las disposiciones aplicables;
+
+IV. Los intereses moratorios a que se refiere este artículo se generarán por día, a partir de la fecha del vencimiento de los plazos referidos en la parte inicial de este artículo y hasta el día en que se efectúe el pago previsto en el párrafo segundo de la fracción VIII de este artículo. Para su cálculo, las tasas de referencia a que se refiere este artículo deberán dividirse entre trescientos sesenta y cinco y multiplicar el resultado por el número de días correspondientes a los meses en que persista el incumplimiento;
+
+V. En caso de reparación o reposición del objeto siniestrado, la indemnización por mora consistirá únicamente en el pago del interés correspondiente a la moneda en que se haya denominado la obligación principal conforme a las fracciones I y II de este artículo y se calculará sobre el importe del costo de la reparación o reposición;
+
+VI. Son irrenunciables los derechos del acreedor a las prestaciones indemnizatorias establecidas en este artículo. El pacto que pretenda extinguirlos o reducirlos no surtirá efecto legal alguno. Estos derechos surgirán por el solo transcurso del plazo establecido por la Ley para el pago de la obligación principal, aunque ésta no sea líquida en ese momento.
+
+Una vez fijado el monto de la obligación principal conforme a lo pactado por las partes o en la resolución definitiva dictada en juicio ante el juez o árbitro, las prestaciones indemnizatorias establecidas en este artículo deberán ser cubiertas por la Institución de Seguros sobre el monto de la obligación principal así determinado;
+
+VII. Si en el juicio respectivo resulta procedente la reclamación, aun cuando no se hubiere demandado el pago de la indemnización por mora establecida en este artículo, el juez o árbitro, además de la obligación principal, deberá condenar al deudor a que también cubra esas prestaciones conforme a las fracciones precedentes;
+
+VIII. La indemnización por mora consistente en el sistema de actualización e intereses a que se refieren las fracciones I, II, III y IV del presente artículo será aplicable en todo tipo de seguros, salvo tratándose de seguros de caución que garanticen indemnizaciones relacionadas con el impago de créditos fiscales, en cuyo caso se estará a lo dispuesto por el Código Fiscal de la Federación.
+
+El pago que realice la Institución de Seguros se hará en una sola exhibición que comprenda el saldo total por los siguientes conceptos:
+
+a) Los intereses moratorios;
+
+b) La actualización a que se refiere el primer párrafo de la fracción I de este artículo, y
+
+c) La obligación principal.
+
+En caso de que la Institución de Seguros no pague en una sola exhibición la totalidad de los importes de las obligaciones asumidas en el contrato de seguros y la indemnización por mora, los pagos que realice se aplicarán a los conceptos señalados en el orden establecido en el párrafo anterior, por lo que la indemnización por mora se continuará generando en términos del presente artículo, sobre el monto de la obligación principal no pagada, hasta en tanto se cubra en su totalidad.
+
+Cuando la Institución interponga un medio de defensa que suspenda el procedimiento de ejecución previsto en esta ley, y se dicte sentencia firme por la que queden subsistentes los actos impugnados, el pago o cobro correspondientes deberán incluir la indemnización por mora que hasta ese momento hubiere generado la obligación principal, y
+
+IX. Si la Institución de Seguros, dentro de los plazos y términos legales, no efectúa el pago de las indemnizaciones por mora, el juez o la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros, según corresponda, le impondrán una multa de 1000 a 15000 Días de Salario.
+
+En el caso del procedimiento administrativo de ejecución previsto en el artículo 278 de esta Ley, si la institución de seguros, dentro de los plazos o términos legales, no efectúan el pago de las indemnizaciones por mora, la Comisión le impondrá la multa señalada en esta fracción, a petición de la autoridad ejecutora que corresponda conforme a la fracción II de dicho artículo.
+
+#### ARTÍCULO 277.- En materia jurisdiccional para el cumplimiento de la sentencia ejecutoriada que se dicte en el procedimiento, el Juez de los autos requerirá a la Institución de Seguros, si hubiere sido condenada, para que compruebe dentro de las setenta y dos horas siguientes, haber pagado las prestaciones a que hubiere sido condenada y en caso de omitir la comprobación, el Juez ordene al intermediario del mercado de valores o a la institución depositaria de los valores de la Institución de Seguros que, sin responsabilidad para la institución depositaria y sin requerir el consentimiento de la Institución de Seguros, efectúe el remate de valores propiedad de la Institución de Seguros, o, tratándose de instituciones para el depósito de valores a que se refiere la Ley del Mercado de Valores, transfiera los valores a un intermediario del mercado de valores para que éste efectúe dicho remate.
+
+En los contratos que celebren las Instituciones de Seguros para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, deberá establecerse la obligación del intermediario del mercado de valores o de la institución depositaria de dar cumplimiento a lo previsto en el párrafo anterior.
+
+Tratándose de los contratos que celebren las Instituciones de Seguros con instituciones depositarias de valores, deberá preverse el intermediario del mercado de valores al que la institución depositaria deberá transferir los valores para dar cumplimiento a lo señalado en el párrafo anterior y con el que la Institución de Seguros deberá tener celebrado un contrato en el que se establezca la obligación de rematar valores para dar cumplimiento a lo previsto en este artículo.
+
+Los intermediarios del mercado de valores y las instituciones depositarias de los valores con los que las Instituciones de Seguros tengan celebrados contratos para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, quedarán sujetos, en cuanto a lo señalado en el presente artículo, a lo dispuesto en esta Ley y a las demás disposiciones aplicables.
+
+La competencia por territorio para demandar en materia de seguros será determinada, a elección del reclamante, en razón del domicilio de cualquiera de las delegaciones de la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros. Asimismo, será competente el Juez del domicilio de dicha delegación; cualquier pacto que se estipule contrario a lo dispuesto en este párrafo, será nulo.
+
+#### ARTÍCULO 278.- Los seguros de caución que las Instituciones de Seguros otorguen a favor de la Federación, del Distrito Federal, de los Estados y de los Municipios, se harán efectivos, a elección del asegurado, haciendo valer sus derechos ante la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros o bien, ante los tribunales competentes, siguiendo los procedimientos establecidos en las disposiciones legales aplicables. Estos asegurados también podrán optar por requerir las indemnizaciones derivadas de los seguros de caución de acuerdo con las disposiciones que a continuación se señalan y de conformidad con las bases que fije el Reglamento de este artículo, excepto tratándose de los seguros de caución que se otorguen a favor de la Federación para garantizar indemnizaciones relacionadas con el incumplimiento de obligaciones fiscales a cargo de terceros, caso en que se estará a lo dispuesto por el Código Fiscal de la Federación:
+
+I. Las Instituciones de Seguros estarán obligadas a enviar, según sea el caso, a la Tesorería de la Federación, a la Tesorería del Gobierno del Distrito Federal, o bien a las autoridades estatales o municipales que correspondan, una copia de todos los certificados de seguro de caución que expidan a su favor. El cumplimiento de esta obligación podrá pactarse mediante el uso de los medios a que se refiere el artículo 214 de esta Ley;
+
+II. Al hacerse exigible un seguro de caución a favor de la Federación, la autoridad que lo hubiere aceptado, con domicilio en el Distrito Federal o bien en alguna de las entidades federativas, acompañando los comprobantes para exigir el monto de la indemnización líquida conforme a lo previsto en el certificado de seguro de caución, deberá comunicarlo a la autoridad ejecutora más próxima a la ubicación donde se encuentren instaladas las oficinas principales, sucursales, oficinas de servicio o bien a la del domicilio del apoderado designado por la Institución de Seguros para recibir requerimientos de pago, correspondientes a cada una de las regiones competencia de las Salas Regionales del Tribunal Federal de Justicia Fiscal y Administrativa.
+
+La autoridad ejecutora facultada para ello en los términos de las disposiciones que le resulten aplicables, procederá a requerir de pago, en forma personal, o bien por correo certificado con acuse de recibo, a la Institución de Seguros, de manera motivada y fundada, acompañando los comprobantes para exigir el monto de la indemnización líquida conforme a lo previsto en el certificado de seguro de caución, en los establecimientos o en el domicilio del apoderado designado, en los términos a que se hace cita en el párrafo anterior.
+
+Tratándose del Distrito Federal, de los Estados y de los Municipios, el requerimiento de pago, lo llevarán a cabo en los términos anteriores, las autoridades ejecutoras correspondientes.
+
+En consecuencia, no surtirán efecto los requerimientos que se hagan a los agentes de seguros, ni los efectuados por autoridades distintas de las ejecutoras facultadas para ello;
+
+III. Dentro de un plazo de treinta días contado a partir del día siguiente a aquél en que surta efectos la notificación del requerimiento de pago, la Institución de Seguros deberá comprobar, ante la autoridad ejecutora correspondiente, que hizo el pago o que demandó la nulidad del requerimiento de pago, en los términos de la fracción IV de este artículo.
+
+En caso contrario, dentro de los veinticinco días hábiles siguientes al vencimiento de dicho plazo, la autoridad ejecutora de que se trate con conocimiento de la Institución de Seguros, solicitará a la Comisión que ordene se rematen valores propiedad de la Institución de Seguros, bastantes para cubrir el importe del requerimiento de pago, más la indemnización por mora que hasta ese momento se hubiera generado. La Comisión requerirá a la Institución de Seguros para que, en un plazo de cinco días hábiles, acredite haber hecho el pago correspondiente o demandado la nulidad del mismo, apercibiéndola de que de no comprobar alguno de esos supuestos ordenará el remate solicitado.
+
+Si la Institución de Seguros se presenta a realizar el pago del importe requerido, deberá realizarlo junto con la indemnización por mora que hasta ese momento se hubiera generado, de conformidad con lo previsto en el párrafo segundo de la fracción VIII del artículo 276 de esta Ley.
+
+Para el remate de valores, la Comisión procederá a realizar las siguientes acciones:
+
+a) Contar con los registros sobre las inversiones en valores de las Instituciones de Seguros autorizadas para operar los seguros de caución, y
+
+b) Ordenar, bajo apercibimiento de aplicación de la medida de apremio que para este supuesto se prevé con multa prevista en el artículo 472 de esta Ley, el remate o la transferencia de valores una vez transcurridos los cinco días hábiles otorgados a la Institución de Seguros sin que se haya acreditado el pago, para lo cual girará oficio al intermediario del mercado de valores o a la institución depositaria de los valores correspondiente, solicitándole llevar a cabo, dentro del plazo improrrogable de cinco días hábiles, el remate o la transferencia de los valores suficientes para cubrir el monto del requerimiento.
+
+Del oficio al que se refiere el inciso b) anterior, deberá entregar copia a la Institución de Seguros, a efecto de que, previo a que fenezca el plazo otorgado, en su caso, manifieste ante la Comisión haber realizado el pago respectivo, informando también al intermediario del mercado de valores o a la institución depositaria de los valores de que se trate, para los fines correspondientes.
+
+Para los efectos previstos en esta fracción, la Comisión ordenará al intermediario del mercado de valores o a la institución depositaria de los valores de la Institución de Seguros que, sin responsabilidad para la institución depositaria y sin requerir el consentimiento de la Institución de Seguros, efectúe el remate de valores propiedad de la Institución de Seguros, o, tratándose de instituciones para el depósito de valores a que se refiere la Ley del Mercado de Valores, transfiera los valores a un intermediario del mercado de valores para que éste efectúe dicho remate.
+
+Es obligación de los intermediarios del mercado de valores y de las instituciones para el depósito de valores, acatar la orden de remate o de transferencia de valores a un intermediario del mercado de valores para que éste proceda al mismo, que le notifique la Comisión, a efecto de que con el producto del remate adquieran el billete de depósito por el monto que corresponda, a nombre y disposición de la autoridad ejecutora de que se trate, el cual deberá hacerse llegar a la Comisión para que ésta lo entregue a dicha autoridad.
+
+Si se incumple con dicha obligación se hará efectiva la medida de apremio que para dichos supuestos se prevé en el segundo, tercer y cuarto párrafo del artículo 472 de esta ley, y se ordenará nuevamente el remate o la transferencia de valores, para lo cual se otorgará un plazo adicional de cinco días para efectuarlo.
+
+El incumplimiento de la orden en el plazo adicional de cinco días a que se refiere el párrafo anterior, será sancionado penalmente, conforme a lo dispuesto en el sexto párrafo del artículo 498 de esta Ley.
+
+En los contratos que celebren las Instituciones de Seguros para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, deberá establecerse la obligación del intermediario del mercado de valores o de la institución depositaria de dar cumplimiento a lo previsto en el tercer párrafo de este inciso b). Adicionalmente, en dichos contratos, deberá establecerse que el incumplimiento de la orden de remate o de transferencia será sancionado en términos del artículo 498.
+
+Tratándose de los contratos que celebren las Instituciones de Seguros con instituciones depositarias de valores, deberá preverse el intermediario del mercado de valores al que la institución depositaria deberá transferir los valores para dar cumplimiento a lo señalado en el párrafo anterior y con el que la Institución de Seguros deberá tener celebrado un contrato en el que se establezca la obligación de rematar valores para dar cumplimiento a lo previsto en esta fracción.
+
+Los intermediarios del mercado de valores y las instituciones depositarias de los valores con los que las Instituciones de Seguros tengan celebrados contratos para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, quedarán sujetos, en cuanto a lo señalado en el presente artículo, a lo dispuesto en esta Ley, a las demás disposiciones aplicables y a la competencia de la Comisión. El incumplimiento de las obligaciones previstas en este artículo, será sancionado por la Comisión conforme a este ordenamiento, con independencia de las demás responsabilidades que del mismo pudieran derivar;
+
+IV. En caso de inconformidad contra el requerimiento de pago, la Institución de Seguros, dentro del plazo de treinta días señalado en la fracción III de este artículo demandará la nulidad del requerimiento de pago ante la Sala Regional del Tribunal Federal de Justicia Fiscal y Administrativa de la jurisdicción que corresponda a la ubicación de los establecimientos o la del apoderado designado, a que se hace cita en la fracción II, primer párrafo, de este artículo, donde se hubiere formulado el citado requerimiento, debiendo la autoridad ejecutora o, en su caso, la Comisión, suspender el procedimiento de ejecución cuando se informe y compruebe que se ha presentado oportunamente la demanda respectiva, exhibiéndose al efecto copia sellada de la misma.
+
+También se suspenderá dicho procedimiento cuando se informe y compruebe ante la ejecutora que, derivado de un medio de defensa legal pendiente de resolución firme, promovido por el contratante del seguro en el que se cuestione el cumplimiento de la obligación principal, se concedió la suspensión de la ejecución del certificado de seguro de caución;
+
+V. En el mismo requerimiento de pago que formule la autoridad ejecutora se apercibirá a la Institución de Seguros, de que si dentro de los plazos señalados en el presente artículo, no hace el pago de las indemnizaciones que se le reclaman, se le rematarán valores en los términos de este artículo;
+
+VI. El procedimiento de ejecución solamente terminará por una de las siguientes causas:
+
+a) Por pago voluntario;
+
+b) Por haberse hecho efectivo el cobro en ejecución forzosa;
+
+c) Por sentencia firme del Tribunal Federal de Justicia Fiscal y Administrativa, que declare la nulidad del requerimiento de pago, o
+
+d) Porque la autoridad que hubiere hecho el requerimiento se desistiere del cobro.
+
+Los oficios de desistimiento de cobro, necesariamente deberán suscribirlos los funcionarios facultados o autorizados para ello;
+
+VII. En caso de que la Institución de Seguros sostenga que una póliza o certificado de seguro de caución sean falsos, la Comisión sólo suspenderá o dará por terminado el procedimiento de remate de valores, por resolución expresa que reciba del Ministerio Público o del Juez que conozca del asunto, o bien cuando la Comisión hubiera emitido la opinión a que se refiere el artículo 494 de este ordenamiento, en el sentido de que podría constituirse el delito previsto en el artículo 506, fracción IV, de esta Ley;
+
+VIII. Cuando se haga efectivo un seguro de caución conforme al procedimiento de ejecución establecido en este artículo, la indemnización por mora deberá pagarse de conformidad con lo previsto en el segundo párrafo de la fracción VIII del artículo 276 de esta Ley, y
+
+IX. En la determinación del monto del requerimiento por la obligación principal, así como de la indemnización por mora, se considerarán, inclusive, las fracciones del peso como unidad del sistema monetario nacional. No obstante, para efectuar los pagos, los montos que comprendan fracciones de peso se ajustarán a la unidad inmediata inferior cuando contengan cantidades de 1 hasta 50 centavos; de la misma forma, los que contengan cantidades de 51 a 99 centavos, se ajustarán a la unidad inmediata superior.
+
+### CAPÍTULO SEGUNDO
+
+DE LOS PROCEDIMIENTOS DE FIANZAS
+
+#### ARTÍCULO 279.- Los beneficiarios de fianzas deberán presentar sus reclamaciones por responsabilidades derivadas de los derechos y obligaciones que consten en la póliza respectiva, directamente ante la Institución. En caso que ésta no le dé contestación dentro del término legal o que exista inconformidad respecto de la resolución emitida por la misma, el reclamante podrá, a su elección, hacer valer sus derechos ante la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros o bien, ante los tribunales competentes en los términos previstos por el artículo 280 de esta Ley.
+
+En las reclamaciones en contra de las Instituciones, se observará lo siguiente:
+
+I. El beneficiario requerirá por escrito a la Institución de que se trate el pago de la fianza, acompañando la documentación y demás elementos que sean necesarios para demostrar la existencia y la exigibilidad de la obligación garantizada por la fianza.
+
+La Institución tendrá derecho a solicitar al beneficiario todo tipo de información o documentación que sean necesarias relacionadas con la fianza motivo de la reclamación, para lo cual dispondrá de un plazo hasta de quince días, contado a partir de la fecha en que le fue presentada dicha reclamación. En este caso, el beneficiario tendrá quince días para proporcionar la documentación e información requeridas y de no hacerlo en dicho término, se tendrá por integrada la reclamación.
+
+Si la Institución no hace uso del derecho a que se refiere el párrafo anterior, se tendrá por integrada la reclamación del beneficiario.
+
+Una vez integrada la reclamación en los términos de los dos párrafos anteriores, la Institución tendrá un plazo hasta de treinta días, contado a partir de la fecha en que fue integrada la reclamación, para proceder a su pago, o en su caso, para comunicar por escrito al beneficiario las razones, causas o motivos de su improcedencia;
+
+II. Si a juicio de la Institución procede parcialmente la reclamación, podrá hacer el pago de lo que reconozca dentro del plazo que corresponda, conforme a lo establecido en la fracción anterior y el beneficiario estará obligado a recibirlo, sin perjuicio de que haga valer sus derechos por la diferencia, en los términos de la fracción III de este artículo. Si el pago se hace después del plazo referido, la Institución deberá cubrir los intereses mencionados en el artículo 283 de esta Ley, en el lapso que dicho artículo establece, contado a partir de la fecha en que debió hacerse el pago, teniendo el beneficiario acción en los términos del artículo 280 de esta Ley;
+
+III. Cuando el beneficiario no esté conforme con la resolución que le hubiere comunicado la Institución, podrá a su elección, acudir ante la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros a efecto de que su reclamación se lleve a través de un procedimiento conciliatorio, o hacer valer sus derechos ante los tribunales competentes conforme a lo establecido en el artículo 280 de esta Ley, y
+
+IV. La sola presentación de la reclamación a la Institución en los términos de la fracción I de este artículo, interrumpirá la prescripción establecida en el artículo 175 de esta Ley.
+
+#### ARTÍCULO 280.- Los juicios contra las Instituciones se substanciarán conforme a las siguientes reglas:
+
+I. Se emplazará a la Institución y se le correrá traslado de la demanda para que la conteste en un plazo de cinco días hábiles, aumentados con los que correspondan por razón de la distancia;
+
+II. Se concederá un término ordinario de prueba por diez días hábiles, transcurrido el cual actor y demandado, sucesivamente, gozarán de un plazo de tres días hábiles para alegar por escrito;
+
+III. El tribunal o juez dictará sentencia en el plazo de cinco días hábiles;
+
+IV. Contra las sentencias dictadas en los juicios a que se refiere este artículo, procederá el recurso de apelación en ambos efectos en términos del Código de Comercio. Contra las demás resoluciones, procederán los recursos que establece dicho Código;
+
+V. Las sentencias y mandamientos de embargo dictados en contra de las Instituciones, se ejecutarán conforme a las siguientes reglas:
+
+a) Tratándose de sentencia ejecutoriada que condene a pagar a la Institución, el Juez de los autos requerirá a la Institución, si hubiere sido condenada, para que compruebe dentro de las setenta y dos horas siguientes, haber pagado las prestaciones a que hubiere sido condenada y en caso de omitir la comprobación, el Juez ordene al intermediario del mercado de valores o a la institución depositaria de los valores de la Institución que, sin responsabilidad para la institución depositaria y sin requerir el consentimiento de la Institución, efectúe el remate de valores propiedad de la Institución, o, tratándose de instituciones para el depósito de valores a que se refiere la Ley del Mercado de Valores, transfiera los valores a un intermediario del mercado de valores para que éste efectúe dicho remate.
+
+En los contratos que celebren las Instituciones para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, deberá establecerse la obligación del intermediario del mercado de valores o de la institución depositaria de dar cumplimiento a lo previsto en este inciso.
+
+Tratándose de los contratos que celebren las Instituciones con instituciones depositarias de valores, deberá preverse el intermediario del mercado de valores al que la institución depositaria deberá transferir los valores para dar cumplimiento a lo señalado en el párrafo anterior y con el que la Institución deberá tener celebrado un contrato en el que se establezca la obligación de rematar valores para dar cumplimiento a lo previsto en este inciso.
+
+Los intermediarios del mercado de valores y las instituciones depositarias de los valores con los que las Instituciones tengan celebrados contratos para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, quedarán sujetos, en cuanto a lo señalado en el presente artículo, a lo dispuesto en esta Ley y a las demás disposiciones aplicables, y
+
+b) Tratándose de mandamientos de embargo dictados por la autoridad judicial o administrativa, la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros determinará los bienes de la Institución que deban afectarse en garantía exclusiva del cumplimiento de las obligaciones por las que se ordenó el embargo. La referida Comisión dictará las disposiciones de carácter general sobre el depósito de dichos bienes;
+
+VI. El Código de Comercio y el Código Nacional de Procedimientos Civiles y Familiares, en ese orden, son supletorios de las reglas procesales contenidas en este artículo y son aplicables al juicio todas las instituciones procesales que establecen dichos ordenamientos;
+
+VII. Los particulares podrán elegir libremente jueces federales o locales para el trámite de su reclamación, y
+
+VIII. Las Instituciones tendrán derecho, en los términos de la legislación aplicable, a oponer todas las excepciones que sean inherentes a la obligación principal, incluyendo todas las causas de liberación de la fianza.
+
+#### ARTÍCULO 281.- Las fianzas que se otorguen ante autoridades judiciales, que no sean del orden penal, se harán efectivas a elección de los acreedores de la obligación principal, siguiendo los procedimientos establecidos en los artículos 279 y 280 de la presente Ley.
+
+Para el caso de que se hagan exigibles las fianzas señaladas en el párrafo anterior, durante la tramitación de los procesos en los que hayan sido exhibidas, el acreedor de la obligación principal podrá iniciar un incidente para su pago, ante la propia autoridad judicial que conozca del proceso de que se trate, en los términos del Código Nacional de Procedimientos Civiles y Familiares. En este supuesto, al escrito incidental se acompañarán los documentos que justifiquen la exigibilidad de la obligación garantizada por la fianza.
+
+#### ARTÍCULO 282.- Las fianzas que las Instituciones otorguen a favor de la Federación, del Distrito Federal, de los Estados y de los Municipios, se harán efectivas, a elección del beneficiario, siguiendo los procedimientos establecidos en el artículo 279 de esta Ley, o bien, de acuerdo con las disposiciones que a continuación se señalan y de conformidad con las bases que fije el Reglamento de este artículo, excepto las que se otorguen a favor de la Federación para garantizar obligaciones fiscales a cargo de terceros, caso en que se estará a lo dispuesto por el Código Fiscal de la Federación:
+
+I. Las Instituciones estarán obligadas a enviar, según sea el caso, a la Tesorería de la Federación, a la Tesorería del Gobierno del Distrito Federal, o bien a las autoridades estatales o municipales que correspondan, una copia de todas las pólizas de fianzas que expidan a su favor. El cumplimiento de esta obligación podrá pactarse mediante el uso de los medios a que se refiere el artículo 214 de esta Ley;
+
+II. Al hacerse exigible una fianza a favor de la Federación, la autoridad que la hubiere aceptado, con domicilio en el Distrito Federal o bien en alguna de las entidades federativas, acompañando la documentación relativa a la fianza y a la obligación por ella garantizada, deberá comunicarlo a la autoridad ejecutora más próxima a la ubicación donde se encuentren instaladas las oficinas principales, sucursales, oficinas de servicio o bien a la del domicilio del apoderado designado por la Institución para recibir requerimientos de pago, correspondientes a cada una de las regiones competencia de las Salas Regionales del Tribunal Federal de Justicia Fiscal y Administrativa.
+
+La autoridad ejecutora facultada para ello en los términos de las disposiciones que le resulten aplicables, procederá a requerir de pago, en forma personal, o bien por correo certificado con acuse de recibo, a la Institución, de manera motivada y fundada, acompañando los documentos que justifiquen la exigibilidad de la obligación garantizada por la fianza, en los establecimientos o en el domicilio del apoderado designado, en los términos a que se hace cita en el párrafo anterior.
+
+Tratándose del Distrito Federal, de los Estados y de los Municipios, el requerimiento de pago, lo llevarán a cabo en los términos anteriores, las autoridades ejecutoras correspondientes.
+
+En consecuencia, no surtirán efecto los requerimientos que se hagan a los agentes de fianzas, ni los efectuados por autoridades distintas de las ejecutoras facultadas para ello;
+
+III. Dentro de un plazo de treinta días contado a partir del día siguiente a aquél en que surta efectos la notificación del requerimiento de pago, la Institución deberá comprobar, ante la autoridad ejecutora correspondiente, que hizo el pago o que demandó la nulidad del requerimiento de pago, en los términos de la fracción IV de este artículo.
+
+En caso contrario, dentro de los veinticinco días hábiles siguientes al vencimiento de dicho plazo, la autoridad ejecutora de que se trate con conocimiento de la Institución, solicitará a la Comisión que ordene se rematen valores propiedad de la Institución, bastantes para cubrir el importe del requerimiento de pago, más la indemnización por mora que hasta ese momento se hubiera generado. La Comisión requerirá a la Institución para que, en un plazo de cinco días hábiles, acredite haber hecho el pago correspondiente o demandado la nulidad del mismo, apercibiéndola de que de no comprobar alguno de esos supuestos ordenará el remate solicitado.
+
+Si la Institución se presenta a realizar el pago del importe requerido, deberá realizarlo junto con la indemnización por mora que hasta ese momento se hubiera generado, de conformidad con lo previsto en el párrafo segundo de la fracción VIII del artículo 283 de esta Ley.
+
+Para el remate de valores, la Comisión procederá a realizar las siguientes acciones:
+
+a) Contar con los registros sobre las inversiones en valores de las Instituciones, y
+
+b) Ordenar, bajo apercibimiento de aplicación de la medida de apremio que para este supuesto se prevé con multa prevista en el artículo 472 de esta Ley, el remate o la transferencia de valores una vez transcurridos los cinco días hábiles otorgados a la Institución de Seguros sin que se haya acreditado el pago, para lo cual girará oficio al intermediario del mercado de valores o a la institución depositaria de los valores correspondiente, solicitándole llevar a cabo, dentro del plazo improrrogable de cinco días hábiles, el remate o la transferencia de los valores suficientes para cubrir el monto del requerimiento.
+
+Del oficio al que se refiere el inciso b) anterior, deberá entregar copia a la Institución, a efecto de que, previo a que fenezca el plazo otorgado, en su caso, manifieste ante la Comisión haber realizado el pago respectivo, informando también al intermediario del mercado de valores o a la institución depositaria de los valores de que se trate, para los fines correspondientes.
+
+Para los efectos previstos en esta fracción, la Comisión ordenará al intermediario del mercado de valores o a la institución depositaria de los valores de la Institución que, sin responsabilidad para la institución depositaria y sin requerir el consentimiento de la Institución, efectúe el remate de valores propiedad de la Institución, o, tratándose de instituciones para el depósito de valores a que se refiere la Ley del Mercado de Valores, transfiera los valores a un intermediario del mercado de valores para que éste efectúe dicho remate.
+
+Es obligación de los intermediarios del mercado de valores y de las instituciones para el depósito de valores, acatar la orden de remate o de transferencia de valores a un intermediario del mercado de valores para que éste proceda al mismo, que le notifique la Comisión, a efecto de que con el producto del remate adquieran el billete de depósito por el monto que corresponda, a nombre y disposición de la autoridad ejecutora de que se trate, el cual deberá hacerse llegar a la Comisión para que ésta lo entregue a dicha autoridad.
+
+Si se incumple con dicha obligación se hará efectiva la medida de apremio que para dichos supuestos se prevé en el segundo, tercer y cuarto párrafo del artículo 472 de esta ley, y se ordenará nuevamente el remate o la transferencia de valores, para lo cual se otorgará un plazo adicional de cinco días para efectuarlo.
+
+El incumplimiento de la orden en el plazo adicional de cinco días a que se refiere el párrafo anterior, será sancionado penalmente, conforme a lo dispuesto en el sexto párrafo del artículo 498 de esta Ley.
+
+En los contratos que celebren las Instituciones para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, deberá establecerse la obligación del intermediario del mercado de valores o de la institución depositaria de dar cumplimiento a lo previsto en el tercer párrafo de este inciso b). Adicionalmente, en dichos contratos, deberá establecerse que el incumplimiento de la orden de remate o de transferencia será sancionado en términos del artículo 498.
+
+Tratándose de los contratos que celebren las Instituciones con instituciones depositarias de valores, deberá preverse el intermediario del mercado de valores al que la institución depositaria deberá transferir los valores para dar cumplimiento a lo señalado en el párrafo anterior y con el que la Institución deberá tener celebrado un contrato en el que se establezca la obligación de rematar valores para dar cumplimiento a lo previsto en esta fracción.
+
+Los intermediarios del mercado de valores y las instituciones depositarias de los valores con los que las Instituciones tengan celebrados contratos para la administración, intermediación, depósito o custodia de títulos o valores que formen parte de su activo, quedarán sujetos, en cuanto a lo señalado en el preste artículo, a lo dispuesto en esta Ley, a las demás disposiciones aplicables y a la competencia de la Comisión. El incumplimiento de las obligaciones previstas en este artículo, será sancionado por la Comisión conforme a este ordenamiento, con independencia de las demás responsabilidades que del mismo pudieran derivar;
+
+IV. En caso de inconformidad contra el requerimiento de pago, la Institución, dentro del plazo de treinta días señalado en la fracción III de este artículo demandará la nulidad del requerimiento de pago ante la Sala Regional del Tribunal Federal de Justicia Fiscal y Administrativa de la jurisdicción que corresponda a la ubicación de los establecimientos o la del apoderado designado, a que se hace cita en la fracción II, primer párrafo, de este artículo, donde se hubiere formulado el citado requerimiento, debiendo la autoridad ejecutora o, en su caso, la Comisión, suspender el procedimiento de ejecución cuando se informe y compruebe que se ha presentado oportunamente la demanda respectiva, exhibiéndose al efecto copia sellada de la misma.
+
+También se suspenderá dicho procedimiento cuando se informe y compruebe ante la ejecutora que, derivado de un medio de defensa legal pendiente de resolución firme, promovido por el fiado en el que se cuestione el cumplimiento de la obligación principal, se concedió la suspensión de la ejecución de la fianza;
+
+V. En el mismo requerimiento de pago que formule la autoridad ejecutora se apercibirá a la Institución, de que si dentro de los plazos señalados en el presente artículo, no hace el pago de las indemnizaciones que se le reclaman, se le rematarán valores en los términos de este artículo;
+
+VI. El procedimiento de ejecución solamente terminará por una de las siguientes causas:
+
+a) Por pago voluntario;
+
+b) Por haberse hecho efectivo el cobro en ejecución forzosa;
+
+c) Por sentencia firme del Tribunal Federal de Justicia Fiscal y Administrativa, que declare la nulidad del requerimiento de pago, o
+
+d) Porque la autoridad que hubiere hecho el requerimiento se desistiere del cobro.
+
+Los oficios de desistimiento de cobro, necesariamente deberán suscribirlos los funcionarios facultados o autorizados para ello;
+
+VII. En caso de que la Institución sostenga que una póliza de fianza sea falsa, la Comisión sólo suspenderá o dará por terminado el procedimiento de remate de valores, por resolución expresa que reciba del Ministerio Público o del Juez que conozca del asunto, o bien cuando la Comisión hubiera emitido la opinión a que se refiere el artículo 494 de este ordenamiento, en el sentido de que podría constituirse el delito previsto en el artículo 506, fracción IV, de esta Ley;
+
+VIII. Cuando se haga efectiva una fianza conforme al procedimiento de ejecución establecido en este artículo, la indemnización por mora deberá pagarse de conformidad con lo previsto en el segundo párrafo de la fracción VIII del artículo 283 de esta Ley, y
+
+IX. En la determinación del monto del requerimiento por la obligación principal, así como de la indemnización por mora, se considerarán, inclusive, las fracciones del peso como unidad del sistema monetario nacional. No obstante, para efectuar los pagos, los montos que comprendan fracciones de peso se ajustarán a la unidad inmediata inferior cuando contengan cantidades de 1 hasta 50 centavos; de la misma forma, los que contengan cantidades de 51 a 99 centavos, se ajustarán a la unidad inmediata superior.
+
+#### ARTÍCULO 283.- Si una Institución no cumple con las obligaciones asumidas en la póliza de fianza dentro de los plazos con que cuenta legalmente para su cumplimiento, deberá pagar al acreedor una indemnización por mora de acuerdo con lo siguiente:
+
+I. Las obligaciones en moneda nacional se denominarán en Unidades de Inversión, al valor de éstas en la fecha del vencimiento de los plazos referidos en la parte inicial de este artículo y su pago se hará en moneda nacional, al valor que las Unidades de Inversión tengan a la fecha en que se efectúe el mismo, de conformidad con lo dispuesto en el párrafo segundo de la fracción VIII de este artículo.
+
+Además, la Institución pagará un interés moratorio sobre la obligación denominada en Unidades de Inversión conforme a lo dispuesto en el párrafo anterior, el cual se capitalizará mensualmente y cuya tasa será igual al resultado de multiplicar por 1.25 el costo de captación a plazo de pasivos denominados en Unidades de Inversión de las instituciones de banca múltiple del país, publicado por el Banco de México en el Diario Oficial de la Federación, correspondiente a cada uno de los meses en que exista mora;
+
+II. Cuando la obligación asumida en la póliza de fianza se denomine en moneda extranjera, adicionalmente al pago de esa obligación, la Institución estará obligada a pagar un interés moratorio el cual se capitalizará mensualmente y se calculará aplicando al monto de la propia obligación, el porcentaje que resulte de multiplicar por 1.25 el costo de captación a plazo de pasivos denominados en dólares de los Estados Unidos de América, de las instituciones de banca múltiple del país, publicado por el Banco de México en el Diario Oficial de la Federación, correspondiente a cada uno de los meses en que exista mora;
+
+III. En caso de que a la fecha en que se realice el cálculo no se hayan publicado las tasas de referencia para el cálculo del interés moratorio a que aluden las fracciones I y II de este artículo, se aplicará la del mes inmediato anterior y, para el caso de que no se publiquen dichas tasas, el interés moratorio se computará multiplicando por 1.25 la tasa que las sustituya, conforme a las disposiciones aplicables;
+
+IV. Los intereses moratorios a que se refiere este artículo se generarán por día, a partir de la fecha del vencimiento de los plazos referidos en la parte inicial de este artículo y hasta el día en que se efectúe el pago previsto en el párrafo segundo de la fracción VIII de este artículo. Para su cálculo, las tasas de referencia a que se refiere este artículo deberán dividirse entre trescientos sesenta y cinco y multiplicar el resultado por el número de días correspondientes a los meses en los que persista el incumplimiento;
+
+V. El derecho a las indemnizaciones a que se refiere este artículo surgirá por el solo incumplimiento de la obligación de la Institución dentro de los plazos referidos en la parte inicial de este artículo, aunque la obligación asumida en la póliza de fianza no sea líquida en ese momento;
+
+VI. Son irrenunciables los derechos del acreedor a las prestaciones indemnizatorias establecidas en este artículo. El pacto que pretenda extinguirlos o reducirlos no surtirá efecto legal alguno. Estos derechos surgirán por el solo transcurso del plazo establecido por la Ley para el pago de la obligación principal, aunque ésta no sea líquida en ese momento.
+
+Una vez fijado el monto de la obligación principal conforme a lo pactado por las partes o en la resolución definitiva dictada en juicio ante el juez o árbitro, las prestaciones indemnizatorias establecidas en este artículo deberán ser cubiertas por la Institución sobre el monto de la obligación principal así determinado;
+
+VII. Si en el juicio respectivo resulta procedente la reclamación, aun cuando no se hubiere demandado el pago de la indemnización por mora establecida en este artículo, el juez o árbitro, además del importe que resulte de la obligación asumida en la póliza de fianza, deberá condenar al deudor a que también cubra esas prestaciones conforme a las fracciones precedentes;
+
+VIII. La indemnización por mora consistente en el sistema de actualización e intereses a que se refieren las fracciones I, II, III y IV del presente artículo será aplicable a todo tipo de fianzas, salvo tratándose de las fianzas que garanticen créditos fiscales, en cuyo caso se estará a lo dispuesto por el Código Fiscal de la Federación.
+
+El pago que realice la Institución se hará en una sola exhibición que comprenda el saldo total por los siguientes conceptos y se aplicará en el siguiente orden:
+
+a) Los intereses moratorios;
+
+b) La actualización a que se refiere el primer párrafo de la fracción I de este artículo, y
+
+c) La obligación principal.
+
+En caso de que la Institución no pague en una sola exhibición la totalidad de los importes de las obligaciones asumidas en la póliza de fianza y la indemnización por mora, los pagos que realice se aplicarán a los conceptos señalados en el orden establecido en el párrafo anterior, por lo que la indemnización por mora se continuarán generando en términos del presente artículo sobre el monto de la obligación principal no pagada, hasta en tanto se cubra en su totalidad.
+
+Cuando la Institución interponga un medio de defensa que suspenda el procedimiento de ejecución previsto en esta Ley, y se dicte sentencia firme por la que queden subsistentes los actos impugnados, el pago o cobro correspondientes deberán incluir la indemnización por mora que hasta ese momento hubiere generado la obligación principal;
+
+IX. Cuando sea procedente, las Instituciones promoverán ante los fiados y demás obligados, el reembolso de las indemnizaciones que hubiesen cubierto conforme al presente artículo, y
+
+X. Si la Institución, dentro de los plazos y términos legales, no efectúa el pago de las indemnizaciones por mora, el juez o la Comisión para la Protección y Defensa de los Usuarios de Servicios Financieros, según corresponda, le impondrán una multa de 1000 a 15000 Días de Salario.
+
+En el caso del procedimiento administrativo de ejecución previsto en el artículo 282 de esta Ley, si la Institución, dentro de los plazos o términos legales, no efectúa el pago de las indemnizaciones por mora, la Comisión le impondrá la multa señalada en esta fracción, a petición de la autoridad ejecutora que corresponda conforme a la fracción II de dicho artículo.
+
+#### ARTÍCULO 284.- Las Instituciones tendrán acción contra el solicitante, fiado, contrafiador u obligado solidario, antes de haber ellas pagado, para exigir que garanticen por medio de prenda, hipoteca o fideicomiso, las cantidades por las que tenga o pueda tener responsabilidad la Institución, con motivo de sus fianzas en los siguientes casos:
+
+I. Cuando se les haya requerido judicial o extrajudicialmente el pago de alguna cantidad en virtud de fianza otorgada;
+
+II. Cuando la obligación garantizada se haya hecho exigible aunque no exista el requerimiento a que se refiere la fracción anterior;
+
+III. Cuando cualquiera de los obligados sufra menoscabo en sus bienes de modo que se halle en riesgo de quedar insolvente;
+
+IV. Cuando alguno de los obligados haya proporcionado datos falsos respecto a su solvencia o a su domicilio;
+
+V. Cuando la Institución compruebe que alguno de los obligados a que se refiere este artículo incumpla obligaciones de terceros de modo que la Institución corra el riesgo de perder sus garantías de recuperación, y
+
+VI. En los demás casos previstos en la legislación mercantil.
+
+#### ARTÍCULO 285.- Las Instituciones tendrán acción contra el solicitante, fiado, contrafiador u obligado solidario para obtener el secuestro precautorio de bienes antes de haber ellas pagado, con la sola comprobación de alguno de los extremos a que se refiere el artículo 284 de esta Ley.
+
+La acción a que se refiere este artículo podrá ser ejercitada por las Instituciones, antes del juicio, simultáneamente con la demanda o después de haber iniciado el juicio respectivo. En el primero de los casos señalados, las Instituciones deberán entablar la demanda en la forma y plazos prescritos por el Código de Comercio. En todos los casos previstos en este párrafo, el Juez, en el auto admisorio de la misma, girará oficio al Registro Público respectivo a efecto de que se asiente en el folio o libro correspondiente la medida cautelar.
+
+Cuando durante la substanciación del procedimiento a que se refiere este artículo, la Institución haga pago de la reclamación con cargo a la fianza o fianzas por las que se promovió el mismo y, en su caso, se decrete la medida precautoria aquí prevista, la Institución podrá elegir cualquiera de los procedimientos de recuperación establecidos en esta Ley o bien, si el juicio no ha sido concluido, dentro del mismo podrá acogerse al procedimiento señalado en el siguiente párrafo.
+
+La Institución informará al juez sobre el pago efectuado y, sin mayores formalidades, demandará el reembolso de lo pagado y sus accesorios al fiado o a los obligados solidarios que hayan sido demandados y embargados en su caso, acompañando las copias necesarias para traslado, así como la certificación del adeudo a que se refiere el artículo 290 de esta Ley y solicitará que se declare que el embargo precautorio adquiera el carácter de definitivo, por el monto pagado y sus accesorios. La declaración de que el embargo precautorio ha adquirido carácter definitivo se inscribirá en el Registro Público de la Propiedad correspondiente y la Institución conservará respecto de los demás acreedores el mismo lugar que tenía el embargo precautorio, retrotrayéndose los efectos del embargo definitivo a la fecha del embargo precautorio.
+
+Posteriormente se continuará con el procedimiento correspondiente.
+
+#### ARTÍCULO 286.- Al practicarse el embargo en el juicio ejecutivo mercantil de recuperación iniciado por una Institución, sobre los mismos bienes embargados precautoriamente, la Institución conservará respecto a los demás acreedores el mismo lugar que tenía el embargo precautorio, retrotrayéndose los efectos del embargo definitivo a la fecha del embargo precautorio.
+
+Las Instituciones podrán embargar bienes que hubieren sido registrados como lo establece el artículo 189 de la presente Ley, aún cuando dichos bienes hubieren pasado a tercero por cualquier título. Los efectos del embargo se retrotraerán a la fecha del asiento en el Registro Público correspondiente.
+
+Los créditos de las Instituciones se pagarán con preferencia a los de acreedores hipotecarios o embargantes, posteriores al momento de que se haya hecho el asiento registral.
+
+#### ARTÍCULO 287.- Las Instituciones podrán constituirse en parte y, en consecuencia, gozar de todos los derechos inherentes a ese carácter, en los negocios de cualquier índole y en los procesos, juicios u otros procedimientos judiciales en los cuales otorguen fianza, en todo lo que se refiera a las responsabilidades derivadas de ésta, así como en los procesos que se sigan a los fiados por responsabilidades que hayan sido garantizadas por dichas instituciones. Asimismo, a petición de parte, serán llamadas a dichos procesos o juicios, a fin de que estén a las resultas de los mismos.
+
+#### ARTÍCULO 288.- Las Instituciones y el solicitante, fiado, obligado solidario o contrafiador podrán convenir libremente procedimientos convencionales ante tribunales o árbitros, para resolver sus controversias, así como para exigir el cumplimiento de sus obligaciones, y la forma de hacer efectivas las garantías de recuperación a favor de la Institución de que se trate, independientemente de lo establecido en esta Ley. Asimismo, los derechos y obligaciones de la Institución frente al beneficiario de las pólizas, podrán sujetarse a procedimientos convencionales para su efectividad.
+
+Para que puedan llevarse a cabo los procedimientos mencionados en el párrafo anterior, será necesario que las partes se sujeten a lo establecido en el Libro Quinto del Código de Comercio y demás leyes que resulten aplicables, con las siguientes modalidades:
+
+I. El procedimiento convencional ante tribunales o mediante arbitraje, podrá pactarse en los propios contratos solicitud de fianza que suscriban las Instituciones con el fiado, o en su caso con el solicitante, los obligados solidarios o contrafiadores, o en documentos por separado, ratificados ante notario o corredor públicos, o ante la Comisión. Asimismo, podrá pactarse en cualquier estado del juicio ante el juez que conozca de la demanda que se hubiere interpuesto en los términos del artículo 280 de esta Ley, o durante el procedimiento seguido ante la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros.
+
+Los tribunales y, en su caso, la Comisión Nacional para la Protección y Defensa de los Usuarios de Servicios Financieros, se ajustarán al procedimiento convencional que las partes hubieren pactado y a petición de las mismas, darán por terminados el juicio o el procedimiento arbitral iniciado por las partes;
+
+II. El procedimiento convencional establecido conforme al presente artículo, podrá acordarse por separado con el fiado o con cualesquiera de los obligados solidarios o contrafiadores, sin que surta efecto para los que no lo hubieren celebrado, y
+
+III. Por lo que se refiere a los procedimientos convencionales con los beneficiarios de las fianzas, bastará que consten en el texto de las propias pólizas de fianza o en documentos adicionales a las mismas, otorgados conforme al artículo 166 de la presente Ley. Se considerarán aceptados los procedimientos convencionales por parte del beneficiario, cuando la Institución de que se trate no reciba negativa de observaciones a los mismos, dentro del plazo de diez días, contado a partir de la fecha en que el beneficiario hubiere recibido la póliza de fianza y, en su caso, los documentos adicionales a la misma en que se contenga el procedimiento convencional a que se sujetará la reclamación de la fianza.
+
+#### ARTÍCULO 289.- Salvo el caso previsto en el cuarto párrafo de este artículo, cuando las Instituciones reciban la reclamación de sus pólizas por parte del beneficiario, lo harán del conocimiento del fiado o, en su caso, del solicitante, obligados solidarios o contrafiadores, haciéndoles saber el momento en que se vence el plazo establecido en la Ley, en las pólizas de fianza o en los procedimientos convencionales celebrados con los beneficiarios, para resolver o inconformarse en contra de la reclamación.
+
+Por su parte, el fiado, solicitante, obligados solidarios y contrafiadores, estarán obligados a proporcionar a la Institución oportunamente todos los elementos y documentación que sean necesarios para determinar la procedencia y, en su caso, la cuantificación de la reclamación o bien su improcedencia, incluyéndose en este caso las excepciones relacionadas con la obligación principal que la Institución pueda oponer al beneficiario de la póliza de fianza. Asimismo, cuando se considere que la reclamación es total o parcialmente procedente, tendrán la obligación de proveer a la Institución las cantidades necesarias para que ésta haga el pago de lo que se reconozca al beneficiario.
+
+En caso de que la Institución no reciba los elementos y la documentación o los pagos parciales a que se refiere el párrafo anterior, realizará el pago de la reclamación presentada por el beneficiario y, en este caso, el fiado, solicitante, obligados solidarios o contrafiadores, estarán obligados a rembolsar a la Institución lo que a ésta le corresponda en los términos del contrato respectivo o de esta Ley, sin que puedan oponerse a la Institución las excepciones que el fiado tuviera frente a su acreedor, incluyendo la del pago de lo indebido, por lo que no serán aplicables en ningún caso, los artículos 2832 y 2833 del Código Civil Federal, y los correlativos del Distrito Federal y de los Estados de la República.
+
+En los documentos que consignen la obligación del solicitante, fiado, contrafiador u obligado solidario con la Institución, se podrá pactar que la Institución realizará el pago de las cantidades que le sean reclamadas, hasta por el monto afianzado, sin necesidad de notificación previa al fiado, al solicitante, a sus obligados solidarios o a sus contrafiadores, ni de que éstos muestren o no previamente su conformidad, quedando la afianzadora exenta de la obligación de tener que impugnar u oponerse a la ejecución de la fianza. En este caso, el fiado, solicitante, obligados solidarios o contrafiadores, estarán obligados a proveer a la Institución las cantidades necesarias que ésta le solicite para hacer el pago de lo que se reconozca al beneficiario o, en su caso, a reembolsar a la Institución lo que a ésta le corresponda en los términos del contrato respectivo o de esta Ley, sin que puedan oponerle las excepciones que el fiado tuviera frente a su acreedor, incluyendo la del pago de lo indebido, por lo que no serán aplicables en ningún caso, los artículos 2832 y 2833 del Código Civil Federal, y los correlativos del Distrito Federal y de los Estados de la República.
+
+No obstante lo establecido en los dos párrafos anteriores, el fiado conservará sus derechos, acciones y excepciones frente a su acreedor para demandar la improcedencia del pago hecho por la Institución y de los daños y perjuicios que con ese motivo le hubiere causado. Cuando los que hubieren hecho el pago a la Institución fueren el solicitante o los obligados solidarios o contrafiadores, podrán recuperar lo que a su derecho conviniere en contra del fiado y por vía de subrogación ante el acreedor que como beneficiario de la fianza la hizo efectiva. Las Instituciones, al ser requeridas o demandadas por el acreedor, podrán denunciar el pleito al deudor principal, así como al solicitante, obligados solidarios o contrafiadores, para que éstos rindan las pruebas que crean convenientes. En caso de que no salgan al juicio para el indicado objeto, les perjudicará la sentencia que se pronuncie contra la Institución. Lo anterior también será aplicable en los procedimientos conciliatorios y juicios arbitrales, así como en los procedimientos convencionales que se establezcan conforme al artículo 288 de este ordenamiento.
+
+El texto de este artículo se hará saber de manera inequívoca al fiado, al solicitante y, en su caso, a los obligados solidarios o contrafiadores, y deberá transcribirse íntegramente en el contrato solicitud respectivo.
+
+La Institución, en todo momento, tendrá derecho a oponer al beneficiario la compensación de lo que éste deba al fiado, excepto cuando el deudor hubiere renunciado previa y expresamente a ella.
+
+### CAPÍTULO TERCERO
+
+DE LOS PROCEDIMIENTOS COMUNES
+
+#### ARTÍCULO 290.- En el caso de los seguros de caución, la certificación del pago prevista en la fracción II del artículo 158 de la Ley sobre el Contrato de Seguro, deberá ser realizada por las personas facultadas por el consejo de administración de la Institución de Seguros de que se trate.
+
+Tratándose de fianzas, el documento que consigne la obligación del solicitante, fiado, contrafiador u obligado solidario, con la Institución, acompañado de una copia simple de la póliza y de la certificación de las personas facultadas por el consejo de administración de la Institución de que se trate, de que ésta pagó al beneficiario, llevan aparejada ejecución para el cobro de la cantidad correspondiente y sus accesorios. El documento que consigne la obligación del solicitante, fiado, contrafiador u obligado solidario, con la Institución, acompañado de una copia simple de la póliza y de la certificación de las personas facultadas por el consejo de administración de la Institución de que se trate, de que existe el adeudo a cargo de éstos, llevan aparejada ejecución para el cobro de primas vencidas no pagadas y accesorios de las mismas.
+
+Las certificaciones a que se refiere este artículo, harán fe en los juicios respectivos, salvo prueba en contrario.
+
+#### ARTÍCULO 291.- Los seguros de caución y las fianzas otorgadas ante autoridades judiciales del orden penal, se harán efectivas conforme a las siguientes reglas:
+
+I. La autoridad judicial, para el sólo efecto de la presentación del contratante del seguro o fiado, según sea el caso, requerirá personalmente o bien por correo certificado con acuse de recibo, a la Institución en sus oficinas principales, sucursales, oficinas de servicio o bien en el domicilio del apoderado designado para ello. Dicho requerimiento podrá hacerse en cualquiera de los establecimientos mencionados o en el domicilio del apoderado de referencia, que se encuentre más próximo al lugar donde ejerza sus funciones la autoridad judicial de que se trate;
+
+II. Si dentro del plazo concedido, no se hiciere la presentación solicitada, la autoridad judicial lo comunicará a la autoridad ejecutora federal o local, según sea el caso, para que proceda en los términos de los artículos 278 y 282 de esta Ley. Con dicha comunicación deberá acompañarse constancia fehaciente de la diligencia de requerimiento, y
+
+III. El seguro de caución o la fianza será exigible desde el día siguiente al del vencimiento del plazo fijado a la Institución para la presentación del contratante del seguro o del fiado, según sea el caso, sin que lo haya hecho.
+
+#### ARTÍCULO 292.- En ningún caso se requerirá el reconocimiento judicial de las firmas contenidas en los documentos a que se refieren los artículos 276, 278, 279 a 287, 289 y 290 de esta Ley.
+
+#### ARTÍCULO 293.- Las autoridades federales, del Distrito Federal, de los Estados y de los Municipios, deberán informar, a solicitud de las Instituciones, sobre la situación del asunto, ya sea judicial, administrativo o de cualquier otra naturaleza, para el que se haya otorgado el seguro de caución o la fianza y resolver, dentro de los treinta días siguientes a su recepción, las solicitudes de cancelación del seguro de caución o de la fianza. En caso de que las autoridades no resuelvan las solicitudes de cancelación dentro del plazo mencionado, se entenderán resueltas en el sentido negativo al solicitante.
+
+## TÍTULO SÉPTIMO
+
+DE LAS PROHIBICIONES A LAS INSTITUCIONES
+
+### CAPÍTULO PRIMERO
+
+DE LAS INSTITUCIONES DE SEGUROS
+
+#### ARTÍCULO 294.- A las Instituciones de Seguros les estará prohibido:
+
+I. Dar en garantía los bienes de su activo, a excepción del efectivo o valores que requieran para asegurar el cumplimiento de las obligaciones que correspondan a la realización de:
+
+a) Las operaciones de reporto y de préstamo de valores señaladas en la fracción XII del artículo 118 de este ordenamiento, y
+
+b) Las Operaciones Financieras Derivadas a que se refiere la fracción XIII del artículo 118 de esta Ley;
+
+II. Obtener préstamos, a excepción hecha de los derivados de:
+
+a) La emisión que hagan de obligaciones subordinadas u otros títulos de crédito, conforme a lo dispuesto en los artículos 118, fracción XIX, y 136 de la presente Ley;
+
+b) Las líneas de crédito otorgadas por las instituciones de crédito para cubrir sobregiros en las cuentas de cheques que mantengan con las mismas, sin que estas líneas de crédito excedan el límite que al efecto establezca la Comisión mediante disposiciones de carácter general, y
+
+c) La realización de operaciones mediante las cuales las Instituciones de Seguros transfieran porciones del riesgo de su cartera relativa a riesgos técnicos al mercado de valores, conforme a lo previsto en los artículos 118, fracción XX, y 138 de esta Ley;
+
+III. Dar en reporto títulos de crédito;
+
+IV. Dar en prenda los títulos o valores de su cartera;
+
+V. Realizar contratos de reaseguro o de reafianzamiento que impliquen la asunción de pasivos, sin cumplir con lo dispuesto en el artículo 120 de este ordenamiento;
+
+VI. Otorgar avales, fianzas o cauciones. Los seguros de caución previstos en la fracción XII del artículo 27, así como las fianzas que se otorguen en los términos del
+
+VII. Asumir riesgos u otorgar financiamientos bajo esquemas de Reaseguro Financiero, cuando no se trate de instituciones autorizadas para practicar exclusivamente el reaseguro;
+
+VIII. Operar con sus propias acciones, salvo en los casos previstos en la Ley del Mercado de Valores;
+
+IX. Participar en sociedades de cualquier clase, excepto en los casos de inversión en acciones permitidas por esta Ley, y también les está prohibido participar en sociedades de responsabilidad ilimitada y explotar por su cuenta minas, plantas metalúrgicas, establecimientos mercantiles o industriales o fincas rústicas, sin perjuicio de la facultad de mantener en propiedad bonos, obligaciones, acciones u otros títulos de dichas empresas conforme a lo previsto en esta misma Ley. La Comisión podrá autorizar que continúen su explotación, cuando las reciban en adjudicación o pago de adeudos, o para aseguramiento de los ya concertados, o al ejercitar los derechos que les confieran las operaciones que celebren conforme a esta Ley, sin exceder los plazos a que se refiere la fracción X de este artículo y sin que las mismas puedan cubrir la Base de Inversión de la Institución de Seguros, ni formar parte de los Fondos Propios Admisibles que respalden su requerimiento de capital de solvencia;
+
+X. Adquirir bienes, títulos o valores que no deban conservar en su activo.
+
+Cuando una Institución de Seguros reciba en pago de adeudos o por adjudicación en remate dentro de juicios relacionados con créditos a su favor, o al ejercitar los derechos que les confieren las operaciones que celebren conforme a esta Ley, bienes, derechos, títulos o valores de los señalados en esta fracción, que no deban conservar en su activo, los mismos no podrán cubrir la Base de Inversión de la Institución de Seguros, ni formar parte de los Fondos Propios Admisibles que respalden el requerimiento de capital de solvencia, y deberá venderlos en el plazo de un año a partir de su adquisición, cuando se trate de títulos o bienes muebles; de dos años cuando se trate de inmuebles urbanos; y de tres años cuando se trate de establecimientos mercantiles o industriales, o de inmuebles rústicos. Estos plazos podrán ser renovados por la Comisión cuando sea imposible efectuar oportunamente su venta sin gran pérdida para la Institución de Seguros.
+
+Expirados los plazos o, en su caso, las renovaciones que de ellos se concedan, la Comisión sacará administrativamente a remate los bienes, derechos, títulos o valores que no hubieren sido vendidos;
+
+XI. Comerciar con mercancías de cualquier clase;
+
+XII. Repartir dividendos con los fondos de las reservas que hayan constituido por disposición legal o de otras reservas creadas para compensar o absorber pérdidas futuras.
+
+Tampoco podrán repartir dividendos, sin haber constituido debidamente tales reservas o mientras haya déficit en las mismas, o la Institución de Seguros tenga faltantes en su capital mínimo pagado, en la cobertura de su Base de Inversión o en los Fondos Propios Admisibles requeridos para respaldar el requerimiento de capital de solvencia que exige esta Ley, ni en desapego a lo previsto en el artículo 309 de este ordenamiento;
+
+XIII. En las operaciones a que se refiere la fracción XXIII del artículo 118 de esta Ley:
+
+a) Celebrar operaciones con la propia Institución de Seguros en el cumplimiento de fideicomisos, salvo aquéllas autorizadas por el Banco de México mediante disposiciones de carácter general, cuando no impliquen conflicto de intereses;
+
+b) Responder a los fideicomitentes o fideicomisarios del incumplimiento de los deudores por los bienes, derechos o valores que se adquieran, salvo que sea por su culpa según lo dispuesto en la parte final del artículo 391 de la Ley General de Títulos y Operaciones de Crédito, o garantizar la percepción de rendimientos por los fondos cuya inversión se les encomiende.
+
+Si al término del fideicomiso, los derechos o valores no hubieren sido pagados por los deudores, la fiduciaria deberá transferirlos, junto con los demás bienes, derechos o valores que constituyan el patrimonio fiduciario al fideicomitente o fideicomisario, según sea el caso, absteniéndose de cubrir su importe.
+
+En los contratos de fideicomiso se insertará en forma notoria lo previsto en este inciso y una declaración a la fiduciaria en el sentido de que se hizo saber inequívocamente su contenido a las personas de quienes haya recibido bienes, derechos o valores para su afectación fiduciaria;
+
+c) Actuar como fiduciarias en fideicomisos a través de los cuales, se capten directa o indirectamente recursos del público, mediante cualquier acto causante de pasivo directo o contingente, excepto tratándose de fideicomisos constituidos por el Gobierno Federal a través de la Secretaría;
+
+d) Utilizar el efectivo, bienes, derechos o valores de los fideicomisos destinados al otorgamiento de créditos, en que la fiduciaria tenga la facultad discrecional en el otorgamiento de dichos activos, en la realización de operaciones en virtud de las cuales resulten o puedan resultar deudores o beneficiarios sus delegados fiduciarios; los miembros del consejo de administración, tanto propietarios como suplentes, estén o no en funciones; los empleados y funcionarios de la Institución de Seguros; los comisarios propietarios o suplentes, estén o no en funciones; los auditores externos de la Institución de Seguros; los actuarios independientes que dictaminen sobre la suficiencia de sus reservas técnicas; los expertos independientes que opinen sobre los modelos internos de la Institución de Seguros; los miembros del comité técnico del fideicomiso respectivo; los ascendientes o descendientes en primer grado o cónyuges de las personas citadas; las sociedades en cuyas asambleas tengan mayoría dichas personas o las mismas instituciones; asimismo, aquellas personas que el Banco de México determine mediante disposiciones de carácter general;
+
+e) Administrar fincas rústicas, a menos que hayan recibido la administración para distribuir el patrimonio entre herederos, legatarios, asociados o acreedores, o para pagar una obligación o para garantizar su cumplimiento con el valor de la misma finca o de sus productos, y sin que en estos casos la administración exceda del plazo de dos años, salvo en los casos de fideicomisos de garantía;
+
+f) Actuar en fideicomisos a través de los que se evadan limitaciones o prohibiciones contenidas en las leyes financieras;
+
+g) Actuar como fiduciarias en los fideicomisos a que se refiere el segundo párrafo del artículo 88 de la Ley de Sociedades de Inversión, y
+
+h) Celebrar fideicomisos en los que se administren sumas de dinero que aporten periódicamente grupos de consumidores integrados mediante sistemas de comercialización, destinados a la adquisición de determinados bienes o servicios, de los previstos en la Ley Federal de Protección al Consumidor.
+
+Cualquier pacto contrario a lo dispuesto en esta fracción, será nulo;
+
+XIV. Proporcionar, para fines distintos a la prestación del servicio a que se haya obligado la Institución de Seguros, incluyendo entre otros la comercialización de productos o servicios, la información que obtengan con motivo de la celebración de operaciones con sus clientes, salvo que cuenten con el consentimiento expreso del cliente respectivo, el cual deberá constar en una sección especial dentro de la documentación que deba firmar el cliente para contratar una operación o servicio con una Institución de Seguros, y siempre que la firma autógrafa de aquél relativa al texto de dicho consentimiento sea adicional a la normalmente requerida por la Institución de Seguros para la celebración de la operación o servicio solicitado. En ningún caso, el otorgamiento de dicho consentimiento será condición para la contratación de dicha operación o servicio;
+
+XV. En las operaciones a que se refieren los incisos h) e i) de la fracción III del artículo 25 de esta Ley, celebrar contratos de seguro con intermediarios financieros integrantes del grupo financiero del que formen parte, o con aquellos intermediarios financieros con los que mantengan nexos patrimoniales;
+
+XVI. En las operaciones a que se refiere el inciso g) de la fracción III del artículo 25 del presente ordenamiento, especular con los bienes recibidos en garantía por seguros de caución otorgados;
+
+XVII. En las operaciones a que se refiere el inciso g) de la fracción III del artículo 25 de esta Ley, contratar seguros de caución con sus funcionarios y administradores, o aceptarlos como contragarantes, así como otorgar pólizas o certificados en las que los mismos aparezcan como asegurados;
+
+XVIII. Entregar a los agentes, directamente o a través de interpósita persona, pólizas de seguros o de fianzas, contratos o certificados que establezcan obligaciones para las Instituciones de Seguros autorizadas para operar el ramo de caución, sin requisitar, firmados previamente por funcionario, representante legal o persona autorizada para tal efecto, salvo lo establecido en el artículo 98 de esta Ley;
+
+XIX. Otorgar seguros o fianzas en contravención a lo dispuesto por esta Ley;
+
+XX. Especular con los bienes recibidos en garantía por los seguros de caución o fianzas otorgados, y
+
+XXI. Para las Instituciones de Seguros autorizadas para el otorgamiento de fianzas, afianzar a sus funcionarios y administradores, o aceptarlos como contrafiadores u obligados solidarios, así como otorgar pólizas en las que los mismos aparezcan como beneficiarios.
+
+### CAPÍTULO SEGUNDO
+
+DE LAS INSTITUCIONES DE FIANZAS
+
+#### ARTÍCULO 295.- A las Instituciones de Fianzas les estará prohibido:
+
+I. Dar en garantía los bienes de su activo, a excepción del efectivo o valores que requieran para asegurar el cumplimiento de las obligaciones que correspondan a la realización de las operaciones de reporto y de préstamo de valores señaladas en la fracción XII del artículo 144 de este ordenamiento;
+
+II. Obtener préstamos, a excepción hecha de los derivados de:
+
+a) La emisión que hagan de obligaciones subordinadas u otros títulos de crédito, conforme a lo dispuesto en los artículos 144, fracción XVI, y 160 de la presente Ley;
+
+b) Las líneas de crédito otorgadas por las instituciones de crédito para cubrir sobregiros en las cuentas de cheques que mantengan con las mismas, sin que estas líneas de crédito excedan el límite que al efecto establezca la Comisión mediante disposiciones de carácter general, y
+
+c) Aquellos que, para mantener la liquidez de las Instituciones de Fianzas, autorice la propia Comisión, mediante disposiciones de carácter general;
+
+III. Dar en reporto títulos de crédito;
+
+IV. Dar en prenda los títulos o valores de su cartera;
+
+V. Realizar contratos de reafianzamiento o de reaseguro que impliquen la asunción de pasivos, sin cumplir con lo dispuesto en el artículo 146 de este ordenamiento;
+
+VI. Otorgar garantías en forma de aval, salvo aquellos casos que autorice la Comisión, mediante disposiciones de carácter general;
+
+VII. Asumir riesgos u otorgar financiamientos bajo esquemas de Reaseguro Financiero, cuando no se trate de instituciones autorizadas para practicar exclusivamente el reafianzamiento;
+
+VIII. Operar con sus propias acciones, salvo en los casos previstos en la Ley del Mercado de Valores;
+
+IX. Participar en sociedades de cualquier clase, excepto en los casos de inversión en acciones permitidas por esta Ley, y también les está prohibido participar en sociedades de responsabilidad ilimitada y explotar por su cuenta minas, plantas metalúrgicas, establecimientos mercantiles o industriales o fincas rústicas, sin perjuicio de la facultad de mantener en propiedad bonos, obligaciones, acciones u otros títulos de dichas empresas conforme a lo previsto en esta misma Ley. La Comisión podrá autorizar que continúen su explotación, cuando las reciban en adjudicación o pago de adeudos, o para aseguramiento de los ya concertados, o al ejercitar los derechos que les confieren las operaciones que celebren conforme a esta Ley, sin exceder los plazos a que se refiere la fracción X de este artículo y sin que las mismas puedan cubrir la Base de Inversión de la Institución de Fianzas, ni formar parte de los Fondos Propios Admisibles que respalden su requerimiento de capital de solvencia;
+
+X. Adquirir bienes, títulos o valores que no deban conservar en su activo.
+
+Cuando una Institución de Fianzas reciba en pago de adeudos o por adjudicación en remate dentro de juicios relacionados con créditos a su favor, o al ejercitar los derechos que les confieren las operaciones que celebren conforme a esta Ley, bienes, derechos, títulos o valores de los señalados en esta fracción, que no deban conservar en su activo, los mismos no podrán cubrir la Base de Inversión de la Institución de Fianzas, ni formar parte de los Fondos Propios Admisibles que respalden el requerimiento de capital de solvencia, y deberá venderlos en el plazo de un año a partir de su adquisición, cuando se trate de títulos o bienes muebles; de dos años cuando se trate de inmuebles urbanos; y de tres años cuando se trate de establecimientos mercantiles o industriales, o de inmuebles rústicos. Estos plazos podrán ser renovados por la Comisión cuando sea imposible efectuar oportunamente su venta sin gran pérdida para la Institución de Fianzas.
+
+Expirados los plazos o, en su caso, las renovaciones que de ellos se concedan, la Comisión sacará administrativamente a remate los bienes, derechos, títulos o valores que no hubieren sido vendidos;
+
+XI. Comerciar con mercancías de cualquier clase;
+
+XII. Repartir dividendos con los fondos de las reservas que hayan constituido por disposición legal o de otras reservas creadas para compensar o absorber pérdidas futuras.
+
+Tampoco podrán repartir dividendos, sin haber constituido debidamente tales reservas o mientras haya déficit en las mismas, o la Institución de Fianzas tenga faltantes en su capital mínimo pagado, en la cobertura de su Base de Inversión o en los Fondos Propios Admisibles requeridos para respaldar el requerimiento de capital de solvencia que exige esta Ley, ni en desapego a lo previsto en el artículo 309 de este ordenamiento;
+
+XIII. En las operaciones a que se refiere la fracción XVII del artículo 144 de esta Ley:
+
+a) Celebrar operaciones con la propia Institución de Fianzas en el cumplimiento de fideicomisos, salvo aquéllas autorizadas por el Banco de México mediante disposiciones de carácter general, cuando no impliquen conflicto de intereses;
+
+b) Responder a los fideicomitentes o fideicomisarios del incumplimiento de los deudores por los bienes, derechos o valores que se adquieran, salvo que sea por su culpa según lo dispuesto en la parte final del artículo 391 de la Ley General de Títulos y Operaciones de Crédito, o garantizar la percepción de rendimientos por los fondos cuya inversión se les encomiende.
+
+Si al término del fideicomiso, los derechos o valores no hubieren sido pagados por los deudores, la fiduciaria deberá transferirlos, junto con los demás bienes, derechos o valores que constituyan el patrimonio fiduciario al fideicomitente o fideicomisario, según sea el caso, absteniéndose de cubrir su importe.
+
+En los contratos de fideicomiso se insertará en forma notoria lo previsto en este inciso y una declaración de la fiduciaria en el sentido de que hizo saber inequívocamente su contenido a las personas de quienes haya recibido bienes, derechos o valores para su afectación fiduciaria;
+
+c) Actuar como fiduciarias en fideicomisos a través de los cuales se capten directa o indirectamente recursos del público, mediante cualquier acto causante de pasivo directo o contingente;
+
+d) Administrar fincas rústicas, a menos que hayan recibido la administración para distribuir el patrimonio entre herederos, legatarios, asociados o acreedores, o para pagar una obligación o para garantizar su cumplimiento con el valor de la misma finca o de sus productos, y sin que en estos casos la administración exceda del plazo de dos años, salvo los casos de fideicomisos de garantía;
+
+e) Actuar en fideicomisos a través de los que se evadan limitaciones o prohibiciones contenidas en las leyes financieras;
+
+f) Actuar como fiduciarias en los fideicomisos a que se refiere el segundo párrafo del artículo 88 de la Ley de Sociedades de Inversión, y
+
+g) Celebrar fideicomisos en los que se administren sumas de dinero que aporten periódicamente grupos de consumidores integrados mediante sistemas de comercialización, destinados a la adquisición de determinados bienes o servicios, de los previstos en la Ley Federal de Protección al Consumidor;
+
+Cualquier pacto contrario a lo dispuesto en esta fracción, será nulo;
+
+XIV. Proporcionar, para fines distintos a la prestación del servicio a que se haya obligado la Institución de Fianzas, incluyendo entre otros la comercialización de productos o servicios, la información que obtengan con motivo de la celebración de operaciones con sus clientes, salvo que cuenten con el consentimiento expreso del cliente respectivo, el cual deberá constar en una sección especial dentro de la documentación que deba firmar el cliente para contratar una operación o servicio con una Institución de Fianzas, y siempre que la firma autógrafa de aquél relativa al texto de dicho consentimiento sea adicional a la normalmente requerida por la Institución de Fianzas para la celebración de la operación o servicio solicitado. En ningún caso, el otorgamiento de dicho consentimiento será condición para la contratación de dicha operación o servicio;
+
+XV. Otorgar fianzas en contravención a lo dispuesto por esta Ley;
+
+XVI. Especular con los bienes recibidos en garantía de fianzas otorgadas;
+
+XVII. Entregar a los agentes, directamente o a través de interpósita persona, pólizas o contratos que establezcan obligaciones para la Institución de Fianzas, sin requisitar, firmados previamente por funcionario, representante legal o persona autorizada para tal efecto, salvo lo establecido en el artículo 98 de esta Ley, y
+
+XVIII. Afianzar a sus funcionarios y administradores, o aceptarlos como contrafiadores u obligados solidarios, así como otorgar pólizas en las que los mismos aparezcan como beneficiarios.
