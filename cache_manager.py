@@ -6,7 +6,8 @@ its own corpus, system instruction, and lifecycle.
 
 Active Genios:
   - amparo:    ~303K tokens — CPEUM, Ley de Amparo, Tratados DDHH, Jurisprudencias
-  - mercantil: ~247K tokens — CCom, LGTOC, LGSM, Ley Contrato de Seguro
+  - mercantil: ~277K tokens — CCom, LGTOC, LGSM, Ley Contrato de Seguro, LISF
+  - civil:     ~432K tokens — Código Civil Federal, CNPCF
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -72,6 +73,23 @@ GENIO_CONFIGS = {
             "Ley General de Sociedades Mercantiles y Ley sobre el Contrato de Seguro. "
             "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
             "relevantes con su número exacto y la ley de origen. "
+            "Estructura tu respuesta indicando el Libro, Título y Capítulo correspondiente. "
+            "Nunca inventes contenido legal. "
+            "Si el artículo no está en tu contexto, dilo explícitamente."
+        ),
+    },
+    "civil": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_CIVIL_DIR", "cache_corpus_civil"),
+        "display_name": "iurexia-civil-corpus-v1",
+        "max_tokens": 450_000,
+        "system_instruction": (
+            "Eres el Genio Civil de Iurexia, un asistente jurídico de élite "
+            "especializado en derecho civil mexicano. "
+            "Tienes acceso al texto íntegro de: Código Civil Federal (CCF) completo "
+            "(personas, bienes, sucesiones y obligaciones) y el Código Nacional de "
+            "Procedimientos Civiles y Familiares (CNPCF) completo. "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
+            "relevantes con su número exacto y el código de origen (CCF o CNPCF). "
             "Estructura tu respuesta indicando el Libro, Título y Capítulo correspondiente. "
             "Nunca inventes contenido legal. "
             "Si el artículo no está en tu contexto, dilo explícitamente."
