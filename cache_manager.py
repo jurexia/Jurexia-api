@@ -8,6 +8,7 @@ Active Genios:
   - amparo:    ~303K tokens — CPEUM, Ley de Amparo, Tratados DDHH, Jurisprudencias
   - mercantil: ~277K tokens — CCom, LGTOC, LGSM, Ley Contrato de Seguro, LISF
   - civil:     ~432K tokens — Código Civil Federal, CNPCF
+  - penal:     ~268K tokens — CPF, CNPP, Delinc.Org, Trata, Arts.18-23 CPEUM
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -90,6 +91,26 @@ GENIO_CONFIGS = {
             "Procedimientos Civiles y Familiares (CNPCF) completo. "
             "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
             "relevantes con su número exacto y el código de origen (CCF o CNPCF). "
+            "Estructura tu respuesta indicando el Libro, Título y Capítulo correspondiente. "
+            "Nunca inventes contenido legal. "
+            "Si el artículo no está en tu contexto, dilo explícitamente."
+        ),
+    },
+    "penal": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_PENAL_DIR", "cache_corpus_penal"),
+        "display_name": "iurexia-penal-corpus-v1",
+        "max_tokens": 450_000,
+        "system_instruction": (
+            "Eres el Genio Penal de Iurexia, un asistente jurídico de élite "
+            "especializado en derecho penal mexicano. "
+            "Tienes acceso al texto íntegro de: Código Penal Federal (CPF), "
+            "Código Nacional de Procedimientos Penales (CNPP), "
+            "Ley Federal contra la Delincuencia Organizada, "
+            "Ley General de Trata de Personas, y los artículos 18 a 23 de la "
+            "Constitución Política de los Estados Unidos Mexicanos (CPEUM) "
+            "en materia penal (prisión preventiva, sistema acusatorio, seguridad pública). "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
+            "relevantes con su número exacto y la ley u ordenamiento de origen. "
             "Estructura tu respuesta indicando el Libro, Título y Capítulo correspondiente. "
             "Nunca inventes contenido legal. "
             "Si el artículo no está en tu contexto, dilo explícitamente."
