@@ -1,73 +1,103 @@
 """
-Iurexia Cache Manager — Genio Amparo (v9 — Mar 2026)
-====================================================
-Creates a Gemini cached context (~200K tokens) ONLY when a user explicitly
-activates "Genio Amparo" — NOT at server startup.
+Iurexia Cache Manager — Multi-Genio Architecture (v10 — Mar 2026)
+=================================================================
+Supports multiple independent Gemini context caches ("genios"), each with
+its own corpus, system instruction, and lifecycle.
 
-Corpus (Amparo constitucional reducido):
-  - CPEUM arts. 1-30, 103-107
-  - Ley de Amparo completa
-  - Tratados DDHH: CADH, PIDCP, PIDESC, Conv. Niño, Conv. Mayores
-  - 22 Jurisprudencias obligatorias del Pleno y Salas (SCJN)
-  ~201K tokens total (~81% menos que el corpus anterior)
-
-│ REGLA PERMANENTE DEL MODELO │
-│ Modelo: gemini-3-flash-preview                              │
-│ Input token limit: 1,048,576 (fuente: ai.google.dev/docs)  │
-│ NO usar gemini-2.0 — está OBSOLETO                          │
-
-API: Gemini AI Studio (google-genai SDK) via GEMINI_API_KEY
-Model: gemini-3-flash-preview
-Corpus: 7 files in cache_corpus/ — CPEUM, Amparo, 5 Tratados DDHH + Jurisprudencias
-Hard limit: 300,000 tokens (target corpus amparo — margen seguro anticrash)
+Active Genios:
+  - amparo:    ~303K tokens — CPEUM, Ley de Amparo, Tratados DDHH, Jurisprudencias
+  - mercantil: ~247K tokens — CCom, LGTOC, LGSM, Ley Contrato de Seguro
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
   2. asyncio.Lock — prevents concurrent creation (race conditions)
   3. Double-check — re-verifies inside the lock
-  4. TTL 8 min — auto-expires in Gemini if unused
-  5. Frontend Timer — UI disables button after 8 min inactivity
-  6. Kill Switch — /genio/kill endpoint for emergencies
-  7. Token Limit — ABORTS if corpus exceeds MAX_CACHE_TOKENS
-  8. Budget Guard — max 10 cache creates per day
-  9. Startup Cleanup — lifespan ONLY DELETES, NEVER creates
+  4. Token Count — refuses to create if corpus exceeds MAX_CACHE_TOKENS
+  5. MIN_CORPUS_FILES — refuse if fewer than expected files
+  6. Startup Cleanup — kills orphans on server restart (cost protection)
+  7. Token Validation — per-genio max token check
+  8. Daily Budget — max N cache creates/day (shared across all genios)
+  9. Lifespan Cleanup — ONLY deletes, never creates at startup
 
-Usage:
-    cache_name = await get_or_create_cache()
+API: Gemini AI Studio (google-genai SDK) via GEMINI_API_KEY
+Model: gemini-3-flash-preview
 """
 
+import asyncio
+import datetime
+import logging
 import os
 import time
-import asyncio
-import logging
-import datetime
 from pathlib import Path
 from typing import Optional
+from dataclasses import dataclass, field
 
-logger = logging.getLogger("iurexia.cache")
+logger = logging.getLogger("cache_manager")
 
-# ══ MODELO OFICIAL ══════════════════════════════════════════════════════════════
-# SIEMPRE: gemini-3-flash-preview  (input limit 1,048,576 — fuente: ai.google.dev)
-# NUNCA:   gemini-2.0-flash ni ninguna variante 2.x — OBSOLETOS
 # ═══════════════════════════════════════════════════════════════════════════════
 CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-3-flash-preview")
-CACHE_CORPUS_DIR = os.getenv("CACHE_CORPUS_DIR", "cache_corpus")
-CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "8"))
-CACHE_DISPLAY_NAME = "iurexia-amparo-corpus-v9"  # v9 = jurisprudencias procedimiento amparo (48 tesis SCJN)
+CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "5"))  # v10: 5 min
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
-MAX_CACHE_TOKENS = 320_000       # Corpus Genio Amparo real: ~303K tokens (Gemini) — margen seguro anticrash
-MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "10"))  # Budget guard
+MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "15"))  # Shared across all genios
 
-# ── Global State ─────────────────────────────────────────────────────────────
-_cache_name: Optional[str] = None
-_cache_created_at: float = 0
-_cache_lock = None  # Initialized lazily in get_or_create_cache
+# ── Genio Configurations ────────────────────────────────────────────────────
+GENIO_CONFIGS = {
+    "amparo": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_DIR", "cache_corpus"),
+        "display_name": "iurexia-amparo-corpus-v9",
+        "max_tokens": 320_000,
+        "system_instruction": (
+            "Eres el Genio Amparo de Iurexia, un asistente jurídico constitucional de élite "
+            "especializado en juicio de amparo, control de convencionalidad y derechos humanos. "
+            "Tienes acceso al texto íntegro de: CPEUM (arts. 1-30 y 103-107), Ley de Amparo completa, "
+            "5 tratados internacionales de DDHH (CADH, PIDCP, PIDESC, Convención Niño, Conv. Mayores) "
+            "y 22 jurisprudencias obligatorias del Pleno y Salas de la SCJN en materia constitucional. "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos o criterios jurisprudenciales "
+            "relevantes con su número exacto y fuente de origen. Aplica siempre el principio pro persona "
+            "e interpretación conforme. Nunca inventes contenido legal. "
+            "Si el artículo o tesis no está en tu contexto, dilo explícitamente."
+        ),
+    },
+    "mercantil": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_MERCANTIL_DIR", "cache_corpus_mercantil"),
+        "display_name": "iurexia-mercantil-corpus-v1",
+        "max_tokens": 300_000,
+        "system_instruction": (
+            "Eres el Genio Mercantil de Iurexia, un asistente jurídico de élite "
+            "especializado en derecho mercantil mexicano. "
+            "Tienes acceso al texto íntegro de: Código de Comercio, "
+            "Ley General de Títulos y Operaciones de Crédito, "
+            "Ley General de Sociedades Mercantiles y Ley sobre el Contrato de Seguro. "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
+            "relevantes con su número exacto y la ley de origen. "
+            "Estructura tu respuesta indicando el Libro, Título y Capítulo correspondiente. "
+            "Nunca inventes contenido legal. "
+            "Si el artículo no está en tu contexto, dilo explícitamente."
+        ),
+    },
+}
+
+# ── Per-Genio State ──────────────────────────────────────────────────────────
+@dataclass
+class GenioState:
+    cache_name: Optional[str] = None
+    cache_created_at: float = 0
+    last_error: Optional[str] = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+_genio_states: dict[str, GenioState] = {}
 _gemini_client = None
-_last_error: Optional[str] = None
 _daily_create_count: int = 0
-_daily_create_date: str = ""  # YYYY-MM-DD
+_daily_create_date: str = ""
+
+
+def _get_state(genio_id: str) -> GenioState:
+    """Get or create state for a genio."""
+    if genio_id not in _genio_states:
+        _genio_states[genio_id] = GenioState()
+    return _genio_states[genio_id]
 
 
 def get_gemini_client():
@@ -82,24 +112,29 @@ def get_gemini_client():
     return _gemini_client
 
 
-def _load_corpus_texts() -> list[str]:
-    """Load all TXT files from the corpus directory, sorted by name.
+def _load_corpus_texts(genio_id: str) -> list[str]:
+    """Load all TXT files from the genio's corpus directory.
 
-    SAFETY LOCK #7: Validates total tokens < MAX_CACHE_TOKENS.
-    Returns empty list if exceeded (prevents oversized cache creation).
+    SAFETY LOCK #7: Validates total tokens < max_tokens for this genio.
     """
-    global _last_error
-    corpus_dir = Path(CACHE_CORPUS_DIR)
+    config = GENIO_CONFIGS.get(genio_id)
+    if not config:
+        logger.error(f"Unknown genio_id: {genio_id}")
+        return []
+
+    state = _get_state(genio_id)
+    corpus_dir = Path(config["corpus_dir"])
+
     if not corpus_dir.exists():
-        _last_error = f"Corpus dir not found: {corpus_dir.resolve()} (cwd: {Path.cwd()})"
-        logger.error(f"🚨 {_last_error}")
+        state.last_error = f"Corpus dir not found: {corpus_dir.resolve()} (cwd: {Path.cwd()})"
+        logger.error(f"🚨 {state.last_error}")
         return []
 
     texts = []
     files = sorted(corpus_dir.glob("*.txt"))
     if not files:
-        _last_error = f"No .txt files found in {corpus_dir.resolve()}"
-        logger.error(f"🚨 {_last_error}")
+        state.last_error = f"No .txt files found in {corpus_dir.resolve()}"
+        logger.error(f"🚨 {state.last_error}")
         return []
 
     for f in files:
@@ -107,50 +142,63 @@ def _load_corpus_texts() -> list[str]:
             text = f.read_text(encoding="utf-8")
             texts.append(text)
             tokens_est = len(text) // 4
-            logger.info(f"  Loaded {f.name}: {len(text):,} chars (~{tokens_est:,} tokens)")
+            logger.info(f"  [{genio_id}] Loaded {f.name}: {len(text):,} chars (~{tokens_est:,} tokens)")
         except Exception as e:
-            logger.error(f"  Failed to load {f.name}: {e}")
+            logger.error(f"  [{genio_id}] Failed to load {f.name}: {e}")
 
     total_chars = sum(len(t) for t in texts)
     total_tokens = total_chars // 4
-    logger.info(f"  Total corpus: {len(texts)} files, {total_chars:,} chars (~{total_tokens:,} tokens)")
+    logger.info(f"  [{genio_id}] Total corpus: {len(texts)} files, {total_chars:,} chars (~{total_tokens:,} tokens)")
 
-    # SAFETY LOCK #7: Token limit validation
-    if total_tokens > MAX_CACHE_TOKENS:
-        _last_error = f"Corpus too big: {total_tokens:,} > {MAX_CACHE_TOKENS:,} tokens — ABORTING"
-        logger.error(f"🚨 {_last_error}")
+    max_tokens = config["max_tokens"]
+    if total_tokens > max_tokens:
+        state.last_error = f"Corpus too big: {total_tokens:,} > {max_tokens:,} tokens — ABORTING"
+        logger.error(f"🚨 {state.last_error}")
         return []
 
     return texts
 
 
-async def _find_existing_cache_remote() -> Optional[any]:
-    """Check Gemini API for any active cache with our display name (Sync for Pro/Multi-instance)."""
+async def _find_existing_cache_remote(genio_id: str) -> Optional[any]:
+    """Check Gemini API for any active cache with this genio's display name."""
+    config = GENIO_CONFIGS.get(genio_id)
+    if not config:
+        return None
     try:
         client = get_gemini_client()
-        # caches.list() es un iterador, lo convertimos a lista
         caches = list(client.caches.list())
         for cache in caches:
-            if getattr(cache, "display_name", "") == CACHE_DISPLAY_NAME:
-                # Verificar que no esté vencido (Gemini lo borra solo, pero por si acaso)
+            if getattr(cache, "display_name", "") == config["display_name"]:
                 return cache
     except Exception as e:
-        logger.error(f"Error searching remote cache: {e}")
+        logger.error(f"[{genio_id}] Error searching remote cache: {e}")
     return None
 
-async def _cleanup_orphan_caches(exclude_name: str = None):
-    """SAFETY LOCK #1: Delete orphan caches EXCEPT the one we might be using."""
+
+async def _cleanup_orphan_caches(genio_id: str = None, exclude_name: str = None):
+    """SAFETY LOCK #1: Delete orphan caches for a specific genio or ALL genios."""
     try:
         client = get_gemini_client()
         caches = list(client.caches.list())
-        orphans = [c for c in caches if getattr(c, "display_name", "") == CACHE_DISPLAY_NAME and c.name != exclude_name]
+
+        # Determine which display names to clean
+        if genio_id:
+            target_names = {GENIO_CONFIGS[genio_id]["display_name"]}
+        else:
+            target_names = {c["display_name"] for c in GENIO_CONFIGS.values()}
+
+        orphans = [
+            c for c in caches
+            if getattr(c, "display_name", "") in target_names
+            and c.name != exclude_name
+        ]
 
         if orphans:
             logger.warning(f"Found {len(orphans)} orphan cache(s) — cleaning up...")
             for cache in orphans:
                 try:
                     client.caches.delete(name=cache.name)
-                    logger.info(f"  Deleted orphan: {cache.name}")
+                    logger.info(f"  Deleted orphan: {cache.name} ({cache.display_name})")
                 except Exception as e:
                     logger.error(f"  Failed to delete orphan {cache.name}: {e}")
     except Exception as e:
@@ -173,35 +221,35 @@ def _check_daily_budget() -> bool:
     return True
 
 
-async def _create_cache() -> Optional[str]:
-    """Create a new Gemini context cache with the legal corpus.
+async def _create_cache(genio_id: str) -> Optional[str]:
+    """Create a new Gemini context cache for a specific genio."""
+    global _daily_create_count
 
-    Always cleans up orphans first. Validates token count and daily budget.
-    """
-    global _cache_name, _cache_created_at, _daily_create_count, _last_error
+    config = GENIO_CONFIGS.get(genio_id)
+    if not config:
+        logger.error(f"Unknown genio_id: {genio_id}")
+        return None
+
+    state = _get_state(genio_id)
 
     try:
-        # SAFETY LOCK #8
         if not _check_daily_budget():
-            _last_error = f"Daily cache creation limit reached ({MAX_DAILY_CREATES}/día)"
+            state.last_error = f"Daily cache creation limit reached ({MAX_DAILY_CREATES}/día)"
             return None
 
-        # SAFETY LOCK #1: Clean up orphans first
-        await _cleanup_orphan_caches()
+        # Clean up orphans for this genio
+        await _cleanup_orphan_caches(genio_id)
 
         from google.genai import types as gtypes
-
         client = get_gemini_client()
 
-        # SAFETY LOCK #7: Load and validate corpus
-        texts = _load_corpus_texts()
+        texts = _load_corpus_texts(genio_id)
         if not texts:
-            if not _last_error:
-                _last_error = f"No corpus texts loaded from '{CACHE_CORPUS_DIR}'"
-            logger.error(f"Cannot create cache: {_last_error}")
+            if not state.last_error:
+                state.last_error = f"No corpus texts loaded from '{config['corpus_dir']}'"
+            logger.error(f"[{genio_id}] Cannot create cache: {state.last_error}")
             return None
 
-        # Build cache contents (user turn with all legal texts)
         contents = [
             gtypes.Content(
                 role="user",
@@ -211,63 +259,51 @@ async def _create_cache() -> Optional[str]:
 
         ttl_seconds = CACHE_TTL_MINUTES * 60
 
-        system_instruction = (
-            "Eres el Genio Amparo de Iurexia, un asistente jurídico constitucional de élite "
-            "especializado en juicio de amparo, control de convencionalidad y derechos humanos. "
-            "Tienes acceso al texto íntegro de: CPEUM (arts. 1-30 y 103-107), Ley de Amparo completa, "
-            "5 tratados internacionales de DDHH (CADH, PIDCP, PIDESC, Convención Niño, Conv. Mayores) "
-            "y 22 jurisprudencias obligatorias del Pleno y Salas de la SCJN en materia constitucional. "
-            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos o criterios jurisprudenciales "
-            "relevantes con su número exacto y fuente de origen. Aplica siempre el principio pro persona "
-            "e interpretación conforme. Nunca inventes contenido legal. "
-            "Si el artículo o tesis no está en tu contexto, dilo explícitamente."
-        )
-
         logger.info(
-            f"Creating Gemini context cache ON-DEMAND: model={CACHE_MODEL}, "
+            f"[{genio_id}] Creating Gemini context cache: model={CACHE_MODEL}, "
             f"ttl={CACHE_TTL_MINUTES}m, files={len(texts)}"
         )
 
-        # Create the cache — NO tools (not supported in cached content)
         cache = await client.aio.caches.create(
             model=CACHE_MODEL,
             config=gtypes.CreateCachedContentConfig(
-                display_name=CACHE_DISPLAY_NAME,
-                system_instruction=system_instruction,
+                display_name=config["display_name"],
+                system_instruction=config["system_instruction"],
                 contents=contents,
                 ttl=f"{ttl_seconds}s",
             )
         )
 
-        _cache_name = cache.name
-        _cache_created_at = time.time()
+        state.cache_name = cache.name
+        state.cache_created_at = time.time()
+        state.last_error = None
         _daily_create_count += 1
-        _last_error = None  # Clear any previous error on success
 
         logger.info(
-            f"✅ Cache created: {_cache_name} "
+            f"✅ [{genio_id}] Cache created: {state.cache_name} "
             f"(TTL={CACHE_TTL_MINUTES}m, daily={_daily_create_count}/{MAX_DAILY_CREATES})"
         )
-        return _cache_name
+        return state.cache_name
 
     except Exception as e:
-        _last_error = f"{type(e).__name__}: {e}"
-        logger.error(f"❌ Cache creation failed: {_last_error}")
+        state.last_error = f"{type(e).__name__}: {e}"
+        logger.error(f"❌ [{genio_id}] Cache creation failed: {state.last_error}")
         import traceback
         logger.error(traceback.format_exc())
         return None
 
 
-def _is_cache_valid() -> bool:
-    """Check if the current cache is still within its TTL."""
-    if not _cache_name:
+def _is_cache_valid(genio_id: str) -> bool:
+    """Check if a genio's cache is still within its TTL."""
+    state = _get_state(genio_id)
+    if not state.cache_name:
         return False
-    elapsed = time.time() - _cache_created_at
+    elapsed = time.time() - state.cache_created_at
     ttl_seconds = CACHE_TTL_MINUTES * 60
-    return elapsed < (ttl_seconds * 0.98)  # 98% of TTL for safety margin
+    return elapsed < (ttl_seconds * 0.98)
 
 
-async def _refresh_cache_ttl(cache_name: str):
+async def _refresh_cache_ttl(genio_id: str, cache_name: str):
     """Background task to extend the TTL of an active cache."""
     try:
         from google.genai import types as gtypes
@@ -277,64 +313,61 @@ async def _refresh_cache_ttl(cache_name: str):
             name=cache_name,
             config=gtypes.UpdateCachedContentConfig(ttl=f"{ttl_seconds}s")
         )
-        logger.info(f"  Cache TTL refreshed: {cache_name}")
+        logger.info(f"  [{genio_id}] Cache TTL refreshed: {cache_name}")
     except Exception as e:
-        logger.error(f"  Failed to refresh cache TTL: {e}")
+        logger.error(f"  [{genio_id}] Failed to refresh cache TTL: {e}")
 
 
-async def get_or_create_cache() -> Optional[str]:
-    """Main entry point: get existing cache (local or remote) or create one.
+async def get_or_create_cache(genio_id: str = "amparo") -> Optional[str]:
+    """Main entry point: get existing cache or create one for a specific genio.
 
     Uses a 3-tier check:
     1. Local memory (Fastest)
     2. Gemini API Discovery (Multi-instance sync)
     3. New Creation (Last resort)
     """
-    global _cache_lock, _cache_name, _cache_created_at
+    if genio_id not in GENIO_CONFIGS:
+        logger.error(f"Unknown genio_id: {genio_id}")
+        return None
 
-    # 1. Tier: Local Valid Cache
-    if _is_cache_valid():
-        _cache_created_at = time.time()
-        asyncio.create_task(_refresh_cache_ttl(_cache_name))
-        return _cache_name
+    state = _get_state(genio_id)
 
-    # Ensure lock for creation/discovery
-    if _cache_lock is None:
-        _cache_lock = asyncio.Lock()
+    # Tier 1: Local Valid Cache
+    if _is_cache_valid(genio_id):
+        state.cache_created_at = time.time()
+        asyncio.create_task(_refresh_cache_ttl(genio_id, state.cache_name))
+        return state.cache_name
 
-    async with _cache_lock:
-        # Re-check local after lock
-        if _is_cache_valid():
-            return _cache_name
+    async with state.lock:
+        # Re-check after lock
+        if _is_cache_valid(genio_id):
+            return state.cache_name
 
-        # 2. Tier: Remote Discovery (For Render multi-instance support)
-        remote_cache = await _find_existing_cache_remote()
+        # Tier 2: Remote Discovery
+        remote_cache = await _find_existing_cache_remote(genio_id)
         if remote_cache:
-            _cache_name = remote_cache.name
-            # Si lo acabamos de encontrar, estimamos su creación como 'ahora' 
-            # para que _is_cache_valid() no lo mate de inmediato, 
-            # y dejamos que el refresh extienda su vida.
-            _cache_created_at = time.time()
-            asyncio.create_task(_refresh_cache_ttl(_cache_name))
-            logger.info(f"🔄 Adopted remote cache from another instance: {_cache_name}")
-            return _cache_name
+            state.cache_name = remote_cache.name
+            state.cache_created_at = time.time()
+            asyncio.create_task(_refresh_cache_ttl(genio_id, state.cache_name))
+            logger.info(f"🔄 [{genio_id}] Adopted remote cache: {state.cache_name}")
+            return state.cache_name
 
-        # 3. Tier: Create New
-        return await _create_cache()
+        # Tier 3: Create New
+        return await _create_cache(genio_id)
 
 
-def get_cache_name() -> Optional[str]:
-    """Get current active cache name (sync)."""
-    global _cache_created_at
-    if _is_cache_valid():
-        _cache_created_at = time.time()
-        return _cache_name
+def get_cache_name(genio_id: str = "amparo") -> Optional[str]:
+    """Get current active cache name for a genio (sync)."""
+    state = _get_state(genio_id)
+    if _is_cache_valid(genio_id):
+        state.cache_created_at = time.time()
+        return state.cache_name
     return None
 
 
-async def get_cache_name_async() -> Optional[str]:
-    """Get or create cache lazily (async)."""
-    return await get_or_create_cache()
+async def get_cache_name_async(genio_id: str = "amparo") -> Optional[str]:
+    """Get or create cache lazily for a genio (async)."""
+    return await get_or_create_cache(genio_id)
 
 
 def get_cache_model() -> str:
@@ -342,46 +375,61 @@ def get_cache_model() -> str:
     return CACHE_MODEL
 
 
-def get_cache_status() -> dict:
-    """Return cache status for diagnostics and the /genio/status endpoint."""
-    elapsed = time.time() - _cache_created_at if _cache_created_at else 0
-    ttl_seconds = CACHE_TTL_MINUTES * 60
+def get_cache_status(genio_id: str = None) -> dict:
+    """Return cache status for one or all genios."""
+    if genio_id:
+        return _get_single_status(genio_id)
+
+    # Return status for all genios
     return {
-        "cache_name": _cache_name,
+        gid: _get_single_status(gid) for gid in GENIO_CONFIGS
+    }
+
+
+def _get_single_status(genio_id: str) -> dict:
+    """Return status for a single genio."""
+    state = _get_state(genio_id)
+    config = GENIO_CONFIGS.get(genio_id, {})
+    elapsed = time.time() - state.cache_created_at if state.cache_created_at else 0
+    ttl_seconds = CACHE_TTL_MINUTES * 60
+    is_valid = _is_cache_valid(genio_id)
+    return {
+        "genio_id": genio_id,
+        "cache_name": state.cache_name,
         "cache_model": CACHE_MODEL,
-        "cache_available": _is_cache_valid(),
+        "cache_available": is_valid,
         "cache_age_minutes": round(elapsed / 60, 1) if elapsed else 0,
         "cache_ttl_minutes": CACHE_TTL_MINUTES,
         "cache_remaining_minutes": round(max(0, ttl_seconds - elapsed) / 60, 1) if elapsed else 0,
-        "corpus_dir": CACHE_CORPUS_DIR,
+        "corpus_dir": config.get("corpus_dir", ""),
         "strategy": "on-demand",
-        "est_hourly_cost": "$0.09" if _is_cache_valid() else "$0.00",
-        "last_error": _last_error,
+        "last_error": state.last_error,
         "daily_creates": f"{_daily_create_count}/{MAX_DAILY_CREATES}",
-        "max_tokens_limit": MAX_CACHE_TOKENS,
+        "max_tokens_limit": config.get("max_tokens", 0),
     }
 
 
 async def cleanup_on_startup():
-    """SAFETY LOCK #9: Called from app lifespan — ONLY deletes, NEVER creates.
-
-    Ensures server restarts don't leave orphan caches running at cost.
-    """
+    """SAFETY LOCK #9: Called from app lifespan — ONLY deletes, NEVER creates."""
     logger.info("Startup cleanup: checking for orphan caches...")
     await _cleanup_orphan_caches()
     logger.info("Startup cleanup complete — no cache created (on-demand only)")
 
 
-async def delete_all_caches():
-    """Emergency kill switch: delete ALL caches immediately and reset state."""
-    global _cache_name, _cache_created_at, _last_error
-    try:
+async def delete_all_caches(genio_id: str = None):
+    """Kill switch: delete caches for one genio or ALL genios, and reset state."""
+    if genio_id:
+        state = _get_state(genio_id)
+        await _cleanup_orphan_caches(genio_id)
+        state.cache_name = None
+        state.cache_created_at = 0
+        state.last_error = "Cache desactivado manualmente."
+        logger.info(f"✅ [{genio_id}] Cache deleted via kill switch.")
+    else:
         await _cleanup_orphan_caches()
-        logger.info("✅ All Gemini caches deleted via kill switch.")
-    except Exception as e:
-        logger.error(f"Error during manual cache deletion: {e}")
-    
-    # RESET TOTAL: Esto asegura que la siguiente consulta no intente usar un ID muerto
-    _cache_name = None
-    _cache_created_at = 0
-    _last_error = "Cache desactivado manualmente por el usuario."
+        for gid in list(_genio_states.keys()):
+            state = _genio_states[gid]
+            state.cache_name = None
+            state.cache_created_at = 0
+            state.last_error = "Cache desactivado manualmente."
+        logger.info("✅ ALL caches deleted via kill switch.")

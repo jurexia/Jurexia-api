@@ -2312,7 +2312,11 @@ class ChatRequest(BaseModel):
     )
     enable_genio_juridico: bool = Field(
         False, 
-        description="Si True, intenta usar Gemini Context Caching para precisión de 'Genio Jurídico'."
+        description="LEGACY: Si True, usa genio amparo. Prefer genio_id field."
+    )
+    genio_id: Optional[str] = Field(
+        None,
+        description="ID del genio a usar: 'amparo', 'mercantil'. Si None pero enable_genio_juridico=True, usa 'amparo'."
     )
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
     materia: Optional[str] = Field(None, description="Materia jurídica forzada (PENAL, CIVIL, FAMILIAR, etc.). Si None, auto-detecta por keywords.")
@@ -5506,10 +5510,10 @@ async def wake_endpoint():
 
 @app.get("/cache-status")
 async def cache_status():
-    """Gemini cache diagnostics — check if legal corpus cache is active."""
+    """Gemini cache diagnostics — check if legal corpus cache is active (all genios)."""
     try:
         from cache_manager import get_cache_status
-        return get_cache_status()
+        return get_cache_status()  # Returns all genios when no arg
     except Exception as e:
         return {"cache_available": False, "error": str(e)}
 
@@ -6806,14 +6810,19 @@ async def chat_endpoint(request: ChatRequest):
     # ─────────────────────────────────────────────────────────────────────
     # PARALLEL STEP 2: Launch Gemini Cache check in background (IF REQUESTED)
     # ─────────────────────────────────────────────────────────────────────
+    # Resolve genio_id: new field takes priority, fallback to legacy bool
+    _resolved_genio_id = request.genio_id
+    if not _resolved_genio_id and request.enable_genio_juridico:
+        _resolved_genio_id = "amparo"  # Legacy compatibility
+    
     async def _probe_cache():
-        if not request.enable_genio_juridico:
+        if not _resolved_genio_id:
             return None
         try:
             from cache_manager import get_cache_name_async
-            return await get_cache_name_async()
+            return await get_cache_name_async(_resolved_genio_id)
         except Exception as e:
-            print(f"   ⚠️ Cache allocation failed: {e}")
+            print(f"   ⚠️ Cache allocation failed ({_resolved_genio_id}): {e}")
             return None
     
     cache_task = asyncio.create_task(_probe_cache())
@@ -11998,12 +12007,18 @@ async def connect_health():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GENIO JURÍDICO — Cache Management Endpoints
+# GENIO JURÍDICO — Multi-Genio Cache Management Endpoints
 # ══════════════════════════════════════════════════════════════════════════════
 
+class GenioActivateRequest(BaseModel):
+    genio_id: str = Field("amparo", description="ID del genio: 'amparo' o 'mercantil'")
+
+class GenioKillRequest(BaseModel):
+    genio_id: Optional[str] = Field(None, description="ID del genio a matar. None = todos.")
+
 @app.post("/genio/activate")
-async def activate_genio():
-    """Pre-create the context cache when user clicks the Genio button.
+async def activate_genio(request: GenioActivateRequest = GenioActivateRequest()):
+    """Pre-create the context cache for a specific genio.
 
     Always returns the full status (including last_error) regardless of success/failure.
     Safe to call multiple times — SAFETY LOCKs prevent duplicate caches.
@@ -12011,19 +12026,21 @@ async def activate_genio():
     from cache_manager import get_or_create_cache, get_cache_status
 
     try:
-        cache_name = await get_or_create_cache()
-        status = get_cache_status()
+        cache_name = await get_or_create_cache(request.genio_id)
+        status = get_cache_status(request.genio_id)
         return {
             "success": cache_name is not None,
+            "genio_id": request.genio_id,
             "cache_name": cache_name,
             **status
         }
     except Exception as e:
         from cache_manager import get_cache_status
         import traceback
-        status = get_cache_status()
+        status = get_cache_status(request.genio_id)
         return {
             "success": False,
+            "genio_id": request.genio_id,
             "cache_name": None,
             "error": str(e),
             "traceback": traceback.format_exc(),
@@ -12033,39 +12050,37 @@ async def activate_genio():
 
 @app.get("/genio/status")
 async def genio_status():
-    """Return current cache status."""
+    """Return current cache status for all genios."""
     from cache_manager import get_cache_status
-    return get_cache_status()
+    return get_cache_status()  # No arg = all genios
 
 
 @app.post("/genio/kill")
-async def kill_genio():
-    """Emergency kill switch — deletes ALL caches immediately."""
+async def kill_genio(request: GenioKillRequest = GenioKillRequest()):
+    """Kill switch — delete cache for one genio or ALL genios."""
     from cache_manager import delete_all_caches
-    await delete_all_caches()
-    return {"success": True, "message": "All caches deleted"}
+    await delete_all_caches(request.genio_id)
+    msg = f"Cache '{request.genio_id}' deleted" if request.genio_id else "All caches deleted"
+    return {"success": True, "message": msg}
 
 
 @app.get("/genio/debug")
-async def debug_genio():
-    """Diagnostic endpoint — attempts cache creation and returns full error detail.
-
-    Use this when /genio/activate fails silently to see the exact error.
-    """
+async def debug_genio(genio_id: str = "amparo"):
+    """Diagnostic endpoint — attempts cache creation for a genio."""
     from cache_manager import _create_cache, get_cache_status
     import traceback as tb
 
-    result = {"attempted": True}
+    result = {"attempted": True, "genio_id": genio_id}
     try:
-        cache_name = await _create_cache()
-        status = get_cache_status()
+        cache_name = await _create_cache(genio_id)
+        status = get_cache_status(genio_id)
         result.update({
             "success": cache_name is not None,
             "cache_name": cache_name,
             **status,
         })
     except Exception as e:
-        status = get_cache_status()
+        status = get_cache_status(genio_id)
         result.update({
             "success": False,
             "error": str(e),
