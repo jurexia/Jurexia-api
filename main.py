@@ -45,6 +45,8 @@ import time
 from openai import AsyncOpenAI
 from supabase import create_client as supabase_create_client
 import httpx  # For Cohere Rerank API calls
+import hashlib  # For semantic cache keys
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -2350,6 +2352,60 @@ class ValidationResult(BaseModel):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SEMANTIC CACHE — Preguntas repetidas ($0 y <100ms de respuesta)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SemanticCache:
+    """
+    In-memory cache for chat responses keyed by normalized query + state + fuero.
+    Avoids calling DeepSeek/OpenAI/Cohere/Qdrant for repeated questions.
+    TTL: 1 hour. Max entries: 500.
+    """
+    def __init__(self, ttl_seconds: int = 3600, max_entries: int = 500):
+        self._cache: dict[str, tuple[str, float]] = {}  # key -> (response, timestamp)
+        self._ttl = ttl_seconds
+        self._max = max_entries
+
+    def _make_key(self, query: str, estado: str = "", fuero: str = "") -> str:
+        """Normalize and hash the query for cache lookup."""
+        normalized = query.strip().lower()[:500]  # Cap at 500 chars
+        raw = f"{normalized}|{estado.lower()}|{fuero.lower()}"
+        return hashlib.md5(raw.encode()).hexdigest()
+
+    def get(self, query: str, estado: str = "", fuero: str = "") -> Optional[str]:
+        """Return cached response or None if miss/expired."""
+        key = self._make_key(query, estado, fuero)
+        if key in self._cache:
+            response, ts = self._cache[key]
+            if time.time() - ts < self._ttl:
+                print(f"   ⚡ CACHE HIT — returning cached response (saved ~$0.01)")
+                return response
+            else:
+                del self._cache[key]  # Expired
+        return None
+
+    def put(self, query: str, response: str, estado: str = "", fuero: str = ""):
+        """Store a response in cache."""
+        if len(response) < 50:  # Don't cache very short/error responses
+            return
+        # Evict oldest if at capacity
+        if len(self._cache) >= self._max:
+            oldest_key = min(self._cache, key=lambda k: self._cache[k][1])
+            del self._cache[oldest_key]
+        key = self._make_key(query, estado, fuero)
+        self._cache[key] = (response, time.time())
+
+    def stats(self) -> dict:
+        """Return cache stats for /health endpoint."""
+        now = time.time()
+        valid = sum(1 for _, (_, ts) in self._cache.items() if now - ts < self._ttl)
+        return {"entries": len(self._cache), "valid": valid, "max": self._max, "ttl_seconds": self._ttl}
+
+# Global cache instance
+response_cache = SemanticCache()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CLIENTES GLOBALES (Lifecycle)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -3593,8 +3649,14 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     return filtered
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception_type(Exception),
+    before_sleep=lambda rs: print(f"   ⏳ Embedding retry #{rs.attempt_number} after error...")
+)
 async def get_dense_embedding(text: str) -> List[float]:
-    """Genera embedding denso usando OpenAI"""
+    """Genera embedding denso usando OpenAI (con reintentos automáticos)"""
     response = await openai_client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=text,
@@ -4527,20 +4589,30 @@ async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 2
             documents.append(doc_text)
         
         # Llamar Cohere Rerank API
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                "https://api.cohere.com/v2/rerank",
-                headers={
-                    "Authorization": f"Bearer {COHERE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": COHERE_RERANK_MODEL,
-                    "query": query,
-                    "documents": documents,
-                    "top_n": min(top_n, len(documents)),
-                },
-            )
+        # Retry loop for Cohere (handles 429 rate limits)
+        rerank_response = None
+        for _attempt in range(3):
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    "https://api.cohere.com/v2/rerank",
+                    headers={
+                        "Authorization": f"Bearer {COHERE_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": COHERE_RERANK_MODEL,
+                        "query": query,
+                        "documents": documents,
+                        "top_n": min(top_n, len(documents)),
+                    },
+                )
+            if response.status_code == 429:
+                import asyncio
+                wait_secs = min(2 ** _attempt, 8)
+                print(f"   ⏳ Cohere 429 rate limit — retrying in {wait_secs}s (attempt {_attempt+1}/3)")
+                await asyncio.sleep(wait_secs)
+                continue
+            break
             
             if response.status_code != 200:
                 print(f"   ⚠️ Cohere Rerank HTTP {response.status_code}: {response.text[:200]}")
