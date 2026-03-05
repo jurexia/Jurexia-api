@@ -1,0 +1,5 @@
+# Raw extraction files — kept locally for reference, not deployed
+*.pdf
+_raw_*.txt
+node_modules/
+package-lock.json
