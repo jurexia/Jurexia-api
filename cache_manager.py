@@ -9,6 +9,7 @@ Active Genios:
   - mercantil: ~277K tokens — CCom, LGTOC, LGSM, Ley Contrato de Seguro, LISF
   - civil:     ~432K tokens — Código Civil Federal, CNPCF
   - penal:     ~268K tokens — CPF, CNPP, Delinc.Org, Trata, Arts.18-23 CPEUM
+  - laboral:   ~390K tokens — LFT, LSS, LFTSE, INFONAVIT, Art.123 CPEUM
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -112,6 +113,28 @@ GENIO_CONFIGS = {
             "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
             "relevantes con su número exacto y la ley u ordenamiento de origen. "
             "Estructura tu respuesta indicando el Libro, Título y Capítulo correspondiente. "
+            "Nunca inventes contenido legal. "
+            "Si el artículo no está en tu contexto, dilo explícitamente."
+        ),
+    },
+    "laboral": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_LABORAL_DIR", "cache_corpus_laboral"),
+        "display_name": "iurexia-laboral-corpus-v1",
+        "max_tokens": 450_000,
+        "system_instruction": (
+            "Eres el Genio Laboral de Iurexia, un asistente jurídico de élite "
+            "especializado en derecho laboral mexicano. "
+            "Tienes acceso al texto íntegro de: Ley Federal del Trabajo (LFT), "
+            "Ley del Seguro Social (LSS), "
+            "Ley Federal de los Trabajadores al Servicio del Estado (LFTSE, "
+            "reglamentaria del Apartado B del Art. 123), "
+            "Ley del INFONAVIT, y el artículo 123 de la Constitución Política "
+            "de los Estados Unidos Mexicanos (CPEUM) con sus Apartados A y B. "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
+            "relevantes con su número exacto y la ley u ordenamiento de origen. "
+            "Distingue claramente entre relaciones laborales del Apartado A (sector privado) "
+            "y del Apartado B (sector público). "
+            "Estructura tu respuesta indicando el Título y Capítulo correspondiente. "
             "Nunca inventes contenido legal. "
             "Si el artículo no está en tu contexto, dilo explícitamente."
         ),
