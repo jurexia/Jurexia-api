@@ -9894,16 +9894,57 @@ async def redactor_v2_generate(
                             chunk_text += choice.delta.content
                             yield sse("text", {"chunk": choice.delta.content, "group": gi + 1})
 
-                            # ── REAL-TIME REPETITION DETECTION ──
-                            # Check every 500 chars if the last 200 chars repeat 3+ times
-                            if len(chunk_text) > 600 and len(chunk_text) % 500 < 10:
+                            # ── REAL-TIME DEGRADATION DETECTION ──
+                            # Check every 200 chars for various forms of gibberish
+                            if len(chunk_text) > 400 and len(chunk_text) % 200 < 15:
+
+                                # 1. Original: exact 200-char block repeats 3+ times
                                 last_200 = chunk_text[-200:]
-                                occurrences = chunk_text.count(last_200)
-                                if occurrences >= 3:
-                                    print(f"   🛑 LOOP DETECTED in grupo {gi+1}! "
-                                          f"'{last_200[:60]}...' repeated {occurrences}x — ABORTING")
+                                if chunk_text.count(last_200) >= 3:
+                                    print(f"   🛑 SUBSTRING LOOP in grupo {gi+1} — ABORTING")
                                     loop_detected = True
                                     break
+
+                                # 2. Word-level repetition: same word 8+ times in last 500 chars
+                                recent = chunk_text[-500:].lower().split()
+                                if recent:
+                                    from collections import Counter
+                                    word_counts = Counter(w for w in recent if len(w) > 3)
+                                    top_word, top_count = word_counts.most_common(1)[0] if word_counts else ("", 0)
+                                    if top_count >= 8:
+                                        print(f"   🛑 WORD LOOP in grupo {gi+1}! "
+                                              f"'{top_word}' repeated {top_count}x in last 500 chars — ABORTING")
+                                        loop_detected = True
+                                        break
+
+                                # 3. English/gibberish words in Spanish legal text
+                                gibberish_words = [
+                                    'grateful', 'chance', 'opportunity', 'amazing',
+                                    'wonderful', 'fantastic', 'awesome', 'beautiful',
+                                    'incredible', 'perfect', 'excellent', 'great',
+                                    'hello', 'world', 'thanks', 'please',
+                                ]
+                                recent_lower = chunk_text[-600:].lower()
+                                gibberish_count = sum(1 for gw in gibberish_words if gw in recent_lower)
+                                if gibberish_count >= 2:
+                                    print(f"   🛑 GIBBERISH DETECTED in grupo {gi+1}! "
+                                          f"({gibberish_count} non-legal words found) — ABORTING")
+                                    loop_detected = True
+                                    break
+
+                                # 4. Mixed-case corruption (more than 5 words with mixed case like "OPORtunidAd")
+                                recent_words = chunk_text[-400:].split()
+                                mixed_case = sum(1 for w in recent_words
+                                                 if len(w) > 4
+                                                 and any(c.isupper() for c in w[1:])
+                                                 and any(c.islower() for c in w[1:])
+                                                 and not w[0].isupper())
+                                if mixed_case >= 5:
+                                    print(f"   🛑 CASE CORRUPTION in grupo {gi+1}! "
+                                          f"({mixed_case} mixed-case words) — ABORTING")
+                                    loop_detected = True
+                                    break
+
                             # Hard limit: 300K chars per group max (safety net only)
                             if len(chunk_text) > 300_000:
                                 print(f"   🛑 MAX CHARS (300K) reached in grupo {gi+1} — ABORTING")
