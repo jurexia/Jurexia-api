@@ -9849,9 +9849,9 @@ async def redactor_v2_generate(
                                           f"'{last_200[:60]}...' repeated {occurrences}x — ABORTING")
                                     loop_detected = True
                                     break
-                            # Hard limit: 80K chars per group max
-                            if len(chunk_text) > 80_000:
-                                print(f"   🛑 MAX CHARS (80K) reached in grupo {gi+1} — ABORTING")
+                            # Hard limit: 300K chars per group max (safety net only)
+                            if len(chunk_text) > 300_000:
+                                print(f"   🛑 MAX CHARS (300K) reached in grupo {gi+1} — ABORTING")
                                 loop_detected = True
                                 break
 
