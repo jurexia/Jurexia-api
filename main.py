@@ -9435,7 +9435,14 @@ REDACTOR_V2_SYSTEM = (
     "• Si ya citaste una jurisprudencia o artículo, NO lo vuelvas a transcribir.\n"
     "• Cada sección del estudio de fondo debe avanzar el análisis, no reiterar lo ya dicho.\n"
     "• Si necesitas referirte a algo ya citado, usa una referencia breve (ej: 'conforme a la "
-    "jurisprudencia antes citada...')."
+    "jurisprudencia antes citada...').\n\n"
+
+    "═══ REGLA DE CIERRE OBLIGATORIO ═══\n"
+    "• TODO estudio de fondo DEBE terminar con una CONCLUSIÓN clara para cada agravio analizado.\n"
+    "• Después de analizar todos los agravios, DEBES incluir una sección de CONCLUSIÓN Y RESOLUTIVOS PROPUESTOS.\n"
+    "• La conclusión debe indicar: (a) si los agravios son fundados, infundados, inoperantes o parcialmente fundados, "
+    "(b) el sentido propuesto de la resolución, y (c) los puntos resolutivos concretos.\n"
+    "• NUNCA dejes un estudio de fondo sin su conclusión final y resolutivos. Es inaceptable."
 )
 
 
@@ -9912,6 +9919,65 @@ async def redactor_v2_generate(
                 print(f"   ✅ Grupo {gi+1}/{total_groups}: {len(group_text)} chars ({continuation} cont.)")
 
             full_text = "\n\n".join(all_sections)
+
+            # ── COMPLETION CHECK: ensure conclusion/resolutivos exist ──
+            conclusion_markers = [
+                'RESUELVE', 'resolutivo', 'Resolutivo', 'RESOLUTIVO',
+                'CONCLUSIÓN', 'Conclusión', 'conclusión',
+                'Por lo expuesto y fundado', 'por lo expuesto y fundado',
+                'se resuelve', 'SE RESUELVE',
+                'puntos resolutivos', 'PUNTOS RESOLUTIVOS',
+            ]
+            has_conclusion = any(marker in full_text for marker in conclusion_markers)
+
+            if not has_conclusion and len(full_text) > 500:
+                print(f"   ⚠️ No se detectó conclusión/resolutivos — solicitando cierre...")
+                yield sse("phase", {
+                    "step": "Generando conclusión y resolutivos...",
+                    "progress": 92,
+                    "group": total_groups,
+                    "total_groups": total_groups,
+                })
+
+                try:
+                    conclusion_messages = [
+                        {"role": "system", "content": REDACTOR_V2_SYSTEM},
+                        {"role": "user", "content": group_list[-1].get("prompt", prompt) if group_list else prompt},
+                        {"role": "assistant", "content": full_text[-4000:]},  # Last 4K chars as context
+                        {"role": "user", "content": (
+                            "El estudio de fondo anterior está incompleto. Falta la CONCLUSIÓN FINAL. "
+                            "Redacta ÚNICAMENTE lo siguiente:\n"
+                            "1. La calificación final de cada agravio (fundado/infundado/inoperante)\n"
+                            "2. El sentido de la resolución\n"
+                            "3. Los PUNTOS RESOLUTIVOS propuestos\n\n"
+                            "NO repitas el análisis ya hecho. Solo escribe la conclusión y resolutivos."
+                        )},
+                    ]
+
+                    conclusion_stream = await openai_client.chat.completions.create(
+                        model=ft_model,
+                        messages=conclusion_messages,
+                        max_tokens=4096,
+                        temperature=0.3,
+                        frequency_penalty=0.6,
+                        presence_penalty=0.3,
+                        stream=True,
+                    )
+
+                    conclusion_text = ""
+                    async for chunk in conclusion_stream:
+                        choice = chunk.choices[0]
+                        if choice.delta.content:
+                            conclusion_text += choice.delta.content
+                            yield sse("text", {"chunk": choice.delta.content, "group": total_groups})
+
+                    if conclusion_text:
+                        full_text += "\n\n" + conclusion_text
+                        total_api_calls += 1
+                        print(f"   ✅ Conclusión agregada: {len(conclusion_text)} chars")
+                except Exception as e:
+                    print(f"   ⚠️ Error generando conclusión: {e}")
+
             elapsed = time_module.time() - total_start
 
             yield sse("done", {
