@@ -85,11 +85,14 @@ REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-3-flash-pre
 REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-flash")  # Estudio de fondo + efectos
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
-# Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
-# DeepSeek V3 is ~65-75% cheaper for equivalent quality in Spanish legal text.
-# Switch in Render env vars without redeploy needed (restart service only).
+# Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini), "deepseek" (DeepSeek V3), or "claude" (Claude Sonnet)
+# Switch in Render env vars — restart service to apply.
 CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek (cost-optimized)
-print(f"   Chat Engine: {'🟢 DeepSeek V3 (cost-optimized)' if CHAT_ENGINE == 'deepseek' else '🔵 GPT-5 Mini (premium)'}")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+_engine_labels = {"deepseek": "🟢 DeepSeek V3 (cost-optimized)", "openai": "🔵 GPT-5 Mini (premium)", "claude": "🟣 Claude Sonnet (Anthropic)"}
+print(f"   Chat Engine: {_engine_labels.get(CHAT_ENGINE, f'⚠️ Unknown: {CHAT_ENGINE}')}")
+if ANTHROPIC_API_KEY:
+    print(f"   Anthropic: ✅ API key configured")
 
 # Cohere Rerank Configuration (cross-encoder for post-retrieval reranking)
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
@@ -7391,6 +7394,7 @@ async def chat_endpoint(request: ChatRequest):
 
         
         use_gemini = False
+        use_claude = False
         
         # ── TOKEN BUDGET GUARD ──
         # Cache = ~968K tokens. Gemini limit = 1,048,576 tokens.
@@ -7424,8 +7428,12 @@ async def chat_endpoint(request: ChatRequest):
             max_tokens = 25000  # Aumentado para mayor profundidad
             print(f"   🏗️ Chat + CACHE: {active_model} (corpus cached) | Potencia: MAX")
         else:
-            # Fallback: GPT-5 Mini or DeepSeek V3 (no cache available)
-            if CHAT_ENGINE == "deepseek" and deepseek_client:
+            # Fallback: Claude Sonnet, DeepSeek V3, or GPT-5 Mini (no cache available)
+            if CHAT_ENGINE == "claude" and ANTHROPIC_API_KEY:
+                use_claude = True
+                active_model = "claude-sonnet-4-20250514"
+                max_tokens = 16000
+            elif CHAT_ENGINE == "deepseek" and deepseek_client:
                 active_client = deepseek_client
                 active_model = DEEPSEEK_CHAT_MODEL
                 max_tokens = 25000 
@@ -7434,7 +7442,7 @@ async def chat_endpoint(request: ChatRequest):
                 active_model = CHAT_MODEL
                 max_tokens = 25000
         
-        print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
+        print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Claude: {'YES' if use_claude else 'NO'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
         async def generate_stream() -> AsyncGenerator[str, None]:
@@ -7595,6 +7603,36 @@ async def chat_endpoint(request: ChatRequest):
                     
                     print(f"   ✅ Gemini stream complete: {len(content_buffer)} chars content, {len(reasoning_buffer)} chars thinking")
                 
+                # ── CLAUDE/ANTHROPIC BRANCH: Anthropic API ────────────────
+                elif use_claude:
+                    import anthropic
+                    claude_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+                    
+                    # Convert messages to Claude format
+                    claude_system = ""
+                    claude_messages = []
+                    for msg in llm_messages:
+                        if msg["role"] == "system":
+                            claude_system += msg["content"] + "\n\n"
+                        elif msg["role"] in ("user", "assistant"):
+                            claude_messages.append({"role": msg["role"], "content": msg["content"]})
+                    
+                    print(f"   🟣 Claude stream starting: {active_model} | system={len(claude_system)} chars | messages={len(claude_messages)} msgs")
+                    
+                    async with claude_client.messages.stream(
+                        model=active_model,
+                        max_tokens=max_tokens,
+                        system=claude_system.strip(),
+                        messages=claude_messages,
+                        temperature=0.4,
+                    ) as stream:
+                        async for text in stream.text_stream:
+                            if text:
+                                content_buffer += text
+                                yield text
+                    
+                    print(f"   ✅ Claude stream complete: {len(content_buffer)} chars")
+
                 # ── OPENAI/DEEPSEEK BRANCH: Regular chat ─────────────────
                 else:
                     api_kwargs = {
