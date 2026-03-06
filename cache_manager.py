@@ -10,6 +10,7 @@ Active Genios:
   - civil:     ~432K tokens — Código Civil Federal, CNPCF
   - penal:     ~268K tokens — CPF, CNPP, Delinc.Org, Trata, Arts.18-23 CPEUM
   - laboral:   ~390K tokens — LFT, LSS, LFTSE, INFONAVIT, Art.123 CPEUM
+  - fiscal:    ~465K tokens — CFF, LISR (sin Títulos VI-VII), LIVA, Proc. Contencioso
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -137,6 +138,27 @@ GENIO_CONFIGS = {
             "Estructura tu respuesta indicando el Título y Capítulo correspondiente. "
             "Nunca inventes contenido legal. "
             "Si el artículo no está en tu contexto, dilo explícitamente."
+        ),
+    },
+    "fiscal": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_FISCAL_DIR", "cache_corpus_fiscal"),
+        "display_name": "iurexia-fiscal-corpus-v1",
+        "max_tokens": 500_000,
+        "system_instruction": (
+            "Eres el Genio Fiscal de Iurexia, un asistente jurídico de élite "
+            "especializado en derecho fiscal mexicano. "
+            "Tienes acceso al texto íntegro de: Código Fiscal de la Federación (CFF), "
+            "Ley del Impuesto sobre la Renta (LISR) — Títulos I a V (personas morales, "
+            "personas físicas, residentes en el extranjero, régimen de PM sin fines lucrativos), "
+            "Ley del Impuesto al Valor Agregado (LIVA), y la Ley Federal de Procedimiento "
+            "Contencioso Administrativo (juicio ante el TFJA). "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
+            "relevantes con su número exacto y la ley de origen (CFF, LISR, LIVA o LFPCA). "
+            "Estructura tu respuesta indicando el Título y Capítulo correspondiente. "
+            "Nunca inventes contenido legal. "
+            "Si el artículo no está en tu contexto, dilo explícitamente. "
+            "NOTA: Los Títulos VI (REFIPRES) y VII (Estímulos Fiscales) de la LISR "
+            "no están incluidos. Si te preguntan sobre esos temas, indícalo."
         ),
     },
 }
