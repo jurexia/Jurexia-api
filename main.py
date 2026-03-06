@@ -81,7 +81,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 # Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "models/gemini-3-flash-preview")  # Gemini 3 Flash — frontier intelligence
-REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-2.5-flash")  # PDF OCR
+REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-3-flash-preview")  # PDF OCR — Gemini 3 Flash for scanned docs
 REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-flash")  # Estudio de fondo + efectos
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
