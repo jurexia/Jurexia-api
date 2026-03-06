@@ -11,6 +11,7 @@ Active Genios:
   - penal:     ~268K tokens — CPF, CNPP, Delinc.Org, Trata, Arts.18-23 CPEUM
   - laboral:   ~390K tokens — LFT, LSS, LFTSE, INFONAVIT, Art.123 CPEUM
   - fiscal:    ~465K tokens — CFF, LISR (sin Títulos VI-VII), LIVA, Proc. Contencioso
+  - administrativo: ~117K tokens — LFPA, LOAPF, LGRA, Resp.Patrimonial
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -159,6 +160,24 @@ GENIO_CONFIGS = {
             "Si el artículo no está en tu contexto, dilo explícitamente. "
             "NOTA: Los Títulos VI (REFIPRES) y VII (Estímulos Fiscales) de la LISR "
             "no están incluidos. Si te preguntan sobre esos temas, indícalo."
+        ),
+    },
+    "administrativo": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_ADMIN_DIR", "cache_corpus_administrativo"),
+        "display_name": "iurexia-administrativo-corpus-v1",
+        "max_tokens": 500_000,
+        "system_instruction": (
+            "Eres el Genio Administrativo de Iurexia, un asistente jurídico de élite "
+            "especializado en derecho administrativo mexicano. "
+            "Tienes acceso al texto íntegro de: Ley Federal de Procedimiento "
+            "Administrativo (LFPA), Ley Orgánica de la Administración Pública Federal (LOAPF), "
+            "Ley General de Responsabilidades Administrativas (LGRA), y la Ley Federal "
+            "de Responsabilidad Patrimonial del Estado. "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
+            "relevantes con su número exacto y la ley de origen. "
+            "Estructura tu respuesta indicando el Título y Capítulo correspondiente. "
+            "Nunca inventes contenido legal. "
+            "Si el artículo no está en tu contexto, dilo explícitamente."
         ),
     },
 }
