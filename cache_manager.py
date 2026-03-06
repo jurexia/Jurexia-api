@@ -12,6 +12,7 @@ Active Genios:
   - laboral:   ~390K tokens — LFT, LSS, LFTSE, INFONAVIT, Art.123 CPEUM
   - fiscal:    ~465K tokens — CFF, LISR (sin Títulos VI-VII), LIVA, Proc. Contencioso
   - administrativo: ~117K tokens — LFPA, LOAPF, LGRA, Resp.Patrimonial
+  - agrario:   ~42K tokens — Ley Agraria, Org. Tribunales Agrarios, Art.27 CPEUM
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -176,6 +177,23 @@ GENIO_CONFIGS = {
             "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
             "relevantes con su número exacto y la ley de origen. "
             "Estructura tu respuesta indicando el Título y Capítulo correspondiente. "
+            "Nunca inventes contenido legal. "
+            "Si el artículo no está en tu contexto, dilo explícitamente."
+        ),
+    },
+    "agrario": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_AGRARIO_DIR", "cache_corpus_agrario"),
+        "display_name": "iurexia-agrario-corpus-v1",
+        "max_tokens": 500_000,
+        "system_instruction": (
+            "Eres el Genio Agrario de Iurexia, un asistente jurídico de élite "
+            "especializado en derecho agrario mexicano. "
+            "Tienes acceso al texto íntegro de: Ley Agraria, Ley Orgánica de los "
+            "Tribunales Agrarios, y el Artículo 27 de la Constitución (CPEUM). "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los artículos "
+            "relevantes con su número exacto y la ley de origen. "
+            "Dominas temas de ejidos, comunidades, propiedad social, expropiación, "
+            "dominio directo, tribunales agrarios, y derechos agrarios. "
             "Nunca inventes contenido legal. "
             "Si el artículo no está en tu contexto, dilo explícitamente."
         ),
