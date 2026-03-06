@@ -9802,13 +9802,6 @@ async def redactor_v2_generate(
     if not _can_access_sentencia(user_email):
         raise HTTPException(403, "Acceso restringido")
 
-    ft_model = REDACTOR_FT_MODEL
-    if not ft_model:
-        raise HTTPException(500,
-            "Modelo fine-tuneado no configurado. "
-            "Set REDACTOR_FT_MODEL env var con el ID del modelo."
-        )
-
     if not OPENAI_API_KEY:
         raise HTTPException(500, "OPENAI_API_KEY no configurada")
 
@@ -9830,7 +9823,7 @@ async def redactor_v2_generate(
     total_groups = len(group_list)
 
     print(f"\n✨ REDACTOR v2 GENERATE — {tipo} — {user_email}")
-    print(f"   {total_groups} grupos | Model: {ft_model}")
+    print(f"   {total_groups} grupos | Pipeline: gpt-4o (prompt) → Gemini 2.5 Pro (writer)")
 
     async def generate_sse():
         def sse(event_type: str, data: dict) -> str:
@@ -9856,6 +9849,59 @@ async def redactor_v2_generate(
                 else:
                     progress_label = f"Redactando: {group_title}"
 
+                # ═══════════════════════════════════════════════════════
+                # STEP 1: OpenAI gpt-4o crafts an optimal legal prompt
+                # ═══════════════════════════════════════════════════════
+                yield sse("phase", {
+                    "step": f"🧠 Preparando instrucciones para resolución: {group_title}",
+                    "progress": int(10 + (gi / total_groups) * 20),
+                    "group": gi + 1,
+                    "total_groups": total_groups,
+                })
+
+                prompt_engineer_system = (
+                    "Eres un experto en ingeniería de prompts legales. Tu trabajo es leer el caso "
+                    "jurídico que te proporciona el usuario (incluidos los agravios, el marco normativo "
+                    "del Genio Jurídico, y las jurisprudencias/tesis del RAG) y generar un PROMPT DETALLADO "
+                    "y preciso que instruya a un modelo de IA para redactar un estudio de fondo de sentencia "
+                    "de altísima calidad.\n\n"
+                    "Tu prompt debe incluir:\n"
+                    "1. CONTEXTO DEL CASO: datos del expediente, partes, tipo de recurso\n"
+                    "2. AGRAVIOS A ANALIZAR: cada agravio sintetizado con su problema jurídico\n"
+                    "3. MARCO NORMATIVO: los artículos específicos que el modelo DEBE usar (copiados textualmente del input)\n"
+                    "4. JURISPRUDENCIA APLICABLE: las tesis y jurisprudencias que DEBE citar (copiadas textualmente del input)\n"
+                    "5. ESTRUCTURA REQUERIDA: la estructura exacta del estudio de fondo\n"
+                    "6. RESTRICCIONES: cero alucinaciones, solo fuentes proporcionadas, prosa judicial formal\n"
+                    "7. CIERRE: exigir conclusión y resolutivos propuestos\n\n"
+                    "IMPORTANTE:\n"
+                    "- Copia TEXTUALMENTE todos los artículos de ley, registros de tesis y jurisprudencia "
+                    "del input original. NO los resumas ni parafrasees.\n"
+                    "- El prompt debe ser autocontenido — el modelo que lo reciba NO tendrá acceso al caso original.\n"
+                    "- Organiza las fuentes por problema jurídico para facilitar el análisis.\n"
+                    "- Indica el sentido sugerido de resolución si está disponible en los datos.\n"
+                    "- Escribe el prompt en español jurídico formal.\n"
+                    "- NO generes la sentencia tú mismo. Solo genera el prompt/instrucciones."
+                )
+
+                print(f"   🧠 Paso 1: OpenAI gpt-4o generando prompt optimizado para grupo {gi+1}...")
+                total_api_calls += 1
+
+                prompt_response = await openai_client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": prompt_engineer_system},
+                        {"role": "user", "content": group_prompt},
+                    ],
+                    max_tokens=8192,
+                    temperature=0.2,
+                )
+
+                crafted_prompt = prompt_response.choices[0].message.content
+                print(f"   📝 Prompt optimizado: {len(crafted_prompt)} chars")
+
+                # ═══════════════════════════════════════════════════════
+                # STEP 2: Gemini 3.1 Pro generates the sentencia (streaming)
+                # ═══════════════════════════════════════════════════════
                 yield sse("phase", {
                     "step": progress_label,
                     "progress": int(20 + (gi / total_groups) * 70),
@@ -9863,156 +9909,104 @@ async def redactor_v2_generate(
                     "total_groups": total_groups,
                 })
 
-                # Generate this group (with continuation if truncated)
+                print(f"   ✍️ Paso 2: Gemini generando estudio de fondo (streaming)...")
+                total_api_calls += 1
+
+                gemini_system = (
+                    "Eres un redactor judicial de élite de un Tribunal Colegiado de Circuito mexicano. "
+                    "Tu función es redactar ÚNICAMENTE el estudio de fondo de sentencias.\n\n"
+                    "REGLAS ABSOLUTAS:\n"
+                    "1. CERO ALUCINACIONES: Solo cita artículos, tesis y jurisprudencias que estén "
+                    "TEXTUALMENTE en el prompt. JAMÁS inventes fuentes.\n"
+                    "2. Si necesitas un fundamento que NO te fue proporcionado, escribe: "
+                    "'[NOTA: Verificar fundamentación adicional sobre (tema)]'.\n"
+                    "3. NUNCA repitas el mismo párrafo, cita o razonamiento dos veces.\n"
+                    "4. Redacta con prosa jurídica formal de alto nivel.\n"
+                    "5. TODO estudio DEBE terminar con CONCLUSIÓN Y RESOLUTIVOS PROPUESTOS.\n"
+                    "6. Estructura por agravio: síntesis → marco normativo → jurisprudencia → análisis → conclusión.\n"
+                    "7. Siempre incluye calificación de cada agravio (fundado/infundado/inoperante) "
+                    "y sentido de la resolución."
+                )
+
+                client = get_gemini_client()
+                from google.genai import types as gtypes
+
+                gemini_config = gtypes.GenerateContentConfig(
+                    system_instruction=gemini_system,
+                    temperature=0.3,
+                    max_output_tokens=65536,  # Maximum output tokens for thorough analysis
+                )
+
+                # Stream generation from Gemini
                 group_text = ""
-                messages = [
-                    {"role": "system", "content": REDACTOR_V2_SYSTEM},
-                    {"role": "user", "content": group_prompt},
-                ]
-                max_continuations = 3
-                continuation = 0
+                loop_detected = False
 
-                while continuation <= max_continuations:
-                    total_api_calls += 1
-                    finish_reason = None
+                gemini_stream = await client.aio.models.generate_content_stream(
+                    model="gemini-2.5-pro",
+                    contents=crafted_prompt,
+                    config=gemini_config,
+                )
 
-                    stream = await openai_client.chat.completions.create(
-                        model=ft_model,
-                        messages=messages,
-                        max_tokens=16384,
-                        temperature=0.3,
-                        frequency_penalty=0.6,   # ANTI-LOOP: penalize repeated tokens
-                        presence_penalty=0.3,     # ANTI-LOOP: encourage new topics
-                        stream=True,
-                    )
+                async for chunk in gemini_stream:
+                    if chunk.text:
+                        group_text += chunk.text
+                        yield sse("text", {"chunk": chunk.text, "group": gi + 1})
 
-                    chunk_text = ""
-                    loop_detected = False
-                    async for chunk in stream:
-                        choice = chunk.choices[0]
-                        if choice.delta.content:
-                            chunk_text += choice.delta.content
-                            yield sse("text", {"chunk": choice.delta.content, "group": gi + 1})
-
-                            # ── REAL-TIME DEGRADATION DETECTION ──
-                            # Check every 200 chars for various forms of gibberish
-                            if len(chunk_text) > 400 and len(chunk_text) % 200 < 15:
-
-                                # 1. Original: exact 200-char block repeats 3+ times
-                                last_200 = chunk_text[-200:]
-                                if chunk_text.count(last_200) >= 3:
-                                    print(f"   🛑 SUBSTRING LOOP in grupo {gi+1} — ABORTING")
-                                    loop_detected = True
-                                    break
-
-                                # 2. Word-level repetition: same word 8+ times in last 500 chars
-                                recent = chunk_text[-500:].lower().split()
-                                if recent:
-                                    from collections import Counter
-                                    word_counts = Counter(w for w in recent if len(w) > 3)
-                                    top_word, top_count = word_counts.most_common(1)[0] if word_counts else ("", 0)
-                                    if top_count >= 8:
-                                        print(f"   🛑 WORD LOOP in grupo {gi+1}! "
-                                              f"'{top_word}' repeated {top_count}x in last 500 chars — ABORTING")
-                                        loop_detected = True
-                                        break
-
-                                # 3. English/gibberish words in Spanish legal text
-                                gibberish_words = [
-                                    'grateful', 'chance', 'opportunity', 'amazing',
-                                    'wonderful', 'fantastic', 'awesome', 'beautiful',
-                                    'incredible', 'perfect', 'excellent', 'great',
-                                    'hello', 'world', 'thanks', 'please',
-                                ]
-                                recent_lower = chunk_text[-600:].lower()
-                                gibberish_count = sum(1 for gw in gibberish_words if gw in recent_lower)
-                                if gibberish_count >= 2:
-                                    print(f"   🛑 GIBBERISH DETECTED in grupo {gi+1}! "
-                                          f"({gibberish_count} non-legal words found) — ABORTING")
-                                    loop_detected = True
-                                    break
-
-                                # 4. Mixed-case corruption (more than 5 words with mixed case like "OPORtunidAd")
-                                recent_words = chunk_text[-400:].split()
-                                mixed_case = sum(1 for w in recent_words
-                                                 if len(w) > 4
-                                                 and any(c.isupper() for c in w[1:])
-                                                 and any(c.islower() for c in w[1:])
-                                                 and not w[0].isupper())
-                                if mixed_case >= 5:
-                                    print(f"   🛑 CASE CORRUPTION in grupo {gi+1}! "
-                                          f"({mixed_case} mixed-case words) — ABORTING")
-                                    loop_detected = True
-                                    break
-
-                            # Hard limit: 300K chars per group max (safety net only)
-                            if len(chunk_text) > 300_000:
-                                print(f"   🛑 MAX CHARS (300K) reached in grupo {gi+1} — ABORTING")
+                        # ── REAL-TIME DEGRADATION DETECTION ──
+                        if len(group_text) > 400 and len(group_text) % 200 < 15:
+                            # 1. Exact 200-char block repeats
+                            last_200 = group_text[-200:]
+                            if group_text.count(last_200) >= 3:
+                                print(f"   🛑 SUBSTRING LOOP in grupo {gi+1} — ABORTING")
                                 loop_detected = True
                                 break
 
-                        if choice.finish_reason:
-                            finish_reason = choice.finish_reason
+                            # 2. Word-level repetition
+                            recent = group_text[-500:].lower().split()
+                            if recent:
+                                from collections import Counter
+                                word_counts = Counter(w for w in recent if len(w) > 3)
+                                top_word, top_count = word_counts.most_common(1)[0] if word_counts else ("", 0)
+                                if top_count >= 8:
+                                    print(f"   🛑 WORD LOOP in grupo {gi+1}! '{top_word}' {top_count}x — ABORTING")
+                                    loop_detected = True
+                                    break
 
-                    # If loop detected, truncate at last good paragraph and stop
-                    if loop_detected:
-                        # Find the last complete paragraph before the repetition started
-                        paragraphs = chunk_text.split("\n\n")
-                        seen_paragraphs = set()
-                        clean_paragraphs = []
-                        for p in paragraphs:
-                            p_stripped = p.strip()
-                            if len(p_stripped) < 20:
-                                clean_paragraphs.append(p)
-                                continue
-                            # Use first 150 chars as fingerprint
-                            fingerprint = p_stripped[:150]
-                            if fingerprint in seen_paragraphs:
-                                break  # Stop at first repeated paragraph
-                            seen_paragraphs.add(fingerprint)
+                        # Hard limit safety net
+                        if len(group_text) > 300_000:
+                            print(f"   🛑 MAX CHARS (300K) reached in grupo {gi+1} — ABORTING")
+                            loop_detected = True
+                            break
+
+                # If loop detected, truncate at last good paragraph
+                if loop_detected:
+                    paragraphs = group_text.split("\n\n")
+                    seen_paragraphs = set()
+                    clean_paragraphs = []
+                    for p in paragraphs:
+                        p_stripped = p.strip()
+                        if len(p_stripped) < 20:
                             clean_paragraphs.append(p)
-                        group_text += "\n\n".join(clean_paragraphs)
-                        yield sse("phase", {
-                            "step": f"⚠️ Repetición detectada — texto limpiado automáticamente",
-                            "progress": int(20 + ((gi + 1) / total_groups) * 70),
-                            "group": gi + 1,
-                            "total_groups": total_groups,
-                        })
-                        break
-
-                    group_text += chunk_text
-
-                    # Check if we were cut off
-                    if finish_reason == "length" and continuation < max_continuations:
-                        # Extra safety: check if the group text itself already has repetition
-                        if len(group_text) > 2000:
-                            last_block = group_text[-300:]
-                            if group_text[:-300].count(last_block[:150]) >= 2:
-                                print(f"   🛑 LOOP in accumulated text grupo {gi+1} — stopping continuations")
-                                break
-                        continuation += 1
-                        print(f"   ⚠️ Grupo {gi+1} truncado, continuación {continuation}...")
-                        yield sse("phase", {
-                            "step": f"Continuando {progress_label} (parte {continuation + 1})...",
-                            "progress": int(20 + (gi / total_groups) * 70) + 5,
-                            "group": gi + 1,
-                            "total_groups": total_groups,
-                        })
-                        messages = [
-                            {"role": "system", "content": REDACTOR_V2_SYSTEM},
-                            {"role": "user", "content": group_prompt},
-                            {"role": "assistant", "content": group_text},
-                            {"role": "user", "content": "El texto anterior fue cortado. Continúa exactamente donde te quedaste, sin repetir lo ya escrito. NO repitas ninguna jurisprudencia, tesis o párrafo que ya hayas incluido."},
-                        ]
-                    else:
-                        break
+                            continue
+                        fingerprint = p_stripped[:150]
+                        if fingerprint in seen_paragraphs:
+                            break
+                        seen_paragraphs.add(fingerprint)
+                        clean_paragraphs.append(p)
+                    group_text = "\n\n".join(clean_paragraphs)
+                    yield sse("phase", {
+                        "step": f"⚠️ Texto limpiado automáticamente",
+                        "progress": int(20 + ((gi + 1) / total_groups) * 70),
+                        "group": gi + 1,
+                        "total_groups": total_groups,
+                    })
 
                 all_sections.append(group_text)
 
                 if gi < total_groups - 1:
                     yield sse("text", {"chunk": "\n\n", "group": gi + 1})
 
-                print(f"   ✅ Grupo {gi+1}/{total_groups}: {len(group_text)} chars ({continuation} cont.)")
+                print(f"   ✅ Grupo {gi+1}/{total_groups}: {len(group_text)} chars")
 
             full_text = "\n\n".join(all_sections)
 
@@ -10027,7 +10021,7 @@ async def redactor_v2_generate(
             has_conclusion = any(marker in full_text for marker in conclusion_markers)
 
             if not has_conclusion and len(full_text) > 500:
-                print(f"   ⚠️ No se detectó conclusión/resolutivos — solicitando cierre...")
+                print(f"   ⚠️ No se detectó conclusión/resolutivos — solicitando cierre con Gemini...")
                 yield sse("phase", {
                     "step": "Generando conclusión y resolutivos...",
                     "progress": 92,
@@ -10036,50 +10030,48 @@ async def redactor_v2_generate(
                 })
 
                 try:
-                    conclusion_messages = [
-                        {"role": "system", "content": REDACTOR_V2_SYSTEM},
-                        {"role": "user", "content": group_list[-1].get("prompt", prompt) if group_list else prompt},
-                        {"role": "assistant", "content": full_text[-4000:]},  # Last 4K chars as context
-                        {"role": "user", "content": (
-                            "El estudio de fondo anterior está incompleto. Falta la CONCLUSIÓN FINAL. "
-                            "Redacta ÚNICAMENTE lo siguiente:\n"
-                            "1. La calificación final de cada agravio (fundado/infundado/inoperante)\n"
-                            "2. El sentido de la resolución\n"
-                            "3. Los PUNTOS RESOLUTIVOS propuestos\n\n"
-                            "NO repitas el análisis ya hecho. Solo escribe la conclusión y resolutivos."
-                        )},
-                    ]
+                    conclusion_prompt = (
+                        "El siguiente es un estudio de fondo de sentencia que está INCOMPLETO — "
+                        "falta la CONCLUSIÓN FINAL. Redacta ÚNICAMENTE:\n"
+                        "1. La calificación final de cada agravio (fundado/infundado/inoperante)\n"
+                        "2. El sentido de la resolución\n"
+                        "3. Los PUNTOS RESOLUTIVOS propuestos\n\n"
+                        "NO repitas el análisis ya hecho. Solo escribe la conclusión y resolutivos.\n\n"
+                        f"ESTUDIO DE FONDO (últimos 4000 caracteres):\n{full_text[-4000:]}"
+                    )
 
-                    conclusion_stream = await openai_client.chat.completions.create(
-                        model=ft_model,
-                        messages=conclusion_messages,
-                        max_tokens=4096,
+                    conclusion_config = gtypes.GenerateContentConfig(
+                        system_instruction=gemini_system,
                         temperature=0.3,
-                        frequency_penalty=0.6,
-                        presence_penalty=0.3,
-                        stream=True,
+                        max_output_tokens=4096,
+                    )
+
+                    conclusion_stream = await client.aio.models.generate_content_stream(
+                        model="gemini-2.5-pro",
+                        contents=conclusion_prompt,
+                        config=conclusion_config,
                     )
 
                     conclusion_text = ""
                     async for chunk in conclusion_stream:
-                        choice = chunk.choices[0]
-                        if choice.delta.content:
-                            conclusion_text += choice.delta.content
-                            yield sse("text", {"chunk": choice.delta.content, "group": total_groups})
+                        if chunk.text:
+                            conclusion_text += chunk.text
+                            yield sse("text", {"chunk": chunk.text, "group": total_groups})
 
-                    if conclusion_text:
+                    if conclusion_text.strip():
                         full_text += "\n\n" + conclusion_text
                         total_api_calls += 1
-                        print(f"   ✅ Conclusión agregada: {len(conclusion_text)} chars")
+                        print(f"   ✅ Conclusión añadida: {len(conclusion_text)} chars")
+
                 except Exception as e:
-                    print(f"   ⚠️ Error generando conclusión: {e}")
+                    print(f"   ❌ Error generando conclusión: {e}")
 
             elapsed = time_module.time() - total_start
 
             yield sse("done", {
                 "total_chars": len(full_text),
                 "elapsed": round(elapsed, 1),
-                "model": ft_model,
+                "model": "gpt-4o → gemini-2.5-pro",
                 "groups_completed": total_groups,
                 "api_calls": total_api_calls,
             })
