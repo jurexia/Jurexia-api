@@ -10539,6 +10539,71 @@ async def export_sentencia_docx(req: ExportSentenciaRequest):
 
     # ── Write sentencia body ─────────────────────────────────────────────
     # Split text into paragraphs and write each one
+    # Legal formatting: body = Arial 14, 1.5 spacing, justified
+    # Articles/jurisprudencia = Arial 12, 1.0 spacing, indented (sangría)
+    from docx.shared import Cm
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    def _set_line_spacing(paragraph, spacing_value, spacing_rule="auto"):
+        """Set exact line spacing for a paragraph."""
+        pPr = paragraph._element.get_or_add_pPr()
+        spacing_elem = pPr.find(qn('w:spacing'))
+        if spacing_elem is None:
+            spacing_elem = OxmlElement('w:spacing')
+            pPr.append(spacing_elem)
+        # spacing_value in twips for "exact" or multiplied for "auto"
+        if spacing_rule == "auto":
+            spacing_elem.set(qn('w:line'), str(int(spacing_value * 240)))
+            spacing_elem.set(qn('w:lineRule'), 'auto')
+        else:
+            spacing_elem.set(qn('w:line'), str(int(spacing_value)))
+            spacing_elem.set(qn('w:lineRule'), 'exact')
+
+    def _set_paragraph_spacing(paragraph, before_pt=0, after_pt=6):
+        """Set before/after paragraph spacing in pt."""
+        pPr = paragraph._element.get_or_add_pPr()
+        spacing_elem = pPr.find(qn('w:spacing'))
+        if spacing_elem is None:
+            spacing_elem = OxmlElement('w:spacing')
+            pPr.append(spacing_elem)
+        if before_pt:
+            spacing_elem.set(qn('w:before'), str(int(before_pt * 20)))
+        if after_pt:
+            spacing_elem.set(qn('w:after'), str(int(after_pt * 20)))
+
+    def _is_legal_citation(line_text: str) -> bool:
+        """Detect if a line is an article or jurisprudencia citation."""
+        lt = line_text.strip()
+        citation_markers = [
+            'Artículo ', 'artículo ', 'ARTÍCULO ', 'Art. ', 'art. ',
+            'Jurisprudencia', 'JURISPRUDENCIA', 'jurisprudencia',
+            'Tesis:', 'TESIS:', 'tesis:',
+            'Tesis aislada', 'TESIS AISLADA',
+            'Registro digital:', 'Registro Digital:',
+            'Registro No.', 'Registro no.',
+            'Semanario Judicial', 'SEMANARIO JUDICIAL',
+            'Gaceta del Semanario',
+            'Novena Época', 'Décima Época', 'Undécima Época',
+            'NOVENA ÉPOCA', 'DÉCIMA ÉPOCA', 'UNDÉCIMA ÉPOCA',
+            'Época:', 'Fuente:',
+            'Instancia:', 'Materia(s):',
+            'Rubro:', 'Texto:',
+        ]
+        if any(lt.startswith(m) for m in citation_markers):
+            return True
+        # Lines that are ALL CAPS and contain legal keywords
+        if lt.isupper() and len(lt) > 30 and any(
+            w in lt for w in ['CONSTITUCIÓN', 'LEY', 'AMPARO', 'CÓDIGO', 'REGLAMENT']
+        ):
+            return True
+        # Quoted text (starts and ends with ")
+        if lt.startswith('"') and len(lt) > 50:
+            return True
+        if lt.startswith('"') and len(lt) > 50:
+            return True
+        return False
+
     body_lines = req.sentencia_text.split("\n")
     for line in body_lines:
         para = doc.add_paragraph()
@@ -10546,11 +10611,16 @@ async def export_sentencia_docx(req: ExportSentenciaRequest):
         clean_line = line.strip()
 
         if not clean_line:
-            # Empty paragraph
+            # Empty paragraph — small spacing
             run = para.add_run("")
             run.font.name = "Arial"
             run.font.size = Pt(14)
+            _set_line_spacing(para, 1.5)
+            _set_paragraph_spacing(para, before_pt=0, after_pt=3)
         else:
+            # Detect if this is a legal citation (article/jurisprudencia)
+            is_citation = _is_legal_citation(clean_line)
+
             # Check if this line should be bold (headers, section titles)
             is_header = (
                 clean_line.startswith("#")
@@ -10577,6 +10647,21 @@ async def export_sentencia_docx(req: ExportSentenciaRequest):
             # Remove markdown # headers
             display_text = clean_line.lstrip("# ").strip() if clean_line.startswith("#") else clean_line
 
+            # Set formatting based on type
+            if is_citation and not is_header:
+                # ── CITATION FORMAT: Arial 12, 1.0 spacing, sangría ──
+                _set_line_spacing(para, 1.0)
+                _set_paragraph_spacing(para, before_pt=3, after_pt=3)
+                # Sangría (indentation): left + right indent
+                para.paragraph_format.left_indent = Cm(1.0)
+                para.paragraph_format.right_indent = Cm(1.0)
+                font_size = Pt(12)
+            else:
+                # ── BODY FORMAT: Arial 14, 1.5 spacing ──
+                _set_line_spacing(para, 1.5)
+                _set_paragraph_spacing(para, before_pt=0, after_pt=6)
+                font_size = Pt(14)
+
             # Handle **bold** markdown within text
             import re
             bold_pattern = re.compile(r'\*\*(.*?)\*\*')
@@ -10588,13 +10673,13 @@ async def export_sentencia_docx(req: ExportSentenciaRequest):
                     if part:
                         run = para.add_run(part)
                         run.font.name = "Arial"
-                        run.font.size = Pt(14)
+                        run.font.size = font_size
                         # Odd indices are the bold parts (inside **)
                         run.bold = (idx % 2 == 1) or is_header
             else:
                 run = para.add_run(display_text)
                 run.font.name = "Arial"
-                run.font.size = Pt(14)
+                run.font.size = font_size
                 run.bold = is_header
 
     # ── Save to buffer ───────────────────────────────────────────────────
