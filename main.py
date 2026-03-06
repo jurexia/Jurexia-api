@@ -9496,10 +9496,19 @@ async def redactor_v2_analyze(
     # Build problemas jurídicos from extracted agravios
     problemas = []
     for i, agravio in enumerate(extracted_data.get("agravios_conceptos", [])):
+        titulo = agravio.get("titulo", f"Problema {i + 1}")
+        sintesis = agravio.get("sintesis", "")
+
+        # Generate the legal question (interrogante) from the agravio
+        # The problema jurídico is always a question derived from confronting
+        # what was ruled vs. what was alleged
+        interrogante = _build_interrogante(titulo, sintesis, tipo)
+
         problemas.append({
             "numero": agravio.get("numero", i + 1),
-            "titulo": agravio.get("titulo", f"Problema {i + 1}"),
-            "descripcion": agravio.get("sintesis", ""),
+            "titulo": titulo,
+            "descripcion": sintesis,
+            "interrogante": interrogante,
             "articulos_mencionados": agravio.get("articulos_citados", agravio.get("fundamentos_citados", [])),
             "genio_sugerido": _suggest_genio(agravio, tipo),
         })
@@ -9534,6 +9543,52 @@ async def redactor_v2_analyze(
         "materia": extracted_data.get("datos_adicionales", {}).get("materia", ""),
         "observaciones": extracted_data.get("observaciones_preliminares", ""),
     }
+
+
+def _build_interrogante(titulo: str, sintesis: str, tipo: str) -> str:
+    """
+    Transform an agravio title + synthesis into a legal interrogante (question).
+    The problema jurídico always takes the form of a question derived from
+    confronting what was ruled vs. what was alleged.
+    """
+    texto = (titulo + " " + sintesis).lower()
+
+    # Common legal patterns -> specific interrogantes
+    if "desechamiento" in texto or "desech" in texto:
+        return f"¿Fue correcto el desechamiento de la demanda por las razones expuestas por el juzgador, o bien, se actualizó indebidamente alguna causal de improcedencia?"
+    if "personalidad" in texto:
+        return f"¿El juzgador resolvió correctamente la cuestión de personalidad, o la resolución que la negó constituye un acto de imposible reparación?"
+    if "competencia" in texto:
+        return f"¿Se determinó correctamente la competencia del órgano jurisdiccional que conoció del asunto?"
+    if "prescripción" in texto or "prescri" in texto:
+        return f"¿Operó la prescripción de la acción o del derecho invocado conforme a las disposiciones legales aplicables?"
+    if "valoración de prueba" in texto or "prueba" in texto and "valor" in texto:
+        return f"¿La autoridad responsable realizó una correcta valoración de los medios de prueba aportados por las partes?"
+    if "cosa juzgada" in texto:
+        return f"¿Existe cosa juzgada (directa o refleja) que impida el pronunciamiento sobre el fondo del asunto?"
+    if "suspensión" in texto:
+        return f"¿Se resolvió conforme a derecho la medida suspensional solicitada, considerando la apariencia del buen derecho y el peligro en la demora?"
+    if "violación procesal" in texto or "debido proceso" in texto:
+        return f"¿Se cometieron violaciones al procedimiento que trascendieron al resultado del fallo y dejaron en estado de indefensión al quejoso?"
+    if "fundamentación" in texto or "motivación" in texto:
+        return f"¿El acto reclamado cumple con los requisitos de fundamentación y motivación exigidos por los artículos 14 y 16 constitucionales?"
+    if "legalidad" in texto or "ilegalidad" in texto:
+        return f"¿El acto reclamado se ajustó al principio de legalidad, o bien, se emitió en contravención a las disposiciones legales aplicables?"
+    if "imposible reparación" in texto or "irreparable" in texto:
+        return f"¿El acto reclamado constituye un acto de imposible reparación que hace procedente el juicio de amparo indirecto?"
+    if "improcedencia" in texto or "sobreseimiento" in texto:
+        return f"¿Se actualizó la causal de improcedencia invocada por la autoridad, o el juicio debió resolverse en el fondo?"
+    if "identidad" in texto and ("inmueble" in texto or "bien" in texto):
+        return f"¿Se acreditó debidamente la identidad del inmueble o bien materia de la controversia?"
+    if "agrario" in texto or "ejid" in texto or "parcela" in texto:
+        return f"¿Se respetaron los derechos agrarios del quejoso conforme a la legislación aplicable?"
+
+    # Generic but well-formed interrogante based on titulo
+    titulo_clean = titulo.strip().rstrip(".")
+    if titulo_clean:
+        return f"¿{titulo_clean[0].upper()}{titulo_clean[1:]}?"
+
+    return "¿Se ajustó a derecho la resolución impugnada en los términos planteados por el recurrente?"
 
 
 def _suggest_genio(agravio: dict, tipo: str) -> str:
