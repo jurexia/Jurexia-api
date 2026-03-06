@@ -7513,6 +7513,39 @@ async def chat_endpoint(request: ChatRequest):
                         )
                         dynamic_parts.insert(0, cache_rag_instruction)
 
+                        # ── CNPCF State-Awareness (Civil Genio) ─────────────
+                        # El Código Nacional de Procedimientos Civiles y Familiares
+                        # solo está vigente en CDMX (fecha límite: 1 abril 2027).
+                        # Para todos los demás estados, aplica su código procesal local.
+                        if _resolved_genio_id == "civil" and _estado_for_llm:
+                            _estado_norm = _estado_for_llm.lower().replace("_", " ")
+                            _cnpcf_vigente = _estado_norm in ("cdmx", "ciudad de mexico", "ciudad de méxico", "distrito federal")
+                            if _cnpcf_vigente:
+                                cnpcf_caveat = (
+                                    "⚖️ NOTA PROCESAL: El usuario consulta desde la Ciudad de México, "
+                                    "donde el Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
+                                    "YA ESTÁ EN VIGOR. Para temas de procedimiento civil, APLICA el CNPCF."
+                                )
+                            else:
+                                _estado_display = _estado_for_llm.replace("_", " ").title()
+                                cnpcf_caveat = (
+                                    f"⚠️ INSTRUCCIÓN CRÍTICA — PROCEDIMIENTO CIVIL EN {_estado_display.upper()}:\n"
+                                    f"El Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
+                                    f"AÚN NO ha entrado en vigor en {_estado_display} "
+                                    f"(fecha límite de implementación: 1 de abril de 2027).\n"
+                                    f"Para cuestiones PROCESALES civiles, las reglas aplicables son las del "
+                                    f"Código de Procedimientos Civiles del Estado de {_estado_display}, "
+                                    f"NO las del CNPCF.\n"
+                                    f"Si el usuario pregunta sobre procedimiento civil:\n"
+                                    f"1. ACLARA que el CNPCF aún no aplica en {_estado_display}.\n"
+                                    f"2. Si citas artículos del CNPCF, ADVIERTE que son de referencia y "
+                                    f"que el procedimiento local puede diferir.\n"
+                                    f"3. Para derecho SUSTANTIVO civil (CCF), sí puedes citar normalmente.\n"
+                                    f"4. Solo cita el CNPCF como normativa vigente si el usuario "
+                                    f"pregunta explícitamente por él o para comparación."
+                                )
+                            dynamic_parts.append(cnpcf_caveat)
+
                         gemini_contents.insert(0, gtypes.Content(
                             role="user",
                             parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]
