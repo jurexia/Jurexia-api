@@ -9428,7 +9428,14 @@ REDACTOR_V2_SYSTEM = (
     "4. Análisis y razonamiento jurídico\n"
     "5. Conclusión sobre la calificación del agravio\n"
     "Si hay sentido propuesto, orienta el análisis en esa dirección.\n"
-    "Si no hay sentido propuesto, analiza objetivamente y recomienda uno."
+    "Si no hay sentido propuesto, analiza objetivamente y recomienda uno.\n\n"
+
+    "═══ REGLA ANTI-REPETICIÓN ═══\n"
+    "• JAMÁS repitas el mismo párrafo, cita, jurisprudencia o razonamiento dos veces.\n"
+    "• Si ya citaste una jurisprudencia o artículo, NO lo vuelvas a transcribir.\n"
+    "• Cada sección del estudio de fondo debe avanzar el análisis, no reiterar lo ya dicho.\n"
+    "• Si necesitas referirte a algo ya citado, usa una referencia breve (ej: 'conforme a la "
+    "jurisprudencia antes citada...')."
 )
 
 
@@ -9812,22 +9819,74 @@ async def redactor_v2_generate(
                         messages=messages,
                         max_tokens=16384,
                         temperature=0.3,
+                        frequency_penalty=0.6,   # ANTI-LOOP: penalize repeated tokens
+                        presence_penalty=0.3,     # ANTI-LOOP: encourage new topics
                         stream=True,
                     )
 
                     chunk_text = ""
+                    loop_detected = False
                     async for chunk in stream:
                         choice = chunk.choices[0]
                         if choice.delta.content:
                             chunk_text += choice.delta.content
                             yield sse("text", {"chunk": choice.delta.content, "group": gi + 1})
+
+                            # ── REAL-TIME REPETITION DETECTION ──
+                            # Check every 500 chars if the last 200 chars repeat 3+ times
+                            if len(chunk_text) > 600 and len(chunk_text) % 500 < 10:
+                                last_200 = chunk_text[-200:]
+                                occurrences = chunk_text.count(last_200)
+                                if occurrences >= 3:
+                                    print(f"   🛑 LOOP DETECTED in grupo {gi+1}! "
+                                          f"'{last_200[:60]}...' repeated {occurrences}x — ABORTING")
+                                    loop_detected = True
+                                    break
+                            # Hard limit: 80K chars per group max
+                            if len(chunk_text) > 80_000:
+                                print(f"   🛑 MAX CHARS (80K) reached in grupo {gi+1} — ABORTING")
+                                loop_detected = True
+                                break
+
                         if choice.finish_reason:
                             finish_reason = choice.finish_reason
+
+                    # If loop detected, truncate at last good paragraph and stop
+                    if loop_detected:
+                        # Find the last complete paragraph before the repetition started
+                        paragraphs = chunk_text.split("\n\n")
+                        seen_paragraphs = set()
+                        clean_paragraphs = []
+                        for p in paragraphs:
+                            p_stripped = p.strip()
+                            if len(p_stripped) < 20:
+                                clean_paragraphs.append(p)
+                                continue
+                            # Use first 150 chars as fingerprint
+                            fingerprint = p_stripped[:150]
+                            if fingerprint in seen_paragraphs:
+                                break  # Stop at first repeated paragraph
+                            seen_paragraphs.add(fingerprint)
+                            clean_paragraphs.append(p)
+                        group_text += "\n\n".join(clean_paragraphs)
+                        yield sse("phase", {
+                            "step": f"⚠️ Repetición detectada — texto limpiado automáticamente",
+                            "progress": int(20 + ((gi + 1) / total_groups) * 70),
+                            "group": gi + 1,
+                            "total_groups": total_groups,
+                        })
+                        break
 
                     group_text += chunk_text
 
                     # Check if we were cut off
                     if finish_reason == "length" and continuation < max_continuations:
+                        # Extra safety: check if the group text itself already has repetition
+                        if len(group_text) > 2000:
+                            last_block = group_text[-300:]
+                            if group_text[:-300].count(last_block[:150]) >= 2:
+                                print(f"   🛑 LOOP in accumulated text grupo {gi+1} — stopping continuations")
+                                break
                         continuation += 1
                         print(f"   ⚠️ Grupo {gi+1} truncado, continuación {continuation}...")
                         yield sse("phase", {
@@ -9840,7 +9899,7 @@ async def redactor_v2_generate(
                             {"role": "system", "content": REDACTOR_V2_SYSTEM},
                             {"role": "user", "content": group_prompt},
                             {"role": "assistant", "content": group_text},
-                            {"role": "user", "content": "El texto anterior fue cortado. Continúa exactamente donde te quedaste, sin repetir lo ya escrito."},
+                            {"role": "user", "content": "El texto anterior fue cortado. Continúa exactamente donde te quedaste, sin repetir lo ya escrito. NO repitas ninguna jurisprudencia, tesis o párrafo que ya hayas incluido."},
                         ]
                     else:
                         break
