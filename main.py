@@ -9378,8 +9378,441 @@ async def draft_sentencia_stream(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LEGACY ENDPOINT — /draft-sentencia (non-streaming, returns JSON)
+# REDACTOR V2 — Multi-step: Analyze → Solve (Genio + RAG) → Generate (FT model)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+REDACTOR_FT_MODEL = os.getenv("REDACTOR_FT_MODEL", "ft:gpt-4o-mini-2024-07-18:personal:iurexia-redactor-v1:DGHD2IgL")
+
+REDACTOR_V2_SYSTEM = (
+    "Eres un redactor judicial de élite de un Tribunal Colegiado de Circuito mexicano. "
+    "Tu función es redactar ÚNICAMENTE el estudio de fondo de sentencias — NO la sentencia completa. "
+    "No incluyas consideraciones previas, antecedentes, ni resultandos; solo el análisis de fondo. "
+    "Redactas con precisión técnica, prosa jurídica de alto nivel, estructura lógica impecable, "
+    "y fundamentación rigurosa. Utilizas lenguaje judicial formal, citas artículos con su número "
+    "exacto y ley de origen, y referencias a tesis y jurisprudencias aplicables cuando están disponibles. "
+    "Adaptas la estructura del estudio de fondo al tipo de resolución: amparo directo, "
+    "amparo en revisión, recurso de queja, o revisión fiscal. "
+    "El secretario se encargará de integrar tu estudio de fondo con las consideraciones previas "
+    "para formar la sentencia completa."
+)
+
+
+# ── V2 Endpoint 1: Analyze (Extract problemas jurídicos) ─────────────────────
+
+@app.post("/redactor/v2/analyze")
+async def redactor_v2_analyze(
+    tipo: str = Form(...),
+    user_email: str = Form(...),
+    doc1: UploadFile = File(...),
+    doc2: UploadFile = File(...),
+    doc3: Optional[UploadFile] = File(None),
+):
+    """
+    Redactor v2 — Fase 1: Analyze uploaded documents.
+    Extracts: resumen, datos del expediente, problemas jurídicos.
+    Returns JSON for user review before proceeding.
+    """
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "Gemini API key not configured")
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
+
+    valid_types = list(SENTENCIA_PROMPTS.keys())
+    if tipo not in valid_types:
+        raise HTTPException(400, f"Tipo inválido. Opciones: {valid_types}")
+
+    # Read PDFs
+    from google.genai import types as gtypes
+    doc_labels = SENTENCIA_DOC_LABELS[tipo]
+    pdf_parts = []
+    doc_files = [doc1, doc2] + ([doc3] if doc3 else [])
+    for i, (doc_file, label) in enumerate(zip(doc_files, doc_labels)):
+        data = await doc_file.read()
+        size_mb = len(data) / (1024 * 1024)
+        if size_mb > 50:
+            raise HTTPException(400, f"Archivo '{label}' excede 50MB ({size_mb:.1f}MB)")
+        if not data:
+            raise HTTPException(400, f"Archivo '{label}' está vacío")
+        pdf_parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} ---\n"))
+        pdf_parts.append(gtypes.Part.from_bytes(data=data, mime_type="application/pdf"))
+
+    client = get_gemini_client()
+    print(f"\n🏛️ REDACTOR v2 ANALYZE — {tipo} — {user_email}")
+
+    # Extract structured data
+    extracted_data = await extract_expediente(client, pdf_parts, tipo)
+    if not extracted_data:
+        raise HTTPException(500, "No se pudieron extraer datos de los PDFs")
+
+    # Build problemas jurídicos from extracted agravios
+    problemas = []
+    for i, agravio in enumerate(extracted_data.get("agravios_conceptos", [])):
+        problemas.append({
+            "numero": agravio.get("numero", i + 1),
+            "titulo": agravio.get("titulo", f"Problema {i + 1}"),
+            "descripcion": agravio.get("sintesis", ""),
+            "articulos_mencionados": agravio.get("articulos_citados", []),
+            "genio_sugerido": _suggest_genio(agravio, tipo),
+        })
+
+    exp_num = extracted_data.get("expediente", {}).get("numero", "?")
+    print(f"   📋 Expediente: {exp_num} — {len(problemas)} problemas jurídicos")
+
+    return {
+        "success": True,
+        "tipo": tipo,
+        "expediente": extracted_data.get("expediente", {}),
+        "resumen_caso": extracted_data.get("resumen_caso", ""),
+        "resumen_acto_reclamado": extracted_data.get("resumen_acto_reclamado", ""),
+        "problemas_juridicos": problemas,
+        "materia": extracted_data.get("datos_adicionales", {}).get("materia", ""),
+        "observaciones": extracted_data.get("observaciones_preliminares", ""),
+    }
+
+
+def _suggest_genio(agravio: dict, tipo: str) -> str:
+    """Suggest which genio is most relevant for a given agravio."""
+    texto = (agravio.get("titulo", "") + " " + agravio.get("sintesis", "")).lower()
+
+    if any(w in texto for w in ["amparo", "constitucional", "convencionalidad", "derechos humanos"]):
+        return "amparo"
+    if any(w in texto for w in ["mercantil", "pagaré", "cheque", "sociedad", "comercio"]):
+        return "mercantil"
+    if any(w in texto for w in ["civil", "contrato", "prescripción", "propiedad", "arrendamiento"]):
+        return "civil"
+    if any(w in texto for w in ["penal", "delito", "prisión", "sentencia penal"]):
+        return "penal"
+    if any(w in texto for w in ["laboral", "trabajo", "despido", "salario", "IMSS"]):
+        return "laboral"
+    if any(w in texto for w in ["fiscal", "impuesto", "tributar", "SAT", "IVA", "ISR"]):
+        return "fiscal"
+    if any(w in texto for w in ["administrativo", "nulidad", "procedimiento administrativo"]):
+        return "administrativo"
+    if any(w in texto for w in ["agrario", "ejido", "parcela", "ejidal"]):
+        return "agrario"
+
+    # Default based on tipo
+    if tipo in ("amparo_directo", "amparo_revision"):
+        return "amparo"
+    return "civil"
+
+
+# ── V2 Endpoint 2: Solve (Genio + Qdrant RAG) ────────────────────────────────
+
+@app.post("/redactor/v2/solve")
+async def redactor_v2_solve(
+    problema: str = Form(...),
+    genio_id: str = Form("amparo"),
+    tipo: str = Form(...),
+    sentido: str = Form(""),
+    user_email: str = Form(...),
+):
+    """
+    Redactor v2 — Fase 2: Solve a problema jurídico.
+    Queries the selected Genio (context cache) + Qdrant RAG in parallel.
+    Returns: genio solution + tesis/jurisprudencias + pre-built prompt.
+    """
+    import asyncio
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido")
+
+    print(f"\n⚖️ REDACTOR v2 SOLVE — genio:{genio_id} — {user_email}")
+    print(f"   Problema: {problema[:100]}...")
+
+    # ── Parallel: Genio query + Qdrant RAG ──
+    async def query_genio():
+        """Query the genio cache for legal foundation."""
+        try:
+            from cache_manager import get_or_create_cache, GENIO_CONFIGS, CACHE_MODEL
+            from google.genai import types as gtypes
+
+            if genio_id not in GENIO_CONFIGS:
+                return f"⚠️ Genio '{genio_id}' no disponible."
+
+            cache_name = await get_or_create_cache(genio_id)
+            if not cache_name:
+                return "⚠️ No se pudo activar el cache del genio."
+
+            client = get_gemini_client()
+
+            genio_prompt = (
+                f"Analiza el siguiente problema jurídico y proporciona:\n"
+                f"1. Los artículos de ley aplicables con su texto exacto\n"
+                f"2. El fundamento legal para resolverlo\n"
+                f"3. Tu recomendación de sentido (si aplica)\n\n"
+                f"PROBLEMA JURÍDICO:\n{problema}\n\n"
+                f"TIPO DE RESOLUCIÓN: {tipo}\n"
+                + (f"SENTIDO PROPUESTO: {sentido}\n" if sentido else "")
+            )
+
+            response = await client.aio.models.generate_content(
+                model=CACHE_MODEL,
+                contents=[gtypes.Content(role="user", parts=[gtypes.Part(text=genio_prompt)])],
+                config=gtypes.GenerateContentConfig(
+                    cached_content=cache_name,
+                    max_output_tokens=8192,
+                    temperature=0.3,
+                ),
+            )
+            return response.text or ""
+        except Exception as e:
+            print(f"   ⚠️ Genio query error: {e}")
+            return f"⚠️ Error consultando genio: {str(e)[:200]}"
+
+    async def query_rag():
+        """Search Qdrant for relevant tesis/jurisprudencias."""
+        try:
+            queries = [
+                problema[:300],
+                f"jurisprudencia {problema[:200]}",
+            ]
+            all_results = []
+            seen_ids = set()
+
+            tasks = [
+                hybrid_search_all_silos(query=q, estado=None, top_k=8, alpha=0.7, enable_reasoning=False)
+                for q in queries
+            ]
+            results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for batch in results_raw:
+                if isinstance(batch, Exception):
+                    continue
+                for r in batch:
+                    if r.id not in seen_ids:
+                        seen_ids.add(r.id)
+                        all_results.append(r)
+
+            all_results.sort(key=lambda r: r.score, reverse=True)
+            top = all_results[:15]
+
+            formatted = []
+            for r in top:
+                formatted.append({
+                    "id": str(r.id),
+                    "fuente": r.ref or r.origen or "",
+                    "texto": (r.texto or "")[:1000],
+                    "score": round(r.score, 3),
+                    "silo": r.silo or "",
+                })
+            return formatted
+        except Exception as e:
+            print(f"   ⚠️ RAG query error: {e}")
+            return []
+
+    # Run in parallel
+    genio_result, rag_results = await asyncio.gather(
+        query_genio(), query_rag()
+    )
+
+    # Build the pre-constructed prompt for the fine-tuned model
+    tipo_labels = {
+        "amparo_directo": "Amparo Directo",
+        "amparo_revision": "Amparo en Revisión",
+        "recurso_queja": "Recurso de Queja",
+        "revision_fiscal": "Revisión Fiscal",
+    }
+
+    # Format RAG context for the prompt
+    rag_context = ""
+    for r in rag_results[:10]:
+        tag = "[JURISPRUDENCIA]" if "jurisprudencia" in r.get("silo", "").lower() else "[LEGISLACIÓN]"
+        rag_context += f"\n--- {tag} ---\nFuente: {r['fuente']}\n{r['texto']}\n"
+
+    ft_prompt = (
+        f"TIPO DE RESOLUCIÓN: {tipo_labels.get(tipo, tipo)}\n"
+        f"SENTIDO PROPUESTO: {sentido or 'POR DETERMINAR'}\n\n"
+        f"PROBLEMA JURÍDICO:\n{problema}\n\n"
+        f"FUNDAMENTACIÓN LEGAL (del Genio {genio_id.upper()}):\n{genio_result}\n\n"
+        f"JURISPRUDENCIA Y TESIS APLICABLES (RAG):\n{rag_context}\n\n"
+        f"Con base en lo anterior, redacta el estudio de fondo para esta resolución."
+    )
+
+    print(f"   ✅ Genio: {len(genio_result)} chars | RAG: {len(rag_results)} tesis")
+
+    return {
+        "success": True,
+        "genio_id": genio_id,
+        "genio_solution": genio_result,
+        "rag_results": rag_results,
+        "prompt": ft_prompt,
+        "prompt_tokens_est": len(ft_prompt) // 4,
+    }
+
+
+# Terminology helper
+def _get_term(tipo: str) -> dict:
+    if tipo == "amparo_directo":
+        return {"singular": "concepto de violación", "plural": "conceptos de violación"}
+    return {"singular": "agravio", "plural": "agravios"}
+
+
+# ── V2 Endpoint 3: Generate (Group-based, fine-tuned model streaming) ─────────
+
+@app.post("/redactor/v2/generate")
+async def redactor_v2_generate(
+    prompt: str = Form(""),
+    groups: str = Form(""),  # JSON array of groups
+    tipo: str = Form(...),
+    user_email: str = Form(...),
+):
+    """
+    Redactor v2 — Fase 3: Generate estudio de fondo.
+
+    Supports two modes:
+    1. Single prompt (legacy): generates everything in one call
+    2. Group-based (preferred): generates per grupo temático with progress
+
+    Groups JSON format:
+    [{"titulo": "...", "numeros": [1, 3, 5], "prompt": "..."}]
+    """
+    from starlette.responses import StreamingResponse
+    import time as time_module
+
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido")
+
+    ft_model = REDACTOR_FT_MODEL
+    if not ft_model:
+        raise HTTPException(500,
+            "Modelo fine-tuneado no configurado. "
+            "Set REDACTOR_FT_MODEL env var con el ID del modelo."
+        )
+
+    if not OPENAI_API_KEY:
+        raise HTTPException(500, "OPENAI_API_KEY no configurada")
+
+    # Parse groups if provided
+    group_list = []
+    if groups:
+        try:
+            group_list = json.loads(groups)
+        except json.JSONDecodeError:
+            raise HTTPException(400, "Formato de grupos inválido")
+
+    # If no groups, fall back to single prompt
+    if not group_list and prompt:
+        group_list = [{"titulo": "Estudio completo", "numeros": [], "prompt": prompt}]
+    elif not group_list and not prompt:
+        raise HTTPException(400, "Debe proporcionar prompt o groups")
+
+    term = _get_term(tipo)
+    total_groups = len(group_list)
+
+    print(f"\n✨ REDACTOR v2 GENERATE — {tipo} — {user_email}")
+    print(f"   {total_groups} grupos | Model: {ft_model}")
+
+    async def generate_sse():
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        total_start = time_module.time()
+        all_sections = []
+        total_api_calls = 0
+
+        try:
+            from openai import AsyncOpenAI
+            openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+
+            for gi, group in enumerate(group_list):
+                group_title = group.get("titulo", f"Grupo {gi + 1}")
+                group_nums = group.get("numeros", [])
+                group_prompt = group.get("prompt", prompt)
+
+                # Progress label with correct terminology
+                if group_nums:
+                    nums_label = ", ".join(str(n) for n in group_nums)
+                    progress_label = f"Redactando {term['plural']} {nums_label}: {group_title}"
+                else:
+                    progress_label = f"Redactando: {group_title}"
+
+                yield sse("phase", {
+                    "step": progress_label,
+                    "progress": int(20 + (gi / total_groups) * 70),
+                    "group": gi + 1,
+                    "total_groups": total_groups,
+                })
+
+                # Generate this group (with continuation if truncated)
+                group_text = ""
+                messages = [
+                    {"role": "system", "content": REDACTOR_V2_SYSTEM},
+                    {"role": "user", "content": group_prompt},
+                ]
+                max_continuations = 3
+                continuation = 0
+
+                while continuation <= max_continuations:
+                    total_api_calls += 1
+                    finish_reason = None
+
+                    stream = await openai_client.chat.completions.create(
+                        model=ft_model,
+                        messages=messages,
+                        max_tokens=16384,
+                        temperature=0.3,
+                        stream=True,
+                    )
+
+                    chunk_text = ""
+                    async for chunk in stream:
+                        choice = chunk.choices[0]
+                        if choice.delta.content:
+                            chunk_text += choice.delta.content
+                            yield sse("text", {"chunk": choice.delta.content, "group": gi + 1})
+                        if choice.finish_reason:
+                            finish_reason = choice.finish_reason
+
+                    group_text += chunk_text
+
+                    # Check if we were cut off
+                    if finish_reason == "length" and continuation < max_continuations:
+                        continuation += 1
+                        print(f"   ⚠️ Grupo {gi+1} truncado, continuación {continuation}...")
+                        yield sse("phase", {
+                            "step": f"Continuando {progress_label} (parte {continuation + 1})...",
+                            "progress": int(20 + (gi / total_groups) * 70) + 5,
+                            "group": gi + 1,
+                            "total_groups": total_groups,
+                        })
+                        messages = [
+                            {"role": "system", "content": REDACTOR_V2_SYSTEM},
+                            {"role": "user", "content": group_prompt},
+                            {"role": "assistant", "content": group_text},
+                            {"role": "user", "content": "El texto anterior fue cortado. Continúa exactamente donde te quedaste, sin repetir lo ya escrito."},
+                        ]
+                    else:
+                        break
+
+                all_sections.append(group_text)
+
+                if gi < total_groups - 1:
+                    yield sse("text", {"chunk": "\n\n", "group": gi + 1})
+
+                print(f"   ✅ Grupo {gi+1}/{total_groups}: {len(group_text)} chars ({continuation} cont.)")
+
+            full_text = "\n\n".join(all_sections)
+            elapsed = time_module.time() - total_start
+
+            yield sse("done", {
+                "total_chars": len(full_text),
+                "elapsed": round(elapsed, 1),
+                "model": ft_model,
+                "groups_completed": total_groups,
+                "api_calls": total_api_calls,
+            })
+            print(f"   🏁 COMPLETADO: {len(full_text)} chars en {elapsed:.1f}s ({total_api_calls} calls)")
+
+        except Exception as e:
+            print(f"   ❌ Generate error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
+
 
 @app.post("/draft-sentencia")
 async def draft_sentencia(
