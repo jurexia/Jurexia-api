@@ -8719,11 +8719,14 @@ def _redactor_gen_config(system_instruction: str, temperature: float = 0.3, max_
 
 # ── Extraction prompt ─────────────────────────────────────────────────────────
 EXTRACTION_PROMPT = """Eres un asistente jurídico de precisión. Extrae TODOS los datos de estos documentos judiciales.
+Lee cada página con atención, incluyendo documentos escaneados. Usa OCR si es necesario.
 
 Responde SOLO con JSON válido (sin markdown, sin ```json):
 
 {
-  "expediente": {"numero": "", "tipo_asunto": "", "tribunal": "", "circuito": ""},
+  "expediente": {"numero": "", "tipo_asunto": "", "tribunal": "", "circuito": "", "quejoso": "", "autoridades": [""]},
+  "resumen_caso": "Resumen de 200-400 palabras del caso: antecedentes, acto reclamado, pretensiones del quejoso y resolución impugnada",
+  "resumen_acto_reclamado": "Resumen específico del acto reclamado o sentencia recurrida",
   "partes": {
     "quejoso_recurrente": "",
     "tercero_interesado": "",
@@ -8746,8 +8749,9 @@ Responde SOLO con JSON válido (sin markdown, sin ```json):
   "agravios_conceptos": [
     {
       "numero": 1,
-      "titulo": "",
-      "sintesis": "",
+      "titulo": "Titulo descriptivo del agravio o concepto de violación",
+      "sintesis": "Síntesis detallada de 50-150 palabras",
+      "articulos_citados": ["Art. X de la Ley Y"],
       "fundamentos_citados": ""
     }
   ],
@@ -8755,10 +8759,15 @@ Responde SOLO con JSON válido (sin markdown, sin ```json):
     "materia": "",
     "competencia": "",
     "fuero": ""
-  }
+  },
+  "observaciones_preliminares": "Observaciones relevantes sobre el caso"
 }
 
-REGLAS: Extrae TEXTUALMENTE. Si un dato no aparece, pon "NO ENCONTRADO"."""
+REGLAS:
+- Extrae TEXTUALMENTE de los documentos. Si un dato no aparece, pon "NO ENCONTRADO".
+- El resumen_caso DEBE ser sustancial (200-400 palabras).
+- Identifica TODOS los agravios/conceptos de violación individualmente.
+- Para cada agravio, proporciona una síntesis detallada de al menos 50 palabras."""
 
 
 # ── Estudio de fondo system prompt ────────────────────────────────────────────
@@ -9452,19 +9461,36 @@ async def redactor_v2_analyze(
             "numero": agravio.get("numero", i + 1),
             "titulo": agravio.get("titulo", f"Problema {i + 1}"),
             "descripcion": agravio.get("sintesis", ""),
-            "articulos_mencionados": agravio.get("articulos_citados", []),
+            "articulos_mencionados": agravio.get("articulos_citados", agravio.get("fundamentos_citados", [])),
             "genio_sugerido": _suggest_genio(agravio, tipo),
         })
 
     exp_num = extracted_data.get("expediente", {}).get("numero", "?")
     print(f"   📋 Expediente: {exp_num} — {len(problemas)} problemas jurídicos")
 
+    # Build expediente with quejoso from partes if not in expediente
+    expediente = extracted_data.get("expediente", {})
+    if not expediente.get("quejoso") or expediente.get("quejoso") == "NO ENCONTRADO":
+        quejoso = extracted_data.get("partes", {}).get("quejoso_recurrente", "")
+        if quejoso and quejoso != "NO ENCONTRADO":
+            expediente["quejoso"] = quejoso
+    if not expediente.get("autoridades"):
+        autoridades = extracted_data.get("partes", {}).get("autoridades_responsables", [])
+        if autoridades:
+            expediente["autoridades"] = autoridades
+
+    # Build resumen — fallback to acto_reclamado.resumen
+    resumen_caso = extracted_data.get("resumen_caso", "")
+    if not resumen_caso or resumen_caso == "NO ENCONTRADO":
+        resumen_caso = extracted_data.get("acto_reclamado", {}).get("resumen", "")
+
     return {
         "success": True,
         "tipo": tipo,
-        "expediente": extracted_data.get("expediente", {}),
-        "resumen_caso": extracted_data.get("resumen_caso", ""),
-        "resumen_acto_reclamado": extracted_data.get("resumen_acto_reclamado", ""),
+        "expediente": expediente,
+        "resumen_caso": resumen_caso,
+        "resumen_acto_reclamado": extracted_data.get("resumen_acto_reclamado",
+            extracted_data.get("acto_reclamado", {}).get("resumen", "")),
         "problemas_juridicos": problemas,
         "materia": extracted_data.get("datos_adicionales", {}).get("materia", ""),
         "observaciones": extracted_data.get("observaciones_preliminares", ""),
