@@ -9548,22 +9548,24 @@ async def redactor_v2_solve(
 
     # ── Parallel: Genio query + Qdrant RAG ──
     async def query_genio():
-        """Query the genio cache for legal foundation — READ-ONLY, never creates cache."""
+        """Query the genio cache for legal foundation — uses remote discovery if needed."""
         try:
-            from cache_manager import get_cache_name, GENIO_CONFIGS, CACHE_MODEL
+            from cache_manager import get_or_create_cache, GENIO_CONFIGS, CACHE_MODEL
             from google.genai import types as gtypes
 
             if genio_id not in GENIO_CONFIGS:
                 return f"⚠️ Genio '{genio_id}' no disponible."
 
-            # SAFETY: Use get_cache_name (READ-ONLY) — NEVER get_or_create_cache
-            # This prevents the Redactor from creating new caches on every sentencia.
-            # The user must activate the Genio from the chat page first.
-            cache_name = get_cache_name(genio_id)
+            # SAFETY: get_or_create_cache has 9 safety locks:
+            #   1. Local memory check first (fastest)
+            #   2. Remote discovery (finds cache after server restart)
+            #   3. If must create: daily budget guard (max 15/day)
+            #   4. TTL 5 min, orphan cleanup, asyncio.Lock, etc.
+            cache_name = await get_or_create_cache(genio_id)
             if not cache_name:
                 return (
-                    f"⚠️ El Genio {genio_id.capitalize()} no está activado. "
-                    f"Actívalo desde el chat antes de usar el Redactor. "
+                    f"⚠️ No se pudo obtener el cache del Genio {genio_id.capitalize()}. "
+                    f"Límite diario alcanzado o error de conexión. "
                     f"La redacción continuará con la información del RAG."
                 )
 
