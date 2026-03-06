@@ -9548,17 +9548,24 @@ async def redactor_v2_solve(
 
     # ── Parallel: Genio query + Qdrant RAG ──
     async def query_genio():
-        """Query the genio cache for legal foundation."""
+        """Query the genio cache for legal foundation — READ-ONLY, never creates cache."""
         try:
-            from cache_manager import get_or_create_cache, GENIO_CONFIGS, CACHE_MODEL
+            from cache_manager import get_cache_name, GENIO_CONFIGS, CACHE_MODEL
             from google.genai import types as gtypes
 
             if genio_id not in GENIO_CONFIGS:
                 return f"⚠️ Genio '{genio_id}' no disponible."
 
-            cache_name = await get_or_create_cache(genio_id)
+            # SAFETY: Use get_cache_name (READ-ONLY) — NEVER get_or_create_cache
+            # This prevents the Redactor from creating new caches on every sentencia.
+            # The user must activate the Genio from the chat page first.
+            cache_name = get_cache_name(genio_id)
             if not cache_name:
-                return "⚠️ No se pudo activar el cache del genio."
+                return (
+                    f"⚠️ El Genio {genio_id.capitalize()} no está activado. "
+                    f"Actívalo desde el chat antes de usar el Redactor. "
+                    f"La redacción continuará con la información del RAG."
+                )
 
             client = get_gemini_client()
 
