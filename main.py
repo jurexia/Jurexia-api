@@ -7602,13 +7602,14 @@ async def chat_endpoint(request: ChatRequest):
                         "model": active_model,
                         "messages": llm_messages,
                         "stream": True,
-                        "temperature": 0.4,  # Creatividad controlada: rigor legal + fluidez
                     }
                     # GPT-5 Mini uses max_completion_tokens; DeepSeek uses max_tokens
                     if use_thinking:
+                        # DeepSeek thinking mode REQUIRES temperature=1 (default), no custom temp
                         api_kwargs["max_tokens"] = max_tokens
                         api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                     else:
+                        api_kwargs["temperature"] = 0.4  # Creatividad controlada: rigor legal + fluidez
                         api_kwargs["max_completion_tokens"] = max_tokens
                     
                     stream = await active_client.chat.completions.create(**api_kwargs)
