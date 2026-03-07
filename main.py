@@ -7790,13 +7790,25 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         "messages": llm_messages,
                         "stream": True,
                     }
-                    # GPT-5 Mini uses max_completion_tokens; DeepSeek uses max_tokens
+                    
                     if use_thinking:
-                        # DeepSeek thinking mode REQUIRES temperature=1 (default), no custom temp
-                        api_kwargs["max_tokens"] = max_tokens
-                        api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                        if active_model == DEEPSEEK_CHAT_MODEL:
+                            # DeepSeek thinking mode REQUIRES temperature=1 (default) and max_tokens
+                            api_kwargs["max_tokens"] = max_tokens
+                            api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+                        elif active_model.startswith("o1") or active_model.startswith("o3"):
+                            # OpenAI o-series models
+                            api_kwargs["max_completion_tokens"] = max_tokens
+                            # El parámetro de reasoning effort se pasa diferente si es requerido,
+                            # pero 'thinking' en extra_body no es válido para gpt-5.2
+                        else:
+                            # GPT-5.2 o modelos convencionales (no soportan 'thinking' extra_body)
+                            api_kwargs["max_tokens"] = max_tokens
                     else:
-                        api_kwargs["max_completion_tokens"] = max_tokens
+                        if active_model.startswith("o1") or active_model.startswith("o3"):
+                            api_kwargs["max_completion_tokens"] = max_tokens
+                        else:
+                            api_kwargs["max_tokens"] = max_tokens
                     
                     stream = await active_client.chat.completions.create(**api_kwargs)
                     
