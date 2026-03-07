@@ -80,9 +80,9 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 # Gemini Model Configuration
-SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-3.0-pro")  # Gemini 3 Pro — frontier intelligence
-REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-3.0-pro")  # PDF OCR — Powerful model requested
-REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-3.0-pro")  # Estudio de fondo + efectos
+SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-2.5-pro")  # Gemini 2.5 Pro — frontier intelligence
+REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-2.5-pro")  # PDF OCR — Powerful model requested
+REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-pro")  # Estudio de fondo + efectos
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
@@ -9977,7 +9977,7 @@ async def redactor_v2_generate(
                 loop_detected = False
 
                 gemini_stream = await client.aio.models.generate_content_stream(
-                    model="gemini-3.0-pro",
+                    model="gemini-2.5-pro",
                     contents=crafted_prompt,
                     config=gemini_config,
                 )
