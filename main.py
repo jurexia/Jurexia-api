@@ -9460,8 +9460,12 @@ async def redactor_v2_analyze(
     """
     Redactor v2 — Fase 1: Analyze uploaded documents.
     Extracts: resumen, datos del expediente, problemas jurídicos.
-    Returns JSON for user review before proceeding.
+    Streams progress to the client via SSE.
     """
+    from starlette.responses import StreamingResponse
+    import json
+    import time as time_module
+
     if not GEMINI_API_KEY:
         raise HTTPException(500, "Gemini API key not configured")
     if not _can_access_sentencia(user_email):
@@ -9471,7 +9475,7 @@ async def redactor_v2_analyze(
     if tipo not in valid_types:
         raise HTTPException(400, f"Tipo inválido. Opciones: {valid_types}")
 
-    # Read PDFs
+    # Read PDFs immediately to avoid dropping connections
     from google.genai import types as gtypes
     doc_labels = SENTENCIA_DOC_LABELS[tipo]
     pdf_parts = []
@@ -9486,98 +9490,124 @@ async def redactor_v2_analyze(
         pdf_parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} ---\n"))
         pdf_parts.append(gtypes.Part.from_bytes(data=data, mime_type="application/pdf"))
 
-    client = get_gemini_client()
-    print(f"\n🏛️ REDACTOR v2 ANALYZE — {tipo} — {user_email}")
+    print(f"\n🏛️ REDACTOR v2 ANALYZE (SSE) — {tipo} — {user_email}")
+    total_start = time_module.time()
 
-    # Extract structured data
-    extracted_data = await extract_expediente(client, pdf_parts, tipo)
-    if not extracted_data:
-        raise HTTPException(500, "No se pudieron extraer datos de los PDFs")
+    async def generate_sse():
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-    # Build resumen — fallback to acto_reclamado.resumen
-    resumen_caso = extracted_data.get("resumen_caso", "")
-    if not resumen_caso or resumen_caso == "NO ENCONTRADO":
-        resumen_caso = extracted_data.get("acto_reclamado", {}).get("resumen", "")
-
-    # Build problemas jurídicos using OpenAI (GPT-4o) as requested by user
-    print(f"   🧠 Paso 1.5: OpenAI gpt-4o formulando problemas jurídicos...")
-    from openai import AsyncOpenAI
-    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    
-    problemas = []
-    
-    for i, agravio in enumerate(extracted_data.get("agravios_conceptos", [])):
-        titulo = agravio.get("titulo", f"Problema {i + 1}")
-        sintesis = agravio.get("sintesis", "")
-        
-        # Formulate problema jurídico using OpenAI
-        formulation_system_prompt = (
-            "Eres un experto Magistrado de Circuito. Tu tarea es analizar la "
-            "síntesis de un agravio o concepto de violación junto con el resumen del acto impugnado, "
-            "y formular EXCLUSIVAMENTE la pregunta que constituye el 'Problema Jurídico' a resolver.\n"
-            "REGLAS:\n"
-            "1. La salida debe ser ÚNICAMENTE la pregunta (el problema jurídico), nada de saludos ni explicaciones.\n"
-            "2. Debe estar redactada en términos estrictamente jurídicos y formales.\n"
-            "3. Debe confrontar lo resuelto en el acto impugnado vs lo alegado en el agravio."
-        )
-        
-        formulation_user_prompt = (
-            f"TIPO DE ASUNTO: {tipo}\n"
-            f"RESUMEN DEL ACTO RECLAMADO/IMPUGNADO:\n{resumen_caso}\n\n"
-            f"AGRAVIO/CONCEPTO DE VIOLACIÓN:\n- Título: {titulo}\n- Síntesis: {sintesis}\n\n"
-            f"Plantea el problema jurídico como una pregunta directa:"
-        )
-        
         try:
-            prompt_response = await openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": formulation_system_prompt},
-                    {"role": "user", "content": formulation_user_prompt},
-                ],
-                max_tokens=250,
-                temperature=0.2,
-            )
-            interrogante = prompt_response.choices[0].message.content.strip()
+            yield sse("phase", {"step": "📄 Procesando documentos adjuntos...", "progress": 10})
+            
+            client = get_gemini_client()
+            yield sse("phase", {"step": f"🧠 Analizando expediente con Gemini 2.5 Pro ({tipo})...", "progress": 30})
+            
+            # Extract structured data
+            extracted_data = await extract_expediente(client, pdf_parts, tipo)
+            if not extracted_data:
+                raise Exception("No se pudieron extraer datos de los PDFs")
+
+            # Build resumen — fallback to acto_reclamado.resumen
+            resumen_caso = extracted_data.get("resumen_caso", "")
+            if not resumen_caso or resumen_caso == "NO ENCONTRADO":
+                resumen_caso = extracted_data.get("acto_reclamado", {}).get("resumen", "")
+
+            yield sse("phase", {"step": "⚖️ Formulando problemas jurídicos con GPT-4o...", "progress": 60})
+            print(f"   🧠 Paso 1.5: OpenAI gpt-4o formulando problemas jurídicos...")
+            from openai import AsyncOpenAI
+            openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            
+            problemas = []
+            agravios = extracted_data.get("agravios_conceptos", [])
+            total_agravios = len(agravios)
+            
+            for i, agravio in enumerate(agravios):
+                titulo = agravio.get("titulo", f"Problema {i + 1}")
+                sintesis = agravio.get("sintesis", "")
+                
+                # Streaming progress for each problem formulation
+                yield sse("phase", {"step": f"🎯 Estructurando problema jurídico {i+1} de {total_agravios}...", "progress": 60 + int((i/max(total_agravios,1))*35)})
+                
+                # Formulate problema jurídico using OpenAI
+                formulation_system_prompt = (
+                    "Eres un experto Magistrado de Circuito. Tu tarea es analizar la "
+                    "síntesis de un agravio o concepto de violación junto con el resumen del acto impugnado, "
+                    "y formular EXCLUSIVAMENTE la pregunta que constituye el 'Problema Jurídico' a resolver.\n"
+                    "REGLAS:\n"
+                    "1. La salida debe ser ÚNICAMENTE la pregunta (el problema jurídico), nada de saludos ni explicaciones.\n"
+                    "2. Debe estar redactada en términos estrictamente jurídicos y formales.\n"
+                    "3. Debe confrontar lo resuelto en el acto impugnado vs lo alegado en el agravio."
+                )
+                
+                formulation_user_prompt = (
+                    f"TIPO DE ASUNTO: {tipo}\n"
+                    f"RESUMEN DEL ACTO RECLAMADO/IMPUGNADO:\n{resumen_caso}\n\n"
+                    f"AGRAVIO/CONCEPTO DE VIOLACIÓN:\n- Título: {titulo}\n- Síntesis: {sintesis}\n\n"
+                    f"Plantea el problema jurídico como una pregunta directa:"
+                )
+                
+                try:
+                    prompt_response = await openai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": formulation_system_prompt},
+                            {"role": "user", "content": formulation_user_prompt},
+                        ],
+                        max_tokens=250,
+                        temperature=0.2,
+                    )
+                    interrogante = prompt_response.choices[0].message.content.strip()
+                except Exception as e:
+                    print(f"   ⚠️ OpenAI formulation error: {e}")
+                    # Fallback to local logic if AI generation fails
+                    interrogante = _build_interrogante(titulo, sintesis, tipo)
+
+                problemas.append({
+                    "numero": agravio.get("numero", i + 1),
+                    "titulo": titulo,
+                    "descripcion": sintesis,
+                    "interrogante": interrogante,
+                    "articulos_mencionados": agravio.get("articulos_citados", agravio.get("fundamentos_citados", [])),
+                    "genio_sugerido": _suggest_genio(agravio, tipo),
+                })
+
+            exp_num = extracted_data.get("expediente", {}).get("numero", "?")
+            print(f"   📋 Expediente: {exp_num} — {len(problemas)} problemas jurídicos")
+
+            yield sse("phase", {"step": "✅ Finalizando análisis y empaquetando expediente...", "progress": 100})
+
+            # Build expediente with quejoso from partes if not in expediente
+            expediente = extracted_data.get("expediente", {})
+            if not expediente.get("quejoso") or expediente.get("quejoso") == "NO ENCONTRADO":
+                quejoso = extracted_data.get("partes", {}).get("quejoso_recurrente", "")
+                if quejoso and quejoso != "NO ENCONTRADO":
+                    expediente["quejoso"] = quejoso
+            if not expediente.get("autoridades"):
+                autoridades = extracted_data.get("partes", {}).get("autoridades_responsables", [])
+                if autoridades:
+                    expediente["autoridades"] = autoridades
+
+            final_data = {
+                "success": True,
+                "tipo": tipo,
+                "expediente": expediente,
+                "resumen_caso": resumen_caso,
+                "resumen_acto_reclamado": extracted_data.get("resumen_acto_reclamado",
+                    extracted_data.get("acto_reclamado", {}).get("resumen", "")),
+                "problemas_juridicos": problemas,
+                "materia": extracted_data.get("datos_adicionales", {}).get("materia", ""),
+                "observaciones": extracted_data.get("observaciones_preliminares", ""),
+            }
+            yield sse("done", final_data)
+
         except Exception as e:
-            print(f"   ⚠️ OpenAI formulation error: {e}")
-            # Fallback to local logic if AI generation fails
-            interrogante = _build_interrogante(titulo, sintesis, tipo)
+            print(f"   ❌ Generate v2/analyze error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield sse("error", {"message": str(e)})
 
-        problemas.append({
-            "numero": agravio.get("numero", i + 1),
-            "titulo": titulo,
-            "descripcion": sintesis,
-            "interrogante": interrogante,
-            "articulos_mencionados": agravio.get("articulos_citados", agravio.get("fundamentos_citados", [])),
-            "genio_sugerido": _suggest_genio(agravio, tipo),
-        })
-
-    exp_num = extracted_data.get("expediente", {}).get("numero", "?")
-    print(f"   📋 Expediente: {exp_num} — {len(problemas)} problemas jurídicos")
-
-    # Build expediente with quejoso from partes if not in expediente
-    expediente = extracted_data.get("expediente", {})
-    if not expediente.get("quejoso") or expediente.get("quejoso") == "NO ENCONTRADO":
-        quejoso = extracted_data.get("partes", {}).get("quejoso_recurrente", "")
-        if quejoso and quejoso != "NO ENCONTRADO":
-            expediente["quejoso"] = quejoso
-    if not expediente.get("autoridades"):
-        autoridades = extracted_data.get("partes", {}).get("autoridades_responsables", [])
-        if autoridades:
-            expediente["autoridades"] = autoridades
-
-    return {
-        "success": True,
-        "tipo": tipo,
-        "expediente": expediente,
-        "resumen_caso": resumen_caso,
-        "resumen_acto_reclamado": extracted_data.get("resumen_acto_reclamado",
-            extracted_data.get("acto_reclamado", {}).get("resumen", "")),
-        "problemas_juridicos": problemas,
-        "materia": extracted_data.get("datos_adicionales", {}).get("materia", ""),
-        "observaciones": extracted_data.get("observaciones_preliminares", ""),
-    }
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
 
 
 def _build_interrogante(titulo: str, sintesis: str, tipo: str) -> str:
@@ -10196,7 +10226,9 @@ async def redactor_v3_generate_comprehensive(
                 "del acto de la Autoridad Responsable (ej. la Sala de apelación). Dirige tu análisis a sus "
                 "consideraciones, NUNCA al juez de primera instancia.\n"
                 "4. NUNCA repitas el mismo párrafo, cita o razonamiento abstracto dos veces.\n"
-                "5. Redacta con prosa jurídica formal, clara y objetiva."
+                "5. Redacta con prosa jurídica formal, clara y objetiva.\n"
+                "6. CERO FILLER CONVERSACIONAL: Jamás uses frases como 'De acuerdo. Procedo al apartado', "
+                "saludos o introducciones vacías. Genera ÚNICAMENTE texto directo para la sentencia."
             )
 
             for i, prob in enumerate(problemas):
