@@ -2314,9 +2314,9 @@ class ChatRequest(BaseModel):
         False, 
         description="LEGACY: Si True, usa genio amparo. Prefer genio_id field."
     )
-    genio_id: Optional[str] = Field(
+    genio_ids: Optional[List[str]] = Field(
         None,
-        description="ID del genio a usar: 'amparo', 'mercantil'. Si None pero enable_genio_juridico=True, usa 'amparo'."
+        description="IDs de los genios a usar: ['amparo', 'mercantil']. Si None pero enable_genio_juridico=True, usa 'amparo'."
     )
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
     materia: Optional[str] = Field(None, description="Materia jurídica forzada (PENAL, CIVIL, FAMILIAR, etc.). Si None, auto-detecta por keywords.")
@@ -6810,19 +6810,22 @@ async def chat_endpoint(request: ChatRequest):
     # ─────────────────────────────────────────────────────────────────────
     # PARALLEL STEP 2: Launch Gemini Cache check in background (IF REQUESTED)
     # ─────────────────────────────────────────────────────────────────────
-    # Resolve genio_id: new field takes priority, fallback to legacy bool
-    _resolved_genio_id = request.genio_id
-    if not _resolved_genio_id and request.enable_genio_juridico:
-        _resolved_genio_id = "amparo"  # Legacy compatibility
+    # Resolve genio_ids: new array field takes priority, fallback to legacy bool
+    _resolved_genio_ids = request.genio_ids or []
+    if not _resolved_genio_ids and request.enable_genio_juridico:
+        _resolved_genio_ids = ["amparo"]  # Legacy compatibility
+    
+    # Extract primary genio for cache logic (backward compatibility)
+    _primary_genio_id = _resolved_genio_ids[0] if _resolved_genio_ids else None
     
     async def _probe_cache():
-        if not _resolved_genio_id:
+        if not _primary_genio_id:
             return None
         try:
             from cache_manager import get_cache_name_async
-            return await get_cache_name_async(_resolved_genio_id)
+            return await get_cache_name_async(_primary_genio_id)
         except Exception as e:
-            print(f"   ⚠️ Cache allocation failed ({_resolved_genio_id}): {e}")
+            print(f"   ⚠️ Cache allocation failed ({_primary_genio_id}): {e}")
             return None
     
     cache_task = asyncio.create_task(_probe_cache())
@@ -7411,18 +7414,19 @@ async def chat_endpoint(request: ChatRequest):
             use_thinking = True
             _effective_cached = None  # Sin cache para sentencias
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (Gemini 1M context) | max_output: {max_tokens} | Thinking: ON")
+            _resolved_genio_ids = [] # Disable genios for sentencia mode
         elif use_thinking:
             # DeepSeek with thinking: max 50K tokens, uses extra_body
             active_client = deepseek_client
             active_model = DEEPSEEK_CHAT_MODEL
             max_tokens = 50000
-        elif _effective_cached and _can_use_gemini:
-            # Regular chat WITH cache: Gemini (legal texts cached)
-            from cache_manager import get_cache_model
+            _resolved_genio_ids = [] # DeepSeek ignores genio cache
+        elif _resolved_genio_ids and _can_use_gemini and not has_document:
+            # We have one or more genios AND can use gemini AND no document attached
             use_gemini = True
-            active_model = get_cache_model()
-            max_tokens = 25000  # Aumentado para mayor profundidad
-            print(f"   🏗️ Chat + CACHE: {active_model} (corpus cached) | Potencia: MAX")
+            active_model = "models/gemini-2.5-pro" # Default, might be overridden by cache config
+            max_tokens = 25000
+            print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}")
         else:
             # Fallback: GPT-5 Mini or DeepSeek V3 (no cache available)
             if CHAT_ENGINE == "deepseek" and deepseek_client:
@@ -7433,6 +7437,7 @@ async def chat_endpoint(request: ChatRequest):
                 active_client = chat_client
                 active_model = CHAT_MODEL
                 max_tokens = 25000
+            _resolved_genio_ids = [] # Clear genio ids if fallback
         
         print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
@@ -7464,12 +7469,9 @@ async def chat_endpoint(request: ChatRequest):
                 # ── GEMINI BRANCH: Cached legal corpus via google-genai SDK ──
                 if use_gemini:
                     from google.genai import types as gtypes
-                    
                     gemini_client = get_gemini_client()
                     
                     # Convert llm_messages to Gemini format:
-                    # system messages → system_instruction (or user content when cached)
-                    # user/assistant → contents with role "user"/"model"
                     system_parts = []
                     gemini_contents = []
                     for msg in llm_messages:
@@ -7484,116 +7486,203 @@ async def chat_endpoint(request: ChatRequest):
                                 gtypes.Content(role="model", parts=[gtypes.Part(text=msg["content"])])
                             )
                     
-                    system_instruction = "\n\n".join(system_parts)
+                    system_instruction_base = "\n\n".join(system_parts)
                     
-                    # ── Cache-aware config ──
-                    # IMPORTANTE: Con cache activo, el system_prompt YA está fijado
-                    # en el cache (no se puede cambiar). Solo se inyecta como user
-                    # message el CONTEXTO VARIABLE (RAG, estado) que NO se puede
-                    # cachear. Inyectar el system_prompt completo aqui causa que el
-                    # modelo lo reciba 2 veces → secciones duplicadas en la respuesta.
-                    if _effective_cached:
-                        # Separar system parts: solo inyectar contexto RAG y estado
-                        dynamic_parts = []
-                        for part in system_parts:
-                            if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO") or part.startswith("Eres JUREXIA REDACTOR JUDICIAL"):
-                                dynamic_parts.append(part)
+                    # Helper function to run a single genio stream
+                    async def _run_gemini_stream(genio_id: str | None, tag: str | None = None):
+                        nonlocal reasoning_buffer, content_buffer, doc_id_map
+                        _local_content = ""
+                        _local_reasoning = ""
+                        # Resolve cache for THIS specific genio
+                        _local_cached = None
+                        if genio_id:
+                            try:
+                                from cache_manager import get_cache_name_async
+                                _local_cached = await get_cache_name_async(genio_id)
+                                if has_document:
+                                    _local_cached = None # Override if doc attached
+                            except Exception as e:
+                                print(f"   ⚠️ Cache allocation failed for {genio_id}: {e}")
+                                _local_cached = None
+                        
+                        system_instruction = system_instruction_base
+                        _gemini_contents = gemini_contents.copy()
 
-                        # CRÍTICO: sin esta instrucción, Gemini inventa Doc IDs desde memoria
-                        # de entrenamiento y el validador los marca como "Fuente no verificada".
-                        rag_ids = list(doc_id_map.keys()) if doc_id_map else []
-                        cache_rag_instruction = (
-                            "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
-                            "1. Los únicos Doc IDs válidos en esta sesión son los del contexto inyectado.\n"
-                            "2. NO INVENTES Doc IDs. Si jurisprudencia no está en el contexto con [Doc ID: uuid] real, NO LA CITES.\n"
-                            "3. Para cada tesis citada, INCLUYE SU RUBRO COMPLETO en la respuesta "
-                            "(el título exacto en mayúsculas tal como aparece en el contexto). "
-                            "Formato: \"RUBRO COMPLETO DE LA TESIS (Tesis X/J. N/AAAA) [Doc ID: uuid]\"\n"
-                            f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                        if _local_cached:
+                            dynamic_parts = []
+                            for part in system_parts:
+                                if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO") or part.startswith("Eres JUREXIA REDACTOR JUDICIAL"):
+                                    dynamic_parts.append(part)
+
+                            rag_ids = list(doc_id_map.keys()) if doc_id_map else []
+                            cache_rag_instruction = (
+                                "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
+                                "1. Los únicos Doc IDs válidos en esta sesión son los del contexto inyectado.\n"
+                                "2. NO INVENTES Doc IDs. Si jurisprudencia no está en el contexto con [Doc ID: uuid] real, NO LA CITES.\n"
+                                "3. Para cada tesis citada, INCLUYE SU RUBRO COMPLETO en la respuesta "
+                                "(el título exacto en mayúsculas tal como aparece en el contexto). "
+                                "Formato: \"RUBRO COMPLETO DE LA TESIS (Tesis X/J. N/AAAA) [Doc ID: uuid]\"\n"
+                                f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                            )
+                            dynamic_parts.insert(0, cache_rag_instruction)
+
+                            if genio_id == "civil" and _estado_for_llm:
+                                _estado_norm = _estado_for_llm.lower().replace("_", " ")
+                                _cnpcf_vigente = _estado_norm in ("cdmx", "ciudad de mexico", "ciudad de méxico", "distrito federal")
+                                if _cnpcf_vigente:
+                                    cnpcf_caveat = (
+                                        "⚖️ NOTA PROCESAL: El usuario consulta desde la Ciudad de México, "
+                                        "donde el Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
+                                        "YA ESTÁ EN VIGOR. Para temas de procedimiento civil, APLICA el CNPCF."
+                                    )
+                                else:
+                                    _estado_display = _estado_for_llm.replace("_", " ").title()
+                                    cnpcf_caveat = (
+                                        f"⚠️ INSTRUCCIÓN CRÍTICA — PROCEDIMIENTO CIVIL EN {_estado_display.upper()}:\n"
+                                        f"El Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
+                                        f"AÚN NO ha entrado en vigor en {_estado_display} "
+                                        f"(fecha límite de implementación: 1 de abril de 2027).\n"
+                                        f"Para cuestiones PROCESALES civiles, las reglas aplicables son las del "
+                                        f"Código de Procedimientos Civiles del Estado de {_estado_display}, "
+                                        f"NO las del CNPCF.\n"
+                                    )
+                                dynamic_parts.append(cnpcf_caveat)
+
+                            _gemini_contents.insert(0, gtypes.Content(
+                                role="user",
+                                parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]
+                            ))
+                            gemini_config = gtypes.GenerateContentConfig(
+                                cached_content=_local_cached,
+                                max_output_tokens=25000,
+                                temperature=0.5,
+                                thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET),
+                            )
+                        else:
+                            gemini_config = gtypes.GenerateContentConfig(
+                                system_instruction=system_instruction,
+                                temperature=0.5,
+                                max_output_tokens=max_tokens,
+                                **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}),
+                            )
+                        
+                        _cache_label = "CACHED" if _local_cached else "no-cache"
+                        print(f"   Gemini stream starting: {active_model} [{_cache_label}] (Genio: {genio_id or 'none'})")
+                        
+                        _response = await gemini_client.aio.models.generate_content(
+                            model=active_model,
+                            contents=_gemini_contents,
+                            config=gemini_config,
                         )
-                        dynamic_parts.insert(0, cache_rag_instruction)
+                        result_text = _response.text or ""
+                        
+                        # Manejo de fallbacks si no genera texto
+                        if not result_text.strip():
+                            print(f"   ⚠️ Gemini produced no content for {genio_id}")
+                            result_text = "\n\n**Análisis parcial completado sin respuesta.**\n"
+                        return result_text
 
-                        # ── CNPCF State-Awareness (Civil Genio) ─────────────
-                        # El Código Nacional de Procedimientos Civiles y Familiares
-                        # solo está vigente en CDMX (fecha límite: 1 abril 2027).
-                        # Para todos los demás estados, aplica su código procesal local.
-                        if _resolved_genio_id == "civil" and _estado_for_llm:
-                            _estado_norm = _estado_for_llm.lower().replace("_", " ")
-                            _cnpcf_vigente = _estado_norm in ("cdmx", "ciudad de mexico", "ciudad de méxico", "distrito federal")
-                            if _cnpcf_vigente:
-                                cnpcf_caveat = (
-                                    "⚖️ NOTA PROCESAL: El usuario consulta desde la Ciudad de México, "
-                                    "donde el Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
-                                    "YA ESTÁ EN VIGOR. Para temas de procedimiento civil, APLICA el CNPCF."
-                                )
-                            else:
-                                _estado_display = _estado_for_llm.replace("_", " ").title()
-                                cnpcf_caveat = (
-                                    f"⚠️ INSTRUCCIÓN CRÍTICA — PROCEDIMIENTO CIVIL EN {_estado_display.upper()}:\n"
-                                    f"El Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
-                                    f"AÚN NO ha entrado en vigor en {_estado_display} "
-                                    f"(fecha límite de implementación: 1 de abril de 2027).\n"
-                                    f"Para cuestiones PROCESALES civiles, las reglas aplicables son las del "
-                                    f"Código de Procedimientos Civiles del Estado de {_estado_display}, "
-                                    f"NO las del CNPCF.\n"
-                                    f"Si el usuario pregunta sobre procedimiento civil:\n"
-                                    f"1. ACLARA que el CNPCF aún no aplica en {_estado_display}.\n"
-                                    f"2. Si citas artículos del CNPCF, ADVIERTE que son de referencia y "
-                                    f"que el procedimiento local puede diferir.\n"
-                                    f"3. Para derecho SUSTANTIVO civil (CCF), sí puedes citar normalmente.\n"
-                                    f"4. Solo cita el CNPCF como normativa vigente si el usuario "
-                                    f"pregunta explícitamente por él o para comparación."
-                                )
-                            dynamic_parts.append(cnpcf_caveat)
+                    # ─────────────────────────────────────────────────────────────
+                    # ROUTING PARALELO O SIMPLE
+                    # ─────────────────────────────────────────────────────────────
+                    if len(_resolved_genio_ids) > 1:
+                        # MULTI-GENIO: Parallel Execution + DeepSeek Synthesis
+                        print(f"   🚀 Ejecutando {len(_resolved_genio_ids)} Genios en paralelo: {_resolved_genio_ids}")
+                        
+                        # Emit a marker to frontend that synthesis is starting
+                        yield "<!--SYNTHESIS:START-->\n"
+                        yield f"Consultando a los genios: {', '.join(_resolved_genio_ids).title()}...\n\n"
+                        
+                        _tasks = [_run_gemini_stream(g_id) for g_id in _resolved_genio_ids]
+                        _genio_results = await asyncio.gather(*_tasks)
+                        
+                        # SYNTHESIS WITH DEEPSEEK
+                        synthesis_prompt = f"""El usuario ha hecho la siguiente consulta:
+"{last_user_message}"
 
-                        gemini_contents.insert(0, gtypes.Content(
-                            role="user",
-                            parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]
-                        ))
-                        gemini_config = gtypes.GenerateContentConfig(
-                            cached_content=_effective_cached,
-                            max_output_tokens=25000,
-                            temperature=0.5,  # Sincronizado a 0.5 para potencia
-                            thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET),
+Has recibido respuestas especializadas de múltiples "Genios Jurídicos" basadas en la misma jurisprudencia.
+Tu tarea es REDACTAR UNA RESPUESTA ÚNICA, COHERENTE Y COMPRENSIVA sintetizando el análisis de los siguientes expertos.
+Evita contradicciones y estructura la respuesta de forma impecable usando formato Markdown.
+
+"""
+                        for i, (g_id, g_res) in enumerate(zip(_resolved_genio_ids, _genio_results)):
+                            synthesis_prompt += f"## Análisis del Genio {g_id.title()}:\n{g_res}\n\n"
+
+                        synthesis_prompt += "\n## INSTRUCCIONES PARA SÍNTESIS FINAL\n"
+                        synthesis_prompt += "Maneja TODAS las citas a jurisprudencia. Usa los mismos IDs [Doc ID: uuid] proporcionados en el contexto.\n"
+                        synthesis_prompt += "La respuesta final DEBE resolver directamente la duda del usuario unificando las visiones."
+
+                        print(f"   🧠 Synthesizing with {DEEPSEEK_CHAT_MODEL}...")
+                        yield "\n<!--SYNTHESIS:END-->\n" # Finalize progress marker
+                        
+                        synthesis_messages = [
+                            {"role": "system", "content": SYSTEM_PROMPT_CHAT},
+                            {"role": "user", "content": synthesis_prompt}
+                        ]
+                        
+                        stream = await deepseek_client.chat.completions.create(
+                            model=DEEPSEEK_CHAT_MODEL,
+                            messages=synthesis_messages,
+                            stream=True,
+                            max_tokens=25000,
                         )
-
+                        async for chunk in stream:
+                            if chunk.choices and chunk.choices[0].delta:
+                                content = getattr(chunk.choices[0].delta, 'content', None)
+                                if content:
+                                    content_buffer += content
+                                    yield content
+                                    
                     else:
-                        # Configuración para consultas NO-CACHED (RAG normal / Sentencia)
-                        gemini_config = gtypes.GenerateContentConfig(
-                            system_instruction=system_instruction,
-                            temperature=0.5, # Potencia máxima
-                            max_output_tokens=max_tokens,  # 32K para sentencia, 25K para regular
-                            **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}),
-                        )
-                    
-                    _cache_label = "CACHED" if _effective_cached else "no-cache"
-                    print(f"   Gemini stream starting: {active_model} [{_cache_label}] | system={len(system_instruction)} chars | contents={len(gemini_contents)} msgs")
-                    
-                    async for chunk in await gemini_client.aio.models.generate_content_stream(
-                        model=active_model,
-                        contents=gemini_contents,
-                        config=gemini_config,
-                    ):
-                        if chunk.candidates:
-                            for part in chunk.candidates[0].content.parts:
-                                if hasattr(part, 'thought') and part.thought:
-                                    # Internal thinking — don't stream to user
-                                    reasoning_buffer += (part.text or "")
-                                elif part.text:
-                                    content_buffer += part.text
-                                    yield part.text
-                    
-                    if not content_buffer.strip():
-                        print(f"   ⚠️ Gemini produced no content ({len(reasoning_buffer)} chars thinking)")
-                        fallback = (
-                            "\n\n**Análisis completado.**\n\n"
-                            "El modelo agotó tokens durante el razonamiento. "
-                            "Envía *\"continúa\"* para obtener la respuesta."
-                        )
-                        content_buffer = fallback
-                        yield fallback
-                    
-                    print(f"   ✅ Gemini stream complete: {len(content_buffer)} chars content, {len(reasoning_buffer)} chars thinking")
+                        # SINGLE GENIO OR NO GENIO (Streaming normal)
+                        genio_to_run = _resolved_genio_ids[0] if _resolved_genio_ids else None
+                        
+                        # Re-implement inline streaming for single stream to avoid latency
+                        _local_cached = None
+                        if genio_to_run:
+                            try:
+                                from cache_manager import get_cache_name_async
+                                _local_cached = await get_cache_name_async(genio_to_run)
+                                if has_document: _local_cached = None
+                            except: pass
+
+                        system_instruction = system_instruction_base
+                        _gemini_contents = gemini_contents.copy()
+
+                        if _local_cached:
+                            dynamic_parts = []
+                            for part in system_parts:
+                                if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO") or part.startswith("Eres JUREXIA REDACTOR JUDICIAL"):
+                                    dynamic_parts.append(part)
+
+                            rag_ids = list(doc_id_map.keys()) if doc_id_map else []
+                            cache_rag_instruction = (
+                                "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
+                                f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                            )
+                            dynamic_parts.insert(0, cache_rag_instruction)
+                            _gemini_contents.insert(0, gtypes.Content(role="user", parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]))
+                            gemini_config = gtypes.GenerateContentConfig(cached_content=_local_cached, max_output_tokens=25000, temperature=0.5, thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET))
+                        else:
+                            gemini_config = gtypes.GenerateContentConfig(system_instruction=system_instruction, temperature=0.5, max_output_tokens=max_tokens, **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}))
+                        
+                        async for chunk in await gemini_client.aio.models.generate_content_stream(
+                            model=active_model,
+                            contents=_gemini_contents,
+                            config=gemini_config,
+                        ):
+                            if chunk.candidates:
+                                for part in chunk.candidates[0].content.parts:
+                                    if hasattr(part, 'thought') and part.thought:
+                                        reasoning_buffer += (part.text or "")
+                                    elif part.text:
+                                        content_buffer += part.text
+                                        yield part.text
+                        
+                        if not content_buffer.strip():
+                            fallback = "\n\n**Análisis completado.**\n\nEl modelo agotó tokens. Envía *\"continúa\"*."
+                            content_buffer = fallback
+                            yield fallback
                 
 
                 # ── OPENAI/DEEPSEEK BRANCH: Regular chat ─────────────────
