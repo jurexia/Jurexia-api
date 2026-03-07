@@ -5949,11 +5949,12 @@ async def _direct_article_lookup(
                 f"ART. {art_num}",         # Uppercase abbreviated
             ]
             
+            all_candidate_points = []
+            
             for collection in article_collections:
                 if len(results) > 50:  # Safety cap on total results
                     break
                 
-                found_in_collection = False
                 for ref_val in ref_variants:
                     try:
                         filter_conditions = [
@@ -5962,7 +5963,7 @@ async def _direct_article_lookup(
                         
                         # Add state filter if available — try multiple formats
                         # Qdrant stores entidad as: "QUERETARO" (ingestion) or "Querétaro" (some)
-                        if state_hint:
+                        if state_hint and collection != FIXED_SILOS["federal"]:
                             # Try the raw state_hint first (e.g., "QUERETARO")
                             state_variants_to_try = [
                                 state_hint,                                    # QUERETARO
@@ -5994,54 +5995,84 @@ async def _direct_article_lookup(
                                     points, _ = await qdrant_client.scroll(
                                         collection_name=collection,
                                         scroll_filter=Filter(must=state_filter),
-                                        limit=3,
+                                        limit=5,
                                         with_payload=True,
                                         with_vectors=False,
                                     )
                                     if points:
-                                        break
+                                        all_candidate_points.extend([(collection, p) for p in points])
                                 except Exception:
                                     continue
-                            else:
-                                points = []
                         else:
-                            # No state filter — just search by ref
+                            # No state filter (or federal silo) — just search by ref
                             points, _ = await qdrant_client.scroll(
                                 collection_name=collection,
                                 scroll_filter=Filter(must=filter_conditions),
-                                limit=3,
+                                limit=10,
                                 with_payload=True,
                                 with_vectors=False,
                             )
+                            if points:
+                                all_candidate_points.extend([(collection, p) for p in points])
                         
-                        for point in points:
-                            pid = str(point.id)
-                            if pid not in seen_ids:
-                                seen_ids.add(pid)
-                                payload = point.payload or {}
-                                results.append(SearchResult(
-                                    id=pid,
-                                    score=1.0,  # Exact match = max confidence
-                                    texto=payload.get("texto", payload.get("text", "")),
-                                    ref=payload.get("ref"),
-                                    origen=payload.get("origen"),
-                                    jurisdiccion=payload.get("jurisdiccion"),
-                                    entidad=payload.get("entidad", payload.get("estado")),
-                                    silo=collection,
-                                    pdf_url=payload.get("pdf_url", payload.get("url_pdf")),
-                                ))
-                        
-                        if points:
-                            found_in_collection = True
-                            found_refs.append(f"Art. {art_num}")
-                            break  # Found with this ref variant, skip other variants
                     except Exception as e:
                         print(f"   ⚠️ Direct lookup error for {ref_val} in {collection}: {e}")
                         continue
+            
+            if all_candidate_points:
+                # Rank candidates by how well their `origen` matches the `law_hint`
+                stops = {'de', 'la', 'del', 'los', 'las', 'el', 'estado', 'ley', 'codigo', 'código', 'para', 'que', 'con'}
+                hint_words = set()
+                if law_hint:
+                    hint_words = set(w for w in law_hint.lower().replace(',', ' ').split() if w not in stops and len(w) > 3)
                 
-                if found_in_collection:
-                    break  # Found in this collection, skip other collections
-            if not found_in_collection:
+                def _similarity(origen: str) -> float:
+                    if not hint_words or not origen: return 0.0
+                    origen_words = set(w for w in origen.lower().replace(',', ' ').split() if w not in stops and len(w) > 3)
+                    if not origen_words: return 0.0
+                    return len(hint_words & origen_words) / len(hint_words | origen_words)
+                
+                # Deduplicate points by ID to avoid redundant scoring
+                unique_points = {}
+                for coll, p in all_candidate_points:
+                    if p.id not in unique_points:
+                        unique_points[p.id] = (coll, p)
+                
+                scored_points = []
+                for pid, (coll, p) in unique_points.items():
+                    payload = p.payload or {}
+                    origen = payload.get("origen", "")
+                    score = _similarity(origen) if hint_words else 1.0 # If no hint, treat all as 1.0 to pick the first
+                    scored_points.append((score, coll, p))
+                
+                # Sort by score DESC
+                scored_points.sort(key=lambda x: x[0], reverse=True)
+                
+                # Best match
+                best_score, best_coll, best_point = scored_points[0]
+                pid = str(best_point.id)
+                
+                # Only insert if we either had no hint, or the hint matched at least 1 word (score > 0)
+                if not hint_words or best_score > 0.0:
+                    if pid not in seen_ids:
+                        seen_ids.add(pid)
+                        payload = best_point.payload or {}
+                        results.append(SearchResult(
+                            id=pid,
+                            score=1.0,  # Exact match = max confidence
+                            texto=payload.get("texto", payload.get("text", "")),
+                            ref=payload.get("ref"),
+                            origen=payload.get("origen"),
+                            jurisdiccion=payload.get("jurisdiccion"),
+                            entidad=payload.get("entidad", payload.get("estado")),
+                            silo=best_coll,
+                            pdf_url=payload.get("pdf_url", payload.get("url_pdf")),
+                        ))
+                    
+                    found_refs.append(f"Art. {art_num}")
+                else:
+                    not_found_refs.append(art_num)
+            else:
                 not_found_refs.append(art_num)
     
     # ── 2. Direct Jurisprudencia Lookup by Registro ──
