@@ -10121,6 +10121,267 @@ async def redactor_v2_generate(
     return StreamingResponse(generate_sse(), media_type="text/event-stream")
 
 
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
+
+# ── V3 Endpoint: Comprehensive Per-Problem Generation (No Genio, Qdrant Only) ──
+
+@app.post("/redactor/v3/generate_comprehensive")
+async def redactor_v3_generate_comprehensive(
+    tipo: str = Form(...),
+    user_email: str = Form(...),
+    resumen_caso: str = Form(""),
+    resumen_acto_reclamado: str = Form(""),
+    problemas_json: str = Form(...), # Array of problems with calificacion and notas
+    sentido_global: str = Form(""),
+):
+    """
+    Redactor v3: Iterates through each problem, runs a highly targeted RAG search,
+    crafts a custom prompt via GPT-4o, and generates the section via Gemini 2.5 Pro.
+    SSE streams the progress and the text back to the client.
+    """
+    from starlette.responses import StreamingResponse
+    import time as time_module
+    import asyncio
+
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido")
+    if not OPENAI_API_KEY:
+        raise HTTPException(500, "OPENAI_API_KEY no configurada")
+
+    try:
+        problemas = json.loads(problemas_json)
+    except Exception as e:
+        raise HTTPException(400, "Formato de problemas inválido")
+
+    if not problemas:
+        raise HTTPException(400, "Debe proveer al menos un problema jurídico")
+
+    total_problems = len(problemas)
+    
+    # Contexto global que se inyectará a GPT-4o para que entienda el caso
+    global_context = (
+        f"TIPO DE RESOLUCIÓN: {tipo.replace('_', ' ').title()}\n"
+        f"RESUMEN GENERAL: {resumen_caso}\n"
+        f"RESUMEN DEL ACTO RECLAMADO/RECURRIDO: {resumen_acto_reclamado}\n"
+        f"SENTIDO GLOBAL PROPUESTO: {sentido_global}\n"
+    )
+
+    print(f"\n🚀 REDACTOR v3 GENERATE COMPREHENSIVE — {tipo} — {user_email}")
+    print(f"   {total_problems} problemas | Pipeline: RAG → GPT-4o → Gemini 2.5 Pro")
+
+    async def generate_sse():
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        total_start = time_module.time()
+        total_api_calls = 0
+
+        try:
+            from openai import AsyncOpenAI
+            openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            client = get_gemini_client()
+            from google.genai import types as gtypes
+
+            gemini_system = (
+                "Eres un redactor judicial de élite de un Tribunal Colegiado de Circuito mexicano. "
+                "Tu función es redactar sentencias estructuradas y precisas, resolviendo problemas "
+                "jurídicos paso a paso según las instrucciones de un Secretario de Estudio y Cuenta.\n\n"
+                "REGLAS ABSOLUTAS:\n"
+                "1. ACATA LA LÍNEA DEL SECRETARIO: Si las notas o calificación dicen 'Fundado', 'Infundado', etc., "
+                "tu desarrollo DEBE justificar esa conclusión inexcusablemente.\n"
+                "2. CERO ALUCINACIONES: Solo cita artículos, tesis y jurisprudencias que estén "
+                "TEXTUALMENTE en el prompt. JAMÁS inventes tesis ni números de registro.\n"
+                "3. REGLA DE ORO DEL AMPARO DIRECTO: La litis versa EXCLUSIVAMENTE sobre la constitucionalidad "
+                "del acto de la Autoridad Responsable (ej. la Sala de apelación). Dirige tu análisis a sus "
+                "consideraciones, NUNCA al juez de primera instancia.\n"
+                "4. NUNCA repitas el mismo párrafo, cita o razonamiento abstracto dos veces.\n"
+                "5. Redacta con prosa jurídica formal, clara y objetiva."
+            )
+
+            for i, prob in enumerate(problemas):
+                prob_title = prob.get("titulo", f"Problema {i+1}")
+                prob_desc = prob.get("descripcion", "")
+                prob_calif = prob.get("calificacion", "sin_calificar")
+                prob_notas = prob.get("notas", "")
+                prob_q = prob.get("interrogante", "")
+
+                print(f"   ► Evaluando P{i+1}/{total_problems}: {prob_title}")
+
+                # ────────────────────────────────────────────────────────
+                # PHASE 1: RAG SEARCH FOR THIS SPECIFIC PROBLEM
+                # ────────────────────────────────────────────────────────
+                yield sse("phase", {
+                    "step": f"🔍 Investigando jurisprudencia: {prob_title}",
+                    "progress": int((i / total_problems) * 100 + 5),
+                    "group": i + 1,
+                    "total_groups": total_problems,
+                })
+                
+                # Build targeted search query using Secretary's notes and problem context
+                search_query = f"{prob_desc} {prob_notas}"
+                
+                rag_results = []
+                try:
+                    tasks = [
+                        hybrid_search_all_silos(query=search_query[:350], estado=None, top_k=8, alpha=0.7, enable_reasoning=False),
+                        hybrid_search_all_silos(query=f"jurisprudencia {prob_q}", estado=None, top_k=8, alpha=0.7, enable_reasoning=False)
+                    ]
+                    results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+                    seen_ids = set()
+                    for batch in results_raw:
+                        if isinstance(batch, Exception): continue
+                        for r in batch:
+                            if r.id not in seen_ids:
+                                seen_ids.add(r.id)
+                                rag_results.append(r)
+                    rag_results.sort(key=lambda r: r.score, reverse=True)
+                    rag_results = rag_results[:12] # Top 12 most relevant items
+                except Exception as e:
+                    print(f"   ⚠️ RAG Error en P{i+1}: {e}")
+
+                rag_context = ""
+                for r in rag_results:
+                    tag = "[JURISPRUDENCIA]" if "jurisprudencia" in (r.silo or "").lower() else "[LEGISLACIÓN]"
+                    rag_context += f"\n--- {tag} ---\nFuente: {r.ref or r.origen}\n{str(r.texto)[:1200]}\n"
+
+                # ────────────────────────────────────────────────────────
+                # PHASE 2: GPT-4o PROMPT ENGINEERING
+                # ────────────────────────────────────────────────────────
+                yield sse("phase", {
+                    "step": f"🧠 Diseñando argumentación: {prob_title}",
+                    "progress": int((i / total_problems) * 100 + 15),
+                    "group": i + 1,
+                    "total_groups": total_problems,
+                })
+
+                # Determine structural instructions based on position
+                if total_problems == 1:
+                    flow_instructions = (
+                        "ESTRUCTURA OBLIGATORIA: Al ser el único problema jurídico, DEBES instruir al modelo a generar TODA la sentencia:\n"
+                        "1. 'I. SÍNTESIS DEL ACTO RECLAMADO' (con base en el resumen del caso).\n"
+                        "2. 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS'.\n"
+                        "3. 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (Menciona este problema único).\n"
+                        "4. 'IV. ESTUDIO DE FONDO' (Resuelve el problema usando la línea del Secretario y las tesis).\n"
+                        "5. 'V. CONCLUSIÓN Y RESOLUTIVOS PROPUESTOS'."
+                    )
+                else:
+                    if i == 0:
+                        flow_instructions = (
+                            "ESTRUCTURA OBLIGATORIA: Al ser el PRIMER problema jurídico, DEBES instruir al modelo a INICIAR la estructura de la sentencia:\n"
+                            "1. 'I. SÍNTESIS DEL ACTO RECLAMADO' (resume el acto impugnado).\n"
+                            "2. 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS' (haz un breve resumen general).\n"
+                            "3. 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (Lista TODOS los problemas a resolver, no solo este).\n"
+                            "4. Inicia el apartado 'IV. ESTUDIO DE FONDO' y desarrolla ÚNICAMENTE el análisis de ESTE primer problema.\n"
+                            "IMPORTANTE: Prohíbe redactar conclusiones o resolutivos finales todavía."
+                        )
+                    elif i == total_problems - 1:
+                        flow_instructions = (
+                            "ESTRUCTURA OBLIGATORIA: Al ser el ÚLTIMO problema jurídico, DEBES instruir al modelo a CERRAR el estudio:\n"
+                            "1. Desarrolla ÚNICAMENTE el análisis de ESTE problema, como continuación lógica del estudio de fondo previo.\n"
+                            "2. Tras analizar el problema, DEBE cerrar la sentencia con el apartado 'V. CONCLUSIÓN Y RESOLUTIVOS PROPUESTOS', emitiendo el fallo acorde a la sumatoria de las calificaciones.\n"
+                            "IMPORTANTE: NO repitas las síntesis iniciales ni la fijación de problemas."
+                        )
+                    else:
+                        flow_instructions = (
+                            "ESTRUCTURA OBLIGATORIA: Al ser un problema INTERMEDIO, DEBES instruir al modelo a mantener la fluidez:\n"
+                            "1. Desarrolla ÚNICAMENTE el análisis de ESTE acto/problema, como un nuevo apartado dentro del 'IV. ESTUDIO DE FONDO'.\n"
+                            "IMPORTANTE: Prohíbe redactar síntesis iniciales o resolutivos finales. Es solo la carnita de este problema."
+                        )
+
+                prompt_engineer_system = (
+                    "Eres un arquitecto legal. Tu trabajo es leer el contexto general, un problema jurídico específico, "
+                    "las directrices de resolución del Secretario y la jurisprudencia aplicable, y generar "
+                    "un PROMPT MAESTRO DETALLADO para que otro modelo (Gemini) redacte esa parte de la sentencia.\n\n"
+                    "Tu prompt maestro debe:\n"
+                    "1. Traspasar TEXTUALMENTE las tesis y legislación relevantes.\n"
+                    "2. Transmitir el Tono y la Calificación obligatoria exigida por el Secretario.\n"
+                    "3. Cumplir ESTRICTAMENTE con las 'INSTRUCCIONES EXTRA DEL FLUJO' sobre qué apartados escribir.\n"
+                    "IMPORTANTE: No respondas al problema; solo redacta el PROMPT con las instrucciones y los insumos procesados."
+                )
+
+                group_prompt = (
+                    f"--- CONTEXTO GLOBAL ---\n{global_context}\n\n"
+                    f"--- PROBLEMA A RESOLVER EN ESTA ITERACIÓN ---\n"
+                    f"Título: {prob_title}\n"
+                    f"Descripción de qué trata: {prob_desc}\n"
+                    f"Pregunta Jurídica: {prob_q}\n"
+                    f"CALIFICACIÓN A IMPONER: {prob_calif.upper()}\n"
+                    f"NOTAS DEL SECRETARIO (Línea resolutiva): {prob_notas}\n\n"
+                    f"--- INSUMOS (RAG) ---\n{rag_context}\n\n"
+                    f"--- INSTRUCCIONES EXTRA DEL FLUJO ---\n{flow_instructions}\n"
+                )
+
+                total_api_calls += 1
+                try:
+                    prompt_response = await openai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": prompt_engineer_system},
+                            {"role": "user", "content": group_prompt},
+                        ],
+                        max_tokens=4096,
+                        temperature=0.2,
+                    )
+                    crafted_prompt = prompt_response.choices[0].message.content
+                except Exception as e:
+                    print(f"   ⚠️ GPT-4o Error en P{i+1}: {e}")
+                    crafted_prompt = f"Desarrolla el problema '{prob_title}' calificándolo como {prob_calif}. Notas: {prob_notas}.\n\nFlujo: {flow_instructions}"
+
+                # ────────────────────────────────────────────────────────
+                # PHASE 3: GEMINI GENERATION (STREAMING)
+                # ────────────────────────────────────────────────────────
+                yield sse("phase", {
+                    "step": f"✍️ Redactando: {prob_title} ({prob_calif})",
+                    "progress": int((i / total_problems) * 100 + 40),
+                    "group": i + 1,
+                    "total_groups": total_problems,
+                })
+
+                total_api_calls += 1
+                gemini_config = gtypes.GenerateContentConfig(
+                    system_instruction=gemini_system,
+                    temperature=0.3,
+                    max_output_tokens=32000,
+                )
+
+                try:
+                    gemini_stream = await client.aio.models.generate_content_stream(
+                        model="gemini-2.5-pro",
+                        contents=crafted_prompt,
+                        config=gemini_config,
+                    )
+
+                    async for chunk in gemini_stream:
+                        if chunk.text:
+                            yield sse("text", {"chunk": chunk.text, "group": i + 1})
+                            
+                    # Add spacing between problems
+                    if i < total_problems - 1:
+                        yield sse("text", {"chunk": "\n\n", "group": i + 1})
+                        
+                except Exception as e:
+                    print(f"   ⚠️ Gemini Error en P{i+1}: {e}")
+                    yield sse("error", {"message": f"Error redactando problema {i+1}: {str(e)}"})
+
+            elapsed = time_module.time() - total_start
+            yield sse("done", {
+                "total_chars": -1, # We don't track full text in memory anymore to be extremely robust
+                "elapsed": round(elapsed, 1),
+                "model": "v3: RAG → GPT-4o → Gemini 2.5 Pro",
+                "groups_completed": total_problems,
+                "api_calls": total_api_calls,
+            })
+            print(f"   🏁 COMPLETADO V3 en {elapsed:.1f}s ({total_api_calls} calls)")
+
+        except Exception as e:
+            print(f"   ❌ Generate V3 error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
 
 @app.post("/draft-sentencia")
 async def draft_sentencia(
