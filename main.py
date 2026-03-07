@@ -1013,6 +1013,9 @@ Dictamen final y directrices para el proyectista o juzgador.
    - Si el proyecto carece de justicia material, OBLIGA a cambiar el sentido y provee el esqueleto argumentativo para hacerlo.
    - Si es materialmente justo pero formalmente un desastre, ordena las correcciones de redacción.
 
+*Nota Final: Al terminar tu dictamen, SIEMPRE despídete textualmente con este mensaje exacto:*
+**"¿Quieres que redacte un esqueleto argumentativo para fortalecer o cambiar el proyecto? Si es así, selecciona el Genio de la Materia que corresponda a este caso, activa el modo 'Redacción Especializada', envíame un mensaje con un simple 'ok' y yo me encargaré del resto."**
+
 ═══════════════════════════════════════════════════════════════
    PRINCIPIOS RECTORES PARA TU RAZONAMIENTO
 ═══════════════════════════════════════════════════════════════
@@ -6636,18 +6639,26 @@ async def chat_endpoint(request: ChatRequest):
                         matches = re.findall(pat, doc_content, re.IGNORECASE)
                         leyes_encontradas.extend([m.strip() for m in matches[:5]])
                     
-                    # Extraer temas jurídicos clave
+                    # Extraer temas jurídicos clave (Derecho Sustantivo y Adjetivo)
                     temas_patterns = [
                         r'(?:juicio\s+de\s+amparo)',
-                        r'(?:recurso\s+de\s+revisión)',
+                        r'(?:recurso\s+de\s+revisión|recurso\s+de\s+apelación)',
                         r'(?:principio\s+(?:pro persona|de legalidad|de retroactividad))',
                         r'(?:control\s+(?:de convencionalidad|difuso|concentrado))',
-                        r'(?:derechos humanos)',
-                        r'(?:debido proceso)',
-                        r'(?:retroactividad)',
-                        r'(?:cosa juzgada)',
+                        r'(?:derechos humanos|debido proceso|retroactividad|cosa juzgada)',
                         r'(?:suplencia\s+de\s+la\s+queja)',
                         r'(?:interés\s+(?:jurídico|legítimo|superior))',
+                        # Nuevo bloque sustantivo (Civil/Familiar/Penal):
+                        r'(?:alimentos|pensión\s+alimenticia|obligación\s+alimentaria)',
+                        r'(?:filiación|paternidad|ADN|prueba\s+en\s+genética)',
+                        r'(?:guarda\s+y\s+custodia|patria\s+potestad)',
+                        r'(?:prueba\s+pericial|dictamen\s+pericial|peritaje)',
+                        r'(?:valoración\s+probatoria|libre\s+apreciación)',
+                        r'(?:violencia\s+familiar|violencia\s+de\s+género)',
+                        r'(?:divorcio(?:[\s\w]+)?)',
+                        r'(?:nulidad(?:[\s\w]+)?)',
+                        r'(?:prescripción(?:[\s\w]+)?|usucapión)',
+                        r'(?:daño\s+moral|responsabilidad\s+civil)'
                     ]
                     temas = []
                     for pat in temas_patterns:
