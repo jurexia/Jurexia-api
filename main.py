@@ -3836,6 +3836,36 @@ async def _extract_juris_concepts(query: str) -> str:
         print(f"   ⚠️ Extracción de conceptos falló: {e}")
         return query  # Fallback: usar el query original
 
+async def _extract_sentencia_temas(doc_content: str) -> str:
+    """
+    Extracción dinámica de temas jurídicos de una sentencia usando LLM rápido (CHAT_MODEL).
+    Reemplaza las expresiones regulares para permitir RAG 'libre' de cualquier materia.
+    """
+    try:
+        # Usar los primeros 15000 chars donde suele estar la litis / resultandos / vistos
+        snippet = doc_content[:15000]
+        response = await chat_client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": (
+                    "Analiza el siguiente fragmento de una sentencia o proyecto judicial "
+                    "y extrae de 5 a 8 conceptos clave o frases cortas que describan el TEMA SUSTANTIVO CENTRAL "
+                    "y LA ACCIÓN PRINCIPAL del caso. Ejemplo: 'acción reivindicatoria', 'rescisión de contrato civil', "
+                    "'pensión alimenticia', 'divorcio incausado'. No uses oraciones completas. "
+                    "Responde SOLO con los conceptos clave separados por comas."
+                )},
+                {"role": "user", "content": snippet}
+            ],
+            temperature=0.1,
+            max_completion_tokens=80,
+        )
+        temas = response.choices[0].message.content.strip()
+        print(f"   🧠 Extracción dinámica de temas (RAG Libre): {temas}")
+        return temas
+    except Exception as e:
+        print(f"   ⚠️ Extracción dinámica falló: {e}")
+        return ""
+
 
 async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[SearchResult]:
     """
@@ -6639,36 +6669,13 @@ async def chat_endpoint(request: ChatRequest):
                         matches = re.findall(pat, doc_content, re.IGNORECASE)
                         leyes_encontradas.extend([m.strip() for m in matches[:5]])
                     
-                    # Extraer temas jurídicos clave (Derecho Sustantivo y Adjetivo)
-                    temas_patterns = [
-                        r'(?:juicio\s+de\s+amparo)',
-                        r'(?:recurso\s+de\s+revisión|recurso\s+de\s+apelación)',
-                        r'(?:principio\s+(?:pro persona|de legalidad|de retroactividad))',
-                        r'(?:control\s+(?:de convencionalidad|difuso|concentrado))',
-                        r'(?:derechos humanos|debido proceso|retroactividad|cosa juzgada)',
-                        r'(?:suplencia\s+de\s+la\s+queja)',
-                        r'(?:interés\s+(?:jurídico|legítimo|superior))',
-                        # Nuevo bloque sustantivo (Civil/Familiar/Penal):
-                        r'(?:alimentos|pensión\s+alimenticia|obligación\s+alimentaria)',
-                        r'(?:filiación|paternidad|ADN|prueba\s+en\s+genética)',
-                        r'(?:guarda\s+y\s+custodia|patria\s+potestad)',
-                        r'(?:prueba\s+pericial|dictamen\s+pericial|peritaje)',
-                        r'(?:valoración\s+probatoria|libre\s+apreciación)',
-                        r'(?:violencia\s+familiar|violencia\s+de\s+género)',
-                        r'(?:divorcio(?:[\s\w]+)?)',
-                        r'(?:nulidad(?:[\s\w]+)?)',
-                        r'(?:prescripción(?:[\s\w]+)?|usucapión)',
-                        r'(?:daño\s+moral|responsabilidad\s+civil)'
-                    ]
-                    temas = []
-                    for pat in temas_patterns:
-                        if re.search(pat, doc_content, re.IGNORECASE):
-                            temas.append(re.search(pat, doc_content, re.IGNORECASE).group())
+                    # Extraer temas jurídicos clave de forma DINÁMICA y LIBRE con LLM (RAG sin límites)
+                    # Reemplaza la lista rígida de regex para soportar cualquier materia
+                    temas_str = await _extract_sentencia_temas(doc_content)
                     
                     # Construir queries dirigidas
                     articulos_str = ", ".join(set(articulos[:10]))
                     leyes_str = ", ".join(set(leyes_encontradas[:8]))
-                    temas_str = ", ".join(set(temas[:6]))
                     
                     # Query 1: Legislación (artículos + leyes + Ley de Amparo + CFPC valoración probatoria SIEMPRE)
                     query_legislacion = f"Ley de Amparo artículo 209 203 Código Federal Procedimientos Civiles indivisibilidad documental valoración probatoria {articulos_str} {leyes_str}".strip()
