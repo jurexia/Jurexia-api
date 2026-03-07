@@ -16,9 +16,10 @@ gemini_client = genai.Client(api_key=config['GEMINI_API_KEY'])
 
 COLLECTION_NAME = "sentencias_amparo_directo"
 LIMIT_SAMPLES = 200
-# Formato optimizado para Google AI Studio (Supervised Tuning)
-OUTPUT_FILE = "dataset_aistudio_amparo.jsonl"
-MAX_CHARS = 35000 # Limite de AI Studio es 40k
+# Formato optimizado para OpenAI (Conversacional)
+OUTPUT_FILE = "dataset_openai_redactor.jsonl"
+MAX_CHARS = 100000 # Opcional: ampliar para OpenAI, pero mantenemos algo razonable
+SYSTEM_PROMPT = "Eres un Secretario de Estudio y Cuenta de la Suprema Corte de Justicia de la Nación. Redacta la resolución o proyecto de sentencia basándote en la siguiente instrucción y empleando un lenguaje técnico, preciso, exhaustivo y estructurado."
 
 def generate_instruction(text_chunk, hierarchy):
     """Usa Gemini para generar una instruccion de usuario basada en el texto legal."""
@@ -44,7 +45,7 @@ def generate_instruction(text_chunk, hierarchy):
         return f"Redacta un fragmento de Amparo Directo: {hierarchy}"
 
 def main():
-    print(f"Iniciando preparacion para AI Studio ({COLLECTION_NAME})...")
+    print(f"Iniciando preparacion para OpenAI ({COLLECTION_NAME})...")
     
     res = qdrant_client.scroll(collection_name=COLLECTION_NAME, limit=LIMIT_SAMPLES)
     points = res[0]
@@ -64,11 +65,12 @@ def main():
 
             user_input = generate_instruction(text_output, hierarchy)
             
-            # Formato estandar Gemini Tuning
+            # Formato estándar OpenAI Conversational Tuning
             example = {
-                "contents": [
-                    {"role": "user", "parts": [{"text": user_input}]},
-                    {"role": "model", "parts": [{"text": text_output}]}
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_input},
+                    {"role": "assistant", "content": text_output}
                 ]
             }
             

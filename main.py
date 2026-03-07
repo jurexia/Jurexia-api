@@ -88,7 +88,7 @@ REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-flash
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
 # DeepSeek V3 is ~65-75% cheaper for equivalent quality in Spanish legal text.
 # Switch in Render env vars without redeploy needed (restart service only).
-CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek (cost-optimized)
+CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek (cost-optimized) - deploy update 2026-03-06
 print(f"   Chat Engine: {'🟢 DeepSeek V3 (cost-optimized)' if CHAT_ENGINE == 'deepseek' else '🔵 GPT-5 Mini (premium)'}")
 
 # Cohere Rerank Configuration (cross-encoder for post-retrieval reranking)
