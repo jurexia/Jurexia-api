@@ -6818,6 +6818,13 @@ async def chat_endpoint(request: ChatRequest):
     # Extract primary genio for cache logic (backward compatibility)
     _primary_genio_id = _resolved_genio_ids[0] if _resolved_genio_ids else None
     
+    # ── GENIO OVERRIDE ──
+    # If a Genio is active but no specific materia was selected by the UI, 
+    # force the retrieval to focus on the Genio's domain.
+    if _primary_genio_id and not request.materia:
+        request.materia = _primary_genio_id
+        print(f"   🧞‍♂️ GENIO OVERRIDE: Forzando request.materia='{request.materia}'")
+    
     async def _probe_cache():
         if not _primary_genio_id:
             return None
