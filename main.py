@@ -7424,7 +7424,7 @@ async def chat_endpoint(request: ChatRequest):
         elif _resolved_genio_ids and _can_use_gemini and not has_document:
             # We have one or more genios AND can use gemini AND no document attached
             use_gemini = True
-            active_model = "models/gemini-2.5-pro" # Default, might be overridden by cache config
+            active_model = "models/gemini-3-flash-preview" # Genio cache is generated with flash-preview
             max_tokens = 25000
             print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}")
         else:
@@ -7586,15 +7586,83 @@ async def chat_endpoint(request: ChatRequest):
                     # ROUTING PARALELO O SIMPLE
                     # ─────────────────────────────────────────────────────────────
                     if len(_resolved_genio_ids) > 1:
-                        # MULTI-GENIO: Parallel Execution + DeepSeek Synthesis
-                        print(f"   🚀 Ejecutando {len(_resolved_genio_ids)} Genios en paralelo: {_resolved_genio_ids}")
+                        # MULTI-GENIO: Ejecución Secuencial con Streaming Visible
+                        print(f"   🚀 Ejecutando {len(_resolved_genio_ids)} Genios en secuencia con streaming visible: {_resolved_genio_ids}")
                         
-                        # Emit a marker to frontend that synthesis is starting
-                        yield "<!--SYNTHESIS:START-->\n"
-                        yield f"Consultando a los genios: {', '.join(_resolved_genio_ids).title()}...\n\n"
+                        yield f"🤖 **Analizando con Genios Jurídicos:** {', '.join(_resolved_genio_ids).title()}...\n\n"
                         
-                        _tasks = [_run_gemini_stream(g_id) for g_id in _resolved_genio_ids]
-                        _genio_results = await asyncio.gather(*_tasks)
+                        _genio_results_text = []
+                        for g_id in _resolved_genio_ids:
+                            yield f"### 🧠 Genio {g_id.title()}\n"
+                            
+                            _local_cached = None
+                            try:
+                                from cache_manager import get_cache_name_async
+                                _local_cached = await get_cache_name_async(g_id)
+                                if has_document: _local_cached = None
+                            except: pass
+
+                            system_instruction = system_instruction_base
+                            _gemini_contents = gemini_contents.copy()
+
+                            if _local_cached:
+                                dynamic_parts = []
+                                for part in system_parts:
+                                    if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO") or part.startswith("Eres JUREXIA REDACTOR JUDICIAL"):
+                                        dynamic_parts.append(part)
+
+                                rag_ids = list(doc_id_map.keys()) if doc_id_map else []
+                                cache_rag_instruction = (
+                                    "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
+                                    f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                                )
+                                dynamic_parts.insert(0, cache_rag_instruction)
+                                
+                                if g_id == "civil" and _estado_for_llm:
+                                    _estado_norm = _estado_for_llm.lower().replace("_", " ")
+                                    _cnpcf_vigente = _estado_norm in ("cdmx", "ciudad de mexico", "ciudad de méxico", "distrito federal")
+                                    if _cnpcf_vigente:
+                                        cnpcf_caveat = (
+                                            "⚖️ NOTA PROCESAL: El usuario consulta desde la Ciudad de México, "
+                                            "donde el Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
+                                            "YA ESTÁ EN VIGOR. Para temas de procedimiento civil, APLICA el CNPCF."
+                                        )
+                                    else:
+                                        _estado_display = _estado_for_llm.replace("_", " ").title()
+                                        cnpcf_caveat = (
+                                            f"⚠️ INSTRUCCIÓN CRÍTICA — PROCEDIMIENTO CIVIL EN {_estado_display.upper()}:\n"
+                                            f"El Código Nacional de Procedimientos Civiles y Familiares (CNPCF) "
+                                            f"AÚN NO ha entrado en vigor en {_estado_display}. Para cuestiones PROCESALES "
+                                            f"civiles, aplica el Código de Procedimientos Civiles del Estado.\n"
+                                        )
+                                    dynamic_parts.append(cnpcf_caveat)
+
+                                _gemini_contents.insert(0, gtypes.Content(role="user", parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]))
+                                gemini_config = gtypes.GenerateContentConfig(cached_content=_local_cached, max_output_tokens=25000, temperature=0.5, thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET))
+                            else:
+                                gemini_config = gtypes.GenerateContentConfig(system_instruction=system_instruction, temperature=0.5, max_output_tokens=max_tokens, **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}))
+                            
+                            _g_text = ""
+                            async for chunk in await gemini_client.aio.models.generate_content_stream(
+                                model=active_model,
+                                contents=_gemini_contents,
+                                config=gemini_config,
+                            ):
+                                if chunk.candidates:
+                                    for part in chunk.candidates[0].content.parts:
+                                        if part.text:
+                                            _g_text += part.text
+                                            content_buffer += part.text
+                                            yield part.text
+                            
+                            if not _g_text.strip():
+                                fallback = "\n*Análisis sin respuesta para este genio.*"
+                                _g_text = fallback
+                                content_buffer += fallback
+                                yield fallback
+                                
+                            _genio_results_text.append(_g_text)
+                            yield "\n\n---\n\n"
                         
                         # SYNTHESIS WITH DEEPSEEK
                         synthesis_prompt = f"""El usuario ha hecho la siguiente consulta:
@@ -7605,7 +7673,7 @@ Tu tarea es REDACTAR UNA RESPUESTA ÚNICA, COHERENTE Y COMPRENSIVA sintetizando 
 Evita contradicciones y estructura la respuesta de forma impecable usando formato Markdown.
 
 """
-                        for i, (g_id, g_res) in enumerate(zip(_resolved_genio_ids, _genio_results)):
+                        for i, (g_id, g_res) in enumerate(zip(_resolved_genio_ids, _genio_results_text)):
                             synthesis_prompt += f"## Análisis del Genio {g_id.title()}:\n{g_res}\n\n"
 
                         synthesis_prompt += "\n## INSTRUCCIONES PARA SÍNTESIS FINAL\n"
@@ -7613,7 +7681,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         synthesis_prompt += "La respuesta final DEBE resolver directamente la duda del usuario unificando las visiones."
 
                         print(f"   🧠 Synthesizing with {DEEPSEEK_CHAT_MODEL}...")
-                        yield "\n<!--SYNTHESIS:END-->\n" # Finalize progress marker
+                        yield "### ⚖️ Síntesis Final (Jurexia)\n"
                         
                         synthesis_messages = [
                             {"role": "system", "content": SYSTEM_PROMPT_CHAT},
@@ -7637,7 +7705,6 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         # SINGLE GENIO OR NO GENIO (Streaming normal)
                         genio_to_run = _resolved_genio_ids[0] if _resolved_genio_ids else None
                         
-                        # Re-implement inline streaming for single stream to avoid latency
                         _local_cached = None
                         if genio_to_run:
                             try:
@@ -7680,7 +7747,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                         yield part.text
                         
                         if not content_buffer.strip():
-                            fallback = "\n\n**Análisis completado.**\n\nEl modelo agotó tokens. Envía *\"continúa\"*."
+                            fallback = "\n\n**Análisis completado sin respuesta.**\n\nEl modelo agotó tokens. Envía *\"continúa\"*."
                             content_buffer = fallback
                             yield fallback
                 
