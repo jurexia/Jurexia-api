@@ -80,9 +80,9 @@ REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thou
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 # Gemini Model Configuration
-SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "models/gemini-3-flash-preview")  # Gemini 3 Flash — frontier intelligence
-REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-3-flash-preview")  # PDF OCR — Gemini 3 Flash for scanned docs
-REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-flash")  # Estudio de fondo + efectos
+SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-3.0-pro")  # Gemini 3 Pro — frontier intelligence
+REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-3.0-pro")  # PDF OCR — Powerful model requested
+REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-3.0-pro")  # Estudio de fondo + efectos
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
 # Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
@@ -9494,16 +9494,55 @@ async def redactor_v2_analyze(
     if not extracted_data:
         raise HTTPException(500, "No se pudieron extraer datos de los PDFs")
 
-    # Build problemas jurídicos from extracted agravios
+    # Build resumen — fallback to acto_reclamado.resumen
+    resumen_caso = extracted_data.get("resumen_caso", "")
+    if not resumen_caso or resumen_caso == "NO ENCONTRADO":
+        resumen_caso = extracted_data.get("acto_reclamado", {}).get("resumen", "")
+
+    # Build problemas jurídicos using OpenAI (GPT-4o) as requested by user
+    print(f"   🧠 Paso 1.5: OpenAI gpt-4o formulando problemas jurídicos...")
+    from openai import AsyncOpenAI
+    openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+    
     problemas = []
+    
     for i, agravio in enumerate(extracted_data.get("agravios_conceptos", [])):
         titulo = agravio.get("titulo", f"Problema {i + 1}")
         sintesis = agravio.get("sintesis", "")
-
-        # Generate the legal question (interrogante) from the agravio
-        # The problema jurídico is always a question derived from confronting
-        # what was ruled vs. what was alleged
-        interrogante = _build_interrogante(titulo, sintesis, tipo)
+        
+        # Formulate problema jurídico using OpenAI
+        formulation_system_prompt = (
+            "Eres un experto Magistrado de Circuito. Tu tarea es analizar la "
+            "síntesis de un agravio o concepto de violación junto con el resumen del acto impugnado, "
+            "y formular EXCLUSIVAMENTE la pregunta que constituye el 'Problema Jurídico' a resolver.\n"
+            "REGLAS:\n"
+            "1. La salida debe ser ÚNICAMENTE la pregunta (el problema jurídico), nada de saludos ni explicaciones.\n"
+            "2. Debe estar redactada en términos estrictamente jurídicos y formales.\n"
+            "3. Debe confrontar lo resuelto en el acto impugnado vs lo alegado en el agravio."
+        )
+        
+        formulation_user_prompt = (
+            f"TIPO DE ASUNTO: {tipo}\n"
+            f"RESUMEN DEL ACTO RECLAMADO/IMPUGNADO:\n{resumen_caso}\n\n"
+            f"AGRAVIO/CONCEPTO DE VIOLACIÓN:\n- Título: {titulo}\n- Síntesis: {sintesis}\n\n"
+            f"Plantea el problema jurídico como una pregunta directa:"
+        )
+        
+        try:
+            prompt_response = await openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": formulation_system_prompt},
+                    {"role": "user", "content": formulation_user_prompt},
+                ],
+                max_tokens=250,
+                temperature=0.2,
+            )
+            interrogante = prompt_response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"   ⚠️ OpenAI formulation error: {e}")
+            # Fallback to local logic if AI generation fails
+            interrogante = _build_interrogante(titulo, sintesis, tipo)
 
         problemas.append({
             "numero": agravio.get("numero", i + 1),
@@ -9527,11 +9566,6 @@ async def redactor_v2_analyze(
         autoridades = extracted_data.get("partes", {}).get("autoridades_responsables", [])
         if autoridades:
             expediente["autoridades"] = autoridades
-
-    # Build resumen — fallback to acto_reclamado.resumen
-    resumen_caso = extracted_data.get("resumen_caso", "")
-    if not resumen_caso or resumen_caso == "NO ENCONTRADO":
-        resumen_caso = extracted_data.get("acto_reclamado", {}).get("resumen", "")
 
     return {
         "success": True,
@@ -9910,7 +9944,7 @@ async def redactor_v2_generate(
                     "total_groups": total_groups,
                 })
 
-                print(f"   ✍️ Paso 2: Gemini generando estudio de fondo (streaming)...")
+                print(f"   ✍️ Paso 2: Gemini 3 Pro generando estudio de fondo (streaming)...")
                 total_api_calls += 1
 
                 gemini_system = (
@@ -9943,7 +9977,7 @@ async def redactor_v2_generate(
                 loop_detected = False
 
                 gemini_stream = await client.aio.models.generate_content_stream(
-                    model="gemini-2.5-pro",
+                    model="gemini-3.0-pro",
                     contents=crafted_prompt,
                     config=gemini_config,
                 )
