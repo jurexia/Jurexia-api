@@ -8647,6 +8647,7 @@ SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
     "amparo_revision": ["Recurso de Revisión", "Sentencia Recurrida"],
     "revision_fiscal": ["Recurso de Revisión Fiscal", "Sentencia Recurrida"],
     "recurso_queja": ["Recurso de Queja", "Determinación Recurrida"],
+    "amparo_indirecto": ["Demanda de Amparo", "Acto Reclamado", "Informe Justificado (Opcional)"],
 }
 
 # ── Base system prompt (shared across all types) ─────────────────────────────
@@ -8691,6 +8692,8 @@ PUNTOS RESOLUTIVOS:
 
 IMPORTANTE: Lee TODOS los documentos adjuntos minuciosamente. Extrae los datos del expediente, las partes, los hechos, los argumentos y los fundamentos directamente de los PDFs.
 """
+
+SENTENCIA_JUZGADO_BASE = SENTENCIA_SYSTEM_BASE.replace("Tribunal Colegiado de Circuito", "Juzgado de Distrito").replace("Magistrado Ponente", "Juez de Distrito").replace("Este Tribunal advierte", "Este Juzgador advierte")
 
 # ── Type-specific prompts ────────────────────────────────────────────────────
 SENTENCIA_PROMPTS: Dict[str, str] = {
@@ -8774,6 +8777,28 @@ Sentidos posibles:
 - DECLARAR FUNDADA la queja (revocar el auto recurrido)
 - DECLARAR INFUNDADA la queja (confirmar el auto)
 - DESECHAR por improcedente o extemporánea
+""",
+
+    "amparo_indirecto": SENTENCIA_JUZGADO_BASE + """
+TIPO ESPECÍFICO: AMPARO INDIRECTO (Juzgado de Distrito)
+
+Documentos que recibirás:
+1. DEMANDA DE AMPARO: Contiene los conceptos de violación, el acto reclamado señalado, las autoridades responsables
+2. ACTO RECLAMADO: Es la resolución, ley o acto de autoridad contra la que se promueve el amparo
+3. INFORME JUSTIFICADO: Contiene la defensa de la autoridad responsable (si lo hay)
+
+En el ESTUDIO DE FONDO:
+- Analiza CADA concepto de violación individualmente
+- Confronta cada argumento del quejoso contra lo resuelto en el acto reclamado y lo expuesto en el informe justificado
+- Determina si los conceptos son fundados, infundados o inoperantes
+- Si son fundados: explica por qué y señala los efectos
+
+Sentidos posibles del fallo:
+- CONCEDER el amparo
+- NEGAR el amparo
+- SOBRESEER el juicio
+- DESECHAR la demanda
+- DECLARAR LA INCOMPETENCIA
 """,
 }
 
@@ -9715,8 +9740,9 @@ async def redactor_v2_analyze(
                 yield sse("phase", {"step": f"🎯 Estructurando problema jurídico {i+1} de {total_agravios}...", "progress": 60 + int((i/max(total_agravios,1))*35)})
                 
                 # Formulate problema jurídico using OpenAI
+                juzgador_rol = "Juez de Distrito" if tipo == "amparo_indirecto" else "Magistrado de Circuito"
                 formulation_system_prompt = (
-                    "Eres un experto Magistrado de Circuito. Tu tarea es analizar la "
+                    f"Eres un experto {juzgador_rol}. Tu tarea es analizar la "
                     "síntesis de un agravio o concepto de violación junto con el resumen del acto impugnado, "
                     "y formular EXCLUSIVAMENTE la pregunta que constituye el 'Problema Jurídico' a resolver.\n"
                     "REGLAS:\n"
@@ -10400,8 +10426,15 @@ async def redactor_v3_generate_comprehensive(
             client = get_gemini_client()
             from google.genai import types as gtypes
 
+            if tipo == "amparo_indirecto":
+                judge_role = "Juez de Distrito mexicano"
+                golden_rule = "REGLA DE ORO DEL AMPARO INDIRECTO: La litis versa sobre la constitucionalidad del acto reclamado a la Autoridad Responsable en función de los conceptos de violación y el informe justificado. Dirige tu análisis a las violaciones directas a derechos humanos o garantías constitucionales."
+            else:
+                judge_role = "Tribunal Colegiado de Circuito mexicano"
+                golden_rule = "REGLA DE ORO DEL AMPARO DIRECTO: La litis versa EXCLUSIVAMENTE sobre la constitucionalidad del acto de la Autoridad Responsable (ej. la Sala de apelación). Dirige tu análisis a sus consideraciones, NUNCA al juez de primera instancia."
+
             gemini_system = (
-                "Eres un redactor judicial de élite de un Tribunal Colegiado de Circuito mexicano. "
+                f"Eres un redactor judicial de élite de un {judge_role}. "
                 "Tu función es redactar sentencias estructuradas y precisas, resolviendo problemas "
                 "jurídicos paso a paso según las instrucciones de un Secretario de Estudio y Cuenta.\n\n"
                 "REGLAS ABSOLUTAS:\n"
@@ -10409,9 +10442,7 @@ async def redactor_v3_generate_comprehensive(
                 "tu desarrollo DEBE justificar esa conclusión inexcusablemente.\n"
                 "2. CERO ALUCINACIONES: Solo cita artículos, tesis y jurisprudencias que estén "
                 "TEXTUALMENTE en el prompt. JAMÁS inventes tesis ni números de registro.\n"
-                "3. REGLA DE ORO DEL AMPARO DIRECTO: La litis versa EXCLUSIVAMENTE sobre la constitucionalidad "
-                "del acto de la Autoridad Responsable (ej. la Sala de apelación). Dirige tu análisis a sus "
-                "consideraciones, NUNCA al juez de primera instancia.\n"
+                f"3. {golden_rule}\n"
                 "4. NUNCA repitas el mismo párrafo, cita o razonamiento abstracto dos veces.\n"
                 "5. Redacta con prosa jurídica formal, clara y objetiva.\n"
                 "6. CERO FILLER CONVERSACIONAL: Jamás uses frases como 'De acuerdo. Procedo al apartado', "
@@ -12221,6 +12252,11 @@ REDACCION_TIPOS = {
         "docs": ["Recurso de Queja", "Determinación Recurrida"],
         "instruccion": "Identifica la fracción del Art. 97 aplicable y analiza cada agravio.",
     },
+    "amparo_indirecto": {
+        "label": "Amparo Indirecto",
+        "docs": ["Demanda", "Acto Reclamado", "Informe Justificado (Opcional)"],
+        "instruccion": "Analiza los conceptos de violación contra el acto reclamado, considerando el informe justificado.",
+    },
 }
 
 REDACCION_SYSTEM_PROMPT = """Eres un Secretario Proyectista EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación de México.
@@ -12251,6 +12287,7 @@ async def redaccion_sentencias(
     user_email: str = Form(...),
     doc1: UploadFile = File(...),
     doc2: UploadFile = File(...),
+    doc3: Optional[UploadFile] = File(None),
     instrucciones: str = Form(""),
 ):
     """
@@ -12283,7 +12320,8 @@ async def redaccion_sentencias(
 
         gemini_client = get_gemini_client()
 
-        extract_prompt = f"""Lee estos 2 documentos judiciales ({tipo_config['docs'][0]} y {tipo_config['docs'][1]}) y extrae toda la información relevante.
+        doc_types = ", ".join(tipo_config['docs'])
+        extract_prompt = f"""Lee estos documentos judiciales ({doc_types}) y extrae toda la información relevante.
 
 Devuelve un resumen detallado incluyendo:
 - Datos del expediente (número, tribunal, partes, fechas)
@@ -12299,8 +12337,15 @@ Sé MUY detallado en la transcripción de los agravios — necesito el texto ín
             gtypes.Part.from_bytes(data=doc1_bytes, mime_type="application/pdf"),
             gtypes.Part.from_text(text=f"--- {tipo_config['docs'][1]} ---"),
             gtypes.Part.from_bytes(data=doc2_bytes, mime_type="application/pdf"),
-            gtypes.Part.from_text(text=extract_prompt),
         ]
+        
+        if doc3:
+            doc3_bytes = await doc3.read()
+            if doc3_bytes:
+                pdf_parts.append(gtypes.Part.from_text(text=f"--- {tipo_config['docs'][2]} ---"))
+                pdf_parts.append(gtypes.Part.from_bytes(data=doc3_bytes, mime_type="application/pdf"))
+
+        pdf_parts.append(gtypes.Part.from_text(text=extract_prompt))
 
         extraction = gemini_client.models.generate_content(
             model="gemini-2.5-flash",
