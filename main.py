@@ -7430,13 +7430,13 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
         
         if is_sentencia:
-            # Revisión de Sentencia: Requiere razonamiento profundo (OpenAI o1)
-            # o1 es el modelo de razonamiento más potente para encontrar falacias lógicas
+            # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
+            # GPT-5.2 ofrece el máximo nivel de inteligencia y análisis de Jurexia
             use_gemini = False
-            active_model = "o1-2024-12-17"  # Alias actual del modelo más potente
+            active_model = "gpt-5.2"  # Modelo flagship de OpenAI
             active_client = chat_client
-            # o1 requiere max_completion_tokens
-            max_tokens = 30000 
+            # gpt-5.2 usa max_tokens convencionalmente
+            max_tokens = 32000 
             use_thinking = True
             _effective_cached = None  # Sin cache para sentencias
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
