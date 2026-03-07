@@ -4461,6 +4461,11 @@ async def hybrid_search_all_silos(
     forced_materia: Optional[str] = None,
     fuero: Optional[str] = None,  # Filtro por fuero (constitucional/federal/estatal)
     include_sentencias: bool = False, # ✅ NUEVO: Permite inyectar ejemplos de excelencia
+    # ✅ Optimizaciones de latencia
+    skip_llm_presearch: bool = False,
+    precomputed_plan: Optional[Dict] = None,
+    precomputed_hyde: Optional[str] = None,
+    precomputed_juris_concepts: Optional[str] = None,
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en silos relevantes según fuero.
@@ -4497,13 +4502,26 @@ async def hybrid_search_all_silos(
     # Lanza Strategy Agent + HyDE + Query Decomposition en PARALELO
     # (Antes eran 3 awaits secuenciales sumando ~5-7s, ahora corren simultáneas)
     # ═══════════════════════════════════════════════════════════════════════════
-    _t_llm = time.perf_counter()
-    legal_plan, hyde_doc, sub_queries = await asyncio.gather(
-        _legal_strategy_agent(query, fuero_manual=fuero),
-        _generate_hyde_document(query),
-        _decompose_query(query),
-    )
-    print(f"   ⏱ LLM paralelo (Strategy+HyDE+Decomp): {time.perf_counter() - _t_llm:.2f}s")
+    if skip_llm_presearch:
+        legal_plan = precomputed_plan or {
+            "materia_principal": "general",
+            "fuero_detectado": fuero or "mixto",
+            "jurisprudencia_keywords": [],
+            "conceptos_clave": [],
+            "pesos_silos": {"constitucional": 0.25, "federal": 0.25, "estatal": 0.25, "jurisprudencia": 0.25},
+            "requiere_ddhh": False
+        }
+        hyde_doc = precomputed_hyde
+        sub_queries = []
+        print("   ⚡ LLM pre-search saltado (usando parámetros precomputados o defaults)")
+    else:
+        _t_llm = time.perf_counter()
+        legal_plan, hyde_doc, sub_queries = await asyncio.gather(
+            _legal_strategy_agent(query, fuero_manual=fuero),
+            _generate_hyde_document(query),
+            _decompose_query(query),
+        )
+        print(f"   ⏱ LLM paralelo (Strategy+HyDE+Decomp): {time.perf_counter() - _t_llm:.2f}s")
 
     # Usar jurisprudencia_keywords del plan para enriquecer la expanded_query
     if legal_plan["jurisprudencia_keywords"]:
@@ -4873,7 +4891,7 @@ async def hybrid_search_all_silos(
         print(f"   ⚖️ JURISPRUDENCIA BOOST V2: Solo {len(juris_in_merged)} tesis, ejecutando multi-query...")
         try:
             # Extraer conceptos jurídicos clave para formular queries de jurisprudencia
-            juris_concepts = await _extract_juris_concepts(query)
+            juris_concepts = precomputed_juris_concepts if skip_llm_presearch and precomputed_juris_concepts else await _extract_juris_concepts(query)
             
             juris_queries = [
                 # Query 1: Original con prefijo de jurisprudencia
@@ -6732,18 +6750,21 @@ async def chat_endpoint(request: ChatRequest):
                             estado=request.estado,
                             top_k=40,
                             fuero=None,  # SIEMPRE buscar en todos los silos para sentencias
+                            skip_llm_presearch=True
                         ),
                         hybrid_search_all_silos(
                             query=query_jurisprudencia,
                             estado=request.estado,
                             top_k=40,
                             fuero=None,
+                            skip_llm_presearch=True
                         ),
                         hybrid_search_all_silos(
                             query=query_constitucional,
                             estado=request.estado,
                             top_k=10,
                             fuero=None,
+                            skip_llm_presearch=True
                         ),
                         direct_task,
                     )
@@ -6876,6 +6897,16 @@ async def chat_endpoint(request: ChatRequest):
                     _expansion_suffix = _query_materias.get(_materia_hint.lower(), "")
                     _query_expanded = f"{last_user_message} {_expansion_suffix}".strip() if _expansion_suffix else last_user_message
 
+                    # ── PRE-SEARCH LLM: Ejecutar solo UNA VEZ y pasar a todas las búsquedas ──
+                    _t_presearch = time.perf_counter()
+                    legal_plan, hyde_doc, sub_queries, precomp_juris_concepts = await asyncio.gather(
+                        _legal_strategy_agent(last_user_message, fuero_manual=request.fuero),
+                        _generate_hyde_document(last_user_message),
+                        _decompose_query(last_user_message),
+                        _extract_juris_concepts(last_user_message)
+                    )
+                    print(f"   ⏱ PRE-SEARCH LLM (Centralizado): {time.perf_counter() - _t_presearch:.2f}s")
+
                     # Construir tareas de búsqueda en paralelo
                     _search_tasks = [
                         hybrid_search_all_silos(
@@ -6885,6 +6916,10 @@ async def chat_endpoint(request: ChatRequest):
                             forced_materia=request.materia,
                             fuero=request.fuero,
                             include_sentencias=is_chat_drafting,
+                            skip_llm_presearch=True,
+                            precomputed_plan=legal_plan,
+                            precomputed_hyde=hyde_doc,
+                            precomputed_juris_concepts=precomp_juris_concepts
                         ),
                     ]
                     # Q2 solo si hay expansión de materia disponible (diferente a Q1)
@@ -6896,6 +6931,10 @@ async def chat_endpoint(request: ChatRequest):
                                 top_k=20,
                                 forced_materia=request.materia,
                                 fuero=request.fuero,
+                                skip_llm_presearch=True,
+                                precomputed_plan=legal_plan,
+                                precomputed_hyde=hyde_doc,
+                                precomputed_juris_concepts=precomp_juris_concepts
                             )
                         )
                     # Q3: Búsqueda constitucional si hay indicadores
@@ -6912,6 +6951,10 @@ async def chat_endpoint(request: ChatRequest):
                                 top_k=15,
                                 forced_materia=None,  # No filtrar materia para constitucional
                                 fuero="constitucional", # ✅ Restringir solo a bloque constitucional y jurisprudencia
+                                skip_llm_presearch=True,
+                                precomputed_plan=legal_plan,
+                                precomputed_hyde=hyde_doc,
+                                precomputed_juris_concepts=precomp_juris_concepts
                             )
                         )
 
@@ -7025,6 +7068,9 @@ async def chat_endpoint(request: ChatRequest):
         # Inyección de Contexto Global: Inventario del Sistema
         llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
         
+        # Collect dynamic contexts for prefix caching optimization
+        dynamic_injections = []
+        
         # Inyectar estado seleccionado para que el LLM priorice leyes locales
         # effective_estado sólo existe en el flujo normal; usar request.estado como fallback
         _estado_for_llm = locals().get("effective_estado") or request.estado
@@ -7062,16 +7108,16 @@ async def chat_endpoint(request: ChatRequest):
                 )
                 print(f"   📍 Estado inyectado al LLM (sin leyes estatales detectadas, priorizando federal/const): {estado_humano}")
             
-            llm_messages.append({"role": "system", "content": _estado_prompt})
+            dynamic_injections.append(_estado_prompt)
         
         if context_xml:
-            llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
+            dynamic_injections.append(f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}")
         
         # FIX A: Inject compact Doc ID inventory to reduce UUID hallucination
         # Gives the LLM a "cheat sheet" of valid UUIDs to copy from
         if doc_id_map:
             valid_ids_prompt = get_valid_doc_ids_prompt(doc_id_map)
-            llm_messages.append({"role": "system", "content": valid_ids_prompt})
+            dynamic_injections.append(valid_ids_prompt)
 
         # ── PALANCA 5: Session Context Accumulator ────────────────────────────
         # En conversaciones multi-turno (más de 1 mensaje), extraer el contexto
@@ -7094,12 +7140,11 @@ async def chat_endpoint(request: ChatRequest):
                     "de seguimiento sin especificar materia o ley, asume que sigue en el mismo contexto jurídico "
                     "identificado. Prioriza documentos del contexto RAG que correspondan a esta materia."
                 )
-                llm_messages.append({"role": "system", "content": _session_msg})
+                dynamic_injections.append(_session_msg)
                 print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
                 
         # Agregar historial conversacional
-
-        for msg in request.messages:
+        for i, msg in enumerate(request.messages):
             msg_content = msg.content
             
             # Para sentencias: truncar si es necesario para token budget
@@ -7120,6 +7165,11 @@ async def chat_endpoint(request: ChatRequest):
                         print(f"   ⚖️ Sentencia truncada: {len(sentencia_text)} → {max_chars} chars ({pct}%)")
                     else:
                         print(f"   ⚖️ Sentencia completa: {len(sentencia_text)} chars (dentro del límite)")
+            
+            # 🔥 PREFIX CACHING OPTIMIZATION: Inject dynamic stuff onto the LAST user message
+            if i == len(request.messages) - 1 and dynamic_injections:
+                msg_content += "\n\n" + "\n\n".join(dynamic_injections)
+                print(f"   🚀 Optimizando Caché: {len(dynamic_injections)} bloques dinámicos apendados al final del prompt.")
             
             llm_messages.append({"role": msg.role, "content": msg_content})
         
