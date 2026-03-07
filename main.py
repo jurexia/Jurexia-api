@@ -10190,11 +10190,13 @@ async def redactor_v3_generate_comprehensive(
     total_problems = len(problemas)
     
     # Contexto global que se inyectará a GPT-4o para que entienda el caso
+    lista_problemas = "\n".join([f"- {p.get('titulo', '')} ({p.get('calificacion', 'Sin Calificar')})" for p in problemas])
     global_context = (
         f"TIPO DE RESOLUCIÓN: {tipo.replace('_', ' ').title()}\n"
         f"RESUMEN GENERAL: {resumen_caso}\n"
         f"RESUMEN DEL ACTO RECLAMADO/RECURRIDO: {resumen_acto_reclamado}\n"
-        f"SENTIDO GLOBAL PROPUESTO: {sentido_global}\n"
+        f"SENTIDO GLOBAL PROPUESTO POR EL USUARIO PARA TODA LA SENTENCIA: {sentido_global}\n"
+        f"LOS PROBLEMAS JURÍDICOS TOTALES A RESOLVER SON:\n{lista_problemas}\n"
     )
 
     print(f"\n🚀 REDACTOR v3 GENERATE COMPREHENSIVE — {tipo} — {user_email}")
@@ -10228,7 +10230,10 @@ async def redactor_v3_generate_comprehensive(
                 "4. NUNCA repitas el mismo párrafo, cita o razonamiento abstracto dos veces.\n"
                 "5. Redacta con prosa jurídica formal, clara y objetiva.\n"
                 "6. CERO FILLER CONVERSACIONAL: Jamás uses frases como 'De acuerdo. Procedo al apartado', "
-                "saludos o introducciones vacías. Genera ÚNICAMENTE texto directo para la sentencia."
+                "saludos o introducciones vacías. Genera ÚNICAMENTE texto directo para la sentencia.\n"
+                "7. NO TE DISCULPES NI EXPLIQUES. Redacta directo como máquina de escribir automatizada.\n"
+                "8. OBEDECE LAS PROHIBICIONES ESTRUCTURALES: Si tu prompt te prohíbe usar el título 'IV. ESTUDIO DE FONDO', "
+                "o emitir resolutivos, obedece CORTANDO de raíz esos apartados. No insertes párrafos genéricos de introducción o metodología."
             )
 
             for i, prob in enumerate(problemas):
@@ -10290,56 +10295,65 @@ async def redactor_v3_generate_comprehensive(
                 # Determine structural instructions based on position
                 if total_problems == 1:
                     flow_instructions = (
-                        "ESTRUCTURA OBLIGATORIA: Al ser el único problema jurídico, DEBES instruir al modelo a generar TODA la sentencia:\n"
-                        "1. 'I. SÍNTESIS DEL ACTO RECLAMADO' (con base en el resumen del caso).\n"
-                        "2. 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS'.\n"
-                        "3. 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (Menciona este problema único).\n"
-                        "4. 'IV. ESTUDIO DE FONDO' (Resuelve el problema usando la línea del Secretario y las tesis).\n"
-                        "5. 'V. CONCLUSIÓN Y RESOLUTIVOS PROPUESTOS'."
+                        "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale generar TODA la sentencia con esta estructura EXACTA:\n"
+                        "1. 'I. SÍNTESIS DEL ACTO RECLAMADO' (resumir el acto impugnado).\n"
+                        "2. 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS' (resumir).\n"
+                        "3. 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (plantear la pregunta jurídica).\n"
+                        "4. 'IV. ESTUDIO DE FONDO' (Desarrollar directo el análisis al punto sin intos previas).\n"
+                        "5. 'V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS' (Redactar justificación breve basada en el SENTIDO GLOBAL y listar resolutivos)."
                     )
                 else:
                     if i == 0:
                         flow_instructions = (
-                            "ESTRUCTURA OBLIGATORIA: Al ser el PRIMER problema jurídico, DEBES instruir al modelo a INICIAR la estructura de la sentencia:\n"
-                            "1. 'I. SÍNTESIS DEL ACTO RECLAMADO' (resume el acto impugnado).\n"
-                            "2. 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS' (haz un breve resumen general).\n"
-                            "3. 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (Lista TODOS los problemas a resolver, no solo este).\n"
-                            "4. Inicia el apartado 'IV. ESTUDIO DE FONDO' y desarrolla ÚNICAMENTE el análisis de ESTE primer problema.\n"
-                            "IMPORTANTE: Prohíbe redactar conclusiones o resolutivos finales todavía."
+                            "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale INICIAR la sentencia estrictamente con esto:\n"
+                            "1. Título 'I. SÍNTESIS DEL ACTO RECLAMADO' (resumir el acto impugnado).\n"
+                            "2. Título 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS' (brevemente).\n"
+                            "3. Título 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (Enumerar la totalidad de problemas jurídicos del caso basándose en la lista global proporcionada).\n"
+                            "4. Título 'IV. ESTUDIO DE FONDO'.\n"
+                            "5. Subtítulo específico de ESTE primer problema jurídico, seguido inmediatamente de su análisis argumentativo directo.\n"
+                            "REGLAS ESTRUCTURALES A IMPONER AL LLM:\n"
+                            "- PROHÍBELE REDACTAR INTROS como 'la materia de análisis consiste en' o 'procede el estudio conjunto'. Iniciar directo al análisis de este problema.\n"
+                            "- PROHÍBELE redactar el apartado V, la conclusión global o los resolutivos."
                         )
                     elif i == total_problems - 1:
                         flow_instructions = (
-                            "ESTRUCTURA OBLIGATORIA: Al ser el ÚLTIMO problema jurídico, DEBES instruir al modelo a CERRAR el estudio:\n"
-                            "1. Desarrolla ÚNICAMENTE el análisis de ESTE problema, como continuación lógica del estudio de fondo previo.\n"
-                            "2. Tras analizar el problema, DEBE cerrar la sentencia con el apartado 'V. CONCLUSIÓN Y RESOLUTIVOS PROPUESTOS', emitiendo el fallo acorde a la sumatoria de las calificaciones.\n"
-                            "IMPORTANTE: NO repitas las síntesis iniciales ni la fijación de problemas."
+                            "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale CERRAR el Estudio de Fondo y la sentencia con esto:\n"
+                            "1. Subtítulo legal de ESTE último problema jurídico y generar su análisis específico.\n"
+                            "2. Título 'V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS'.\n"
+                            "3. Redactar los definitivos resolutivos conforme estrictamente al SENTIDO GLOBAL PROPUESTO POR EL USUARIO.\n"
+                            "REGLAS ESTRUCTURALES A IMPONER AL LLM:\n"
+                            "- PROHÍBELE poner el título principal 'IV. ESTUDIO DE FONDO'.\n"
+                            "- PROHÍBELE repetir las síntesis iniciales o la fijación de problemas."
                         )
                     else:
                         flow_instructions = (
-                            "ESTRUCTURA OBLIGATORIA: Al ser un problema INTERMEDIO, DEBES instruir al modelo a mantener la fluidez:\n"
-                            "1. Desarrolla ÚNICAMENTE el análisis de ESTE acto/problema, como un nuevo apartado dentro del 'IV. ESTUDIO DE FONDO'.\n"
-                            "IMPORTANTE: Prohíbe redactar síntesis iniciales o resolutivos finales. Es solo la carnita de este problema."
+                            "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale generar UN SOLO APARTADO INTERMEDIO de la sentencia:\n"
+                            "1. Subtítulo legal propio de ESTE problema jurídico.\n"
+                            "2. Desarrollar el análisis y argumentación.\n"
+                            "REGLAS ESTRUCTURALES A IMPONER AL LLM:\n"
+                            "- PROHÍBELE poner el título principal 'IV. ESTUDIO DE FONDO'. (¡Muy importante!).\n"
+                            "- PROHÍBELE redactar síntesis, listado de problemas, intros genéricas o apartados conclusivos y resolutivos."
                         )
 
                 prompt_engineer_system = (
-                    "Eres un arquitecto legal. Tu trabajo es leer el contexto general, un problema jurídico específico, "
+                    "Eres un arquitecto legal experto en Prompt Engineering. Tu trabajo es leer el contexto general de un juicio de amparo/recurso, el problema jurídico en turno, "
                     "las directrices de resolución del Secretario y la jurisprudencia aplicable, y generar "
-                    "un PROMPT MAESTRO DETALLADO para que otro modelo (Gemini) redacte esa parte de la sentencia.\n\n"
-                    "Tu prompt maestro debe:\n"
-                    "1. Traspasar TEXTUALMENTE las tesis y legislación relevantes.\n"
-                    "2. Transmitir el Tono y la Calificación obligatoria exigida por el Secretario.\n"
-                    "3. Cumplir ESTRICTAMENTE con las 'INSTRUCCIONES EXTRA DEL FLUJO' sobre qué apartados escribir.\n"
-                    "IMPORTANTE: No respondas al problema; solo redacta el PROMPT con las instrucciones y los insumos procesados."
+                    "un PROMPT MAESTRO DETALLADO para que otro modelo lingüístico (LLM) redacte exacta y únicamente la parte de la sentencia solicitada en esta iteración.\n\n"
+                    "Tu prompt maestro debe decirle al LLM QUÉ escribir, CÓMO estructurarlo y QUÉ reglas seguir:\n"
+                    "1. Provee TEXTUALMENTE las tesis y legislación relevantes para que el LLM las cite de forma orgánica.\n"
+                    "2. Transmite inequívocamente la Calificación (Fundado, Infundado, etc.) que se le impuso a la interrogante.\n"
+                    "3. Dicta ESTRICTAMENTE la estructura requerida en las 'INSTRUCCIONES EXTRA DEL FLUJO'. Haz énfasis en las prohibiciones usando mayúsculas (ej. 'PROHIBIDO ESCRIBIR EL TÍTULO IV').\n"
+                    "IMPORTANTE: No redactes la sentencia tú mismo. Solo redacta el INSTRUCTIVO (Prompt) estructurado para el LLM."
                 )
 
                 group_prompt = (
                     f"--- CONTEXTO GLOBAL ---\n{global_context}\n\n"
                     f"--- PROBLEMA A RESOLVER EN ESTA ITERACIÓN ---\n"
-                    f"Título: {prob_title}\n"
+                    f"Título o Subtema: {prob_title}\n"
                     f"Descripción de qué trata: {prob_desc}\n"
-                    f"Pregunta Jurídica: {prob_q}\n"
-                    f"CALIFICACIÓN A IMPONER: {prob_calif.upper()}\n"
-                    f"NOTAS DEL SECRETARIO (Línea resolutiva): {prob_notas}\n\n"
+                    f"Pregunta Jurídica Específica: {prob_q}\n"
+                    f"CALIFICACIÓN DEL PROBLEMA: {prob_calif.upper()}\n"
+                    f"NOTAS DEL SECRETARIO: {prob_notas}\n\n"
                     f"--- INSUMOS (RAG) ---\n{rag_context}\n\n"
                     f"--- INSTRUCCIONES EXTRA DEL FLUJO ---\n{flow_instructions}\n"
                 )
