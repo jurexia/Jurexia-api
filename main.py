@@ -7609,7 +7609,6 @@ async def chat_endpoint(request: ChatRequest):
                         api_kwargs["max_tokens"] = max_tokens
                         api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                     else:
-                        api_kwargs["temperature"] = 0.4  # Creatividad controlada: rigor legal + fluidez
                         api_kwargs["max_completion_tokens"] = max_tokens
                     
                     stream = await active_client.chat.completions.create(**api_kwargs)
