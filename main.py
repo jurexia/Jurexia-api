@@ -7589,11 +7589,11 @@ async def chat_endpoint(request: ChatRequest):
                         # MULTI-GENIO: Ejecución Secuencial con Streaming Visible
                         print(f"   🚀 Ejecutando {len(_resolved_genio_ids)} Genios en secuencia con streaming visible: {_resolved_genio_ids}")
                         
-                        yield f"🤖 **Analizando con Genios Jurídicos:** {', '.join(_resolved_genio_ids).title()}...\n\n"
+                        yield f"**Analizando con Genios Jurídicos:** {', '.join(_resolved_genio_ids).title()}...\n\n"
                         
                         _genio_results_text = []
                         for g_id in _resolved_genio_ids:
-                            yield f"### 🧠 Genio {g_id.title()}\n"
+                            yield f"### Genio {g_id.title()}\n"
                             
                             _local_cached = None
                             try:
@@ -7613,7 +7613,10 @@ async def chat_endpoint(request: ChatRequest):
 
                                 rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                                 cache_rag_instruction = (
-                                    "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
+                                    "⚠️ INSTRUCCIÓN CRÍTICA — CITACIONES Y FORMATO ESTRICTO:\n"
+                                    "1. NUNCA uses emojis ni emoticonos en ninguna parte de tu respuesta.\n"
+                                    "2. CITA SOLO FUENTES DEL CONTEXTO RAG proporcionado.\n"
+                                    "3. Usa EXACTAMENTE el texto [Doc ID: uuid] para CADA cita. NUNCA uses [1], [2], etc.\n"
                                     f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
                                 )
                                 dynamic_parts.insert(0, cache_rag_instruction)
@@ -7677,11 +7680,13 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             synthesis_prompt += f"## Análisis del Genio {g_id.title()}:\n{g_res}\n\n"
 
                         synthesis_prompt += "\n## INSTRUCCIONES PARA SÍNTESIS FINAL\n"
-                        synthesis_prompt += "Maneja TODAS las citas a jurisprudencia. Usa los mismos IDs [Doc ID: uuid] proporcionados en el contexto.\n"
-                        synthesis_prompt += "La respuesta final DEBE resolver directamente la duda del usuario unificando las visiones."
+                        synthesis_prompt += "1. NUNCA uses emojis ni emoticonos en tu respuesta.\n"
+                        synthesis_prompt += "2. Maneja TODAS las citas a jurisprudencia de los expertos. Usa los mismos IDs EXACTOS en formato [Doc ID: uuid] proporcionados en el contexto.\n"
+                        synthesis_prompt += "3. NUNCA uses números o superíndices como [1] o [2] para citar, usa estrictamente el formato exacto [Doc ID: uuid].\n"
+                        synthesis_prompt += "4. La respuesta final DEBE resolver directamente la duda del usuario unificando las visiones."
 
                         print(f"   🧠 Synthesizing with {DEEPSEEK_CHAT_MODEL}...")
-                        yield "### ⚖️ Síntesis Final (Jurexia)\n"
+                        yield "### Síntesis Final (Iurexia)\n"
                         
                         synthesis_messages = [
                             {"role": "system", "content": SYSTEM_PROMPT_CHAT},
