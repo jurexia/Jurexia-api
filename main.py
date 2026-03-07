@@ -7416,10 +7416,10 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (Gemini 1M context) | max_output: {max_tokens} | Thinking: ON")
             _resolved_genio_ids = [] # Disable genios for sentencia mode
         elif use_thinking:
-            # DeepSeek with thinking: max 50K tokens, uses extra_body
+            # DeepSeek with thinking: max 8192 tokens limits
             active_client = deepseek_client
             active_model = DEEPSEEK_CHAT_MODEL
-            max_tokens = 50000
+            max_tokens = 8192
             _resolved_genio_ids = [] # DeepSeek ignores genio cache
         elif _resolved_genio_ids and _can_use_gemini and not has_document:
             # We have one or more genios AND can use gemini AND no document attached
@@ -7432,7 +7432,7 @@ async def chat_endpoint(request: ChatRequest):
             if CHAT_ENGINE == "deepseek" and deepseek_client:
                 active_client = deepseek_client
                 active_model = DEEPSEEK_CHAT_MODEL
-                max_tokens = 25000 
+                max_tokens = 8192
             else:
                 active_client = chat_client
                 active_model = CHAT_MODEL
@@ -7692,7 +7692,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             model=DEEPSEEK_CHAT_MODEL,
                             messages=synthesis_messages,
                             stream=True,
-                            max_tokens=25000,
+                            max_tokens=8192,
                         )
                         async for chunk in stream:
                             if chunk.choices and chunk.choices[0].delta:
