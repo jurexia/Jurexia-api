@@ -7181,10 +7181,10 @@ async def chat_endpoint(request: ChatRequest):
                         _search_tasks.append(
                             hybrid_search_all_silos(
                                 query=_query_constitucional,
-                                estado=effective_estado,
+                                estado=None,  # No filtrar estado para constitucional
                                 top_k=15,
                                 forced_materia=None,  # No filtrar materia para constitucional
-                                fuero=None,
+                                fuero="constitucional", # ✅ Restringir solo a bloque constitucional y jurisprudencia
                             )
                         )
 
@@ -7301,24 +7301,41 @@ async def chat_endpoint(request: ChatRequest):
         # Inyectar estado seleccionado para que el LLM priorice leyes locales
         # effective_estado sólo existe en el flujo normal; usar request.estado como fallback
         _estado_for_llm = locals().get("effective_estado") or request.estado
+        _has_state_laws_in_context = False
+        if search_results:
+            _has_state_laws_in_context = sum(
+                1 for r in search_results 
+                if hasattr(r, 'silo') and r.silo.startswith("leyes_") and r.silo != "leyes_federales"
+            ) > 0
+
         if _estado_for_llm:
             estado_humano = _estado_for_llm.replace("_", " ").title()
-            llm_messages.append({"role": "system", "content": (
-                f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
-                f"INSTRUCCIÓN CRÍTICA — PRIORIDAD DE FUENTES:\n"
-                f"1. El usuario consulta desde {estado_humano}. Los documentos del contexto "
-                f"que provienen de leyes de {estado_humano} son la FUENTE PRINCIPAL.\n"
-                f"2. En la sección '## Fundamento Legal', TRANSCRIBE PRIMERO los artículos "
-                f"TEXTUALES de las leyes de {estado_humano} que estén en el contexto. "
-                f"Copia el texto del artículo tal como aparece en el contexto con su [Doc ID: uuid].\n"
-                f"3. Las leyes federales (Código Civil Federal, etc.) son SUPLETORIAS — "
-                f"cítalas DESPUÉS de los artículos locales, no en lugar de ellos.\n"
-                f"4. La jurisprudencia COMPLEMENTA el fundamento legal, no lo reemplaza. "
-                f"Primero cita el artículo de la ley local, luego la tesis que lo interpreta.\n"
-                f"5. NUNCA digas 'consulte la ley local' ni 'esos textos no se transcriben aquí' "
-                f"— TÚ tienes los artículos de la ley local en el contexto, TRANSCRÍBELOS."
-            )})
-            print(f"   📍 Estado inyectado al LLM: {estado_humano}")
+            if _has_state_laws_in_context:
+                _estado_prompt = (
+                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                    f"INSTRUCCIÓN CRÍTICA — PRIORIDAD DE FUENTES:\n"
+                    f"1. El usuario consulta desde {estado_humano}. Los documentos del contexto "
+                    f"que provienen de leyes de {estado_humano} son la FUENTE PRINCIPAL.\n"
+                    f"2. En la sección '## Fundamento Legal', TRANSCRIBE PRIMERO los artículos "
+                    f"TEXTUALES de las leyes de {estado_humano} que estén en el contexto. "
+                    f"Copia el texto del artículo tal como aparece en el contexto con su [Doc ID: uuid].\n"
+                    f"3. Las leyes federales (Código Civil Federal, etc.) son SUPLETORIAS — "
+                    f"cítalas DESPUÉS de los artículos locales, no en lugar de ellos.\n"
+                    f"4. La jurisprudencia COMPLEMENTA el fundamento legal, no lo reemplaza. "
+                    f"Primero cita el artículo de la ley local, luego la tesis que lo interpreta.\n"
+                    f"5. NUNCA digas 'consulte la ley local' ni 'esos textos no se transcriben aquí' "
+                    f"— TÚ tienes los artículos de la ley local en el contexto, TRANSCRÍBELOS."
+                )
+                print(f"   📍 Estado inyectado al LLM (con leyes detectadas): {estado_humano}")
+            else:
+                _estado_prompt = (
+                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n"
+                    f"(Nota de sistema: La consulta y el contexto recuperado resultaron ser de carácter federal o constitucional. "
+                    f"Básate en la Constitución, tratados y leyes federales/jurisprudencia incluidas en el contexto, sin inventar leyes de {estado_humano})."
+                )
+                print(f"   📍 Estado inyectado al LLM (sin leyes estatales detectadas, priorizando federal/const): {estado_humano}")
+            
+            llm_messages.append({"role": "system", "content": _estado_prompt})
         
         if context_xml:
             llm_messages.append({"role": "system", "content": f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}"})
