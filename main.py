@@ -7430,14 +7430,16 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
         
         if is_sentencia:
-            # Revisión de Sentencia: SIEMPRE prescinde de Genio Jurídico (Cache) por seguridad.
-            # SENTENCIA → Gemini 3 Flash (1M context) — lee sentencia COMPLETA sin truncar
-            use_gemini = True
-            active_model = SENTENCIA_MODEL  # models/gemini-3-flash-preview
-            max_tokens = 32000  # Output generoso para análisis detallado
+            # Revisión de Sentencia: Requiere razonamiento profundo (OpenAI o1)
+            # o1 es el modelo de razonamiento más potente para encontrar falacias lógicas
+            use_gemini = False
+            active_model = "o1-2024-12-17"  # Alias actual del modelo más potente
+            active_client = chat_client
+            # o1 requiere max_completion_tokens
+            max_tokens = 30000 
             use_thinking = True
             _effective_cached = None  # Sin cache para sentencias
-            print(f"   ⚖️ Modelo SENTENCIA: {active_model} (Gemini 1M context) | max_output: {max_tokens} | Thinking: ON")
+            print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
             _resolved_genio_ids = [] # Disable genios for sentencia mode
         elif use_thinking:
             # DeepSeek with thinking: max 8192 tokens limits
