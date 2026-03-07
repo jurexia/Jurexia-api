@@ -7799,13 +7799,13 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         elif active_model.startswith("o1") or active_model.startswith("o3"):
                             # OpenAI o-series models
                             api_kwargs["max_completion_tokens"] = max_tokens
-                            # El parámetro de reasoning effort se pasa diferente si es requerido,
-                            # pero 'thinking' en extra_body no es válido para gpt-5.2
+                        elif "gpt-5" in active_model or "gpt-4" in active_model:
+                            # OpenAI gpt-5.x/gpt-4.x models (incl. gpt-5.2) ahora requieren max_completion_tokens
+                            api_kwargs["max_completion_tokens"] = max_tokens
                         else:
-                            # GPT-5.2 o modelos convencionales (no soportan 'thinking' extra_body)
                             api_kwargs["max_tokens"] = max_tokens
                     else:
-                        if active_model.startswith("o1") or active_model.startswith("o3"):
+                        if active_model.startswith("o1") or active_model.startswith("o3") or "gpt-" in active_model:
                             api_kwargs["max_completion_tokens"] = max_tokens
                         else:
                             api_kwargs["max_tokens"] = max_tokens
