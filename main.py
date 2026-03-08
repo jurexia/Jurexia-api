@@ -7449,10 +7449,7 @@ async def chat_endpoint(request: ChatRequest):
 
                                 rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                                 cache_rag_instruction = (
-                                    "⚠️ INSTRUCCIÓN CRÍTICA — CITACIONES Y FORMATO ESTRICTO:\n"
-                                    "1. NUNCA uses emojis ni emoticonos en ninguna parte de tu respuesta.\n"
-                                    "2. CITA SOLO FUENTES DEL CONTEXTO RAG proporcionado.\n"
-                                    "3. Usa EXACTAMENTE el texto [Doc ID: uuid] para CADA cita. NUNCA uses [1], [2], etc.\n"
+                                    "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
                                     f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
                                 )
                                 dynamic_parts.insert(0, cache_rag_instruction)
@@ -7489,7 +7486,9 @@ async def chat_endpoint(request: ChatRequest):
                             ):
                                 if chunk.candidates:
                                     for part in chunk.candidates[0].content.parts:
-                                        if part.text:
+                                        if hasattr(part, 'thought') and part.thought:
+                                            pass  # Skip reasoning tokens in multi-genio
+                                        elif part.text:
                                             _g_text += part.text
                                             content_buffer += part.text
                                             yield part.text
