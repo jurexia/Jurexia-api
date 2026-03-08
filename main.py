@@ -6571,21 +6571,14 @@ async def chat_endpoint(request: ChatRequest):
     # Extract primary genio for cache logic (backward compatibility)
     _primary_genio_id = _resolved_genio_ids[0] if _resolved_genio_ids else None
     
-    # ── GENIO OVERRIDE ──
-    # If a Genio is active but no specific materia was selected by the UI, 
-    # force the retrieval to focus on the Genio's domain.
-    if _primary_genio_id:
+    # ── GENIO OVERRIDE (MULTI-GENIO AWARE) ──
+    # Signal ALL active genios to the RAG, not just the first one.
+    # This ensures hybrid_search receives materia hints for every genio.
+    if _resolved_genio_ids:
         if not request.materia:
-            request.materia = _primary_genio_id
-            print(f"   🧞‍♂️ GENIO OVERRIDE: Forzando request.materia='{request.materia}'")
-        
-        # ── EXCLUSIVE GENIO ISOLATION ──
-        # Proteger la memoria de caché del Genio aislando el RAG al ámbito federal,
-        # previniendo que la legislación estatal ahogue a la jurisprudencia.
-        if _primary_genio_id in ["amparo", "mercantil"]:
-            request.estado = None 
-            request.fuero = "federal"
-            print(f"   🛡️ GENIO ISOLATION: Forzando fuero='{request.fuero}', suprimiendo estado local para priorizar jurisprudencia.")
+            # Join all genio IDs so _detect_materia can boost all of them
+            request.materia = ",".join(_resolved_genio_ids)
+            print(f"   🧞‍♂️ GENIO OVERRIDE (MULTI): Señalizando materias='{request.materia}' al RAG")
     
     async def _probe_cache():
         if not _primary_genio_id:
@@ -7092,7 +7085,45 @@ async def chat_endpoint(request: ChatRequest):
 
         if _estado_for_llm:
             estado_humano = _estado_for_llm.replace("_", " ").title()
-            if _has_state_laws_in_context:
+            
+            # ── DYNAMIC STATE PROMPT: Adapts hierarchy based on active Genios ──
+            # Federal genios (amparo, mercantil) need INVERTED hierarchy:
+            #   Federal/Jurisprudencia = PRIMARY, State laws = secondary (acto reclamado)
+            # Local genios (civil, penal, laboral) keep original hierarchy:
+            #   State laws = PRIMARY, Federal = supletory
+            _has_federal_genio = any(g in ["amparo", "mercantil"] for g in _resolved_genio_ids)
+            _has_local_genio = any(g in ["civil", "penal", "laboral", "familiar"] for g in _resolved_genio_ids)
+            _is_multi_genio = len(_resolved_genio_ids) > 1
+            
+            if _has_federal_genio and not _has_local_genio:
+                # SOLO genios federales activos → jerarquía federal
+                _estado_prompt = (
+                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                    f"INSTRUCCIÓN CRÍTICA — JERARQUÍA FEDERAL:\n"
+                    f"1. Tu marco rector es la legislación FEDERAL y la JURISPRUDENCIA de la SCJN/TCC.\n"
+                    f"2. Las leyes del estado de {estado_humano} que aparezcan en el contexto son ÚNICAMENTE "
+                    f"para identificar el ACTO RECLAMADO o la norma de origen del conflicto.\n"
+                    f"3. NO uses leyes estatales como tu fundamento procesal principal.\n"
+                    f"4. Prioriza: Ley de Amparo, CPEUM, Jurisprudencia SCJN, Tesis de TCC.\n"
+                    f"5. NUNCA digas 'consulte la ley' — TÚ tienes la jurisprudencia en el contexto, TRANSCRÍBELA."
+                )
+                print(f"   📍 Estado inyectado al LLM (JERARQUÍA FEDERAL para genios {_resolved_genio_ids}): {estado_humano}")
+            elif _is_multi_genio and _has_federal_genio and _has_local_genio:
+                # MIXTO: genios federales + locales → jerarquía balanceada
+                _estado_prompt = (
+                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                    f"INSTRUCCIÓN CRÍTICA — JERARQUÍA MIXTA (MULTI-GENIO):\n"
+                    f"1. Esta consulta involucra TANTO derecho local como federal.\n"
+                    f"2. Para el análisis SUSTANTIVO (derechos, obligaciones): usa las leyes de {estado_humano} como fuente principal.\n"
+                    f"3. Para el análisis PROCESAL-FEDERAL (amparo, recursos federales, jurisprudencia): "
+                    f"usa la legislación federal y jurisprudencia como fuente principal.\n"
+                    f"4. NUNCA mezcles: no apliques leyes estatales como fundamento del amparo, "
+                    f"ni leyes federales como fundamento del derecho sustantivo local.\n"
+                    f"5. TRANSCRIBE los artículos exactos del contexto con su [Doc ID: uuid]."
+                )
+                print(f"   📍 Estado inyectado al LLM (JERARQUÍA MIXTA multi-genio {_resolved_genio_ids}): {estado_humano}")
+            elif _has_state_laws_in_context:
+                # Genios locales o chat sin genio CON leyes estatales → jerarquía original
                 _estado_prompt = (
                     f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
                     f"INSTRUCCIÓN CRÍTICA — PRIORIDAD DE FUENTES:\n"
