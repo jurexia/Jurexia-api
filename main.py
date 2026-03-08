@@ -7091,7 +7091,7 @@ async def chat_endpoint(request: ChatRequest):
             #   Federal/Jurisprudencia = PRIMARY, State laws = secondary (acto reclamado)
             # Local genios (civil, penal, laboral) keep original hierarchy:
             #   State laws = PRIMARY, Federal = supletory
-            _has_federal_genio = any(g in ["amparo", "mercantil", "penal"] for g in _resolved_genio_ids)
+            _has_federal_genio = any(g in ["amparo", "mercantil", "penal", "cidh"] for g in _resolved_genio_ids)
             _has_local_genio = any(g in ["civil", "laboral", "familiar"] for g in _resolved_genio_ids)
             _is_multi_genio = len(_resolved_genio_ids) > 1
             

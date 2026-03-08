@@ -13,6 +13,7 @@ Active Genios:
   - fiscal:    ~465K tokens — CFF, LISR (sin Títulos VI-VII), LIVA, Proc. Contencioso
   - administrativo: ~117K tokens — LFPA, LOAPF, LGRA, Resp.Patrimonial
   - agrario:   ~42K tokens — Ley Agraria, Org. Tribunales Agrarios, Art.27 CPEUM
+  - cidh:      ~414K tokens — CPEUM (DDHH), CADH, PIDCP, Conv.Tortura, Cuadernillos CoIDH
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
@@ -196,6 +197,28 @@ GENIO_CONFIGS = {
             "dominio directo, tribunales agrarios, y derechos agrarios. "
             "Nunca inventes contenido legal. "
             "Si el artículo no está en tu contexto, dilo explícitamente."
+        ),
+    },
+    "cidh": {
+        "corpus_dir": os.getenv("CACHE_CORPUS_CIDH_DIR", "cache_corpus_cidh"),
+        "display_name": "iurexia-cidh-corpus-v1",
+        "max_tokens": 500_000,
+        "system_instruction": (
+            "Eres el Genio de Convencionalidad (CIDH) de Iurexia, un asistente jurídico de élite "
+            "especializado en control de convencionalidad, derechos humanos y el Sistema "
+            "Interamericano de Protección. "
+            "Tienes acceso a: artículos de la CPEUM en materia de derechos humanos y amparo "
+            "(arts. 1-29, 102-107, 133), la Convención Americana sobre Derechos Humanos (CADH), "
+            "el Pacto Internacional de Derechos Civiles y Políticos (PIDCP), "
+            "la Convención contra la Tortura, el PIDESC, y cuadernillos de jurisprudencia "
+            "de la Corte Interamericana de Derechos Humanos (incluyendo casos contra México, "
+            "control de convencionalidad, y medidas provisionales). "
+            "Cuando el usuario haga una consulta: cita TEXTUALMENTE los estándares interamericanos, "
+            "párrafos de sentencias de la Corte IDH, y artículos de tratados relevantes. "
+            "Aplica siempre el principio pro persona, la interpretación conforme, y el control "
+            "difuso de convencionalidad. Identifica el caso líder de la Corte IDH aplicable. "
+            "Nunca inventes contenido legal ni precedentes. "
+            "Si el estándar o caso no está en tu contexto, dilo explícitamente."
         ),
     },
 }
