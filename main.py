@@ -6574,9 +6574,18 @@ async def chat_endpoint(request: ChatRequest):
     # ── GENIO OVERRIDE ──
     # If a Genio is active but no specific materia was selected by the UI, 
     # force the retrieval to focus on the Genio's domain.
-    if _primary_genio_id and not request.materia:
-        request.materia = _primary_genio_id
-        print(f"   🧞‍♂️ GENIO OVERRIDE: Forzando request.materia='{request.materia}'")
+    if _primary_genio_id:
+        if not request.materia:
+            request.materia = _primary_genio_id
+            print(f"   🧞‍♂️ GENIO OVERRIDE: Forzando request.materia='{request.materia}'")
+        
+        # ── EXCLUSIVE GENIO ISOLATION ──
+        # Proteger la memoria de caché del Genio aislando el RAG al ámbito federal,
+        # previniendo que la legislación estatal ahogue a la jurisprudencia.
+        if _primary_genio_id in ["amparo", "mercantil"]:
+            request.estado = None 
+            request.fuero = "federal"
+            print(f"   🛡️ GENIO ISOLATION: Forzando fuero='{request.fuero}', suprimiendo estado local para priorizar jurisprudencia.")
     
     async def _probe_cache():
         if not _primary_genio_id:
