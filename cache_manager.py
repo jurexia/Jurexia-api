@@ -47,7 +47,7 @@ CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "3"))  # v11: 3 min (safe
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
-MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "15"))  # Shared across all genios
+MAX_DAILY_CREATES = int(os.getenv("MAX_DAILY_CREATES", "100"))  # Shared across all genios (server-level cache)
 
 # ── Genio Configurations ────────────────────────────────────────────────────
 GENIO_CONFIGS = {
