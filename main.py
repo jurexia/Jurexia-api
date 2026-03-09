@@ -7037,11 +7037,13 @@ async def chat_endpoint(request: ChatRequest):
                 print(f"   ⚠️ CACHE ERROR: {_e}")
                 return None
 
+        _t_gather = time.perf_counter()
         infra_error, (search_results, doc_id_map, context_xml), _cached = await asyncio.gather(
             infra_check_task,
             retrieval_task,
             _cache_task_with_timeout()
         )
+        print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
 
         # Handle infrastructure errors (blocking)
         if infra_error:
@@ -7300,7 +7302,8 @@ async def chat_endpoint(request: ChatRequest):
                 max_tokens = 25000
             _resolved_genio_ids = [] # Clear genio ids if fallback
         
-        print(f"   Modelo: {active_model} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
+        _client_name = 'deepseek_official' if active_client is deepseek_official_client else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown'))
+        print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
         async def generate_stream() -> AsyncGenerator[str, None]:
@@ -7317,6 +7320,9 @@ async def chat_endpoint(request: ChatRequest):
                 reasoning_buffer = ""
                 content_buffer = ""
                 
+                _t_llm_start = time.perf_counter()
+                _first_token_logged = False
+
                 # ── Heartbeat: primer byte inmediato para mantener TCP en móvil ──
                 # Los carriers móviles cierran conexiones sin actividad en ~15s.
                 # Este ping invisible llega al cliente en <100ms y mantiene la conexión viva.
@@ -7679,6 +7685,9 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 reasoning_buffer += reasoning_content
                             
                             if content:
+                                if not _first_token_logged:
+                                    _first_token_logged = True
+                                    print(f"   ⏱ TTFB (first content token): {time.perf_counter() - _t_llm_start:.2f}s")
                                 content_buffer += content
                                 yield content
                     
