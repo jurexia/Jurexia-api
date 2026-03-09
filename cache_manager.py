@@ -43,7 +43,7 @@ logger = logging.getLogger("cache_manager")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-3-flash-preview")
-CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "5"))  # v10: 5 min
+CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "3"))  # v11: 3 min (safety)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
