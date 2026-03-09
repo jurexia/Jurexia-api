@@ -7672,9 +7672,20 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             api_kwargs["extra_body"] = {}
                         api_kwargs["extra_body"]["provider"] = {"sort": "throughput"}
                     
-                    stream = await active_client.chat.completions.create(**api_kwargs)
+                    # DIAGNOSTIC: Show exactly where the API call goes
+                    _base = getattr(active_client, '_base_url', getattr(active_client, 'base_url', 'unknown'))
+                    print(f"   🔌 API CALL: base_url={_base} model={api_kwargs.get('model')} thinking={use_thinking}")
+                    print(f"   🔌 API CALL: max_tokens={api_kwargs.get('max_tokens', 'N/A')} max_completion_tokens={api_kwargs.get('max_completion_tokens', 'N/A')}")
+                    _t_api_call = time.perf_counter()
                     
+                    stream = await active_client.chat.completions.create(**api_kwargs)
+                    print(f"   ⏱ STREAM CREATED: {time.perf_counter() - _t_api_call:.2f}s (connection established)")
+                    
+                    _chunk_count = 0
                     async for chunk in stream:
+                        _chunk_count += 1
+                        if _chunk_count == 1:
+                            print(f"   ⏱ FIRST CHUNK: {time.perf_counter() - _t_api_call:.2f}s")
                         if chunk.choices and chunk.choices[0].delta:
                             delta = chunk.choices[0].delta
                             
