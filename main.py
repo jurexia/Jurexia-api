@@ -7564,6 +7564,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO") or part.startswith("Eres JUREXIA REDACTOR JUDICIAL"):
                                     dynamic_parts.append(part)
 
+                            rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                             cache_rag_instruction = (
                                 "⚠️ INSTRUCCIÓN CRÍTICA SOBRE CITAS Y FUENTES:\n"
                                 "Puedes extraer y transcribir libremente artículos de las LEYES que tienes en tu CONOCIMIENTO CACHEADO.\n"
