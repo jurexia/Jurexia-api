@@ -2140,12 +2140,12 @@ async def lifespan(app: FastAPI):
     chat_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     print(f"   Chat Client inicializado (GPT-5 Mini: {CHAT_MODEL})")
     
-    # DeepSeek Client (for thinking/reasoning mode only)
+    # DeepSeek Client (A través de OpenRouter)
     deepseek_client = AsyncOpenAI(
-        api_key=DEEPSEEK_API_KEY,
-        base_url=DEEPSEEK_BASE_URL,
+        api_key=OPENROUTER_API_KEY,
+        base_url="https://openrouter.ai/api/v1",
     )
-    print("   DeepSeek Client inicializado (reasoning)")
+    print("   DeepSeek Client (OpenRouter) inicializado")
     
     # Gemini Legal Cache — ON-DEMAND strategy v6 (cost optimization)
     # SAFETY LOCK #9: Startup cleanup — deletes orphan caches, NEVER creates.
