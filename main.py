@@ -6899,15 +6899,14 @@ async def chat_endpoint(request: ChatRequest):
                     _expansion_suffix = _query_materias.get(_materia_hint.lower(), "")
                     _query_expanded = f"{last_user_message} {_expansion_suffix}".strip() if _expansion_suffix else last_user_message
 
-                    # ── PRE-SEARCH LLM: Ejecutar solo UNA VEZ y pasar a todas las búsquedas ──
+                    # ── PRE-SEARCH LLM: 2 llamadas paralelas (optimizado v2: solo estrategia + HyDE) ──
                     _t_presearch = time.perf_counter()
-                    legal_plan, hyde_doc, sub_queries, precomp_juris_concepts = await asyncio.gather(
+                    legal_plan, hyde_doc = await asyncio.gather(
                         _legal_strategy_agent(last_user_message, fuero_manual=request.fuero),
                         _generate_hyde_document(last_user_message),
-                        _decompose_query(last_user_message),
-                        _extract_juris_concepts(last_user_message)
                     )
-                    print(f"   ⏱ PRE-SEARCH LLM (Centralizado): {time.perf_counter() - _t_presearch:.2f}s")
+                    precomp_juris_concepts = None  # Se computa dentro de cada search si es necesario
+                    print(f"   ⏱ PRE-SEARCH LLM (2 llamadas): {time.perf_counter() - _t_presearch:.2f}s")
 
                     # Construir tareas de búsqueda en paralelo
                     _search_tasks = [
