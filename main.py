@@ -71,7 +71,7 @@ QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 
 # Cliente DeepSeek (A través de OpenRouter para ultra baja latencia)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 deepseek_client = AsyncOpenAI(
     api_key=OPENROUTER_API_KEY,
     base_url="https://openrouter.ai/api/v1",
