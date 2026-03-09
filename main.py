@@ -7272,22 +7272,23 @@ async def chat_endpoint(request: ChatRequest):
             _effective_cached = None  # Sin cache para sentencias
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
             _resolved_genio_ids = [] # Disable genios for sentencia mode
+        elif _resolved_genio_ids and _can_use_gemini and not has_document:
+            # PRIORIDAD: Genios disponibles → usar Gemini con caché de estilo jurídico.
+            # Esto incluye el modo Redactar (is_drafting=True) — el estilo de
+            # redacción judicial de alto nivel está implementado en los Genios.
+            use_gemini = True
+            use_thinking = False  # Gemini maneja su propio razonamiento
+            active_model = "models/gemini-3-flash-preview" # Genio cache is generated with flash-preview
+            max_tokens = 25000
+            print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}{' [REDACTAR]' if is_drafting or is_chat_drafting else ''}")
         elif use_thinking:
-            # DeepSeek con thinking mode (Centinela docs + Redacción)
-            # RESTAURADO A ESTADO b7f2ada: drafting cae aquí naturalmente
-            # porque should_use_thinking(has_document, is_drafting) retorna True.
-            # Thinking mode produce la prosa jurídica de alto nivel que el Redactor necesita.
+            # DeepSeek con thinking mode (Centinela docs — sin genios disponibles)
+            # Solo se activa cuando has_document=True o is_drafting=True SIN genios.
             # Usa DeepSeek Official (api.deepseek.com) para latencia baja.
             active_client = deepseek_official_client
             active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
             max_tokens = 8192
             _resolved_genio_ids = [] # DeepSeek ignores genio cache
-        elif _resolved_genio_ids and _can_use_gemini and not has_document:
-            # We have one or more genios AND can use gemini AND no document attached
-            use_gemini = True
-            active_model = "models/gemini-3-flash-preview" # Genio cache is generated with flash-preview
-            max_tokens = 25000
-            print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}")
         else:
             # Fallback: DeepSeek Official (api.deepseek.com) o GPT-5 Mini
             # CAMBIO LATENCIA: Usar API oficial de DeepSeek, NO OpenRouter.
