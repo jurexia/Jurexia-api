@@ -7270,20 +7270,14 @@ async def chat_endpoint(request: ChatRequest):
             _effective_cached = None  # Sin cache para sentencias
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
             _resolved_genio_ids = [] # Disable genios for sentencia mode
-        elif is_drafting or is_chat_drafting:
-            # ── [MODO REDACCIÓN] GASTAR SALDO DE LA API OFICIAL DE DEEPSEEK ──
-            # El usuario pidió que estas herramientas (Sálvame y Redactar Documentos) 
-            # usen su saldo remanente directamente en api.deepseek.com
+        elif use_thinking:
+            # DeepSeek con thinking mode (Centinela docs + Redacción)
+            # RESTAURADO A ESTADO b7f2ada: drafting cae aquí naturalmente
+            # porque should_use_thinking(has_document, is_drafting) retorna True.
+            # Thinking mode produce la prosa jurídica de alto nivel que el Redactor necesita.
+            # Usa DeepSeek Official (api.deepseek.com) para latencia baja.
             active_client = deepseek_official_client
             active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-            max_tokens = 8192
-            use_thinking = False  # Para redacción directa, mejor sin thinking para evitar mezclar
-            _resolved_genio_ids = []
-            print(f"   📝 MODO REDACCIÓN: Forzando cliente DeepSeek Oficial ({active_model}) para consumir saldo.")
-        elif use_thinking:
-            # DeepSeek with thinking: max 8192 tokens limits
-            active_client = deepseek_client
-            active_model = DEEPSEEK_CHAT_MODEL
             max_tokens = 8192
             _resolved_genio_ids = [] # DeepSeek ignores genio cache
         elif _resolved_genio_ids and _can_use_gemini and not has_document:
@@ -7293,10 +7287,12 @@ async def chat_endpoint(request: ChatRequest):
             max_tokens = 25000
             print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}")
         else:
-            # Fallback: GPT-5 Mini or DeepSeek V3 (no cache available)
-            if CHAT_ENGINE == "deepseek" and deepseek_client:
-                active_client = deepseek_client
-                active_model = DEEPSEEK_CHAT_MODEL
+            # Fallback: DeepSeek Official (api.deepseek.com) o GPT-5 Mini
+            # CAMBIO LATENCIA: Usar API oficial de DeepSeek, NO OpenRouter.
+            # OpenRouter agrega 30-60s de cola TTFB bajo congestión.
+            if CHAT_ENGINE == "deepseek" and deepseek_official_client:
+                active_client = deepseek_official_client
+                active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
                 max_tokens = 8192
             else:
                 active_client = chat_client
@@ -7644,7 +7640,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     }
                     
                     if use_thinking:
-                        if active_model == DEEPSEEK_CHAT_MODEL:
+                        if active_model in (DEEPSEEK_CHAT_MODEL, DEEPSEEK_OFFICIAL_CHAT_MODEL):
                             # DeepSeek thinking mode REQUIRES temperature=1 (default) and max_tokens
                             api_kwargs["max_tokens"] = max_tokens
                             api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
