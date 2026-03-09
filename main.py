@@ -70,11 +70,14 @@ else:
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 
-# DeepSeek API Configuration (used ONLY for reasoning/thinking mode)
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_CHAT_MODEL = "deepseek-chat"  # Used with thinking mode enabled
-REASONER_MODEL = "deepseek-reasoner"  # For document analysis with Chain of Thought
+# Cliente DeepSeek (A través de OpenRouter para ultra baja latencia)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
+deepseek_client = AsyncOpenAI(
+    api_key=OPENROUTER_API_KEY,
+    base_url="https://openrouter.ai/api/v1",
+)
+DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
+REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
 
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
