@@ -81,6 +81,10 @@ REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
 
 # Cliente DeepSeek Oficial (Para gastar saldo en SALVAME y REDACTOR)
 DEEPSEEK_OFFICIAL_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+deepseek_official_client = AsyncOpenAI(
+    api_key=DEEPSEEK_OFFICIAL_API_KEY,
+    base_url="https://api.deepseek.com",
+)
 DEEPSEEK_OFFICIAL_CHAT_MODEL = "deepseek-chat"
 DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-reasoner"
 
@@ -7657,6 +7661,14 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             api_kwargs["max_completion_tokens"] = max_tokens
                         else:
                             api_kwargs["max_tokens"] = max_tokens
+                    
+                    # 🚀 OPTIMIZACIÓN DE LATENCIA EXTREMA PARA OPENROUTER
+                    # Evitar la cola de 50s forzando a OpenRouter a enrutar
+                    # hacia el proveedor con mayor throughput/menor TTFB
+                    if active_client == deepseek_client:
+                        if "extra_body" not in api_kwargs:
+                            api_kwargs["extra_body"] = {}
+                        api_kwargs["extra_body"]["provider"] = {"sort": "throughput"}
                     
                     stream = await active_client.chat.completions.create(**api_kwargs)
                     
