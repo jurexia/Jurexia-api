@@ -7302,7 +7302,7 @@ async def chat_endpoint(request: ChatRequest):
                 max_tokens = 25000
             _resolved_genio_ids = [] # Clear genio ids if fallback
         
-        _client_name = 'deepseek_official' if active_client is deepseek_official_client else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown'))
+        _client_name = 'gemini' if use_gemini else ('deepseek_official' if active_client is deepseek_official_client else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown')))
         print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
