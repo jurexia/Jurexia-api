@@ -70,7 +70,7 @@ else:
 QDRANT_URL = os.getenv("QDRANT_URL", "https://your-cluster.qdrant.tech")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 
-# Cliente DeepSeek (A través de OpenRouter para ultra baja latencia)
+# Cliente DeepSeek (A través de OpenRouter para ultra baja latencia - CHAT NORMAL Y GENIOS)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 deepseek_client = AsyncOpenAI(
     api_key=OPENROUTER_API_KEY,
@@ -78,6 +78,11 @@ deepseek_client = AsyncOpenAI(
 )
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
 REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
+
+# Cliente DeepSeek Oficial (Para gastar saldo en SALVAME y REDACTOR)
+DEEPSEEK_OFFICIAL_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_OFFICIAL_CHAT_MODEL = "deepseek-chat"
+DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-reasoner"
 
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -2146,6 +2151,13 @@ async def lifespan(app: FastAPI):
         base_url="https://openrouter.ai/api/v1",
     )
     print("   DeepSeek Client (OpenRouter) inicializado")
+
+    # DeepSeek Oficial Client (Directo a China - Para Sálvame y Redactor)
+    deepseek_official_client = AsyncOpenAI(
+        api_key=DEEPSEEK_OFFICIAL_API_KEY,
+        base_url="https://api.deepseek.com",
+    )
+    print("   DeepSeek Oficial Client inicializado")
     
     # Gemini Legal Cache — ON-DEMAND strategy v6 (cost optimization)
     # SAFETY LOCK #9: Startup cleanup — deletes orphan caches, NEVER creates.
@@ -7253,6 +7265,16 @@ async def chat_endpoint(request: ChatRequest):
             _effective_cached = None  # Sin cache para sentencias
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
             _resolved_genio_ids = [] # Disable genios for sentencia mode
+        elif is_drafting or is_chat_drafting:
+            # ── [MODO REDACCIÓN] GASTAR SALDO DE LA API OFICIAL DE DEEPSEEK ──
+            # El usuario pidió que estas herramientas (Sálvame y Redactar Documentos) 
+            # usen su saldo remanente directamente en api.deepseek.com
+            active_client = deepseek_official_client
+            active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+            max_tokens = 8192
+            use_thinking = False  # Para redacción directa, mejor sin thinking para evitar mezclar
+            _resolved_genio_ids = []
+            print(f"   📝 MODO REDACCIÓN: Forzando cliente DeepSeek Oficial ({active_model}) para consumir saldo.")
         elif use_thinking:
             # DeepSeek with thinking: max 8192 tokens limits
             active_client = deepseek_client
@@ -11924,14 +11946,14 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
     # ── Stream from DeepSeek ─────────────────────────────────────────────
     async def stream_response():
         try:
-            response = await deepseek_client.chat.completions.create(
-                model=DEEPSEEK_CHAT_MODEL,
+            response = await deepseek_official_client.chat.completions.create(
+                model=DEEPSEEK_OFFICIAL_CHAT_MODEL,
                 messages=[
                     {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
+                    {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=8000,
-                temperature=0.3,
+                temperature=0.4,
+                max_tokens=4000,
                 stream=True,
             )
 
