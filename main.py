@@ -2911,10 +2911,11 @@ async def _legal_strategy_agent(query: str, fuero_manual: Optional[str] = None) 
     try:
         prompt = LEGAL_STRATEGY_AGENT_PROMPT.format(query=query)
 
-        # Usar DeepSeek (mismo modelo que el chat principal) para consistencia
-        # y costo-efectividad. Si no disponible, usar chat_client (OpenAI).
-        llm_client = deepseek_client if deepseek_client else chat_client
-        llm_model = DEEPSEEK_CHAT_MODEL if deepseek_client else CHAT_MODEL
+        # CRITICO PARA LATENCIA (TTFB): Siempre usar OpenAI (GPT-5-mini) para el agente 
+        # estratega interno. OpenRouter/DeepSeek en modo NO-STREAM puede tardar 60+ segundos 
+        # en devolver el JSON bajo congestión, bloqueando todo el chat.
+        llm_client = chat_client
+        llm_model = CHAT_MODEL
 
         response = await llm_client.chat.completions.create(
             model=llm_model,
