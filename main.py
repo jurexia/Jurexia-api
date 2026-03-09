@@ -7449,8 +7449,10 @@ async def chat_endpoint(request: ChatRequest):
 
                                 rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                                 cache_rag_instruction = (
-                                    "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
-                                    f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                                    "⚠️ INSTRUCCIÓN CRÍTICA SOBRE CITAS Y FUENTES:\n"
+                                    "Puedes extraer y transcribir libremente artículos de las LEYES que tienes en tu CONOCIMIENTO CACHEADO.\n"
+                                    "Adicionalmente, si citas jurisprudencia o leyes del CONTEXTO JURÍDICO recuperado, usa EXCLUSIVAMENTE estos Doc IDs exactos:\n"
+                                    f"Doc IDs disponibles: {rag_ids[:25]}\n"
                                 )
                                 dynamic_parts.insert(0, cache_rag_instruction)
                                 
@@ -7562,10 +7564,11 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 if part.startswith("CONTEXTO JUR") or part.startswith("ESTADO SELEC") or part.startswith("INVENTARIO") or part.startswith("Eres JUREXIA REDACTOR JUDICIAL"):
                                     dynamic_parts.append(part)
 
-                            rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                             cache_rag_instruction = (
-                                "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
-                                f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                                "⚠️ INSTRUCCIÓN CRÍTICA SOBRE CITAS Y FUENTES:\n"
+                                "Puedes extraer y transcribir libremente artículos de las LEYES que tienes en tu CONOCIMIENTO CACHEADO.\n"
+                                "Adicionalmente, si citas jurisprudencia o leyes del CONTEXTO JURÍDICO recuperado, usa EXCLUSIVAMENTE estos Doc IDs exactos:\n"
+                                f"Doc IDs disponibles: {rag_ids[:25]}\n"
                             )
                             dynamic_parts.insert(0, cache_rag_instruction)
                             _gemini_contents.insert(0, gtypes.Content(role="user", parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]))
