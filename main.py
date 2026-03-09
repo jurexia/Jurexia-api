@@ -7448,10 +7448,15 @@ async def chat_endpoint(request: ChatRequest):
 
                                 rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                                 cache_rag_instruction = (
-                                    "⚠️ INSTRUCCIÓN CRÍTICA SOBRE CITAS Y FUENTES:\n"
-                                    "Puedes extraer y transcribir libremente artículos de las LEYES que tienes en tu CONOCIMIENTO CACHEADO.\n"
-                                    "Adicionalmente, si citas jurisprudencia o leyes del CONTEXTO JURÍDICO recuperado, usa EXCLUSIVAMENTE estos Doc IDs exactos:\n"
-                                    f"Doc IDs disponibles: {rag_ids[:25]}\n"
+                                    "⚠️ INSTRUCCIÓN CRÍTICA — JERARQUÍA DE FUENTES CON GENIO ACTIVO:\n"
+                                    "1. PRIORIDAD MÁXIMA: Tu CORPUS CACHEADO (las leyes y tratados especializados que tienes en memoria).\n"
+                                    "   Extrae y transcribe libremente artículos de tu conocimiento cacheado. Esta es tu fuente PRINCIPAL.\n"
+                                    "2. PRIORIDAD SECUNDARIA: El CONTEXTO JURÍDICO RAG recuperado, pero SOLO si es DIRECTAMENTE pertinente al tema jurídico en discusión.\n"
+                                    "   ⛔ PROHIBIDO citar legislación local/estatal que NO tenga relación directa con la materia del caso.\n"
+                                    "   ⛔ NUNCA cites leyes irrelevantes solo por estar en el contexto (ej: Ley Apícola para un caso de amparo).\n"
+                                    "   ✅ SÍ cita jurisprudencia, tesis y artículos constitucionales/federales del RAG que sean pertinentes.\n"
+                                    f"   Doc IDs RAG disponibles (usar SOLO si pertinentes): {rag_ids[:25]}\n"
+                                    "3. Si el RAG no contiene fuentes pertinentes al tema, IGNÓRALO completamente y usa solo tu corpus.\n"
                                 )
                                 dynamic_parts.insert(0, cache_rag_instruction)
                                 
@@ -7565,10 +7570,15 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
 
                             rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                             cache_rag_instruction = (
-                                "⚠️ INSTRUCCIÓN CRÍTICA SOBRE CITAS Y FUENTES:\n"
-                                "Puedes extraer y transcribir libremente artículos de las LEYES que tienes en tu CONOCIMIENTO CACHEADO.\n"
-                                "Adicionalmente, si citas jurisprudencia o leyes del CONTEXTO JURÍDICO recuperado, usa EXCLUSIVAMENTE estos Doc IDs exactos:\n"
-                                f"Doc IDs disponibles: {rag_ids[:25]}\n"
+                                "⚠️ INSTRUCCIÓN CRÍTICA — JERARQUÍA DE FUENTES CON GENIO ACTIVO:\n"
+                                "1. PRIORIDAD MÁXIMA: Tu CORPUS CACHEADO (las leyes y tratados especializados que tienes en memoria).\n"
+                                "   Extrae y transcribe libremente artículos de tu conocimiento cacheado. Esta es tu fuente PRINCIPAL.\n"
+                                "2. PRIORIDAD SECUNDARIA: El CONTEXTO JURÍDICO RAG recuperado, pero SOLO si es DIRECTAMENTE pertinente al tema jurídico en discusión.\n"
+                                "   ⛔ PROHIBIDO citar legislación local/estatal que NO tenga relación directa con la materia del caso.\n"
+                                "   ⛔ NUNCA cites leyes irrelevantes solo por estar en el contexto (ej: Ley Apícola para un caso de amparo).\n"
+                                "   ✅ SÍ cita jurisprudencia, tesis y artículos constitucionales/federales del RAG que sean pertinentes.\n"
+                                f"   Doc IDs RAG disponibles (usar SOLO si pertinentes): {rag_ids[:25]}\n"
+                                "3. Si el RAG no contiene fuentes pertinentes al tema, IGNÓRALO completamente y usa solo tu corpus.\n"
                             )
                             dynamic_parts.insert(0, cache_rag_instruction)
                             _gemini_contents.insert(0, gtypes.Content(role="user", parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]))
