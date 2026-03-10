@@ -1,0 +1,927 @@
+[
+  {
+    "name": "Código Civil del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código Civil del Estado de Jalisco-121125.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Civil del Estado de Jalisco (anterior)",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código Civil del Estado de Jalisco (anterior) .pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Asistencia Social del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código de Asistencia Social del Estado de Jalisco-251125.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Ética del Congreso del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código de Ética del Congreso del Estado de Jalisco -100223.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Procedimientos Civiles del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código de Procedimientos Civiles del Estado de Jalisco-250424.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Electoral del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código Electoral del Estado de Jalisco-100725.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Fiscal del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código Fiscal del Estado de Jalisco-280524.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Penal para el Estado Libre y Soberano de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código Penal para el Estado Libre y Soberano de Jalisco -251125.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Urbano para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Códigos/Documentos_PDF-Códigos/Código Urbano para el Estado de Jalisco-100823.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Constitución Política del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Constitución/Documentos_PDF-Constitución/Constitución Política del Estado de Jalisco-241125.pdf",
+    "cat": "constitucion"
+  },
+  {
+    "name": "Arancel de Abogados para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Arancel de Abogados para el Estado de Jalisco-100223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Declaratoria de incorporación a la Ley Nacional de Mecanismos Alternativos de solución de controversias",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Declaratoria de incorporación a la Ley Nacional de Mecanismos Alternativos de solución de controversias.-100223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Declaratoria de incorporación del Sistema Procesal Penal Acusatorio",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Declaratoria de incorporación del Sistema Procesal Penal Acusatorio-100223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Declaratoria de Inicio de Vigencia de la Ley Nacional de Extinción de Dominio en el Territorio del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Declaratoria de Inicio de Vigencia de la Ley Nacional de Extinción de Dominio en el Territorio del Estado de Jalisco.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Declaratoria del Área Metropolitana de Guadalajara",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Declaratoria del Área Metropolitana de Guadalajara-130223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Declaratoria para el inicio de vigencia de la Ley Nacional de Ejecución Penal en el Territorio del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Declaratoria para el inicio de vigencia de la Ley Nacional de Ejecución Penal en el Territorio del Estado de Jalisco-130223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Decreto 17114, Regularización de Predios Rústicos del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Decreto 17114, Regularización de Predios Rústicos del Estado de Jalisco-261125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Agroalimentaria del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Agroalimentaria del Estado de Jalisco-150223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Contra la Delincuencia Organizada del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Contra la Delincuencia Organizada del Estado de Jalisco-210923.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Acceso de las Mujeres a una Vida Libre de Violencia del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Acceso de las Mujeres a una Vida Libre de Violencia del Estado de Jalisco-011225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Acuacultura y Pesca para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Acuacultura y Pesca para el Estado de Jalisco-260923.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Amnistía",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Amnistía-150223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Amnistía para las Mujeres Víctimas de Violencia de Género.",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Amnistía para las Mujeres Víctimas de Violencia de Género.-091023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Archivos del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Archivos del Estado de Jalisco y sus Municipios -230224.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Asociaciones Intermunicipales del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Asociaciones Intermunicipales del Estado de Jalisco-311023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Atención a Víctimas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Atención a Víctimas del Estado de Jalisco-251125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Austeridad y Ahorro del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Austeridad y Ahorro del Estado de Jalisco y sus Municipios-110124.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Beneméritos del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Beneméritos del Estado de Jalisco-220124.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Bibliotecas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Bibliotecas del Estado de Jalisco-240124.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Catastro Municipal del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Catastro Municipal del Estado de Jalisco-240424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Ciencia, Desarrollo Tecnológico e Innovación del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Ciencia, Desarrollo Tecnológico e Innovación del Estado de Jalisco-250424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Compras Gubernamentales, Enajenaciones y Contratación de Servicios del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Compras Gubernamentales, Enajenaciones y Contratación de Servicios del Estado de Jalisco y sus Municipios-171023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Control de Confianza del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Control de Confianza del Estado de Jalisco y sus Municipios-210824.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Coordinación Fiscal del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Coordinación Fiscal del Estado de Jalisco y sus Municipios-130924.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Coordinación Metropolitana del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Coordinación Metropolitana del Estado de Jalisco-200223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Cultura de Paz del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Cultura de Paz del Estado de Jalisco-170823.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Cultura Física y Deporte del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Cultura Física y Deporte del Estado de Jalisco-140325.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Forestal Sustentable para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Desarrollo Forestal Sustentable para el Estado de Jalisco-190325.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Rural Sustentable del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Desarrollo Rural Sustentable del Estado de Jalisco-310325.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Social para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Desarrollo Social para el Estado de Jalisco-251125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Deuda Pública y Disciplina Financiera del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Deuda Pública y Disciplina Financiera del Estado de Jalisco y sus Municipios-290525.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Educación del Estado Libre y Soberano de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Educación del Estado Libre y Soberano de Jalisco-121125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Educación Superior del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Educación Superior del Estado de Jalisco-170725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Entidades Paraestatales del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Entidades Paraestatales del Estado de Jalisco-010323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Entrega Recepción del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Entrega Recepción del Estado de Jalisco y sus Municipios-160725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Evaluación y Supervisión de Medidas Cautelares y Suspensión Condicional del Proceso del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Evaluación y Supervisión de Medidas Cautelares y Suspensión Condicional del Proceso del Estado de Jalisco -210725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Expropiación de bienes Muebles e Inmuebles de Propiedad Privada",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Expropiación de bienes Muebles e Inmuebles de Propiedad Privada-190225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Filmaciones del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Filmaciones del Estado de Jalisco-230725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Firma Electrónica Avanzada para el Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Firma Electrónica Avanzada para el Estado de Jalisco y sus Municipios-250725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fiscalización Superior y Rendición de Cuentas del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Fiscalización Superior y Rendición de Cuentas del Estado de Jalisco y sus Municipios-200825.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento a la Cultura del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Fomento a la Cultura del Estado de Jalisco -220825.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento al Emprendimiento del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Fomento al Emprendimiento del Estado de Jalisco-250825.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento Apícola y Protección de Agentes Polinizadores de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Fomento Apícola y Protección de Agentes Polinizadores de Jalisco-270825.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento y Desarrollo Pecuario del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Fomento y Desarrollo Pecuario del Estado de Jalisco-020524.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Gestión Integral de los Residuos del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Gestión Integral de los Residuos del Estado de Jalisco-030925.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Hacienda del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Hacienda del Estado de Jalisco -160424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Hacienda Municipal del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Hacienda Municipal del Estado de Jalisco -111125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Incompatibilidades para los Servidores Públicos, Reglamentaria del Artículo 112 de la Constitución del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Incompatibilidades para los Servidores Públicos, Reglamentaria del Artículo 112 de la Constitución del Estado de Jalisco-220223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Justicia Administrativa del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Justicia Administrativa del Estado de Jalisco-061125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Justicia Alternativa del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Justicia Alternativa del Estado de Jalisco-111125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Comisión Estatal de Derechos Humanos",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de la Comisión Estatal de Derechos Humanos-211125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Límites Territoriales de los Municipios del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Límites Territoriales de los Municipios del Estado de Jalisco-240223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de los Derechos de las Personas Adultas Mayores del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de los Derechos de las Personas Adultas Mayores del Estado de Jalisco-211024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de los Derechos de Niñas, Niños y Adolescentes en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de los Derechos de Niñas, Niños y Adolescentes en el Estado de Jalisco-281125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de los Símbolos Oficiales del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de los Símbolos Oficiales del Estado de Jalisco-011225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Mecenazgo Cultural del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Mecenazgo Cultural del Estado de Jalisco-011225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Mejora Regulatoria para el Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Mejora Regulatoria para el Estado de Jalisco y sus Municipios -031225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Movilidad, Seguridad Vial y Transporte del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Movilidad, Seguridad Vial y Transporte del Estado de Jalisco-110725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Nutrición Adecuada y Estilos de Vida Saludables del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Nutrición Adecuada y Estilos de Vida Saludables del Estado de Jalisco-220424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Obra Pública del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Obra Pública del Estado de Jalisco y sus Municipios-180226.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Patrimonio Cultural del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Patrimonio Cultural del Estado de Jalisco y sus Municipios-120226.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Personas Desaparecidas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Personas Desaparecidas del Estado de Jalisco-121125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Planeación Participativa para el Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Planeación Participativa para el Estado de Jalisco y sus Municipios-230223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Prevención Social de la Violencia y la Delincuencia del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Prevención Social de la Violencia y la Delincuencia del Estado de Jalisco-230223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Promoción y Desarrollo Artesanal del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Promoción y Desarrollo Artesanal del Estado de Jalisco-240223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección Civil del Estado",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Protección Civil del Estado-091225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección contra la Exposición al Humo de Tabaco para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Protección contra la Exposición al Humo de Tabaco para el Estado de Jalisco-240223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección de Datos Personales en Posesión de Sujetos Obligados del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Protección de Datos Personales en Posesión de Sujetos Obligados del Estado de Jalisco y sus Municipios -240223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección y Atención de los Migrantes en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Protección y Atención de los Migrantes en el Estado de Jalisco-111225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección y Cuidado de los Animales del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Protección y Cuidado de los Animales del Estado de Jalisco-250226.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección, Conservación y Fomento de Arbolado y Áreas Verdes Urbanas del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Protección, Conservación y Fomento de Arbolado y Áreas Verdes Urbanas del Estado de Jalisco y sus Municipios-240223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Proyectos de Inversión y de Prestación de Servicios del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Proyectos de Inversión y de Prestación de Servicios del Estado de Jalisco y sus Municipios-240223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Responsabilidad Patrimonial del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Responsabilidad Patrimonial del Estado de Jalisco y sus Municipios-240223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Responsabilidades Políticas y Administrativas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Responsabilidades Políticas y Administrativas del Estado de Jalisco-170323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Salud del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Salud del Estado de Jalisco-110226.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Salud Mental y Adicciones del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Salud Mental y Adicciones del Estado de Jalisco-190724.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Sujetos Protegidos para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Sujetos Protegidos para el Estado de Jalisco-121225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Transparencia y Acceso a la Información Pública del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Transparencia y Acceso a la Información Pública del Estado de Jalisco y sus Municipios-180823.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Turismo para el Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Turismo para el Estado de Jalisco y sus Municipios-270223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Vivienda del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley de Vivienda del Estado de Jalisco-181125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Agua para el Estado y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Agua para el Estado y sus Municipios-200126.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Centro de Atención para las Víctimas del Delito",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Centro de Atención para las Víctimas del Delito-270223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Gobierno y la Administración Pública Municipal del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Gobierno y la Administración Pública Municipal del Estado de Jalisco-080925.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Instituto de Pensiones del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Instituto de Pensiones del Estado de Jalisco-200824.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Notariado del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Notariado del Estado de Jalisco-190423.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Organismo Público Descentralizado denominado Bosque la Primavera",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Organismo Público Descentralizado denominado Bosque la Primavera-280223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Organismo Público Descentralizado Hospital Civil de Guadalajara",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Organismo Público Descentralizado Hospital Civil de Guadalajara-280223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Organismo Público Descentralizado Servicios de Salud Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Organismo Público Descentralizado Servicios de Salud Jalisco-190423.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Periódico Oficial El Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Periódico Oficial El Estado de Jalisco-280223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Presupuesto, Contabilidad  y Gasto Público del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Presupuesto, Contabilidad  y Gasto Público del Estado de Jalisco-161024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Procedimiento Administrativo del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Procedimiento Administrativo del Estado de Jalisco-140623.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Registro Civil del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Registro Civil del Estado de Jalisco-160725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Registro Público de la Propiedad del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Registro Público de la Propiedad del Estado de Jalisco-280223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Servicio de Protección para el Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Servicio de Protección para el Estado de Jalisco y sus Municipios-181024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Servicio Estatal Tributario de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Servicio Estatal Tributario de Jalisco-200623.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema Anticorrupción del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Sistema Anticorrupción del Estado de Jalisco-150623.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema de Agua Potable y Alcantarillado de Chapala, Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Sistema de Agua Potable y Alcantarillado de Chapala, Jalisco-010323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema de Agua Potable y Alcantarillado de Ciudad Guzmán, Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Sistema de Agua Potable y Alcantarillado de Ciudad Guzmán, Jalisco-010323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema de Agua Potable y Alcantarillado de Zapotlanejo, Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Sistema de Agua Potable y Alcantarillado de Zapotlanejo, Jalisco-010323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema de Participación Ciudadana y Popular para la Gobernanza del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Sistema de Participación Ciudadana y Popular para la Gobernanza del Estado de Jalisco-010323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema de Seguridad Pública para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Sistema de Seguridad Pública para el Estado de Jalisco-150125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema Integral de Cuidados para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley del Sistema Integral de Cuidados para el Estado de Jalisco-190424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Estatal del Equilibrio Ecológico y la Protección al Ambiente",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Estatal del Equilibrio Ecológico y la Protección al Ambiente-181225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Estatal para la Igualdad entre Mujeres y Hombres",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Estatal para la Igualdad entre Mujeres y Hombres-020323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Estatal para Prevenir, Combatir y Erradicar la Trata de Personas",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Estatal para Prevenir, Combatir y Erradicar la Trata de Personas-020323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Estatal para Promover la Igualdad, Prevenir y Eliminar la Discriminación en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Estatal para Promover la Igualdad, Prevenir y Eliminar la Discriminación en el Estado de Jalisco-271023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Agencia de Conectividad y Acceso a Internet",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Agencia de Conectividad y Acceso a Internet-271123.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Agencia de Energía del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Agencia de Energía del Estado de Jalisco-020323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Agencia Estatal de Entretenimiento de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Agencia Estatal de Entretenimiento de Jalisco-300424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Agencia para el Desarrollo de Industrias Creativas y Digitales del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Agencia para el Desarrollo de Industrias Creativas y Digitales del Estado de Jalisco-020323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Fiscalía del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Fiscalía del Estado de Jalisco-070225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Procuraduría Social del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Procuraduría Social del Estado de Jalisco -020323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Universidad de Guadalajara",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Universidad de Guadalajara-020323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Universidad Intercultural de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Universidad Intercultural de Jalisco-080725.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Universidad Politécnica de la Zona Metropolitana de Guadalajara",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Universidad Politécnica de la Zona Metropolitana de Guadalajara-290523.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Universidad Tecnológica de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Universidad Tecnológica de Jalisco-310523.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Universidad Tecnológica de la Zona Metropolitana de Guadalajara",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica de la Universidad Tecnológica de la Zona Metropolitana de Guadalajara-310523.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Colegio de Bachilleres del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Colegio de Bachilleres del Estado de Jalisco-290523.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Colegio de Educación Profesional Técnica del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Colegio de Educación Profesional Técnica del Estado de Jalisco-030323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Colegio de Estudios Científicos y Tecnológicos del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Colegio de Estudios Científicos y Tecnológicos del Estado de Jalisco-260523.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Instituto Cultural Cabañas",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Instituto Cultural Cabañas-100323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Instituto de Información Estadística y Geográfica del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Instituto de Información Estadística y Geográfica del Estado de Jalisco-300523.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Instituto Jalisciense de Ciencias Forenses Dr. Jesús Mario Rivas Souza",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Instituto Jalisciense de Ciencias Forenses Dr. Jesús Mario Rivas Souza-181024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Instituto Jalisciense de la Vivienda",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Instituto Jalisciense de la Vivienda.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Instituto Tecnológico José Molina Pasquel y Henríquez",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Instituto Tecnológico José Molina Pasquel y Henríquez-171023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Organismo Público Descentralizado Denominado Agencia de Coinversión para el Desarrollo Sostenible de Jalisco (Coinvierte)",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Organismo Público Descentralizado Denominado Agencia de Coinversión para el Desarrollo Sostenible de Jalisco (Coinvierte)-100323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Organismo Público Descentralizado denominado Agencia Integral de Regulación de Emisiones",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Organismo Público Descentralizado denominado Agencia Integral de Regulación de Emisiones-060326.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Organismo Público Descentralizado denominado Centro de Conciliación Laboral del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Organismo Público Descentralizado denominado Centro de Conciliación Laboral del Estado de Jalisco-240323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Organismo Público Descentralizado denominado Centro de Coordinación, Comando, Control, Comunicaciones y Cómputo del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Organismo Público Descentralizado denominado Centro de Coordinación, Comando, Control, Comunicaciones y Cómputo del Estado de Jalisco-150125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Organismo Público Descentralizado denominado Red de Centros de Justicia para las Mujeres",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Organismo Público Descentralizado denominado Red de Centros de Justicia para las Mujeres-240323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Organica del Organismo Púlblico descentralizado denominado Museos, Exposiciones y Galerías de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Organica del Organismo Púlblico descentralizado denominado Museos, Exposiciones y Galerías de Jalisco-191022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Poder Ejecutivo del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Poder Ejecutivo del Estado de Jalisco-150125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Poder Judicial del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Poder Judicial del Estado de Jalisco-240323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Poder Legislativo del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Poder Legislativo del Estado de Jalisco -071024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Sistema Jalisciense de Radio y Televisión",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Sistema Jalisciense de Radio y Televisión-240323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Tribunal de Justicia Administrativa del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Tribunal de Justicia Administrativa del Estado de Jalisco-240323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Tribunal Electoral del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica del Tribunal Electoral del Estado de Jalisco-270323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica que crea al Organismo Público Descentralizado denominado Plataforma Abierta de Innovación y Desarrollo de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Orgánica que crea al Organismo Público Descentralizado denominado Plataforma Abierta de Innovación y Desarrollo de Jalisco-171023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para el Desarrollo Económico del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para el Desarrollo Económico del Estado de Jalisco-120424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para el Desarrollo Integral de las Juventudes del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para el Desarrollo Integral de las Juventudes del Estado de Jalisco-200723.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para el Ejercicio de las Actividades Profesionales del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para el Ejercicio de las Actividades Profesionales del Estado de Jalisco-070623.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para el Fomento y Participación de las Organizaciones de la Sociedad Civil en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para el Fomento y Participación de las Organizaciones de la Sociedad Civil en el Estado de Jalisco-270323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Garantizar el Derecho Humano a la Alimentación del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para Garantizar el Derecho Humano a la Alimentación del Estado de Jalisco-190424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Acción ante el Cambio Climático del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Acción ante el Cambio Climático del Estado de Jalisco-270323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Administración de Bienes Asegurados, Decomisados o Abandonados para el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Administración de Bienes Asegurados, Decomisados o Abandonados para el Estado de Jalisco-280323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Declaración Especial de Ausencia por Desaparición de Personas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Declaración Especial de Ausencia por Desaparición de Personas del Estado de Jalisco-100424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Detección y Tratamiento Oportuno e Integral del Cáncer en la Infancia y en la Adolescencia del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Detección y Tratamiento Oportuno e Integral del Cáncer en la Infancia y en la Adolescencia del Estado de Jalisco-141122.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Inclusión y Desarrollo Integral de las personas con Discapacidad del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Inclusión y Desarrollo Integral de las personas con Discapacidad del Estado de Jalisco-230424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Operación de Albergues del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Operación de Albergues del Estado de Jalisco-290323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Prevención y Atención de la Violencia Intrafamiliar del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Prevención y Atención de la Violencia Intrafamiliar del Estado de Jalisco-290424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Promoción de Inversiones en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Promoción de Inversiones en el Estado de Jalisco-171023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Protección de Personas Defensoras de los Derechos Humanos y Periodistas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Protección de Personas Defensoras de los Derechos Humanos y Periodistas del Estado de Jalisco-180226.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Protección y Apoyo de las Madres Jefas de Familia del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Protección y Apoyo de las Madres Jefas de Familia del Estado de Jalisco-290323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Regularización y Titulación de Predios Urbanos en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para la Regularización y Titulación de Predios Urbanos en el Estado de Jalisco-290323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para las Personas con Transtorno del Espectro del Autismo en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para las Personas con Transtorno del Espectro del Autismo en el Estado de Jalisco-290323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para los Servidores Públicos del Estado de Jalisco y sus Municipios",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para los Servidores Públicos del Estado de Jalisco y sus Municipios-130623.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir, Sancionar, Erradicar y Reparar la Tortura y otros Tratos o Penas crueles e Inhumanos o degradantes del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para Prevenir, Sancionar, Erradicar y Reparar la Tortura y otros Tratos o Penas crueles e Inhumanos o degradantes del Estado de Jalisco-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Regular la Venta y el Consumo de Bebidas Alcohólicas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley para Regular la Venta y el Consumo de Bebidas Alcohólicas del Estado de Jalisco-040326.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que aprueba el Plan de Ordenamiento de la Zona Conurbada de Guadalajara",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que aprueba el Plan de Ordenamiento de la Zona Conurbada de Guadalajara-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que aprueba el Plan Parcial de Urbanización y Control de la Edificación para la Protección Ecológica de la Zona de Los Colomos",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que aprueba el Plan Parcial de Urbanización y Control de la Edificación para la Protección Ecológica de la Zona de Los Colomos-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Instituto de la Infraestructura Física Educativa del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que crea el Instituto de la Infraestructura Física Educativa del Estado de Jalisco -290523.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado del Poder Ejecutivo denominado Sistema Intermunicipal de los Servicios de Agua Potable y Alcantarillado",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que Crea el Organismo Público Descentralizado del Poder Ejecutivo denominado Sistema Intermunicipal de los Servicios de Agua Potable y Alcantarillado-210825.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Sistema de Agua Potable y Alcantarillado de Casimiro Castillo, Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que crea el Sistema de Agua Potable y Alcantarillado de Casimiro Castillo, Jalisco-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Sistema de Agua Potable y Alcantarillado de Degollado, Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que Crea el Sistema de Agua Potable y Alcantarillado de Degollado, Jalisco-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Sistema de Agua Potable y Alcantarillado de Unión de Tula, Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que crea el Sistema de Agua Potable y Alcantarillado de Unión de Tula, Jalisco-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea la Industria Jalisciense de Rehabilitación Social",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que crea la Industria Jalisciense de Rehabilitación Social-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que divide los Bienes Pertenecientes al Estado en Bienes de Dominio Público y Bienes de Dominio Privado",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que divide los Bienes Pertenecientes al Estado en Bienes de Dominio Público y Bienes de Dominio Privado-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Establece el Registro y Acreditación de los Prestadores de Servicios en Materia Inmobiliaria del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que Establece el Registro y Acreditación de los Prestadores de Servicios en Materia Inmobiliaria del Estado de Jalisco-180823.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Establece la Remuneración de los Auxiliares en la Administración de la Justicia",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que Establece la Remuneración de los Auxiliares en la Administración de la Justicia-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Establece las Bases para el Otorgamiento de Premios y Condecoraciones en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que Establece las Bases para el Otorgamiento de Premios y Condecoraciones en el Estado de Jalisco-240424.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Regula los Centros de Atención Infantil en el Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley que Regula los Centros de Atención Infantil en el Estado de Jalisco-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Reglamentaria del Artículo 117 Bis de la Constitución Política del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Reglamentaria del Artículo 117 Bis de la Constitución Política del Estado de Jalisco-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Reglamentaria del Derecho de Vía en los Caminos Públicos de Jurisdicción Estatal",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley Reglamentaria del Derecho de Vía en los Caminos Públicos de Jurisdicción Estatal-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley sobre el Establecimiento de Fundos Legales para los Campesinos del Estado",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley sobre el Establecimiento de Fundos Legales para los Campesinos del Estado-310323.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley sobre los Derechos y el Desarrollo de los Pueblos y las Comunidades Indígenas del Estado de Jalisco",
+    "url": "https://congresoweb.congresojal.gob.mx/BibliotecaVirtual/legislacion/Leyes/Documentos_PDF-Leyes/Ley sobre los Derechos y el Desarrollo de los Pueblos y las Comunidades Indígenas del Estado de Jalisco-310323.pdf",
+    "cat": "ley"
+  }
+]

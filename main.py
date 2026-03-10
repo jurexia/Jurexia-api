@@ -166,6 +166,7 @@ ESTADO_SILO = {
     "EDOMEX": "leyes_edomex",
     "MEXICO": "leyes_edomex",
     "ESTADO_DE_MEXICO": "leyes_edomex",
+    "JALISCO": "leyes_jalisco",
     # Próximos estados:
     # "JALISCO": "leyes_jalisco",
     # "NUEVO_LEON": "leyes_nuevo_leon",
