@@ -1,0 +1,1262 @@
+[
+  {
+    "name": "Constitución Política del Estado Libre y Soberano de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig001.pdf",
+    "cat": "constitucion"
+  },
+  {
+    "name": "Código Administrativo del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig008.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Civil del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig001.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Procedimientos Administrativos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig002.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Procedimientos Civiles del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig003.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Electoral del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig005.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Financiero del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig007.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código para la Biodiversidad del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig009.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Penal del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/cod/vig/codvig006.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Ley de Acceso de las Mujeres a una Vida Libre de Violencia del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig139.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Amnistía del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig268.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Apicultura del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig212.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Apoyo a Migrantes del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig220.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Arancel para el Pago de Honorarios de Abogados y Costas Judiciales en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig003.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Archivos y Administración de Documentos del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig266.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Asistencia Social del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig004.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Asociaciones Público Privadas del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig251.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Bienes del Estado de México y sus Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig085.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Bienestar y Desarrollo Social del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig101.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Cambio Climático del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig202.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Ciencia y Tecnología del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig102.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Competitividad y Ordenamiento Comercial del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig217.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Contratación Pública del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig192.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Cultura Física y Deporte del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig089.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Defensoría Pública del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig012.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Depósito Legal para el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig174.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Derechos y Cultura Indígena del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig090.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Educación del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig180.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Eventos Públicos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig210.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Expropiación para el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig007.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fiscalización Superior del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig096.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento a las Actividades de las Organizaciones de la Sociedad Civil del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig287.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento de la Cultura de la Legalidad del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig213.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento Económico para el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig157.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento para la Lectura y el Libro del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig292.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento y Protección del Maíz Nativo como Patrimonio Biocultural y Alimentario del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig278.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Gobierno de Coalición, Reglamentaria de los artículos 61 fracción LI y 77 fracción XLVIII de la Constitución Política del Estado Libre y Soberano de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig277.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Gobierno Digital del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig228.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Igualdad de Trato y Oportunidades entre Mujeres y Hombres del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig154.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Indulto del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig232.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Ingresos de los Municipios del Estado de México para el ejercicio fiscal 2026",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig290.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Ingresos del Estado de México para el ejercicio fiscal 2026",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig289.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Instituciones de Asistencia Privada del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig008.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Justicia Cívica del Estado de México y sus Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig283.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Justicia Cotidiana del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig276.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Comisión de Derechos Humanos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig076.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Comisión de Impacto Estatal",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig269.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Fiscalía General de Justicia del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig236.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Juventud del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig152.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Universidad Autónoma del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig013.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de las Personas Adultas Mayores del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig138.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de los Cuerpos de Bomberos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig274.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de los Derechos de Niñas, Niños y Adolescentes del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig098.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Mediación, Conciliación y Promoción de la Paz Social para el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig173.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Movilidad y Seguridad Vial del Estado de México y sus Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig222.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Planeación del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig087.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Prestación de Servicios para la Atención, Cuidado y Desarrollo Integral Infantil en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig203.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Prevención del Tabaquismo y de Protección ante la Exposición al Humo de Tabaco en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig188.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección de Datos Personales en Posesión de Sujetos Obligados del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig244.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Responsabilidad Patrimonial para el Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig243.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Responsabilidades Administrativas del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig241.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Seguridad del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig015.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Seguridad Privada del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig078.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Seguridad Social para los Servidores Públicos del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig016.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Transparencia y Acceso a la Información Pública del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig233.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Turismo Sostenible y Desarrollo Artesanal del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig270.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Víctimas del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig223.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Vigilancia de Medidas Cautelares y de la Suspensión Condicional del Proceso en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig219.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Vivienda del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig140.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Voluntad Anticipada del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig191.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Agua para el Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig002.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Centro de Conciliación Laboral del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig259.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Notariado del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig019.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del organismo público descentralizado de carácter estatal denominado Instituto de Políticas Pública del Estado de México y sus Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig267.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Periódico Oficial “Gaceta del Gobierno” del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig229.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Programa de Derechos Humanos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig238.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Seguro de Desempleo para el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig183.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema Anticorrupción del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx//legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig240.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Trabajo de los Servidores Públicos del Estado y  Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig083.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley en materia de Desaparición Forzada de Personas y Desaparición Cometida por Particulares para el Estado Libre y Soberano de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig260.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Administración Pública del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig017.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Poder Judicial del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig020.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Poder Legislativo del Estado Libre y Soberano de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig021.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Tribunal de Justicia Administrativa del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig242.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica Municipal del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Administración de Bienes Vinculados al Procedimiento Penal y a la Extinción de Dominio para el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig215.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Atención y Protección a Personas con la Condición del Espectro Autista en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig224.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Coordinación y Control de Organismos Auxiliares del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Declaración Especial de Ausencia por Desaparición de Personas del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig245.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Implementación de Energías Limpias y Renovables en los Edificios Públicos del Estado de México y Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig282.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Inclusión de las Personas con Discapacidad del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig189.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Prevención Social de la Violencia y la Delincuencia, con Participación Ciudadana del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig193.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Prevención, Tratamiento y Combate del Sobrepeso, la Obesidad y los Trastornos Alimentarios del Estado de México y sus Municipios",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig230.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Protección de Sujetos que Intervienen en el Procedimiento Penal o de Extinción de Dominio del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig216.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Protección del Maguey en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig211.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Protección Integral de Periodistas y Personas Defensoras de los Derechos Humanos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig271.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Protección, Apoyo y Promoción a la Lactancia Materna del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig218.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Recuperación y Aprovechamiento de Alimentos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig257.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir y Atender el Acoso Escolar en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig249.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir y Sancionar la Tortura en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig026.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir, Atender y Combatir el Delito de Secuestro en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig227.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir, Atender y Combatir los Delitos en materia de Extorsión y Delitos Vinculados del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig293.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir, Atender, Combatir y Erradicar la Trata de Personas y para la Protección y Asistencia a las Víctimas en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig201.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir, Combatir y Eliminar Actos de Discriminación en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley por el que se crea el Organismo Público Descentralizado denominado “Instituto Municipal de Cultura Física y Deporte de Lerma",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig264.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley por la que se crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ecatepec de Morelos, México (IMCUFIDEEM)",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig265.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Banco de Tejidos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig155.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Instituto de Verificación Administrativa del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig237.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de carácter Estatal denominado Colegio de Estudios Científicos y Tecnológicos del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig031.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado de Carácter Estatal Denominado Hospital Regional de Alta Especialidad de Zumpango",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig028.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de Carácter Estatal denominado Instituto Mexiquense de la Pirotecnia",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig092.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de Carácter Estatal denominado Instituto Mexiquense de la Vivienda Social",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig093.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de Carácter Estatal denominado Tecnológico de Estudios Superiores de Coacalco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig070.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de carácter Estatal denominado Tecnológico de Estudios Superiores de Ecatepec",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig071.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de carácter Estatal denominado Universidad Tecnológica \"Fidel Velázquez\"",
+    "url": "https://legislacion.edomex.gob.mx//legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig029.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de carácter Estatal denominado Universidad Tecnológica de Nezahualcóyotl",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig030.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de Carácter Estatal denominado Universidad Tecnológica de Tecámac",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig072.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado de Carácter Municipal para el Mantenimiento de Vialidades de Cuautitlán Izcalli",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig086.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado \"Instituto Municipal de Cultura Física y Deporte de Toluca\"",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig141.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Colegio de Bachilleres del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig073.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Consejo Estatal para el Desarrollo Integral de los Pueblos Indígenas del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig074.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto de Formación Continua, Profesionalización e Investigación del Magisterio del Estado",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig239.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto de la Función Registral del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig103.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Acambay",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig124.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Acolman",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig123.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Aculco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig039.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Almoloya de Alquisiras",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig040.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Almoloya de Juárez",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig100.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Almoloya del Río",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig041.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Amanalco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig042.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Amatepec",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig122.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Amecameca, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig179.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Apaxco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig043.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Atizapan",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig044.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Atlacomulco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig121.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Atlautla",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig033.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Axapusco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig045.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ayapango, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig159.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Calimaya",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig046.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Capulhuac",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig047.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Chapultepec",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig119.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Chiautla",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig129.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Chicoloapan, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig199.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Chiconcuac, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig148.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Chimalhuacán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig128.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Coacalco de Berriozábal",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig145.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Coatepec Harinas",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig120.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Cocotitlán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig034.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Cuautitlán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig127.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Cuautitlán Izcalli",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig126.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Donato Guerra, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig164.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ecatzingo",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig038.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de El Oro, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig169.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Huehuetoca",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig130.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Hueypoxtla",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig118.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Huixquilucan",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig069.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Isidro Fabela",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig048.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ixtapaluca",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig143.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Ixtapan de la Sal",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig117.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ixtapan del Oro, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig176.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ixtlahuaca",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig116.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Jaltenco, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig177.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Jilotepec, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig151.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Jilotzingo",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig049.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Jiquipilco, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig207.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Jocotitlán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig115.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Joquicingo",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig137.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Juchitepec",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig037.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de La Paz, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig147.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Luvianos",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig136.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Malinalco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig050.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Metepec, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig175.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Mexicaltzingo",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig135.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Morelos, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig160.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Naucalpan de Juárez",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig197.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Nextlalpan",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig134.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Nezahualcóyotl, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig158.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Nicolás Romero",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig131.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Nopaltepec, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig161.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ocoyoacac",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig051.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ocuilan",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig052.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Otumba",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig053.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Otzoloapan, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig149.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Otzolotepec, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig162.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Ozumba",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig036.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Papalotla",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig054.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Polotitlán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig132.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Rayón",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig055.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de San Antonio la Isla",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig056.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de San Felipe del Progreso",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig133.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de San José del Rincón, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig196.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de San Martín de las Pirámides",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig057.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de San Mateo Atenco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig058.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de San Simón de Guerrero",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig114.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Santo Tomás",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig068.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Soyaniquilpan de Juárez, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig206.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Sultepec",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig113.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tecámac",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig272.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tejupilco, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig198.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Temamatla",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig112.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Temascalapa, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig165.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Temascalcingo, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig167.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Temascaltepec",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig111.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Temoaya, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig205.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tenancingo",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig059.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tenango del Aire",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig032.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tenango del Valle",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig060.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Teoloyucan, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig163.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Teotihuacan",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig110.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tepetlaoxtoc",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig109.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tepetlixpa",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig035.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tepotzotlán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig108.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tequixquiac, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig181.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Texcaltitlán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig061.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Texcalyacac",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig062.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tezoyuca, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig168.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tianguistenco, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig200.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Timilpan",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig063.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tlalmanalco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig144.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tlalnepantla de Baz",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig288.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tlatlaya, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig150.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tonanitla",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig064.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Crea el Organismo Público Descentralizado Denominado Instituto Municipal de Cultura Física y Deporte de Tonatico",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig125.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tultepec, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig178.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Tultitlán, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig166.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Valle de Bravo",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig107.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Valle de Chalco Solidaridad, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig171.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Villa de Allende",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig142.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Villa del Carbón",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig106.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Villa Guerrero",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig065.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Villa Victoria",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig066.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Xalatlaco",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig067.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Xonacatlán, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig208.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Zacazonapan, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig170.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Zacualpan",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig104.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Zinacantepec",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig099.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Zumpahuacán",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig105.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de Cultura Física y Deporte de Zumpango, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig172.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Instituto Municipal de la Mujer de Toluca",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig258.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado Servicios Educativos Integrados al Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig075.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado “Instituto Municipal de Cultura Física y Deporte de Chalco”, México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig146.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Organismo Público Descentralizado denominado “Instituto Municipal de la Juventud de Ayapango”",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig235.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea los Organismos Públicos Descentralizados de Asistencia Social de Carácter Municipal denominados \"Sistemas Municipales para el Desarrollo Integral de la Familia\"",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig077.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Regula el Régimen de Propiedad en Condominio en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig088.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Regula el Uso de Tecnologías de la Información y Comunicación para la Seguridad Pública del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig209.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que regula los Centros de Asistencia Social y las Adopciones en el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig225.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que transforma al Organo Desconcentrado denominado Instituto de Capacitación y Adiestramiento para el Trabajo Industrial (ICATI), en Organismo Descentralizado",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig079.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Registral para el Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig182.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Reglamentaria de las fracciones XXV y XXVI del artículo 61 de la Constitución Política del Estado Libre y Soberano de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Reglamentaria del Artículo 88 Bis de la Constitución Política del Estado Libre y Soberano de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig097.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley sobre el Escudo y el Himno del Estado de México",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig082.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Presupuesto de Egresos del Gobierno del Estado de México para el ejercicio fiscal 2026",
+    "url": "https://legislacion.edomex.gob.mx/sites/legislacion.edomex.gob.mx/files/files/pdf/ley/vig/leyvig291.pdf",
+    "cat": "ley"
+  }
+]

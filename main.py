@@ -162,6 +162,10 @@ ESTADO_SILO = {
     "QUERETARO": "leyes_queretaro",
     "CDMX": "leyes_cdmx",
     "GUANAJUATO": "leyes_guanajuato",
+    "PUEBLA": "leyes_puebla",
+    "EDOMEX": "leyes_edomex",
+    "MEXICO": "leyes_edomex",
+    "ESTADO_DE_MEXICO": "leyes_edomex",
     # Próximos estados:
     # "JALISCO": "leyes_jalisco",
     # "NUEVO_LEON": "leyes_nuevo_leon",
