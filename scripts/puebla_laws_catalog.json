@@ -1,0 +1,647 @@
+[
+  {
+    "name": "Constitución Política del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Constitucion_Politica_del_Estado_Libre_y_Soberano_de_Puebla_T4_05062025.pdf",
+    "cat": "constitucion"
+  },
+  {
+    "name": "Código Civil para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_Civil_para_el_Estado_Libre_y_Soberano_de_Puebla_T4_17102025.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Penal del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_Penal_del_Estado_Libre_y_Soberano_de_Puebla_2EV_15122025.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Procedimientos Civiles para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_de_Procedimientos_Civiles-_para_el_Estado_Libre_y_Soberano_de_Puebla_29122017.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Procedimientos en Materia de Defensa Social del Estado",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_Procedimiento_Materia_de_Defensa_Social_del_Estado17032016.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Procedimientos Penales para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_de_Procedimientos_Penales_para_el_Estado_Libre_y_Soberano_de_Puebla17marzo2016.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Fiscal del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_Fiscal_del_Estado_de_Puebla_T6_31072025.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Fiscal Municipal del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_Fiscal_Municipal_del_Estado_de_Puebla_16012017.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código Fiscal y Presupuestario para el Municipio de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_Fiscal_y_Presupuestario_para_el_Municipio_de_Puebla_EV_18122023.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Instituciones y Procesos Electorales del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_de_Instituciones_y_Procesos_Electorales_del_Estado_de_Puebla_T5_11042025.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Código de Justicia para Adolescentes del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Codigo_de_Justicia_para_Adolescentes_del_Estado_Libre_y_Soberano_de_Puebla_17062011.pdf",
+    "cat": "codigo"
+  },
+  {
+    "name": "Ley de Adquisiciones, Arrendamientos y Servicios del Sector Público Estatal y Municipal",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Adquisiciones_Arrendamientos_y_Servicios_del_Sector_Publico_Estatal_y_Municipal_T6_13032024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Agricultura Urbana para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Agricultura_Urbana_para_el_Estado_Puebla_30122013.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Amnistía para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Amnist%C3%ADa_para_el_Estado_de_Puebla_T7_03102024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Aranceles para el Cobro de Honorarios de los Abogados o Licenciados en Derecho del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Aranceles_para_el_cobro_de_honorarios_de_los_Abogados_o_Licenciados_en_Derecho_del_Estado_de_Puebla_EV_01072022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Arbolado y Áreas Verdes Urbanas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Arbolado_y_%C3%81reas_Verdes_Urbanas_del_Estado_de_Puebla_T6_05062025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Archivos del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Archivos_del_Estado_de_Puebla_T3_28022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Atención y Prevención de la Contaminación Visual y Auditiva para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Atencion_y_Prevencion_de_la_Contaminacion_Visual_y_Auditiva_para_el_Estado_de_Puebla_EV_17062022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Bibliotecas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Bibliotecas_del_Estado_de_Puebla_T3_16072024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Bienestar Animal del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Bienestar_Animal_del_Estado_de_Puebla_EV_21032024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Búsqueda de Personas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Busqueda_de_Personas_del_Estado_de_Puebla_T2EV_02092021.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Cambio Climático del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Cambio_Clim%C3%A1tico_del_Estado_de_Puebla_T4_08082023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Carrera Judicial del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Carrera_Judicial_del_Estado_de_Puebla_4EV_23022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Catastro del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Catastro_del_Estado_de_Puebla_02102020.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Construcciones para el Estado y Municipios de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Construcciones_para_el_Estado_y_Municipios_de_Puebla_T6_15082024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Coordinación Hacendaria del Estado de Puebla y sus Municipios",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Coordinacion_Hacendaria_del_Estado_de_Puebla_y_sus_Municipios_T2_18022025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Cultura del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Cultura_del_Estado_de_Puebla__T5_26062023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Derechos, Cultura y Desarrollo de los Pueblos y Comunidades Indígenas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Derechos_Cultura_y_Desarrollo_de_los_Pueblos_y_Comunidades_Ind%C3%ADgenas_del_Estado_de_Puebla_4EV_05122023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Económico Sustentable del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Desarrollo_Econ%C3%B3mico_Sustentable_del_Estado_de_Puebla_EV_27022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Forestal Sustentable del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Development_Forestal_Sustentable_del_Estado_de_Puebla_3EV_19082025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Rural Sustentable del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Desarrollo_Rural_Sustentable_del_Estado_de_Puebla_T34_22122022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Social para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Desarrollo_Social_para_el_Estado_de_Puebla_T33_23122022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Desarrollo Urbano Sustentable del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Desarrollo_Urbano_Sustentable_del_Estado_de_Puebla_26032003.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Deuda Pública para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Deuda_Publica_para_el_Estado_Libre_y_Soberano_de_Puebla_29122017.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Educación del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Educaci%C3%B3n_del_Estado_de_Puebla_3EV_23072025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Educación Inicial del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Educacion_Inicial_del_Estado_Libre_y_Soberano_de_Puebla_T10_16032023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Educación Superior del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Educacion_Superior_del_Estado_de_Puebla_T10_16032023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Egresos del Estado de Puebla, para el Ejercicio Fiscal 2026",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Egresos_del_Estado_de_Puebla,_para_el_Ejercicio_Fiscal_2026_15EV_04122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Ejecución de Medidas Cautelares y Sanciones Penales",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Ejecucion_de_Medidas_Cautelares_y_Sanciones_Penales_14092012.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Entidades Paraestatales del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Entidades_Paraestatales_del_Estado_de_Puebla_T4_16072024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Expropiación para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Expropiacion_para_el_Estado_de_Puebla_9octubre2018.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Extinción de Dominio para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Extincion_de_Dominio_para_el_Estado_de_Puebla_1092015.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fomento a las Actividades Realizadas por Organizaciones de la Sociedad Civil para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Fomento_a_las_Actividades_Realizadas_por_Organizaciones_de_la_Sociedad_Civil_para_el_Estado_de_Puebla_4EV_27072023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Fraccionamientos y Acciones Urbanísticas del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Fraccionamientos_y_Acciones_Urbanisticas_del_Estado_Libre_y_Soberano__de_Puebla_T8_05042024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Gobernanza Regulatoria para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Gobernanza_Regulatoria_para_el_Estado_de_Puebla_T3_11022015_1.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Gobierno Digital para el Estado de Puebla y sus Municipios",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Gobierno_Digital_para_el_Estado_de_Puebla_y_sus_Municipios_T5_04112025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Hacienda Municipal del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Hacienda_Municipal_del_Estado_Libre_y_Soberano_de_Puebla_T6_15122023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Hacienda para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Hacienda_para_el_Estado_Libre_y_Soberano_de_Puebla_T5_05082024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Ingresos del Estado de Puebla, para el Ejercicio Fiscal 2026",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Ingresos_del_Estado_de_Puebla,_para_el_Ejercicio_Fiscal_2026_EV_27112025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Instituciones de Asistencia Privada para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Instituciones_de_Asistencia_Privada_para_el_Estado_Libre_y_Soberano_de_Puebla19052014.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Benemérita Universidad Autónoma de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_la_Benem%C3%A9rita_Universidad_Aut%C3%B3noma_de_Puebla_T5_28112023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Comisión de Derechos Humanos del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_la_Comision_de_Derechos_Humanos_del_Estado_de_Puebla_T5_04102024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Juventud para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_la_Juventud_para_el_Estado_de_Puebla_21EV_04122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de la Procuraduría de Protección de los Derechos de Niñas, Niños y Adolescentes del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_la_Procuraduria_de_Proteccion_de_los_Derechos_de_Nias_Nios_Y_Adolescentes_del_Estado_de_Puebla_31ago2018.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de los Derechos de las Niñas, Niños y Adolescentes del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_los_Derechos_de_las_Ni%C3%B1as_Ni%C3%B1os_y_Adolescentes_del_Estado_de_Puebla_T6_04112025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de los Trabajadores al Servicio del Estado",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_los_Trabajadores_al_Servicio_del_Estado_T6_07022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Mecanismos Alternativos de Solución de Controversias para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Mecanismos_Alternativos_de_Soluci%C3%B3n_de_Controversias_para_el_Estado_Libre_y_Soberano_de_Puebla_5EV_23022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Medios Alternativos en Materia Penal para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Medios_Alternativos_en_Materia_Penal_para_el_Edo_de_Puebla_17032016.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Mejora Regulatoria y Buena Administración para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Mejora_Regulatoria_y_Buena_Administracion_para_el_Estado_de_Puebla_T_2_20112020.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Movilidad y Seguridad Vial del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Movilidad_y_Seguridad_Vial_del_Estado_de_Puebla_EV_18062025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Obra Pública y Servicios Relacionados con la Misma para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Obra_P%C3%BAblica_y_Servicios_Relacionados_con_la_Misma_para_el_Estado_de_Puebla_T2_07082023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Ordenamiento Territorial y Desarrollo Urbano del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Ordenamiento_Territorial_y_Development_Urbano_del_Estado_de_Puebla_18EV_04122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Planeación para el Desarrollo del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Planeacion_para_el_Desarrollo_del_Estado_de_Puebla_2EV_25082023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Prestación de Servicios para la Atención, Cuidado y Desarrollo Integral Infantil del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Prestacion_de_Servicios_para_la_Atencion_Cuidado_y_Development_Integral_Infantil_del_Estado_de_Puebla_T6_17102025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Presupuesto y Gasto Público Responsable del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Presupuesto_y_Gasto_P%C3%BAblico_Responsable_del_Estado_de_Puebla_3EV_20112025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Prevención, Atención y Sanción de la Violencia Familiar para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Prevencion_Atencion_y_Sancion_de_la_Violencia_Familiar_para_el_Estado_de_Puebla_T2_02012024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección a las Personas Adultas Mayores para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Proteccion_a_las_Personas_Adultas_Mayores_para_el_Estado_de_Puebla_T6_04102024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección a los No Fumadores para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Proteccion_a_los_No_Fumadores_para_el_Estado_de_Puebla_29122017.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Protección de Datos Personales en Posesión de Sujetos Obligados del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Protecci%C3%B3n_de_Datos_Personales_en_Posesi%C3%B3n_de_Sujetos_Obligados_del_Estado_de_Puebla_T2_31072025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Rendición de Cuentas y Fiscalización Superior del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Rendicion_de_Cuentas_y_Fiscalizacion_Superior_del_Estado_de_Puebla_T7_05072024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Responsabilidad Patrimonial para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Responsabilidad_Patrimonial_para_el_Estado_de_Puebla_EV_19092023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Responsabilidades de los Servidores Públicos del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Responsabilidades_de_los_Servidores_Publicos_del_Estado_de_Puebla__02dic2020.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Salud Mental y Adicciones para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Salud_Mental_y_Adicciones_para_el_Estado_de_Puebla_T4_15082024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Seguridad Integral Escolar para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Seguridad_Integral_Escolar_para_el_Estado_Libre_y_Soberano_de_Puebla_T4_8112021.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Seguridad Privada del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Seguridad_Privada_del_Estado_Libre_y_Soberano_de_Puebla_22EV_04122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Seguridad Pública del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Seguridad_Publica_del_Estado_de_Puebla_T6_16042024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Transparencia y Acceso a la Información Pública del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Transparencia_y_Acceso_a_la_Informaci%C3%B3n_P%C3%BAblica_del_Estado_de_Puebla_T2_31072025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Transporte del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Transporte_del_Estado_de_Puebla_16EV_04122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Turismo del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Turismo_del_Estado_de_Puebla_T5_04112025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Vialidad para el Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Vialidad_para_el_Estado_Libre_y_Soberano_de_Puebla_EV_21102022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Víctimas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Victimas_del_Estado_de_Puebla_T5_04102024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Vivienda para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Vivienda_para_el_Estado_de_Puebla_19EV_04122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley de Voluntad Anticipada para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_de_Voluntad_Anticipada_para_el_Estado_de_Puebla_T20_31122024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Agua para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Agua_para_el_Estado_de_Puebla_T31_26122022_C.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Centro Estatal de Mediación del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Centro_Estatal_de_Mediacion_del_Edo_Pue_26022021.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Escudo y el Himno del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Escudo_y_el_Himno_del_Estado_de_Puebla_29122017.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Instituto de Seguridad y Servicios Sociales de los Trabajadores al Servicio de los Poderes del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Instituto_de_Seguridad_y_Servicios_Sociales_de_los_Trabajadores_al_Servicio_de_los_Poderes_del_Edo_de_Pue_18112014.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Notariado para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Notariado_para_el_Estaddo_de_Puebla_T5_05082024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Primer Empleo del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Primer_Empleo_del_Estado_de_Puebla_T6_08102024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Procedimiento Contencioso Administrativo del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Procedimiento_Contencioso_Administrativo_del_Estado_de_Puebla_3EV_23022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Registro Público de la Propiedad del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Registro_Publicode_la_Propiedad_del_Estado_de_Puebla_22022017.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Servicio de la Defensoría Pública del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Servicio_de_la_Defensoria_Publica_del_Estado_de_Puebla_3EV_8042022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema Anticorrupción Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Sistema_Anticorrupci%C3%B3n_Puebla_T3_27022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Sistema Estatal de Protección Civil",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_del_Sistema_Estatal_de_Proteccion_Civil_T27_21122022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley del Voluntariado Social para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_-del_Voluntariado_Social_para_el_Estado_de_Puebla_14012020.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Estatal de Salud",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Estatal_de_Salud_T6_04112025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Estatal del Deporte",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Estatal_del_Deporte_20EV_04122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Ganadera para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Ganadera_para_el_Estado_de_Puebla_29122017.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley General de Bienes del Estado",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_General_de_Bienes_del_Estado_T6_04082014.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Administración Pública del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Org%C3%A1nica_de_la_Administraci%C3%B3n_P%C3%BAblica_del_Estado_de_Puebla_EV_15122025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Defensoría Pública del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Org%C3%A1nica_de_la_Defensor%C3%ADa_P%C3%BAblica_del_Estado_de_Puebla_T5_23032023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica de la Fiscalía General del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Organica_de_la_Fiscalia_General_del_Estado_de_Puebla_EV_18082023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Centro de Conciliación Laboral del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Org%C3%A1nica_del_Centro_de_Conciliaci%C3%B3n_Laboral_del_Estado_de_Puebla_7EV_23072025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Poder Judicial del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Organica_del_Poder_Judicial_del_Estado_de_Puebla_T3_13082025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Poder Legislativo del Estado Libre y Soberano de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Organica_del_Poder_Legislativo_del_Estado_Libre_y_Soberano_de_Puebla_3EV_29052025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica del Tribunal de Justicia Administrativa del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Organica_del_Tribunal_de_Justicia_Administrativa_del_Estado_de_Puebla_EV_11022022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Orgánica Municipal",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Organica_Municipal_T4_15102025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para el Acceso de las Mujeres a una Vida Libre de Violencia del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_el_Acceso_de_las_Mujeres_a_una_Vida_Libre_de_Violencia_EV_19082025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Administración, Enajenación y Destino de Bienes Asegurados, Abandonados, Decomisados y Extintos",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Administraci%C3%B3n,_Enajenaci%C3%B3n_y_Destino_de_Bienes_Asegurados,_Abandonados,_Decomisados_y_Extintos_EV_25052023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Declaración Especial de Ausencia por Desaparición de Personas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Declaraci%C3%B3n_Especial_de_Ausencia_por_Desaparici%C3%B3n_de_Personas_del_Estado_de_Puebla_T6_03102024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Igualdad entre Mujeres y Hombres del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Igualdad_entre_Mujeres_y_Hombres_del_Estado_de_Puebla_EV_19082025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Prevención Social y Comunitaria de la Violencia y la Delincuencia del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Prevenci%C3%B3n_Social_y_Comunitaria_de_la_Violencia_y_la_Delincuencia_del_Estado_de_Puebla_T11_05062025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Prevención y Gestión Integral de los Residuos Sólidos Urbanos y de Manejo Especial",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Prevenci%C3%B3n_y_Gesti%C3%B3n_Integral_de_los_Residuos_S%C3%B3lidos_Urbanos_y_de_Manejo_Especial_T5_05082024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Protección del Ambiente Natural y el Desarrollo Sustentable del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Proteccion_del_Ambiente_Natural_y_el_Desarrollo_Sustentable_del_Estado_de_Puebla_2EV_19082025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Regularización de Predios Rústicos, Urbanos y Suburbanos en el Régimen de Propiedad Privada de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Regularizacion_de_Predios_Rusticos_Urbanos_y_Suburbanos_en_el_Regimen_de_Propiedad_Privada_del_Puebla_TEV_20062022.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para la Venta y Suministros de Bebidas Alcohólicas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_la_Venta_y_Suministros_de_Bebidas_Alcoholicas_del_Estado_Puebla_T4_16072024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para las Personas con Discapacidad del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_las_Personas_Discapacidad_Estado_Puebla_2EV_10092024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir y Eliminar la Discriminación del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_Prevenir_y_Eliminar_la_Discriminaci%C3%B3n_T6_04112025.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley para Prevenir y Erradicar los Delitos en Materia de Trata de Personas del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_para_Prevenir_y_Erradicar_los_Delitos_en_Materia_de_Trata_de_Personas_y_para_la_Proteccion_y_Asistencia_a_las_Victimas_de_estos_Delitos_Edo_de_Puebla_T6_28102021.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Consejo de Armonización Contable del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_que_crea_el_Consejo_de_Armonizacion_Contable_T4_01122023.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Fondo Adicional para el Mejoramiento de la Administración de Justicia en el Estado",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_que_crea_el_Fondo_Adicional_para_el_Mejoramiento_de_la_Administracion_de_Justicia_en_el_Estado_T3_02012024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea el Fondo para el Mejoramiento de la Procuración de Justicia",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_que_crea_el_Fondo_para_el_Mejoramiento_de_la_Procuracion_de_Justicia_T5_11122020.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que crea la Universidad Tecnológica de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_que_crea_la_Universidad_Tecnologica_de_Puebla_01122016.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Establece las Bases de Organización del Gobierno de Coalición del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley-que-establece-las-Bases-de-Organizacin-del-Gobierno-de-Coalicin-del-Estado-de-Puebla_30_12_2016.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Establece los Procedimientos de Entrega-Recepción en los Poderes Públicos",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_que_Establece_los_Procedimientos_de_Entrega-Recepci%C3%B3n_en_los_Poderes_P%C3%BAblicos_EV_15022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley que Regula el Régimen de Propiedad en Condominio para el Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_que_Regula_el_Regimen_de_Propiedad_en_Condominio_para_el_Estado_de_Puebla_7ene2021.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley Reglamentaria de los Medios de Defensa de la Constitución Política del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Reglamentaria_de_los_Medios_de_Defensa_de_la_Constitucion_Politica_2EV_23022024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley sobre el Sistema Estatal de Asistencia Social",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_sobre_el_Sistema_Estatal_de_Asistencia_Social_2EV_10092024.pdf",
+    "cat": "ley"
+  },
+  {
+    "name": "Ley sobre Protección y Conservación de Poblaciones Típicas y Bellezas Naturales del Estado de Puebla",
+    "url": "https://ojp.puebla.gob.mx/media/k2/attachments/Ley_Sobre_Proteccion_y_Conservacion_de_Poblaciones_Tipicas_y_Bellezas_Naturales_del_Estado_de_Puebla_29122017.pdf",
+    "cat": "ley"
+  }
+]
