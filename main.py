@@ -95,8 +95,24 @@ deepseek_client = AsyncOpenAI(
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
 REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
 
-# Cliente DeepSeek Oficial (Para gastar saldo en SALVAME y REDACTOR)
+# Cliente DeepSeek Oficial — Round-Robin Pool (distribuye carga entre múltiples API keys)
+# Soporta 1 o 2 keys. Si DEEPSEEK_API_KEY_2 está configurada, duplica el throughput (~600 RPM).
 DEEPSEEK_OFFICIAL_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_OFFICIAL_API_KEY_2 = os.getenv("DEEPSEEK_API_KEY_2", "")
+
+_deepseek_pool: list = []  # Populated in lifespan
+_deepseek_pool_counter = 0  # Atomic-ish counter for round-robin
+
+def get_deepseek_official_client() -> 'AsyncOpenAI':
+    """Round-robin entre API keys de DeepSeek para distribuir rate limits."""
+    global _deepseek_pool_counter
+    if not _deepseek_pool:
+        return deepseek_official_client  # Fallback to module-level client
+    idx = _deepseek_pool_counter % len(_deepseek_pool)
+    _deepseek_pool_counter += 1
+    return _deepseek_pool[idx]
+
+# Module-level client (fallback, overridden in lifespan)
 deepseek_official_client = AsyncOpenAI(
     api_key=DEEPSEEK_OFFICIAL_API_KEY,
     base_url="https://api.deepseek.com",
@@ -2180,12 +2196,22 @@ async def lifespan(app: FastAPI):
     )
     print("   DeepSeek Client (OpenRouter) inicializado")
 
-    # DeepSeek Oficial Client (Directo a China - Para Sálvame y Redactor)
+    # DeepSeek Oficial — Round-Robin Pool
+    _deepseek_pool.clear()
     deepseek_official_client = AsyncOpenAI(
         api_key=DEEPSEEK_OFFICIAL_API_KEY,
         base_url="https://api.deepseek.com",
     )
-    print("   DeepSeek Oficial Client inicializado")
+    _deepseek_pool.append(deepseek_official_client)
+    if DEEPSEEK_OFFICIAL_API_KEY_2:
+        _ds_client_2 = AsyncOpenAI(
+            api_key=DEEPSEEK_OFFICIAL_API_KEY_2,
+            base_url="https://api.deepseek.com",
+        )
+        _deepseek_pool.append(_ds_client_2)
+        print(f"   DeepSeek Oficial: 2 API keys (round-robin, ~600 RPM)")
+    else:
+        print(f"   DeepSeek Oficial: 1 API key (~300 RPM)")
     
     # Gemini Legal Cache — ON-DEMAND strategy v6 (cost optimization)
     # SAFETY LOCK #9: Startup cleanup — deletes orphan caches, NEVER creates.
@@ -7488,7 +7514,7 @@ async def chat_endpoint(request: ChatRequest):
             # DeepSeek con thinking mode (Centinela docs — sin genios disponibles)
             # Solo se activa cuando has_document=True o is_drafting=True SIN genios.
             # Usa DeepSeek Official (api.deepseek.com) para latencia baja.
-            active_client = deepseek_official_client
+            active_client = get_deepseek_official_client()
             active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
             max_tokens = 8192
             _resolved_genio_ids = [] # DeepSeek ignores genio cache
@@ -7496,8 +7522,8 @@ async def chat_endpoint(request: ChatRequest):
             # Fallback: DeepSeek Official (api.deepseek.com) o GPT-5 Mini
             # CAMBIO LATENCIA: Usar API oficial de DeepSeek, NO OpenRouter.
             # OpenRouter agrega 30-60s de cola TTFB bajo congestión.
-            if CHAT_ENGINE == "deepseek" and deepseek_official_client:
-                active_client = deepseek_official_client
+            if CHAT_ENGINE == "deepseek" and _deepseek_pool:
+                active_client = get_deepseek_official_client()
                 active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
                 max_tokens = 8192
             else:
