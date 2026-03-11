@@ -58,11 +58,8 @@ GEMINI_SEM   = asyncio.Semaphore(30)    # Solo Genio (Pro users)
 QDRANT_SEM   = asyncio.Semaphore(100)   # Búsquedas vectoriales
 COHERE_SEM   = asyncio.Semaphore(50)    # Reranking
 
-# HTTP Connection Pool — reusar conexiones TCP para APIs externas
-_http_pool = httpx.AsyncClient(
-    limits=httpx.Limits(max_connections=200, max_keepalive_connections=40),
-    timeout=httpx.Timeout(60.0, connect=10.0),
-)
+# HTTP Connection Pool — initialized in lifespan (after event loop exists)
+_http_pool: httpx.AsyncClient = None
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
@@ -2213,6 +2210,13 @@ async def lifespan(app: FastAPI):
     else:
         print(f"   DeepSeek Oficial: 1 API key (~300 RPM)")
     
+    # HTTP Connection Pool — crear DENTRO del lifespan (requiere event loop)
+    global _http_pool
+    _http_pool = httpx.AsyncClient(
+        limits=httpx.Limits(max_connections=200, max_keepalive_connections=40),
+        timeout=httpx.Timeout(60.0, connect=10.0),
+    )
+    print("   HTTP Connection Pool inicializado")
     # Gemini Legal Cache — ON-DEMAND strategy v6 (cost optimization)
     # SAFETY LOCK #9: Startup cleanup — deletes orphan caches, NEVER creates.
     # This prevents each Render deploy/restart leaving orphan caches at $0.97/hr.
@@ -7532,7 +7536,7 @@ async def chat_endpoint(request: ChatRequest):
                 max_tokens = 25000
             _resolved_genio_ids = [] # Clear genio ids if fallback
         
-        _client_name = 'gemini' if use_gemini else ('deepseek_official' if active_client is deepseek_official_client else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown')))
+        _client_name = 'gemini' if use_gemini else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown')))
         print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
