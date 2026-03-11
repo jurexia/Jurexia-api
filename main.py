@@ -3694,8 +3694,13 @@ async def hybrid_search_single_silo(
         sparse_vectors_config = col_info.config.params.sparse_vectors
         has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
-        # Threshold diferenciado: jurisprudencia necesita mayor recall
-        threshold = 0.02 if collection == "jurisprudencia_nacional" else 0.03
+        # Threshold diferenciado: jurisprudencia y silos estatales necesitan mayor recall
+        if collection == "jurisprudencia_nacional":
+            threshold = 0.02
+        elif collection.startswith("leyes_") and collection != "leyes_federales":
+            threshold = 0.02  # State silos: lower threshold for colloquial queries
+        else:
+            threshold = 0.03
         
         if has_sparse:
             # Dual prefetch con RRF fusion:
@@ -4107,6 +4112,7 @@ def _parse_article_number(text: str) -> Optional[int]:
 async def _fetch_neighbor_chunks(
     results: List[SearchResult],
     max_neighbors: int = 6,
+    estado: Optional[str] = None,
 ) -> List[SearchResult]:
     """
     Neighbor Chunk Retrieval: para resultados de legislación con score alto,
@@ -4114,11 +4120,22 @@ async def _fetch_neighbor_chunks(
     
     Esto da al LLM contexto circundante: definiciones, excepciones y sanciones
     que suelen estar en artículos contiguos.
+    
+    SEGURIDAD: Solo busca vecinos en el silo del estado seleccionado + federales.
+    Nunca contamina con leyes de otros estados.
     """
-    # Solo tomar top 3 de legislación con score alto
+    # Determinar silos válidos para neighbor chunks
+    valid_silos = {"leyes_federales", "leyes_estatales"}  # Legacy + federal siempre
+    if estado:
+        normalized_est = normalize_estado(estado)
+        target_silo = ESTADO_SILO.get(normalized_est) if normalized_est else None
+        if target_silo:
+            valid_silos.add(target_silo)  # Incluir silo dedicado del estado seleccionado
+    
+    # Solo tomar top 5 de legislación con score alto del estado seleccionado
     legislation = [r for r in results 
-                   if r.silo in ("leyes_federales", "leyes_estatales") 
-                   and r.score > 0.4][:5]
+                   if r.silo in valid_silos
+                   and r.score > 0.3][:5]  # Threshold reducido: 0.4 → 0.3 para más cobertura
     
     if not legislation:
         return []
@@ -4198,14 +4215,138 @@ async def _fetch_neighbor_chunks(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# LAW-LEVEL ROUTING: Identifica leyes temáticamente faltantes y las inyecta
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _law_level_routing(
+    query: str,
+    merged: List[SearchResult],
+    estado: Optional[str],
+) -> List[SearchResult]:
+    """
+    Law-Level Routing: Usa el LLM para identificar leyes que DEBERÍAN estar
+    en el contexto pero no fueron recuperadas por semantic search.
+    
+    Ejemplo: Para "multas de tránsito en Monterrey", identifica que la
+    "Ley de Tránsito" debería estar, y si no lo está, busca chunks de esa ley.
+    
+    SEGURIDAD: Solo busca en el silo del estado seleccionado.
+    """
+    if not estado:
+        return []  # Solo aplica cuando hay estado seleccionado
+    
+    normalized_est = normalize_estado(estado)
+    if not normalized_est:
+        return []
+    
+    target_silo = ESTADO_SILO.get(normalized_est)
+    if not target_silo:
+        return []
+
+    # Verificar qué leyes ya están en el contexto
+    existing_laws = set()
+    for r in merged:
+        if r.silo == target_silo and r.origen:
+            existing_laws.add(r.origen)
+    
+    estado_display = estado.replace("_", " ").title()
+    
+    try:
+        # Pedir al LLM que identifique leyes faltantes
+        response = await chat_client.chat.completions.create(
+            model=HYDE_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        f"Eres un experto en el ordenamiento jurídico del Estado de {estado_display}, México. "
+                        f"Dada una consulta legal, identifica las 3-5 leyes ESTATALES de {estado_display} "
+                        "que son MÁS RELEVANTES para resolver el caso. "
+                        "Responde SOLO con los nombres de las leyes, uno por línea, sin numeración ni explicación. "
+                        f"Usa los nombres oficiales (ej: 'Ley de Tránsito y Seguridad Vial para el Estado de {estado_display}')."
+                    )
+                },
+                {"role": "user", "content": query}
+            ],
+            max_tokens=200,
+            temperature=0.1,
+        )
+        suggested_laws = response.choices[0].message.content.strip().split("\n")
+        suggested_laws = [l.strip().strip("-•").strip() for l in suggested_laws if l.strip()]
+        print(f"   📖 Law-Level Routing: LLM sugiere {len(suggested_laws)} leyes: {suggested_laws}")
+        
+        # Filtrar las que ya están en el contexto
+        missing_laws = []
+        for suggested in suggested_laws:
+            suggested_lower = suggested.lower()
+            already_found = False
+            for existing in existing_laws:
+                if existing and (
+                    suggested_lower in existing.lower() or 
+                    existing.lower() in suggested_lower or
+                    # Match parcial: "Ley de Tránsito" ⊂ "Ley de Tránsito y Seguridad Vial para el Estado de..."
+                    any(word in existing.lower() for word in suggested_lower.split() if len(word) > 4)
+                ):
+                    already_found = True
+                    break
+            if not already_found:
+                missing_laws.append(suggested)
+        
+        if not missing_laws:
+            print(f"   📖 Law-Level Routing: Todas las leyes sugeridas ya están en contexto ✅")
+            return []
+        
+        print(f"   📖 Law-Level Routing: {len(missing_laws)} leyes FALTANTES: {missing_laws}")
+        
+        # Buscar chunks de las leyes faltantes en el silo del estado
+        existing_ids = {r.id for r in merged}
+        new_results = []
+        
+        for law_name in missing_laws[:3]:  # Max 3 leyes faltantes
+            try:
+                # Construir query específica para buscar artículos de esa ley
+                law_query = f"{law_name}: {query}"
+                law_dense = await get_dense_embedding(law_query)
+                law_sparse = get_sparse_embedding(law_query)
+                
+                law_results = await hybrid_search_single_silo(
+                    collection=target_silo,
+                    query=law_query,
+                    dense_vector=law_dense,
+                    sparse_vector=law_sparse,
+                    filter_=None,
+                    top_k=5,
+                    alpha=0.7,
+                )
+                
+                for r in law_results:
+                    if r.id not in existing_ids:
+                        new_results.append(r)
+                        existing_ids.add(r.id)
+                        
+            except Exception as e:
+                print(f"      ⚠️ Law routing search falló para '{law_name}': {e}")
+                continue
+        
+        return new_results
+        
+    except Exception as e:
+        print(f"   ⚠️ Law-Level Routing falló: {e}")
+        return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ADVANCED RAG: HyDE (Hypothetical Document Embeddings)
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def _generate_hyde_document(query: str) -> Optional[str]:
+async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> Optional[str]:
     """
     HyDE: Genera un documento jurídico hipotético que respondería a la query.
     Este documento hipotético se usa para generar el dense embedding,
     mejorando la recuperación para queries coloquiales.
+    
+    Si hay un estado seleccionado, el HyDE doc incluirá referencias a la legislación
+    de ese estado para mejorar la afinidad semántica con el silo correcto.
     
     Ejemplo:
       Query: "me corrieron del trabajo sin razón"
@@ -4221,6 +4362,18 @@ async def _generate_hyde_document(query: str) -> Optional[str]:
     if len(query.split()) < 3:
         return None
     
+    # Construir prompt state-aware
+    estado_context = ""
+    if estado:
+        estado_display = estado.replace("_", " ").title()
+        estado_context = (
+            f" La consulta es específicamente sobre el Estado de {estado_display}. "
+            f"Genera el fragmento como si fuera un artículo de una ley ESTATAL de {estado_display} "
+            f"(ej: 'Ley de Tránsito para el Estado de {estado_display}', "
+            f"'Código Civil para el Estado de {estado_display}', etc.). "
+            f"Incluye el nombre de la ley estatal en el fragmento."
+        )
+    
     try:
         response = await chat_client.chat.completions.create(
             model=HYDE_MODEL,
@@ -4232,6 +4385,7 @@ async def _generate_hyde_document(query: str) -> Optional[str]:
                         "de un artículo de ley o tesis de jurisprudencia mexicana que respondería "
                         "directamente a la consulta del usuario. Escribe SOLO el texto legal, "
                         "sin explicaciones ni preámbulos. Usa terminología jurídica técnica mexicana."
+                        + estado_context
                     )
                 },
                 {"role": "user", "content": query}
@@ -4546,7 +4700,7 @@ async def hybrid_search_all_silos(
         _t_llm = time.perf_counter()
         legal_plan, hyde_doc, sub_queries = await asyncio.gather(
             _legal_strategy_agent(query, fuero_manual=fuero),
-            _generate_hyde_document(query),
+            _generate_hyde_document(query, estado=estado),
             _decompose_query(query),
         )
         print(f"   ⏱ LLM paralelo (Strategy+HyDE+Decomp): {time.perf_counter() - _t_llm:.2f}s")
@@ -4636,8 +4790,20 @@ async def hybrid_search_all_silos(
     
     _t_search = time.perf_counter()
     tasks = []
+    
+    # Determinar el silo dedicado del estado seleccionado (si lo hay)
+    _selected_state_silo = None
+    if estado:
+        _norm_est = normalize_estado(estado)
+        _selected_state_silo = ESTADO_SILO.get(_norm_est) if _norm_est else None
+    
     for silo_name in silos_to_search:
         state_filter = get_filter_for_silo(silo_name, estado)
+        
+        # FIX 5: Top-K boost para silo estatal seleccionado
+        # El silo del estado seleccionado obtiene el doble de resultados iniciales
+        # para maximizar la cobertura de leyes relevantes
+        silo_top_k = top_k * 2 if silo_name == _selected_state_silo else top_k
         
         tasks.append(
             hybrid_search_single_silo(
@@ -4646,7 +4812,7 @@ async def hybrid_search_all_silos(
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
                 filter_=state_filter,
-                top_k=top_k,
+                top_k=silo_top_k,
                 alpha=alpha,
             )
         )
@@ -4962,9 +5128,10 @@ async def hybrid_search_all_silos(
     _t_enrich = time.perf_counter()
     try:
         _enrich_task = _cross_silo_enrichment(merged, query)
-        _neighbor_task = _fetch_neighbor_chunks(merged)
-        enrichment_results, neighbor_results = await asyncio.gather(
-            _enrich_task, _neighbor_task, return_exceptions=True
+        _neighbor_task = _fetch_neighbor_chunks(merged, estado=estado)
+        _law_routing_task = _law_level_routing(query, merged, estado)
+        enrichment_results, neighbor_results, law_routing_results = await asyncio.gather(
+            _enrich_task, _neighbor_task, _law_routing_task, return_exceptions=True
         )
         
         existing_ids = {r.id for r in merged}
@@ -4979,7 +5146,16 @@ async def hybrid_search_all_silos(
         if isinstance(neighbor_results, list) and neighbor_results:
             new_neighbors = [r for r in neighbor_results if r.id not in existing_ids]
             merged.extend(new_neighbors)
+            existing_ids.update(r.id for r in new_neighbors)
             print(f"   📄 NEIGHBOR CHUNKS: +{len(new_neighbors)} artículos adyacentes")
+        elif isinstance(neighbor_results, Exception):
+            print(f"   ⚠️ Neighbor chunk retrieval falló (continuando): {neighbor_results}")
+        
+        if isinstance(law_routing_results, list) and law_routing_results:
+            new_law_results = [r for r in law_routing_results if r.id not in existing_ids]
+            merged.extend(new_law_results)
+            existing_ids.update(r.id for r in new_law_results)
+            print(f"   📖 LAW-LEVEL ROUTING: +{len(new_law_results)} artículos de leyes temáticas")
         elif isinstance(neighbor_results, Exception):
             print(f"   ⚠️ Neighbor chunk retrieval falló (continuando): {neighbor_results}")
     except Exception as e:
@@ -6931,7 +7107,7 @@ async def chat_endpoint(request: ChatRequest):
                     _t_presearch = time.perf_counter()
                     legal_plan, hyde_doc = await asyncio.gather(
                         _legal_strategy_agent(last_user_message, fuero_manual=request.fuero),
-                        _generate_hyde_document(last_user_message),
+                        _generate_hyde_document(last_user_message, estado=effective_estado),
                     )
                     precomp_juris_concepts = None  # Se computa dentro de cada search si es necesario
                     print(f"   ⏱ PRE-SEARCH LLM (2 llamadas): {time.perf_counter() - _t_presearch:.2f}s")
