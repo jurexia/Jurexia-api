@@ -170,6 +170,7 @@ ESTADO_SILO = {
     "GUERRERO": "leyes_guerrero",
     "NUEVO_LEON": "leyes_nuevo_leon",
     "NL": "leyes_nuevo_leon",
+    "VERACRUZ": "leyes_veracruz",
     # Próximos estados:
     # "NUEVO_LEON": "leyes_nuevo_leon",
 }
