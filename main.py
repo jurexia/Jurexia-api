@@ -49,6 +49,22 @@ import hashlib  # For semantic cache keys
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SEMÁFOROS DE CONCURRENCIA — Protección contra sobrecarga de APIs externas
+# Limitan peticiones simultáneas por servicio para prevenir 429s y cascadas
+# ══════════════════════════════════════════════════════════════════════════════
+DEEPSEEK_SEM = asyncio.Semaphore(50)    # DeepSeek oficial: ~300 RPM
+OPENAI_SEM   = asyncio.Semaphore(80)    # OpenAI embeddings + HyDE
+GEMINI_SEM   = asyncio.Semaphore(30)    # Solo Genio (Pro users)
+QDRANT_SEM   = asyncio.Semaphore(100)   # Búsquedas vectoriales
+COHERE_SEM   = asyncio.Semaphore(50)    # Reranking
+
+# HTTP Connection Pool — reusar conexiones TCP para APIs externas
+_http_pool = httpx.AsyncClient(
+    limits=httpx.Limits(max_connections=200, max_keepalive_connections=40),
+    timeout=httpx.Timeout(60.0, connect=10.0),
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2188,6 +2204,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     print(" Cerrando conexiones...")
     await qdrant_client.close()
+    await _http_pool.aclose()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3365,12 +3382,13 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     before_sleep=lambda rs: print(f"   ⏳ Embedding retry #{rs.attempt_number} after error...")
 )
 async def get_dense_embedding(text: str) -> List[float]:
-    """Genera embedding denso usando OpenAI (con reintentos automáticos)"""
-    response = await openai_client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=text,
-    )
-    return response.data[0].embedding
+    """Genera embedding denso usando OpenAI (con reintentos automáticos + semáforo)"""
+    async with OPENAI_SEM:
+        response = await openai_client.embeddings.create(
+            model=EMBEDDING_MODEL,
+            input=text,
+        )
+        return response.data[0].embedding
 
 
 def get_sparse_embedding(text: str) -> SparseVector:
@@ -3689,10 +3707,11 @@ async def hybrid_search_single_silo(
     RESILIENTE: Si el filtro causa error 400 (índice faltante), reintenta SIN filtro.
     """
     async def _do_search(search_filter: Optional[Filter]) -> list:
-        """Ejecuta la búsqueda con el filtro dado."""
-        col_info = await qdrant_client.get_collection(collection)
-        sparse_vectors_config = col_info.config.params.sparse_vectors
-        has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
+        """Ejecuta la búsqueda con el filtro dado (protegida por semáforo)."""
+        async with QDRANT_SEM:
+            col_info = await qdrant_client.get_collection(collection)
+            sparse_vectors_config = col_info.config.params.sparse_vectors
+            has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         # Threshold diferenciado: jurisprudencia y silos estatales necesitan mayor recall
         if collection == "jurisprudencia_nacional":
@@ -4485,8 +4504,8 @@ async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 2
         # Retry loop for Cohere (handles 429 rate limits)
         rerank_response = None
         for _attempt in range(3):
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
+            async with COHERE_SEM:
+                response = await _http_pool.post(
                     "https://api.cohere.com/v2/rerank",
                     headers={
                         "Authorization": f"Bearer {COHERE_API_KEY}",
@@ -4596,7 +4615,7 @@ async def _deterministic_article_fetch(article_numbers: List[str]) -> List[Searc
         
         for collection in _DETERMINISTIC_COLLECTIONS:
             try:
-                points, _ = qdrant_client.scroll(
+                points, _ = await qdrant_client.scroll(
                     collection_name=collection,
                     scroll_filter=Filter(
                         must=[
