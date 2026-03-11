@@ -2226,6 +2226,28 @@ async def lifespan(app: FastAPI):
         print("   🏛️ Gemini Cache: ON-DEMAND mode v6 (9 safety locks, TTL=8m)")
     except Exception as e:
         print(f"   ⚠️ Cache startup cleanup failed (non-fatal): {e}")
+    # ONE-TIME FIX: Reclasificar "Ley Reglamentaria fracción XVII bis" de constitucion -> ley
+    try:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        _fix_results, _ = await qdrant_client.scroll(
+            collection_name="leyes_michoacan",
+            scroll_filter=Filter(must=[FieldCondition(key="tipo", match=MatchValue(value="constitucion"))]),
+            limit=100, with_payload=True,
+        )
+        _fixed = 0
+        for _pt in _fix_results:
+            _origen = _pt.payload.get("origen", "")
+            if "Reglamentaria" in _origen or "XVII bis" in _origen:
+                await qdrant_client.set_payload(
+                    collection_name="leyes_michoacan",
+                    payload={"tipo": "ley"},
+                    points=[_pt.id],
+                )
+                _fixed += 1
+        if _fixed:
+            print(f"   🔧 FIX: Reclasificados {_fixed} chunks de Ley Reglamentaria XVII bis (constitucion→ley)")
+    except Exception as e:
+        print(f"   ⚠️ Fix Michoacán tipo (non-fatal): {e}")
     
     print(" Jurexia Core Engine LISTO")
     
