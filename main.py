@@ -7520,7 +7520,7 @@ async def chat_endpoint(request: ChatRequest):
             # Usa DeepSeek Official (api.deepseek.com) para latencia baja.
             active_client = get_deepseek_official_client()
             active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-            max_tokens = 16384  # DeepSeek V3 soporta hasta 65K — antes 8192 limitaba calidad
+            max_tokens = 8192  # DeepSeek API hard limit
             _resolved_genio_ids = [] # DeepSeek ignores genio cache
         else:
             # Fallback: DeepSeek Official (api.deepseek.com) o GPT-5 Mini
@@ -7529,7 +7529,7 @@ async def chat_endpoint(request: ChatRequest):
             if CHAT_ENGINE == "deepseek" and _deepseek_pool:
                 active_client = get_deepseek_official_client()
                 active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-                max_tokens = 16384  # DeepSeek V3 soporta hasta 65K — antes 8192 limitaba calidad
+                max_tokens = 8192  # DeepSeek API hard limit
             else:
                 active_client = chat_client
                 active_model = CHAT_MODEL
