@@ -171,8 +171,8 @@ ESTADO_SILO = {
     "NUEVO_LEON": "leyes_nuevo_leon",
     "NL": "leyes_nuevo_leon",
     "VERACRUZ": "leyes_veracruz",
+    "MICHOACAN": "leyes_michoacan",
     # Próximos estados:
-    # "NUEVO_LEON": "leyes_nuevo_leon",
 }
 
 # Silos de SENTENCIAS DE EJEMPLO — usados como few-shot por el redactor multi-pass
