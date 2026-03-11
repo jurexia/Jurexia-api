@@ -168,6 +168,8 @@ ESTADO_SILO = {
     "ESTADO_DE_MEXICO": "leyes_edomex",
     "JALISCO": "leyes_jalisco",
     "GUERRERO": "leyes_guerrero",
+    "NUEVO_LEON": "leyes_nuevo_leon",
+    "NL": "leyes_nuevo_leon",
     # Próximos estados:
     # "NUEVO_LEON": "leyes_nuevo_leon",
 }
