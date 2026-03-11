@@ -7515,13 +7515,20 @@ async def chat_endpoint(request: ChatRequest):
             max_tokens = 25000
             print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}{' [REDACTAR]' if is_drafting or is_chat_drafting else ''}")
         elif use_thinking:
-            # DeepSeek con thinking mode (Centinela docs — sin genios disponibles)
-            # Solo se activa cuando has_document=True o is_drafting=True SIN genios.
-            # Usa DeepSeek Official (api.deepseek.com) para latencia baja.
+            # DeepSeek con thinking mode — sin genios disponibles.
             active_client = get_deepseek_official_client()
-            active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-            max_tokens = 8192  # DeepSeek API hard limit
             _resolved_genio_ids = [] # DeepSeek ignores genio cache
+            if is_drafting or is_chat_drafting:
+                # REDACTOR: Usar deepseek-reasoner (thinking) para redacción de alto nivel.
+                # Thinking mode = razonamiento profundo + 64K max output (default 32K).
+                # Produce argumentación legal más sólida que deepseek-chat.
+                active_model = DEEPSEEK_OFFICIAL_REASONER_MODEL
+                max_tokens = 32000
+                print(f"   ✍️ REDACTOR DeepSeek Reasoner: {active_model} | max_tokens: {max_tokens}")
+            else:
+                # Centinela docs: análisis de documentos sin redacción
+                active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+                max_tokens = 8192  # DeepSeek chat hard limit
         else:
             # Fallback: DeepSeek Official (api.deepseek.com) o GPT-5 Mini
             # CAMBIO LATENCIA: Usar API oficial de DeepSeek, NO OpenRouter.
