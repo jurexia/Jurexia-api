@@ -7369,6 +7369,18 @@ async def chat_endpoint(request: ChatRequest):
                 if hasattr(r, 'silo') and r.silo.startswith("leyes_") and r.silo != "leyes_federales"
             ) > 0
 
+        # ── FUERO AWARENESS: Determinar el fuero efectivo para la inyección de estado ──
+        # Prioridad: 1) fuero manual del usuario, 2) fuero detectado por el Agente Estratega
+        _effective_fuero_for_prompt = (request.fuero or "").lower().strip() or None
+        if not _effective_fuero_for_prompt and 'legal_plan' in dir():
+            try:
+                _detected = legal_plan.get("fuero_detectado", None)
+                if _detected and _detected not in ("mixto", None):
+                    _effective_fuero_for_prompt = _detected.lower().strip()
+            except:
+                pass
+        _is_federal_or_const = _effective_fuero_for_prompt in ("federal", "constitucional")
+
         if _estado_for_llm:
             estado_humano = _estado_for_llm.replace("_", " ").title()
             
@@ -7381,8 +7393,25 @@ async def chat_endpoint(request: ChatRequest):
             _has_local_genio = any(g in ["civil", "laboral", "familiar"] for g in _resolved_genio_ids)
             _is_multi_genio = len(_resolved_genio_ids) > 1
             
-            if _has_federal_genio and not _has_local_genio:
-                # SOLO genios federales activos → jerarquía federal
+            if _is_federal_or_const and not _has_local_genio:
+                # FUERO FEDERAL/CONSTITUCIONAL detectado → jerarquía federal SIEMPRE
+                # Esto aplica tanto en chat normal como en modo redacción
+                _estado_prompt = (
+                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                    f"⚠️ INSTRUCCIÓN CRÍTICA — FUERO {_effective_fuero_for_prompt.upper()} DETECTADO:\n"
+                    f"La consulta del usuario es de naturaleza {_effective_fuero_for_prompt.upper()}, "
+                    f"regulada exclusivamente por legislación federal.\n"
+                    f"1. Tu marco rector es la CONSTITUCIÓN, leyes FEDERALES y JURISPRUDENCIA SCJN/TCC.\n"
+                    f"2. NO uses leyes del estado de {estado_humano} como fundamento principal.\n"
+                    f"3. Si aparecen documentos estatales en el contexto, son meramente REFERENCIALES — "
+                    f"NO los cites como fuente primaria ni estructures tu argumentación sobre ellos.\n"
+                    f"4. Materias como MERCANTIL (títulos de crédito, pagarés, sociedades), AMPARO, "
+                    f"LABORAL federal, FISCAL federal son 100% FEDERALES — jamás cites códigos civiles estatales.\n"
+                    f"5. TRANSCRIBE los artículos federales y jurisprudencia con su [Doc ID: uuid]."
+                )
+                print(f"   📍 Estado inyectado al LLM (FUERO {_effective_fuero_for_prompt.upper()} → jerarquía federal forzada): {estado_humano}")
+            elif _has_federal_genio and not _has_local_genio:
+                # SOLO genios federales activos (sin fuero detectado) → jerarquía federal
                 _estado_prompt = (
                     f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
                     f"INSTRUCCIÓN CRÍTICA — JERARQUÍA FEDERAL:\n"
