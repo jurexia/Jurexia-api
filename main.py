@@ -435,17 +435,25 @@ Para cada tesis:
 Solo si NO hay jurisprudencia en el contexto, indica:
 "No se encontró jurisprudencia específica sobre este punto en la búsqueda actual."
 
-### LEGISLACIÓN ESTATAL (Solo cuando aplique)
+### LEGISLACIÓN ESTATAL (Solo cuando sea GENUINAMENTE relevante)
 
-Si el usuario tiene un estado seleccionado o pregunta sobre derecho local:
+INCLUYE esta sección SOLO si se cumplen AMBAS condiciones:
+1. El CONTEXTO RECUPERADO contiene documentos de legislación estatal (silos leyes_cdmx, leyes_queretaro, etc.)
+2. La consulta del usuario tiene CONEXIÓN REAL con derecho local/estatal (procedimientos locales, códigos civiles/penales estatales, leyes orgánicas estatales, etc.)
+
+OMITE COMPLETAMENTE esta sección cuando:
+- La consulta es de derecho MERCANTIL (títulos de crédito, sociedades, concursos) — materia 100% FEDERAL
+- La consulta es de derecho LABORAL federal, FISCAL federal, AMPARO, o cualquier materia regulada exclusivamente por leyes federales
+- Los documentos estatales del contexto NO tienen relación directa con la pregunta (es decir, fueron recuperados por cercanía semántica pero no son relevantes)
+- NUNCA fuerces legislación estatal solo porque el usuario tiene un estado en su perfil
+
+Cuando SÍ incluyas esta sección:
 
 FORMATO OBLIGATORIO para cada artículo estatal (blockquote):
 > "[Texto transcrito completo del artículo]" -- *Artículo [N], [Nombre de la Ley Estatal]* [Doc ID: uuid]
 
 - Señala diferencias o complementos respecto a la legislación federal
 - Marca expresamente: "En [Estado], la legislación local establece..."
-
-Si NO hay estado seleccionado ni pregunta estatal, OMITE esta sección.
 
 ### ANÁLISIS INTEGRADO Y RECOMENDACIONES
 
@@ -5038,9 +5046,11 @@ async def hybrid_search_all_silos(
         min_federales = min(6, len(federales))
         min_estatales = min(3, len(estatales))
         print(f"   🏛️ Modo DDHH: const={min_constitucional} juris={min_jurisprudencia} fed={min_federales} est={min_estatales}")
-    elif estado:
-        # Modo con ESTADO seleccionado: LEYES ESTATALES SON LA PRIORIDAD
-        # Mantener prioridad fija para estado, ya que es selección explícita del usuario
+    elif estado and fuero_normalized in ("estatal", None):
+        # Modo con ESTADO seleccionado Y fuero estatal o sin fuero definido:
+        # LEYES ESTATALES SON LA PRIORIDAD
+        # Si el Agente Estratega detectó fuero 'federal' o 'constitucional',
+        # NO forzar prioridad estatal — caer al bloque de pesos dinámicos.
         min_estatales = min(15, len(estatales))
         min_jurisprudencia = min(8, len(jurisprudencia))
         min_federales = min(5, len(federales))
@@ -5063,15 +5073,15 @@ async def hybrid_search_all_silos(
     
     merged = []
     
-    if estado:
-        # CUANDO HAY ESTADO: leyes estatales VAN PRIMERO en el contexto
+    if estado and fuero_normalized in ("estatal", None):
+        # CUANDO HAY ESTADO y fuero es estatal/auto: leyes estatales VAN PRIMERO
         # El LLM procesa los primeros documentos con mayor atención
         merged.extend(estatales[:min_estatales])
         merged.extend(jurisprudencia[:min_jurisprudencia])
         merged.extend(federales[:min_federales])
         merged.extend(constitucional[:min_constitucional])
     else:
-        # Sin estado: orden estándar por jerarquía normativa
+        # Sin estado O fuero federal/constitucional: orden por jerarquía normativa
         merged.extend(constitucional[:min_constitucional])
         merged.extend(federales[:min_federales])
         merged.extend(estatales[:min_estatales])
