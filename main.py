@@ -3385,15 +3385,21 @@ def _detect_materia(query: str, forced_materia: Optional[str] = None) -> Optiona
     return [sorted_materias[0][0]]
 
 
-def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25) -> list:
+def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25, strict_mode: bool = False) -> list:
     """
     Capa 3 del Materia-Aware Retrieval: Post-retrieval threshold.
-    Descarta resultados de materia ajena SOLO si tienen score bajo.
+    
+    Dos modos:
+      - soft (default): Descarta resultados de materia ajena SOLO si tienen score bajo.
+      - strict (strict_mode=True): DESCARTA TODO lo que no coincida con la materia,
+        excepto jurisprudencia y constitucional. Usado cuando el usuario selecciona
+        materia manualmente en el frontend.
     
     Args:
         results: Lista de SearchResult ordenados por score
         detected_materias: Materias detectadas por _detect_materia()
         threshold_gap: Diferencia máxima tolerada vs top score (0.25 = 25%)
+        strict_mode: Si True, hard-drop de materia ajena (forzado por usuario)
     
     Returns:
         Lista filtrada de SearchResult
@@ -3401,9 +3407,23 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     if not detected_materias or not results:
         return results
     
+    # Materia mapping expandido para strict mode
+    # Permite que "FAMILIAR" también acepte "CIVIL" (muchos estados tienen familia en CC)
+    MATERIA_ALIAS = {
+        "FAMILIAR": {"FAMILIAR", "CIVIL"},
+        "ADMINISTRATIVO": {"ADMINISTRATIVO", "FISCAL"},
+        "CIVIL": {"CIVIL"},
+        "PENAL": {"PENAL"},
+    }
+    
+    materias_upper = {m.upper() for m in detected_materias}
+    # Expandir aliases para strict mode
+    expanded_materias = set()
+    for m in materias_upper:
+        expanded_materias.update(MATERIA_ALIAS.get(m, {m}))
+    
     top_score = results[0].score if results else 0
     threshold = top_score - threshold_gap
-    materias_upper = {m.upper() for m in detected_materias}
     
     filtered = []
     dropped_count = 0
@@ -3413,8 +3433,8 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
             filtered.append(r)
             continue
         
-        # Si la jurisdiccion coincide con la materia detectada, mantener
-        if r.jurisdiccion and r.jurisdiccion.upper() in materias_upper:
+        # Si la jurisdiccion coincide con la materia detectada (o alias), mantener
+        if r.jurisdiccion and r.jurisdiccion.upper() in expanded_materias:
             filtered.append(r)
             continue
         
@@ -3423,14 +3443,20 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
             filtered.append(r)
             continue
         
-        # Si la jurisdiccion NO coincide, mantener SOLO si el score es decente
+        # ── STRICT MODE: hard drop ──
+        if strict_mode:
+            dropped_count += 1
+            continue
+        
+        # ── SOFT MODE: mantener si el score es decente ──
         if r.score >= threshold:
             filtered.append(r)
         else:
             dropped_count += 1
     
+    mode_label = "ESTRICTO" if strict_mode else "SOFT"
     if dropped_count > 0:
-        print(f"   🧹 MATERIA THRESHOLD: Descartados {dropped_count} resultados de materia ajena (score < {threshold:.4f})")
+        print(f"   🧹 MATERIA THRESHOLD ({mode_label}): Descartados {dropped_count} resultados de materia ajena")
     
     return filtered
 
@@ -5300,7 +5326,7 @@ async def hybrid_search_all_silos(
     # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
     # ═══════════════════════════════════════════════════════════════════════════
     if detected_materias:
-        merged = _apply_materia_threshold(merged, detected_materias)
+        merged = _apply_materia_threshold(merged, detected_materias, strict_mode=(forced_materia is not None))
     
     # ═══════════════════════════════════════════════════════════════════════════
     # COHERE RERANK: Cross-encoder final reranking (ÚLTIMA CAPA)
@@ -7464,6 +7490,62 @@ async def chat_endpoint(request: ChatRequest):
                 print(f"   📍 Estado inyectado al LLM (sin leyes estatales detectadas, priorizando federal/const): {estado_humano}")
             
             dynamic_injections.append(_estado_prompt)
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # INYECCIÓN DE MATERIA ESTRICTA (cuando el usuario selecciona materia)
+        # ═══════════════════════════════════════════════════════════════════
+        if request.materia and request.materia.strip():
+            _materia_sel = request.materia.strip().lower()
+            _MATERIA_PROMPTS = {
+                "civil": (
+                    "REGLA DE MATERIA ESTRICTA — CIVIL:\n"
+                    "El usuario ha seleccionado la materia CIVIL. Tu razonamiento, terminología forense "
+                    "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho civil.\n"
+                    "- PRIORIZA: Código Civil del estado, Código de Procedimientos Civiles del estado.\n"
+                    "- NO mezcles conceptos penales, administrativos ni laborales.\n"
+                    "- Usa terminología civil: acción, demanda, emplazamiento, contestación, "
+                    "sentencia definitiva, recurso de apelación, prescripción, caducidad.\n"
+                    "- Si encuentras artículos de otras materias en el contexto, IGNÓRALOS."
+                ),
+                "penal": (
+                    "REGLA DE MATERIA ESTRICTA — PENAL:\n"
+                    "El usuario ha seleccionado la materia PENAL. Tu razonamiento, terminología forense "
+                    "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho penal.\n"
+                    "- PRIORIZA: Código Penal del estado + Código Nacional de Procedimientos Penales (federal).\n"
+                    "- NO mezcles conceptos civiles, familiares ni administrativos.\n"
+                    "- Usa terminología penal: delito, imputado, víctima, ministerio público, "
+                    "audiencia inicial, vinculación a proceso, medidas cautelares, sentencia condenatoria.\n"
+                    "- Si encuentras artículos de otras materias en el contexto, IGNÓRALOS."
+                ),
+                "familiar": (
+                    "REGLA DE MATERIA ESTRICTA — FAMILIAR:\n"
+                    "El usuario ha seleccionado la materia FAMILIAR. Tu razonamiento, terminología forense "
+                    "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho familiar.\n"
+                    "- PRIORIZA: Código Familiar (o Libro Cuarto del Código Civil) del estado, "
+                    "Código de Procedimientos Civiles del estado (procedimientos familiares).\n"
+                    "- Principio rector: INTERÉS SUPERIOR DEL MENOR en todo lo que involucre menores.\n"
+                    "- Usa terminología familiar: alimentos, guarda y custodia, régimen de visitas, "
+                    "patria potestad, divorcio, pensión alimenticia, violencia familiar.\n"
+                    "- Si encuentras artículos penales o administrativos en el contexto, IGNÓRALOS."
+                ),
+                "administrativo": (
+                    "REGLA DE MATERIA ESTRICTA — ADMINISTRATIVO/FISCAL:\n"
+                    "El usuario ha seleccionado la materia ADMINISTRATIVA/FISCAL. Tu razonamiento, "
+                    "terminología forense y fundamentación deben ceñirse EXCLUSIVAMENTE al "
+                    "derecho administrativo y fiscal.\n"
+                    "- PRIORIZA: Ley de Procedimiento Contencioso Administrativo del estado, "
+                    "Código Fiscal del estado, Ley de Responsabilidades Administrativas, "
+                    "Ley de Responsabilidad Patrimonial, Ley de Justicia Administrativa.\n"
+                    "- NO mezcles conceptos penales ni civiles.\n"
+                    "- Usa terminología administrativa: acto administrativo, recurso de revisión, "
+                    "juicio contencioso administrativo, nulidad, lesividad, responsabilidad patrimonial.\n"
+                    "- Si encuentras artículos penales o civiles en el contexto, IGNÓRALOS."
+                ),
+            }
+            _materia_prompt = _MATERIA_PROMPTS.get(_materia_sel)
+            if _materia_prompt:
+                dynamic_injections.append(_materia_prompt)
+                print(f"   📋 MATERIA ESTRICTA inyectada: {_materia_sel.upper()}")
         
         if context_xml:
             dynamic_injections.append(f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}")
