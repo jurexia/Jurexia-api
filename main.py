@@ -12526,7 +12526,7 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.4,
-                max_tokens=4000,
+                max_tokens=8000,
                 stream=True,
             )
 
