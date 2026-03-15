@@ -12268,13 +12268,173 @@ class AmparoSaludRequest(BaseModel):
     user_email: str = ""
 
 
+# ── SÁLVAME Anti-Abuse System ───────────────────────────────────────────────
+# Rate limits per subscription plan
+SALVAME_LIMITS = {
+    "gratuito":          {"daily": 2,  "monthly": 5},
+    "basico_monthly":    {"daily": 3,  "monthly": 10},
+    "pro_monthly":       {"daily": 5,  "monthly": 15},
+    "pro_annual":        {"daily": 5,  "monthly": 15},
+    "platinum_monthly":  {"daily": 10, "monthly": 30},
+    "platinum_annual":   {"daily": 10, "monthly": 30},
+    "ultra_secretarios": {"daily": 10, "monthly": 30},
+}
+SALVAME_COOLDOWN_SECONDS = 60  # Minimum seconds between requests
+
+# In-memory cooldown tracker {email: last_request_timestamp}
+_salvame_cooldowns: dict[str, float] = {}
+
+
+async def _verify_salvame_user(authorization: str) -> dict:
+    """Verify JWT and return user info (id, email, subscription_type)."""
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Autenticación requerida. Inicia sesión para usar SÁLVAME.")
+
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = supabase_admin.auth.get_user(token)
+        user = user_resp.user
+        if not user or not user.email:
+            raise HTTPException(status_code=401, detail="Token inválido")
+
+        # Fetch subscription type
+        profile = supabase_admin.table("user_profiles").select(
+            "id, email, subscription_type"
+        ).eq("id", str(user.id)).execute()
+
+        sub_type = "gratuito"
+        if profile.data and len(profile.data) > 0:
+            sub_type = profile.data[0].get("subscription_type", "gratuito")
+
+        return {"id": str(user.id), "email": user.email, "subscription_type": sub_type}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"⚠️ SALVAME auth error: {e}")
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+
+async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_type: str, client_ip: str):
+    """Check daily/monthly limits and cooldown. Raises HTTPException if exceeded."""
+    import time as _time
+    from datetime import datetime, timedelta, timezone
+
+    limits = SALVAME_LIMITS.get(subscription_type, SALVAME_LIMITS["gratuito"])
+
+    # ── Cooldown check (in-memory) ──────────────────────────────────────
+    now_ts = _time.time()
+    last_ts = _salvame_cooldowns.get(user_email, 0)
+    elapsed = now_ts - last_ts
+    if elapsed < SALVAME_COOLDOWN_SECONDS:
+        remaining = int(SALVAME_COOLDOWN_SECONDS - elapsed)
+        print(f"   🛑 SALVAME cooldown: {user_email} must wait {remaining}s")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Debes esperar {remaining} segundos antes de generar otro amparo."
+        )
+
+    if not supabase_admin:
+        return  # Can't check DB limits, allow through
+
+    try:
+        # ── Daily limit ─────────────────────────────────────────────────
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        daily_result = supabase_admin.table("salvame_usage_log").select(
+            "id", count="exact"
+        ).eq("user_email", user_email).gte("created_at", today_start).execute()
+
+        daily_count = daily_result.count if daily_result.count is not None else 0
+        if daily_count >= limits["daily"]:
+            print(f"   🛑 SALVAME daily limit: {user_email} ({daily_count}/{limits['daily']})")
+            raise HTTPException(
+                status_code=429,
+                detail=f"Has alcanzado tu límite diario de {limits['daily']} amparos. Intenta mañana."
+            )
+
+        # ── Monthly limit ───────────────────────────────────────────────
+        month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        monthly_result = supabase_admin.table("salvame_usage_log").select(
+            "id", count="exact"
+        ).eq("user_email", user_email).gte("created_at", month_start).execute()
+
+        monthly_count = monthly_result.count if monthly_result.count is not None else 0
+        if monthly_count >= limits["monthly"]:
+            print(f"   🛑 SALVAME monthly limit: {user_email} ({monthly_count}/{limits['monthly']})")
+            raise HTTPException(
+                status_code=429,
+                detail=f"Has alcanzado tu límite mensual de {limits['monthly']} amparos. El límite se renueva el próximo mes."
+            )
+
+        # ── Abuse detection: same IP, multiple accounts ─────────────────
+        if client_ip:
+            ip_result = supabase_admin.table("salvame_usage_log").select(
+                "user_email", count="exact"
+            ).eq("ip_address", client_ip).gte("created_at", today_start).execute()
+
+            ip_count = ip_result.count if ip_result.count is not None else 0
+            if ip_count >= 6:  # 6+ requests from same IP in one day → suspicious
+                _log_security_alert(
+                    user_id, user_email,
+                    f"SALVAME abuse: IP {client_ip} has {ip_count} requests today",
+                    "salvame_abuse", "high"
+                )
+                print(f"   🚨 SALVAME abuse alert: IP {client_ip} → {ip_count} requests today")
+
+        print(f"   ✅ SALVAME rate OK: {user_email} (today: {daily_count}/{limits['daily']}, month: {monthly_count}/{limits['monthly']})")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"   ⚠️ SALVAME rate limit check error (allowing through): {e}")
+
+
+def _log_salvame_usage(user_id: str, user_email: str, ip_address: str, hospital_estado: str):
+    """Log amparo generation to salvame_usage_log (fire-and-forget)."""
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("salvame_usage_log").insert({
+            "user_id": user_id if user_id else None,
+            "user_email": user_email,
+            "ip_address": ip_address,
+            "hospital_estado": hospital_estado,
+        }).execute()
+        print(f"   📝 SALVAME usage logged: {user_email} ({hospital_estado})")
+    except Exception as e:
+        print(f"   ⚠️ Failed to log SALVAME usage: {e}")
+
+
 @app.post("/generate-amparo-salud")
-async def generate_amparo_salud(req: AmparoSaludRequest):
+async def generate_amparo_salud(req: AmparoSaludRequest, request: Request, authorization: str = Header(None)):
     """
     SALVAME: Genera una Demanda de Amparo Indirecto en materia de salud
     usando DeepSeek Chat con streaming.
+    Protegido con autenticación, rate limiting y auditoría.
     """
+    import time as _time
     from fastapi.responses import StreamingResponse
+
+    # ── Layer 1: Authentication ─────────────────────────────────────────
+    user_info = await _verify_salvame_user(authorization)
+    user_email = user_info["email"]
+    user_id = user_info["id"]
+    sub_type = user_info["subscription_type"]
+
+    # ── Get client IP ───────────────────────────────────────────────────
+    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host if request.client else ""
+
+    # ── Layer 2 & 4: Rate Limiting + Abuse Detection ────────────────────
+    await _check_salvame_rate_limit(user_email, user_id, sub_type, client_ip)
+
+    # ── Layer 3: Audit Logging ──────────────────────────────────────────
+    _log_salvame_usage(user_id, user_email, client_ip, req.hospital_estado)
+
+    # ── Update cooldown ─────────────────────────────────────────────────
+    _salvame_cooldowns[user_email] = _time.time()
 
     # ── Build user prompt from form data ─────────────────────────────────
     riesgo_map = {
