@@ -12538,7 +12538,15 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
             print(f"   ❌ SALVAME error: {e}")
             yield f"\n\n[Error al generar el amparo: {str(e)}]"
 
-    return StreamingResponse(stream_response(), media_type="text/plain")
+    return StreamingResponse(
+        stream_response(),
+        media_type="text/plain",
+        headers={
+            "X-Accel-Buffering": "no",       # Disable Nginx proxy buffering (Render uses Nginx)
+            "Cache-Control": "no-cache",      # Prevent caching
+            "Transfer-Encoding": "chunked",   # Force chunked transfer
+        },
+    )
 
 
 class ExportAmparoSaludRequest(BaseModel):
