@@ -202,6 +202,7 @@ ESTADO_SILO = {
     "VERACRUZ": "leyes_veracruz",
     "MICHOACAN": "leyes_michoacan",
     "MORELOS": "leyes_morelos",
+    "SINALOA": "leyes_sinaloa",
     # Próximos estados:
 }
 
