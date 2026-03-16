@@ -12559,10 +12559,11 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
 
     return StreamingResponse(
         stream_response(),
-        media_type="text/plain",
+        media_type="text/event-stream",
         headers={
-            "X-Accel-Buffering": "no",       # Disable Nginx proxy buffering (Render uses Nginx)
-            "Cache-Control": "no-cache",      # Prevent caching
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
         },
     )
 
