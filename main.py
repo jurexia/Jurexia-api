@@ -7769,13 +7769,18 @@ async def chat_endpoint(request: ChatRequest):
 
                             rag_ids = list(doc_id_map.keys()) if doc_id_map else []
                             cache_rag_instruction = (
-                                "⚠️ INSTRUCCIÓN CRÍTICA — CITAR SOLO FUENTES DEL CONTEXTO RAG:\n"
-                                "1. Los únicos Doc IDs válidos en esta sesión son los del contexto inyectado.\n"
-                                "2. NO INVENTES Doc IDs. Si jurisprudencia no está en el contexto con [Doc ID: uuid] real, NO LA CITES.\n"
-                                "3. Para cada tesis citada, INCLUYE SU RUBRO COMPLETO en la respuesta "
-                                "(el título exacto en mayúsculas tal como aparece en el contexto). "
-                                "Formato: \"RUBRO COMPLETO DE LA TESIS (Tesis X/J. N/AAAA) [Doc ID: uuid]\"\n"
-                                f"4. Doc IDs disponibles en esta sesión: {rag_ids[:25]}\n"
+                                "⚠️ INSTRUCCIÓN CRÍTICA — JERARQUÍA DE FUENTES CON GENIO ACTIVO:\n"
+                                "1. PRIORIDAD MÁXIMA: Tu CORPUS CACHEADO (las leyes y tratados especializados que tienes en memoria).\n"
+                                "   Extrae y transcribe libremente artículos de tu conocimiento cacheado. Esta es tu fuente PRINCIPAL.\n"
+                                "   📌 Para citas del corpus: indica SOLO el número de artículo y la ley de origen (ej: 'Art. 76 LGTOC').\n"
+                                "   NO necesitas Doc ID ni UUID para contenido de tu corpus cacheado.\n"
+                                "2. PRIORIDAD SECUNDARIA: El CONTEXTO JURÍDICO RAG recuperado, pero SOLO si es DIRECTAMENTE pertinente al tema jurídico en discusión.\n"
+                                "   ⛔ PROHIBIDO citar legislación local/estatal que NO tenga relación directa con la materia del caso.\n"
+                                "   ⛔ NUNCA cites leyes irrelevantes solo por estar en el contexto (ej: Ley Apícola para un caso de amparo).\n"
+                                "   ✅ SÍ cita jurisprudencia, tesis y artículos constitucionales/federales del RAG que sean pertinentes.\n"
+                                "   📌 Para citas del RAG: SIEMPRE incluye el [Doc ID: uuid] exacto del contexto. NO inventes Doc IDs.\n"
+                                f"   Doc IDs RAG disponibles (usar SOLO si pertinentes): {rag_ids[:25]}\n"
+                                "3. Si el RAG no contiene fuentes pertinentes al tema, IGNÓRALO completamente y usa solo tu corpus.\n"
                             )
                             dynamic_parts.insert(0, cache_rag_instruction)
 
