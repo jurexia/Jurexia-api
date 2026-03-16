@@ -7784,6 +7784,44 @@ async def chat_endpoint(request: ChatRequest):
                             )
                             dynamic_parts.insert(0, cache_rag_instruction)
 
+                            # GENIO DEPTH BOOST: Restaurar instrucciones de estructura y profundidad
+                            # que se pierden cuando SYSTEM_PROMPT_CHAT es descartado por el caché
+                            _GENIO_DEPTH_BOOST = (
+                                "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
+                                "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. "
+                                "Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
+                                "- Mínimo 1,000 palabras en consultas sustantivas.\n"
+                                "- Conecta SIEMPRE la norma con la jurisprudencia y explica consecuencias prácticas.\n"
+                                "- Si una respuesta se siente 'corta', es un error. Desarrolla, explica y proyecta riesgos.\n\n"
+                                "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
+                                "1. **RESPUESTA DIRECTA** (primeras 2-3 oraciones, SIN encabezado visible)\n"
+                                "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE los artículos relevantes de tu corpus.\n"
+                                "   Para cada artículo: cita en blockquote con número de artículo y ley de origen.\n"
+                                "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
+                                "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas con [Doc ID].\n"
+                                "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta las fuentes en un análisis coherente.\n"
+                                "   Señala vías procesales, riesgos y recomendaciones prácticas.\n"
+                                "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
+                                "MÉTODO DE SUBSUNCIÓN (aplicar en silencio):\n"
+                                "1. Identifica los artículos aplicables de tu corpus\n"
+                                "2. Conecta los hechos del usuario con los elementos de la norma\n"
+                                "3. Apóyate en jurisprudencia del RAG para confirmar el encuadramiento\n"
+                                "4. Emite dictamen claro: qué puede hacer, qué riesgo corre, qué vía corresponde\n\n"
+                                "FORMATO:\n"
+                                "- NUNCA uses emojis en la respuesta al usuario.\n"
+                                "- Usa blockquotes para transcribir artículos.\n"
+                                "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
+                                "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
+                                "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n\n"
+                                "DIAGRAMAS VISUALES (cuando sea pertinente):\n"
+                                "Para procedimientos por etapas, usa:\n"
+                                ":::processflow\n"
+                                "titulo: [Nombre del procedimiento]\n"
+                                "1. Etapa | Descripción | Plazo\n"
+                                ":::\n"
+                            )
+                            dynamic_parts.insert(1, _GENIO_DEPTH_BOOST)
+
                             if genio_id == "civil" and _estado_for_llm:
                                 _estado_norm = _estado_for_llm.lower().replace("_", " ")
                                 _cnpcf_vigente = _estado_norm in ("cdmx", "ciudad de mexico", "ciudad de méxico", "distrito federal")
@@ -7882,6 +7920,29 @@ async def chat_endpoint(request: ChatRequest):
                                     "3. Si el RAG no contiene fuentes pertinentes al tema, IGNÓRALO completamente y usa solo tu corpus.\n"
                                 )
                                 dynamic_parts.insert(0, cache_rag_instruction)
+
+                                # GENIO DEPTH BOOST (multi-genio path)
+                                _GENIO_DEPTH_BOOST_MULTI = (
+                                    "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
+                                    "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. "
+                                    "Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
+                                    "- Mínimo 1,000 palabras en consultas sustantivas.\n"
+                                    "- Conecta SIEMPRE la norma con la jurisprudencia y explica consecuencias prácticas.\n"
+                                    "- Si una respuesta se siente 'corta', es un error. Desarrolla, explica y proyecta riesgos.\n\n"
+                                    "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
+                                    "1. **RESPUESTA DIRECTA** (primeras 2-3 oraciones, SIN encabezado visible)\n"
+                                    "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE artículos de tu corpus en blockquote.\n"
+                                    "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
+                                    "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas con [Doc ID].\n"
+                                    "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta fuentes, señala vías y riesgos.\n"
+                                    "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
+                                    "FORMATO:\n"
+                                    "- NUNCA uses emojis en la respuesta.\n"
+                                    "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
+                                    "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
+                                    "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n"
+                                )
+                                dynamic_parts.insert(1, _GENIO_DEPTH_BOOST_MULTI)
                                 
                                 if g_id == "civil" and _estado_for_llm:
                                     _estado_norm = _estado_for_llm.lower().replace("_", " ")
