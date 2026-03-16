@@ -12287,6 +12287,8 @@ _salvame_cooldowns: dict[str, float] = {}
 
 async def _verify_salvame_user(authorization: str) -> dict:
     """Verify JWT and return user info (id, email, subscription_type)."""
+    import asyncio
+
     if not supabase_admin:
         raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
 
@@ -12295,15 +12297,19 @@ async def _verify_salvame_user(authorization: str) -> dict:
 
     try:
         token = authorization.replace("Bearer ", "")
-        user_resp = supabase_admin.auth.get_user(token)
+        # Run sync Supabase call in thread pool to avoid blocking event loop
+        user_resp = await asyncio.to_thread(supabase_admin.auth.get_user, token)
         user = user_resp.user
         if not user or not user.email:
             raise HTTPException(status_code=401, detail="Token inválido")
 
-        # Fetch subscription type
-        profile = supabase_admin.table("user_profiles").select(
-            "id, email, subscription_type"
-        ).eq("id", str(user.id)).execute()
+        # Fetch subscription type (also in thread pool)
+        def _fetch_profile():
+            return supabase_admin.table("user_profiles").select(
+                "id, email, subscription_type"
+            ).eq("id", str(user.id)).execute()
+
+        profile = await asyncio.to_thread(_fetch_profile)
 
         sub_type = "gratuito"
         if profile.data and len(profile.data) > 0:
@@ -12320,12 +12326,13 @@ async def _verify_salvame_user(authorization: str) -> dict:
 
 async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_type: str, client_ip: str):
     """Check daily/monthly limits and cooldown. Raises HTTPException if exceeded."""
+    import asyncio
     import time as _time
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timezone
 
     limits = SALVAME_LIMITS.get(subscription_type, SALVAME_LIMITS["gratuito"])
 
-    # ── Cooldown check (in-memory) ──────────────────────────────────────
+    # ── Cooldown check (in-memory, instant) ─────────────────────────────
     now_ts = _time.time()
     last_ts = _salvame_cooldowns.get(user_email, 0)
     elapsed = now_ts - last_ts
@@ -12341,13 +12348,35 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
         return  # Can't check DB limits, allow through
 
     try:
-        # ── Daily limit ─────────────────────────────────────────────────
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        daily_result = supabase_admin.table("salvame_usage_log").select(
-            "id", count="exact"
-        ).eq("user_email", user_email).gte("created_at", today_start).execute()
+        month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
-        daily_count = daily_result.count if daily_result.count is not None else 0
+        # Run ALL Supabase queries in thread pool (non-blocking)
+        def _run_rate_checks():
+            daily = supabase_admin.table("salvame_usage_log").select(
+                "id", count="exact"
+            ).eq("user_email", user_email).gte("created_at", today_start).execute()
+
+            monthly = supabase_admin.table("salvame_usage_log").select(
+                "id", count="exact"
+            ).eq("user_email", user_email).gte("created_at", month_start).execute()
+
+            ip_count_val = 0
+            if client_ip:
+                ip_res = supabase_admin.table("salvame_usage_log").select(
+                    "user_email", count="exact"
+                ).eq("ip_address", client_ip).gte("created_at", today_start).execute()
+                ip_count_val = ip_res.count if ip_res.count is not None else 0
+
+            return (
+                daily.count if daily.count is not None else 0,
+                monthly.count if monthly.count is not None else 0,
+                ip_count_val,
+            )
+
+        daily_count, monthly_count, ip_count = await asyncio.to_thread(_run_rate_checks)
+
+        # ── Check limits ────────────────────────────────────────────────
         if daily_count >= limits["daily"]:
             print(f"   🛑 SALVAME daily limit: {user_email} ({daily_count}/{limits['daily']})")
             raise HTTPException(
@@ -12355,13 +12384,6 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
                 detail=f"Has alcanzado tu límite diario de {limits['daily']} amparos. Intenta mañana."
             )
 
-        # ── Monthly limit ───────────────────────────────────────────────
-        month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-        monthly_result = supabase_admin.table("salvame_usage_log").select(
-            "id", count="exact"
-        ).eq("user_email", user_email).gte("created_at", month_start).execute()
-
-        monthly_count = monthly_result.count if monthly_result.count is not None else 0
         if monthly_count >= limits["monthly"]:
             print(f"   🛑 SALVAME monthly limit: {user_email} ({monthly_count}/{limits['monthly']})")
             raise HTTPException(
@@ -12369,20 +12391,14 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
                 detail=f"Has alcanzado tu límite mensual de {limits['monthly']} amparos. El límite se renueva el próximo mes."
             )
 
-        # ── Abuse detection: same IP, multiple accounts ─────────────────
-        if client_ip:
-            ip_result = supabase_admin.table("salvame_usage_log").select(
-                "user_email", count="exact"
-            ).eq("ip_address", client_ip).gte("created_at", today_start).execute()
-
-            ip_count = ip_result.count if ip_result.count is not None else 0
-            if ip_count >= 6:  # 6+ requests from same IP in one day → suspicious
-                _log_security_alert(
-                    user_id, user_email,
-                    f"SALVAME abuse: IP {client_ip} has {ip_count} requests today",
-                    "salvame_abuse", "high"
-                )
-                print(f"   🚨 SALVAME abuse alert: IP {client_ip} → {ip_count} requests today")
+        # ── Abuse detection ─────────────────────────────────────────────
+        if client_ip and ip_count >= 6:
+            _log_security_alert(
+                user_id, user_email,
+                f"SALVAME abuse: IP {client_ip} has {ip_count} requests today",
+                "salvame_abuse", "high"
+            )
+            print(f"   🚨 SALVAME abuse alert: IP {client_ip} → {ip_count} requests today")
 
         print(f"   ✅ SALVAME rate OK: {user_email} (today: {daily_count}/{limits['daily']}, month: {monthly_count}/{limits['monthly']})")
 
@@ -12392,17 +12408,20 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
         print(f"   ⚠️ SALVAME rate limit check error (allowing through): {e}")
 
 
-def _log_salvame_usage(user_id: str, user_email: str, ip_address: str, hospital_estado: str):
-    """Log amparo generation to salvame_usage_log (fire-and-forget)."""
+async def _log_salvame_usage(user_id: str, user_email: str, ip_address: str, hospital_estado: str):
+    """Log amparo generation to salvame_usage_log (non-blocking)."""
+    import asyncio
     if not supabase_admin:
         return
     try:
-        supabase_admin.table("salvame_usage_log").insert({
-            "user_id": user_id if user_id else None,
-            "user_email": user_email,
-            "ip_address": ip_address,
-            "hospital_estado": hospital_estado,
-        }).execute()
+        def _insert():
+            supabase_admin.table("salvame_usage_log").insert({
+                "user_id": user_id if user_id else None,
+                "user_email": user_email,
+                "ip_address": ip_address,
+                "hospital_estado": hospital_estado,
+            }).execute()
+        await asyncio.to_thread(_insert)
         print(f"   📝 SALVAME usage logged: {user_email} ({hospital_estado})")
     except Exception as e:
         print(f"   ⚠️ Failed to log SALVAME usage: {e}")
@@ -12430,8 +12449,8 @@ async def generate_amparo_salud(req: AmparoSaludRequest, request: Request, autho
     # ── Layer 2 & 4: Rate Limiting + Abuse Detection ────────────────────
     await _check_salvame_rate_limit(user_email, user_id, sub_type, client_ip)
 
-    # ── Layer 3: Audit Logging ──────────────────────────────────────────
-    _log_salvame_usage(user_id, user_email, client_ip, req.hospital_estado)
+    # ── Layer 3: Audit Logging (non-blocking) ────────────────────────────
+    await _log_salvame_usage(user_id, user_email, client_ip, req.hospital_estado)
 
     # ── Update cooldown ─────────────────────────────────────────────────
     _salvame_cooldowns[user_email] = _time.time()
@@ -12544,7 +12563,6 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
         headers={
             "X-Accel-Buffering": "no",       # Disable Nginx proxy buffering (Render uses Nginx)
             "Cache-Control": "no-cache",      # Prevent caching
-            "Transfer-Encoding": "chunked",   # Force chunked transfer
         },
     )
 
