@@ -91,6 +91,7 @@ deepseek_client = AsyncOpenAI(
 )
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
 REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
+DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-3-flash-preview")  # Gemini 3 Flash — 1M context, $0.50/M input, OCR nativo
 
 # Cliente DeepSeek Oficial — Round-Robin Pool (distribuye carga entre múltiples API keys)
 # Soporta 1 o 2 keys. Si DEEPSEEK_API_KEY_2 está configurada, duplica el throughput (~600 RPM).
@@ -5711,6 +5712,204 @@ async def extract_text_from_document(file: UploadFile = File(...)):
             status_code=500,
             detail=f"Error interno al procesar documento: {str(e)}"
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: ANALYZE DOCUMENT — Gemini 3 Flash (1M context, streaming)
+# ══════════════════════════════════════════════════════════════════════════════
+
+DOCUMENT_MAX_CHARS = 900_000  # ~225K tokens, safe margin under 1M token limit
+
+DOCUMENT_SYSTEM_PROMPT = """Eres Iurexia, un asistente jurídico de alta precisión especializado en derecho mexicano.
+
+El usuario ha adjuntado un documento legal completo. Tu trabajo es:
+1. Analizar el documento en su totalidad — NO omitas secciones
+2. Responder la consulta del usuario con base en el contenido del documento
+3. Si el usuario no hace una pregunta específica, genera un resumen ejecutivo completo con:
+   - Tipo de documento y partes involucradas
+   - Puntos clave y obligaciones principales
+   - Artículos o cláusulas relevantes
+   - Observaciones importantes o posibles riesgos
+4. Cita textualmente del documento cuando sea relevante
+5. Responde siempre en español
+6. Usa formato Markdown para estructurar tu respuesta (##, ###, **, listas)
+7. Si el documento está incompleto o ilegible, indícalo claramente
+
+IMPORTANTE: Tienes acceso al documento COMPLETO. Analízalo en su totalidad."""
+
+
+@app.post("/analyze-document")
+async def analyze_document(
+    file: UploadFile = File(...),
+    prompt: str = Form("Analiza este documento y genera un resumen ejecutivo completo"),
+    user_id: str = Form(None),
+):
+    """
+    Analiza un documento completo con Gemini 3 Flash (1M context) vía OpenRouter.
+    Soporta PDF (seleccionable + escaneado con OCR), DOCX y DOC.
+    Respuesta en streaming SSE.
+    """
+    import io
+    import base64
+    from starlette.responses import StreamingResponse
+
+    filename = file.filename or "unknown"
+    extension = filename.split(".")[-1].lower()
+
+    # Validate file type
+    if extension not in ("pdf", "doc", "docx"):
+        raise HTTPException(status_code=400, detail=f"Formato no soportado: .{extension}. Use .pdf, .docx o .doc")
+
+    # Validate file size (25MB max)
+    content = await file.read()
+    max_size = 25 * 1024 * 1024
+    if len(content) > max_size:
+        raise HTTPException(status_code=400, detail=f"Archivo muy grande ({len(content) / 1024 / 1024:.1f}MB). Máximo 25MB.")
+
+    print(f"\n📄 [ANALYZE-DOC] Archivo: {filename} ({len(content)/1024:.0f}KB), Prompt: {prompt[:80]}...")
+
+    # ── Step 1: Extract text from document ──
+    extracted_text = ""
+    is_scanned_pdf = False
+
+    try:
+        if extension == "pdf":
+            # Try text extraction first with PyMuPDF (fast, no API cost)
+            try:
+                import fitz  # PyMuPDF
+                pdf_doc = fitz.open(stream=content, filetype="pdf")
+                pages_text = []
+                for page in pdf_doc:
+                    page_text = page.get_text()
+                    pages_text.append(page_text)
+                pdf_doc.close()
+                extracted_text = "\n\n".join(pages_text)
+
+                # Check if PDF is scanned (very little text extracted)
+                total_pages = len(pages_text)
+                text_per_page = len(extracted_text.strip()) / max(total_pages, 1)
+                if text_per_page < 50:  # Less than 50 chars per page = likely scanned
+                    is_scanned_pdf = True
+                    print(f"   📸 PDF escaneado detectado ({total_pages} páginas, {text_per_page:.0f} chars/pág)")
+                else:
+                    print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars)")
+            except ImportError:
+                # PyMuPDF not available, treat as scanned
+                is_scanned_pdf = True
+                print(f"   ⚠️ PyMuPDF no disponible, usando OCR path")
+
+            # If scanned, use Gemini OCR via the existing google-genai client
+            if is_scanned_pdf:
+                try:
+                    import tempfile, os as _os
+                    gemini_client = get_gemini_client()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                        tmp.write(content)
+                        tmp_path = tmp.name
+                    try:
+                        uploaded_file = gemini_client.files.upload(file=tmp_path)
+                        ocr_response = gemini_client.models.generate_content(
+                            model=REDACTOR_MODEL_EXTRACT,
+                            contents=[uploaded_file, "Extrae absolutamente TODO el texto de este documento PDF con la máxima precisión. Preserva párrafos, estructura y saltos de línea. No omitas nada."]
+                        )
+                        extracted_text = ocr_response.text
+                        try:
+                            gemini_client.files.delete(name=uploaded_file.name)
+                        except:
+                            pass
+                        print(f"   🔍 OCR completado: {len(extracted_text):,} chars extraídos")
+                    finally:
+                        if _os.path.exists(tmp_path):
+                            _os.remove(tmp_path)
+                except Exception as ocr_err:
+                    raise HTTPException(status_code=500, detail=f"Error OCR en PDF escaneado: {str(ocr_err)}")
+
+        elif extension == "docx":
+            from docx import Document as DocxDocument
+            doc = DocxDocument(io.BytesIO(content))
+            extracted_text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+            print(f"   📝 DOCX procesado: {len(extracted_text):,} chars")
+
+        elif extension == "doc":
+            import olefile
+            try:
+                ole = olefile.OleFileIO(io.BytesIO(content))
+                text_parts = []
+                for stream_name in ["1Table", "0Table", "WordDocument"]:
+                    if ole.exists(stream_name):
+                        try:
+                            stream_data = ole.openstream(stream_name).read()
+                            decoded = stream_data.decode('latin-1', errors='ignore')
+                            readable = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded)
+                            readable = re.sub(r'\s+', ' ', readable).strip()
+                            if len(readable) > 100:
+                                text_parts.append(readable)
+                        except:
+                            continue
+                ole.close()
+                extracted_text = "\n\n".join(text_parts) if text_parts else ""
+                print(f"   📝 DOC procesado: {len(extracted_text):,} chars")
+            except Exception as doc_err:
+                raise HTTPException(status_code=400, detail=f"Error al procesar .doc: {str(doc_err)}")
+
+        if not extracted_text or len(extracted_text.strip()) < 20:
+            raise HTTPException(status_code=400, detail="No se pudo extraer texto del documento. El archivo puede estar vacío, corrupto o ser una imagen sin texto reconocible.")
+
+    except HTTPException:
+        raise
+    except Exception as extract_err:
+        raise HTTPException(status_code=500, detail=f"Error al extraer texto: {str(extract_err)}")
+
+    # ── Step 2: Truncate if beyond model capacity ──
+    original_len = len(extracted_text)
+    if original_len > DOCUMENT_MAX_CHARS:
+        extracted_text = extracted_text[:DOCUMENT_MAX_CHARS]
+        truncation_pct = round(DOCUMENT_MAX_CHARS / original_len * 100)
+        print(f"   ✂️ Documento truncado a {DOCUMENT_MAX_CHARS:,} chars ({truncation_pct}% del original)")
+        truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando {truncation_pct}% del contenido ({DOCUMENT_MAX_CHARS:,} de {original_len:,} caracteres)]"
+    else:
+        truncation_note = ""
+
+    # ── Step 3: Send to Gemini 3 Flash via OpenRouter (streaming) ──
+    full_user_message = f"""DOCUMENTO ADJUNTO: "{filename}" ({original_len:,} caracteres){truncation_note}
+
+CONSULTA DEL USUARIO:
+{prompt}
+
+CONTENIDO DEL DOCUMENTO:
+{extracted_text}"""
+
+    print(f"   🚀 Enviando a {DOCUMENT_MODEL} vía OpenRouter ({len(full_user_message):,} chars)...")
+
+    async def stream_analysis():
+        try:
+            response = await deepseek_client.chat.completions.create(
+                model=DOCUMENT_MODEL,
+                messages=[
+                    {"role": "system", "content": DOCUMENT_SYSTEM_PROMPT},
+                    {"role": "user", "content": full_user_message}
+                ],
+                stream=True,
+                max_tokens=16384,
+                temperature=0.3,
+            )
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    token = chunk.choices[0].delta.content
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'filename': filename, 'chars_analyzed': min(original_len, DOCUMENT_MAX_CHARS)})}\n\n"
+        except Exception as llm_err:
+            print(f"   ❌ Error LLM: {llm_err}")
+            yield f"data: {json.dumps({'error': str(llm_err)})}\n\n"
+
+    return StreamingResponse(
+        stream_analysis(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
