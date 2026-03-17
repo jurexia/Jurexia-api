@@ -7817,6 +7817,15 @@ async def chat_endpoint(request: ChatRequest):
         
         use_thinking = should_use_thinking(has_document, is_drafting)
         
+        # ── FORCE THINKING FOR REDACCIÓN ──────────────────────────────────
+        # deepseek-chat has a hard 8K output limit which truncates long legal
+        # drafting responses mid-word, causing empty "❌ Error:" messages.
+        # deepseek-reasoner supports 64K output (we cap at 32K) — sufficient
+        # for full marco jurídico/estudio de fondo redaction.
+        if is_chat_drafting and not use_thinking:
+            use_thinking = True
+            print(f"   ✍️ REDACCIÓN → Thinking mode FORZADO (deepseek-reasoner, 32K output vs 8K chat limit)")
+        
         # _cached results already retrieved in Paso 1 gather
         _gemini_key = os.getenv("GEMINI_API_KEY", "")
         _can_use_gemini = bool(_gemini_key)  # AI Studio — requiere GEMINI_API_KEY
@@ -8412,7 +8421,15 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 print(f"   📝 Respuesta ({len(content_buffer)} chars content{thinking_info})")
                 
             except Exception as e:
-                yield f"\n\n❌ Error: {str(e)}"
+                error_msg = str(e).strip()
+                if not error_msg or error_msg == "None":
+                    # Stream cut off (likely max_tokens exhausted) — helpful message
+                    if content_buffer:
+                        yield f"\n\n---\n⚠️ **Respuesta truncada** — el modelo alcanzó su límite de generación. Envía **'continúa'** para que siga redactando desde donde se quedó."
+                    else:
+                        yield f"\n\n❌ Error de conexión con el modelo. Intenta de nuevo."
+                else:
+                    yield f"\n\n❌ Error: {error_msg}"
         
         return StreamingResponse(
             generate_stream(),
