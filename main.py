@@ -5754,7 +5754,7 @@ async def extract_text_from_document(file: UploadFile = File(...)):
 # ENDPOINT: ANALYZE DOCUMENT — Gemini 3 Flash (1M context, streaming)
 # ══════════════════════════════════════════════════════════════════════════════
 
-DOCUMENT_MAX_CHARS = 900_000  # ~225K tokens, safe margin under 1M token limit
+DOCUMENT_MAX_CHARS = 200_000  # ~50K tokens — fast TTFT, sufficient for any legal doc analysis
 
 DOCUMENT_SYSTEM_PROMPT = """Eres Iurexia, un asistente jurídico de alto nivel especializado en derecho mexicano. Un abogado te ha adjuntado un documento legal completo para que lo analices.
 
@@ -5778,13 +5778,16 @@ async def analyze_document(
     user_id: str = Form(None),
 ):
     """
-    Analiza un documento completo con Gemini 3 Flash (1M context) vía OpenRouter.
+    Analiza un documento completo con Gemini Flash vía OpenRouter.
     Soporta PDF (seleccionable + escaneado con OCR), DOCX y DOC.
     Respuesta en streaming SSE.
     """
     import io
     import base64
+    import time as _time
     from starlette.responses import StreamingResponse
+
+    t0 = _time.time()
 
     filename = file.filename or "unknown"
     extension = filename.split(".")[-1].lower()
@@ -5799,7 +5802,9 @@ async def analyze_document(
     if len(content) > max_size:
         raise HTTPException(status_code=400, detail=f"Archivo muy grande ({len(content) / 1024 / 1024:.1f}MB). Máximo 25MB.")
 
+    t_read = _time.time()
     print(f"\n📄 [ANALYZE-DOC] Archivo: {filename} ({len(content)/1024:.0f}KB), Prompt: {prompt[:80]}...")
+    print(f"   ⏱️ File read: {t_read - t0:.2f}s")
 
     # ── Step 1: Extract text from document ──
     extracted_text = ""
@@ -5825,7 +5830,8 @@ async def analyze_document(
                     is_scanned_pdf = True
                     print(f"   📸 PDF escaneado detectado ({total_pages} páginas, {text_per_page:.0f} chars/pág)")
                 else:
-                    print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars)")
+                    t_extract = _time.time()
+                    print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars) — {t_extract - t_read:.2f}s")
             except ImportError:
                 # PyMuPDF not available, treat as scanned
                 is_scanned_pdf = True
@@ -5912,10 +5918,12 @@ CONSULTA DEL USUARIO:
 CONTENIDO DEL DOCUMENTO:
 {extracted_text}"""
 
-    print(f"   🚀 Enviando a {DOCUMENT_MODEL} vía OpenRouter ({len(full_user_message):,} chars)...")
+    t_pre_llm = _time.time()
+    print(f"   🚀 Enviando a {DOCUMENT_MODEL} vía OpenRouter ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
 
     async def stream_analysis():
         try:
+            t_llm_start = _time.time()
             response = await deepseek_client.chat.completions.create(
                 model=DOCUMENT_MODEL,
                 messages=[
@@ -5923,12 +5931,18 @@ CONTENIDO DEL DOCUMENTO:
                     {"role": "user", "content": full_user_message}
                 ],
                 stream=True,
-                max_tokens=32768,
+                max_tokens=16384,
                 temperature=0.3,
+                timeout=120,  # 2 min max for the entire LLM call
             )
+            first_token = True
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     token = chunk.choices[0].delta.content
+                    if first_token:
+                        first_token = False
+                        t_first_token = _time.time()
+                        print(f"   ⚡ TTFT (time-to-first-token): {t_first_token - t_llm_start:.2f}s (total elapsed: {t_first_token - t0:.2f}s)")
                     yield f"data: {json.dumps({'token': token})}\n\n"
             yield f"data: {json.dumps({'done': True, 'filename': filename, 'chars_analyzed': min(original_len, DOCUMENT_MAX_CHARS)})}\n\n"
         except Exception as llm_err:
