@@ -91,7 +91,7 @@ deepseek_client = AsyncOpenAI(
 )
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
 REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
-DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-3-flash-preview")  # Gemini 3 Flash — 1M context, $0.50/M input, OCR nativo
+DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash-lite")  # Gemini 2.5 Flash Lite GA — 1M context, ultra-fast, $0.10/M input
 
 # Cliente DeepSeek Oficial — Round-Robin Pool (distribuye carga entre múltiples API keys)
 # Soporta 1 o 2 keys. Si DEEPSEEK_API_KEY_2 está configurada, duplica el throughput (~600 RPM).
