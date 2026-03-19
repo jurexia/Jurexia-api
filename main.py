@@ -12169,6 +12169,28 @@ async def admin_unconfirmed_users(authorization: str = Header(...)):
         raise HTTPException(status_code=500, detail=f"Error al listar usuarios no confirmados: {str(e)}")
 
 
+@app.post("/admin/users/{user_id}/confirm-email")
+async def admin_confirm_email(user_id: str, authorization: str = Header(...)):
+    """Manually confirm a user's email via Supabase Admin API (bypasses email spam)."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        # Use Supabase Admin API to confirm the user's email
+        result = supabase_admin.auth.admin.update_user_by_id(
+            user_id,
+            {"email_confirm": True}
+        )
+        user_email = getattr(result.user, 'email', 'unknown') if hasattr(result, 'user') else 'unknown'
+
+        _log_admin_action(admin["email"], "confirm_email", user_id, {"user_email": user_email})
+        print(f"✅ Admin confirmed email for: {user_email} ({user_id})")
+
+        return {"status": "confirmed", "user_id": user_id, "email": user_email}
+    except Exception as e:
+        print(f"❌ Confirm email error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al confirmar email: {str(e)}")
+
+
 @app.post("/admin/users/{user_id}/block")
 async def admin_block_user(user_id: str, authorization: str = Header(...)):
     """Block a user from using the platform."""
