@@ -5841,22 +5841,27 @@ async def analyze_document(
             if is_scanned_pdf:
                 try:
                     import tempfile, os as _os
+                    t_ocr_start = _time.time()
                     gemini_client = get_gemini_client()
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(content)
                         tmp_path = tmp.name
                     try:
                         uploaded_file = gemini_client.files.upload(file=tmp_path)
+                        t_upload = _time.time()
+                        print(f"   📤 PDF uploaded to Gemini Files API: {t_upload - t_ocr_start:.2f}s")
+                        # Use gemini-2.5-flash for OCR — fastest modern model with excellent vision
                         ocr_response = gemini_client.models.generate_content(
-                            model=REDACTOR_MODEL_EXTRACT,
+                            model="gemini-2.5-flash",
                             contents=[uploaded_file, "Extrae absolutamente TODO el texto de este documento PDF con la máxima precisión. Preserva párrafos, estructura y saltos de línea. No omitas nada."]
                         )
                         extracted_text = ocr_response.text
+                        t_ocr_done = _time.time()
                         try:
                             gemini_client.files.delete(name=uploaded_file.name)
                         except:
                             pass
-                        print(f"   🔍 OCR completado: {len(extracted_text):,} chars extraídos")
+                        print(f"   🔍 OCR completado: {len(extracted_text):,} chars — upload: {t_upload - t_ocr_start:.2f}s, OCR: {t_ocr_done - t_upload:.2f}s, total: {t_ocr_done - t_ocr_start:.2f}s")
                     finally:
                         if _os.path.exists(tmp_path):
                             _os.remove(tmp_path)
