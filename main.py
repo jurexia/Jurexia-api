@@ -12135,6 +12135,40 @@ async def admin_list_users(authorization: str = Header(...)):
         raise HTTPException(status_code=500, detail=f"Error al listar usuarios: {str(e)}")
 
 
+@app.get("/admin/unconfirmed-users")
+async def admin_unconfirmed_users(authorization: str = Header(...)):
+    """List users who signed up but never confirmed their email."""
+    admin = await _verify_admin(authorization)
+
+    try:
+        # Supabase Admin API: list all auth users (paginated, up to 1000)
+        auth_response = supabase_admin.auth.admin.list_users()
+        all_auth_users = auth_response if isinstance(auth_response, list) else (auth_response.users if hasattr(auth_response, 'users') else [])
+
+        # Filter unconfirmed
+        unconfirmed = []
+        for u in all_auth_users:
+            confirmed = getattr(u, 'email_confirmed_at', None)
+            email = getattr(u, 'email', None)
+            if confirmed is None and email:
+                meta = getattr(u, 'user_metadata', {}) or {}
+                created = getattr(u, 'created_at', None)
+                unconfirmed.append({
+                    "id": str(getattr(u, 'id', '')),
+                    "email": email,
+                    "created_at": created.isoformat() if hasattr(created, 'isoformat') else str(created) if created else None,
+                    "full_name": meta.get("full_name", ""),
+                })
+
+        # Sort by newest first
+        unconfirmed.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+        print(f"📋 Admin: {len(unconfirmed)} unconfirmed users found")
+        return {"unconfirmed": unconfirmed, "total": len(unconfirmed)}
+    except Exception as e:
+        print(f"❌ Admin unconfirmed users error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al listar usuarios no confirmados: {str(e)}")
+
+
 @app.post("/admin/users/{user_id}/block")
 async def admin_block_user(user_id: str, authorization: str = Header(...)):
     """Block a user from using the platform."""
