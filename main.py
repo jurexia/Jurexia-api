@@ -91,7 +91,7 @@ deepseek_client = AsyncOpenAI(
 )
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
 REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
-DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash-lite")  # Gemini 2.5 Flash Lite GA — 1M context, ultra-fast, $0.10/M input
+DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-3-flash-preview")  # Gemini 3 Flash — 1M context, $0.50/M input, OCR nativo
 
 # Cliente DeepSeek Oficial — Round-Robin Pool (distribuye carga entre múltiples API keys)
 # Soporta 1 o 2 keys. Si DEEPSEEK_API_KEY_2 está configurada, duplica el throughput (~600 RPM).
@@ -6924,15 +6924,8 @@ async def chat_endpoint(request: ChatRequest):
 
             _, rejection = sanitize_input(content_for_scan)
             if rejection:
-                print(f"🛡️ INPUT SANITIZER blocked: {rejection[:100]}")
-                return StreamingResponse(
-                    iter([json.dumps({
-                        "error": "input_rejected",
-                        "message": rejection,
-                    })]),
-                    status_code=400,
-                    media_type="application/json",
-                )
+                # LOG ONLY — don't block. Blocking returns non-SSE JSON that hangs the frontend.
+                print(f"🛡️ INPUT SANITIZER detected: {rejection[:100]} — logged, request continues")
         
         # Always apply cleaning (XSS) to all messages, but don't reject
         for msg in request.messages:
@@ -7049,24 +7042,10 @@ async def chat_endpoint(request: ChatRequest):
                     alert_type=_alert_type,
                     severity=_alert_severity,
                 )
-                # For critical or high severity, block the request entirely
-                # This prevents reverse engineering queries from reaching the LLM
-                if _alert_severity in ("critical", "high"):
-                    # Use a polite legal redirect message instead of a generic error
-                    _block_msg = (
-                        "Soy Jurexia, una plataforma de inteligencia artificial jurídica propietaria "
-                        "especializada en derecho mexicano. Mi función es asistirte con consultas legales. "
-                        "¿En qué tema jurídico puedo ayudarte?"
-                    )
-                    print(f"   🛡️ BLOCKED [{_alert_severity}]: {_alert_type} — redirecting to legal focus")
-                    return StreamingResponse(
-                        iter([json.dumps({
-                            "error": "security_blocked",
-                            "message": _block_msg,
-                        })]),
-                        status_code=403,
-                        media_type="application/json",
-                    )
+                # LOG ONLY — never block requests.
+                # The system prompt blindaje handles jailbreaks at the LLM level.
+                # Blocking here breaks the SSE stream and causes the frontend to hang.
+                print(f"   🛡️ DETECTED [{_alert_severity}]: {_alert_type} — logged, request continues")
 
 
     
