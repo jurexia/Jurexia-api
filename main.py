@@ -5931,9 +5931,8 @@ CONTENIDO DEL DOCUMENTO:
                     {"role": "user", "content": full_user_message}
                 ],
                 stream=True,
-                max_tokens=16384,
+                max_tokens=32768,
                 temperature=0.3,
-                timeout=120,  # 2 min max for the entire LLM call
             )
             first_token = True
             async for chunk in response:
