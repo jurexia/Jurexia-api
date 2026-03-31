@@ -11254,21 +11254,35 @@ Cita TEXTUALMENTE los artículos y tesis proporcionados arriba."""
                 total_api_calls += 1
 
                 try:
-                    if deepseek_client:
-                        response = await deepseek_client.chat.completions.create(
-                            model="deepseek-reasoner",
+                    # Use official DeepSeek client for Reasoner (thinking mode)
+                    _ds_client = get_deepseek_official_client() if _deepseek_pool else None
+                    if _ds_client:
+                        response = await _ds_client.chat.completions.create(
+                            model=DEEPSEEK_OFFICIAL_REASONER_MODEL,  # "deepseek-reasoner"
                             messages=[
                                 {"role": "user", "content": deepseek_prompt},
                             ],
                             max_tokens=16384,
                             stream=True,
                         )
-
+                        async for chunk in response:
+                            if chunk.choices and chunk.choices[0].delta.content:
+                                yield sse("text", {"chunk": chunk.choices[0].delta.content, "group": i + 1})
+                    elif deepseek_client:
+                        # Fallback to OpenRouter
+                        response = await deepseek_client.chat.completions.create(
+                            model=REASONER_MODEL,  # "deepseek/deepseek-r1"
+                            messages=[
+                                {"role": "user", "content": deepseek_prompt},
+                            ],
+                            max_tokens=16384,
+                            stream=True,
+                        )
                         async for chunk in response:
                             if chunk.choices and chunk.choices[0].delta.content:
                                 yield sse("text", {"chunk": chunk.choices[0].delta.content, "group": i + 1})
                     else:
-                        # Fallback to Gemini if DeepSeek not configured
+                        # Fallback to Gemini if no DeepSeek configured
                         from google.genai import types as gtypes
                         client = get_gemini_client()
                         gemini_stream = await client.aio.models.generate_content_stream(
