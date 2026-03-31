@@ -10976,6 +10976,24 @@ async def redactor_v2_generate(
     return StreamingResponse(generate_sse(), media_type="text/event-stream")
 
 
+# ── Helper: Map materia to search keywords for Genio matching ─────────────────
+
+def _get_materia_keywords(materia: str) -> list:
+    """Returns keywords that indicate a problem relates to a given materia/Genio."""
+    MATERIA_KEYWORDS = {
+        "amparo": ["amparo", "constitucional", "derechos humanos", "garantías", "suspensión"],
+        "civil": ["civil", "contrato", "obligación", "propiedad", "arrendamiento", "daño", "prescripción"],
+        "penal": ["penal", "delito", "sentencia condenatoria", "pena", "víctima", "imputado"],
+        "laboral": ["laboral", "trabajo", "despido", "salario", "patrón", "trabajador", "indemnización"],
+        "fiscal": ["fiscal", "impuesto", "contribución", "sat", "tfja", "crédito fiscal", "iva", "isr"],
+        "mercantil": ["mercantil", "comercio", "pagaré", "títulos de crédito", "sociedad", "letra de cambio"],
+        "administrativo": ["administrativo", "acto administrativo", "concesión", "permiso", "licencia", "multa"],
+        "agrario": ["agrario", "ejido", "comunidad", "tierra", "parcela", "dotación"],
+        "cidh": ["cidh", "interamericano", "convención americana", "corte interamericana", "derechos humanos"],
+    }
+    return MATERIA_KEYWORDS.get(materia, [materia])
+
+
 # ── V3 Endpoint: Dual-Brain Per-Problem Generation (Genio + DeepSeek Reasoner) ──
 
 @app.post("/redactor/v3/generate_comprehensive")
