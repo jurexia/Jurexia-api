@@ -553,6 +553,132 @@ def _get_single_status(genio_id: str) -> dict:
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Redactor de Sentencias — Multi-Genio Orchestration (v2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SENTENCIA_QUERY_MODEL = os.getenv("SENTENCIA_QUERY_MODEL", "gemini-3.1-pro-preview")
+
+
+async def activate_genios_for_sentencia(materias: list[str]) -> dict[str, str | None]:
+    """Activate multiple Genio caches in parallel for a sentencia drafting session.
+
+    Args:
+        materias: List of materia IDs (e.g. ["amparo", "civil"]).
+                  "amparo" is always included automatically.
+
+    Returns:
+        Dict mapping genio_id -> cache_name (or None if failed).
+        Example: {"amparo": "cachedContents/abc123", "civil": "cachedContents/def456"}
+    """
+    # Always include amparo for sentencias
+    required = list(set(["amparo"] + [m for m in materias if m in GENIO_CONFIGS]))
+
+    logger.info(f"🧠 [sentencia] Activating {len(required)} genio(s): {required}")
+
+    # Activate all genios in parallel
+    tasks = {gid: get_or_create_cache(gid) for gid in required}
+    results = {}
+    for gid, task in tasks.items():
+        try:
+            cache_name = await task
+            results[gid] = cache_name
+            if cache_name:
+                logger.info(f"  ✅ [{gid}] cache ready: {cache_name}")
+            else:
+                logger.warning(f"  ⚠️ [{gid}] cache activation failed")
+        except Exception as e:
+            logger.error(f"  ❌ [{gid}] activation error: {e}")
+            results[gid] = None
+
+    active = sum(1 for v in results.values() if v)
+    logger.info(f"🧠 [sentencia] {active}/{len(required)} genios active")
+    return results
+
+
+async def query_genio(genio_id: str, question: str, max_tokens: int = 4096) -> str | None:
+    """Query a specific Genio cache to extract relevant legal articles.
+
+    This function sends a focused question to a Genio (which has the full text
+    of relevant laws in its context cache) and returns the response.
+    Used in the sentencia pipeline to extract specific articles before sending
+    them to DeepSeek Reasoner for argumentation.
+
+    Args:
+        genio_id: The genio to query (e.g. "amparo", "civil").
+        question: The focused question (e.g. "Dame el texto completo de los
+                  artículos 74, 76 y 77 de la Ley de Amparo").
+        max_tokens: Max response tokens.
+
+    Returns:
+        The Genio's response text, or None if cache unavailable.
+    """
+    cache_name = await get_or_create_cache(genio_id)
+    if not cache_name:
+        logger.error(f"[query_genio] Cannot query {genio_id} — no cache available")
+        return None
+
+    try:
+        from google.genai import types as gtypes
+        client = get_gemini_client()
+
+        response = await client.aio.models.generate_content(
+            model=SENTENCIA_QUERY_MODEL,
+            contents=question,
+            config=gtypes.GenerateContentConfig(
+                cached_content=cache_name,
+                max_output_tokens=max_tokens,
+                temperature=0.1,  # Low temp for factual extraction
+            ),
+        )
+
+        text = response.text if response and response.text else None
+        if text:
+            logger.info(
+                f"  ✅ [query_genio/{genio_id}] Response: {len(text):,} chars "
+                f"(question: {question[:60]}...)"
+            )
+        else:
+            logger.warning(f"  ⚠️ [query_genio/{genio_id}] Empty response")
+        return text
+
+    except Exception as e:
+        logger.error(f"  ❌ [query_genio/{genio_id}] Error: {e}")
+        return None
+
+
+async def query_genio_for_articles(
+    genio_id: str,
+    article_refs: list[str],
+    law_name: str | None = None,
+) -> str | None:
+    """Convenience: ask a Genio for the complete text of specific articles.
+
+    Args:
+        genio_id: The genio to query.
+        article_refs: List of article references (e.g. ["74", "76", "77"]).
+        law_name: Optional specific law name (e.g. "Ley de Amparo").
+
+    Returns:
+        Full text of the requested articles from the Genio's cached corpus.
+    """
+    arts_str = ", ".join(article_refs)
+    if law_name:
+        question = (
+            f"Dame el texto íntegro y completo de los artículos {arts_str} "
+            f"de {law_name}. Incluye cada artículo completo, con todas sus "
+            f"fracciones y párrafos, tal como aparece en el texto de la ley. "
+            f"No resumas ni omitas nada."
+        )
+    else:
+        question = (
+            f"Dame el texto íntegro y completo de los artículos {arts_str}. "
+            f"Incluye cada artículo completo, con todas sus fracciones y párrafos. "
+            f"No resumas ni omitas nada."
+        )
+    return await query_genio(genio_id, question, max_tokens=8192)
+
+
 async def cleanup_on_startup():
     """SAFETY LOCK #9: Called from app lifespan — ONLY deletes, NEVER creates."""
     logger.info("Startup cleanup: checking for orphan caches...")

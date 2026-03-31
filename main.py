@@ -10976,7 +10976,7 @@ async def redactor_v2_generate(
     return StreamingResponse(generate_sse(), media_type="text/event-stream")
 
 
-# ── V3 Endpoint: Comprehensive Per-Problem Generation (No Genio, Qdrant Only) ──
+# ── V3 Endpoint: Dual-Brain Per-Problem Generation (Genio + DeepSeek Reasoner) ──
 
 @app.post("/redactor/v3/generate_comprehensive")
 async def redactor_v3_generate_comprehensive(
@@ -10988,9 +10988,10 @@ async def redactor_v3_generate_comprehensive(
     sentido_global: str = Form(""),
 ):
     """
-    Redactor v3: Iterates through each problem, runs a highly targeted RAG search,
-    crafts a custom prompt via GPT-4o, and generates the section via Gemini 2.5 Pro.
-    SSE streams the progress and the text back to the client.
+    Redactor v3 (Dual-Brain): Iterates through each problem.
+    Per problem: Genio extracts full-text articles + RAG finds jurisprudencia →
+    DeepSeek Reasoner generates the section with thinking mode.
+    SSE streams the progress and text back to the client.
     """
     from starlette.responses import StreamingResponse
     import time as time_module
@@ -10998,8 +10999,6 @@ async def redactor_v3_generate_comprehensive(
 
     if not _can_access_sentencia(user_email):
         raise HTTPException(403, "Acceso restringido")
-    if not OPENAI_API_KEY:
-        raise HTTPException(500, "OPENAI_API_KEY no configurada")
 
     try:
         problemas = json.loads(problemas_json)
@@ -11010,19 +11009,19 @@ async def redactor_v3_generate_comprehensive(
         raise HTTPException(400, "Debe proveer al menos un problema jurídico")
 
     total_problems = len(problemas)
-    
-    # Contexto global que se inyectará a GPT-4o para que entienda el caso
+
+    # Contexto global
     lista_problemas = "\n".join([f"- {p.get('titulo', '')} ({p.get('calificacion', 'Sin Calificar')})" for p in problemas])
     global_context = (
         f"TIPO DE RESOLUCIÓN: {tipo.replace('_', ' ').title()}\n"
         f"RESUMEN GENERAL: {resumen_caso}\n"
         f"RESUMEN DEL ACTO RECLAMADO/RECURRIDO: {resumen_acto_reclamado}\n"
-        f"SENTIDO GLOBAL PROPUESTO POR EL USUARIO PARA TODA LA SENTENCIA: {sentido_global}\n"
-        f"LOS PROBLEMAS JURÍDICOS TOTALES A RESOLVER SON:\n{lista_problemas}\n"
+        f"SENTIDO GLOBAL PROPUESTO: {sentido_global}\n"
+        f"PROBLEMAS JURÍDICOS:\n{lista_problemas}\n"
     )
 
-    print(f"\n🚀 REDACTOR v3 GENERATE COMPREHENSIVE — {tipo} — {user_email}")
-    print(f"   {total_problems} problemas | Pipeline: RAG → GPT-4o → Gemini 2.5 Pro")
+    print(f"\n🚀 REDACTOR v3 DUAL-BRAIN — {tipo} — {user_email}")
+    print(f"   {total_problems} problemas | Pipeline: Genio + RAG → DeepSeek Reasoner")
 
     async def generate_sse():
         def sse(event_type: str, data: dict) -> str:
@@ -11032,37 +11031,50 @@ async def redactor_v3_generate_comprehensive(
         total_api_calls = 0
 
         try:
-            from openai import AsyncOpenAI
-            openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-            client = get_gemini_client()
-            from google.genai import types as gtypes
+            # ── Pre-flight: Detect materias and activate Genios ──────────
+            materias_detected = set()
+            for prob in problemas:
+                desc_lower = (prob.get("titulo", "") + " " + prob.get("descripcion", "")).lower()
+                for m in ["civil", "penal", "laboral", "fiscal", "mercantil", "administrativo", "agrario", "cidh"]:
+                    if m in desc_lower:
+                        materias_detected.add(m)
+            materias_detected.add("amparo")  # Always include amparo
 
+            yield sse("phase", {
+                "step": "🧠 Activando Genios de contexto legal...",
+                "progress": 2,
+                "problema_actual": 0,
+                "total_problemas": total_problems,
+                "titulo_problema": "Preparación",
+            })
+
+            # Activate Genio caches in parallel
+            from cache_manager import activate_genios_for_sentencia, query_genio
+            genio_caches = {}
+            try:
+                genio_caches = await activate_genios_for_sentencia(list(materias_detected))
+                active_genios = [g for g, c in genio_caches.items() if c]
+                print(f"   🧠 Genios activos: {active_genios}")
+            except Exception as e:
+                print(f"   ⚠️ Genio activation error: {e}")
+
+            # ── Judge role based on tipo ──────────────────────────────────
             if tipo == "amparo_indirecto":
-                judge_role = "Juez de Distrito mexicano"
-                golden_rule = "REGLA DE ORO DEL AMPARO INDIRECTO: La litis versa sobre la constitucionalidad del acto reclamado a la Autoridad Responsable en función de los conceptos de violación y el informe justificado. Dirige tu análisis a las violaciones directas a derechos humanos o garantías constitucionales."
+                judge_voice = "Juez de Distrito"
+                golden_rule = (
+                    "La litis versa sobre la constitucionalidad del acto reclamado "
+                    "a la Autoridad Responsable en función de los conceptos de violación "
+                    "y el informe justificado."
+                )
             else:
-                judge_role = "Tribunal Colegiado de Circuito mexicano"
-                golden_rule = "REGLA DE ORO DEL AMPARO DIRECTO: La litis versa EXCLUSIVAMENTE sobre la constitucionalidad del acto de la Autoridad Responsable (ej. la Sala de apelación). Dirige tu análisis a sus consideraciones, NUNCA al juez de primera instancia."
+                judge_voice = "Tribunal Colegiado de Circuito"
+                golden_rule = (
+                    "La litis versa EXCLUSIVAMENTE sobre la constitucionalidad del acto "
+                    "de la Autoridad Responsable (ej. la Sala de apelación). "
+                    "Dirige tu análisis a sus consideraciones, NUNCA al juez de primera instancia."
+                )
 
-            gemini_system = (
-                f"Eres un redactor judicial de élite de un {judge_role}. "
-                "Tu función es redactar sentencias estructuradas y precisas, resolviendo problemas "
-                "jurídicos paso a paso según las instrucciones de un Secretario de Estudio y Cuenta.\n\n"
-                "REGLAS ABSOLUTAS:\n"
-                "1. ACATA LA LÍNEA DEL SECRETARIO: Si las notas o calificación dicen 'Fundado', 'Infundado', etc., "
-                "tu desarrollo DEBE justificar esa conclusión inexcusablemente.\n"
-                "2. CERO ALUCINACIONES: Solo cita artículos, tesis y jurisprudencias que estén "
-                "TEXTUALMENTE en el prompt. JAMÁS inventes tesis ni números de registro.\n"
-                f"3. {golden_rule}\n"
-                "4. NUNCA repitas el mismo párrafo, cita o razonamiento abstracto dos veces.\n"
-                "5. Redacta con prosa jurídica formal, clara y objetiva.\n"
-                "6. CERO FILLER CONVERSACIONAL: Jamás uses frases como 'De acuerdo. Procedo al apartado', "
-                "saludos o introducciones vacías. Genera ÚNICAMENTE texto directo para la sentencia.\n"
-                "7. NO TE DISCULPES NI EXPLIQUES. Redacta directo como máquina de escribir automatizada.\n"
-                "8. OBEDECE LAS PROHIBICIONES ESTRUCTURALES: Si tu prompt te prohíbe usar el título 'IV. ESTUDIO DE FONDO', "
-                "o emitir resolutivos, obedece CORTANDO de raíz esos apartados. No insertes párrafos genéricos de introducción o metodología."
-            )
-
+            # ── Per-problem iteration ─────────────────────────────────────
             for i, prob in enumerate(problemas):
                 prob_title = prob.get("titulo", f"Problema {i+1}")
                 prob_desc = prob.get("descripcion", "")
@@ -11070,22 +11082,22 @@ async def redactor_v3_generate_comprehensive(
                 prob_notas = prob.get("notas", "")
                 prob_q = prob.get("interrogante", "")
 
-                print(f"   ► Evaluando P{i+1}/{total_problems}: {prob_title}")
+                print(f"   ► P{i+1}/{total_problems}: {prob_title} [{prob_calif}]")
 
-                # ────────────────────────────────────────────────────────
-                # PHASE 1: RAG SEARCH FOR THIS SPECIFIC PROBLEM
-                # ────────────────────────────────────────────────────────
+                # ──────────────────────────────────────────────────────────
+                # PHASE 1: RAG + GENIO CONTEXT
+                # ──────────────────────────────────────────────────────────
                 yield sse("phase", {
-                    "step": f"🔍 Investigando jurisprudencia: {prob_title}",
+                    "step": f"🔍 Investigando: {prob_title}",
                     "progress": int((i / total_problems) * 100 + 5),
-                    "group": i + 1,
-                    "total_groups": total_problems,
+                    "problema_actual": i + 1,
+                    "total_problemas": total_problems,
+                    "titulo_problema": prob_title,
                 })
-                
-                # Build targeted search query using Secretary's notes and problem context
+
+                # 1a. RAG search (jurisprudencia + legislation)
                 search_query = f"{prob_desc} {prob_notas}"
-                
-                rag_results = []
+                rag_context = ""
                 try:
                     tasks = [
                         hybrid_search_all_silos(query=search_query[:350], estado=None, top_k=8, alpha=0.7, enable_reasoning=False),
@@ -11093,6 +11105,7 @@ async def redactor_v3_generate_comprehensive(
                     ]
                     results_raw = await asyncio.gather(*tasks, return_exceptions=True)
                     seen_ids = set()
+                    rag_results = []
                     for batch in results_raw:
                         if isinstance(batch, Exception): continue
                         for r in batch:
@@ -11100,155 +11113,181 @@ async def redactor_v3_generate_comprehensive(
                                 seen_ids.add(r.id)
                                 rag_results.append(r)
                     rag_results.sort(key=lambda r: r.score, reverse=True)
-                    rag_results = rag_results[:12] # Top 12 most relevant items
+                    rag_results = rag_results[:12]
+
+                    for r in rag_results:
+                        tag = "[JURISPRUDENCIA]" if "jurisprudencia" in (r.silo or "").lower() else "[LEGISLACIÓN]"
+                        rag_context += f"\n--- {tag} ---\nFuente: {r.ref or r.origen}\n{str(r.texto)[:1200]}\n"
                 except Exception as e:
-                    print(f"   ⚠️ RAG Error en P{i+1}: {e}")
+                    print(f"   ⚠️ RAG Error P{i+1}: {e}")
 
-                rag_context = ""
-                for r in rag_results:
-                    tag = "[JURISPRUDENCIA]" if "jurisprudencia" in (r.silo or "").lower() else "[LEGISLACIÓN]"
-                    rag_context += f"\n--- {tag} ---\nFuente: {r.ref or r.origen}\n{str(r.texto)[:1200]}\n"
-
-                # ────────────────────────────────────────────────────────
-                # PHASE 2: GPT-4o PROMPT ENGINEERING
-                # ────────────────────────────────────────────────────────
+                # 1b. Genio query — extract full-text articles
                 yield sse("phase", {
-                    "step": f"🧠 Diseñando argumentación: {prob_title}",
+                    "step": f"📖 Genio extrae artículos: {prob_title}",
                     "progress": int((i / total_problems) * 100 + 15),
-                    "group": i + 1,
-                    "total_groups": total_problems,
+                    "problema_actual": i + 1,
+                    "total_problemas": total_problems,
+                    "titulo_problema": prob_title,
                 })
 
-                # Determine structural instructions based on position
+                genio_articles = ""
+                for materia, cache_name in genio_caches.items():
+                    if not cache_name:
+                        continue
+                    try:
+                        # Build targeted question for this materia
+                        materia_kws = _get_materia_keywords(materia)
+                        # Check if this problem relates to this materia
+                        combined = (prob_title + " " + prob_desc + " " + prob_notas).lower()
+                        if materia == "amparo" or any(kw in combined for kw in materia_kws):
+                            q = (
+                                f"Para resolver el siguiente problema jurídico en un amparo {tipo}: "
+                                f"'{prob_title}': {prob_desc[:200]}. "
+                                f"Dame el texto ÍNTEGRO de los artículos más relevantes de las leyes "
+                                f"en tu contexto. Incluye cada artículo completo con sus fracciones."
+                            )
+                            total_api_calls += 1
+                            response_text = await query_genio(materia, q, max_tokens=6144)
+                            if response_text:
+                                genio_articles += f"\n═══ ARTÍCULOS [{materia.upper()}] ═══\n{response_text}\n"
+                    except Exception as e:
+                        print(f"   ⚠️ Genio query error ({materia}): {e}")
+
+                # ──────────────────────────────────────────────────────────
+                # PHASE 2: DEEPSEEK REASONER (THINKING + STREAMING)
+                # ──────────────────────────────────────────────────────────
+                yield sse("phase", {
+                    "step": f"✍️ DeepSeek razona: {prob_title} ({prob_calif})",
+                    "progress": int((i / total_problems) * 100 + 40),
+                    "problema_actual": i + 1,
+                    "total_problemas": total_problems,
+                    "titulo_problema": prob_title,
+                })
+
+                # Structural instructions based on position
                 if total_problems == 1:
                     flow_instructions = (
-                        "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale generar TODA la sentencia con esta estructura EXACTA:\n"
-                        "1. 'I. SÍNTESIS DEL ACTO RECLAMADO' (resumir el acto impugnado).\n"
-                        "2. 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS' (resumir).\n"
-                        "3. 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (plantear la pregunta jurídica).\n"
-                        "4. 'IV. ESTUDIO DE FONDO' (Desarrollar directo el análisis al punto sin intos previas).\n"
-                        "5. 'V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS' (Redactar justificación breve basada en el SENTIDO GLOBAL y listar resolutivos)."
+                        "GENERA TODA la sentencia con esta estructura:\n"
+                        "I. SÍNTESIS DEL ACTO RECLAMADO\n"
+                        "II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS\n"
+                        "III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS\n"
+                        "IV. ESTUDIO DE FONDO — Desarrolla directo sin intros.\n"
+                        "V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS\n"
+                    )
+                elif i == 0:
+                    flow_instructions = (
+                        "INICIA la sentencia con:\n"
+                        "I. SÍNTESIS DEL ACTO RECLAMADO\n"
+                        "II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS\n"
+                        "III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS (enumera TODOS)\n"
+                        "IV. ESTUDIO DE FONDO — subtítulo de ESTE primer problema.\n"
+                        "PROHIBIDO: redactar conclusión, resolutivos, o intros genéricas."
+                    )
+                elif i == total_problems - 1:
+                    flow_instructions = (
+                        "CIERRA el Estudio de Fondo y la sentencia:\n"
+                        "1. Subtítulo de ESTE último problema + análisis.\n"
+                        "2. V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS conforme al SENTIDO GLOBAL.\n"
+                        "PROHIBIDO: repetir título 'IV. ESTUDIO DE FONDO', síntesis iniciales."
                     )
                 else:
-                    if i == 0:
-                        flow_instructions = (
-                            "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale INICIAR la sentencia estrictamente con esto:\n"
-                            "1. Título 'I. SÍNTESIS DEL ACTO RECLAMADO' (resumir el acto impugnado).\n"
-                            "2. Título 'II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS' (brevemente).\n"
-                            "3. Título 'III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS' (Enumerar la totalidad de problemas jurídicos del caso basándose en la lista global proporcionada).\n"
-                            "4. Título 'IV. ESTUDIO DE FONDO'.\n"
-                            "5. Subtítulo específico de ESTE primer problema jurídico, seguido inmediatamente de su análisis argumentativo directo.\n"
-                            "REGLAS ESTRUCTURALES A IMPONER AL LLM:\n"
-                            "- PROHÍBELE REDACTAR INTROS como 'la materia de análisis consiste en' o 'procede el estudio conjunto'. Iniciar directo al análisis de este problema.\n"
-                            "- PROHÍBELE redactar el apartado V, la conclusión global o los resolutivos."
+                    flow_instructions = (
+                        "GENERA UN SOLO APARTADO INTERMEDIO:\n"
+                        "1. Subtítulo de ESTE problema.\n"
+                        "2. Análisis y argumentación.\n"
+                        "PROHIBIDO: título 'IV. ESTUDIO DE FONDO', síntesis, intros genéricas, resolutivos."
+                    )
+
+                deepseek_prompt = f"""Eres un redactor judicial de élite de un {judge_voice} del Poder Judicial de la Federación.
+
+═══ REGLAS ABSOLUTAS ═══
+1. ACATA LA CALIFICACIÓN: El problema está calificado como {prob_calif.upper()}. Tu desarrollo DEBE justificar esa conclusión.
+2. CERO ALUCINACIONES: Solo cita artículos y tesis que estén TEXTUALMENTE más abajo. JAMÁS inventes tesis ni registros.
+3. {golden_rule}
+4. NO repitas párrafos, citas ni razonamientos.
+5. Prosa jurídica formal, clara, objetiva.
+6. CERO FILLER: Jamás uses 'De acuerdo. Procedo...', saludos ni intros vacías. Texto directo para la sentencia.
+7. NUNCA uses: "en la especie", "obra en autos", "de esta guisa", "robustece", "numeral", "deviene", "se colige"
+8. SÍ usa: "en este caso", "consta en el expediente", "confirma", "artículo", "resulta", "se concluye"
+
+═══ CONTEXTO DEL CASO ═══
+{global_context}
+
+═══ PROBLEMA JURÍDICO A RESOLVER ═══
+Título: {prob_title}
+Descripción: {prob_desc}
+Interrogante: {prob_q}
+CALIFICACIÓN: {prob_calif.upper()}
+NOTAS DEL SECRETARIO: {prob_notas}
+
+═══ ARTÍCULOS DE LEY (TEXTO ÍNTEGRO DEL GENIO) ═══
+{genio_articles or '(No disponible — fundamenta con la legislación del RAG)'}
+
+═══ JURISPRUDENCIA Y LEGISLACIÓN (RAG) ═══
+{rag_context or '(No se encontraron resultados RAG)'}
+
+═══ ESTRUCTURA REQUERIDA ═══
+{flow_instructions}
+
+═══ TU TAREA ═══
+Redacta ÚNICAMENTE la parte que te corresponde. Sé profundo, exhaustivo y técnicamente impecable.
+Cita TEXTUALMENTE los artículos y tesis proporcionados arriba."""
+
+                total_api_calls += 1
+
+                try:
+                    if deepseek_client:
+                        response = await deepseek_client.chat.completions.create(
+                            model="deepseek-reasoner",
+                            messages=[
+                                {"role": "user", "content": deepseek_prompt},
+                            ],
+                            max_tokens=16384,
+                            stream=True,
                         )
-                    elif i == total_problems - 1:
-                        flow_instructions = (
-                            "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale CERRAR el Estudio de Fondo y la sentencia con esto:\n"
-                            "1. Subtítulo legal de ESTE último problema jurídico y generar su análisis específico.\n"
-                            "2. Título 'V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS'.\n"
-                            "3. Redactar los definitivos resolutivos conforme estrictamente al SENTIDO GLOBAL PROPUESTO POR EL USUARIO.\n"
-                            "REGLAS ESTRUCTURALES A IMPONER AL LLM:\n"
-                            "- PROHÍBELE poner el título principal 'IV. ESTUDIO DE FONDO'.\n"
-                            "- PROHÍBELE repetir las síntesis iniciales o la fijación de problemas."
-                        )
+
+                        async for chunk in response:
+                            if chunk.choices and chunk.choices[0].delta.content:
+                                yield sse("text", {"chunk": chunk.choices[0].delta.content, "group": i + 1})
                     else:
-                        flow_instructions = (
-                            "ESTRUCTURA OBLIGATORIA PARA EL LLM: Ordénale generar UN SOLO APARTADO INTERMEDIO de la sentencia:\n"
-                            "1. Subtítulo legal propio de ESTE problema jurídico.\n"
-                            "2. Desarrollar el análisis y argumentación.\n"
-                            "REGLAS ESTRUCTURALES A IMPONER AL LLM:\n"
-                            "- PROHÍBELE poner el título principal 'IV. ESTUDIO DE FONDO'. (¡Muy importante!).\n"
-                            "- PROHÍBELE redactar síntesis, listado de problemas, intros genéricas o apartados conclusivos y resolutivos."
+                        # Fallback to Gemini if DeepSeek not configured
+                        from google.genai import types as gtypes
+                        client = get_gemini_client()
+                        gemini_stream = await client.aio.models.generate_content_stream(
+                            model="gemini-2.5-pro",
+                            contents=deepseek_prompt,
+                            config=gtypes.GenerateContentConfig(
+                                temperature=0.3,
+                                max_output_tokens=32000,
+                            ),
                         )
+                        async for chunk in gemini_stream:
+                            if chunk.text:
+                                yield sse("text", {"chunk": chunk.text, "group": i + 1})
 
-                prompt_engineer_system = (
-                    "Eres un arquitecto legal experto en Prompt Engineering. Tu trabajo es leer el contexto general de un juicio de amparo/recurso, el problema jurídico en turno, "
-                    "las directrices de resolución del Secretario y la jurisprudencia aplicable, y generar "
-                    "un PROMPT MAESTRO DETALLADO para que otro modelo lingüístico (LLM) redacte exacta y únicamente la parte de la sentencia solicitada en esta iteración.\n\n"
-                    "Tu prompt maestro debe decirle al LLM QUÉ escribir, CÓMO estructurarlo y QUÉ reglas seguir:\n"
-                    "1. Provee TEXTUALMENTE las tesis y legislación relevantes para que el LLM las cite de forma orgánica.\n"
-                    "2. Transmite inequívocamente la Calificación (Fundado, Infundado, etc.) que se le impuso a la interrogante.\n"
-                    "3. Dicta ESTRICTAMENTE la estructura requerida en las 'INSTRUCCIONES EXTRA DEL FLUJO'. Haz énfasis en las prohibiciones usando mayúsculas (ej. 'PROHIBIDO ESCRIBIR EL TÍTULO IV').\n"
-                    "IMPORTANTE: No redactes la sentencia tú mismo. Solo redacta el INSTRUCTIVO (Prompt) estructurado para el LLM."
-                )
-
-                group_prompt = (
-                    f"--- CONTEXTO GLOBAL ---\n{global_context}\n\n"
-                    f"--- PROBLEMA A RESOLVER EN ESTA ITERACIÓN ---\n"
-                    f"Título o Subtema: {prob_title}\n"
-                    f"Descripción de qué trata: {prob_desc}\n"
-                    f"Pregunta Jurídica Específica: {prob_q}\n"
-                    f"CALIFICACIÓN DEL PROBLEMA: {prob_calif.upper()}\n"
-                    f"NOTAS DEL SECRETARIO: {prob_notas}\n\n"
-                    f"--- INSUMOS (RAG) ---\n{rag_context}\n\n"
-                    f"--- INSTRUCCIONES EXTRA DEL FLUJO ---\n{flow_instructions}\n"
-                )
-
-                total_api_calls += 1
-                try:
-                    prompt_response = await openai_client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[
-                            {"role": "system", "content": prompt_engineer_system},
-                            {"role": "user", "content": group_prompt},
-                        ],
-                        max_tokens=4096,
-                        temperature=0.2,
-                    )
-                    crafted_prompt = prompt_response.choices[0].message.content
-                except Exception as e:
-                    print(f"   ⚠️ GPT-4o Error en P{i+1}: {e}")
-                    crafted_prompt = f"Desarrolla el problema '{prob_title}' calificándolo como {prob_calif}. Notas: {prob_notas}.\n\nFlujo: {flow_instructions}"
-
-                # ────────────────────────────────────────────────────────
-                # PHASE 3: GEMINI GENERATION (STREAMING)
-                # ────────────────────────────────────────────────────────
-                yield sse("phase", {
-                    "step": f"✍️ Redactando: {prob_title} ({prob_calif})",
-                    "progress": int((i / total_problems) * 100 + 40),
-                    "group": i + 1,
-                    "total_groups": total_problems,
-                })
-
-                total_api_calls += 1
-                gemini_config = gtypes.GenerateContentConfig(
-                    system_instruction=gemini_system,
-                    temperature=0.3,
-                    max_output_tokens=32000,
-                )
-
-                try:
-                    gemini_stream = await client.aio.models.generate_content_stream(
-                        model="gemini-2.5-pro",
-                        contents=crafted_prompt,
-                        config=gemini_config,
-                    )
-
-                    async for chunk in gemini_stream:
-                        if chunk.text:
-                            yield sse("text", {"chunk": chunk.text, "group": i + 1})
-                            
-                    # Add spacing between problems
+                    # Spacing between problems
                     if i < total_problems - 1:
                         yield sse("text", {"chunk": "\n\n", "group": i + 1})
-                        
+
+                    print(f"   ✅ P{i+1}/{total_problems} completado")
+
                 except Exception as e:
-                    print(f"   ⚠️ Gemini Error en P{i+1}: {e}")
+                    print(f"   ⚠️ Generation Error P{i+1}: {e}")
                     yield sse("error", {"message": f"Error redactando problema {i+1}: {str(e)}"})
 
             elapsed = time_module.time() - total_start
             yield sse("done", {
-                "total_chars": -1, # We don't track full text in memory anymore to be extremely robust
+                "total_chars": -1,
                 "elapsed": round(elapsed, 1),
-                "model": "v3: RAG → GPT-4o → Gemini 2.5 Pro",
+                "model": "v3 Dual-Brain: Genio + RAG → DeepSeek Reasoner",
                 "groups_completed": total_problems,
                 "api_calls": total_api_calls,
+                "total_problemas": total_problems,
             })
-            print(f"   🏁 COMPLETADO V3 en {elapsed:.1f}s ({total_api_calls} calls)")
+            print(f"   🏁 COMPLETADO v3 Dual-Brain en {elapsed:.1f}s ({total_api_calls} calls)")
 
         except Exception as e:
-            print(f"   ❌ Generate V3 error: {e}")
+            print(f"   ❌ Generate v3 error: {e}")
             import traceback
             traceback.print_exc()
             yield sse("error", {"message": str(e)})
@@ -13424,6 +13463,418 @@ Sé profundo en los agravios fundados y conciso en los infundados/inoperantes.""
             yield f"\n\n[Error al generar: {str(e)}]"
 
     return StreamingResponse(stream_gemini(), media_type="text/plain")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REDACTOR DE SENTENCIAS TCC v2 — ESTUDIO DE FONDO DEFINITIVO
+#
+# Dual-Brain: Gemini 3.1 Pro (Genio context cache) + DeepSeek Reasoner (thinking)
+# Multi-pass: N passes (one per agravio) — only Estudio de Fondo
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ESTUDIO_FONDO_TCC_SYSTEM = """Eres un Secretario de Estudio y Cuenta EXPERTO de un Tribunal Colegiado de Circuito del Poder Judicial de la Federación.
+
+Tu ÚNICA tarea es redactar el ESTUDIO DE FONDO de un agravio específico dentro de una sentencia de amparo.
+
+═══ ESTRUCTURA POR AGRAVIO ═══
+
+Para cada agravio, tu estudio de fondo debe contener:
+
+1. SÍNTESIS DEL AGRAVIO — Resume fielmente lo que alega el quejoso/recurrente. Cita textualmente las partes sustanciales entre comillas.
+
+2. CALIFICACIÓN — Declara de entrada si el agravio es:
+   - FUNDADO (tiene razón jurídica y fáctica)
+   - INFUNDADO (la autoridad aplicó correctamente el derecho)
+   - INOPERANTE (no combate las razones de la sentencia, es genérico, o plantea cuestiones novedosas)
+   - FUNDADO PERO INOPERANTE (tiene razón pero no trasciende al resultado)
+   - PARCIALMENTE FUNDADO
+
+3. RATIO DECIDENDI — El núcleo del análisis:
+   a) Marco normativo: cita TEXTUALMENTE los artículos aplicables (usa los artículos exactos que se te proporcionan)
+   b) Subsunción: aplica la norma a los hechos concretos del caso
+   c) Jurisprudencia: cita las tesis de jurisprudencia aplicables con registro, rubro y órgano
+   d) Control de convencionalidad: si aplica, cita el estándar interamericano
+
+4. CONCLUSIÓN OPERATIVA — Qué efecto tiene: se concede el amparo, se niega, se revoca la sentencia, se ordena reponer, etc.
+
+═══ REGLAS DE REDACCIÓN ═══
+
+1. Voz del tribunal: "Este Tribunal Colegiado considera...", "Se advierte que...", "No asiste razón al quejoso..."
+2. NUNCA uses: "en la especie", "obra en autos", "de esta guisa", "robustece", "numeral", "deviene", "se colige"
+3. SÍ usa: "en este caso", "consta en el expediente", "confirma", "artículo", "resulta", "se concluye"
+4. Cita artículos COMPLETOS cuando sean centrales para el análisis.
+5. Distingue entre jurisprudencia OBLIGATORIA y tesis AISLADAS.
+6. Aplica siempre el principio pro persona para la interpretación más favorable.
+7. Mínimo 3 páginas por agravio para análisis sustantivos."""
+
+
+REDACTOR_TCC_EXTRACT_MODEL = os.getenv("REDACTOR_TCC_EXTRACT_MODEL", "gemini-3-flash-preview")
+
+
+@app.post("/redactor-sentencia/v2/generate")
+async def redactor_sentencia_v2_generate(request: Request):
+    """
+    Redactor de Sentencias TCC v2 — Estudio de Fondo Definitivo.
+
+    Dual-Brain pipeline:
+    - Phase 0: Gemini Flash extracts PDFs + detects agravios
+    - Phase 1: Parallel Genio activation + RAG (jurisprudencia + sentencias)
+    - Phase 2: N DeepSeek Reasoner passes (one per agravio), each enriched with
+               full-text articles from Genio + relevant jurisprudencia + sentencias ejemplo
+    """
+    import json as _json
+
+    # ── Parse multipart form data ────────────────────────────────────────
+    form = await request.form()
+
+    user_email = str(form.get("user_email", ""))
+    tipo_amparo = str(form.get("tipo_amparo", "directo"))  # directo|revision|queja|fiscal
+    instrucciones = str(form.get("instrucciones", ""))
+
+    # Files
+    demanda_upload = form.get("demanda_amparo")
+    acto_reclamado_upload = form.get("acto_reclamado")
+
+    # ── Validation ────────────────────────────────────────────────────────
+    if not user_email:
+        raise HTTPException(400, "user_email es requerido")
+    if not _can_access_sentencia(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Ultra Secretarios")
+    if not deepseek_client:
+        raise HTTPException(500, "DeepSeek client no configurado")
+
+    # Read PDFs
+    if not demanda_upload or not hasattr(demanda_upload, 'read'):
+        raise HTTPException(400, "La demanda de amparo es requerida")
+    demanda_bytes = await demanda_upload.read()
+
+    acto_bytes = b""
+    if acto_reclamado_upload and hasattr(acto_reclamado_upload, 'read'):
+        acto_bytes = await acto_reclamado_upload.read()
+
+    print(f"\n🏛️ REDACTOR TCC v2 — ESTUDIO DE FONDO — {user_email}")
+    print(f"   📄 Demanda: {len(demanda_bytes)/1024:.0f}KB | Acto reclamado: {len(acto_bytes)/1024:.0f}KB")
+    print(f"   📋 Tipo: {tipo_amparo}")
+
+    # ── PHASE 0: Extract PDFs with Gemini Flash ─────────────────────────
+    from google.genai import types as gtypes
+
+    async def phase0_extract() -> dict:
+        """Extract case data + detect agravios from the PDFs."""
+        gemini_client = get_gemini_client()
+
+        pdf_parts = [
+            gtypes.Part.from_text(text="--- DEMANDA DE AMPARO ---"),
+            gtypes.Part.from_bytes(data=demanda_bytes, mime_type="application/pdf"),
+        ]
+        if acto_bytes:
+            pdf_parts.append(gtypes.Part.from_text(text="\n--- ACTO RECLAMADO (Sentencia impugnada) ---"))
+            pdf_parts.append(gtypes.Part.from_bytes(data=acto_bytes, mime_type="application/pdf"))
+
+        extract_prompt = """Lee los documentos judiciales de un juicio de amparo y extrae:
+
+RESPONDE EN FORMATO JSON EXACTO (sin markdown, sin ```):
+{
+  "expediente": "número de expediente",
+  "tipo_amparo": "directo|revision|queja|fiscal",
+  "quejoso": "nombre del quejoso",
+  "autoridad_responsable": "nombre de la autoridad señalada como responsable",
+  "tercero_interesado": "nombre del tercero interesado (si existe)",
+  "acto_reclamado_resumen": "resumen del acto reclamado en 2-3 oraciones",
+  "agravios": [
+    {
+      "num": 1,
+      "tema": "descripción corta del tema central del agravio",
+      "resumen": "resumen de 3-5 oraciones del planteamiento del agravio",
+      "normas_citadas": ["art. 77 Ley de Amparo", "art. 14 CPEUM"],
+      "materia": "civil|penal|laboral|fiscal|mercantil|administrativo|agrario"
+    }
+  ],
+  "hechos_relevantes": "cronología de los hechos más relevantes del caso",
+  "materias_detectadas": ["amparo", "civil"],
+  "normas_clave": ["Ley de Amparo", "Código Civil de Querétaro"]
+}
+
+Sé EXHAUSTIVO al identificar TODOS los agravios/conceptos de violación. Cada planteamiento INDEPENDIENTE debe ser un agravio separado."""
+
+        pdf_parts.append(gtypes.Part.from_text(text=extract_prompt))
+
+        response = await gemini_client.aio.models.generate_content(
+            model=REDACTOR_TCC_EXTRACT_MODEL,
+            contents=pdf_parts,
+            config=gtypes.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=16384,
+                response_mime_type="application/json",
+            ),
+        )
+
+        raw = response.text or "{}"
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        return _json.loads(raw)
+
+    # ── PHASE 1: Parallel context activation ──────────────────────────────
+
+    async def phase1_activate(case_data: dict) -> dict:
+        """Activate Genio caches + fetch RAG context."""
+        from cache_manager import activate_genios_for_sentencia, query_genio
+
+        materias = case_data.get("materias_detectadas", ["amparo"])
+
+        # Activate genios
+        genio_caches = await activate_genios_for_sentencia(materias)
+
+        # RAG: jurisprudencia
+        juris = []
+        try:
+            search_queries = [
+                case_data.get("acto_reclamado_resumen", ""),
+            ]
+            # Add each agravio's theme as a search query
+            for ag in case_data.get("agravios", []):
+                search_queries.append(ag.get("tema", "") + " " + ag.get("resumen", "")[:100])
+
+            for sq in search_queries[:5]:  # Limit to 5 queries
+                if not sq.strip():
+                    continue
+                try:
+                    results = await qdrant_client.query_points(
+                        collection_name="jurisprudencia_nacional",
+                        query=await get_dense_embedding(sq),
+                        limit=5,
+                        with_payload=True,
+                    )
+                    for r in results.points:
+                        ref = r.payload.get("ref", "")
+                        texto = r.payload.get("texto", "")
+                        if texto and ref not in [j.get("ref") for j in juris]:
+                            juris.append({
+                                "ref": ref,
+                                "registro": r.payload.get("registro", ""),
+                                "rubro": r.payload.get("rubro", ""),
+                                "texto": texto[:2000],
+                                "materia": r.payload.get("materia", ""),
+                                "score": r.score,
+                            })
+                except Exception as e:
+                    print(f"   ⚠️ RAG juris error: {e}")
+        except Exception as e:
+            print(f"   ⚠️ RAG jurisprudencia error: {e}")
+
+        # RAG: sentencias similares
+        sentencias_ejemplo = []
+        sentencia_collection = f"sentencias_{tipo_amparo.replace(' ', '_')}"
+        if sentencia_collection not in ["sentencias_directo", "sentencias_revision",
+                                         "sentencias_queja", "sentencias_fiscal"]:
+            sentencia_collection = f"sentencias_amparo_{tipo_amparo}"
+
+        try:
+            sq = case_data.get("acto_reclamado_resumen", "") or "estudio de fondo"
+            results = await qdrant_client.query_points(
+                collection_name=sentencia_collection,
+                query=await _embed_async(sq),
+                limit=5,
+                with_payload=True,
+            )
+            for r in results.points:
+                texto = r.payload.get("texto", "")
+                if texto and len(texto) > 100:
+                    sentencias_ejemplo.append({
+                        "archivo": r.payload.get("archivo_origen", ""),
+                        "seccion": r.payload.get("seccion", ""),
+                        "texto": texto[:3000],
+                        "score": r.score,
+                    })
+        except Exception as e:
+            print(f"   ⚠️ RAG sentencias error ({sentencia_collection}): {e}")
+
+        print(f"   📚 RAG: {len(juris)} tesis, {len(sentencias_ejemplo)} sentencias ejemplo")
+        return {
+            "genio_caches": genio_caches,
+            "jurisprudencia": juris,
+            "sentencias_ejemplo": sentencias_ejemplo,
+        }
+
+    # ── PHASE 2: Multi-pass DeepSeek Reasoner ─────────────────────────────
+
+    async def stream_estudio_de_fondo():
+        """Main streaming generator: extracts, activates, then N DeepSeek passes."""
+        try:
+            # Phase 0
+            yield "⏳ Fase 0: Extrayendo datos del expediente...\n\n"
+            case_data = await phase0_extract()
+            agravios = case_data.get("agravios", [])
+            n_agravios = len(agravios)
+
+            yield f"✅ Expediente: {case_data.get('expediente', 'N/A')}\n"
+            yield f"   Quejoso: {case_data.get('quejoso', 'N/A')}\n"
+            yield f"   Agravios detectados: {n_agravios}\n"
+            for ag in agravios:
+                yield f"   • Agravio {ag['num']}: {ag['tema']}\n"
+            yield "\n"
+
+            print(f"   📋 Extracción: {n_agravios} agravios detectados")
+
+            if n_agravios == 0:
+                yield "\n❌ No se detectaron agravios en la demanda. Verifica los documentos.\n"
+                return
+
+            # Phase 1
+            yield "⏳ Fase 1: Activando Genios y consultando RAG...\n"
+            context = await phase1_activate(case_data)
+            genio_caches = context["genio_caches"]
+            active_genios = [g for g, c in genio_caches.items() if c]
+            yield f"✅ Genios activos: {', '.join(active_genios)}\n"
+            yield f"   Jurisprudencia: {len(context['jurisprudencia'])} tesis relevantes\n"
+            yield f"   Sentencias ejemplo: {len(context['sentencias_ejemplo'])} fragmentos\n\n"
+
+            # Build jurisprudencia context string
+            juris_context = ""
+            if context["jurisprudencia"]:
+                juris_context = "\n═══ JURISPRUDENCIA RELEVANTE ═══\n\n"
+                for j in context["jurisprudencia"][:15]:
+                    juris_context += (
+                        f"[{j['ref']}] Registro {j['registro']} | {j['materia']}\n"
+                        f"Rubro: {j['rubro']}\n"
+                        f"{j['texto'][:1500]}\n\n"
+                    )
+
+            # Build sentencias ejemplo context
+            sentencias_ctx = ""
+            if context["sentencias_ejemplo"]:
+                sentencias_ctx = "\n═══ SENTENCIAS DE EJEMPLO (estilo de redacción) ═══\n\n"
+                for s in context["sentencias_ejemplo"][:5]:
+                    sentencias_ctx += f"[De: {s['archivo']}]\n{s['texto'][:2000]}\n\n---\n\n"
+
+            # Instrucciones extras del secretario
+            instrucciones_ctx = ""
+            if instrucciones.strip():
+                instrucciones_ctx = f"\n═══ INSTRUCCIONES DEL SECRETARIO ═══\n\n{instrucciones.strip()}\n\nSigue estas instrucciones al pie de la letra.\n"
+
+            # Phase 2: One DeepSeek pass per agravio
+            from cache_manager import query_genio
+
+            for i, agravio in enumerate(agravios):
+                yield f"\n{'═' * 60}\n"
+                yield f"⏳ AGRAVIO {agravio['num']}/{n_agravios}: {agravio['tema']}\n"
+                yield f"{'═' * 60}\n\n"
+
+                # Query Genio for relevant articles
+                articles_text = ""
+                for materia in case_data.get("materias_detectadas", ["amparo"]):
+                    if materia in genio_caches and genio_caches[materia]:
+                        try:
+                            normas = [n for n in agravio.get("normas_citadas", [])
+                                     if any(kw in n.lower() for kw in
+                                           _get_materia_keywords(materia))]
+                            if normas:
+                                q = (
+                                    f"Para analizar un agravio sobre '{agravio['tema']}', "
+                                    f"necesito el texto íntegro de: {', '.join(normas)}. "
+                                    f"Dame cada artículo COMPLETO con todas sus fracciones."
+                                )
+                            else:
+                                q = (
+                                    f"Para analizar un agravio sobre '{agravio['tema']}' "
+                                    f"en materia de {materia}, ¿cuáles son los artículos "
+                                    f"más relevantes? Dame su texto íntegro completo."
+                                )
+                            genio_response = await query_genio(materia, q, max_tokens=6144)
+                            if genio_response:
+                                articles_text += f"\n[GENIO {materia.upper()}]\n{genio_response}\n"
+                        except Exception as e:
+                            print(f"   ⚠️ Genio query error ({materia}): {e}")
+
+                # Build DeepSeek prompt
+                deepseek_prompt = f"""{ESTUDIO_FONDO_TCC_SYSTEM}
+
+═══ DATOS DEL CASO ═══
+
+Expediente: {case_data.get('expediente', 'N/A')}
+Tipo: Amparo {tipo_amparo}
+Quejoso: {case_data.get('quejoso', 'N/A')}
+Autoridad responsable: {case_data.get('autoridad_responsable', 'N/A')}
+Acto reclamado: {case_data.get('acto_reclamado_resumen', 'N/A')}
+
+Hechos relevantes:
+{case_data.get('hechos_relevantes', 'No disponible')}
+
+═══ AGRAVIO {agravio['num']} A ANALIZAR ═══
+
+Tema: {agravio['tema']}
+Materia: {agravio.get('materia', 'general')}
+Planteamiento del quejoso:
+{agravio.get('resumen', 'No disponible')}
+
+Normas citadas por el quejoso: {', '.join(agravio.get('normas_citadas', []))}
+
+═══ TEXTO ÍNTEGRO DE LOS ARTÍCULOS APLICABLES ═══
+(Extraídos del Genio con el texto completo de las leyes)
+
+{articles_text or '(No se obtuvieron artículos del Genio — fundamenta con tu conocimiento)'}
+
+{juris_context}
+
+{sentencias_ctx}
+
+{instrucciones_ctx}
+
+═══ TU TAREA ═══
+
+Redacta el ESTUDIO DE FONDO completo para este agravio.
+Usa la estructura: Síntesis → Calificación → Ratio decidendi → Conclusión operativa.
+Cita TEXTUALMENTE los artículos que se te proporcionaron arriba.
+Sé profundo, exhaustivo y técnicamente impecable. Mínimo 3 páginas."""
+
+                # DeepSeek Reasoner call with streaming
+                try:
+                    response = await deepseek_client.chat.completions.create(
+                        model="deepseek-reasoner",
+                        messages=[
+                            {"role": "user", "content": deepseek_prompt},
+                        ],
+                        max_tokens=16384,
+                        stream=True,
+                    )
+
+                    async for chunk in response:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            yield chunk.choices[0].delta.content
+
+                    print(f"   ✅ Agravio {agravio['num']}/{n_agravios} completado")
+
+                except Exception as e:
+                    print(f"   ❌ DeepSeek error agravio {agravio['num']}: {e}")
+                    yield f"\n\n[Error al generar agravio {agravio['num']}: {str(e)}]\n"
+
+            yield f"\n\n{'═' * 60}\n"
+            yield f"✅ ESTUDIO DE FONDO COMPLETO — {n_agravios} agravios analizados\n"
+            yield f"{'═' * 60}\n"
+
+        except Exception as e:
+            print(f"   ❌ Pipeline v2 error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield f"\n\n[Error en el pipeline: {str(e)}]\n"
+
+    return StreamingResponse(stream_estudio_de_fondo(), media_type="text/plain")
+
+
+def _get_materia_keywords(materia: str) -> list[str]:
+    """Return keywords to match normas_citadas to a materia's genio."""
+    return {
+        "amparo": ["amparo", "cpeum", "constituc", "tratado", "convenc"],
+        "civil": ["civil", "ccf", "cnpcf", "código civil", "procedimientos civiles"],
+        "penal": ["penal", "cpf", "cnpp", "delincuencia", "trata"],
+        "laboral": ["trabajo", "laboral", "lft", "seguro social", "infonavit", "art. 123"],
+        "fiscal": ["fiscal", "cff", "lisr", "liva", "lfpca", "impuesto"],
+        "mercantil": ["mercantil", "comercio", "lgtoc", "sociedades", "seguro"],
+        "administrativo": ["administrativ", "lfpa", "loapf", "lgra", "patrimonial"],
+        "agrario": ["agrari", "ejid", "comunidad", "art. 27"],
+        "cidh": ["cidh", "convención americana", "interamerican", "cadh", "pidcp"],
+    }.get(materia, [materia])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
