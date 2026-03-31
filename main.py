@@ -10994,22 +10994,26 @@ def _get_materia_keywords(materia: str) -> list:
     return MATERIA_KEYWORDS.get(materia, [materia])
 
 
-# ── V3 Endpoint: Dual-Brain Per-Problem Generation (Genio + DeepSeek Reasoner) ──
+# ── V4 Endpoint: Gemini 2.5 Pro 4-Phase Pipeline ──────────────────────────
 
 @app.post("/redactor/v3/generate_comprehensive")
-async def redactor_v3_generate_comprehensive(
+async def redactor_v4_generate_comprehensive(
     tipo: str = Form(...),
     user_email: str = Form(...),
     resumen_caso: str = Form(""),
     resumen_acto_reclamado: str = Form(""),
-    problemas_json: str = Form(...), # Array of problems with calificacion and notas
+    problemas_json: str = Form("[]"),  # Optional — V4 auto-derives if empty
     sentido_global: str = Form(""),
+    texto_demanda: str = Form(""),  # Full text from PDF extraction
+    texto_acto: str = Form(""),     # Full text from PDF extraction
 ):
     """
-    Redactor v3 (Dual-Brain): Iterates through each problem.
-    Per problem: Genio extracts full-text articles + RAG finds jurisprudencia →
-    DeepSeek Reasoner generates the section with thinking mode.
-    SSE streams the progress and text back to the client.
+    Redactor V4 (Gemini 2.5 Pro): 4-phase sequential pipeline.
+    F1: Resumen detallado acto reclamado
+    F2: Resumen conceptos de violación
+    F3: Derivar problemas jurídicos automáticamente
+    F4: Resolver cada problema con RAG jurisprudencia
+    SSE streams progress and text back to client.
     """
     from starlette.responses import StreamingResponse
     import time as time_module
@@ -11018,28 +11022,40 @@ async def redactor_v3_generate_comprehensive(
     if not _can_access_sentencia(user_email):
         raise HTTPException(403, "Acceso restringido")
 
+    # Parse legacy problems (if sent from old frontend)
     try:
-        problemas = json.loads(problemas_json)
-    except Exception as e:
-        raise HTTPException(400, "Formato de problemas inválido")
+        problemas_manual = json.loads(problemas_json) if problemas_json else []
+    except Exception:
+        problemas_manual = []
 
-    if not problemas:
-        raise HTTPException(400, "Debe proveer al menos un problema jurídico")
+    # Combine all available text context
+    caso_context = ""
+    if texto_acto:
+        caso_context += f"\n═══ TEXTO DEL ACTO RECLAMADO/RECURRIDO ═══\n{texto_acto}\n"
+    elif resumen_acto_reclamado:
+        caso_context += f"\n═══ RESUMEN DEL ACTO RECLAMADO/RECURRIDO ═══\n{resumen_acto_reclamado}\n"
 
-    total_problems = len(problemas)
+    if texto_demanda:
+        caso_context += f"\n═══ TEXTO DE LA DEMANDA/RECURSO ═══\n{texto_demanda}\n"
+    elif resumen_caso:
+        caso_context += f"\n═══ RESUMEN DEL CASO ═══\n{resumen_caso}\n"
 
-    # Contexto global
-    lista_problemas = "\n".join([f"- {p.get('titulo', '')} ({p.get('calificacion', 'Sin Calificar')})" for p in problemas])
-    global_context = (
-        f"TIPO DE RESOLUCIÓN: {tipo.replace('_', ' ').title()}\n"
-        f"RESUMEN GENERAL: {resumen_caso}\n"
-        f"RESUMEN DEL ACTO RECLAMADO/RECURRIDO: {resumen_acto_reclamado}\n"
-        f"SENTIDO GLOBAL PROPUESTO: {sentido_global}\n"
-        f"PROBLEMAS JURÍDICOS:\n{lista_problemas}\n"
-    )
+    if not caso_context.strip():
+        raise HTTPException(400, "Debe proveer al menos el texto del acto reclamado o la demanda")
 
-    print(f"\n🚀 REDACTOR v3 DUAL-BRAIN — {tipo} — {user_email}")
-    print(f"   {total_problems} problemas | Pipeline: Genio + RAG → DeepSeek Reasoner")
+    print(f"\n🚀 REDACTOR V4 GEMINI PIPELINE — {tipo} — {user_email}")
+    print(f"   Contexto: {len(caso_context)} chars | Pipeline: Gemini 2.5 Pro x4 fases")
+
+    # Judge role based on tipo
+    if tipo == "amparo_indirecto":
+        judge_voice = "Juez de Distrito"
+        tribunal_desc = "Juzgado de Distrito"
+    else:
+        judge_voice = "Magistrado de Tribunal Colegiado de Circuito"
+        tribunal_desc = "Tribunal Colegiado de Circuito"
+
+    # Gemini model to use
+    GEMINI_MODEL = "gemini-2.5-pro"
 
     async def generate_sse():
         def sse(event_type: str, data: dict) -> str:
@@ -11049,277 +11065,340 @@ async def redactor_v3_generate_comprehensive(
         total_api_calls = 0
 
         try:
-            # ── Pre-flight: Detect materias and activate Genios ──────────
-            materias_detected = set()
-            for prob in problemas:
-                desc_lower = (prob.get("titulo", "") + " " + prob.get("descripcion", "")).lower()
-                for m in ["civil", "penal", "laboral", "fiscal", "mercantil", "administrativo", "agrario", "cidh"]:
-                    if m in desc_lower:
-                        materias_detected.add(m)
-            materias_detected.add("amparo")  # Always include amparo
+            from google.genai import types as gtypes
+            gemini = get_gemini_client()
 
+            # ════════════════════════════════════════════════════════════════
+            # FASE 1: RESUMEN DETALLADO DEL ACTO RECLAMADO
+            # ════════════════════════════════════════════════════════════════
             yield sse("phase", {
-                "step": "🧠 Activando Genios de contexto legal...",
-                "progress": 2,
+                "step": "📋 Fase 1/4: Analizando Acto Reclamado...",
+                "progress": 5,
                 "problema_actual": 0,
-                "total_problemas": total_problems,
-                "titulo_problema": "Preparación",
+                "total_problemas": 4,
+                "titulo_problema": "Resumen del Acto Reclamado",
             })
 
-            # Activate Genio caches in parallel
-            from cache_manager import activate_genios_for_sentencia, query_genio
-            genio_caches = {}
+            f1_prompt = f"""Eres un Secretario Proyectista EXPERTO de un {tribunal_desc} del Poder Judicial de la Federación de México.
+
+TAREA: Genera un resumen COMPLETO y DETALLADO del acto reclamado/recurrido a partir del texto proporcionado.
+
+El resumen DEBE incluir:
+1. Autoridad emisora (nombre completo del tribunal/juzgado)
+2. Fecha de la resolución
+3. Número de expediente/toca
+4. Sentido de la resolución (confirmó, revocó, absolvió, condenó, etc.)
+5. Hechos relevantes del caso
+6. Pretensiones de las partes
+7. Pruebas valoradas y cómo fueron valoradas
+8. Fundamentación legal utilizada
+9. Razonamiento central de la autoridad
+10. Puntos resolutivos
+
+REGLAS:
+- Sé exhaustivo — no omitas ningún dato relevante
+- Mantén la objetividad — no califiques las decisiones
+- Usa prosa jurídica formal y clara
+- CERO FILLER: texto directo, sin saludos ni intros vacías
+
+{caso_context}
+
+Genera el resumen ahora. Encabeza con "**I. SÍNTESIS DEL ACTO RECLAMADO**" """
+
+            total_api_calls += 1
+            f1_text = ""
+            yield sse("text", {"chunk": "", "group": 1})
+
+            gemini_stream = await gemini.aio.models.generate_content_stream(
+                model=GEMINI_MODEL,
+                contents=f1_prompt,
+                config=gtypes.GenerateContentConfig(
+                    temperature=0.2,
+                    max_output_tokens=8192,
+                ),
+            )
+            async for chunk in gemini_stream:
+                if chunk.text:
+                    f1_text += chunk.text
+                    yield sse("text", {"chunk": chunk.text, "group": 1})
+
+            print(f"   ✅ F1 Resumen Acto: {len(f1_text)} chars")
+
+            # ════════════════════════════════════════════════════════════════
+            # FASE 2: RESUMEN DE CONCEPTOS DE VIOLACIÓN / AGRAVIOS
+            # ════════════════════════════════════════════════════════════════
+            yield sse("phase", {
+                "step": "📋 Fase 2/4: Analizando Conceptos de Violación...",
+                "progress": 25,
+                "problema_actual": 1,
+                "total_problemas": 4,
+                "titulo_problema": "Conceptos de Violación",
+            })
+
+            f2_prompt = f"""Eres un Secretario Proyectista EXPERTO de un {tribunal_desc} del Poder Judicial de la Federación de México.
+
+TAREA: Genera un resumen COMPLETO de los conceptos de violación/agravios planteados en la demanda/recurso.
+
+Para CADA concepto de violación o agravio:
+1. Número y título del concepto
+2. Derecho o artículo constitucional que se considera transgredido
+3. Argumentos centrales del quejoso/recurrente (transcribir los puntos clave)
+4. Norma o precedente que invoca para sustentar su posición
+5. Petición concreta (qué pide al tribunal)
+
+REGLAS:
+- TRANSCRIBE fielmente cada argumento — no parafrasees de forma que pierda sustancia
+- Mantén la estructura del escrito original
+- Si el quejoso cita jurisprudencia o tesis, inclúyelas con su registro
+- CERO FILLER
+
+═══ ACTO RECLAMADO (YA RESUMIDO) ═══
+{f1_text}
+
+{caso_context}
+
+Genera el resumen ahora. Encabeza con "**II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS**" """
+
+            total_api_calls += 1
+            f2_text = ""
+            yield sse("text", {"chunk": "\n\n", "group": 1})
+
+            gemini_stream = await gemini.aio.models.generate_content_stream(
+                model=GEMINI_MODEL,
+                contents=f2_prompt,
+                config=gtypes.GenerateContentConfig(
+                    temperature=0.2,
+                    max_output_tokens=8192,
+                ),
+            )
+            async for chunk in gemini_stream:
+                if chunk.text:
+                    f2_text += chunk.text
+                    yield sse("text", {"chunk": chunk.text, "group": 1})
+
+            print(f"   ✅ F2 Conceptos Violación: {len(f2_text)} chars")
+
+            # ════════════════════════════════════════════════════════════════
+            # FASE 3: DERIVAR PROBLEMAS JURÍDICOS
+            # ════════════════════════════════════════════════════════════════
+            yield sse("phase", {
+                "step": "🧠 Fase 3/4: Identificando problemas jurídicos...",
+                "progress": 45,
+                "problema_actual": 2,
+                "total_problemas": 4,
+                "titulo_problema": "Fijación de Problemas",
+            })
+
+            f3_prompt = f"""Eres un Secretario Proyectista EXPERTO de un {tribunal_desc} del Poder Judicial de la Federación de México.
+
+TAREA: A partir del resumen del acto reclamado y de los conceptos de violación, IDENTIFICA y LISTA los problemas jurídicos concretos que debe resolver el tribunal.
+
+Para CADA problema jurídico:
+1. **Título**: nombre descriptivo y preciso
+2. **Descripción**: explicación concreta del problema (2-3 oraciones)
+3. **Interrogante central**: la pregunta que debe responder el tribunal
+4. **Calificación propuesta**: FUNDADO, INFUNDADO, o INOPERANTE
+5. **Justificación breve**: por qué propones esa calificación (1-2 oraciones)
+
+{f"NOTA: El sentido global propuesto es: {sentido_global}" if sentido_global else ""}
+
+REGLAS:
+- Deriva los problemas DIRECTAMENTE de los conceptos de violación — cada concepto puede generar 1 o más problemas
+- Ordena de mayor a menor relevancia jurídica
+- La calificación debe ser congruente con el análisis del acto reclamado
+- Sé preciso — cada problema debe ser un punto resoluble y concreto
+
+También devuelve la lista en formato JSON al final del texto, así:
+```json
+[
+  {{"titulo": "...", "descripcion": "...", "interrogante": "...", "calificacion": "fundado|infundado|inoperante", "justificacion": "..."}},
+  ...
+]
+```
+
+═══ RESUMEN DEL ACTO RECLAMADO ═══
+{f1_text}
+
+═══ CONCEPTOS DE VIOLACIÓN ═══
+{f2_text}
+
+Genera el análisis ahora. Encabeza con "**III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS**" """
+
+            total_api_calls += 1
+            f3_text = ""
+            yield sse("text", {"chunk": "\n\n", "group": 1})
+
+            gemini_stream = await gemini.aio.models.generate_content_stream(
+                model=GEMINI_MODEL,
+                contents=f3_prompt,
+                config=gtypes.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=8192,
+                ),
+            )
+            async for chunk in gemini_stream:
+                if chunk.text:
+                    f3_text += chunk.text
+                    yield sse("text", {"chunk": chunk.text, "group": 1})
+
+            print(f"   ✅ F3 Problemas Jurídicos: {len(f3_text)} chars")
+
+            # Parse problems from F3 JSON block
+            problemas_derivados = []
             try:
-                genio_caches = await activate_genios_for_sentencia(list(materias_detected))
-                active_genios = [g for g, c in genio_caches.items() if c]
-                print(f"   🧠 Genios activos: {active_genios}")
+                import re
+                json_match = re.search(r'```json\s*(\[.*?\])\s*```', f3_text, re.DOTALL)
+                if json_match:
+                    problemas_derivados = json.loads(json_match.group(1))
+                    print(f"   📊 Problemas derivados: {len(problemas_derivados)}")
             except Exception as e:
-                print(f"   ⚠️ Genio activation error: {e}")
+                print(f"   ⚠️ JSON parse error: {e}")
 
-            # ── Judge role based on tipo ──────────────────────────────────
-            if tipo == "amparo_indirecto":
-                judge_voice = "Juez de Distrito"
-                golden_rule = (
-                    "La litis versa sobre la constitucionalidad del acto reclamado "
-                    "a la Autoridad Responsable en función de los conceptos de violación "
-                    "y el informe justificado."
-                )
-            else:
-                judge_voice = "Tribunal Colegiado de Circuito"
-                golden_rule = (
-                    "La litis versa EXCLUSIVAMENTE sobre la constitucionalidad del acto "
-                    "de la Autoridad Responsable (ej. la Sala de apelación). "
-                    "Dirige tu análisis a sus consideraciones, NUNCA al juez de primera instancia."
-                )
+            # Fallback to manual problems if auto-derivation failed
+            if not problemas_derivados and problemas_manual:
+                problemas_derivados = problemas_manual
+                print(f"   📊 Usando {len(problemas_derivados)} problemas manuales (fallback)")
 
-            # ── Per-problem iteration ─────────────────────────────────────
-            for i, prob in enumerate(problemas):
+            if not problemas_derivados:
+                # Emergency: create single generic problem
+                problemas_derivados = [{"titulo": "Análisis integral", "descripcion": "Estudio de fondo completo", "calificacion": "infundado"}]
+
+            # ════════════════════════════════════════════════════════════════
+            # FASE 4: RESOLVER CADA PROBLEMA CON RAG JURISPRUDENCIA
+            # ════════════════════════════════════════════════════════════════
+            total_problems = len(problemas_derivados)
+            yield sse("text", {"chunk": "\n\n**IV. ESTUDIO DE FONDO**\n\n", "group": 1})
+
+            for i, prob in enumerate(problemas_derivados):
                 prob_title = prob.get("titulo", f"Problema {i+1}")
                 prob_desc = prob.get("descripcion", "")
-                prob_calif = prob.get("calificacion", "sin_calificar")
-                prob_notas = prob.get("notas", "")
-                prob_q = prob.get("interrogante", "")
+                prob_calif = prob.get("calificacion", "infundado")
+                prob_interrog = prob.get("interrogante", "")
+                prob_justif = prob.get("justificacion", "")
 
                 print(f"   ► P{i+1}/{total_problems}: {prob_title} [{prob_calif}]")
 
-                # ──────────────────────────────────────────────────────────
-                # PHASE 1: RAG + GENIO CONTEXT
-                # ──────────────────────────────────────────────────────────
                 yield sse("phase", {
-                    "step": f"🔍 Investigando: {prob_title}",
-                    "progress": int((i / total_problems) * 100 + 5),
+                    "step": f"⚖️ Fase 4/4: Resolviendo {prob_title}...",
+                    "progress": int(55 + (i / total_problems) * 40),
                     "problema_actual": i + 1,
                     "total_problemas": total_problems,
                     "titulo_problema": prob_title,
                 })
 
-                # 1a. RAG search (jurisprudencia + legislation)
-                search_query = f"{prob_desc} {prob_notas}"
+                # ── RAG: buscar jurisprudencia relevante ──
                 rag_context = ""
                 try:
+                    search_query = f"{prob_title} {prob_desc} {prob_interrog}"
                     tasks = [
-                        hybrid_search_all_silos(query=search_query[:350], estado=None, top_k=8, alpha=0.7, enable_reasoning=False),
-                        hybrid_search_all_silos(query=f"jurisprudencia {prob_q}", estado=None, top_k=8, alpha=0.7, enable_reasoning=False)
+                        hybrid_search_all_silos(query=search_query[:400], estado=None, top_k=10, alpha=0.7, enable_reasoning=False),
+                        hybrid_search_all_silos(query=f"jurisprudencia tesis {prob_title}", estado=None, top_k=8, alpha=0.7, enable_reasoning=False)
                     ]
                     results_raw = await asyncio.gather(*tasks, return_exceptions=True)
                     seen_ids = set()
                     rag_results = []
                     for batch in results_raw:
-                        if isinstance(batch, Exception): continue
+                        if isinstance(batch, Exception):
+                            continue
                         for r in batch:
                             if r.id not in seen_ids:
                                 seen_ids.add(r.id)
                                 rag_results.append(r)
                     rag_results.sort(key=lambda r: r.score, reverse=True)
-                    rag_results = rag_results[:12]
+                    rag_results = rag_results[:15]  # More results for better quality
 
                     for r in rag_results:
                         tag = "[JURISPRUDENCIA]" if "jurisprudencia" in (r.silo or "").lower() else "[LEGISLACIÓN]"
-                        rag_context += f"\n--- {tag} ---\nFuente: {r.ref or r.origen}\n{str(r.texto)[:1200]}\n"
+                        rag_context += f"\n--- {tag} ---\nFuente: {r.ref or r.origen}\n{str(r.texto)[:1500]}\n"
+                    print(f"     📚 RAG: {len(rag_results)} resultados")
                 except Exception as e:
-                    print(f"   ⚠️ RAG Error P{i+1}: {e}")
+                    print(f"     ⚠️ RAG Error P{i+1}: {e}")
 
-                # 1b. Genio query — extract full-text articles
-                yield sse("phase", {
-                    "step": f"📖 Genio extrae artículos: {prob_title}",
-                    "progress": int((i / total_problems) * 100 + 15),
-                    "problema_actual": i + 1,
-                    "total_problemas": total_problems,
-                    "titulo_problema": prob_title,
-                })
+                # ── Gemini: resolver el problema ──
+                is_last = (i == total_problems - 1)
 
-                genio_articles = ""
-                for materia, cache_name in genio_caches.items():
-                    if not cache_name:
-                        continue
-                    try:
-                        # Build targeted question for this materia
-                        materia_kws = _get_materia_keywords(materia)
-                        # Check if this problem relates to this materia
-                        combined = (prob_title + " " + prob_desc + " " + prob_notas).lower()
-                        if materia == "amparo" or any(kw in combined for kw in materia_kws):
-                            q = (
-                                f"Para resolver el siguiente problema jurídico en un amparo {tipo}: "
-                                f"'{prob_title}': {prob_desc[:200]}. "
-                                f"Dame el texto ÍNTEGRO de los artículos más relevantes de las leyes "
-                                f"en tu contexto. Incluye cada artículo completo con sus fracciones."
-                            )
-                            total_api_calls += 1
-                            response_text = await query_genio(materia, q, max_tokens=6144)
-                            if response_text:
-                                genio_articles += f"\n═══ ARTÍCULOS [{materia.upper()}] ═══\n{response_text}\n"
-                    except Exception as e:
-                        print(f"   ⚠️ Genio query error ({materia}): {e}")
-
-                # ──────────────────────────────────────────────────────────
-                # PHASE 2: DEEPSEEK REASONER (THINKING + STREAMING)
-                # ──────────────────────────────────────────────────────────
-                yield sse("phase", {
-                    "step": f"✍️ DeepSeek razona: {prob_title} ({prob_calif})",
-                    "progress": int((i / total_problems) * 100 + 40),
-                    "problema_actual": i + 1,
-                    "total_problemas": total_problems,
-                    "titulo_problema": prob_title,
-                })
-
-                # Structural instructions based on position
-                if total_problems == 1:
-                    flow_instructions = (
-                        "GENERA TODA la sentencia con esta estructura:\n"
-                        "I. SÍNTESIS DEL ACTO RECLAMADO\n"
-                        "II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS\n"
-                        "III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS\n"
-                        "IV. ESTUDIO DE FONDO — Desarrolla directo sin intros.\n"
-                        "V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS\n"
-                    )
-                elif i == 0:
-                    flow_instructions = (
-                        "INICIA la sentencia con:\n"
-                        "I. SÍNTESIS DEL ACTO RECLAMADO\n"
-                        "II. SÍNTESIS DE LOS CONCEPTOS DE VIOLACIÓN / AGRAVIOS\n"
-                        "III. FIJACIÓN DE LOS PROBLEMAS JURÍDICOS (enumera TODOS)\n"
-                        "IV. ESTUDIO DE FONDO — subtítulo de ESTE primer problema.\n"
-                        "PROHIBIDO: redactar conclusión, resolutivos, o intros genéricas."
-                    )
-                elif i == total_problems - 1:
-                    flow_instructions = (
-                        "CIERRA el Estudio de Fondo y la sentencia:\n"
-                        "1. Subtítulo de ESTE último problema + análisis.\n"
-                        "2. V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS conforme al SENTIDO GLOBAL.\n"
-                        "PROHIBIDO: repetir título 'IV. ESTUDIO DE FONDO', síntesis iniciales."
-                    )
-                else:
-                    flow_instructions = (
-                        "GENERA UN SOLO APARTADO INTERMEDIO:\n"
-                        "1. Subtítulo de ESTE problema.\n"
-                        "2. Análisis y argumentación.\n"
-                        "PROHIBIDO: título 'IV. ESTUDIO DE FONDO', síntesis, intros genéricas, resolutivos."
-                    )
-
-                deepseek_prompt = f"""Eres un redactor judicial de élite de un {judge_voice} del Poder Judicial de la Federación.
+                f4_prompt = f"""Eres un {judge_voice} del Poder Judicial de la Federación de México, redactando el estudio de fondo de una sentencia de {tipo.replace('_', ' ')}.
 
 ═══ REGLAS ABSOLUTAS ═══
-1. ACATA LA CALIFICACIÓN: El problema está calificado como {prob_calif.upper()}. Tu desarrollo DEBE justificar esa conclusión.
-2. CERO ALUCINACIONES: Solo cita artículos y tesis que estén TEXTUALMENTE más abajo. JAMÁS inventes tesis ni registros.
-3. {golden_rule}
-4. NO repitas párrafos, citas ni razonamientos.
+1. ACATA LA CALIFICACIÓN: Este problema está calificado como **{prob_calif.upper()}**. Tu desarrollo DEBE justificar esa conclusión con profundidad y exhaustividad.
+2. CERO ALUCINACIONES: Solo cita artículos, tesis y jurisprudencia que aparezcan TEXTUALMENTE en la sección de JURISPRUDENCIA Y LEGISLACIÓN más abajo. JAMÁS inventes registros, rubros ni números de tesis.
+3. La litis versa sobre la CONSTITUCIONALIDAD del acto de la Autoridad Responsable. Analiza sus consideraciones, no las del juez de primera instancia (salvo que sea amparo indirecto).
+4. NO repitas párrafos, citas ni razonamientos ya expuestos.
 5. Prosa jurídica formal, clara, objetiva.
-6. CERO FILLER: Jamás uses 'De acuerdo. Procedo...', saludos ni intros vacías. Texto directo para la sentencia.
+6. CERO FILLER: Jamás uses "De acuerdo. Procedo...", saludos ni intros vacías. Texto directo para insertar en la sentencia.
 7. NUNCA uses: "en la especie", "obra en autos", "de esta guisa", "robustece", "numeral", "deviene", "se colige"
 8. SÍ usa: "en este caso", "consta en el expediente", "confirma", "artículo", "resulta", "se concluye"
+9. EXTENSIÓN: Si es FUNDADO, desarrolla ampliamente (1500-3000 palabras). Si es INFUNDADO, sé conciso pero fundamentado (500-1000 palabras). Si es INOPERANTE, breve (200-400 palabras).
 
-═══ CONTEXTO DEL CASO ═══
-{global_context}
+═══ CONTEXTO COMPLETO DEL CASO ═══
+{f1_text[:3000]}
+
+═══ CONCEPTOS DE VIOLACIÓN RELEVANTES ═══
+{f2_text[:3000]}
 
 ═══ PROBLEMA JURÍDICO A RESOLVER ═══
 Título: {prob_title}
 Descripción: {prob_desc}
-Interrogante: {prob_q}
+Interrogante: {prob_interrog}
 CALIFICACIÓN: {prob_calif.upper()}
-NOTAS DEL SECRETARIO: {prob_notas}
+Justificación propuesta: {prob_justif}
 
-═══ ARTÍCULOS DE LEY (TEXTO ÍNTEGRO DEL GENIO) ═══
-{genio_articles or '(No disponible — fundamenta con la legislación del RAG)'}
-
-═══ JURISPRUDENCIA Y LEGISLACIÓN (RAG) ═══
-{rag_context or '(No se encontraron resultados RAG)'}
-
-═══ ESTRUCTURA REQUERIDA ═══
-{flow_instructions}
+═══ JURISPRUDENCIA Y LEGISLACIÓN (RAG — SOLO CITA DE AQUÍ) ═══
+{rag_context or '(No se encontró jurisprudencia específica — fundamenta con la legislación aplicable)'}
 
 ═══ TU TAREA ═══
-Redacta ÚNICAMENTE la parte que te corresponde. Sé profundo, exhaustivo y técnicamente impecable.
-Cita TEXTUALMENTE los artículos y tesis proporcionados arriba."""
+Redacta el APARTADO COMPLETO para este problema jurídico.
+
+Estructura:
+1. Subtítulo con número y nombre del problema
+2. Planteamiento: qué alega el quejoso (breve, sin repetir lo ya dicho en secciones anteriores)
+3. Marco jurídico: artículos y principios constitucionales/legales aplicables
+4. Análisis jurídico profundo: razona paso a paso por qué el planteamiento es {prob_calif}
+5. Jurisprudencia de soporte: cita TEXTUALMENTE las tesis del RAG que sustenten tu determinación
+6. Conclusión del problema: declaración formal de que el agravio es {prob_calif}
+
+{"Después del último problema, agrega: **V. CONCLUSIÓN Y PUNTOS RESOLUTIVOS** con el sentido global de la sentencia." if is_last else "NO incluyas conclusión general ni puntos resolutivos — eso va al final."}
+
+Redacta ahora. Texto directo para la sentencia, sin metadiscurso."""
 
                 total_api_calls += 1
 
                 try:
-                    # Use official DeepSeek client for Reasoner (thinking mode)
-                    _ds_client = get_deepseek_official_client() if _deepseek_pool else None
-                    if _ds_client:
-                        response = await _ds_client.chat.completions.create(
-                            model=DEEPSEEK_OFFICIAL_REASONER_MODEL,  # "deepseek-reasoner"
-                            messages=[
-                                {"role": "user", "content": deepseek_prompt},
-                            ],
-                            max_tokens=16384,
-                            stream=True,
-                        )
-                        async for chunk in response:
-                            if chunk.choices and chunk.choices[0].delta.content:
-                                yield sse("text", {"chunk": chunk.choices[0].delta.content, "group": i + 1})
-                    elif deepseek_client:
-                        # Fallback to OpenRouter
-                        response = await deepseek_client.chat.completions.create(
-                            model=REASONER_MODEL,  # "deepseek/deepseek-r1"
-                            messages=[
-                                {"role": "user", "content": deepseek_prompt},
-                            ],
-                            max_tokens=16384,
-                            stream=True,
-                        )
-                        async for chunk in response:
-                            if chunk.choices and chunk.choices[0].delta.content:
-                                yield sse("text", {"chunk": chunk.choices[0].delta.content, "group": i + 1})
-                    else:
-                        # Fallback to Gemini if no DeepSeek configured
-                        from google.genai import types as gtypes
-                        client = get_gemini_client()
-                        gemini_stream = await client.aio.models.generate_content_stream(
-                            model="gemini-2.5-pro",
-                            contents=deepseek_prompt,
-                            config=gtypes.GenerateContentConfig(
-                                temperature=0.3,
-                                max_output_tokens=32000,
-                            ),
-                        )
-                        async for chunk in gemini_stream:
-                            if chunk.text:
-                                yield sse("text", {"chunk": chunk.text, "group": i + 1})
+                    gemini_stream = await gemini.aio.models.generate_content_stream(
+                        model=GEMINI_MODEL,
+                        contents=f4_prompt,
+                        config=gtypes.GenerateContentConfig(
+                            temperature=0.3,
+                            max_output_tokens=16384,
+                        ),
+                    )
+                    async for chunk in gemini_stream:
+                        if chunk.text:
+                            yield sse("text", {"chunk": chunk.text, "group": i + 2})
 
                     # Spacing between problems
                     if i < total_problems - 1:
-                        yield sse("text", {"chunk": "\n\n", "group": i + 1})
+                        yield sse("text", {"chunk": "\n\n", "group": i + 2})
 
                     print(f"   ✅ P{i+1}/{total_problems} completado")
 
                 except Exception as e:
                     print(f"   ⚠️ Generation Error P{i+1}: {e}")
-                    yield sse("error", {"message": f"Error redactando problema {i+1}: {str(e)}"})
+                    yield sse("error", {"message": f"Error resolviendo problema {i+1}: {str(e)}"})
 
             elapsed = time_module.time() - total_start
             yield sse("done", {
                 "total_chars": -1,
                 "elapsed": round(elapsed, 1),
-                "model": "v3 Dual-Brain: Genio + RAG → DeepSeek Reasoner",
-                "groups_completed": total_problems,
+                "model": f"V4 Gemini Pipeline: {GEMINI_MODEL} x{total_api_calls} calls",
+                "groups_completed": total_problems + 1,
                 "api_calls": total_api_calls,
                 "total_problemas": total_problems,
             })
-            print(f"   🏁 COMPLETADO v3 Dual-Brain en {elapsed:.1f}s ({total_api_calls} calls)")
+            print(f"   🏁 COMPLETADO V4 Gemini en {elapsed:.1f}s ({total_api_calls} calls, {total_problems} problemas)")
 
         except Exception as e:
-            print(f"   ❌ Generate v3 error: {e}")
+            print(f"   ❌ Generate V4 error: {e}")
             import traceback
             traceback.print_exc()
             yield sse("error", {"message": str(e)})
