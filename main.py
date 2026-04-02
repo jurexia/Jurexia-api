@@ -3555,7 +3555,7 @@ def _score_materia_relevance(result, detected_materias: List[str]) -> float:
     return max(0.0, min(1.0, score))
 
 
-def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25, strict_mode: bool = False) -> list:
+def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25, strict_mode: bool = False, protected_silo: Optional[str] = None) -> list:
     """
     Capa 3 del Materia-Aware Retrieval: Post-retrieval threshold con multi-signal scoring.
     
@@ -3614,8 +3614,9 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     penalized_count = 0
     
     for r in results:
-        # SIEMPRE mantener jurisprudencia y constitucional (supremacía constitucional)
-        if r.silo in ("jurisprudencia_nacional", "bloque_constitucional"):
+        # SIEMPRE mantener jurisprudencia, constitucional, y el silo del estado seleccionado
+        # El silo del estado seleccionado es la fuente primaria — nunca descartar por materia
+        if r.silo in ("jurisprudencia_nacional", "bloque_constitucional") or r.silo == protected_silo:
             filtered.append(r)
             continue
         
@@ -5591,7 +5592,7 @@ async def hybrid_search_all_silos(
     # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
     # ═══════════════════════════════════════════════════════════════════════════
     if detected_materias:
-        merged = _apply_materia_threshold(merged, detected_materias, strict_mode=(forced_materia is not None))
+        merged = _apply_materia_threshold(merged, detected_materias, strict_mode=(forced_materia is not None), protected_silo=_selected_state_silo)
     
     # ═══════════════════════════════════════════════════════════════════════════
     # COHERE RERANK: Cross-encoder final reranking (ÚLTIMA CAPA)
