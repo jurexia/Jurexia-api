@@ -5453,9 +5453,18 @@ async def hybrid_search_all_silos(
                     for _ar in _anchor_results:
                         if _ar.id not in _existing_ids:
                             # Verificar que el resultado es del código procesal correcto
-                            _origen_lower = (_ar.origen or "").lower()
-                            _anchor_lower = _anchor.lower()
-                            # Match flexible: "Código de Procedimientos Civiles" en cualquier origen
+                            # Normalizar: quitar diacríticos y caracteres corruptos (mojibake) antes de comparar
+                            import unicodedata
+                            def _normalize_str(s: str) -> str:
+                                """Quita diacríticos y reemplaza caracteres corruptos por sus equivalentes."""
+                                # Normalizar unicode (NFC) y luego strip acentos
+                                nfkd = unicodedata.normalize('NFKD', s)
+                                ascii_approx = ''.join(c for c in nfkd if not unicodedata.combining(c))
+                                # También colapsar caracteres de reemplazo (U+FFFD / ?) a vacío
+                                return ascii_approx.replace('\ufffd', '').replace('?', '').lower()
+                            _origen_lower = _normalize_str(_ar.origen or "")
+                            _anchor_lower = _normalize_str(_anchor)
+                            # Match flexible: todas las palabras clave del ancla presentes en origen
                             _anchor_words = [w for w in _anchor_lower.split() if len(w) > 3]
                             _is_target_law = all(w in _origen_lower for w in _anchor_words)
                             
