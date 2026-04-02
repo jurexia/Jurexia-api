@@ -3198,6 +3198,20 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
         }
 
 
+# Mapeo canónico: materia uppercase → valor lowercase almacenado en Qdrant
+_MATERIA_QDRANT_VALUES = {
+    "CIVIL": ["civil", "familiar"],          # CC frecuentemente agrupa civil y familia
+    "PENAL": ["penal"],
+    "FAMILIAR": ["familiar", "civil"],
+    "LABORAL": ["laboral"],
+    "ADMINISTRATIVO": ["administrativo", "administrativa"],
+    "FISCAL": ["fiscal", "administrativo", "administrativa"],
+    "MERCANTIL": ["mercantil"],
+    "AGRARIO": ["agrario"],
+    "CONSTITUCIONAL": ["constitucional"],
+}
+
+
 def build_metadata_filter(
     materia: Optional[str],
     nivel_jerarquico: Optional[str] = None
@@ -3205,11 +3219,14 @@ def build_metadata_filter(
     """
     Construye filtro de Qdrant basado en metadata jerárquica enriquecida.
     
+    IMPORTANTE: Los valores en Qdrant están en MINÚSCULAS (ej: 'civil', 'penal').
+    Esta función normaliza automáticamente y expande aliases (ej: CIVIL → civil+familiar).
+    
     Los filtros se aplican con lógica SHOULD (OR), permitiendo que chunks
     que coincidan con CUALQUIERA de las condiciones sean incluidos.
     
     Args:
-        materia: Materia legal (penal, civil, laboral, etc.)
+        materia: Materia legal en cualquier casing (CIVIL, civil, Civil...)
         nivel_jerarquico: constitucional, federal, estatal
     
     Returns:
@@ -3218,19 +3235,25 @@ def build_metadata_filter(
     conditions = []
     
     if materia:
-        # Filtrar por materia (debe contener la materia en el array metadata.materia)
-        conditions.append(
-            FieldCondition(
-                key="materia",
-                match=MatchValue(value=materia)
+        # Normalizar a uppercase para buscar en el mapa canónico
+        materia_upper = materia.upper().strip()
+        # Obtener los valores lowercase que realmente están en Qdrant
+        qdrant_values = _MATERIA_QDRANT_VALUES.get(materia_upper, [materia.lower()])
+        
+        # Crear una condición SHOULD por cada alias
+        for val in qdrant_values:
+            conditions.append(
+                FieldCondition(
+                    key="materia",
+                    match=MatchValue(value=val)
+                )
             )
-        )
     
     if nivel_jerarquico:
         conditions.append(
             FieldCondition(
                 key="nivel_jerarquico",
-                match=MatchValue(value=nivel_jerarquico)
+                match=MatchValue(value=nivel_jerarquico.lower())
             )
         )
     
@@ -3378,6 +3401,46 @@ MATERIA_KEYWORDS = {
     },
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# MATERIA EXCLUSIONS — Leyes que producen falsos positivos conocidos
+# Cuando se detecta materia X, penalizar resultados cuyo origen contenga estos strings
+# ══════════════════════════════════════════════════════════════════════════════
+MATERIA_EXCLUSIONS = {
+    "CIVIL": {
+        "propiedad industrial", "propiedad intelectual", "patentes",
+        "invenciones", "derecho de autor", "marcas", "protección al consumidor",
+        "procedimiento contencioso administrativo", "responsabilidad administrativa",
+        "seguridad nacional", "seguridad pública", "ley de aguas",
+        "ley de minería", "ley de hidrocarburos", "ley aduanera",
+    },
+    "PENAL": {
+        "responsabilidad patrimonial", "procedimiento contencioso",
+        "propiedad industrial", "protección al consumidor",
+        "ley de ingresos", "ley aduanera", "ley del notariado",
+    },
+    "FAMILIAR": {
+        "propiedad industrial", "protección al consumidor",
+        "procedimiento contencioso administrativo", "seguridad nacional",
+        "ley de aguas", "ley de minería",
+    },
+    "LABORAL": {
+        "propiedad industrial", "código civil", "código penal",
+        "procedimiento contencioso administrativo",
+    },
+    "ADMINISTRATIVO": {
+        "código civil", "código penal", "código de procedimientos civiles",
+        "código de procedimientos penales", "ley federal del trabajo",
+    },
+    "FISCAL": {
+        "código civil", "código penal", "propiedad industrial",
+        "protección al consumidor",
+    },
+    "MERCANTIL": {
+        "código penal", "ley agraria", "ley de amparo",
+        "ley de aguas", "seguridad pública",
+    },
+}
+
 
 def _detect_materia(query: str, forced_materia: Optional[str] = None) -> Optional[List[str]]:
     """
@@ -3424,15 +3487,87 @@ def _detect_materia(query: str, forced_materia: Optional[str] = None) -> Optiona
     return [sorted_materias[0][0]]
 
 
+def _score_materia_relevance(result, detected_materias: List[str]) -> float:
+    """
+    Multi-signal scoring: evalúa qué tan relevante es un resultado para la materia detectada.
+    Usa 3 señales: jurisdiccion metadata, nombre de ley (origen), y exclusiones negativas.
+    
+    Maneja inconsistencias legacy en el campo jurisdiccion almacenado en Qdrant
+    (ej: 'administrativa' vs 'administrativo').
+    
+    Returns: float entre 0.0 y 1.0 (1.0 = máxima relevancia)
+    """
+    score = 0.5  # Punto neutral
+    
+    materias_upper = {m.upper() for m in detected_materias}
+    origen_lower = (result.origen or "").lower()
+    
+    # Normalizar jurisdiccion del chunk (maneja variantes legacy)
+    _JURISDICCION_NORMALIZE = {
+        "administrativa": "ADMINISTRATIVO",
+        "administrativo": "ADMINISTRATIVO",
+        "penal": "PENAL",
+        "civil": "CIVIL",
+        "familiar": "FAMILIAR",
+        "laboral": "LABORAL",
+        "fiscal": "FISCAL",
+        "mercantil": "MERCANTIL",
+        "agrario": "AGRARIO",
+        "constitucional": "CONSTITUCIONAL",
+        "electoral": "ELECTORAL",
+    }
+    jur_raw = (result.jurisdiccion or "").lower()
+    jur_normalized = _JURISDICCION_NORMALIZE.get(jur_raw, jur_raw.upper())
+    
+    # Expandir aliases para comparación
+    _JUR_ALIASES = {
+        "ADMINISTRATIVO": {"ADMINISTRATIVO", "FISCAL"},
+        "FISCAL": {"FISCAL", "ADMINISTRATIVO"},
+        "CIVIL": {"CIVIL", "FAMILIAR"},
+        "FAMILIAR": {"FAMILIAR", "CIVIL"},
+        "MERCANTIL": {"MERCANTIL"},
+        "PENAL": {"PENAL"},
+        "LABORAL": {"LABORAL"},
+        "AGRARIO": {"AGRARIO"},
+        "CONSTITUCIONAL": {"CONSTITUCIONAL"},
+    }
+    jur_expanded = _JUR_ALIASES.get(jur_normalized, {jur_normalized})
+    
+    # Señal 1: jurisdiccion normalizada coincide con materia detectada (+0.3)
+    if jur_expanded & materias_upper:  # intersección no vacía
+        score += 0.3
+    
+    # Señal 2: Nombre de la ley contiene keywords de la materia (+0.2)
+    for m in materias_upper:
+        kws = MATERIA_KEYWORDS.get(m, set())
+        if any(kw in origen_lower for kw in kws):
+            score += 0.2
+            break
+    
+    # Señal 3: Nombre de la ley está en la lista de exclusiones (-0.5)
+    exclusions = set()
+    for m in materias_upper:
+        exclusions.update(MATERIA_EXCLUSIONS.get(m, set()))
+    if any(excl in origen_lower for excl in exclusions):
+        score -= 0.5
+    
+    return max(0.0, min(1.0, score))
+
+
 def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25, strict_mode: bool = False) -> list:
     """
-    Capa 3 del Materia-Aware Retrieval: Post-retrieval threshold.
+    Capa 3 del Materia-Aware Retrieval: Post-retrieval threshold con multi-signal scoring.
+    
+    Tres capas de filtrado:
+      1. Exclusiones negativas: Penaliza leyes que son falsos positivos conocidos
+         (ej: "Ley de Propiedad Industrial" cuando materia=CIVIL)
+      2. Multi-signal scoring: Evalúa jurisdiccion + nombre de ley + exclusiones
+      3. Threshold por score: Descarta resultados de baja relevancia
     
     Dos modos:
-      - soft (default): Descarta resultados de materia ajena SOLO si tienen score bajo.
-      - strict (strict_mode=True): DESCARTA TODO lo que no coincida con la materia,
-        excepto jurisprudencia y constitucional. Usado cuando el usuario selecciona
-        materia manualmente en el frontend.
+      - soft (default): Penaliza score de resultados de materia ajena
+      - strict (strict_mode=True): DESCARTA todo lo que no coincida,
+        excepto jurisprudencia y constitucional
     
     Args:
         results: Lista de SearchResult ordenados por score
@@ -3446,56 +3581,90 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     if not detected_materias or not results:
         return results
     
-    # Materia mapping expandido para strict mode
+    # Materia mapping expandido
     # Permite que "FAMILIAR" también acepte "CIVIL" (muchos estados tienen familia en CC)
     MATERIA_ALIAS = {
         "FAMILIAR": {"FAMILIAR", "CIVIL"},
         "ADMINISTRATIVO": {"ADMINISTRATIVO", "FISCAL"},
-        "CIVIL": {"CIVIL"},
+        "CIVIL": {"CIVIL", "FAMILIAR"},
         "PENAL": {"PENAL"},
+        "LABORAL": {"LABORAL"},
+        "MERCANTIL": {"MERCANTIL", "CIVIL"},
+        "FISCAL": {"FISCAL", "ADMINISTRATIVO"},
+        "AGRARIO": {"AGRARIO"},
+        "CONSTITUCIONAL": {"CONSTITUCIONAL"},
     }
     
     materias_upper = {m.upper() for m in detected_materias}
-    # Expandir aliases para strict mode
     expanded_materias = set()
     for m in materias_upper:
         expanded_materias.update(MATERIA_ALIAS.get(m, {m}))
+    
+    # Construir set de exclusiones para las materias detectadas
+    exclusions = set()
+    for m in materias_upper:
+        exclusions.update(MATERIA_EXCLUSIONS.get(m, set()))
     
     top_score = results[0].score if results else 0
     threshold = top_score - threshold_gap
     
     filtered = []
     dropped_count = 0
+    penalized_count = 0
+    
     for r in results:
         # SIEMPRE mantener jurisprudencia y constitucional (supremacía constitucional)
         if r.silo in ("jurisprudencia_nacional", "bloque_constitucional"):
             filtered.append(r)
             continue
         
-        # Si la jurisdiccion coincide con la materia detectada (o alias), mantener
-        if r.jurisdiccion and r.jurisdiccion.upper() in expanded_materias:
+        origen_lower = (r.origen or "").lower()
+        
+        # ── CAPA 1: EXCLUSIONES NEGATIVAS (máxima prioridad) ──
+        # Si el nombre de la ley coincide con un falso positivo conocido,
+        # penalizar agresivamente el score (no eliminar, para evitar errores)
+        is_excluded = any(excl in origen_lower for excl in exclusions)
+        if is_excluded:
+            if strict_mode:
+                dropped_count += 1
+                print(f"      🚫 EXCLUIDO (strict): {r.origen[:60]}")
+                continue
+            else:
+                # Soft mode: penalizar score a 30% del original
+                r.score *= 0.3
+                penalized_count += 1
+                # No continuar — dejarlo pasar con score reducido
+        
+        # ── CAPA 2: MULTI-SIGNAL MATERIA SCORING ──
+        materia_relevance = _score_materia_relevance(r, detected_materias)
+        
+        if materia_relevance >= 0.7:
+            # Alta relevancia: mantener siempre
             filtered.append(r)
             continue
-        
-        # Si no tiene jurisdiccion asignada, mantener (no podemos filtrar)
-        if not r.jurisdiccion:
-            filtered.append(r)
+        elif materia_relevance >= 0.4:
+            # Relevancia media: mantener si score es decente
+            if r.score >= threshold or not strict_mode:
+                filtered.append(r)
+            else:
+                dropped_count += 1
             continue
-        
-        # ── STRICT MODE: hard drop ──
-        if strict_mode:
-            dropped_count += 1
-            continue
-        
-        # ── SOFT MODE: mantener si el score es decente ──
-        if r.score >= threshold:
-            filtered.append(r)
         else:
-            dropped_count += 1
+            # Baja relevancia
+            if strict_mode:
+                dropped_count += 1
+                continue
+            # Soft mode: mantener solo si score es alto
+            if r.score >= threshold:
+                r.score *= 0.6  # Penalización moderada
+                penalized_count += 1
+                filtered.append(r)
+            else:
+                dropped_count += 1
     
     mode_label = "ESTRICTO" if strict_mode else "SOFT"
-    if dropped_count > 0:
-        print(f"   🧹 MATERIA THRESHOLD ({mode_label}): Descartados {dropped_count} resultados de materia ajena")
+    if dropped_count > 0 or penalized_count > 0:
+        print(f"   🧹 MATERIA THRESHOLD ({mode_label}): Descartados={dropped_count} Penalizados={penalized_count} (materias={list(materias_upper)})")
     
     return filtered
 
@@ -4941,6 +5110,30 @@ async def hybrid_search_all_silos(
         _norm_est = normalize_estado(estado)
         _selected_state_silo = ESTADO_SILO.get(_norm_est) if _norm_est else None
     
+    # ── Helper: combinar filtro de estado (must) con filtro de materia (should) ──
+    def _combine_filters_for_silo(
+        base: Optional[Filter], materia_should: Optional[Filter]
+    ) -> Optional[Filter]:
+        """Combina filtro de estado (must) con materia (should) para soft boosting.
+        El should NO elimina resultados, solo sube el score de los que coinicden."""
+        if not materia_should:
+            return base
+        if not base:
+            return materia_should
+        # Fusionar: must del base + should del materia
+        must_conditions = list(base.must) if base.must else []
+        should_conditions = list(materia_should.should) if materia_should.should else []
+        if not should_conditions:
+            return base
+        return Filter(must=must_conditions, should=should_conditions)
+    
+    # Construir filtro SHOULD por materia (Capa 2: boost en Qdrant)
+    _materia_should_filter = None
+    if detected_materias:
+        _materia_should_filter = build_metadata_filter(detected_materias[0])
+        if _materia_should_filter:
+            print(f"   🎯 MATERIA SHOULD FILTER: Qdrant boost para materia='{detected_materias[0]}'")
+    
     for silo_name in silos_to_search:
         state_filter = get_filter_for_silo(silo_name, estado)
         
@@ -4949,13 +5142,19 @@ async def hybrid_search_all_silos(
         # para maximizar la cobertura de leyes relevantes
         silo_top_k = top_k * 2 if silo_name == _selected_state_silo else top_k
         
+        # Inyectar materia should-filter en silos de leyes (NO en juris/constitucional)
+        if _materia_should_filter and silo_name not in ("jurisprudencia_nacional", "bloque_constitucional"):
+            combined_filter = _combine_filters_for_silo(state_filter, _materia_should_filter)
+        else:
+            combined_filter = state_filter
+        
         tasks.append(
             hybrid_search_single_silo(
                 collection=silo_name,
                 query=query,
                 dense_vector=dense_vector,
                 sparse_vector=sparse_vector,
-                filter_=state_filter,
+                filter_=combined_filter,
                 top_k=silo_top_k,
                 alpha=alpha,
             )
