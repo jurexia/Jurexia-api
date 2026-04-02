@@ -5162,7 +5162,31 @@ async def hybrid_search_all_silos(
         )
 
     
+    # BÚSQUEDA EXTRA: cuando hay estado seleccionado con fuero estatal,
+    # hacer una búsqueda adicional al silo estatal con el dense embedding de la
+    # query ORIGINAL (sin HyDE contaminado por terminología federal).
+    # Garantiza recuperar artículos aunque HyDE o expand hayan apuntado a otro silo.
+    _extra_estatal_task = None
+    if _selected_state_silo and fuero_normalized in ("estatal", None) and hyde_doc:
+        _original_dense = await get_dense_embedding(query)  # query original, no HyDE
+        _original_sparse = get_sparse_embedding(query)
+        _extra_estatal_task = asyncio.create_task(
+            hybrid_search_single_silo(
+                collection=_selected_state_silo,
+                query=query,
+                dense_vector=_original_dense,
+                sparse_vector=_original_sparse,
+                filter_=get_filter_for_silo(_selected_state_silo, estado),
+                top_k=top_k,
+                alpha=alpha,
+            )
+        )
+
     all_results = await asyncio.gather(*tasks)
+    if _extra_estatal_task:
+        extra_estatal = await _extra_estatal_task
+        all_results = list(all_results) + [extra_estatal]
+        print(f"   🔁 Búsqueda extra al silo estatal {_selected_state_silo} con query original: {len(extra_estatal)} resultados")
     print(f"   ⏱ Búsqueda en {len(silos_to_search)} silos: {time.perf_counter() - _t_search:.2f}s")
     
     # Separar resultados por silo para garantizar representación balanceada
@@ -7650,8 +7674,19 @@ async def chat_endpoint(request: ChatRequest):
                     ])
 
                     # Q2: Expandir la query con terminología jurídica relacionada
-                    # (ej: "me despidieron" → + "despido injustificado Ley Federal Trabajo artículo 48")
-                    _query_materias = {
+                    # REGLA: Si hay estado seleccionado con fuero estatal, NO añadir referencia a leyes federales
+                    # para evitar que el dense embedding apunte al silo incorrecto.
+                    _is_estatal = bool(effective_estado and request.fuero in ("estatal", None))
+                    _query_materias_estatal = {
+                        "laboral": "contrato trabajo despido rescisión reinstalación salario",
+                        "penal": "código penal delito tipo penal tipicidad antijuridicidad culpabilidad pena sanción",
+                        "civil": "código civil obligaciones contratos responsabilidad civil daños perjuicios",
+                        "amparo": "Ley de Amparo juicio derechos fundamentales artículos 103 107 CPEUM suspensión acto reclamado",
+                        "mercantil": "código de comercio títulos crédito letra cambio pagaré cheque",
+                        "familiar": "código civil familia divorcio alimentos custodia pensión alimenticia",
+                        "administrativo": "procedimiento administrativo recurso revisión nulidad acto administrativo",
+                    }
+                    _query_materias_federal = {
                         "laboral": "Ley Federal del Trabajo despido rescisión reinstalación artículo 48 LFT",
                         "penal": "código penal federal delito elementos tipicidad antijuridicidad culpabilidad",
                         "civil": "código civil federal obligaciones contratos responsabilidad civil daños perjuicios",
@@ -7661,6 +7696,7 @@ async def chat_endpoint(request: ChatRequest):
                         "administrativo": "Ley Federal Procedimiento Administrativo recurso revisión nulidad acto administrativo",
                     }
                     _materia_hint = request.materia or ""
+                    _query_materias = _query_materias_estatal if _is_estatal else _query_materias_federal
                     _expansion_suffix = _query_materias.get(_materia_hint.lower(), "")
                     _query_expanded = f"{last_user_message} {_expansion_suffix}".strip() if _expansion_suffix else last_user_message
 
