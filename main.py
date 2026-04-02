@@ -5037,6 +5037,11 @@ async def hybrid_search_all_silos(
     detected_materias = _detect_materia(query, forced_materia=forced_materia)
     if detected_materias:
         print(f"   🎯 MATERIA DETECTADA: {detected_materias} (forced={forced_materia is not None})")
+        # DESACTIVAR HYDE para consultas de materia para evitar contaminación semántica federal
+        # y garantizar mejor recall de los códigos procesales/civiles locales.
+        if hyde_doc:
+            print(f"   🛑 Desactivando HyDE debido a materia '{detected_materias[0]}' para mejorar precisión local")
+            hyde_doc = None
     
     # ═══════════════════════════════════════════════════════════════════════════
     # EMBEDDINGS: Dense (HyDE o query) + Sparse (BM25 keywords)
@@ -5190,6 +5195,19 @@ async def hybrid_search_all_silos(
         extra_estatal = await _extra_estatal_task
         all_results = list(all_results) + [extra_estatal]
         print(f"   🔁 Búsqueda extra al silo estatal {_selected_state_silo} con query original: {len(extra_estatal)} resultados")
+        
+    # FIX RAG: Boost artificial al silo estatal si busca algo muy técnico/materia
+    # Para evitar que la jurisdicción federal le gane
+    if _selected_state_silo and detected_materias:
+        boosted_count = 0
+        for results_list in all_results:
+            for r in results_list:
+                if r.silo == _selected_state_silo:
+                    # RRF usa scores bajos (~0.02). Dense usa altos (~0.8). Multiplicador funciona para ambos.
+                    r.score *= 1.25 
+                    boosted_count += 1
+        print(f"   🚀 BOOST MATERIA APLICADO: {boosted_count} resultados estatales de {_selected_state_silo} recibieron +25% score de peso")
+
     print(f"   ⏱ Búsqueda en {len(silos_to_search)} silos: {time.perf_counter() - _t_search:.2f}s")
     
     # Separar resultados por silo para garantizar representación balanceada
