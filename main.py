@@ -3802,8 +3802,10 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             continue
 
         # Marcar documentos estatales como FUENTE PRINCIPAL cuando hay estado seleccionado
+        # Aplica tanto al silo legacy (leyes_estatales) como a silos dedicados (leyes_edomex, etc.)
+        _dedicated_silos = set(ESTADO_SILO.values())
         tipo_tag = ""
-        if estado and r.silo == "leyes_estatales":
+        if estado and (r.silo == "leyes_estatales" or r.silo in _dedicated_silos):
             tipo_tag = ' tipo="LEGISLACION_ESTATAL" prioridad="PRINCIPAL"'
         elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
