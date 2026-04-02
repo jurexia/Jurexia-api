@@ -5397,6 +5397,83 @@ async def hybrid_search_all_silos(
         merged.extend(estatales[:min_estatales])
         merged.extend(jurisprudencia[:min_jurisprudencia])
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # MATERIA-AWARE SECONDARY SEARCH (INYECCIÓN DETERMINISTA POR CÓDIGO PROCESAL)
+    # Problema: queries genéricas como "requisitos de la demanda" matchean mejor
+    # con leyes administrativas (Transparencia, Servicios) que con el CPC local.
+    # Solución: re-query usando el nombre del código procesal como ancla semántica.
+    # ═══════════════════════════════════════════════════════════════════════════
+    _MATERIA_LAW_ANCHORS = {
+        "civil": [
+            "Código de Procedimientos Civiles",
+            "Código Civil",
+        ],
+        "penal": [
+            "Código Penal",
+            "Código Nacional de Procedimientos Penales",
+        ],
+        "familiar": [
+            "Código de Procedimientos Civiles",
+            "Código Familiar",
+            "Código Civil",
+        ],
+        "admin": [
+            "Ley de Procedimiento Contencioso Administrativo",
+            "Ley de Procedimientos Administrativos",
+        ],
+        "laboral": [
+            "Ley Federal del Trabajo",
+        ],
+    }
+    
+    if detected_materias and _selected_state_silo and estado:
+        _materia_key = detected_materias[0].lower()
+        _law_anchors = _MATERIA_LAW_ANCHORS.get(_materia_key, [])
+        
+        if _law_anchors:
+            print(f"\n   🎯 MATERIA-AWARE SECONDARY SEARCH: materia='{_materia_key}' → anclas: {_law_anchors}")
+            _existing_ids = {r.id for r in merged}
+            _injected = []
+            
+            for _anchor in _law_anchors[:2]:  # Max 2 anclas
+                # Construir query enriquecida con el nombre del código
+                _enriched_query = f"{_anchor} {query}"
+                try:
+                    _anchor_dense = await get_dense_embedding(_enriched_query)
+                    _anchor_sparse = get_sparse_embedding(_enriched_query)
+                    _anchor_results = await hybrid_search_single_silo(
+                        collection=_selected_state_silo,
+                        query=_enriched_query,
+                        dense_vector=_anchor_dense,
+                        sparse_vector=_anchor_sparse,
+                        filter_=get_filter_for_silo(_selected_state_silo, estado),
+                        top_k=8,
+                        alpha=alpha,
+                    )
+                    for _ar in _anchor_results:
+                        if _ar.id not in _existing_ids:
+                            # Verificar que el resultado es del código procesal correcto
+                            _origen_lower = (_ar.origen or "").lower()
+                            _anchor_lower = _anchor.lower()
+                            # Match flexible: "Código de Procedimientos Civiles" en cualquier origen
+                            _anchor_words = [w for w in _anchor_lower.split() if len(w) > 3]
+                            _is_target_law = all(w in _origen_lower for w in _anchor_words)
+                            
+                            if _is_target_law:
+                                _ar.score = max(_ar.score, 0.90)  # Score alto para priorizar
+                                _injected.append(_ar)
+                                _existing_ids.add(_ar.id)
+                                print(f"      ✅ INJECT: {_ar.ref} | {_ar.origen[:60]} | score→{_ar.score:.4f}")
+                except Exception as e:
+                    print(f"      ⚠️ Materia secondary search falló para '{_anchor}': {e}")
+            
+            if _injected:
+                # Insertar al INICIO del merged para máxima prioridad
+                merged = _injected + merged
+                print(f"   🚀 MATERIA INJECTION: {len(_injected)} chunks del código procesal inyectados al frente del contexto")
+            else:
+                print(f"   ⚠️ MATERIA INJECTION: No se encontraron chunks del código procesal (anclas: {_law_anchors})")
+    
     # === PRODUCTION LOGGING: qué documentos van al contexto ===
     print(f"\n   📋 MERGED RESULTS ({len(merged)} total):")
     silo_counts = {}
