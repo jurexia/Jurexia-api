@@ -182,7 +182,7 @@ REDACTOR_MODEL_GENERATE = REDACTOR_MODEL_GENERATE
 # Silos FIJOS: siempre se buscan independientemente del estado
 FIXED_SILOS = {
     "federal": "leyes_federales",
-    "jurisprudencia": "jurisprudencia_nacional",
+    "jurisprudencia": "jurisprudencia_nacional_v2",
     "constitucional": "bloque_constitucional",  # Constitución, Tratados DDHH, Jurisprudencia CoIDH
 }
 
@@ -2001,6 +2001,12 @@ class SearchResult(BaseModel):
     entidad: Optional[str] = None
     silo: str
     pdf_url: Optional[str] = None  # URL del PDF oficial (GCS o fuente gubernamental)
+    # Campos GraphRAG extraídos de jurisprudencia_nacional_v2
+    ratio_decidendi: Optional[str] = None
+    condicion_de_aplicacion: Optional[str] = None
+    distincion: Optional[str] = None
+    sentido_del_criterio: Optional[str] = None
+    obiter_dicta: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
@@ -3616,7 +3622,7 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     for r in results:
         # SIEMPRE mantener jurisprudencia, constitucional, y el silo del estado seleccionado
         # El silo del estado seleccionado es la fuente primaria — nunca descartar por materia
-        if r.silo in ("jurisprudencia_nacional", "bloque_constitucional") or r.silo == protected_silo:
+        if r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2", "bloque_constitucional") or r.silo == protected_silo:
             filtered.append(r)
             continue
         
@@ -3717,6 +3723,7 @@ SILO_HIERARCHY_PRIORITY: Dict[str, int] = {
     "leyes_estatales": 2,
     # Nivel 3: Jurisprudencia (complementaria, subordinada a norma)
     "jurisprudencia_nacional": 3,
+    "jurisprudencia_nacional_v2": 3,
     "jurisprudencia_tcc": 3,
     "jurisprudencia": 3,
 }
@@ -3808,7 +3815,7 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         tipo_tag = ""
         if estado and (r.silo == "leyes_estatales" or r.silo in _dedicated_silos):
             tipo_tag = ' tipo="LEGISLACION_ESTATAL" prioridad="PRINCIPAL"'
-        elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_tcc", "jurisprudencia"):
+        elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2", "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
         elif r.silo == "bloque_constitucional":
             # Distinguish CPEUM from treaties/conventions within bloque_constitucional
@@ -3823,12 +3830,24 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         # Obtener jerarquía para el XML
         jerarquia = _get_jerarquia_label(r.silo)
         
+        # Campos GraphRAG de jurisprudencia_nacional_v2
+        ratio_tags = ""
+        if r.silo == "jurisprudencia_nacional_v2":
+            if r.ratio_decidendi:
+                ratio_tags += f'\n<ratio_decidendi>{html.escape(r.ratio_decidendi)}</ratio_decidendi>'
+            if r.condicion_de_aplicacion:
+                ratio_tags += f'\n<condicion_de_aplicacion>{html.escape(r.condicion_de_aplicacion)}</condicion_de_aplicacion>'
+            if r.distincion:
+                ratio_tags += f'\n<distincion>{html.escape(r.distincion)}</distincion>'
+            if r.sentido_del_criterio:
+                ratio_tags += f'\n<sentido_del_criterio>{html.escape(r.sentido_del_criterio)}</sentido_del_criterio>'
+
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
             f'origen="{escaped_origen}" silo="{r.silo}" '
             f'jerarquia="{jerarquia}" '
             f'jurisdiccion="{escaped_jurisdiccion}" score="{r.score:.4f}"{tipo_tag}>\n'
-            f'{escaped_texto}\n'
+            f'{escaped_texto}{ratio_tags}\n'
             f'</documento>'
         )
     xml_parts.append("</documentos>")
@@ -4012,7 +4031,7 @@ async def hybrid_search_single_silo(
             has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         # Threshold diferenciado: jurisprudencia y silos estatales necesitan mayor recall
-        if collection == "jurisprudencia_nacional":
+        if collection in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2"):
             threshold = 0.02
         elif collection.startswith("leyes_") and collection != "leyes_federales":
             threshold = 0.02  # State silos: lower threshold for colloquial queries
@@ -4020,27 +4039,36 @@ async def hybrid_search_single_silo(
             threshold = 0.03
         
         if has_sparse:
-            # Dual prefetch con RRF fusion:
-            # - Prefetch 1 (sparse/BM25): encuentra candidatos por keywords
-            # - Prefetch 2 (dense): encuentra candidatos por semántica
-            #   (incluye chunks SIN sparse vectors, ej: reglamentos recién ingestados)
-            # Fusión RRF combina ambos pools → mejor recall
-            return await qdrant_client.query_points(
-                collection_name=collection,
-                prefetch=[
-                    Prefetch(
-                        query=sparse_vector,
-                        using="sparse",
-                        limit=top_k * 5,
-                        filter=search_filter,
-                    ),
+            # Prefetch con RRF fusion.
+            # Para jurisprudencia_nacional_v2: triple prefetch (sparse + dense + ratio)
+            # Para otras colecciones: dual prefetch (sparse + dense)
+            prefetches = [
+                Prefetch(
+                    query=sparse_vector,
+                    using="sparse",
+                    limit=top_k * 5,
+                    filter=search_filter,
+                ),
+                Prefetch(
+                    query=dense_vector,
+                    using="dense",
+                    limit=top_k * 5,
+                    filter=search_filter,
+                ),
+            ]
+            if collection == "jurisprudencia_nacional_v2":
+                # 3er prefetch: busca por ratio_decidendi semánticamente
+                prefetches.append(
                     Prefetch(
                         query=dense_vector,
-                        using="dense",
-                        limit=top_k * 5,
+                        using="ratio",
+                        limit=top_k * 3,
                         filter=search_filter,
-                    ),
-                ],
+                    )
+                )
+            return await qdrant_client.query_points(
+                collection_name=collection,
+                prefetch=prefetches,
                 query=Query(fusion=Fusion.RRF),
                 limit=top_k,
                 query_filter=search_filter,
@@ -4073,6 +4101,11 @@ async def hybrid_search_single_silo(
                 entidad=payload.get("entidad"),
                 silo=collection,
                 pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+                ratio_decidendi=payload.get("ratio_decidendi"),
+                condicion_de_aplicacion=payload.get("condicion_de_aplicacion"),
+                distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
+                sentido_del_criterio=payload.get("sentido_del_criterio"),
+                obiter_dicta=payload.get("obiter_dicta") if payload.get("obiter_dicta") != "null" else None,
             ))
         return parsed
     
@@ -4090,7 +4123,7 @@ async def hybrid_search_single_silo(
             has_sparse = sparse_cfg is not None and len(sparse_cfg) > 0
             if has_sparse:
                 print(f"   ⚠️ Hybrid devolvió 0 en {collection}, fallback a dense-only...")
-                threshold = 0.02 if collection == "jurisprudencia_nacional" else 0.03
+                threshold = 0.02 if collection in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2") else 0.03
                 dense_results = await qdrant_client.query_points(
                     collection_name=collection,
                     query=dense_vector,
@@ -4112,7 +4145,7 @@ async def hybrid_search_single_silo(
         if "typing.Union" in error_msg or "Cannot instantiate" in error_msg:
             print(f"   ⚠️ typing.Union error en {collection}, fallback a dense-only...")
             try:
-                threshold = 0.02 if collection == "jurisprudencia_nacional" else 0.03
+                threshold = 0.02 if collection in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2") else 0.03
                 dense_results = await qdrant_client.query_points(
                     collection_name=collection,
                     query=dense_vector,
@@ -4227,21 +4260,17 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
         sparse_vector = get_sparse_embedding(query)
         
         # Verificar si tiene sparse vectors
-        col_info = await qdrant_client.get_collection("jurisprudencia_nacional")
+        col_info = await qdrant_client.get_collection("jurisprudencia_nacional_v2")
         sparse_vectors_config = col_info.config.params.sparse_vectors
         has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
-        
+
         if has_sparse:
             try:
                 results = await qdrant_client.query_points(
-                    collection_name="jurisprudencia_nacional",
+                    collection_name="jurisprudencia_nacional_v2",
                     prefetch=[
-                        Prefetch(
-                            query=sparse_vector,
-                            using="sparse",
-                            limit=50,
-                            filter=None,
-                        ),
+                        Prefetch(query=sparse_vector, using="sparse", limit=50, filter=None),
+                        Prefetch(query=dense_vector, using="ratio", limit=30, filter=None),
                     ],
                     query=dense_vector,
                     using="dense",
@@ -4254,7 +4283,7 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 # Fallback if Prefetch crashes (typing.Union on Python 3.14)
                 print(f"      ⚠️ Prefetch falló en juris boost: {prefetch_err}, usando dense-only...")
                 results = await qdrant_client.query_points(
-                    collection_name="jurisprudencia_nacional",
+                    collection_name="jurisprudencia_nacional_v2",
                     query=dense_vector,
                     using="dense",
                     limit=10,
@@ -4264,7 +4293,7 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 )
         else:
             results = await qdrant_client.query_points(
-                collection_name="jurisprudencia_nacional",
+                collection_name="jurisprudencia_nacional_v2",
                 query=dense_vector,
                 using="dense",
                 limit=10,
@@ -4272,7 +4301,7 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 with_payload=True,
                 score_threshold=0.01,  # Muy bajo para máximo recall
             )
-        
+
         search_results = []
         for point in results.points:
             if str(point.id) in exclude_ids:
@@ -4286,8 +4315,13 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 origen=payload.get("origen"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
-                silo="jurisprudencia_nacional",
+                silo="jurisprudencia_nacional_v2",
                 pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+                ratio_decidendi=payload.get("ratio_decidendi"),
+                condicion_de_aplicacion=payload.get("condicion_de_aplicacion"),
+                distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
+                sentido_del_criterio=payload.get("sentido_del_criterio"),
+                obiter_dicta=payload.get("obiter_dicta") if payload.get("obiter_dicta") != "null" else None,
             ))
         
         print(f"      ⚖️ Boost query '{query[:60]}...' → {len(search_results)} tesis")
@@ -4370,7 +4404,7 @@ async def _cross_silo_enrichment(
         # Buscar jurisprudencia que cite este artículo/ley
         juris_query = f"tesis jurisprudencia criterio judicial {ref}"
         enrichment_tasks.append(
-            _do_enrichment_search("jurisprudencia_nacional", juris_query)
+            _do_enrichment_search("jurisprudencia_nacional_v2", juris_query)
         )
         
         # Buscar fundamento constitucional relacionado
@@ -5066,13 +5100,13 @@ async def hybrid_search_all_silos(
     fuero_normalized = fuero.lower().strip() if fuero else None
     
     if fuero_normalized == "constitucional":
-        silos_to_search = ["bloque_constitucional", "jurisprudencia_nacional"]
-        print(f"   ⚖️ FUERO: Constitucional → bloque_constitucional + jurisprudencia_nacional")
+        silos_to_search = ["bloque_constitucional", "jurisprudencia_nacional_v2"]
+        print(f"   ⚖️ FUERO: Constitucional → bloque_constitucional + jurisprudencia_nacional_v2")
     elif fuero_normalized == "federal":
-        silos_to_search = ["leyes_federales", "jurisprudencia_nacional"]
-        print(f"   ⚖️ FUERO: Federal → leyes_federales + jurisprudencia_nacional")
+        silos_to_search = ["leyes_federales", "jurisprudencia_nacional_v2"]
+        print(f"   ⚖️ FUERO: Federal → leyes_federales + jurisprudencia_nacional_v2")
     elif fuero_normalized == "estatal":
-        silos_to_search = ["jurisprudencia_nacional"]  # Siempre
+        silos_to_search = ["jurisprudencia_nacional_v2"]  # Siempre
         if estado:
             normalized_estado = normalize_estado(estado)
             if normalized_estado and normalized_estado in ESTADO_SILO:
@@ -5152,7 +5186,7 @@ async def hybrid_search_all_silos(
         silo_top_k = top_k * 2 if silo_name == _selected_state_silo else top_k
         
         # Inyectar materia should-filter en silos de leyes (NO en juris/constitucional)
-        if _materia_should_filter and silo_name not in ("jurisprudencia_nacional", "bloque_constitucional"):
+        if _materia_should_filter and silo_name not in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2", "bloque_constitucional"):
             combined_filter = _combine_filters_for_silo(state_filter, _materia_should_filter)
         else:
             combined_filter = state_filter
@@ -5220,7 +5254,7 @@ async def hybrid_search_all_silos(
         for r in results:
             if r.silo == "leyes_federales":
                 federales.append(r)
-            elif r.silo == "jurisprudencia_nacional":
+            elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2"):
                 jurisprudencia.append(r)
             elif r.silo == "bloque_constitucional":
                 constitucional.append(r)
@@ -5566,7 +5600,7 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     # JURISPRUDENCIA BOOST V2: Multi-query agresivo para maximizar recall
     # ═══════════════════════════════════════════════════════════════════════════
-    juris_in_merged = [r for r in merged if r.silo == "jurisprudencia_nacional"]
+    juris_in_merged = [r for r in merged if r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2")]
     if len(juris_in_merged) < 5:
         print(f"   ⚖️ JURISPRUDENCIA BOOST V2: Solo {len(juris_in_merged)} tesis, ejecutando multi-query...")
         try:
@@ -14104,7 +14138,7 @@ Sé EXHAUSTIVO al identificar TODOS los agravios/conceptos de violación. Cada p
                     continue
                 try:
                     results = await qdrant_client.query_points(
-                        collection_name="jurisprudencia_nacional",
+                        collection_name="jurisprudencia_nacional_v2",
                         query=await get_dense_embedding(sq),
                         limit=5,
                         with_payload=True,
