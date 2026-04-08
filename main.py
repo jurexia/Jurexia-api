@@ -3763,12 +3763,14 @@ def reorder_by_hierarchy(results: List[SearchResult]) -> List[SearchResult]:
     return sorted(results, key=sort_key)
 
 
-def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = None) -> str:
+def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = None, prose_mode: bool = False) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
     Escapa caracteres HTML para seguridad.
     Trunca documentos largos para evitar exceder límite de tokens.
     Si estado está presente, marca documentos estatales como FUENTE_PRINCIPAL.
+    Si prose_mode=True (modo redacción), omite los campos ratio GraphRAG para no
+    interrumpir la síntesis de prosa judicial continua.
     """
     if not results:
         return "<documentos>Sin resultados relevantes encontrados.</documentos>"
@@ -3831,8 +3833,11 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         jerarquia = _get_jerarquia_label(r.silo)
         
         # Campos GraphRAG de jurisprudencia_nacional_v2
+        # En prose_mode (redacción judicial) se omiten: los campos pre-extraídos
+        # fragmentan la síntesis y el modelo tiende a citar sumarios en vez de
+        # tejer la jurisprudencia en prosa continua.
         ratio_tags = ""
-        if r.silo == "jurisprudencia_nacional_v2":
+        if r.silo == "jurisprudencia_nacional_v2" and not prose_mode:
             if r.ratio_decidendi:
                 ratio_tags += f'\n<ratio_decidendi>{html.escape(r.ratio_decidendi)}</ratio_decidendi>'
             if r.condicion_de_aplicacion:
@@ -7945,8 +7950,8 @@ async def chat_endpoint(request: ChatRequest):
                         search_results = semantic_results
                     
                     doc_id_map = build_doc_id_map(search_results)
-                    context_xml = format_results_as_xml(search_results, estado=effective_estado)
-            
+                    context_xml = format_results_as_xml(search_results, estado=effective_estado, prose_mode=is_chat_drafting)
+
             return search_results, doc_id_map, context_xml
 
         # Launch RAG search concurrently with infra and cache tasks
@@ -8017,8 +8022,13 @@ async def chat_endpoint(request: ChatRequest):
             system_prompt = SYSTEM_PROMPT_CHAT
         # ⚠️ FIX DEEPSEEK REASONER: Fusionar system messages en uno solo.
         # deepseek-reasoner degrada calidad con múltiples system messages consecutivos.
-        # Para Reasoner, las instrucciones deben ser concisas y en un solo bloque.
-        _merged_system = system_prompt + "\n\n" + INVENTORY_CONTEXT
+        # EXCEPCIÓN: en modo redacción, INVENTORY_CONTEXT no se incluye — sus
+        # instrucciones "ÚNICA Y EXCLUSIVAMENTE basándote en el contexto recuperado"
+        # conflictan con el requisito de prosa judicial extensa (≥1200 palabras).
+        if is_chat_drafting:
+            _merged_system = system_prompt
+        else:
+            _merged_system = system_prompt + "\n\n" + INVENTORY_CONTEXT
         llm_messages = [
             {"role": "system", "content": _merged_system},
         ]
