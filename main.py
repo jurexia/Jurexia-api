@@ -8298,7 +8298,7 @@ async def chat_endpoint(request: ChatRequest):
             _effective_cached = None  # Sin cache para sentencias
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
             _resolved_genio_ids = [] # Disable genios for sentencia mode
-        elif _resolved_genio_ids and _can_use_gemini and not has_document:
+        elif _resolved_genio_ids and _can_use_gemini and not has_document and not is_chat_drafting:
             # PRIORIDAD: Genios disponibles → usar Gemini con caché de estilo jurídico.
             # Esto incluye el modo Redactar (is_drafting=True) — el estilo de
             # redacción judicial de alto nivel está implementado en los Genios.
