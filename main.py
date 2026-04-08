@@ -8015,12 +8015,13 @@ async def chat_endpoint(request: ChatRequest):
             print("   ✍️ Usando prompt CHAT DRAFTING para redacción por lenguaje natural")
         else:
             system_prompt = SYSTEM_PROMPT_CHAT
+        # ⚠️ FIX DEEPSEEK REASONER: Fusionar system messages en uno solo.
+        # deepseek-reasoner degrada calidad con múltiples system messages consecutivos.
+        # Para Reasoner, las instrucciones deben ser concisas y en un solo bloque.
+        _merged_system = system_prompt + "\n\n" + INVENTORY_CONTEXT
         llm_messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": _merged_system},
         ]
-        
-        # Inyección de Contexto Global: Inventario del Sistema
-        llm_messages.append({"role": "system", "content": INVENTORY_CONTEXT})
         
         # Collect dynamic contexts for prefix caching optimization
         dynamic_injections = []
@@ -8433,40 +8434,64 @@ async def chat_endpoint(request: ChatRequest):
 
                             # GENIO DEPTH BOOST: Restaurar instrucciones de estructura y profundidad
                             # que se pierden cuando SYSTEM_PROMPT_CHAT es descartado por el caché
-                            _GENIO_DEPTH_BOOST = (
-                                "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
-                                "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. "
-                                "Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
-                                "- Mínimo 1,000 palabras en consultas sustantivas.\n"
-                                "- Conecta SIEMPRE la norma con la jurisprudencia y explica consecuencias prácticas.\n"
-                                "- Si una respuesta se siente 'corta', es un error. Desarrolla, explica y proyecta riesgos.\n\n"
-                                "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
-                                "1. **RESPUESTA DIRECTA** (primeras 2-3 oraciones, SIN encabezado visible)\n"
-                                "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE los artículos relevantes de tu corpus.\n"
-                                "   Para cada artículo: cita en blockquote con número de artículo y ley de origen.\n"
-                                "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
-                                "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas con [Doc ID].\n"
-                                "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta las fuentes en un análisis coherente.\n"
-                                "   Señala vías procesales, riesgos y recomendaciones prácticas.\n"
-                                "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
-                                "MÉTODO DE SUBSUNCIÓN (aplicar en silencio):\n"
-                                "1. Identifica los artículos aplicables de tu corpus\n"
-                                "2. Conecta los hechos del usuario con los elementos de la norma\n"
-                                "3. Apóyate en jurisprudencia del RAG para confirmar el encuadramiento\n"
-                                "4. Emite dictamen claro: qué puede hacer, qué riesgo corre, qué vía corresponde\n\n"
-                                "FORMATO:\n"
-                                "- NUNCA uses emojis en la respuesta al usuario.\n"
-                                "- Usa blockquotes para transcribir artículos.\n"
-                                "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
-                                "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
-                                "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n\n"
-                                "DIAGRAMAS VISUALES (cuando sea pertinente):\n"
-                                "Para procedimientos por etapas, usa:\n"
-                                ":::processflow\n"
-                                "titulo: [Nombre del procedimiento]\n"
-                                "1. Etapa | Descripción | Plazo\n"
-                                ":::\n"
-                            )
+                            # ⚠️ FIX: Usar versión de PROSA CONTINUA cuando is_chat_drafting=True
+                            #    para respetar SYSTEM_PROMPT_CHAT_DRAFTING (sin subtítulos, sin bullets)
+                            if is_chat_drafting:
+                                _GENIO_DEPTH_BOOST = (
+                                    "INSTRUCCIONES DE PROFUNDIDAD PARA GENIO EN MODO REDACCIÓN:\n\n"
+                                    "REGLA MAESTRA: Estás en MODO REDACCIÓN JUDICIAL. Produce texto jurídico de altísimo nivel, "
+                                    "listo para imprimirse en una sentencia o demanda. Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n\n"
+                                    "FORMATO OBLIGATORIO — PROSA FORENSE CONTINUA:\n"
+                                    "- PROHIBIDO usar subtítulos, viñetas, listas numeradas, esquemas o cualquier formato estructurado.\n"
+                                    "- TODO el texto debe ser PROSA CONTINUA en párrafos enlazados con conectores jurídicos "
+                                    "(\"Ahora bien\", \"En el presente caso\", \"Conforme a lo anterior\", \"Por tanto\").\n"
+                                    "- Mínimo 1,200 palabras. Si sientes que estás terminando, escribe al menos dos párrafos más "
+                                    "desarrollando consecuencias, efectos y argumentos reforzadores.\n"
+                                    "- Emula el estilo de un Secretario de Estudio y Cuenta de la SCJN.\n\n"
+                                    "MÉTODO DE SUBSUNCIÓN (aplicar dentro de la prosa):\n"
+                                    "- PREMISA MAYOR: Extrae la norma suprema y transcribe artículos de tu corpus, tejiéndolos en la prosa.\n"
+                                    "- PREMISA MENOR: Relaciona con los hechos del caso del usuario.\n"
+                                    "- CONCLUSIÓN: Declara la procedencia/vulneración con argumentación lógica.\n\n"
+                                    "CITAS EN PROSA (no en blockquote):\n"
+                                    "- Artículos del CORPUS: transcríbelos dentro de la prosa indicando artículo y ley de origen.\n"
+                                    "- Jurisprudencia del RAG: integra el ratio decidendi dentro de tus párrafos con [Doc ID: uuid].\n"
+                                    "- NUNCA uses emojis, disclaimers, ni notas explicativas. El documento se entrega LIMPIO.\n"
+                                )
+                            else:
+                                _GENIO_DEPTH_BOOST = (
+                                    "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
+                                    "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. "
+                                    "Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
+                                    "- Mínimo 1,000 palabras en consultas sustantivas.\n"
+                                    "- Conecta SIEMPRE la norma con la jurisprudencia y explica consecuencias prácticas.\n"
+                                    "- Si una respuesta se siente 'corta', es un error. Desarrolla, explica y proyecta riesgos.\n\n"
+                                    "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
+                                    "1. **RESPUESTA DIRECTA** (primeras 2-3 oraciones, SIN encabezado visible)\n"
+                                    "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE los artículos relevantes de tu corpus.\n"
+                                    "   Para cada artículo: cita en blockquote con número de artículo y ley de origen.\n"
+                                    "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
+                                    "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas con [Doc ID].\n"
+                                    "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta las fuentes en un análisis coherente.\n"
+                                    "   Señala vías procesales, riesgos y recomendaciones prácticas.\n"
+                                    "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
+                                    "MÉTODO DE SUBSUNCIÓN (aplicar en silencio):\n"
+                                    "1. Identifica los artículos aplicables de tu corpus\n"
+                                    "2. Conecta los hechos del usuario con los elementos de la norma\n"
+                                    "3. Apóyate en jurisprudencia del RAG para confirmar el encuadramiento\n"
+                                    "4. Emite dictamen claro: qué puede hacer, qué riesgo corre, qué vía corresponde\n\n"
+                                    "FORMATO:\n"
+                                    "- NUNCA uses emojis en la respuesta al usuario.\n"
+                                    "- Usa blockquotes para transcribir artículos.\n"
+                                    "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
+                                    "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
+                                    "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n\n"
+                                    "DIAGRAMAS VISUALES (cuando sea pertinente):\n"
+                                    "Para procedimientos por etapas, usa:\n"
+                                    ":::processflow\n"
+                                    "titulo: [Nombre del procedimiento]\n"
+                                    "1. Etapa | Descripción | Plazo\n"
+                                    ":::\n"
+                                )
                             dynamic_parts.insert(1, _GENIO_DEPTH_BOOST)
 
                             if genio_id == "civil" and _estado_for_llm:
@@ -8569,26 +8594,42 @@ async def chat_endpoint(request: ChatRequest):
                                 dynamic_parts.insert(0, cache_rag_instruction)
 
                                 # GENIO DEPTH BOOST (multi-genio path)
-                                _GENIO_DEPTH_BOOST_MULTI = (
-                                    "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
-                                    "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. "
-                                    "Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
-                                    "- Mínimo 1,000 palabras en consultas sustantivas.\n"
-                                    "- Conecta SIEMPRE la norma con la jurisprudencia y explica consecuencias prácticas.\n"
-                                    "- Si una respuesta se siente 'corta', es un error. Desarrolla, explica y proyecta riesgos.\n\n"
-                                    "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
-                                    "1. **RESPUESTA DIRECTA** (primeras 2-3 oraciones, SIN encabezado visible)\n"
-                                    "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE artículos de tu corpus en blockquote.\n"
-                                    "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
-                                    "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas con [Doc ID].\n"
-                                    "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta fuentes, señala vías y riesgos.\n"
-                                    "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
-                                    "FORMATO:\n"
-                                    "- NUNCA uses emojis en la respuesta.\n"
-                                    "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
-                                    "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
-                                    "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n"
-                                )
+                                # ⚠️ FIX: Usar versión PROSA CONTINUA cuando is_chat_drafting=True
+                                if is_chat_drafting:
+                                    _GENIO_DEPTH_BOOST_MULTI = (
+                                        "INSTRUCCIONES DE PROFUNDIDAD PARA GENIO EN MODO REDACCIÓN:\n\n"
+                                        "REGLA MAESTRA: Estás en MODO REDACCIÓN JUDICIAL. Produce texto jurídico de altísimo nivel, "
+                                        "listo para imprimirse en una sentencia o demanda. Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n\n"
+                                        "FORMATO OBLIGATORIO — PROSA FORENSE CONTINUA:\n"
+                                        "- PROHIBIDO usar subtítulos, viñetas, listas numeradas, esquemas o cualquier formato estructurado.\n"
+                                        "- TODO el texto debe ser PROSA CONTINUA en párrafos enlazados con conectores jurídicos.\n"
+                                        "- Mínimo 1,200 palabras. Emula el estilo de un Secretario de Estudio y Cuenta de la SCJN.\n\n"
+                                        "CITAS EN PROSA (no en blockquote):\n"
+                                        "- Artículos del CORPUS: transcríbelos dentro de la prosa indicando artículo y ley de origen.\n"
+                                        "- Jurisprudencia del RAG: integra el ratio decidendi dentro de tus párrafos con [Doc ID: uuid].\n"
+                                        "- NUNCA uses emojis, disclaimers, ni notas explicativas. El documento se entrega LIMPIO.\n"
+                                    )
+                                else:
+                                    _GENIO_DEPTH_BOOST_MULTI = (
+                                        "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
+                                        "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. "
+                                        "Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
+                                        "- Mínimo 1,000 palabras en consultas sustantivas.\n"
+                                        "- Conecta SIEMPRE la norma con la jurisprudencia y explica consecuencias prácticas.\n"
+                                        "- Si una respuesta se siente 'corta', es un error. Desarrolla, explica y proyecta riesgos.\n\n"
+                                        "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
+                                        "1. **RESPUESTA DIRECTA** (primeras 2-3 oraciones, SIN encabezado visible)\n"
+                                        "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE artículos de tu corpus en blockquote.\n"
+                                        "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
+                                        "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas con [Doc ID].\n"
+                                        "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta fuentes, señala vías y riesgos.\n"
+                                        "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
+                                        "FORMATO:\n"
+                                        "- NUNCA uses emojis en la respuesta.\n"
+                                        "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
+                                        "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
+                                        "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n"
+                                    )
                                 dynamic_parts.insert(1, _GENIO_DEPTH_BOOST_MULTI)
                                 
                                 if g_id == "civil" and _estado_for_llm:
