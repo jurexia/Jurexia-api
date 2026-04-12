@@ -3752,7 +3752,7 @@ async def search_precedentes_holdings(
     qdrant_filter = Filter(must=filter_conditions)
 
     try:
-        response = qdrant_client.query_points(
+        response = await qdrant_client.query_points(
             collection_name=COLLECTION,
             prefetch=[
                 Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
