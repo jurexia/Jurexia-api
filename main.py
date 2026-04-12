@@ -3730,14 +3730,16 @@ def get_sparse_embedding(text: str) -> SparseVector:
 async def search_precedentes_holdings(
     query: str,
     tribunal: Optional[str] = None,
+    circuit: str = "22",
     limit: int = 12,
 ) -> List[SearchResult]:
     """
-    Búsqueda híbrida (RRF dense+sparse) en sentencias_holdings_22.
+    Búsqueda híbrida (RRF dense+sparse) en sentencias_holdings_{circuit}.
     Fallback a dense-only si Prefetch/RRF falla (e.g. qdrant-client Union bug).
-    tribunal: "1TCC" | "2TCC" | "3TCC" | None (todos)
+    circuit: número de circuito como string ("22", "1", etc.)
+    tribunal: ID del tribunal ("1TCC", "2TCC", "TCCPA", etc.) o None (todos)
     """
-    COLLECTION = "sentencias_holdings_22"
+    COLLECTION = f"sentencias_holdings_{circuit}"
 
     try:
         dense_vec, sparse_vec = await asyncio.gather(
@@ -3749,7 +3751,7 @@ async def search_precedentes_holdings(
         print(f"   ⚠️ search_precedentes_holdings embedding error: {emb_err}")
         return []
 
-    filter_conditions = [FieldCondition(key="circuito", match=MatchValue(value="22"))]
+    filter_conditions = [FieldCondition(key="circuito", match=MatchValue(value=circuit))]
     if tribunal:
         filter_conditions.append(
             FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
@@ -7583,10 +7585,17 @@ async def chat_endpoint(request: ChatRequest):
     # Frontend can also pass [TRIBUNAL:1TCC], [TRIBUNAL:2TCC] or [TRIBUNAL:3TCC]
     is_precedentes_mode = False
     tribunal_filter: Optional[str] = None
+    precedentes_circuit: str = "22"          # default; overridden by [CIRCUITO:N]
     if "[MODO_PRECEDENTES]" in last_user_message:
         is_precedentes_mode = True
         import re as _re_prec
-        _trib_match = _re_prec.search(r'\[TRIBUNAL:(1TCC|2TCC|3TCC)\]', last_user_message)
+        # Extract circuit  [CIRCUITO:N]
+        _circ_match = _re_prec.search(r'\[CIRCUITO:(\d+)\]', last_user_message)
+        if _circ_match:
+            precedentes_circuit = _circ_match.group(1)
+            last_user_message = last_user_message.replace(_circ_match.group(0), "").strip()
+        # Extract tribunal — accept any alphanumeric ID (1TCC, 2TCC, TCCPA, TCCAT, etc.)
+        _trib_match = _re_prec.search(r'\[TRIBUNAL:([A-Z0-9\-]+)\]', last_user_message)
         if _trib_match:
             tribunal_filter = _trib_match.group(1)
             last_user_message = last_user_message.replace(_trib_match.group(0), "").strip()
@@ -7595,7 +7604,7 @@ async def chat_endpoint(request: ChatRequest):
             if msg.role == "user":
                 msg.content = last_user_message
                 break
-        print(f"   ⚖️ MODO PRECEDENTES activado (tribunal={tribunal_filter or 'todos'})")
+        print(f"   ⚖️ MODO PRECEDENTES activado (circuito={precedentes_circuit}, tribunal={tribunal_filter or 'todos'})")
     
     if is_drafting:
         # Extraer tipo y subtipo del mensaje de redacción (UI-triggered)
@@ -7673,12 +7682,13 @@ async def chat_endpoint(request: ChatRequest):
             context_xml = ""
 
             if is_precedentes_mode:
-                # ── PRECEDENTES DEL CIRCUITO 22 ─────────────────────────────────────
-                # Búsqueda directa en sentencias_holdings_22, bypassa el RAG normal.
-                print(f"   ⚖️ Buscando en sentencias_holdings_22 (tribunal={tribunal_filter or 'todos'})...")
+                # ── PRECEDENTES DEL CIRCUITO N ───────────────────────────────────────
+                # Búsqueda directa en sentencias_holdings_{N}, bypassa el RAG normal.
+                print(f"   ⚖️ Buscando en sentencias_holdings_{precedentes_circuit} (tribunal={tribunal_filter or 'todos'})...")
                 search_results = await search_precedentes_holdings(
                     query=last_user_message,
                     tribunal=tribunal_filter,
+                    circuit=precedentes_circuit,
                     limit=12,
                 )
                 doc_id_map = build_doc_id_map(search_results)
