@@ -3733,16 +3733,21 @@ async def search_precedentes_holdings(
     limit: int = 12,
 ) -> List[SearchResult]:
     """
-    Búsqueda híbrida en sentencias_holdings_22 para el modo Precedentes del Circuito.
-    Devuelve SearchResult[] compatible con el sistema de citas [Doc ID: N] existente.
+    Búsqueda híbrida (RRF dense+sparse) en sentencias_holdings_22.
+    Fallback a dense-only si Prefetch/RRF falla (e.g. qdrant-client Union bug).
     tribunal: "1TCC" | "2TCC" | "3TCC" | None (todos)
     """
     COLLECTION = "sentencias_holdings_22"
 
-    dense_vec, sparse_vec = await asyncio.gather(
-        get_dense_embedding(query),
-        asyncio.get_running_loop().run_in_executor(None, get_sparse_embedding, query),
-    )
+    try:
+        dense_vec, sparse_vec = await asyncio.gather(
+            get_dense_embedding(query),
+            asyncio.get_running_loop().run_in_executor(None, get_sparse_embedding, query),
+        )
+        print(f"   ⚖️ Embeddings OK — dense_dim={len(dense_vec)}, sparse_indices={len(sparse_vec.indices)}")
+    except Exception as emb_err:
+        print(f"   ⚠️ search_precedentes_holdings embedding error: {emb_err}")
+        return []
 
     filter_conditions = [FieldCondition(key="circuito", match=MatchValue(value="22"))]
     if tribunal:
@@ -3750,7 +3755,9 @@ async def search_precedentes_holdings(
             FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
         )
     qdrant_filter = Filter(must=filter_conditions)
+    print(f"   ⚖️ Filtro Qdrant: circuito=22, tribunal={tribunal or 'todos'}")
 
+    points = []
     try:
         response = await qdrant_client.query_points(
             collection_name=COLLECTION,
@@ -3763,9 +3770,23 @@ async def search_precedentes_holdings(
             with_payload=True,
         )
         points = response.points
-    except Exception as e:
-        print(f"   ⚠️ search_precedentes_holdings error: {e}")
-        return []
+        print(f"   ⚖️ RRF OK — {len(points)} puntos")
+    except Exception as rrf_err:
+        print(f"   ⚠️ RRF/Prefetch falló ({rrf_err}), intentando dense-only...")
+        try:
+            response = await qdrant_client.query_points(
+                collection_name=COLLECTION,
+                query=dense_vec,
+                using="dense",
+                limit=limit,
+                query_filter=qdrant_filter,
+                with_payload=True,
+            )
+            points = response.points
+            print(f"   ⚖️ Dense-only OK — {len(points)} puntos")
+        except Exception as dense_err:
+            print(f"   ⚠️ Dense fallback también falló: {dense_err}")
+            return []
 
     results: List[SearchResult] = []
     for p in points:
@@ -3788,7 +3809,7 @@ async def search_precedentes_holdings(
             ref=ref,
             origen=f"{trib} — 22° Circuito — {materia}",
             silo="sentencias_22_circuito",
-            pdf_url=pay.get("pdf_url"),  # None hasta que se suban a GCS
+            pdf_url=pay.get("pdf_url"),
         ))
 
     return results
