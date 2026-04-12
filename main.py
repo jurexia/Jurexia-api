@@ -3741,7 +3741,7 @@ async def search_precedentes_holdings(
 
     dense_vec, sparse_vec = await asyncio.gather(
         get_dense_embedding(query),
-        asyncio.get_event_loop().run_in_executor(None, get_sparse_embedding, query),
+        asyncio.get_running_loop().run_in_executor(None, get_sparse_embedding, query),
     )
 
     filter_conditions = [FieldCondition(key="circuito", match=MatchValue(value="22"))]
