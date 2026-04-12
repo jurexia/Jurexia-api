@@ -835,9 +835,27 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 ────────────────────────────────────────────────────────────────
 
 - Los ejemplos de sentencias recuperados son SOLO para que imites su prosa, estructura y tono.
-- NUNCA los cites como fuente, fundamento legal o jurisprudencia. 
+- NUNCA los cites como fuente, fundamento legal o jurisprudencia.
 - Las ÚNICAS fuentes válidas para fundamentar son: Constitución (CPEUM), Leyes Federales, Leyes Estatales y Jurisprudencia Nacional oficial (Registro Digital).
 - Si un documento no tiene Registro Digital o Referencia de Ley, NO LO CITES.
+"""
+
+# ── Precedentes del Circuito 22 — Modo consulta de sentencias TCC ────────────
+SYSTEM_PROMPT_PRECEDENTES = """Eres un asistente judicial especializado en el Vigésimo Segundo Circuito (Querétaro).
+Se te proporcionan los holdings (criterios resolutivos centrales) de sentencias reales del 22° Circuito recuperadas de una base de datos vectorial.
+
+TU TAREA: Sintetizar la posición jurisprudencial del circuito en el tema consultado.
+
+INSTRUCCIONES OBLIGATORIAS:
+1. Identifica la LÍNEA DOMINANTE del circuito: ¿cuál es el criterio que prevalece entre los tres tribunales?
+2. Si hay CRITERIO DIVIDIDO entre 1TCC, 2TCC y 3TCC → señálalo con ⚠️ CRITERIO DIVIDIDO y expón las dos posiciones con sus respectivos fundamentos.
+3. Cita cada sentencia relevante con [Doc ID: N] inmediatamente después de la afirmación que sustenta.
+4. Si los tribunales citan consistentemente una jurisprudencia de la SCJN, menciónala por su registro.
+5. Cierra con un párrafo de ORIENTACIÓN PRÁCTICA: qué puede esperar el secretario o litigante dado este antecedente del circuito.
+6. Si el filtro es de un tribunal específico, indica cuántas sentencias contiene la muestra.
+
+ESTILO: Prosa técnica judicial. Sin viñetas innecesarias. Sin inventar datos que no estén en los holdings proporcionados.
+Si los resultados son escasos o no permiten una conclusión firme, indícalo con claridad en lugar de generalizar.
 """
 
 # Trigger phrases for natural language drafting detection (lowercase comparison)
@@ -3707,6 +3725,73 @@ def get_sparse_embedding(text: str) -> SparseVector:
         indices=sparse.indices.tolist(),
         values=sparse.values.tolist(),
     )
+
+
+async def search_precedentes_holdings(
+    query: str,
+    tribunal: Optional[str] = None,
+    limit: int = 12,
+) -> List[SearchResult]:
+    """
+    Búsqueda híbrida en sentencias_holdings_22 para el modo Precedentes del Circuito.
+    Devuelve SearchResult[] compatible con el sistema de citas [Doc ID: N] existente.
+    tribunal: "1TCC" | "2TCC" | "3TCC" | None (todos)
+    """
+    COLLECTION = "sentencias_holdings_22"
+
+    dense_vec, sparse_vec = await asyncio.gather(
+        get_dense_embedding(query),
+        asyncio.get_event_loop().run_in_executor(None, get_sparse_embedding, query),
+    )
+
+    filter_conditions = [FieldCondition(key="circuito", match=MatchValue(value="22"))]
+    if tribunal:
+        filter_conditions.append(
+            FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
+        )
+    qdrant_filter = Filter(must=filter_conditions)
+
+    try:
+        response = qdrant_client.query_points(
+            collection_name=COLLECTION,
+            prefetch=[
+                Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
+                Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
+            ],
+            query=Query(fusion=Fusion.RRF),
+            limit=limit,
+            with_payload=True,
+        )
+        points = response.points
+    except Exception as e:
+        print(f"   ⚠️ search_precedentes_holdings error: {e}")
+        return []
+
+    results: List[SearchResult] = []
+    for p in points:
+        pay = p.payload or {}
+        trib = pay.get("tribunal", "")
+        exp = pay.get("expediente", "")
+        fecha = pay.get("fecha_sentencia", "")
+        sentido = pay.get("sentido", "")
+        materia = pay.get("materia", "")
+        holding_text = pay.get("holding", "")
+
+        # ref visible para la cita: "3TCC · AD-892/2022 · Concede · 2022"
+        ref_parts = [x for x in [trib, exp, sentido.capitalize(), fecha[:4]] if x]
+        ref = " · ".join(ref_parts)
+
+        results.append(SearchResult(
+            id=str(p.id),
+            score=p.score if p.score is not None else 0.0,
+            texto=holding_text,
+            ref=ref,
+            origen=f"{trib} — 22° Circuito — {materia}",
+            silo="sentencias_22_circuito",
+            pdf_url=pay.get("pdf_url"),  # None hasta que se suban a GCS
+        ))
+
+    return results
 
 
 # Maximum characters per document to prevent token overflow
@@ -7472,6 +7557,24 @@ async def chat_endpoint(request: ChatRequest):
         is_chat_drafting = _detect_chat_drafting(last_user_message)
         if is_chat_drafting:
             print(f"   ✍️ MODO REDACCIÓN CHAT detectado por lenguaje natural")
+
+    # ── Precedentes del Circuito 22 — triggered by [MODO_PRECEDENTES] marker ──
+    # Frontend can also pass [TRIBUNAL:1TCC], [TRIBUNAL:2TCC] or [TRIBUNAL:3TCC]
+    is_precedentes_mode = False
+    tribunal_filter: Optional[str] = None
+    if "[MODO_PRECEDENTES]" in last_user_message:
+        is_precedentes_mode = True
+        import re as _re_prec
+        _trib_match = _re_prec.search(r'\[TRIBUNAL:(1TCC|2TCC|3TCC)\]', last_user_message)
+        if _trib_match:
+            tribunal_filter = _trib_match.group(1)
+            last_user_message = last_user_message.replace(_trib_match.group(0), "").strip()
+        last_user_message = last_user_message.replace("[MODO_PRECEDENTES]", "").strip()
+        for msg in reversed(request.messages):
+            if msg.role == "user":
+                msg.content = last_user_message
+                break
+        print(f"   ⚖️ MODO PRECEDENTES activado (tribunal={tribunal_filter or 'todos'})")
     
     if is_drafting:
         # Extraer tipo y subtipo del mensaje de redacción (UI-triggered)
@@ -7547,6 +7650,20 @@ async def chat_endpoint(request: ChatRequest):
             search_results = []
             doc_id_map = {}
             context_xml = ""
+
+            if is_precedentes_mode:
+                # ── PRECEDENTES DEL CIRCUITO 22 ─────────────────────────────────────
+                # Búsqueda directa en sentencias_holdings_22, bypassa el RAG normal.
+                print(f"   ⚖️ Buscando en sentencias_holdings_22 (tribunal={tribunal_filter or 'todos'})...")
+                search_results = await search_precedentes_holdings(
+                    query=last_user_message,
+                    tribunal=tribunal_filter,
+                    limit=12,
+                )
+                doc_id_map = build_doc_id_map(search_results)
+                context_xml = format_results_as_xml(search_results, estado=None, prose_mode=False)
+                print(f"   ⚖️ Precedentes encontrados: {len(search_results)}")
+                return search_results, doc_id_map, context_xml
 
             if is_drafting:
                 # Para redacción: buscar contexto legal relevante para el tipo de documento
@@ -8015,6 +8132,9 @@ async def chat_endpoint(request: ChatRequest):
                 "5. Al final, agrega un ANÁLISIS comparativo de similitudes y diferencias\n"
                 "6. Si un estado no tiene información suficiente, indícalo claramente\n"
             )
+        elif is_precedentes_mode:
+            system_prompt = SYSTEM_PROMPT_PRECEDENTES
+            print("   ⚖️ Usando prompt PRECEDENTES para síntesis del 22° Circuito")
         elif is_chat_drafting:
             system_prompt = SYSTEM_PROMPT_CHAT_DRAFTING
             print("   ✍️ Usando prompt CHAT DRAFTING para redacción por lenguaje natural")
@@ -8022,10 +8142,9 @@ async def chat_endpoint(request: ChatRequest):
             system_prompt = SYSTEM_PROMPT_CHAT
         # ⚠️ FIX DEEPSEEK REASONER: Fusionar system messages en uno solo.
         # deepseek-reasoner degrada calidad con múltiples system messages consecutivos.
-        # EXCEPCIÓN: en modo redacción, INVENTORY_CONTEXT no se incluye — sus
-        # instrucciones "ÚNICA Y EXCLUSIVAMENTE basándote en el contexto recuperado"
-        # conflictan con el requisito de prosa judicial extensa (≥1200 palabras).
-        if is_chat_drafting:
+        # EXCEPCIÓN 1: en modo redacción, INVENTORY_CONTEXT conflicta con prosa extensa.
+        # EXCEPCIÓN 2: en modo precedentes, INVENTORY_CONTEXT conflicta con síntesis de sentencias TCC.
+        if is_chat_drafting or is_precedentes_mode:
             _merged_system = system_prompt
         else:
             _merged_system = system_prompt + "\n\n" + INVENTORY_CONTEXT
@@ -8296,14 +8415,24 @@ async def chat_endpoint(request: ChatRequest):
             _effective_cached = None
             print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
         
-        if is_sentencia:
+        if is_precedentes_mode:
+            # Precedentes del Circuito 22: deepseek-chat (no reasoner — es síntesis, no razonamiento complejo)
+            use_gemini = False
+            use_thinking = False
+            active_client = get_deepseek_official_client()
+            active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+            max_tokens = 4096
+            _resolved_genio_ids = []
+            _effective_cached = None
+            print(f"   ⚖️ Modelo PRECEDENTES: {active_model} | max_tokens: {max_tokens}")
+        elif is_sentencia:
             # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
             # GPT-5.2 ofrece el máximo nivel de inteligencia y análisis de Iurexia
             use_gemini = False
             active_model = "gpt-5.2"  # Modelo flagship de OpenAI
             active_client = chat_client
             # gpt-5.2 usa max_tokens convencionalmente
-            max_tokens = 32000 
+            max_tokens = 32000
             use_thinking = True
             _effective_cached = None  # Sin cache para sentencias
             print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
