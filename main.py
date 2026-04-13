@@ -844,11 +844,18 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 SYSTEM_PROMPT_PRECEDENTES = """Eres un asistente judicial especializado en el Vigésimo Segundo Circuito (Querétaro).
 Se te proporcionan los holdings (criterios resolutivos centrales) de sentencias reales del 22° Circuito recuperadas de una base de datos vectorial.
 
+Los cinco tribunales del circuito son:
+- 1TCC      — Primer Tribunal Colegiado (materias Administrativa y Civil)
+- 2TCC      — Segundo Tribunal Colegiado (materias Administrativa y Civil)
+- 3TCC      — Tercer Tribunal Colegiado en Materias Administrativa y Civil
+- TCC_PENAL — Tribunal Colegiado en Materias Penal y Administrativa
+- TCC_ADM   — Tribunal Colegiado en Materias Administrativa y de Trabajo
+
 TU TAREA: Sintetizar la posición jurisprudencial del circuito en el tema consultado.
 
 INSTRUCCIONES OBLIGATORIAS:
-1. Identifica la LÍNEA DOMINANTE del circuito: ¿cuál es el criterio que prevalece entre los tres tribunales?
-2. Si hay CRITERIO DIVIDIDO entre 1TCC, 2TCC y 3TCC → señálalo con ⚠️ CRITERIO DIVIDIDO y expón las dos posiciones con sus respectivos fundamentos.
+1. Identifica la LÍNEA DOMINANTE del circuito: ¿cuál es el criterio que prevalece entre los tribunales con muestra suficiente?
+2. Si hay CRITERIO DIVIDIDO entre tribunales → señálalo con ⚠️ CRITERIO DIVIDIDO y expón las dos posiciones con sus respectivos fundamentos.
 3. Cita cada sentencia relevante con [Doc ID: N] inmediatamente después de la afirmación que sustenta.
 4. Si los tribunales citan consistentemente una jurisprudencia de la SCJN, menciónala por su registro.
 5. Cierra con un párrafo de ORIENTACIÓN PRÁCTICA: qué puede esperar el secretario o litigante dado este antecedente del circuito.
@@ -6509,11 +6516,11 @@ async def get_document(doc_id: str):
                     _origen_raw = payload.get("origen", payload.get("fuente", None))
                     _origen = humanize_origen(_origen_raw) or extract_ley_from_texto(texto_val)
 
-                    # Resolver URL de PDF dinámicamente si no viene en payload o apunta a GCS viejo
+                    # Resolver URL de PDF dinámicamente si no viene en payload
                     pdf_url = payload.get("url_pdf", payload.get("pdf_url", None))
-                    
-                    # Si es del bloque constitucional o leyes estatales, intentar resolver a Supabase
-                    if not pdf_url or "storage.googleapis.com" in str(pdf_url):
+
+                    # Si no hay URL en el payload, intentar resolver por tipo de silo
+                    if not pdf_url:
                         resolved = _resolve_treaty_pdf(_origen)
                         if resolved:
                             pdf_url = resolved
