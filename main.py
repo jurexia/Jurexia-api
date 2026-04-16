@@ -3781,7 +3781,9 @@ async def search_precedentes_holdings(
         print(f"   ⚠️ search_precedentes_holdings embedding error: {emb_err}")
         return []
 
-    filter_conditions = [FieldCondition(key="circuito", match=MatchValue(value=circuit))]
+    # Collection name already encodes the circuit (sentencias_holdings_{circuit}),
+    # so no need to filter by circuito field — only filter by tribunal if provided.
+    filter_conditions = []
     if tribunal:
         # Short materia codes (ADM, CIV, LAB, PEN) filter by tribunal_tipo; full IDs filter by tribunal
         _TIPO_CODES = {"ADM", "CIV", "LAB", "PEN"}
@@ -3793,7 +3795,7 @@ async def search_precedentes_holdings(
             filter_conditions.append(
                 FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
             )
-    qdrant_filter = Filter(must=filter_conditions)
+    qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
     print(f"   ⚖️ Filtro Qdrant: circuito={circuit}, tribunal={tribunal or 'todos'}")
 
     points = []
