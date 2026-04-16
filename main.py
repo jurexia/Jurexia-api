@@ -3807,12 +3807,12 @@ async def search_precedentes_holdings(
     results: List[SearchResult] = []
     for p in points:
         pay = p.payload or {}
-        trib = pay.get("tribunal", "")
-        exp = pay.get("expediente", "")
-        fecha = pay.get("fecha_sentencia", "")
-        sentido = pay.get("sentido", "")
-        materia = pay.get("materia", "")
-        holding_text = pay.get("holding", "")
+        trib = pay.get("tribunal") or ""
+        exp = pay.get("expediente") or ""
+        fecha = pay.get("fecha_sentencia") or ""
+        sentido = pay.get("sentido") or ""
+        materia = pay.get("materia") or ""
+        holding_text = pay.get("holding") or ""
 
         # ref visible para la cita: "3TCC · AD-892/2022 · Concede · 2022"
         ref_parts = [x for x in [trib, exp, sentido.capitalize(), fecha[:4]] if x]
@@ -3823,8 +3823,8 @@ async def search_precedentes_holdings(
             score=p.score if p.score is not None else 0.0,
             texto=holding_text,
             ref=ref,
-            origen=f"{trib} — 22° Circuito — {materia}",
-            silo="sentencias_22_circuito",
+            origen=f"{trib} — {circuit}° Circuito — {materia}",
+            silo=f"sentencias_{circuit}_circuito",
             pdf_url=pay.get("pdf_url"),
         ))
 
