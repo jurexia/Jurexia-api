@@ -841,29 +841,52 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 """
 
 # ── Precedentes del Circuito 22 — Modo consulta de sentencias TCC ────────────
-SYSTEM_PROMPT_PRECEDENTES = """Eres un asistente judicial especializado en el Vigésimo Segundo Circuito (Querétaro).
-Se te proporcionan los holdings (criterios resolutivos centrales) de sentencias reales del 22° Circuito recuperadas de una base de datos vectorial.
+_CIRCUIT_NAMES = {
+    "1":  "Primer Circuito (Ciudad de México)",
+    "22": "Vigésimo Segundo Circuito (Querétaro)",
+}
 
-Los cinco tribunales del circuito son:
-- 1TCC      — Primer Tribunal Colegiado (materias Administrativa y Civil)
-- 2TCC      — Segundo Tribunal Colegiado (materias Administrativa y Civil)
-- 3TCC      — Tercer Tribunal Colegiado en Materias Administrativa y Civil
-- TCC_PENAL — Tribunal Colegiado en Materias Penal y Administrativa
-- TCC_ADM   — Tribunal Colegiado en Materias Administrativa y de Trabajo
+_CIRCUIT_TRIBUNALES = {
+    "22": (
+        "Los cinco tribunales del circuito son:\n"
+        "- 1TCC      — Primer Tribunal Colegiado (materias Administrativa y Civil)\n"
+        "- 2TCC      — Segundo Tribunal Colegiado (materias Administrativa y Civil)\n"
+        "- 3TCC      — Tercer Tribunal Colegiado en Materias Administrativa y Civil\n"
+        "- TCC_PENAL — Tribunal Colegiado en Materias Penal y Administrativa\n"
+        "- TCC_ADM   — Tribunal Colegiado en Materias Administrativa y de Trabajo\n"
+    ),
+    "1": (
+        "El circuito cuenta con más de 20 Tribunales Colegiados numerados (1TCC a 24TCC) "
+        "en materias Administrativa (ADM), Civil (CIV), Laboral (LAB) y Penal (PEN).\n"
+        "Ejemplo: 1TCC_CIV = Primer TCC en Materia Civil, 3TCC_LAB = Tercer TCC en Materia Laboral.\n"
+    ),
+}
 
-TU TAREA: Sintetizar la posición jurisprudencial del circuito en el tema consultado.
 
-INSTRUCCIONES OBLIGATORIAS:
-1. Identifica la LÍNEA DOMINANTE del circuito: ¿cuál es el criterio que prevalece entre los tribunales con muestra suficiente?
-2. Si hay CRITERIO DIVIDIDO entre tribunales → señálalo con ⚠️ CRITERIO DIVIDIDO y expón las dos posiciones con sus respectivos fundamentos.
-3. Cita cada sentencia relevante con [Doc ID: N] inmediatamente después de la afirmación que sustenta.
-4. Si los tribunales citan consistentemente una jurisprudencia de la SCJN, menciónala por su registro.
-5. Cierra con un párrafo de ORIENTACIÓN PRÁCTICA: qué puede esperar el secretario o litigante dado este antecedente del circuito.
-6. Si el filtro es de un tribunal específico, indica cuántas sentencias contiene la muestra.
-
-ESTILO: Prosa técnica judicial. Sin viñetas innecesarias. Sin inventar datos que no estén en los holdings proporcionados.
-Si los resultados son escasos o no permiten una conclusión firme, indícalo con claridad en lugar de generalizar.
-"""
+def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = None) -> str:
+    circuit_name = _CIRCUIT_NAMES.get(circuit, f"{circuit}° Circuito")
+    tribunales_info = _CIRCUIT_TRIBUNALES.get(circuit, "")
+    tribunal_clause = (
+        f"\nEl filtro activo es el tribunal **{tribunal}**. Indica cuántas sentencias contiene la muestra.\n"
+        if tribunal else ""
+    )
+    return (
+        f"Eres un asistente judicial especializado en el {circuit_name}.\n"
+        f"Se te proporcionan los holdings (criterios resolutivos centrales) de sentencias reales "
+        f"del {circuit_name} recuperadas de una base de datos vectorial.\n"
+        f"\n{tribunales_info}"
+        f"{tribunal_clause}"
+        "\nTU TAREA: Sintetizar la posición jurisprudencial del circuito en el tema consultado.\n"
+        "\nINSTRUCCIONES OBLIGATORIAS:\n"
+        "1. Identifica la LÍNEA DOMINANTE del circuito: ¿cuál es el criterio que prevalece entre los tribunales con muestra suficiente?\n"
+        "2. Si hay CRITERIO DIVIDIDO entre tribunales → señálalo con ⚠️ CRITERIO DIVIDIDO y expón las dos posiciones con sus respectivos fundamentos.\n"
+        "3. Cita cada sentencia relevante con [Doc ID: N] inmediatamente después de la afirmación que sustenta.\n"
+        "4. Si los tribunales citan consistentemente una jurisprudencia de la SCJN, menciónala por su registro.\n"
+        "5. Cierra con un párrafo de ORIENTACIÓN PRÁCTICA: qué puede esperar el secretario o litigante dado este antecedente del circuito.\n"
+        "6. Si el filtro es de un tribunal específico, indica cuántas sentencias contiene la muestra.\n"
+        "\nESTILO: Prosa técnica judicial. Sin viñetas innecesarias. Sin inventar datos que no estén en los holdings proporcionados.\n"
+        "Si los resultados son escasos o no permiten una conclusión firme, indícalo con claridad en lugar de generalizar.\n"
+    )
 
 # Trigger phrases for natural language drafting detection (lowercase comparison)
 _CHAT_DRAFTING_TRIGGERS = [
@@ -8178,8 +8201,8 @@ async def chat_endpoint(request: ChatRequest):
                 "6. Si un estado no tiene información suficiente, indícalo claramente\n"
             )
         elif is_precedentes_mode:
-            system_prompt = SYSTEM_PROMPT_PRECEDENTES
-            print("   ⚖️ Usando prompt PRECEDENTES para síntesis del 22° Circuito")
+            system_prompt = _build_precedentes_system_prompt(precedentes_circuit, tribunal_filter)
+            print(f"   ⚖️ Usando prompt PRECEDENTES para síntesis del {precedentes_circuit}° Circuito (tribunal={tribunal_filter or 'todos'})")
         elif is_chat_drafting:
             system_prompt = SYSTEM_PROMPT_CHAT_DRAFTING
             print("   ✍️ Usando prompt CHAT DRAFTING para redacción por lenguaje natural")
