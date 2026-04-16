@@ -3885,27 +3885,38 @@ async def search_precedentes_global(
 ) -> List[SearchResult]:
     """
     Búsqueda global en paralelo sobre todos los circuitos activos.
-    Cada circuito aporta hasta `limit_per_circuit` resultados; se fusionan por score RRF y
-    se retorna el top `limit` combinado.
+    Garantiza representación mínima de cada circuito (evita que un circuito con
+    scores sistemáticamente más altos monopolice los resultados).
     circuits: lista explícita de circuitos; None = _ACTIVE_CIRCUITS.
     """
     targets = circuits if circuits is not None else _ACTIVE_CIRCUITS
-    limit_per_circuit = max(8, limit)   # each circuit contributes up to this many
+    n = len(targets)
+    # Minimum guaranteed results per circuit; remaining slots filled by score
+    min_per = max(3, limit // n)
+    limit_per_circuit = min_per + 5   # fetch extra so score top-up has candidates
     tasks = [
         search_precedentes_holdings(query, tribunal=tribunal, circuit=c, limit=limit_per_circuit)
         for c in targets
     ]
     per_circuit = await asyncio.gather(*tasks, return_exceptions=True)
-    all_results: List[SearchResult] = []
+
+    guaranteed: List[SearchResult] = []
+    leftovers:  List[SearchResult] = []
     for i, r in enumerate(per_circuit):
         if isinstance(r, Exception):
             print(f"   ⚠️ search_precedentes_global error en circuito {targets[i]}: {r}")
         elif isinstance(r, list):
-            all_results.extend(r)
-    # Re-rank by descending score (RRF scores are comparable across collections)
-    all_results.sort(key=lambda x: x.score, reverse=True)
-    combined = all_results[:limit]
-    print(f"   ⚖️ Global: {len(all_results)} resultados de {len(targets)} circuitos → top {len(combined)}")
+            print(f"   ⚖️ Circuito {targets[i]}: {len(r)} resultados")
+            guaranteed.extend(r[:min_per])
+            leftovers.extend(r[min_per:])
+
+    # Fill remaining slots with highest-scoring extras from any circuit
+    leftovers.sort(key=lambda x: x.score, reverse=True)
+    remaining = max(0, limit - len(guaranteed))
+    combined = guaranteed + leftovers[:remaining]
+    # Final sort for LLM readability (higher score first)
+    combined.sort(key=lambda x: x.score, reverse=True)
+    print(f"   ⚖️ Global: {len(guaranteed)} garantizados + {min(remaining, len(leftovers))} top-up → {len(combined)} total")
     return combined
 
 
