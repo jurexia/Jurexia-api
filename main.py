@@ -841,6 +841,9 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 """
 
 # ── Precedentes del Circuito 22 — Modo consulta de sentencias TCC ────────────
+# Circuits with ingested holdings collections. Add new circuits here as they're processed.
+_ACTIVE_CIRCUITS: List[str] = ["1", "22"]
+
 _CIRCUIT_NAMES = {
     "1":  "Primer Circuito (Ciudad de México)",
     "22": "Vigésimo Segundo Circuito (Querétaro)",
@@ -864,6 +867,24 @@ _CIRCUIT_TRIBUNALES = {
 
 
 def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = None) -> str:
+    if circuit == "ALL":
+        circuit_labels = ", ".join(
+            _CIRCUIT_NAMES.get(c, f"{c}° Circuito") for c in _ACTIVE_CIRCUITS
+        )
+        return (
+            "Eres un asistente judicial especializado en jurisprudencia de Tribunales Colegiados de Circuito.\n"
+            f"Se te proporcionan holdings de sentencias de múltiples circuitos ({circuit_labels}), "
+            "recuperados de una base de datos vectorial.\n"
+            "\nTU TAREA: Sintetizar la posición jurisprudencial sobre el tema consultado a nivel nacional.\n"
+            "\nINSTRUCCIONES OBLIGATORIAS:\n"
+            "1. Identifica la LÍNEA DOMINANTE entre todos los circuitos representados en la muestra.\n"
+            "2. Si hay CRITERIO DIVERGENTE entre circuitos → señálalo con ⚠️ CRITERIO DIVERGENTE e indica el circuito de cada posición.\n"
+            "3. Cita cada sentencia con [Doc ID: N] e indica el circuito al que pertenece (disponible en su referencia).\n"
+            "4. Si los circuitos citan consistentemente una jurisprudencia de la SCJN, menciónala por su registro.\n"
+            "5. Cierra con un párrafo de ORIENTACIÓN PRÁCTICA para litigantes y secretarios ante cualquiera de estos circuitos.\n"
+            "\nESTILO: Prosa técnica judicial. Sin viñetas innecesarias. Sin inventar datos que no estén en los holdings proporcionados.\n"
+            "Si los resultados son escasos o no permiten una conclusión firme, indícalo con claridad.\n"
+        )
     circuit_name = _CIRCUIT_NAMES.get(circuit, f"{circuit}° Circuito")
     tribunales_info = _CIRCUIT_TRIBUNALES.get(circuit, "")
     tribunal_clause = (
@@ -3854,6 +3875,38 @@ async def search_precedentes_holdings(
         ))
 
     return results
+
+
+async def search_precedentes_global(
+    query: str,
+    tribunal: Optional[str] = None,
+    circuits: Optional[List[str]] = None,
+    limit: int = 15,
+) -> List[SearchResult]:
+    """
+    Búsqueda global en paralelo sobre todos los circuitos activos.
+    Cada circuito aporta hasta `limit_per_circuit` resultados; se fusionan por score RRF y
+    se retorna el top `limit` combinado.
+    circuits: lista explícita de circuitos; None = _ACTIVE_CIRCUITS.
+    """
+    targets = circuits if circuits is not None else _ACTIVE_CIRCUITS
+    limit_per_circuit = max(8, limit)   # each circuit contributes up to this many
+    tasks = [
+        search_precedentes_holdings(query, tribunal=tribunal, circuit=c, limit=limit_per_circuit)
+        for c in targets
+    ]
+    per_circuit = await asyncio.gather(*tasks, return_exceptions=True)
+    all_results: List[SearchResult] = []
+    for i, r in enumerate(per_circuit):
+        if isinstance(r, Exception):
+            print(f"   ⚠️ search_precedentes_global error en circuito {targets[i]}: {r}")
+        elif isinstance(r, list):
+            all_results.extend(r)
+    # Re-rank by descending score (RRF scores are comparable across collections)
+    all_results.sort(key=lambda x: x.score, reverse=True)
+    combined = all_results[:limit]
+    print(f"   ⚖️ Global: {len(all_results)} resultados de {len(targets)} circuitos → top {len(combined)}")
+    return combined
 
 
 # Maximum characters per document to prevent token overflow
@@ -7624,16 +7677,16 @@ async def chat_endpoint(request: ChatRequest):
     # Frontend can also pass [TRIBUNAL:1TCC], [TRIBUNAL:2TCC] or [TRIBUNAL:3TCC]
     is_precedentes_mode = False
     tribunal_filter: Optional[str] = None
-    precedentes_circuit: str = "22"          # default; overridden by [CIRCUITO:N]
+    precedentes_circuit: str = "ALL"          # default = global; overridden by [CIRCUITO:N]
     if "[MODO_PRECEDENTES]" in last_user_message:
         is_precedentes_mode = True
         import re as _re_prec
-        # Extract circuit  [CIRCUITO:N]
-        _circ_match = _re_prec.search(r'\[CIRCUITO:(\d+)\]', last_user_message)
+        # Extract circuit [CIRCUITO:N] — if absent, stays "ALL" (global search)
+        _circ_match = _re_prec.search(r'\[CIRCUITO:(\w+)\]', last_user_message)
         if _circ_match:
-            precedentes_circuit = _circ_match.group(1)
+            precedentes_circuit = _circ_match.group(1)   # e.g. "1", "22", "ALL"
             last_user_message = last_user_message.replace(_circ_match.group(0), "").strip()
-        # Extract tribunal — accept any alphanumeric ID (1TCC, 2TCC, TCCPA, TCCAT, etc.)
+        # Extract tribunal — accept any alphanumeric ID (1TCC_CIV, ADM, TCC_PENAL, etc.)
         _trib_match = _re_prec.search(r'\[TRIBUNAL:([A-Z0-9_\-]+)\]', last_user_message)
         if _trib_match:
             tribunal_filter = _trib_match.group(1)
@@ -7721,15 +7774,22 @@ async def chat_endpoint(request: ChatRequest):
             context_xml = ""
 
             if is_precedentes_mode:
-                # ── PRECEDENTES DEL CIRCUITO N ───────────────────────────────────────
-                # Búsqueda directa en sentencias_holdings_{N}, bypassa el RAG normal.
-                print(f"   ⚖️ Buscando en sentencias_holdings_{precedentes_circuit} (tribunal={tribunal_filter or 'todos'})...")
-                search_results = await search_precedentes_holdings(
-                    query=last_user_message,
-                    tribunal=tribunal_filter,
-                    circuit=precedentes_circuit,
-                    limit=12,
-                )
+                # ── PRECEDENTES: global (ALL) o por circuito específico ──────────────
+                if precedentes_circuit == "ALL":
+                    print(f"   ⚖️ Búsqueda GLOBAL en {len(_ACTIVE_CIRCUITS)} circuitos (tribunal={tribunal_filter or 'todos'})...")
+                    search_results = await search_precedentes_global(
+                        query=last_user_message,
+                        tribunal=tribunal_filter,
+                        limit=15,
+                    )
+                else:
+                    print(f"   ⚖️ Buscando en sentencias_holdings_{precedentes_circuit} (tribunal={tribunal_filter or 'todos'})...")
+                    search_results = await search_precedentes_holdings(
+                        query=last_user_message,
+                        tribunal=tribunal_filter,
+                        circuit=precedentes_circuit,
+                        limit=12,
+                    )
                 doc_id_map = build_doc_id_map(search_results)
                 context_xml = format_results_as_xml(search_results, estado=None, prose_mode=False)
                 print(f"   ⚖️ Precedentes encontrados: {len(search_results)}")
