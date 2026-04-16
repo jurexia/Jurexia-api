@@ -15,6 +15,7 @@ fi
 exec uvicorn main:app \
     --host 0.0.0.0 \
     --port ${PORT:-8080} \
-    --workers 4 \
+    --workers 3 \
     --timeout-keep-alive 120 \
+    --limit-max-requests 1000 \
     --log-level info

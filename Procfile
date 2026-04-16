@@ -1,1 +1,1 @@
-web: uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 4 --timeout-keep-alive 120
+web: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 3 --timeout-keep-alive 120 --limit-max-requests 1000

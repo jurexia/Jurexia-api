@@ -3760,11 +3760,18 @@ async def search_precedentes_holdings(
 
     filter_conditions = [FieldCondition(key="circuito", match=MatchValue(value=circuit))]
     if tribunal:
-        filter_conditions.append(
-            FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
-        )
+        # Short materia codes (ADM, CIV, LAB, PEN) filter by tribunal_tipo; full IDs filter by tribunal
+        _TIPO_CODES = {"ADM", "CIV", "LAB", "PEN"}
+        if tribunal.upper() in _TIPO_CODES:
+            filter_conditions.append(
+                FieldCondition(key="tribunal_tipo", match=MatchValue(value=tribunal.upper()))
+            )
+        else:
+            filter_conditions.append(
+                FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
+            )
     qdrant_filter = Filter(must=filter_conditions)
-    print(f"   ⚖️ Filtro Qdrant: circuito=22, tribunal={tribunal or 'todos'}")
+    print(f"   ⚖️ Filtro Qdrant: circuito={circuit}, tribunal={tribunal or 'todos'}")
 
     points = []
     try:
@@ -7602,7 +7609,7 @@ async def chat_endpoint(request: ChatRequest):
             precedentes_circuit = _circ_match.group(1)
             last_user_message = last_user_message.replace(_circ_match.group(0), "").strip()
         # Extract tribunal — accept any alphanumeric ID (1TCC, 2TCC, TCCPA, TCCAT, etc.)
-        _trib_match = _re_prec.search(r'\[TRIBUNAL:([A-Z0-9\-]+)\]', last_user_message)
+        _trib_match = _re_prec.search(r'\[TRIBUNAL:([A-Z0-9_\-]+)\]', last_user_message)
         if _trib_match:
             tribunal_filter = _trib_match.group(1)
             last_user_message = last_user_message.replace(_trib_match.group(0), "").strip()
