@@ -842,10 +842,11 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 
 # ── Precedentes del Circuito 22 — Modo consulta de sentencias TCC ────────────
 # Circuits with ingested holdings collections. Add new circuits here as they're processed.
-_ACTIVE_CIRCUITS: List[str] = ["1", "22"]
+_ACTIVE_CIRCUITS: List[str] = ["1", "4", "22"]
 
 _CIRCUIT_NAMES = {
     "1":  "Primer Circuito (Ciudad de México)",
+    "4":  "Cuarto Circuito (Nuevo León)",
     "22": "Vigésimo Segundo Circuito (Querétaro)",
 }
 
@@ -862,6 +863,13 @@ _CIRCUIT_TRIBUNALES = {
         "El circuito cuenta con más de 20 Tribunales Colegiados numerados (1TCC a 24TCC) "
         "en materias Administrativa (ADM), Civil (CIV), Laboral (LAB) y Penal (PEN).\n"
         "Ejemplo: 1TCC_CIV = Primer TCC en Materia Civil, 3TCC_LAB = Tercer TCC en Materia Laboral.\n"
+    ),
+    "4": (
+        "Los tribunales del circuito son:\n"
+        "- 1TCC_ADM, 2TCC_ADM, 3TCC_ADM — Tribunales en Materia Administrativa\n"
+        "- 1TCC_CIV, 2TCC_CIV, 3TCC_CIV — Tribunales en Materia Civil\n"
+        "- 1TCC_PEN, 2TCC_PEN             — Tribunales en Materia Penal\n"
+        "- 1TCC_LAB, 2TCC_LAB, 3TCC_LAB, 4TCC_LAB, 5TCC_LAB — Tribunales en Materia de Trabajo\n"
     ),
 }
 
