@@ -3806,7 +3806,8 @@ async def search_precedentes_holdings(
     circuit: número de circuito como string ("22", "1", etc.)
     tribunal: ID del tribunal ("1TCC", "2TCC", "TCCPA", etc.) o None (todos)
     """
-    COLLECTION = f"sentencias_holdings_{circuit}"
+    # Colección unificada — filtramos por circuito en payload
+    COLLECTION = "sentencias_holdings"
 
     try:
         dense_vec, sparse_vec = await asyncio.gather(
@@ -3818,9 +3819,10 @@ async def search_precedentes_holdings(
         print(f"   ⚠️ search_precedentes_holdings embedding error: {emb_err}")
         return []
 
-    # Collection name already encodes the circuit (sentencias_holdings_{circuit}),
-    # so no need to filter by circuito field — only filter by tribunal if provided.
-    filter_conditions = []
+    # Filtro por circuito (payload) + tribunal si se especifica
+    filter_conditions = [
+        FieldCondition(key="circuito", match=MatchValue(value=str(circuit)))
+    ]
     if tribunal:
         # Short materia codes (ADM, CIV, LAB, PEN) filter by tribunal_tipo; full IDs filter by tribunal
         _TIPO_CODES = {"ADM", "CIV", "LAB", "PEN"}
