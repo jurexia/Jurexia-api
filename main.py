@@ -9933,6 +9933,377 @@ def _can_access_sentencia(user_email: str) -> bool:
     return False
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# JURIMETRÍA — Predicción de sentido basada en precedentes + documentos reales
+# Acceso exclusivo: ultra_secretarios + admins
+# Escalable: opera sobre sentencias_holdings unificada sin hardcodear circuitos
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _can_access_jurimetria(user_email: str) -> bool:
+    """ultra_secretarios y admins únicamente."""
+    email_lower = user_email.strip().lower()
+    if email_lower in ADMIN_EMAILS:
+        return True
+    if supabase_admin:
+        try:
+            result = (
+                supabase_admin.table("user_profiles")
+                .select("subscription_type")
+                .eq("email", email_lower)
+                .limit(1)
+                .execute()
+            )
+            if result.data:
+                return result.data[0].get("subscription_type") == "ultra_secretarios"
+        except Exception as e:
+            print(f"   ⚠️ jurimetria access check error for {email_lower}: {e}")
+    return False
+
+
+_SENTIDO_NORM = {
+    "concede":              "CONCEDE",
+    "parcialmente_concede": "CONCEDE",
+    "fundado":              "CONCEDE",
+    "revoca":               "CONCEDE",   # revoca sentencia impugnada = favorable
+    "niega":                "NIEGA",
+    "infundado":            "NIEGA",
+    "confirma":             "NIEGA",     # confirma sentencia impugnada = desfavorable
+    "sobresee":             "SOBRESEE",
+    "desecha":              "SOBRESEE",
+    "sin_materia":          "SOBRESEE",
+    "incompetencia":        "SOBRESEE",
+    "modifica":             "SOBRESEE",
+}
+
+def _aggregate_jurimetria(points: list) -> dict:
+    from collections import Counter, defaultdict
+    sentido_counts: Counter = Counter()
+    circ_sentidos: dict = defaultdict(Counter)
+    factores: Counter = Counter()
+    magistrados: Counter = Counter()
+    ratio_sum = 0.0
+    ratio_n   = 0
+
+    for pt in points:
+        pay = pt.payload or {}
+        raw = (pay.get("sentido") or "").lower().strip()
+        norm = _SENTIDO_NORM.get(raw, "OTRO")
+        sentido_counts[norm] += 1
+
+        circ = str(pay.get("circuito") or "")
+        if circ:
+            circ_sentidos[circ][norm] += 1
+
+        f = (pay.get("factor_determinante_sentido") or "").strip()
+        if f and f not in ("null", "None"):
+            factores[f] += 1
+
+        m = (pay.get("magistrado_ponente") or "").strip()
+        if m and m not in ("null", "None"):
+            magistrados[m] += 1
+
+        r = pay.get("ratio_inoperantes")
+        if r is not None:
+            try:
+                ratio_sum += float(r)
+                ratio_n   += 1
+            except (TypeError, ValueError):
+                pass
+
+    total = sum(sentido_counts.values()) or 1
+    prob  = {k: round(v / total, 3) for k, v in sentido_counts.most_common()}
+
+    core = {k: prob.get(k, 0) for k in ("CONCEDE", "NIEGA", "SOBRESEE")}
+    sentido_probable = max(core, key=core.get) if any(core.values()) else "NIEGA"
+
+    por_circuito: dict = {}
+    for circ, cnt in circ_sentidos.items():
+        ct = sum(cnt.values()) or 1
+        por_circuito[circ] = {k: round(v / ct, 3) for k, v in cnt.items()}
+
+    n = len(points)
+    confianza = "alta" if n >= 40 else "media" if n >= 15 else "baja"
+
+    return {
+        "sentido_probable":           sentido_probable,
+        "probabilidades":             prob,
+        "n_base":                     n,
+        "por_circuito":               por_circuito,
+        "factor_dominante":           factores.most_common(1)[0][0] if factores else None,
+        "magistrados_frecuentes":     [m for m, _ in magistrados.most_common(5)],
+        "ratio_inoperantes_historico": round(ratio_sum / ratio_n, 3) if ratio_n else None,
+        "confianza":                  confianza,
+    }
+
+
+async def _extract_text_from_upload(file: UploadFile) -> str:
+    """Extrae texto de PDF/DOCX subido. Reutiliza la lógica de analyze_document."""
+    import io
+    content = await file.read()
+    ext = (file.filename or "").split(".")[-1].lower()
+
+    if ext == "pdf":
+        try:
+            import fitz
+            doc = fitz.open(stream=content, filetype="pdf")
+            pages = [page.get_text() for page in doc]
+            doc.close()
+            text = "\n\n".join(pages).strip()
+            if len(text) > 200:
+                return text
+        except Exception:
+            pass
+        # scanned fallback: Gemini OCR
+        try:
+            import tempfile
+            gemini_cl = get_gemini_client()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            upl = gemini_cl.files.upload(file=tmp_path)
+            import os as _os; _os.unlink(tmp_path)
+            resp = gemini_cl.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[upl, "Transcribe el texto de este documento judicial."],
+            )
+            return resp.text or ""
+        except Exception as e:
+            print(f"   ⚠️ Gemini OCR error: {e}")
+            return ""
+
+    if ext in ("docx", "doc"):
+        try:
+            from docx import Document as _Docx
+            doc = _Docx(io.BytesIO(content))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception:
+            return ""
+
+    return ""
+
+
+class JurimertriaRequest(BaseModel):
+    user_email: str
+    descripcion: Optional[str] = None
+    circuito: Optional[str] = None      # None = global (todos los circuitos)
+    tribunal: Optional[str] = None
+    acto_tipo: Optional[str] = None
+    materia: Optional[str] = None
+
+
+@app.post("/api/jurimetria")
+async def jurimetria_endpoint(
+    user_email:      str           = Form(...),
+    descripcion:     Optional[str] = Form(None),
+    circuito:        Optional[str] = Form(None),
+    tribunal:        Optional[str] = Form(None),
+    acto_tipo:       Optional[str] = Form(None),
+    materia:         Optional[str] = Form(None),
+    ratio_decidendi: Optional[UploadFile] = File(None),
+    causa_petendi:   Optional[UploadFile] = File(None),
+):
+    """
+    Predice el sentido probable de un asunto basándose en el corpus de precedentes.
+
+    Modo básico  → sólo descripcion + filtros opcionales.
+    Modo secretario → adjunta ratio_decidendi (sentencia/acto reclamado) y/o
+                      causa_petendi (agravios/conceptos de violación) como PDF/DOCX.
+
+    Acceso: ultra_secretarios + admins.
+    Escalabilidad: busca en sentencias_holdings global; cualquier nuevo circuito
+                   ingested contribuye automáticamente sin cambios de código.
+    """
+    import time as _t
+    t0 = _t.time()
+
+    # ── Acceso ──────────────────────────────────────────────────────────────
+    if not _can_access_jurimetria(user_email):
+        raise HTTPException(403, "Jurimetría requiere suscripción Ultra Secretarios")
+
+    # ── Extraer texto de documentos adjuntos ─────────────────────────────
+    texto_rd: str = ""
+    texto_cp: str = ""
+    modo = "basico"
+
+    if ratio_decidendi and ratio_decidendi.filename:
+        texto_rd = await _extract_text_from_upload(ratio_decidendi)
+        modo = "secretario"
+    if causa_petendi and causa_petendi.filename:
+        texto_cp = await _extract_text_from_upload(causa_petendi)
+        modo = "secretario"
+
+    # ── Análisis de documentos con Gemini (modo secretario) ──────────────
+    extraccion: dict = {}
+    query_base = descripcion or ""
+
+    if modo == "secretario" and (texto_rd or texto_cp):
+        try:
+            gemini_cl = get_gemini_client()
+            doc_prompt = (
+                "Analiza los siguientes documentos judiciales y extrae en JSON:\n"
+                "{\n"
+                '  "acto_reclamado_tipo": "jurisdiccional_laboral|jurisdiccional_civil|jurisdiccional_penal|jurisdiccional_administrativo|administrativo_federal|administrativo_estatal|administrativo_municipal|omision|legislativo",\n'
+                '  "autoridad_responsable": "nombre breve de la autoridad",\n'
+                '  "materia": "laboral|civil|penal|administrativo|constitucional",\n'
+                '  "n_conceptos": <número entero de conceptos/agravios>,\n'
+                '  "conceptos_analisis": [\n'
+                '    {"n": 1, "tipo": "violacion_procedimiento|valoracion_prueba|aplicacion_ley|falta_fundamentacion|otro",\n'
+                '     "prediccion": "inoperante|infundado|fundado",\n'
+                '     "razon": "razón breve en máx 20 palabras"}\n'
+                '  ],\n'
+                '  "tema_juridico": "resumen del tema en 1 oración",\n'
+                '  "complejidad_estimada": "baja|media|alta"\n'
+                "}\n"
+                "Responde SOLO el JSON, sin texto adicional.\n\n"
+            )
+            if texto_rd:
+                doc_prompt += f"=== ACTO RECLAMADO / SENTENCIA RECURRIDA ===\n{texto_rd[:15000]}\n\n"
+            if texto_cp:
+                doc_prompt += f"=== AGRAVIOS / CONCEPTOS DE VIOLACIÓN ===\n{texto_cp[:15000]}\n\n"
+
+            resp = gemini_cl.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[doc_prompt],
+                config={"temperature": 0.1},
+            )
+            raw_json = resp.text.strip().strip("```json").strip("```").strip()
+            extraccion = json.loads(raw_json)
+
+            # Usar tema jurídico como base de búsqueda si no hay descripcion
+            if not query_base:
+                query_base = extraccion.get("tema_juridico", "")
+            # Completar filtros con lo extraído si el usuario no los puso
+            if not acto_tipo and extraccion.get("acto_reclamado_tipo"):
+                acto_tipo = extraccion["acto_reclamado_tipo"]
+            if not materia and extraccion.get("materia"):
+                materia = extraccion["materia"]
+
+            print(f"   ⚖️ Extraccion OK: {extraccion.get('n_conceptos')} conceptos, acto={acto_tipo}")
+        except Exception as e:
+            print(f"   ⚠️ Error extraccion Gemini: {e}")
+            extraccion = {}
+
+    if not query_base:
+        raise HTTPException(400, "Proporciona una descripción del asunto o adjunta los documentos del caso.")
+
+    # ── Búsqueda semántica en sentencias_holdings (global o filtrada) ───
+    filter_conditions = []
+    if circuito:
+        filter_conditions.append(FieldCondition(key="circuito", match=MatchValue(value=str(circuito))))
+    if tribunal:
+        filter_conditions.append(FieldCondition(key="tribunal", match=MatchValue(value=tribunal)))
+    if acto_tipo:
+        filter_conditions.append(FieldCondition(key="acto_reclamado_tipo", match=MatchValue(value=acto_tipo)))
+    if materia:
+        filter_conditions.append(FieldCondition(key="materia", match=MatchValue(value=materia)))
+
+    qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
+
+    try:
+        dense_vec = await get_dense_embedding(query_base)
+        response = await qdrant_client.query_points(
+            collection_name="sentencias_holdings",
+            query=dense_vec,
+            using="dense",
+            limit=80,
+            query_filter=qdrant_filter,
+            with_payload=True,
+        )
+        points = response.points
+        print(f"   ⚖️ Jurimetria search: {len(points)} precedentes (filtro: circuito={circuito or 'global'}, acto={acto_tipo or '-'})")
+    except Exception as e:
+        print(f"   ⚠️ Jurimetria Qdrant error: {e}")
+        raise HTTPException(500, f"Error en búsqueda de precedentes: {e}")
+
+    # ── Agregación estadística ─────────────────────────────────────────────
+    estadistica = _aggregate_jurimetria(points)
+
+    # ── Top precedentes análogos (top 5 por score) ─────────────────────────
+    precedentes_analogos = []
+    for pt in points[:5]:
+        pay = pt.payload or {}
+        trib  = pay.get("tribunal") or ""
+        exp   = pay.get("expediente") or ""
+        sent  = (pay.get("sentido") or "").capitalize()
+        fecha = (pay.get("fecha_sentencia") or "")[:4]
+        circ  = pay.get("circuito") or ""
+        ref_parts = [x for x in [trib, exp, sent, fecha] if x]
+        precedentes_analogos.append({
+            "ref":     " · ".join(ref_parts),
+            "circuito": circ,
+            "holding": (pay.get("holding") or "")[:400],
+            "score":   round(pt.score or 0, 3),
+            "pdf_url": pay.get("pdf_url"),
+        })
+
+    # ── Síntesis narrativa con Gemini Flash ───────────────────────────────
+    narrativa = ""
+    try:
+        gemini_cl = get_gemini_client()
+
+        prob_str = "  ".join(
+            f"{k}: {int(v*100)}%" for k, v in estadistica["probabilidades"].items()
+            if k in ("CONCEDE", "NIEGA", "SOBRESEE") and v > 0
+        )
+        circ_str = ""
+        if estadistica.get("por_circuito"):
+            circ_str = "\nDistribución por circuito:\n" + "\n".join(
+                f"  {c}° Circ: " + "  ".join(f"{k}: {int(v*100)}%" for k, v in d.items())
+                for c, d in sorted(estadistica["por_circuito"].items())
+            )
+
+        conceptos_str = ""
+        if extraccion.get("conceptos_analisis"):
+            conceptos_str = "\nAnálisis por concepto/agravio:\n" + "\n".join(
+                f"  [{c['n']}] {c.get('tipo','')} → {c.get('prediccion','?').upper()}: {c.get('razon','')}"
+                for c in extraccion["conceptos_analisis"]
+            )
+
+        prec_str = "\n".join(
+            f"  [{i+1}] {p['ref']} (score={p['score']}): {p['holding'][:200]}..."
+            for i, p in enumerate(precedentes_analogos)
+        )
+
+        sinth_prompt = (
+            "Eres un analista de jurimetría judicial mexicana. "
+            "Con base en los datos estadísticos y los precedentes recuperados, "
+            "redacta una narrativa predictiva profesional en 3 párrafos:\n"
+            "1) Predicción y fundamento estadístico\n"
+            "2) Factores críticos que inclinan el resultado\n"
+            "3) Orientación práctica para el secretario/litigante\n\n"
+            f"Asunto: {query_base[:500]}\n"
+            f"Precedentes analizados: {estadistica['n_base']} (confianza: {estadistica['confianza']})\n"
+            f"Distribución sentido: {prob_str}\n"
+            f"Factor dominante histórico: {estadistica.get('factor_dominante') or 'N/D'}\n"
+            f"Ratio inoperantes histórico: {estadistica.get('ratio_inoperantes_historico') or 'N/D'}\n"
+            f"{circ_str}\n"
+            f"{conceptos_str}\n\n"
+            "Precedentes más análogos:\n" + prec_str
+        )
+
+        resp = gemini_cl.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[sinth_prompt],
+            config={"temperature": 0.3},
+        )
+        narrativa = resp.text or ""
+    except Exception as e:
+        print(f"   ⚠️ Jurimetria narrativa error: {e}")
+        narrativa = "No fue posible generar la narrativa predictiva en este momento."
+
+    elapsed = round(_t.time() - t0, 2)
+    print(f"   ⚖️ Jurimetria completada: {elapsed}s | modo={modo} | n={estadistica['n_base']} | prediccion={estadistica['sentido_probable']}")
+
+    return {
+        "modo":                modo,
+        "extraccion":          extraccion,
+        "estadistica":         estadistica,
+        "narrativa":           narrativa,
+        "precedentes_analogos": precedentes_analogos,
+        "tiempo_segundos":     elapsed,
+    }
+
+
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
 from fastapi import Header  # noqa: E402 — needed here; main admin import is further down
 @app.post("/admin/users/{user_id}/toggle-sentencia")
