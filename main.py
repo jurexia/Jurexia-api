@@ -2096,6 +2096,12 @@ class SearchResult(BaseModel):
     entidad: Optional[str] = None
     silo: str
     pdf_url: Optional[str] = None  # URL del PDF oficial (GCS o fuente gubernamental)
+    # Campos de jurisprudencia/tesis para CITATION_META
+    registro: Optional[str] = None
+    tesis_num: Optional[str] = None
+    tipo_criterio: Optional[str] = None
+    instancia_meta: Optional[str] = None
+    materia_meta: Optional[str] = None
     # Campos GraphRAG extraídos de jurisprudencia_nacional_v2
     ratio_decidendi: Optional[str] = None
     condicion_de_aplicacion: Optional[str] = None
@@ -4345,6 +4351,11 @@ async def hybrid_search_single_silo(
                 entidad=payload.get("entidad"),
                 silo=collection,
                 pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+                registro=str(payload.get("registro")) if payload.get("registro") else None,
+                tesis_num=payload.get("tesis", payload.get("numero_tesis", payload.get("tesis_num"))),
+                tipo_criterio=payload.get("tipo", payload.get("tipo_criterio")),
+                instancia_meta=payload.get("instancia"),
+                materia_meta=payload.get("materia"),
                 ratio_decidendi=payload.get("ratio_decidendi"),
                 condicion_de_aplicacion=payload.get("condicion_de_aplicacion"),
                 distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
@@ -8172,7 +8183,7 @@ async def chat_endpoint(request: ChatRequest):
                         hybrid_search_all_silos(
                             query=last_user_message,
                             estado=effective_estado,
-                            top_k=45 if is_chat_drafting else 35,
+                            top_k=45 if is_chat_drafting else 50,
                             forced_materia=request.materia,
                             fuero=request.fuero,
                             include_sentencias=is_chat_drafting,
@@ -9127,9 +9138,20 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 gtypes.Content(role="model", parts=[gtypes.Part(text=msg["content"])])
                             )
 
+                    _lite_depth_boost = (
+                        "INSTRUCCIÓN DE PROFUNDIDAD OBLIGATORIA:\n"
+                        "Estás en modo de análisis jurídico exhaustivo. Tu respuesta DEBE tener un mínimo de 1,200 palabras.\n"
+                        "- Para CADA tesis del contexto RAG: transcríbela en blockquote Y desarrolla su aplicación al caso "
+                        "con mínimo 3-4 oraciones de análisis (cómo aplica, qué establece, qué consecuencia tiene).\n"
+                        "- Para CADA artículo de ley: transcribe el texto completo en blockquote Y explica su alcance e interpretación práctica.\n"
+                        "- CONECTA norma + jurisprudencia + consecuencias prácticas en cada sección.\n"
+                        "- Las RECOMENDACIONES deben ser concretas: qué probar, cómo, con qué medios de prueba, qué argumentar.\n"
+                        "- Si sientes que tu respuesta está terminando antes de 1,200 palabras, es un ERROR. Desarrolla más.\n"
+                        "- NUNCA uses frases de cierre prematuro ('en conclusión', 'en resumen') antes de haber agotado el análisis."
+                    )
                     lite_config = gtypes.GenerateContentConfig(
-                        system_instruction="\n\n".join(system_parts_lite),
-                        temperature=0.5,
+                        system_instruction="\n\n".join(system_parts_lite) + "\n\n" + _lite_depth_boost,
+                        temperature=0.4,
                         max_output_tokens=max_tokens,
                     )
 
@@ -9255,6 +9277,11 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 "pdf_url": pdf_url or None,
                                 "silo": doc.silo,
                                 "entidad": doc.entidad or None,
+                                "registro": doc.registro or None,
+                                "tesis_num": doc.tesis_num or None,
+                                "tipo_criterio": doc.tipo_criterio or None,
+                                "instancia": doc.instancia_meta or None,
+                                "materia": doc.materia_meta or None,
                             }
                         else:
                             sources_map[cv.doc_id] = {
@@ -9929,7 +9956,13 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
                                 sources_map[cv.doc_id] = {
                                     "origen": humanize_origen(doc.origen) or "Fuente legal",
                                     "ref": doc.ref or "",
-                                    "texto": doc.texto or ""
+                                    "texto": doc.texto or "",
+                                    "silo": doc.silo,
+                                    "registro": doc.registro or None,
+                                    "tesis_num": doc.tesis_num or None,
+                                    "tipo_criterio": doc.tipo_criterio or None,
+                                    "instancia": doc.instancia_meta or None,
+                                    "materia": doc.materia_meta or None,
                                 }
                         meta = json.dumps({
                             "valid": validation.valid_count,
