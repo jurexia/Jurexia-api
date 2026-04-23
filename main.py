@@ -4970,34 +4970,33 @@ async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> O
         )
     
     try:
-        response = await asyncio.wait_for(
-            deepseek_client.chat.completions.create(
-                model=NORMAL_CHAT_OR_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Eres un experto en derecho mexicano. Genera un fragmento breve (150-250 palabras) "
-                            "de un artículo de ley o tesis de jurisprudencia mexicana que respondería "
-                            "directamente a la consulta del usuario. Escribe SOLO el texto legal, "
-                            "sin explicaciones ni preámbulos. Usa terminología jurídica técnica mexicana."
-                            + estado_context
-                        )
-                    },
-                    {"role": "user", "content": query}
-                ],
-                max_tokens=350,
-                temperature=0.3,
-                extra_body={"provider": {"sort": "throughput"}},
-            ),
-            timeout=2.5,  # Gemini Flash via OpenRouter — timeout rápido, fallback a query original
+        from google.genai import types as _gtypes
+        _gemini = get_gemini_client()
+        _hyde_system = (
+            "Eres un experto en derecho mexicano. Genera un fragmento breve (150-250 palabras) "
+            "de un artículo de ley o tesis de jurisprudencia mexicana que respondería "
+            "directamente a la consulta del usuario. Escribe SOLO el texto legal, "
+            "sin explicaciones ni preámbulos. Usa terminología jurídica técnica mexicana."
+            + estado_context
         )
-        hyde_doc = response.choices[0].message.content.strip()
+        _hyde_resp = await asyncio.wait_for(
+            _gemini.aio.models.generate_content(
+                model=GEMINI_LITE_MODEL,
+                contents=query,
+                config=_gtypes.GenerateContentConfig(
+                    system_instruction=_hyde_system,
+                    temperature=0.3,
+                    max_output_tokens=350,
+                ),
+            ),
+            timeout=1.5,  # Flash Lite directo — sin overhead de OpenRouter
+        )
+        hyde_doc = (_hyde_resp.text or "").strip()
         if hyde_doc and len(hyde_doc) > 50:
             print(f"   🔮 HyDE generado ({len(hyde_doc)} chars): {hyde_doc[:100]}...")
             return hyde_doc
     except asyncio.TimeoutError:
-        print(f"   ⚠️ HyDE timeout (>2.5s) — usando query original")
+        print(f"   ⚠️ HyDE timeout (>1.5s) — usando query original")
     except Exception as e:
         print(f"   ⚠️ HyDE falló (usando query original): {e}")
     
