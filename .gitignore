@@ -42,3 +42,48 @@ policy-override.yaml
 
 pdfs_morelos/
 _tools/pdfs_morelos/
+
+# ── Batch processing output (sentencias JSON, staging, PDFs) ──
+data/
+pdfs_cdmx/
+pdfs_federal/
+pdfs_guanajuato/
+txt_docs/
+
+# ── Loose dev/analysis scripts (no pertenecen al repo de producción) ──
+create_col.py
+repair_guanajuato.py
+ingest_guanajuato.py
+scrape_cdmx.py
+scrape_federal_supabase.py
+update_estados.py
+upload_cdmx_supabase.py
+upload_edomex_supabase.py
+upload_gto_supabase.py
+upload_puebla_supabase.py
+trim_cpeum.py
+main_backup_latency.py
+test_dual_cache.py
+test_dual_cache2.py
+test_sql.py
+test_terminator_puebla.py
+run_scjn.bat
+run_scjn.ps1
+run_scjn.sh
+scripts/
+
+# ── Análisis y archivos temporales ──
+*.txt
+!requirements*.txt
+*.json
+!package.json
+!package-lock.json
+_catalog_*.json
+sise_*.json
+debug_resp.json
+tesis_mas_citadas_ranking.json
+cost_report.txt
+sample_test.txt
+test.png
+*.html
+!templates/*.html
