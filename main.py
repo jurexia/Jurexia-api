@@ -215,6 +215,7 @@ SENTENCIA_SILOS = {
     "amparo_revision": "sentencias_amparo_revision",
     "recurso_queja": "sentencias_recurso_queja",
     "revision_fiscal": "sentencias_revision_fiscal",
+    "ef_unificado": "sentencias_ef",  # 970K estudios de fondo TCC unificados — few-shot redacción
 }
 
 # Fallback: colección legacy para estados no migrados
@@ -4961,28 +4962,34 @@ async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> O
         )
     
     try:
-        response = await chat_client.chat.completions.create(
-            model=HYDE_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Eres un experto en derecho mexicano. Genera un fragmento breve (150-250 palabras) "
-                        "de un artículo de ley o tesis de jurisprudencia mexicana que respondería "
-                        "directamente a la consulta del usuario. Escribe SOLO el texto legal, "
-                        "sin explicaciones ni preámbulos. Usa terminología jurídica técnica mexicana."
-                        + estado_context
-                    )
-                },
-                {"role": "user", "content": query}
-            ],
-            max_tokens=350,
-            temperature=0.3,
+        response = await asyncio.wait_for(
+            deepseek_client.chat.completions.create(
+                model=NORMAL_CHAT_OR_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Eres un experto en derecho mexicano. Genera un fragmento breve (150-250 palabras) "
+                            "de un artículo de ley o tesis de jurisprudencia mexicana que respondería "
+                            "directamente a la consulta del usuario. Escribe SOLO el texto legal, "
+                            "sin explicaciones ni preámbulos. Usa terminología jurídica técnica mexicana."
+                            + estado_context
+                        )
+                    },
+                    {"role": "user", "content": query}
+                ],
+                max_tokens=350,
+                temperature=0.3,
+                extra_body={"provider": {"sort": "throughput"}},
+            ),
+            timeout=2.5,  # Gemini Flash via OpenRouter — timeout rápido, fallback a query original
         )
         hyde_doc = response.choices[0].message.content.strip()
         if hyde_doc and len(hyde_doc) > 50:
             print(f"   🔮 HyDE generado ({len(hyde_doc)} chars): {hyde_doc[:100]}...")
             return hyde_doc
+    except asyncio.TimeoutError:
+        print(f"   ⚠️ HyDE timeout (>2.5s) — usando query original")
     except Exception as e:
         print(f"   ⚠️ HyDE falló (usando query original): {e}")
     
@@ -5372,7 +5379,14 @@ async def hybrid_search_all_silos(
             print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + len(FIXED_SILOS)} silos")
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # INYECCIÓN DE SENTENCIAS (Few-Shot Excellence) — Si se solicita
+    # HOLDINGS JUDICIALES: Siempre incluir — contexto clave de interpretación
+    # 111K holdings curados de TCC con materia, sentido, tribunal, circuito.
+    # ═══════════════════════════════════════════════════════════════════════════
+    if "sentencias_holdings" not in silos_to_search:
+        silos_to_search.append("sentencias_holdings")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # INYECCIÓN DE SENTENCIAS EF (Few-Shot Excellence) — Si se solicita
     # ═══════════════════════════════════════════════════════════════════════════
     if include_sentencias:
         _sentencias_list = list(SENTENCIA_SILOS.values())
@@ -8666,7 +8680,11 @@ async def chat_endpoint(request: ChatRequest):
                 # ── Emit cache status marker for frontend ──
                 if _effective_cached and use_gemini:
                     yield "<!--CACHE:ACTIVE-->"
-                
+
+                # ── Emit RAG source count for frontend (filterable) ──
+                if search_results:
+                    yield f"<!--SOURCES:{len(search_results)}-->"
+
                 # ── GEMINI BRANCH: Cached legal corpus via google-genai SDK ──
                 if use_gemini:
                     from google.genai import types as gtypes
