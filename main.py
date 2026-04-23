@@ -6669,10 +6669,15 @@ async def get_document(doc_id: str):
                             if ref:
                                 pdf_url = f"{PDF_FALLBACK_URLS['queretaro']}/{ref}.pdf"
 
+                    # Build ref: prefer 'ref', fallback to 'rubro' for new tesis
+                    _ref = payload.get("ref", payload.get("referencia", None))
+                    if not _ref and payload.get("rubro"):
+                        _ref = payload.get("rubro")
+
                     return DocumentResponse(
                         id=str(point.id),
                         texto=texto_val,
-                        ref=payload.get("ref", payload.get("referencia", None)),
+                        ref=_ref,
                         origen=_origen,
                         jurisdiccion=payload.get("jurisdiccion", None),
                         entidad=payload.get("entidad", payload.get("estado", None)),
@@ -6682,7 +6687,7 @@ async def get_document(doc_id: str):
                         registro=str(payload.get("registro")) if payload.get("registro") else None,
                         instancia=payload.get("instancia", None),
                         materia=materia_str,
-                        tesis_num=payload.get("tesis", payload.get("tesis_num", None)),
+                        tesis_num=payload.get("tesis", payload.get("numero_tesis", payload.get("tesis_num", None))),
                         tipo_criterio=payload.get("tipo", payload.get("tipo_criterio", None)),
                         url_pdf=pdf_url,
                         chunk_index=payload.get("chunk_index", 0),
