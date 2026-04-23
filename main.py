@@ -92,6 +92,7 @@ deepseek_client = AsyncOpenAI(
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
 REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
 DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash")  # Gemini 2.5 Flash GA — 1M context, ultra-rápido, $0.30/M input
+NORMAL_CHAT_OR_MODEL = os.getenv("NORMAL_CHAT_OR_MODEL", "google/gemini-3-flash-preview")  # Chat sin genio via OpenRouter — Gemini 3 Flash Preview, baja latencia
 
 # Cliente DeepSeek Oficial — Round-Robin Pool (distribuye carga entre múltiples API keys)
 # Soporta 1 o 2 keys. Si DEEPSEEK_API_KEY_2 está configurada, duplica el throughput (~600 RPM).
@@ -8607,32 +8608,33 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}{' [REDACTAR]' if is_drafting or is_chat_drafting else ''}")
         elif use_thinking:
             # DeepSeek con thinking mode — sin genios disponibles.
-            active_client = get_deepseek_official_client()
             _resolved_genio_ids = [] # DeepSeek ignores genio cache
-            if is_drafting or is_chat_drafting:
-                # REDACTOR: Usar deepseek-reasoner (thinking) para redacción de alto nivel.
-                # Thinking mode = razonamiento profundo + 64K max output (default 32K).
-                # Produce argumentación legal más sólida que deepseek-chat.
+            if is_chat_drafting and not is_drafting and not has_document:
+                # REDACTOR SIN GENIO: Gemini 3 Flash Preview via OpenRouter.
+                # Más rápido que DeepSeek Reasoner, razonamiento interno de Gemini.
+                active_client = deepseek_client  # OpenRouter
+                active_model = NORMAL_CHAT_OR_MODEL
+                max_tokens = 25000
+                use_thinking = False  # Gemini gestiona su propio razonamiento
+                print(f"   ✍️ REDACTOR sin genio → {active_model} (Gemini via OpenRouter)")
+            elif is_drafting or is_chat_drafting:
+                # REDACTOR con documento adjunto: mantener DeepSeek Reasoner (64K output).
+                active_client = get_deepseek_official_client()
                 active_model = DEEPSEEK_OFFICIAL_REASONER_MODEL
                 max_tokens = 32000
                 print(f"   ✍️ REDACTOR DeepSeek Reasoner: {active_model} | max_tokens: {max_tokens}")
             else:
                 # Centinela docs: análisis de documentos sin redacción
+                active_client = get_deepseek_official_client()
                 active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
                 max_tokens = 8192  # DeepSeek chat hard limit
         else:
-            # Fallback: DeepSeek Official (api.deepseek.com) o GPT-5 Mini
-            # CAMBIO LATENCIA: Usar API oficial de DeepSeek, NO OpenRouter.
-            # OpenRouter agrega 30-60s de cola TTFB bajo congestión.
-            if CHAT_ENGINE == "deepseek" and _deepseek_pool:
-                active_client = get_deepseek_official_client()
-                active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-                max_tokens = 8192  # DeepSeek API hard limit
-            else:
-                active_client = chat_client
-                active_model = CHAT_MODEL
-                max_tokens = 25000
-            _resolved_genio_ids = [] # Clear genio ids if fallback
+            # Chat normal sin genio → Gemini 3 Flash Preview via OpenRouter.
+            # Baja latencia, contexto 1M tokens, razonamiento interno.
+            active_client = deepseek_client  # OpenRouter
+            active_model = NORMAL_CHAT_OR_MODEL
+            max_tokens = 25000
+            _resolved_genio_ids = []
         
         _client_name = 'gemini' if use_gemini else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown')))
         print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
