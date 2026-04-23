@@ -93,6 +93,7 @@ DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
 REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
 DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash")  # Gemini 2.5 Flash GA — 1M context, ultra-rápido, $0.30/M input
 NORMAL_CHAT_OR_MODEL = os.getenv("NORMAL_CHAT_OR_MODEL", "google/gemini-3-flash-preview")  # Chat sin genio via OpenRouter — Gemini 3 Flash Preview, baja latencia
+GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
 
 # Cliente DeepSeek Oficial — Round-Robin Pool (distribuye carga entre múltiples API keys)
 # Soporta 1 o 2 keys. Si DEEPSEEK_API_KEY_2 está configurada, duplica el throughput (~600 RPM).
@@ -8585,7 +8586,8 @@ async def chat_endpoint(request: ChatRequest):
 
         
         use_gemini = False
-        
+        use_gemini_lite = False
+
         # ── TOKEN BUDGET GUARD ──
         # Cache = ~968K tokens. Gemini limit = 1,048,576 tokens.
         # Remaining budget with cache = ~80K tokens.
@@ -8650,14 +8652,14 @@ async def chat_endpoint(request: ChatRequest):
                 active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
                 max_tokens = 8192  # DeepSeek chat hard limit
         else:
-            # Chat normal sin genio → Gemini 3 Flash Preview via OpenRouter.
-            # Baja latencia, contexto 1M tokens, razonamiento interno.
-            active_client = deepseek_client  # OpenRouter
-            active_model = NORMAL_CHAT_OR_MODEL
+            # Chat normal sin genio → Gemini Flash Lite vía API directa.
+            # Latencia mínima (~4s TTFB), sin thinking tokens, calidad suficiente para chat estándar.
+            use_gemini_lite = True
+            active_model = GEMINI_LITE_MODEL
             max_tokens = 25000
             _resolved_genio_ids = []
         
-        _client_name = 'gemini' if use_gemini else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown')))
+        _client_name = 'gemini' if use_gemini else ('gemini_lite' if use_gemini_lite else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown'))))
         print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
         
         # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
@@ -9101,6 +9103,56 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             content_buffer = fallback
                             yield fallback
                 
+
+                # ── GEMINI LITE BRANCH: Chat normal vía Gemini API directa ──
+                elif use_gemini_lite:
+                    from google.genai import types as gtypes
+                    gemini_client = get_gemini_client()
+
+                    system_parts_lite = []
+                    gemini_contents_lite = []
+                    for msg in llm_messages:
+                        if msg["role"] == "system":
+                            system_parts_lite.append(msg["content"])
+                        elif msg["role"] == "user":
+                            gemini_contents_lite.append(
+                                gtypes.Content(role="user", parts=[gtypes.Part(text=msg["content"])])
+                            )
+                        elif msg["role"] == "assistant":
+                            gemini_contents_lite.append(
+                                gtypes.Content(role="model", parts=[gtypes.Part(text=msg["content"])])
+                            )
+
+                    lite_config = gtypes.GenerateContentConfig(
+                        system_instruction="\n\n".join(system_parts_lite),
+                        temperature=0.5,
+                        max_output_tokens=max_tokens,
+                    )
+
+                    print(f"   ⚡ Gemini Lite stream: {active_model} (directo AI Studio)")
+                    _t_api_call = time.perf_counter()
+                    _chunk_count = 0
+                    async for chunk in await gemini_client.aio.models.generate_content_stream(
+                        model=active_model,
+                        contents=gemini_contents_lite,
+                        config=lite_config,
+                    ):
+                        _chunk_count += 1
+                        if _chunk_count == 1:
+                            print(f"   ⏱ FIRST CHUNK (lite): {time.perf_counter() - _t_api_call:.2f}s")
+                        if chunk.candidates:
+                            for part in chunk.candidates[0].content.parts:
+                                if part.text:
+                                    if not _first_token_logged:
+                                        _first_token_logged = True
+                                        print(f"   ⏱ TTFB (first content token): {time.perf_counter() - _t_llm_start:.2f}s")
+                                    content_buffer += part.text
+                                    yield part.text
+
+                    if not content_buffer.strip():
+                        fallback = "\n\n**Análisis completado sin respuesta.**\n\nEnvía *\"continúa\"* para reintentar."
+                        content_buffer = fallback
+                        yield fallback
 
                 # ── OPENAI/DEEPSEEK BRANCH: Regular chat ─────────────────
                 else:
