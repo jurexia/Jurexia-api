@@ -8344,9 +8344,12 @@ async def chat_endpoint(request: ChatRequest):
               reasoning as content so the user isn't left with an empty response.
             """
             try:
+                # _resolved_genio_ids is assigned later in this generator (model selection block)
+                # so Python would treat it as local — nonlocal makes it read from outer scope first.
+                nonlocal _resolved_genio_ids
                 reasoning_buffer = ""
                 content_buffer = ""
-                
+
                 _t_llm_start = time.perf_counter()
                 _first_token_logged = False
 
