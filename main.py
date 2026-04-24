@@ -4341,21 +4341,65 @@ async def hybrid_search_single_silo(
         parsed = []
         for point in results.points:
             payload = point.payload or {}
+            texto = payload.get("texto", payload.get("text", ""))
+            origen_raw = payload.get("origen") or ""
+            
+            # ── Extract registro: payload > texto tags > origen prefix ──
+            registro = str(payload.get("registro")) if payload.get("registro") else None
+            if not registro:
+                # Try [REGISTRO: NNNNN] in texto
+                _reg_m = re.search(r'\[REGISTRO:\s*(\d+)\]', texto)
+                if _reg_m:
+                    registro = _reg_m.group(1)
+            if not registro:
+                # Try leading digits in origen like "2008492_I.3o.C..."
+                _orig_m = re.match(r'^(\d{5,7})[_\s]', origen_raw)
+                if _orig_m:
+                    registro = _orig_m.group(1)
+            
+            # ── Extract tesis_num: payload > texto tags > ref ──
+            tesis_num = payload.get("tesis", payload.get("numero_tesis", payload.get("tesis_num")))
+            if not tesis_num:
+                _tes_m = re.search(r'\[TESIS:\s*([^\]]+)\]', texto)
+                if _tes_m:
+                    tesis_num = _tes_m.group(1).strip()
+            
+            # ── Extract tipo: payload > texto tags ──
+            tipo_criterio = payload.get("tipo", payload.get("tipo_criterio"))
+            if not tipo_criterio:
+                _tipo_m = re.search(r'\[TIPO:\s*([^\]]+)\]', texto)
+                if _tipo_m:
+                    tipo_criterio = _tipo_m.group(1).strip()
+            
+            # ── Extract instancia: payload > texto tags ──
+            instancia = payload.get("instancia")
+            if not instancia:
+                _inst_m = re.search(r'\[INSTANCIA:\s*([^\]]+)\]', texto)
+                if _inst_m:
+                    instancia = _inst_m.group(1).strip()
+            
+            # ── Extract materia: payload > texto tags ──
+            materia = payload.get("materia")
+            if not materia:
+                _mat_m = re.search(r'\[MATERIA:\s*([^\]]+)\]', texto)
+                if _mat_m:
+                    materia = _mat_m.group(1).strip().rstrip(",")
+            
             parsed.append(SearchResult(
                 id=str(point.id),
                 score=point.score,
-                texto=payload.get("texto", payload.get("text", "")),
+                texto=texto,
                 ref=payload.get("ref"),
-                origen=payload.get("origen"),
+                origen=origen_raw or None,
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
                 silo=collection,
                 pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
-                registro=str(payload.get("registro")) if payload.get("registro") else None,
-                tesis_num=payload.get("tesis", payload.get("numero_tesis", payload.get("tesis_num"))),
-                tipo_criterio=payload.get("tipo", payload.get("tipo_criterio")),
-                instancia_meta=payload.get("instancia"),
-                materia_meta=payload.get("materia"),
+                registro=registro,
+                tesis_num=tesis_num,
+                tipo_criterio=tipo_criterio,
+                instancia_meta=instancia,
+                materia_meta=materia,
                 ratio_decidendi=payload.get("ratio_decidendi"),
                 condicion_de_aplicacion=payload.get("condicion_de_aplicacion"),
                 distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
