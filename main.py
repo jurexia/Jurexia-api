@@ -8211,16 +8211,27 @@ async def chat_endpoint(request: ChatRequest):
                     _expansion_suffix = _query_materias.get(_materia_hint.lower(), "")
                     _query_expanded = f"{last_user_message} {_expansion_suffix}".strip() if _expansion_suffix else last_user_message
 
-                    # ── PRE-SEARCH LLM: 2 llamadas paralelas (optimizado v2: solo estrategia + HyDE) ──
+                    # ── PARALLEL PRE-SEARCH + SEARCH (latency optimization) ──
+                    # Pre-search LLM (strategy + HyDE) runs IN PARALLEL with vector search.
+                    # Search uses raw query + default weights. Cohere rerank compensates.
+                    # Saves ~1.5-2s of serial LLM wait.
                     _t_presearch = time.perf_counter()
-                    legal_plan, hyde_doc = await asyncio.gather(
+                    _presearch_task = asyncio.create_task(asyncio.gather(
                         _legal_strategy_agent(last_user_message, fuero_manual=request.fuero),
                         _generate_hyde_document(last_user_message, estado=effective_estado),
-                    )
-                    precomp_juris_concepts = None  # Se computa dentro de cada search si es necesario
-                    print(f"   ⏱ PRE-SEARCH LLM (2 llamadas): {time.perf_counter() - _t_presearch:.2f}s")
+                    ))
+                    precomp_juris_concepts = None
 
-                    # Construir tareas de búsqueda en paralelo
+                    # Default plan for immediate search (no LLM wait)
+                    _default_plan = {
+                        "materia_principal": request.materia or "general",
+                        "fuero_detectado": request.fuero or "mixto",
+                        "jurisprudencia_keywords": [],
+                        "conceptos_clave": [],
+                        "pesos_silos": {"constitucional": 0.25, "federal": 0.25, "estatal": 0.25, "jurisprudencia": 0.25},
+                    }
+
+                    # Build search tasks with default plan (start IMMEDIATELY, no LLM wait)
                     _search_tasks = [
                         hybrid_search_all_silos(
                             query=last_user_message,
@@ -8230,8 +8241,8 @@ async def chat_endpoint(request: ChatRequest):
                             fuero=request.fuero,
                             include_sentencias=is_chat_drafting,
                             skip_llm_presearch=True,
-                            precomputed_plan=legal_plan,
-                            precomputed_hyde=hyde_doc,
+                            precomputed_plan=_default_plan,
+                            precomputed_hyde=None,
                             precomputed_juris_concepts=precomp_juris_concepts
                         ),
                     ]
@@ -8245,8 +8256,8 @@ async def chat_endpoint(request: ChatRequest):
                                 forced_materia=request.materia,
                                 fuero=request.fuero,
                                 skip_llm_presearch=True,
-                                precomputed_plan=legal_plan,
-                                precomputed_hyde=hyde_doc,
+                                precomputed_plan=_default_plan,
+                                precomputed_hyde=None,
                                 precomputed_juris_concepts=precomp_juris_concepts
                             )
                         )
@@ -8260,19 +8271,24 @@ async def chat_endpoint(request: ChatRequest):
                         _search_tasks.append(
                             hybrid_search_all_silos(
                                 query=_query_constitucional,
-                                estado=None,  # No filtrar estado para constitucional
+                                estado=None,
                                 top_k=15,
-                                forced_materia=None,  # No filtrar materia para constitucional
-                                fuero="constitucional", # ✅ Restringir solo a bloque constitucional y jurisprudencia
+                                forced_materia=None,
+                                fuero="constitucional",
                                 skip_llm_presearch=True,
-                                precomputed_plan=legal_plan,
-                                precomputed_hyde=hyde_doc,
+                                precomputed_plan=_default_plan,
+                                precomputed_hyde=None,
                                 precomputed_juris_concepts=precomp_juris_concepts
                             )
                         )
 
                     print(f"   🔍 MULTI-QUERY: {len(_search_tasks)} búsquedas en paralelo (drafting={is_chat_drafting}, constitucional={_needs_const_query})")
-                    _multi_results = await asyncio.gather(*_search_tasks)
+                    # Run search + pre-search LLM in parallel (saves ~1.5-2s)
+                    _multi_results, (legal_plan, hyde_doc) = await asyncio.gather(
+                        asyncio.gather(*_search_tasks),
+                        _presearch_task,
+                    )
+                    print(f"   ⏱ PARALLEL SEARCH+LLM: {time.perf_counter() - _t_presearch:.2f}s (antes: serial ~5s)")
 
                     # Fusionar resultados con deduplicación (el primero gana — mayor relevancia)
                     _seen_ids = set()
