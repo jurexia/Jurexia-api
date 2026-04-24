@@ -3147,21 +3147,20 @@ async def _legal_strategy_agent(query: str, fuero_manual: Optional[str] = None) 
     try:
         prompt = LEGAL_STRATEGY_AGENT_PROMPT.format(query=query)
 
-        # Gemini Lite — clasificación/extracción JSON, equivalente en calidad, ~0.5-1s vs 2-4s OpenAI no-stream
-        from google.genai import types as _gtypes_strat
-        _gemini_strat = get_gemini_client()
-        _strat_resp = await asyncio.wait_for(
-            _gemini_strat.aio.models.generate_content(
-                model=GEMINI_LITE_MODEL,
-                contents=prompt,
-                config=_gtypes_strat.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=450,
-                ),
-            ),
-            timeout=2.5,
+        # CRITICO PARA LATENCIA (TTFB): Siempre usar OpenAI (GPT-5-mini) para el agente 
+        # estratega interno. OpenRouter/DeepSeek en modo NO-STREAM puede tardar 60+ segundos 
+        # en devolver el JSON bajo congestión, bloqueando todo el chat.
+        llm_client = chat_client
+        llm_model = CHAT_MODEL
+
+        response = await llm_client.chat.completions.create(
+            model=llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,  # Bajo: queremos respuestas deterministas
+            max_completion_tokens=400,
         )
-        content = (_strat_resp.text or "").strip()
+
+        content = response.choices[0].message.content.strip()
 
         # Limpiar markdown si el LLM lo añadió
         if content.startswith("```json"):
@@ -5037,27 +5036,25 @@ async def _decompose_query(query: str) -> list[str]:
         return []
     
     try:
-        from google.genai import types as _gtypes_decomp
-        _gemini_decomp = get_gemini_client()
-        _decomp_resp = await asyncio.wait_for(
-            _gemini_decomp.aio.models.generate_content(
-                model=GEMINI_LITE_MODEL,
-                contents=query,
-                config=_gtypes_decomp.GenerateContentConfig(
-                    system_instruction=(
+        response = await chat_client.chat.completions.create(
+            model=HYDE_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
                         "Eres un experto en derecho mexicano. El usuario hace una consulta compleja. "
                         "Descompón la consulta en 2-3 sub-consultas independientes y específicas que "
                         "juntas cubran toda la información necesaria. Responde SOLO con las sub-consultas, "
                         "una por línea, sin numeración ni viñetas."
-                    ),
-                    temperature=0.2,
-                    max_output_tokens=200,
-                ),
-            ),
-            timeout=1.5,
+                    )
+                },
+                {"role": "user", "content": query}
+            ],
+            max_tokens=200,
+            temperature=0.2,
         )
         sub_queries = [
-            sq.strip() for sq in (_decomp_resp.text or "").strip().split('\n')
+            sq.strip() for sq in response.choices[0].message.content.strip().split('\n')
             if sq.strip() and len(sq.strip()) > 10
         ][:3]  # Máximo 3 sub-queries
         
