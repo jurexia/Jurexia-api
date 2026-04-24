@@ -4101,8 +4101,44 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             f'</documento>'
         )
     xml_parts.append("</documentos>")
-    
+
     return "\n".join(xml_parts)
+
+
+def format_sentencias_as_examples(results: list, max_examples: int = 5, max_chars: int = 3000) -> str:
+    """Extrae resultados de silos de sentencias y los formatea como modelos de estilo.
+
+    Estos ejemplos se inyectan en el prompt de redacción para que el LLM
+    mimetice el tono, estructura y prosa judicial de alto nivel.
+    NO son fuentes citables — solo referencias de estilo.
+    """
+    _sentencia_silo_set = set(SENTENCIA_SILOS.values())
+    ejemplos = [r for r in results if r.silo in _sentencia_silo_set]
+    if not ejemplos:
+        return ""
+
+    # Top N por score
+    ejemplos.sort(key=lambda r: r.score, reverse=True)
+    ejemplos = ejemplos[:max_examples]
+
+    parts = [
+        "<modelos_de_estilo>",
+        "<!-- INSTRUCCIÓN: Los siguientes fragmentos son MODELOS DE ESTILO de sentencias reales. "
+        "Imita su tono, estructura y prosa judicial. PROHIBIDO citarlos como fuente o fundamento legal. -->",
+    ]
+    for i, r in enumerate(ejemplos, 1):
+        texto = r.texto
+        if len(texto) > max_chars:
+            texto = texto[:max_chars] + "... [truncado]"
+        origen = r.origen or "Sentencia TCC"
+        parts.append(
+            f'<ejemplo n="{i}" origen="{html.escape(origen)}" silo="{r.silo}">\n'
+            f'{html.escape(texto)}\n'
+            f'</ejemplo>'
+        )
+    parts.append("</modelos_de_estilo>")
+
+    return "\n".join(parts)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -8603,6 +8639,14 @@ async def chat_endpoint(request: ChatRequest):
 
                 if context_xml:
                     dynamic_injections.append(f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}")
+
+                # Inyectar modelos de estilo (sentencias EF) en modo redacción
+                if (is_drafting or is_chat_drafting) and search_results:
+                    _style_xml = format_sentencias_as_examples(search_results)
+                    if _style_xml:
+                        dynamic_injections.append(_style_xml)
+                        _n_ej = _style_xml.count('<ejemplo ')
+                        print(f"   ✍️ MODELOS DE ESTILO: {_n_ej} ejemplos de sentencias inyectados para mimetizar prosa")
 
                 # FIX A: Inject compact Doc ID inventory to reduce UUID hallucination
                 # Gives the LLM a "cheat sheet" of valid UUIDs to copy from
