@@ -4385,6 +4385,8 @@ async def hybrid_search_single_silo(
             
             # ── Extract materia: payload > texto tags ──
             materia = payload.get("materia")
+            if isinstance(materia, list):
+                materia = ", ".join(str(m) for m in materia) if materia else None
             if not materia:
                 _mat_m = re.search(r'\[MATERIA:\s*([^\]]+)\]', texto)
                 if _mat_m:
@@ -5308,6 +5310,7 @@ async def hybrid_search_all_silos(
     precomputed_plan: Optional[Dict] = None,
     precomputed_hyde: Optional[str] = None,
     precomputed_juris_concepts: Optional[str] = None,
+    skip_post_search: bool = False,  # Skip boost + enrichment + rerank (for secondary queries)
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en silos relevantes según fuero.
@@ -5914,89 +5917,82 @@ async def hybrid_search_all_silos(
         merged = rerank_by_article_match(merged, article_numbers)
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # JURISPRUDENCIA BOOST V2: Multi-query agresivo para maximizar recall
+    # POST-SEARCH: BOOST + ENRICHMENT + RERANK
+    # Skipped for secondary queries (Q2/Q3) — they only contribute diversity.
+    # For Q1: BOOST runs IN PARALLEL with ENRICHMENT (not serial).
     # ═══════════════════════════════════════════════════════════════════════════
-    juris_in_merged = [r for r in merged if r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2")]
-    if len(juris_in_merged) < 5:
-        print(f"   ⚖️ JURISPRUDENCIA BOOST V2: Solo {len(juris_in_merged)} tesis, ejecutando multi-query...")
-        try:
-            # Extraer conceptos jurídicos clave para formular queries de jurisprudencia
-            juris_concepts = precomputed_juris_concepts if skip_llm_presearch and precomputed_juris_concepts else await _extract_juris_concepts(query)
-            
-            juris_queries = [
-                # Query 1: Original con prefijo de jurisprudencia
-                f"tesis jurisprudencia SCJN tribunales colegiados: {query}",
-                # Query 2: Conceptos jurídicos extraídos por LLM
-                f"tesis aislada jurisprudencia criterio: {juris_concepts}",
-                # Query 3: Expanded query también con prefijo judicial  
-                f"primera sala segunda sala pleno SCJN: {expanded_query}",
-            ]
-            
-            existing_ids = {r.id for r in merged}
-            all_new_juris = []
-            
-            # Ejecutar las 3 queries en paralelo
-            boost_tasks = []
-            for jq in juris_queries:
-                boost_tasks.append(
-                    _jurisprudencia_boost_search(jq, existing_ids)
-                )
-            
-            boost_results = await asyncio.gather(*boost_tasks)
-            
-            for results in boost_results:
-                for r in results:
-                    if r.id not in existing_ids:
-                        all_new_juris.append(r)
-                        existing_ids.add(r.id)
-            
-            # Ordenar por score y agregar todas las tesis únicas
-            all_new_juris.sort(key=lambda x: x.score, reverse=True)
-            merged.extend(all_new_juris)
-            print(f"   ⚖️ JURISPRUDENCIA BOOST V2: +{len(all_new_juris)} tesis adicionales de {len(juris_queries)} queries")
-        except Exception as e:
-            print(f"   ⚠️ Jurisprudencia boost V2 falló: {e}")
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # CROSS-SILO ENRICHMENT + NEIGHBOR CHUNKS: En paralelo
-    # Ambos leen de merged (snapshot) sin modificarlo, así que son seguros
-    # ═══════════════════════════════════════════════════════════════════════════
-    _t_enrich = time.perf_counter()
-    try:
-        _enrich_task = _cross_silo_enrichment(merged, query)
-        _neighbor_task = _fetch_neighbor_chunks(merged, estado=estado)
-        _law_routing_task = _law_level_routing(query, merged, estado)
-        enrichment_results, neighbor_results, law_routing_results = await asyncio.gather(
-            _enrich_task, _neighbor_task, _law_routing_task, return_exceptions=True
-        )
-        
+    if not skip_post_search:
+        _t_enrich = time.perf_counter()
         existing_ids = {r.id for r in merged}
-        if isinstance(enrichment_results, list) and enrichment_results:
-            new_enriched = [r for r in enrichment_results if r.id not in existing_ids]
-            merged.extend(new_enriched)
-            existing_ids.update(r.id for r in new_enriched)
-            print(f"   🔗 CROSS-SILO ENRICHMENT: +{len(new_enriched)} documentos de segunda pasada")
-        elif isinstance(enrichment_results, Exception):
-            print(f"   ⚠️ Cross-silo enrichment falló (continuando): {enrichment_results}")
-        
-        if isinstance(neighbor_results, list) and neighbor_results:
-            new_neighbors = [r for r in neighbor_results if r.id not in existing_ids]
-            merged.extend(new_neighbors)
-            existing_ids.update(r.id for r in new_neighbors)
-            print(f"   📄 NEIGHBOR CHUNKS: +{len(new_neighbors)} artículos adyacentes")
-        elif isinstance(neighbor_results, Exception):
-            print(f"   ⚠️ Neighbor chunk retrieval falló (continuando): {neighbor_results}")
-        
-        if isinstance(law_routing_results, list) and law_routing_results:
-            new_law_results = [r for r in law_routing_results if r.id not in existing_ids]
-            merged.extend(new_law_results)
-            existing_ids.update(r.id for r in new_law_results)
-            print(f"   📖 LAW-LEVEL ROUTING: +{len(new_law_results)} artículos de leyes temáticas")
-        elif isinstance(neighbor_results, Exception):
-            print(f"   ⚠️ Neighbor chunk retrieval falló (continuando): {neighbor_results}")
-    except Exception as e:
-        print(f"   ⚠️ Enrichment+Neighbors falló (continuando): {e}")
-    print(f"   ⏱ Enrichment+Neighbors: {time.perf_counter() - _t_enrich:.2f}s")
+
+        # ── Build all post-search tasks to run in parallel ──
+        _post_tasks = {}
+
+        # JURISPRUDENCIA BOOST (if fewer than 5 tesis found)
+        juris_in_merged = [r for r in merged if r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2")]
+        if len(juris_in_merged) < 5:
+            print(f"   ⚖️ JURISPRUDENCIA BOOST V2: Solo {len(juris_in_merged)} tesis, ejecutando multi-query...")
+
+            async def _run_boost():
+                juris_concepts = precomputed_juris_concepts if skip_llm_presearch and precomputed_juris_concepts else await _extract_juris_concepts(query)
+                juris_queries = [
+                    f"tesis jurisprudencia SCJN tribunales colegiados: {query}",
+                    f"tesis aislada jurisprudencia criterio: {juris_concepts}",
+                    f"primera sala segunda sala pleno SCJN: {expanded_query}",
+                ]
+                boost_results = await asyncio.gather(*[_jurisprudencia_boost_search(jq, existing_ids) for jq in juris_queries])
+                new_juris = []
+                seen = set(existing_ids)
+                for results in boost_results:
+                    for r in results:
+                        if r.id not in seen:
+                            new_juris.append(r)
+                            seen.add(r.id)
+                new_juris.sort(key=lambda x: x.score, reverse=True)
+                return ("boost", new_juris)
+
+            _post_tasks["boost"] = _run_boost()
+
+        # CROSS-SILO ENRICHMENT + NEIGHBOR CHUNKS + LAW ROUTING — all in parallel with boost
+        async def _run_enrichment():
+            try:
+                enrichment_results, neighbor_results, law_routing_results = await asyncio.gather(
+                    _cross_silo_enrichment(merged, query),
+                    _fetch_neighbor_chunks(merged, estado=estado),
+                    _law_level_routing(query, merged, estado),
+                    return_exceptions=True,
+                )
+                new_docs = []
+                seen = set(existing_ids)
+                for label, res in [("CROSS-SILO", enrichment_results), ("NEIGHBOR", neighbor_results), ("LAW-ROUTING", law_routing_results)]:
+                    if isinstance(res, list):
+                        for r in res:
+                            if r.id not in seen:
+                                new_docs.append(r)
+                                seen.add(r.id)
+                    elif isinstance(res, Exception):
+                        print(f"   ⚠️ {label} falló (continuando): {res}")
+                return ("enrichment", new_docs)
+            except Exception as e:
+                print(f"   ⚠️ Enrichment falló (continuando): {e}")
+                return ("enrichment", [])
+
+        _post_tasks["enrichment"] = _run_enrichment()
+
+        # ── Run ALL post-search tasks in PARALLEL (boost || enrichment) ──
+        if _post_tasks:
+            post_results = await asyncio.gather(*_post_tasks.values(), return_exceptions=True)
+            for result in post_results:
+                if isinstance(result, Exception):
+                    print(f"   ⚠️ Post-search task falló: {result}")
+                    continue
+                label, new_docs = result
+                if new_docs:
+                    merged.extend(new_docs)
+                    existing_ids.update(r.id for r in new_docs)
+                    print(f"   ✅ {label.upper()}: +{len(new_docs)} documentos")
+
+        print(f"   ⏱ Post-search (boost+enrichment parallel): {time.perf_counter() - _t_enrich:.2f}s")
     
     # Llenar el resto con los mejores scores combinados
     already_added = {r.id for r in merged}
@@ -6063,12 +6059,12 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     merged.sort(key=lambda x: x.score, reverse=True)
     merged = merged[:top_k + 10]  # Pre-filter before expensive rerank
-    
-    if COHERE_RERANK_ENABLED:
+
+    if COHERE_RERANK_ENABLED and not skip_post_search:
         _t_rerank = time.perf_counter()
         merged = await _cohere_rerank(query, merged, top_n=top_k)
         print(f"   ⏱ Cohere Rerank: {time.perf_counter() - _t_rerank:.2f}s")
-    
+
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
     print(f"   ⏱ PIPELINE TOTAL: {time.perf_counter() - _t_pipeline:.2f}s")
@@ -8261,7 +8257,8 @@ async def chat_endpoint(request: ChatRequest):
                                 skip_llm_presearch=True,
                                 precomputed_plan=_default_plan,
                                 precomputed_hyde=None,
-                                precomputed_juris_concepts=precomp_juris_concepts
+                                precomputed_juris_concepts=precomp_juris_concepts,
+                                skip_post_search=True,  # Q2: only base search, no boost/enrichment
                             )
                         )
                     # Q3: Búsqueda constitucional si hay indicadores
@@ -8281,7 +8278,8 @@ async def chat_endpoint(request: ChatRequest):
                                 skip_llm_presearch=True,
                                 precomputed_plan=_default_plan,
                                 precomputed_hyde=None,
-                                precomputed_juris_concepts=precomp_juris_concepts
+                                precomputed_juris_concepts=precomp_juris_concepts,
+                                skip_post_search=True,  # Q3: only base search, no boost/enrichment
                             )
                         )
 
