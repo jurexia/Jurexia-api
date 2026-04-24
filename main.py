@@ -4655,7 +4655,7 @@ def _extract_legal_refs(results: List[SearchResult], max_refs: int = 3) -> List[
     ]
     
     for r in results:
-        text = r.text[:2000] if r.text else ""
+        text = r.texto[:2000] if r.texto else ""
         ref_str = r.ref or ""
         combined = f"{text} {ref_str}"
         
@@ -4918,8 +4918,8 @@ async def _law_level_routing(
                 },
                 {"role": "user", "content": query}
             ],
-            max_tokens=200,
-            temperature=0.1,
+            max_completion_tokens=200,
+            temperature=1,
         )
         suggested_laws = response.choices[0].message.content.strip().split("\n")
         suggested_laws = [l.strip().strip("-•").strip() for l in suggested_laws if l.strip()]
@@ -5094,8 +5094,8 @@ async def _decompose_query(query: str) -> list[str]:
                 },
                 {"role": "user", "content": query}
             ],
-            max_tokens=200,
-            temperature=0.2,
+            max_completion_tokens=200,
+            temperature=1,
         )
         sub_queries = [
             sq.strip() for sq in response.choices[0].message.content.strip().split('\n')
@@ -5160,13 +5160,11 @@ async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 2
                 print(f"   ⏳ Cohere 429 rate limit — retrying in {wait_secs}s (attempt {_attempt+1}/3)")
                 await asyncio.sleep(wait_secs)
                 continue
-            break
-            
             if response.status_code != 200:
                 print(f"   ⚠️ Cohere Rerank HTTP {response.status_code}: {response.text[:200]}")
                 return results
-            
             rerank_data = response.json()
+            break
         
         # Re-ordenar resultados según Cohere scores
         reranked = []
@@ -8331,397 +8329,10 @@ async def chat_endpoint(request: ChatRequest):
                 print(f"   ⚠️ CACHE ERROR: {_e}")
                 return None
 
-        _t_gather = time.perf_counter()
-        infra_error, (search_results, doc_id_map, context_xml), _cached = await asyncio.gather(
-            infra_check_task,
-            retrieval_task,
-            _cache_task_with_timeout()
-        )
-        print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
-
-        # Handle infrastructure errors (blocking)
-        if infra_error:
-            return StreamingResponse(
-                iter([json.dumps(infra_error)]),
-                status_code=infra_error.get("status_code", 403),
-                media_type="application/json",
-            )
-
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 2: Construir mensajes para LLM
-        # ─────────────────────────────────────────────────────────────────────
-
-        # Select appropriate system prompt based on mode
-        if is_drafting and draft_tipo:
-            system_prompt = get_drafting_prompt(draft_tipo, draft_subtipo or "")
-            print(f"   Usando prompt de redacción para: {draft_tipo}")
-        elif is_sentencia:
-            system_prompt = SYSTEM_PROMPT_SENTENCIA_ANALYSIS
-            print("   ⚖️ Usando prompt MAGISTRADO para análisis de sentencia")
-        elif has_document:
-            system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
-        elif not is_drafting and not has_document and multi_states:
-            # DA VINCI: Prompt comparativo para multi-estado
-            system_prompt = SYSTEM_PROMPT_CHAT + (
-                "\n\n## MODO COMPARATIVO CROSS-STATE\n"
-                "El usuario está comparando legislación entre múltiples estados mexicanos.\n"
-                "INSTRUCCIONES ESPECIALES:\n"
-                "1. Los documentos están agrupados por estado (<!-- ESTADO: X -->)\n"
-                "2. Para cada estado, cita los artículos ESPECÍFICOS encontrados con [Doc ID: xxx]\n"
-                "3. Organiza tu respuesta con secciones claras por estado\n"
-                "4. Si es apropiado, incluye una TABLA COMPARATIVA con columnas: Estado | Artículo | Tipo Penal/Sanción\n"
-                "5. Al final, agrega un ANÁLISIS comparativo de similitudes y diferencias\n"
-                "6. Si un estado no tiene información suficiente, indícalo claramente\n"
-            )
-        elif is_precedentes_mode:
-            system_prompt = _build_precedentes_system_prompt(precedentes_circuit, tribunal_filter)
-            print(f"   ⚖️ Usando prompt PRECEDENTES para síntesis del {precedentes_circuit}° Circuito (tribunal={tribunal_filter or 'todos'})")
-        elif is_chat_drafting:
-            system_prompt = SYSTEM_PROMPT_CHAT_DRAFTING
-            print("   ✍️ Usando prompt CHAT DRAFTING para redacción por lenguaje natural")
-        else:
-            system_prompt = SYSTEM_PROMPT_CHAT
-        # ⚠️ FIX DEEPSEEK REASONER: Fusionar system messages en uno solo.
-        # deepseek-reasoner degrada calidad con múltiples system messages consecutivos.
-        # EXCEPCIÓN 1: en modo redacción, INVENTORY_CONTEXT conflicta con prosa extensa.
-        # EXCEPCIÓN 2: en modo precedentes, INVENTORY_CONTEXT conflicta con síntesis de sentencias TCC.
-        if is_chat_drafting or is_precedentes_mode:
-            _merged_system = system_prompt
-        else:
-            _merged_system = system_prompt + "\n\n" + INVENTORY_CONTEXT
-        llm_messages = [
-            {"role": "system", "content": _merged_system},
-        ]
-        
-        # Collect dynamic contexts for prefix caching optimization
-        dynamic_injections = []
-        
-        # Inyectar estado seleccionado para que el LLM priorice leyes locales
-        # effective_estado sólo existe en el flujo normal; usar request.estado como fallback
-        _estado_for_llm = locals().get("effective_estado") or request.estado
-        _has_state_laws_in_context = False
-        if search_results:
-            _has_state_laws_in_context = sum(
-                1 for r in search_results 
-                if hasattr(r, 'silo') and r.silo.startswith("leyes_") and r.silo != "leyes_federales"
-            ) > 0
-
-        # ── FUERO AWARENESS: Determinar el fuero efectivo para la inyección de estado ──
-        # Prioridad: 1) fuero manual del usuario, 2) fuero detectado por el Agente Estratega
-        _effective_fuero_for_prompt = (request.fuero or "").lower().strip() or None
-        if not _effective_fuero_for_prompt and 'legal_plan' in dir():
-            try:
-                _detected = legal_plan.get("fuero_detectado", None)
-                if _detected and _detected not in ("mixto", None):
-                    _effective_fuero_for_prompt = _detected.lower().strip()
-            except:
-                pass
-        _is_federal_or_const = _effective_fuero_for_prompt in ("federal", "constitucional")
-
-        if _estado_for_llm:
-            estado_humano = _estado_for_llm.replace("_", " ").title()
-            
-            # ── DYNAMIC STATE PROMPT: Adapts hierarchy based on active Genios ──
-            # Federal genios (amparo, mercantil) need INVERTED hierarchy:
-            #   Federal/Jurisprudencia = PRIMARY, State laws = secondary (acto reclamado)
-            # Local genios (civil, penal, laboral) keep original hierarchy:
-            #   State laws = PRIMARY, Federal = supletory
-            _has_federal_genio = any(g in ["amparo", "mercantil", "penal", "cidh"] for g in _resolved_genio_ids)
-            _has_local_genio = any(g in ["civil", "laboral", "familiar"] for g in _resolved_genio_ids)
-            _is_multi_genio = len(_resolved_genio_ids) > 1
-            
-            if _is_federal_or_const and not _has_local_genio:
-                # FUERO FEDERAL/CONSTITUCIONAL detectado → jerarquía federal SIEMPRE
-                # Esto aplica tanto en chat normal como en modo redacción
-                _estado_prompt = (
-                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
-                    f"⚠️ INSTRUCCIÓN CRÍTICA — FUERO {_effective_fuero_for_prompt.upper()} DETECTADO:\n"
-                    f"La consulta del usuario es de naturaleza {_effective_fuero_for_prompt.upper()}, "
-                    f"regulada exclusivamente por legislación federal.\n"
-                    f"1. Tu marco rector es la CONSTITUCIÓN, leyes FEDERALES y JURISPRUDENCIA SCJN/TCC.\n"
-                    f"2. NO uses leyes del estado de {estado_humano} como fundamento principal.\n"
-                    f"3. Si aparecen documentos estatales en el contexto, son meramente REFERENCIALES — "
-                    f"NO los cites como fuente primaria ni estructures tu argumentación sobre ellos.\n"
-                    f"4. Materias como MERCANTIL (títulos de crédito, pagarés, sociedades), AMPARO, "
-                    f"LABORAL federal, FISCAL federal son 100% FEDERALES — jamás cites códigos civiles estatales.\n"
-                    f"5. TRANSCRIBE los artículos federales y jurisprudencia con su [Doc ID: uuid]."
-                )
-                print(f"   📍 Estado inyectado al LLM (FUERO {_effective_fuero_for_prompt.upper()} → jerarquía federal forzada): {estado_humano}")
-            elif _has_federal_genio and not _has_local_genio:
-                # SOLO genios federales activos (sin fuero detectado) → jerarquía federal
-                _estado_prompt = (
-                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
-                    f"INSTRUCCIÓN CRÍTICA — JERARQUÍA FEDERAL:\n"
-                    f"1. Tu marco rector es la legislación FEDERAL y la JURISPRUDENCIA de la SCJN/TCC.\n"
-                    f"2. Las leyes del estado de {estado_humano} que aparezcan en el contexto son ÚNICAMENTE "
-                    f"para identificar el ACTO RECLAMADO o la norma de origen del conflicto.\n"
-                    f"3. NO uses leyes estatales como tu fundamento procesal principal.\n"
-                    f"4. Prioriza: Ley de Amparo, CPEUM, Jurisprudencia SCJN, Tesis de TCC.\n"
-                    f"5. NUNCA digas 'consulte la ley' — TÚ tienes la jurisprudencia en el contexto, TRANSCRÍBELA."
-                )
-                print(f"   📍 Estado inyectado al LLM (JERARQUÍA FEDERAL para genios {_resolved_genio_ids}): {estado_humano}")
-            elif _is_multi_genio and _has_federal_genio and _has_local_genio:
-                # MIXTO: genios federales + locales → jerarquía balanceada
-                _estado_prompt = (
-                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
-                    f"INSTRUCCIÓN CRÍTICA — JERARQUÍA MIXTA (MULTI-GENIO):\n"
-                    f"1. Esta consulta involucra TANTO derecho local como federal.\n"
-                    f"2. Para el análisis SUSTANTIVO (derechos, obligaciones): usa las leyes de {estado_humano} como fuente principal.\n"
-                    f"3. Para el análisis PROCESAL-FEDERAL (amparo, recursos federales, jurisprudencia): "
-                    f"usa la legislación federal y jurisprudencia como fuente principal.\n"
-                    f"4. NUNCA mezcles: no apliques leyes estatales como fundamento del amparo, "
-                    f"ni leyes federales como fundamento del derecho sustantivo local.\n"
-                    f"5. TRANSCRIBE los artículos exactos del contexto con su [Doc ID: uuid]."
-                )
-                print(f"   📍 Estado inyectado al LLM (JERARQUÍA MIXTA multi-genio {_resolved_genio_ids}): {estado_humano}")
-            elif _has_state_laws_in_context:
-                # Genios locales o chat sin genio CON leyes estatales → jerarquía original
-                _estado_prompt = (
-                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
-                    f"INSTRUCCIÓN CRÍTICA — PRIORIDAD DE FUENTES:\n"
-                    f"1. El usuario consulta desde {estado_humano}. Los documentos del contexto "
-                    f"que provienen de leyes de {estado_humano} son la FUENTE PRINCIPAL.\n"
-                    f"2. En la sección '## Fundamento Legal', TRANSCRIBE PRIMERO los artículos "
-                    f"TEXTUALES de las leyes de {estado_humano} que estén en el contexto. "
-                    f"Copia el texto del artículo tal como aparece en el contexto con su [Doc ID: uuid].\n"
-                    f"3. Las leyes federales (Código Civil Federal, etc.) son SUPLETORIAS — "
-                    f"cítalas DESPUÉS de los artículos locales, no en lugar de ellos.\n"
-                    f"4. La jurisprudencia COMPLEMENTA el fundamento legal, no lo reemplaza. "
-                    f"Primero cita el artículo de la ley local, luego la tesis que lo interpreta.\n"
-                    f"5. NUNCA digas 'consulte la ley local' ni 'esos textos no se transcriben aquí' "
-                    f"— TÚ tienes los artículos de la ley local en el contexto, TRANSCRÍBELOS."
-                )
-                print(f"   📍 Estado inyectado al LLM (con leyes detectadas): {estado_humano}")
-            else:
-                _estado_prompt = (
-                    f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n"
-                    f"(Nota de sistema: La consulta y el contexto recuperado resultaron ser de carácter federal o constitucional. "
-                    f"Básate en la Constitución, tratados y leyes federales/jurisprudencia incluidas en el contexto, sin inventar leyes de {estado_humano})."
-                )
-                print(f"   📍 Estado inyectado al LLM (sin leyes estatales detectadas, priorizando federal/const): {estado_humano}")
-            
-            dynamic_injections.append(_estado_prompt)
-        
-        # ═══════════════════════════════════════════════════════════════════
-        # INYECCIÓN DE MATERIA ESTRICTA (cuando el usuario selecciona materia)
-        # ═══════════════════════════════════════════════════════════════════
-        if request.materia and request.materia.strip():
-            _materia_sel = request.materia.strip().lower()
-            _MATERIA_PROMPTS = {
-                "civil": (
-                    "REGLA DE MATERIA ESTRICTA — CIVIL:\n"
-                    "El usuario ha seleccionado la materia CIVIL. Tu razonamiento, terminología forense "
-                    "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho civil.\n"
-                    "- PRIORIZA: Código Civil del estado, Código de Procedimientos Civiles del estado.\n"
-                    "- NO mezcles conceptos penales, administrativos ni laborales.\n"
-                    "- Usa terminología civil: acción, demanda, emplazamiento, contestación, "
-                    "sentencia definitiva, recurso de apelación, prescripción, caducidad.\n"
-                    "- Si encuentras artículos de otras materias en el contexto, IGNÓRALOS."
-                ),
-                "penal": (
-                    "REGLA DE MATERIA ESTRICTA — PENAL:\n"
-                    "El usuario ha seleccionado la materia PENAL. Tu razonamiento, terminología forense "
-                    "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho penal.\n"
-                    "- PRIORIZA: Código Penal del estado + Código Nacional de Procedimientos Penales (federal).\n"
-                    "- NO mezcles conceptos civiles, familiares ni administrativos.\n"
-                    "- Usa terminología penal: delito, imputado, víctima, ministerio público, "
-                    "audiencia inicial, vinculación a proceso, medidas cautelares, sentencia condenatoria.\n"
-                    "- Si encuentras artículos de otras materias en el contexto, IGNÓRALOS."
-                ),
-                "familiar": (
-                    "REGLA DE MATERIA ESTRICTA — FAMILIAR:\n"
-                    "El usuario ha seleccionado la materia FAMILIAR. Tu razonamiento, terminología forense "
-                    "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho familiar.\n"
-                    "- PRIORIZA: Código Familiar (o Libro Cuarto del Código Civil) del estado, "
-                    "Código de Procedimientos Civiles del estado (procedimientos familiares).\n"
-                    "- Principio rector: INTERÉS SUPERIOR DEL MENOR en todo lo que involucre menores.\n"
-                    "- Usa terminología familiar: alimentos, guarda y custodia, régimen de visitas, "
-                    "patria potestad, divorcio, pensión alimenticia, violencia familiar.\n"
-                    "- Si encuentras artículos penales o administrativos en el contexto, IGNÓRALOS."
-                ),
-                "administrativo": (
-                    "REGLA DE MATERIA ESTRICTA — ADMINISTRATIVO/FISCAL:\n"
-                    "El usuario ha seleccionado la materia ADMINISTRATIVA/FISCAL. Tu razonamiento, "
-                    "terminología forense y fundamentación deben ceñirse EXCLUSIVAMENTE al "
-                    "derecho administrativo y fiscal.\n"
-                    "- PRIORIZA: Ley de Procedimiento Contencioso Administrativo del estado, "
-                    "Código Fiscal del estado, Ley de Responsabilidades Administrativas, "
-                    "Ley de Responsabilidad Patrimonial, Ley de Justicia Administrativa.\n"
-                    "- NO mezcles conceptos penales ni civiles.\n"
-                    "- Usa terminología administrativa: acto administrativo, recurso de revisión, "
-                    "juicio contencioso administrativo, nulidad, lesividad, responsabilidad patrimonial.\n"
-                    "- Si encuentras artículos penales o civiles en el contexto, IGNÓRALOS."
-                ),
-            }
-            _materia_prompt = _MATERIA_PROMPTS.get(_materia_sel)
-            if _materia_prompt:
-                dynamic_injections.append(_materia_prompt)
-                print(f"   📋 MATERIA ESTRICTA inyectada: {_materia_sel.upper()}")
-        
-        if context_xml:
-            dynamic_injections.append(f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}")
-        
-        # FIX A: Inject compact Doc ID inventory to reduce UUID hallucination
-        # Gives the LLM a "cheat sheet" of valid UUIDs to copy from
-        if doc_id_map:
-            valid_ids_prompt = get_valid_doc_ids_prompt(doc_id_map)
-            dynamic_injections.append(valid_ids_prompt)
-
-        # ── PALANCA 5: Session Context Accumulator ────────────────────────────
-        # En conversaciones multi-turno (más de 1 mensaje), extraer el contexto
-        # jurídico acumulado e inyectarlo para que el LLM mantenga coherencia.
-        _session_ctx = extract_session_context(request.messages)
-        if _session_ctx:
-            _ctx_lines = []
-            if "materia_detectada" in _session_ctx:
-                _ctx_lines.append(f"- Materia jurídica de la sesión: **{_session_ctx['materia_detectada'].upper()}**")
-            if "proceso_detectado" in _session_ctx:
-                proc_str = _session_ctx["proceso_detectado"].replace("_", " ").title()
-                _ctx_lines.append(f"- Tipo de proceso identificado: **{proc_str}**")
-            if "norma_central" in _session_ctx:
-                _ctx_lines.append(f"- Norma central de la sesión: **{_session_ctx['norma_central']}**")
-            if _ctx_lines:
-                _session_msg = (
-                    "CONTEXTO DE SESIÓN ACUMULADO (inferido del historial):\n"
-                    + "\n".join(_ctx_lines)
-                    + "\n\nInstrucción: Mantén coherencia con este contexto. Si el usuario hace una pregunta "
-                    "de seguimiento sin especificar materia o ley, asume que sigue en el mismo contexto jurídico "
-                    "identificado. Prioriza documentos del contexto RAG que correspondan a esta materia."
-                )
-                dynamic_injections.append(_session_msg)
-                print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
-                
-        # Agregar historial conversacional
-        for i, msg in enumerate(request.messages):
-            msg_content = msg.content
-            
-            # Para sentencias: truncar si es necesario para token budget
-            if is_sentencia and msg.role == "user" and "SENTENCIA_INICIO" in msg_content:
-                s_start = msg_content.find("<!-- SENTENCIA_INICIO -->")
-                s_end = msg_content.find("<!-- SENTENCIA_FIN -->")
-                if s_start != -1 and s_end != -1:
-                    sentencia_text = msg_content[s_start:s_end + len("<!-- SENTENCIA_FIN -->")]
-                    # Gemini 3 Flash = 1M tokens — sentencia completa sin truncar
-                    # Solo truncar documentos absurdamente largos (>200K chars ~50K tokens)
-                    max_chars = 200000
-                    if len(sentencia_text) > max_chars:
-                        truncated = sentencia_text[:max_chars]
-                        pct = round(max_chars / len(sentencia_text) * 100)
-                        truncated += f"\n\n[NOTA: Sentencia truncada al {pct}% para análisis. Se incluyen las secciones principales.]"
-                        truncated += "\n<!-- SENTENCIA_FIN -->"
-                        msg_content = msg_content[:s_start] + truncated + msg_content[s_end + len("<!-- SENTENCIA_FIN -->"):]
-                        print(f"   ⚖️ Sentencia truncada: {len(sentencia_text)} → {max_chars} chars ({pct}%)")
-                    else:
-                        print(f"   ⚖️ Sentencia completa: {len(sentencia_text)} chars (dentro del límite)")
-            
-            # 🔥 PREFIX CACHING OPTIMIZATION: Inject dynamic stuff onto the LAST user message
-            if i == len(request.messages) - 1 and dynamic_injections:
-                msg_content += "\n\n" + "\n\n".join(dynamic_injections)
-                print(f"   🚀 Optimizando Caché: {len(dynamic_injections)} bloques dinámicos apendados al final del prompt.")
-            
-            llm_messages.append({"role": msg.role, "content": msg_content})
-        
-        # ─────────────────────────────────────────────────────────────────────
-        # PASO 3: Generar respuesta con Thinking Mode auto-detectado
-        # ─────────────────────────────────────────────────────────────────────
-        # MODELO DUAL:
-        # - Thinking OFF → o4-mini (chat_client) para calidad + costo eficiente
-        # - Thinking ON → DeepSeek Chat con thinking enabled (deepseek_client) para CoT
-        
+        # Defaults for headers — actual values set inside generate_stream() before LLM call
+        active_model = "unknown"
         use_thinking = should_use_thinking(has_document, is_drafting)
-        
-        # ── FORCE THINKING FOR REDACCIÓN ──────────────────────────────────
-        # deepseek-chat has a hard 8K output limit which truncates long legal
-        # drafting responses mid-word, causing empty "❌ Error:" messages.
-        # deepseek-reasoner supports 64K output (we cap at 32K) — sufficient
-        # for full marco jurídico/estudio de fondo redaction.
-        if is_chat_drafting and not use_thinking:
-            use_thinking = True
-            print(f"   ✍️ REDACCIÓN → Thinking mode FORZADO (deepseek-reasoner, 32K output vs 8K chat limit)")
-        
-        # _cached results already retrieved in Paso 1 gather
-        _gemini_key = os.getenv("GEMINI_API_KEY", "")
-        _can_use_gemini = bool(_gemini_key)  # AI Studio — requiere GEMINI_API_KEY
 
-        
-        use_gemini = False
-        use_gemini_lite = False
-
-        # ── TOKEN BUDGET GUARD ──
-        # Cache = ~968K tokens. Gemini limit = 1,048,576 tokens.
-        # Remaining budget with cache = ~80K tokens.
-        # Documents (DOCX, sentencias) can easily exceed 80K tokens.
-        # SOLUTION: When document is attached, SKIP cache to avoid 400 INVALID_ARGUMENT.
-        _effective_cached = _cached
-        if _cached and has_document:
-            _effective_cached = None
-            print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
-        
-        if is_precedentes_mode:
-            # Precedentes del Circuito 22: deepseek-chat (no reasoner — es síntesis, no razonamiento complejo)
-            use_gemini = False
-            use_thinking = False
-            active_client = get_deepseek_official_client()
-            active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-            max_tokens = 4096
-            _resolved_genio_ids = []
-            _effective_cached = None
-            print(f"   ⚖️ Modelo PRECEDENTES: {active_model} | max_tokens: {max_tokens}")
-        elif is_sentencia:
-            # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
-            # GPT-5.2 ofrece el máximo nivel de inteligencia y análisis de Iurexia
-            use_gemini = False
-            active_model = "gpt-5.2"  # Modelo flagship de OpenAI
-            active_client = chat_client
-            # gpt-5.2 usa max_tokens convencionalmente
-            max_tokens = 32000
-            use_thinking = True
-            _effective_cached = None  # Sin cache para sentencias
-            print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
-            _resolved_genio_ids = [] # Disable genios for sentencia mode
-        elif _resolved_genio_ids and _can_use_gemini and not has_document and not is_chat_drafting:
-            # PRIORIDAD: Genios disponibles → usar Gemini con caché de estilo jurídico.
-            # Esto incluye el modo Redactar (is_drafting=True) — el estilo de
-            # redacción judicial de alto nivel está implementado en los Genios.
-            use_gemini = True
-            use_thinking = False  # Gemini maneja su propio razonamiento
-            active_model = "models/gemini-3-flash-preview" # Genio cache is generated with flash-preview
-            max_tokens = 25000
-            print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}{' [REDACTAR]' if is_drafting or is_chat_drafting else ''}")
-        elif use_thinking:
-            # DeepSeek con thinking mode — sin genios disponibles.
-            _resolved_genio_ids = [] # DeepSeek ignores genio cache
-            if is_chat_drafting and not is_drafting and not has_document:
-                # REDACTOR SIN GENIO: Gemini 3 Flash Preview via OpenRouter.
-                # Más rápido que DeepSeek Reasoner, razonamiento interno de Gemini.
-                active_client = deepseek_client  # OpenRouter
-                active_model = NORMAL_CHAT_OR_MODEL
-                max_tokens = 25000
-                use_thinking = False  # Gemini gestiona su propio razonamiento
-                print(f"   ✍️ REDACTOR sin genio → {active_model} (Gemini via OpenRouter)")
-            elif is_drafting or is_chat_drafting:
-                # REDACTOR con documento adjunto: mantener DeepSeek Reasoner (64K output).
-                active_client = get_deepseek_official_client()
-                active_model = DEEPSEEK_OFFICIAL_REASONER_MODEL
-                max_tokens = 32000
-                print(f"   ✍️ REDACTOR DeepSeek Reasoner: {active_model} | max_tokens: {max_tokens}")
-            else:
-                # Centinela docs: análisis de documentos sin redacción
-                active_client = get_deepseek_official_client()
-                active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-                max_tokens = 8192  # DeepSeek chat hard limit
-        else:
-            # Chat normal sin genio → Gemini Flash Lite vía API directa.
-            # Latencia mínima (~4s TTFB), sin thinking tokens, calidad suficiente para chat estándar.
-            use_gemini_lite = True
-            active_model = GEMINI_LITE_MODEL
-            max_tokens = 25000
-            _resolved_genio_ids = []
-        
-        _client_name = 'gemini' if use_gemini else ('gemini_lite' if use_gemini_lite else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown'))))
-        print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
-        
-        # ── STREAMING UNIFICADO: Con o sin thinking ──────────────────────
         async def generate_stream() -> AsyncGenerator[str, None]:
             """Stream unificado — thinking mode envía reasoning con marcadores.
             
@@ -8744,6 +8355,394 @@ async def chat_endpoint(request: ChatRequest):
                 # Este ping invisible llega al cliente en <100ms y mantiene la conexión viva.
                 # El frontend lo filtra (no empieza con "<!--") silenciosamente.
                 yield "<!--PING-->"
+                _t_gather = time.perf_counter()
+                infra_error, (search_results, doc_id_map, context_xml), _cached = await asyncio.gather(
+                    infra_check_task,
+                    retrieval_task,
+                    _cache_task_with_timeout()
+                )
+                print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
+
+                # Handle infrastructure errors inside generator
+                if infra_error:
+                    err_msg = infra_error.get("message", "Error del sistema.")
+                    yield f"\n❌ {err_msg}"
+                    return
+
+                # ─────────────────────────────────────────────────────────────────────
+                # PASO 2: Construir mensajes para LLM
+                # ─────────────────────────────────────────────────────────────────────
+
+                # Select appropriate system prompt based on mode
+                if is_drafting and draft_tipo:
+                    system_prompt = get_drafting_prompt(draft_tipo, draft_subtipo or "")
+                    print(f"   Usando prompt de redacción para: {draft_tipo}")
+                elif is_sentencia:
+                    system_prompt = SYSTEM_PROMPT_SENTENCIA_ANALYSIS
+                    print("   ⚖️ Usando prompt MAGISTRADO para análisis de sentencia")
+                elif has_document:
+                    system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
+                elif not is_drafting and not has_document and multi_states:
+                    # DA VINCI: Prompt comparativo para multi-estado
+                    system_prompt = SYSTEM_PROMPT_CHAT + (
+                        "\n\n## MODO COMPARATIVO CROSS-STATE\n"
+                        "El usuario está comparando legislación entre múltiples estados mexicanos.\n"
+                        "INSTRUCCIONES ESPECIALES:\n"
+                        "1. Los documentos están agrupados por estado (<!-- ESTADO: X -->)\n"
+                        "2. Para cada estado, cita los artículos ESPECÍFICOS encontrados con [Doc ID: xxx]\n"
+                        "3. Organiza tu respuesta con secciones claras por estado\n"
+                        "4. Si es apropiado, incluye una TABLA COMPARATIVA con columnas: Estado | Artículo | Tipo Penal/Sanción\n"
+                        "5. Al final, agrega un ANÁLISIS comparativo de similitudes y diferencias\n"
+                        "6. Si un estado no tiene información suficiente, indícalo claramente\n"
+                    )
+                elif is_precedentes_mode:
+                    system_prompt = _build_precedentes_system_prompt(precedentes_circuit, tribunal_filter)
+                    print(f"   ⚖️ Usando prompt PRECEDENTES para síntesis del {precedentes_circuit}° Circuito (tribunal={tribunal_filter or 'todos'})")
+                elif is_chat_drafting:
+                    system_prompt = SYSTEM_PROMPT_CHAT_DRAFTING
+                    print("   ✍️ Usando prompt CHAT DRAFTING para redacción por lenguaje natural")
+                else:
+                    system_prompt = SYSTEM_PROMPT_CHAT
+                # ⚠️ FIX DEEPSEEK REASONER: Fusionar system messages en uno solo.
+                # deepseek-reasoner degrada calidad con múltiples system messages consecutivos.
+                # EXCEPCIÓN 1: en modo redacción, INVENTORY_CONTEXT conflicta con prosa extensa.
+                # EXCEPCIÓN 2: en modo precedentes, INVENTORY_CONTEXT conflicta con síntesis de sentencias TCC.
+                if is_chat_drafting or is_precedentes_mode:
+                    _merged_system = system_prompt
+                else:
+                    _merged_system = system_prompt + "\n\n" + INVENTORY_CONTEXT
+                llm_messages = [
+                    {"role": "system", "content": _merged_system},
+                ]
+
+                # Collect dynamic contexts for prefix caching optimization
+                dynamic_injections = []
+
+                # Inyectar estado seleccionado para que el LLM priorice leyes locales
+                # effective_estado sólo existe en el flujo normal; usar request.estado como fallback
+                _estado_for_llm = locals().get("effective_estado") or request.estado
+                _has_state_laws_in_context = False
+                if search_results:
+                    _has_state_laws_in_context = sum(
+                        1 for r in search_results 
+                        if hasattr(r, 'silo') and r.silo.startswith("leyes_") and r.silo != "leyes_federales"
+                    ) > 0
+
+                # ── FUERO AWARENESS: Determinar el fuero efectivo para la inyección de estado ──
+                # Prioridad: 1) fuero manual del usuario, 2) fuero detectado por el Agente Estratega
+                _effective_fuero_for_prompt = (request.fuero or "").lower().strip() or None
+                if not _effective_fuero_for_prompt and 'legal_plan' in dir():
+                    try:
+                        _detected = legal_plan.get("fuero_detectado", None)
+                        if _detected and _detected not in ("mixto", None):
+                            _effective_fuero_for_prompt = _detected.lower().strip()
+                    except:
+                        pass
+                _is_federal_or_const = _effective_fuero_for_prompt in ("federal", "constitucional")
+
+                if _estado_for_llm:
+                    estado_humano = _estado_for_llm.replace("_", " ").title()
+
+                    # ── DYNAMIC STATE PROMPT: Adapts hierarchy based on active Genios ──
+                    # Federal genios (amparo, mercantil) need INVERTED hierarchy:
+                    #   Federal/Jurisprudencia = PRIMARY, State laws = secondary (acto reclamado)
+                    # Local genios (civil, penal, laboral) keep original hierarchy:
+                    #   State laws = PRIMARY, Federal = supletory
+                    _has_federal_genio = any(g in ["amparo", "mercantil", "penal", "cidh"] for g in _resolved_genio_ids)
+                    _has_local_genio = any(g in ["civil", "laboral", "familiar"] for g in _resolved_genio_ids)
+                    _is_multi_genio = len(_resolved_genio_ids) > 1
+
+                    if _is_federal_or_const and not _has_local_genio:
+                        # FUERO FEDERAL/CONSTITUCIONAL detectado → jerarquía federal SIEMPRE
+                        # Esto aplica tanto en chat normal como en modo redacción
+                        _estado_prompt = (
+                            f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                            f"⚠️ INSTRUCCIÓN CRÍTICA — FUERO {_effective_fuero_for_prompt.upper()} DETECTADO:\n"
+                            f"La consulta del usuario es de naturaleza {_effective_fuero_for_prompt.upper()}, "
+                            f"regulada exclusivamente por legislación federal.\n"
+                            f"1. Tu marco rector es la CONSTITUCIÓN, leyes FEDERALES y JURISPRUDENCIA SCJN/TCC.\n"
+                            f"2. NO uses leyes del estado de {estado_humano} como fundamento principal.\n"
+                            f"3. Si aparecen documentos estatales en el contexto, son meramente REFERENCIALES — "
+                            f"NO los cites como fuente primaria ni estructures tu argumentación sobre ellos.\n"
+                            f"4. Materias como MERCANTIL (títulos de crédito, pagarés, sociedades), AMPARO, "
+                            f"LABORAL federal, FISCAL federal son 100% FEDERALES — jamás cites códigos civiles estatales.\n"
+                            f"5. TRANSCRIBE los artículos federales y jurisprudencia con su [Doc ID: uuid]."
+                        )
+                        print(f"   📍 Estado inyectado al LLM (FUERO {_effective_fuero_for_prompt.upper()} → jerarquía federal forzada): {estado_humano}")
+                    elif _has_federal_genio and not _has_local_genio:
+                        # SOLO genios federales activos (sin fuero detectado) → jerarquía federal
+                        _estado_prompt = (
+                            f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                            f"INSTRUCCIÓN CRÍTICA — JERARQUÍA FEDERAL:\n"
+                            f"1. Tu marco rector es la legislación FEDERAL y la JURISPRUDENCIA de la SCJN/TCC.\n"
+                            f"2. Las leyes del estado de {estado_humano} que aparezcan en el contexto son ÚNICAMENTE "
+                            f"para identificar el ACTO RECLAMADO o la norma de origen del conflicto.\n"
+                            f"3. NO uses leyes estatales como tu fundamento procesal principal.\n"
+                            f"4. Prioriza: Ley de Amparo, CPEUM, Jurisprudencia SCJN, Tesis de TCC.\n"
+                            f"5. NUNCA digas 'consulte la ley' — TÚ tienes la jurisprudencia en el contexto, TRANSCRÍBELA."
+                        )
+                        print(f"   📍 Estado inyectado al LLM (JERARQUÍA FEDERAL para genios {_resolved_genio_ids}): {estado_humano}")
+                    elif _is_multi_genio and _has_federal_genio and _has_local_genio:
+                        # MIXTO: genios federales + locales → jerarquía balanceada
+                        _estado_prompt = (
+                            f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                            f"INSTRUCCIÓN CRÍTICA — JERARQUÍA MIXTA (MULTI-GENIO):\n"
+                            f"1. Esta consulta involucra TANTO derecho local como federal.\n"
+                            f"2. Para el análisis SUSTANTIVO (derechos, obligaciones): usa las leyes de {estado_humano} como fuente principal.\n"
+                            f"3. Para el análisis PROCESAL-FEDERAL (amparo, recursos federales, jurisprudencia): "
+                            f"usa la legislación federal y jurisprudencia como fuente principal.\n"
+                            f"4. NUNCA mezcles: no apliques leyes estatales como fundamento del amparo, "
+                            f"ni leyes federales como fundamento del derecho sustantivo local.\n"
+                            f"5. TRANSCRIBE los artículos exactos del contexto con su [Doc ID: uuid]."
+                        )
+                        print(f"   📍 Estado inyectado al LLM (JERARQUÍA MIXTA multi-genio {_resolved_genio_ids}): {estado_humano}")
+                    elif _has_state_laws_in_context:
+                        # Genios locales o chat sin genio CON leyes estatales → jerarquía original
+                        _estado_prompt = (
+                            f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                            f"INSTRUCCIÓN CRÍTICA — PRIORIDAD DE FUENTES:\n"
+                            f"1. El usuario consulta desde {estado_humano}. Los documentos del contexto "
+                            f"que provienen de leyes de {estado_humano} son la FUENTE PRINCIPAL.\n"
+                            f"2. En la sección '## Fundamento Legal', TRANSCRIBE PRIMERO los artículos "
+                            f"TEXTUALES de las leyes de {estado_humano} que estén en el contexto. "
+                            f"Copia el texto del artículo tal como aparece en el contexto con su [Doc ID: uuid].\n"
+                            f"3. Las leyes federales (Código Civil Federal, etc.) son SUPLETORIAS — "
+                            f"cítalas DESPUÉS de los artículos locales, no en lugar de ellos.\n"
+                            f"4. La jurisprudencia COMPLEMENTA el fundamento legal, no lo reemplaza. "
+                            f"Primero cita el artículo de la ley local, luego la tesis que lo interpreta.\n"
+                            f"5. NUNCA digas 'consulte la ley local' ni 'esos textos no se transcriben aquí' "
+                            f"— TÚ tienes los artículos de la ley local en el contexto, TRANSCRÍBELOS."
+                        )
+                        print(f"   📍 Estado inyectado al LLM (con leyes detectadas): {estado_humano}")
+                    else:
+                        _estado_prompt = (
+                            f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n"
+                            f"(Nota de sistema: La consulta y el contexto recuperado resultaron ser de carácter federal o constitucional. "
+                            f"Básate en la Constitución, tratados y leyes federales/jurisprudencia incluidas en el contexto, sin inventar leyes de {estado_humano})."
+                        )
+                        print(f"   📍 Estado inyectado al LLM (sin leyes estatales detectadas, priorizando federal/const): {estado_humano}")
+
+                    dynamic_injections.append(_estado_prompt)
+
+                # ═══════════════════════════════════════════════════════════════════
+                # INYECCIÓN DE MATERIA ESTRICTA (cuando el usuario selecciona materia)
+                # ═══════════════════════════════════════════════════════════════════
+                if request.materia and request.materia.strip():
+                    _materia_sel = request.materia.strip().lower()
+                    _MATERIA_PROMPTS = {
+                        "civil": (
+                            "REGLA DE MATERIA ESTRICTA — CIVIL:\n"
+                            "El usuario ha seleccionado la materia CIVIL. Tu razonamiento, terminología forense "
+                            "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho civil.\n"
+                            "- PRIORIZA: Código Civil del estado, Código de Procedimientos Civiles del estado.\n"
+                            "- NO mezcles conceptos penales, administrativos ni laborales.\n"
+                            "- Usa terminología civil: acción, demanda, emplazamiento, contestación, "
+                            "sentencia definitiva, recurso de apelación, prescripción, caducidad.\n"
+                            "- Si encuentras artículos de otras materias en el contexto, IGNÓRALOS."
+                        ),
+                        "penal": (
+                            "REGLA DE MATERIA ESTRICTA — PENAL:\n"
+                            "El usuario ha seleccionado la materia PENAL. Tu razonamiento, terminología forense "
+                            "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho penal.\n"
+                            "- PRIORIZA: Código Penal del estado + Código Nacional de Procedimientos Penales (federal).\n"
+                            "- NO mezcles conceptos civiles, familiares ni administrativos.\n"
+                            "- Usa terminología penal: delito, imputado, víctima, ministerio público, "
+                            "audiencia inicial, vinculación a proceso, medidas cautelares, sentencia condenatoria.\n"
+                            "- Si encuentras artículos de otras materias en el contexto, IGNÓRALOS."
+                        ),
+                        "familiar": (
+                            "REGLA DE MATERIA ESTRICTA — FAMILIAR:\n"
+                            "El usuario ha seleccionado la materia FAMILIAR. Tu razonamiento, terminología forense "
+                            "y fundamentación deben ceñirse EXCLUSIVAMENTE al derecho familiar.\n"
+                            "- PRIORIZA: Código Familiar (o Libro Cuarto del Código Civil) del estado, "
+                            "Código de Procedimientos Civiles del estado (procedimientos familiares).\n"
+                            "- Principio rector: INTERÉS SUPERIOR DEL MENOR en todo lo que involucre menores.\n"
+                            "- Usa terminología familiar: alimentos, guarda y custodia, régimen de visitas, "
+                            "patria potestad, divorcio, pensión alimenticia, violencia familiar.\n"
+                            "- Si encuentras artículos penales o administrativos en el contexto, IGNÓRALOS."
+                        ),
+                        "administrativo": (
+                            "REGLA DE MATERIA ESTRICTA — ADMINISTRATIVO/FISCAL:\n"
+                            "El usuario ha seleccionado la materia ADMINISTRATIVA/FISCAL. Tu razonamiento, "
+                            "terminología forense y fundamentación deben ceñirse EXCLUSIVAMENTE al "
+                            "derecho administrativo y fiscal.\n"
+                            "- PRIORIZA: Ley de Procedimiento Contencioso Administrativo del estado, "
+                            "Código Fiscal del estado, Ley de Responsabilidades Administrativas, "
+                            "Ley de Responsabilidad Patrimonial, Ley de Justicia Administrativa.\n"
+                            "- NO mezcles conceptos penales ni civiles.\n"
+                            "- Usa terminología administrativa: acto administrativo, recurso de revisión, "
+                            "juicio contencioso administrativo, nulidad, lesividad, responsabilidad patrimonial.\n"
+                            "- Si encuentras artículos penales o civiles en el contexto, IGNÓRALOS."
+                        ),
+                    }
+                    _materia_prompt = _MATERIA_PROMPTS.get(_materia_sel)
+                    if _materia_prompt:
+                        dynamic_injections.append(_materia_prompt)
+                        print(f"   📋 MATERIA ESTRICTA inyectada: {_materia_sel.upper()}")
+
+                if context_xml:
+                    dynamic_injections.append(f"CONTEXTO JURÍDICO RECUPERADO:\n{context_xml}")
+
+                # FIX A: Inject compact Doc ID inventory to reduce UUID hallucination
+                # Gives the LLM a "cheat sheet" of valid UUIDs to copy from
+                if doc_id_map:
+                    valid_ids_prompt = get_valid_doc_ids_prompt(doc_id_map)
+                    dynamic_injections.append(valid_ids_prompt)
+
+                # ── PALANCA 5: Session Context Accumulator ────────────────────────────
+                # En conversaciones multi-turno (más de 1 mensaje), extraer el contexto
+                # jurídico acumulado e inyectarlo para que el LLM mantenga coherencia.
+                _session_ctx = extract_session_context(request.messages)
+                if _session_ctx:
+                    _ctx_lines = []
+                    if "materia_detectada" in _session_ctx:
+                        _ctx_lines.append(f"- Materia jurídica de la sesión: **{_session_ctx['materia_detectada'].upper()}**")
+                    if "proceso_detectado" in _session_ctx:
+                        proc_str = _session_ctx["proceso_detectado"].replace("_", " ").title()
+                        _ctx_lines.append(f"- Tipo de proceso identificado: **{proc_str}**")
+                    if "norma_central" in _session_ctx:
+                        _ctx_lines.append(f"- Norma central de la sesión: **{_session_ctx['norma_central']}**")
+                    if _ctx_lines:
+                        _session_msg = (
+                            "CONTEXTO DE SESIÓN ACUMULADO (inferido del historial):\n"
+                            + "\n".join(_ctx_lines)
+                            + "\n\nInstrucción: Mantén coherencia con este contexto. Si el usuario hace una pregunta "
+                            "de seguimiento sin especificar materia o ley, asume que sigue en el mismo contexto jurídico "
+                            "identificado. Prioriza documentos del contexto RAG que correspondan a esta materia."
+                        )
+                        dynamic_injections.append(_session_msg)
+                        print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
+
+                # Agregar historial conversacional
+                for i, msg in enumerate(request.messages):
+                    msg_content = msg.content
+
+                    # Para sentencias: truncar si es necesario para token budget
+                    if is_sentencia and msg.role == "user" and "SENTENCIA_INICIO" in msg_content:
+                        s_start = msg_content.find("<!-- SENTENCIA_INICIO -->")
+                        s_end = msg_content.find("<!-- SENTENCIA_FIN -->")
+                        if s_start != -1 and s_end != -1:
+                            sentencia_text = msg_content[s_start:s_end + len("<!-- SENTENCIA_FIN -->")]
+                            # Gemini 3 Flash = 1M tokens — sentencia completa sin truncar
+                            # Solo truncar documentos absurdamente largos (>200K chars ~50K tokens)
+                            max_chars = 200000
+                            if len(sentencia_text) > max_chars:
+                                truncated = sentencia_text[:max_chars]
+                                pct = round(max_chars / len(sentencia_text) * 100)
+                                truncated += f"\n\n[NOTA: Sentencia truncada al {pct}% para análisis. Se incluyen las secciones principales.]"
+                                truncated += "\n<!-- SENTENCIA_FIN -->"
+                                msg_content = msg_content[:s_start] + truncated + msg_content[s_end + len("<!-- SENTENCIA_FIN -->"):]
+                                print(f"   ⚖️ Sentencia truncada: {len(sentencia_text)} → {max_chars} chars ({pct}%)")
+                            else:
+                                print(f"   ⚖️ Sentencia completa: {len(sentencia_text)} chars (dentro del límite)")
+
+                    # 🔥 PREFIX CACHING OPTIMIZATION: Inject dynamic stuff onto the LAST user message
+                    if i == len(request.messages) - 1 and dynamic_injections:
+                        msg_content += "\n\n" + "\n\n".join(dynamic_injections)
+                        print(f"   🚀 Optimizando Caché: {len(dynamic_injections)} bloques dinámicos apendados al final del prompt.")
+
+                    llm_messages.append({"role": msg.role, "content": msg_content})
+
+                # ─────────────────────────────────────────────────────────────────────
+                # PASO 3: Generar respuesta con Thinking Mode auto-detectado
+                # ─────────────────────────────────────────────────────────────────────
+                # MODELO DUAL:
+                # - Thinking OFF → o4-mini (chat_client) para calidad + costo eficiente
+                # - Thinking ON → DeepSeek Chat con thinking enabled (deepseek_client) para CoT
+
+                use_thinking = should_use_thinking(has_document, is_drafting)
+
+                # ── FORCE THINKING FOR REDACCIÓN ──────────────────────────────────
+                # deepseek-chat has a hard 8K output limit which truncates long legal
+                # drafting responses mid-word, causing empty "❌ Error:" messages.
+                # deepseek-reasoner supports 64K output (we cap at 32K) — sufficient
+                # for full marco jurídico/estudio de fondo redaction.
+                if is_chat_drafting and not use_thinking:
+                    use_thinking = True
+                    print(f"   ✍️ REDACCIÓN → Thinking mode FORZADO (deepseek-reasoner, 32K output vs 8K chat limit)")
+
+                # _cached results already retrieved in Paso 1 gather
+                _gemini_key = os.getenv("GEMINI_API_KEY", "")
+                _can_use_gemini = bool(_gemini_key)  # AI Studio — requiere GEMINI_API_KEY
+
+
+                use_gemini = False
+                use_gemini_lite = False
+
+                # ── TOKEN BUDGET GUARD ──
+                # Cache = ~968K tokens. Gemini limit = 1,048,576 tokens.
+                # Remaining budget with cache = ~80K tokens.
+                # Documents (DOCX, sentencias) can easily exceed 80K tokens.
+                # SOLUTION: When document is attached, SKIP cache to avoid 400 INVALID_ARGUMENT.
+                _effective_cached = _cached
+                if _cached and has_document:
+                    _effective_cached = None
+                    print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
+
+                if is_precedentes_mode:
+                    # Precedentes del Circuito 22: deepseek-chat (no reasoner — es síntesis, no razonamiento complejo)
+                    use_gemini = False
+                    use_thinking = False
+                    active_client = get_deepseek_official_client()
+                    active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+                    max_tokens = 4096
+                    _resolved_genio_ids = []
+                    _effective_cached = None
+                    print(f"   ⚖️ Modelo PRECEDENTES: {active_model} | max_tokens: {max_tokens}")
+                elif is_sentencia:
+                    # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
+                    # GPT-5.2 ofrece el máximo nivel de inteligencia y análisis de Iurexia
+                    use_gemini = False
+                    active_model = "gpt-5.2"  # Modelo flagship de OpenAI
+                    active_client = chat_client
+                    # gpt-5.2 usa max_tokens convencionalmente
+                    max_tokens = 32000
+                    use_thinking = True
+                    _effective_cached = None  # Sin cache para sentencias
+                    print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
+                    _resolved_genio_ids = [] # Disable genios for sentencia mode
+                elif _resolved_genio_ids and _can_use_gemini and not has_document and not is_chat_drafting:
+                    # PRIORIDAD: Genios disponibles → usar Gemini con caché de estilo jurídico.
+                    # Esto incluye el modo Redactar (is_drafting=True) — el estilo de
+                    # redacción judicial de alto nivel está implementado en los Genios.
+                    use_gemini = True
+                    use_thinking = False  # Gemini maneja su propio razonamiento
+                    active_model = "models/gemini-3-flash-preview" # Genio cache is generated with flash-preview
+                    max_tokens = 25000
+                    print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}{' [REDACTAR]' if is_drafting or is_chat_drafting else ''}")
+                elif use_thinking:
+                    # DeepSeek con thinking mode — sin genios disponibles.
+                    _resolved_genio_ids = [] # DeepSeek ignores genio cache
+                    if is_chat_drafting and not is_drafting and not has_document:
+                        # REDACTOR SIN GENIO: Gemini 3 Flash Preview via OpenRouter.
+                        # Más rápido que DeepSeek Reasoner, razonamiento interno de Gemini.
+                        active_client = deepseek_client  # OpenRouter
+                        active_model = NORMAL_CHAT_OR_MODEL
+                        max_tokens = 25000
+                        use_thinking = False  # Gemini gestiona su propio razonamiento
+                        print(f"   ✍️ REDACTOR sin genio → {active_model} (Gemini via OpenRouter)")
+                    elif is_drafting or is_chat_drafting:
+                        # REDACTOR con documento adjunto: mantener DeepSeek Reasoner (64K output).
+                        active_client = get_deepseek_official_client()
+                        active_model = DEEPSEEK_OFFICIAL_REASONER_MODEL
+                        max_tokens = 32000
+                        print(f"   ✍️ REDACTOR DeepSeek Reasoner: {active_model} | max_tokens: {max_tokens}")
+                    else:
+                        # Centinela docs: análisis de documentos sin redacción
+                        active_client = get_deepseek_official_client()
+                        active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+                        max_tokens = 8192  # DeepSeek chat hard limit
+                else:
+                    # Chat normal sin genio → Gemini Flash Lite vía API directa.
+                    # Latencia mínima (~4s TTFB), sin thinking tokens, calidad suficiente para chat estándar.
+                    use_gemini_lite = True
+                    active_model = GEMINI_LITE_MODEL
+                    max_tokens = 25000
+                    _resolved_genio_ids = []
+
+                _client_name = 'gemini' if use_gemini else ('gemini_lite' if use_gemini_lite else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown'))))
+                print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
+
                 
                 # ── Emit cache status marker for frontend ──
                 if _effective_cached and use_gemini:
