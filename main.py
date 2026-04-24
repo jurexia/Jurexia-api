@@ -8216,10 +8216,6 @@ async def chat_endpoint(request: ChatRequest):
                     # Search uses raw query + default weights. Cohere rerank compensates.
                     # Saves ~1.5-2s of serial LLM wait.
                     _t_presearch = time.perf_counter()
-                    _presearch_task = asyncio.create_task(asyncio.gather(
-                        _legal_strategy_agent(last_user_message, fuero_manual=request.fuero),
-                        _generate_hyde_document(last_user_message, estado=effective_estado),
-                    ))
                     precomp_juris_concepts = None
 
                     # Default plan for immediate search (no LLM wait)
@@ -8286,7 +8282,10 @@ async def chat_endpoint(request: ChatRequest):
                     # Run search + pre-search LLM in parallel (saves ~1.5-2s)
                     _multi_results, (legal_plan, hyde_doc) = await asyncio.gather(
                         asyncio.gather(*_search_tasks),
-                        _presearch_task,
+                        asyncio.gather(
+                            _legal_strategy_agent(last_user_message, fuero_manual=request.fuero),
+                            _generate_hyde_document(last_user_message, estado=effective_estado),
+                        ),
                     )
                     print(f"   ⏱ PARALLEL SEARCH+LLM: {time.perf_counter() - _t_presearch:.2f}s (antes: serial ~5s)")
 
