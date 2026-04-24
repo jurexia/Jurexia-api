@@ -3023,7 +3023,7 @@ async def expand_legal_query_llm(query: str) -> str:
                 {"role": "system", "content": DOGMATIC_EXPANSION_PROMPT},
                 {"role": "user", "content": query}
             ],
-            temperature=0.1,  # Cuasi-determinista (GPT-5 Mini no soporta 0)
+            temperature=1,
             max_completion_tokens=100,  # Solo necesitamos palabras clave
         )
         
@@ -3156,7 +3156,7 @@ async def _legal_strategy_agent(query: str, fuero_manual: Optional[str] = None) 
         response = await llm_client.chat.completions.create(
             model=llm_model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,  # Bajo: queremos respuestas deterministas
+            temperature=1,
             max_completion_tokens=400,
         )
 
@@ -4259,6 +4259,10 @@ def rerank_by_article_match(results: List[SearchResult], article_numbers: List[s
     return results
 
 
+# Flag: skip hybrid search (Prefetch+RRF) if typing.Union error detected at runtime.
+# Set on first failure, avoids redundant try/catch on every subsequent query.
+_HYBRID_PREFETCH_BROKEN = False
+
 async def hybrid_search_single_silo(
     collection: str,
     query: str,
@@ -4273,6 +4277,7 @@ async def hybrid_search_single_silo(
     Auto-detecta si la colección tiene sparse vectors para usar híbrido o solo dense.
     RESILIENTE: Si el filtro causa error 400 (índice faltante), reintenta SIN filtro.
     """
+    global _HYBRID_PREFETCH_BROKEN
     async def _do_search(search_filter: Optional[Filter]) -> list:
         """Ejecuta la búsqueda con el filtro dado (protegida por semáforo)."""
         async with QDRANT_SEM:
@@ -4288,7 +4293,7 @@ async def hybrid_search_single_silo(
         else:
             threshold = 0.03
         
-        if has_sparse:
+        if has_sparse and not _HYBRID_PREFETCH_BROKEN:
             # Prefetch con RRF fusion.
             # Para jurisprudencia_nacional_v2: triple prefetch (sparse + dense + ratio)
             # Para otras colecciones: dual prefetch (sparse + dense)
@@ -4441,8 +4446,10 @@ async def hybrid_search_single_silo(
         error_msg = str(e)
         # FALLBACK: typing.Union error (Python 3.14 + qdrant-client compat)
         # → bypass Prefetch/Query construction, use dense-only search
+        # Set global flag so ALL subsequent searches skip hybrid attempt
         if "typing.Union" in error_msg or "Cannot instantiate" in error_msg:
-            print(f"   ⚠️ typing.Union error en {collection}, fallback a dense-only...")
+            _HYBRID_PREFETCH_BROKEN = True
+            print(f"   ⚠️ typing.Union error en {collection}, fallback a dense-only (hybrid DISABLED globally)...")
             try:
                 threshold = 0.02 if collection in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2") else 0.03
                 dense_results = await qdrant_client.query_points(
@@ -4508,7 +4515,7 @@ async def _extract_juris_concepts(query: str) -> str:
                 )},
                 {"role": "user", "content": query}
             ],
-            temperature=0.1,  # GPT-5 Mini no soporta 0
+            temperature=1,
             max_completion_tokens=80,
         )
         concepts = response.choices[0].message.content.strip()
@@ -4538,7 +4545,7 @@ async def _extract_sentencia_temas(doc_content: str) -> str:
                 )},
                 {"role": "user", "content": snippet}
             ],
-            temperature=0.1,
+            temperature=1,
             max_completion_tokens=80,
         )
         temas = response.choices[0].message.content.strip()
