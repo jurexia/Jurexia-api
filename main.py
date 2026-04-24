@@ -4105,12 +4105,33 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
     return "\n".join(xml_parts)
 
 
-def format_sentencias_as_examples(results: list, max_examples: int = 5, max_chars: int = 3000) -> str:
+_STYLE_EXAMPLE_STRIP_PATTERNS = [
+    re.compile(r'\[Doc ID:[^\]]*\]', re.IGNORECASE),
+    re.compile(r'\[\s*\d+\s*\]'),  # referencias numéricas tipo [3]
+    re.compile(r'Registro digital:?\s*\d+', re.IGNORECASE),
+    re.compile(r'\b\d+[aª]?\.?/J\.?\s*\d+/\d{4}\b'),  # jurisprudencias tipo 1a./J. 46/2014
+    re.compile(r'\bTesis\s+[IVX\d]+[\w./\-]*', re.IGNORECASE),
+]
+
+
+def _sanitize_style_example(texto: str) -> str:
+    """Elimina citas específicas del texto del ejemplo para evitar que el LLM las copie."""
+    for pat in _STYLE_EXAMPLE_STRIP_PATTERNS:
+        texto = pat.sub("", texto)
+    # Limpiar espacios dobles y puntuación huérfana
+    texto = re.sub(r'\s+([,.;:])', r'\1', texto)
+    texto = re.sub(r'\s{2,}', ' ', texto)
+    texto = re.sub(r'\(\s*\)', '', texto)
+    return texto.strip()
+
+
+def format_sentencias_as_examples(results: list, max_examples: int = 3, max_chars: int = 2000) -> str:
     """Extrae resultados de silos de sentencias y los formatea como modelos de estilo.
 
     Estos ejemplos se inyectan en el prompt de redacción para que el LLM
     mimetice el tono, estructura y prosa judicial de alto nivel.
-    NO son fuentes citables — solo referencias de estilo.
+    NO son fuentes citables — se limpian las citas internas para prevenir
+    que el LLM copie Doc IDs, registros o jurisprudencias inválidas.
     """
     _sentencia_silo_set = set(SENTENCIA_SILOS.values())
     ejemplos = [r for r in results if r.silo in _sentencia_silo_set]
@@ -4123,21 +4144,26 @@ def format_sentencias_as_examples(results: list, max_examples: int = 5, max_char
 
     parts = [
         "<modelos_de_estilo>",
-        "<!-- INSTRUCCIÓN: Los siguientes fragmentos son MODELOS DE ESTILO de sentencias reales. "
-        "Imita su tono, estructura y prosa judicial. PROHIBIDO citarlos como fuente o fundamento legal. -->",
+        "<!-- ADVERTENCIA CRÍTICA: Estos fragmentos son SOLO referencias de PROSA JUDICIAL. "
+        "NO los cites. NO copies ningún número, referencia, jurisprudencia o Doc ID que aparezca "
+        "en su interior. Las ÚNICAS fuentes citables están en <documentos> con su Doc ID real. -->",
     ]
     for i, r in enumerate(ejemplos, 1):
-        texto = r.texto
+        texto = _sanitize_style_example(r.texto)
         if len(texto) > max_chars:
-            texto = texto[:max_chars] + "... [truncado]"
-        origen = r.origen or "Sentencia TCC"
+            texto = texto[:max_chars] + "..."
+        if len(texto) < 200:  # ejemplo demasiado corto tras sanitizar, descartar
+            continue
         parts.append(
-            f'<ejemplo n="{i}" origen="{html.escape(origen)}" silo="{r.silo}">\n'
+            f'<ejemplo n="{i}">\n'
             f'{html.escape(texto)}\n'
             f'</ejemplo>'
         )
     parts.append("</modelos_de_estilo>")
 
+    # Si tras sanitizar no quedó ningún ejemplo útil, retornar vacío
+    if len(parts) <= 3:
+        return ""
     return "\n".join(parts)
 
 
