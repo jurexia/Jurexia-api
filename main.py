@@ -8258,7 +8258,6 @@ async def chat_endpoint(request: ChatRequest):
                                 precomputed_plan=_default_plan,
                                 precomputed_hyde=None,
                                 precomputed_juris_concepts=precomp_juris_concepts,
-                                skip_post_search=True,  # Q2: only base search, no boost/enrichment
                             )
                         )
                     # Q3: Búsqueda constitucional si hay indicadores
@@ -8279,7 +8278,6 @@ async def chat_endpoint(request: ChatRequest):
                                 precomputed_plan=_default_plan,
                                 precomputed_hyde=None,
                                 precomputed_juris_concepts=precomp_juris_concepts,
-                                skip_post_search=True,  # Q3: only base search, no boost/enrichment
                             )
                         )
 
