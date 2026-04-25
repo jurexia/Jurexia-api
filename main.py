@@ -8651,7 +8651,7 @@ async def chat_endpoint(request: ChatRequest):
                 if not is_drafting and not is_chat_drafting and not is_precedentes_mode \
                    and not has_document and not is_sentencia:
                     _precedentes_task = asyncio.create_task(
-                        search_precedentes_unified(query=last_user_message, limit_scjn=3, limit_tcc=4)
+                        search_precedentes_unified(query=last_user_message, limit_scjn=8, limit_tcc=10)
                     )
 
                 # ── Heartbeat: primer byte inmediato para mantener TCP en móvil ──
@@ -9700,7 +9700,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 # Independiente del CITATION_META — siempre se emite si hay resultados.
                 if precedentes_results:
                     prec_list = []
-                    for _pr in precedentes_results[:5]:
+                    for _pr in precedentes_results[:12]:
                         prec_list.append({
                             "id": _pr.id,
                             "holding": (_pr.texto or "")[:600],
