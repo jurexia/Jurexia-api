@@ -4361,6 +4361,93 @@ def extract_doc_ids(text: str) -> List[str]:
     return list(set(matches))  # Únicos
 
 
+def _uuid_edit_distance(a: str, b: str) -> int:
+    """Distancia de edición simplificada (Levenshtein) para UUIDs.
+    Optimizada: solo compara los primeros 36 chars (largo de UUID)."""
+    a, b = a[:36].lower(), b[:36].lower()
+    if len(a) != len(b):
+        return max(len(a), len(b))
+    return sum(1 for x, y in zip(a, b) if x != y)
+
+
+def repair_hallucinated_uuids(
+    response_text: str,
+    doc_id_map: Dict[str, "SearchResult"],
+) -> str:
+    """
+    🔒 CANDADO ANTI-ALUCINACIÓN DE UUIDS — Post-procesamiento obligatorio.
+    
+    Los LLMs (especialmente en modo reasoning/thinking) tienden a:
+    1. Alterar 1-3 caracteres de un UUID al reconstruirlo de memoria
+    2. Inventar UUIDs que no existen en el contexto
+    3. Truncar UUIDs (cortar los últimos caracteres)
+    
+    Este reparador busca cada [Doc ID: uuid] en la respuesta y, si no existe
+    exactamente en doc_id_map, intenta repararlo con fuzzy match:
+    - Prefix match (>= 28 chars coincidentes)
+    - Edit distance <= 4 caracteres
+    Si se encuentra un match, reemplaza el UUID alucinado por el real.
+    """
+    if not doc_id_map or not response_text:
+        return response_text
+    
+    valid_ids = list(doc_id_map.keys())
+    valid_ids_lower = {uid.lower(): uid for uid in valid_ids}
+    
+    def _find_best_match(hallucinated: str) -> Optional[str]:
+        h = hallucinated.lower().strip()
+        
+        # Exact match (case-insensitive)
+        if h in valid_ids_lower:
+            return valid_ids_lower[h]
+        
+        # Strategy 1: Prefix match (UUID might be truncated or have trailing noise)
+        for vid_lower, vid_original in valid_ids_lower.items():
+            # Match if first 28+ chars of UUID match (UUID = 36 chars with dashes)
+            prefix_len = min(len(h), len(vid_lower))
+            if prefix_len >= 28:
+                matching_chars = sum(1 for a, b in zip(h[:prefix_len], vid_lower[:prefix_len]) if a == b)
+                if matching_chars >= 28:
+                    return vid_original
+        
+        # Strategy 2: Edit distance (1-4 char differences = likely hallucination)
+        best_dist = 5  # Max allowed edit distance
+        best_match = None
+        for vid_lower, vid_original in valid_ids_lower.items():
+            dist = _uuid_edit_distance(h, vid_lower)
+            if dist < best_dist:
+                best_dist = dist
+                best_match = vid_original
+        
+        return best_match
+    
+    repairs_made = 0
+    
+    def _repair(match):
+        nonlocal repairs_made
+        hallucinated_id = match.group(1)
+        
+        # Already valid? Skip
+        if hallucinated_id in doc_id_map or hallucinated_id.lower() in valid_ids_lower:
+            return match.group(0)
+        
+        repaired = _find_best_match(hallucinated_id)
+        if repaired:
+            repairs_made += 1
+            print(f"   🔧 UUID REPARADO: {hallucinated_id[:16]}... → {repaired[:16]}...")
+            return f"[Doc ID: {repaired}]"
+        else:
+            print(f"   ❌ UUID IRREPARABLE (sin match fuzzy): {hallucinated_id[:20]}...")
+            return match.group(0)
+    
+    repaired_text = DOC_ID_PATTERN.sub(_repair, response_text)
+    
+    if repairs_made > 0:
+        print(f"   🔒 REPARACIÓN COMPLETA: {repairs_made} UUIDs alucinados corregidos")
+    
+    return repaired_text
+
+
 def build_doc_id_map(search_results: List[SearchResult]) -> Dict[str, SearchResult]:
     """
     Construye un diccionario de Doc ID -> SearchResult para validación rápida.
@@ -4457,10 +4544,10 @@ def get_valid_doc_ids_prompt(retrieved_docs: Dict[str, SearchResult]) -> str:
     if not retrieved_docs:
         return "No hay documentos disponibles para citar."
     
-    lines = ["DOCUMENTOS DISPONIBLES PARA CITAR (usa SOLO estos Doc IDs):"]
-    for doc_id, doc in list(retrieved_docs.items())[:15]:  # Limitar a 15 para no saturar
+    lines = ["DOCUMENTOS DISPONIBLES PARA CITAR (usa EXCLUSIVAMENTE estos Doc IDs — NO inventes otros):"]
+    for doc_id, doc in retrieved_docs.items():
         ref = doc.ref or "Sin referencia"
-        lines.append(f"  - [Doc ID: {doc_id}] → {ref[:80]}")
+        lines.append(f"  - [Doc ID: {doc_id}] → {ref[:100]}")
     
     return "\n".join(lines)
 
@@ -9659,7 +9746,38 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         content_buffer = fallback
                         yield fallback
                 
-                # Validar citas
+                # ── 🔒 CANDADO: Reparar UUIDs alucinados ANTES de validar ──
+                # Los LLMs en modo reasoning (GPT-5.5, DeepSeek Reasoner) alteran UUIDs
+                # sutilmente al reconstruirlos de memoria.
+                # 
+                # PROBLEMA: El texto ya se envió al frontend vía streaming con los UUIDs
+                # originales (posiblemente alucinados). No podemos cambiarlo.
+                # SOLUCIÓN: Construimos un mapa de reparaciones (hallucinated → real) y
+                # añadimos AMBOS UUIDs al sources_map. Así el frontend encuentra la fuente
+                # sin importar si tiene el UUID original o el reparado.
+                uuid_repair_map: Dict[str, str] = {}  # hallucinated_uuid → real_uuid
+                if doc_id_map and content_buffer:
+                    cited_ids = extract_doc_ids(content_buffer)
+                    valid_ids_lower = {uid.lower(): uid for uid in doc_id_map.keys()}
+                    for cited_id in cited_ids:
+                        if cited_id not in doc_id_map and cited_id.lower() not in valid_ids_lower:
+                            # This UUID is NOT in our docs — attempt fuzzy repair
+                            repaired_text = repair_hallucinated_uuids(
+                                f"[Doc ID: {cited_id}]", doc_id_map
+                            )
+                            repaired_match = DOC_ID_PATTERN.search(repaired_text)
+                            if repaired_match:
+                                repaired_id = repaired_match.group(1)
+                                if repaired_id != cited_id and repaired_id in doc_id_map:
+                                    uuid_repair_map[cited_id] = repaired_id
+                    
+                    if uuid_repair_map:
+                        print(f"   🔒 UUID REPAIR MAP: {len(uuid_repair_map)} alucinados → reales")
+                    
+                    # Also repair content_buffer for correct validation counts
+                    content_buffer = repair_hallucinated_uuids(content_buffer, doc_id_map)
+
+                # Validar citas (ahora con UUIDs reparados en content_buffer)
                 if doc_id_map:
                     validation = validate_citations(content_buffer, doc_id_map)
                     
@@ -9672,7 +9790,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             texto_full = doc.texto or ""
                             # Determinar pdf_url: Qdrant payload > treaty-specific > silo fallback
                             pdf_url = doc.pdf_url or _resolve_treaty_pdf(doc.origen) or PDF_FALLBACK_URLS.get(doc.silo)
-                            sources_map[cv.doc_id] = {
+                            source_entry = {
                                 "origen": humanize_origen(doc.origen) or "Fuente legal",
                                 "ref": doc.ref or "",
                                 "texto": texto_full,
@@ -9685,12 +9803,20 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 "instancia": doc.instancia_meta or None,
                                 "materia": doc.materia_meta or None,
                             }
+                            sources_map[cv.doc_id] = source_entry
                         else:
                             sources_map[cv.doc_id] = {
                                 "origen": "Fuente no verificada",
                                 "ref": "",
                                 "texto": ""
                             }
+                    
+                    # 🔒 ALIAS: Añadir los UUIDs alucinados originales al sources_map
+                    # para que el frontend los resuelva (el texto streamed tiene los originales)
+                    for hallucinated_id, real_id in uuid_repair_map.items():
+                        if real_id in sources_map and hallucinated_id not in sources_map:
+                            sources_map[hallucinated_id] = sources_map[real_id]
+                            print(f"   🔗 ALIAS: {hallucinated_id[:16]}... → fuente de {real_id[:16]}...")
                     
                     if validation.invalid_count > 0:
                         print(f"   ⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
@@ -9700,13 +9826,14 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     else:
                         print(f"   ✅ Validación OK: {validation.valid_count} citas verificadas")
                     
-                    # Always emit CITATION_META with sources map
+                    # Always emit CITATION_META with sources map (includes repair aliases)
                     meta = json.dumps({
                         "valid": validation.valid_count,
                         "invalid": validation.invalid_count,
                         "total": validation.total_citations,
                         "invalid_ids": [c.doc_id for c in validation.citations if c.status == "invalid"],
-                        "sources": sources_map
+                        "sources": sources_map,
+                        "repaired": len(uuid_repair_map),  # Count of repaired UUIDs for monitoring
                     })
                     yield f"\n\n<!-- CITATION_META:{meta} -->"
 
