@@ -8776,7 +8776,7 @@ async def chat_endpoint(request: ChatRequest):
                     use_thinking = False
                     active_client = get_deepseek_official_client()
                     active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-                    max_tokens = 4096
+                    max_tokens = 25000
                     _resolved_genio_ids = []
                     _effective_cached = None
                     print(f"   ⚖️ Modelo PRECEDENTES: {active_model} | max_tokens: {max_tokens}")
