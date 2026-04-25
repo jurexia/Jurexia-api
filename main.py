@@ -211,13 +211,19 @@ ESTADO_SILO = {
     # Próximos estados:
 }
 
-# Silos de SENTENCIAS DE EJEMPLO — usados como few-shot por el redactor multi-pass
+# Silos de SENTENCIAS DE EJEMPLO — usados como few-shot por el redactor multi-pass.
+# La EF de SCJN está particionada en 3 colecciones (Pleno / 1ª Sala / 2ª Sala) para
+# mantener cada índice HNSW pequeño y evitar saturación del cluster Qdrant.
+# Todas se consultan en paralelo desde hybrid_search_all_silos cuando se incluyen sentencias.
 SENTENCIA_SILOS = {
-    "amparo_directo": "sentencias_amparo_directo",
-    "amparo_revision": "sentencias_amparo_revision",
-    "recurso_queja": "sentencias_recurso_queja",
-    "revision_fiscal": "sentencias_revision_fiscal",
-    "ef_unificado": "sentencias_ef",  # 970K estudios de fondo TCC unificados — few-shot redacción
+    "amparo_directo":   "sentencias_amparo_directo",
+    "amparo_revision":  "sentencias_amparo_revision",
+    "recurso_queja":    "sentencias_recurso_queja",
+    "revision_fiscal":  "sentencias_revision_fiscal",
+    "ef_unificado":     "sentencias_ef",                # ~970K estudios de fondo TCC
+    "ef_scjn_pleno":    "sentencias_ef_scjn_pleno",     # SCJN Pleno EF chunks
+    "ef_scjn_1a_sala":  "sentencias_ef_scjn_1a_sala",   # SCJN Primera Sala EF chunks
+    "ef_scjn_2a_sala":  "sentencias_ef_scjn_2a_sala",   # SCJN Segunda Sala EF chunks
 }
 
 # Fallback: colección legacy para estados no migrados
@@ -4579,7 +4585,15 @@ async def hybrid_search_single_silo(
         parsed = []
         for point in results.points:
             payload = point.payload or {}
-            texto = payload.get("texto", payload.get("text", ""))
+            # Los silos EF (sentencias_ef y SCJN particionadas) almacenan el
+            # contenido en `chunk_text`; otros silos usan `texto` o `text`.
+            texto = (
+                payload.get("texto")
+                or payload.get("text")
+                or payload.get("chunk_text")
+                or payload.get("holding")
+                or ""
+            )
             origen_raw = payload.get("origen") or ""
             
             # ── Extract registro: payload > texto tags > origen prefix ──
