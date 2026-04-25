@@ -893,6 +893,47 @@ _CIRCUIT_TRIBUNALES = {
 }
 
 
+def _build_precedentes_scjn_prompt(sala: Optional[str] = None) -> str:
+    sala_label = _scjn_sala_label(sala) if sala else "Pleno y ambas Salas"
+    sala_clause = (
+        f"\nEl filtro activo es **{sala_label}** de la SCJN. Concentra el análisis en los criterios de esa instancia.\n"
+        if sala else
+        "\nLa muestra abarca Pleno, Primera Sala y Segunda Sala de la SCJN. Indica explícitamente la instancia de cada criterio.\n"
+    )
+    return (
+        "Eres un asistente judicial especializado en jurisprudencia de la Suprema Corte de Justicia de la Nación.\n"
+        "Se te proporcionan holdings (criterios resolutivos) de sentencias reales de la SCJN recuperados de una base de datos vectorial.\n"
+        f"{sala_clause}"
+        "\nTU TAREA: Sintetizar la doctrina constitucional y de control de legalidad de la SCJN sobre el tema consultado.\n"
+        "\nINSTRUCCIONES OBLIGATORIAS:\n"
+        "1. Identifica la LÍNEA DOMINANTE de la Suprema Corte: ¿cuál es el criterio sostenido?\n"
+        "2. Distingue entre Pleno (jerarquía superior, criterio que vincula a las Salas) y cada Sala cuando ambos aparezcan.\n"
+        "3. Si hay CRITERIO DIVERGENTE entre Salas o evolución doctrinal → señálalo con ⚠️ CRITERIO DIVERGENTE.\n"
+        "4. Cita cada sentencia con [Doc ID: N] inmediatamente después de la afirmación que sustenta.\n"
+        "5. Cuando exista interpretación constitucional (art. 1, pro persona, control difuso), explícitala con precisión.\n"
+        "6. Cierra con un párrafo de ORIENTACIÓN PRÁCTICA: cómo se proyecta este criterio sobre litigios y resoluciones de instancias inferiores.\n"
+        "\nESTILO: Prosa técnica judicial de máxima formalidad. Sin viñetas innecesarias. Sin inventar datos que no estén en los holdings proporcionados.\n"
+        "Si los resultados son escasos o no permiten una conclusión firme, indícalo con claridad.\n"
+    )
+
+
+def _build_precedentes_unified_prompt() -> str:
+    return (
+        "Eres un asistente judicial que sintetiza la jurisprudencia mexicana sobre el tema consultado, integrando "
+        "criterios de la Suprema Corte de Justicia de la Nación y de Tribunales Colegiados de Circuito.\n"
+        "\nTU TAREA: Construir un panorama jerárquico de la doctrina aplicable.\n"
+        "\nINSTRUCCIONES OBLIGATORIAS:\n"
+        "1. Comienza con los CRITERIOS DE LA SCJN (jerárquicamente superiores). Distingue Pleno / Primera Sala / Segunda Sala.\n"
+        "2. Después expón los criterios de los TCC, agrupándolos por circuito si hay diferencias.\n"
+        "3. Señala si los TCC siguen, complementan o se apartan de la línea de la SCJN.\n"
+        "4. Si hay CRITERIO DIVERGENTE → márcalo con ⚠️ CRITERIO DIVERGENTE indicando la instancia de cada posición.\n"
+        "5. Cita cada sentencia con [Doc ID: N] inmediatamente después de la afirmación que sustenta.\n"
+        "6. Cierra con ORIENTACIÓN PRÁCTICA: qué postura tiene mayor probabilidad de prevalecer y por qué.\n"
+        "\nESTILO: Prosa técnica judicial. Sin viñetas innecesarias. Sin inventar datos que no estén en los holdings proporcionados.\n"
+        "Si los resultados son escasos o no permiten una conclusión firme, indícalo con claridad.\n"
+    )
+
+
 def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = None) -> str:
     if circuit == "ALL":
         circuit_labels = ", ".join(
@@ -3952,6 +3993,135 @@ async def search_precedentes_global(
     # Final sort for LLM readability (higher score first)
     combined.sort(key=lambda x: x.score, reverse=True)
     print(f"   ⚖️ Global: {len(guaranteed)} garantizados + {min(remaining, len(leftovers))} top-up → {len(combined)} total")
+    return combined
+
+
+# ── SCJN: Suprema Corte (Pleno + Primera Sala + Segunda Sala) ─────────────────
+_SCJN_SALAS_VALID = {"PLENO", "PRIMERA_SALA", "SEGUNDA_SALA"}
+
+
+def _scjn_sala_label(sala: str) -> str:
+    return {
+        "PLENO": "Pleno",
+        "PRIMERA_SALA": "Primera Sala",
+        "SEGUNDA_SALA": "Segunda Sala",
+    }.get(sala or "", "SCJN")
+
+
+async def search_precedentes_scjn(
+    query: str,
+    sala: Optional[str] = None,
+    limit: int = 15,
+) -> List[SearchResult]:
+    """
+    Búsqueda híbrida en sentencias_scjn_holdings (Suprema Corte).
+    sala: 'PLENO' | 'PRIMERA_SALA' | 'SEGUNDA_SALA' | None (todas).
+    """
+    COLLECTION = "sentencias_scjn_holdings"
+    try:
+        dense_vec, sparse_vec = await asyncio.gather(
+            get_dense_embedding(query),
+            asyncio.get_running_loop().run_in_executor(None, get_sparse_embedding, query),
+        )
+    except Exception as emb_err:
+        print(f"   ⚠️ search_precedentes_scjn embedding error: {emb_err}")
+        return []
+
+    filter_conditions = []
+    if sala and sala.upper() in _SCJN_SALAS_VALID:
+        filter_conditions.append(FieldCondition(key="sala", match=MatchValue(value=sala.upper())))
+    qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
+    sala_label = _scjn_sala_label(sala) if sala else "todas las salas"
+    print(f"   🏛️ SCJN: filtro sala={sala_label}, limit={limit}")
+
+    points = []
+    try:
+        response = await qdrant_client.query_points(
+            collection_name=COLLECTION,
+            prefetch=[
+                Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
+                Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
+            ],
+            query=Query(fusion=Fusion.RRF),
+            limit=limit,
+            with_payload=True,
+        )
+        points = response.points
+        print(f"   🏛️ SCJN RRF OK — {len(points)} puntos")
+    except Exception as rrf_err:
+        print(f"   ⚠️ SCJN RRF/Prefetch falló ({rrf_err}), intentando dense-only...")
+        try:
+            response = await qdrant_client.query_points(
+                collection_name=COLLECTION,
+                query=dense_vec,
+                using="dense",
+                limit=limit,
+                query_filter=qdrant_filter,
+                with_payload=True,
+            )
+            points = response.points
+            print(f"   🏛️ SCJN dense-only OK — {len(points)} puntos")
+        except Exception as dense_err:
+            print(f"   ⚠️ SCJN dense fallback también falló: {dense_err}")
+            return []
+
+    results: List[SearchResult] = []
+    for p in points:
+        pay = p.payload or {}
+        sala_p = pay.get("sala") or ""
+        expediente = pay.get("expediente") or ""
+        fecha = pay.get("fecha_sentencia") or ""
+        sentido = pay.get("sentido") or ""
+        materia = pay.get("materia") or ""
+        tipo = pay.get("tipo_asunto") or ""
+        ministro = pay.get("ministro_ponente") or ""
+        holding_text = pay.get("holding") or ""
+
+        sala_disp = _scjn_sala_label(sala_p)
+        # ref visible: "SCJN · Primera Sala · ADR-123/2020 · Concede · 2020"
+        ref_parts = [x for x in ["SCJN", sala_disp, expediente, sentido.capitalize() if sentido else "", fecha[:4]] if x]
+        ref = " · ".join(ref_parts)
+        origen_parts = [x for x in [sala_disp, tipo.replace("_", " ").title() if tipo else "", materia, ministro] if x]
+        origen = " — ".join(origen_parts) if origen_parts else "Suprema Corte de Justicia de la Nación"
+
+        results.append(SearchResult(
+            id=str(p.id),
+            score=p.score if p.score is not None else 0.0,
+            texto=holding_text,
+            ref=ref,
+            origen=origen,
+            silo="sentencias_scjn_holdings",
+            pdf_url=pay.get("pdf_url"),
+        ))
+    return results
+
+
+async def search_precedentes_unified(
+    query: str,
+    limit_scjn: int = 10,
+    limit_tcc: int = 8,
+) -> List[SearchResult]:
+    """
+    Búsqueda unificada: SCJN al frente + TCC en paralelo.
+    Garantiza representación mínima de ambos para que el usuario vea
+    primero la corte suprema y después los criterios de circuito.
+    """
+    scjn_task = search_precedentes_scjn(query=query, sala=None, limit=limit_scjn)
+    tcc_task  = search_precedentes_global(query=query, tribunal=None, limit=limit_tcc)
+    scjn_results, tcc_results = await asyncio.gather(scjn_task, tcc_task, return_exceptions=True)
+
+    combined: List[SearchResult] = []
+    if isinstance(scjn_results, list):
+        combined.extend(scjn_results)
+        print(f"   ⚖️ Unificado: {len(scjn_results)} SCJN")
+    else:
+        print(f"   ⚠️ search_precedentes_unified SCJN error: {scjn_results}")
+    if isinstance(tcc_results, list):
+        combined.extend(tcc_results)
+        print(f"   ⚖️ Unificado: {len(tcc_results)} TCC")
+    else:
+        print(f"   ⚠️ search_precedentes_unified TCC error: {tcc_results}")
+
     return combined
 
 
@@ -7858,20 +8028,34 @@ async def chat_endpoint(request: ChatRequest):
         if is_chat_drafting:
             print(f"   ✍️ MODO REDACCIÓN CHAT detectado por lenguaje natural")
 
-    # ── Precedentes del Circuito 22 — triggered by [MODO_PRECEDENTES] marker ──
-    # Frontend can also pass [TRIBUNAL:1TCC], [TRIBUNAL:2TCC] or [TRIBUNAL:3TCC]
+    # ── Precedentes — triggered by [MODO_PRECEDENTES] marker ──────────────
+    # Frontend puede pasar:
+    #   [CORTE:SCJN]          → solo SCJN
+    #   [CORTE:TCC]           → solo TCC (default si no se especifica corte)
+    #   [CORTE:ALL]           → SCJN + TCC unificado
+    #   [SALA:PLENO|PRIMERA_SALA|SEGUNDA_SALA]  (solo aplica con CORTE:SCJN)
+    #   [CIRCUITO:N]          (solo aplica con CORTE:TCC)
+    #   [TRIBUNAL:1TCC, ...]  (solo aplica con CORTE:TCC)
     is_precedentes_mode = False
     tribunal_filter: Optional[str] = None
-    precedentes_circuit: str = "ALL"          # default = global; overridden by [CIRCUITO:N]
+    precedentes_circuit: str = "ALL"
+    precedentes_corte: str = "TCC"            # default backward-compat
+    precedentes_sala: Optional[str] = None
     if "[MODO_PRECEDENTES]" in last_user_message:
         is_precedentes_mode = True
         import re as _re_prec
-        # Extract circuit [CIRCUITO:N] — if absent, stays "ALL" (global search)
+        _corte_match = _re_prec.search(r'\[CORTE:(SCJN|TCC|ALL)\]', last_user_message)
+        if _corte_match:
+            precedentes_corte = _corte_match.group(1).upper()
+            last_user_message = last_user_message.replace(_corte_match.group(0), "").strip()
+        _sala_match = _re_prec.search(r'\[SALA:(PLENO|PRIMERA_SALA|SEGUNDA_SALA)\]', last_user_message)
+        if _sala_match:
+            precedentes_sala = _sala_match.group(1).upper()
+            last_user_message = last_user_message.replace(_sala_match.group(0), "").strip()
         _circ_match = _re_prec.search(r'\[CIRCUITO:(\w+)\]', last_user_message)
         if _circ_match:
-            precedentes_circuit = _circ_match.group(1)   # e.g. "1", "22", "ALL"
+            precedentes_circuit = _circ_match.group(1)
             last_user_message = last_user_message.replace(_circ_match.group(0), "").strip()
-        # Extract tribunal — accept any alphanumeric ID (1TCC_CIV, ADM, TCC_PENAL, etc.)
         _trib_match = _re_prec.search(r'\[TRIBUNAL:([A-Z0-9_\-]+)\]', last_user_message)
         if _trib_match:
             tribunal_filter = _trib_match.group(1)
@@ -7881,7 +8065,7 @@ async def chat_endpoint(request: ChatRequest):
             if msg.role == "user":
                 msg.content = last_user_message
                 break
-        print(f"   ⚖️ MODO PRECEDENTES activado (circuito={precedentes_circuit}, tribunal={tribunal_filter or 'todos'})")
+        print(f"   ⚖️ MODO PRECEDENTES activado (corte={precedentes_corte}, sala={precedentes_sala or 'todas'}, circuito={precedentes_circuit}, tribunal={tribunal_filter or 'todos'})")
     
     if is_drafting:
         # Extraer tipo y subtipo del mensaje de redacción (UI-triggered)
@@ -7959,16 +8143,30 @@ async def chat_endpoint(request: ChatRequest):
             context_xml = ""
 
             if is_precedentes_mode:
-                # ── PRECEDENTES: global (ALL) o por circuito específico ──────────────
-                if precedentes_circuit == "ALL":
-                    print(f"   ⚖️ Búsqueda GLOBAL en {len(_ACTIVE_CIRCUITS)} circuitos (tribunal={tribunal_filter or 'todos'})...")
+                # ── PRECEDENTES: SCJN | TCC | ALL (unificado) ────────────────────────
+                if precedentes_corte == "SCJN":
+                    print(f"   🏛️ PRECEDENTES SCJN (sala={precedentes_sala or 'todas'})")
+                    search_results = await search_precedentes_scjn(
+                        query=last_user_message,
+                        sala=precedentes_sala,
+                        limit=15,
+                    )
+                elif precedentes_corte == "ALL":
+                    print(f"   ⚖️ PRECEDENTES UNIFICADO (SCJN + TCC)")
+                    search_results = await search_precedentes_unified(
+                        query=last_user_message,
+                        limit_scjn=10,
+                        limit_tcc=8,
+                    )
+                elif precedentes_circuit == "ALL":
+                    print(f"   ⚖️ PRECEDENTES TCC GLOBAL en {len(_ACTIVE_CIRCUITS)} circuitos (tribunal={tribunal_filter or 'todos'})...")
                     search_results = await search_precedentes_global(
                         query=last_user_message,
                         tribunal=tribunal_filter,
                         limit=15,
                     )
                 else:
-                    print(f"   ⚖️ Buscando en sentencias_holdings_{precedentes_circuit} (tribunal={tribunal_filter or 'todos'})...")
+                    print(f"   ⚖️ PRECEDENTES TCC sentencias_holdings_{precedentes_circuit} (tribunal={tribunal_filter or 'todos'})...")
                     search_results = await search_precedentes_holdings(
                         query=last_user_message,
                         tribunal=tribunal_filter,
@@ -8511,8 +8709,15 @@ async def chat_endpoint(request: ChatRequest):
                         "6. Si un estado no tiene información suficiente, indícalo claramente\n"
                     )
                 elif is_precedentes_mode:
-                    system_prompt = _build_precedentes_system_prompt(precedentes_circuit, tribunal_filter)
-                    print(f"   ⚖️ Usando prompt PRECEDENTES para síntesis del {precedentes_circuit}° Circuito (tribunal={tribunal_filter or 'todos'})")
+                    if precedentes_corte == "SCJN":
+                        system_prompt = _build_precedentes_scjn_prompt(precedentes_sala)
+                        print(f"   🏛️ Usando prompt PRECEDENTES SCJN (sala={precedentes_sala or 'todas'})")
+                    elif precedentes_corte == "ALL":
+                        system_prompt = _build_precedentes_unified_prompt()
+                        print(f"   ⚖️ Usando prompt PRECEDENTES UNIFICADO (SCJN + TCC)")
+                    else:
+                        system_prompt = _build_precedentes_system_prompt(precedentes_circuit, tribunal_filter)
+                        print(f"   ⚖️ Usando prompt PRECEDENTES para síntesis del {precedentes_circuit}° Circuito (tribunal={tribunal_filter or 'todos'})")
                 elif is_chat_drafting:
                     system_prompt = SYSTEM_PROMPT_CHAT_DRAFTING
                     print("   ✍️ Usando prompt CHAT DRAFTING para redacción por lenguaje natural")
