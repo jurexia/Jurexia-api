@@ -8444,6 +8444,16 @@ async def chat_endpoint(request: ChatRequest):
                 _t_llm_start = time.perf_counter()
                 _first_token_logged = False
 
+                # ── Precedentes Relacionados: búsqueda paralela independiente ──
+                # SOLO para chat normal (no redacción, no documentos, no precedentes dedicado).
+                # Corre en paralelo con el RAG — cero impacto en latencia.
+                _precedentes_task = None
+                if not is_drafting and not is_chat_drafting and not is_precedentes_mode \
+                   and not has_document and not is_sentencia:
+                    _precedentes_task = asyncio.create_task(
+                        search_precedentes_global(query=last_user_message, limit=5)
+                    )
+
                 # ── Heartbeat: primer byte inmediato para mantener TCP en móvil ──
                 # Los carriers móviles cierran conexiones sin actividad en ~15s.
                 # Este ping invisible llega al cliente en <100ms y mantiene la conexión viva.
@@ -8456,6 +8466,17 @@ async def chat_endpoint(request: ChatRequest):
                     _cache_task_with_timeout()
                 )
                 print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
+
+                # ── Resolver precedentes (con timeout para no bloquear el stream) ──
+                precedentes_results = []
+                if _precedentes_task:
+                    try:
+                        precedentes_results = await asyncio.wait_for(_precedentes_task, timeout=5.0)
+                        print(f"   ⚖️ Precedentes complementarios: {len(precedentes_results)} encontrados")
+                    except asyncio.TimeoutError:
+                        print(f"   ⚠️ Precedentes timeout (5s) — continuando sin ellos")
+                    except Exception as _prec_err:
+                        print(f"   ⚠️ Precedentes error: {_prec_err} — continuando sin ellos")
 
                 # Handle infrastructure errors inside generator
                 if infra_error:
@@ -9467,6 +9488,23 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         "sources": sources_map
                     })
                     yield f"\n\n<!-- CITATION_META:{meta} -->"
+
+                # ── Emitir PRECEDENTES_META para tarjetas del frontend ──
+                # Independiente del CITATION_META — siempre se emite si hay resultados.
+                if precedentes_results:
+                    prec_list = []
+                    for _pr in precedentes_results[:5]:
+                        prec_list.append({
+                            "id": _pr.id,
+                            "holding": (_pr.texto or "")[:600],
+                            "ref": _pr.ref or "",
+                            "origen": _pr.origen or "",
+                            "score": round(_pr.score, 3),
+                            "silo": _pr.silo or "",
+                        })
+                    prec_meta = json.dumps(prec_list)
+                    yield f"\n\n<!-- PRECEDENTES_META:{prec_meta} -->"
+                    print(f"   ⚖️ PRECEDENTES_META emitido: {len(prec_list)} tarjetas")
                 
                 thinking_info = f", {len(reasoning_buffer)} chars reasoning" if reasoning_buffer else ""
                 print(f"   📝 Respuesta ({len(content_buffer)} chars content{thinking_info})")
