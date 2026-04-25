@@ -9501,6 +9501,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             "origen": _pr.origen or "",
                             "score": round(_pr.score, 3),
                             "silo": _pr.silo or "",
+                            "pdf_url": _pr.pdf_url or None,
                         })
                     prec_meta = json.dumps(prec_list)
                     yield f"\n\n<!-- PRECEDENTES_META:{prec_meta} -->"
