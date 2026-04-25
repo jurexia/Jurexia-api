@@ -5687,6 +5687,8 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     if "sentencias_holdings" not in silos_to_search:
         silos_to_search.append("sentencias_holdings")
+    if "sentencias_scjn_holdings" not in silos_to_search:
+        silos_to_search.append("sentencias_scjn_holdings")
 
     # ═══════════════════════════════════════════════════════════════════════════
     # INYECCIÓN DE SENTENCIAS EF (Few-Shot Excellence) — Si se solicita
@@ -8649,7 +8651,7 @@ async def chat_endpoint(request: ChatRequest):
                 if not is_drafting and not is_chat_drafting and not is_precedentes_mode \
                    and not has_document and not is_sentencia:
                     _precedentes_task = asyncio.create_task(
-                        search_precedentes_global(query=last_user_message, limit=5)
+                        search_precedentes_unified(query=last_user_message, limit_scjn=3, limit_tcc=4)
                     )
 
                 # ── Heartbeat: primer byte inmediato para mantener TCP en móvil ──
