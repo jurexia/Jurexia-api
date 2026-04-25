@@ -123,6 +123,7 @@ DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-reasoner"
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
+REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.5")  # OpenAI flagship para Redacción Pro
 # Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-2.5-pro")  # Gemini 2.5 Pro — frontier intelligence
 REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-2.5-pro")  # PDF OCR — Powerful model requested
@@ -7831,9 +7832,19 @@ async def chat_endpoint(request: ChatRequest):
     draft_subtipo = None
     
     # ── Natural language drafting detection ("redacta", "ayúdame a redactar", etc.) ──
-    # Also detect explicit [MODO_REDACCION] marker from frontend toggle
+    # Also detect explicit [MODO_REDACCION] and [MODO_REDACCION_PRO] markers from frontend toggle
     is_chat_drafting = False
-    if "[MODO_REDACCION]" in last_user_message:
+    is_chat_drafting_pro = False
+    if "[MODO_REDACCION_PRO]" in last_user_message:
+        is_chat_drafting = True
+        is_chat_drafting_pro = True
+        last_user_message = last_user_message.replace("[MODO_REDACCION_PRO]", "").strip()
+        for msg in reversed(request.messages):
+            if msg.role == "user":
+                msg.content = last_user_message
+                break
+        print(f"   ✨ REDACCIÓN PRO activada por toggle del frontend")
+    elif "[MODO_REDACCION]" in last_user_message:
         is_chat_drafting = True
         last_user_message = last_user_message.replace("[MODO_REDACCION]", "").strip()
         # Update the message in the request so downstream sees clean text
@@ -8792,6 +8803,17 @@ async def chat_endpoint(request: ChatRequest):
                     _effective_cached = None  # Sin cache para sentencias
                     print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
                     _resolved_genio_ids = [] # Disable genios for sentencia mode
+                elif is_chat_drafting_pro:
+                    # REDACCIÓN PRO: OpenAI GPT-5.5 — máxima calidad jurídica con razonamiento profundo.
+                    # Ignora genios (sin caché) y prioriza el motor de reasoning de OpenAI.
+                    use_gemini = False
+                    _resolved_genio_ids = []
+                    _effective_cached = None
+                    active_client = chat_client
+                    active_model = REDACTOR_PRO_MODEL
+                    max_tokens = 32000
+                    use_thinking = True  # GPT-5.5 reasoning mode
+                    print(f"   ✨ REDACCIÓN PRO: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
                 elif _resolved_genio_ids and _can_use_gemini and not has_document and not is_chat_drafting:
                     # PRIORIDAD: Genios disponibles → usar Gemini con caché de estilo jurídico.
                     # Esto incluye el modo Redactar (is_drafting=True) — el estilo de
@@ -8838,6 +8860,10 @@ async def chat_endpoint(request: ChatRequest):
                 # ── Emit cache status marker for frontend ──
                 if _effective_cached and use_gemini:
                     yield "<!--CACHE:ACTIVE-->"
+
+                # ── Emit Pro mode marker for frontend badge ──
+                if is_chat_drafting_pro:
+                    yield "<!--MODE:PRO-->"
 
                 # ── Emit RAG source count for frontend (filterable) ──
                 if search_results:
