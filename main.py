@@ -8764,17 +8764,19 @@ async def chat_endpoint(request: ChatRequest):
                 # Heartbeat durante gather: emitir PING cada 5s mientras RAG/infra/cache están en vuelo.
                 # Mantiene viva la conexión upstream con Render LB (cierra a ~30s sin actividad)
                 # y permite al frontend distinguir "trabajando" de "muerto" cuando el proxy bufferea.
-                _gather_task = asyncio.create_task(asyncio.gather(
+                # Nota: asyncio.gather() ya retorna un _GatheringFuture (no coroutine), así que
+                # NO se puede envolver en create_task — se usa directo con wait_for+shield.
+                _gather_future = asyncio.gather(
                     infra_check_task,
                     retrieval_task,
                     _cache_task_with_timeout()
-                ))
-                while not _gather_task.done():
+                )
+                while not _gather_future.done():
                     try:
-                        await asyncio.wait_for(asyncio.shield(_gather_task), timeout=5.0)
+                        await asyncio.wait_for(asyncio.shield(_gather_future), timeout=5.0)
                     except asyncio.TimeoutError:
                         yield "<!--PING-->"
-                infra_error, (search_results, doc_id_map, context_xml), _cached = _gather_task.result()
+                infra_error, (search_results, doc_id_map, context_xml), _cached = _gather_future.result()
                 print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
 
                 # ── Resolver precedentes (con timeout para no bloquear el stream) ──
