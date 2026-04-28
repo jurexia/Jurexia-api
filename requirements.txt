@@ -1,5 +1,6 @@
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
+gunicorn>=21.2.0  # Process manager for uvicorn workers (graceful shutdown, --max-requests, --timeout)
 pydantic>=2.5.0
 qdrant-client>=1.7.0
 fastembed>=0.2.0

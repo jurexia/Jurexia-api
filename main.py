@@ -8761,11 +8761,20 @@ async def chat_endpoint(request: ChatRequest):
                 # El frontend lo filtra (no empieza con "<!--") silenciosamente.
                 yield "<!--PING-->"
                 _t_gather = time.perf_counter()
-                infra_error, (search_results, doc_id_map, context_xml), _cached = await asyncio.gather(
+                # Heartbeat durante gather: emitir PING cada 5s mientras RAG/infra/cache están en vuelo.
+                # Mantiene viva la conexión upstream con Render LB (cierra a ~30s sin actividad)
+                # y permite al frontend distinguir "trabajando" de "muerto" cuando el proxy bufferea.
+                _gather_task = asyncio.create_task(asyncio.gather(
                     infra_check_task,
                     retrieval_task,
                     _cache_task_with_timeout()
-                )
+                ))
+                while not _gather_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(_gather_task), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        yield "<!--PING-->"
+                infra_error, (search_results, doc_id_map, context_xml), _cached = _gather_task.result()
                 print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
 
                 # ── Resolver precedentes (con timeout para no bloquear el stream) ──
@@ -9714,25 +9723,33 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     print(f"   ⏱ STREAM CREATED: {time.perf_counter() - _t_api_call:.2f}s (connection established)")
                     
                     _chunk_count = 0
+                    _last_yield_time = time.perf_counter()
                     async for chunk in stream:
                         _chunk_count += 1
                         if _chunk_count == 1:
                             print(f"   ⏱ FIRST CHUNK: {time.perf_counter() - _t_api_call:.2f}s")
                         if chunk.choices and chunk.choices[0].delta:
                             delta = chunk.choices[0].delta
-                            
+
                             reasoning_content = getattr(delta, 'reasoning_content', None)
                             content = getattr(delta, 'content', None)
-                            
+
                             if reasoning_content:
                                 reasoning_buffer += reasoning_content
-                            
+                                # Heartbeat durante thinking phase: si pasaron >5s sin emitir nada
+                                # al cliente, emitir PING. Evita que Render LB cierre el upstream
+                                # durante reasoning largo de GPT-5.5/DeepSeek-R1 (30-120s).
+                                if time.perf_counter() - _last_yield_time > 5.0:
+                                    yield "<!--PING-->"
+                                    _last_yield_time = time.perf_counter()
+
                             if content:
                                 if not _first_token_logged:
                                     _first_token_logged = True
                                     print(f"   ⏱ TTFB (first content token): {time.perf_counter() - _t_llm_start:.2f}s")
                                 content_buffer += content
                                 yield content
+                                _last_yield_time = time.perf_counter()
                     
                     # Edge case: thinking mode produced reasoning but ZERO content
                     if use_thinking and reasoning_buffer and not content_buffer.strip():
