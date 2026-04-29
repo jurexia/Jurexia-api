@@ -9186,12 +9186,30 @@ async def chat_endpoint(request: ChatRequest):
                         active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
                         max_tokens = 8192  # DeepSeek chat hard limit
                 else:
-                    # Chat normal sin genio → Gemini Flash Lite vía API directa.
-                    # Latencia mínima (~4s TTFB), sin thinking tokens, calidad suficiente para chat estándar.
-                    use_gemini_lite = True
-                    active_model = GEMINI_LITE_MODEL
-                    max_tokens = 25000
+                    # Chat normal sin genio → Gemini 3 Flash vía OpenRouter (control de costos).
+                    # Antes iba directo a Google AI Studio con GEMINI_LITE_MODEL; ahora vía OpenRouter
+                    # con NORMAL_CHAT_OR_MODEL para facturación predecible. Cae al branch OPENAI/DEEPSEEK
+                    # de abajo (formato OpenAI streaming, ya emite heartbeat upstream).
                     _resolved_genio_ids = []
+                    active_client = deepseek_client  # AsyncOpenAI con base_url=openrouter.ai
+                    active_model = NORMAL_CHAT_OR_MODEL  # google/gemini-3-flash-preview por default
+                    max_tokens = 25000
+
+                    # Preservar el depth boost que antes se inyectaba SOLO en el branch Gemini Lite directo.
+                    # Sin esto, el chat normal sin genio pierde la instrucción de profundidad mínima 1,200 palabras.
+                    _lite_depth_boost = (
+                        "INSTRUCCIÓN DE PROFUNDIDAD OBLIGATORIA:\n"
+                        "Estás en modo de análisis jurídico exhaustivo. Tu respuesta DEBE tener un mínimo de 1,200 palabras.\n"
+                        "- Para CADA tesis del contexto RAG: transcríbela en blockquote Y desarrolla su aplicación al caso "
+                        "con mínimo 3-4 oraciones de análisis (cómo aplica, qué establece, qué consecuencia tiene).\n"
+                        "- Para CADA artículo de ley: transcribe el texto completo en blockquote Y explica su alcance e interpretación práctica.\n"
+                        "- CONECTA norma + jurisprudencia + consecuencias prácticas en cada sección.\n"
+                        "- Las RECOMENDACIONES deben ser concretas: qué probar, cómo, con qué medios de prueba, qué argumentar.\n"
+                        "- Si sientes que tu respuesta está terminando antes de 1,200 palabras, es un ERROR. Desarrolla más.\n"
+                        "- NUNCA uses frases de cierre prematuro ('en conclusión', 'en resumen') antes de haber agotado el análisis."
+                    )
+                    if llm_messages and llm_messages[0].get("role") == "system":
+                        llm_messages[0]["content"] = llm_messages[0]["content"] + "\n\n" + _lite_depth_boost
 
                 _client_name = 'gemini' if use_gemini else ('gemini_lite' if use_gemini_lite else ('deepseek_official' if (active_client in _deepseek_pool or active_client is deepseek_official_client) else ('deepseek_openrouter' if active_client is deepseek_client else ('openai' if active_client is chat_client else 'unknown'))))
                 print(f"   Modelo: {active_model} | Cliente: {_client_name} | Thinking: {'ON' if use_thinking else 'OFF'} | Docs: {len(search_results)} | Messages: {len(llm_messages)}")
