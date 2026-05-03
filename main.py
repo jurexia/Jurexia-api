@@ -3888,27 +3888,40 @@ async def search_precedentes_holdings(
         return []
 
     # Filtro por circuito (payload) + tribunal si se especifica
-    # NOTE: circuito field is stored as string in circuits 1/2/4/22 but as integer
-    # in 3rd circuit (Jalisco). Use should-OR to match both types.
-    _circ_str = str(circuit)
-    _circ_int = int(circuit) if str(circuit).isdigit() else None
-    _circ_should = [FieldCondition(key="circuito", match=MatchValue(value=_circ_str))]
-    if _circ_int is not None:
-        _circ_should.append(FieldCondition(key="circuito", match=MatchValue(value=_circ_int)))
+    # circuito is stored as string for all circuits (keyword index)
     filter_conditions = [
-        Filter(should=_circ_should)  # matches "3" OR 3
+        FieldCondition(key="circuito", match=MatchValue(value=str(circuit)))
     ]
     if tribunal:
-        # Short materia codes (ADM, CIV, LAB, PEN) filter by tribunal_tipo; full IDs filter by tribunal
         _TIPO_CODES = {"ADM", "CIV", "LAB", "PEN"}
+        _MATERIA_MAP = {"ADM": "administrativa", "CIV": "civil", "LAB": "laboral", "PEN": "penal"}
         if tribunal.upper() in _TIPO_CODES:
+            # Materia-level filter: use should-OR for tribunal_tipo (circuits 1/2/4) or materia (circuit 3)
             filter_conditions.append(
-                FieldCondition(key="tribunal_tipo", match=MatchValue(value=tribunal.upper()))
+                Filter(should=[
+                    FieldCondition(key="tribunal_tipo", match=MatchValue(value=tribunal.upper())),
+                    FieldCondition(key="materia", match=MatchValue(value=_MATERIA_MAP.get(tribunal.upper(), tribunal.lower()))),
+                ])
             )
         else:
-            filter_conditions.append(
-                FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
-            )
+            # Specific tribunal code like "1TCC_ADM"
+            import re as _re_trib
+            _m = _re_trib.match(r'^(\d+)TCC_(\w+)$', tribunal)
+            if _m and str(circuit) == "3":
+                # 3rd circuit stores full tribunal names; map code to materia + ordinal text filter
+                _ordinal = int(_m.group(1))
+                _mat_code = _m.group(2).upper()
+                _mat_word = _MATERIA_MAP.get(_mat_code, _mat_code.lower())
+                _ORD = {1:"Primer",2:"Segundo",3:"Tercer",4:"Cuarto",5:"Quinto",6:"Sexto",7:"S\u00e9ptimo"}
+                _ord_name = _ORD.get(_ordinal, str(_ordinal))
+                filter_conditions.append(FieldCondition(key="materia", match=MatchValue(value=_mat_word)))
+                from qdrant_client.http.models import MatchText
+                filter_conditions.append(FieldCondition(key="tribunal", match=MatchText(text=_ord_name)))
+            else:
+                # Standard circuits: tribunal field uses short codes directly
+                filter_conditions.append(
+                    FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
+                )
     qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
     print(f"   ⚖️ Filtro Qdrant: circuito={circuit}, tribunal={tribunal or 'todos'}")
 
@@ -10900,12 +10913,7 @@ async def jurimetria_endpoint(
     # ── Búsqueda semántica en sentencias_holdings (global o filtrada) ───
     filter_conditions = []
     if circuito:
-        _cs = str(circuito)
-        _ci = int(circuito) if str(circuito).isdigit() else None
-        _should = [FieldCondition(key="circuito", match=MatchValue(value=_cs))]
-        if _ci is not None:
-            _should.append(FieldCondition(key="circuito", match=MatchValue(value=_ci)))
-        filter_conditions.append(Filter(should=_should))
+        filter_conditions.append(FieldCondition(key="circuito", match=MatchValue(value=str(circuito))))
     if tribunal:
         filter_conditions.append(FieldCondition(key="tribunal", match=MatchValue(value=tribunal)))
     if acto_tipo:
