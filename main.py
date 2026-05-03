@@ -8,7 +8,7 @@ FastAPI backend para plataforma LegalTech con:
 - Agente Centinela para auditoría legal
 - Memoria conversacional stateless con streaming
 - Grounding con citas documentales
-- GPT-5 Mini for chat, DeepSeek Reasoner for thinking/reasoning
+- GPT-5 Mini for chat, DeepSeek V4 Flash/Pro for thinking/reasoning
 
 VERSION: 2026.02.22-v5 (Anti-alucinación 3 capas: Deterministic Fetch + Prompt Guard + Structural Grounding)
 """
@@ -89,8 +89,8 @@ deepseek_client = AsyncOpenAI(
     api_key=OPENROUTER_API_KEY,
     base_url="https://openrouter.ai/api/v1",
 )
-DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-chat"  # DeepSeek V3 en OpenRouter
-REASONER_MODEL = "deepseek/deepseek-r1"  # DeepSeek R1 en OpenRouter
+DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-v4-flash"  # DeepSeek V4 Flash en OpenRouter (284B MoE, 13B active)
+REASONER_MODEL = "deepseek/deepseek-v4-pro"  # DeepSeek V4 Pro en OpenRouter (1.6T MoE, 49B active)
 DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash")  # Gemini 2.5 Flash GA — 1M context, ultra-rápido, $0.30/M input
 NORMAL_CHAT_OR_MODEL = os.getenv("NORMAL_CHAT_OR_MODEL", "google/gemini-3-flash-preview")  # Chat sin genio via OpenRouter — Gemini 3 Flash Preview, baja latencia
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
@@ -117,8 +117,8 @@ deepseek_official_client = AsyncOpenAI(
     api_key=DEEPSEEK_OFFICIAL_API_KEY,
     base_url="https://api.deepseek.com",
 )
-DEEPSEEK_OFFICIAL_CHAT_MODEL = "deepseek-chat"
-DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-reasoner"
+DEEPSEEK_OFFICIAL_CHAT_MODEL = "deepseek-v4-flash"  # Replaces deprecated "deepseek-chat" (sunset Jul 2026)
+DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-v4-pro"  # Replaces deprecated "deepseek-reasoner" (sunset Jul 2026)
 
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -130,11 +130,11 @@ REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-2.5-pro")  
 REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-pro")  # Estudio de fondo + efectos
 
 # ── Chat Engine Toggle ──────────────────────────────────────────────────────
-# Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V3)
-# DeepSeek V3 is ~65-75% cheaper for equivalent quality in Spanish legal text.
+# Set via env var CHAT_ENGINE: "openai" (GPT-5 Mini) or "deepseek" (DeepSeek V4)
+# DeepSeek V4 Flash is ~65-75% cheaper for equivalent quality in Spanish legal text.
 # Switch in Render env vars without redeploy needed (restart service only).
-CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek (cost-optimized) - deploy update 2026-03-06
-print(f"   Chat Engine: {'🟢 DeepSeek V3 (cost-optimized)' if CHAT_ENGINE == 'deepseek' else '🔵 GPT-5 Mini (premium)'}")
+CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek (cost-optimized) - deploy update 2026-05-02
+print(f"   Chat Engine: {'🟢 DeepSeek V4 Flash (cost-optimized)' if CHAT_ENGINE == 'deepseek' else '🔵 GPT-5 Mini (premium)'}")
 
 # Cohere Rerank Configuration (cross-encoder for post-retrieval reranking)
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
@@ -216,10 +216,6 @@ ESTADO_SILO = {
 # mantener cada índice HNSW pequeño y evitar saturación del cluster Qdrant.
 # Todas se consultan en paralelo desde hybrid_search_all_silos cuando se incluyen sentencias.
 SENTENCIA_SILOS = {
-    "amparo_directo":   "sentencias_amparo_directo",
-    "amparo_revision":  "sentencias_amparo_revision",
-    "recurso_queja":    "sentencias_recurso_queja",
-    "revision_fiscal":  "sentencias_revision_fiscal",
     "ef_unificado":     "sentencias_ef",                # ~970K estudios de fondo TCC
     "ef_scjn_pleno":    "sentencias_ef_scjn_pleno",     # SCJN Pleno EF chunks
     "ef_scjn_1a_sala":  "sentencias_ef_scjn_1a_sala",   # SCJN Primera Sala EF chunks
@@ -9167,33 +9163,32 @@ async def chat_endpoint(request: ChatRequest):
                     # DeepSeek con thinking mode — sin genios disponibles.
                     _resolved_genio_ids = [] # DeepSeek ignores genio cache
                     if is_chat_drafting and not is_drafting and not has_document:
-                        # REDACTOR SIN GENIO: Gemini 3 Flash Preview via OpenRouter.
-                        # Más rápido que DeepSeek Reasoner, razonamiento interno de Gemini.
-                        active_client = deepseek_client  # OpenRouter
-                        active_model = NORMAL_CHAT_OR_MODEL
-                        max_tokens = 25000
-                        use_thinking = False  # Gemini gestiona su propio razonamiento
-                        print(f"   ✍️ REDACTOR sin genio → {active_model} (Gemini via OpenRouter)")
+                        # REDACTOR SIN GENIO: DeepSeek V4 Flash vía API directa.
+                        # V4 Flash tiene excelente seguimiento de instrucciones para redacción jurídica.
+                        active_client = get_deepseek_official_client()
+                        active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+                        max_tokens = 16384
+                        use_thinking = False  # No-thinking mode para velocidad
+                        print(f"   ✍️ REDACTOR sin genio → {active_model} (DeepSeek V4 Flash directo)")
                     elif is_drafting or is_chat_drafting:
-                        # REDACTOR con documento adjunto: mantener DeepSeek Reasoner (64K output).
+                        # REDACTOR con documento adjunto: DeepSeek V4 Pro (1.6T MoE, 49B active) con thinking.
                         active_client = get_deepseek_official_client()
                         active_model = DEEPSEEK_OFFICIAL_REASONER_MODEL
                         max_tokens = 32000
-                        print(f"   ✍️ REDACTOR DeepSeek Reasoner: {active_model} | max_tokens: {max_tokens}")
+                        print(f"   ✍️ REDACTOR DeepSeek V4 Pro: {active_model} | max_tokens: {max_tokens}")
                     else:
                         # Centinela docs: análisis de documentos sin redacción
                         active_client = get_deepseek_official_client()
                         active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
                         max_tokens = 8192  # DeepSeek chat hard limit
                 else:
-                    # Chat normal sin genio → Gemini 3 Flash vía OpenRouter (control de costos).
-                    # Antes iba directo a Google AI Studio con GEMINI_LITE_MODEL; ahora vía OpenRouter
-                    # con NORMAL_CHAT_OR_MODEL para facturación predecible. Cae al branch OPENAI/DEEPSEEK
-                    # de abajo (formato OpenAI streaming, ya emite heartbeat upstream).
+                    # Chat normal sin genio → DeepSeek V4 Flash vía API directa.
+                    # V4 Flash (284B MoE, 13B active) es significativamente más potente que V3
+                    # y elimina la latencia de OpenRouter como intermediario.
                     _resolved_genio_ids = []
-                    active_client = deepseek_client  # AsyncOpenAI con base_url=openrouter.ai
-                    active_model = NORMAL_CHAT_OR_MODEL  # google/gemini-3-flash-preview por default
-                    max_tokens = 25000
+                    active_client = get_deepseek_official_client()  # api.deepseek.com directo
+                    active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL  # deepseek-v4-flash
+                    max_tokens = 16384  # V4 Flash max output: 16K (non-thinking)
 
                     # Preservar el depth boost que antes se inyectaba SOLO en el branch Gemini Lite directo.
                     # Sin esto, el chat normal sin genio pierde la instrucción de profundidad mínima 1,200 palabras.
@@ -9707,8 +9702,8 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     }
                     
                     if use_thinking:
-                        if active_model in (DEEPSEEK_CHAT_MODEL, DEEPSEEK_OFFICIAL_CHAT_MODEL):
-                            # DeepSeek thinking mode REQUIRES temperature=1 (default) and max_tokens
+                        if active_model in (DEEPSEEK_CHAT_MODEL, DEEPSEEK_OFFICIAL_CHAT_MODEL, REASONER_MODEL, DEEPSEEK_OFFICIAL_REASONER_MODEL) or "deepseek" in active_model.lower():
+                            # DeepSeek V4 thinking mode: same API as V3/R1 — temperature=1 (default) + max_tokens
                             api_kwargs["max_tokens"] = max_tokens
                             api_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                         elif active_model.startswith("o1") or active_model.startswith("o3"):
