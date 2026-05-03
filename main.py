@@ -8605,7 +8605,7 @@ async def chat_endpoint(request: ChatRequest):
                         hybrid_search_all_silos(
                             query=last_user_message,
                             estado=effective_estado,
-                            top_k=45 if is_chat_drafting else 50,
+                            top_k=55 if is_chat_drafting else 65,  # V4 Flash: más contexto → más jurisprudencia
                             forced_materia=request.materia,
                             fuero=request.fuero,
                             include_sentencias=is_chat_drafting,
@@ -8621,7 +8621,7 @@ async def chat_endpoint(request: ChatRequest):
                             hybrid_search_all_silos(
                                 query=_query_expanded,
                                 estado=effective_estado,
-                                top_k=20,
+                                top_k=30,  # V4 Flash: más cobertura de jurisprudencia
                                 forced_materia=request.materia,
                                 fuero=request.fuero,
                                 skip_llm_presearch=True,
@@ -9719,6 +9719,13 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             api_kwargs["max_completion_tokens"] = max_tokens
                         else:
                             api_kwargs["max_tokens"] = max_tokens
+                        # ⚡ CRITICAL: DeepSeek V4 defaults to thinking=ON.
+                        # Must EXPLICITLY disable thinking for instant streaming.
+                        # Without this, V4 Flash thinks for ~10s before first token.
+                        if "deepseek" in active_model.lower() or active_model in (DEEPSEEK_CHAT_MODEL, DEEPSEEK_OFFICIAL_CHAT_MODEL, REASONER_MODEL, DEEPSEEK_OFFICIAL_REASONER_MODEL):
+                            if "extra_body" not in api_kwargs:
+                                api_kwargs["extra_body"] = {}
+                            api_kwargs["extra_body"]["thinking"] = {"type": "disabled"}
                     
                     # 🚀 OPTIMIZACIÓN DE LATENCIA EXTREMA PARA OPENROUTER
                     # Evitar la cola de 50s forzando a OpenRouter a enrutar
