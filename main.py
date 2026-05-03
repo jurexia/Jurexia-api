@@ -9163,13 +9163,14 @@ async def chat_endpoint(request: ChatRequest):
                     # DeepSeek con thinking mode — sin genios disponibles.
                     _resolved_genio_ids = [] # DeepSeek ignores genio cache
                     if is_chat_drafting and not is_drafting and not has_document:
-                        # REDACTOR SIN GENIO: DeepSeek V4 Flash vía API directa.
-                        # V4 Flash tiene excelente seguimiento de instrucciones para redacción jurídica.
+                        # REDACTOR SIN GENIO: DeepSeek V4 Flash con reasoning para redacción jurídica.
+                        # Thinking mode permite al modelo planificar la estructura del documento
+                        # antes de escribir → mejor calidad en redacción legal.
                         active_client = get_deepseek_official_client()
-                        active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+                        active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL  # deepseek-v4-flash
                         max_tokens = 16384
-                        use_thinking = False  # No-thinking mode para velocidad
-                        print(f"   ✍️ REDACTOR sin genio → {active_model} (DeepSeek V4 Flash directo)")
+                        use_thinking = True  # Reasoning ON para mejor redacción
+                        print(f"   ✍️ REDACTOR sin genio → {active_model} (V4 Flash + Reasoning)")
                     elif is_drafting or is_chat_drafting:
                         # REDACTOR con documento adjunto: DeepSeek V4 Pro (1.6T MoE, 49B active) con thinking.
                         active_client = get_deepseek_official_client()
