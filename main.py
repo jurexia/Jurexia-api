@@ -3908,15 +3908,11 @@ async def search_precedentes_holdings(
             import re as _re_trib
             _m = _re_trib.match(r'^(\d+)TCC_(\w+)$', tribunal)
             if _m and str(circuit) == "3":
-                # 3rd circuit stores full tribunal names; map code to materia + ordinal text filter
-                _ordinal = int(_m.group(1))
+                # 3rd circuit stores full tribunal names; map code to materia filter only
+                # (MatchText requires text index which we don't have on tribunal)
                 _mat_code = _m.group(2).upper()
                 _mat_word = _MATERIA_MAP.get(_mat_code, _mat_code.lower())
-                _ORD = {1:"Primer",2:"Segundo",3:"Tercer",4:"Cuarto",5:"Quinto",6:"Sexto",7:"S\u00e9ptimo"}
-                _ord_name = _ORD.get(_ordinal, str(_ordinal))
                 filter_conditions.append(FieldCondition(key="materia", match=MatchValue(value=_mat_word)))
-                from qdrant_client.http.models import MatchText
-                filter_conditions.append(FieldCondition(key="tribunal", match=MatchText(text=_ord_name)))
             else:
                 # Standard circuits: tribunal field uses short codes directly
                 filter_conditions.append(
