@@ -860,6 +860,7 @@ _ACTIVE_CIRCUITS: List[str] = ["1", "2", "4", "22"]
 _CIRCUIT_NAMES = {
     "1":  "Primer Circuito (Ciudad de México)",
     "2":  "Segundo Circuito (Estado de México)",
+    "3":  "Tercer Circuito (Jalisco)",
     "4":  "Cuarto Circuito (Nuevo León)",
     "22": "Vigésimo Segundo Circuito (Querétaro)",
 }
@@ -891,6 +892,13 @@ _CIRCUIT_TRIBUNALES = {
         "- 1TCC_CIV, 2TCC_CIV, 3TCC_CIV — Tribunales en Materia Civil\n"
         "- 1TCC_PEN, 2TCC_PEN             — Tribunales en Materia Penal\n"
         "- 1TCC_LAB, 2TCC_LAB, 3TCC_LAB, 4TCC_LAB, 5TCC_LAB — Tribunales en Materia de Trabajo\n"
+    ),
+    "3": (
+        "Los tribunales del circuito son:\n"
+        "- 1TCC_ADM, 2TCC_ADM, 3TCC_ADM, 4TCC_ADM, 5TCC_ADM, 6TCC_ADM, 7TCC_ADM — Tribunales en Materia Administrativa\n"
+        "- 1TCC_CIV, 2TCC_CIV, 3TCC_CIV, 4TCC_CIV, 5TCC_CIV, 6TCC_CIV — Tribunales en Materia Civil\n"
+        "- 1TCC_LAB, 2TCC_LAB, 3TCC_LAB, 4TCC_LAB, 5TCC_LAB, 6TCC_LAB — Tribunales en Materia de Trabajo\n"
+        "- 1TCC_PEN, 2TCC_PEN, 3TCC_PEN, 4TCC_PEN — Tribunales en Materia Penal\n"
     ),
 }
 
