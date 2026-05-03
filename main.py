@@ -90,7 +90,7 @@ deepseek_client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
 )
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-v4-flash"  # DeepSeek V4 Flash en OpenRouter (284B MoE, 13B active)
-REASONER_MODEL = "deepseek/deepseek-v4-pro"  # DeepSeek V4 Pro en OpenRouter (1.6T MoE, 49B active)
+REASONER_MODEL = "deepseek/deepseek-v4-flash"  # V4 Flash en OpenRouter — thinking se controla con API param, no modelo separado
 DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash")  # Gemini 2.5 Flash GA — 1M context, ultra-rápido, $0.30/M input
 NORMAL_CHAT_OR_MODEL = os.getenv("NORMAL_CHAT_OR_MODEL", "google/gemini-3-flash-preview")  # Chat sin genio via OpenRouter — Gemini 3 Flash Preview, baja latencia
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
@@ -118,7 +118,7 @@ deepseek_official_client = AsyncOpenAI(
     base_url="https://api.deepseek.com",
 )
 DEEPSEEK_OFFICIAL_CHAT_MODEL = "deepseek-v4-flash"  # Replaces deprecated "deepseek-chat" (sunset Jul 2026)
-DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-v4-pro"  # Replaces deprecated "deepseek-reasoner" (sunset Jul 2026)
+DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-v4-flash"  # V4: thinking via param, no modelo separado (sunset legacy Jul 2026)
 
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -9719,13 +9719,6 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             api_kwargs["max_completion_tokens"] = max_tokens
                         else:
                             api_kwargs["max_tokens"] = max_tokens
-                        # ⚡ CRITICAL: DeepSeek V4 defaults to thinking=ON.
-                        # Must EXPLICITLY disable thinking for instant streaming.
-                        # Without this, V4 Flash thinks for ~10s before first token.
-                        if "deepseek" in active_model.lower() or active_model in (DEEPSEEK_CHAT_MODEL, DEEPSEEK_OFFICIAL_CHAT_MODEL, REASONER_MODEL, DEEPSEEK_OFFICIAL_REASONER_MODEL):
-                            if "extra_body" not in api_kwargs:
-                                api_kwargs["extra_body"] = {}
-                            api_kwargs["extra_body"]["thinking"] = {"type": "disabled"}
                     
                     # 🚀 OPTIMIZACIÓN DE LATENCIA EXTREMA PARA OPENROUTER
                     # Evitar la cola de 50s forzando a OpenRouter a enrutar
