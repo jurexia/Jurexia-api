@@ -3888,8 +3888,15 @@ async def search_precedentes_holdings(
         return []
 
     # Filtro por circuito (payload) + tribunal si se especifica
+    # NOTE: circuito field is stored as string in circuits 1/2/4/22 but as integer
+    # in 3rd circuit (Jalisco). Use should-OR to match both types.
+    _circ_str = str(circuit)
+    _circ_int = int(circuit) if str(circuit).isdigit() else None
+    _circ_should = [FieldCondition(key="circuito", match=MatchValue(value=_circ_str))]
+    if _circ_int is not None:
+        _circ_should.append(FieldCondition(key="circuito", match=MatchValue(value=_circ_int)))
     filter_conditions = [
-        FieldCondition(key="circuito", match=MatchValue(value=str(circuit)))
+        Filter(should=_circ_should)  # matches "3" OR 3
     ]
     if tribunal:
         # Short materia codes (ADM, CIV, LAB, PEN) filter by tribunal_tipo; full IDs filter by tribunal
@@ -10893,7 +10900,12 @@ async def jurimetria_endpoint(
     # ── Búsqueda semántica en sentencias_holdings (global o filtrada) ───
     filter_conditions = []
     if circuito:
-        filter_conditions.append(FieldCondition(key="circuito", match=MatchValue(value=str(circuito))))
+        _cs = str(circuito)
+        _ci = int(circuito) if str(circuito).isdigit() else None
+        _should = [FieldCondition(key="circuito", match=MatchValue(value=_cs))]
+        if _ci is not None:
+            _should.append(FieldCondition(key="circuito", match=MatchValue(value=_ci)))
+        filter_conditions.append(Filter(should=_should))
     if tribunal:
         filter_conditions.append(FieldCondition(key="tribunal", match=MatchValue(value=tribunal)))
     if acto_tipo:
