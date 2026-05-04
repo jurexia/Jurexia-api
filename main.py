@@ -9647,6 +9647,8 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                     if hasattr(part, 'thought') and part.thought:
                                         reasoning_buffer += (part.text or "")
                                     elif part.text:
+                                        if not content_buffer and reasoning_buffer:
+                                            yield f"<!--THINKING_START-->{reasoning_buffer}<!--THINKING_END-->"
                                         content_buffer += part.text
                                         yield part.text
                         
@@ -9786,6 +9788,11 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 if not _first_token_logged:
                                     _first_token_logged = True
                                     print(f"   ⏱ TTFB (first content token): {time.perf_counter() - _t_llm_start:.2f}s")
+                                    # Emit accumulated reasoning before first content token
+                                    # so frontend can display it in collapsible "Ver razonamiento"
+                                    if reasoning_buffer:
+                                        yield f"<!--THINKING_START-->{reasoning_buffer}<!--THINKING_END-->"
+                                        _last_yield_time = time.perf_counter()
                                 content_buffer += content
                                 yield content
                                 _last_yield_time = time.perf_counter()
