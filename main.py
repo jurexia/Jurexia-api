@@ -3904,20 +3904,11 @@ async def search_precedentes_holdings(
                 ])
             )
         else:
-            # Specific tribunal code like "1TCC_ADM"
-            import re as _re_trib
-            _m = _re_trib.match(r'^(\d+)TCC_(\w+)$', tribunal)
-            if _m and str(circuit) == "3":
-                # 3rd circuit stores full tribunal names; map code to materia filter only
-                # (MatchText requires text index which we don't have on tribunal)
-                _mat_code = _m.group(2).upper()
-                _mat_word = _MATERIA_MAP.get(_mat_code, _mat_code.lower())
-                filter_conditions.append(FieldCondition(key="materia", match=MatchValue(value=_mat_word)))
-            else:
-                # Standard circuits: tribunal field uses short codes directly
-                filter_conditions.append(
-                    FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
-                )
+            # Specific tribunal code like "1TCC_ADM" — works for ALL circuits
+            # (circuit 3 was normalized by restore_jalisco_payload.py to use short codes)
+            filter_conditions.append(
+                FieldCondition(key="tribunal", match=MatchValue(value=tribunal))
+            )
     qdrant_filter = Filter(must=filter_conditions) if filter_conditions else None
     print(f"   ⚖️ Filtro Qdrant: circuito={circuit}, tribunal={tribunal or 'todos'}")
 
