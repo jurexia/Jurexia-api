@@ -861,7 +861,7 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 
 # ── Precedentes TCC — Modo consulta de sentencias por circuito ───────────────
 # Circuits with ingested holdings collections. Add new circuits here as they're processed.
-_ACTIVE_CIRCUITS: List[str] = ["1", "2", "3", "4", "6", "22"]
+_ACTIVE_CIRCUITS: List[str] = ["1", "2", "3", "4", "6", "16", "22"]
 
 _CIRCUIT_NAMES = {
     "1":  "Primer Circuito (Ciudad de México)",
@@ -869,6 +869,7 @@ _CIRCUIT_NAMES = {
     "3":  "Tercer Circuito (Jalisco)",
     "4":  "Cuarto Circuito (Nuevo León)",
     "6":  "Sexto Circuito (Puebla)",
+    "16": "Decimosexto Circuito (Guanajuato)",
     "22": "Vigésimo Segundo Circuito (Querétaro)",
 }
 
@@ -913,6 +914,13 @@ _CIRCUIT_TRIBUNALES = {
         "- 1TCC_CIV, 2TCC_CIV, 3TCC_CIV — Tribunales en Materia Civil\n"
         "- 1TCC_LAB, 2TCC_LAB — Tribunales en Materia de Trabajo\n"
         "- 1TCC_PEN, 2TCC_PEN, 3TCC_PEN — Tribunales en Materia Penal\n"
+    ),
+    "16": (
+        "Los tribunales del circuito son:\n"
+        "- 1TCC_ADM, 2TCC_ADM — Tribunales en Materia Administrativa\n"
+        "- 1TCC_CIV, 2TCC_CIV — Tribunales en Materia Civil\n"
+        "- 1TCC_LAB, 2TCC_LAB — Tribunales en Materia de Trabajo\n"
+        "- 1TCC_PEN, 2TCC_PEN — Tribunales en Materia Penal\n"
     ),
 }
 
@@ -3876,6 +3884,38 @@ def get_sparse_embedding(text: str) -> SparseVector:
     )
 
 
+# ── RECENCY BOOST: criterios más recientes tienen más relevancia ──────
+# Principio jurídico: los criterios más modernos prevalecen sobre los
+# anteriores.  El multiplicador es suave (1.0–1.08) para no anular la
+# relevancia semántica, pero suficiente para desempatar criterios similares.
+import datetime as _dt
+
+_CURRENT_YEAR = _dt.date.today().year
+_RECENCY_BASE_YEAR = 2019           # Antes de 2019 → sin boost
+_RECENCY_MAX_BOOST = 0.08           # +8% para el año actual
+
+def _recency_multiplier(fecha_str: str) -> float:
+    """
+    Retorna un multiplicador ≥1.0 basado en qué tan reciente es la sentencia.
+    - 2026 → 1.08  (boost máximo)
+    - 2024 → ~1.06
+    - 2020 → ~1.01
+    - 2019 o antes → 1.00 (sin boost)
+    - Sin fecha → 1.00 (sin boost)
+    """
+    if not fecha_str or len(fecha_str) < 4:
+        return 1.0
+    try:
+        year = int(fecha_str[:4])
+    except (ValueError, TypeError):
+        return 1.0
+    if year <= _RECENCY_BASE_YEAR:
+        return 1.0
+    span = max(1, _CURRENT_YEAR - _RECENCY_BASE_YEAR)
+    ratio = min(1.0, (year - _RECENCY_BASE_YEAR) / span)
+    return 1.0 + (_RECENCY_MAX_BOOST * ratio)
+
+
 async def search_precedentes_holdings(
     query: str,
     tribunal: Optional[str] = None,
@@ -3971,9 +4011,13 @@ async def search_precedentes_holdings(
         ref_parts = [x for x in [trib, exp, sentido.capitalize(), fecha[:4]] if x]
         ref = " · ".join(ref_parts)
 
+        # Recency boost: criterios más recientes tienen más peso
+        raw_score = p.score if p.score is not None else 0.0
+        boosted = raw_score * _recency_multiplier(fecha)
+
         results.append(SearchResult(
             id=str(p.id),
-            score=p.score if p.score is not None else 0.0,
+            score=boosted,
             texto=holding_text,
             ref=ref,
             origen=f"{trib} — {circuit}° Circuito — {materia}",
@@ -3981,6 +4025,8 @@ async def search_precedentes_holdings(
             pdf_url=pay.get("pdf_url"),
         ))
 
+    # Re-sort por score con recency ya aplicado
+    results.sort(key=lambda r: -r.score)
     return results
 
 
@@ -4117,13 +4163,14 @@ async def search_precedentes_scjn(
 
         results.append(SearchResult(
             id=str(p.id),
-            score=p.score if p.score is not None else 0.0,
+            score=(p.score if p.score is not None else 0.0) * _recency_multiplier(fecha),
             texto=holding_text,
             ref=ref,
             origen=origen,
             silo="sentencias_scjn_holdings",
             pdf_url=pay.get("pdf_url"),
         ))
+    results.sort(key=lambda r: -r.score)
     return results
 
 
