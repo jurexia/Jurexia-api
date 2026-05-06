@@ -215,11 +215,17 @@ ESTADO_SILO = {
 # La EF de SCJN está particionada en 3 colecciones (Pleno / 1ª Sala / 2ª Sala) para
 # mantener cada índice HNSW pequeño y evitar saturación del cluster Qdrant.
 # Todas se consultan en paralelo desde hybrid_search_all_silos cuando se incluyen sentencias.
+#
+# PROVISIONAL (2026-05): 'sentencias_ef' (TCC unificado, ~1.26M chunks) está en estado
+# 'red' por flush failure y se está reparando aparte. Mientras tanto, el redactor opera
+# exclusivamente con las 3 particiones de SCJN — esto eleva la calidad argumentativa
+# (criterios de Suprema Corte) a costa de menor diversidad TCC. Reactivar 'ef_unificado'
+# cuando 'sentencias_ef' vuelva a 'green'.
 SENTENCIA_SILOS = {
-    "ef_unificado":     "sentencias_ef",                # ~970K estudios de fondo TCC
+    # "ef_unificado":   "sentencias_ef",                # DESHABILITADO — colección en reparación
     "ef_scjn_pleno":    "sentencias_ef_scjn_pleno",     # SCJN Pleno EF chunks
-    "ef_scjn_1a_sala":  "sentencias_ef_scjn_1a_sala",   # SCJN Primera Sala EF chunks
-    "ef_scjn_2a_sala":  "sentencias_ef_scjn_2a_sala",   # SCJN Segunda Sala EF chunks
+    "ef_scjn_1a_sala":  "sentencias_ef_scjn_1a_sala",   # SCJN Primera Sala EF chunks (~134k)
+    "ef_scjn_2a_sala":  "sentencias_ef_scjn_2a_sala",   # SCJN Segunda Sala EF chunks (~18k)
 }
 
 # Fallback: colección legacy para estados no migrados
