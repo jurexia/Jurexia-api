@@ -2157,6 +2157,7 @@ class SearchRequest(BaseModel):
     estado: Optional[str] = Field(None, description="Estado mexicano (ej: NUEVO_LEON)")
     top_k: int = Field(10, ge=1, le=50)
     alpha: float = Field(0.7, ge=0.0, le=1.0, description="Balance dense/sparse (1=solo dense)")
+    fuero: Optional[str] = Field(None, description="Filtro por fuero: constitucional, federal, estatal o combinados")
 
 
 class SearchResult(BaseModel):
@@ -7553,6 +7554,7 @@ async def search_endpoint(request: SearchRequest):
             estado=request.estado,
             top_k=request.top_k,
             alpha=request.alpha,
+            fuero=request.fuero,
         )
         
         return SearchResponse(
