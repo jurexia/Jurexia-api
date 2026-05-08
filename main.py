@@ -2903,15 +2903,28 @@ def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
     )
 
 
-def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filter]:
+def get_filter_for_silo(
+    silo_name: str, estado: Optional[str],
+    ley_federal_detectada: Optional[str] = None,
+) -> Optional[Filter]:
     """
     Retorna el filtro apropiado para cada silo.
     V5.0: Las colecciones dedicadas por estado NO necesitan filtro.
     Solo el silo legacy leyes_estatales necesita filtro por entidad.
+    V5.1: Si se detecta una ley federal específica, filtra por campo 'ley'.
     """
     # Colecciones dedicadas por estado (leyes_queretaro, leyes_cdmx, etc.) → sin filtro
     if silo_name.startswith("leyes_") and silo_name not in ("leyes_federales", "leyes_estatales"):
         return None
+    
+    # SMART ORIGIN DETECTION: Si la query menciona una ley federal específica,
+    # filtrar por el campo 'ley' para enfocar los resultados en esa ley.
+    if silo_name == "leyes_federales" and ley_federal_detectada:
+        return Filter(
+            must=[
+                FieldCondition(key="ley", match=MatchValue(value=ley_federal_detectada))
+            ]
+        )
     
     # Silo legacy: leyes_estatales → filtrar por entidad
     if silo_name == "leyes_estatales":
@@ -2924,7 +2937,7 @@ def get_filter_for_silo(silo_name: str, estado: Optional[str]) -> Optional[Filte
                     ]
                 )
     
-    # Para federales, jurisprudencia y bloque constitucional, no se aplica filtro
+    # Para federales (sin detección), jurisprudencia y bloque constitucional, no se aplica filtro
     return None
 
 
@@ -3033,6 +3046,128 @@ LEGAL_SYNONYMS = {
     "lft": ["Ley Federal del Trabajo"],
     "cnpp": ["Código Nacional de Procedimientos Penales"],
     "amparo": ["Ley de Amparo"],
+    # ── Abreviaturas federales expandidas ──
+    "ccf": ["Código Civil Federal", "código civil federal"],
+    "cpf": ["Código Penal Federal", "código penal federal"],
+    "cff": ["Código Fiscal de la Federación", "código fiscal federación"],
+    "cfpc": ["Código Federal de Procedimientos Civiles"],
+    "cnpcf": ["Código Nacional de Procedimientos Civiles y Familiares"],
+    "lgtoc": ["Ley General de Títulos y Operaciones de Crédito", "títulos crédito pagaré letra cambio cheque"],
+    "lgsm": ["Ley General de Sociedades Mercantiles", "sociedades mercantiles"],
+    "lss": ["Ley del Seguro Social", "seguro social IMSS"],
+    "imss": ["Ley del Seguro Social", "Instituto Mexicano del Seguro Social"],
+    "issste": ["Ley del Instituto de Seguridad y Servicios Sociales"],
+    "contrato de seguro": ["Ley Sobre el Contrato de Seguro"],
+    "código de comercio": ["Código de Comercio", "comercio mercantil"],
+    "lopjf": ["Ley Orgánica del Poder Judicial de la Federación"],
+    "lfpa": ["Ley Federal de Procedimiento Administrativo"],
+    "lisr": ["Ley del Impuesto sobre la Renta"],
+    "liva": ["Ley del Impuesto al Valor Agregado", "IVA"],
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SMART ORIGIN DETECTION — Detecta ley federal mencionada en la query
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Mapa de alias → nombre EXACTO del campo 'ley' en Qdrant (payload.ley)
+# Orden: aliases más largos primero para evitar falsos positivos
+LEY_FEDERAL_ALIASES: Dict[str, str] = {
+    # ── Códigos (nombres completos primero) ──
+    "código nacional de procedimientos penales": "Codigo NACIONAL DE PROCEDIMIENTOS PENALES",
+    "código nacional de procedimientos civiles y familiares": "Código Nacional de Procedimientos Civiles y Familiares",
+    "código civil federal": "Código Civil Federal",
+    "código penal federal": "Código Penal Federal",
+    "código de comercio": "Código de Comercio",
+    "código fiscal de la federación": "Código Fiscal de la Federación",
+    "código federal de procedimientos civiles": "Código Federal de Procedimientos Civiles",
+    # ── Leyes (nombres completos) ──
+    "ley de amparo": "Ley de Amparo",
+    "ley general de títulos y operaciones de crédito": "Ley GENERAL DE TITULOS Y OPERACIONES DE CREDITO",
+    "ley sobre el contrato de seguro": "Ley Sobre el Contrato de Seguro",
+    "ley federal del trabajo": "Ley Federal del Trabajo",
+    "ley del seguro social": "Ley del Seguro Social",
+    "ley general de sociedades mercantiles": "Ley General de Sociedades Mercantiles",
+    "ley federal de procedimiento contencioso administrativo": "Ley Federal de Procedimiento Contencioso Administrativo",
+    "ley orgánica del poder judicial de la federación": "Ley Orgánica del Poder Judicial de la Federación",
+    "ley federal de procedimiento administrativo": "Ley Federal de Procedimiento Administrativo",
+    "ley federal de protección al consumidor": "Ley Federal de Protección al Consumidor",
+    "ley agraria": "Ley Agraria",
+    "ley de concursos mercantiles": "Ley de Concursos Mercantiles",
+    "ley del impuesto sobre la renta": "Ley del Impuesto sobre la Renta",
+    "ley del impuesto al valor agregado": "Ley DEL IMPUESTO AL VALOR AGREGADO",
+    "ley general de responsabilidades administrativas": "Ley General de Responsabilidades Administrativas",
+    "ley general de salud": "Ley General de Salud",
+    "ley nacional de extinción de dominio": "Ley Nacional de Extinción de Dominio",
+    "ley federal contra la delincuencia organizada": "Ley Federal contra la Delincuencia Organizada",
+    "ley federal de protección a la propiedad industrial": "Ley Federal de Protección a la Propiedad Industrial",
+    "ley federal del derecho de autor": "Ley Federal del Derecho de Autor",
+    "ley de instituciones de crédito": "Ley de Instituciones de Crédito",
+    # ── Abreviaturas (siglas) ──
+    "cnpp": "Codigo NACIONAL DE PROCEDIMIENTOS PENALES",
+    "cnpcf": "Código Nacional de Procedimientos Civiles y Familiares",
+    "ccf": "Código Civil Federal",
+    "cpf": "Código Penal Federal",
+    "cff": "Código Fiscal de la Federación",
+    "cfpc": "Código Federal de Procedimientos Civiles",
+    "lgtoc": "Ley GENERAL DE TITULOS Y OPERACIONES DE CREDITO",
+    "lgsm": "Ley General de Sociedades Mercantiles",
+    "lft": "Ley Federal del Trabajo",
+    "lss": "Ley del Seguro Social",
+    "lfpca": "Ley Federal de Procedimiento Contencioso Administrativo",
+    "lfpa": "Ley Federal de Procedimiento Administrativo",
+    "lopjf": "Ley Orgánica del Poder Judicial de la Federación",
+    "lisr": "Ley del Impuesto sobre la Renta",
+    "liva": "Ley DEL IMPUESTO AL VALOR AGREGADO",
+    "lgra": "Ley General de Responsabilidades Administrativas",
+}
+
+
+def _detect_ley_federal_mencionada(query: str) -> Optional[str]:
+    """
+    Detecta si la query menciona una ley federal específica.
+    Retorna el nombre exacto del campo 'ley' en Qdrant, o None.
+    
+    Se recorre en orden de longitud descendente para que 
+    "código civil federal" tenga prioridad sobre "código civil".
+    """
+    q = query.lower().strip()
+    for alias, nombre_qdrant in sorted(LEY_FEDERAL_ALIASES.items(), key=lambda x: -len(x[0])):
+        if alias in q:
+            return nombre_qdrant
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LEYES FEDERALES PRIORITARIAS — Boost multiplicativo post-rerank
+# Las leyes más citadas en sentencias mexicanas reciben un boost sutil
+# ══════════════════════════════════════════════════════════════════════════════
+
+LEYES_FEDERALES_PRIORITARIAS: Dict[str, float] = {
+    # Códigos fundamentales — máxima prioridad
+    "Ley de Amparo": 1.12,
+    "Código Civil Federal": 1.10,
+    "Código de Comercio": 1.10,
+    "Código Penal Federal": 1.10,
+    "Codigo NACIONAL DE PROCEDIMIENTOS PENALES": 1.10,
+    "Código Nacional de Procedimientos Civiles y Familiares": 1.10,
+    "Código Fiscal de la Federación": 1.08,
+    "Código Federal de Procedimientos Civiles": 1.08,
+    # Leyes mercantiles de alta citación
+    "Ley GENERAL DE TITULOS Y OPERACIONES DE CREDITO": 1.08,
+    "Ley Sobre el Contrato de Seguro": 1.06,
+    "Ley General de Sociedades Mercantiles": 1.06,
+    "Ley de Concursos Mercantiles": 1.05,
+    # Leyes laborales y de seguridad social
+    "Ley Federal del Trabajo": 1.08,
+    "Ley del Seguro Social": 1.06,
+    # Leyes procesales y orgánicas
+    "Ley Federal de Procedimiento Contencioso Administrativo": 1.06,
+    "Ley Orgánica del Poder Judicial de la Federación": 1.06,
+    "Ley Federal de Procedimiento Administrativo": 1.05,
+    # Leyes fiscales
+    "Ley del Impuesto sobre la Renta": 1.05,
+    "Ley DEL IMPUESTO AL VALOR AGREGADO": 1.05,
 }
 
 
@@ -5906,13 +6041,30 @@ async def hybrid_search_all_silos(
         if _materia_should_filter:
             print(f"   🎯 MATERIA SHOULD FILTER: Qdrant boost para materia='{detected_materias[0]}'")
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SMART ORIGIN DETECTION: Detectar si la query menciona una ley federal
+    # específica para aplicar filtro por 'ley' en el silo leyes_federales.
+    # Si se detecta, TAMBIÉN se hace una búsqueda EXTRA sin filtro como fallback.
+    # ═══════════════════════════════════════════════════════════════════════════
+    _ley_federal_detectada = _detect_ley_federal_mencionada(query)
+    _extra_federal_unfocused_task = None
+    if _ley_federal_detectada:
+        print(f"   📜 LEY FEDERAL DETECTADA: '{_ley_federal_detectada}' → filtro por campo 'ley'")
+    
     for silo_name in silos_to_search:
-        state_filter = get_filter_for_silo(silo_name, estado)
+        state_filter = get_filter_for_silo(
+            silo_name, estado,
+            ley_federal_detectada=_ley_federal_detectada,
+        )
         
         # FIX 5: Top-K boost para silo estatal seleccionado
         # El silo del estado seleccionado obtiene el doble de resultados iniciales
         # para maximizar la cobertura de leyes relevantes
         silo_top_k = top_k * 2 if silo_name == _selected_state_silo else top_k
+        
+        # Si detectamos ley federal, dar más slots al silo federal enfocado
+        if silo_name == "leyes_federales" and _ley_federal_detectada:
+            silo_top_k = top_k * 2  # Más resultados de la ley enfocada
         
         # Inyectar materia should-filter en silos de leyes (NO en juris/constitucional)
         if _materia_should_filter and silo_name not in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2", "bloque_constitucional"):
@@ -5928,6 +6080,21 @@ async def hybrid_search_all_silos(
                 sparse_vector=sparse_vector,
                 filter_=combined_filter,
                 top_k=silo_top_k,
+                alpha=alpha,
+            )
+        )
+    
+    # Si detectamos ley federal, búsqueda extra SIN filtro como safety net
+    # para no perder resultados de leyes relacionadas
+    if _ley_federal_detectada and "leyes_federales" in silos_to_search:
+        _extra_federal_unfocused_task = asyncio.create_task(
+            hybrid_search_single_silo(
+                collection="leyes_federales",
+                query=query,
+                dense_vector=dense_vector,
+                sparse_vector=sparse_vector,
+                filter_=None,  # Sin filtro de ley
+                top_k=top_k // 2,  # Pocos resultados complementarios
                 alpha=alpha,
             )
         )
@@ -5958,6 +6125,13 @@ async def hybrid_search_all_silos(
         extra_estatal = await _extra_estatal_task
         all_results = list(all_results) + [extra_estatal]
         print(f"   🔁 Búsqueda extra al silo estatal {_selected_state_silo} con query original: {len(extra_estatal)} resultados")
+    
+    # Recoger resultados de búsqueda federal sin filtro (safety net)
+    if _extra_federal_unfocused_task:
+        extra_fed = await _extra_federal_unfocused_task
+        if isinstance(extra_fed, list):
+            all_results = list(all_results) + [extra_fed]
+            print(f"   🔁 Búsqueda federal sin filtro (safety net): {len(extra_fed)} resultados")
         
     # FIX RAG: Boost artificial al silo estatal si busca algo muy técnico/materia
     # Para evitar que la jurisdicción federal le gane
@@ -6474,6 +6648,22 @@ async def hybrid_search_all_silos(
         _t_rerank = time.perf_counter()
         merged = await _cohere_rerank(query, merged, top_n=top_k)
         print(f"   ⏱ Cohere Rerank: {time.perf_counter() - _t_rerank:.2f}s")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PRIORITY BOOST: Leyes federales más citadas reciben un boost sutil
+    # Se aplica DESPUÉS del rerank para no interferir con Cohere
+    # ═══════════════════════════════════════════════════════════════════════════
+    _boost_count = 0
+    for r in merged:
+        if r.silo == "leyes_federales":
+            _r_ley = (r.metadata or {}).get("ley") or (r.metadata or {}).get("origen") or ""
+            for ley_nombre, boost_mult in LEYES_FEDERALES_PRIORITARIAS.items():
+                if ley_nombre.lower() in _r_ley.lower():
+                    r.score *= boost_mult
+                    _boost_count += 1
+                    break
+    if _boost_count > 0:
+        print(f"   ⚡ Priority Boost: {_boost_count} resultados de leyes prioritarias boosteados")
 
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
