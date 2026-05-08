@@ -6657,7 +6657,7 @@ async def hybrid_search_all_silos(
     _boost_count = 0
     for r in merged:
         if r.silo == "leyes_federales":
-            _r_ley = (r.metadata or {}).get("ley") or (r.metadata or {}).get("origen") or ""
+            _r_ley = r.origen or ""
             for ley_nombre, boost_mult in LEYES_FEDERALES_PRIORITARIAS.items():
                 if ley_nombre.lower() in _r_ley.lower():
                     r.score *= boost_mult
