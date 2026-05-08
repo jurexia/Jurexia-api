@@ -524,6 +524,13 @@ un abogado en un dictamen profesional: conectar norma → hechos → consecuenci
 en texto corrido, sin anunciar cada paso del método.
 
 REGLA #3 - CERO ALUCINACIONES:
+TERMINOLOGÍA OBLIGATORIA: Cuando cites extractos de sentencias de TCC o SCJN
+(silos sentencias_*_circuito, sentencias_scjn_holdings), NUNCA uses el término
+"holding" o "holdings" — los usuarios no conocen esa terminología anglosajona.
+Usa SIEMPRE: "precedente federal", "sentencia", "criterio judicial" o "resolución".
+Ejemplo INCORRECTO: "De los holdings recuperados..."
+Ejemplo CORRECTO: "De los precedentes federales analizados..."
+
 1. CITA contenido textual del CONTEXTO JURIDICO RECUPERADO
 2. NUNCA inventes articulos, tesis, o jurisprudencia
 3. Puedes hacer razonamiento juridico SOBRE las fuentes del contexto
@@ -4401,6 +4408,195 @@ def reorder_by_hierarchy(results: List[SearchResult]) -> List[SearchResult]:
         silo_priority = SILO_HIERARCHY_PRIORITY.get(r.silo, 2)
         return (silo_priority, -r.score)  # Menor level primero; mayor score primero
     return sorted(results, key=sort_key)
+
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ARTICLE CROSS-REFERENCE INJECTION
+# Cuando un precedente federal cita artículos de leyes federales (ej: "artículos
+# 55 y 58 de la Ley sobre el Contrato de Seguro"), busca automáticamente esos
+# artículos en leyes_federales y los inyecta al contexto para que el LLM tenga
+# el texto literal de la ley, no solo la paráfrasis del precedente.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Map common law names from precedentes → canonical name in Qdrant
+_LEY_NAME_MAP = {
+    "ley sobre el contrato de seguro": "Ley Sobre el Contrato de Seguro",
+    "ley del contrato de seguro": "Ley Sobre el Contrato de Seguro",
+    "ley de contrato de seguro": "Ley Sobre el Contrato de Seguro",
+    "código de comercio": "Código de Comercio",
+    "codigo de comercio": "Código de Comercio",
+    "código civil federal": "Código Civil Federal",
+    "codigo civil federal": "Código Civil Federal",
+    "ley federal del trabajo": "Ley Federal del Trabajo",
+    "código penal federal": "Código Penal Federal",
+    "codigo penal federal": "Código Penal Federal",
+    "ley general de títulos y operaciones de crédito": "Ley General de Títulos y Operaciones de Crédito",
+    "ley general de titulos y operaciones de credito": "Ley General de Títulos y Operaciones de Crédito",
+    "ley de amparo": "Ley de Amparo",
+    "ley general de sociedades mercantiles": "Ley General de Sociedades Mercantiles",
+    "código fiscal de la federación": "Código Fiscal de la Federación",
+    "codigo fiscal de la federacion": "Código Fiscal de la Federación",
+    "ley del seguro social": "Ley del Seguro Social",
+    "ley del impuesto sobre la renta": "Ley del Impuesto Sobre la Renta",
+    "ley del impuesto al valor agregado": "Ley del Impuesto al Valor Agregado",
+    "ley general de instituciones y sociedades mutualistas de seguros": "Ley General de Instituciones y Sociedades Mutualistas de Seguros",
+    "ley de instituciones de seguros y de fianzas": "Ley de Instituciones de Seguros y de Fianzas",
+    "código nacional de procedimientos penales": "Código Nacional de Procedimientos Penales",
+    "codigo nacional de procedimientos penales": "Código Nacional de Procedimientos Penales",
+    "ley general de víctimas": "Ley General de Víctimas",
+    "ley general de victimas": "Ley General de Víctimas",
+}
+
+# Regex to find article citations in text
+_ARTICLE_CITE_RE = re.compile(
+    r'art[ií]culos?\s+'
+    r'(\d+(?:\s*(?:bis|ter|qu[aá]ter|quinquies))?'
+    r'(?:\s*,\s*\d+(?:\s*(?:bis|ter|qu[aá]ter|quinquies))?)*'
+    r'(?:\s*(?:y|e)\s*\d+(?:\s*(?:bis|ter|qu[aá]ter|quinquies))?)?)'
+    r'(?:\s*,?\s*(?:fracci[oó]n(?:es)?\s+[IVXLCDM]+(?:\s*,\s*[IVXLCDM]+)*(?:\s*(?:y|e)\s*[IVXLCDM]+)?)?)?'
+    r'\s*(?:de\s+la|del)\s+'
+    r'((?:Ley|Código|Codigo|Constitución|Constitucion|Reglamento)[A-ZÁÉÍÓÚa-záéíóúñÑ\s]+?)(?=\s*[,;.()\n]|\s+(?:establece|dispone|señala|prevé|regula|prescribe|consagra|previene|contempla|ordena|que\s)|$)',
+    re.IGNORECASE
+)
+
+
+def _extract_cited_articles(texto: str) -> list:
+    """Extract (article_numbers, law_name) tuples from text."""
+    results = []
+    for m in _ARTICLE_CITE_RE.finditer(texto):
+        nums_raw = m.group(1)
+        ley_raw = m.group(2).strip().rstrip(",. ")
+        
+        # Parse article numbers: "55, 58 y 70" → ["55", "58", "70"]
+        nums = re.findall(r'(\d+)', nums_raw)
+        
+        # Normalize law name and look up canonical
+        ley_lower = ley_raw.lower().strip()
+        canonical = _LEY_NAME_MAP.get(ley_lower)
+        
+        # If not found by exact match, try substring matching
+        if not canonical:
+            for key, val in _LEY_NAME_MAP.items():
+                if key in ley_lower or ley_lower in key:
+                    canonical = val
+                    break
+        
+        if canonical and nums:
+            results.append((nums, canonical))
+    
+    return results
+
+
+async def inject_cross_referenced_articles(
+    results: list,
+    qdrant_client_obj,
+    max_injections: int = 8,
+) -> list:
+    """
+    Scans precedente/holding results for cited federal law articles,
+    looks them up in leyes_federales, and injects them into the results.
+    
+    Returns the augmented results list with cross-referenced articles prepended.
+    """
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    
+    # Identify which silos contain precedentes
+    _precedente_silos = {
+        "sentencias_holdings", "sentencias_scjn_holdings",
+        "jurisprudencia_nacional", "jurisprudencia_nacional_v2",
+        "jurisprudencia_tcc",
+    }
+    # Also include circuit-specific silos
+    for r in results:
+        if r.silo and r.silo.startswith("sentencias_") and "circuito" in r.silo:
+            _precedente_silos.add(r.silo)
+    
+    # Collect all cited articles from precedentes
+    cited = {}  # (canonical_ley, art_num) → True
+    existing_ids = {r.id for r in results}
+    # Also track existing articles by ref to avoid duplicates even with different IDs
+    existing_refs = {(r.origen or "", r.ref or "") for r in results if r.silo == "leyes_federales"}
+    
+    for r in results:
+        if r.silo not in _precedente_silos:
+            continue
+        if not r.texto:
+            continue
+        
+        for nums, canonical_ley in _extract_cited_articles(r.texto):
+            for num in nums:
+                key = (canonical_ley, num.strip())
+                if key not in cited:
+                    cited[key] = True
+    
+    if not cited:
+        return results
+    
+    print(f"   📎 Cross-Ref: {len(cited)} artículos citados en precedentes, buscando en leyes_federales...")
+    
+    # Group by law for efficient queries
+    by_law = {}
+    for (ley, num) in cited:
+        by_law.setdefault(ley, []).append(num)
+    
+    injected = []
+    try:
+        for ley, nums in by_law.items():
+            if len(injected) >= max_injections:
+                break
+            
+            # Search for each article
+            for num in nums[:5]:  # Max 5 per law
+                if len(injected) >= max_injections:
+                    break
+                
+                # Build ref pattern: "Artículo 55." or "Artículo 55 "
+                ref_patterns = [f"Artículo {num}.", f"Artículo {num} "]
+                
+                for ref_pat in ref_patterns:
+                    try:
+                        found = await qdrant_client_obj.scroll(
+                            collection_name="leyes_federales",
+                            limit=1,
+                            scroll_filter=Filter(must=[
+                                FieldCondition(key="ley", match=MatchValue(value=ley)),
+                                FieldCondition(key="ref", match=MatchValue(value=ref_pat)),
+                            ]),
+                            with_payload=True,
+                            with_vectors=False,
+                        )
+                        if found[0]:
+                            point = found[0][0]
+                            if str(point.id) not in existing_ids:
+                                payload = point.payload or {}
+                                sr = SearchResult(
+                                    id=str(point.id),
+                                    score=0.90,  # High score so it appears prominently
+                                    texto=payload.get("texto", ""),
+                                    ref=payload.get("ref"),
+                                    origen=payload.get("origen") or ley,
+                                    jurisdiccion="Federal",
+                                    silo="leyes_federales",
+                                    conceptos_transversales=payload.get("conceptos_transversales"),
+                                    tema_articulo=payload.get("tema_articulo"),
+                                )
+                                injected.append(sr)
+                                existing_ids.add(str(point.id))
+                            break  # Found it, don't try next pattern
+                    except Exception:
+                        continue
+                        
+    except Exception as e:
+        print(f"   ⚠️ Cross-Ref error: {e}")
+    
+    if injected:
+        print(f"   ✅ Cross-Ref: Inyectados {len(injected)} artículos de ley citados en precedentes")
+        # Prepend injected articles so they appear before precedentes in context
+        return injected + results
+    
+    return results
 
 
 def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = None, prose_mode: bool = False) -> str:
@@ -9014,6 +9210,14 @@ async def chat_endpoint(request: ChatRequest):
                             search_results = semantic_results
                     else:
                         search_results = semantic_results
+                    
+                    # ── Cross-Reference Injection: look up articles cited in precedentes ──
+                    try:
+                        search_results = await inject_cross_referenced_articles(
+                            search_results, qdrant_client, max_injections=8
+                        )
+                    except Exception as _xref_err:
+                        print(f"   ⚠️ Cross-ref injection failed (non-fatal): {_xref_err}")
                     
                     doc_id_map = build_doc_id_map(search_results)
                     context_xml = format_results_as_xml(search_results, estado=effective_estado, prose_mode=is_chat_drafting)
