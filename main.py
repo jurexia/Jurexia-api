@@ -458,12 +458,19 @@ INCLUYE esta sección SOLO si se cumplen AMBAS condiciones:
 2. La consulta del usuario tiene CONEXIÓN REAL con derecho local/estatal (procedimientos locales, códigos civiles/penales estatales, leyes orgánicas estatales, etc.)
 
 OMITE COMPLETAMENTE esta sección cuando:
+- La consulta es de SEGUROS o contratos de seguro — la Ley sobre el Contrato de Seguro es FEDERAL
 - La consulta es de derecho MERCANTIL (títulos de crédito, sociedades, concursos) — materia 100% FEDERAL
-- La consulta es de derecho LABORAL federal, FISCAL federal, AMPARO, o cualquier materia regulada exclusivamente por leyes federales
-- Los documentos estatales del contexto NO tienen relación directa con la pregunta (es decir, fueron recuperados por cercanía semántica pero no son relevantes)
+- La consulta es de derecho BANCARIO y financiero — materia 100% FEDERAL
+- La consulta es de derecho LABORAL federal, FISCAL federal, AMPARO, propiedad industrial, comercio exterior
+- Los documentos estatales del contexto NO tienen relación directa con la pregunta (recuperados por cercanía semántica pero irrelevantes)
 - NUNCA fuerces legislación estatal solo porque el usuario tiene un estado en su perfil
 
-Cuando SÍ incluyas esta sección:
+⚠️ Los juicios MERCANTILES (incluidos seguros) se rigen procesalmente por el Código de Comercio, NO por códigos de procedimientos civiles estatales. Aunque el contexto recupere artículos procesales estatales por proximidad semántica, IGNÓRALOS en materia mercantil.
+
+Ejemplo INCORRECTO: citar el Código de Procedimientos Civiles de Querétaro para carga de la prueba en seguros.
+Ejemplo CORRECTO: citar el Código de Comercio (arts. 1194-1195) y la Ley sobre el Contrato de Seguro.
+
+Cuando SÍ incluyas esta sección (derecho familiar, penal local, civil local):
 
 FORMATO OBLIGATORIO para cada artículo estatal (blockquote):
 > "[Texto transcrito completo del artículo]" -- *Artículo [N], [Nombre de la Ley Estatal]* [Doc ID: uuid]
