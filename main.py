@@ -5813,31 +5813,33 @@ async def hybrid_search_all_silos(
     
     # ═══════════════════════════════════════════════════════════════════════════
     # FILTRO POR FUERO: Determinar silos a buscar
+    # Soporta multi-selección: "constitucional,federal" busca en ambos fueros
     # jurisprudencia_nacional SIEMPRE se incluye
     # ═══════════════════════════════════════════════════════════════════════════
-    fuero_normalized = fuero.lower().strip() if fuero else None
+    fuero_parts = [f.strip().lower() for f in fuero.split(",")] if fuero else []
+    fuero_parts = [f for f in fuero_parts if f]  # Remove empty strings
     
-    if fuero_normalized == "constitucional":
-        silos_to_search = ["bloque_constitucional", "jurisprudencia_nacional_v2"]
-        print(f"   ⚖️ FUERO: Constitucional → bloque_constitucional + jurisprudencia_nacional_v2")
-    elif fuero_normalized == "federal":
-        silos_to_search = ["leyes_federales", "jurisprudencia_nacional_v2"]
-        print(f"   ⚖️ FUERO: Federal → leyes_federales + jurisprudencia_nacional_v2")
-    elif fuero_normalized == "estatal":
-        silos_to_search = ["jurisprudencia_nacional_v2"]  # Siempre
-        if estado:
-            normalized_estado = normalize_estado(estado)
-            if normalized_estado and normalized_estado in ESTADO_SILO:
-                silos_to_search.append(ESTADO_SILO[normalized_estado])
-                print(f"   ⚖️ FUERO: Estatal → {ESTADO_SILO[normalized_estado]} + jurisprudencia_nacional")
-            else:
-                # Unknown state → search ALL state silos
-                silos_to_search.extend(ESTADO_SILO.values())
-                print(f"   ⚖️ FUERO: Estatal → all state silos + jurisprudencia_nacional")
-        else:
-            # Fuero estatal sin estado seleccionado → buscar TODOS los estatales
-            silos_to_search.extend(ESTADO_SILO.values())
-            print(f"   ⚖️ FUERO: Estatal (sin estado) → todos los silos estatales + jurisprudencia_nacional")
+    if fuero_parts:
+        silos_set = set()
+        silos_set.add("jurisprudencia_nacional_v2")  # SIEMPRE
+        
+        for fp in fuero_parts:
+            if fp == "constitucional":
+                silos_set.add("bloque_constitucional")
+            elif fp == "federal":
+                silos_set.add("leyes_federales")
+            elif fp == "estatal":
+                if estado:
+                    normalized_estado = normalize_estado(estado)
+                    if normalized_estado and normalized_estado in ESTADO_SILO:
+                        silos_set.add(ESTADO_SILO[normalized_estado])
+                    else:
+                        silos_set.update(ESTADO_SILO.values())
+                else:
+                    silos_set.update(ESTADO_SILO.values())
+        
+        silos_to_search = list(silos_set)
+        print(f"   ⚖️ FUERO MULTI: {fuero_parts} → {len(silos_to_search)} silos: {silos_to_search}")
     else:
         # Sin fuero = comportamiento original: TODOS los silos
         silos_to_search = list(FIXED_SILOS.values())
@@ -5936,7 +5938,7 @@ async def hybrid_search_all_silos(
     # query ORIGINAL (sin HyDE contaminado por terminología federal).
     # Garantiza recuperar artículos aunque HyDE o expand hayan apuntado a otro silo.
     _extra_estatal_task = None
-    if _selected_state_silo and fuero_normalized in ("estatal", None) and hyde_doc:
+    if _selected_state_silo and ("estatal" in fuero_parts or not fuero_parts) and hyde_doc:
         _original_dense = await get_dense_embedding(query)  # query original, no HyDE
         _original_sparse = get_sparse_embedding(query)
         _extra_estatal_task = asyncio.create_task(
@@ -6117,7 +6119,7 @@ async def hybrid_search_all_silos(
         min_federales = min(6, len(federales))
         min_estatales = min(3, len(estatales))
         print(f"   🏛️ Modo DDHH: const={min_constitucional} juris={min_jurisprudencia} fed={min_federales} est={min_estatales}")
-    elif estado and fuero_normalized in ("estatal", None):
+    elif estado and ("estatal" in fuero_parts or not fuero_parts):
         # Modo con ESTADO seleccionado Y fuero estatal o sin fuero definido:
         # LEYES ESTATALES SON LA PRIORIDAD
         # Si el Agente Estratega detectó fuero 'federal' o 'constitucional',
@@ -6144,7 +6146,7 @@ async def hybrid_search_all_silos(
     
     merged = []
     
-    if estado and fuero_normalized in ("estatal", None):
+    if estado and ("estatal" in fuero_parts or not fuero_parts):
         # CUANDO HAY ESTADO y fuero es estatal/auto: leyes estatales VAN PRIMERO
         # El LLM procesa los primeros documentos con mayor atención
         merged.extend(estatales[:min_estatales])
