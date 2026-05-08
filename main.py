@@ -2177,6 +2177,9 @@ class SearchResult(BaseModel):
     tipo_criterio: Optional[str] = None
     instancia_meta: Optional[str] = None
     materia_meta: Optional[str] = None
+    # Campos LLM Tagging (conceptos semánticos para Concept Boost)
+    conceptos_transversales: Optional[List[str]] = None
+    tema_articulo: Optional[str] = None
     # Campos GraphRAG extraídos de jurisprudencia_nacional_v2
     ratio_decidendi: Optional[str] = None
     condicion_de_aplicacion: Optional[str] = None
@@ -4949,6 +4952,9 @@ async def hybrid_search_single_silo(
                 tipo_criterio=tipo_criterio,
                 instancia_meta=instancia,
                 materia_meta=materia,
+                # LLM Tagging fields (Concept Boost)
+                conceptos_transversales=payload.get("conceptos_transversales"),
+                tema_articulo=payload.get("tema_articulo"),
                 ratio_decidendi=payload.get("ratio_decidendi"),
                 condicion_de_aplicacion=payload.get("condicion_de_aplicacion"),
                 distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
@@ -6665,6 +6671,45 @@ async def hybrid_search_all_silos(
                     break
     if _boost_count > 0:
         print(f"   ⚡ Priority Boost: {_boost_count} resultados de leyes prioritarias boosteados")
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CONCEPT BOOST: Artículos cuyos conceptos_transversales coinciden con el
+    # query reciben un boost semántico. Funciona en CUALQUIER silo taggeado
+    # (leyes_federales, leyes_estatales, etc.)
+    # ═══════════════════════════════════════════════════════════════════════════
+    _concept_boost_count = 0
+    # Tokenize query into lowercase terms (min 3 chars for meaningful match)
+    _query_terms = set(
+        t for t in re.split(r'[\s,;.?!¿¡()"]+', query.lower())
+        if len(t) >= 3 and t not in {
+            "que", "del", "los", "las", "por", "para", "con", "una", "uno",
+            "como", "más", "sin", "sobre", "entre", "ese", "esa", "esto",
+            "esta", "estos", "estas", "son", "ser", "hay", "tiene", "puede",
+            "cual", "cuando", "donde", "quien", "cuál", "cuándo", "dónde",
+            "artículo", "articulo", "dice", "según", "segun",
+        }
+    )
+    if _query_terms:
+        for r in merged:
+            if r.conceptos_transversales:
+                # Count how many query terms appear in the article's concepts
+                _concepts_lower = [c.lower() for c in r.conceptos_transversales]
+                _matches = 0
+                for qt in _query_terms:
+                    for cl in _concepts_lower:
+                        if qt in cl or cl in qt:
+                            _matches += 1
+                            break
+                if _matches >= 2:
+                    # Strong match: 2+ concepts align with query
+                    r.score *= 1.15
+                    _concept_boost_count += 1
+                elif _matches == 1:
+                    # Partial match: 1 concept aligns
+                    r.score *= 1.06
+                    _concept_boost_count += 1
+    if _concept_boost_count > 0:
+        print(f"   🧠 Concept Boost: {_concept_boost_count} resultados boosteados por coincidencia semántica")
 
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
