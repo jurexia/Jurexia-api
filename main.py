@@ -14047,16 +14047,16 @@ async def redactor_tcc_beta_generate(
             if user_result.data and len(user_result.data) > 0:
                 uid = user_result.data[0].get('user_id')
                 if uid:
-                    for i in range(5):
+                    for i in range(10):
                         q_res = supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
                         if q_res.data and not q_res.data.get('allowed', True):
                             raise HTTPException(
                                 403,
                                 f"Has alcanzado tu límite de consultas. "
                                 f"Usadas: {q_res.data.get('used', 0)}/{q_res.data.get('limit', 0)}. "
-                                f"El Redactor TCC Beta consume 5 consultas por generación."
+                                f"El Redactor TCC Beta consume 10 consultas por generación."
                             )
-                    print(f"   💰 Consumed 5 queries for TCC Beta — user {email_lower}")
+                    print(f"   💰 Consumed 10 queries for TCC Beta — user {email_lower}")
         except HTTPException:
             raise
         except Exception as e:
@@ -14132,7 +14132,7 @@ async def redactor_tcc_beta_generate(
                             "Devuelve el texto plano completo sin omitir nada. Preserva parrafos, "
                             "titulos, numeracion, articulos citados, nombres de partes, fechas y montos."
                         )
-                        OCR_MODEL = "google/gemini-2.5-pro"
+                        OCR_MODEL = "google/gemini-2.5-flash"
                         CHUNK_SIZE = 20  # pages per chunk for OpenRouter
                         
                         async def _ocr_chunk(pdf_bytes: bytes, label: str) -> str:
