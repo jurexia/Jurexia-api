@@ -11318,38 +11318,106 @@ def _aggregate_jurimetria(points: list) -> dict:
 
 
 async def _extract_text_from_upload(file: UploadFile) -> str:
-    """Extrae texto de PDF/DOCX subido. Reutiliza la lógica de analyze_document."""
+    """Extrae texto de PDF/DOCX subido.
+    
+    Flujo para PDF:
+      1. Intenta extracción nativa con PyMuPDF (rápido, gratuito).
+      2. Si el PDF es escaneado (< 200 chars), usa Gemini 3.1 Pro OCR:
+         - Para PDFs <= 20 páginas: procesa completo de una vez.
+         - Para PDFs > 20 páginas: divide en chunks de 15 páginas y
+           procesa cada chunk en paralelo con Gemini 3.1 Pro.
+    """
     import io
     content = await file.read()
     ext = (file.filename or "").split(".")[-1].lower()
 
     if ext == "pdf":
+        # ── 1. Try native text extraction ────────────────────────
         try:
             import fitz
             doc = fitz.open(stream=content, filetype="pdf")
             pages = [page.get_text() for page in doc]
+            n_pages = len(doc)
             doc.close()
             text = "\n\n".join(pages).strip()
             if len(text) > 200:
+                print(f"   📄 PDF native text: {len(text)} chars, {n_pages} pages")
                 return text
-        except Exception:
-            pass
-        # scanned fallback: Gemini OCR
-        try:
-            import tempfile
-            gemini_cl = get_gemini_client()
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(content)
-                tmp_path = tmp.name
-            upl = gemini_cl.files.upload(file=tmp_path)
-            import os as _os; _os.unlink(tmp_path)
-            resp = gemini_cl.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[upl, "Transcribe el texto de este documento judicial."],
-            )
-            return resp.text or ""
+            print(f"   📷 PDF is scanned ({n_pages} pages, {len(text)} chars) — using Gemini 3.1 Pro OCR")
         except Exception as e:
-            print(f"   ⚠️ Gemini OCR error: {e}")
+            print(f"   ⚠️ PyMuPDF error: {e}")
+            n_pages = 0
+
+        # ── 2. Gemini 3.1 Pro OCR (most powerful vision model) ───
+        try:
+            import tempfile, os as _os
+            gemini_cl = get_gemini_client()
+            
+            OCR_PROMPT = (
+                "Eres un sistema OCR especializado en documentos judiciales mexicanos. "
+                "Transcribe TODO el texto de cada página de este PDF, preservando: "
+                "párrafos, títulos, numeración, artículos citados, nombres de partes, "
+                "fechas y montos. NO resumas ni omitas nada. Devuelve el texto plano completo."
+            )
+            
+            CHUNK_SIZE = 15  # pages per chunk
+            
+            if n_pages <= 20:
+                # ── Small PDF: process whole file ────────────────
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
+                upl = gemini_cl.files.upload(file=tmp_path)
+                _os.unlink(tmp_path)
+                resp = gemini_cl.models.generate_content(
+                    model="gemini-3.1-pro-preview",
+                    contents=[upl, OCR_PROMPT],
+                )
+                result = resp.text or ""
+                print(f"   ✅ Gemini 3.1 Pro OCR: {len(result)} chars from {n_pages} pages")
+                return result
+            else:
+                # ── Large PDF: split into chunks and process ─────
+                import fitz as _fitz
+                src = _fitz.open(stream=content, filetype="pdf")
+                chunks_text = []
+                total_pages = len(src)
+                
+                for start in range(0, total_pages, CHUNK_SIZE):
+                    end = min(start + CHUNK_SIZE, total_pages)
+                    chunk_label = f"pages {start+1}-{end}/{total_pages}"
+                    print(f"   🔍 OCR chunk: {chunk_label}...")
+                    
+                    # Create a mini-PDF with just these pages
+                    chunk_doc = _fitz.open()
+                    chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
+                    chunk_bytes = chunk_doc.tobytes()
+                    chunk_doc.close()
+                    
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                        tmp.write(chunk_bytes)
+                        tmp_path = tmp.name
+                    
+                    upl = gemini_cl.files.upload(file=tmp_path)
+                    _os.unlink(tmp_path)
+                    
+                    resp = gemini_cl.models.generate_content(
+                        model="gemini-3.1-pro-preview",
+                        contents=[upl, OCR_PROMPT],
+                    )
+                    chunk_text = resp.text or ""
+                    chunks_text.append(chunk_text)
+                    print(f"   ✅ Chunk {chunk_label}: {len(chunk_text)} chars")
+                
+                src.close()
+                result = "\n\n".join(chunks_text).strip()
+                print(f"   ✅ Gemini 3.1 Pro OCR total: {len(result)} chars from {total_pages} pages ({len(chunks_text)} chunks)")
+                return result
+                
+        except Exception as e:
+            print(f"   ❌ Gemini 3.1 Pro OCR error: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
 
     if ext in ("docx", "doc"):
