@@ -818,11 +818,31 @@ async def run_redactor_tcc_pipeline(
         # ─── COMPLETADO ───────────────────────────────────────────
         total_elapsed = time.time() - total_start
         
+        # Collect high-scoring holdings (>0.80) for the secretary
+        precedentes_utiles = []
+        seen_exp = set()
+        for prob_cat in pass1:
+            for h in prob_cat["catalogo"].get("holdings", []):
+                exp = h.get("expediente", "")
+                if h.get("score", 0) >= 0.80 and exp and exp not in seen_exp:
+                    seen_exp.add(exp)
+                    precedentes_utiles.append({
+                        "expediente": exp,
+                        "tribunal": h.get("tribunal", ""),
+                        "tema": h.get("tema", ""),
+                        "sentido": h.get("sentido", ""),
+                        "score": h.get("score", 0),
+                        "pdf_url": h.get("pdf_url", ""),
+                    })
+        # Sort by score descending
+        precedentes_utiles.sort(key=lambda x: x["score"], reverse=True)
+        
         yield RedactorEvent.complete(estudio_md, {
             "n_palabras": n_words,
             "n_chars": len(estudio_md),
             "n_problemas": n_problems,
             "total_elapsed_s": round(total_elapsed, 1),
+            "precedentes_utiles": precedentes_utiles[:15],  # max 15
             "pass_times": {
                 "pass0": round(elapsed0, 1),
                 "pass1": round(elapsed1, 1),

@@ -13996,6 +13996,7 @@ def _build_qdrant_search_for_redactor():
                         "tema": p.get("tema", ""),
                         "holding": p.get("holding", "")[:1500],
                         "sentido": p.get("sentido", ""),
+                        "pdf_url": p.get("pdf_url", ""),
                     })
             except Exception as e:
                 print(f"     ⚠️ Holdings search error: {e}")
