@@ -14099,9 +14099,10 @@ async def redactor_tcc_beta_generate(
                 import io as _io
                 from fastapi import UploadFile as _UF
                 
-                # Create a pseudo-UploadFile from bytes for the extractor
+                # Extract text using OpenRouter API (google/gemini-2.5-pro)
                 async def _extract_from_bytes(content: bytes, filename: str) -> str:
-                    """Extract text from raw bytes using same logic as _extract_text_from_upload."""
+                    """Extract text from bytes. Native text first, then OCR via OpenRouter."""
+                    import io as _io
                     ext = filename.split(".")[-1].lower()
                     if ext == "pdf":
                         try:
@@ -14114,57 +14115,89 @@ async def redactor_tcc_beta_generate(
                             if len(text) > 200:
                                 print(f"   PDF native text: {len(text)} chars, {n_pages} pages")
                                 return text
-                            print(f"   PDF is scanned ({n_pages} pages) — Gemini 3.1 Pro OCR")
+                            print(f"   PDF is scanned ({n_pages} pages) — OpenRouter OCR (gemini-2.5-pro)")
                         except Exception as e:
                             print(f"   PyMuPDF error: {e}")
                             n_pages = 0
                         
-                        # Gemini 3.1 Pro OCR
-                        import tempfile, os as _os
-                        gemini_cl = get_gemini_client()
-                        OCR_PROMPT = (
-                            "Eres un sistema OCR especializado en documentos judiciales mexicanos. "
-                            "Transcribe TODO el texto de cada pagina de este PDF, preservando: "
-                            "parrafos, titulos, numeracion, articulos citados, nombres de partes, "
-                            "fechas y montos. NO resumas ni omitas nada. Devuelve el texto plano completo."
-                        )
-                        CHUNK_SIZE = 15
+                        # OCR via OpenRouter with google/gemini-2.5-pro
+                        import httpx, base64
+                        or_key = os.getenv("OPENROUTER_API_KEY", "")
+                        if not or_key:
+                            print("   OPENROUTER_API_KEY not set — falling back to Gemini direct")
+                            return ""
                         
-                        if n_pages <= 20:
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                                tmp.write(content)
-                                tmp_path = tmp.name
-                            upl = gemini_cl.files.upload(file=tmp_path)
-                            _os.unlink(tmp_path)
-                            resp = gemini_cl.models.generate_content(
-                                model="gemini-3.1-pro-preview",
-                                contents=[upl, OCR_PROMPT],
-                            )
-                            return resp.text or ""
+                        OCR_PROMPT = (
+                            "Transcribe TODO el texto de cada pagina de este PDF judicial mexicano. "
+                            "Devuelve el texto plano completo sin omitir nada. Preserva parrafos, "
+                            "titulos, numeracion, articulos citados, nombres de partes, fechas y montos."
+                        )
+                        OCR_MODEL = "google/gemini-2.5-pro"
+                        CHUNK_SIZE = 20  # pages per chunk for OpenRouter
+                        
+                        async def _ocr_chunk(pdf_bytes: bytes, label: str) -> str:
+                            """Send a PDF chunk to OpenRouter for OCR."""
+                            b64 = base64.standard_b64encode(pdf_bytes).decode()
+                            async with httpx.AsyncClient(timeout=300) as client:
+                                resp = await client.post(
+                                    "https://openrouter.ai/api/v1/chat/completions",
+                                    headers={
+                                        "Authorization": f"Bearer {or_key}",
+                                        "Content-Type": "application/json",
+                                    },
+                                    json={
+                                        "model": OCR_MODEL,
+                                        "messages": [{
+                                            "role": "user",
+                                            "content": [
+                                                {"type": "image_url", "image_url": {"url": f"data:application/pdf;base64,{b64}"}},
+                                                {"type": "text", "text": OCR_PROMPT},
+                                            ]
+                                        }],
+                                        "max_tokens": 40000,
+                                    },
+                                )
+                            data = resp.json()
+                            text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            if not text:
+                                err = data.get("error", {}).get("message", "Unknown error")
+                                print(f"   OpenRouter OCR error ({label}): {err}")
+                            return text
+                        
+                        import time as _time
+                        
+                        if n_pages <= 25:
+                            # Process whole PDF in one shot
+                            t0 = _time.time()
+                            result = await _ocr_chunk(content, f"{n_pages} pages")
+                            print(f"   OCR complete: {len(result)} chars in {_time.time()-t0:.1f}s")
+                            return result
                         else:
+                            # Split into chunks
                             import fitz as _fitz
                             src = _fitz.open(stream=content, filetype="pdf")
                             chunks_text = []
                             total_pages = len(src)
+                            t0 = _time.time()
+                            
                             for start in range(0, total_pages, CHUNK_SIZE):
                                 end = min(start + CHUNK_SIZE, total_pages)
+                                label = f"pages {start+1}-{end}/{total_pages}"
+                                print(f"   OCR chunk: {label}...")
+                                
                                 chunk_doc = _fitz.open()
                                 chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
                                 chunk_bytes = chunk_doc.tobytes()
                                 chunk_doc.close()
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                                    tmp.write(chunk_bytes)
-                                    tmp_path = tmp.name
-                                upl = gemini_cl.files.upload(file=tmp_path)
-                                _os.unlink(tmp_path)
-                                resp = gemini_cl.models.generate_content(
-                                    model="gemini-3.1-pro-preview",
-                                    contents=[upl, OCR_PROMPT],
-                                )
-                                chunks_text.append(resp.text or "")
-                                print(f"   OCR chunk {start+1}-{end}/{total_pages}: {len(chunks_text[-1])} chars")
+                                
+                                chunk_text = await _ocr_chunk(chunk_bytes, label)
+                                chunks_text.append(chunk_text)
+                                print(f"   Chunk {label}: {len(chunk_text)} chars")
+                            
                             src.close()
-                            return "\n\n".join(chunks_text).strip()
+                            result = "\n\n".join(chunks_text).strip()
+                            print(f"   OCR total: {len(result)} chars in {_time.time()-t0:.1f}s ({len(chunks_text)} chunks)")
+                            return result
                     
                     if ext in ("docx", "doc"):
                         from docx import Document as _Docx
