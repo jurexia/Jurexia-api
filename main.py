@@ -14269,6 +14269,26 @@ async def redactor_tcc_beta_generate(
                                     event["data"]["queries_used"] = updated.data[0].get('queries_used', 0)
                                     event["data"]["queries_limit"] = updated.data[0].get('queries_limit', 0)
                                 print(f"   💰 Consumed 10 queries for TCC Beta — user {email_lower}")
+                                
+                                # Save study to redactor_estudios
+                                try:
+                                    import json as _json
+                                    estudio_md = event["data"].get("estudio_markdown", "")
+                                    insert_result = supabase_admin.table('redactor_estudios').insert({
+                                        "user_id": uid,
+                                        "tipo_asunto": tipo_asunto,
+                                        "materia": materia,
+                                        "circuito": circuito or 1,
+                                        "estudio_markdown": estudio_md,
+                                        "n_palabras": event["data"].get("n_palabras", 0),
+                                        "total_elapsed_s": event["data"].get("total_elapsed_s", 0),
+                                        "precedentes_utiles": _json.dumps(event["data"].get("precedentes_utiles", [])),
+                                    }).execute()
+                                    if insert_result.data:
+                                        event["data"]["study_id"] = insert_result.data[0].get("id")
+                                        print(f"   💾 Study saved to redactor_estudios: {event['data'].get('study_id')}")
+                                except Exception as save_err:
+                                    print(f"   ⚠️ Failed to save study: {save_err}")
                     except Exception as e:
                         print(f"   ⚠️ Post-success query consumption error: {e}")
                 
