@@ -13966,6 +13966,34 @@ async def redactor_tcc_beta_generate(
     if not _can_access_redactor_tcc(user_email):
         raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
     
+    # ── Consume 5 queries (TCC Beta is resource-intensive) ─────────
+    if supabase_admin:
+        try:
+            email_lower = user_email.strip().lower()
+            # Get user_id from email
+            user_result = supabase_admin.table('user_profiles') \
+                .select('user_id') \
+                .eq('email', email_lower) \
+                .limit(1) \
+                .execute()
+            if user_result.data and len(user_result.data) > 0:
+                uid = user_result.data[0].get('user_id')
+                if uid:
+                    for i in range(5):
+                        q_res = supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
+                        if q_res.data and not q_res.data.get('allowed', True):
+                            raise HTTPException(
+                                403,
+                                f"Has alcanzado tu límite de consultas. "
+                                f"Usadas: {q_res.data.get('used', 0)}/{q_res.data.get('limit', 0)}. "
+                                f"El Redactor TCC Beta consume 5 consultas por generación."
+                            )
+                    print(f"   💰 Consumed 5 queries for TCC Beta — user {email_lower}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"   ⚠️ Query consumption error (proceeding): {e}")
+    
     # ── Extract text from PDFs if provided ─────────────────────────
     resumen_acto = texto_acto_reclamado.strip()
     texto_cv = texto_conceptos_agravios.strip()
