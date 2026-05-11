@@ -14062,63 +14062,168 @@ async def redactor_tcc_beta_generate(
         except Exception as e:
             print(f"   ⚠️ Query consumption error (proceeding): {e}")
     
-    # ── Extract text from PDFs if provided ─────────────────────────
+    # ── Read raw file bytes BEFORE entering SSE (fast, just reads bytes) ──
     resumen_acto = texto_acto_reclamado.strip()
     texto_cv = texto_conceptos_agravios.strip()
     
+    doc_acto_bytes = None
+    doc_acto_filename = None
+    doc_conceptos_bytes = None
+    doc_conceptos_filename = None
+    
     if doc_acto and not resumen_acto:
-        try:
-            resumen_acto = await _extract_text_from_upload(doc_acto)
-            if not resumen_acto or len(resumen_acto.strip()) < 50:
-                raise HTTPException(400, "No se pudo extraer texto suficiente del documento del acto reclamado. Verifica que el archivo no esté escaneado o dañado.")
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(400, f"Error al procesar documento del acto reclamado: {str(e)[:100]}")
+        doc_acto_bytes = await doc_acto.read()
+        doc_acto_filename = doc_acto.filename or "doc.pdf"
     
     if doc_conceptos and not texto_cv:
-        try:
-            texto_cv = await _extract_text_from_upload(doc_conceptos)
-            if not texto_cv or len(texto_cv.strip()) < 50:
-                raise HTTPException(400, "No se pudo extraer texto suficiente del documento de conceptos/agravios. Verifica que el archivo no esté escaneado o dañado.")
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(400, f"Error al procesar documento de conceptos/agravios: {str(e)[:100]}")
-    
-    if not resumen_acto and not texto_cv:
-        raise HTTPException(400, "Debe proveer al menos un documento (acto reclamado o conceptos/agravios)")
-    
-    # ── Build caso_input ───────────────────────────────────────────
-    disidencias = []
-    if texto_cv:
-        disidencias.append({
-            "tipo": "concepto_violacion" if "amparo" in tipo_asunto.lower() else "agravio",
-            "texto": texto_cv,
-        })
-    
-    caso_input = {
-        "meta": {
-            "tipo_asunto": tipo_asunto,
-            "materia": materia,
-            "circuito": circuito or "desconocido",
-        },
-        "inputs": {
-            "resumen_acto_reclamado": resumen_acto,
-            "disidencias": disidencias,
-        },
-    }
+        doc_conceptos_bytes = await doc_conceptos.read()
+        doc_conceptos_filename = doc_conceptos.filename or "doc.pdf"
     
     deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
     if not deepseek_key:
         raise HTTPException(500, "DeepSeek API key not configured")
     
     print(f"\n🏛️ REDACTOR TCC BETA — {tipo_asunto} ({materia}) — {user_email}")
-    print(f"   Acto: {len(resumen_acto)} chars | CV/Agravios: {len(texto_cv)} chars")
     
     async def generate_sse():
+        nonlocal resumen_acto, texto_cv
+        
         def sse(event_type: str, data: dict) -> str:
             return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        
+        # ── Phase 0: Extract text from PDFs (OCR if scanned) ────────
+        # This runs INSIDE the SSE stream so the connection stays alive
+        if doc_acto_bytes and not resumen_acto:
+            yield sse("progress", {"step": -1, "progress": 0, "detail": "Procesando documento del acto reclamado (OCR si es escaneado)..."})
+            try:
+                import io as _io
+                from fastapi import UploadFile as _UF
+                
+                # Create a pseudo-UploadFile from bytes for the extractor
+                async def _extract_from_bytes(content: bytes, filename: str) -> str:
+                    """Extract text from raw bytes using same logic as _extract_text_from_upload."""
+                    ext = filename.split(".")[-1].lower()
+                    if ext == "pdf":
+                        try:
+                            import fitz
+                            doc = fitz.open(stream=content, filetype="pdf")
+                            pages = [page.get_text() for page in doc]
+                            n_pages = len(doc)
+                            doc.close()
+                            text = "\n\n".join(pages).strip()
+                            if len(text) > 200:
+                                print(f"   PDF native text: {len(text)} chars, {n_pages} pages")
+                                return text
+                            print(f"   PDF is scanned ({n_pages} pages) — Gemini 3.1 Pro OCR")
+                        except Exception as e:
+                            print(f"   PyMuPDF error: {e}")
+                            n_pages = 0
+                        
+                        # Gemini 3.1 Pro OCR
+                        import tempfile, os as _os
+                        gemini_cl = get_gemini_client()
+                        OCR_PROMPT = (
+                            "Eres un sistema OCR especializado en documentos judiciales mexicanos. "
+                            "Transcribe TODO el texto de cada pagina de este PDF, preservando: "
+                            "parrafos, titulos, numeracion, articulos citados, nombres de partes, "
+                            "fechas y montos. NO resumas ni omitas nada. Devuelve el texto plano completo."
+                        )
+                        CHUNK_SIZE = 15
+                        
+                        if n_pages <= 20:
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                tmp.write(content)
+                                tmp_path = tmp.name
+                            upl = gemini_cl.files.upload(file=tmp_path)
+                            _os.unlink(tmp_path)
+                            resp = gemini_cl.models.generate_content(
+                                model="gemini-3.1-pro-preview",
+                                contents=[upl, OCR_PROMPT],
+                            )
+                            return resp.text or ""
+                        else:
+                            import fitz as _fitz
+                            src = _fitz.open(stream=content, filetype="pdf")
+                            chunks_text = []
+                            total_pages = len(src)
+                            for start in range(0, total_pages, CHUNK_SIZE):
+                                end = min(start + CHUNK_SIZE, total_pages)
+                                chunk_doc = _fitz.open()
+                                chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
+                                chunk_bytes = chunk_doc.tobytes()
+                                chunk_doc.close()
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                    tmp.write(chunk_bytes)
+                                    tmp_path = tmp.name
+                                upl = gemini_cl.files.upload(file=tmp_path)
+                                _os.unlink(tmp_path)
+                                resp = gemini_cl.models.generate_content(
+                                    model="gemini-3.1-pro-preview",
+                                    contents=[upl, OCR_PROMPT],
+                                )
+                                chunks_text.append(resp.text or "")
+                                print(f"   OCR chunk {start+1}-{end}/{total_pages}: {len(chunks_text[-1])} chars")
+                            src.close()
+                            return "\n\n".join(chunks_text).strip()
+                    
+                    if ext in ("docx", "doc"):
+                        from docx import Document as _Docx
+                        doc = _Docx(_io.BytesIO(content))
+                        return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                    return ""
+                
+                resumen_acto = await _extract_from_bytes(doc_acto_bytes, doc_acto_filename)
+                if not resumen_acto or len(resumen_acto.strip()) < 50:
+                    yield sse("error", {"message": "No se pudo extraer texto del acto reclamado. Verifica que el PDF sea legible."})
+                    return
+                yield sse("progress", {"step": -1, "progress": 50, "detail": f"Acto reclamado: {len(resumen_acto):,} caracteres extraídos"})
+            except Exception as e:
+                print(f"   OCR error (acto): {e}")
+                import traceback; traceback.print_exc()
+                yield sse("error", {"message": f"Error al procesar el acto reclamado: {str(e)[:150]}"})
+                return
+        
+        if doc_conceptos_bytes and not texto_cv:
+            yield sse("progress", {"step": -1, "progress": 60, "detail": "Procesando conceptos/agravios (OCR si es escaneado)..."})
+            try:
+                texto_cv = await _extract_from_bytes(doc_conceptos_bytes, doc_conceptos_filename)
+                if not texto_cv or len(texto_cv.strip()) < 50:
+                    yield sse("error", {"message": "No se pudo extraer texto de los conceptos/agravios. Verifica que el PDF sea legible."})
+                    return
+                yield sse("progress", {"step": -1, "progress": 80, "detail": f"Conceptos/agravios: {len(texto_cv):,} caracteres extraídos"})
+            except Exception as e:
+                print(f"   OCR error (conceptos): {e}")
+                import traceback; traceback.print_exc()
+                yield sse("error", {"message": f"Error al procesar conceptos/agravios: {str(e)[:150]}"})
+                return
+        
+        if not resumen_acto and not texto_cv:
+            yield sse("error", {"message": "No se pudo extraer texto de ningún documento."})
+            return
+        
+        print(f"   Acto: {len(resumen_acto)} chars | CV/Agravios: {len(texto_cv)} chars")
+        
+        # ── Build caso_input ──────────────────────────────────────
+        disidencias = []
+        if texto_cv:
+            disidencias.append({
+                "tipo": "concepto_violacion" if "amparo" in tipo_asunto.lower() else "agravio",
+                "texto": texto_cv,
+            })
+        
+        caso_input = {
+            "meta": {
+                "tipo_asunto": tipo_asunto,
+                "materia": materia,
+                "circuito": circuito or "desconocido",
+            },
+            "inputs": {
+                "resumen_acto_reclamado": resumen_acto,
+                "disidencias": disidencias,
+            },
+        }
+        
+        yield sse("progress", {"step": 0, "progress": 0, "detail": "Documentos procesados — iniciando pipeline de redacción..."})
         
         from redactor_tcc_v3 import run_redactor_tcc_pipeline
         
