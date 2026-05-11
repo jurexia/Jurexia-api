@@ -637,31 +637,43 @@ def _build_pass3_prompt(pass0: dict, pass2: dict, caso_meta: dict) -> str:
         if marcos:
             parts.append(f"\nMARCO NORMATIVO A TRANSCRIBIR:")
             for m in marcos:
-                parts.append(f"\n  • {m.get('cuerpo_legal','')} — Art. {m.get('articulo','')}")
-                parts.append(f"    Razón: {m.get('razon_aplicacion','')}")
-                parts.append(f"    Transcripción: \"{m.get('transcripcion_propuesta','')}\"")
+                if isinstance(m, str):
+                    parts.append(f"\n  • {m}")
+                else:
+                    parts.append(f"\n  • {m.get('cuerpo_legal','')} — Art. {m.get('articulo','')}")
+                    parts.append(f"    Razón: {m.get('razon_aplicacion','')}")
+                    parts.append(f"    Transcripción: \"{m.get('transcripcion_propuesta','')}\"")
         
         tesis = plan.get("tesis_clave_a_citar", [])
         if tesis:
             parts.append(f"\nTESIS CLAVE A CITAR:")
             for t in tesis:
-                parts.append(f"\n  • {t.get('registro','?')} · {t.get('instancia','')}")
-                parts.append(f"    RUBRO: {t.get('rubro_corto','')}")
-                parts.append(f"    Aplicación: {t.get('como_se_aplica_al_caso','')}")
+                if isinstance(t, str):
+                    parts.append(f"\n  • {t}")
+                else:
+                    parts.append(f"\n  • {t.get('registro','?')} · {t.get('instancia','')}")
+                    parts.append(f"    RUBRO: {t.get('rubro_corto','')}")
+                    parts.append(f"    Aplicación: {t.get('como_se_aplica_al_caso','')}")
         
         precs = plan.get("precedentes_clave_a_citar", [])
         if precs:
             parts.append(f"\nPRECEDENTES CLAVE:")
             for h in precs:
-                parts.append(f"\n  • {h.get('expediente','?')} · {h.get('tribunal','')}")
-                parts.append(f"    Razón: {h.get('razon_pertinencia','')}")
+                if isinstance(h, str):
+                    parts.append(f"\n  • {h}")
+                else:
+                    parts.append(f"\n  • {h.get('expediente','?')} · {h.get('tribunal','')}")
+                    parts.append(f"    Razón: {h.get('razon_pertinencia','')}")
         
         sub = plan.get("subsuncion_concreta", {})
         if sub:
-            parts.append(f"\nSUBSUNCIÓN:")
-            parts.append(f"  Premisa mayor: {sub.get('premisa_mayor','')}")
-            parts.append(f"  Premisa menor: {sub.get('premisa_menor','')}")
-            parts.append(f"  Conclusión: {sub.get('conclusion_silogistica','')}")
+            if isinstance(sub, str):
+                parts.append(f"\nSUBSUNCIÓN: {sub}")
+            else:
+                parts.append(f"\nSUBSUNCIÓN:")
+                parts.append(f"  Premisa mayor: {sub.get('premisa_mayor','')}")
+                parts.append(f"  Premisa menor: {sub.get('premisa_menor','')}")
+                parts.append(f"  Conclusión: {sub.get('conclusion_silogistica','')}")
         
         parts.append(f"\nCONCLUSIÓN RAZONADA: {plan.get('conclusion_razonada','')}")
     
