@@ -13874,7 +13874,7 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
             if result.data and len(result.data) > 0:
                 row = result.data[0]
                 sub_type = row.get('subscription_type', '')
-                if sub_type in ('platinum', 'ultra_secretarios'):
+                if sub_type in ('platinum_monthly', 'platinum_annual', 'ultra_secretarios'):
                     return True
                 if row.get('can_access_sentencia', False):
                     return True
@@ -14246,51 +14246,56 @@ async def redactor_tcc_beta_generate(
                 http_client=_http_pool,
             ):
                 # If pipeline completed successfully, consume 10 queries NOW
-                if event["type"] == "complete" and supabase_admin:
-                    try:
-                        email_lower = user_email.strip().lower()
-                        user_result = supabase_admin.table('user_profiles') \
-                            .select('user_id, queries_used, queries_limit') \
-                            .eq('email', email_lower) \
-                            .limit(1) \
-                            .execute()
-                        if user_result.data and len(user_result.data) > 0:
-                            uid = user_result.data[0].get('user_id')
-                            if uid:
-                                for i in range(10):
-                                    supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
-                                # Get updated counts
-                                updated = supabase_admin.table('user_profiles') \
-                                    .select('queries_used, queries_limit') \
-                                    .eq('user_id', uid) \
-                                    .limit(1) \
-                                    .execute()
-                                if updated.data:
-                                    event["data"]["queries_used"] = updated.data[0].get('queries_used', 0)
-                                    event["data"]["queries_limit"] = updated.data[0].get('queries_limit', 0)
-                                print(f"   💰 Consumed 10 queries for TCC Beta — user {email_lower}")
-                                
-                                # Save study to redactor_estudios
-                                try:
-                                    import json as _json
-                                    estudio_md = event["data"].get("estudio_markdown", "")
-                                    insert_result = supabase_admin.table('redactor_estudios').insert({
-                                        "user_id": uid,
-                                        "tipo_asunto": tipo_asunto,
-                                        "materia": materia,
-                                        "circuito": circuito or 1,
-                                        "estudio_markdown": estudio_md,
-                                        "n_palabras": event["data"].get("n_palabras", 0),
-                                        "total_elapsed_s": event["data"].get("total_elapsed_s", 0),
-                                        "precedentes_utiles": _json.dumps(event["data"].get("precedentes_utiles", [])),
-                                    }).execute()
-                                    if insert_result.data:
-                                        event["data"]["study_id"] = insert_result.data[0].get("id")
-                                        print(f"   💾 Study saved to redactor_estudios: {event['data'].get('study_id')}")
-                                except Exception as save_err:
-                                    print(f"   ⚠️ Failed to save study: {save_err}")
-                    except Exception as e:
-                        print(f"   ⚠️ Post-success query consumption error: {e}")
+                if event["type"] == "complete":
+                    print(f"   ✅ TCC Beta pipeline COMPLETE. supabase_admin={'YES' if supabase_admin else 'NO'}")
+                    if supabase_admin:
+                        try:
+                            email_lower = user_email.strip().lower()
+                            user_result = supabase_admin.table('user_profiles') \
+                                .select('user_id, queries_used, queries_limit') \
+                                .eq('email', email_lower) \
+                                .limit(1) \
+                                .execute()
+                            if user_result.data and len(user_result.data) > 0:
+                                uid = user_result.data[0].get('user_id')
+                                print(f"   👤 Found user_id={uid} for {email_lower}")
+                                if uid:
+                                    for i in range(10):
+                                        supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
+                                    # Get updated counts
+                                    updated = supabase_admin.table('user_profiles') \
+                                        .select('queries_used, queries_limit') \
+                                        .eq('user_id', uid) \
+                                        .limit(1) \
+                                        .execute()
+                                    if updated.data:
+                                        event["data"]["queries_used"] = updated.data[0].get('queries_used', 0)
+                                        event["data"]["queries_limit"] = updated.data[0].get('queries_limit', 0)
+                                    print(f"   💰 Consumed 10 queries for TCC Beta — user {email_lower}")
+                                    
+                                    # Save study to redactor_estudios
+                                    try:
+                                        import json as _json
+                                        estudio_md = event["data"].get("estudio_markdown", "")
+                                        insert_result = supabase_admin.table('redactor_estudios').insert({
+                                            "user_id": uid,
+                                            "tipo_asunto": tipo_asunto,
+                                            "materia": materia,
+                                            "circuito": circuito or 1,
+                                            "estudio_markdown": estudio_md,
+                                            "n_palabras": event["data"].get("n_palabras", 0),
+                                            "total_elapsed_s": event["data"].get("total_elapsed_s", 0),
+                                            "precedentes_utiles": _json.dumps(event["data"].get("precedentes_utiles", [])),
+                                        }).execute()
+                                        if insert_result.data:
+                                            event["data"]["study_id"] = insert_result.data[0].get("id")
+                                            print(f"   💾 Study saved to redactor_estudios: {event['data'].get('study_id')}")
+                                    except Exception as save_err:
+                                        print(f"   ⚠️ Failed to save study: {save_err}")
+                            else:
+                                print(f"   ⚠️ No user_profiles row found for {email_lower}")
+                        except Exception as e:
+                            print(f"   ⚠️ Post-success query consumption error: {e}")
                 
                 yield sse(event["type"], event["data"])
         except Exception as e:
@@ -14321,7 +14326,7 @@ async def redactor_tcc_export_docx(
       - Citations in italic, 1.0 spacing, indented
       - APA-style footnotes
     """
-    if not await _can_access_redactor_tcc(user_email):
+    if not _can_access_redactor_tcc(user_email):
         raise HTTPException(403, "Requiere plan Platinum para exportar DOCX")
 
     if not estudio_markdown or len(estudio_markdown.strip()) < 50:
