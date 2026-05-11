@@ -13783,6 +13783,314 @@ Redacta ahora. Texto directo para la sentencia, sin metadiscurso."""
     return StreamingResponse(generate_sse(), media_type="text/event-stream")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# REDACTOR TCC BETA — Pipeline v3 Multipass (DeepSeek V4 Pro)
+# Acceso exclusivo: plan Platinum + admins
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _can_access_redactor_tcc(user_email: str) -> bool:
+    """
+    Check if a user can access the Redactor TCC Beta.
+    Returns True if: admin, platinum subscription, OR can_access_sentencia flag.
+    """
+    email_lower = user_email.strip().lower()
+    if email_lower in ADMIN_EMAILS:
+        return True
+    if supabase_admin:
+        try:
+            result = supabase_admin.table('user_profiles') \
+                .select('subscription_type, can_access_sentencia') \
+                .eq('email', email_lower) \
+                .limit(1) \
+                .execute()
+            if result.data and len(result.data) > 0:
+                row = result.data[0]
+                sub_type = row.get('subscription_type', '')
+                if sub_type in ('platinum', 'ultra_secretarios'):
+                    return True
+                if row.get('can_access_sentencia', False):
+                    return True
+        except Exception as e:
+            print(f"   ⚠️ Error checking redactor TCC access for {email_lower}: {e}")
+    return False
+
+
+def _build_qdrant_search_for_redactor():
+    """
+    Returns an async search function that bridges the redactor_tcc_v3 pipeline
+    with the existing Qdrant search infrastructure in main.py.
+    """
+    async def qdrant_search_for_redactor(query: str, problem_context: dict) -> dict:
+        """
+        Execute RAG search for a single query in the redactor pipeline.
+        Returns dict with tesis, normas, holdings keys.
+        """
+        materia = problem_context.get("materia", "")
+        circuito = problem_context.get("circuito", "")
+        marco_anticipado = problem_context.get("marco_anticipado", [])
+        
+        result = {"tesis": [], "normas": [], "holdings": []}
+        
+        try:
+            embedding = await get_dense_embedding(query)
+            if not embedding:
+                return result
+            
+            # Search tesis/jurisprudencia
+            try:
+                async with QDRANT_SEM:
+                    hits = await qdrant_client.query_points(
+                        collection_name="tesis_unificada",
+                        query=embedding,
+                        limit=12,
+                        with_payload=True,
+                        score_threshold=0.30,
+                    )
+                for pt in hits.points:
+                    p = pt.payload or {}
+                    result["tesis"].append({
+                        "score": round(pt.score, 4),
+                        "registro": p.get("registro", ""),
+                        "rubro": p.get("rubro", ""),
+                        "texto_relevante": p.get("texto", "")[:1200],
+                        "instancia": p.get("instancia", ""),
+                        "epoca": p.get("epoca", ""),
+                        "tipo": p.get("tipo", ""),
+                    })
+            except Exception as e:
+                print(f"     ⚠️ Tesis search error: {e}")
+            
+            # Search normas (leyes_federales)
+            try:
+                async with QDRANT_SEM:
+                    hits = await qdrant_client.query_points(
+                        collection_name="leyes_federales",
+                        query=embedding,
+                        limit=10,
+                        with_payload=True,
+                        score_threshold=0.30,
+                    )
+                for pt in hits.points:
+                    p = pt.payload or {}
+                    result["normas"].append({
+                        "score": round(pt.score, 4),
+                        "cuerpo_legal": p.get("ley", ""),
+                        "articulo": p.get("articulo", ""),
+                        "texto": p.get("texto", "")[:1200],
+                        "fuero": p.get("fuero", "federal"),
+                        "from_marco_anticipado": False,
+                    })
+            except Exception as e:
+                print(f"     ⚠️ Normas search error: {e}")
+            
+            # Search marco anticipado queries
+            for marco_query in marco_anticipado[:3]:
+                try:
+                    marco_emb = await generate_embedding(marco_query)
+                    if marco_emb:
+                        async with QDRANT_SEM:
+                            hits = await qdrant_client.query_points(
+                                collection_name="leyes_federales",
+                                query=marco_emb,
+                                limit=3,
+                                with_payload=True,
+                                score_threshold=0.35,
+                            )
+                        for pt in hits.points:
+                            p = pt.payload or {}
+                            result["normas"].append({
+                                "score": round(pt.score, 4),
+                                "cuerpo_legal": p.get("ley", ""),
+                                "articulo": p.get("articulo", ""),
+                                "texto": p.get("texto", "")[:1200],
+                                "fuero": p.get("fuero", "federal"),
+                                "from_marco_anticipado": True,
+                            })
+                except Exception as e:
+                    print(f"     ⚠️ marco anticipado search error: {e}")
+            
+            # Search holdings/precedentes
+            try:
+                async with QDRANT_SEM:
+                    hits = await qdrant_client.query_points(
+                        collection_name="sentencias_holdings",
+                        query=embedding,
+                        limit=8,
+                        with_payload=True,
+                        score_threshold=0.30,
+                    )
+                for pt in hits.points:
+                    p = pt.payload or {}
+                    result["holdings"].append({
+                        "score": round(pt.score, 4),
+                        "expediente": p.get("expediente", ""),
+                        "tribunal": p.get("tribunal", ""),
+                        "tema": p.get("tema", ""),
+                        "holding": p.get("holding", "")[:1500],
+                        "sentido": p.get("sentido", ""),
+                    })
+            except Exception as e:
+                print(f"     ⚠️ Holdings search error: {e}")
+            
+        except Exception as e:
+            print(f"   ⚠️ RAG search error for query '{query[:50]}': {e}")
+        
+        return result
+    
+    return qdrant_search_for_redactor
+
+
+@app.post("/redactor/tcc-beta/generate")
+async def redactor_tcc_beta_generate(
+    tipo_asunto: str = Form(...),
+    materia: str = Form(...),
+    circuito: str = Form(""),
+    user_email: str = Form(...),
+    texto_acto_reclamado: str = Form(""),
+    texto_conceptos_agravios: str = Form(""),
+    doc_acto: Optional[UploadFile] = File(None),
+    doc_conceptos: Optional[UploadFile] = File(None),
+):
+    """
+    Redactor TCC Beta — Pipeline v3 Multipass con DeepSeek V4 Pro.
+    
+    Exclusivo para usuarios Platinum.
+    
+    Acepta texto directo O PDFs de:
+    - Determinación impugnada / acto reclamado
+    - Conceptos de violación / agravios
+    
+    SSE streaming del progreso y resultado.
+    """
+    # ── Access control ─────────────────────────────────────────────
+    if not _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
+    
+    # ── Extract text from PDFs if provided ─────────────────────────
+    resumen_acto = texto_acto_reclamado.strip()
+    texto_cv = texto_conceptos_agravios.strip()
+    
+    if doc_acto and not resumen_acto:
+        try:
+            resumen_acto = await _extract_text_from_upload(doc_acto)
+            if not resumen_acto or len(resumen_acto.strip()) < 50:
+                raise HTTPException(400, "No se pudo extraer texto suficiente del documento del acto reclamado. Verifica que el archivo no esté escaneado o dañado.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(400, f"Error al procesar documento del acto reclamado: {str(e)[:100]}")
+    
+    if doc_conceptos and not texto_cv:
+        try:
+            texto_cv = await _extract_text_from_upload(doc_conceptos)
+            if not texto_cv or len(texto_cv.strip()) < 50:
+                raise HTTPException(400, "No se pudo extraer texto suficiente del documento de conceptos/agravios. Verifica que el archivo no esté escaneado o dañado.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(400, f"Error al procesar documento de conceptos/agravios: {str(e)[:100]}")
+    
+    if not resumen_acto and not texto_cv:
+        raise HTTPException(400, "Debe proveer al menos un documento (acto reclamado o conceptos/agravios)")
+    
+    # ── Build caso_input ───────────────────────────────────────────
+    disidencias = []
+    if texto_cv:
+        disidencias.append({
+            "tipo": "concepto_violacion" if "amparo" in tipo_asunto.lower() else "agravio",
+            "texto": texto_cv,
+        })
+    
+    caso_input = {
+        "meta": {
+            "tipo_asunto": tipo_asunto,
+            "materia": materia,
+            "circuito": circuito or "desconocido",
+        },
+        "inputs": {
+            "resumen_acto_reclamado": resumen_acto,
+            "disidencias": disidencias,
+        },
+    }
+    
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not deepseek_key:
+        raise HTTPException(500, "DeepSeek API key not configured")
+    
+    print(f"\n🏛️ REDACTOR TCC BETA — {tipo_asunto} ({materia}) — {user_email}")
+    print(f"   Acto: {len(resumen_acto)} chars | CV/Agravios: {len(texto_cv)} chars")
+    
+    async def generate_sse():
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        
+        from redactor_tcc_v3 import run_redactor_tcc_pipeline
+        
+        qdrant_search_fn = _build_qdrant_search_for_redactor()
+        
+        try:
+            async for event in run_redactor_tcc_pipeline(
+                caso_input=caso_input,
+                qdrant_search_fn=qdrant_search_fn,
+                deepseek_api_key=deepseek_key,
+                http_client=_http_pool,
+            ):
+                yield sse(event["type"], event["data"])
+        except Exception as e:
+            print(f"   ❌ Redactor TCC pipeline error: {e}")
+            import traceback
+            traceback.print_exc()
+            yield sse("error", {"message": str(e)})
+    
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REDACTOR TCC BETA — DOCX Export (PJF format)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/redactor/tcc-beta/export-docx")
+async def redactor_tcc_export_docx(
+    user_email: str = Form(...),
+    estudio_markdown: str = Form(...),
+    tipo_asunto: str = Form("amparo_directo"),
+    materia: str = Form("civil"),
+    circuito: str = Form(""),
+):
+    """
+    Convert the study markdown (from TCC Beta pipeline) to a DOCX
+    with official PJF formatting:
+      - Arial 14, 1.5 line spacing, justified
+      - Citations in italic, 1.0 spacing, indented
+      - APA-style footnotes
+    """
+    if not await _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "Requiere plan Platinum para exportar DOCX")
+
+    if not estudio_markdown or len(estudio_markdown.strip()) < 50:
+        raise HTTPException(400, "El estudio de fondo está vacío o es demasiado corto")
+
+    try:
+        from docx_generator_tcc import generate_docx_bytes
+        docx_bytes = generate_docx_bytes(
+            estudio_markdown,
+            meta={"tipo_asunto": tipo_asunto, "materia": materia, "circuito": circuito},
+        )
+    except Exception as e:
+        print(f"   ❌ DOCX generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Error al generar DOCX: {str(e)[:100]}")
+
+    from starlette.responses import Response
+    filename = f"estudio_fondo_{tipo_asunto}_{materia}.docx"
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/draft-sentencia")
 async def draft_sentencia(
     tipo: str = Form(...),
