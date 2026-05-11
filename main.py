@@ -13910,7 +13910,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name="tesis_unificada",
                         query=embedding,
-                        limit=12,
+                        limit=20,
                         with_payload=True,
                         score_threshold=0.30,
                     )
@@ -13934,7 +13934,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name="leyes_federales",
                         query=embedding,
-                        limit=10,
+                        limit=15,
                         with_payload=True,
                         score_threshold=0.30,
                     )
@@ -13983,7 +13983,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name="sentencias_holdings",
                         query=embedding,
-                        limit=8,
+                        limit=12,
                         with_payload=True,
                         score_threshold=0.30,
                     )
@@ -14034,33 +14034,8 @@ async def redactor_tcc_beta_generate(
     if not _can_access_redactor_tcc(user_email):
         raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
     
-    # ── Consume 5 queries (TCC Beta is resource-intensive) ─────────
-    if supabase_admin:
-        try:
-            email_lower = user_email.strip().lower()
-            # Get user_id from email
-            user_result = supabase_admin.table('user_profiles') \
-                .select('user_id') \
-                .eq('email', email_lower) \
-                .limit(1) \
-                .execute()
-            if user_result.data and len(user_result.data) > 0:
-                uid = user_result.data[0].get('user_id')
-                if uid:
-                    for i in range(10):
-                        q_res = supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
-                        if q_res.data and not q_res.data.get('allowed', True):
-                            raise HTTPException(
-                                403,
-                                f"Has alcanzado tu límite de consultas. "
-                                f"Usadas: {q_res.data.get('used', 0)}/{q_res.data.get('limit', 0)}. "
-                                f"El Redactor TCC Beta consume 10 consultas por generación."
-                            )
-                    print(f"   💰 Consumed 10 queries for TCC Beta — user {email_lower}")
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"   ⚠️ Query consumption error (proceeding): {e}")
+    # ── Query consumption is deferred to AFTER successful generation ──
+    # (moved inside SSE generator to only charge on success)
     
     # ── Read raw file bytes BEFORE entering SSE (fast, just reads bytes) ──
     resumen_acto = texto_acto_reclamado.strip()
@@ -14269,6 +14244,33 @@ async def redactor_tcc_beta_generate(
                 deepseek_api_key=deepseek_key,
                 http_client=_http_pool,
             ):
+                # If pipeline completed successfully, consume 10 queries NOW
+                if event["type"] == "complete" and supabase_admin:
+                    try:
+                        email_lower = user_email.strip().lower()
+                        user_result = supabase_admin.table('user_profiles') \
+                            .select('user_id, queries_used, queries_limit') \
+                            .eq('email', email_lower) \
+                            .limit(1) \
+                            .execute()
+                        if user_result.data and len(user_result.data) > 0:
+                            uid = user_result.data[0].get('user_id')
+                            if uid:
+                                for i in range(10):
+                                    supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
+                                # Get updated counts
+                                updated = supabase_admin.table('user_profiles') \
+                                    .select('queries_used, queries_limit') \
+                                    .eq('user_id', uid) \
+                                    .limit(1) \
+                                    .execute()
+                                if updated.data:
+                                    event["data"]["queries_used"] = updated.data[0].get('queries_used', 0)
+                                    event["data"]["queries_limit"] = updated.data[0].get('queries_limit', 0)
+                                print(f"   💰 Consumed 10 queries for TCC Beta — user {email_lower}")
+                    except Exception as e:
+                        print(f"   ⚠️ Post-success query consumption error: {e}")
+                
                 yield sse(event["type"], event["data"])
         except Exception as e:
             print(f"   ❌ Redactor TCC pipeline error: {e}")

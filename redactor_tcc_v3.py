@@ -40,9 +40,9 @@ DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-pro"
 
 # Límites de catálogo para Pass 2 (evita saturar contexto)
-MAX_TESIS_PER_PROBLEM = 8
-MAX_HOLDINGS_PER_PROBLEM = 6
-MAX_NORMAS_PER_PROBLEM = 10
+MAX_TESIS_PER_PROBLEM = 12
+MAX_HOLDINGS_PER_PROBLEM = 10
+MAX_NORMAS_PER_PROBLEM = 12
 
 
 # ═══════════════════════════════════════════════════════════════════════
