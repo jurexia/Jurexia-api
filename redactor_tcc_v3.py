@@ -53,7 +53,7 @@ class RedactorEvent:
     """Evento SSE emitido por el pipeline."""
     
     @staticmethod
-    def phase(step: str, progress: int, detail: str = "") -> dict:
+    def phase(step: int, progress: int, detail: str = "") -> dict:
         return {"type": "phase", "data": {"step": step, "progress": progress, "detail": detail}}
     
     @staticmethod
@@ -728,7 +728,7 @@ async def run_redactor_tcc_pipeline(
         caso_meta = caso_input["meta"]
         
         # ─── PASS 0 ────────────────────────────────────────────────
-        yield RedactorEvent.phase("Analizando estructura del caso...", 5)
+        yield RedactorEvent.phase(0, 5, "Analizando estructura del caso...")
         t0 = time.time()
         
         try:
@@ -747,7 +747,7 @@ async def run_redactor_tcc_pipeline(
             "complejidad": pass0.get("complejidad_caso", "?"),
         })
         yield RedactorEvent.phase(
-            f"{n_problems} problemas jurídicos identificados — buscando jurisprudencia...", 20
+            1, 20, f"{n_problems} problemas jurídicos identificados — buscando jurisprudencia..."
         )
         
         # ─── PASS 1 ────────────────────────────────────────────────
@@ -769,7 +769,7 @@ async def run_redactor_tcc_pipeline(
         
         yield RedactorEvent.pass_complete(1, elapsed1, {"n_fuentes_total": total_fuentes})
         yield RedactorEvent.phase(
-            f"{total_fuentes} fuentes recuperadas — construyendo plan de redacción...", 40
+            2, 40, f"{total_fuentes} fuentes recuperadas — construyendo plan de redacción..."
         )
         
         # ─── PASS 2 ────────────────────────────────────────────────
@@ -786,7 +786,7 @@ async def run_redactor_tcc_pipeline(
         
         yield RedactorEvent.pass_complete(2, elapsed2, {"n_tesis_seleccionadas": n_tesis_filtradas})
         yield RedactorEvent.phase(
-            f"Plan listo ({n_tesis_filtradas} tesis seleccionadas) — redactando estudio de fondo...", 60
+            3, 60, f"Plan listo ({n_tesis_filtradas} tesis seleccionadas) — redactando estudio de fondo..."
         )
         
         # ─── PASS 3 ────────────────────────────────────────────────
