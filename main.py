@@ -14592,13 +14592,16 @@ async def redactor_tcc_beta_generate(
                     if supabase_admin:
                         try:
                             email_lower = user_email.strip().lower()
+                            # NOTA: la columna en user_profiles se llama `id`, NO `user_id`.
+                            # El bug anterior pedía user_id → 400 → exception silenciada →
+                            # ni se consumían queries ni se guardaba el estudio.
                             user_result = supabase_admin.table('user_profiles') \
-                                .select('user_id, queries_used, queries_limit') \
+                                .select('id, queries_used, queries_limit') \
                                 .eq('email', email_lower) \
                                 .limit(1) \
                                 .execute()
                             if user_result.data and len(user_result.data) > 0:
-                                uid = user_result.data[0].get('user_id')
+                                uid = user_result.data[0].get('id')
                                 print(f"   👤 Found user_id={uid} for {email_lower}")
                                 if uid:
                                     for i in range(10):
