@@ -14075,44 +14075,55 @@ async def redactor_tcc_beta_generate(
                 import io as _io
                 from fastapi import UploadFile as _UF
                 
-                # Extract text using OpenRouter API (google/gemini-2.5-pro)
+                # Extract text via Mistral OCR plugin on OpenRouter (specialized for scanned PDFs)
                 async def _extract_from_bytes(content: bytes, filename: str) -> str:
-                    """Extract text from bytes. Native text first, then OCR via OpenRouter."""
+                    """Extract text from bytes. Native text first, then OCR via Mistral-OCR plugin."""
                     import io as _io
                     ext = filename.split(".")[-1].lower()
                     if ext == "pdf":
+                        n_pages = 0
                         try:
                             import fitz
                             doc = fitz.open(stream=content, filetype="pdf")
                             pages = [page.get_text() for page in doc]
                             n_pages = len(doc)
                             doc.close()
+                            # Detect scanned via PROPORTION of empty/near-empty pages,
+                            # not just total chars (a 50-page PDF with one cover-text page
+                            # was passing the old 200-char threshold and skipping OCR)
+                            empty_pages = sum(1 for p in pages if len((p or "").strip()) < 50)
+                            empty_ratio = empty_pages / max(1, n_pages)
                             text = "\n\n".join(pages).strip()
-                            if len(text) > 200:
-                                print(f"   PDF native text: {len(text)} chars, {n_pages} pages")
+                            if empty_ratio < 0.30 and len(text) > 200:
+                                print(f"   PDF native text: {len(text)} chars, {n_pages} pages, {empty_ratio:.0%} empty")
                                 return text
-                            print(f"   PDF is scanned ({n_pages} pages) — OpenRouter OCR (gemini-2.5-pro)")
+                            print(f"   PDF needs OCR ({n_pages} pages, {empty_ratio:.0%} empty pages) — Mistral OCR via OpenRouter")
                         except Exception as e:
                             print(f"   PyMuPDF error: {e}")
                             n_pages = 0
-                        
-                        # OCR via OpenRouter with google/gemini-2.5-pro
-                        import httpx, base64
+
+                        # OCR via OpenRouter `file-parser` plugin with engine=mistral-ocr.
+                        # Mistral OCR extracts text natively; downstream LLM just relays it.
+                        import httpx, base64, asyncio as _asyncio
                         or_key = os.getenv("OPENROUTER_API_KEY", "")
                         if not or_key:
-                            print("   OPENROUTER_API_KEY not set — falling back to Gemini direct")
+                            print("   OPENROUTER_API_KEY not set — OCR unavailable")
                             return ""
-                        
+
                         OCR_PROMPT = (
-                            "Transcribe TODO el texto de cada pagina de este PDF judicial mexicano. "
-                            "Devuelve el texto plano completo sin omitir nada. Preserva parrafos, "
-                            "titulos, numeracion, articulos citados, nombres de partes, fechas y montos."
+                            "Transcribe el documento adjunto al pie de la letra. "
+                            "Devuelve EXCLUSIVAMENTE el texto extraído tal cual aparece, sin resumir, "
+                            "sin agregar comentarios y sin omitir nada. Preserva párrafos, títulos, "
+                            "numeración, artículos, nombres, fechas y montos."
                         )
-                        OCR_MODEL = "google/gemini-2.5-flash"
-                        CHUNK_SIZE = 20  # pages per chunk for OpenRouter
-                        
+                        # Cheap downstream model — Mistral-OCR plugin already produced clean text;
+                        # the LLM only needs to echo it back.
+                        OCR_DOWNSTREAM_MODEL = os.getenv("REDACTOR_OCR_MODEL", "google/gemini-2.5-flash")
+                        CHUNK_SIZE = 25  # pages per chunk
+                        OCR_PARALLEL = 4  # max concurrent chunks
+
                         async def _ocr_chunk(pdf_bytes: bytes, label: str) -> str:
-                            """Send a PDF chunk to OpenRouter for OCR."""
+                            """Send one PDF chunk to OpenRouter with mistral-ocr plugin."""
                             b64 = base64.standard_b64encode(pdf_bytes).decode()
                             async with httpx.AsyncClient(timeout=300) as client:
                                 resp = await client.post(
@@ -14122,59 +14133,80 @@ async def redactor_tcc_beta_generate(
                                         "Content-Type": "application/json",
                                     },
                                     json={
-                                        "model": OCR_MODEL,
+                                        "model": OCR_DOWNSTREAM_MODEL,
                                         "messages": [{
                                             "role": "user",
                                             "content": [
-                                                {"type": "image_url", "image_url": {"url": f"data:application/pdf;base64,{b64}"}},
                                                 {"type": "text", "text": OCR_PROMPT},
+                                                {
+                                                    "type": "file",
+                                                    "file": {
+                                                        "filename": f"chunk_{label}.pdf",
+                                                        "file_data": f"data:application/pdf;base64,{b64}",
+                                                    },
+                                                },
                                             ]
                                         }],
-                                        "max_tokens": 40000,
+                                        "plugins": [{
+                                            "id": "file-parser",
+                                            "pdf": {"engine": "mistral-ocr"},
+                                        }],
+                                        "max_tokens": 16000,
                                     },
                                 )
-                            data = resp.json()
+                            try:
+                                data = resp.json()
+                            except Exception:
+                                print(f"   OpenRouter OCR non-JSON response ({label}): {resp.text[:200]}")
+                                return ""
                             text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                             if not text:
                                 err = data.get("error", {}).get("message", "Unknown error")
                                 print(f"   OpenRouter OCR error ({label}): {err}")
-                            return text
-                        
+                            return text or ""
+
                         import time as _time
-                        
-                        if n_pages <= 25:
-                            # Process whole PDF in one shot
-                            t0 = _time.time()
-                            result = await _ocr_chunk(content, f"{n_pages} pages")
+                        t0 = _time.time()
+
+                        if not n_pages or n_pages <= CHUNK_SIZE:
+                            # Single shot
+                            result = await _ocr_chunk(content, f"1-{n_pages or '?'}")
                             print(f"   OCR complete: {len(result)} chars in {_time.time()-t0:.1f}s")
                             return result
-                        else:
-                            # Split into chunks
-                            import fitz as _fitz
-                            src = _fitz.open(stream=content, filetype="pdf")
-                            chunks_text = []
-                            total_pages = len(src)
-                            t0 = _time.time()
-                            
-                            for start in range(0, total_pages, CHUNK_SIZE):
-                                end = min(start + CHUNK_SIZE, total_pages)
-                                label = f"pages {start+1}-{end}/{total_pages}"
-                                print(f"   OCR chunk: {label}...")
-                                
-                                chunk_doc = _fitz.open()
-                                chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
-                                chunk_bytes = chunk_doc.tobytes()
-                                chunk_doc.close()
-                                
-                                chunk_text = await _ocr_chunk(chunk_bytes, label)
-                                chunks_text.append(chunk_text)
-                                print(f"   Chunk {label}: {len(chunk_text)} chars")
-                            
-                            src.close()
-                            result = "\n\n".join(chunks_text).strip()
-                            print(f"   OCR total: {len(result)} chars in {_time.time()-t0:.1f}s ({len(chunks_text)} chunks)")
-                            return result
-                    
+
+                        # Split into chunks and OCR them in parallel (bounded)
+                        import fitz as _fitz
+                        src = _fitz.open(stream=content, filetype="pdf")
+                        total_pages = len(src)
+                        chunk_payloads: list[tuple[int, bytes, str]] = []
+                        for start in range(0, total_pages, CHUNK_SIZE):
+                            end = min(start + CHUNK_SIZE, total_pages)
+                            label = f"{start+1}-{end}"
+                            chunk_doc = _fitz.open()
+                            chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
+                            chunk_payloads.append((start, chunk_doc.tobytes(), label))
+                            chunk_doc.close()
+                        src.close()
+
+                        sem = _asyncio.Semaphore(OCR_PARALLEL)
+                        async def _bounded(idx: int, pdf_bytes: bytes, label: str) -> tuple[int, str]:
+                            async with sem:
+                                print(f"   OCR chunk {label}/{total_pages}...")
+                                txt = await _ocr_chunk(pdf_bytes, label)
+                                print(f"   OCR chunk {label}: {len(txt)} chars")
+                                return idx, txt
+
+                        results = await _asyncio.gather(
+                            *[_bounded(i, b, l) for i, b, l in chunk_payloads],
+                            return_exceptions=True,
+                        )
+                        ordered: list[str] = []
+                        for r in sorted([r for r in results if not isinstance(r, Exception)], key=lambda x: x[0]):
+                            ordered.append(r[1])
+                        result = "\n\n".join(ordered).strip()
+                        print(f"   OCR total: {len(result)} chars in {_time.time()-t0:.1f}s ({len(chunk_payloads)} chunks, parallel={OCR_PARALLEL})")
+                        return result
+
                     if ext in ("docx", "doc"):
                         from docx import Document as _Docx
                         doc = _Docx(_io.BytesIO(content))

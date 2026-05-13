@@ -403,7 +403,7 @@ async def _run_pass1(
 ) -> list[dict]:
     """
     Ejecuta búsquedas RAG dirigidas para cada problema.
-    
+
     qdrant_search_fn debe ser una función async que reciba:
       - query: str
       - problem_context: dict (con materia, circuito, tipo)
@@ -411,18 +411,19 @@ async def _run_pass1(
       - dict con keys: tesis, normas, holdings, estudio_fondo
     """
     import asyncio
-    
-    results = []
+
     problems = pass0.get("problemas_juridicos", [])
-    
-    for prob in problems:
+
+    # Build a single flat task list across ALL problems and queries,
+    # so the whole RAG fan-out runs in one asyncio.gather instead of
+    # one await per problem.
+    flat_tasks: list = []
+    flat_index: list[tuple[int, int]] = []  # (problem_idx, query_idx)
+    for p_idx, prob in enumerate(problems):
         queries = prob.get("queries_rag", [])
         marco = prob.get("marco_normativo_anticipado", [])
-        
-        # Execute all queries for this problem in parallel
-        search_tasks = []
-        for q in queries:
-            search_tasks.append(
+        for q_idx, q in enumerate(queries):
+            flat_tasks.append(
                 qdrant_search_fn(
                     query=q,
                     problem_context={
@@ -433,13 +434,21 @@ async def _run_pass1(
                     }
                 )
             )
-        
-        # Gather results
-        if search_tasks:
-            search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
-        else:
-            search_results = []
-        
+            flat_index.append((p_idx, q_idx))
+
+    flat_results = await asyncio.gather(*flat_tasks, return_exceptions=True) if flat_tasks else []
+
+    # Bucket results back per problem
+    per_problem: list[list] = [[] for _ in problems]
+    for (p_idx, _q_idx), sr in zip(flat_index, flat_results):
+        per_problem[p_idx].append(sr)
+
+    results = []
+    for p_idx, prob in enumerate(problems):
+        queries = prob.get("queries_rag", [])
+        marco = prob.get("marco_normativo_anticipado", [])
+        search_results = per_problem[p_idx]
+
         # Merge results across queries (deduplicate by registro/expediente)
         merged = {"tesis": [], "normas": [], "holdings": [], "estudio_fondo": []}
         seen_registros = set()
@@ -686,23 +695,80 @@ def _build_pass3_prompt(pass0: dict, pass2: dict, caso_meta: dict) -> str:
     return "\n".join(parts)
 
 
-async def _run_pass3(
+async def _run_pass3_stream(
     http_client: httpx.AsyncClient,
     api_key: str,
     pass0: dict,
     pass2: dict,
     caso_meta: dict,
-) -> str:
-    """Ejecuta Pass 3 y devuelve el estudio de fondo en markdown."""
+) -> AsyncGenerator[dict, None]:
+    """
+    Ejecuta Pass 3 en modo streaming. Yields:
+      - {"type": "token", "data": {"text": "..."}} por cada delta
+      - {"type": "final", "data": {"markdown": "...", "finish_reason": "..."}} al cerrar
+    Si la API truncara (`finish_reason="length"`) emite también un `truncated=True`
+    en el final para que el caller decida si reintentar (sin doblar latencia
+    automáticamente como hace _call_with_retry).
+    """
     user_prompt = _build_pass3_prompt(pass0, pass2, caso_meta)
     n_problems = len(pass2.get("plan_por_problema", []))
     max_tokens = 16000 if n_problems <= 2 else 24000
-    
-    content, usage, finish_reason = await _call_with_retry(
-        http_client, api_key, PASS_3_SYSTEM, user_prompt, max_tokens,
-        temperature=0.2, json_mode=False,
-    )
-    return content
+
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": PASS_3_SYSTEM},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.2,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+
+    full_text_parts: list[str] = []
+    finish_reason = "unknown"
+
+    async with http_client.stream(
+        "POST",
+        DEEPSEEK_URL,
+        json=payload,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        timeout=900.0,
+    ) as resp:
+        resp.raise_for_status()
+        async for raw_line in resp.aiter_lines():
+            if not raw_line:
+                continue
+            line = raw_line.strip()
+            if line.startswith("data:"):
+                line = line[5:].strip()
+            if not line or line == "[DONE]":
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            choices = evt.get("choices", [])
+            if not choices:
+                continue
+            ch0 = choices[0]
+            delta = (ch0.get("delta") or {}).get("content", "")
+            if delta:
+                full_text_parts.append(delta)
+                yield {"type": "token", "data": {"text": delta}}
+            fr = ch0.get("finish_reason")
+            if fr:
+                finish_reason = fr
+
+    full_text = "".join(full_text_parts)
+    yield {
+        "type": "final",
+        "data": {
+            "markdown": full_text,
+            "finish_reason": finish_reason,
+            "truncated": finish_reason == "length",
+        },
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -801,15 +867,25 @@ async def run_redactor_tcc_pipeline(
             3, 60, f"Plan listo ({n_tesis_filtradas} tesis seleccionadas) — redactando estudio de fondo..."
         )
         
-        # ─── PASS 3 ────────────────────────────────────────────────
+        # ─── PASS 3 (streaming) ────────────────────────────────────
         t3 = time.time()
-        
+        estudio_md = ""
+        truncated = False
+
         try:
-            estudio_md = await _run_pass3(http_client, deepseek_api_key, pass0, pass2, caso_meta)
+            async for evt in _run_pass3_stream(http_client, deepseek_api_key, pass0, pass2, caso_meta):
+                if evt["type"] == "token":
+                    yield RedactorEvent.token(evt["data"]["text"])
+                elif evt["type"] == "final":
+                    estudio_md = evt["data"]["markdown"]
+                    truncated = evt["data"].get("truncated", False)
         except Exception as e:
             yield RedactorEvent.error(f"Error en redacción: {str(e)}", 3)
             return
-        
+
+        if truncated:
+            print(f"   ⚠️ Pass 3 truncado por max_tokens — devuelvo lo generado ({len(estudio_md)} chars)")
+
         elapsed3 = time.time() - t3
         n_words = len(estudio_md.split())
         
