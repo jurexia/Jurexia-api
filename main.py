@@ -14068,13 +14068,18 @@ async def redactor_tcc_beta_generate(
             return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
         
         # ── Phase 0: Extract text from PDFs (OCR if scanned) ────────
-        # This runs INSIDE the SSE stream so the connection stays alive
-        if doc_acto_bytes and not resumen_acto:
-            yield sse("progress", {"step": -1, "progress": 0, "detail": "Procesando documento del acto reclamado (OCR si es escaneado)..."})
+        # This runs INSIDE the SSE stream so the connection stays alive.
+        # Acto + conceptos se procesan EN PARALELO (asyncio.gather al final
+        # de este bloque) para no esperar el segundo OCR en serie.
+        need_acto_ocr = bool(doc_acto_bytes and not resumen_acto)
+        need_conceptos_ocr = bool(doc_conceptos_bytes and not texto_cv)
+
+        if need_acto_ocr or need_conceptos_ocr:
             try:
                 import io as _io
+                import asyncio as _asyncio_outer
                 from fastapi import UploadFile as _UF
-                
+
                 # Extract text via Mistral OCR plugin on OpenRouter (specialized for scanned PDFs)
                 async def _extract_from_bytes(content: bytes, filename: str) -> str:
                     """Extract text from bytes. Native text first, then OCR via Mistral-OCR plugin."""
@@ -14212,32 +14217,48 @@ async def redactor_tcc_beta_generate(
                         doc = _Docx(_io.BytesIO(content))
                         return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
                     return ""
-                
-                resumen_acto = await _extract_from_bytes(doc_acto_bytes, doc_acto_filename)
-                if not resumen_acto or len(resumen_acto.strip()) < 50:
-                    yield sse("error", {"message": "No se pudo extraer texto del acto reclamado. Verifica que el PDF sea legible."})
-                    return
-                yield sse("progress", {"step": -1, "progress": 50, "detail": f"Acto reclamado: {len(resumen_acto):,} caracteres extraídos"})
+
+                # Run OCR for acto + conceptos IN PARALLEL with one gather.
+                # Their PDFs are independent; serializing them was wasted time.
+                doc_labels = []
+                ocr_tasks = []
+                if need_acto_ocr:
+                    doc_labels.append(("acto", doc_acto_filename))
+                    ocr_tasks.append(_extract_from_bytes(doc_acto_bytes, doc_acto_filename))
+                if need_conceptos_ocr:
+                    doc_labels.append(("conceptos", doc_conceptos_filename))
+                    ocr_tasks.append(_extract_from_bytes(doc_conceptos_bytes, doc_conceptos_filename))
+
+                yield sse("progress", {"step": -1, "progress": 0, "detail": f"Procesando {len(ocr_tasks)} documento(s) en paralelo (OCR si son escaneados)..."})
+
+                ocr_results = await _asyncio_outer.gather(*ocr_tasks, return_exceptions=True)
+
+                # Validate and assign results
+                for (kind, fname), res in zip(doc_labels, ocr_results):
+                    if isinstance(res, Exception):
+                        print(f"   OCR error ({kind}): {res}")
+                        import traceback; traceback.print_exception(type(res), res, res.__traceback__)
+                        msg = "acto reclamado" if kind == "acto" else "conceptos/agravios"
+                        yield sse("error", {"message": f"Error al procesar el {msg}: {str(res)[:150]}"})
+                        return
+                    if not res or len(res.strip()) < 50:
+                        msg = "del acto reclamado" if kind == "acto" else "de los conceptos/agravios"
+                        yield sse("error", {"message": f"No se pudo extraer texto {msg}. Verifica que el PDF sea legible."})
+                        return
+                    if kind == "acto":
+                        resumen_acto = res
+                    else:
+                        texto_cv = res
+
+                acto_chars = len(resumen_acto) if resumen_acto else 0
+                cv_chars = len(texto_cv) if texto_cv else 0
+                yield sse("progress", {"step": -1, "progress": 80, "detail": f"OCR completo · acto: {acto_chars:,} chars · conceptos: {cv_chars:,} chars"})
             except Exception as e:
-                print(f"   OCR error (acto): {e}")
+                print(f"   OCR error (parallel): {e}")
                 import traceback; traceback.print_exc()
-                yield sse("error", {"message": f"Error al procesar el acto reclamado: {str(e)[:150]}"})
+                yield sse("error", {"message": f"Error al procesar documentos: {str(e)[:150]}"})
                 return
-        
-        if doc_conceptos_bytes and not texto_cv:
-            yield sse("progress", {"step": -1, "progress": 60, "detail": "Procesando conceptos/agravios (OCR si es escaneado)..."})
-            try:
-                texto_cv = await _extract_from_bytes(doc_conceptos_bytes, doc_conceptos_filename)
-                if not texto_cv or len(texto_cv.strip()) < 50:
-                    yield sse("error", {"message": "No se pudo extraer texto de los conceptos/agravios. Verifica que el PDF sea legible."})
-                    return
-                yield sse("progress", {"step": -1, "progress": 80, "detail": f"Conceptos/agravios: {len(texto_cv):,} caracteres extraídos"})
-            except Exception as e:
-                print(f"   OCR error (conceptos): {e}")
-                import traceback; traceback.print_exc()
-                yield sse("error", {"message": f"Error al procesar conceptos/agravios: {str(e)[:150]}"})
-                return
-        
+
         if not resumen_acto and not texto_cv:
             yield sse("error", {"message": "No se pudo extraer texto de ningún documento."})
             return
