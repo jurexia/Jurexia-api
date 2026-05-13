@@ -13883,129 +13883,381 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
     return False
 
 
+# ── Mapping Circuito → Entidad federativa para `leyes_<estado>` ──────────
+# Conservador: solo incluyo los circuitos donde el mapping es alta confianza.
+# Para los no listados, el redactor cae a leyes_federales + bloque constitucional
+# y omite la fuente estatal (mejor que mandar leyes equivocadas).
+# David puede ampliarlo cuando confirme los faltantes (2, 4, 6, etc.).
+CIRCUITO_TO_ESTADO_COLLECTION = {
+    1:  "leyes_cdmx",
+    3:  "leyes_jalisco",
+    16: "leyes_guanajuato",
+    22: "leyes_queretaro",
+    # 2, 4, 6: no mapeados — pendiente confirmación
+}
+
+# Circuitos con colección particionada de Estudios de Fondo TCC (sentencias_ef_c<N>)
+EF_CIRCUITOS_DISPONIBLES = {1, 2, 3, 4, 22}
+
 def _build_qdrant_search_for_redactor():
     """
     Returns an async search function that bridges the redactor_tcc_v3 pipeline
     with the existing Qdrant search infrastructure in main.py.
+
+    Fan-out paralelo a múltiples colecciones por cada query:
+      • jurisprudencia_nacional_v2 (tesis SCJN/TCC)
+      • bloque_constitucional (DDHH / CoIDH)
+      • leyes_federales
+      • leyes_<estado> según mapping circuito→entidad
+      • sentencias_ef_c<circuito> (estudios de fondo TCC del circuito)
+      • sentencias_ef_scjn_1a_sala/_2a_sala/_pleno (argumentación canónica SCJN)
+      • sentencias_holdings (precedentes TCC, filtrado por circuito)
+      • sentencias_scjn_holdings (precedentes SCJN)
     """
+    from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+
     async def qdrant_search_for_redactor(query: str, problem_context: dict) -> dict:
         """
         Execute RAG search for a single query in the redactor pipeline.
         Returns dict with tesis, normas, holdings keys.
         """
-        materia = problem_context.get("materia", "")
-        circuito = problem_context.get("circuito", "")
-        marco_anticipado = problem_context.get("marco_anticipado", [])
-        
-        result = {"tesis": [], "normas": [], "holdings": []}
-        
+        materia = (problem_context.get("materia") or "").strip().lower()
+        circuito_raw = problem_context.get("circuito", "")
         try:
-            embedding = await get_dense_embedding(query)
-            if not embedding:
-                return result
-            
-            # Search tesis/jurisprudencia
+            circuito_num = int(circuito_raw) if str(circuito_raw).strip() else None
+        except (ValueError, TypeError):
+            circuito_num = None
+        marco_anticipado = problem_context.get("marco_anticipado", [])
+
+        result = {"tesis": [], "normas": [], "holdings": []}
+
+        embedding = await get_dense_embedding(query)
+        if not embedding:
+            return result
+
+        def _materia_filter() -> Optional[Filter]:
+            if not materia:
+                return None
+            return Filter(must=[FieldCondition(key="materia", match=MatchValue(value=materia))])
+
+        # ── Tasks definitions (each returns (kind, list_of_items)) ───────────
+        async def _search_tesis_jurisprudencia():
+            items = []
             try:
                 async with QDRANT_SEM:
                     hits = await qdrant_client.query_points(
-                        collection_name="tesis_unificada",
+                        collection_name="jurisprudencia_nacional_v2",
                         query=embedding,
-                        limit=20,
+                        query_filter=_materia_filter(),
+                        limit=25,
                         with_payload=True,
-                        score_threshold=0.30,
+                        score_threshold=0.28,
                     )
                 for pt in hits.points:
                     p = pt.payload or {}
-                    result["tesis"].append({
+                    items.append({
                         "score": round(pt.score, 4),
-                        "registro": p.get("registro", ""),
+                        "registro": str(p.get("registro", "")),
                         "rubro": p.get("rubro", ""),
-                        "texto_relevante": p.get("texto", "")[:1200],
+                        "texto_relevante": (p.get("texto", "") or "")[:1200],
                         "instancia": p.get("instancia", ""),
                         "epoca": p.get("epoca", ""),
                         "tipo": p.get("tipo", ""),
+                        "numero_tesis": p.get("numero_tesis", ""),
+                        "_source_collection": "jurisprudencia_nacional_v2",
                     })
             except Exception as e:
-                print(f"     ⚠️ Tesis search error: {e}")
-            
-            # Search normas (leyes_federales)
+                print(f"     ⚠️ jurisprudencia_nacional_v2 search error: {e}")
+            return ("tesis", items)
+
+        async def _search_bloque_constitucional():
+            items = []
             try:
                 async with QDRANT_SEM:
                     hits = await qdrant_client.query_points(
-                        collection_name="leyes_federales",
+                        collection_name="bloque_constitucional",
                         query=embedding,
-                        limit=15,
+                        limit=10,
                         with_payload=True,
                         score_threshold=0.30,
                     )
                 for pt in hits.points:
                     p = pt.payload or {}
-                    result["normas"].append({
+                    items.append({
                         "score": round(pt.score, 4),
-                        "cuerpo_legal": p.get("ley", ""),
-                        "articulo": p.get("articulo", ""),
-                        "texto": p.get("texto", "")[:1200],
-                        "fuero": p.get("fuero", "federal"),
-                        "from_marco_anticipado": False,
+                        "ref": p.get("ref", ""),
+                        "origen": p.get("origen", ""),
+                        "texto_relevante": (p.get("texto_visible") or p.get("texto") or "")[:1200],
+                        "tipo": p.get("tipo", ""),
+                        "jurisdiccion": p.get("jurisdiccion", ""),
+                        "caso": p.get("caso", ""),
+                        "vs": p.get("vs", ""),
+                        "parrafo": p.get("parrafo", ""),
+                        "_source_collection": "bloque_constitucional",
                     })
             except Exception as e:
-                print(f"     ⚠️ Normas search error: {e}")
-            
-            # Search marco anticipado queries
-            for marco_query in marco_anticipado[:3]:
-                try:
-                    marco_emb = await generate_embedding(marco_query)
-                    if marco_emb:
-                        async with QDRANT_SEM:
-                            hits = await qdrant_client.query_points(
-                                collection_name="leyes_federales",
-                                query=marco_emb,
-                                limit=3,
-                                with_payload=True,
-                                score_threshold=0.35,
-                            )
-                        for pt in hits.points:
-                            p = pt.payload or {}
-                            result["normas"].append({
-                                "score": round(pt.score, 4),
-                                "cuerpo_legal": p.get("ley", ""),
-                                "articulo": p.get("articulo", ""),
-                                "texto": p.get("texto", "")[:1200],
-                                "fuero": p.get("fuero", "federal"),
-                                "from_marco_anticipado": True,
-                            })
-                except Exception as e:
-                    print(f"     ⚠️ marco anticipado search error: {e}")
-            
-            # Search holdings/precedentes
+                print(f"     ⚠️ bloque_constitucional search error: {e}")
+            return ("constitucional", items)
+
+        async def _search_leyes(collection_name: str, label: str):
+            items = []
             try:
+                async with QDRANT_SEM:
+                    hits = await qdrant_client.query_points(
+                        collection_name=collection_name,
+                        query=embedding,
+                        limit=15,
+                        with_payload=True,
+                        score_threshold=0.28,
+                    )
+                for pt in hits.points:
+                    p = pt.payload or {}
+                    items.append({
+                        "score": round(pt.score, 4),
+                        "cuerpo_legal": p.get("cuerpo_legal_oficial") or p.get("ley", ""),
+                        "articulo": p.get("ref", ""),
+                        "texto": (p.get("texto", "") or p.get("texto_raw", ""))[:1200],
+                        "fuero": label,
+                        "entidad": p.get("entidad", ""),
+                        "from_marco_anticipado": False,
+                        "_source_collection": collection_name,
+                    })
+            except Exception as e:
+                print(f"     ⚠️ {collection_name} search error: {e}")
+            return ("normas", items)
+
+        async def _search_ef_circuito():
+            """Estudios de Fondo TCC del propio circuito."""
+            items = []
+            if circuito_num not in EF_CIRCUITOS_DISPONIBLES:
+                return ("holdings", items)
+            try:
+                async with QDRANT_SEM:
+                    hits = await qdrant_client.query_points(
+                        collection_name=f"sentencias_ef_c{circuito_num}",
+                        query=embedding,
+                        query_filter=_materia_filter(),
+                        limit=20,
+                        with_payload=True,
+                        score_threshold=0.25,
+                    )
+                for pt in hits.points:
+                    p = pt.payload or {}
+                    items.append({
+                        "score": round(pt.score, 4),
+                        "expediente": p.get("expediente", ""),
+                        "tribunal": p.get("tribunal", ""),
+                        "tema": p.get("tema_juridico", ""),
+                        "holding": (p.get("chunk_text", "") or "")[:1500],
+                        "sentido": p.get("sentido", ""),
+                        "pdf_url": "",  # ef_c* no tiene pdf_url en payload
+                        "circuito": p.get("circuito", ""),
+                        "calidad": p.get("calidad_argumentativa_v2", 0),
+                        "_source_collection": f"sentencias_ef_c{circuito_num}",
+                        "_kind": "ef_tcc",
+                    })
+            except Exception as e:
+                print(f"     ⚠️ sentencias_ef_c{circuito_num} search error: {e}")
+            return ("holdings", items)
+
+        async def _search_ef_scjn(sala_collection: str):
+            items = []
+            try:
+                async with QDRANT_SEM:
+                    hits = await qdrant_client.query_points(
+                        collection_name=sala_collection,
+                        query=embedding,
+                        query_filter=_materia_filter(),
+                        limit=15,
+                        with_payload=True,
+                        score_threshold=0.25,
+                    )
+                for pt in hits.points:
+                    p = pt.payload or {}
+                    items.append({
+                        "score": round(pt.score, 4),
+                        "expediente": p.get("expediente", ""),
+                        "tribunal": p.get("sala", "SCJN"),
+                        "tema": p.get("tema_juridico", ""),
+                        "holding": (p.get("chunk_text", "") or "")[:1500],
+                        "sentido": p.get("sentido", ""),
+                        "pdf_url": p.get("pdf_url", ""),
+                        "circuito": "SCJN",
+                        "tipo_asunto": p.get("tipo_asunto", ""),
+                        "magistrado_ponente": p.get("magistrado_ponente", ""),
+                        "_source_collection": sala_collection,
+                        "_kind": "ef_scjn",
+                    })
+            except Exception as e:
+                print(f"     ⚠️ {sala_collection} search error: {e}")
+            return ("holdings", items)
+
+        async def _search_holdings_tcc():
+            items = []
+            try:
+                # Filter by circuito si lo tenemos, sino sin filtro
+                conds = []
+                if circuito_num is not None:
+                    conds.append(FieldCondition(key="circuito", match=MatchValue(value=circuito_num)))
+                if materia:
+                    conds.append(FieldCondition(key="materia", match=MatchValue(value=materia)))
+                qf = Filter(must=conds) if conds else None
                 async with QDRANT_SEM:
                     hits = await qdrant_client.query_points(
                         collection_name="sentencias_holdings",
                         query=embedding,
+                        query_filter=qf,
                         limit=12,
                         with_payload=True,
-                        score_threshold=0.30,
+                        score_threshold=0.28,
                     )
+                # Si filter por circuito devolvió poco, hacer un segundo pase sin filter circuito
+                if len(hits.points) < 5 and circuito_num is not None:
+                    async with QDRANT_SEM:
+                        hits2 = await qdrant_client.query_points(
+                            collection_name="sentencias_holdings",
+                            query=embedding,
+                            query_filter=_materia_filter(),
+                            limit=8,
+                            with_payload=True,
+                            score_threshold=0.30,
+                        )
+                    seen = {pt.id for pt in hits.points}
+                    extra = [pt for pt in hits2.points if pt.id not in seen]
+                    hits.points = list(hits.points) + extra
                 for pt in hits.points:
                     p = pt.payload or {}
-                    result["holdings"].append({
+                    items.append({
                         "score": round(pt.score, 4),
                         "expediente": p.get("expediente", ""),
                         "tribunal": p.get("tribunal", ""),
-                        "tema": p.get("tema", ""),
-                        "holding": p.get("holding", "")[:1500],
+                        "tribunal_tipo": p.get("tribunal_tipo", ""),
+                        "tema": p.get("tema_juridico", ""),
+                        "holding": (p.get("holding", "") or "")[:1500],
                         "sentido": p.get("sentido", ""),
                         "pdf_url": p.get("pdf_url", ""),
+                        "circuito": p.get("circuito", ""),
+                        "tesis_registros": p.get("tesis_registros", []),
+                        "_source_collection": "sentencias_holdings",
+                        "_kind": "holding_tcc",
                     })
             except Exception as e:
-                print(f"     ⚠️ Holdings search error: {e}")
-            
-        except Exception as e:
-            print(f"   ⚠️ RAG search error for query '{query[:50]}': {e}")
-        
+                print(f"     ⚠️ sentencias_holdings search error: {e}")
+            return ("holdings", items)
+
+        async def _search_holdings_scjn():
+            items = []
+            try:
+                async with QDRANT_SEM:
+                    hits = await qdrant_client.query_points(
+                        collection_name="sentencias_scjn_holdings",
+                        query=embedding,
+                        query_filter=_materia_filter(),
+                        limit=10,
+                        with_payload=True,
+                        score_threshold=0.28,
+                    )
+                for pt in hits.points:
+                    p = pt.payload or {}
+                    items.append({
+                        "score": round(pt.score, 4),
+                        "expediente": p.get("expediente", ""),
+                        "tribunal": p.get("sala", "SCJN"),
+                        "tema": p.get("tema_juridico", ""),
+                        "holding": (p.get("holding", "") or "")[:1500],
+                        "sentido": p.get("sentido", ""),
+                        "pdf_url": p.get("pdf_url", ""),
+                        "circuito": "SCJN",
+                        "tipo_asunto": p.get("tipo_asunto", ""),
+                        "_source_collection": "sentencias_scjn_holdings",
+                        "_kind": "holding_scjn",
+                    })
+            except Exception as e:
+                print(f"     ⚠️ sentencias_scjn_holdings search error: {e}")
+            return ("holdings", items)
+
+        # ── Build task list ──────────────────────────────────────────────────
+        tasks = [
+            _search_tesis_jurisprudencia(),
+            _search_bloque_constitucional(),
+            _search_leyes("leyes_federales", "federal"),
+            _search_ef_circuito(),
+            _search_ef_scjn("sentencias_ef_scjn_1a_sala"),
+            _search_ef_scjn("sentencias_ef_scjn_2a_sala"),
+            _search_ef_scjn("sentencias_ef_scjn_pleno"),
+            _search_holdings_tcc(),
+            _search_holdings_scjn(),
+        ]
+
+        # Add state-specific laws if circuito is mapped
+        estado_collection = CIRCUITO_TO_ESTADO_COLLECTION.get(circuito_num) if circuito_num else None
+        if estado_collection:
+            tasks.append(_search_leyes(estado_collection, "estatal"))
+
+        # ── Execute fan-out in parallel ──────────────────────────────────────
+        import asyncio as _asyncio
+        responses = await _asyncio.gather(*tasks, return_exceptions=True)
+
+        for resp in responses:
+            if isinstance(resp, Exception):
+                print(f"     ⚠️ task exception: {resp}")
+                continue
+            kind, items = resp
+            if kind == "constitucional":
+                # bloque_constitucional se inyecta como "tesis" para que el plan lo cite
+                # con el rubro/ref (CoIDH, CADH, etc.). Marcar con _is_constitucional.
+                for it in items:
+                    it["registro"] = it.get("ref", "")
+                    it["rubro"] = f"{it.get('origen','')} — {it.get('ref','')}"
+                    it["instancia"] = "Bloque Constitucional/Convencional"
+                    it["tipo"] = "BLOQUE_CONSTITUCIONAL"
+                    it["_is_constitucional"] = True
+                result["tesis"].extend(items)
+            elif kind == "tesis":
+                result["tesis"].extend(items)
+            elif kind == "normas":
+                result["normas"].extend(items)
+            elif kind == "holdings":
+                result["holdings"].extend(items)
+
+        # ── Marco anticipado: búsquedas adicionales suaves ──────────────────
+        for marco_query in marco_anticipado[:3]:
+            try:
+                marco_emb = await generate_embedding(marco_query)
+                if not marco_emb:
+                    continue
+                marco_tasks = [
+                    qdrant_client.query_points(
+                        collection_name="leyes_federales",
+                        query=marco_emb, limit=3, with_payload=True, score_threshold=0.35,
+                    ),
+                ]
+                if estado_collection:
+                    marco_tasks.append(qdrant_client.query_points(
+                        collection_name=estado_collection,
+                        query=marco_emb, limit=3, with_payload=True, score_threshold=0.35,
+                    ))
+                async with QDRANT_SEM:
+                    marco_resps = await _asyncio.gather(*marco_tasks, return_exceptions=True)
+                for mr in marco_resps:
+                    if isinstance(mr, Exception):
+                        continue
+                    for pt in mr.points:
+                        p = pt.payload or {}
+                        result["normas"].append({
+                            "score": round(pt.score, 4),
+                            "cuerpo_legal": p.get("cuerpo_legal_oficial") or p.get("ley", ""),
+                            "articulo": p.get("ref", ""),
+                            "texto": (p.get("texto", "") or "")[:1200],
+                            "fuero": "marco_anticipado",
+                            "entidad": p.get("entidad", ""),
+                            "from_marco_anticipado": True,
+                        })
+            except Exception as e:
+                print(f"     ⚠️ marco anticipado search error: {e}")
+
         return result
-    
+
     return qdrant_search_for_redactor
 
 
@@ -14288,15 +14540,51 @@ async def redactor_tcc_beta_generate(
         yield sse("progress", {"step": 0, "progress": 0, "detail": "Documentos procesados — iniciando pipeline de redacción..."})
         
         from redactor_tcc_v3 import run_redactor_tcc_pipeline
-        
+
         qdrant_search_fn = _build_qdrant_search_for_redactor()
-        
+
+        # Validador anti-alucinación: dada una lista de registros de tesis,
+        # devuelve el set de los que existen en jurisprudencia_nacional_v2.
+        # Pass 3 respeta `verificable=False` y no cita esas con rubro entrecomillado.
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue, MatchAny
+        async def _validate_tesis_registros(registros: list[str]) -> set[str]:
+            valid: set[str] = set()
+            if not registros:
+                return valid
+            try:
+                # Scroll con filter `should` (cualquiera de los registros)
+                # batched para no enviar filtros gigantes.
+                BATCH = 50
+                for i in range(0, len(registros), BATCH):
+                    batch = [str(r) for r in registros[i:i+BATCH] if r]
+                    if not batch:
+                        continue
+                    flt = Filter(must=[FieldCondition(key="registro", match=MatchAny(any=batch))])
+                    pts, _ = await qdrant_client.scroll(
+                        collection_name="jurisprudencia_nacional_v2",
+                        scroll_filter=flt,
+                        limit=BATCH,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                    for pt in pts:
+                        reg = str((pt.payload or {}).get("registro", "")).strip()
+                        if reg:
+                            valid.add(reg)
+            except Exception as e:
+                print(f"   ⚠️ Validador tesis error: {e}")
+                # En caso de error de validación, devolver todos como válidos
+                # (fallback seguro: no penalizamos al pipeline por bug del validador)
+                return set(str(r) for r in registros)
+            return valid
+
         try:
             async for event in run_redactor_tcc_pipeline(
                 caso_input=caso_input,
                 qdrant_search_fn=qdrant_search_fn,
                 deepseek_api_key=deepseek_key,
                 http_client=_http_pool,
+                tesis_validator_fn=_validate_tesis_registros,
             ):
                 # If pipeline completed successfully, consume 10 queries NOW
                 if event["type"] == "complete":

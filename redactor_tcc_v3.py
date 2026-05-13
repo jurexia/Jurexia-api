@@ -133,6 +133,7 @@ DEBES PRODUCIR (JSON)
       "si_resuelve_problema": "P1",
       "en_sentido": "fundado | infundado",
       "supera_a_problemas": ["P2", "P3"],
+      "consecuencia_redaccion": "omitir_estudio_de_superados | abordar_complementarios | independientes",
       "razon": "..."
     }
   ],
@@ -149,13 +150,39 @@ REGLAS
 2. El marco_normativo_anticipado son las leyes/artículos que TÚ anticipas que necesitará el redactor.
 3. Cada disidencia debe estar vinculada a UNA consideración del acto.
 4. Los problemas jurídicos AGRUPAN disidencias que plantean lo mismo.
-5. Detecta dependencias: si resolver P1 como "fundado" hace innecesario P2, decláralo.
+5. Detecta dependencias: si resolver P1 como "fundado" hace innecesario P2, decláralo
+   con `consecuencia_redaccion="omitir_estudio_de_superados"`. Esta es la
+   doctrina de mayor beneficio: NO se estudian todos los conceptos cuando uno
+   basta para conceder el amparo con el mismo o mayor efecto restitutorio.
 6. SOLO devuelve el JSON. Sin comentarios adicionales."""
 
 
 PASS_2_SYSTEM = """Eres magistrado redactor mexicano. Tu tarea EXCLUSIVA en este paso: construir un PLAN DE REDACCIÓN basado en el catálogo de fuentes recuperado por el RAG.
 
 NO redactes prosa. NO escribas el estudio de fondo. Solo devuelve JSON con el plan.
+
+═══════════════════════════════════════════════════════════════════════
+DOCTRINA DE MAYOR BENEFICIO Y SUFICIENCIA (regla obligatoria)
+═══════════════════════════════════════════════════════════════════════
+Como secretario de TCC NO se estudian todos los conceptos de violación cuando
+basta uno para conceder el amparo con el efecto restitutorio mayor:
+
+1. Identifica si algún problema, calificado como FUNDADO, otorga por sí solo
+   el efecto restitutorio MÁS AMPLIO (típicamente: nulidad de la sentencia
+   reclamada para nuevo dictado en plenitud de jurisdicción).
+2. Si lo hay, ese problema se estudia a fondo y los problemas POSTERIORES en
+   el orden de resolución que también atacan la misma sentencia se marcan con
+   accion_redaccion = "omitir_por_innecesario", citando como apoyo la
+   jurisprudencia P./J. 3/2005 del Pleno (CONCEPTOS DE VIOLACIÓN. ESTUDIO
+   INNECESARIO DE LOS RESTANTES) o equivalente que aparezca en el catálogo.
+3. La excepción es cuando un concepto posterior aporta un efecto restitutorio
+   ADICIONAL (e.g., ordena dejar insubsistentes pruebas específicas,
+   reposición del procedimiento, etc.). En ese caso accion_redaccion =
+   "abordar_complementario".
+4. Conceptos INFUNDADOS o INOPERANTES SIEMPRE se estudian (no se omiten).
+5. NO califiques como "fundado" todo por reflejo. Evalúa con rigor: lo más
+   común en práctica TCC es que de N conceptos, 1-2 sean fundados y suficientes,
+   varios sean inoperantes, y algunos infundados.
 
 ═══════════════════════════════════════════════════════════════════════
 TU MISIÓN
@@ -182,8 +209,12 @@ ESTRUCTURA OBLIGATORIA DEL JSON
       "pregunta_concreta": "(copiada del Pass 0)",
       "thesis_central_a_demostrar": "Una oración: lo que el estudio debe demostrar.",
       "calificacion_propuesta_disidencia": "fundado | infundado | inoperante | esencialmente_fundado | inatendible | parcialmente_fundado",
+      "accion_redaccion": "abordar_completo | abordar_complementario | omitir_por_innecesario",
+      "razon_accion": "Por qué se aborda completo / complementario / se omite (citar problema previo si aplica).",
       "marco_normativo_a_transcribir": [...],
-      "tesis_clave_a_citar": [...],
+      "tesis_clave_a_citar": [
+         {"registro": "...", "rubro_corto": "...", "como_se_aplica_al_caso": "..."}
+      ],
       "precedentes_clave_a_citar": [...],
       "subsuncion_concreta": { "premisa_mayor": "...", "premisa_menor": "...", "conclusion_silogistica": "..." },
       "argumentos_secundarios": [...],
@@ -215,6 +246,42 @@ NIVEL ESPERADO: la calidad de filtrado debe ser equivalente a la de un magistrad
 
 
 PASS_3_SYSTEM = """Eres MAGISTRADO REDACTOR de un Tribunal Colegiado de Circuito mexicano. Tu tarea ÚNICA: redactar el ESTUDIO DE FONDO del asunto, ejecutando un plan de redacción ya construido por la fase de pre-análisis.
+
+═══════════════════════════════════════════════════════════════════════
+DOCTRINA DE MAYOR BENEFICIO (regla operativa al redactar)
+═══════════════════════════════════════════════════════════════════════
+Cada problema en el plan trae el campo `accion_redaccion`. RESPÉTALO LITERAL:
+
+• "abordar_completo" → estudio completo con marco, tesis, subsunción, conclusión.
+• "abordar_complementario" → estudio breve (200-400 palabras) explicando el
+  efecto restitutorio adicional que aporta sobre el problema previo ya fundado.
+• "omitir_por_innecesario" → NO redactes análisis. Escribe SOLO un párrafo
+  formal del estilo:
+    "Atendiendo al efecto restitutorio que se alcanza con la concesión del
+    amparo derivada del problema P_X, resulta innecesario el estudio del
+    presente concepto de violación, pues a nada práctico conduciría su análisis.
+    Apoya esta determinación, por las razones que la informan, la jurisprudencia
+    [REGISTRO/CLAVE del plan] del Pleno/Sala de la Suprema Corte de Justicia
+    de la Nación, de rubro: '[RUBRO del plan]'."
+  Nada más. Sin marco normativo, sin subsunción.
+
+═══════════════════════════════════════════════════════════════════════
+ENCABEZADO Y NUMERALES
+═══════════════════════════════════════════════════════════════════════
+La sección de estudio en una sentencia TCC va típicamente como considerando
+QUINTO o SEXTO. Usa "QUINTO" como default si no se indica otro numeral en el
+plan. NO dejes el placeholder "[NUMERAL]" literal — sustitúyelo siempre.
+
+═══════════════════════════════════════════════════════════════════════
+ANTI-INVENCIÓN (regla inviolable)
+═══════════════════════════════════════════════════════════════════════
+SOLO puedes citar tesis cuyo `registro` o clave aparezca en el plan dentro de
+`tesis_clave_a_citar`. NUNCA inventes registros como "1a./J. XXX/AAAA",
+expedientes, rubros, ni atribuyas criterios a la SCJN sin sustento del plan.
+Si una tesis del plan está marcada `verificable: false`, refiérete a ella por
+su contenido sin citarla con rubro entrecomillado ni con número de tesis. En
+duda, omite la cita y argumenta con el marco normativo y el bloque
+constitucional que sí estén en el plan.
 
 ═══════════════════════════════════════════════════════════════════════
 RECIBES
@@ -775,11 +842,99 @@ async def _run_pass3_stream(
 # PIPELINE PRINCIPAL — AsyncGenerator de SSE events
 # ═══════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════
+# VALIDADOR ANTI-ALUCINACIÓN
+# ═══════════════════════════════════════════════════════════════════════
+
+import re as _re
+
+# Captura registros de tesis (7 dígitos típicos del SJF) y claves tipo "1a./J. 165/2022"
+_REGISTRO_DIG_RE = _re.compile(r"\b(\d{7})\b")
+_REGISTRO_CLAVE_RE = _re.compile(r"\b([12]a\.?\s*/?J?\.?\s*\d+/\d{4}\s*\(\d+a\.?\))", _re.IGNORECASE)
+
+async def _validate_tesis_in_plan(
+    plan: dict,
+    tesis_validator_fn: Optional[Callable[[list[str]], Awaitable[set[str]]]] = None,
+) -> dict:
+    """
+    Valida que cada tesis citada en el plan exista en Qdrant.
+    Marca cada entrada con `verificable: True/False` y agrega `tesis_invalidadas`
+    a cada problema. NO elimina entradas — Pass 3 decide cómo tratarlas.
+
+    `tesis_validator_fn` recibe una lista de registros y devuelve el set de
+    los que SÍ existen. Si es None, todas se marcan verificable=True (no-op).
+    """
+    if tesis_validator_fn is None:
+        return plan
+
+    # Recolectar todos los registros mencionados en el plan
+    todos_registros: set[str] = set()
+    for prob in plan.get("plan_por_problema", []):
+        for t in prob.get("tesis_clave_a_citar", []) or []:
+            if isinstance(t, dict):
+                reg = str(t.get("registro", "")).strip()
+                if reg:
+                    todos_registros.add(reg)
+
+    if not todos_registros:
+        return plan
+
+    try:
+        registros_validos = await tesis_validator_fn(list(todos_registros))
+    except Exception as e:
+        print(f"   ⚠️ Validador de tesis falló: {e} — marcando todas como verificables (fallback seguro)")
+        registros_validos = todos_registros
+
+    # Anotar el plan
+    for prob in plan.get("plan_por_problema", []):
+        invalidadas = []
+        for t in prob.get("tesis_clave_a_citar", []) or []:
+            if isinstance(t, dict):
+                reg = str(t.get("registro", "")).strip()
+                if reg and reg in registros_validos:
+                    t["verificable"] = True
+                else:
+                    t["verificable"] = False
+                    if reg:
+                        invalidadas.append(reg)
+        if invalidadas:
+            prob["tesis_invalidadas"] = invalidadas
+
+    return plan
+
+
+def _validar_estudio_post_pass3(estudio_md: str, registros_validos: set[str]) -> dict:
+    """
+    Tras Pass 3, extrae todos los registros citados en el markdown y verifica
+    que estén en el conjunto de registros validados (los que sí existen en
+    Qdrant + los del plan original). Devuelve estadísticas.
+    """
+    encontrados_dig = set(_REGISTRO_DIG_RE.findall(estudio_md))
+    encontrados_clave = set(_REGISTRO_CLAVE_RE.findall(estudio_md))
+    citados = encontrados_dig | {c.upper().replace(" ", "") for c in encontrados_clave}
+    no_validos = sorted(c for c in citados if c not in registros_validos)
+    return {
+        "n_citas_detectadas": len(citados),
+        "citas_no_validas": no_validos,
+        "n_citas_no_validas": len(no_validos),
+    }
+
+
+def _normalizar_numerales(estudio_md: str) -> str:
+    """Reemplaza placeholders literales como [NUMERAL] por 'QUINTO' default."""
+    out = estudio_md
+    out = out.replace("[NUMERAL]", "QUINTO")
+    out = out.replace("[Numeral]", "Quinto")
+    out = out.replace("[numeral]", "quinto")
+    return out
+
+
 async def run_redactor_tcc_pipeline(
     caso_input: dict,
     qdrant_search_fn: Callable[..., Awaitable[dict]],
     deepseek_api_key: str,
     http_client: Optional[httpx.AsyncClient] = None,
+    tesis_validator_fn: Optional[Callable[[list[str]], Awaitable[set[str]]]] = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Ejecuta el pipeline v3 multipass completo y yield eventos SSE.
@@ -860,9 +1015,26 @@ async def run_redactor_tcc_pipeline(
             return
         
         n_tesis_filtradas = sum(len(p.get("tesis_clave_a_citar", [])) for p in pass2.get("plan_por_problema", []))
+
+        # ─── VALIDADOR ANTI-ALUCINACIÓN ─────────────────────────────
+        # Verificar que cada tesis citada exista en Qdrant. Marca cada entrada
+        # con verificable=True/False y agrega tesis_invalidadas. Pass 3 respeta
+        # esa anotación gracias a la regla del system prompt.
+        try:
+            pass2 = await _validate_tesis_in_plan(pass2, tesis_validator_fn)
+        except Exception as e:
+            print(f"   ⚠️ Validación de tesis falló: {e}")
+
+        n_tesis_invalidas = sum(len(p.get("tesis_invalidadas", []) or []) for p in pass2.get("plan_por_problema", []))
+        if n_tesis_invalidas:
+            print(f"   ⚠️ {n_tesis_invalidas} tesis del plan NO existen en Qdrant — marcadas verificable=False")
+
         elapsed2 = time.time() - t2
-        
-        yield RedactorEvent.pass_complete(2, elapsed2, {"n_tesis_seleccionadas": n_tesis_filtradas})
+
+        yield RedactorEvent.pass_complete(2, elapsed2, {
+            "n_tesis_seleccionadas": n_tesis_filtradas,
+            "n_tesis_invalidas": n_tesis_invalidas,
+        })
         yield RedactorEvent.phase(
             3, 60, f"Plan listo ({n_tesis_filtradas} tesis seleccionadas) — redactando estudio de fondo..."
         )
@@ -885,6 +1057,31 @@ async def run_redactor_tcc_pipeline(
 
         if truncated:
             print(f"   ⚠️ Pass 3 truncado por max_tokens — devuelvo lo generado ({len(estudio_md)} chars)")
+
+        # ─── Post-procesamiento ────────────────────────────────────
+        # 1) Sustituir placeholders [NUMERAL] por "QUINTO" default.
+        # 2) Validar que ninguna tesis citada en el markdown esté fuera del plan.
+        estudio_md = _normalizar_numerales(estudio_md)
+
+        registros_validos: set[str] = set()
+        for prob in pass2.get("plan_por_problema", []):
+            for t in prob.get("tesis_clave_a_citar", []) or []:
+                if isinstance(t, dict) and t.get("verificable", True):
+                    reg = str(t.get("registro", "")).strip().upper().replace(" ", "")
+                    if reg:
+                        registros_validos.add(reg)
+        validation = _validar_estudio_post_pass3(estudio_md, registros_validos)
+        if validation["n_citas_no_validas"] > 0:
+            print(f"   ⚠️ Post-validación Pass 3: {validation['n_citas_no_validas']} citas no verificadas: {validation['citas_no_validas'][:5]}")
+            disclaimer = (
+                "\n\n---\n\n"
+                "> **Aviso de verificación**: las siguientes citas detectadas en el "
+                "borrador no pudieron verificarse contra la base de datos jurisprudencial: "
+                + ", ".join(validation["citas_no_validas"][:10])
+                + ". Recomendamos confirmar manualmente su existencia y rubro antes de "
+                "incorporarlas al proyecto definitivo."
+            )
+            estudio_md += disclaimer
 
         elapsed3 = time.time() - t3
         n_words = len(estudio_md.split())
