@@ -14543,17 +14543,22 @@ async def redactor_tcc_beta_generate(
 
         qdrant_search_fn = _build_qdrant_search_for_redactor()
 
-        # Validador anti-alucinación: dada una lista de registros de tesis,
-        # devuelve el set de los que existen en jurisprudencia_nacional_v2.
-        # Pass 3 respeta `verificable=False` y no cita esas con rubro entrecomillado.
-        from qdrant_client.http.models import Filter, FieldCondition, MatchValue, MatchAny
-        async def _validate_tesis_registros(registros: list[str]) -> set[str]:
-            valid: set[str] = set()
+        # Validador anti-alucinación robusto: para cada registro citado,
+        # devuelve dict con {valid: bool, rubro_real: str|None}. El pipeline
+        # usa esto para detectar dos clases de invención:
+        #   1) Registro inexistente (fácil)
+        #   2) Registro existe pero el modelo le inventó un rubro distinto al real
+        # FAIL-CLOSED: si el validador no puede consultar Qdrant, devuelve todo
+        # como NO verificable (mejor truncar citas que dejar pasar invenciones).
+        from qdrant_client.http.models import Filter, FieldCondition, MatchAny
+        async def _validate_tesis_registros(registros: list[str]) -> dict[str, dict]:
+            out: dict[str, dict] = {}
             if not registros:
-                return valid
+                return out
+            # Inicializar todo como NO verificable; sobrescribimos al confirmar
+            for r in registros:
+                out[str(r)] = {"valid": False, "rubro_real": None}
             try:
-                # Scroll con filter `should` (cualquiera de los registros)
-                # batched para no enviar filtros gigantes.
                 BATCH = 50
                 for i in range(0, len(registros), BATCH):
                     batch = [str(r) for r in registros[i:i+BATCH] if r]
@@ -14563,20 +14568,22 @@ async def redactor_tcc_beta_generate(
                     pts, _ = await qdrant_client.scroll(
                         collection_name="jurisprudencia_nacional_v2",
                         scroll_filter=flt,
-                        limit=BATCH,
+                        limit=BATCH * 2,  # margen por si hay duplicados
                         with_payload=True,
                         with_vectors=False,
                     )
                     for pt in pts:
-                        reg = str((pt.payload or {}).get("registro", "")).strip()
-                        if reg:
-                            valid.add(reg)
+                        p = pt.payload or {}
+                        reg = str(p.get("registro", "")).strip()
+                        if reg and reg in out:
+                            out[reg] = {
+                                "valid": True,
+                                "rubro_real": (p.get("rubro") or "").strip(),
+                            }
             except Exception as e:
-                print(f"   ⚠️ Validador tesis error: {e}")
-                # En caso de error de validación, devolver todos como válidos
-                # (fallback seguro: no penalizamos al pipeline por bug del validador)
-                return set(str(r) for r in registros)
-            return valid
+                print(f"   ⚠️ Validador tesis error (fail-closed): {e}")
+                # NO sobrescribimos — todo queda como no verificable
+            return out
 
         try:
             async for event in run_redactor_tcc_pipeline(

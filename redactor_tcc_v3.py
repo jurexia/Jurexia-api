@@ -39,10 +39,15 @@ import httpx
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-pro"
 
-# Límites de catálogo para Pass 2 (evita saturar contexto)
-MAX_TESIS_PER_PROBLEM = 12
-MAX_HOLDINGS_PER_PROBLEM = 10
-MAX_NORMAS_PER_PROBLEM = 12
+# Límites de catálogo para Pass 2.
+# Subidos tras la expansión del RAG a 8-10 colecciones (jurisprudencia_nacional_v2,
+# bloque_constitucional, leyes_federales+estatales, ef_circuito, ef_scjn x3,
+# holdings tcc+scjn). Con 12 tesis se quedaba demasiado corto: el modelo perdía
+# material relevante y caía a inventar. Estos números fueron calibrados para
+# DeepSeek v4-pro con max_tokens 16-24k en Pass 2 — caben holgadamente.
+MAX_TESIS_PER_PROBLEM = 25
+MAX_HOLDINGS_PER_PROBLEM = 18
+MAX_NORMAS_PER_PROBLEM = 20
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -242,7 +247,29 @@ REGLAS CRÍTICAS DE FILTRADO
 4. SUBSUNCIÓN: premisa mayor (fuentes) + premisa menor (hechos) + conclusión silogística.
 5. HUECOS: si NO hay tesis directamente aplicable, DECLARARLO.
 
-NIVEL ESPERADO: la calidad de filtrado debe ser equivalente a la de un magistrado revisando un proyecto de su secretario. NO incluyas fuentes "por si acaso"."""
+NIVEL ESPERADO: la calidad de filtrado debe ser equivalente a la de un magistrado revisando un proyecto de su secretario. NO incluyas fuentes "por si acaso".
+
+═══════════════════════════════════════════════════════════════════════
+ANTI-INVENCIÓN (REGLA INVIOLABLE)
+═══════════════════════════════════════════════════════════════════════
+
+A. Cuando incluyas una tesis en `tesis_clave_a_citar`:
+   - COPIA el `registro` EXACTAMENTE como aparece en el catálogo.
+   - COPIA el `rubro` EXACTAMENTE como aparece en el catálogo (en `rubro_corto`).
+   - PROHIBIDO modificar el rubro para que "encaje mejor" con tu argumento.
+   - Si el rubro real no se ajusta al problema → DESCARTA esa tesis, NO la edites.
+   - Existe un validador externo que compara tu rubro vs el real. Si difiere,
+     la tesis se marca verificable=False y Pass 3 no la podrá citar.
+
+B. Cuando incluyas una norma en `marco_normativo_a_transcribir`:
+   - COPIA el `texto` LITERALMENTE del catálogo. No reescribas.
+   - PROHIBIDO incluir un artículo cuyo texto NO esté en el catálogo.
+   - Si necesitas un artículo que no se recuperó: ponlo en `huecos_detectados`,
+     NO inventes su contenido.
+
+C. Cuando incluyas un precedente en `precedentes_clave_a_citar`:
+   - COPIA expediente, tribunal, tema EXACTAMENTE del catálogo.
+   - PROHIBIDO inventar números de expediente o atribuir holdings inexistentes."""
 
 
 PASS_3_SYSTEM = """Eres MAGISTRADO REDACTOR de un Tribunal Colegiado de Circuito mexicano. Tu tarea ÚNICA: redactar el ESTUDIO DE FONDO del asunto, ejecutando un plan de redacción ya construido por la fase de pre-análisis.
@@ -273,15 +300,62 @@ QUINTO o SEXTO. Usa "QUINTO" como default si no se indica otro numeral en el
 plan. NO dejes el placeholder "[NUMERAL]" literal — sustitúyelo siempre.
 
 ═══════════════════════════════════════════════════════════════════════
-ANTI-INVENCIÓN (regla inviolable)
+ANTI-INVENCIÓN (regla inviolable, PRECEDE a cualquier preferencia estilística)
 ═══════════════════════════════════════════════════════════════════════
-SOLO puedes citar tesis cuyo `registro` o clave aparezca en el plan dentro de
-`tesis_clave_a_citar`. NUNCA inventes registros como "1a./J. XXX/AAAA",
-expedientes, rubros, ni atribuyas criterios a la SCJN sin sustento del plan.
-Si una tesis del plan está marcada `verificable: false`, refiérete a ella por
-su contenido sin citarla con rubro entrecomillado ni con número de tesis. En
-duda, omite la cita y argumenta con el marco normativo y el bloque
-constitucional que sí estén en el plan.
+
+1. TESIS Y JURISPRUDENCIA:
+   - SOLO puedes citar tesis cuyo `registro` aparezca en el plan dentro de
+     `tesis_clave_a_citar` con `verificable: true`.
+   - El RUBRO que cites debe ser IDÉNTICO al `rubro_corto` o `rubro_real`
+     del plan. NO modifiques una sola palabra del rubro.
+   - Si una tesis tiene `verificable: false`, PROHIBIDO citarla con rubro
+     entrecomillado o con número de tesis. Puedes referirte a su contenido
+     en abstracto, sin atribuirla a un registro específico.
+   - NUNCA inventes registros como "1a./J. XXX/AAAA", "P./J. XX/AAAA" o
+     similares. Cualquier registro citado debe estar literalmente en el plan.
+
+2. TRANSCRIPCIÓN DE ARTÍCULOS:
+   - Cuando transcribas un artículo entre comillas o como cita en bloque,
+     usa EXCLUSIVAMENTE el `transcripcion_propuesta` del plan o el `texto`
+     literal del catálogo.
+   - PROHIBIDO inventar el texto de un artículo. Si no tienes el texto
+     literal en el plan, NO transcribas — refiere al artículo por su número
+     y argumenta sin transcripción.
+   - Si lo que dices que es texto del Código X, art Y, no es lo que
+     realmente dice ese artículo en la legislación vigente, la sentencia
+     será impugnable. NO te arriesgues.
+
+3. PRECEDENTES Y EXPEDIENTES:
+   - Solo precedentes con expediente listado en el plan.
+   - NO inventes números de expediente ni asuntos de la SCJN.
+
+4. EN DUDA, OMITE. Es preferible un argumento sin cita que un argumento con
+   cita inventada. La sentencia se firma en sede federal — la integridad
+   de las fuentes es no-negociable.
+
+═══════════════════════════════════════════════════════════════════════
+LENGUAJE Y CLARIDAD (la sentencia se lee SIN saber del análisis previo)
+═══════════════════════════════════════════════════════════════════════
+
+PROHIBIDO en el texto final mencionar:
+   - Identificadores internos: "C1", "C2", "P1", "P2", "P3", "D1", "D2", etc.
+   - Las palabras "plan", "Pass 0", "análisis cognitivo", "el catálogo", o
+     cualquier referencia al proceso interno de redacción.
+   - Frases como "como se advierte en la consideración C2" o "en el problema P1".
+
+CÓMO REFERIRTE A LOS CONCEPTOS:
+   - "el primer concepto de violación", "el segundo concepto", "el tercero".
+   - "el agravio relativo a [tema en lenguaje natural]".
+   - "la consideración de la Sala según la cual [resumen en prosa]".
+   - "la cuestión litigiosa relativa a [tema]".
+
+CÓMO REFERIRTE A LAS DEPENDENCIAS:
+   - En vez de "se omite el examen del problema P3" → "se omite el estudio
+     del restante concepto de violación" o "del concepto relativo a [tema]".
+
+El lector (magistrado, partes, eventual revisor de SCJN) NO conoce los IDs
+internos. La sentencia debe leerse como un texto autónomo, fluido, fundado
+y motivado, sin filtraciones del proceso de razonamiento previo.
 
 ═══════════════════════════════════════════════════════════════════════
 RECIBES
@@ -727,8 +801,12 @@ def _build_pass3_prompt(pass0: dict, pass2: dict, caso_meta: dict) -> str:
                 if isinstance(t, str):
                     parts.append(f"\n  • {t}")
                 else:
-                    parts.append(f"\n  • {t.get('registro','?')} · {t.get('instancia','')}")
-                    parts.append(f"    RUBRO: {t.get('rubro_corto','')}")
+                    verif = t.get("verificable", True)
+                    razon = t.get("razon_no_verificable", "")
+                    flag = "" if verif else f"  ⚠️ NO VERIFICABLE ({razon}) — PROHIBIDO CITAR CON RUBRO"
+                    rubro_a_usar = t.get("rubro_real") or t.get("rubro_corto", "") or t.get("rubro", "")
+                    parts.append(f"\n  • {t.get('registro','?')} · {t.get('instancia','')}{flag}")
+                    parts.append(f"    RUBRO (literal, no modificar): {rubro_a_usar}")
                     parts.append(f"    Aplicación: {t.get('como_se_aplica_al_caso','')}")
         
         precs = plan.get("precedentes_clave_a_citar", [])
@@ -852,22 +930,59 @@ import re as _re
 _REGISTRO_DIG_RE = _re.compile(r"\b(\d{7})\b")
 _REGISTRO_CLAVE_RE = _re.compile(r"\b([12]a\.?\s*/?J?\.?\s*\d+/\d{4}\s*\(\d+a\.?\))", _re.IGNORECASE)
 
+def _normalize_rubro(s: str) -> str:
+    """Normaliza un rubro para comparación tolerante: minúsculas, sin acentos
+    ni espacios múltiples ni puntuación trivial. Sirve para detectar cuando
+    el modelo "casi" copia un rubro pero le mete cambios cosméticos."""
+    if not s:
+        return ""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii").lower()
+    s = _re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = _re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _rubros_match(rubro_plan: str, rubro_real: str) -> bool:
+    """Considera que coinciden si el solapamiento de palabras significativas
+    es alto. Tolerante a abreviaciones, comas, mayúsculas. Falso en caso de
+    rubros completamente distintos (caso del registro 2023205 con rubro inventado)."""
+    a = set(_normalize_rubro(rubro_plan).split())
+    b = set(_normalize_rubro(rubro_real).split())
+    if not a or not b:
+        return False
+    # Eliminar stopwords muy comunes para no inflar la coincidencia
+    stop = {"de", "la", "el", "los", "las", "y", "o", "del", "en", "que", "se", "a", "por", "para", "su", "con", "al", "es", "lo"}
+    a -= stop; b -= stop
+    if not a or not b:
+        return False
+    inter = len(a & b)
+    cobertura_real = inter / max(1, len(b))
+    cobertura_plan = inter / max(1, len(a))
+    # Pedimos al menos 50% de coincidencia en ambos sentidos.
+    return cobertura_real >= 0.5 and cobertura_plan >= 0.5
+
+
 async def _validate_tesis_in_plan(
     plan: dict,
-    tesis_validator_fn: Optional[Callable[[list[str]], Awaitable[set[str]]]] = None,
+    tesis_validator_fn: Optional[Callable[[list[str]], Awaitable[dict]]] = None,
 ) -> dict:
     """
-    Valida que cada tesis citada en el plan exista en Qdrant.
-    Marca cada entrada con `verificable: True/False` y agrega `tesis_invalidadas`
-    a cada problema. NO elimina entradas — Pass 3 decide cómo tratarlas.
+    Valida que cada tesis citada en el plan exista en Qdrant Y que el rubro
+    citado se corresponda con el rubro real (no inventado).
 
-    `tesis_validator_fn` recibe una lista de registros y devuelve el set de
-    los que SÍ existen. Si es None, todas se marcan verificable=True (no-op).
+    `tesis_validator_fn(registros)` devuelve dict[str, {valid: bool, rubro_real: str|None}].
+    Si retorna None o lanza, fail-closed: todas las tesis se marcan como NO verificables.
+
+    Anota cada entrada de tesis_clave_a_citar con:
+      - verificable: True solo si el registro existe Y el rubro coincide
+      - rubro_real: el rubro correcto (para que Pass 3 pueda usarlo si decide citar)
+      - razon_no_verificable: "registro_inexistente" | "rubro_alterado" | "validador_offline"
     """
     if tesis_validator_fn is None:
         return plan
 
-    # Recolectar todos los registros mencionados en el plan
+    # Recolectar registros únicos del plan
     todos_registros: set[str] = set()
     for prob in plan.get("plan_por_problema", []):
         for t in prob.get("tesis_clave_a_citar", []) or []:
@@ -880,23 +995,33 @@ async def _validate_tesis_in_plan(
         return plan
 
     try:
-        registros_validos = await tesis_validator_fn(list(todos_registros))
+        validation = await tesis_validator_fn(list(todos_registros))
     except Exception as e:
-        print(f"   ⚠️ Validador de tesis falló: {e} — marcando todas como verificables (fallback seguro)")
-        registros_validos = todos_registros
+        print(f"   ⚠️ Validador de tesis falló: {e} — fail-closed (todas no verificables)")
+        validation = {r: {"valid": False, "rubro_real": None} for r in todos_registros}
 
     # Anotar el plan
     for prob in plan.get("plan_por_problema", []):
         invalidadas = []
         for t in prob.get("tesis_clave_a_citar", []) or []:
-            if isinstance(t, dict):
-                reg = str(t.get("registro", "")).strip()
-                if reg and reg in registros_validos:
-                    t["verificable"] = True
-                else:
-                    t["verificable"] = False
-                    if reg:
-                        invalidadas.append(reg)
+            if not isinstance(t, dict):
+                continue
+            reg = str(t.get("registro", "")).strip()
+            v = validation.get(reg, {"valid": False, "rubro_real": None})
+            rubro_plan = str(t.get("rubro_corto") or t.get("rubro") or "").strip()
+            t["rubro_real"] = v.get("rubro_real")
+            if not v.get("valid"):
+                t["verificable"] = False
+                t["razon_no_verificable"] = "registro_inexistente"
+                if reg:
+                    invalidadas.append(f"{reg} (no existe)")
+            elif rubro_plan and v.get("rubro_real") and not _rubros_match(rubro_plan, v["rubro_real"]):
+                # El registro existe pero el modelo le metió un rubro distinto al real
+                t["verificable"] = False
+                t["razon_no_verificable"] = "rubro_alterado"
+                invalidadas.append(f"{reg} (rubro alterado)")
+            else:
+                t["verificable"] = True
         if invalidadas:
             prob["tesis_invalidadas"] = invalidadas
 
@@ -926,6 +1051,61 @@ def _normalizar_numerales(estudio_md: str) -> str:
     out = out.replace("[NUMERAL]", "QUINTO")
     out = out.replace("[Numeral]", "Quinto")
     out = out.replace("[numeral]", "quinto")
+    return out
+
+
+# Patrones para detectar IDs internos (C1, P1, D1, etc.) que no deberían
+# aparecer en el texto final destinado al lector.
+_ID_INTERNO_RE = _re.compile(r"\b([CPD])(\d+)\b")
+_REF_PROBLEMA_RE = _re.compile(r"\b(problema|el problema|del problema)\s+P(\d+)\b", _re.IGNORECASE)
+_REF_CONSIDERACION_RE = _re.compile(r"\b(consideraci[oó]n|la consideraci[oó]n|en la consideraci[oó]n)\s+C(\d+)\b", _re.IGNORECASE)
+_REF_DISIDENCIA_RE = _re.compile(r"\b(disidencia|la disidencia)\s+D(\d+)\b", _re.IGNORECASE)
+# Headers tipo "Análisis del problema P1" / "Conclusión del problema P3"
+_HEADER_PROBLEMA_RE = _re.compile(r"(An[áa]lisis|Conclusi[oó]n|Estudio)\s+del\s+problema\s+P\d+", _re.IGNORECASE)
+
+
+_ORDINALES = ["primer", "segundo", "tercer", "cuarto", "quinto", "sexto", "séptimo", "octavo", "noveno", "décimo"]
+
+
+def _limpiar_ids_internos(estudio_md: str) -> str:
+    """
+    Reescribe IDs internos del análisis (P1, C2, D3, etc.) por referencias
+    legibles en lenguaje natural. Es la red de seguridad cuando el modelo
+    desobedece la regla del system prompt y deja filtraciones internas.
+    """
+    out = estudio_md
+
+    # Headers tipo "Análisis del problema P1" → "Análisis del primer concepto de violación"
+    def _replace_header(m):
+        verb = m.group(1)
+        # extraer el número
+        num_m = _re.search(r"P(\d+)", m.group(0))
+        n = int(num_m.group(1)) if num_m else 0
+        ord_word = _ORDINALES[n - 1] if 1 <= n <= len(_ORDINALES) else f"{n}º"
+        return f"{verb} del {ord_word} concepto de violación"
+    out = _HEADER_PROBLEMA_RE.sub(_replace_header, out)
+
+    # Frases tipo "del problema P3" → "del tercer concepto de violación"
+    def _replace_problema(m):
+        n = int(m.group(2))
+        ord_word = _ORDINALES[n - 1] if 1 <= n <= len(_ORDINALES) else f"{n}º"
+        return f"del {ord_word} concepto de violación"
+    out = _REF_PROBLEMA_RE.sub(_replace_problema, out)
+
+    # "consideración C2" → "consideración expresada por la responsable"
+    out = _REF_CONSIDERACION_RE.sub(lambda m: "la consideración referida de la responsable", out)
+
+    # "disidencia D1" → "el motivo de inconformidad"
+    out = _REF_DISIDENCIA_RE.sub(lambda m: "el motivo de inconformidad", out)
+
+    # IDs sueltos restantes (C1, P1, D1) → eliminar marcador
+    out = _ID_INTERNO_RE.sub(lambda m: "", out)
+
+    # Limpiar dobles espacios y comas huérfanas que pudo dejar la sustitución
+    out = _re.sub(r" {2,}", " ", out)
+    out = _re.sub(r" +,", ",", out)
+    out = _re.sub(r" +\.", ".", out)
+
     return out
 
 
@@ -1059,9 +1239,12 @@ async def run_redactor_tcc_pipeline(
             print(f"   ⚠️ Pass 3 truncado por max_tokens — devuelvo lo generado ({len(estudio_md)} chars)")
 
         # ─── Post-procesamiento ────────────────────────────────────
-        # 1) Sustituir placeholders [NUMERAL] por "QUINTO" default.
-        # 2) Validar que ninguna tesis citada en el markdown esté fuera del plan.
+        # 1) Sustituir placeholders [NUMERAL] por "QUINTO".
+        # 2) Limpiar IDs internos (P1/C1/D1) que pudieron filtrarse al texto.
+        # 3) Validar que ninguna tesis citada en el markdown esté fuera del plan
+        #    o tenga rubro distinto al verificado.
         estudio_md = _normalizar_numerales(estudio_md)
+        estudio_md = _limpiar_ids_internos(estudio_md)
 
         registros_validos: set[str] = set()
         for prob in pass2.get("plan_por_problema", []):
