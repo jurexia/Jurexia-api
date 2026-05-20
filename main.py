@@ -8788,6 +8788,9 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   🧞‍♂️ GENIO OVERRIDE (MULTI): Señalizando materias='{request.materia}' al RAG")
     
     async def _probe_cache():
+        """Probe/create Gemini cache for the primary genio.
+        Only called when Gemini is confirmed as the active model (lazy).
+        """
         if not _primary_genio_id:
             return None
         try:
@@ -8797,7 +8800,14 @@ async def chat_endpoint(request: ChatRequest):
             print(f"   ⚠️ Cache allocation failed ({_primary_genio_id}): {e}")
             return None
     
-    cache_task = asyncio.create_task(_probe_cache())
+    # LAZY CACHE: Don't create cache proactively -- it will only be
+    # created inside generate_stream() IF Gemini is selected as the model.
+    # This prevents wasting Gemini context cache $$$ when DeepSeek responds.
+    async def _noop_cache():
+        return None
+    cache_task = asyncio.create_task(_noop_cache())
+    if _primary_genio_id:
+        print(f"   💤 Cache task: LAZY (will create only if Gemini+Genio branch selected)")
 
     # ─────────────────────────────────────────────────────────────────────
     # PASO 1: Búsqueda Híbrida en Qdrant (Knowledge Retrieval)
@@ -9695,6 +9705,12 @@ async def chat_endpoint(request: ChatRequest):
                     _effective_cached = None
                     print(f"   ⚠️ TOKEN BUDGET: Documento adjunto detectado — cache DESACTIVADO para esta request (evita exceder 1M tokens)")
 
+                # -- DIAGNOSTICS: Log all branch conditions --
+                print(f"   🔍 BRANCH CONDITIONS: genios={_resolved_genio_ids}, can_gemini={_can_use_gemini}, "
+                      f"has_doc={has_document}, chat_drafting={is_chat_drafting}, "
+                      f"drafting_pro={is_chat_drafting_pro}, thinking={use_thinking}, "
+                      f"precedentes={is_precedentes_mode}, sentencia={is_sentencia}")
+
                 if is_precedentes_mode:
                     # Precedentes del Circuito 22: deepseek-chat (no reasoner — es síntesis, no razonamiento complejo)
                     use_gemini = False
@@ -9728,18 +9744,27 @@ async def chat_endpoint(request: ChatRequest):
                     max_tokens = 32000
                     use_thinking = True  # GPT-5.5 reasoning mode
                     print(f"   ✨ REDACCIÓN PRO: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
-                elif _resolved_genio_ids and _can_use_gemini and not has_document and not is_chat_drafting:
+                elif _resolved_genio_ids and _can_use_gemini and not has_document:
                     # PRIORIDAD: Genios disponibles → usar Gemini con caché de estilo jurídico.
-                    # Esto incluye el modo Redactar (is_drafting=True) — el estilo de
+                    # Incluye consultas normales Y redacción -- el estilo de
                     # redacción judicial de alto nivel está implementado en los Genios.
+                    # FIX 2026-05-20: Removed `not is_chat_drafting` gate so genios
+                    # ALWAYS use Gemini+cache regardless of drafting mode.
                     use_gemini = True
-                    use_thinking = False  # Gemini maneja su propio razonamiento
+                    use_thinking = False  # Gemini maneja su propio razonamiento via thinking_budget
                     active_model = "models/gemini-3-flash-preview" # Genio cache is generated with flash-preview
                     max_tokens = 25000
+                    # LAZY CACHE: NOW create the cache since Gemini is confirmed
+                    try:
+                        _effective_cached = await asyncio.wait_for(_probe_cache(), timeout=8.0)
+                        print(f"   🔑 Cache resolved for Gemini: {'ACTIVE' if _effective_cached else 'NONE'}")
+                    except Exception as _cache_err:
+                        _effective_cached = None
+                        print(f"   ⚠️ Cache resolution failed: {_cache_err}")
                     print(f"   🏗️ Chat + MULTI-GENIO ({len(_resolved_genio_ids)}): {', '.join(_resolved_genio_ids)}{' [REDACTAR]' if is_drafting or is_chat_drafting else ''}")
                 elif use_thinking:
                     # DeepSeek con thinking mode — sin genios disponibles.
-                    _resolved_genio_ids = [] # DeepSeek ignores genio cache
+                    # NOTE: Keep genio_ids for RAG materia hints (don't clear them)
                     if is_chat_drafting and not is_drafting and not has_document:
                         # REDACTOR SIN GENIO: DeepSeek V4 Flash con reasoning para redacción jurídica.
                         # Thinking mode permite al modelo planificar la estructura del documento
@@ -14659,6 +14684,137 @@ async def redactor_tcc_beta_generate(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# OCR HELPER COMPARTIDO — usado por tcc-beta y tcc-v4
+# Mistral OCR vía OpenRouter (file-parser plugin). PyMuPDF para extracción nativa.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def extract_pdf_text_with_ocr(content: bytes, filename: str) -> str:
+    """Extrae texto de un PDF. Native text primero, luego Mistral OCR si está escaneado.
+
+    - PDFs con texto nativo → PyMuPDF.
+    - PDFs escaneados (≥30% de páginas vacías) → Mistral OCR vía OpenRouter, chunks
+      de 25 páginas en paralelo (sem 4).
+    - DOCX → python-docx.
+    """
+    import io as _io
+    ext = (filename.split(".")[-1] or "").lower()
+
+    if ext == "pdf":
+        n_pages = 0
+        try:
+            import fitz
+            doc = fitz.open(stream=content, filetype="pdf")
+            pages = [page.get_text() for page in doc]
+            n_pages = len(doc)
+            doc.close()
+            empty_pages = sum(1 for p in pages if len((p or "").strip()) < 50)
+            empty_ratio = empty_pages / max(1, n_pages)
+            text = "\n\n".join(pages).strip()
+            if empty_ratio < 0.30 and len(text) > 200:
+                print(f"   [OCR helper] native text: {len(text)} chars, {n_pages} pages")
+                return text
+            print(f"   [OCR helper] needs OCR ({n_pages} pages, {empty_ratio:.0%} empty)")
+        except Exception as e:
+            print(f"   [OCR helper] PyMuPDF error: {e}")
+            n_pages = 0
+
+        import base64, asyncio as _asyncio, time as _time
+        or_key = os.getenv("OPENROUTER_API_KEY", "")
+        if not or_key:
+            print("   [OCR helper] OPENROUTER_API_KEY missing")
+            return ""
+
+        OCR_PROMPT = (
+            "Transcribe el documento adjunto al pie de la letra. Devuelve EXCLUSIVAMENTE "
+            "el texto extraído tal cual aparece, sin resumir, sin agregar comentarios y "
+            "sin omitir nada. Preserva párrafos, títulos, numeración, artículos, nombres, "
+            "fechas y montos."
+        )
+        OCR_DOWNSTREAM_MODEL = os.getenv("REDACTOR_OCR_MODEL", "google/gemini-2.5-flash")
+        CHUNK_SIZE = 25
+        OCR_PARALLEL = 4
+
+        async def _ocr_chunk(pdf_bytes: bytes, label: str) -> str:
+            b64 = base64.standard_b64encode(pdf_bytes).decode()
+            async with httpx.AsyncClient(timeout=300) as client:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {or_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": OCR_DOWNSTREAM_MODEL,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": OCR_PROMPT},
+                                {"type": "file", "file": {
+                                    "filename": f"chunk_{label}.pdf",
+                                    "file_data": f"data:application/pdf;base64,{b64}",
+                                }},
+                            ],
+                        }],
+                        "plugins": [{"id": "file-parser", "pdf": {"engine": "mistral-ocr"}}],
+                        "max_tokens": 16000,
+                    },
+                )
+            try:
+                data = resp.json()
+            except Exception:
+                print(f"   [OCR helper] non-JSON ({label}): {resp.text[:200]}")
+                return ""
+            text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if not text:
+                err = data.get("error", {}).get("message", "unknown")
+                print(f"   [OCR helper] error ({label}): {err}")
+            return text or ""
+
+        t0 = _time.time()
+        if not n_pages or n_pages <= CHUNK_SIZE:
+            result = await _ocr_chunk(content, f"1-{n_pages or '?'}")
+            print(f"   [OCR helper] complete: {len(result)} chars in {_time.time()-t0:.1f}s")
+            return result
+
+        # Multi-chunk parallel
+        import fitz as _fitz
+        src = _fitz.open(stream=content, filetype="pdf")
+        total_pages = len(src)
+        chunk_payloads: list[tuple[int, bytes, str]] = []
+        for start in range(0, total_pages, CHUNK_SIZE):
+            end = min(start + CHUNK_SIZE, total_pages)
+            label = f"{start+1}-{end}"
+            chunk_doc = _fitz.open()
+            chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
+            chunk_payloads.append((start, chunk_doc.tobytes(), label))
+            chunk_doc.close()
+        src.close()
+
+        sem = _asyncio.Semaphore(OCR_PARALLEL)
+        async def _bounded(idx: int, pdf_bytes: bytes, label: str) -> tuple[int, str]:
+            async with sem:
+                print(f"   [OCR helper] chunk {label}/{total_pages}...")
+                txt = await _ocr_chunk(pdf_bytes, label)
+                print(f"   [OCR helper] chunk {label}: {len(txt)} chars")
+                return idx, txt
+
+        results = await _asyncio.gather(
+            *[_bounded(i, b, l) for i, b, l in chunk_payloads],
+            return_exceptions=True,
+        )
+        ordered: list[str] = []
+        for r in sorted([r for r in results if not isinstance(r, Exception)], key=lambda x: x[0]):
+            ordered.append(r[1])
+        result = "\n\n".join(ordered).strip()
+        print(f"   [OCR helper] total: {len(result)} chars in {_time.time()-t0:.1f}s ({len(chunk_payloads)} chunks)")
+        return result
+
+    if ext in ("docx", "doc"):
+        from docx import Document as _Docx
+        doc = _Docx(_io.BytesIO(content))
+        return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # REDACTOR TCC V4 — Pipeline con humano en el loop (analyze + finalize)
 # Acceso exclusivo: igual que tcc-beta (Platinum / admins).
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -14669,27 +14825,44 @@ async def redactor_tcc_v4_analyze(
     materia: str = Form(...),
     circuito: str = Form(""),
     user_email: str = Form(...),
-    texto_acto_reclamado: str = Form(...),
-    texto_conceptos_agravios: str = Form(...),
+    texto_acto_reclamado: str = Form(""),
+    texto_conceptos_agravios: str = Form(""),
+    doc_acto: Optional[UploadFile] = File(None),
+    doc_conceptos: Optional[UploadFile] = File(None),
 ):
     """
     Redactor TCC v4 — FASE ANALYZE.
 
-    Corre Pass 0 + Pass 1 (RAG) + Pass 2 (plan con validador anti-alucinación)
-    y devuelve el PLAN editable + un `job_id` para que el secretario lo revise
-    en la UI antes de disparar Pass 3 vía /redactor/tcc-v4/finalize.
+    Corre OCR (si hay PDFs) + Pass 0 + Pass 1 (RAG) + Pass 2 (plan con
+    validador anti-alucinación) y devuelve el PLAN editable + un `job_id`
+    para que el secretario lo revise en la UI antes de disparar Pass 3
+    vía /redactor/tcc-v4/finalize.
 
-    Solo acepta TEXTO (sin PDF) en esta primera iteración. El frontend extrae
-    el texto antes de invocar este endpoint (reusa la lógica de tcc-beta para
-    OCR si lo necesita).
+    Acepta texto directo O PDFs (Mistral OCR vía OpenRouter).
     """
     if not _can_access_redactor_tcc(user_email):
         raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
 
     resumen_acto = (texto_acto_reclamado or "").strip()
     texto_cv = (texto_conceptos_agravios or "").strip()
-    if not resumen_acto or not texto_cv:
-        raise HTTPException(400, "Se requieren texto_acto_reclamado y texto_conceptos_agravios")
+
+    # Leer bytes ANTES de entrar al SSE (rápido, solo bytes en memoria)
+    doc_acto_bytes = None
+    doc_acto_filename = None
+    doc_conceptos_bytes = None
+    doc_conceptos_filename = None
+
+    if doc_acto and not resumen_acto:
+        doc_acto_bytes = await doc_acto.read()
+        doc_acto_filename = doc_acto.filename or "acto.pdf"
+    if doc_conceptos and not texto_cv:
+        doc_conceptos_bytes = await doc_conceptos.read()
+        doc_conceptos_filename = doc_conceptos.filename or "conceptos.pdf"
+
+    if not resumen_acto and not doc_acto_bytes:
+        raise HTTPException(400, "Falta texto o PDF del acto reclamado")
+    if not texto_cv and not doc_conceptos_bytes:
+        raise HTTPException(400, "Falta texto o PDF de los conceptos/agravios")
 
     deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
     if not deepseek_key:
@@ -14697,25 +14870,64 @@ async def redactor_tcc_v4_analyze(
 
     print(f"\n🏛️ REDACTOR TCC V4 ANALYZE — {tipo_asunto} ({materia}) — {user_email}")
 
-    disidencias = [{
-        "tipo": "concepto_violacion" if "amparo" in tipo_asunto.lower() else "agravio",
-        "texto": texto_cv,
-    }]
-    caso_input = {
-        "meta": {
-            "tipo_asunto": tipo_asunto,
-            "materia": materia,
-            "circuito": circuito or "desconocido",
-        },
-        "inputs": {
-            "resumen_acto_reclamado": resumen_acto,
-            "disidencias": disidencias,
-        },
-    }
-
     async def generate_sse():
+        nonlocal resumen_acto, texto_cv
+
         def sse(event_type: str, data: dict) -> str:
             return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        # ── OCR de PDFs en paralelo (si vinieron archivos) ─────────────
+        need_acto_ocr = bool(doc_acto_bytes and not resumen_acto)
+        need_conceptos_ocr = bool(doc_conceptos_bytes and not texto_cv)
+        if need_acto_ocr or need_conceptos_ocr:
+            import asyncio as _asyncio_outer
+            yield sse("phase", {"step": -1, "progress": 0, "detail": f"Procesando {(1 if need_acto_ocr else 0) + (1 if need_conceptos_ocr else 0)} PDF(s) (OCR si son escaneados)..."})
+            try:
+                doc_labels = []
+                ocr_tasks = []
+                if need_acto_ocr:
+                    doc_labels.append(("acto", doc_acto_filename))
+                    ocr_tasks.append(extract_pdf_text_with_ocr(doc_acto_bytes, doc_acto_filename))
+                if need_conceptos_ocr:
+                    doc_labels.append(("conceptos", doc_conceptos_filename))
+                    ocr_tasks.append(extract_pdf_text_with_ocr(doc_conceptos_bytes, doc_conceptos_filename))
+                ocr_results = await _asyncio_outer.gather(*ocr_tasks, return_exceptions=True)
+                for (kind, fname), res in zip(doc_labels, ocr_results):
+                    if isinstance(res, Exception):
+                        yield sse("error", {"message": f"Error OCR {kind}: {str(res)[:150]}"})
+                        return
+                    if not res or len(res.strip()) < 50:
+                        yield sse("error", {"message": f"No se pudo extraer texto del {'acto' if kind == 'acto' else 'escrito de conceptos/agravios'}."})
+                        return
+                    if kind == "acto":
+                        resumen_acto = res
+                    else:
+                        texto_cv = res
+                yield sse("phase", {"step": -1, "progress": 80, "detail": f"OCR completo · acto: {len(resumen_acto):,} chars · conceptos: {len(texto_cv):,} chars"})
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                yield sse("error", {"message": f"Error procesando documentos: {str(e)[:150]}"})
+                return
+
+        if not resumen_acto or not texto_cv:
+            yield sse("error", {"message": "No se obtuvo texto de uno de los documentos."})
+            return
+
+        disidencias = [{
+            "tipo": "concepto_violacion" if "amparo" in tipo_asunto.lower() else "agravio",
+            "texto": texto_cv,
+        }]
+        caso_input = {
+            "meta": {
+                "tipo_asunto": tipo_asunto,
+                "materia": materia,
+                "circuito": circuito or "desconocido",
+            },
+            "inputs": {
+                "resumen_acto_reclamado": resumen_acto,
+                "disidencias": disidencias,
+            },
+        }
 
         from redactor_tcc_v4 import run_analyze_phase
 
