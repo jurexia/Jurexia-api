@@ -14659,6 +14659,208 @@ async def redactor_tcc_beta_generate(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# REDACTOR TCC V4 — Pipeline con humano en el loop (analyze + finalize)
+# Acceso exclusivo: igual que tcc-beta (Platinum / admins).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/redactor/tcc-v4/analyze")
+async def redactor_tcc_v4_analyze(
+    tipo_asunto: str = Form(...),
+    materia: str = Form(...),
+    circuito: str = Form(""),
+    user_email: str = Form(...),
+    texto_acto_reclamado: str = Form(...),
+    texto_conceptos_agravios: str = Form(...),
+):
+    """
+    Redactor TCC v4 — FASE ANALYZE.
+
+    Corre Pass 0 + Pass 1 (RAG) + Pass 2 (plan con validador anti-alucinación)
+    y devuelve el PLAN editable + un `job_id` para que el secretario lo revise
+    en la UI antes de disparar Pass 3 vía /redactor/tcc-v4/finalize.
+
+    Solo acepta TEXTO (sin PDF) en esta primera iteración. El frontend extrae
+    el texto antes de invocar este endpoint (reusa la lógica de tcc-beta para
+    OCR si lo necesita).
+    """
+    if not _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
+
+    resumen_acto = (texto_acto_reclamado or "").strip()
+    texto_cv = (texto_conceptos_agravios or "").strip()
+    if not resumen_acto or not texto_cv:
+        raise HTTPException(400, "Se requieren texto_acto_reclamado y texto_conceptos_agravios")
+
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not deepseek_key:
+        raise HTTPException(500, "DeepSeek API key no configurada")
+
+    print(f"\n🏛️ REDACTOR TCC V4 ANALYZE — {tipo_asunto} ({materia}) — {user_email}")
+
+    disidencias = [{
+        "tipo": "concepto_violacion" if "amparo" in tipo_asunto.lower() else "agravio",
+        "texto": texto_cv,
+    }]
+    caso_input = {
+        "meta": {
+            "tipo_asunto": tipo_asunto,
+            "materia": materia,
+            "circuito": circuito or "desconocido",
+        },
+        "inputs": {
+            "resumen_acto_reclamado": resumen_acto,
+            "disidencias": disidencias,
+        },
+    }
+
+    async def generate_sse():
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        from redactor_tcc_v4 import run_analyze_phase
+
+        qdrant_search_fn = _build_qdrant_search_for_redactor()
+
+        from qdrant_client.http.models import Filter, FieldCondition, MatchAny
+
+        async def _validate_tesis_registros(registros: list[str]) -> dict[str, dict]:
+            out: dict[str, dict] = {str(r): {"valid": False, "rubro_real": None} for r in registros}
+            if not registros:
+                return out
+            try:
+                BATCH = 50
+                for i in range(0, len(registros), BATCH):
+                    batch = [str(r) for r in registros[i:i+BATCH] if r]
+                    if not batch:
+                        continue
+                    flt = Filter(must=[FieldCondition(key="registro", match=MatchAny(any=batch))])
+                    pts, _ = await qdrant_client.scroll(
+                        collection_name="jurisprudencia_nacional_v2",
+                        scroll_filter=flt,
+                        limit=BATCH * 2,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                    for pt in pts:
+                        p = pt.payload or {}
+                        reg = str(p.get("registro", "")).strip()
+                        if reg and reg in out:
+                            out[reg] = {"valid": True, "rubro_real": (p.get("rubro") or "").strip()}
+            except Exception as e:
+                print(f"   ⚠️ V4 Validador tesis error (fail-closed): {e}")
+            return out
+
+        try:
+            async for event in run_analyze_phase(
+                caso_input=caso_input,
+                qdrant_search_fn=qdrant_search_fn,
+                deepseek_api_key=deepseek_key,
+                http_client=_http_pool,
+                tesis_validator_fn=_validate_tesis_registros,
+            ):
+                yield sse(event["type"], event["data"])
+        except Exception as e:
+            print(f"   ❌ V4 analyze error: {e}")
+            import traceback; traceback.print_exc()
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
+
+@app.post("/redactor/tcc-v4/finalize")
+async def redactor_tcc_v4_finalize(payload: dict):
+    """
+    Redactor TCC v4 — FASE FINALIZE.
+
+    Recibe:
+      {
+        "job_id": "...",
+        "user_email": "...",
+        "tipo_asunto": "...", "materia": "...", "circuito": "...",
+        "edits": { "problemas": [ ... ] }
+      }
+
+    Aplica los edits del secretario al plan y corre Pass 3 streaming.
+    """
+    user_email = (payload.get("user_email") or "").strip()
+    if not _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
+
+    job_id = (payload.get("job_id") or "").strip()
+    if not job_id:
+        raise HTTPException(400, "Falta job_id")
+
+    edits = payload.get("edits") or {}
+    tipo_asunto = payload.get("tipo_asunto") or "amparo_directo"
+    materia = payload.get("materia") or "civil"
+    circuito = payload.get("circuito") or ""
+
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not deepseek_key:
+        raise HTTPException(500, "DeepSeek API key no configurada")
+
+    print(f"\n🏛️ REDACTOR TCC V4 FINALIZE — job {job_id[:8]} — {user_email}")
+
+    async def generate_sse():
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        from redactor_tcc_v4 import run_finalize_phase
+
+        try:
+            async for event in run_finalize_phase(
+                job_id=job_id,
+                edits=edits,
+                deepseek_api_key=deepseek_key,
+                http_client=_http_pool,
+            ):
+                # Al completar exitosamente, consumimos queries + guardamos estudio
+                # (mismo patrón que tcc-beta).
+                if event["type"] == "complete":
+                    print(f"   ✅ TCC V4 FINALIZE complete.")
+                    if supabase_admin:
+                        try:
+                            email_lower = user_email.strip().lower()
+                            user_result = supabase_admin.table('user_profiles') \
+                                .select('id, queries_used, queries_limit') \
+                                .eq('email', email_lower) \
+                                .limit(1) \
+                                .execute()
+                            if user_result.data and len(user_result.data) > 0:
+                                uid = user_result.data[0].get('id')
+                                if uid:
+                                    for i in range(10):
+                                        supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
+                                    try:
+                                        import json as _json
+                                        estudio_md = event["data"].get("estudio_markdown", "")
+                                        ins = supabase_admin.table('redactor_estudios').insert({
+                                            "user_id": uid,
+                                            "tipo_asunto": tipo_asunto,
+                                            "materia": materia,
+                                            "circuito": int(circuito) if str(circuito).isdigit() else 1,
+                                            "estudio_markdown": estudio_md,
+                                            "n_palabras": event["data"].get("n_palabras", 0),
+                                            "total_elapsed_s": event["data"].get("total_elapsed_s", 0),
+                                            "precedentes_utiles": _json.dumps([]),
+                                        }).execute()
+                                        if ins.data:
+                                            event["data"]["study_id"] = ins.data[0].get("id")
+                                    except Exception as save_err:
+                                        print(f"   ⚠️ V4 save error: {save_err}")
+                        except Exception as e:
+                            print(f"   ⚠️ V4 post-success error: {e}")
+
+                yield sse(event["type"], event["data"])
+        except Exception as e:
+            print(f"   ❌ V4 finalize error: {e}")
+            import traceback; traceback.print_exc()
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # REDACTOR TCC BETA — DOCX Export (PJF format)
 # ═══════════════════════════════════════════════════════════════════════════════
 
