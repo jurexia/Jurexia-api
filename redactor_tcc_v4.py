@@ -93,6 +93,19 @@ async def run_analyze_phase(
         return
     n_problems = len(pass0.get("problemas_juridicos", []))
     n_dis = len(pass0.get("disidencias_estructuradas", []))
+
+    # ─── FAIL-FAST ───────────────────────────────────────────
+    # Si Pass 0 no detectó problemas jurídicos, NO seguimos con Pass 1/2
+    # (se quedan razonando vacío 20+ min). Mejor cortar y avisar.
+    if n_problems == 0:
+        yield RedactorEvent.error(
+            "El análisis no detectó problemas jurídicos en los documentos. "
+            "Probablemente el texto del acto reclamado o de los conceptos/agravios "
+            "no es claro o quedó corrupto. Revísalos y vuelve a intentar.",
+            0,
+        )
+        return
+
     yield RedactorEvent.pass_complete(0, time.time() - t0, {
         "n_problemas": n_problems,
         "n_disidencias": n_dis,
@@ -116,7 +129,15 @@ async def run_analyze_phase(
     yield RedactorEvent.pass_complete(1, time.time() - t1, {"n_fuentes_total": total_fuentes})
 
     # ─── PASS 2 (plan + validador) ───────────────────────────
-    yield RedactorEvent.phase(2, 55, f"{total_fuentes} fuentes recuperadas — construyendo plan...")
+    # Si Pass 1 no recuperó nada Y Pass 0 sí detectó problemas, algo está mal
+    # en Qdrant o en las queries. Avisamos pero seguimos (el modelo armará un
+    # plan con marco normativo solamente; el secretario podrá completar a mano).
+    if total_fuentes == 0:
+        print(f"   ⚠️ Pass 1 recuperó 0 fuentes — Pass 2 trabajará sin catálogo")
+        yield RedactorEvent.phase(2, 55, "Sin fuentes recuperadas — construyendo plan a partir de la estructura cognitiva...")
+    else:
+        yield RedactorEvent.phase(2, 55, f"{total_fuentes} fuentes recuperadas — construyendo plan...")
+
     t2 = time.time()
     try:
         pass2 = await _run_pass2(http_client, deepseek_api_key, pass0, pass1, caso_meta)

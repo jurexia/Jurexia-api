@@ -39,6 +39,15 @@ import httpx
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-pro"
 
+# Pass 0 corre con Gemini 2.5 Pro vía OpenRouter (rápido y bueno parseando
+# español legal mexicano a JSON). DeepSeek queda como fallback si Gemini falla.
+# Override por env: REDACTOR_PASS0_PROVIDER=deepseek para forzar DeepSeek.
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+PASS0_GEMINI_MODEL = os.getenv("REDACTOR_PASS0_GEMINI_MODEL", "google/gemini-2.5-pro")
+PASS0_PROVIDER = os.getenv("REDACTOR_PASS0_PROVIDER", "gemini").lower()
+PASS0_TIMEOUT_S = float(os.getenv("REDACTOR_PASS0_TIMEOUT_S", "180"))
+PASS2_TIMEOUT_S = float(os.getenv("REDACTOR_PASS2_TIMEOUT_S", "240"))
+
 # Límites de catálogo para Pass 2.
 # Subidos tras la expansión del RAG a 8-10 colecciones (jurisprudencia_nacional_v2,
 # bloque_constitucional, leyes_federales+estatales, ef_circuito, ef_scjn x3,
@@ -537,16 +546,76 @@ def _build_pass0_prompt(caso_input: dict) -> str:
     return "\n".join(parts)
 
 
+async def _call_gemini_json(
+    http_client: httpx.AsyncClient,
+    system: str,
+    user: str,
+    max_tokens: int,
+    model: str = PASS0_GEMINI_MODEL,
+    timeout_s: float = PASS0_TIMEOUT_S,
+) -> str:
+    """Llama Gemini vía OpenRouter con JSON mode. Devuelve el content crudo."""
+    or_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not or_key:
+        raise RuntimeError("OPENROUTER_API_KEY no configurada (Pass 0 Gemini requiere OpenRouter)")
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": 0.0,
+        "max_tokens": max_tokens,
+        "response_format": {"type": "json_object"},
+    }
+    resp = await http_client.post(
+        OPENROUTER_URL,
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {or_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://iurexia.com",
+            "X-Title": "Iurexia Redactor TCC",
+        },
+        timeout=timeout_s,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    if not content:
+        err = data.get("error", {}).get("message", "respuesta vacía")
+        raise RuntimeError(f"Gemini OpenRouter: {err}")
+    return content
+
+
 async def _run_pass0(
     http_client: httpx.AsyncClient,
     api_key: str,
     caso_input: dict,
 ) -> dict:
-    """Ejecuta Pass 0 y devuelve la estructura cognitiva."""
+    """Ejecuta Pass 0 y devuelve la estructura cognitiva.
+
+    Por default usa Gemini 2.5 Pro vía OpenRouter (rápido). Si falla, cae a
+    DeepSeek v4-pro. Configurable con REDACTOR_PASS0_PROVIDER.
+    """
     user_prompt = _build_pass0_prompt(caso_input)
     n_problems = len(caso_input["inputs"].get("disidencias", []))
     max_tokens = 16000 if n_problems <= 3 else 24000
-    
+
+    if PASS0_PROVIDER == "gemini":
+        import asyncio as _aio
+        try:
+            content = await _aio.wait_for(
+                _call_gemini_json(http_client, PASS_0_SYSTEM, user_prompt, max_tokens),
+                timeout=PASS0_TIMEOUT_S,
+            )
+            print(f"   [Pass 0] Gemini {PASS0_GEMINI_MODEL} OK ({len(content)} chars)")
+            return _parse_json_safe(content)
+        except _aio.TimeoutError:
+            print(f"   ⚠️ [Pass 0] Gemini timeout {PASS0_TIMEOUT_S}s — cae a DeepSeek")
+        except Exception as e:
+            print(f"   ⚠️ [Pass 0] Gemini error: {e} — cae a DeepSeek")
+
     content, usage, finish_reason = await _call_with_retry(
         http_client, api_key, PASS_0_SYSTEM, user_prompt, max_tokens
     )
@@ -746,14 +815,27 @@ async def _run_pass2(
     pass1: list[dict],
     caso_meta: dict,
 ) -> dict:
-    """Ejecuta Pass 2 y devuelve el plan de redacción."""
+    """Ejecuta Pass 2 con timeout duro (default 240s) para que no se cuelgue.
+
+    Si DeepSeek se atora razonando, levantamos asyncio.TimeoutError y el caller
+    decide qué hacer (típicamente: error al frontend para que el secretario
+    reinicie).
+    """
+    import asyncio as _aio
     user_prompt = _build_pass2_prompt(pass0, pass1, caso_meta)
     n_problems = len(pass0.get("problemas_juridicos", []))
     max_tokens = 16000 if n_problems <= 2 else 24000
-    
-    content, usage, finish_reason = await _call_with_retry(
-        http_client, api_key, PASS_2_SYSTEM, user_prompt, max_tokens
-    )
+
+    try:
+        content, usage, finish_reason = await _aio.wait_for(
+            _call_with_retry(http_client, api_key, PASS_2_SYSTEM, user_prompt, max_tokens),
+            timeout=PASS2_TIMEOUT_S,
+        )
+    except _aio.TimeoutError:
+        raise RuntimeError(
+            f"Pass 2 (plan) excedió {PASS2_TIMEOUT_S}s sin responder. "
+            "El modelo probablemente se quedó razonando sin sources. Reinicia el análisis."
+        )
     return _parse_json_safe(content)
 
 
