@@ -372,8 +372,28 @@ Un documento en prosa, en formato markdown, con la siguiente estructura:
 
 [Apertura formal — calificación global del estudio.]
 
-### Resumen del acto reclamado
-[Reconstrucción objetiva, 200-400 palabras]
+### Resumen del acto reclamado / sentencia recurrida
+[RESUMEN COMPLETO Y EXTENSO en PÁRRAFOS de prosa fluida (no viñetas, no listas).
+Debe permitir leer y entender la sentencia recurrida o el acto reclamado SIN tener
+el documento original a la mano. Cubre: antecedentes procesales relevantes, lo
+debatido, las consideraciones por las que la autoridad resolvió como resolvió,
+los fundamentos legales que invocó y el sentido final de su decisión. Mínimo
+700-1500 palabras según la complejidad. Lenguaje técnico-jurídico mexicano.]
+
+### Resumen de los conceptos de violación / agravios
+[RESUMEN COMPLETO Y EXTENSO en PÁRRAFOS de prosa fluida (no viñetas) de TODOS los
+conceptos de violación o agravios planteados por el quejoso/recurrente. Por cada
+uno: qué consideración combate, cuál es la tesis del quejoso, qué fundamentos
+invoca y cuál es la pretensión de fondo. El lector debe poder entender los
+agravios sin tener el escrito original. Mínimo 500-1200 palabras según el número
+y complejidad de los conceptos.]
+
+### Identificación de los problemas jurídicos
+[Enumeración en párrafos (no viñetas) de los puntos jurídicos que este Tribunal
+debe resolver, con base en el contraste entre lo decidido por la responsable y
+lo alegado por el recurrente. NO se resuelven aquí — solo se identifican. Cada
+problema en un párrafo propio. Si hay dependencias entre problemas (doctrina de
+mayor beneficio), se anticipan aquí brevemente.]
 
 ### Análisis del problema [P_id]
 [Una sección por cada problema jurídico, en el orden del `orden_resolucion_sugerido`.]
