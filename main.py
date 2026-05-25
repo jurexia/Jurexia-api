@@ -440,7 +440,13 @@ NUNCA menciones un artículo sin transcribir su texto en blockquote y sin [Doc I
 OBLIGATORIO incluir jurisprudencia del contexto RAG.
 
 FORMATO OBLIGATORIO para cada tesis (blockquote):
-> "[RUBRO COMPLETO DE LA TESIS EN MAYÚSCULAS]" -- *[Tribunal], [Epoca], Registro digital: [numero]* [Doc ID: uuid]
+> "[RUBRO — usa el texto del campo <texto> del documento XML]" -- *[valor del atributo instancia= del tag XML], Registro digital: [valor del atributo registro= del tag XML]* [Doc ID: uuid]
+
+⚠️ REGLA IRROMPIBLE: Los valores de registro, instancia y tesis SOLO se obtienen
+de los ATRIBUTOS del tag <documento> en el XML del contexto. Si un documento de
+jurisprudencia NO tiene atributo registro= en su tag XML, NUNCA inventes un número.
+Cita así sin registro:
+> "[RUBRO]" -- *[instancia si disponible]* [Doc ID: uuid]
 
 Explicación: [Desarrolla brevemente CÓMO sustenta o complementa tu análisis] [Doc ID: uuid]
 
@@ -577,7 +583,10 @@ PARA TI ESA TESIS NO EXISTE. Punto.
    → Los registros digitales (ej. 218650, 2015678, 2020456) son números ÚNICOS
      asignados por la SCJN. Inventarlos es FRAUDE ACADÉMICO equivalente a
      falsificar una cita en una publicación arbitrada.
-   → Si no tienes el registro digital EN EL CONTEXTO RAG, NO lo inventes.
+   → El registro digital SOLO aparece como atributo registro="NNNNN" en el tag
+     <documento> del XML del contexto. Si ese atributo NO existe, NO inventes uno.
+   → NUNCA uses un registro de tu memoria de entrenamiento. Tus datos de training
+     son OBSOLETOS y frecuentemente INCORRECTOS para registros digitales.
 
 3. REGLA DE ORO PARA JURISPRUDENCIA:
    ✅ CORRECTO: Citar tesis que aparezca en el contexto con su [Doc ID: uuid]
@@ -598,9 +607,11 @@ PARA TI ESA TESIS NO EXISTE. Punto.
 
 5. AUTOCOMPROBACIÓN OBLIGATORIA:
    Antes de incluir CUALQUIER cita de jurisprudencia en tu respuesta, verifica:
-   □ ¿El rubro aparece TEXTUALMENTE en el contexto RAG? Si NO → ELIMÍNALA
+   □ ¿El rubro aparece TEXTUALMENTE en el campo <texto> del documento XML? Si NO → ELIMÍNALA
    □ ¿Tiene un [Doc ID: uuid] válido del contexto? Si NO → ELIMÍNALA
-   □ ¿El registro digital está en el contexto? Si NO → NO lo incluyas
+   □ ¿El atributo registro= existe en el tag <documento>? Si NO → OMITE el registro en tu cita
+   □ ¿El atributo instancia= existe en el tag <documento>? Si NO → OMITE la instancia en tu cita
+   □ ¿El atributo tesis= existe en el tag <documento>? Si NO → OMITE el número de tesis
 
 REGLA #4 - EXHAUSTIVIDAD EN FUENTES:
 Si hay 10 documentos relevantes en el contexto, USA LOS 10 en tu respuesta.
@@ -613,7 +624,15 @@ La unica excepcion es si un documento es genuinamente irrelevante a la pregunta.
 REGLA #5 - JURISPRUDENCIA OBLIGATORIA:
 Si el contexto contiene jurisprudencia, SIEMPRE incluyela en tu respuesta.
 Formato OBLIGATORIO para cada tesis:
-> "[RUBRO COMPLETO]" -- *[Tribunal], [Epoca], Registro digital: [numero]* [Doc ID: uuid]
+> "[RUBRO del campo texto del XML]" -- *[atributo instancia=], Registro digital: [atributo registro=]* [Doc ID: uuid]
+
+IMPORTANTE: Usa SOLO los atributos que EXISTEN en el tag <documento> del XML:
+- instancia= → nombre del tribunal (ej: "Primera Sala", "Tribunales Colegiados")
+- registro= → número de registro digital (ej: "2005476")
+- tesis= → número de tesis (ej: "1a./J. 74/2016 (10a.)")
+- tipo_criterio= → "Jurisprudencia" o "Tesis Aislada"
+Si un atributo NO existe en el tag, OMÍTELO de tu cita. NUNCA lo inventes.
+
 Desarrolla brevemente como la tesis sustenta o complementa tu analisis.
 Si no hay jurisprudencia en el contexto, indica: "No se encontro jurisprudencia especifica
 sobre este punto en la busqueda actual."
@@ -903,7 +922,7 @@ NUNCA uses estos formulismos arcaicos. Emplea la alternativa (en paréntesis):
 ────────────────────────────────────────────────────────────────
 
 - Tu ÚNICA FUENTE válida para fundamentar son los documentos inyectados en el contexto (Leyes, Jurisprudencias).
-- CITA TEXTUAL de la Jurisprudencia: Debe contener Época, Instancia, Registro digital y Rubro. P.ej: "[RUBRO...]" -- *[Tribunal], Registro digital: [número]* [Doc ID: uuid].
+- CITA TEXTUAL de la Jurisprudencia: Usa los ATRIBUTOS del tag <documento> del XML del contexto. P.ej: "[RUBRO del texto]" -- *[atributo instancia=], Registro digital: [atributo registro=]* [Doc ID: uuid]. Si el tag <documento> NO tiene atributo registro= o instancia=, OMITE esos datos de tu cita. NUNCA inventes un registro digital ni un número de tesis — tus datos de training son obsoletos y frecuentemente incorrectos.
 - PROHIBIDO añadir notas, avisos ni bloques "Información al usuario" dentro o al final del escrito. El documento legal se entrega LIMPIO, sin disclaimers. Si el RAG no contiene una tesis específica, mencionalo dentro del mismo párrafo como parte de la argumentación (ej: 'conforme al criterio aplicable en la materia...') sin interrumpir la prosa ni añadir pie de página explicativo.
 - Si el RAG tiene documentos suficientes para el tema, ÚSALOS TODOS. No te limites a los 2 o 3 primeros — revisa CADA documento del contexto y extrae su ratio decidendi si es relevante. Integra al menos 5-8 fuentes distintas en tu argumentación cuando estén disponibles, entrelazando legislación federal, estatal, jurisprudencia y tratados internacionales en un tejido argumentativo cohesivo.
 
@@ -4735,11 +4754,32 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             if r.sentido_del_criterio:
                 ratio_tags += f'\n<sentido_del_criterio>{html.escape(r.sentido_del_criterio)}</sentido_del_criterio>'
 
+        # ── FIX 2026-05-25: Inyectar metadata de jurisprudencia en XML ──────
+        # ANTES: registro, tesis_num, instancia etc. existían en SearchResult
+        # pero NO se incluían en el XML. El system prompt pedía al LLM citar
+        # con "Registro digital: [numero]" sin darle los datos reales → el LLM
+        # INVENTABA registros, rubros e instancias = ALUCINACIONES CRÍTICAS.
+        # AHORA: Los campos reales de Qdrant se inyectan como atributos XML.
+        juris_attrs = ""
+        _juris_silos = ("jurisprudencia_nacional", "jurisprudencia_nacional_v2",
+                        "jurisprudencia_tcc", "jurisprudencia")
+        if r.silo in _juris_silos:
+            if r.registro:
+                juris_attrs += f' registro="{html.escape(str(r.registro))}"'
+            if r.tesis_num:
+                juris_attrs += f' tesis="{html.escape(str(r.tesis_num))}"'
+            if r.instancia_meta:
+                juris_attrs += f' instancia="{html.escape(str(r.instancia_meta))}"'
+            if r.tipo_criterio:
+                juris_attrs += f' tipo_criterio="{html.escape(str(r.tipo_criterio))}"'
+            if r.materia_meta:
+                juris_attrs += f' materia="{html.escape(str(r.materia_meta))}"'
+
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
             f'origen="{escaped_origen}" silo="{r.silo}" '
             f'jerarquia="{jerarquia}" '
-            f'jurisdiccion="{escaped_jurisdiccion}" score="{r.score:.4f}"{tipo_tag}>\n'
+            f'jurisdiccion="{escaped_jurisdiccion}" score="{r.score:.4f}"{tipo_tag}{juris_attrs}>\n'
             f'{escaped_texto}{ratio_tags}\n'
             f'</documento>'
         )
@@ -9943,7 +9983,9 @@ async def chat_endpoint(request: ChatRequest):
                                     "- Usa blockquotes para transcribir artículos.\n"
                                     "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
                                     "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
-                                    "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n\n"
+                                    "- Jurisprudencia del RAG: > \"[RUBRO del texto]\" -- *[atributo instancia= del XML], Registro: [atributo registro= del XML]* [Doc ID: uuid]\n"
+                                    "  ⚠️ SOLO usa valores de los ATRIBUTOS del tag <documento> del XML.\n"
+                                    "  Si el documento NO tiene atributo registro= o instancia=, omítelos. NUNCA inventes.\n\n"
                                     "DIAGRAMAS VISUALES (cuando sea pertinente):\n"
                                     "Para procedimientos por etapas, usa:\n"
                                     ":::processflow\n"
@@ -10087,7 +10129,8 @@ async def chat_endpoint(request: ChatRequest):
                                         "- NUNCA uses emojis en la respuesta.\n"
                                         "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
                                         "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
-                                        "- Jurisprudencia del RAG: > \"RUBRO\" -- *Tribunal, Época, Registro: N* [Doc ID: uuid]\n"
+                                        "- Jurisprudencia del RAG: > \"[RUBRO del texto]\" -- *[atributo instancia=], Registro: [atributo registro=]* [Doc ID: uuid]\n"
+                                        "  ⚠️ SOLO usa valores de los ATRIBUTOS del tag <documento> del XML. NUNCA inventes registro o instancia.\n"
                                     )
                                 dynamic_parts.insert(1, _GENIO_DEPTH_BOOST_MULTI)
                                 
@@ -10419,6 +10462,28 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     
                     # Also repair content_buffer for correct validation counts
                     content_buffer = repair_hallucinated_uuids(content_buffer, doc_id_map)
+
+                # ── FIX 2026-05-25: Detectar registros digitales alucinados ────
+                # Red de seguridad: después de la respuesta del LLM, extraer todos los
+                # "Registro digital: NNNNN" y verificar que coinciden con registros
+                # reales del RAG. Si no coinciden → el LLM alucinó ese registro.
+                if doc_id_map and content_buffer:
+                    import re as _re
+                    _registro_pattern = _re.compile(r'Registro\s+(?:digital|Digital):\s*(\d{4,8})', _re.IGNORECASE)
+                    _cited_registros = set(_registro_pattern.findall(content_buffer))
+                    if _cited_registros:
+                        # Build set of REAL registros from all RAG results
+                        _real_registros = set()
+                        for _doc in doc_id_map.values():
+                            if _doc.registro:
+                                _real_registros.add(str(_doc.registro).strip())
+                        _hallucinated_registros = _cited_registros - _real_registros
+                        if _hallucinated_registros:
+                            print(f"   🚨 REGISTROS ALUCINADOS DETECTADOS: {len(_hallucinated_registros)}")
+                            for _hr in sorted(_hallucinated_registros):
+                                print(f"      ❌ Registro {_hr} NO está en el RAG — ALUCINACIÓN del LLM")
+                        else:
+                            print(f"   ✅ Registros verificados: {len(_cited_registros)} citados, todos válidos")
 
                 # Validar citas (ahora con UUIDs reparados en content_buffer)
                 if doc_id_map:
