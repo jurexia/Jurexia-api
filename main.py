@@ -10526,6 +10526,30 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             sources_map[hallucinated_id] = sources_map[real_id]
                             print(f"   🔗 ALIAS: {hallucinated_id[:16]}... → fuente de {real_id[:16]}...")
                     
+                    # ── FIX: Agregar precedentes al sources_map ──────────────────
+                    # Los precedentes (sentencias/holdings) se buscan por separado
+                    # y no están en doc_id_map. Cuando el LLM los cita con
+                    # [Doc ID: uuid], el frontend no puede resolverlos → muestra
+                    # "Sin texto disponible" y UUID truncado en la leyenda.
+                    # Solución: inyectarlos en sources_map para que la leyenda
+                    # y el visor de fuente funcionen correctamente.
+                    if precedentes_results:
+                        for _pr in precedentes_results:
+                            if _pr.id not in sources_map:
+                                sources_map[_pr.id] = {
+                                    "origen": humanize_origen(_pr.origen) or "Sentencia Judicial",
+                                    "ref": _pr.ref or "",
+                                    "texto": _pr.texto or "",
+                                    "pdf_url": _pr.pdf_url or None,
+                                    "silo": _pr.silo or "",
+                                    "entidad": _pr.entidad or None,
+                                    "registro": None,
+                                    "tesis_num": None,
+                                    "tipo_criterio": None,
+                                    "instancia": None,
+                                    "materia": None,
+                                }
+                    
                     if validation.invalid_count > 0:
                         print(f"   ⚠️ CITAS INVÁLIDAS: {validation.invalid_count}/{validation.total_citations}")
                         for cv in validation.citations:
