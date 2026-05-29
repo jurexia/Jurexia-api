@@ -38,33 +38,134 @@ from redactor_tcc_v3 import (
 )
 
 # ════════════════════════════════════════════════════════════════════════
-# IN-MEMORY JOB STORE (TTL 1 h)
+# JOB STORE — Supabase persistente + fallback in-memory
 # ════════════════════════════════════════════════════════════════════════
+#
+# Historia: hasta 2026-05-28 el job store era un dict in-memory. Cada vez
+# que Render reiniciaba el proceso (deploy nuevo, restart, sleep) entre
+# /analyze y /finalize, el secretario veía "Sesión expirada" y tenía que
+# repetir todo. Pasó en producción con el deploy del Stage -1.
+#
+# Ahora: persistencia en Supabase tabla `redactor_tcc_jobs`. Si Supabase no
+# está configurado o falla, cae a in-memory (no rompe dev/test local).
+#
+# Tabla creada por: _tools/migration_redactor_tcc_jobs.sql
+
+import asyncio
+import datetime as _dt
 
 _JOB_TTL_SECONDS = 60 * 60
-_jobs: dict[str, dict] = {}
+
+# Fallback in-memory (se usa si Supabase no responde o no está configurado).
+_jobs_fallback: dict[str, dict] = {}
 
 
-def _gc_expired_jobs() -> None:
+def _get_supabase_admin():
+    """Lazy import — evita ciclo con main.py."""
+    try:
+        from main import supabase_admin  # type: ignore
+        return supabase_admin
+    except Exception:
+        return None
+
+
+def _gc_expired_fallback() -> None:
     now = time.time()
-    expired = [jid for jid, st in _jobs.items() if st.get("expires_at", 0) < now]
+    expired = [jid for jid, st in _jobs_fallback.items() if st.get("expires_at_ts", 0) < now]
     for jid in expired:
-        _jobs.pop(jid, None)
+        _jobs_fallback.pop(jid, None)
 
 
-def store_job(job_id: str, payload: dict) -> None:
-    _gc_expired_jobs()
-    payload["expires_at"] = time.time() + _JOB_TTL_SECONDS
-    _jobs[job_id] = payload
+async def store_job(job_id: str, payload: dict) -> None:
+    """Persiste el job en Supabase con TTL 1h. Si falla, usa fallback in-memory.
+
+    payload esperado tras run_analyze_phase:
+      { "pass0": dict, "pass2": dict, "caso_meta": dict, "created_at": float }
+    """
+    expires_at_ts = time.time() + _JOB_TTL_SECONDS
+    expires_at_iso = _dt.datetime.utcfromtimestamp(expires_at_ts).isoformat() + "Z"
+
+    sb = _get_supabase_admin()
+    if sb is not None:
+        try:
+            row = {
+                "job_id": job_id,
+                "pass0": payload.get("pass0", {}),
+                "pass2": payload.get("pass2", {}),
+                "caso_meta": payload.get("caso_meta", {}),
+                "expires_at": expires_at_iso,
+            }
+            # upsert para idempotencia (si el secretario reintenta)
+            await asyncio.to_thread(
+                lambda: sb.table("redactor_tcc_jobs").upsert(row).execute()
+            )
+            print(f"   💾 [job store] {job_id[:8]}... persistido en Supabase")
+            return
+        except Exception as e:
+            print(f"   ⚠️ [job store] Supabase upsert falló ({e}); usando fallback in-memory")
+
+    # Fallback: in-memory
+    _gc_expired_fallback()
+    payload_with_ttl = dict(payload)
+    payload_with_ttl["expires_at_ts"] = expires_at_ts
+    _jobs_fallback[job_id] = payload_with_ttl
+    print(f"   💾 [job store] {job_id[:8]}... persistido en in-memory (fallback)")
 
 
-def get_job(job_id: str) -> Optional[dict]:
-    _gc_expired_jobs()
-    return _jobs.get(job_id)
+async def get_job(job_id: str) -> Optional[dict]:
+    """Lee el job. Prueba Supabase primero, después fallback. Devuelve None si expiró."""
+    sb = _get_supabase_admin()
+    if sb is not None:
+        try:
+            resp = await asyncio.to_thread(
+                lambda: sb.table("redactor_tcc_jobs")
+                .select("pass0, pass2, caso_meta, expires_at")
+                .eq("job_id", job_id)
+                .limit(1)
+                .execute()
+            )
+            rows = resp.data or []
+            if rows:
+                row = rows[0]
+                # Verificar expiración (defensivo; en teoría el GC ya lo borró)
+                exp_str = row.get("expires_at", "")
+                try:
+                    exp_dt = _dt.datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
+                    if exp_dt.timestamp() < time.time():
+                        # Expirado — borra y devuelve None
+                        await asyncio.to_thread(
+                            lambda: sb.table("redactor_tcc_jobs")
+                            .delete().eq("job_id", job_id).execute()
+                        )
+                        return None
+                except Exception:
+                    pass
+                return {
+                    "pass0": row.get("pass0") or {},
+                    "pass2": row.get("pass2") or {},
+                    "caso_meta": row.get("caso_meta") or {},
+                }
+            # No está en Supabase — chequear fallback (por si el analyze se hizo offline)
+        except Exception as e:
+            print(f"   ⚠️ [job store] Supabase select falló ({e}); revisando fallback")
+
+    # Fallback in-memory
+    _gc_expired_fallback()
+    return _jobs_fallback.get(job_id)
 
 
-def drop_job(job_id: str) -> None:
-    _jobs.pop(job_id, None)
+async def drop_job(job_id: str) -> None:
+    """Borra el job de Supabase y del fallback (idempotente)."""
+    sb = _get_supabase_admin()
+    if sb is not None:
+        try:
+            await asyncio.to_thread(
+                lambda: sb.table("redactor_tcc_jobs")
+                .delete().eq("job_id", job_id).execute()
+            )
+        except Exception as e:
+            print(f"   ⚠️ [job store] Supabase delete falló ({e})")
+    _jobs_fallback.pop(job_id, None)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -266,7 +367,7 @@ async def run_analyze_phase(
 
     # ─── CREATE JOB ─────────────────────────────────────────
     job_id = uuid.uuid4().hex
-    store_job(job_id, {
+    await store_job(job_id, {
         "pass0": pass0,
         "pass2": pass2,
         "caso_meta": caso_meta,
@@ -367,7 +468,7 @@ async def run_finalize_phase(
     http_client: httpx.AsyncClient,
 ) -> AsyncGenerator[dict, None]:
     """Yields eventos SSE de Pass 3 streaming + evento complete final."""
-    state = get_job(job_id)
+    state = await get_job(job_id)
     if not state:
         yield RedactorEvent.error(
             f"Sesión expirada (job_id {job_id[:8]}...). Reinicia el análisis.",
@@ -445,4 +546,4 @@ async def run_finalize_phase(
         "truncated": truncated,
     })
 
-    drop_job(job_id)
+    await drop_job(job_id)
