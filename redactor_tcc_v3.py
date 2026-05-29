@@ -48,6 +48,21 @@ PASS0_PROVIDER = os.getenv("REDACTOR_PASS0_PROVIDER", "gemini").lower()
 PASS0_TIMEOUT_S = float(os.getenv("REDACTOR_PASS0_TIMEOUT_S", "180"))
 PASS2_TIMEOUT_S = float(os.getenv("REDACTOR_PASS2_TIMEOUT_S", "240"))
 
+# Pass -1 (resúmenes jurídicos editables del método manual):
+# Gemini 3.1 Pro Preview vía OpenRouter. Modelo separado del Pass 0 porque
+# el Pass 0 estructura cognitiva (JSON) y el Pass -1 produce prosa jurídica
+# extensa — son tareas distintas con calibración distinta.
+PASS_MINUS1_GEMINI_MODEL = os.getenv(
+    "REDACTOR_PASS_MINUS1_GEMINI_MODEL", "google/gemini-3.1-pro-preview"
+)
+PASS_MINUS1_TIMEOUT_S = float(os.getenv("REDACTOR_PASS_MINUS1_TIMEOUT_S", "240"))
+
+# Pass 3 (estudio de fondo): GPT-5.5 vía OpenAI directa, mismo cliente que
+# Redacción Pro del chat. Requiere `max_completion_tokens` (no max_tokens) y
+# soporta reasoning_content separado del content visible.
+PASS3_OPENAI_MODEL = os.getenv("REDACTOR_PASS3_OPENAI_MODEL", "gpt-5.5")
+PASS3_TIMEOUT_S = float(os.getenv("REDACTOR_PASS3_TIMEOUT_S", "900"))
+
 # Límites de catálogo para Pass 2.
 # Subidos tras la expansión del RAG a 8-10 colecciones (jurisprudencia_nacional_v2,
 # bloque_constitucional, leyes_federales+estatales, ef_circuito, ef_scjn x3,
@@ -521,6 +536,231 @@ def _parse_json_safe(content: str) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# PASS -1 — Resúmenes jurídicos editables (método manual del secretario)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Replica el flujo manual: primero resumir el acto reclamado y los conceptos
+# de violación en lenguaje jurídico (con Gemini Pro), permitir que el
+# secretario edite cada resumen con su estilo personal y, solo entonces,
+# alimentar el razonamiento posterior (Pass 0+1+2+3) con esos resúmenes
+# pulidos en lugar del texto crudo de los PDFs.
+#
+# Inspirado en: David Mtz. Juárez — método manual probado en proyectos reales
+# del 22° Circuito (cf. PLAN_REDACTOR_SENTENCIAS.md, sección "método manual").
+
+PASS_MINUS1_ACTO_SYSTEM = """Eres un SECRETARIO PROYECTISTA de un Tribunal Colegiado de Circuito mexicano. Tu tarea ÚNICA: producir un RESUMEN JURÍDICO COMPLETO Y EXTENSO de las consideraciones de fondo de una sentencia recurrida o de un acto reclamado, redactado en lenguaje técnico-jurídico mexicano formal.
+
+═══════════════════════════════════════════════════════════════════════
+RECIBES
+═══════════════════════════════════════════════════════════════════════
+El texto íntegro de la sentencia recurrida o del acto reclamado.
+
+═══════════════════════════════════════════════════════════════════════
+DEBES PRODUCIR
+═══════════════════════════════════════════════════════════════════════
+Un resumen en PÁRRAFOS de prosa fluida (no viñetas, no listas numeradas, no headings markdown), entre 700 y 1500 palabras según la complejidad del caso. El resumen debe permitir leer y entender la decisión recurrida SIN tener el documento original a la mano. Cubre obligatoriamente:
+
+   • Antecedentes procesales relevantes que enmarcan la decisión.
+   • La litis o materia debatida ante la autoridad responsable.
+   • Las consideraciones de fondo por las que resolvió como resolvió, ordenadas lógicamente.
+   • Los fundamentos legales que invocó: artículos, tesis aisladas, jurisprudencias (con su registro y rubro tal como aparezcan en el documento).
+   • El sentido final de su decisión.
+
+═══════════════════════════════════════════════════════════════════════
+ESTILO
+═══════════════════════════════════════════════════════════════════════
+- Lenguaje técnico-jurídico mexicano: voz pasiva, conectores formales ("de ahí que", "máxime que", "en ese sentido", "por consiguiente", "ahora bien", "no obstante"), sin primera persona.
+- NO parafrasees vagamente. Si la autoridad citó una tesis o un artículo concreto, menciónalo expresamente con su nomenclatura completa.
+- NO inventes datos que no estén en el documento. Si algo es ambiguo en el texto fuente, refléjalo como ambiguo (no rellenes con suposiciones).
+- PROHIBIDO usar headings markdown (`#`, `##`, `###`) ni viñetas (`-`, `*`). SOLO párrafos de prosa.
+- Mantén el tono de un secretario proyectista preparando un proyecto para el Magistrado Ponente.
+
+DEVUELVE: ÚNICAMENTE el resumen, sin preámbulo, sin metainformación, sin etiquetas ni encabezados."""
+
+
+PASS_MINUS1_CV_SYSTEM = """Eres un SECRETARIO PROYECTISTA de un Tribunal Colegiado de Circuito mexicano. Tu tarea ÚNICA: producir un RESUMEN JURÍDICO COMPLETO Y EXTENSO de los conceptos de violación o agravios planteados por el quejoso/recurrente, en lenguaje técnico-jurídico mexicano formal.
+
+═══════════════════════════════════════════════════════════════════════
+RECIBES
+═══════════════════════════════════════════════════════════════════════
+El texto íntegro de la demanda de amparo o del escrito de agravios.
+
+═══════════════════════════════════════════════════════════════════════
+DEBES PRODUCIR
+═══════════════════════════════════════════════════════════════════════
+Un resumen en PÁRRAFOS de prosa fluida (no viñetas, no listas, no headings markdown), entre 500 y 1200 palabras según el número y complejidad de los conceptos planteados. Por CADA concepto de violación o agravio debes explicar, sin omitir ninguno:
+
+   • Qué consideración de la sentencia recurrida o del acto reclamado combate.
+   • Cuál es la tesis del quejoso/recurrente (su núcleo argumentativo).
+   • Qué fundamentos legales invoca: artículos, tesis, jurisprudencias, principios constitucionales o convencionales (con su nomenclatura completa cuando estén identificados).
+   • Cuál es la pretensión específica de fondo que persigue (concesión total, parcial, efectos restitutorios concretos).
+
+Numera los conceptos en prosa: "el primer concepto de violación", "el segundo", "el tercero", etc.
+
+═══════════════════════════════════════════════════════════════════════
+ESTILO
+═══════════════════════════════════════════════════════════════════════
+- Lenguaje técnico-jurídico mexicano: voz pasiva, conectores formales, sin primera persona.
+- El lector debe poder entender todos los agravios sin tener el escrito original a la mano.
+- NO parafrasees vagamente. Cuando el quejoso cite tesis concretas o artículos exactos, refiérelos con su nomenclatura.
+- NO inventes pretensiones ni argumentos que no estén en el escrito.
+- PROHIBIDO usar headings markdown (`#`, `##`, `###`) ni viñetas. SOLO párrafos de prosa.
+- Mantén el tono de un secretario proyectista preparando un proyecto para el Magistrado Ponente.
+
+DEVUELVE: ÚNICAMENTE el resumen, sin preámbulo, sin metainformación, sin etiquetas ni encabezados."""
+
+
+async def _call_gemini_text(
+    http_client: httpx.AsyncClient,
+    system: str,
+    user: str,
+    max_tokens: int = 4000,
+    model: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+    temperature: float = 0.2,
+) -> str:
+    """Llama Gemini vía OpenRouter en modo TEXTO (sin JSON mode).
+
+    Variante de `_call_gemini_json` para outputs en prosa (resúmenes,
+    regeneraciones). No fuerza response_format=json_object.
+    """
+    or_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not or_key:
+        raise RuntimeError("OPENROUTER_API_KEY no configurada (Pass -1 Gemini requiere OpenRouter)")
+    payload = {
+        "model": model or PASS0_GEMINI_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    resp = await http_client.post(
+        OPENROUTER_URL,
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {or_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://iurexia.com",
+            "X-Title": "Iurexia Redactor TCC",
+        },
+        timeout=timeout_s or PASS0_TIMEOUT_S,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    if not content:
+        err = data.get("error", {}).get("message", "respuesta vacía")
+        raise RuntimeError(f"Gemini OpenRouter (text): {err}")
+    return content.strip()
+
+
+async def _run_pass_minus1(
+    http_client: httpx.AsyncClient,
+    texto_acto: str,
+    texto_cv: str,
+) -> dict:
+    """Stage -1 — Resúmenes jurídicos del acto reclamado y de los conceptos/agravios.
+
+    Corre 2 llamadas en paralelo a Gemini Pro. Devuelve:
+        {"resumen_acto": "...", "resumen_cv": "..."}
+
+    Estos resúmenes están pensados para ser EDITADOS por el secretario en la UI
+    antes de continuar al pipeline cognitivo (Pass 0+1+2+3). El razonamiento
+    posterior se monta sobre la versión pulida por el humano, no sobre el OCR crudo.
+    """
+    import asyncio as _aio
+
+    if not (texto_acto or "").strip() or not (texto_cv or "").strip():
+        raise ValueError("Pass -1 requiere texto del acto y de los conceptos/agravios")
+
+    user_acto = f"TEXTO DE LA SENTENCIA RECURRIDA / ACTO RECLAMADO:\n\n{texto_acto.strip()}"
+    user_cv = f"TEXTO DE LA DEMANDA DE AMPARO / ESCRITO DE AGRAVIOS:\n\n{texto_cv.strip()}"
+
+    # max_tokens generoso: 1500 palabras ≈ 3000-3500 tokens. Dejamos margen.
+    # Modelo: Gemini 3.1 Pro Preview vía OpenRouter (override env var).
+    acto_task = _call_gemini_text(
+        http_client, PASS_MINUS1_ACTO_SYSTEM, user_acto,
+        max_tokens=4500, model=PASS_MINUS1_GEMINI_MODEL, timeout_s=PASS_MINUS1_TIMEOUT_S,
+    )
+    cv_task = _call_gemini_text(
+        http_client, PASS_MINUS1_CV_SYSTEM, user_cv,
+        max_tokens=4000, model=PASS_MINUS1_GEMINI_MODEL, timeout_s=PASS_MINUS1_TIMEOUT_S,
+    )
+
+    try:
+        resumen_acto, resumen_cv = await _aio.gather(acto_task, cv_task)
+    except Exception as e:
+        raise RuntimeError(f"Pass -1 falló al llamar Gemini: {e}") from e
+
+    return {
+        "resumen_acto": resumen_acto,
+        "resumen_cv": resumen_cv,
+    }
+
+
+async def _run_pass_minus1_regenerate(
+    http_client: httpx.AsyncClient,
+    kind: str,
+    resumen_actual: str,
+    instruccion: str,
+    texto_original: str = "",
+) -> str:
+    """Regenera UN resumen aplicando una instrucción libre del secretario.
+
+    Para el botón "Regenerar este resumen con instrucciones" de la UI.
+
+    Args:
+        kind: "acto" (sentencia recurrida) o "cv" (conceptos/agravios)
+        resumen_actual: el texto actual del resumen (ya posiblemente editado)
+        instruccion: instrucción libre del secretario ("más extenso", "agrega
+                     el tratamiento de la tesis X", "elimina la parte de Y", etc.)
+        texto_original: texto fuente OCR (opcional). Si se pasa, el modelo lo
+                        usa como verdad para no perder fidelidad al documento.
+    """
+    if kind not in ("acto", "cv"):
+        raise ValueError(f"kind debe ser 'acto' o 'cv', no '{kind}'")
+    if not (resumen_actual or "").strip():
+        raise ValueError("Regenerar requiere `resumen_actual`")
+    if not (instruccion or "").strip():
+        raise ValueError("Regenerar requiere `instruccion`")
+
+    base = PASS_MINUS1_ACTO_SYSTEM if kind == "acto" else PASS_MINUS1_CV_SYSTEM
+    system = (
+        base
+        + "\n\n═══════════════════════════════════════════════════════════════════════\n"
+        + "MODO REGENERACIÓN\n"
+        + "═══════════════════════════════════════════════════════════════════════\n"
+        + "Recibes una versión PREVIA del resumen y una INSTRUCCIÓN del secretario "
+        + "proyectista para ajustarla. Aplica la instrucción al pie de la letra "
+        + "preservando la estructura general, el estilo formal y la extensión esperadas. "
+        + "Si se incluye TEXTO FUENTE ORIGINAL, úsalo como verdad — no contradigas el "
+        + "documento original aunque la instrucción pida algo que no se sostiene en él "
+        + "(en ese caso, ajusta lo que sí es posible y omite lo que no encuentra apoyo)."
+    )
+
+    parts = [
+        "RESUMEN PREVIO:\n",
+        resumen_actual.strip(),
+        "\n\nINSTRUCCIÓN DEL SECRETARIO PARA REGENERAR:\n",
+        instruccion.strip(),
+    ]
+    if (texto_original or "").strip():
+        parts.append("\n\nTEXTO FUENTE ORIGINAL (úsalo como verdad jurídica):\n")
+        parts.append(texto_original.strip())
+
+    user = "".join(parts)
+    return await _call_gemini_text(
+        http_client, system, user,
+        max_tokens=4500,
+        temperature=0.2,
+        model=PASS_MINUS1_GEMINI_MODEL,
+        timeout_s=PASS_MINUS1_TIMEOUT_S,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # PASS 0 — Pre-análisis cognitivo
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -944,68 +1184,80 @@ def _build_pass3_prompt(pass0: dict, pass2: dict, caso_meta: dict) -> str:
 
 async def _run_pass3_stream(
     http_client: httpx.AsyncClient,
-    api_key: str,
+    api_key: str,  # Conservado por compatibilidad de firma con v4; no se usa
+                   # (Pass 3 ahora va por OPENAI_API_KEY directo a GPT-5.5).
     pass0: dict,
     pass2: dict,
     caso_meta: dict,
 ) -> AsyncGenerator[dict, None]:
     """
-    Ejecuta Pass 3 en modo streaming. Yields:
-      - {"type": "token", "data": {"text": "..."}} por cada delta
-      - {"type": "final", "data": {"markdown": "...", "finish_reason": "..."}} al cerrar
-    Si la API truncara (`finish_reason="length"`) emite también un `truncated=True`
-    en el final para que el caller decida si reintentar (sin doblar latencia
-    automáticamente como hace _call_with_retry).
+    Ejecuta Pass 3 en modo streaming usando GPT-5.5 (OpenAI Redacción Pro).
+
+    DECISIÓN 2026-05-28 (David): Pass 3 migrado de DeepSeek V4-Pro a GPT-5.5
+    para igualar el motor de "Redacción Pro" del chat. Calidad de prosa jurídica
+    en mexicano formal superior, además del modo reasoning interno.
+
+    Yields:
+      - {"type": "token", "data": {"text": "..."}} por cada delta de content visible
+      - {"type": "final", "data": {"markdown": "...", "finish_reason": "...",
+                                    "truncated": bool, "reasoning_chars": int}} al cerrar
+
+    Si la API truncara (`finish_reason="length"`) emite `truncated=True` en el
+    final para que el caller decida si reintentar.
+
+    Nota técnica: GPT-5.5 emite `reasoning_content` en el delta (modo razonamiento
+    interno) y `content` con la prosa final. Solo emitimos tokens del `content`;
+    el `reasoning_content` se acumula y se reporta en metadata (no se incluye en
+    el estudio de fondo final — eso es chain-of-thought interno).
     """
+    from openai import AsyncOpenAI
+
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    if not openai_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY no configurada — Pass 3 ahora usa GPT-5.5 vía OpenAI directo."
+        )
+
     user_prompt = _build_pass3_prompt(pass0, pass2, caso_meta)
     n_problems = len(pass2.get("plan_por_problema", []))
     max_tokens = 16000 if n_problems <= 2 else 24000
 
-    payload = {
-        "model": DEEPSEEK_MODEL,
+    client = AsyncOpenAI(api_key=openai_key, timeout=PASS3_TIMEOUT_S)
+
+    # GPT-5.x/gpt-4.x family: requiere max_completion_tokens, NO max_tokens.
+    # No usamos `temperature` porque los modelos reasoning de OpenAI lo ignoran/rechazan.
+    api_kwargs = {
+        "model": PASS3_OPENAI_MODEL,
         "messages": [
             {"role": "system", "content": PASS_3_SYSTEM},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.2,
-        "max_tokens": max_tokens,
         "stream": True,
+        "max_completion_tokens": max_tokens,
     }
 
     full_text_parts: list[str] = []
+    reasoning_chars = 0
     finish_reason = "unknown"
 
-    async with http_client.stream(
-        "POST",
-        DEEPSEEK_URL,
-        json=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=900.0,
-    ) as resp:
-        resp.raise_for_status()
-        async for raw_line in resp.aiter_lines():
-            if not raw_line:
-                continue
-            line = raw_line.strip()
-            if line.startswith("data:"):
-                line = line[5:].strip()
-            if not line or line == "[DONE]":
-                continue
-            try:
-                evt = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            choices = evt.get("choices", [])
-            if not choices:
-                continue
-            ch0 = choices[0]
-            delta = (ch0.get("delta") or {}).get("content", "")
-            if delta:
-                full_text_parts.append(delta)
-                yield {"type": "token", "data": {"text": delta}}
-            fr = ch0.get("finish_reason")
-            if fr:
-                finish_reason = fr
+    stream = await client.chat.completions.create(**api_kwargs)
+    async for chunk in stream:
+        if not chunk.choices:
+            continue
+        ch0 = chunk.choices[0]
+        delta = ch0.delta if ch0.delta else None
+        if delta is not None:
+            # GPT-5.5 reasoning: chain-of-thought interno (no se emite al cliente).
+            reasoning_content = getattr(delta, "reasoning_content", None)
+            if reasoning_content:
+                reasoning_chars += len(reasoning_content)
+            content = getattr(delta, "content", None)
+            if content:
+                full_text_parts.append(content)
+                yield {"type": "token", "data": {"text": content}}
+        fr = ch0.finish_reason
+        if fr:
+            finish_reason = fr
 
     full_text = "".join(full_text_parts)
     yield {
@@ -1014,6 +1266,8 @@ async def _run_pass3_stream(
             "markdown": full_text,
             "finish_reason": finish_reason,
             "truncated": finish_reason == "length",
+            "reasoning_chars": reasoning_chars,
+            "model": PASS3_OPENAI_MODEL,
         },
     }
 

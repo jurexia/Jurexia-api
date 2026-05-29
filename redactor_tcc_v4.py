@@ -29,6 +29,8 @@ from redactor_tcc_v3 import (
     _run_pass1,
     _run_pass2,
     _run_pass3_stream,
+    _run_pass_minus1,
+    _run_pass_minus1_regenerate,
     _validate_tesis_in_plan,
     _validar_estudio_post_pass3,
     _normalizar_numerales,
@@ -63,6 +65,93 @@ def get_job(job_id: str) -> Optional[dict]:
 
 def drop_job(job_id: str) -> None:
     _jobs.pop(job_id, None)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# SUMMARIZE — Stage -1 (resúmenes jurídicos editables, método manual)
+# ════════════════════════════════════════════════════════════════════════
+#
+# Replica el flujo manual del secretario: primero generar resúmenes con
+# Gemini Pro (acto reclamado + conceptos/agravios en paralelo), permitir
+# edición humana en la UI, y solo entonces alimentar Pass 0+1+2+3 con esos
+# resúmenes pulidos en vez de con el texto OCR crudo.
+#
+# Este stage NO usa el job store: los resúmenes editados se envían como
+# `texto_acto_reclamado` y `texto_conceptos_agravios` al endpoint /analyze
+# existente, sin requerir state server-side.
+
+async def run_summarize_phase(
+    texto_acto: str,
+    texto_cv: str,
+    http_client: httpx.AsyncClient,
+) -> AsyncGenerator[dict, None]:
+    """
+    Stage -1: corre Pass -1 y emite eventos SSE.
+
+    Termina con un evento `summaries_ready` con los 2 resúmenes en prosa
+    para que el secretario los edite en la UI antes de /analyze.
+    """
+    yield RedactorEvent.phase(
+        -1, 10,
+        "Generando resumen jurídico del acto reclamado y de los conceptos/agravios (paralelo)...",
+    )
+    t0 = time.time()
+    try:
+        result = await _run_pass_minus1(http_client, texto_acto, texto_cv)
+    except Exception as e:
+        yield RedactorEvent.error(f"Error generando resúmenes: {e}", -1)
+        return
+
+    n_acto = len(result["resumen_acto"].split())
+    n_cv = len(result["resumen_cv"].split())
+    yield RedactorEvent.pass_complete(-1, time.time() - t0, {
+        "palabras_acto": n_acto,
+        "palabras_cv": n_cv,
+    })
+
+    yield {
+        "type": "summaries_ready",
+        "data": {
+            "resumen_acto": result["resumen_acto"],
+            "resumen_cv": result["resumen_cv"],
+            "total_elapsed_s": round(time.time() - t0, 1),
+        },
+    }
+
+
+async def run_regenerate_summary_phase(
+    kind: str,
+    resumen_actual: str,
+    instruccion: str,
+    texto_original: str,
+    http_client: httpx.AsyncClient,
+) -> AsyncGenerator[dict, None]:
+    """Stage -1bis: regenera UN resumen con la instrucción libre del secretario."""
+    if kind not in ("acto", "cv"):
+        yield RedactorEvent.error(f"kind inválido: {kind!r} (esperado 'acto' o 'cv')", -1)
+        return
+
+    label = "del acto reclamado" if kind == "acto" else "de los conceptos/agravios"
+    yield RedactorEvent.phase(
+        -1, 30, f"Regenerando resumen {label} con la instrucción del secretario...",
+    )
+    t0 = time.time()
+    try:
+        nuevo = await _run_pass_minus1_regenerate(
+            http_client, kind, resumen_actual, instruccion, texto_original,
+        )
+    except Exception as e:
+        yield RedactorEvent.error(f"Error regenerando resumen: {e}", -1)
+        return
+
+    yield {
+        "type": "summary_regenerated",
+        "data": {
+            "kind": kind,
+            "resumen": nuevo,
+            "elapsed_s": round(time.time() - t0, 1),
+        },
+    }
 
 
 # ════════════════════════════════════════════════════════════════════════

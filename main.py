@@ -14908,6 +14908,186 @@ async def extract_pdf_text_with_ocr(content: bytes, filename: str) -> str:
 # Acceso exclusivo: igual que tcc-beta (Platinum / admins).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@app.post("/redactor/tcc-v4/summarize")
+async def redactor_tcc_v4_summarize(
+    user_email: str = Form(...),
+    texto_acto_reclamado: str = Form(""),
+    texto_conceptos_agravios: str = Form(""),
+    doc_acto: Optional[UploadFile] = File(None),
+    doc_conceptos: Optional[UploadFile] = File(None),
+):
+    """
+    Redactor TCC v4 — STAGE -1 (resúmenes jurídicos editables).
+
+    Replica el método manual del secretario: primero genera con Gemini Pro
+    un resumen jurídico extenso del acto reclamado y otro de los conceptos
+    de violación / agravios (en paralelo, en prosa, sin headings). El frontend
+    los muestra en 2 textareas editables. El secretario los pule a su estilo
+    y los envía a /analyze como `texto_acto_reclamado` / `texto_conceptos_agravios`.
+
+    Acepta texto directo O PDFs (Mistral OCR vía OpenRouter).
+
+    Devuelve, además del SSE de Pass -1, un evento `source_text_ready` con
+    el texto OCR crudo para que el frontend lo guarde — se usa después en
+    /regenerate-summary como fuente de verdad si el secretario pide ajustes.
+    """
+    if not _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
+
+    texto_acto = (texto_acto_reclamado or "").strip()
+    texto_cv = (texto_conceptos_agravios or "").strip()
+
+    doc_acto_bytes = None
+    doc_acto_filename = None
+    doc_conceptos_bytes = None
+    doc_conceptos_filename = None
+
+    if doc_acto and not texto_acto:
+        doc_acto_bytes = await doc_acto.read()
+        doc_acto_filename = doc_acto.filename or "acto.pdf"
+    if doc_conceptos and not texto_cv:
+        doc_conceptos_bytes = await doc_conceptos.read()
+        doc_conceptos_filename = doc_conceptos.filename or "conceptos.pdf"
+
+    if not texto_acto and not doc_acto_bytes:
+        raise HTTPException(400, "Falta texto o PDF del acto reclamado")
+    if not texto_cv and not doc_conceptos_bytes:
+        raise HTTPException(400, "Falta texto o PDF de los conceptos/agravios")
+
+    print(f"\n📝 REDACTOR TCC V4 SUMMARIZE — {user_email}")
+
+    async def generate_sse():
+        nonlocal texto_acto, texto_cv
+
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        # ── OCR de PDFs en paralelo (mismo patrón que /analyze) ────────
+        need_acto_ocr = bool(doc_acto_bytes and not texto_acto)
+        need_conceptos_ocr = bool(doc_conceptos_bytes and not texto_cv)
+        if need_acto_ocr or need_conceptos_ocr:
+            import asyncio as _asyncio_outer
+            yield sse("phase", {
+                "step": -2, "progress": 0,
+                "detail": f"OCR de {(1 if need_acto_ocr else 0) + (1 if need_conceptos_ocr else 0)} PDF(s)...",
+            })
+            try:
+                doc_labels = []
+                ocr_tasks = []
+                if need_acto_ocr:
+                    doc_labels.append(("acto", doc_acto_filename))
+                    ocr_tasks.append(extract_pdf_text_with_ocr(doc_acto_bytes, doc_acto_filename))
+                if need_conceptos_ocr:
+                    doc_labels.append(("conceptos", doc_conceptos_filename))
+                    ocr_tasks.append(extract_pdf_text_with_ocr(doc_conceptos_bytes, doc_conceptos_filename))
+                ocr_results = await _asyncio_outer.gather(*ocr_tasks, return_exceptions=True)
+                for (kind, _fname), res in zip(doc_labels, ocr_results):
+                    if isinstance(res, Exception):
+                        yield sse("error", {"message": f"Error OCR {kind}: {str(res)[:150]}"})
+                        return
+                    if not res or len(res.strip()) < 50:
+                        yield sse("error", {"message": f"No se pudo extraer texto del {'acto' if kind == 'acto' else 'escrito de conceptos/agravios'}."})
+                        return
+                    if kind == "acto":
+                        texto_acto = res
+                    else:
+                        texto_cv = res
+                yield sse("phase", {
+                    "step": -2, "progress": 80,
+                    "detail": f"OCR completo · acto: {len(texto_acto):,} chars · conceptos: {len(texto_cv):,} chars",
+                })
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                yield sse("error", {"message": f"Error procesando documentos: {str(e)[:150]}"})
+                return
+
+        if not texto_acto or not texto_cv:
+            yield sse("error", {"message": "No se obtuvo texto de uno de los documentos."})
+            return
+
+        # Echo del texto crudo (OCR) para que el frontend lo guarde y lo reuse
+        # en futuras llamadas a /regenerate-summary como fuente de verdad.
+        yield sse("source_text_ready", {
+            "texto_acto": texto_acto,
+            "texto_cv": texto_cv,
+            "texto_acto_chars": len(texto_acto),
+            "texto_cv_chars": len(texto_cv),
+        })
+
+        from redactor_tcc_v4 import run_summarize_phase
+
+        try:
+            async for event in run_summarize_phase(
+                texto_acto=texto_acto,
+                texto_cv=texto_cv,
+                http_client=_http_pool,
+            ):
+                yield sse(event["type"], event["data"])
+        except Exception as e:
+            print(f"   ❌ V4 summarize error: {e}")
+            import traceback; traceback.print_exc()
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
+
+@app.post("/redactor/tcc-v4/regenerate-summary")
+async def redactor_tcc_v4_regenerate_summary(payload: dict):
+    """
+    Regenera UN resumen aplicando una instrucción libre del secretario.
+
+    Para el botón "Regenerar este resumen con instrucciones" de la UI.
+
+    Payload JSON:
+      {
+        "user_email": "...",
+        "kind": "acto" | "cv",
+        "resumen_actual": "...",
+        "instruccion": "más extenso", "agrega tratamiento de X", etc.,
+        "texto_original": "..."  (opcional — el OCR original, usado como verdad)
+      }
+    """
+    user_email = (payload.get("user_email") or "").strip()
+    if not _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "Acceso restringido — se requiere suscripción Platinum")
+
+    kind = (payload.get("kind") or "").lower().strip()
+    if kind not in ("acto", "cv"):
+        raise HTTPException(400, "`kind` debe ser 'acto' o 'cv'")
+
+    resumen_actual = (payload.get("resumen_actual") or "").strip()
+    instruccion = (payload.get("instruccion") or "").strip()
+    texto_original = (payload.get("texto_original") or "").strip()
+
+    if not resumen_actual:
+        raise HTTPException(400, "Falta `resumen_actual`")
+    if not instruccion:
+        raise HTTPException(400, "Falta `instruccion`")
+
+    print(f"\n🔁 REDACTOR TCC V4 REGENERATE-SUMMARY ({kind}) — {user_email}")
+
+    async def generate_sse():
+        def sse(event_type: str, data: dict) -> str:
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        from redactor_tcc_v4 import run_regenerate_summary_phase
+        try:
+            async for event in run_regenerate_summary_phase(
+                kind=kind,
+                resumen_actual=resumen_actual,
+                instruccion=instruccion,
+                texto_original=texto_original,
+                http_client=_http_pool,
+            ):
+                yield sse(event["type"], event["data"])
+        except Exception as e:
+            print(f"   ❌ V4 regenerate-summary error: {e}")
+            import traceback; traceback.print_exc()
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(generate_sse(), media_type="text/event-stream")
+
+
 @app.post("/redactor/tcc-v4/analyze")
 async def redactor_tcc_v4_analyze(
     tipo_asunto: str = Form(...),
