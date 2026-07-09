@@ -7419,6 +7419,45 @@ async def analyze_document(
     filename = file.filename or "unknown"
     extension = filename.split(".")[-1].lower()
 
+    # ── Determinar límite de caracteres según suscripción del usuario ──
+    effective_max_chars = DOCUMENT_MAX_CHARS  # 200,000 por defecto
+    sub_type = "gratuito"
+    user_email = None
+
+    if user_id and supabase_admin:
+        try:
+            # Ejecutar consulta de Supabase en un pool de hilos para no bloquear
+            def _fetch_profile():
+                return supabase_admin.table('user_profiles') \
+                    .select('subscription_type, email') \
+                    .eq('id', user_id) \
+                    .limit(1) \
+                    .execute()
+            
+            profile_res = await asyncio.to_thread(_fetch_profile)
+            if profile_res.data and len(profile_res.data) > 0:
+                row = profile_res.data[0]
+                sub_type = row.get('subscription_type', 'gratuito')
+                user_email = row.get('email', '').strip().lower()
+                
+                # Check si es plan premium o admin
+                is_platinum_or_admin = (
+                    sub_type in ('platinum_monthly', 'platinum_annual', 'ultra_secretarios') or
+                    (user_email and user_email in ADMIN_EMAILS)
+                )
+                is_pro = sub_type in ('pro_monthly', 'pro_annual')
+
+                if is_platinum_or_admin:
+                    effective_max_chars = 1_000_000  # 1M caracteres ~ 250K tokens (ideal para 60-150 páginas)
+                    print(f"   💎 Platinum user detected ({user_email}, plan: {sub_type}) — Extracted char limit bumped to {effective_max_chars:,}")
+                elif is_pro:
+                    effective_max_chars = 500_000  # 500K caracteres ~ 125K tokens (ideal para 35-70 páginas)
+                    print(f"   🚀 Pro user detected ({user_email}, plan: {sub_type}) — Extracted char limit bumped to {effective_max_chars:,}")
+                else:
+                    print(f"   👤 Standard user detected ({user_email}, plan: {sub_type}) — Extracted char limit: {effective_max_chars:,}")
+        except Exception as e:
+            print(f"   ⚠️ Error checking subscription for user {user_id} in analyze-document: {e}")
+
     # Validate file type
     if extension not in ("pdf", "doc", "docx"):
         raise HTTPException(status_code=400, detail=f"Formato no soportado: .{extension}. Use .pdf, .docx o .doc")
@@ -7533,11 +7572,17 @@ async def analyze_document(
 
     # ── Step 2: Truncate if beyond model capacity ──
     original_len = len(extracted_text)
-    if original_len > DOCUMENT_MAX_CHARS:
-        extracted_text = extracted_text[:DOCUMENT_MAX_CHARS]
-        truncation_pct = round(DOCUMENT_MAX_CHARS / original_len * 100)
-        print(f"   ✂️ Documento truncado a {DOCUMENT_MAX_CHARS:,} chars ({truncation_pct}% del original)")
-        truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando {truncation_pct}% del contenido ({DOCUMENT_MAX_CHARS:,} de {original_len:,} caracteres)]"
+    if original_len > effective_max_chars:
+        extracted_text = extracted_text[:effective_max_chars]
+        truncation_pct = round(effective_max_chars / original_len * 100)
+        print(f"   ✂️ Documento truncado a {effective_max_chars:,} chars ({truncation_pct}% del original)")
+        
+        if is_platinum_or_admin:
+            truncation_note = f"\n\n[NOTA: Documento extremadamente extenso. Analizando el límite premium de {effective_max_chars:,} de {original_len:,} caracteres ({truncation_pct}% del contenido)]"
+        elif is_pro:
+            truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando el límite Pro de {effective_max_chars:,} de {original_len:,} caracteres ({truncation_pct}% del contenido). Los usuarios del plan Platinum pueden analizar documentos completos de hasta 1,000,000 de caracteres (más de 60 hojas).]"
+        else:
+            truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando {truncation_pct}% del contenido ({effective_max_chars:,} de {original_len:,} caracteres). Los usuarios del plan Pro pueden analizar hasta 500,000 caracteres, y los de plan Platinum hasta 1,000,000 de caracteres (más de 60 hojas).]"
     else:
         truncation_note = ""
 
@@ -7575,7 +7620,7 @@ CONTENIDO DEL DOCUMENTO:
                         t_first_token = _time.time()
                         print(f"   ⚡ TTFT (time-to-first-token): {t_first_token - t_llm_start:.2f}s (total elapsed: {t_first_token - t0:.2f}s)")
                     yield f"data: {json.dumps({'token': token})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'filename': filename, 'chars_analyzed': min(original_len, DOCUMENT_MAX_CHARS)})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'filename': filename, 'chars_analyzed': min(original_len, effective_max_chars)})}\n\n"
         except Exception as llm_err:
             print(f"   ❌ Error LLM: {llm_err}")
             yield f"data: {json.dumps({'error': str(llm_err)})}\n\n"
