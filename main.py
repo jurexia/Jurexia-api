@@ -7423,6 +7423,7 @@ async def analyze_document(
     effective_max_chars = DOCUMENT_MAX_CHARS  # 200,000 por defecto
     sub_type = "gratuito"
     user_email = None
+    is_platinum_or_admin = False
 
     if user_id and supabase_admin:
         try:
@@ -7596,13 +7597,14 @@ CONTENIDO DEL DOCUMENTO:
 {extracted_text}"""
 
     t_pre_llm = _time.time()
-    print(f"   🚀 Enviando a {DOCUMENT_MODEL} vía OpenRouter ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
+    model_to_use = "google/gemini-3.1-pro-preview" if is_platinum_or_admin else DOCUMENT_MODEL
+    print(f"   🚀 Enviando a {model_to_use} vía OpenRouter ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
 
     async def stream_analysis():
         try:
             t_llm_start = _time.time()
             response = await deepseek_client.chat.completions.create(
-                model=DOCUMENT_MODEL,
+                model=model_to_use,
                 messages=[
                     {"role": "system", "content": DOCUMENT_SYSTEM_PROMPT},
                     {"role": "user", "content": full_user_message}
