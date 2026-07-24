@@ -15,4 +15,6 @@ cohere>=5.0.0  # Reranking API (Phase 1 RAG optimization)
 google-genai>=1.0.0  # Gemini 2.5 Pro for sentence drafting
 PyMuPDF>=1.24.0  # Fast PDF text extraction (fitz) — fallback to OCR if not available
 tenacity>=8.2.0  # Retry logic for API rate limits (429)
+cryptography>=42.0.0  # OpenSSL / PKCS#8 / X.509 parsing for e.firma (.cer and .key)
+pyhanko>=0.21.0  # Digital PDF PKCS#7 PAdES signing
 

@@ -18931,6 +18931,55 @@ async def debug_genio(genio_id: str = "amparo"):
     return result
 
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MOTOR DE FIRMA ELECTRÓNICA AVANZADA (E.FIRMA SAT / FIREL) — IN-HOUSE
+# ══════════════════════════════════════════════════════════════════════════════
+@app.post("/api/efirma/sign")
+async def api_efirma_sign(
+    cer_file: UploadFile = File(...),
+    key_file: UploadFile = File(...),
+    password: str = Form(...),
+    pdf_file: Optional[UploadFile] = File(None),
+):
+    """
+    Motor de Firma Electrónica Avanzada In-House (e.firma SAT / FIREL).
+    Valida que la clave privada (.key) desencripte con la contraseña y pertenezca al certificado (.cer),
+    calcula el sello digital RSA-SHA256 y firma el PDF.
+    """
+    from efirma_service import validar_par_credenciales, firmar_pdf_efirma
+
+    cer_bytes = await cer_file.read()
+    key_bytes = await key_file.read()
+
+    if not cer_bytes or not key_bytes:
+        raise HTTPException(status_code=400, detail="Los archivos .cer y .key no pueden estar vacíos.")
+
+    try:
+        # 1. Validar certificado y clave privada
+        cred_info = validar_par_credenciales(cer_bytes, key_bytes, password)
+
+        # 2. Si viene un archivo PDF, firmarlo
+        metadatos = {}
+        if pdf_file:
+            pdf_bytes = await pdf_file.read()
+            _, metadatos = firmar_pdf_efirma(pdf_bytes, cer_bytes, key_bytes, password)
+
+        return {
+            "success": True,
+            "valido": True,
+            "firmante": cred_info["nombre"],
+            "rfc": cred_info["rfc"],
+            "numero_serie": cred_info["numero_serie"],
+            "not_after": cred_info["not_after"],
+            "metadatos": metadatos,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en el motor de firma e.firma: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     
