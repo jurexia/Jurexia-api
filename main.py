@@ -19253,8 +19253,18 @@ async def notificaciones_apple(request: Request):
     import asyncio
     import apple_iap
 
-    cuerpo = await request.json()
-    firmado = cuerpo.get("signedPayload")
+    # Cuerpo ilegible: se rechaza con 400, no con 500. La diferencia importa —
+    # ante un 5xx Apple entiende «falla pasajera» y reintenta el mismo aviso
+    # durante días; ante un 400 entiende que ese aviso no va a poder procesarse
+    # nunca y lo deja de mandar.
+    try:
+        cuerpo = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo no es JSON válido")
+
+    firmado = (cuerpo or {}).get("signedPayload")
+    if not firmado:
+        raise HTTPException(status_code=400, detail="Falta signedPayload")
 
     try:
         aviso = await asyncio.to_thread(apple_iap.verificar_notificacion, firmado)
