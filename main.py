@@ -208,6 +208,11 @@ ESTADO_SILO = {
     "MORELOS": "leyes_morelos",
     "SINALOA": "leyes_sinaloa",
     "CHIHUAHUA": "leyes_chihuahua",
+    "AGUASCALIENTES": "leyes_aguascalientes",
+    "BAJA_CALIFORNIA": "leyes_baja_california",
+    "BAJACALIFORNIA": "leyes_baja_california",
+    "BC": "leyes_baja_california",
+    "ZACATECAS": "leyes_zacatecas",
     # Próximos estados:
 }
 
