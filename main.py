@@ -11969,6 +11969,8 @@ class JurisconsultoRequest(BaseModel):
     tesis: List[TesisContexto] = Field(default_factory=list, max_length=3)
     #: Los ultimos turnos, para que la conversacion tenga hilo. Se recortan.
     historial: List[Message] = Field(default_factory=list)
+    #: Con True devuelve NDJSON token a token, para hablar sin esperar el final.
+    stream: bool = False
 
 
 @app.post("/api/jurisconsulto")
@@ -12059,6 +12061,57 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
     import time as _t
 
     t0 = _t.time()
+    registros = [t.registro for t in payload.tesis]
+
+    # ── Respuesta en streaming ────────────────────────────────────────────
+    #
+    # Se manda token a token para que la app pueda EMPEZAR A HABLAR en cuanto
+    # tenga la primera frase completa, sin esperar el punto final. En una
+    # conversacion hablada eso es la diferencia entre sentir que el asistente
+    # contesta y sentir que se quedo pensando: la primera frase sale a los
+    # ~250 ms en vez de a los ~800.
+    #
+    # El formato es NDJSON (un objeto por linea) y no SSE porque el fetch de
+    # React Native no trae EventSource; leer lineas de texto plano funciona
+    # igual en iOS, en Android y en el navegador.
+    if payload.stream:
+
+        async def emitir():
+            yield json.dumps({"tipo": "registros", "registros": registros}) + "\n"
+            completo = []
+            try:
+                flujo = await asyncio.to_thread(
+                    lambda: deepseek_client.chat.completions.create(
+                        model=JURISCONSULTO_MODEL,
+                        messages=mensajes,
+                        max_tokens=JURISCONSULTO_MAX_TOKENS,
+                        temperature=0.2,
+                        stream=True,
+                        extra_body={"reasoning": {"enabled": False}},
+                    )
+                )
+                for parte in flujo:
+                    if not parte.choices:
+                        continue
+                    delta = parte.choices[0].delta.content or ""
+                    if delta:
+                        completo.append(delta)
+                        yield json.dumps({"tipo": "delta", "texto": delta}) + "\n"
+            except Exception as e:
+                print(f"[jurisconsulto] streaming revento: {e}")
+                yield json.dumps({"tipo": "error", "mensaje": "No se pudo generar la respuesta."}) + "\n"
+                return
+
+            texto = "".join(completo).strip()
+            print(
+                f"   [jurisconsulto] stream {_t.time()-t0:.2f}s | "
+                f"{len(payload.tesis)} tesis | {JURISCONSULTO_MODEL}"
+            )
+            yield json.dumps({"tipo": "fin", "respuesta": texto, "registros": registros}) + "\n"
+
+        return StreamingResponse(emitir(), media_type="application/x-ndjson")
+
+    # ── Respuesta de una pieza (compatibilidad) ───────────────────────────
     try:
         r = await asyncio.to_thread(
             lambda: deepseek_client.chat.completions.create(
@@ -12086,7 +12139,7 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
         "respuesta": respuesta,
         # Los registros que se le dieron: la app los muestra para que el
         # abogado pueda tocar y leer la tesis completa.
-        "registros": [t.registro for t in payload.tesis],
+        "registros": registros,
         "modelo": JURISCONSULTO_MODEL,
     }
 
