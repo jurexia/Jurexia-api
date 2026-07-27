@@ -22,7 +22,7 @@ import uuid
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -12092,7 +12092,6 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
 
 
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
-from fastapi import Header  # noqa: E402 — needed here; main admin import is further down
 @app.post("/admin/users/{user_id}/toggle-sentencia")
 async def admin_toggle_sentencia(user_id: str, authorization: str = Header(...)):
     """Toggle can_access_sentencia for a user (admin only)."""
