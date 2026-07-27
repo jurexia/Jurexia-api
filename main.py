@@ -12114,7 +12114,20 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
             )
             yield json.dumps({"tipo": "fin", "respuesta": texto, "registros": registros}) + "\n"
 
-        return StreamingResponse(emitir(), media_type="application/x-ndjson")
+        # text/event-stream y no application/x-ndjson, por dos razones que se
+        # descubrieron en el dispositivo:
+        #   1. El XHR de React Native solo llena `responseText` con tipos que
+        #      reconoce como texto. Con x-ndjson llegaba vacio y la app decia
+        #      «No llego respuesta» aunque el servidor hubiera respondido bien.
+        #   2. Los proxys (Render entre ellos) no bufferean event-stream, que es
+        #      justo lo que hace falta para que los tokens salgan al vuelo.
+        # El cuerpo sigue siendo una linea JSON por evento; es lo que espera el
+        # cliente y es como funcionan los demas endpoints de este archivo.
+        return StreamingResponse(
+            emitir(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # ── Respuesta de una pieza (compatibilidad) ───────────────────────────
     try:
