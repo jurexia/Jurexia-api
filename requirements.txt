@@ -19,3 +19,4 @@ cryptography>=42.0.0  # OpenSSL / PKCS#8 / X.509 parsing for e.firma (.cer and .
 pyhanko>=0.21.0  # Digital PDF PKCS#7 PAdES signing
 app-store-server-library>=3.1.2  # Verifica los comprobantes firmados de StoreKit (ver apple_iap.py)
 
+google-auth>=2.28.0  # OAuth de la cuenta de servicio para la Play Developer API (ver google_play.py)

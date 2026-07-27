@@ -19141,7 +19141,10 @@ async def api_efirma_sign(
 
 class VerificarCompraAppleRequest(BaseModel):
     purchase_token: str
+    #: 'ios' → StoreKit; 'android' → Google Play. Decide con qué tienda se verifica.
     plataforma: str = "ios"
+    #: Sólo Android lo usa, y es opcional: la API v2 de Play ya dice qué se compró.
+    product_id: Optional[str] = None
 
 
 def _escribir_plan(user_id: str, plan: str, origen: dict) -> None:
@@ -19194,18 +19197,43 @@ async def verificar_compra_apple(
         print(f"⚠️ Apple verificar-compra, auth falló: {e}")
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-    # 2) ¿El comprobante es de Apple, de esta app y de un producto nuestro?
+    # 2) ¿El comprobante es de la tienda que dice, de esta app, y de un
+    #    producto nuestro? Cada tienda se comprueba a su manera: el de Apple es
+    #    un JWS que trae su propia firma, y el de Google es un token opaco que
+    #    hay que ir a consultarle a la Play Developer API.
+    es_android = (payload.plataforma or "ios").lower() in ("android", "play", "google")
+    tienda = "Google Play" if es_android else "Apple"
+
     try:
-        compra = await asyncio.to_thread(
-            apple_iap.verificar_transaccion, payload.purchase_token
-        )
+        if es_android:
+            import google_play
+            compra = await asyncio.to_thread(
+                google_play.verificar_compra, payload.purchase_token, payload.product_id
+            )
+        else:
+            compra = await asyncio.to_thread(
+                apple_iap.verificar_transaccion, payload.purchase_token
+            )
     except apple_iap.CompraInvalida as e:
         # 422 y no 500: el comprobante llegó, pero no es válido. Que la app no
         # lo reintente en bucle.
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        print(f"⚠️ Apple verificar-compra, verificación reventó: {e}")
-        raise HTTPException(status_code=500, detail="No se pudo verificar la compra con Apple")
+        # Las de Google se importan aquí para no exigir el módulo si no se usa.
+        import google_play as _gp
+        if isinstance(e, _gp.CompraInvalida):
+            raise HTTPException(status_code=422, detail=str(e))
+        if isinstance(e, _gp.PlayNoConfigurado):
+            # 503 y no 422: la compra puede ser perfectamente buena, lo que
+            # falla es nuestra configuración. Con un 5xx la app NO cierra la
+            # transacción y Play la vuelve a entregar cuando esto se arregle.
+            print(f"⚠️ Play sin configurar: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="La verificación con Google Play no está disponible todavía.",
+            )
+        print(f"⚠️ verificar-compra ({tienda}) reventó: {e}")
+        raise HTTPException(status_code=500, detail=f"No se pudo verificar la compra con {tienda}")
 
     # 3) Compras ya reembolsadas o retiradas no dan plan.
     if compra.revocada:
@@ -19227,7 +19255,7 @@ async def verificar_compra_apple(
         _escribir_plan,
         user_id,
         compra.plan,
-        {"tx": compra.transaction_id, "producto": compra.product_id, "env": compra.entorno},
+        {"tx": compra.transaction_id, "producto": compra.product_id, "env": compra.entorno, "tienda": tienda},
     )
 
     return {
