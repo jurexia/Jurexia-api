@@ -30,12 +30,16 @@ def main():
         
     try:
         resp = httpx.post(url, json=payload, timeout=60.0)
+        print(f"Response Status Code: {resp.status_code}")
+        print("Response Headers:")
+        for k, v in resp.headers.items():
+            print(f"  {k}: {v}")
         if resp.status_code == 200:
-            print("Success!")
+            print("\nSuccess Output:")
             import json
             print(json.dumps(resp.json(), indent=2))
         else:
-            print(f"Error {resp.status_code}: {resp.text}")
+            print(f"\nError Body: {resp.text}")
     except Exception as e:
         print(f"Request failed: {e}")
 

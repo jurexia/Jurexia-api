@@ -17,4 +17,5 @@ PyMuPDF>=1.24.0  # Fast PDF text extraction (fitz) — fallback to OCR if not av
 tenacity>=8.2.0  # Retry logic for API rate limits (429)
 cryptography>=42.0.0  # OpenSSL / PKCS#8 / X.509 parsing for e.firma (.cer and .key)
 pyhanko>=0.21.0  # Digital PDF PKCS#7 PAdES signing
+app-store-server-library>=3.1.2  # Verifica los comprobantes firmados de StoreKit (ver apple_iap.py)
 

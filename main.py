@@ -2281,13 +2281,47 @@ class SearchResponse(BaseModel):
     total: int
 
 
-# ── PDF Fallback URLs por silo ─────────────────────────────────────────────────
-# URL oficial del PDF de cada fuente legal (Supabase Storage).
-# Se asigna a SearchResult.pdf_url cuando el payload de Qdrant no lo trae.
+# ── PDF por silo ───────────────────────────────────────────────────────────────
+#
+# REGLA QUE NO SE ROMPE: aquí sólo puede haber PDFs que sean *exactamente* el
+# documento citado. Nunca un sustituto "parecido".
+#
+# Esto no es celo de estilo. El silo `bloque_constitucional` guarda la
+# Constitución **y además todos los tratados de derechos humanos** — eso es lo
+# que significa bloque de constitucionalidad. Cuando esta tabla se usaba como
+# comodín por silo, un abogado que citaba la Convención Interamericana abría el
+# PDF y se encontraba la Constitución. Peor todavía con los códigos locales.
+# Mostrarle a un abogado un documento distinto del que citó es la peor falla
+# posible de esta app: puede acabar en un escrito presentado ante un juez.
+#
+# Por eso `PDF_FALLBACK_URLS` ya NO se indexa por silo. La Constitución tiene su
+# PDF porque es un documento concreto, y se sirve sólo cuando el documento es
+# la Constitución. Si no sabemos cuál es el PDF, se devuelve None y la app dice
+# honestamente que no hay PDF disponible.
+PDF_CONSTITUCION = "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/constitucion/CPEUM-2024.pdf"
+_S_QRO = "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/Queretaro/Leyes"
+
+# Se conserva el nombre por compatibilidad con el resto del archivo, pero ya
+# sólo tiene la Constitución y sólo debe consultarse tras confirmar que el
+# documento ES la Constitución.
 PDF_FALLBACK_URLS: Dict[str, str] = {
-    "bloque_constitucional": "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/constitucion/CPEUM-2024.pdf",
-    "queretaro": "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/Queretaro/Leyes", # Base URL for state laws
+    "bloque_constitucional": PDF_CONSTITUCION,
+    "queretaro": _S_QRO,  # base, hay que añadirle el nombre del archivo
 }
+
+
+def _es_constitucion(origen: str) -> bool:
+    """¿El documento citado es la propia CPEUM y no otra cosa del bloque?"""
+    if not origen:
+        return False
+    o = origen.lower()
+    if "constitución política del estado" in o or "constitucion politica del estado" in o:
+        return False  # una constitución local, que tiene su propio PDF
+    return (
+        "constitución política de los estados unidos" in o
+        or "constitucion politica de los estados unidos" in o
+        or "cpeum" in o
+    )
 
 # ─── Per-treaty PDF URLs (Supabase Storage legal-docs/Tratados/) ──────
 # Keyed by lowercase keyword that matches the treaty's `origen` in Qdrant.
@@ -2295,50 +2329,110 @@ PDF_FALLBACK_URLS: Dict[str, str] = {
 # the specific treaty PDF is returned instead of the CPEUM fallback.
 _S_T = "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/Tratados"
 
+# Lista ORDENADA, no diccionario: se recorre de arriba abajo y gana la primera
+# que coincida, así que lo más específico va primero. Esto importa de verdad —
+# con la tabla anterior, ordenada por organismo, la palabra "tortura" atrapaba
+# al Protocolo de Estambul y le servía el PDF de la Convención de la ONU. Dos
+# documentos distintos, uno con el nombre del otro.
+#
+# Cada entrada es (palabras que identifican al documento, archivo). Se exige que
+# la palabra sea inequívoca: nada de "tortura" a secas cuando hay tres
+# instrumentos sobre tortura en el acervo.
+TREATY_PDF_RULES: List[Tuple[Tuple[str, ...], str]] = [
+    # ── Los que comparten tema y hay que desempatar primero ──
+    (("protocolo de estambul", "estambul"),
+     f"{_S_T}/Protocolo%20de%20Estambul%20-%20Investigacion%20Tortura%20(OHCHR).pdf"),
+    (("reglas nelson mandela", "nelson mandela", "reglas mandela"),
+     f"{_S_T}/Reglas%20Nelson%20Mandela%20-%20Tratamiento%20Reclusos%20(ONU).pdf"),
+    (("reglas de bangkok", "bangkok"),
+     f"{_S_T}/Reglas%20de%20Bangkok%20-%20Tratamiento%20Reclusas%20(ONU).pdf"),
+    # Sólo la de la ONU está en el acervo. La Interamericana contra la Tortura
+    # NO está, y por eso se exige que diga «onu» o «naciones unidas»: antes,
+    # citar la Interamericana devolvía el PDF de la de la ONU.
+    (("convención contra la tortura de las naciones unidas",
+      "convencion contra la tortura de las naciones unidas",
+      "convención contra la tortura onu", "convencion contra la tortura onu"),
+     f"{_S_T}/Convencion%20contra%20la%20Tortura%20ONU%20(CAT).pdf"),
+    # ── OEA ──
+    (("convención americana sobre derechos humanos", "convencion americana sobre derechos humanos",
+      "pacto de san josé", "pacto de san jose", "cadh"),
+     f"{_S_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf"),
+    (("belém do pará", "belem do para", "belém do para", "belem do pará"),
+     f"{_S_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf"),
+    (("racismo", "intolerancia"),
+     f"{_S_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf"),
+    (("personas mayores", "adultos mayores"),
+     f"{_S_T}/Convencion%20Interamericana%20Derechos%20Personas%20Mayores%20(CIPM).pdf"),
+    (("protocolo de san salvador",),
+     f"{_S_T}/Protocolo%20de%20San%20Salvador%20-%20Derechos%20Economicos%20Sociales%20(PSS).pdf"),
+    # ── ONU / OHCHR ──
+    (("declaración universal", "declaracion universal", "dudh"),
+     f"{_S_T}/Declaracion%20Universal%20de%20Derechos%20Humanos%20(DUDH).pdf"),
+    (("derechos civiles y políticos", "derechos civiles y politicos", "pidcp"),
+     f"{_S_T}/Pacto%20Internacional%20Derechos%20Civiles%20y%20Politicos%20(PIDCP).pdf"),
+    (("derechos económicos, sociales y culturales", "derechos economicos, sociales y culturales",
+      "pidesc"),
+     f"{_S_T}/Pacto%20Internacional%20Derechos%20Economicos%20Sociales%20y%20Culturales%20(PIDESC).pdf"),
+    (("derechos del niño", "derechos del nino", "convención sobre los derechos del niño"),
+     f"{_S_T}/Convencion%20sobre%20los%20Derechos%20del%20Nino%20(CDN).pdf"),
+    (("cedaw", "discriminación contra la mujer", "discriminacion contra la mujer"),
+     f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf"),
+    (("discapacidad", "crpd"),
+     f"{_S_T}/Convencion%20Derechos%20Personas%20con%20Discapacidad%20(CRPD).pdf"),
+    (("discriminación racial", "discriminacion racial", "icerd"),
+     f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20Racial%20(ICERD).pdf"),
+    (("trabajadores migratorios", "cmw"),
+     f"{_S_T}/Convencion%20Derechos%20Trabajadores%20Migratorios%20(CMW).pdf"),
+    (("desaparición forzada", "desaparicion forzada", "desapariciones forzadas"),
+     f"{_S_T}/Convencion%20Desapariciones%20Forzadas%20ONU%20(CED).pdf"),
+    (("convenio 108", "protección de datos personales de carácter automatizado"),
+     f"{_S_T}/Convenio%20108%20Proteccion%20Datos%20Personales%20(C108).pdf"),
+    # ── Otros ──
+    (("yogyakarta",),
+     f"{_S_T}/Principios%20de%20Yogyakarta%20-%20Orientacion%20Sexual%20e%20Identidad%20de%20Genero.pdf"),
+]
+
+# Se mantiene el diccionario plano por si algo externo lo importa.
 TREATY_PDF_URLS: Dict[str, str] = {
-    # OEA
-    "convención americana": f"{_S_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
-    "pacto de san josé": f"{_S_T}/Convencion%20Americana%20sobre%20Derechos%20Humanos%20(CADH).pdf",
-    "belém do pará": f"{_S_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
-    "belem do para": f"{_S_T}/Convencion%20Interamericana%20Belem%20do%20Para%20(CBdP).pdf",
-    "racismo": f"{_S_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
-    "intolerancia": f"{_S_T}/Convencion%20Interamericana%20contra%20Racismo%20e%20Intolerancia%20(CIRDI).pdf",
-    "personas mayores": f"{_S_T}/Convencion%20Interamericana%20Derechos%20Personas%20Mayores%20(CIPM).pdf",
-    "protocolo de san salvador": f"{_S_T}/Protocolo%20de%20San%20Salvador%20-%20Derechos%20Economicos%20Sociales%20(PSS).pdf",
-    # ONU / OHCHR
-    "declaración universal": f"{_S_T}/Declaracion%20Universal%20de%20Derechos%20Humanos%20(DUDH).pdf",
-    "derechos civiles y políticos": f"{_S_T}/Pacto%20Internacional%20Derechos%20Civiles%20y%20Politicos%20(PIDCP).pdf",
-    "derechos económicos, sociales y culturales": f"{_S_T}/Pacto%20Internacional%20Derechos%20Economicos%20Sociales%20y%20Culturales%20(PIDESC).pdf",
-    "derechos del niño": f"{_S_T}/Convencion%20sobre%20los%20Derechos%20del%20Nino%20(CDN).pdf",
-    "tortura": f"{_S_T}/Convencion%20contra%20la%20Tortura%20ONU%20(CAT).pdf",
-    "cedaw": f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
-    "discriminación contra la mujer": f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20contra%20la%20Mujer%20(CEDAW).pdf",
-    "discapacidad": f"{_S_T}/Convencion%20Derechos%20Personas%20con%20Discapacidad%20(CRPD).pdf",
-    "discriminación racial": f"{_S_T}/Convencion%20Eliminacion%20Discriminacion%20Racial%20(ICERD).pdf",
-    "trabajadores migratorios": f"{_S_T}/Convencion%20Derechos%20Trabajadores%20Migratorios%20(CMW).pdf",
-    # Instrumentos penitenciarios
-    "mandela": f"{_S_T}/Reglas%20Nelson%20Mandela%20-%20Tratamiento%20Reclusos%20(ONU).pdf",
-    "bangkok": f"{_S_T}/Reglas%20de%20Bangkok%20-%20Tratamiento%20Reclusas%20(ONU).pdf",
-    "estambul": f"{_S_T}/Protocolo%20de%20Estambul%20-%20Investigacion%20Tortura%20(OHCHR).pdf",
-    # Otros
-    "yogyakarta": f"{_S_T}/Principios%20de%20Yogyakarta%20-%20Orientacion%20Sexual%20e%20Identidad%20de%20Genero.pdf",
+    palabra: url for palabras, url in TREATY_PDF_RULES for palabra in palabras
 }
 
 
 def _resolve_treaty_pdf(origen: str) -> Optional[str]:
     """
-    Given a document's `origen` (e.g. 'Convención Americana sobre Derechos Humanos'),
-    return the GCS PDF URL for that specific treaty, or None.
+    El PDF del tratado citado, o None si no lo tenemos.
+
+    Devolver None es una respuesta correcta y frecuente: en el acervo hay 20
+    tratados y en el mundo hay cientos. Antes, quien no coincidía terminaba
+    recibiendo la Constitución.
     """
     if not origen:
         return None
-    origen_lower = origen.lower()
-    # Don't match the Constitution itself — it has its own fallback
-    if "constitución" in origen_lower or "cpeum" in origen_lower:
+    o = origen.lower()
+    if _es_constitucion(o):
         return None
-    for keyword, url in TREATY_PDF_URLS.items():
-        if keyword in origen_lower:
+    for palabras, url in TREATY_PDF_RULES:
+        if any(p in o for p in palabras):
             return url
+    return None
+
+
+def resolver_pdf(pdf_en_payload: Optional[str], origen: Optional[str], silo: Optional[str] = None) -> Optional[str]:
+    """
+    El PDF de ESTE documento, o None. Nunca el de otro.
+
+    Orden: lo que traiga el payload de Qdrant (es lo más fiable, viene de la
+    ingesta), luego el tratado concreto, y por último la Constitución **sólo si
+    el documento es la Constitución**. No hay comodín por silo: si no sabemos,
+    la app enseña el texto y dice que no hay PDF, que es la verdad.
+    """
+    if pdf_en_payload:
+        return pdf_en_payload
+    tratado = _resolve_treaty_pdf(origen or "")
+    if tratado:
+        return tratado
+    if _es_constitucion(origen or ""):
+        return PDF_CONSTITUCION
     return None
 
 
@@ -6555,7 +6649,9 @@ async def hybrid_search_all_silos(
                             origen=pt.payload.get("origen", ""),
                             score=0.95,
                             silo="bloque_constitucional",
-                            pdf_url=pt.payload.get("pdf_url") or pt.payload.get("url_pdf") or PDF_FALLBACK_URLS.get("bloque_constitucional"),
+                            # Este bloque inyecta artículos de la CPEUM en concreto,
+                            # así que aquí la Constitución SÍ es el documento citado.
+                            pdf_url=pt.payload.get("pdf_url") or pt.payload.get("url_pdf") or PDF_CONSTITUCION,
                         )
                         constitucional.insert(0, injected_result)
                         existing_refs.add(ref)
@@ -7696,21 +7792,15 @@ async def get_document(doc_id: str):
                     _origen_raw = payload.get("origen", payload.get("fuente", None))
                     _origen = humanize_origen(_origen_raw) or extract_ley_from_texto(texto_val)
 
-                    # Resolver URL de PDF dinámicamente si no viene en payload
-                    pdf_url = payload.get("url_pdf", payload.get("pdf_url", None))
-
-                    # Si no hay URL en el payload, intentar resolver por tipo de silo
-                    if not pdf_url:
-                        resolved = _resolve_treaty_pdf(_origen)
-                        if resolved:
-                            pdf_url = resolved
-                        elif silo_name == "bloque_constitucional":
-                            pdf_url = PDF_FALLBACK_URLS.get("bloque_constitucional")
-                        elif silo_name == "queretaro":
-                            # Construir URL para leyes de Querétaro
-                            ref = payload.get("ref", "")
-                            if ref:
-                                pdf_url = f"{PDF_FALLBACK_URLS['queretaro']}/{ref}.pdf"
+                    # El PDF de ESTE documento, o ninguno. Antes, todo lo que
+                    # cayera en el silo `bloque_constitucional` sin URL propia
+                    # recibía la Constitución — incluidos los tratados, que viven
+                    # en ese mismo silo.
+                    pdf_url = resolver_pdf(
+                        payload.get("url_pdf", payload.get("pdf_url", None)),
+                        _origen,
+                        silo_name,
+                    )
 
                     # Build ref: prefer 'ref', fallback to 'rubro' for new tesis
                     _ref = payload.get("ref", payload.get("referencia", None))
@@ -7897,14 +7987,11 @@ async def get_full_document(
         
         # ── Resolver URL de PDF para el documento completo ──
         source_doc_url = first_payload.get("source_doc_url") or first_payload.get("url_pdf") or first_payload.get("pdf_url")
-        
+
+        # Las URLs viejas de GCS ya no sirven; se ignoran y se vuelve a resolver.
         if not source_doc_url or "storage.googleapis.com" in str(source_doc_url):
-            resolved = _resolve_treaty_pdf(origen)
-            if resolved:
-                source_doc_url = resolved
-            elif "constitución" in origen.lower() or "cpeum" in origen.lower():
-                source_doc_url = PDF_FALLBACK_URLS.get("bloque_constitucional")
-        
+            source_doc_url = resolver_pdf(None, origen, tipo)
+
         return FullDocumentResponse(
             origen=origen,
             titulo=titulo,
@@ -10544,7 +10631,10 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             # Send full texto for proper tesis display (no truncation)
                             texto_full = doc.texto or ""
                             # Determinar pdf_url: Qdrant payload > treaty-specific > silo fallback
-                            pdf_url = doc.pdf_url or _resolve_treaty_pdf(doc.origen) or PDF_FALLBACK_URLS.get(doc.silo)
+                            # Sin comodín por silo: `bloque_constitucional` guarda
+                            # la Constitución y también los tratados, así que caer
+                            # a su PDF le entregaba la CPEUM a quien citó otra cosa.
+                            pdf_url = resolver_pdf(doc.pdf_url, doc.origen, doc.silo)
                             source_entry = {
                                 "origen": humanize_origen(doc.origen) or "Fuente legal",
                                 "ref": doc.ref or "",
@@ -11381,8 +11471,19 @@ def _can_access_sentencia(user_email: str) -> bool:
 # Escalable: opera sobre sentencias_holdings unificada sin hardcodear circuitos
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Planes con jurimetría. Platinum entra a partir del 27-jul-2026: predecir el
+# sentido probable de un asunto es justo el trabajo del litigante de despacho,
+# no sólo del secretario de tribunal, y dejarlo fuera del plan alto vaciaba de
+# contenido la diferencia entre Pro y Platinum.
+PLANES_CON_JURIMETRIA = {
+    "platinum_monthly",
+    "platinum_annual",
+    "ultra_secretarios",
+}
+
+
 def _can_access_jurimetria(user_email: str) -> bool:
-    """ultra_secretarios y admins únicamente."""
+    """Platinum, Ultra Secretarios y admins."""
     email_lower = user_email.strip().lower()
     if email_lower in ADMIN_EMAILS:
         return True
@@ -11396,7 +11497,7 @@ def _can_access_jurimetria(user_email: str) -> bool:
                 .execute()
             )
             if result.data:
-                return result.data[0].get("subscription_type") == "ultra_secretarios"
+                return result.data[0].get("subscription_type") in PLANES_CON_JURIMETRIA
         except Exception as e:
             print(f"   ⚠️ jurimetria access check error for {email_lower}: {e}")
     return False
@@ -18935,19 +19036,20 @@ async def debug_genio(genio_id: str = "amparo"):
 # ══════════════════════════════════════════════════════════════════════════════
 # MOTOR DE FIRMA ELECTRÓNICA AVANZADA (E.FIRMA SAT / FIREL) — IN-HOUSE
 # ══════════════════════════════════════════════════════════════════════════════
-@app.post("/api/efirma/sign")
-async def api_efirma_sign(
+@app.post("/api/efirma/validar")
+async def api_efirma_validar(
     cer_file: UploadFile = File(...),
     key_file: UploadFile = File(...),
     password: str = Form(...),
-    pdf_file: Optional[UploadFile] = File(None),
 ):
     """
-    Motor de Firma Electrónica Avanzada In-House (e.firma SAT / FIREL).
-    Valida que la clave privada (.key) desencripte con la contraseña y pertenezca al certificado (.cer),
-    calcula el sello digital RSA-SHA256 y firma el PDF.
+    Comprueba las credenciales sin firmar nada: que el certificado esté vigente,
+    que la contraseña abra el .key y que ambos archivos sean del mismo trámite.
+
+    Sirve para que la app confirme la e.firma al darla de alta y pueda mostrar el
+    nombre y RFC del titular antes de que firme ningún documento.
     """
-    from efirma_service import validar_par_credenciales, firmar_pdf_efirma
+    from efirma_service import ErrorEfirma, validar_par_credenciales
 
     cer_bytes = await cer_file.read()
     key_bytes = await key_file.read()
@@ -18956,28 +19058,257 @@ async def api_efirma_sign(
         raise HTTPException(status_code=400, detail="Los archivos .cer y .key no pueden estar vacíos.")
 
     try:
-        # 1. Validar certificado y clave privada
-        cred_info = validar_par_credenciales(cer_bytes, key_bytes, password)
-
-        # 2. Si viene un archivo PDF, firmarlo
-        metadatos = {}
-        if pdf_file:
-            pdf_bytes = await pdf_file.read()
-            _, metadatos = firmar_pdf_efirma(pdf_bytes, cer_bytes, key_bytes, password)
-
-        return {
-            "success": True,
-            "valido": True,
-            "firmante": cred_info["nombre"],
-            "rfc": cred_info["rfc"],
-            "numero_serie": cred_info["numero_serie"],
-            "not_after": cred_info["not_after"],
-            "metadatos": metadatos,
-        }
-    except ValueError as e:
+        info = await asyncio.to_thread(validar_par_credenciales, cer_bytes, key_bytes, password)
+        return {"success": True, **info}
+    except ErrorEfirma as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en el motor de firma e.firma: {str(e)}")
+        # Nunca incluir la contraseña ni la llave en el mensaje ni en el log.
+        print(f"⚠️ e.firma validar: fallo inesperado ({type(e).__name__})")
+        raise HTTPException(status_code=500, detail="No se pudieron validar las credenciales.")
+
+
+@app.post("/api/efirma/sign")
+async def api_efirma_sign(
+    cer_file: UploadFile = File(...),
+    key_file: UploadFile = File(...),
+    password: str = Form(...),
+    pdf_file: UploadFile = File(...),
+    razon: str = Form("Firma electrónica avanzada del titular"),
+    lugar: str = Form("México"),
+):
+    """
+    Firma un PDF con la e.firma (SAT) o FIREL del titular y **devuelve el PDF
+    firmado**, no el original.
+
+    Devuelve el archivo binario directamente (application/pdf) para que la app
+    lo pueda guardar o compartir tal cual. Los datos de la firma van en
+    cabeceras `X-Firma-*`, porque el cuerpo es el propio PDF.
+
+    Ojo con el historial de este endpoint: antes respondía `success: true` y
+    devolvía metadatos aunque el PDF nunca se firmara. Ahora, si la firma no se
+    incrusta, esto falla con error — no existe forma de recibir un archivo sin
+    firmar creyendo que la lleva.
+    """
+    from efirma_service import ErrorEfirma, firmar_pdf_efirma
+
+    cer_bytes = await cer_file.read()
+    key_bytes = await key_file.read()
+    pdf_bytes = await pdf_file.read()
+
+    if not cer_bytes or not key_bytes:
+        raise HTTPException(status_code=400, detail="Los archivos .cer y .key no pueden estar vacíos.")
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="No se recibió el PDF a firmar.")
+
+    try:
+        pdf_firmado, metadatos = await asyncio.to_thread(
+            firmar_pdf_efirma, pdf_bytes, cer_bytes, key_bytes, password, razon, lugar
+        )
+    except ErrorEfirma as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"⚠️ e.firma sign: fallo inesperado ({type(e).__name__})")
+        raise HTTPException(status_code=500, detail="No se pudo firmar el documento.")
+
+    from fastapi.responses import Response
+
+    nombre_salida = (pdf_file.filename or "documento.pdf").rsplit(".", 1)[0]
+    return Response(
+        content=pdf_firmado,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{nombre_salida}-firmado.pdf"',
+            "X-Firma-Firmante": metadatos["firmante"],
+            "X-Firma-RFC": metadatos["rfc"],
+            "X-Firma-Serie": metadatos["numero_serie"],
+            "X-Firma-Fecha": metadatos["fecha_firma"],
+            "X-Firma-Hash": metadatos["hash_documento_firmado"],
+            # Que la app pueda leer estas cabeceras desde el navegador (web).
+            "Access-Control-Expose-Headers": (
+                "X-Firma-Firmante, X-Firma-RFC, X-Firma-Serie, X-Firma-Fecha, X-Firma-Hash"
+            ),
+        },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SUSCRIPCIONES DE APPLE (StoreKit) — compras dentro de la app de iPhone
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# El "cómo" y el "por qué" de la verificación están en apple_iap.py. Aquí sólo
+# viven los dos endpoints HTTP y la escritura del perfil.
+
+class VerificarCompraAppleRequest(BaseModel):
+    purchase_token: str
+    plataforma: str = "ios"
+
+
+def _escribir_plan(user_id: str, plan: str, origen: dict) -> None:
+    """
+    Deja el plan del usuario en `user_profiles`, el mismo campo que actualiza el
+    webhook de Stripe. Es la única fuente de verdad: ni la app ni la web deciden.
+    """
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Supabase no está configurado")
+
+    supabase_admin.table("user_profiles").update(
+        {"subscription_type": plan}
+    ).eq("id", user_id).execute()
+
+    print(f"🍎 Apple → user={user_id} plan={plan} {origen}")
+
+
+@app.post("/api/apple/verificar-compra")
+async def verificar_compra_apple(
+    payload: VerificarCompraAppleRequest,
+    authorization: str = Header(None),
+):
+    """
+    Activa el plan tras una compra hecha con StoreKit en el iPhone.
+
+    La app manda el JWS que le devolvió Apple; aquí se comprueba la firma contra
+    el certificado raíz de Apple y, si todo cuadra, se escribe el plan. La app
+    sólo cierra la transacción con StoreKit cuando esto responde 200 — por eso un
+    fallo aquí no le cuesta el plan a nadie: StoreKit reintenta al reabrir.
+    """
+    import asyncio
+    import apple_iap
+
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+
+    # 1) ¿Quién es? (el token de Supabase manda, no lo que diga el cuerpo)
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        user = user_resp.user
+        if not user:
+            raise HTTPException(status_code=401, detail="Token inválido")
+        user_id = str(user.id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"⚠️ Apple verificar-compra, auth falló: {e}")
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+    # 2) ¿El comprobante es de Apple, de esta app y de un producto nuestro?
+    try:
+        compra = await asyncio.to_thread(
+            apple_iap.verificar_transaccion, payload.purchase_token
+        )
+    except apple_iap.CompraInvalida as e:
+        # 422 y no 500: el comprobante llegó, pero no es válido. Que la app no
+        # lo reintente en bucle.
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        print(f"⚠️ Apple verificar-compra, verificación reventó: {e}")
+        raise HTTPException(status_code=500, detail="No se pudo verificar la compra con Apple")
+
+    # 3) Compras ya reembolsadas o retiradas no dan plan.
+    if compra.revocada:
+        raise HTTPException(status_code=422, detail="Esta compra fue reembolsada o revocada.")
+
+    # 4) Si la app mandó el `appAccountToken`, tiene que ser de quien pide.
+    #    Evita que alguien reutilice el comprobante de otra persona para
+    #    activarse el plan en su propia cuenta.
+    if compra.app_account_token and compra.app_account_token.lower() != user_id.lower():
+        print(
+            f"🚨 Apple: comprobante de otra cuenta. token={compra.app_account_token} user={user_id}"
+        )
+        raise HTTPException(
+            status_code=403, detail="Esta compra pertenece a otra cuenta de Iurexia."
+        )
+
+    # 5) Ya se puede conceder.
+    await asyncio.to_thread(
+        _escribir_plan,
+        user_id,
+        compra.plan,
+        {"tx": compra.transaction_id, "producto": compra.product_id, "env": compra.entorno},
+    )
+
+    return {
+        "success": True,
+        "subscription_type": compra.plan,
+        "product_id": compra.product_id,
+        "expira_ms": compra.expira_ms,
+        "entorno": compra.entorno,
+    }
+
+
+@app.post("/api/apple/notificaciones")
+async def notificaciones_apple(request: Request):
+    """
+    App Store Server Notifications V2 — Apple avisa aquí de renovaciones,
+    cancelaciones, reembolsos y expiraciones.
+
+    Sin esto, alguien que cancela o pide reembolso seguiría figurando como
+    suscriptor. Se responde 200 en cuanto la notificación es auténtica, aunque
+    después no se pueda aplicar: si devolviéramos error, Apple reintentaría el
+    mismo aviso durante días.
+    """
+    import asyncio
+    import apple_iap
+
+    cuerpo = await request.json()
+    firmado = cuerpo.get("signedPayload")
+
+    try:
+        aviso = await asyncio.to_thread(apple_iap.verificar_notificacion, firmado)
+    except apple_iap.CompraInvalida as e:
+        # Aquí sí conviene rechazar: si la firma no es de Apple, no es de Apple.
+        print(f"🚨 Apple notificación no verificable: {e}")
+        raise HTTPException(status_code=400, detail="Notificación no verificable")
+
+    tipo = str(aviso.rawNotificationType or "")
+    subtipo = str(aviso.rawSubtype or "")
+    print(f"🍎 Apple aviso: {tipo}/{subtipo or '—'} uuid={aviso.notificationUUID}")
+
+    # El aviso de prueba que se dispara desde App Store Connect no trae compra.
+    if tipo == "TEST":
+        return {"ok": True, "tipo": tipo}
+
+    datos = aviso.data
+    if not datos or not datos.signedTransactionInfo:
+        return {"ok": True, "tipo": tipo, "nota": "sin transacción"}
+
+    try:
+        compra = await asyncio.to_thread(
+            apple_iap.verificar_transaccion, datos.signedTransactionInfo
+        )
+    except apple_iap.CompraInvalida as e:
+        print(f"⚠️ Apple aviso {tipo}: transacción no aplicable ({e})")
+        return {"ok": True, "tipo": tipo, "nota": "transacción no aplicable"}
+
+    # ¿De quién es esta suscripción? El `appAccountToken` es el id de Supabase
+    # que la app mandó al comprar.
+    user_id = compra.app_account_token
+    if not user_id:
+        print(f"⚠️ Apple aviso {tipo}: sin appAccountToken, no se sabe a quién aplicar")
+        return {"ok": True, "tipo": tipo, "nota": "sin cuenta asociada"}
+
+    if tipo in apple_iap.NOTIFICACIONES_QUE_QUITAN_PLAN:
+        nuevo_plan = "gratuito"
+    elif tipo in apple_iap.NOTIFICACIONES_QUE_DAN_PLAN:
+        nuevo_plan = compra.plan
+    else:
+        # Informativos (incluye apagar la renovación automática, que NO quita el
+        # plan: lo conserva hasta que expire y entonces llega EXPIRED).
+        return {"ok": True, "tipo": tipo, "nota": "informativo"}
+
+    try:
+        await asyncio.to_thread(
+            _escribir_plan, user_id, nuevo_plan, {"aviso": tipo, "subtipo": subtipo}
+        )
+    except Exception as e:
+        # 200 igual: reintentar no arreglaría un fallo de nuestra base, y Apple
+        # insistiría durante días con el mismo aviso.
+        print(f"⚠️ Apple aviso {tipo}: no se pudo escribir el perfil: {e}")
+
+    return {"ok": True, "tipo": tipo, "plan": nuevo_plan}
 
 
 if __name__ == "__main__":
