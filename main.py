@@ -12085,17 +12085,20 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
             yield json.dumps({"tipo": "registros", "registros": registros}) + "\n"
             completo = []
             try:
-                flujo = await asyncio.to_thread(
-                    lambda: deepseek_client.chat.completions.create(
-                        model=JURISCONSULTO_MODEL,
-                        messages=mensajes,
-                        max_tokens=JURISCONSULTO_MAX_TOKENS,
-                        temperature=0.2,
-                        stream=True,
-                        extra_body={"reasoning": {"enabled": False}},
-                    )
+                # `deepseek_client` es AsyncOpenAI: se AWAITA, no se manda a un
+                # hilo. Envolverlo en asyncio.to_thread devolvia la corrutina sin
+                # ejecutar y el error era «'coroutine' object is not iterable» —
+                # el resto del archivo siempre lo llamo asi; esta fue la unica
+                # excepcion y por eso fallo.
+                flujo = await deepseek_client.chat.completions.create(
+                    model=JURISCONSULTO_MODEL,
+                    messages=mensajes,
+                    max_tokens=JURISCONSULTO_MAX_TOKENS,
+                    temperature=0.2,
+                    stream=True,
+                    extra_body={"reasoning": {"enabled": False}},
                 )
-                for parte in flujo:
+                async for parte in flujo:
                     if not parte.choices:
                         continue
                     delta = parte.choices[0].delta.content or ""
@@ -12131,17 +12134,15 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
 
     # ── Respuesta de una pieza (compatibilidad) ───────────────────────────
     try:
-        r = await asyncio.to_thread(
-            lambda: deepseek_client.chat.completions.create(
-                model=JURISCONSULTO_MODEL,
-                messages=mensajes,
-                max_tokens=JURISCONSULTO_MAX_TOKENS,
-                temperature=0.2,
-                # Sin razonamiento previo: en la prueba, los modelos que
-                # "piensan" antes gastaron su presupuesto pensando y
-                # devolvieron 7 tokens utiles en 1.4 s. Para voz, no.
-                extra_body={"reasoning": {"enabled": False}},
-            )
+        r = await deepseek_client.chat.completions.create(
+            model=JURISCONSULTO_MODEL,
+            messages=mensajes,
+            max_tokens=JURISCONSULTO_MAX_TOKENS,
+            temperature=0.2,
+            # Sin razonamiento previo: en la prueba, los modelos que "piensan"
+            # antes gastaron su presupuesto pensando y devolvieron 7 tokens
+            # utiles en 1.4 s. Para voz, no.
+            extra_body={"reasoning": {"enabled": False}},
         )
         respuesta = (r.choices[0].message.content or "").strip()
     except Exception as e:
