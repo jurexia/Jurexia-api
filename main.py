@@ -11915,6 +11915,182 @@ async def jurimetria_endpoint(
     }
 
 
+# ==============================================================================
+# JURISCONSULTO - conversacion de voz sobre jurisprudencia
+# ==============================================================================
+#
+# La diferencia con /chat es la arquitectura, y es lo que hace viable la
+# funcion: **aqui no hay recuperacion que pagar**. La base de 71,655 tesis ya
+# viaja en el telefono del abogado (ver sjf-service.ts), asi que la app busca
+# con FTS5 local -3 ms, sin red, sin Qdrant- y manda ya elegidas las tesis
+# pertinentes. Este endpoint solo redacta.
+#
+# Consecuencias medidas, no estimadas:
+#   - contexto de 3 tesis = ~1,700 tokens (contra los 8-15 mil de /chat)
+#   - gemini-2.5-flash-lite responde en 0.80 s; deepseek-v4-flash, el del chat
+#     normal, tardo 6.87 s en la misma prueba - con ese la conversacion de voz
+#     seria inservible. La latencia manda sobre la calidad en este caso.
+#   - ~0.000185 USD por turno: unos 5,400 turnos por dolar.
+#
+# El modelo se puede cambiar con JURISCONSULTO_MODEL sin tocar codigo.
+JURISCONSULTO_MODEL = os.getenv("JURISCONSULTO_MODEL", "google/gemini-2.5-flash-lite")
+
+# Tope de salida. Una respuesta hablada de mas de tres frases es insoportable
+# de oir, asi que el limite es de diseno antes que de costo.
+JURISCONSULTO_MAX_TOKENS = 170
+
+_JURISCONSULTO_SISTEMA = (
+    "Eres Jurisconsulto, el especialista en jurisprudencia mexicana de Iurexia. "
+    "Hablas por voz, asi que respondes en 2 o 3 frases, sin listas, sin markdown y sin "
+    "encabezados: lo que digas se va a leer en voz alta.\n"
+    "REGLA ABSOLUTA: contestas UNICAMENTE con las tesis que se te entregan en este mensaje. "
+    "No recurres a tu memoria ni a otras fuentes. Si las tesis dadas no responden la pregunta, "
+    "lo dices con claridad y sugieres como reformular la busqueda - eso es una respuesta "
+    "correcta, no un fracaso.\n"
+    "Cuando te apoyes en una tesis, di su numero de registro en voz alta ('segun el registro "
+    "159870'), porque es lo que le permite al abogado ir a verificarla.\n"
+    "Espanol de Mexico, en el registro del foro. Directo, sin preambulos ni cortesias de relleno."
+)
+
+
+class TesisContexto(BaseModel):
+    registro: str
+    rubro: str
+    texto: str
+    tesis_clave: Optional[str] = None
+    instancia: Optional[str] = None
+    epoca: Optional[str] = None
+
+
+class JurisconsultoRequest(BaseModel):
+    pregunta: str
+    #: Las tesis que la app ya encontro con FTS5 local. Maximo 3: mas contexto
+    #: no mejora una respuesta de tres frases, solo la encarece y la retrasa.
+    tesis: List[TesisContexto] = Field(default_factory=list, max_length=3)
+    #: Los ultimos turnos, para que la conversacion tenga hilo. Se recortan.
+    historial: List[Message] = Field(default_factory=list)
+
+
+@app.post("/api/jurisconsulto")
+async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Header(None)):
+    """
+    Responde de viva voz sobre las tesis que la app encontro en el telefono.
+
+    El cupo se descuenta aqui, igual que en /chat: cada turno hablado cuesta una
+    consulta. Se hace ANTES de llamar al modelo - si no hay cupo, no se gasta
+    API.
+    """
+    import asyncio
+
+    if not payload.pregunta.strip():
+        raise HTTPException(status_code=400, detail="No llego la pregunta.")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Autenticacion requerida")
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+
+    # 1) Quien pregunta. Manda el token, no lo que diga el cuerpo.
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        user = user_resp.user
+        if not user:
+            raise HTTPException(status_code=401, detail="Token invalido")
+        user_id, user_email = str(user.id), (user.email or "")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token invalido o expirado")
+
+    # 2) Jurisconsulto es de Platinum hacia arriba, igual que Jurimetria.
+    if not _can_access_jurimetria(user_email):
+        raise HTTPException(
+            status_code=403, detail="Jurisconsulto esta incluido en los planes Platinum y Ultra."
+        )
+
+    # 3) Cupo: se cobra antes de gastar API, no despues.
+    try:
+        q = await asyncio.to_thread(
+            lambda: supabase_admin.rpc("consume_query", {"p_user_id": user_id}).execute()
+        )
+        if q.data and not q.data.get("allowed", True):
+            raise HTTPException(
+                status_code=429,
+                detail="Se te acabaron las consultas de este periodo.",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[jurisconsulto] cuota fallo: {e}")
+
+    # 4) Sin tesis no se inventa nada: se dice y ya.
+    if not payload.tesis:
+        return {
+            "respuesta": (
+                "No encontre ninguna tesis sobre eso en el Semanario. "
+                "Prueba con otras palabras o con el numero de registro si lo tienes."
+            ),
+            "registros": [],
+            "modelo": None,
+        }
+
+    # 5) Contexto acotado. Cada tesis se recorta: el criterio va al principio y
+    #    el resto suele ser desarrollo que no cambia una respuesta de 3 frases.
+    partes = []
+    for t in payload.tesis[:3]:
+        cabeza = " - ".join([x for x in [t.tesis_clave, t.instancia, t.epoca] if x])
+        encabezado = f"[Registro {t.registro}" + (f" - {cabeza}" if cabeza else "") + "]"
+        partes.append(encabezado + "\n" + t.rubro + "\n" + (t.texto or "")[:1200])
+    contexto = "\n\n".join(partes)
+
+    mensajes = [{"role": "system", "content": _JURISCONSULTO_SISTEMA}]
+    # Solo los ultimos 4 turnos: la conversacion hablada es corta por
+    # naturaleza y arrastrar mas historia solo agrega tokens y latencia.
+    for m in payload.historial[-4:]:
+        if m.role in ("user", "assistant"):
+            mensajes.append({"role": m.role, "content": m.content[:600]})
+    mensajes.append(
+        {
+            "role": "user",
+            "content": "TESIS ENCONTRADAS:\n" + contexto + "\n\nPREGUNTA: " + payload.pregunta.strip(),
+        }
+    )
+
+    import time as _t
+
+    t0 = _t.time()
+    try:
+        r = await asyncio.to_thread(
+            lambda: deepseek_client.chat.completions.create(
+                model=JURISCONSULTO_MODEL,
+                messages=mensajes,
+                max_tokens=JURISCONSULTO_MAX_TOKENS,
+                temperature=0.2,
+                # Sin razonamiento previo: en la prueba, los modelos que
+                # "piensan" antes gastaron su presupuesto pensando y
+                # devolvieron 7 tokens utiles en 1.4 s. Para voz, no.
+                extra_body={"reasoning": {"enabled": False}},
+            )
+        )
+        respuesta = (r.choices[0].message.content or "").strip()
+    except Exception as e:
+        print(f"[jurisconsulto] revento: {e}")
+        raise HTTPException(status_code=502, detail="No se pudo generar la respuesta.")
+
+    if not respuesta:
+        raise HTTPException(status_code=502, detail="El modelo no devolvio respuesta.")
+
+    print(f"   [jurisconsulto] {_t.time()-t0:.2f}s | {len(payload.tesis)} tesis | {JURISCONSULTO_MODEL}")
+
+    return {
+        "respuesta": respuesta,
+        # Los registros que se le dieron: la app los muestra para que el
+        # abogado pueda tocar y leer la tesis completa.
+        "registros": [t.registro for t in payload.tesis],
+        "modelo": JURISCONSULTO_MODEL,
+    }
+
+
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
 from fastapi import Header  # noqa: E402 — needed here; main admin import is further down
 @app.post("/admin/users/{user_id}/toggle-sentencia")
