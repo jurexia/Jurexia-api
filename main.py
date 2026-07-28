@@ -11486,6 +11486,20 @@ PLANES_CON_JURIMETRIA = {
     "ultra_secretarios",
 }
 
+# Jurisconsulto tiene su propia lista, y a proposito NO reusa la de Jurimetria.
+#
+# Antes compartian compuerta y por eso hablar con el Semanario era exclusivo de
+# Platinum. Pero el costo medido de un turno de voz es de ~0.000185 USD —unos
+# 5,400 turnos por dolar—, asi que un usuario Pro que lo use 30 veces al mes
+# cuesta medio centavo. Cobrar Platinum por eso no defendia margen, solo estorbaba
+# la adopcion de la funcion que mejor demuestra lo que hace el producto.
+#
+# Jurimetria si sigue siendo Platinum: ahi el computo es de otro orden.
+PLANES_CON_JURISCONSULTO = PLANES_CON_JURIMETRIA | {
+    "pro_monthly",
+    "pro_annual",
+}
+
 
 def _can_access_jurimetria(user_email: str) -> bool:
     """Platinum, Ultra Secretarios y admins."""
@@ -11505,6 +11519,27 @@ def _can_access_jurimetria(user_email: str) -> bool:
                 return result.data[0].get("subscription_type") in PLANES_CON_JURIMETRIA
         except Exception as e:
             print(f"   ⚠️ jurimetria access check error for {email_lower}: {e}")
+    return False
+
+
+def _can_access_jurisconsulto(user_email: str) -> bool:
+    """Pro, Platinum, Ultra Secretarios y admins. Ver PLANES_CON_JURISCONSULTO."""
+    email_lower = user_email.strip().lower()
+    if email_lower in ADMIN_EMAILS:
+        return True
+    if supabase_admin:
+        try:
+            result = (
+                supabase_admin.table("user_profiles")
+                .select("subscription_type")
+                .eq("email", email_lower)
+                .limit(1)
+                .execute()
+            )
+            if result.data:
+                return result.data[0].get("subscription_type") in PLANES_CON_JURISCONSULTO
+        except Exception as e:
+            print(f"   ⚠️ jurisconsulto access check error for {email_lower}: {e}")
     return False
 
 
@@ -11942,7 +11977,9 @@ JURISCONSULTO_MODEL = os.getenv("JURISCONSULTO_MODEL", "google/gemini-2.5-flash-
 
 # Tope de salida. Una respuesta hablada de mas de tres frases es insoportable
 # de oir, asi que el limite es de diseno antes que de costo.
-JURISCONSULTO_MAX_TOKENS = 170
+# Sube de 170 a 240 porque la respuesta ahora incluye el rubro de la tesis, que
+# son 15-25 palabras mas. Con 170 se cortaba a media frase justo al leerlo.
+JURISCONSULTO_MAX_TOKENS = 240
 
 _JURISCONSULTO_SISTEMA = (
     "Eres Jurisconsulto, el especialista en jurisprudencia mexicana de Iurexia. "
@@ -11952,8 +11989,13 @@ _JURISCONSULTO_SISTEMA = (
     "No recurres a tu memoria ni a otras fuentes. Si las tesis dadas no responden la pregunta, "
     "lo dices con claridad y sugieres como reformular la busqueda - eso es una respuesta "
     "correcta, no un fracaso.\n"
-    "Cuando te apoyes en una tesis, di su numero de registro en voz alta ('segun el registro "
-    "159870'), porque es lo que le permite al abogado ir a verificarla.\n"
+    "Cuando te apoyes en una tesis, di PRIMERO su rubro y DESPUES el registro. El rubro es el "
+    "criterio en si, y es lo que el abogado necesita OIR cuando esta de pie en el juzgado y no "
+    "puede leer la pantalla; el registro solo le sirve para verificarla despues. Di el rubro "
+    "hasta el primer punto, que es donde va la voz del criterio; si aun asi es larguisimo, "
+    "acortalo sin cambiar sus palabras clave. Ejemplo: 'la tesis de rubro USURA, CUANDO EN "
+    "AMPARO DIRECTO EL TRIBUNAL COLEGIADO ADVIERTA QUE EL QUEJOSO NO COMBATIO EL "
+    "PRONUNCIAMIENTO, registro 2026315, sostiene que...'.\n"
     "Espanol de Mexico, en el registro del foro. Directo, sin preambulos ni cortesias de relleno."
 )
 
@@ -12009,10 +12051,10 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
     except Exception:
         raise HTTPException(status_code=401, detail="Token invalido o expirado")
 
-    # 2) Jurisconsulto es de Platinum hacia arriba, igual que Jurimetria.
-    if not _can_access_jurimetria(user_email):
+    # 2) Jurisconsulto es de Pro hacia arriba. Ver PLANES_CON_JURISCONSULTO.
+    if not _can_access_jurisconsulto(user_email):
         raise HTTPException(
-            status_code=403, detail="Jurisconsulto esta incluido en los planes Platinum y Ultra."
+            status_code=403, detail="Jurisconsulto esta incluido desde el plan Pro."
         )
 
     # 3) Cupo: se cobra antes de gastar API, no despues.
