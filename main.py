@@ -462,6 +462,37 @@ Para cada tesis:
 Solo si NO hay jurisprudencia en el contexto, indica:
 "No se encontró jurisprudencia específica sobre este punto en la búsqueda actual."
 
+### PRECEDENTES DE TRIBUNALES COLEGIADOS DE CIRCUITO
+
+El contexto puede traer criterios resolutivos de sentencias REALES de Tribunales
+Colegiados de Circuito y de la SCJN. Vienen de silos cuyo nombre empieza por
+"sentencias_" y su <texto> es el criterio con el que el tribunal resolvió.
+
+INCLUYE esta sección SOLO si el contexto recuperado trae alguno de esos
+documentos Y guarda relación real con la consulta. Si no los hay, OMITE la
+sección entera — sin anunciarlo, sin decir que no se encontraron. Una sección
+vacía o rellenada con criterios que no vienen al caso destruye la confianza en
+todas las demás citas.
+
+Qué aporta y por qué importa: la jurisprudencia dice la regla; el precedente
+enseña cómo la aplicó un tribunal a hechos concretos. Úsalo para mostrar el
+criterio con el que se resolvió un caso semejante, no para repetir la regla que
+ya diste arriba.
+
+FORMATO OBLIGATORIO para cada precedente (blockquote):
+> "[criterio resolutivo, tomado del campo <texto> del documento XML]" -- *[valor del atributo ref= del tag XML]* [Doc ID: uuid]
+
+Reglas:
+- Cada precedente que menciones va con su [Doc ID: uuid]. Sin excepción: es lo
+  que permite al abogado abrir el PDF de la sentencia y comprobarlo.
+- NUNCA inventes número de expediente, tribunal, fecha ni ponente. Si un dato no
+  está en el documento del contexto, no lo escribas.
+- Máximo cuatro. Si sólo uno viene realmente al caso, cita uno.
+- Llámalos "precedentes de Tribunales Colegiados de Circuito" o "criterios de
+  circuito". NUNCA "holdings" — el término no se usa en el foro mexicano.
+- Un precedente de circuito NO es jurisprudencia obligatoria: preséntalo por lo
+  que es, criterio orientador, salvo que el propio documento diga otra cosa.
+
 ### LEGISLACIÓN ESTATAL (Solo cuando sea GENUINAMENTE relevante)
 
 INCLUYE esta sección SOLO si se cumplen AMBAS condiciones:
@@ -9553,6 +9584,54 @@ async def chat_endpoint(request: ChatRequest):
                     except Exception as _prec_err:
                         print(f"   ⚠️ Precedentes error: {_prec_err} — continuando sin ellos")
 
+                # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────
+                #
+                # Hasta aquí los precedentes eran un añadido lateral: se buscaban
+                # en paralelo y se pegaban al final como tarjetas, pero el modelo
+                # NUNCA los veía. Por eso se sentían desconectados de la
+                # respuesta — nadie los había contrastado con el razonamiento;
+                # eran lo más parecido que devolvía el vector, puesto abajo.
+                #
+                # Ahora los mejores se funden en el contexto ANTES de construir
+                # el prompt, así que el modelo puede citarlos igual que una ley,
+                # con su [Doc ID], y el abogado abre el PDF de la sentencia.
+                #
+                # Se filtra por score y no por posición: si de una consulta sólo
+                # salen dos criterios buenos, entran dos. Rellenar hasta un
+                # número fijo es lo que producía las citas que no venían a cuento.
+                _PREC_SCORE_MIN = 0.55   # por debajo, el criterio no es del tema
+                _PREC_MAX_CONTEXTO = 8   # techo para no diluir el prompt
+                precedentes_para_contexto = []
+                if precedentes_results and not is_precedentes_mode:
+                    precedentes_para_contexto = [
+                        _p for _p in precedentes_results
+                        if getattr(_p, "score", 0) >= _PREC_SCORE_MIN
+                    ][:_PREC_MAX_CONTEXTO]
+
+                    if precedentes_para_contexto:
+                        # Se anexan a las tres estructuras que alimentan al modelo:
+                        # los resultados (validación de citas), el mapa de Doc ID
+                        # (resolución del UUID) y el XML de contexto (lo que lee).
+                        _ya = {_r.id for _r in search_results}
+                        _nuevos = [_p for _p in precedentes_para_contexto if _p.id not in _ya]
+                        if _nuevos:
+                            search_results = search_results + _nuevos
+                            doc_id_map.update(build_doc_id_map(_nuevos))
+                            context_xml = (
+                                context_xml
+                                + "\n\n<!-- Precedentes de Tribunales Colegiados de Circuito y SCJN -->\n"
+                                + format_results_as_xml(_nuevos, estado=None, prose_mode=False)
+                            )
+                        print(
+                            f"   ⚖️ Precedentes AL CONTEXTO: {len(_nuevos)} de "
+                            f"{len(precedentes_results)} (score ≥ {_PREC_SCORE_MIN})"
+                        )
+                    else:
+                        print(
+                            f"   ⚖️ Ningún precedente superó el score {_PREC_SCORE_MIN} "
+                            f"— la respuesta va sin ellos, que es lo correcto"
+                        )
+
                 # Handle infrastructure errors inside generator
                 if infra_error:
                     err_msg = infra_error.get("message", "Error del sistema.")
@@ -10714,8 +10793,20 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 # ── Emitir PRECEDENTES_META para tarjetas del frontend ──
                 # Independiente del CITATION_META — siempre se emite si hay resultados.
                 if precedentes_results:
+                    # Cuatro, y sólo los que de verdad vienen al caso.
+                    #
+                    # Antes salían doce por posición en el ranking, así que las
+                    # últimas eran relleno: el abogado abría la sexta o la
+                    # séptima, veía que no tenía que ver con su consulta, y
+                    # dejaba de confiar en todas — incluidas las buenas. Cuatro
+                    # certeras valen más que doce de las que sobran ocho. Si sólo
+                    # dos superan el corte, salen dos.
+                    _prec_visibles = [
+                        _p for _p in precedentes_results
+                        if getattr(_p, "score", 0) >= _PREC_SCORE_MIN
+                    ][:4]
                     prec_list = []
-                    for _pr in precedentes_results[:12]:
+                    for _pr in _prec_visibles:
                         prec_list.append({
                             "id": _pr.id,
                             "holding": (_pr.texto or "")[:600],
@@ -10725,9 +10816,14 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             "silo": _pr.silo or "",
                             "pdf_url": _pr.pdf_url or None,
                         })
-                    prec_meta = json.dumps(prec_list)
-                    yield f"\n\n<!-- PRECEDENTES_META:{prec_meta} -->"
-                    print(f"   ⚖️ PRECEDENTES_META emitido: {len(prec_list)} tarjetas")
+                    # Si ninguno superó el corte no se emite el bloque: mejor sin
+                    # sección que con una sección vacía, que se lee como fallo.
+                    if prec_list:
+                        prec_meta = json.dumps(prec_list)
+                        yield f"\n\n<!-- PRECEDENTES_META:{prec_meta} -->"
+                        print(f"   ⚖️ PRECEDENTES_META emitido: {len(prec_list)} tarjetas")
+                    else:
+                        print("   ⚖️ Ningún precedente superó el corte — sin tarjetas, que es lo correcto")
                 
                 thinking_info = f", {len(reasoning_buffer)} chars reasoning" if reasoning_buffer else ""
                 print(f"   📝 Respuesta ({len(content_buffer)} chars content{thinking_info})")
