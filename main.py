@@ -7345,6 +7345,89 @@ except ImportError:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: RESOLVER UNA CITA POR SU DOC ID
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Dónde puede vivir un documento citado. El orden importa: se consulta en
+# paralelo, pero ante el rarísimo caso de un UUID repetido entre colecciones
+# gana la primera de esta lista, así que van primero las fuentes primarias.
+_COLECCIONES_CITA = [
+    "leyes_federales", "bloque_constitucional", "jurisprudencia_nacional_v2",
+    "sentencias_scjn_holdings", "sentencias_holdings", "leyes_estatales",
+    "leyes_cdmx", "leyes_edomex", "leyes_guerrero", "leyes_nuevo_leon",
+    "leyes_jalisco", "leyes_veracruz", "leyes_morelos", "leyes_sinaloa",
+    "leyes_queretaro", "leyes_guanajuato", "leyes_puebla", "leyes_chihuahua",
+    "leyes_michoacan", "leyes_aguascalientes",
+]
+
+
+@app.get("/cita/{doc_id}")
+async def resolver_cita(doc_id: str):
+    """
+    La fuente de una cita, resuelta al momento.
+
+    Existe para que el abogado pueda abrir una cita MIENTRAS la respuesta
+    todavía se está escribiendo. El detalle de las fuentes viaja en el bloque
+    CITATION_META, que el backend adjunta al FINAL del stream; hasta entonces
+    la app sólo tiene el UUID del documento. Con este endpoint, tocar el
+    superíndice a media respuesta resuelve la fuente en una consulta puntual
+    en vez de esperar al cierre del stream.
+
+    Es un retrieve exacto por ID —sin búsqueda vectorial— sobre las
+    colecciones citables, en paralelo. Tarda lo que el más lento de veinte
+    lookups de clave primaria.
+    """
+    # Validación estricta: esto entra en URLs públicas.
+    import re as _re
+    if not _re.fullmatch(r"[a-fA-F0-9-]{32,36}", doc_id):
+        raise HTTPException(400, "doc_id inválido")
+
+    async def _buscar(col: str):
+        try:
+            pts = await qdrant_client.retrieve(
+                collection_name=col, ids=[doc_id], with_payload=True)
+            return (col, pts[0].payload or {}) if pts else None
+        except Exception:
+            # Colección ausente o ID con formato ajeno a ella: no es error.
+            return None
+
+    resultados = await asyncio.gather(*[_buscar(c) for c in _COLECCIONES_CITA])
+    hallados = [r for r in resultados if r]
+    if not hallados:
+        raise HTTPException(404, "Documento no encontrado")
+
+    # Respetar el orden de prioridad de la lista, no el orden de llegada.
+    hallados.sort(key=lambda r: _COLECCIONES_CITA.index(r[0]))
+    col, pay = hallados[0]
+
+    # El mismo contrato que las entradas de CITATION_META.sources, para que la
+    # app pueda usar la respuesta sin un mapeo aparte.
+    registro = pay.get("registro")
+    materia = pay.get("materia")
+    if isinstance(materia, list):
+        materia = ", ".join(str(m) for m in materia) if materia else None
+    origen = (pay.get("origen") or pay.get("ley")
+              or pay.get("cuerpo_legal_oficial") or pay.get("tribunal") or "")
+    return {
+        "origen": humanize_origen(origen) or "Fuente legal",
+        "ref": (pay.get("ref") or pay.get("numero_tesis")
+                or pay.get("expediente")
+                or (f"Registro {registro}" if registro else "")),
+        "texto": (pay.get("texto") or pay.get("text")
+                  or pay.get("holding") or pay.get("chunk_text") or ""),
+        "pdf_url": (pay.get("pdf_url") or pay.get("url_pdf")
+                    or pay.get("pdf") or None),
+        "silo": col,
+        "entidad": pay.get("entidad"),
+        "registro": str(registro) if registro else None,
+        "tesis_num": pay.get("numero_tesis") or pay.get("tesis_num"),
+        "tipo_criterio": pay.get("tipo") or pay.get("tipo_criterio"),
+        "instancia": pay.get("instancia"),
+        "materia": materia,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: HEALTH CHECK
 # ══════════════════════════════════════════════════════════════════════════════
 
