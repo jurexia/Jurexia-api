@@ -14622,6 +14622,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name="jurisprudencia_nacional_v2",
                         query=embedding,
+                        using="dense",
                         query_filter=_materia_filter(),
                         limit=25,
                         with_payload=True,
@@ -14651,6 +14652,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name="bloque_constitucional",
                         query=embedding,
+                        using="dense",
                         limit=10,
                         with_payload=True,
                         score_threshold=0.30,
@@ -14680,6 +14682,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name=collection_name,
                         query=embedding,
+                        using="dense",
                         limit=15,
                         with_payload=True,
                         score_threshold=0.28,
@@ -14710,6 +14713,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name=f"sentencias_ef_c{circuito_num}",
                         query=embedding,
+                        using="dense",
                         query_filter=_materia_filter(),
                         limit=20,
                         with_payload=True,
@@ -14746,6 +14750,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name=sala_collection,
                         query=embedding,
+                        using="dense",
                         query_filter=_materia_filter(),
                         limit=15,
                         with_payload=True,
@@ -14774,17 +14779,32 @@ def _build_qdrant_search_for_redactor():
         async def _search_holdings_tcc():
             items = []
             try:
-                # Filter by circuito si lo tenemos, sino sin filtro
+                # Filter by circuito si lo tenemos, sino sin filtro.
+                #
+                # `circuito` se guarda en Qdrant como CADENA ('1', '22') y está
+                # indexado como keyword, asi que filtrarlo con el entero que
+                # devuelve el int() de mas arriba da HTTP 400. Con el
+                # try/except de esta funcion, el 400 se convertia en una lista
+                # vacia sin una sola senal: el silo de holdings de Colegiados
+                # desaparecia de la consulta.
+                #
+                # La materia va por _materia_filter() y no a mano, para no
+                # repetir aqui la normalizacion de capitalizacion.
                 conds = []
                 if circuito_num is not None:
-                    conds.append(FieldCondition(key="circuito", match=MatchValue(value=circuito_num)))
+                    conds.append(FieldCondition(key="circuito",
+                                                match=MatchValue(value=str(circuito_num))))
                 if materia:
-                    conds.append(FieldCondition(key="materia", match=MatchValue(value=materia)))
+                    variantes = {materia, materia.lower(), materia.capitalize(),
+                                 materia.upper()}
+                    conds.append(FieldCondition(key="materia",
+                                                match=MatchAny(any=sorted(variantes))))
                 qf = Filter(must=conds) if conds else None
                 async with QDRANT_SEM:
                     hits = await qdrant_client.query_points(
                         collection_name="sentencias_holdings",
                         query=embedding,
+                        using="dense",
                         query_filter=qf,
                         limit=12,
                         with_payload=True,
@@ -14796,6 +14816,7 @@ def _build_qdrant_search_for_redactor():
                         hits2 = await qdrant_client.query_points(
                             collection_name="sentencias_holdings",
                             query=embedding,
+                            using="dense",
                             query_filter=_materia_filter(),
                             limit=8,
                             with_payload=True,
@@ -14831,6 +14852,7 @@ def _build_qdrant_search_for_redactor():
                     hits = await qdrant_client.query_points(
                         collection_name="sentencias_scjn_holdings",
                         query=embedding,
+                        using="dense",
                         query_filter=_materia_filter(),
                         limit=10,
                         with_payload=True,
@@ -14947,13 +14969,15 @@ def _build_qdrant_search_for_redactor():
                 marco_tasks = [
                     qdrant_client.query_points(
                         collection_name="leyes_federales",
-                        query=marco_emb, limit=3, with_payload=True, score_threshold=0.35,
+                        query=marco_emb, using="dense", limit=3, with_payload=True,
+                        score_threshold=0.35,
                     ),
                 ]
                 if estado_collection:
                     marco_tasks.append(qdrant_client.query_points(
                         collection_name=estado_collection,
-                        query=marco_emb, limit=3, with_payload=True, score_threshold=0.35,
+                        query=marco_emb, using="dense", limit=3, with_payload=True,
+                        score_threshold=0.35,
                     ))
                 async with QDRANT_SEM:
                     marco_resps = await _asyncio.gather(*marco_tasks, return_exceptions=True)
