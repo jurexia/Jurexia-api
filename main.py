@@ -14583,9 +14583,36 @@ def _build_qdrant_search_for_redactor():
             return result
 
         def _materia_filter() -> Optional[Filter]:
+            """
+            Filtro por materia que funciona en TODAS las colecciones.
+
+            Dos trampas que dejaban al Redactor sin fuentes:
+
+            1. `jurisprudencia_nacional_v2` no tenia indice en `materia`, asi
+               que filtrarla devolvia HTTP 400. Y como cada busqueda va en su
+               propio try/except y el gather usa return_exceptions=True, el
+               silo entero de tesis desaparecia sin una sola senal. Ya se creo
+               el indice keyword.
+
+            2. La capitalizacion no es la misma en todas partes: las tesis
+               guardan 'Laboral' y 'Civil' con mayuscula (viene asi del
+               Semanario) mientras que las sentencias y las leyes usan
+               minuscula. Medido: MatchValue('laboral') devolvia 1,023 tesis y
+               MatchValue('Laboral') 6,614. Con una sola forma se perdia el
+               72% del silo.
+
+            Por eso se usa MatchAny con las tres variantes en vez de
+            MatchValue: cuesta lo mismo y deja de importar como haya quedado
+            escrito el valor en cada ingesta.
+            """
             if not materia:
                 return None
-            return Filter(must=[FieldCondition(key="materia", match=MatchValue(value=materia))])
+            variantes = {materia, materia.lower(), materia.capitalize(),
+                         materia.upper()}
+            return Filter(must=[
+                FieldCondition(key="materia",
+                               match=MatchAny(any=sorted(variantes)))
+            ])
 
         # ── Tasks definitions (each returns (kind, list_of_items)) ───────────
         async def _search_tesis_jurisprudencia():
