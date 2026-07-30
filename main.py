@@ -14697,7 +14697,12 @@ def _build_qdrant_search_for_redactor():
                         "tema": p.get("tema_juridico", ""),
                         "holding": (p.get("chunk_text", "") or "")[:1500],
                         "sentido": p.get("sentido", ""),
-                        "pdf_url": "",  # ef_c* no tiene pdf_url en payload
+                        # c3 SI guarda pdf_url; c1, c2, c4 y c22 se ingestaron con
+                        # un esquema mas pobre y lo perdieron. Aqui se toma el que
+                        # haya, y `_rellenar_pdf_de_holdings` completa el resto a
+                        # partir de holding_id (ver la nota alli).
+                        "pdf_url": p.get("pdf_url", ""),
+                        "holding_id": p.get("holding_id", ""),
                         "circuito": p.get("circuito", ""),
                         "calidad": p.get("calidad_argumentativa_v2", 0),
                         "_source_collection": f"sentencias_ef_c{circuito_num}",
@@ -14866,6 +14871,45 @@ def _build_qdrant_search_for_redactor():
                 result["normas"].extend(items)
             elif kind == "holdings":
                 result["holdings"].extend(items)
+
+        # ── Recuperar el PDF de los estudios de fondo ────────────────────────
+        #
+        # Las colecciones sentencias_ef_c<N> guardan el estudio troceado, pero
+        # solo c3 conserva `pdf_url`; c1, c2, c4 y c22 se ingestaron con un
+        # esquema mas pobre y lo perdieron. Eso dejaba sin documento oficial a
+        # cerca de un millon de fragmentos, que es justo lo que sostiene la
+        # promesa de "ver la fuente verificada".
+        #
+        # El puente es `holding_id`: comprobado que es exactamente el ID del
+        # punto en sentencias_holdings, que si trae la URL de GCS. Se resuelve
+        # con un unico retrieve por lote —los IDs son exactos, no hay busqueda
+        # vectorial— en vez de migrar los novecientos mil puntos.
+        _sin_pdf = [it for it in result["holdings"]
+                    if not it.get("pdf_url") and it.get("holding_id")]
+        if _sin_pdf:
+            try:
+                _ids = list({it["holding_id"] for it in _sin_pdf})
+                async with QDRANT_SEM:
+                    _origen = await qdrant_client.retrieve(
+                        collection_name="sentencias_holdings",
+                        ids=_ids,
+                        with_payload=["pdf_url"],
+                    )
+                _url_por_id = {}
+                for _pt in _origen:
+                    _u = (_pt.payload or {}).get("pdf_url")
+                    if _u:
+                        _url_por_id[str(_pt.id)] = _u
+                for it in _sin_pdf:
+                    _u = _url_por_id.get(str(it["holding_id"]))
+                    if _u:
+                        it["pdf_url"] = _u
+                print(f"     📎 PDF recuperado para {len(_url_por_id)}/{len(_ids)} "
+                      f"estudios de fondo")
+            except Exception as e:
+                # Sin PDF la cita sigue siendo util: se ve el texto del criterio.
+                # No merece tumbar la consulta entera.
+                print(f"     ⚠️ no se pudo recuperar el PDF de los EF: {e}")
 
         # ── Marco anticipado: búsquedas adicionales suaves ──────────────────
         for marco_query in marco_anticipado[:3]:
