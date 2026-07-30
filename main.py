@@ -4780,6 +4780,23 @@ async def inject_cross_referenced_articles(
                                     origen=payload.get("origen") or ley,
                                     jurisdiccion="Federal",
                                     silo="leyes_federales",
+                                    # EL PDF OFICIAL. Faltaba aqui, y era el
+                                    # agujero mas visible de todos: estos
+                                    # articulos entran con score 0.90 «so it
+                                    # appears prominently», asi que las citas
+                                    # que el abogado ve primero eran justo las
+                                    # que salian sin documento. En la captura
+                                    # de David: «Ley de Amparo, Articulo 148»
+                                    # con el aviso de «todavia no tenemos el
+                                    # documento oficial en PDF», cuando el
+                                    # punto SI trae la URL de diputados.gob.mx
+                                    # en su payload.
+                                    #
+                                    # Se leen las dos claves porque la ingesta
+                                    # de leyes guarda la misma URL en ambas.
+                                    pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+                                    entidad=payload.get("entidad"),
+                                    materia_meta=payload.get("materia"),
                                     conceptos_transversales=payload.get("conceptos_transversales"),
                                     tema_articulo=payload.get("tema_articulo"),
                                 )
@@ -5588,16 +5605,45 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
             if str(point.id) in exclude_ids:
                 continue
             payload = point.payload or {}
+            # ── Identidad de la tesis ────────────────────────────────────────
+            #
+            # Esta ruta leia `ref` y `origen` del payload, y la coleccion
+            # jurisprudencia_nacional_v2 NO TIENE esas claves: las suyas son
+            # registro, numero_tesis, instancia, tipo, materia, epoca y rubro.
+            # Ambas salian en None y, sobre todo, no se copiaba `registro`.
+            #
+            # Consecuencia en la app: sin `registro` ni `tesis_num`, el visor
+            # no reconoce la cita como tesis —la rotula «Disposicion legal»— y
+            # tampoco puede construir el enlace al Semanario
+            # (sjf2.scjn.gob.mx/detalle/tesis/<registro>), que es el respaldo
+            # que tienen las tesis cuando no hay PDF. El abogado se quedaba con
+            # un titulo de ley, sin articulo y sin fuente que consultar. Es la
+            # captura que reporto David.
+            _registro = payload.get("registro")
+            _registro = str(_registro) if _registro else None
+            _tesis_num = payload.get("numero_tesis") or payload.get("tesis_num")
+            _materia = payload.get("materia")
+            if isinstance(_materia, list):
+                _materia = ", ".join(str(m) for m in _materia) if _materia else None
+
             search_results.append(SearchResult(
                 id=str(point.id),
                 score=point.score,
                 texto=payload.get("texto", payload.get("text", "")),
-                ref=payload.get("ref"),
+                # El numero de tesis es lo que un abogado escribe al citarla; si
+                # no lo hay, el registro digital la identifica sin ambiguedad.
+                ref=payload.get("ref") or _tesis_num or (
+                    f"Registro {_registro}" if _registro else None),
                 origen=payload.get("origen"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
                 silo="jurisprudencia_nacional_v2",
                 pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+                registro=_registro,
+                tesis_num=_tesis_num,
+                tipo_criterio=payload.get("tipo") or payload.get("tipo_criterio"),
+                instancia_meta=payload.get("instancia"),
+                materia_meta=_materia,
                 ratio_decidendi=payload.get("ratio_decidendi"),
                 condicion_de_aplicacion=payload.get("condicion_de_aplicacion"),
                 distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
