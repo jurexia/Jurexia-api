@@ -128,6 +128,25 @@ DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-v4-flash"  # V4: thinking via param
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
+
+# ── Ayudantes internos del pipeline (estratega, ruteo, HyDE, conceptos, expansión) ──
+#
+# Todos usan gpt-5-mini con topes chicos (80-400 tokens). gpt-5-mini razona por
+# defecto y el razonamiento consume el tope ANTES de escribir: el estratega
+# devolvía JSON vacío (JSONDecodeError en cada consulta), el ruteo «sugiere 0
+# leyes», HyDE agotaba su timeout de 1.5 s siempre. Se pagaban ~8-15 s por
+# consulta en llamadas fallidas y el retrieval corría con defaults.
+#
+# Con esfuerzo mínimo el mismo modelo responde en <1 s (medido 31-jul-2026:
+# TTFB 0.9 s vs 30.6 s). Esto NO toca el modelo principal del chat, ni
+# redacción, ni redacción pro, ni precedentes: sólo los ayudantes.
+#
+# Reversa sin deploy: AYUDANTES_RAZONADO=1 en Render restaura el comportamiento
+# anterior (razonamiento por defecto en los ayudantes).
+AYUDANTES_KW: dict = (
+    {} if os.getenv("AYUDANTES_RAZONADO", "") == "1"
+    else {"reasoning_effort": "minimal"}
+)
 REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.5")  # OpenAI flagship para Redacción Pro
 # Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-2.5-pro")  # Gemini 2.5 Pro — frontier intelligence
@@ -3468,6 +3487,7 @@ async def expand_legal_query_llm(query: str) -> str:
             ],
             temperature=1,
             max_completion_tokens=100,  # Solo necesitamos palabras clave
+            **AYUDANTES_KW,
         )
         
         expanded_terms = response.choices[0].message.content.strip()
@@ -3601,6 +3621,7 @@ async def _legal_strategy_agent(query: str, fuero_manual: Optional[str] = None) 
             messages=[{"role": "user", "content": prompt}],
             temperature=1,
             max_completion_tokens=400,
+            **AYUDANTES_KW,
         )
 
         content = response.choices[0].message.content.strip()
@@ -3703,7 +3724,8 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
             model=CHAT_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_completion_tokens=300
+            max_completion_tokens=300,
+            **AYUDANTES_KW,
         )
         
         content = response.choices[0].message.content.strip()
@@ -5562,6 +5584,7 @@ async def _extract_juris_concepts(query: str) -> str:
             ],
             temperature=1,
             max_completion_tokens=80,
+            **AYUDANTES_KW,
         )
         concepts = response.choices[0].message.content.strip()
         print(f"   ⚖️ Conceptos jurisprudencia extraídos: {concepts}")
@@ -5592,6 +5615,7 @@ async def _extract_sentencia_temas(doc_content: str) -> str:
             ],
             temperature=1,
             max_completion_tokens=80,
+            **AYUDANTES_KW,
         )
         temas = response.choices[0].message.content.strip()
         print(f"   🧠 Extracción dinámica de temas (RAG Libre): {temas}")
@@ -6001,6 +6025,7 @@ async def _law_level_routing(
             ],
             max_completion_tokens=200,
             temperature=1,
+            **AYUDANTES_KW,
         )
         suggested_laws = response.choices[0].message.content.strip().split("\n")
         suggested_laws = [l.strip().strip("-•").strip() for l in suggested_laws if l.strip()]
@@ -6177,6 +6202,7 @@ async def _decompose_query(query: str) -> list[str]:
             ],
             max_completion_tokens=200,
             temperature=1,
+            **AYUDANTES_KW,
         )
         sub_queries = [
             sq.strip() for sq in response.choices[0].message.content.strip().split('\n')
