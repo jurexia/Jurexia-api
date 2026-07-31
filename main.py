@@ -4332,18 +4332,30 @@ async def search_precedentes_holdings(
 
     points = []
     try:
-        response = await qdrant_client.query_points(
-            collection_name=COLLECTION,
-            prefetch=[
-                Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
-                Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
-            ],
-            query=FusionQuery(fusion=Fusion.RRF),
-            limit=limit,
-            with_payload=True,
-        )
+        if _SOLO_DENSO:
+            # Ver el comentario de _SOLO_DENSO: el índice sparse no cabe en la
+            # RAM del clúster y una ráfaga híbrida lo tira a timeouts.
+            response = await qdrant_client.query_points(
+                collection_name=COLLECTION,
+                query=dense_vec,
+                using="dense",
+                limit=limit,
+                query_filter=qdrant_filter,
+                with_payload=True,
+            )
+        else:
+            response = await qdrant_client.query_points(
+                collection_name=COLLECTION,
+                prefetch=[
+                    Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
+                    Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
+                ],
+                query=FusionQuery(fusion=Fusion.RRF),
+                limit=limit,
+                with_payload=True,
+            )
         points = response.points
-        print(f"   ⚖️ RRF OK — {len(points)} puntos")
+        print(f"   ⚖️ Búsqueda OK — {len(points)} puntos")
     except Exception as rrf_err:
         print(f"   ⚠️ RRF/Prefetch falló ({rrf_err}), intentando dense-only...")
         try:
@@ -4477,18 +4489,29 @@ async def search_precedentes_scjn(
 
     points = []
     try:
-        response = await qdrant_client.query_points(
-            collection_name=COLLECTION,
-            prefetch=[
-                Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
-                Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
-            ],
-            query=FusionQuery(fusion=Fusion.RRF),
-            limit=limit,
-            with_payload=True,
-        )
+        if _SOLO_DENSO:
+            # Ver el comentario de _SOLO_DENSO.
+            response = await qdrant_client.query_points(
+                collection_name=COLLECTION,
+                query=dense_vec,
+                using="dense",
+                limit=limit,
+                query_filter=qdrant_filter,
+                with_payload=True,
+            )
+        else:
+            response = await qdrant_client.query_points(
+                collection_name=COLLECTION,
+                prefetch=[
+                    Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
+                    Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
+                ],
+                query=FusionQuery(fusion=Fusion.RRF),
+                limit=limit,
+                with_payload=True,
+            )
         points = response.points
-        print(f"   🏛️ SCJN RRF OK — {len(points)} puntos")
+        print(f"   🏛️ SCJN búsqueda OK — {len(points)} puntos")
     except Exception as rrf_err:
         print(f"   ⚠️ SCJN RRF/Prefetch falló ({rrf_err}), intentando dense-only...")
         try:
@@ -5248,9 +5271,24 @@ def rerank_by_article_match(results: List[SearchResult], article_numbers: List[s
     return results
 
 
-# Flag: skip hybrid search (Prefetch+RRF) if typing.Union error detected at runtime.
-# Set on first failure, avoids redundant try/catch on every subsequent query.
-_HYBRID_PREFETCH_BROKEN = False
+# Búsqueda densa a secas, y es una decisión, no un accidente.
+#
+# Historia completa, porque ya nos confundió una vez: durante meses el intento
+# híbrido reventaba al instante por el bug de `Query` (typing.Union) y TODO
+# caía al modo denso. Al arreglar el bug (commit 3fa550238) la parte sparse se
+# ejecutó por primera vez… y el clúster se hundió: el índice sparse vive en
+# disco y no cabe en 4 GiB de RAM. Medido el 31-jul-2026, misma ráfaga de 16
+# búsquedas en paralelo:
+#
+#     híbrida (dense+sparse):  19,095 ms, picos de 19 s   ← timeouts de 30 s
+#     densa a secas:              325 ms
+#
+# La calidad que los usuarios conocen ES la del modo denso. Cuando el clúster
+# tenga RAM para el índice sparse (8 GiB+), poner False y medir otra vez.
+_SOLO_DENSO = True
+
+# Alias histórico: el código de fallback lo enciende si reapareciera el bug.
+_HYBRID_PREFETCH_BROKEN = _SOLO_DENSO
 
 async def hybrid_search_single_silo(
     collection: str,
