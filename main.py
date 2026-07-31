@@ -17818,65 +17818,21 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
 
     # ── Stream from DeepSeek ─────────────────────────────────────────────
     async def stream_response():
-        """
-        Emite la demanda, y si el modelo se queda sin tokens la continúa.
-
-        Una demanda de amparo con el apartado de suspensión de oficio y de
-        plano bien fundado —con la jurisprudencia que hay que citar— no cabe
-        siempre en una sola respuesta. Cuando no cabe, el modelo devuelve
-        `finish_reason='length'` y corta a media palabra: el escrito llegaba al
-        usuario terminando en «...en la jurisprud» y sin el «PROTESTO LO
-        NECESARIO». Un amparo truncado no se puede presentar.
-
-        El límite no se puede subir y ya: 8000 está cerca del techo del modelo.
-        Así que cuando se corta se pide la continuación, pasándole lo que ya
-        escribió para que enganche exactamente donde se quedó.
-        """
-        mensajes = [
-            {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ]
-        MAX_CONTINUACIONES = 3
-
         try:
-            for vuelta in range(MAX_CONTINUACIONES + 1):
-                response = await deepseek_official_client.chat.completions.create(
-                    model=DEEPSEEK_OFFICIAL_CHAT_MODEL,
-                    messages=mensajes,
-                    temperature=0.4,
-                    max_tokens=8000,
-                    stream=True,
-                )
+            response = await deepseek_official_client.chat.completions.create(
+                model=DEEPSEEK_OFFICIAL_CHAT_MODEL,
+                messages=[
+                    {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.4,
+                max_tokens=8000,
+                stream=True,
+            )
 
-                parcial = ""
-                motivo = None
-                async for chunk in response:
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta.content
-                    if delta:
-                        parcial += delta
-                        yield delta
-                    if chunk.choices[0].finish_reason:
-                        motivo = chunk.choices[0].finish_reason
-
-                if motivo != "length" or vuelta == MAX_CONTINUACIONES:
-                    if motivo == "length":
-                        print("   ⚠️ SALVAME: se agotaron las continuaciones")
-                    break
-
-                print(f"   ↩️ SALVAME: continuando (vuelta {vuelta + 1})")
-                # Se le devuelve lo escrito como si fuera suyo —que lo es— y se
-                # le pide seguir sin repetir ni volver a saludar.
-                mensajes = mensajes[:2] + [
-                    {"role": "assistant", "content": parcial},
-                    {"role": "user", "content":
-                        "Continúa el escrito exactamente donde se cortó. No repitas "
-                        "nada de lo ya escrito, no vuelvas a empezar ni añadas "
-                        "encabezados. Sigue desde el carácter siguiente y termina el "
-                        "documento completo, incluyendo la protesta de ley y la "
-                        "línea de firma."},
-                ]
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
         except Exception as e:
             print(f"   ❌ SALVAME error: {e}")
