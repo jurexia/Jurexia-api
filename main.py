@@ -213,7 +213,12 @@ ESTADO_SILO = {
     "MORELOS": "leyes_morelos",
     "SINALOA": "leyes_sinaloa",
     "CHIHUAHUA": "leyes_chihuahua",
-    "AGUASCALIENTES": "leyes_aguascalientes",
+    # Aguascalientes se ingirió con el vector SIN nombre (los demás silos lo
+    # llaman `dense`), así que `using="dense"` devuelve 400 en cada búsqueda
+    # desde que existe: nunca ha aportado un resultado y quema ~10 s de
+    # reintentos por consulta. Fuera del mapa hasta reingerirla con el vector
+    # nombrado. Son 501 puntos.
+    # "AGUASCALIENTES": "leyes_aguascalientes",
     # Próximos estados:
     #
     # Baja California y Zacatecas estaban aquí sin que sus colecciones
@@ -10147,14 +10152,29 @@ async def chat_endpoint(request: ChatRequest):
                       f"precedentes={is_precedentes_mode}, sentencia={is_sentencia}")
 
                 if is_precedentes_mode:
-                    # Precedentes del Circuito 22: deepseek-chat (no reasoner — es síntesis, no razonamiento complejo)
+                    # Precedentes: síntesis, no razonamiento complejo. Corría en
+                    # deepseek-chat; su relevo v4-flash (sunset jul-2026) razona
+                    # por defecto y el 31-jul-2026 esa fase se desbocó: 53 s de
+                    # TTFB medidos contra el proveedor SIN Qdrant de por medio,
+                    # con 20,773 caracteres de razonamiento que el usuario nunca
+                    # ve. Apagarle el razonamiento degenera en bucles (probado
+                    # en Sálvame), así que el camino rápido es gpt-5-mini con
+                    # esfuerzo mínimo: TTFB 0.9 s, misma pregunta.
+                    #
+                    # PRECEDENTES_DEEPSEEK=1 en Render revierte a DeepSeek sin
+                    # necesidad de deploy.
                     use_gemini = False
                     use_thinking = False
-                    active_client = get_deepseek_official_client()
-                    active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
-                    max_tokens = 25000
                     _resolved_genio_ids = []
                     _effective_cached = None
+                    if os.getenv("PRECEDENTES_DEEPSEEK", "") == "1":
+                        active_client = get_deepseek_official_client()
+                        active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
+                        max_tokens = 25000
+                    else:
+                        active_client = chat_client
+                        active_model = "gpt-5-mini"
+                        max_tokens = 25000
                     print(f"   ⚖️ Modelo PRECEDENTES: {active_model} | max_tokens: {max_tokens}")
                 elif is_sentencia:
                     # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
@@ -10763,7 +10783,13 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             api_kwargs["max_completion_tokens"] = max_tokens
                         else:
                             api_kwargs["max_tokens"] = max_tokens
-                    
+
+                    # Precedentes es síntesis: con esfuerzo de razonamiento
+                    # mínimo gpt-5-mini da el primer token en <1 s (medido) en
+                    # vez de gastar medio minuto pensando en silencio.
+                    if is_precedentes_mode and "gpt-5" in active_model:
+                        api_kwargs["reasoning_effort"] = "minimal"
+
                     # 🚀 OPTIMIZACIÓN DE LATENCIA EXTREMA PARA OPENROUTER
                     # Evitar la cola de 50s forzando a OpenRouter a enrutar
                     # hacia el proveedor con mayor throughput/menor TTFB
