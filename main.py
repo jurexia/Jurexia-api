@@ -17826,7 +17826,14 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.4,
-                max_tokens=8000,
+                # 12,000 y no 8,000 porque `deepseek-v4-flash` razona por dentro
+                # antes de escribir, y ese razonamiento consume presupuesto sin
+                # aparecer en `delta.content`. Medido el 31-jul-2026 sobre el
+                # mismo caso: 1,820 caracteres de razonamiento en una corrida y
+                # 20,267 en otra. Con el tope en 8,000, la corrida que razona
+                # mucho se queda sin espacio y la demanda llega cortada a media
+                # frase — le pasó a un usuario con su padre en urgencias.
+                max_tokens=12000,
                 stream=True,
             )
 
