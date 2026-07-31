@@ -153,7 +153,12 @@ AYUDANTES_KW: dict = (
 # STREAM_RAZONAMIENTO=0 en Render restaura el modo antiguo: acumular todo el
 # razonamiento y soltarlo en un bloque antes del primer token de respuesta
 # (el usuario ve un globo vacío durante toda la fase de razonamiento).
-_STREAM_RAZONAMIENTO = os.getenv("STREAM_RAZONAMIENTO", "1") != "0"
+# APAGADO por defecto (31-jul-2026): al encenderlo, el razonamiento llegaba
+# al panel hecho pedazos — palabras sin terminación, fragmentos perdidos. El
+# parser progresivo de los frontends nunca se había ejercitado en producción y
+# pierde bytes con los cortes reales del proxy. Hasta arreglar el parser (y
+# poder actualizar la app), el modo bloque. STREAM_RAZONAMIENTO=1 lo reactiva.
+_STREAM_RAZONAMIENTO = os.getenv("STREAM_RAZONAMIENTO", "0") == "1"
 REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.5")  # OpenAI flagship para Redacción Pro
 # Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-2.5-pro")  # Gemini 2.5 Pro — frontier intelligence
