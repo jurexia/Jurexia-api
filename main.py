@@ -147,6 +147,13 @@ AYUDANTES_KW: dict = (
     {} if os.getenv("AYUDANTES_RAZONADO", "") == "1"
     else {"reasoning_effort": "minimal"}
 )
+
+# El razonamiento del modelo se transmite al cliente conforme llega
+# (`<!--thinking-->token`), que es el protocolo que los frontends ya parsean.
+# STREAM_RAZONAMIENTO=0 en Render restaura el modo antiguo: acumular todo el
+# razonamiento y soltarlo en un bloque antes del primer token de respuesta
+# (el usuario ve un globo vacío durante toda la fase de razonamiento).
+_STREAM_RAZONAMIENTO = os.getenv("STREAM_RAZONAMIENTO", "1") != "0"
 REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.5")  # OpenAI flagship para Redacción Pro
 # Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-2.5-pro")  # Gemini 2.5 Pro — frontier intelligence
@@ -10273,7 +10280,15 @@ async def chat_endpoint(request: ChatRequest):
                     _resolved_genio_ids = []
                     active_client = get_deepseek_official_client()  # api.deepseek.com directo
                     active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL  # deepseek-v4-flash
-                    max_tokens = 16384  # V4 Flash max output: 16K (non-thinking)
+                    # 30,000 y no 16,384: v4-flash razona aunque Thinking venga
+                    # OFF, y sus tokens de razonamiento descuentan del mismo
+                    # tope. El 31-jul-2026 una respuesta gastó ~4,300 tokens
+                    # razonando + ~8,700 escribiendo y chocó con 16,384: llegó
+                    # sin legislación estatal, sin análisis integrado y sin
+                    # conclusión. El API acepta hasta 32,000 (comprobado).
+                    # El tope es techo, no meta: lo que termina antes no tarda
+                    # más. Reversa: CHAT_MAX_TOKENS en Render.
+                    max_tokens = int(os.getenv("CHAT_MAX_TOKENS", "30000"))
 
                     # Preservar el depth boost que antes se inyectaba SOLO en el branch Gemini Lite directo.
                     # Sin esto, el chat normal sin genio pierde la instrucción de profundidad mínima 1,200 palabras.
@@ -10847,10 +10862,21 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
 
                             if reasoning_content:
                                 reasoning_buffer += reasoning_content
+                                if _STREAM_RAZONAMIENTO:
+                                    # El protocolo progresivo que este docstring
+                                    # promete y que ambos frontends ya parsean
+                                    # (useChat.ts en web, stream-protocol.ts en
+                                    # la app). Hasta hoy el bucle acumulaba el
+                                    # razonamiento y lo soltaba entero al final:
+                                    # el usuario miraba un globo vacío 50 s
+                                    # mientras el modelo transmitía desde el
+                                    # segundo 1.
+                                    yield f"<!--thinking-->{reasoning_content}"
+                                    _last_yield_time = time.perf_counter()
                                 # Heartbeat durante thinking phase: si pasaron >5s sin emitir nada
                                 # al cliente, emitir PING. Evita que Render LB cierre el upstream
                                 # durante reasoning largo de GPT-5.5/DeepSeek-R1 (30-120s).
-                                if time.perf_counter() - _last_yield_time > 5.0:
+                                elif time.perf_counter() - _last_yield_time > 5.0:
                                     yield "<!--PING-->"
                                     _last_yield_time = time.perf_counter()
 
@@ -10858,9 +10884,9 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 if not _first_token_logged:
                                     _first_token_logged = True
                                     print(f"   ⏱ TTFB (first content token): {time.perf_counter() - _t_llm_start:.2f}s")
-                                    # Emit accumulated reasoning before first content token
-                                    # so frontend can display it in collapsible "Ver razonamiento"
-                                    if reasoning_buffer:
+                                    # Modo antiguo (STREAM_RAZONAMIENTO=0): el
+                                    # bloque completo antes del primer token.
+                                    if reasoning_buffer and not _STREAM_RAZONAMIENTO:
                                         yield f"<!--THINKING_START-->{reasoning_buffer}<!--THINKING_END-->"
                                         _last_yield_time = time.perf_counter()
                                 content_buffer += content
