@@ -17826,13 +17826,29 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.4,
-                max_tokens=8000,
+                # El prompt pide un escrito de 3,000 a 5,000 palabras. En prosa
+                # jurídica en español eso son ~7,500 tokens: con el tope en 8,000
+                # la demanda larga se cortaba a media frase y llegaba incompleta.
+                # V4 Flash admite 16K de salida y el tope es un techo, no una
+                # meta: los escritos que terminan antes no tardan ni un segundo
+                # más por subirlo.
+                max_tokens=16000,
                 stream=True,
             )
 
+            corte = None
             async for chunk in response:
-                if chunk.choices and chunk.choices[0].delta.content:
+                if not chunk.choices:
+                    continue
+                if chunk.choices[0].finish_reason:
+                    corte = chunk.choices[0].finish_reason
+                if chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+
+            # Si vuelve a cortarse por longitud queremos verlo en los logs, no
+            # deducirlo del reclamo de un usuario con un familiar en urgencias.
+            if corte and corte != "stop":
+                print(f"   ⚠️  SALVAME terminó por '{corte}' (no 'stop')")
 
         except Exception as e:
             print(f"   ❌ SALVAME error: {e}")
