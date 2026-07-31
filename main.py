@@ -8911,7 +8911,7 @@ async def _smart_rag_for_document(
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, http_request: Request):
     """
     Chat conversacional con memoria stateless, streaming SSE y VALIDACIÓN DE CITAS.
     
@@ -9738,6 +9738,16 @@ async def chat_endpoint(request: ChatRequest):
         # Defaults for headers — actual values set inside generate_stream() before LLM call
         active_model = "unknown"
         use_thinking = should_use_thinking(has_document, is_drafting)
+
+        # Razonamiento en vivo POR PETICIÓN: sólo para clientes que lo piden
+        # con `X-Razonamiento-Vivo: 1` (la web, que trae el parser determinista
+        # con centinela). Los builds móviles en circulación no lo mandan y
+        # siguen recibiendo el bloque clásico — a su parser viejo el modo vivo
+        # le hacía picadillo el texto. STREAM_RAZONAMIENTO=1 lo forzaría para
+        # todos; no hacerlo hasta que las apps traigan el parser nuevo.
+        _razonamiento_vivo = _STREAM_RAZONAMIENTO or (
+            http_request.headers.get("x-razonamiento-vivo") == "1"
+        )
 
         async def generate_stream() -> AsyncGenerator[str, None]:
             """Stream unificado — thinking mode envía reasoning con marcadores.
@@ -10867,15 +10877,14 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
 
                             if reasoning_content:
                                 reasoning_buffer += reasoning_content
-                                if _STREAM_RAZONAMIENTO:
-                                    # El protocolo progresivo que este docstring
-                                    # promete y que ambos frontends ya parsean
-                                    # (useChat.ts en web, stream-protocol.ts en
-                                    # la app). Hasta hoy el bucle acumulaba el
-                                    # razonamiento y lo soltaba entero al final:
-                                    # el usuario miraba un globo vacío 50 s
-                                    # mientras el modelo transmitía desde el
-                                    # segundo 1.
+                                if _razonamiento_vivo:
+                                    # Razonamiento en vivo, sólo para clientes
+                                    # que lo pidieron con X-Razonamiento-Vivo
+                                    # (la web con el parser determinista). El
+                                    # cierre lo marca <!--/thinking-->; sin
+                                    # centinela el cliente tenía que adivinar
+                                    # la transición y un corte del proxy le
+                                    # hacía picar el texto (31-jul-2026).
                                     yield f"<!--thinking-->{reasoning_content}"
                                     _last_yield_time = time.perf_counter()
                                 # Heartbeat durante thinking phase: si pasaron >5s sin emitir nada
@@ -10889,10 +10898,16 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 if not _first_token_logged:
                                     _first_token_logged = True
                                     print(f"   ⏱ TTFB (first content token): {time.perf_counter() - _t_llm_start:.2f}s")
-                                    # Modo antiguo (STREAM_RAZONAMIENTO=0): el
-                                    # bloque completo antes del primer token.
-                                    if reasoning_buffer and not _STREAM_RAZONAMIENTO:
-                                        yield f"<!--THINKING_START-->{reasoning_buffer}<!--THINKING_END-->"
+                                    if reasoning_buffer:
+                                        if _razonamiento_vivo:
+                                            # Fin del razonamiento, empieza la
+                                            # respuesta.
+                                            yield "<!--/thinking-->"
+                                        else:
+                                            # Modo bloque clásico: todo el
+                                            # razonamiento junto antes del
+                                            # primer token (apps móviles).
+                                            yield f"<!--THINKING_START-->{reasoning_buffer}<!--THINKING_END-->"
                                         _last_yield_time = time.perf_counter()
                                 content_buffer += content
                                 yield content
@@ -10901,6 +10916,10 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # Edge case: thinking mode produced reasoning but ZERO content
                     if use_thinking and reasoning_buffer and not content_buffer.strip():
                         print(f"   ⚠️ Thinking exhausted tokens — {len(reasoning_buffer)} chars reasoning, 0 content")
+                        if _razonamiento_vivo:
+                            # Cerrar la fase para que el aviso no caiga dentro
+                            # del panel de razonamiento.
+                            yield "<!--/thinking-->"
                         fallback = (
                             "\n\n**Análisis completado.**\n\n"
                             "El modelo utilizó todos los tokens disponibles durante el análisis interno. "
