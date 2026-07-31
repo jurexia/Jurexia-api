@@ -17817,57 +17817,36 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
     print(f"   Situaciones: {', '.join(req.situaciones)}")
 
     # ── Stream from DeepSeek ─────────────────────────────────────────────
-    async def _abrir_stream(sin_razonar: bool):
-        """Abre el stream. `sin_razonar` apaga el modo de razonamiento.
-
-        `deepseek-chat`, el modelo con el que Sálvame se escribió, no razonaba.
-        Su relevo `deepseek-v4-flash` (sunset de julio 2026) sí lo hace por
-        defecto, y los tokens de razonamiento gastan tiempo y presupuesto sin
-        aparecer en `delta.content`: la demanda salía tarde y mutilada, y en la
-        app saltaba el aviso de «llegó incompleta». Aquí se redacta un escrito,
-        no se resuelve un acertijo.
-        """
-        kwargs = dict(
-            model=DEEPSEEK_OFFICIAL_CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.4,
-            # Con todo el presupuesto dedicado al texto, 12,000 tokens sobran
-            # para las 3,000–5,000 palabras que pide el prompt.
-            max_tokens=12000,
-            stream=True,
-        )
-        if sin_razonar:
-            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
-        return await deepseek_official_client.chat.completions.create(**kwargs)
-
     async def stream_response():
         try:
-            try:
-                response = await _abrir_stream(sin_razonar=True)
-            except Exception as e:
-                # Si el proveedor no aceptara el parámetro, más vale una demanda
-                # lenta que ninguna: se reintenta sin él.
-                print(f"   ⚠️  SALVAME: 'thinking disabled' rechazado ({e}); "
-                      f"reintento sin el parámetro")
-                response = await _abrir_stream(sin_razonar=False)
+            response = await deepseek_official_client.chat.completions.create(
+                model=DEEPSEEK_OFFICIAL_CHAT_MODEL,
+                messages=[
+                    {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.4,
+                # El prompt pide un escrito de 3,000 a 5,000 palabras. En prosa
+                # jurídica en español eso son ~7,500 tokens: con el tope en 8,000
+                # la demanda larga se cortaba a media frase y llegaba incompleta.
+                # V4 Flash admite 16K de salida y el tope es un techo, no una
+                # meta: los escritos que terminan antes no tardan ni un segundo
+                # más por subirlo.
+                max_tokens=16000,
+                stream=True,
+            )
 
             corte = None
-            escrito = 0
             async for chunk in response:
                 if not chunk.choices:
                     continue
                 if chunk.choices[0].finish_reason:
                     corte = chunk.choices[0].finish_reason
                 if chunk.choices[0].delta.content:
-                    escrito += len(chunk.choices[0].delta.content)
                     yield chunk.choices[0].delta.content
 
-            # Un corte por longitud hay que verlo en los logs, no deducirlo del
-            # reclamo de alguien con un familiar en urgencias.
-            print(f"   🏥 SALVAME fin: {escrito:,} caracteres, motivo '{corte}'")
+            # Si vuelve a cortarse por longitud queremos verlo en los logs, no
+            # deducirlo del reclamo de un usuario con un familiar en urgencias.
             if corte and corte != "stop":
                 print(f"   ⚠️  SALVAME terminó por '{corte}' (no 'stop')")
 
