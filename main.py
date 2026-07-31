@@ -32,12 +32,17 @@ from qdrant_client.http.models import (
     FieldCondition,
     Filter,
     Fusion,
+    # `Query` NO se importa: no es una clase, es un alias `typing.Union` de
+    # todas las formas de consulta. `Query(fusion=...)` lanza siempre
+    # «Cannot instantiate typing.Union», así que toda búsqueda híbrida fallaba
+    # y caía al modo denso: el doble de trabajo para Qdrant y sin la parte
+    # sparse. La clase real para fusionar es `FusionQuery`.
+    FusionQuery,
     MatchAny,
     MatchValue,
     NamedVector,
     NamedSparseVector,
     Prefetch,
-    Query,
     SparseVector,
 )
 from fastembed import SparseTextEmbedding
@@ -209,11 +214,16 @@ ESTADO_SILO = {
     "SINALOA": "leyes_sinaloa",
     "CHIHUAHUA": "leyes_chihuahua",
     "AGUASCALIENTES": "leyes_aguascalientes",
-    "BAJA_CALIFORNIA": "leyes_baja_california",
-    "BAJACALIFORNIA": "leyes_baja_california",
-    "BC": "leyes_baja_california",
-    "ZACATECAS": "leyes_zacatecas",
     # Próximos estados:
+    #
+    # Baja California y Zacatecas estaban aquí sin que sus colecciones
+    # existieran en Qdrant. Cada consulta que abría «todos los silos estatales»
+    # lanzaba peticiones que volvían con
+    # «Not found: Collection `leyes_baja_california` doesn't exist!»
+    # — viajes de red y trabajo del clúster tirados a la basura, en cada
+    # consulta. Se reponen cuando el estado esté realmente ingestado.
+    # "BAJA_CALIFORNIA": "leyes_baja_california",
+    # "ZACATECAS": "leyes_zacatecas",
 }
 
 # Silos de SENTENCIAS DE EJEMPLO — usados como few-shot por el redactor multi-pass.
@@ -4328,7 +4338,7 @@ async def search_precedentes_holdings(
                 Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
                 Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
             ],
-            query=Query(fusion=Fusion.RRF),
+            query=FusionQuery(fusion=Fusion.RRF),
             limit=limit,
             with_payload=True,
         )
@@ -4473,7 +4483,7 @@ async def search_precedentes_scjn(
                 Prefetch(query=dense_vec, using="dense", limit=limit * 2, filter=qdrant_filter),
                 Prefetch(query=sparse_vec, using="sparse", limit=limit * 2, filter=qdrant_filter),
             ],
-            query=Query(fusion=Fusion.RRF),
+            query=FusionQuery(fusion=Fusion.RRF),
             limit=limit,
             with_payload=True,
         )
@@ -5303,7 +5313,7 @@ async def hybrid_search_single_silo(
             return await qdrant_client.query_points(
                 collection_name=collection,
                 prefetch=prefetches,
-                query=Query(fusion=Fusion.RRF),
+                query=FusionQuery(fusion=Fusion.RRF),
                 limit=top_k,
                 query_filter=search_filter,
                 with_payload=True,
