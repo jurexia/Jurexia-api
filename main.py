@@ -10569,6 +10569,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
 
                 
                 # ── Emit cache status marker for frontend ──
+                # OJO: esto se emite ANTES de resolver el caché que de verdad
+                # usa el stream. Si aquel falla, el frontend ya dijo «caché
+                # activo» y la respuesta salió sin corpus. Me despistó durante
+                # el diagnóstico del 1-ago-2026: la insignia decía que el genio
+                # estaba trabajando cuando no lo estaba. El log de la rama del
+                # genio (🧞 GENIO ...) es la fuente de verdad.
                 if _effective_cached and use_gemini:
                     yield "<!--CACHE:ACTIVE-->"
 
@@ -10915,8 +10921,25 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             try:
                                 from cache_manager import get_cache_name_async
                                 _local_cached = await get_cache_name_async(genio_to_run)
-                                if has_document: _local_cached = None
-                            except: pass
+                                if has_document:
+                                    _local_cached = None
+                            except Exception as _e_cache:
+                                # Era `except: pass`. Con eso, un genio que no
+                                # lograba su caché caía a la rama sin corpus —
+                                # sin razonamiento y sin las instrucciones del
+                                # genio— y nadie se enteraba: el marcador
+                                # CACHE:ACTIVE que ve el frontend viene del
+                                # sondeo anterior, no de aquí, así que la
+                                # respuesta decía «caché activo» sin serlo.
+                                _local_cached = None
+                                print(f"   ❌ GENIO {genio_to_run}: sin caché — "
+                                      f"{type(_e_cache).__name__}: {_e_cache}")
+                        if genio_to_run:
+                            print(f"   🧞 GENIO {genio_to_run}: caché="
+                                  f"{'SÍ ' + str(_local_cached).split('/')[-1][:12] if _local_cached else 'NO'} · "
+                                  f"modelo={active_model} · "
+                                  f"razonamiento={GENIO_THINKING_BUDGET} "
+                                  f"visible={GENIO_MOSTRAR_RAZONAMIENTO}")
 
                         system_instruction = system_instruction_base
                         _gemini_contents = gemini_contents.copy()
