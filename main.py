@@ -10166,6 +10166,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
 
                 use_thinking = should_use_thinking(has_document, is_drafting)
 
+                # Se enciende sólo en la rama del chat por defecto (ver abajo).
+                _es_chat_busqueda = False
+
                 # ── FORCE THINKING FOR REDACCIÓN ──────────────────────────────────
                 # deepseek-chat has a hard 8K output limit which truncates long legal
                 # drafting responses mid-word, causing empty "❌ Error:" messages.
@@ -10295,6 +10298,13 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     _resolved_genio_ids = []
                     active_client = get_deepseek_official_client()  # api.deepseek.com directo
                     active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL  # deepseek-v4-flash
+                    # Marca ESTA rama —el chat por defecto, modo Buscar— para
+                    # apagarle el razonamiento más abajo. Es una bandera y no
+                    # una condición sobre el modelo porque redacción y el
+                    # redactor con documento usan el MISMO v4-flash y ahí el
+                    # razonamiento sí aporta: planifica la estructura del
+                    # escrito antes de redactarlo.
+                    _es_chat_busqueda = True
                     # 30,000 y no 16,384: v4-flash razona aunque Thinking venga
                     # OFF, y sus tokens de razonamiento descuentan del mismo
                     # tope. El 31-jul-2026 una respuesta gastó ~4,300 tokens
@@ -10845,6 +10855,39 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # vez de gastar medio minuto pensando en silencio.
                     if is_precedentes_mode and "gpt-5" in active_model:
                         api_kwargs["reasoning_effort"] = "minimal"
+
+                    # El chat por defecto (Buscar) responde SIN razonamiento.
+                    #
+                    # v4-flash razona por omisión con esfuerzo `high`, y ese
+                    # razonamiento no viaja en `delta.content`: el abogado mira
+                    # una pantalla vacía mientras se gasta. Medido el
+                    # 1-ago-2026 sobre la misma pregunta jurídica:
+                    #
+                    #     por omisión      TTFB 34.9s · total 79.3s · 2,214 palabras
+                    #     thinking off     TTFB  0.9s · total 40.3s · 2,157 palabras
+                    #
+                    # Misma extensión, mismas secciones, la mitad del tiempo y
+                    # 11,592 caracteres de razonamiento que se dejan de pagar.
+                    #
+                    # `reasoning_effort="low"` NO sirve aquí: la documentación
+                    # dice que v4-flash lo mapea 1:1, pero medido gastó 11,989
+                    # caracteres razonando —más que `high`—. La única palanca
+                    # que mueve la aguja es el interruptor.
+                    #
+                    # Se probó con 5 preguntas de materias distintas (amparo,
+                    # laboral, hipotecario, civil, penal): 5/5 terminaron en
+                    # 'stop', 2,392-3,177 palabras, sin degenerar. Aun así el
+                    # riesgo existe —apagar el razonamiento hizo que Sálvame
+                    # degenerara en una lista de números— así que hay reversa:
+                    # CHAT_RAZONAMIENTO=1 en Render lo devuelve al modo de antes
+                    # sin desplegar.
+                    #
+                    # Sólo esta rama: redacción y el redactor con documento usan
+                    # el mismo modelo y ahí el razonamiento sí aporta.
+                    if _es_chat_busqueda and os.getenv("CHAT_RAZONAMIENTO", "") != "1":
+                        api_kwargs.setdefault("extra_body", {})
+                        api_kwargs["extra_body"]["thinking"] = {"type": "disabled"}
+                        print("   ⚡ CHAT: razonamiento apagado (TTFB ~1s)")
 
                     # 🚀 OPTIMIZACIÓN DE LATENCIA EXTREMA PARA OPENROUTER
                     # Evitar la cola de 50s forzando a OpenRouter a enrutar
