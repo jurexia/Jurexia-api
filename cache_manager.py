@@ -48,17 +48,17 @@ logger = logging.getLogger("cache_manager")
 # Ambos crean el caché explícito en ~1.5 s.
 CACHE_MODEL = os.getenv("CACHE_MODEL", "gemini-3.5-flash")
 
-# El TTL estaba en 3 MINUTOS, y ahí se iba la factura sin retorno: con esa vida
-# casi ninguna consulta encontraba un caché vivo, así que cada una pagaba la
-# creación completa de ~200,000 tokens y el caché expiraba sin volver a usarse.
-# Un caché de contexto sólo rinde si sobrevive lo suficiente para que varias
-# consultas —del mismo abogado o de otro— lo aprovechen.
+# 3 MINUTOS, y es deliberado. Subirlo a 60 parecía la forma de amortizar la
+# creación del caché entre consultas, pero el almacenamiento se paga POR HORA
+# y por genio: con nueve genios y el volumen real de uso de Iurexia —que no
+# llena una hora de consultas seguidas ni en pico— mantenerlos vivos cuesta
+# más que recrearlos. David lo frenó el 1-ago-2026 y tiene razón: aquí manda
+# el patrón de tráfico, no la teoría del caché.
 #
-# 60 minutos: el TTL se refresca en cada uso (ver _refresh_cache_ttl), así que
-# un genio con tráfico se mantiene vivo indefinidamente y uno sin tráfico se
-# apaga solo en una hora. El costo de almacenamiento se paga por hora, y una
-# sola creación evitada ya lo compensa.
-CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "60"))
+# El TTL se refresca en cada uso (ver _refresh_cache_ttl), así que una sesión
+# de consultas seguidas sí reutiliza el mismo caché; lo que no se paga es el
+# tiempo muerto entre abogados.
+CACHE_TTL_MINUTES = int(os.getenv("CACHE_TTL_MINUTES", "3"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── Safety Limits ────────────────────────────────────────────────────────────
