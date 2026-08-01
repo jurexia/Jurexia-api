@@ -17637,6 +17637,36 @@ async def admin_reingest_status():
 # SALVAME — Amparo de Emergencia por Salud (DeepSeek)
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Aquí se atiende a alguien con un familiar en urgencias. Las dos perillas que
+# deciden si recibe su amparo completo, y cuánto mira una pantalla en blanco
+# antes de verlo escribirse, quedan a la vista y se mueven sin desplegar.
+SALVAME_MAX_TOKENS = int(os.getenv("SALVAME_MAX_TOKENS", "32000"))
+
+# El razonamiento de v4-flash es la causa directa de la espera: medido el
+# 1-ago-2026, el tiempo hasta el primer carácter de la demanda sigue casi
+# exactamente lo que razonó antes (2,523 car → 6.0s; 26,173 car → 64.6s).
+#
+# Por omisión DeepSeek razona con esfuerzo `high`, y ahí el razonamiento es una
+# lotería: entre 1,827 y 26,173 caracteres sobre el MISMO caso, o sea entre 6 y
+# 65 segundos de pantalla en blanco para quien tiene a su padre en urgencias.
+# Con `low` se estabiliza en 1,827-2,579 caracteres y la demanda empieza a
+# escribirse a los 5 segundos, siempre.
+#
+# `low` NO recorta fundamentos, que era el temor: comparadas cuatro corridas,
+# las de `low` y las de `high` desarrollan igual la suspensión de oficio y de
+# plano fundada en el artículo 126 de la Ley de Amparo, y omiten los mismos
+# 103/107 constitucionales. Una corrida de `high` escribió incluso menos
+# palabras (3,719) que una de `low` (3,800): la variación no viene del esfuerzo.
+#
+# En v4-flash el esfuerzo mapea 1:1 (low→low). Es v4-pro el que sube `low` a
+# `high` — si algún día se cambia de modelo aquí, revisar esa tabla.
+#
+# NUNCA poner aquí {"thinking": {"type": "disabled"}}: apagar el razonamiento
+# hizo que Sálvame degenerara en una lista de números hasta 3251 el
+# 31-jul-2026. Bajarlo es seguro; apagarlo no.
+_esf = os.getenv("SALVAME_ESFUERZO", "low").strip().lower()
+SALVAME_RAZONAMIENTO = {"reasoning_effort": _esf} if _esf in ("low", "high", "max") else {}
+
 SALVAME_SYSTEM_PROMPT = """Eres IUREXIA, un abogado constitucionalista mexicano experto en amparo en materia de salud y litigio estratégico. Redacta una DEMANDA DE AMPARO INDIRECTO con solicitud de SUSPENSIÓN DE OFICIO Y DE PLANO, con enfoque de urgencia y protección inmediata de la vida e integridad.
 
 ═══════════════════════════════════════════════════════════════════════
@@ -18105,21 +18135,45 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
                     {"role": "system", "content": SALVAME_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.4,
-                # 12,000 y no 8,000 porque `deepseek-v4-flash` razona por dentro
-                # antes de escribir, y ese razonamiento consume presupuesto sin
-                # aparecer en `delta.content`. Medido el 31-jul-2026 sobre el
-                # mismo caso: 1,820 caracteres de razonamiento en una corrida y
-                # 20,267 en otra. Con el tope en 8,000, la corrida que razona
-                # mucho se queda sin espacio y la demanda llega cortada a media
-                # frase — le pasó a un usuario con su padre en urgencias.
-                max_tokens=12000,
+                # Sin `temperature`: la documentación de DeepSeek dice que en
+                # modo razonamiento se ignora en silencio. El 0.4 que había aquí
+                # no hacía nada y hacía creer lo contrario a quien leyera esto.
+                #
+                # 32,000 y no 12,000 porque `deepseek-v4-flash` razona por dentro
+                # antes de escribir, y ese razonamiento consume el MISMO
+                # presupuesto que el escrito sin aparecer en `delta.content`.
+                # Medido el 1-ago-2026 sobre el mismo caso de urgencia, doce
+                # corridas: el razonamiento va de 2,179 a 26,173 caracteres.
+                # Cuando le toca una corrida larga, con el tope en 12,000 no
+                # queda espacio para terminar y la demanda llega cortada a media
+                # frase — le pasó a un usuario con su padre en urgencias, y
+                # volvió a pasar en 1 de 6 corridas de la medición.
+                #
+                # Con 32,000 hay holgura: el peor razonamiento visto (~7,000
+                # tokens) más la demanda completa (~11,000) suman 18,000. Se
+                # midieron 3 de 3 corridas completas en 12,000, 24,000 y 32,000;
+                # sólo 32,000 deja margen para la cola larga. No encarece nada:
+                # se pagan los tokens generados, no el tope.
+                max_tokens=SALVAME_MAX_TOKENS,
                 stream=True,
+                **SALVAME_RAZONAMIENTO,
             )
 
+            _escrito = 0
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta.content:
+                    _escrito += len(chunk.choices[0].delta.content)
                     yield chunk.choices[0].delta.content
+
+            # El modelo puede terminar sin haber escrito nada: pasó una vez en
+            # trece corridas de prueba. Sin esto el familiar se queda mirando
+            # una hoja en blanco sin saber si falló o sigue trabajando, que es
+            # lo último que necesita alguien con su padre en urgencias.
+            if _escrito == 0:
+                print("   ⚠️ SALVAME: el modelo no devolvió contenido")
+                yield ("\n\n[No se pudo generar el amparo en este intento. "
+                       "Vuelve a presionar el botón — tus datos siguen "
+                       "capturados y no se pierden.]")
 
         except Exception as e:
             print(f"   ❌ SALVAME error: {e}")
