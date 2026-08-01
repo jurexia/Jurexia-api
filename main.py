@@ -159,7 +159,26 @@ AYUDANTES_KW: dict = (
 # pierde bytes con los cortes reales del proxy. Hasta arreglar el parser (y
 # poder actualizar la app), el modo bloque. STREAM_RAZONAMIENTO=1 lo reactiva.
 _STREAM_RAZONAMIENTO = os.getenv("STREAM_RAZONAMIENTO", "0") == "1"
-REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.5")  # OpenAI flagship para Redacción Pro
+# Los escalones altos de redacción, con su nivel de razonamiento.
+#
+# La familia 5.6 acepta none/low/medium/high/xhigh — NO existe `max`.
+#
+# Ambos escalones dejan gpt-5.5 ($5/$30 por millón de tokens). Medido el
+# 1-ago-2026 con dos escritos reales y dos jueces ciegos de proveedores
+# distintos, gpt-5.6-luna redactó MEJOR que gpt-5.5 y ~20× más barato
+# ($0.20/$1.20). gpt-5.6-terra se descartó: perdió en `high` y en `xhigh` cuesta
+# 14× lo que luna para escribir menos.
+#
+# Platinum se lleva luna `high`; Pro corre el mismo motor con menos razonamiento,
+# que es la única palanca de ahorro real —por debajo de luna sólo está nano, que
+# es otra liga.
+#
+# Ojo con el nombre: «Redacción Platinum» es el escalón de este botón y no tiene
+# relación con el futuro Platinum del redactor de sentencias.
+REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.6-luna")
+REDACTOR_PRO_ESFUERZO = os.getenv("REDACTOR_PRO_ESFUERZO", "medium")
+REDACTOR_PLATINUM_MODEL = os.getenv("REDACTOR_PLATINUM_MODEL", "gpt-5.6-luna")
+REDACTOR_PLATINUM_ESFUERZO = os.getenv("REDACTOR_PLATINUM_ESFUERZO", "high")
 # Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-2.5-pro")  # Gemini 2.5 Pro — frontier intelligence
 REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-2.5-pro")  # PDF OCR — Powerful model requested
@@ -9104,7 +9123,20 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # Also detect explicit [MODO_REDACCION] and [MODO_REDACCION_PRO] markers from frontend toggle
     is_chat_drafting = False
     is_chat_drafting_pro = False
-    if "[MODO_REDACCION_PRO]" in last_user_message:
+    is_chat_drafting_platinum = False
+    if "[MODO_REDACCION_PLATINUM]" in last_user_message:
+        # Platinum va antes que Pro: comparte toda la ruta de Pro y sólo cambia
+        # el motor, así que enciende ambas banderas.
+        is_chat_drafting = True
+        is_chat_drafting_pro = True
+        is_chat_drafting_platinum = True
+        last_user_message = last_user_message.replace("[MODO_REDACCION_PLATINUM]", "").strip()
+        for msg in reversed(request.messages):
+            if msg.role == "user":
+                msg.content = last_user_message
+                break
+        print(f"   💎 REDACCIÓN PLATINUM activada por toggle del frontend")
+    elif "[MODO_REDACCION_PRO]" in last_user_message:
         is_chat_drafting = True
         is_chat_drafting_pro = True
         last_user_message = last_user_message.replace("[MODO_REDACCION_PRO]", "").strip()
@@ -9126,6 +9158,37 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         is_chat_drafting = _detect_chat_drafting(last_user_message)
         if is_chat_drafting:
             print(f"   ✍️ MODO REDACCIÓN CHAT detectado por lenguaje natural")
+
+    # El marcador Platinum enciende un motor que cuesta ~8× lo que cuesta Pro.
+    # Esconder el botón en el frontend no basta: cualquiera puede escribir
+    # "[MODO_REDACCION_PLATINUM]" en el cuadro de texto. Se comprueba el plan
+    # contra Supabase y, si no lo tiene, la petición cae a Redacción Pro en vez
+    # de rechazarse — el abogado igual recibe su escrito, sólo que con el motor
+    # que le corresponde.
+    if is_chat_drafting_platinum:
+        _tiene_platinum = False
+        if request.user_id and supabase_admin:
+            try:
+                def _perfil_platinum():
+                    return supabase_admin.table('user_profiles') \
+                        .select('subscription_type, email') \
+                        .eq('id', request.user_id) \
+                        .limit(1) \
+                        .execute()
+                _res = await asyncio.to_thread(_perfil_platinum)
+                if _res.data:
+                    _fila = _res.data[0]
+                    _correo = (_fila.get('email') or '').strip().lower()
+                    _tiene_platinum = (
+                        _fila.get('subscription_type') in (
+                            'platinum_monthly', 'platinum_annual', 'ultra_secretarios')
+                        or (_correo and _correo in ADMIN_EMAILS)
+                    )
+            except Exception as _e:
+                print(f"   ⚠️ No se pudo verificar el plan Platinum: {_e}")
+        if not _tiene_platinum:
+            is_chat_drafting_platinum = False
+            print("   ⛔ REDACCIÓN PLATINUM sin plan Platinum → se atiende como Redacción Pro")
 
     # ── Precedentes — triggered by [MODO_PRECEDENTES] marker ──────────────
     # Frontend puede pasar:
@@ -10169,6 +10232,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Se enciende sólo en la rama del chat por defecto (ver abajo).
                 _es_chat_busqueda = False
 
+                # Nivel de razonamiento para Redacción Pro/Ultra. None = el que
+                # traiga el modelo por omisión.
+                _esfuerzo_redaccion = None
+
                 # ── FORCE THINKING FOR REDACCIÓN ──────────────────────────────────
                 # deepseek-chat has a hard 8K output limit which truncates long legal
                 # drafting responses mid-word, causing empty "❌ Error:" messages.
@@ -10240,16 +10307,25 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     print(f"   ⚖️ Modelo SENTENCIA: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
                     _resolved_genio_ids = [] # Disable genios for sentencia mode
                 elif is_chat_drafting_pro:
-                    # REDACCIÓN PRO: OpenAI GPT-5.5 — máxima calidad jurídica con razonamiento profundo.
-                    # Ignora genios (sin caché) y prioriza el motor de reasoning de OpenAI.
+                    # REDACCIÓN PRO / PLATINUM: motores de razonamiento de OpenAI.
+                    # Ignora genios (sin caché) y prioriza el reasoning de OpenAI.
                     use_gemini = False
                     _resolved_genio_ids = []
                     _effective_cached = None
                     active_client = chat_client
-                    active_model = REDACTOR_PRO_MODEL
+                    if is_chat_drafting_platinum:
+                        active_model = REDACTOR_PLATINUM_MODEL
+                        _esfuerzo_redaccion = REDACTOR_PLATINUM_ESFUERZO
+                        _etiqueta_redaccion = "💎 REDACCIÓN PLATINUM"
+                    else:
+                        active_model = REDACTOR_PRO_MODEL
+                        _esfuerzo_redaccion = REDACTOR_PRO_ESFUERZO
+                        _etiqueta_redaccion = "✨ REDACCIÓN PRO"
                     max_tokens = 32000
-                    use_thinking = True  # GPT-5.5 reasoning mode
-                    print(f"   ✨ REDACCIÓN PRO: {active_model} (OpenAI Reasoning) | max_completion_tokens: {max_tokens} | Thinking: ON")
+                    use_thinking = True
+                    print(f"   {_etiqueta_redaccion}: {active_model} "
+                          f"(razonamiento {_esfuerzo_redaccion}) | "
+                          f"max_completion_tokens: {max_tokens}")
                 elif _resolved_genio_ids and _can_use_gemini and not has_document:
                     # PRIORIDAD: Genios disponibles → usar Gemini con caché de estilo jurídico.
                     # Incluye consultas normales Y redacción -- el estilo de
@@ -10340,7 +10416,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     yield "<!--CACHE:ACTIVE-->"
 
                 # ── Emit Pro mode marker for frontend badge ──
-                if is_chat_drafting_pro:
+                # Platinum emite su propio marcador para que la insignia diga la
+                # verdad: si el plan no daba para Platinum, arriba se degradó a
+                # Pro y aquí sale PRO.
+                if is_chat_drafting_platinum:
+                    yield "<!--MODE:PLATINUM-->"
+                elif is_chat_drafting_pro:
                     yield "<!--MODE:PRO-->"
 
                 # ── Emit RAG source count for frontend (filterable) ──
@@ -10855,6 +10936,12 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # vez de gastar medio minuto pensando en silencio.
                     if is_precedentes_mode and "gpt-5" in active_model:
                         api_kwargs["reasoning_effort"] = "minimal"
+
+                    # Redacción Pro/Ultra fijan su nivel de razonamiento: sin
+                    # esto los modelos 5.6 razonan a `medium` y el escrito
+                    # pierde la profundidad que justifica el modo.
+                    if _esfuerzo_redaccion:
+                        api_kwargs["reasoning_effort"] = _esfuerzo_redaccion
 
                     # El chat por defecto (Buscar) responde SIN razonamiento.
                     #
