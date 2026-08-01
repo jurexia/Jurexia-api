@@ -10484,7 +10484,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # ALWAYS use Gemini+cache regardless of drafting mode.
                     use_gemini = True
                     use_thinking = False  # Gemini maneja su propio razonamiento via thinking_budget
-                    active_model = "models/gemini-3-flash-preview" # Genio cache is generated with flash-preview
+                    # El modelo sale de cache_manager, NO escrito a mano: Gemini
+                    # rechaza la petición con 400 INVALID_ARGUMENT si el modelo
+                    # que genera no es EXACTAMENTE el que creó el caché. Estaba
+                    # clavado aquí como "models/gemini-3-flash-preview" y al
+                    # subir el caché a 3.5-flash el genio devolvió el error en
+                    # producción — 24 palabras y cero artículos.
+                    from cache_manager import get_cache_model
+                    active_model = f"models/{get_cache_model().replace('models/', '')}"
                     max_tokens = 25000
                     # LAZY CACHE: NOW create the cache since Gemini is confirmed
                     try:
