@@ -246,9 +246,18 @@ FIXED_SILOS = {
 
 # Mapa estado → colección dedicada en Qdrant
 # Se agregan progresivamente conforme se ingestan estados
+#
+# ⚠️ LAS LLAVES DEBEN SER LO QUE DEVUELVE normalize_estado(), no el alias que
+# escribe el usuario. Aquí sólo había "CDMX", pero normalize_estado convierte
+# CDMX → CIUDAD_DE_MEXICO, así que la búsqueda NUNCA encontraba el silo de la
+# capital: caía al comodín «buscar en todos los estados» y un abogado de CDMX
+# recibía el código penal de Nuevo León, Querétaro o Sinaloa antes que el suyo
+# —medido el 1-ago-2026: 0 de 12 resultados eran de su entidad—. Y la colección
+# leyes_cdmx tiene 27,196 puntos ahí sin usarse.
 ESTADO_SILO = {
     "QUERETARO": "leyes_queretaro",
-    "CDMX": "leyes_cdmx",
+    "CIUDAD_DE_MEXICO": "leyes_cdmx",   # ← lo que produce normalize_estado
+    "CDMX": "leyes_cdmx",               # alias directo, por si entra sin normalizar
     "GUANAJUATO": "leyes_guanajuato",
     "PUEBLA": "leyes_puebla",
     "EDOMEX": "leyes_edomex",
@@ -280,6 +289,34 @@ ESTADO_SILO = {
     # "BAJA_CALIFORNIA": "leyes_baja_california",
     # "ZACATECAS": "leyes_zacatecas",
 }
+
+def _silo_del_estado(estado: Optional[str]) -> Optional[str]:
+    """La colección de la entidad elegida, o None si no está ingestada.
+
+    Devolver None es DELIBERADO y es la corrección más importante del
+    1-ago-2026. Antes, una entidad sin colección abría TODAS las estatales, y
+    entonces un abogado de Oaxaca preguntando por robo con violencia recibía el
+    Código Penal de Sinaloa —con su enlace al PDF oficial, o sea con apariencia
+    de cita verificada— como si fuera su ley aplicable. Medido: 0 de 12
+    resultados eran de su entidad, en Oaxaca y en CDMX.
+
+    Para un abogado eso es peor que no obtener respuesta: funda una promoción
+    en el artículo de otro estado y pierde el asunto. Sin colección propia se
+    responde con federal, bloque constitucional y jurisprudencia, que sí
+    aplican en toda la República.
+
+    Hoy tienen colección: CDMX, Chihuahua, Edomex, Guanajuato, Guerrero,
+    Jalisco, Michoacán, Morelos, Nuevo León, Puebla, Querétaro, Sinaloa y
+    Veracruz. Las 19 restantes esperan ingesta.
+    """
+    if not estado:
+        return None
+    normalizado = normalize_estado(estado)
+    if not normalizado:
+        return None
+    return ESTADO_SILO.get(normalizado) or ESTADO_SILO.get(
+        estado.upper().strip().replace(" ", "_"))
+
 
 # Silos de SENTENCIAS DE EJEMPLO — usados como few-shot por el redactor multi-pass.
 # La EF de SCJN está particionada en 3 colecciones (Pleno / 1ª Sala / 2ª Sala) para
@@ -6601,29 +6638,29 @@ async def hybrid_search_all_silos(
             elif fp == "federal":
                 silos_set.add("leyes_federales")
             elif fp == "estatal":
-                if estado:
-                    normalized_estado = normalize_estado(estado)
-                    if normalized_estado and normalized_estado in ESTADO_SILO:
-                        silos_set.add(ESTADO_SILO[normalized_estado])
-                    else:
-                        silos_set.update(ESTADO_SILO.values())
-                else:
+                _silo_est = _silo_del_estado(estado)
+                if _silo_est:
+                    silos_set.add(_silo_est)
+                elif not estado:
+                    # Sin entidad elegida sí tiene sentido abrir todos: el
+                    # abogado no dijo dónde litiga.
                     silos_set.update(ESTADO_SILO.values())
-        
+                # Si eligió entidad y no está ingestada, NO se abren los demás
+                # estados: ver la explicación en _silo_del_estado.
+
         silos_to_search = list(silos_set)
         print(f"   ⚖️ FUERO MULTI: {fuero_parts} → {len(silos_to_search)} silos: {silos_to_search}")
     else:
         # Sin fuero = comportamiento original: TODOS los silos
         silos_to_search = list(FIXED_SILOS.values())
         if estado:
-            normalized_estado = normalize_estado(estado)
-            if normalized_estado and normalized_estado in ESTADO_SILO:
-                silos_to_search.append(ESTADO_SILO[normalized_estado])
-                print(f"   📍 Estado '{normalized_estado}' → silo dedicado: {ESTADO_SILO[normalized_estado]}")
+            _silo_est = _silo_del_estado(estado)
+            if _silo_est:
+                silos_to_search.append(_silo_est)
+                print(f"   📍 Estado '{normalize_estado(estado)}' → silo dedicado: {_silo_est}")
             else:
-                # Unknown state → search all state silos
-                silos_to_search.extend(ESTADO_SILO.values())
-                print(f"   📍 Estado '{estado}' → all state silos")
+                print(f"   📍 Estado '{estado}' SIN colección propia → "
+                      f"sólo federal, constitucional y jurisprudencia")
         else:
             silos_to_search.extend(ESTADO_SILO.values())
             print(f"   📍 Sin fuero/estado → buscando en {len(ESTADO_SILO) + len(FIXED_SILOS)} silos")
