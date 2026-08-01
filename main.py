@@ -4158,6 +4158,41 @@ def _score_materia_relevance(result, detected_materias: List[str]) -> float:
     return max(0.0, min(1.0, score))
 
 
+# Cuánto puede alejarse un resultado del mejor antes de considerarse ruido,
+# cuando no hay materia detectada que permita un filtro más fino.
+RAG_DISTANCIA_MAXIMA = float(os.getenv("RAG_DISTANCIA_MAXIMA", "0.30"))
+
+
+def _filtrar_por_distancia(results: list, protected_silo: Optional[str] = None) -> list:
+    """Criba de último recurso cuando no se detectó materia.
+
+    Descarta lo que puntúa muy por debajo del mejor resultado. No sabe de
+    materias — sabe que un documento tres décimas peor que el primero no está
+    respondiendo la misma pregunta.
+
+    Nunca descarta jurisprudencia, bloque constitucional ni el silo del estado
+    elegido: son fuente primaria y a veces puntúan bajo por redacción, no por
+    falta de pertinencia.
+    """
+    if not results:
+        return results
+
+    _PROTEGIDOS = {"jurisprudencia_nacional", "jurisprudencia_nacional_v2",
+                   "bloque_constitucional"}
+    piso = results[0].score - RAG_DISTANCIA_MAXIMA
+    guardados, descartados = [], 0
+    for r in results:
+        if r.silo in _PROTEGIDOS or r.silo == protected_silo or r.score >= piso:
+            guardados.append(r)
+        else:
+            descartados += 1
+
+    if descartados:
+        print(f"   🧹 SIN MATERIA — criba por distancia: descartados "
+              f"{descartados} bajo {piso:.3f} (mejor={results[0].score:.3f})")
+    return guardados
+
+
 def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25, strict_mode: bool = False, protected_silo: Optional[str] = None) -> list:
     """
     Capa 3 del Materia-Aware Retrieval: Post-retrieval threshold con multi-signal scoring.
@@ -4182,9 +4217,23 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     Returns:
         Lista filtrada de SearchResult
     """
-    if not detected_materias or not results:
+    if not results:
         return results
-    
+
+    if not detected_materias:
+        # Sin materia detectada NO se filtraba absolutamente nada, y ahí nacía
+        # el mezclado que reportan los usuarios: una consulta genérica ("¿qué
+        # recurso procede contra esta resolución?") no dispara ninguna palabra
+        # clave, así que los 40 documentos de todos los silos llegaban al
+        # modelo sin criba y aparecía la Ley Apícola junto a un amparo.
+        #
+        # No se puede filtrar por materia si no hay materia, pero sí por
+        # distancia al mejor resultado: si el primero puntúa 0.72 y otro 0.31,
+        # ese segundo es ruido venga de donde venga. Se conservan siempre
+        # jurisprudencia, bloque constitucional y el silo del estado elegido,
+        # que son fuente primaria aunque puntúen bajo.
+        return _filtrar_por_distancia(results, protected_silo)
+
     # Materia mapping expandido
     # Permite que "FAMILIAR" también acepte "CIVIL" (muchos estados tienen familia en CC)
     MATERIA_ALIAS = {
@@ -8324,6 +8373,107 @@ async def search_endpoint(request: SearchRequest):
 # Gemini Thinking Config
 THINKING_BUDGET = 20000  # Aumentado de 16K para permitir razonamientos más largos
 
+# Presupuesto de razonamiento cuando corre un GENIO (caché activo). Va aparte
+# del THINKING_BUDGET general porque aquí el razonamiento se paga en espera
+# visible: el de Gemini no viaja como contenido, así que el abogado mira una
+# pantalla en blanco mientras ocurre.
+#
+# Medido el 1-ago-2026 sobre el caché de amparo (188,718 tokens), tres corridas
+# por valor, misma consulta:
+#
+#     budget 20,000   primera letra a los 24.7 s · 2,820 palabras · 14.7 arts.
+#     budget      0   primera letra a los  2.5 s · 1,988 palabras · 14.7 arts.
+#
+# Mismo número de artículos citados: el razonamiento no estaba comprando
+# precisión jurídica, sólo espera. La extensión que se pierde la repone la
+# instrucción de profundidad que ahora sí llega a esta rama.
+#
+# PERO apagarlo del todo sale caro con el genio, al revés que en el chat: con
+# la instrucción de profundidad completa y contexto RAG, `budget 0` bajó de
+# 13.0 a 7.7 artículos citados y de 2,648 a 978 palabras. Aquí el razonamiento
+# sí está comprando precisión jurídica, no sólo espera.
+#
+# Por eso la espera no se recorta: se ENSEÑA. Con include_thoughts el abogado
+# ve al genio razonar desde el primer segundo —qué artículo está buscando, qué
+# vía descarta— en vez de mirar una pantalla en blanco, y la respuesta conserva
+# su profundidad.
+#
+# GENIO_THINKING=<n> y GENIO_RAZONAMIENTO_VISIBLE=0 lo ajustan sin desplegar.
+GENIO_THINKING_BUDGET = int(os.getenv("GENIO_THINKING", "20000"))
+GENIO_MOSTRAR_RAZONAMIENTO = os.getenv("GENIO_RAZONAMIENTO_VISIBLE", "1") == "1"
+
+
+# ── Instrucciones de profundidad para el genio ───────────────────────────────
+#
+# Vivían duplicadas en tres lugares (la ruta de un genio, la de varios, y una
+# función muerta), y la copia de la ruta de UN genio —el caso normal— se había
+# quedado sin ellas: el chat con genio respondía 928 palabras contra 3,188 sin
+# genio, porque al activarse el caché se descarta SYSTEM_PROMPT_CHAT y nada lo
+# reemplazaba. Una sola definición para que no vuelvan a desincronizarse.
+
+_GENIO_PROFUNDIDAD_REDACCION = (
+    "INSTRUCCIONES DE PROFUNDIDAD PARA GENIO EN MODO REDACCIÓN:\n\n"
+    "REGLA MAESTRA: Estás en MODO REDACCIÓN JUDICIAL. Produce texto jurídico de "
+    "altísimo nivel, listo para imprimirse en una sentencia o demanda. Tienes un "
+    "corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n\n"
+    "FORMATO OBLIGATORIO — PROSA FORENSE CONTINUA:\n"
+    "- PROHIBIDO usar subtítulos, viñetas, listas numeradas o esquemas.\n"
+    "- TODO el texto debe ser PROSA CONTINUA en párrafos enlazados con conectores "
+    "jurídicos (\"Ahora bien\", \"En el presente caso\", \"Por tanto\").\n"
+    "- Mínimo 1,200 palabras. Emula el estilo de un Secretario de Estudio y "
+    "Cuenta de la SCJN.\n\n"
+    "MÉTODO DE SUBSUNCIÓN (dentro de la prosa):\n"
+    "- PREMISA MAYOR: transcribe artículos de tu corpus, tejiéndolos en la prosa.\n"
+    "- PREMISA MENOR: relaciona con los hechos del caso del usuario.\n"
+    "- CONCLUSIÓN: declara la procedencia o vulneración con argumentación lógica.\n\n"
+    "CITAS EN PROSA (no en blockquote):\n"
+    "- Artículos del CORPUS: transcríbelos indicando artículo y ley de origen.\n"
+    "- Jurisprudencia del RAG: integra el ratio decidendi con [Doc ID: uuid].\n"
+    "- NUNCA uses emojis ni disclaimers. El documento se entrega LIMPIO.\n"
+)
+
+_GENIO_PROFUNDIDAD_CONSULTA = (
+    "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
+    "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. Tienes un "
+    "corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
+    "- Mínimo 1,200 palabras en consultas sustantivas.\n"
+    "- Para CADA artículo pertinente de tu corpus: transcríbelo TEXTUALMENTE y "
+    "explica su alcance práctico en 3-4 oraciones.\n"
+    "- Conecta SIEMPRE norma + jurisprudencia + consecuencias prácticas.\n"
+    "- Si una respuesta se siente 'corta', es un error. Desarrolla y proyecta "
+    "riesgos. No cierres antes de agotar el análisis.\n\n"
+    "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
+    "1. **RESPUESTA DIRECTA** (2-3 oraciones, SIN encabezado visible)\n"
+    "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE artículos de tu "
+    "corpus en blockquote.\n"
+    "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
+    "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas "
+    "con [Doc ID].\n"
+    "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta fuentes, señala vías "
+    "y riesgos concretos: qué probar, cómo y con qué medios.\n"
+    "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
+    "FORMATO:\n"
+    "- NUNCA uses emojis en la respuesta.\n"
+    "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
+    "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
+    "- Jurisprudencia del RAG: > \"[RUBRO]\" -- *[atributo instancia=], "
+    "Registro: [atributo registro=]* [Doc ID: uuid]\n"
+    "  ⚠️ SOLO usa valores de los ATRIBUTOS del tag <documento> del XML. "
+    "Si no traen registro= o instancia=, omítelos. NUNCA los inventes.\n\n"
+    "DIAGRAMAS VISUALES (cuando sea pertinente):\n"
+    "Para procedimientos por etapas, usa:\n"
+    ":::processflow\n"
+    "titulo: [Nombre del procedimiento]\n"
+    "1. Etapa | Descripción | Plazo\n"
+    ":::\n"
+)
+
+
+def profundidad_genio(es_redaccion: bool) -> str:
+    """Instrucciones de profundidad del genio, según el modo."""
+    return (_GENIO_PROFUNDIDAD_REDACCION if es_redaccion
+            else _GENIO_PROFUNDIDAD_CONSULTA)
+
 def should_use_thinking(has_document: bool, is_drafting: bool) -> bool:
     """Activa thinking mode SOLO para modos especiales.
     
@@ -10658,43 +10808,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
 
                                 # GENIO DEPTH BOOST (multi-genio path)
                                 # ⚠️ FIX: Usar versión PROSA CONTINUA cuando is_chat_drafting=True
-                                if is_chat_drafting:
-                                    _GENIO_DEPTH_BOOST_MULTI = (
-                                        "INSTRUCCIONES DE PROFUNDIDAD PARA GENIO EN MODO REDACCIÓN:\n\n"
-                                        "REGLA MAESTRA: Estás en MODO REDACCIÓN JUDICIAL. Produce texto jurídico de altísimo nivel, "
-                                        "listo para imprimirse en una sentencia o demanda. Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n\n"
-                                        "FORMATO OBLIGATORIO — PROSA FORENSE CONTINUA:\n"
-                                        "- PROHIBIDO usar subtítulos, viñetas, listas numeradas, esquemas o cualquier formato estructurado.\n"
-                                        "- TODO el texto debe ser PROSA CONTINUA en párrafos enlazados con conectores jurídicos.\n"
-                                        "- Mínimo 1,200 palabras. Emula el estilo de un Secretario de Estudio y Cuenta de la SCJN.\n\n"
-                                        "CITAS EN PROSA (no en blockquote):\n"
-                                        "- Artículos del CORPUS: transcríbelos dentro de la prosa indicando artículo y ley de origen.\n"
-                                        "- Jurisprudencia del RAG: integra el ratio decidendi dentro de tus párrafos con [Doc ID: uuid].\n"
-                                        "- NUNCA uses emojis, disclaimers, ni notas explicativas. El documento se entrega LIMPIO.\n"
-                                    )
-                                else:
-                                    _GENIO_DEPTH_BOOST_MULTI = (
-                                        "INSTRUCCIONES DE ESTRUCTURA Y PROFUNDIDAD PARA GENIO ACTIVO:\n\n"
-                                        "REGLA MAESTRA: Tus respuestas deben ser EXHAUSTIVAS y PODEROSAS. "
-                                        "Tienes un corpus legal COMPLETO en tu memoria — ÚSALO A FONDO.\n"
-                                        "- Mínimo 1,000 palabras en consultas sustantivas.\n"
-                                        "- Conecta SIEMPRE la norma con la jurisprudencia y explica consecuencias prácticas.\n"
-                                        "- Si una respuesta se siente 'corta', es un error. Desarrolla, explica y proyecta riesgos.\n\n"
-                                        "ESTRUCTURA OBLIGATORIA DE RESPUESTA:\n"
-                                        "1. **RESPUESTA DIRECTA** (primeras 2-3 oraciones, SIN encabezado visible)\n"
-                                        "2. **LEGISLACIÓN APLICABLE** — Transcribe TEXTUALMENTE artículos de tu corpus en blockquote.\n"
-                                        "   > \"[Texto del artículo]\" -- *Artículo N, [Ley]*\n"
-                                        "3. **JURISPRUDENCIA Y TESIS** — Si el RAG aporta tesis pertinentes, cítalas con [Doc ID].\n"
-                                        "4. **ANÁLISIS INTEGRADO Y RECOMENDACIONES** — Conecta fuentes, señala vías y riesgos.\n"
-                                        "5. **CONCLUSIÓN** — Síntesis breve + pregunta de seguimiento.\n\n"
-                                        "FORMATO:\n"
-                                        "- NUNCA uses emojis en la respuesta.\n"
-                                        "- Artículos del CORPUS: > \"texto\" -- *Artículo N, Ley* (sin Doc ID)\n"
-                                        "- Artículos del RAG: > \"texto\" -- *Artículo N, Ley* [Doc ID: uuid]\n"
-                                        "- Jurisprudencia del RAG: > \"[RUBRO del texto]\" -- *[atributo instancia=], Registro: [atributo registro=]* [Doc ID: uuid]\n"
-                                        "  ⚠️ SOLO usa valores de los ATRIBUTOS del tag <documento> del XML. NUNCA inventes registro o instancia.\n"
-                                    )
-                                dynamic_parts.insert(1, _GENIO_DEPTH_BOOST_MULTI)
+                                # Misma definición que la ruta de un solo genio:
+                                # se comparte para que no vuelvan a divergir.
+                                dynamic_parts.insert(1, profundidad_genio(is_chat_drafting))
                                 
                                 if g_id == "civil" and _estado_for_llm:
                                     _estado_norm = _estado_for_llm.lower().replace("_", " ")
@@ -10716,7 +10832,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                     dynamic_parts.append(cnpcf_caveat)
 
                                 _gemini_contents.insert(0, gtypes.Content(role="user", parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]))
-                                gemini_config = gtypes.GenerateContentConfig(cached_content=_local_cached, max_output_tokens=25000, temperature=0.5, thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET))
+                                gemini_config = gtypes.GenerateContentConfig(cached_content=_local_cached, max_output_tokens=25000, temperature=0.5, thinking_config=gtypes.ThinkingConfig(thinking_budget=GENIO_THINKING_BUDGET))
                             else:
                                 gemini_config = gtypes.GenerateContentConfig(system_instruction=system_instruction, temperature=0.5, max_output_tokens=max_tokens, **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}))
                             
@@ -10817,11 +10933,30 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 "3. Si el RAG no contiene fuentes pertinentes al tema, IGNÓRALO completamente y usa solo tu corpus.\n"
                             )
                             dynamic_parts.insert(0, cache_rag_instruction)
+                            # Esta ruta —un solo genio, el caso normal— era la
+                            # única que no recibía las instrucciones de
+                            # profundidad, y por eso respondía 928 palabras
+                            # frente a las 3,188 del chat sin genio.
+                            dynamic_parts.insert(1, profundidad_genio(is_chat_drafting))
                             _gemini_contents.insert(0, gtypes.Content(role="user", parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]))
-                            gemini_config = gtypes.GenerateContentConfig(cached_content=_local_cached, max_output_tokens=25000, temperature=0.5, thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET))
+                            # include_thoughts: el razonamiento del genio se
+                            # ENSEÑA en vez de esconderse. Sin esto llegaba
+                            # `thought` vacío y el abogado miraba una pantalla
+                            # en blanco hasta 53 s — medido el 1-ago-2026 — sin
+                            # saber si la consulta seguía viva.
+                            gemini_config = gtypes.GenerateContentConfig(
+                                cached_content=_local_cached,
+                                max_output_tokens=25000,
+                                temperature=0.5,
+                                thinking_config=gtypes.ThinkingConfig(
+                                    thinking_budget=GENIO_THINKING_BUDGET,
+                                    include_thoughts=GENIO_MOSTRAR_RAZONAMIENTO,
+                                ),
+                            )
                         else:
                             gemini_config = gtypes.GenerateContentConfig(system_instruction=system_instruction, temperature=0.5, max_output_tokens=max_tokens, **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}))
-                        
+
+                        _razonando = False
                         async for chunk in await gemini_client.aio.models.generate_content_stream(
                             model=active_model,
                             contents=_gemini_contents,
@@ -10830,12 +10965,25 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             if chunk.candidates:
                                 for part in chunk.candidates[0].content.parts:
                                     if hasattr(part, 'thought') and part.thought:
+                                        # En vivo, no acumulado: el objetivo es
+                                        # que aparezca movimiento al segundo 1,
+                                        # no un bloque cuando ya terminó.
+                                        if not _razonando:
+                                            _razonando = True
+                                            yield "<!--THINKING_START-->"
                                         reasoning_buffer += (part.text or "")
+                                        yield (part.text or "")
                                     elif part.text:
-                                        if not content_buffer and reasoning_buffer:
-                                            yield f"<!--THINKING_START-->{reasoning_buffer}<!--THINKING_END-->"
+                                        if _razonando:
+                                            _razonando = False
+                                            yield "<!--THINKING_END-->"
                                         content_buffer += part.text
                                         yield part.text
+                        if _razonando:
+                            # El modelo razonó y no escribió nada: cerrar el
+                            # bloque o el frontend se queda mostrando el
+                            # razonamiento como si fuera la respuesta.
+                            yield "<!--THINKING_END-->"
                         
                         if not content_buffer.strip():
                             fallback = "\n\n**Análisis completado sin respuesta.**\n\nEl modelo agotó tokens. Envía *\"continúa\"*."
