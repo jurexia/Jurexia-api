@@ -100,6 +100,12 @@ DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash")  # Gemin
 NORMAL_CHAT_OR_MODEL = os.getenv("NORMAL_CHAT_OR_MODEL", "google/gemini-3-flash-preview")  # Chat sin genio via OpenRouter — Gemini 3 Flash Preview, baja latencia
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
 
+# Consulta rápida (el rayo). Elegido midiendo seis candidatos sobre contexto
+# real del RAG el 1-ago-2026: 1.7 s hasta la respuesta completa, 2.7 artículos
+# correctos citados de media —el mejor del grupo— y cero invenciones, a
+# $0.00037 por consulta. FLASH_MODEL lo cambia sin desplegar.
+FLASH_MODEL = os.getenv("FLASH_MODEL", "gemini-3.1-flash-lite")
+
 # Cliente DeepSeek Oficial — Round-Robin Pool (distribuye carga entre múltiples API keys)
 # Soporta 1 o 2 keys. Si DEEPSEEK_API_KEY_2 está configurada, duplica el throughput (~600 RPM).
 DEEPSEEK_OFFICIAL_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -272,22 +278,37 @@ ESTADO_SILO = {
     "MORELOS": "leyes_morelos",
     "SINALOA": "leyes_sinaloa",
     "CHIHUAHUA": "leyes_chihuahua",
-    # Aguascalientes se ingirió con el vector SIN nombre (los demás silos lo
-    # llaman `dense`), así que `using="dense"` devuelve 400 en cada búsqueda
-    # desde que existe: nunca ha aportado un resultado y quema ~10 s de
-    # reintentos por consulta. Fuera del mapa hasta reingerirla con el vector
-    # nombrado. Son 501 puntos.
-    # "AGUASCALIENTES": "leyes_aguascalientes",
-    # Próximos estados:
+
+    # ── Las 19 entidades ingestadas el 1-ago-2026 ────────────────────────────
     #
-    # Baja California y Zacatecas estaban aquí sin que sus colecciones
-    # existieran en Qdrant. Cada consulta que abría «todos los silos estatales»
-    # lanzaba peticiones que volvían con
-    # «Not found: Collection `leyes_baja_california` doesn't exist!»
-    # — viajes de red y trabajo del clúster tirados a la basura, en cada
-    # consulta. Se reponen cuando el estado esté realmente ingestado.
-    # "BAJA_CALIFORNIA": "leyes_baja_california",
-    # "ZACATECAS": "leyes_zacatecas",
+    # /normativa publicaba sus leyes —el abogado las veía y las descargaba—
+    # pero nunca se habían vectorizado: 145 ordenamientos que el chat no podía
+    # citar. Peor, mientras no existían, el buscador abría «todos los estados»
+    # y a un abogado de Oaxaca le entregaba el Código Penal de Sinaloa con su
+    # PDF, con apariencia de cita verificada.
+    #
+    # Aguascalientes se reingirió: tenía 501 puntos con el vector SIN nombre,
+    # así que `using="dense"` devolvía 400 en cada búsqueda desde el día uno.
+    # Nunca aportó un solo resultado.
+    "AGUASCALIENTES": "leyes_aguascalientes",
+    "BAJA_CALIFORNIA": "leyes_baja_california",
+    "BAJA_CALIFORNIA_SUR": "leyes_baja_california_sur",
+    "CAMPECHE": "leyes_campeche",
+    "CHIAPAS": "leyes_chiapas",
+    "COAHUILA": "leyes_coahuila",
+    "COLIMA": "leyes_colima",
+    "DURANGO": "leyes_durango",
+    "HIDALGO": "leyes_hidalgo",
+    "NAYARIT": "leyes_nayarit",
+    "OAXACA": "leyes_oaxaca",
+    "QUINTANA_ROO": "leyes_quintana_roo",
+    "SAN_LUIS_POTOSI": "leyes_san_luis_potosi",
+    "SONORA": "leyes_sonora",
+    "TABASCO": "leyes_tabasco",
+    "TAMAULIPAS": "leyes_tamaulipas",
+    "TLAXCALA": "leyes_tlaxcala",
+    "YUCATAN": "leyes_yucatan",
+    "ZACATECAS": "leyes_zacatecas",
 }
 
 def _silo_del_estado(estado: Optional[str]) -> Optional[str]:
@@ -4230,6 +4251,113 @@ def _filtrar_por_distancia(results: list, protected_silo: Optional[str] = None) 
     return guardados
 
 
+# ── Códigos nacionales: el hueco que el ranking no llenaba ───────────────────
+#
+# En México el delito lo define el código penal de cada estado, pero el
+# PROCEDIMIENTO penal lo rige un solo ordenamiento nacional, el CNPP. Igual en
+# civil con el CNPCF donde ya entró en vigor.
+#
+# Medido el 1-ago-2026: una consulta sobre el plazo para formular imputación
+# devolvía 12 resultados, ninguno del CNPP —que está indexado con 493 chunks—.
+# En CDMX devolvía la Ley de Agentes Inmobiliarios de Guanajuato. El CNPP
+# pierde porque su texto embebido arranca con un encabezado de jerarquía
+# enorme que diluye el artículo:
+#
+#   [Codigo NACIONAL DE PROCEDIMIENTOS PENALES | TÍTULO I ... | CAPÍTULO III
+#    ... | DISPOSICIONES COMUNES] Artículo 191. ...
+#
+# En vez de pelear contra el ranking, se le reserva lugar: si la consulta es
+# procesal, se hace una búsqueda dirigida contra leyes_federales filtrando por
+# la materia que ya viene etiquetada en el payload, y esos artículos entran sí
+# o sí.
+
+_SENAL_PROCESAL = re.compile(
+    r"\b(procedimiento|procesal|proceso|audiencia|emplaza|notificaci[óo]n|"
+    r"plazo para|t[ée]rmino para|vinculaci[óo]n a proceso|imputaci[óo]n|"
+    r"desahogo|ofrecimiento de prueba|contestar la demanda|apelaci[óo]n|"
+    r"recurso de revocaci[óo]n|incidente|medida cautelar|prisi[óo]n preventiva|"
+    r"juicio oral|etapa intermedia|acusaci[óo]n|sobreseimiento|"
+    r"suspensi[óo]n condicional|carpeta de investigaci[óo]n|caducidad|"
+    r"rebeld[íi]a|sentencia ejecutoriada|ejecuci[óo]n de sentencia)\b",
+    re.IGNORECASE)
+_SENAL_PENAL = re.compile(
+    r"\b(penal|delito|delictiv|imputad|acusad|v[íi]ctima|ministerio p[úu]blico|"
+    r"fiscal[íi]a|defensor|prisi[óo]n|querella|denuncia)\b", re.IGNORECASE)
+_SENAL_CIVIL = re.compile(
+    r"\b(civil|familiar|demanda|contrato|arrendamiento|sucesi[óo]n|"
+    r"divorcio|alimentos|inmueble|propiedad|prescripci[óo]n|hipotec)\b",
+    re.IGNORECASE)
+
+
+# Figuras que sólo existen en un procedimiento y no necesitan más contexto:
+# quien pregunta por la «vinculación a proceso» está en materia penal aunque no
+# escriba la palabra «penal», y quien pregunta por el «emplazamiento» está en
+# civil. Sin esto, «¿Cuál es el plazo para formular imputación?» no activaba el
+# CNPP porque la consulta no contiene ninguna palabra genéricamente penal.
+_SOLO_PENAL = re.compile(
+    r"\b(vinculaci[óo]n a proceso|imputaci[óo]n|carpeta de investigaci[óo]n|"
+    r"prisi[óo]n preventiva|etapa intermedia|auto de vinculaci[óo]n|"
+    r"suspensi[óo]n condicional del proceso|procedimiento abreviado|"
+    r"control de detenci[óo]n|sobreseimiento|acusaci[óo]n)\b", re.IGNORECASE)
+_SOLO_CIVIL = re.compile(
+    r"\b(emplaza|contestar la demanda|rebeld[íi]a|caducidad de la instancia|"
+    r"litisconsorcio|reconvenci[óo]n|juicio ejecutivo|v[íi]a de apremio)\b",
+    re.IGNORECASE)
+
+
+def _detectar_consulta_procesal(query: str) -> Optional[str]:
+    """`procesal_penal`, `procesal_civil` o None.
+
+    Sólo devuelve algo cuando la consulta habla de PROCEDIMIENTO. Una pregunta
+    por la pena del robo no necesita el CNPP; una por el plazo de la
+    vinculación a proceso no se responde sin él.
+    """
+    if not query or not _SENAL_PROCESAL.search(query):
+        return None
+    if _SOLO_PENAL.search(query):
+        return "procesal_penal"
+    if _SOLO_CIVIL.search(query):
+        return "procesal_civil"
+    penal = len(_SENAL_PENAL.findall(query))
+    civil = len(_SENAL_CIVIL.findall(query))
+    if penal == 0 and civil == 0:
+        return None
+    return "procesal_penal" if penal >= civil else "procesal_civil"
+
+
+async def _traer_codigo_nacional(materia: str, dense_vector, limite: int = 6):
+    """Los artículos del código nacional que corresponden a la consulta."""
+    try:
+        res = await qdrant_client.query_points(
+            collection_name="leyes_federales",
+            query=dense_vector,
+            using="dense",
+            limit=limite,
+            with_payload=True,
+            query_filter=Filter(must=[FieldCondition(
+                key="materia", match=MatchValue(value=materia))]),
+        )
+        salida = []
+        for p in res.points:
+            pl = p.payload or {}
+            salida.append(SearchResult(
+                id=str(p.id),
+                score=float(p.score),
+                texto=pl.get("texto") or pl.get("texto_raw") or "",
+                ref=pl.get("ref"),
+                origen=pl.get("cuerpo_legal_oficial") or pl.get("ley"),
+                jurisdiccion=pl.get("materia"),
+                entidad=pl.get("entidad") or "FEDERAL",
+                silo="leyes_federales",
+                pdf_url=pl.get("pdf_url") or pl.get("url_pdf"),
+                tema_articulo=pl.get("tema_articulo"),
+            ))
+        return salida
+    except Exception as e:
+        print(f"   ⚠️ código nacional ({materia}): {type(e).__name__}: {e}")
+        return []
+
+
 def _apply_materia_threshold(results: list, detected_materias: Optional[List[str]], threshold_gap: float = 0.25, strict_mode: bool = False, protected_silo: Optional[str] = None) -> list:
     """
     Capa 3 del Materia-Aware Retrieval: Post-retrieval threshold con multi-signal scoring.
@@ -7308,6 +7436,21 @@ async def hybrid_search_all_silos(
         print(f"   ⏱ Sub-queries: {time.perf_counter() - _t_decomp:.2f}s")
     
     # ═══════════════════════════════════════════════════════════════════════════
+    # CÓDIGOS NACIONALES CON LUGAR GARANTIZADO
+    # ═══════════════════════════════════════════════════════════════════════════
+    _materia_procesal = _detectar_consulta_procesal(query)
+    if _materia_procesal and not skip_post_search:
+        _t_nac = time.perf_counter()
+        _nacionales = await _traer_codigo_nacional(
+            _materia_procesal, dense_vector, limite=6)
+        _nuevos = [r for r in _nacionales if r.id not in existing_ids]
+        for r in _nuevos:
+            existing_ids.add(r.id)
+        merged.extend(_nuevos)
+        print(f"   ⚖️ CÓDIGO NACIONAL ({_materia_procesal}): +{len(_nuevos)} "
+              f"artículos garantizados en {time.perf_counter()-_t_nac:.2f}s")
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 3: Post-Retrieval Threshold
     # ═══════════════════════════════════════════════════════════════════════════
     if detected_materias:
@@ -9308,6 +9451,32 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     
     # ── Natural language drafting detection ("redacta", "ayúdame a redactar", etc.) ──
     # Also detect explicit [MODO_REDACCION] and [MODO_REDACCION_PRO] markers from frontend toggle
+    # ── CONSULTA RÁPIDA (el rayo) ────────────────────────────────────────────
+    # El abogado no quiere un ensayo: quiere el artículo, ya. Este modo cambia
+    # el trabajo del modelo: no redacta, LEE lo que el RAG recuperó y devuelve
+    # los artículos exactos.
+    #
+    # Modelo elegido midiendo lo que importa aquí, sobre contexto REAL de
+    # /search y con seis candidatos (1-ago-2026):
+    #
+    #     gemini-3.1-flash-lite   1.7s total · 2.7 artículos correctos · $0.00037
+    #     gpt-5.4-nano            2.5s       · 2.0                     · $0.00088
+    #     deepseek-v4-flash       3.1s       · 2.0                     · $0.00089
+    #     gemini-3.5-flash-lite   1.5s       · 1.3                     · $0.00032
+    #     gpt-5-nano             12.8s       · CERO palabras           — descartado
+    #
+    # Ninguno inventó artículos. Gana flash-lite por cobertura y velocidad a la
+    # vez, y cuesta menos de cuatro diezmilésimas de dólar por consulta.
+    is_chat_flash = False
+    if "[MODO_FLASH]" in last_user_message:
+        is_chat_flash = True
+        last_user_message = last_user_message.replace("[MODO_FLASH]", "").strip()
+        for msg in reversed(request.messages):
+            if msg.role == "user":
+                msg.content = last_user_message
+                break
+        print("   ⚡ CONSULTA RÁPIDA activada")
+
     is_chat_drafting = False
     is_chat_drafting_pro = False
     is_chat_drafting_platinum = False
@@ -10481,6 +10650,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         active_model = "gpt-5-mini"
                         max_tokens = 25000
                     print(f"   ⚖️ Modelo PRECEDENTES: {active_model} | max_tokens: {max_tokens}")
+                elif is_chat_flash:
+                    # CONSULTA RÁPIDA: no redacta, extrae. Va por Gemini Lite
+                    # directo (misma vía que el chat sin genio, ya probada) y
+                    # sin genios ni caché: el corpus cacheado añade ~190,000
+                    # tokens de prefill que aquí sólo estorban.
+                    use_gemini = False
+                    use_gemini_lite = True
+                    use_thinking = False
+                    _resolved_genio_ids = []
+                    _effective_cached = None
+                    active_model = FLASH_MODEL
+                    max_tokens = 2200
+                    print(f"   ⚡ CONSULTA RÁPIDA: {active_model} | max_tokens: {max_tokens}")
                 elif is_sentencia:
                     # Revisión de Sentencia: Requiere la IA más potente disponible (OpenAI GPT-5.2)
                     # GPT-5.2 ofrece el máximo nivel de inteligencia y análisis de Iurexia
@@ -11077,20 +11259,48 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 gtypes.Content(role="model", parts=[gtypes.Part(text=msg["content"])])
                             )
 
-                    _lite_depth_boost = (
-                        "INSTRUCCIÓN DE PROFUNDIDAD OBLIGATORIA:\n"
-                        "Estás en modo de análisis jurídico exhaustivo. Tu respuesta DEBE tener un mínimo de 1,200 palabras.\n"
-                        "- Para CADA tesis del contexto RAG: transcríbela en blockquote Y desarrolla su aplicación al caso "
-                        "con mínimo 3-4 oraciones de análisis (cómo aplica, qué establece, qué consecuencia tiene).\n"
-                        "- Para CADA artículo de ley: transcribe el texto completo en blockquote Y explica su alcance e interpretación práctica.\n"
-                        "- CONECTA norma + jurisprudencia + consecuencias prácticas en cada sección.\n"
-                        "- Las RECOMENDACIONES deben ser concretas: qué probar, cómo, con qué medios de prueba, qué argumentar.\n"
-                        "- Si sientes que tu respuesta está terminando antes de 1,200 palabras, es un ERROR. Desarrolla más.\n"
-                        "- NUNCA uses frases de cierre prematuro ('en conclusión', 'en resumen') antes de haber agotado el análisis."
-                    )
+                    if is_chat_flash:
+                        # La consulta rápida pide lo CONTRARIO que el chat
+                        # normal: nada de 1,200 palabras. El abogado abrió el
+                        # rayo porque necesita el artículo y volver a lo suyo.
+                        _lite_depth_boost = (
+                            "MODO CONSULTA RÁPIDA — responde como un colega que "
+                            "te contesta de memoria, en 30 segundos.\n\n"
+                            "REGLAS:\n"
+                            "1. MÁXIMO 180 palabras. Sin introducción, sin "
+                            "cierre, sin ofrecer ayuda adicional.\n"
+                            "2. Empieza por la respuesta. Después el "
+                            "fundamento.\n"
+                            "3. Cita SÓLO artículos que aparezcan en el "
+                            "CONTEXTO, con su número y la ley de origen, y su "
+                            "[Doc ID: uuid] cuando lo traiga. Si el contexto no "
+                            "responde, dilo en una línea y no rellenes.\n"
+                            "4. NUNCA inventes un número de artículo, una ley "
+                            "ni un registro de tesis.\n"
+                            "5. Si hay varios artículos pertinentes, lístalos "
+                            "del más al menos relevante, uno por línea.\n"
+                            "6. Distingue la materia: el delito y la pena los "
+                            "fija el código penal del estado; el procedimiento "
+                            "penal, el Código Nacional de Procedimientos "
+                            "Penales. No los confundas."
+                        )
+                        _lite_temp = 0.2
+                    else:
+                        _lite_depth_boost = (
+                            "INSTRUCCIÓN DE PROFUNDIDAD OBLIGATORIA:\n"
+                            "Estás en modo de análisis jurídico exhaustivo. Tu respuesta DEBE tener un mínimo de 1,200 palabras.\n"
+                            "- Para CADA tesis del contexto RAG: transcríbela en blockquote Y desarrolla su aplicación al caso "
+                            "con mínimo 3-4 oraciones de análisis (cómo aplica, qué establece, qué consecuencia tiene).\n"
+                            "- Para CADA artículo de ley: transcribe el texto completo en blockquote Y explica su alcance e interpretación práctica.\n"
+                            "- CONECTA norma + jurisprudencia + consecuencias prácticas en cada sección.\n"
+                            "- Las RECOMENDACIONES deben ser concretas: qué probar, cómo, con qué medios de prueba, qué argumentar.\n"
+                            "- Si sientes que tu respuesta está terminando antes de 1,200 palabras, es un ERROR. Desarrolla más.\n"
+                            "- NUNCA uses frases de cierre prematuro ('en conclusión', 'en resumen') antes de haber agotado el análisis."
+                        )
+                        _lite_temp = 0.4
                     lite_config = gtypes.GenerateContentConfig(
                         system_instruction="\n\n".join(system_parts_lite) + "\n\n" + _lite_depth_boost,
-                        temperature=0.4,
+                        temperature=_lite_temp,
                         max_output_tokens=max_tokens,
                     )
 
