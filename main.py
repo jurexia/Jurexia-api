@@ -16560,6 +16560,12 @@ async def redactor_tcc_v4_analyze(
     texto_conceptos_agravios: str = Form(""),
     doc_acto: Optional[UploadFile] = File(None),
     doc_conceptos: Optional[UploadFile] = File(None),
+    # ── F1 del redactor v5 (3-ago-2026) ──
+    # El secretario DICTA el sentido; el pipeline lo demuestra, no lo decide.
+    # Opcionales a propósito: una petición sin ellos se comporta exactamente
+    # como el v4 de siempre — la reversa es no mandarlos.
+    sentido_dictado: str = Form(""),
+    calificacion_agravios: str = Form(""),
 ):
     """
     Redactor TCC v4 — FASE ANALYZE.
@@ -16653,6 +16659,11 @@ async def redactor_tcc_v4_analyze(
                 "tipo_asunto": tipo_asunto,
                 "materia": materia,
                 "circuito": circuito or "desconocido",
+                # El sentido dictado viaja en meta porque meta ya llega íntegra
+                # a los prompts de Pass 2/3 y se conserva en el job para
+                # finalize — cero cambios de plomería.
+                "sentido_dictado": (sentido_dictado or "").strip(),
+                "calificacion_agravios": (calificacion_agravios or "").strip(),
             },
             "inputs": {
                 "resumen_acto_reclamado": resumen_acto,

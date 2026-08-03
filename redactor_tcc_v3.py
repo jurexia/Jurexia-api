@@ -966,6 +966,41 @@ async def _run_pass1(
 # PASS 2 — Plan de redacción filtrado
 # ═══════════════════════════════════════════════════════════════════════
 
+def _bloque_sentido_dictado(caso_meta: dict) -> list[str]:
+    """La directiva del sentido dictado por el secretario (F1, 3-ago-2026).
+
+    Si el secretario no dictó sentido, devuelve lista vacía y los prompts
+    quedan EXACTAMENTE como en v4 — esa es la reversa. Si lo dictó, la
+    directiva es innegociable: el pipeline deja de decidir el fallo y pasa a
+    demostrarlo, que es la relación correcta entre la máquina y quien firma.
+    """
+    sentido = (caso_meta.get("sentido_dictado") or "").strip()
+    if not sentido:
+        return []
+    partes = [
+        "",
+        "═══════════════════════════════════════════════════════════════════════",
+        "SENTIDO DICTADO POR EL SECRETARIO — DIRECTIVA INNEGOCIABLE",
+        "═══════════════════════════════════════════════════════════════════════",
+        f"El proyecto DEBE resolver en este sentido: {sentido}.",
+        "Tu papel NO es decidir el fallo: es CONSTRUIR la mejor demostración",
+        "jurídica posible de ese sentido. Elige los argumentos, las tesis y el",
+        "orden de estudio que lo sostengan con el mayor rigor.",
+        "Si encuentras un obstáculo serio para ese sentido (una jurisprudencia",
+        "obligatoria en contra, una causal de improcedencia), NO cambies el",
+        "sentido: señálalo expresamente en un apartado de ADVERTENCIAS para que",
+        "el secretario lo valore.",
+    ]
+    calif = (caso_meta.get("calificacion_agravios") or "").strip()
+    if calif:
+        partes += [
+            "",
+            f"Calificación de los agravios/conceptos dictada: {calif}.",
+            "Respeta esa calificación al estructurar el estudio de cada uno.",
+        ]
+    return partes
+
+
 def _build_pass2_prompt(pass0: dict, pass1: list[dict], caso_meta: dict) -> str:
     """Construye el prompt para Pass 2 con catálogo LIMITADO."""
     parts = [
@@ -974,6 +1009,7 @@ def _build_pass2_prompt(pass0: dict, pass1: list[dict], caso_meta: dict) -> str:
         f"Tipo: {caso_meta.get('tipo_asunto')}",
         f"Materia: {caso_meta.get('materia')}",
         f"Circuito: {caso_meta.get('circuito')}",
+        *_bloque_sentido_dictado(caso_meta),
         "",
         "ESTRUCTURA COGNITIVA (Pass 0):",
         "═══════════════════════════════",
@@ -1092,6 +1128,7 @@ def _build_pass3_prompt(pass0: dict, pass2: dict, caso_meta: dict) -> str:
         f"Tipo de asunto: {caso_meta.get('tipo_asunto')}",
         f"Materia: {caso_meta.get('materia')}",
         f"Circuito: {caso_meta.get('circuito')}",
+        *_bloque_sentido_dictado(caso_meta),
         "",
         "═══════════════════════════════════════════════════════════════════════",
         "ESTRUCTURA COGNITIVA DEL CASO (Pass 0)",
