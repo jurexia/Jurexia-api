@@ -260,6 +260,52 @@ FIXED_SILOS = {
 # recibía el código penal de Nuevo León, Querétaro o Sinaloa antes que el suyo
 # —medido el 1-ago-2026: 0 de 12 resultados eran de su entidad—. Y la colección
 # leyes_cdmx tiene 27,196 puntos ahí sin usarse.
+# ─────────────────────────────────────────────────────────────────────────────
+# CANAL DE PASOS — lo que el usuario ve mientras el backend trabaja
+# ─────────────────────────────────────────────────────────────────────────────
+# El frontend pintaba su línea de pasos con un TEMPORIZADOR: avanzaba cada 2.2s
+# sin que el backend dijera nada. Se veía bien, pero mentía — si la búsqueda
+# tardaba el doble, los pasos seguían corriendo solos.
+#
+# El obstáculo para decir la verdad es que las etapas ocurren dentro de tareas
+# asíncronas (retrieval, precedentes, rerank) y sólo el generador del stream
+# puede emitir al cliente. Una cola por petición, guardada en un ContextVar,
+# resuelve las dos cosas: cualquier función anida cuanto quiera y publica su
+# paso sin recibir un parámetro nuevo, y el generador la vacía en su bucle de
+# heartbeat, que ya existe.
+#
+# Regla: `paso()` NUNCA debe poder romper una consulta. Si no hay cola, si está
+# llena o si falla, se traga el error en silencio. Es información de progreso,
+# no parte del resultado.
+from contextvars import ContextVar
+
+_CANAL_PASOS: ContextVar[Optional[asyncio.Queue]] = ContextVar("_canal_pasos", default=None)
+
+
+def paso(nombre: str, detalle: str = "") -> None:
+    """Publica un paso del pipeline para que el frontend lo encienda."""
+    cola = _CANAL_PASOS.get()
+    if cola is None:
+        return
+    try:
+        cola.put_nowait(f"{nombre}|{detalle}" if detalle else nombre)
+    except Exception:
+        pass  # cola llena o cerrada: el progreso jamás bloquea la consulta
+
+
+def drenar_pasos(cola: Optional[asyncio.Queue]) -> List[str]:
+    """Saca todo lo pendiente sin esperar. La usa el generador del stream."""
+    if cola is None:
+        return []
+    salida = []
+    while True:
+        try:
+            salida.append(cola.get_nowait())
+        except Exception:
+            break
+    return salida
+
+
 ESTADO_SILO = {
     "QUERETARO": "leyes_queretaro",
     "CIUDAD_DE_MEXICO": "leyes_cdmx",   # ← lo que produce normalize_estado
@@ -3217,6 +3263,7 @@ def detect_single_estado_from_query(query: str) -> Optional[str]:
     # Only return if exactly 1 state found
     if len(found_states) == 1:
         print(f"   🔍 AUTO-DETECT: Estado '{found_states[0]}' detectado en query")
+        paso("jurisdiccion", found_states[0])
         return found_states[0]
     
     return None
@@ -3585,6 +3632,7 @@ async def expand_legal_query_llm(query: str) -> str:
         terms = expanded_terms.split()[:6]
         result = f"{query} {' '.join(terms)}"
         print(f"   ⚡ Query expandido: '{query}' → '{result}'")
+        paso("expandir")
         return result
         
     except Exception as e:
@@ -5116,6 +5164,7 @@ async def inject_cross_referenced_articles(
     
     if injected:
         print(f"   ✅ Cross-Ref: Inyectados {len(injected)} artículos de ley citados en precedentes")
+        paso("cruzar", str(len(injected)))
         # Prepend injected articles so they appear before precedentes in context
         return injected + results
     
@@ -6529,6 +6578,7 @@ async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 2
                 reranked.append(r)
         
         print(f"   🎯 Cohere Rerank: {len(reranked)} resultados re-ordenados")
+        paso("ordenar", str(len(reranked)))
         if reranked:
             print(f"      Top-3 post-rerank:")
             for r in reranked[:3]:
@@ -6811,6 +6861,7 @@ async def hybrid_search_all_silos(
         print(f"   🏛️ BÚSQUEDA AMPLIA: Incluyendo {len(_sentencias_list)} silos de SENTENCIAS (Few-Shot)")
     
     _t_search = time.perf_counter()
+    paso("buscar", str(len(silos_to_search)))
     tasks = []
     
     # Determinar el silo dedicado del estado seleccionado (si lo hay)
@@ -10135,6 +10186,30 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
 
             return search_results, doc_id_map, context_xml
 
+        # ── Búsqueda web (complemento, nunca sustituto) ───────────────────
+        # Va en paralelo con el RAG: si tarda o falla, la consulta sigue sin
+        # ella. Apagable con BUSQUEDA_WEB_ACTIVA=false sin desplegar.
+        _web_task = None
+        try:
+            from busqueda_web import WEB_ACTIVA, buscar_en_web
+            if WEB_ACTIVA and not has_document:
+                _web_task = asyncio.create_task(
+                    buscar_en_web(last_user_message, effective_estado)
+                )
+        except Exception as _we:
+            print(f"   🌐 No pude lanzar la búsqueda web: {_we}")
+
+        # ── Canal de pasos ────────────────────────────────────────────────
+        # Tiene que abrirse ANTES de crear las tareas. `asyncio.create_task()`
+        # COPIA el contexto en el instante de la creación: si el ContextVar se
+        # fijara después, las tareas ya nacidas verían su copia sin cola y sus
+        # paso() se perderían en silencio. Así pasó en la primera prueba —
+        # llegaban «entender» y «redactar», emitidos desde el generador, y
+        # ninguna de las etapas internas.
+        _cola_pasos: asyncio.Queue = asyncio.Queue(maxsize=64)
+        _CANAL_PASOS.set(_cola_pasos)
+        paso("entender")
+
         # Launch RAG search concurrently with infra and cache tasks
         retrieval_task = asyncio.create_task(_perform_retrieval())
 
@@ -10214,11 +10289,26 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     retrieval_task,
                     _cache_task_with_timeout()
                 )
+                # OJO: el heartbeat lleva su propio reloj. `_t_gather` mide el
+                # tiempo TOTAL y se imprime al salir del bucle; reutilizarlo
+                # aquí lo reiniciaría y esa métrica quedaría falseada.
+                _t_latido = time.perf_counter()
                 while not _gather_future.done():
+                    # Se despierta seguido para vaciar la cola: si se esperaran
+                    # los 5s del heartbeat, los pasos llegarían a rachas y el
+                    # frontend los pintaría de golpe en vez de encendiéndose.
                     try:
-                        await asyncio.wait_for(asyncio.shield(_gather_future), timeout=5.0)
+                        await asyncio.wait_for(asyncio.shield(_gather_future), timeout=0.4)
                     except asyncio.TimeoutError:
+                        pass
+                    for _p in drenar_pasos(_cola_pasos):
+                        yield f"<!--PASO:{_p}-->"
+                    if time.perf_counter() - _t_latido > 4.5:
                         yield "<!--PING-->"
+                        _t_latido = time.perf_counter()
+
+                for _p in drenar_pasos(_cola_pasos):
+                    yield f"<!--PASO:{_p}-->"
                 infra_error, (search_results, doc_id_map, context_xml), _cached = _gather_future.result()
                 print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
 
@@ -10228,10 +10318,40 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     try:
                         precedentes_results = await asyncio.wait_for(_precedentes_task, timeout=5.0)
                         print(f"   ⚖️ Precedentes complementarios: {len(precedentes_results)} encontrados")
+                        paso("precedentes", str(len(precedentes_results)))
                     except asyncio.TimeoutError:
                         print(f"   ⚠️ Precedentes timeout (5s) — continuando sin ellos")
                     except Exception as _prec_err:
                         print(f"   ⚠️ Precedentes error: {_prec_err} — continuando sin ellos")
+
+                # ── Recoger la búsqueda web y anexarla al contexto ──────────────
+                # Se anexa DESPUÉS del contexto documental y con su propio aviso
+                # de jerarquía dentro del bloque: el modelo tiene que leer la ley
+                # primero y la web como advertencia de que algo pudo cambiar.
+                _web = {"resumen": "", "fuentes": []}
+                if _web_task:
+                    try:
+                        _web = await asyncio.wait_for(_web_task, timeout=3.0)
+                    except Exception:
+                        _web_task.cancel()
+                    if _web.get("resumen"):
+                        try:
+                            from busqueda_web import bloque_para_prompt
+                            context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(_web)
+                            _n_of = sum(1 for f in _web["fuentes"] if f["oficial"])
+                            print(f"   🌐 Web: {len(_web['fuentes'])} fuentes ({_n_of} oficiales)")
+                            # Se mandan los DOMINIOS, no un número: ver
+                            # «dof.gob.mx» convence de que la consulta fue real;
+                            # ver «3 sitios» no dice nada. Se limpian comas y
+                            # barras porque el marcador las usa de separador.
+                            _doms = []
+                            for f in _web["fuentes"]:
+                                d = str(f.get("dominio", "")).replace(",", "").replace("|", "")
+                                if d and d not in _doms:
+                                    _doms.append(d)
+                            yield f"<!--PASO:web|{','.join(_doms[:4])}-->"
+                        except Exception as _wb:
+                            print(f"   🌐 No pude anexar el bloque web: {_wb}")
 
                 # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────
                 #
@@ -10809,6 +10929,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # ── Emit RAG source count for frontend (filterable) ──
                 if search_results:
                     yield f"<!--SOURCES:{len(search_results)}-->"
+                    # Última etapa: a partir de aquí ya sólo se genera texto.
+                    # La fila se enciende un instante y el primer token la
+                    # sustituye por la respuesta — que es exactamente lo que
+                    # está pasando.
+                    yield "<!--PASO:redactar-->"
 
                 # ── GEMINI BRANCH: Cached legal corpus via google-genai SDK ──
                 if use_gemini:
