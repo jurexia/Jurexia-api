@@ -31,7 +31,11 @@ from typing import Any, Dict, List, Optional
 # sin desplegar, si sale caro o ruidoso.
 WEB_ACTIVA = os.getenv("BUSQUEDA_WEB_ACTIVA", "false").lower() in ("1", "true", "si", "sí")
 WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "gemini-3-flash-preview")
-WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "8"))
+# 20s y no 8: la generación con anclaje a Google tarda 10-15s de forma
+# habitual (medido en producción: con 8s expiraba SIEMPRE). No retrasa la
+# respuesta porque corre en paralelo con el RAG, que ronda los 12s; el tope
+# real lo pone quien consume la tarea, unos segundos después del gather.
+WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "20"))
 
 # Dominios que sí son fuente. El orden no importa; la pertenencia sí.
 DOMINIOS_OFICIALES = (

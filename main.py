@@ -10338,7 +10338,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 _web = {"resumen": "", "fuentes": []}
                 if _web_task:
                     try:
-                        _web = await asyncio.wait_for(_web_task, timeout=3.0)
+                        # 6s de gracia tras el gather: la tarea lleva corriendo
+                        # desde antes del RAG (~12s), así que su presupuesto
+                        # total ronda los 18s. Si aun así no llegó, la consulta
+                        # sigue sin web — nunca se retrasa la respuesta más que
+                        # esto.
+                        _web = await asyncio.wait_for(_web_task, timeout=6.0)
                     except Exception:
                         _web_task.cancel()
                     if _web.get("resumen"):
