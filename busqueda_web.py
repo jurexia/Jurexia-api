@@ -42,10 +42,10 @@ from typing import Any, Dict, List, Optional
 # desplegar si sale caro o ruidoso.
 WEB_ACTIVA = os.getenv("BUSQUEDA_WEB_ACTIVA", "false").lower() in ("1", "true", "si", "sí")
 WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "gemini-3-flash-preview")
-# 25s: el anclaje a Google tarda 10-15s por agente y los tres corren en
+# 15s por agente: el anclaje a Google tarda 10-15s y los tres corren en
 # paralelo. No retrasa la respuesta porque va junto al RAG (~12s); el tope
 # real lo pone quien consume la tarea, unos segundos después del gather.
-WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "25"))
+WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "15"))
 
 # Marca que viaja en el marcador cuando se consultó y no había nada nuevo.
 SIN_NOVEDADES = "__sin_novedades__"

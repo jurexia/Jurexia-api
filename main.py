@@ -10347,17 +10347,26 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Se anexa DESPUÉS del contexto documental y con su propio aviso
                 # de jerarquía dentro del bloque: el modelo tiene que leer la ley
                 # primero y la web como advertencia de que algo pudo cambiar.
-                _web = {"resumen": "", "fuentes": []}
+                # `corrio: False` en el valor por defecto NO es adorno: sin esa
+                # clave, cuando la tarea expiraba el `if _web.get("corrio")` de
+                # abajo daba falso y la etapa web desaparecía del flujo SIN
+                # dejar rastro — ni marcador, ni línea de registro. Así estuvo
+                # invisible hasta que se midió etapa por etapa.
+                _web = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
                 if _web_task:
                     try:
-                        # 6s de gracia tras el gather: la tarea lleva corriendo
-                        # desde antes del RAG (~12s), así que su presupuesto
-                        # total ronda los 18s. Si aun así no llegó, la consulta
-                        # sigue sin web — nunca se retrasa la respuesta más que
-                        # esto.
-                        _web = await asyncio.wait_for(_web_task, timeout=6.0)
-                    except Exception:
+                        # 14s de gracia tras el gather. La tarea arrancó ANTES
+                        # del RAG (~12s), así que su presupuesto total ronda los
+                        # 26s — de sobra para tres agentes en paralelo con 15s
+                        # cada uno. Con los 6s anteriores expiraba siempre: el
+                        # agente único tardaba 10-15s y tres en paralelo, igual.
+                        _web = await asyncio.wait_for(_web_task, timeout=14.0)
+                    except asyncio.TimeoutError:
                         _web_task.cancel()
+                        print("   🌐 La capa web no llegó a tiempo (14s tras el gather) — se sigue sin ella")
+                    except Exception as _we2:
+                        _web_task.cancel()
+                        print(f"   🌐 La capa web falló al recogerse: {type(_we2).__name__}")
                     # Resumen Y fuentes, las dos cosas. El anclaje a veces
                     # devuelve texto sin trozos de fuente — un resumen que
                     # nadie puede verificar. Anexar eso a una consulta
