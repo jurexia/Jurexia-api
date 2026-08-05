@@ -10194,8 +10194,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         try:
             from busqueda_web import WEB_ACTIVA, buscar_en_web
             if WEB_ACTIVA and not has_document:
+                # OJO: aquí sólo existe `request.estado` (el selector que mandó
+                # el usuario). `effective_estado` —que además incorpora el
+                # estado autodetectado en el texto— es local de la función de
+                # retrieval y NO es visible en este ámbito: usarlo aquí lanzaba
+                # NameError en cada consulta y la búsqueda web nunca corría.
+                # El try lo tragaba, así que el fallo sólo se veía en los logs.
                 _web_task = asyncio.create_task(
-                    buscar_en_web(last_user_message, effective_estado)
+                    buscar_en_web(last_user_message, request.estado)
                 )
         except Exception as _we:
             print(f"   🌐 No pude lanzar la búsqueda web: {_we}")
