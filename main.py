@@ -10346,7 +10346,13 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         _web = await asyncio.wait_for(_web_task, timeout=6.0)
                     except Exception:
                         _web_task.cancel()
-                    if _web.get("resumen"):
+                    # Resumen Y fuentes, las dos cosas. El anclaje a veces
+                    # devuelve texto sin trozos de fuente — un resumen que
+                    # nadie puede verificar. Anexar eso a una consulta
+                    # jurídica es pedirle al modelo que se apoye en un dicho
+                    # sin origen, y pintar «web|» vacío en el flujo. Sin
+                    # fuentes, la web no existió para esta consulta.
+                    if _web.get("resumen") and _web.get("fuentes"):
                         try:
                             from busqueda_web import bloque_para_prompt
                             context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(_web)
