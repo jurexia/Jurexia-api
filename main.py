@@ -40,8 +40,9 @@ from qdrant_client.http.models import (
     FusionQuery,
     MatchAny,
     MatchValue,
-    NamedVector,
-    NamedSparseVector,
+    # NamedVector y NamedSparseVector se importaban aquí SIN USARSE en ninguna
+    # parte, y qdrant-client 1.19.0 los eliminó: dos despliegues cayeron por un
+    # import muerto. Si alguna vez hacen falta, viven en modelos de la 1.18-.
     Prefetch,
     SparseVector,
 )
