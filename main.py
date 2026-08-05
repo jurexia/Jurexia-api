@@ -186,6 +186,13 @@ REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.6-luna")
 REDACTOR_PRO_ESFUERZO = os.getenv("REDACTOR_PRO_ESFUERZO", "medium")
 REDACTOR_PLATINUM_MODEL = os.getenv("REDACTOR_PLATINUM_MODEL", "gpt-5.6-luna")
 REDACTOR_PLATINUM_ESFUERZO = os.getenv("REDACTOR_PLATINUM_ESFUERZO", "high")
+
+# Redacción PROFESIONAL (el escalón base) corre sobre v4-flash, que razona con
+# esfuerzo alto por omisión. Para un usuario gratuito o básico eso es gastar un
+# motor caro en el escalón de entrada: se le baja a `medium`. Pro y superior
+# conservan el alto aunque pulsen el botón Profesional, porque ya lo pagan.
+# REDACTOR_PROFESIONAL_ESFUERZO en Render lo cambia sin desplegar.
+REDACTOR_PROFESIONAL_ESFUERZO = os.getenv("REDACTOR_PROFESIONAL_ESFUERZO", "medium")
 # Gemini Model Configuration
 SENTENCIA_MODEL = os.getenv("SENTENCIA_MODEL", "gemini-2.5-pro")  # Gemini 2.5 Pro — frontier intelligence
 REDACTOR_MODEL_EXTRACT = os.getenv("REDACTOR_MODEL_EXTRACT", "gemini-2.5-pro")  # PDF OCR — Powerful model requested
@@ -9598,6 +9605,41 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             is_chat_drafting_platinum = False
             print("   ⛔ REDACCIÓN PLATINUM sin plan Platinum → se atiende como Redacción Pro")
 
+    # ── Redacción PROFESIONAL: el razonamiento depende del PLAN, no del botón ──
+    # v4-flash razona alto por omisión. En el escalón base eso significa gastar
+    # el motor caro con quien no lo paga. Se baja a `medium` para gratuito y
+    # básico; Pro y superior lo conservan alto aunque pulsen Profesional.
+    #
+    # Si no se puede leer el plan, se deja el valor reducido: equivocarse hacia
+    # abajo cuesta un escrito algo menos elaborado; hacia arriba, dinero en cada
+    # consulta de cada usuario gratuito.
+    _profesional_esfuerzo = None
+    if is_chat_drafting and not is_chat_drafting_pro and not is_chat_drafting_platinum:
+        _plan_alto = False
+        if request.user_id and supabase_admin:
+            try:
+                def _perfil_plan():
+                    return supabase_admin.table('user_profiles') \
+                        .select('subscription_type, email') \
+                        .eq('id', request.user_id) \
+                        .limit(1) \
+                        .execute()
+                _rp = await asyncio.to_thread(_perfil_plan)
+                if _rp.data:
+                    _f = _rp.data[0]
+                    _c = (_f.get('email') or '').strip().lower()
+                    _plan_alto = (
+                        _f.get('subscription_type') in (
+                            'pro_monthly', 'pro_annual', 'platinum_monthly',
+                            'platinum_annual', 'ultra_secretarios')
+                        or (_c and _c in ADMIN_EMAILS)
+                    )
+            except Exception as _e:
+                print(f"   ⚠️ No pude leer el plan para el esfuerzo de redacción: {_e}")
+        if not _plan_alto:
+            _profesional_esfuerzo = REDACTOR_PROFESIONAL_ESFUERZO
+            print(f"   ✍️ REDACCIÓN PROFESIONAL (plan base) → razonamiento {_profesional_esfuerzo}")
+
     # ── Precedentes — triggered by [MODO_PRECEDENTES] marker ──────────────
     # Frontend puede pasar:
     #   [CORTE:SCJN]          → solo SCJN
@@ -11539,6 +11581,9 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # pierde la profundidad que justifica el modo.
                     if _esfuerzo_redaccion:
                         api_kwargs["reasoning_effort"] = _esfuerzo_redaccion
+                    elif _profesional_esfuerzo:
+                        # Escalón base con plan gratuito o básico.
+                        api_kwargs["reasoning_effort"] = _profesional_esfuerzo
 
                     # El chat por defecto (Buscar) responde SIN razonamiento.
                     #
