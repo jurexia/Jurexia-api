@@ -70,10 +70,11 @@ AGENTES = (
         "etiqueta": "Vigencia y reformas",
         "cotos": OFICIALES_FEDERALES,
         "mision": (
-            "Averigua si el ordenamiento o los artículos implicados han tenido "
-            "REFORMAS, adiciones o derogaciones publicadas en el Diario Oficial "
-            "de la Federación. Busca en dof.gob.mx y en la página de leyes "
-            "federales de la Cámara de Diputados."
+            "Localiza el ordenamiento aplicable en su fuente oficial e indica su "
+            "ESTADO DE VIGENCIA: fecha de la última reforma publicada en el "
+            "Diario Oficial de la Federación. Busca en dof.gob.mx y en la página "
+            "de leyes federales de la Cámara de Diputados. Si hubo reformas "
+            "recientes, dilo; si el texto lleva años sin cambios, dilo también."
         ),
     },
     {
@@ -81,9 +82,11 @@ AGENTES = (
         "etiqueta": "Criterios recientes",
         "cotos": OFICIALES_JUDICIALES,
         "mision": (
-            "Averigua si la Suprema Corte, el Consejo de la Judicatura o los "
-            "tribunales han emitido criterios, jurisprudencia o comunicados "
-            "recientes sobre el tema. Busca en scjn.gob.mx y cjf.gob.mx."
+            "Localiza en los sitios del Poder Judicial de la Federación lo que "
+            "haya publicado sobre el tema: criterios, jurisprudencia, tesis, "
+            "comunicados o material de consulta. Busca en scjn.gob.mx, "
+            "sjf.scjn.gob.mx y cjf.gob.mx. No hace falta que sea reciente: "
+            "interesa lo más autorizado que exista."
         ),
     },
     {
@@ -91,9 +94,10 @@ AGENTES = (
         "etiqueta": "Ámbito local",
         "cotos": (),          # se resuelve por patrón estatal
         "mision": (
-            "Averigua qué ha publicado el congreso del estado o su poder "
-            "judicial sobre el tema: reformas locales, periódico oficial del "
-            "estado, acuerdos del tribunal superior."
+            "Localiza lo que el congreso del estado o su poder judicial hayan "
+            "publicado sobre el tema: el ordenamiento local aplicable, reformas, "
+            "el periódico oficial del estado o acuerdos del tribunal superior. "
+            "No hace falta que sea reciente."
         ),
     },
 )
@@ -129,8 +133,12 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
             f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
             f"TU MISIÓN: {agente['mision']}\n\n"
             "Responde en dos o tres frases, en español, sin adornos y sin "
-            "repetir la consulta. Si no encuentras nada relevante y reciente en "
-            "fuentes oficiales, responde exactamente: NADA."
+            "repetir la consulta.\n\n"
+            "IMPORTANTE: no exijas que la información sea reciente. Casi ninguna "
+            "consulta jurídica trata de una novedad, y pedir novedad hacía que "
+            "esta capa devolviera NADA casi siempre. Basta con que la fuente sea "
+            "OFICIAL y venga al caso. Responde NADA sólo si de verdad no "
+            "encuentras ninguna fuente oficial pertinente."
         )
 
         cliente = get_gemini_client()
