@@ -1,25 +1,36 @@
 """
-Búsqueda web anclada a Google, como COMPLEMENTO de la ley indexada.
+Capa web multiagente, anclada a Google y SUBORDINADA a la ley indexada.
 
-─── POR QUÉ ESTÁ SUBORDINADA ───────────────────────────────────────────────
-Lo que distingue a Iurexia es que cita el artículo con su fuente oficial y
-coteja las tesis contra el Semanario. Los primeros resultados de Google para
-casi cualquier duda jurídica mexicana son blogs de despachos y notas
-anteriores a la última reforma. Si un abogado ve que citamos un blog junto a
-un artículo de ley, perdemos exactamente aquello por lo que nos paga.
+─── QUÉ CAMBIÓ Y POR QUÉ ───────────────────────────────────────────────────
+La primera versión era UNA sola llamada con una instrucción que le pedía al
+modelo callarse («responde SIN NOVEDADES si no encuentras nada reciente»).
+Resultado medido en producción: la etapa web sólo aparecía en consultas de sed
+noticiosa, y cuando aparecía devolvía ccn-law.com, fralla.mx, hklaw.com y
+kpmg.com — blogs de despachos y consultoras. Justo lo que este módulo existe
+para evitar.
 
-De ahí las tres reglas que este módulo impone, y que no son negociables:
+Ahora son TRES AGENTES EN PARALELO, cada uno con una misión distinta y su
+propio coto de dominios:
 
-  1. La web NUNCA sustituye una cita ni cambia el texto de un artículo. Entra
-     como contexto y así se le presenta al modelo.
-  2. Se priorizan dominios oficiales. Lo que no lo sea entra marcado como
-     secundario, y si la consulta no lo necesita, no entra.
-  3. El bloque va rotulado aparte, para que nadie confunda una nota de prensa
-     con el texto vigente.
+  vigencia   → ¿el ordenamiento tuvo reformas? DOF, Cámara, Senado.
+  criterios  → ¿hay criterios o comunicados nuevos? SCJN, CJF, Semanario.
+  local      → ¿qué dice el congreso o el poder judicial de la entidad?
 
-Dónde sí aporta de verdad: reformas recientes, publicaciones del DOF de esta
-semana, criterios apenas difundidos — todo aquello que el corpus indexado, por
-definición, todavía no puede saber.
+Corren a la vez, así que los tres juntos tardan lo que el más lento.
+
+─── LA REGLA QUE NO SE NEGOCIA: FILTRO DURO ────────────────────────────────
+Antes los dominios oficiales sólo se ORDENABAN primero. Si Google no devolvía
+ninguno, se colaban los cuatro blogs. Ahora lo no oficial se DESCARTA: si un
+agente no encuentra fuente oficial, no aporta nada.
+
+Es deliberado y es caro en cobertura, pero lo que distingue a Iurexia es citar
+el artículo con su fuente verificable. Un abogado que vea un blog de despacho
+citado junto a un artículo de ley deja de creerle a todo lo demás.
+
+─── SIEMPRE SE INFORMA ─────────────────────────────────────────────────────
+La etapa se emite corra como corra: si los tres agentes vuelven de vacío, se
+dice «sin cambios recientes». Que el usuario vea que se consultó y no había
+nada es información; que la etapa desaparezca sin explicación, no.
 """
 
 import asyncio
@@ -27,28 +38,65 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-# Interruptor. Sin esto, el módulo no hace nada: permite apagarlo desde Render
-# sin desplegar, si sale caro o ruidoso.
+# Interruptor. Sin esto el módulo no hace nada: se apaga desde Render sin
+# desplegar si sale caro o ruidoso.
 WEB_ACTIVA = os.getenv("BUSQUEDA_WEB_ACTIVA", "false").lower() in ("1", "true", "si", "sí")
 WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "gemini-3-flash-preview")
-# 20s y no 8: la generación con anclaje a Google tarda 10-15s de forma
-# habitual (medido en producción: con 8s expiraba SIEMPRE). No retrasa la
-# respuesta porque corre en paralelo con el RAG, que ronda los 12s; el tope
+# 25s: el anclaje a Google tarda 10-15s por agente y los tres corren en
+# paralelo. No retrasa la respuesta porque va junto al RAG (~12s); el tope
 # real lo pone quien consume la tarea, unos segundos después del gather.
-WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "20"))
+WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "25"))
 
-# Dominios que sí son fuente. El orden no importa; la pertenencia sí.
-DOMINIOS_OFICIALES = (
-    "dof.gob.mx", "scjn.gob.mx", "diputados.gob.mx", "senado.gob.mx",
-    "cjf.gob.mx", "sitios.scjn.gob.mx", "sjf.scjn.gob.mx",
-    "gob.mx", "congresooaxaca.gob.mx", "infomex.org.mx",
-    "inai.org.mx", "tfja.gob.mx", "te.gob.mx", "ordenjuridico.gob.mx",
+# Marca que viaja en el marcador cuando se consultó y no había nada nuevo.
+SIN_NOVEDADES = "__sin_novedades__"
+
+# ── Los cotos de cada agente ────────────────────────────────────────────────
+# `gob.mx` cubre las dependencias federales; los congresos estatales viven en
+# dominios propios y se añaden por sufijo.
+OFICIALES_FEDERALES = (
+    "dof.gob.mx", "diputados.gob.mx", "senado.gob.mx", "gob.mx",
+    "ordenjuridico.gob.mx",
 )
+OFICIALES_JUDICIALES = (
+    "scjn.gob.mx", "sjf.scjn.gob.mx", "sitios.scjn.gob.mx", "cjf.gob.mx",
+    "te.gob.mx", "tfja.gob.mx",
+)
+# Cualquier dominio de gobierno o poder judicial estatal.
+PATRON_ESTATAL = re.compile(r"\.(gob|poderjudicial)\.mx$|congreso[a-z]*\.gob\.mx$")
 
-
-def _es_oficial(url: str) -> bool:
-    u = (url or "").lower()
-    return any(d in u for d in DOMINIOS_OFICIALES)
+AGENTES = (
+    {
+        "id": "vigencia",
+        "etiqueta": "Vigencia y reformas",
+        "cotos": OFICIALES_FEDERALES,
+        "mision": (
+            "Averigua si el ordenamiento o los artículos implicados han tenido "
+            "REFORMAS, adiciones o derogaciones publicadas en el Diario Oficial "
+            "de la Federación. Busca en dof.gob.mx y en la página de leyes "
+            "federales de la Cámara de Diputados."
+        ),
+    },
+    {
+        "id": "criterios",
+        "etiqueta": "Criterios recientes",
+        "cotos": OFICIALES_JUDICIALES,
+        "mision": (
+            "Averigua si la Suprema Corte, el Consejo de la Judicatura o los "
+            "tribunales han emitido criterios, jurisprudencia o comunicados "
+            "recientes sobre el tema. Busca en scjn.gob.mx y cjf.gob.mx."
+        ),
+    },
+    {
+        "id": "local",
+        "etiqueta": "Ámbito local",
+        "cotos": (),          # se resuelve por patrón estatal
+        "mision": (
+            "Averigua qué ha publicado el congreso del estado o su poder "
+            "judicial sobre el tema: reformas locales, periódico oficial del "
+            "estado, acuerdos del tribunal superior."
+        ),
+    },
+)
 
 
 def _dominio(url: str) -> str:
@@ -56,29 +104,33 @@ def _dominio(url: str) -> str:
     return m.group(1).replace("www.", "") if m else ""
 
 
-async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Devuelve {"resumen": str, "fuentes": [{"titulo","url","dominio","oficial"}]}.
+def _es_oficial(dominio: str, cotos: tuple) -> bool:
+    """Oficial = está en el coto del agente, o es un dominio de gobierno."""
+    d = (dominio or "").lower()
+    if not d:
+        return False
+    if any(d == c or d.endswith("." + c) for c in cotos):
+        return True
+    return bool(PATRON_ESTATAL.search(d))
 
-    Nunca lanza: ante cualquier fallo devuelve vacío y la consulta sigue su
-    curso sin web. Es un complemento, no una dependencia.
-    """
-    vacio = {"resumen": "", "fuentes": []}
-    if not WEB_ACTIVA or not consulta.strip():
-        return vacio
 
+async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict[str, Any]:
+    """Lanza un agente. Nunca lanza excepción: ante cualquier fallo, vacío."""
+    vacio = {"id": agente["id"], "resumen": "", "fuentes": []}
     try:
         from main import get_gemini_client, get_gemini_model_name
         from google.genai import types as gtypes
 
-        contexto_estado = f" en el estado de {estado}" if estado else ""
+        donde = f" en el estado de {estado}" if estado else ""
+        if agente["id"] == "local" and not estado:
+            return vacio      # sin entidad, este agente no tiene qué buscar
+
         instruccion = (
-            f"Busca en fuentes oficiales mexicanas información ACTUAL sobre: {consulta}{contexto_estado}.\n\n"
-            "Prioriza el Diario Oficial de la Federación, la SCJN, el Congreso de la Unión, "
-            "los congresos estatales y los poderes judiciales. "
-            "Interesan sobre todo REFORMAS RECIENTES, publicaciones nuevas y criterios de los últimos meses.\n\n"
-            "Responde en tres o cuatro frases, en español, sin adornos. "
-            "Si no encuentras nada reciente y relevante, responde exactamente: SIN NOVEDADES."
+            f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
+            f"TU MISIÓN: {agente['mision']}\n\n"
+            "Responde en dos o tres frases, en español, sin adornos y sin "
+            "repetir la consulta. Si no encuentras nada relevante y reciente en "
+            "fuentes oficiales, responde exactamente: NADA."
         )
 
         cliente = get_gemini_client()
@@ -96,48 +148,83 @@ async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str
         resp = await asyncio.wait_for(asyncio.to_thread(_llamar), timeout=WEB_TIMEOUT)
 
         texto = (getattr(resp, "text", "") or "").strip()
-        if not texto or "SIN NOVEDADES" in texto.upper():
+        if not texto or texto.upper().startswith("NADA"):
             return vacio
 
         # Las URLs vienen en los metadatos de anclaje, no en el texto: así se
         # muestran las de verdad y no las que el modelo pudiera inventar.
-        fuentes: List[Dict[str, Any]] = []
-        vistos = set()
+        # Ojo: Gemini entrega una URL de redirección de vertexaisearch; el
+        # dominio real viaja en el `title`.
+        fuentes, vistos = [], set()
         for cand in (getattr(resp, "candidates", None) or []):
             meta = getattr(cand, "grounding_metadata", None)
             for trozo in (getattr(meta, "grounding_chunks", None) or []):
                 web = getattr(trozo, "web", None)
                 url = getattr(web, "uri", "") if web else ""
-                if not url or url in vistos:
+                if not url:
                     continue
-                vistos.add(url)
-                # El anclaje de Gemini NO da la URL de la fuente: da una de
-                # redirección por vertexaisearch.cloud.google.com. El dominio
-                # real viaja en `title` (así lo entrega la API). Mostrar el
-                # redirector arruina el propósito: «dof.gob.mx» convence,
-                # «vertexaisearch…» parece un rastreador. La URL de redirección
-                # se conserva para el clic —sí lleva al destino—, pero el
-                # dominio visible y el juicio de oficialidad salen del título.
                 titulo = (getattr(web, "title", "") or "").strip()
-                es_dominio = bool(re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", titulo.lower()))
-                dominio_real = titulo.lower() if es_dominio else _dominio(url)
-                fuentes.append({
-                    "titulo": (titulo or dominio_real)[:140],
-                    "url": url,
-                    "dominio": dominio_real,
-                    "oficial": _es_oficial(dominio_real),
-                })
+                es_dom = bool(re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", titulo.lower()))
+                dom = titulo.lower() if es_dom else _dominio(url)
 
-        # Lo oficial primero; lo demás sólo para rellenar y siempre marcado.
-        fuentes.sort(key=lambda f: (not f["oficial"], f["dominio"]))
-        return {"resumen": texto[:1200], "fuentes": fuentes[:6]}
+                # FILTRO DURO: lo que no es oficial no entra. Antes sólo se
+                # ordenaba, y cuando Google no devolvía nada oficial se colaban
+                # blogs de despachos.
+                if not _es_oficial(dom, agente["cotos"]) or dom in vistos:
+                    continue
+                vistos.add(dom)
+                fuentes.append({"titulo": (titulo or dom)[:140], "url": url,
+                                "dominio": dom, "agente": agente["id"]})
+
+        if not fuentes:
+            return vacio      # sin respaldo oficial, el resumen no vale nada
+        return {"id": agente["id"], "resumen": texto[:600], "fuentes": fuentes[:3]}
 
     except asyncio.TimeoutError:
-        print(f"   🌐 Búsqueda web: timeout ({WEB_TIMEOUT}s) — se sigue sin ella")
+        print(f"   🌐 [{agente['id']}] timeout ({WEB_TIMEOUT}s)")
         return vacio
     except Exception as e:
-        print(f"   🌐 Búsqueda web falló ({type(e).__name__}: {str(e)[:90]}) — se sigue sin ella")
+        print(f"   🌐 [{agente['id']}] falló ({type(e).__name__}: {str(e)[:80]})")
         return vacio
+
+
+async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Lanza los tres agentes en paralelo y funde lo que traigan.
+
+    Devuelve {"resumen", "fuentes", "agentes": [ids que aportaron], "corrio": bool}.
+    Nunca lanza: ante cualquier fallo la consulta sigue su curso sin web.
+    """
+    vacio = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
+    if not WEB_ACTIVA or not consulta.strip():
+        return vacio
+
+    try:
+        resultados = await asyncio.gather(
+            *[_un_agente(a, consulta, estado) for a in AGENTES],
+            return_exceptions=True,
+        )
+    except Exception as e:
+        print(f"   🌐 La capa web falló entera ({type(e).__name__}) — se sigue sin ella")
+        return vacio
+
+    partes, fuentes, aportaron = [], [], []
+    for r in resultados:
+        if isinstance(r, Exception) or not isinstance(r, dict) or not r.get("resumen"):
+            continue
+        etiqueta = next(a["etiqueta"] for a in AGENTES if a["id"] == r["id"])
+        partes.append(f"[{etiqueta}] {r['resumen']}")
+        fuentes.extend(r["fuentes"])
+        aportaron.append(r["id"])
+
+    # `corrio` en True aunque no haya nada: la etapa se pinta igual y se dice
+    # «sin cambios recientes». Que desaparezca sin explicación es peor.
+    return {
+        "resumen": "\n\n".join(partes),
+        "fuentes": fuentes[:6],
+        "agentes": aportaron,
+        "corrio": True,
+    }
 
 
 def bloque_para_prompt(web: Dict[str, Any]) -> str:
@@ -151,23 +238,19 @@ def bloque_para_prompt(web: Dict[str, Any]) -> str:
     lineas = [
         "<contexto_web>",
         "AVISO DE JERARQUÍA — LEE ESTO ANTES DE USAR LO QUE SIGUE:",
-        "Lo de abajo proviene de una búsqueda en internet. NO es la ley y NO",
-        "sustituye a los artículos del contexto documental. Úsalo sólo para",
-        "advertir de reformas o publicaciones recientes. Si contradice un",
-        "artículo del contexto documental, MANDA EL ARTÍCULO, y puedes señalar",
-        "que existe información en línea que apunta a un cambio reciente.",
+        "Lo de abajo proviene de una búsqueda en fuentes oficiales en línea.",
+        "NO es la ley y NO sustituye a los artículos del contexto documental.",
+        "Úsalo sólo para advertir de reformas o publicaciones recientes. Si",
+        "contradice un artículo del contexto documental, MANDA EL ARTÍCULO, y",
+        "puedes señalar que hay información en línea que apunta a un cambio.",
         "NUNCA cites una fuente de aquí como fundamento de una afirmación",
-        "jurídica; para eso están la ley y las tesis verificadas.",
+        "jurídica: el fundamento son los artículos y las tesis verificadas.",
         "",
         web["resumen"],
+        "",
+        "Fuentes consultadas:",
     ]
-    oficiales = [f for f in web.get("fuentes", []) if f["oficial"]]
-    otras = [f for f in web.get("fuentes", []) if not f["oficial"]]
-    if oficiales:
-        lineas.append("\nFuentes oficiales consultadas:")
-        lineas += [f"- {f['titulo']} ({f['dominio']})" for f in oficiales]
-    if otras:
-        lineas.append("\nFuentes NO oficiales (referencia, nunca fundamento):")
-        lineas += [f"- {f['titulo']} ({f['dominio']})" for f in otras]
+    for f in web.get("fuentes", []):
+        lineas.append(f"  · {f['dominio']} — {f['titulo']}")
     lineas.append("</contexto_web>")
     return "\n".join(lineas)

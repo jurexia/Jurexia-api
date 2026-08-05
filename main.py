@@ -10216,6 +10216,13 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         _cola_pasos: asyncio.Queue = asyncio.Queue(maxsize=64)
         _CANAL_PASOS.set(_cola_pasos)
         paso("entender")
+        # La jurisdicción también se fija cuando el abogado la elige en el
+        # selector, no sólo cuando se autodetecta en el texto. Antes el paso
+        # se emitía únicamente desde detect_single_estado_from_query(), así
+        # que quien seleccionaba su estado a mano —el caso normal— jamás veía
+        # esa etapa del flujo.
+        if request.estado:
+            paso("jurisdiccion", str(request.estado))
 
         # Launch RAG search concurrently with infra and cache tasks
         retrieval_task = asyncio.create_task(_perform_retrieval())
@@ -10325,7 +10332,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     try:
                         precedentes_results = await asyncio.wait_for(_precedentes_task, timeout=5.0)
                         print(f"   ⚖️ Precedentes complementarios: {len(precedentes_results)} encontrados")
-                        paso("precedentes", str(len(precedentes_results)))
+                        # Se emite DIRECTO, no con paso(). A esta altura ya pasó
+                        # el último drenaje de la cola, así que un paso() aquí se
+                        # quedaría dentro para siempre: la etapa de precedentes
+                        # NUNCA llegaba al frontend.
+                        if precedentes_results:
+                            yield f"<!--PASO:precedentes|{len(precedentes_results)}-->"
                     except asyncio.TimeoutError:
                         print(f"   ⚠️ Precedentes timeout (5s) — continuando sin ellos")
                     except Exception as _prec_err:
@@ -10352,22 +10364,30 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # jurídica es pedirle al modelo que se apoye en un dicho
                     # sin origen, y pintar «web|» vacío en el flujo. Sin
                     # fuentes, la web no existió para esta consulta.
-                    if _web.get("resumen") and _web.get("fuentes"):
+                    if _web.get("corrio"):
                         try:
-                            from busqueda_web import bloque_para_prompt
-                            context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(_web)
-                            _n_of = sum(1 for f in _web["fuentes"] if f["oficial"])
-                            print(f"   🌐 Web: {len(_web['fuentes'])} fuentes ({_n_of} oficiales)")
+                            from busqueda_web import bloque_para_prompt, SIN_NOVEDADES
+                            if _web.get("resumen") and _web.get("fuentes"):
+                                context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(_web)
                             # Se mandan los DOMINIOS, no un número: ver
                             # «dof.gob.mx» convence de que la consulta fue real;
                             # ver «3 sitios» no dice nada. Se limpian comas y
                             # barras porque el marcador las usa de separador.
                             _doms = []
-                            for f in _web["fuentes"]:
+                            for f in _web.get("fuentes", []):
                                 d = str(f.get("dominio", "")).replace(",", "").replace("|", "")
                                 if d and d not in _doms:
                                     _doms.append(d)
-                            yield f"<!--PASO:web|{','.join(_doms[:4])}-->"
+                            print(f"   🌐 Web: {len(_doms)} dominios oficiales, "
+                                  f"agentes {_web.get('agentes') or 'ninguno'}")
+                            # La etapa se pinta CORRA COMO CORRA. Si los tres
+                            # agentes vuelven de vacío se dice «sin cambios
+                            # recientes»: que el usuario vea que se consultó y
+                            # no había nada es información; que la etapa
+                            # desaparezca sin explicación, no. Además, el
+                            # marcador vacío («web|») era lo que dejaba esa
+                            # ficha en blanco con sólo el globo.
+                            yield f"<!--PASO:web|{','.join(_doms[:4]) if _doms else SIN_NOVEDADES}-->"
                         except Exception as _wb:
                             print(f"   🌐 No pude anexar el bloque web: {_wb}")
 
