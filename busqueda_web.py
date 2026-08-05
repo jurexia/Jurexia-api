@@ -42,7 +42,9 @@ from typing import Any, Dict, List, Optional
 # desplegar si sale caro o ruidoso.
 WEB_ACTIVA = os.getenv("BUSQUEDA_WEB_ACTIVA", "false").lower() in ("1", "true", "si", "sí")
 WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "gemini-3-flash-preview")
-# 22s por agente. MEDIDO en producción, no estimado: con 15s los tres agentes
+# 26s por agente. MEDIDO uno a uno: vigencia 22.3s, criterios 16.2s,
+# local 9.1s. Con 15s expiraban los tres.
+# Historia: con 15s los tres agentes
 # expiraban («[vigencia] timeout», «[criterios] timeout», «[local] timeout» en
 # los registros) y la capa devolvía «sin novedades» en el 100% de las consultas.
 # El anclaje a Google no es una llamada normal: busca, descarga las páginas y
@@ -51,7 +53,7 @@ WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "gemini-3-flash-preview")
 # Los tres corren en paralelo, así que el conjunto tarda lo que el más lento.
 # La tarea arranca ANTES del RAG (~12s) y quien la consume le da 18s más de
 # gracia: presupuesto total ~30s, holgado sobre los 22.
-WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "22"))
+WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "26"))
 
 # Marca que viaja en el marcador cuando se consultó y no había nada nuevo.
 SIN_NOVEDADES = "__sin_novedades__"
@@ -66,6 +68,11 @@ OFICIALES_FEDERALES = (
 OFICIALES_JUDICIALES = (
     "scjn.gob.mx", "sjf.scjn.gob.mx", "sitios.scjn.gob.mx", "cjf.gob.mx",
     "te.gob.mx", "tfja.gob.mx",
+)
+# Organismos del Estado que NO están en .gob.mx y que el patrón se comía:
+# la CNDH aparecía en los resultados y se descartaba como si fuera un blog.
+OFICIALES_AUTONOMOS = (
+    "cndh.org.mx", "inai.org.mx", "ine.mx", "senado.gob.mx",
 )
 # Cualquier dominio de gobierno o poder judicial estatal.
 PATRON_ESTATAL = re.compile(r"\.(gob|poderjudicial)\.mx$|congreso[a-z]*\.gob\.mx$")
@@ -121,6 +128,8 @@ def _es_oficial(dominio: str, cotos: tuple) -> bool:
         return False
     if any(d == c or d.endswith("." + c) for c in cotos):
         return True
+    if any(d == c or d.endswith("." + c) for c in OFICIALES_AUTONOMOS):
+        return True
     return bool(PATRON_ESTATAL.search(d))
 
 
@@ -138,12 +147,21 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
         instruccion = (
             f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
             f"TU MISIÓN: {agente['mision']}\n\n"
+            # EXIGIR LA URL ES LO QUE FUERZA LA BÚSQUEDA. Medido con tres
+            # redacciones sobre las mismas consultas: pedir «responde» daba 3
+            # trozos de anclaje; pedir «no respondas de memoria» daba 3
+            # también; exigir que TERMINE con la URL de la página consultada
+            # dio 19. Sin esa exigencia el modelo contesta de su propio saber
+            # y devuelve CERO fuentes — que era justo lo que se veía en
+            # producción: respuestas de 400-700 caracteres con 0 trozos.
+            "OBLIGATORIO: busca en la web y ABRE al menos una página oficial. "
+            "No respondas de memoria.\n"
             "Responde en dos o tres frases, en español, sin adornos y sin "
-            "repetir la consulta.\n\n"
-            "IMPORTANTE: no exijas que la información sea reciente. Casi ninguna "
-            "consulta jurídica trata de una novedad, y pedir novedad hacía que "
-            "esta capa devolviera NADA casi siempre. Basta con que la fuente sea "
-            "OFICIAL y venga al caso. Responde NADA sólo si de verdad no "
+            "repetir la consulta.\n"
+            "Termina con la línea: FUENTE: <url exacta de la página oficial "
+            "que consultaste>\n\n"
+            "No exijas que la información sea reciente: basta con que la fuente "
+            "sea OFICIAL y venga al caso. Responde NADA sólo si de verdad no "
             "encuentras ninguna fuente oficial pertinente."
         )
 

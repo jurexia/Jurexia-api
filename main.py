@@ -10406,7 +10406,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         # y el flujo se ve trabajando mientras tanto. La
                         # alternativa medida —15s— dejaba la capa web inútil en el
                         # 100% de las consultas.
-                        _web = await asyncio.wait_for(_web_task, timeout=18.0)
+                        _web = await asyncio.wait_for(_web_task, timeout=20.0)
                     except asyncio.TimeoutError:
                         _web_task.cancel()
                         print("   🌐 La capa web no llegó a tiempo (14s tras el gather) — se sigue sin ella")
