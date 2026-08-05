@@ -10397,12 +10397,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 _web = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
                 if _web_task:
                     try:
-                        # 14s de gracia tras el gather. La tarea arrancó ANTES
-                        # del RAG (~12s), así que su presupuesto total ronda los
-                        # 26s — de sobra para tres agentes en paralelo con 15s
-                        # cada uno. Con los 6s anteriores expiraba siempre: el
-                        # agente único tardaba 10-15s y tres en paralelo, igual.
-                        _web = await asyncio.wait_for(_web_task, timeout=14.0)
+                        # 18s de gracia tras el gather. La tarea arrancó ANTES
+                        # del RAG (~12s), así que el presupuesto total ronda los
+                        # 30s, holgado sobre los 22 que se da cada agente.
+                        #
+                        # Sí, esto puede retrasar el primer token hasta ~5s en el
+                        # peor caso. Se acepta: la respuesta completa tarda 45-60s
+                        # y el flujo se ve trabajando mientras tanto. La
+                        # alternativa medida —15s— dejaba la capa web inútil en el
+                        # 100% de las consultas.
+                        _web = await asyncio.wait_for(_web_task, timeout=18.0)
                     except asyncio.TimeoutError:
                         _web_task.cancel()
                         print("   🌐 La capa web no llegó a tiempo (14s tras el gather) — se sigue sin ella")

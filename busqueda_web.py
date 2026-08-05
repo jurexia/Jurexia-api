@@ -42,10 +42,16 @@ from typing import Any, Dict, List, Optional
 # desplegar si sale caro o ruidoso.
 WEB_ACTIVA = os.getenv("BUSQUEDA_WEB_ACTIVA", "false").lower() in ("1", "true", "si", "sí")
 WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "gemini-3-flash-preview")
-# 15s por agente: el anclaje a Google tarda 10-15s y los tres corren en
-# paralelo. No retrasa la respuesta porque va junto al RAG (~12s); el tope
-# real lo pone quien consume la tarea, unos segundos después del gather.
-WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "15"))
+# 22s por agente. MEDIDO en producción, no estimado: con 15s los tres agentes
+# expiraban («[vigencia] timeout», «[criterios] timeout», «[local] timeout» en
+# los registros) y la capa devolvía «sin novedades» en el 100% de las consultas.
+# El anclaje a Google no es una llamada normal: busca, descarga las páginas y
+# luego genera, y eso son 15-20s de forma habitual.
+#
+# Los tres corren en paralelo, así que el conjunto tarda lo que el más lento.
+# La tarea arranca ANTES del RAG (~12s) y quien la consume le da 18s más de
+# gracia: presupuesto total ~30s, holgado sobre los 22.
+WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "22"))
 
 # Marca que viaja en el marcador cuando se consultó y no había nada nuevo.
 SIN_NOVEDADES = "__sin_novedades__"
