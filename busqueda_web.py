@@ -111,11 +111,21 @@ async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str
                 if not url or url in vistos:
                     continue
                 vistos.add(url)
+                # El anclaje de Gemini NO da la URL de la fuente: da una de
+                # redirección por vertexaisearch.cloud.google.com. El dominio
+                # real viaja en `title` (así lo entrega la API). Mostrar el
+                # redirector arruina el propósito: «dof.gob.mx» convence,
+                # «vertexaisearch…» parece un rastreador. La URL de redirección
+                # se conserva para el clic —sí lleva al destino—, pero el
+                # dominio visible y el juicio de oficialidad salen del título.
+                titulo = (getattr(web, "title", "") or "").strip()
+                es_dominio = bool(re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", titulo.lower()))
+                dominio_real = titulo.lower() if es_dominio else _dominio(url)
                 fuentes.append({
-                    "titulo": (getattr(web, "title", "") or _dominio(url))[:140],
+                    "titulo": (titulo or dominio_real)[:140],
                     "url": url,
-                    "dominio": _dominio(url),
-                    "oficial": _es_oficial(url),
+                    "dominio": dominio_real,
+                    "oficial": _es_oficial(dominio_real),
                 })
 
         # Lo oficial primero; lo demás sólo para rellenar y siempre marcado.
