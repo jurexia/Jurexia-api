@@ -243,11 +243,28 @@ async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str
     if not WEB_ACTIVA or not consulta.strip():
         return vacio
 
+    # NO se espera a los tres. `asyncio.gather` aguarda al ÚLTIMO, así que un
+    # agente lento arrastraba a toda la capa: en los registros, `vigencia`
+    # expiraba a los 26s una y otra vez mientras `criterios` (16s) y `local`
+    # (9s) ya tenían su respuesta lista y se descartaban con él.
+    #
+    # Con `asyncio.wait` se recoge lo que haya terminado al vencer el plazo y
+    # se cancela el resto. Dos agentes de tres es una capa útil; cero es una
+    # etapa que no aparece.
+    PLAZO = min(WEB_TIMEOUT, 18.0)
     try:
-        resultados = await asyncio.gather(
-            *[_un_agente(a, consulta, estado) for a in AGENTES],
-            return_exceptions=True,
-        )
+        tareas = [asyncio.create_task(_un_agente(a, consulta, estado)) for a in AGENTES]
+        hechas, pendientes = await asyncio.wait(tareas, timeout=PLAZO)
+        for t in pendientes:
+            t.cancel()
+        if pendientes:
+            print(f"   🌐 {len(pendientes)} agente(s) sin terminar a los {PLAZO}s — se usa lo que hay")
+        resultados = []
+        for t in hechas:
+            try:
+                resultados.append(t.result())
+            except Exception:
+                pass
     except Exception as e:
         print(f"   🌐 La capa web falló entera ({type(e).__name__}) — se sigue sin ella")
         return vacio

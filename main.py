@@ -10409,7 +10409,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         _web = await asyncio.wait_for(_web_task, timeout=20.0)
                     except asyncio.TimeoutError:
                         _web_task.cancel()
-                        print("   🌐 La capa web no llegó a tiempo (14s tras el gather) — se sigue sin ella")
+                        print("   🌐 La capa web no llegó a tiempo (20s tras el gather) — se sigue sin ella")
                     except Exception as _we2:
                         _web_task.cancel()
                         print(f"   🌐 La capa web falló al recogerse: {type(_we2).__name__}")
