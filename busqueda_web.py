@@ -163,6 +163,7 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
 
         texto = (getattr(resp, "text", "") or "").strip()
         if not texto or texto.upper().startswith("NADA"):
+            print(f"   🌐 [{agente['id']}] dijo NADA ({len(texto)} car.)")
             return vacio
 
         # Las URLs vienen en los metadatos de anclaje, no en el texto: así se
@@ -170,6 +171,7 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
         # Ojo: Gemini entrega una URL de redirección de vertexaisearch; el
         # dominio real viaja en el `title`.
         fuentes, vistos = [], set()
+        _n_trozos, _descartados = 0, []
         for cand in (getattr(resp, "candidates", None) or []):
             meta = getattr(cand, "grounding_metadata", None)
             for trozo in (getattr(meta, "grounding_chunks", None) or []):
@@ -177,6 +179,7 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
                 url = getattr(web, "uri", "") if web else ""
                 if not url:
                     continue
+                _n_trozos += 1
                 titulo = (getattr(web, "title", "") or "").strip()
                 es_dom = bool(re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", titulo.lower()))
                 dom = titulo.lower() if es_dom else _dominio(url)
@@ -184,14 +187,23 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
                 # FILTRO DURO: lo que no es oficial no entra. Antes sólo se
                 # ordenaba, y cuando Google no devolvía nada oficial se colaban
                 # blogs de despachos.
-                if not _es_oficial(dom, agente["cotos"]) or dom in vistos:
+                if dom in vistos:
+                    continue
+                if not _es_oficial(dom, agente["cotos"]):
+                    _descartados.append(dom)
                     continue
                 vistos.add(dom)
                 fuentes.append({"titulo": (titulo or dom)[:140], "url": url,
                                 "dominio": dom, "agente": agente["id"]})
 
         if not fuentes:
-            return vacio      # sin respaldo oficial, el resumen no vale nada
+            # DIAGNÓSTICO: sin esto sólo se veía «0 dominios, agentes ninguno»
+            # y era imposible saber si el modelo no encontró nada, si el
+            # anclaje vino vacío, o si el filtro descartó todo. Cada caso pide
+            # un arreglo distinto.
+            print(f"   🌐 [{agente['id']}] respondió {len(texto)} car., "
+                  f"{_n_trozos} trozos de anclaje, descartados {_descartados or 'ninguno'}")
+            return vacio
         return {"id": agente["id"], "resumen": texto[:600], "fuentes": fuentes[:3]}
 
     except asyncio.TimeoutError:
