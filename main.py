@@ -8274,7 +8274,17 @@ CONTENIDO DEL DOCUMENTO:
     # Los agentes corren en paralelo con el análisis (el LLM tarda más que
     # ellos) y sus fuentes se anexan al final, antes del evento done.
     _web_tasks_doc = []
-    if str(fuentes_web).strip().lower() in ("1", "true", "si", "sí"):
+    # Mismo freno que en /chat: la capa web sólo corre desde Pro. `sub_type` ya
+    # viene leído arriba para el límite de caracteres, así que no cuesta otra
+    # consulta a Supabase.
+    _web_permitida_doc = (
+        sub_type in ('pro_monthly', 'pro_annual', 'platinum_monthly',
+                     'platinum_annual', 'ultra_secretarios')
+        or (user_email and user_email in ADMIN_EMAILS)
+    )
+    if str(fuentes_web).strip().lower() in ("1", "true", "si", "sí") and not _web_permitida_doc:
+        print("   ⛔ Documento + web sin plan Pro → se ignora la búsqueda web")
+    elif str(fuentes_web).strip().lower() in ("1", "true", "si", "sí"):
         try:
             from busqueda_web import lanzar_agentes as _lanzar_web
             _consulta_doc = f"{prompt} — documento: {filename}. {extracted_text[:250]}"
@@ -9589,8 +9599,39 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             if msg.role == "user":
                 msg.content = msg.content.replace("[FUENTES_WEB]", "").strip()
                 break
+    # ── El freno de gasto va AQUÍ, no en el botón ─────────────────────────
+    # La capa web cuesta dinero real por consulta (15 USD en un solo día con
+    # el botón abierto a todos). Ocultarlo en el frontend no basta: cualquiera
+    # puede mandar el campo. Sólo Pro y superiores la ejecutan.
     if _quiere_web:
-        print("   🌐 FUENTES DE INTERNET solicitadas por el usuario")
+        _web_permitida = False
+        if request.user_id and supabase_admin:
+            try:
+                def _perfil_web():
+                    return supabase_admin.table('user_profiles') \
+                        .select('subscription_type, email') \
+                        .eq('id', request.user_id) \
+                        .limit(1) \
+                        .execute()
+                _rw = await asyncio.to_thread(_perfil_web)
+                if _rw.data:
+                    _fw = _rw.data[0]
+                    _cw = (_fw.get('email') or '').strip().lower()
+                    _web_permitida = (
+                        _fw.get('subscription_type') in (
+                            'pro_monthly', 'pro_annual', 'platinum_monthly',
+                            'platinum_annual', 'ultra_secretarios')
+                        or (_cw and _cw in ADMIN_EMAILS)
+                    )
+            except Exception as _e:
+                print(f"   ⚠️ No pude leer el plan para la búsqueda web: {_e}")
+        # Si el plan no se puede leer, NO se corre: equivocarse hacia arriba
+        # cuesta dinero en cada consulta de cada usuario gratuito.
+        if not _web_permitida:
+            _quiere_web = False
+            print("   ⛔ FUENTES DE INTERNET solicitadas sin plan Pro → se ignoran")
+        else:
+            print("   🌐 FUENTES DE INTERNET solicitadas por el usuario")
 
     is_chat_flash = False
     if "[MODO_FLASH]" in last_user_message:
