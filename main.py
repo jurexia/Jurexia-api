@@ -11772,14 +11772,21 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 # así queda claro qué vino de la web y qué del acervo.
                 if _quiere_web and _web.get("fuentes"):
                     _lineas_web = ["\n\n---\n\n#### 🌐 Fuentes de internet consultadas\n"]
-                    _ETIQ = {"vigencia": "Vigencia y reformas",
-                             "criterios": "Criterios del PJF",
-                             "local": "Ámbito local"}
                     for _f in _web["fuentes"][:6]:
-                        _tit = str(_f.get("titulo") or _f.get("dominio", "")).replace("]", ")").replace("[", "(")
-                        _et = _ETIQ.get(str(_f.get("agente", "")), "")
-                        _suf = f" · {_et}" if _et else ""
-                        _lineas_web.append(f"- [{_tit}]({_f.get('url','')}) — `{_f.get('dominio','')}`{_suf}\n")
+                        # El título se limpia de corchetes Y PARÉNTESIS: sonar
+                        # devuelve cosas como «(PDF) E) E=É» y un paréntesis
+                        # suelto rompe el enlace markdown — se veía el
+                        # «[texto](url)» crudo en la respuesta.
+                        _tit = str(_f.get("titulo") or _f.get("dominio", ""))
+                        for _mal, _bien in (("[", ""), ("]", ""), ("(", ""), (")", "")):
+                            _tit = _tit.replace(_mal, _bien)
+                        _tit = " ".join(_tit.split())[:90] or str(_f.get("dominio", ""))
+                        # NO se etiqueta el agente que la trajo: el buscador de
+                        # «criterios» devuelve a menudo dominios locales, y
+                        # rotular «sanjoaquin.gob.mx · Criterios del PJF» es
+                        # decirle al abogado algo falso. El dominio ya dice de
+                        # dónde viene.
+                        _lineas_web.append(f"- [{_tit}]({_f.get('url','')}) — `{_f.get('dominio','')}`\n")
                     _lineas_web.append("\n*Estas fuentes provienen de una búsqueda en internet en "
                                        "dominios oficiales y complementan, sin sustituir, la "
                                        "legislación y jurisprudencia del acervo de Iurexia.*\n")
