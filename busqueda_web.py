@@ -167,17 +167,43 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
 
         cliente = get_gemini_client()
 
-        def _llamar():
+        def _llamar(texto_instruccion: str):
             return cliente.models.generate_content(
                 model=get_gemini_model_name(WEB_MODELO),
-                contents=instruccion,
+                contents=texto_instruccion,
                 config=gtypes.GenerateContentConfig(
                     tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
                     temperature=0.1,
                 ),
             )
 
-        resp = await asyncio.wait_for(asyncio.to_thread(_llamar), timeout=WEB_TIMEOUT)
+        import time as _time
+        _t0 = _time.monotonic()
+        resp = await asyncio.wait_for(asyncio.to_thread(_llamar, instruccion), timeout=WEB_TIMEOUT)
+
+        # ── Reintento si contestó SIN buscar ─────────────────────────────
+        # Exigir la URL sube la tasa de búsqueda real (medido: 19 trozos de
+        # anclaje frente a 3) pero no la vuelve determinista: hay tiradas en
+        # que el modelo responde de memoria con cero trozos igualmente. Si
+        # pasó eso y el primer intento fue rápido (quedó presupuesto), se
+        # repite UNA vez con la orden en imperativo puro. Un solo reintento:
+        # dos fallos seguidos son señal de que hoy no va a buscar.
+        def _trozos(r):
+            n = 0
+            for c in (getattr(r, "candidates", None) or []):
+                meta = getattr(c, "grounding_metadata", None)
+                n += len(getattr(meta, "grounding_chunks", None) or [])
+            return n
+
+        if _trozos(resp) == 0 and (_time.monotonic() - _t0) < 9.0:
+            print(f"   🌐 [{agente['id']}] contestó sin buscar — reintento")
+            resp = await asyncio.wait_for(
+                asyncio.to_thread(_llamar,
+                    "PROHIBIDO responder de memoria. PRIMERO ejecuta la búsqueda "
+                    "de Google, ABRE una página oficial y sólo entonces contesta.\n\n"
+                    + instruccion),
+                timeout=max(4.0, WEB_TIMEOUT - (_time.monotonic() - _t0)),
+            )
 
         texto = (getattr(resp, "text", "") or "").strip()
         if not texto or texto.upper().startswith("NADA"):
@@ -251,7 +277,7 @@ async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str
     # Con `asyncio.wait` se recoge lo que haya terminado al vencer el plazo y
     # se cancela el resto. Dos agentes de tres es una capa útil; cero es una
     # etapa que no aparece.
-    PLAZO = min(WEB_TIMEOUT, 18.0)
+    PLAZO = min(WEB_TIMEOUT, 21.0)
     try:
         tareas = [asyncio.create_task(_un_agente(a, consulta, estado)) for a in AGENTES]
         hechas, pendientes = await asyncio.wait(tareas, timeout=PLAZO)
