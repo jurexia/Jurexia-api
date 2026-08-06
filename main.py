@@ -9526,6 +9526,22 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     #
     # Ninguno inventó artículos. Gana flash-lite por cobertura y velocidad a la
     # vez, y cuesta menos de cuatro diezmilésimas de dólar por consulta.
+    # ── Fuentes de internet: OPT-IN con un clic ──────────────────────────
+    # La web dejó de correr por defecto. Dos razones medidas: añadía ~2s al
+    # primer token de TODAS las consultas, y cuando volvía vacía pintaba una
+    # etapa que sólo estorbaba. Ahora corre únicamente si el abogado pulsó el
+    # globo de «Agregar fuentes de internet» (el frontend antepone el
+    # marcador). Quien la pide sabe que espera un poco más a cambio de fuentes.
+    _quiere_web = False
+    if "[FUENTES_WEB]" in last_user_message:
+        _quiere_web = True
+        last_user_message = last_user_message.replace("[FUENTES_WEB]", "").strip()
+        for msg in reversed(request.messages):
+            if msg.role == "user":
+                msg.content = msg.content.replace("[FUENTES_WEB]", "").strip()
+                break
+        print("   🌐 FUENTES DE INTERNET solicitadas por el usuario")
+
     is_chat_flash = False
     if "[MODO_FLASH]" in last_user_message:
         is_chat_flash = True
@@ -10235,7 +10251,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         _web_task = None
         try:
             from busqueda_web import WEB_ACTIVA, buscar_en_web
-            if WEB_ACTIVA and not has_document:
+            if WEB_ACTIVA and _quiere_web and not has_document:
                 # OJO: aquí sólo existe `request.estado` (el selector que mandó
                 # el usuario). `effective_estado` —que además incorpora el
                 # estado autodetectado en el texto— es local de la función de
@@ -10428,11 +10444,22 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             # «dof.gob.mx» convence de que la consulta fue real;
                             # ver «3 sitios» no dice nada. Se limpian comas y
                             # barras porque el marcador las usa de separador.
+                            # El detalle viaja POR AGENTE (vigencia:dof.gob.mx;
+                            # criterios:scjn.gob.mx): el flujo pinta una ficha por
+                            # agente que aportó, que es lo que hace visible el
+                            # multiagente — «3 dominios» no cuenta esa historia.
+                            _por_agente: dict = {}
                             _doms = []
                             for f in _web.get("fuentes", []):
-                                d = str(f.get("dominio", "")).replace(",", "").replace("|", "")
+                                d = str(f.get("dominio", "")).replace(",", "").replace("|", "").replace(";", "").replace(":", "")
+                                a = str(f.get("agente", "") or "")
                                 if d and d not in _doms:
                                     _doms.append(d)
+                                    if a:
+                                        _por_agente.setdefault(a, []).append(d)
+                            _detalle_web = ";".join(
+                                f"{a}:{','.join(ds[:2])}" for a, ds in _por_agente.items()
+                            )
                             print(f"   🌐 Web: {len(_doms)} dominios oficiales, "
                                   f"agentes {_web.get('agentes') or 'ninguno'}")
                             # La etapa se pinta CORRA COMO CORRA. Si los tres
@@ -10442,7 +10469,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             # desaparezca sin explicación, no. Además, el
                             # marcador vacío («web|») era lo que dejaba esa
                             # ficha en blanco con sólo el globo.
-                            yield f"<!--PASO:web|{','.join(_doms[:4]) if _doms else SIN_NOVEDADES}-->"
+                            yield f"<!--PASO:web|{_detalle_web if _detalle_web else SIN_NOVEDADES}-->"
                         except Exception as _wb:
                             print(f"   🌐 No pude anexar el bloque web: {_wb}")
 
