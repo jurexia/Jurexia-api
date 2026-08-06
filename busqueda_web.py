@@ -288,3 +288,66 @@ def bloque_para_prompt(web: Dict[str, Any]) -> str:
         lineas.append(f"  · {f['dominio']} — {f['titulo']}")
     lineas.append("</contexto_web>")
     return "\n".join(lineas)
+
+
+def _tipo_de_sitio(dominio: str) -> str:
+    """Naturaleza del organismo, a partir del dominio.
+
+    Los portales oficiales mexicanos NO sirven /favicon.ico (se verificaron
+    ocho: todos 404 o 403) y pedirle el icono a un servicio externo le
+    contaría a un tercero qué está investigando cada abogado. Un icono por
+    tipo de organismo es local, siempre pinta, y dice más que un favicon
+    borroso de 16 píxeles.
+    """
+    d = (dominio or "").lower()
+    if any(k in d for k in ("poderjudicial", "scjn", "cjf", "tribunal", "pjf", "sise", "juzgado")):
+        return "judicial"
+    if any(k in d for k in ("legislatura", "congreso", "diputados", "senado", "camara", "cámara")):
+        return "legislativo"
+    if any(k in d for k in ("dof", "periodicooficial", "sombradearteaga", "gaceta", "ordenjuridico", "normas")):
+        return "oficial"
+    if any(k in d for k in ("municipio", "ayuntamiento", "municipal")):
+        return "municipal"
+    if any(k in d for k in ("gob.mx", "fiscalia", "fiscalía", "segob", "cndh")):
+        return "ejecutivo"
+    return "web"
+
+
+def bloque_fuentes_html(fuentes: List[Dict[str, Any]], nota: str, maximo: int = 6) -> str:
+    """Las fuentes consultadas, como tarjetas HTML en UNA sola línea.
+
+    Se emite HTML y no markdown por una razón medida: el renderizador de
+    Iurexia (formatMarkdown en ChatMessage.tsx) nunca tuvo regla para
+    `[texto](url)`, así que los enlaces salían crudos y además estirados por
+    el `text-align: justify` de .prose-legal. Sin newlines dentro, porque el
+    formateador convierte cada salto en <br/> y sólo respeta las líneas que
+    empiezan por «<».
+    """
+    def esc(valor: Any) -> str:
+        return (str(valor or "")
+                .replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+
+    partes = ['<div class="fuentes-web">'
+              '<div class="fw-cab"><span class="fw-globo">\U0001F310</span>'
+              '<span>Fuentes de internet consultadas</span></div>'
+              '<div class="fw-lista">']
+    for f in (fuentes or [])[:maximo]:
+        dominio = str(f.get("dominio", "") or "")
+        url = str(f.get("url", "") or "")
+        if not url:
+            continue
+        titulo = str(f.get("titulo") or dominio)
+        titulo = " ".join(titulo.split())[:110] or dominio
+        # NO se etiqueta el agente que la trajo: el buscador de «criterios»
+        # devuelve a menudo dominios locales, y rotular «sanjoaquin.gob.mx ·
+        # Criterios del PJF» es decirle al abogado algo falso.
+        partes.append(
+            f'<a class="fw-item" href="{esc(url)}" target="_blank" rel="noopener noreferrer">'
+            f'<span class="fw-ico fw-ico--{_tipo_de_sitio(dominio)}"></span>'
+            f'<span class="fw-txt"><span class="fw-tit">{esc(titulo)}</span>'
+            f'<span class="fw-dom">{esc(dominio)}</span></span>'
+            f'<span class="fw-flecha">&#8599;</span></a>'
+        )
+    partes.append(f'</div><div class="fw-nota">{esc(nota)}</div></div>')
+    return "".join(partes)

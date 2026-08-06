@@ -8319,15 +8319,14 @@ CONTENIDO DEL DOCUMENTO:
                             pass
                     _webd = _fusionar_web(_res)
                     if _webd.get("fuentes"):
-                        _lineas = ["\n\n---\n\n#### 🌐 Fuentes de internet consultadas\n"]
-                        for _f in _webd["fuentes"][:6]:
-                            _tit = str(_f.get("titulo") or _f.get("dominio", ""))
-                            for _mal in "[]()":
-                                _tit = _tit.replace(_mal, "")
-                            _tit = " ".join(_tit.split())[:90] or str(_f.get("dominio", ""))
-                            _lineas.append(f"- [{_tit}]({_f.get('url','')}) — `{_f.get('dominio','')}`\n")
-                        _lineas.append("\n*Estas fuentes provienen de una búsqueda en internet en dominios oficiales y complementan, sin sustituir, el análisis del documento.*\n")
-                        yield f"data: {json.dumps({'token': ''.join(_lineas)})}\n\n"
+                        from busqueda_web import bloque_fuentes_html as _bloque_html
+                        _htm = "\n\n" + _bloque_html(
+                            _webd["fuentes"],
+                            "Estas fuentes provienen de una búsqueda en internet en "
+                            "dominios oficiales y complementan, sin sustituir, el "
+                            "análisis del documento.",
+                        ) + "\n\n"
+                        yield f"data: {json.dumps({'token': _htm})}\n\n"
                     print(f"   🌐 Documento + web: {len(_webd.get('fuentes', []))} fuentes anexadas")
                 except Exception as _wfin:
                     print(f"   🌐 No pude anexar fuentes al documento: {_wfin}")
@@ -10483,7 +10482,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 _web = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
                 if _web_tasks:
                     try:
-                        from busqueda_web import fusionar, SIN_NOVEDADES
+                        from busqueda_web import fusionar, SIN_NOVEDADES, bloque_fuentes_html
 
                         def _detalle_de(fuentes):
                             _por_agente, _vistos = {}, []
@@ -11832,26 +11831,18 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 # de la respuesta cuando se pidió internet y hubo fuentes:
                 # así queda claro qué vino de la web y qué del acervo.
                 if _quiere_web and _web.get("fuentes"):
-                    _lineas_web = ["\n\n---\n\n#### 🌐 Fuentes de internet consultadas\n"]
-                    for _f in _web["fuentes"][:6]:
-                        # El título se limpia de corchetes Y PARÉNTESIS: sonar
-                        # devuelve cosas como «(PDF) E) E=É» y un paréntesis
-                        # suelto rompe el enlace markdown — se veía el
-                        # «[texto](url)» crudo en la respuesta.
-                        _tit = str(_f.get("titulo") or _f.get("dominio", ""))
-                        for _mal, _bien in (("[", ""), ("]", ""), ("(", ""), (")", "")):
-                            _tit = _tit.replace(_mal, _bien)
-                        _tit = " ".join(_tit.split())[:90] or str(_f.get("dominio", ""))
-                        # NO se etiqueta el agente que la trajo: el buscador de
-                        # «criterios» devuelve a menudo dominios locales, y
-                        # rotular «sanjoaquin.gob.mx · Criterios del PJF» es
-                        # decirle al abogado algo falso. El dominio ya dice de
-                        # dónde viene.
-                        _lineas_web.append(f"- [{_tit}]({_f.get('url','')}) — `{_f.get('dominio','')}`\n")
-                    _lineas_web.append("\n*Estas fuentes provienen de una búsqueda en internet en "
-                                       "dominios oficiales y complementan, sin sustituir, la "
-                                       "legislación y jurisprudencia del acervo de Iurexia.*\n")
-                    yield "".join(_lineas_web)
+                    # Se emite HTML, no markdown. El renderizador de Iurexia no
+                    # tiene regla para enlaces `[texto](url)` — se veían crudos
+                    # y estirados por el `text-align: justify` de .prose-legal.
+                    # Como HTML de UNA sola línea, el formateador lo deja pasar
+                    # intacto (respeta las líneas que empiezan por «<»).
+                    from busqueda_web import bloque_fuentes_html as _bloque_html
+                    yield "\n\n" + _bloque_html(
+                        _web["fuentes"],
+                        "Estas fuentes provienen de una búsqueda en internet en "
+                        "dominios oficiales y complementan, sin sustituir, la "
+                        "legislación y jurisprudencia del acervo de Iurexia.",
+                    ) + "\n\n"
 
                 # ── FIX 2026-05-25: Detectar registros digitales alucinados ────
                 # Red de seguridad: después de la respuesta del LLM, extraer todos los
