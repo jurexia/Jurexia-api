@@ -11762,6 +11762,29 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # Also repair content_buffer for correct validation counts
                     content_buffer = repair_hallucinated_uuids(content_buffer, doc_id_map)
 
+                # ── Apéndice de fuentes de internet ──────────────────────
+                # Se emite DESDE EL BACKEND, no se le pide al modelo. Dos
+                # razones: el modelo a veces ignora el contexto web (y el
+                # abogado que pulsó el globo no ve rastro de su clic), y las
+                # URLs deben ser las REALES de las citas de sonar, no las que
+                # el modelo quiera recordar. La sección siempre aparece al pie
+                # de la respuesta cuando se pidió internet y hubo fuentes:
+                # así queda claro qué vino de la web y qué del acervo.
+                if _quiere_web and _web.get("fuentes"):
+                    _lineas_web = ["\n\n---\n\n#### 🌐 Fuentes de internet consultadas\n"]
+                    _ETIQ = {"vigencia": "Vigencia y reformas",
+                             "criterios": "Criterios del PJF",
+                             "local": "Ámbito local"}
+                    for _f in _web["fuentes"][:6]:
+                        _tit = str(_f.get("titulo") or _f.get("dominio", "")).replace("]", ")").replace("[", "(")
+                        _et = _ETIQ.get(str(_f.get("agente", "")), "")
+                        _suf = f" · {_et}" if _et else ""
+                        _lineas_web.append(f"- [{_tit}]({_f.get('url','')}) — `{_f.get('dominio','')}`{_suf}\n")
+                    _lineas_web.append("\n*Estas fuentes provienen de una búsqueda en internet en "
+                                       "dominios oficiales y complementan, sin sustituir, la "
+                                       "legislación y jurisprudencia del acervo de Iurexia.*\n")
+                    yield "".join(_lineas_web)
+
                 # ── FIX 2026-05-25: Detectar registros digitales alucinados ────
                 # Red de seguridad: después de la respuesta del LLM, extraer todos los
                 # "Registro digital: NNNNN" y verificar que coinciden con registros
