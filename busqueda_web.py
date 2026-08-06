@@ -332,13 +332,29 @@ def bloque_fuentes_html(fuentes: List[Dict[str, Any]], nota: str, maximo: int = 
               '<div class="fw-cab"><span class="fw-globo">\U0001F310</span>'
               '<span>Fuentes de internet consultadas</span></div>'
               '<div class="fw-lista">']
-    for f in (fuentes or [])[:maximo]:
+    vistos = set()
+    mostradas = 0
+    for f in (fuentes or []):
+        if mostradas >= maximo:
+            break
         dominio = str(f.get("dominio", "") or "")
         url = str(f.get("url", "") or "")
         if not url:
             continue
         titulo = str(f.get("titulo") or dominio)
+        # Los buscadores devuelven el título con la etiqueta del formato
+        # pegada («[DOC] LEY DE ADQUISICIONES…», «(PDF) …»). Estorba y ya se
+        # ve en la URL.
+        titulo = re.sub(r"^\s*[\[\(](?:PDF|DOC|DOCX|XLS|PPT)[\]\)]\s*", "", titulo, flags=re.I)
         titulo = " ".join(titulo.split())[:110] or dominio
+        # Un mismo documento oficial aparece en varias URLs del mismo portal
+        # (visores, descargas, versiones). Con el título ya limpio, se veían
+        # dos filas idénticas seguidas.
+        clave = (dominio.lower(), titulo.lower())
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        mostradas += 1
         # NO se etiqueta el agente que la trajo: el buscador de «criterios»
         # devuelve a menudo dominios locales, y rotular «sanjoaquin.gob.mx ·
         # Criterios del PJF» es decirle al abogado algo falso.
