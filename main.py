@@ -2669,6 +2669,12 @@ class ChatRequest(BaseModel):
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
     materia: Optional[str] = Field(None, description="Materia jurídica forzada (PENAL, CIVIL, FAMILIAR, etc.). Si None, auto-detecta por keywords.")
     fuero: Optional[str] = Field(None, description="Filtro por fuero: constitucional, federal, estatal. Si None, busca en todos los silos.")
+    # La señal del globo viajaba escondida como «[FUENTES_WEB] » dentro del
+    # texto del mensaje, y cada camino que armaba el mensaje de otra forma
+    # (documentos, sugerencias, apps viejas) la perdía en silencio. Como campo
+    # del request no depende de cómo se construya el texto. El marcador en el
+    # texto se sigue aceptando por los bundles viejos aún en caché.
+    fuentes_web: bool = Field(False, description="Si True, corre la capa de búsqueda web (equivale al marcador [FUENTES_WEB] en el mensaje).")
 
 
 class AuditRequest(BaseModel):
@@ -8062,6 +8068,8 @@ async def analyze_document(
     file: UploadFile = File(...),
     prompt: str = Form("Analiza este documento y genera un resumen ejecutivo completo"),
     user_id: str = Form(None),
+    fuentes_web: str = Form(None),
+    estado: str = Form(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -8259,6 +8267,22 @@ CONTENIDO DEL DOCUMENTO:
     model_to_use = "google/gemini-3.1-pro-preview" if is_platinum_or_admin else DOCUMENT_MODEL
     print(f"   🚀 Enviando a {model_to_use} vía OpenRouter ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
 
+    # ── Fuentes de internet con documento adjunto ─────────────────────────
+    # Este camino IGNORABA el globo: el frontend retornaba antes de anteponer
+    # el marcador y aquí nadie lo leía — el abogado encendía «Agregar fuentes
+    # de internet», adjuntaba su escrito, y la promesa se perdía en silencio.
+    # Los agentes corren en paralelo con el análisis (el LLM tarda más que
+    # ellos) y sus fuentes se anexan al final, antes del evento done.
+    _web_tasks_doc = []
+    if str(fuentes_web).strip().lower() in ("1", "true", "si", "sí"):
+        try:
+            from busqueda_web import lanzar_agentes as _lanzar_web
+            _consulta_doc = f"{prompt} — documento: {filename}. {extracted_text[:250]}"
+            _web_tasks_doc = _lanzar_web(_consulta_doc[:400], estado or None)
+            print(f"   🌐 Documento + web: {len(_web_tasks_doc)} agentes lanzados")
+        except Exception as _wdoc:
+            print(f"   🌐 No pude lanzar la web para el documento: {_wdoc}")
+
     async def stream_analysis():
         try:
             t_llm_start = _time.time()
@@ -8281,6 +8305,32 @@ CONTENIDO DEL DOCUMENTO:
                         t_first_token = _time.time()
                         print(f"   ⚡ TTFT (time-to-first-token): {t_first_token - t_llm_start:.2f}s (total elapsed: {t_first_token - t0:.2f}s)")
                     yield f"data: {json.dumps({'token': token})}\n\n"
+            if _web_tasks_doc:
+                try:
+                    from busqueda_web import fusionar as _fusionar_web
+                    _hechas, _pend = await asyncio.wait(_web_tasks_doc, timeout=4.0)
+                    for _p_ in _pend:
+                        _p_.cancel()
+                    _res = []
+                    for _h in _hechas:
+                        try:
+                            _res.append(_h.result())
+                        except Exception:
+                            pass
+                    _webd = _fusionar_web(_res)
+                    if _webd.get("fuentes"):
+                        _lineas = ["\n\n---\n\n#### 🌐 Fuentes de internet consultadas\n"]
+                        for _f in _webd["fuentes"][:6]:
+                            _tit = str(_f.get("titulo") or _f.get("dominio", ""))
+                            for _mal in "[]()":
+                                _tit = _tit.replace(_mal, "")
+                            _tit = " ".join(_tit.split())[:90] or str(_f.get("dominio", ""))
+                            _lineas.append(f"- [{_tit}]({_f.get('url','')}) — `{_f.get('dominio','')}`\n")
+                        _lineas.append("\n*Estas fuentes provienen de una búsqueda en internet en dominios oficiales y complementan, sin sustituir, el análisis del documento.*\n")
+                        yield f"data: {json.dumps({'token': ''.join(_lineas)})}\n\n"
+                    print(f"   🌐 Documento + web: {len(_webd.get('fuentes', []))} fuentes anexadas")
+                except Exception as _wfin:
+                    print(f"   🌐 No pude anexar fuentes al documento: {_wfin}")
             yield f"data: {json.dumps({'done': True, 'filename': filename, 'chars_analyzed': min(original_len, effective_max_chars)})}\n\n"
         except Exception as llm_err:
             print(f"   ❌ Error LLM: {llm_err}")
@@ -9532,7 +9582,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # etapa que sólo estorbaba. Ahora corre únicamente si el abogado pulsó el
     # globo de «Agregar fuentes de internet» (el frontend antepone el
     # marcador). Quien la pide sabe que espera un poco más a cambio de fuentes.
-    _quiere_web = False
+    _quiere_web = bool(getattr(request, "fuentes_web", False))
     if "[FUENTES_WEB]" in last_user_message:
         _quiere_web = True
         last_user_message = last_user_message.replace("[FUENTES_WEB]", "").strip()
@@ -9540,6 +9590,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             if msg.role == "user":
                 msg.content = msg.content.replace("[FUENTES_WEB]", "").strip()
                 break
+    if _quiere_web:
         print("   🌐 FUENTES DE INTERNET solicitadas por el usuario")
 
     is_chat_flash = False
@@ -10251,7 +10302,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         _web_tasks = []
         try:
             from busqueda_web import lanzar_agentes
-            if _quiere_web and not has_document:
+            if _quiere_web:
                 # OJO: aquí sólo existe `request.estado` (el selector que mandó
                 # el usuario); `effective_estado` es local del retrieval y no
                 # es visible en este ámbito (fue un NameError silencioso).
@@ -10259,7 +10310,17 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Tareas SUELTAS y no una tarea única: es lo que permite las
                 # fuentes EN VIVO — el consumidor recoge cada agente conforme
                 # termina y actualiza el flujo, en vez de esperar al último.
-                _web_tasks = lanzar_agentes(last_user_message, request.estado)
+                #
+                # Se recorta la consulta: cuando el abogado pega un escrito de
+                # decenas de miles de caracteres, mandarlo entero a sonar
+                # revienta el anclaje. El inicio y el cierre bastan — ahí viven
+                # el planteamiento y la petición. Esto también levanta la
+                # exclusión que había con documento adjunto: si el globo está
+                # encendido, la web corre.
+                _consulta_web = last_user_message
+                if len(_consulta_web) > 400:
+                    _consulta_web = _consulta_web[:200] + " … " + _consulta_web[-200:]
+                _web_tasks = lanzar_agentes(_consulta_web, request.estado)
         except Exception as _we:
             print(f"   🌐 No pude lanzar la búsqueda web: {_we}")
 
