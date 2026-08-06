@@ -41,19 +41,24 @@ from typing import Any, Dict, List, Optional
 # Interruptor. Sin esto el módulo no hace nada: se apaga desde Render sin
 # desplegar si sale caro o ruidoso.
 WEB_ACTIVA = os.getenv("BUSQUEDA_WEB_ACTIVA", "false").lower() in ("1", "true", "si", "sí")
-WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "gemini-3-flash-preview")
-# 26s por agente. MEDIDO uno a uno: vigencia 22.3s, criterios 16.2s,
-# local 9.1s. Con 15s expiraban los tres.
-# Historia: con 15s los tres agentes
-# expiraban («[vigencia] timeout», «[criterios] timeout», «[local] timeout» en
-# los registros) y la capa devolvía «sin novedades» en el 100% de las consultas.
-# El anclaje a Google no es una llamada normal: busca, descarga las páginas y
-# luego genera, y eso son 15-20s de forma habitual.
+
+# ── EL MOTOR: perplexity/sonar vía OpenRouter ────────────────────────────
+# Medido el 6-ago-2026 con la misma consulta de patria potestad:
 #
-# Los tres corren en paralelo, así que el conjunto tarda lo que el más lento.
-# La tarea arranca ANTES del RAG (~12s) y quien la consume le da 18s más de
-# gracia: presupuesto total ~30s, holgado sobre los 22.
-WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "26"))
+#   perplexity/sonar (OpenRouter)     4.9s · 9 fuentes · 4 OFICIALES de Qro
+#   perplexity/sonar-pro              5.1s · idéntico (y más caro)
+#   gemini-3-flash-preview + anclaje  15-22s · busca cuando quiere (1/3 en
+#                                     producción por contención de API)
+#   gemini/gpt-5-mini con :online     0 fuentes (el plugin Exa no conoce
+#                                     el derecho mexicano)
+#
+# Sonar SIEMPRE busca —es su única función— y devuelve las citas en la
+# respuesta. Eso elimina de raíz la veleidad de Gemini que obligó a exigir
+# URLs, reintentar y escalonar. A 5s por agente, además, caben las fuentes
+# EN VIVO en el flujo.
+WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "perplexity/sonar")
+WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "14"))
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # Marca que viaja en el marcador cuando se consultó y no había nada nuevo.
 SIN_NOVEDADES = "__sin_novedades__"
@@ -134,196 +139,119 @@ def _es_oficial(dominio: str, cotos: tuple) -> bool:
 
 
 async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict[str, Any]:
-    """Lanza un agente. Nunca lanza excepción: ante cualquier fallo, vacío."""
+    """Un agente = una llamada a perplexity/sonar con su misión. Nunca lanza."""
     vacio = {"id": agente["id"], "resumen": "", "fuentes": []}
     try:
-        from main import get_gemini_client, get_gemini_model_name
-        from google.genai import types as gtypes
+        import httpx
 
         donde = f" en el estado de {estado}" if estado else ""
         if agente["id"] == "local" and not estado:
             return vacio      # sin entidad, este agente no tiene qué buscar
+        if not OPENROUTER_API_KEY:
+            print("   🌐 Falta OPENROUTER_API_KEY — capa web sin motor")
+            return vacio
 
         instruccion = (
             f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
             f"TU MISIÓN: {agente['mision']}\n\n"
-            # EXIGIR LA URL ES LO QUE FUERZA LA BÚSQUEDA. Medido con tres
-            # redacciones sobre las mismas consultas: pedir «responde» daba 3
-            # trozos de anclaje; pedir «no respondas de memoria» daba 3
-            # también; exigir que TERMINE con la URL de la página consultada
-            # dio 19. Sin esa exigencia el modelo contesta de su propio saber
-            # y devuelve CERO fuentes — que era justo lo que se veía en
-            # producción: respuestas de 400-700 caracteres con 0 trozos.
-            "OBLIGATORIO: busca en la web y ABRE al menos una página oficial. "
-            "No respondas de memoria.\n"
             "Responde en dos o tres frases, en español, sin adornos y sin "
-            "repetir la consulta.\n"
-            "Termina con la línea: FUENTE: <url exacta de la página oficial "
-            "que consultaste>\n\n"
-            "No exijas que la información sea reciente: basta con que la fuente "
-            "sea OFICIAL y venga al caso. Responde NADA sólo si de verdad no "
-            "encuentras ninguna fuente oficial pertinente."
+            "repetir la consulta. Prioriza sitios oficiales mexicanos "
+            "(.gob.mx, poderes judiciales, congresos)."
         )
 
-        cliente = get_gemini_client()
-
-        def _llamar(texto_instruccion: str):
-            return cliente.models.generate_content(
-                model=get_gemini_model_name(WEB_MODELO),
-                contents=texto_instruccion,
-                config=gtypes.GenerateContentConfig(
-                    tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
-                    temperature=0.1,
-                ),
+        async with httpx.AsyncClient(timeout=WEB_TIMEOUT) as cli:
+            r = await cli.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json={"model": WEB_MODELO,
+                      "messages": [{"role": "user", "content": instruccion}],
+                      "max_tokens": 400},
             )
+            r.raise_for_status()
+            d = r.json()
 
-        import time as _time
-        _t0 = _time.monotonic()
-        resp = await asyncio.wait_for(asyncio.to_thread(_llamar, instruccion), timeout=WEB_TIMEOUT)
+        msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
+        texto = (msg.get("content") or "").strip()
 
-        # ── Reintento si contestó SIN buscar ─────────────────────────────
-        # Exigir la URL sube la tasa de búsqueda real (medido: 19 trozos de
-        # anclaje frente a 3) pero no la vuelve determinista: hay tiradas en
-        # que el modelo responde de memoria con cero trozos igualmente. Si
-        # pasó eso y el primer intento fue rápido (quedó presupuesto), se
-        # repite UNA vez con la orden en imperativo puro. Un solo reintento:
-        # dos fallos seguidos son señal de que hoy no va a buscar.
-        def _trozos(r):
-            n = 0
-            for c in (getattr(r, "candidates", None) or []):
-                meta = getattr(c, "grounding_metadata", None)
-                n += len(getattr(meta, "grounding_chunks", None) or [])
-            return n
+        # Las citas de sonar viajan en dos sitios según la versión de la API:
+        # message.annotations (url_citation, con título) y el campo raíz
+        # `citations` (lista de URLs). Se leen ambos.
+        crudas = []
+        for a in (msg.get("annotations") or []):
+            uc = a.get("url_citation") or {}
+            if uc.get("url"):
+                crudas.append((uc.get("title") or "", uc["url"]))
+        for u in (d.get("citations") or []):
+            crudas.append(("", u))
 
-        if _trozos(resp) == 0 and (_time.monotonic() - _t0) < 9.0:
-            print(f"   🌐 [{agente['id']}] contestó sin buscar — reintento")
-            resp = await asyncio.wait_for(
-                asyncio.to_thread(_llamar,
-                    "PROHIBIDO responder de memoria. PRIMERO ejecuta la búsqueda "
-                    "de Google, ABRE una página oficial y sólo entonces contesta.\n\n"
-                    + instruccion),
-                timeout=max(4.0, WEB_TIMEOUT - (_time.monotonic() - _t0)),
-            )
-
-        texto = (getattr(resp, "text", "") or "").strip()
-        if not texto or texto.upper().startswith("NADA"):
-            print(f"   🌐 [{agente['id']}] dijo NADA ({len(texto)} car.)")
-            return vacio
-
-        # Las URLs vienen en los metadatos de anclaje, no en el texto: así se
-        # muestran las de verdad y no las que el modelo pudiera inventar.
-        # Ojo: Gemini entrega una URL de redirección de vertexaisearch; el
-        # dominio real viaja en el `title`.
         fuentes, vistos = [], set()
-        _n_trozos, _descartados = 0, []
-        for cand in (getattr(resp, "candidates", None) or []):
-            meta = getattr(cand, "grounding_metadata", None)
-            for trozo in (getattr(meta, "grounding_chunks", None) or []):
-                web = getattr(trozo, "web", None)
-                url = getattr(web, "uri", "") if web else ""
-                if not url:
-                    continue
-                _n_trozos += 1
-                titulo = (getattr(web, "title", "") or "").strip()
-                es_dom = bool(re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", titulo.lower()))
-                dom = titulo.lower() if es_dom else _dominio(url)
+        for titulo, url in crudas:
+            dom = _dominio(url)
+            if not dom or dom in vistos:
+                continue
+            vistos.add(dom)
+            # FILTRO DURO: lo que no es oficial no entra. leyes-mx.com y
+            # justia.com aparecen SIEMPRE en estos resultados y jamás deben
+            # pintarse junto a un artículo de ley.
+            if not _es_oficial(dom, agente["cotos"]):
+                continue
+            fuentes.append({"titulo": (titulo or dom)[:140], "url": url,
+                            "dominio": dom, "agente": agente["id"]})
 
-                # FILTRO DURO: lo que no es oficial no entra. Antes sólo se
-                # ordenaba, y cuando Google no devolvía nada oficial se colaban
-                # blogs de despachos.
-                if dom in vistos:
-                    continue
-                if not _es_oficial(dom, agente["cotos"]):
-                    _descartados.append(dom)
-                    continue
-                vistos.add(dom)
-                fuentes.append({"titulo": (titulo or dom)[:140], "url": url,
-                                "dominio": dom, "agente": agente["id"]})
-
-        if not fuentes:
-            # DIAGNÓSTICO: sin esto sólo se veía «0 dominios, agentes ninguno»
-            # y era imposible saber si el modelo no encontró nada, si el
-            # anclaje vino vacío, o si el filtro descartó todo. Cada caso pide
-            # un arreglo distinto.
-            print(f"   🌐 [{agente['id']}] respondió {len(texto)} car., "
-                  f"{_n_trozos} trozos de anclaje, descartados {_descartados or 'ninguno'}")
+        if not texto or not fuentes:
+            print(f"   🌐 [{agente['id']}] {len(texto)} car., "
+                  f"{len(crudas)} citas, {len(fuentes)} oficiales")
             return vacio
         return {"id": agente["id"], "resumen": texto[:600], "fuentes": fuentes[:3]}
 
-    except asyncio.TimeoutError:
-        print(f"   🌐 [{agente['id']}] timeout ({WEB_TIMEOUT}s)")
-        return vacio
     except Exception as e:
         print(f"   🌐 [{agente['id']}] falló ({type(e).__name__}: {str(e)[:80]})")
         return vacio
 
 
-async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str, Any]:
+def lanzar_agentes(consulta: str, estado: Optional[str] = None) -> List[asyncio.Task]:
     """
-    Lanza los tres agentes en paralelo y funde lo que traigan.
+    Lanza los agentes y devuelve sus TAREAS, sin esperarlas.
 
-    Devuelve {"resumen", "fuentes", "agentes": [ids que aportaron], "corrio": bool}.
-    Nunca lanza: ante cualquier fallo la consulta sigue su curso sin web.
+    Es la pieza que permite las fuentes EN VIVO: quien consume va recogiendo
+    cada tarea conforme termina (FIRST_COMPLETED) y emite el marcador
+    actualizado al frontend, en vez de esperar a que acabe la última.
     """
-    vacio = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
     if not WEB_ACTIVA or not consulta.strip():
-        return vacio
+        return []
+    return [asyncio.create_task(_un_agente(a, consulta, estado)) for a in AGENTES]
 
-    # NO se espera a los tres. `asyncio.gather` aguarda al ÚLTIMO, así que un
-    # agente lento arrastraba a toda la capa: en los registros, `vigencia`
-    # expiraba a los 26s una y otra vez mientras `criterios` (16s) y `local`
-    # (9s) ya tenían su respuesta lista y se descartaban con él.
-    #
-    # Con `asyncio.wait` se recoge lo que haya terminado al vencer el plazo y
-    # se cancela el resto. Dos agentes de tres es una capa útil; cero es una
-    # etapa que no aparece.
-    PLAZO = min(WEB_TIMEOUT, 21.0)
-    try:
-        # Los agentes arrancan ESCALONADOS (0 / 1.5 / 3s), no a la vez.
-        # Medido: en local, un agente solo busca 3/3; en producción, los tres
-        # disparando al mismo tiempo contra la misma clave de AI Studio caían
-        # a 1/3 — la herramienta de búsqueda falla en silencio bajo contención
-        # y el modelo responde de memoria. El escalón cuesta 3s al último
-        # agente, que caben en el plazo.
-        async def _con_retraso(agente, retraso):
-            if retraso:
-                await asyncio.sleep(retraso)
-            return await _un_agente(agente, consulta, estado)
 
-        tareas = [asyncio.create_task(_con_retraso(a, i * 1.5))
-                  for i, a in enumerate(AGENTES)]
-        hechas, pendientes = await asyncio.wait(tareas, timeout=PLAZO)
-        for t in pendientes:
-            t.cancel()
-        if pendientes:
-            print(f"   🌐 {len(pendientes)} agente(s) sin terminar a los {PLAZO}s — se usa lo que hay")
-        resultados = []
-        for t in hechas:
-            try:
-                resultados.append(t.result())
-            except Exception:
-                pass
-    except Exception as e:
-        print(f"   🌐 La capa web falló entera ({type(e).__name__}) — se sigue sin ella")
-        return vacio
+async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str, Any]:
+    """Envoltorio clásico: lanza los agentes y espera a todos. El camino
+    nuevo (fuentes en vivo) usa lanzar_agentes() + fusionar() directamente."""
+    tareas = lanzar_agentes(consulta, estado)
+    if not tareas:
+        return {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
+    hechas, pendientes = await asyncio.wait(tareas, timeout=WEB_TIMEOUT + 2)
+    for x in pendientes:
+        x.cancel()
+    resultados = []
+    for x in hechas:
+        try:
+            resultados.append(x.result())
+        except Exception:
+            pass
+    return fusionar(resultados)
 
+
+def fusionar(resultados: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Funde lo que trajeron los agentes en un solo resultado."""
     partes, fuentes, aportaron = [], [], []
     for r in resultados:
-        if isinstance(r, Exception) or not isinstance(r, dict) or not r.get("resumen"):
+        if not isinstance(r, dict) or not r.get("resumen"):
             continue
-        etiqueta = next(a["etiqueta"] for a in AGENTES if a["id"] == r["id"])
+        etiqueta = next((a["etiqueta"] for a in AGENTES if a["id"] == r["id"]), r["id"])
         partes.append(f"[{etiqueta}] {r['resumen']}")
         fuentes.extend(r["fuentes"])
         aportaron.append(r["id"])
-
-    # `corrio` en True aunque no haya nada: la etapa se pinta igual y se dice
-    # «sin cambios recientes». Que desaparezca sin explicación es peor.
-    return {
-        "resumen": "\n\n".join(partes),
-        "fuentes": fuentes[:6],
-        "agentes": aportaron,
-        "corrio": True,
-    }
+    return {"resumen": "\n\n".join(partes), "fuentes": fuentes[:6],
+            "agentes": aportaron, "corrio": True}
 
 
 def bloque_para_prompt(web: Dict[str, Any]) -> str:

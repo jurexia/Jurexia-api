@@ -10248,19 +10248,18 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # ── Búsqueda web (complemento, nunca sustituto) ───────────────────
         # Va en paralelo con el RAG: si tarda o falla, la consulta sigue sin
         # ella. Apagable con BUSQUEDA_WEB_ACTIVA=false sin desplegar.
-        _web_task = None
+        _web_tasks = []
         try:
-            from busqueda_web import WEB_ACTIVA, buscar_en_web
-            if WEB_ACTIVA and _quiere_web and not has_document:
+            from busqueda_web import lanzar_agentes
+            if _quiere_web and not has_document:
                 # OJO: aquí sólo existe `request.estado` (el selector que mandó
-                # el usuario). `effective_estado` —que además incorpora el
-                # estado autodetectado en el texto— es local de la función de
-                # retrieval y NO es visible en este ámbito: usarlo aquí lanzaba
-                # NameError en cada consulta y la búsqueda web nunca corría.
-                # El try lo tragaba, así que el fallo sólo se veía en los logs.
-                _web_task = asyncio.create_task(
-                    buscar_en_web(last_user_message, request.estado)
-                )
+                # el usuario); `effective_estado` es local del retrieval y no
+                # es visible en este ámbito (fue un NameError silencioso).
+                #
+                # Tareas SUELTAS y no una tarea única: es lo que permite las
+                # fuentes EN VIVO — el consumidor recoge cada agente conforme
+                # termina y actualiza el flujo, en vez de esperar al último.
+                _web_tasks = lanzar_agentes(last_user_message, request.estado)
         except Exception as _we:
             print(f"   🌐 No pude lanzar la búsqueda web: {_we}")
 
@@ -10410,73 +10409,68 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # abajo daba falso y la etapa web desaparecía del flujo SIN
                 # dejar rastro — ni marcador, ni línea de registro. Así estuvo
                 # invisible hasta que se midió etapa por etapa.
+                # ── Fuentes de internet EN VIVO ──────────────────────────
+                # Cada agente se recoge CONFORME TERMINA (FIRST_COMPLETED) y el
+                # marcador se reemite con el acumulado: el frontend sustituye el
+                # detalle de la etapa repetida, así que el abogado ve las
+                # fuentes aparecer una a una dentro de la rama — eso es el
+                # motor de búsqueda a la vista, no un letrero al final.
+                #
+                # Con sonar (~5s por agente, y arrancaron antes del RAG) la
+                # mayoría ya está resuelta al llegar aquí; el plazo de 10s es
+                # margen, no espera habitual.
                 _web = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
-                if _web_task:
+                if _web_tasks:
                     try:
-                        # 18s de gracia tras el gather. La tarea arrancó ANTES
-                        # del RAG (~12s), así que el presupuesto total ronda los
-                        # 30s, holgado sobre los 22 que se da cada agente.
-                        #
-                        # Sí, esto puede retrasar el primer token hasta ~5s en el
-                        # peor caso. Se acepta: la respuesta completa tarda 45-60s
-                        # y el flujo se ve trabajando mientras tanto. La
-                        # alternativa medida —15s— dejaba la capa web inútil en el
-                        # 100% de las consultas.
-                        _web = await asyncio.wait_for(_web_task, timeout=20.0)
-                    except asyncio.TimeoutError:
-                        _web_task.cancel()
-                        print("   🌐 La capa web no llegó a tiempo (20s tras el gather) — se sigue sin ella")
-                    except Exception as _we2:
-                        _web_task.cancel()
-                        print(f"   🌐 La capa web falló al recogerse: {type(_we2).__name__}")
-                    # Resumen Y fuentes, las dos cosas. El anclaje a veces
-                    # devuelve texto sin trozos de fuente — un resumen que
-                    # nadie puede verificar. Anexar eso a una consulta
-                    # jurídica es pedirle al modelo que se apoye en un dicho
-                    # sin origen, y pintar «web|» vacío en el flujo. Sin
-                    # fuentes, la web no existió para esta consulta.
-                    # Si el abogado PIDIÓ la web, la etapa se emite PASE LO QUE
-                    # PASE — incluso si la tarea murió cancelada y `corrio` es
-                    # falso. Quien pulsó el globo y no ve la etapa cree que su
-                    # clic no hizo nada; ver «sin fuentes» es una respuesta,
-                    # ver nada es un fallo.
-                    if _quiere_web or _web.get("corrio"):
-                        try:
-                            from busqueda_web import bloque_para_prompt, SIN_NOVEDADES
-                            if _web.get("resumen") and _web.get("fuentes"):
-                                context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(_web)
-                            # Se mandan los DOMINIOS, no un número: ver
-                            # «dof.gob.mx» convence de que la consulta fue real;
-                            # ver «3 sitios» no dice nada. Se limpian comas y
-                            # barras porque el marcador las usa de separador.
-                            # El detalle viaja POR AGENTE (vigencia:dof.gob.mx;
-                            # criterios:scjn.gob.mx): el flujo pinta una ficha por
-                            # agente que aportó, que es lo que hace visible el
-                            # multiagente — «3 dominios» no cuenta esa historia.
-                            _por_agente: dict = {}
-                            _doms = []
-                            for f in _web.get("fuentes", []):
+                        from busqueda_web import fusionar, SIN_NOVEDADES
+
+                        def _detalle_de(fuentes):
+                            _por_agente, _vistos = {}, []
+                            for f in fuentes:
                                 d = str(f.get("dominio", "")).replace(",", "").replace("|", "").replace(";", "").replace(":", "")
                                 a = str(f.get("agente", "") or "")
-                                if d and d not in _doms:
-                                    _doms.append(d)
+                                if d and d not in _vistos:
+                                    _vistos.append(d)
                                     if a:
                                         _por_agente.setdefault(a, []).append(d)
-                            _detalle_web = ";".join(
-                                f"{a}:{','.join(ds[:2])}" for a, ds in _por_agente.items()
-                            )
-                            print(f"   🌐 Web: {len(_doms)} dominios oficiales, "
-                                  f"agentes {_web.get('agentes') or 'ninguno'}")
-                            # La etapa se pinta CORRA COMO CORRA. Si los tres
-                            # agentes vuelven de vacío se dice «sin cambios
-                            # recientes»: que el usuario vea que se consultó y
-                            # no había nada es información; que la etapa
-                            # desaparezca sin explicación, no. Además, el
-                            # marcador vacío («web|») era lo que dejaba esa
-                            # ficha en blanco con sólo el globo.
-                            yield f"<!--PASO:web|{_detalle_web if _detalle_web else SIN_NOVEDADES}-->"
-                        except Exception as _wb:
-                            print(f"   🌐 No pude anexar el bloque web: {_wb}")
+                            return ";".join(f"{a}:{','.join(ds[:2])}" for a, ds in _por_agente.items())
+
+                        _resultados = []
+                        _pendientes = set(_web_tasks)
+                        _t_web = time.perf_counter()
+                        while _pendientes and (time.perf_counter() - _t_web) < 10.0:
+                            _hechas, _pendientes = await asyncio.wait(
+                                _pendientes, timeout=1.0,
+                                return_when=asyncio.FIRST_COMPLETED)
+                            _hubo_nuevo = False
+                            for _h in _hechas:
+                                try:
+                                    _r = _h.result()
+                                    if _r.get("fuentes"):
+                                        _hubo_nuevo = True
+                                    _resultados.append(_r)
+                                except Exception:
+                                    pass
+                            if _hubo_nuevo:
+                                _parcial = fusionar(_resultados)
+                                _det = _detalle_de(_parcial["fuentes"])
+                                if _det:
+                                    yield f"<!--PASO:web|{_det}-->"
+                        for _p_ in _pendientes:
+                            _p_.cancel()
+
+                        _web = fusionar(_resultados)
+                        if _web.get("resumen") and _web.get("fuentes"):
+                            from busqueda_web import bloque_para_prompt
+                            context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(_web)
+                        _det_final = _detalle_de(_web.get("fuentes", []))
+                        print(f"   🌐 Web: agentes {_web.get('agentes') or 'ninguno'} · {_det_final or 'sin fuentes'}")
+                        # La etapa cierra SIEMPRE que se pidió: con el acumulado
+                        # final, o con «sin fuentes» si nadie aportó. Ver eso es
+                        # una respuesta; ver nada es un fallo.
+                        yield f"<!--PASO:web|{_det_final if _det_final else SIN_NOVEDADES}-->"
+                    except Exception as _wb:
+                        print(f"   🌐 No pude anexar el bloque web: {_wb}")
 
                 # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────
                 #
