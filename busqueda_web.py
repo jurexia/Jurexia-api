@@ -279,7 +279,19 @@ async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str
     # etapa que no aparece.
     PLAZO = min(WEB_TIMEOUT, 21.0)
     try:
-        tareas = [asyncio.create_task(_un_agente(a, consulta, estado)) for a in AGENTES]
+        # Los agentes arrancan ESCALONADOS (0 / 1.5 / 3s), no a la vez.
+        # Medido: en local, un agente solo busca 3/3; en producción, los tres
+        # disparando al mismo tiempo contra la misma clave de AI Studio caían
+        # a 1/3 — la herramienta de búsqueda falla en silencio bajo contención
+        # y el modelo responde de memoria. El escalón cuesta 3s al último
+        # agente, que caben en el plazo.
+        async def _con_retraso(agente, retraso):
+            if retraso:
+                await asyncio.sleep(retraso)
+            return await _un_agente(agente, consulta, estado)
+
+        tareas = [asyncio.create_task(_con_retraso(a, i * 1.5))
+                  for i, a in enumerate(AGENTES)]
         hechas, pendientes = await asyncio.wait(tareas, timeout=PLAZO)
         for t in pendientes:
             t.cancel()
