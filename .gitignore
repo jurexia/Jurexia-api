@@ -87,3 +87,8 @@ sample_test.txt
 test.png
 *.html
 !templates/*.html
+
+# Banco de calidad: el banco de preguntas SÍ viaja (es parte de la medición);
+# las corridas no, son mediciones locales.
+!_calidad/preguntas.json
+_calidad/corridas/

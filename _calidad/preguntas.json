@@ -1,0 +1,29 @@
+{
+  "_leeme": "Banco de preguntas para medir la calidad de las citas. Cada entrada corre contra producción y se mide sola: la trazabilidad y la existencia de las tesis NO necesitan respuesta correcta conocida. El campo opcional `esperado` (lista de trozos de texto que deben aparecer en alguna fuente recuperada) permite además medir acierto de recuperación; añádelo cuando conozcas el artículo exacto.",
+  "preguntas": [
+    { "id": "qro-familiar-01", "estado": "queretaro", "materia": "familiar",
+      "texto": "¿Qué criterios ha sostenido el Poder Judicial sobre la guarda y custodia de menores?" },
+    { "id": "qro-familiar-02", "estado": "queretaro", "materia": "familiar",
+      "texto": "¿Cuáles son las causas de pérdida de la patria potestad?" },
+    { "id": "cdmx-civil-01", "estado": "ciudaddemexico", "materia": "civil",
+      "texto": "¿Qué requisitos exige la prescripción positiva de un inmueble?" },
+    { "id": "cdmx-civil-02", "estado": "ciudaddemexico", "materia": "civil",
+      "texto": "¿En qué plazo prescribe la acción para pedir la nulidad de un contrato por dolo?" },
+    { "id": "jal-penal-01", "estado": "jalisco", "materia": "penal",
+      "texto": "¿Cuándo procede la prisión preventiva oficiosa y qué criterios la han limitado?" },
+    { "id": "nl-laboral-01", "estado": "nuevoleon", "materia": "laboral",
+      "texto": "¿Qué debe probar el trabajador en un despido injustificado y qué le corresponde al patrón?" },
+    { "id": "mex-amparo-01", "estado": "mexico", "materia": "amparo",
+      "texto": "¿Cuándo procede la suspensión provisional en el amparo indirecto?" },
+    { "id": "pue-mercantil-01", "estado": "puebla", "materia": "mercantil",
+      "texto": "¿Puede revocarse el aval en un pagaré? ¿Qué han resuelto los tribunales?" },
+    { "id": "ver-admin-01", "estado": "veracruz", "materia": "administrativo",
+      "texto": "¿Qué plazo hay para promover el juicio de nulidad contra una resolución administrativa?" },
+    { "id": "gto-familiar-01", "estado": "guanajuato", "materia": "familiar",
+      "texto": "¿Cómo se calcula la pensión alimenticia y qué criterios usan los tribunales?" },
+    { "id": "chih-civil-01", "estado": "chihuahua", "materia": "civil",
+      "texto": "¿Qué requisitos tiene el divorcio incausado y cuál es el procedimiento?" },
+    { "id": "yuc-penal-01", "estado": "yucatan", "materia": "penal",
+      "texto": "¿Qué es la reparación del daño y cómo la han interpretado los tribunales?" }
+  ]
+}
