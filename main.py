@@ -10435,7 +10435,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # jurídica es pedirle al modelo que se apoye en un dicho
                     # sin origen, y pintar «web|» vacío en el flujo. Sin
                     # fuentes, la web no existió para esta consulta.
-                    if _web.get("corrio"):
+                    # Si el abogado PIDIÓ la web, la etapa se emite PASE LO QUE
+                    # PASE — incluso si la tarea murió cancelada y `corrio` es
+                    # falso. Quien pulsó el globo y no ve la etapa cree que su
+                    # clic no hizo nada; ver «sin fuentes» es una respuesta,
+                    # ver nada es un fallo.
+                    if _quiere_web or _web.get("corrio"):
                         try:
                             from busqueda_web import bloque_para_prompt, SIN_NOVEDADES
                             if _web.get("resumen") and _web.get("fuentes"):
