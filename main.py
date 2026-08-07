@@ -5057,6 +5057,210 @@ def _extract_cited_articles(texto: str) -> list:
     return results
 
 
+# ── Salto interno: el artículo que cita a otro artículo de su misma ley ──────
+#
+# El cruce que ya existía (inject_cross_referenced_articles) sólo mira DENTRO
+# DE LOS PRECEDENTES y sólo trae artículos de `leyes_federales`. El abogado
+# estatal —el usuario real de las 32 entidades— no recibía nada: su artículo
+# dice «se seguirá el procedimiento del artículo 47 de este Código» y el 47
+# jamás llegaba al contexto. Medido sobre producción: el 15 % de los artículos
+# cita otro artículo, con 1.8 a 4.7 referencias cada uno.
+#
+# Se resuelve SÓLO dentro de la misma ley (mismo `origen`, misma colección).
+# Esa restricción no es pereza: emparejar leyes por parecido de nombre produce
+# citas equivocadas —llegó a ofrecerse el Código Administrativo por el
+# Electoral—, así que aquí no se adivina ninguna ley. Si el texto nombra otra
+# norma, esa referencia se descarta y la atiende el cruce federal.
+
+_RE_ENCABEZADO_ART = re.compile(
+    r'^\s*art[íi]culo\s*\.?\s*\d+[^\s]*\s*[\.\-–]?\s*', re.I)
+_RE_CITA_ART = re.compile(
+    r'art[íi]culos?\s+((?:\d{1,4}\s*(?:bis|ter|qu[áa]ter)?\s*[,;yeo]*\s*){1,8})', re.I)
+# Si tras la cita aparece OTRA norma con nombre propio, no es una cita interna.
+_RE_OTRA_NORMA = re.compile(
+    r'\b(?:de|del)\s+(?:la\s+|el\s+)?'
+    r'(?:Ley|C[óo]digo|Constituci[óo]n|Reglamento|Decreto|Tratado)\s+'
+    r'(?!(?:vigente|anterior|citad[oa]))[A-ZÁÉÍÓÚ]', re.I)
+_RE_MISMA_NORMA = re.compile(
+    r'\b(?:de|del)\s+(?:est[ae]|el\s+presente|la\s+presente)\s+'
+    r'(?:ley|c[óo]digo|reglamento|ordenamiento)', re.I)
+
+
+def _articulos_citados_misma_ley(texto: str, propio: int | None) -> list:
+    """Números de artículo citados dentro del mismo cuerpo legal."""
+    if not texto:
+        return []
+    cuerpo = _RE_ENCABEZADO_ART.sub("", texto.strip(), count=1)
+    encontrados: list = []
+    for m in _RE_CITA_ART.finditer(cuerpo):
+        # Ventana posterior: si nombra otra ley, la referencia no es interna.
+        cola = cuerpo[m.end():m.end() + 90]
+        if _RE_OTRA_NORMA.search(cola) and not _RE_MISMA_NORMA.search(cola):
+            continue
+        for n in re.findall(r'\d{1,4}', m.group(1)):
+            try:
+                num = int(n)
+            except ValueError:
+                continue
+            if 1 <= num <= 9999 and num != propio and num not in encontrados:
+                encontrados.append(num)
+    return encontrados
+
+
+# Qué campo guarda el nombre de la ley en cada colección. No es uniforme y no
+# se puede adivinar: las colecciones antiguas indexan `origen`, las ingeridas
+# con el script v3 indexan `ley`, y `leyes_federales` sólo tiene `ley`.
+# Filtrar por la clave equivocada NO devuelve vacío: devuelve 400 «Index
+# required but not found», así que el salto se caía en 19 de 33 colecciones.
+#
+# En vez de crear diecinueve índices nuevos —más trabajo para un Qdrant que va
+# justo de memoria—, la clave se aprende en la primera consulta y se recuerda.
+#
+# El mapa va sembrado con lo medido contra producción el 7-ago-2026 para que
+# ni la primera consulta pague el intento fallido. Si una colección cambia de
+# forma, el aprendizaje de abajo la corrige sola.
+_CLAVE_LEY_POR_COLECCION: dict = {
+    "leyes_federales": "ley",
+    "leyes_aguascalientes": "ley", "leyes_baja_california": "ley",
+    "leyes_baja_california_sur": "ley", "leyes_campeche": "ley",
+    "leyes_chiapas": "ley", "leyes_coahuila": "ley", "leyes_colima": "ley",
+    "leyes_durango": "ley", "leyes_hidalgo": "ley", "leyes_nayarit": "ley",
+    "leyes_oaxaca": "ley", "leyes_quintana_roo": "ley",
+    "leyes_san_luis_potosi": "ley", "leyes_sonora": "ley",
+    "leyes_tabasco": "ley", "leyes_tamaulipas": "ley",
+    "leyes_tlaxcala": "ley", "leyes_yucatan": "ley", "leyes_zacatecas": "ley",
+    "leyes_cdmx": "origen", "leyes_chihuahua": "origen",
+    "leyes_edomex": "origen", "leyes_guanajuato": "origen",
+    "leyes_guerrero": "origen", "leyes_jalisco": "origen",
+    "leyes_michoacan": "origen", "leyes_morelos": "origen",
+    "leyes_nuevo_leon": "origen", "leyes_puebla": "origen",
+    "leyes_queretaro": "origen", "leyes_sinaloa": "origen",
+    "leyes_veracruz": "origen",
+}
+
+
+async def _buscar_por_ley(qdrant_client_obj, coleccion: str, nombre_ley: str,
+                          numeros: list, Filter, FieldCondition, MatchValue, MatchAny):
+    """Artículos de una ley por número exacto, con la clave que esa colección use."""
+    candidatas = [_CLAVE_LEY_POR_COLECCION.get(coleccion, "origen")]
+    if candidatas[0] == "origen":
+        candidatas.append("ley")
+    else:
+        candidatas.append("origen")
+
+    for clave in candidatas:
+        try:
+            hallado = await qdrant_client_obj.scroll(
+                collection_name=coleccion,
+                limit=len(numeros),
+                scroll_filter=Filter(must=[
+                    FieldCondition(key=clave, match=MatchValue(value=nombre_ley)),
+                    FieldCondition(key="articulo_num", match=MatchAny(any=numeros)),
+                ]),
+                with_payload=True,
+                with_vectors=False,
+            )
+            _CLAVE_LEY_POR_COLECCION[coleccion] = clave   # aprendida
+            return hallado
+        except Exception:
+            continue
+    return None
+
+
+async def inyectar_articulos_de_la_misma_ley(
+    results: list,
+    qdrant_client_obj,
+    max_inyecciones: int = 6,
+) -> list:
+    """Trae al contexto los artículos que los resultados de ley citan."""
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
+
+    presentes = {r.id for r in results}
+    ya_tengo = {
+        (r.silo, str(r.origen or ""), str(r.ref or ""))
+        for r in results if r.silo and r.silo.startswith("leyes_")
+    }
+
+    # (colección, origen) → números pedidos, en orden de relevancia del citante
+    pedidos: dict = {}
+    for r in results:
+        if not r.silo or not r.silo.startswith("leyes_"):
+            continue
+        propio = None
+        m = re.match(r'^\s*art[íi]?c?u?l?o?\.?\s*[\s\.]*(\d{1,4})', str(r.ref or ""), re.I)
+        if m:
+            propio = int(m.group(1))
+        for num in _articulos_citados_misma_ley(r.texto or "", propio):
+            clave = (r.silo, str(r.origen or ""))
+            pedidos.setdefault(clave, [])
+            if num not in pedidos[clave]:
+                pedidos[clave].append(num)
+
+    if not pedidos:
+        return results
+
+    # UNA consulta por ley, no una por artículo. Medido contra producción:
+    # seis búsquedas en serie costaban 3.2 s y en paralelo 539 ms, pero con
+    # `MatchAny` los seis artículos llegan en un solo viaje. Esta capa corre en
+    # el camino crítico de TODAS las consultas: el segundo que se ahorra pesa
+    # más que los dos artículos que aporta.
+    async def _buscar_ley(coleccion: str, origen: str, numeros: list):
+        return coleccion, origen, await _buscar_por_ley(
+            qdrant_client_obj, coleccion, origen, numeros,
+            Filter, FieldCondition, MatchValue, MatchAny)
+
+    tareas = []
+    for (coleccion, origen), numeros in pedidos.items():
+        if not origen or not numeros:
+            continue
+        tareas.append(_buscar_ley(coleccion, origen, numeros[:4]))
+        if len(tareas) >= 3:      # tope de leyes distintas por consulta
+            break
+
+    hallazgos = await asyncio.gather(*tareas, return_exceptions=True)
+
+    inyectados = []
+    for resultado in hallazgos:
+        if len(inyectados) >= max_inyecciones:
+            break
+        if isinstance(resultado, BaseException) or resultado is None:
+            continue
+        coleccion, origen, hallados = resultado
+        if not hallados or not hallados[0]:
+            continue
+        for punto in hallados[0]:
+            if len(inyectados) >= max_inyecciones:
+                break
+            pl = punto.payload or {}
+            clave = (coleccion, origen, str(pl.get("ref") or ""))
+            if str(punto.id) in presentes or clave in ya_tengo:
+                continue
+            inyectados.append(SearchResult(
+                id=str(punto.id),
+                # Por debajo de lo recuperado por la consulta: es apoyo del
+                # argumento, no la respuesta a la pregunta.
+                score=0.72,
+                texto=pl.get("texto", ""),
+                ref=pl.get("ref"),
+                origen=pl.get("origen") or origen,
+                jurisdiccion=pl.get("jurisdiccion"),
+                silo=coleccion,
+                pdf_url=pl.get("pdf_url") or pl.get("url_pdf") or pl.get("pdf"),
+                entidad=pl.get("entidad"),
+                materia_meta=pl.get("materia"),
+                conceptos_transversales=pl.get("conceptos_transversales"),
+                tema_articulo=pl.get("tema_articulo"),
+            ))
+            presentes.add(str(punto.id))
+            ya_tengo.add(clave)
+
+    if inyectados:
+        print(f"   🔗 Salto interno: {len(inyectados)} artículos citados traídos al contexto")
+        paso("cruzar", str(len(inyectados)))
+        return results + inyectados
+    return results
+
+
 async def inject_cross_referenced_articles(
     results: list,
     qdrant_client_obj,
@@ -5068,7 +5272,7 @@ async def inject_cross_referenced_articles(
     
     Returns the augmented results list with cross-referenced articles prepended.
     """
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
     
     # Identify which silos contain precedentes
     _precedente_silos = {
@@ -5108,74 +5312,88 @@ async def inject_cross_referenced_articles(
     by_law = {}
     for (ley, num) in cited:
         by_law.setdefault(ley, []).append(num)
-    
+
+    # ── SUSTITUIDO (7-ago-2026): del patrón de cadena al número exacto ──
+    #
+    # Antes se buscaba el artículo probando dos formas literales del campo
+    # `ref`: «Artículo 55.» y «Artículo 55 ». Eso fallaba en silencio en
+    # cuanto la colección escribía de otra manera —CDMX y Guanajuato usan
+    # «Art. 55»—, y costaba hasta dos viajes a Qdrant POR ARTÍCULO.
+    #
+    # Ahora `articulo_num` existe y está indexado en las 34 colecciones de
+    # leyes, así que se pregunta por igualdad exacta y con `MatchAny`: una
+    # consulta por ley en vez de dos por artículo, y sin depender de cómo se
+    # escribió la referencia. Las consultas van además en paralelo.
     injected = []
     try:
-        for ley, nums in by_law.items():
+        async def _traer(ley: str, nums: list):
+            try:
+                return ley, await qdrant_client_obj.scroll(
+                    collection_name="leyes_federales",
+                    limit=len(nums),
+                    scroll_filter=Filter(must=[
+                        FieldCondition(key="ley", match=MatchValue(value=ley)),
+                        FieldCondition(key="articulo_num", match=MatchAny(any=nums)),
+                    ]),
+                    with_payload=True,
+                    with_vectors=False,
+                )
+            except Exception:
+                return ley, None
+
+        _peticiones = []
+        for ley, nums in list(by_law.items())[:4]:
+            _numeros = []
+            for n in nums[:5]:
+                try:
+                    _numeros.append(int(str(n).strip()))
+                except (TypeError, ValueError):
+                    continue
+            if _numeros:
+                _peticiones.append(_traer(ley, _numeros))
+
+        _respuestas = await asyncio.gather(*_peticiones, return_exceptions=True)
+
+        for _r in _respuestas:
             if len(injected) >= max_injections:
                 break
-            
-            # Search for each article
-            for num in nums[:5]:  # Max 5 per law
+            if isinstance(_r, BaseException) or _r is None:
+                continue
+            ley, hallado = _r
+            if not hallado or not hallado[0]:
+                continue
+            for point in hallado[0]:
                 if len(injected) >= max_injections:
                     break
-                
-                # Build ref pattern: "Artículo 55." or "Artículo 55 "
-                ref_patterns = [f"Artículo {num}.", f"Artículo {num} "]
-                
-                for ref_pat in ref_patterns:
-                    try:
-                        found = await qdrant_client_obj.scroll(
-                            collection_name="leyes_federales",
-                            limit=1,
-                            scroll_filter=Filter(must=[
-                                FieldCondition(key="ley", match=MatchValue(value=ley)),
-                                FieldCondition(key="ref", match=MatchValue(value=ref_pat)),
-                            ]),
-                            with_payload=True,
-                            with_vectors=False,
-                        )
-                        if found[0]:
-                            point = found[0][0]
-                            if str(point.id) not in existing_ids:
-                                payload = point.payload or {}
-                                sr = SearchResult(
-                                    id=str(point.id),
-                                    score=0.90,  # High score so it appears prominently
-                                    texto=payload.get("texto", ""),
-                                    ref=payload.get("ref"),
-                                    origen=payload.get("origen") or ley,
-                                    jurisdiccion="Federal",
-                                    silo="leyes_federales",
-                                    # EL PDF OFICIAL. Faltaba aqui, y era el
-                                    # agujero mas visible de todos: estos
-                                    # articulos entran con score 0.90 «so it
-                                    # appears prominently», asi que las citas
-                                    # que el abogado ve primero eran justo las
-                                    # que salian sin documento. En la captura
-                                    # de David: «Ley de Amparo, Articulo 148»
-                                    # con el aviso de «todavia no tenemos el
-                                    # documento oficial en PDF», cuando el
-                                    # punto SI trae la URL de diputados.gob.mx
-                                    # en su payload.
-                                    #
-                                    # Se leen las dos claves porque la ingesta
-                                    # de leyes guarda la misma URL en ambas.
-                                    pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
-                                    entidad=payload.get("entidad"),
-                                    materia_meta=payload.get("materia"),
-                                    conceptos_transversales=payload.get("conceptos_transversales"),
-                                    tema_articulo=payload.get("tema_articulo"),
-                                )
-                                injected.append(sr)
-                                existing_ids.add(str(point.id))
-                            break  # Found it, don't try next pattern
-                    except Exception:
-                        continue
-                        
+                if str(point.id) in existing_ids:
+                    continue
+                payload = point.payload or {}
+                sr = SearchResult(
+                    id=str(point.id),
+                    score=0.90,  # High score so it appears prominently
+                    texto=payload.get("texto", ""),
+                    ref=payload.get("ref"),
+                    origen=payload.get("origen") or ley,
+                    jurisdiccion="Federal",
+                    silo="leyes_federales",
+                    # EL PDF OFICIAL. Faltaba aqui, y era el agujero mas
+                    # visible de todos: estos articulos entran con score 0.90
+                    # «so it appears prominently», asi que las citas que el
+                    # abogado ve primero eran justo las que salian sin
+                    # documento. Se leen las dos claves porque la ingesta de
+                    # leyes guarda la misma URL en ambas.
+                    pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+                    entidad=payload.get("entidad"),
+                    materia_meta=payload.get("materia"),
+                    conceptos_transversales=payload.get("conceptos_transversales"),
+                    tema_articulo=payload.get("tema_articulo"),
+                )
+                injected.append(sr)
+                existing_ids.add(str(point.id))
+
     except Exception as e:
         print(f"   ⚠️ Cross-Ref error: {e}")
-    
+
     if injected:
         print(f"   ✅ Cross-Ref: Inyectados {len(injected)} artículos de ley citados en precedentes")
         paso("cruzar", str(len(injected)))
@@ -5856,7 +6074,7 @@ async def hybrid_search_single_silo(
                         score=point.score,
                         texto=payload.get("texto", payload.get("text", "")),
                         ref=payload.get("ref"),
-                        origen=payload.get("origen"),
+                        origen=payload.get("origen") or payload.get("ley"),
                         jurisdiccion=payload.get("jurisdiccion"),
                         entidad=payload.get("entidad"),
                         silo=collection,
@@ -6019,7 +6237,7 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 # no lo hay, el registro digital la identifica sin ambiguedad.
                 ref=payload.get("ref") or _tesis_num or (
                     f"Registro {_registro}" if _registro else None),
-                origen=payload.get("origen"),
+                origen=payload.get("origen") or payload.get("ley"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
                 silo="jurisprudencia_nacional_v2",
@@ -6203,76 +6421,69 @@ async def _fetch_neighbor_chunks(
     if not legislation:
         return []
     
+    # ── SUSTITUIDO (7-ago-2026): del barrido de 50 puntos al número exacto ──
+    #
+    # Antes, para hallar el artículo N-1 se traían CINCUENTA puntos filtrados
+    # sólo por `origen` y se buscaba el vecino entre ellos en Python. Dos veces
+    # por artículo y hasta cinco artículos: quinientos puntos leídos de Qdrant
+    # por consulta para quedarse con seis. Y si el vecino no caía entre esos
+    # cincuenta —que es lo normal en un código de mil artículos— no aparecía.
+    #
+    # Con `articulo_num` indexado en las 34 colecciones, los dos vecinos se
+    # piden por igualdad exacta y todos los de una misma ley en UNA consulta.
+    # Menos trabajo para Qdrant y un resultado que sí es el vecino.
     neighbors = []
     existing_ids = {r.id for r in results}
-    
+
+    # (colección, origen) → números vecinos buscados
+    por_ley: dict = {}
     for r in legislation:
         art_num = _parse_article_number(r.ref or r.texto)
-        if not art_num:
+        if not art_num or not r.origen:
             continue
-        
-        collection = r.silo
-        
-        # Buscar artículos N-1 y N+1 en la misma ley
-        for neighbor_num in [art_num - 1, art_num + 1]:
-            if neighbor_num < 1:
+        clave = (r.silo, r.origen)
+        for vecino in (art_num - 1, art_num + 1):
+            if vecino < 1:
                 continue
-            
-            neighbor_ref_pattern = f"Artículo {neighbor_num}"
-            
-            try:
-                # Build filter: same source file = same law
-                must_conditions = []
-                if r.origen:
-                    must_conditions.append(
-                        FieldCondition(
-                            key="origen",
-                            match=MatchValue(value=r.origen),
-                        )
-                    )
-                
-                scroll_filter = Filter(must=must_conditions) if must_conditions else None
-                
-                # Scroll con filtro: mismo origen
-                scroll_results = await qdrant_client.scroll(
-                    collection_name=collection,
-                    scroll_filter=scroll_filter,
-                    limit=50,  # Scan up to 50 to find the neighbor
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                
-                # Buscar el artículo vecino en los resultados del scroll
-                for point in scroll_results[0]:
-                    point_id = str(point.id)
-                    if point_id in existing_ids:
-                        continue
-                    
-                    payload = point.payload or {}
-                    point_ref = payload.get("ref", "")
-                    point_text = payload.get("texto", payload.get("text", ""))
-                    
-                    # Verificar que es el artículo vecino correcto
-                    point_art_num = _parse_article_number(point_ref or point_text)
-                    if point_art_num == neighbor_num:
-                        neighbors.append(SearchResult(
-                            id=point_id,
-                            score=0.15,  # Score bajo: contexto, no resultado principal
-                            texto=point_text,
-                            ref=point_ref or payload.get("ref"),
-                            origen=payload.get("origen"),
-                            jurisdiccion=payload.get("jurisdiccion"),
-                            entidad=payload.get("entidad"),
-                            silo=collection,
-                            pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
-                        ))
-                        existing_ids.add(point_id)
-                        break  # Encontrado, siguiente vecino
-                
-            except Exception as e:
-                print(f"      ⚠️ Neighbor search falló para Art. {neighbor_num}: {e}")
+            por_ley.setdefault(clave, [])
+            if vecino not in por_ley[clave]:
+                por_ley[clave].append(vecino)
+
+    async def _vecinos_de(coleccion: str, origen: str, numeros: list):
+        # Misma cautela que el salto interno: la clave del nombre de la ley
+        # cambia según cómo se ingirió cada colección.
+        return coleccion, await _buscar_por_ley(
+            qdrant_client, coleccion, origen, numeros,
+            Filter, FieldCondition, MatchValue, MatchAny)
+
+    _respuestas = await asyncio.gather(
+        *[_vecinos_de(c, o, nums[:6]) for (c, o), nums in list(por_ley.items())[:4]],
+        return_exceptions=True)
+
+    for _r in _respuestas:
+        if isinstance(_r, BaseException) or _r is None:
+            continue
+        coleccion, hallado = _r
+        if not hallado or not hallado[0]:
+            continue
+        for point in hallado[0]:
+            point_id = str(point.id)
+            if point_id in existing_ids:
                 continue
-    
+            payload = point.payload or {}
+            neighbors.append(SearchResult(
+                id=point_id,
+                score=0.15,  # Score bajo: contexto, no resultado principal
+                texto=payload.get("texto", payload.get("text", "")),
+                ref=payload.get("ref"),
+                origen=payload.get("origen") or payload.get("ley"),
+                jurisdiccion=payload.get("jurisdiccion"),
+                entidad=payload.get("entidad"),
+                silo=coleccion,
+                pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
+            ))
+            existing_ids.add(point_id)
+
     print(f"   📄 Neighbor chunks: {len(neighbors)} artículos adyacentes encontrados")
     return neighbors[:max_neighbors]
 
@@ -9148,7 +9359,7 @@ async def _direct_article_lookup(
                             score=1.0,  # Exact match = max confidence
                             texto=payload.get("texto", payload.get("text", "")),
                             ref=payload.get("ref"),
-                            origen=payload.get("origen"),
+                            origen=payload.get("origen") or payload.get("ley"),
                             jurisdiccion=payload.get("jurisdiccion"),
                             entidad=payload.get("entidad", payload.get("estado")),
                             silo=best_coll,
@@ -9194,7 +9405,7 @@ async def _direct_article_lookup(
                         score=1.0,
                         texto=payload.get("texto", payload.get("text", "")),
                         ref=payload.get("ref", payload.get("rubro")),
-                        origen=payload.get("origen"),
+                        origen=payload.get("origen") or payload.get("ley"),
                         jurisdiccion=payload.get("jurisdiccion"),
                         entidad=payload.get("entidad"),
                         silo=juris_collection,
@@ -9239,7 +9450,7 @@ async def _direct_article_lookup(
                         score=1.0,
                         texto=payload.get("texto", payload.get("text", "")),
                         ref=payload.get("ref", payload.get("rubro")),
-                        origen=payload.get("origen"),
+                        origen=payload.get("origen") or payload.get("ley"),
                         jurisdiccion=payload.get("jurisdiccion"),
                         entidad=payload.get("entidad"),
                         silo=juris_collection,
@@ -10330,6 +10541,17 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         )
                     except Exception as _xref_err:
                         print(f"   ⚠️ Cross-ref injection failed (non-fatal): {_xref_err}")
+
+                    # ── Salto interno: los artículos que la propia ley cita ──
+                    # Va DESPUÉS del cruce federal para no repetir trabajo, y
+                    # apagable sin desplegar si diera guerra.
+                    if os.getenv("SALTO_INTERNO_ACTIVO", "true").lower() != "false":
+                        try:
+                            search_results = await inyectar_articulos_de_la_misma_ley(
+                                search_results, qdrant_client, max_inyecciones=6
+                            )
+                        except Exception as _salto_err:
+                            print(f"   ⚠️ Salto interno falló (no fatal): {_salto_err}")
                     
                     doc_id_map = build_doc_id_map(search_results)
                     context_xml = format_results_as_xml(search_results, estado=effective_estado, prose_mode=is_chat_drafting)
