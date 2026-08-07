@@ -6484,7 +6484,12 @@ async def _fetch_neighbor_chunks(
             ))
             existing_ids.add(point_id)
 
-    print(f"   📄 Neighbor chunks: {len(neighbors)} artículos adyacentes encontrados")
+    # El recuento dice POR QUÉ cuando sale cero: sin nombre de ley no hay a qué
+    # ley pedirle el vecino, y ese era el caso que quedaba mudo.
+    _sin_ley = sum(1 for r in legislation if not r.origen)
+    print(f"   📄 Neighbor chunks: {len(neighbors)} artículos adyacentes "
+          f"(de {len(legislation)} leyes candidatas, {len(por_ley)} con nombre; "
+          f"{_sin_ley} sin nombre de ley)")
     return neighbors[:max_neighbors]
 
 
