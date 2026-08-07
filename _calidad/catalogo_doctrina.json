@@ -9,7 +9,8 @@
       "editorial": "UNAM, Instituto de Investigaciones Jurídicas",
       "materia": "amparo",
       "bjv_detalle": "https://biblio.juridicas.unam.mx/bjv/detalle-libro/911-ensayos-sobre-el-derecho-de-amparo",
-      "estado": "listo"
+      "estado": "pendiente_ocr",
+      "nota": "Escaneo de 1993 sin capa de texto (verificado: 0 chars extraíbles, 1 imagen/página). Requiere OCR; mientras, Fix-Zamudio está representado vía el Diccionario DPC."
     },
     {
       "clave": "atienza-razones-del-derecho",
