@@ -185,22 +185,38 @@ _RE_COMILLAS = re.compile(r'[«"“]([^»"”]{60,600})[»"”]')
 
 def citas_sin_verificar(respuesta: str, frags: List[Dict[str, Any]]) -> int:
     """Cuántas citas textuales largas atribuidas a la doctrina NO aparecen en
-    los fragmentos. Sólo mira comillas de 60+ caracteres con un autor
-    doctrinal mencionado cerca: las comillas cortas y las de leyes/tesis no
-    son asunto de esta capa."""
+    los fragmentos.
+
+    LA ATRIBUCIÓN EXIGE MÁS QUE UN APELLIDO (7-ago-2026). Ferrer Mac-Gregor es
+    autor del Diccionario Y ministro de la SCJN: con el apellido como única
+    señal, una comilla tomada de una tesis o de un voto suyo se marcaba como
+    «cita doctrinal sin verificar» y la tarjeta advertía en falso. Ahora la
+    comilla es doctrinal sólo si en su ventana aparece el [Doc ID] de un
+    fragmento doctrinal, o el apellido JUNTO a una seña de la obra (su título
+    o el patrón «p. N» de página) — una tesis se cita por registro, no por
+    página de libro."""
     if not frags:
         return 0
     corpus = normalizar(" ".join(f["texto"] for f in frags))
     apellidos = set()
+    tokens_obra = set()
+    ids = {str(f.get("id") or "") for f in frags if f.get("id")}
     for f in frags:
         for token in re.split(r"[,y\s]+", str(f["autor"])):
             if len(token) > 3:
                 apellidos.add(normalizar(token))
+        for token in re.split(r"[\s,«»]+", str(f["obra"])):
+            if len(token) > 5:
+                tokens_obra.add(normalizar(token))
     fallidas = 0
     for m in _RE_COMILLAS.finditer(respuesta or ""):
         cita = m.group(1)
-        contexto = normalizar(respuesta[max(0, m.start() - 220):m.end() + 220])
-        if not any(a in contexto for a in apellidos):
+        ventana_cruda = respuesta[max(0, m.start() - 260):m.end() + 260]
+        ventana = normalizar(ventana_cruda)
+        con_doc_id = any(i and i in ventana_cruda for i in ids)
+        con_autor = any(a in ventana for a in apellidos)
+        con_obra = any(o in ventana for o in tokens_obra) or re.search(r"\bp\.?\s*\d{1,4}\b", ventana_cruda)
+        if not (con_doc_id or (con_autor and con_obra)):
             continue          # no se atribuye a la doctrina: no es nuestro caso
         if normalizar(cita) not in corpus:
             fallidas += 1
