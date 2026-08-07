@@ -10881,15 +10881,62 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     except Exception as _wb:
                         print(f"   🌐 No pude anexar el bloque web: {_wb}")
 
-                # ── Doctrina: anunciar la etapa ────────────────────────────
-                # La recolección ocurre DENTRO del retrieval —así entra al
-                # doc_id_map y al XML con su [Doc ID], que es lo que le da el
-                # botón numerado—. Aquí sólo se anuncia la etapa al flujo.
-                if _doctrina_frags:
-                    _autores = ";".join(dict.fromkeys(
-                        str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
-                    print(f"   📚 Doctrina: {len(_doctrina_frags)} fragmentos · {_autores}")
-                    yield f"<!--PASO:doctrina|{_autores}-->"
+                # ── Doctrina: al MISMO sistema de citas que la ley ────────
+                # Se integra AQUÍ, en el punto común donde convergen las seis
+                # ramas del retrieval —la primera versión vivía dentro de una
+                # sola rama y una consulta conceptual que tomó la constitucional
+                # salió sin doctrina—. Entra a search_results, se EXTIENDE el
+                # doc_id_map y se anexa su XML: con eso el modelo la cita con
+                # [Doc ID], el validador la traza y el frontend le pone su
+                # número con ventana, que es lo que David pidió.
+                if _doctrina_task is not None:
+                    try:
+                        _frags = await asyncio.wait_for(asyncio.shield(_doctrina_task), timeout=6.0)
+                    except Exception as _dfe:
+                        print(f"   📚 Doctrina no llegó a tiempo: {_dfe}")
+                        _frags = []
+                    _xml_doc = []
+                    for _f in (_frags or []):
+                        _doctrina_frags.append(_f)
+                        _anio = f", {_f['anio']}" if _f.get("anio") else ""
+                        _sr = SearchResult(
+                            id=_f["id"],
+                            score=0.70,   # por debajo del acervo: ilustra
+                            texto=_f["texto"],
+                            ref=f"p. {_f['pagina']}",
+                            origen=f"{_f['autor']}, «{_f['obra']}»{_anio}",
+                            jurisdiccion="Doctrina",
+                            silo="doctrina",
+                            # El enlace apunta a la obra EN SU REPOSITORIO, en
+                            # la página exacta. Nunca a nuestro texto.
+                            pdf_url=(f"{_f['url_oficial']}#page={_f['pagina_pdf']}"
+                                     if _f.get("pagina_pdf") else _f.get("url_oficial")),
+                        )
+                        search_results.append(_sr)
+                        doc_id_map[str(_f["id"])] = _sr
+                        import html as _html
+                        _xml_doc.append(
+                            f'<documento id="{_f["id"]}" tipo="DOCTRINA" prioridad="ILUSTRATIVA">'
+                            f'<origen>{_html.escape(_sr.origen)}</origen>'
+                            f'<ref>{_html.escape(_sr.ref)}</ref>'
+                            f'<contenido>{_html.escape(_f["texto"])}</contenido>'
+                            f'</documento>')
+                    if _xml_doc:
+                        context_xml = (context_xml or "") + (
+                            '\n<doctrina>\n'
+                            '<!-- INSTRUCCIÓN DOCTRINA: obras jurídicas de referencia. Úsalas para '
+                            'enriquecer el concepto citándolas con su [Doc ID: uuid] como cualquier '
+                            'fuente. Si citas TEXTUAL: copia el pasaje CARÁCTER POR CARÁCTER del '
+                            'documento, máximo 40 palabras, entre comillas « », seguido de (autor, '
+                            'obra, página) y su [Doc ID]. PROHIBIDO poner comillas a una paráfrasis: '
+                            'si no copias exacto, parafrasea SIN comillas. La doctrina ilustra; el '
+                            'fundamento son la ley y la jurisprudencia. -->\n'
+                            + "\n".join(_xml_doc) + '\n</doctrina>')
+                        _autores = ";".join(dict.fromkeys(
+                            str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
+                        print(f"   📚 Doctrina: {len(_doctrina_frags)} fragmentos · {_autores}")
+                        yield f"<!--PASO:doctrina|{_autores}-->"
+
 
                 # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────
                 #
