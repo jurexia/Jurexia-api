@@ -82,8 +82,9 @@ CATALOGO: list[Motor] = [
         esfuerzo="REDACTOR_PLATINUM_ESFUERZO", max_tokens=32_000,
         planes="platinum, ultra_secretarios, admin",
         nota="Sin plan Platinum cae a Pro, no se rechaza: el abogado igual "
-             "recibe su escrito. OJO: hoy comparte MODELO con Pro y sólo "
-             "cambia el esfuerzo — ver verificar().",
+             "recibe su escrito. Comparte modelo con Pro y se distingue por el "
+             "esfuerzo alto, que en un modelo de razonamiento es más capacidad "
+             "real y más coste — es la configuración elegida, no un descuido.",
     ),
     Motor(
         clave="redaccion_pro", boton="Redactar › Pro", marcador="[MODO_REDACCION_PRO]",
@@ -179,19 +180,25 @@ def verificar() -> list[str]:
             continue
         fallos.append(f"{mo.clave}: la constante {mo.modelo} ya no existe en main.py")
 
-    # La comprobación que motivó todo esto: ¿Pro y Platinum son de verdad
-    # motores distintos? Se vende como «el mejor modelo» y hay que poder
-    # afirmarlo. Si son el mismo, no es un error de programa —arranca y
-    # responde— pero sí una promesa que no se está cumpliendo.
+    # ¿Pro y Platinum se distinguen en ALGO? Compartir modelo no es un
+    # defecto: en un modelo de razonamiento el esfuerzo alto es más capacidad
+    # real y cuesta más, así que Platinum sobre luna-high entrega más que Pro
+    # sobre luna-medium. Es la configuración que eligió David (7-ago-2026) y
+    # esta comprobación NO debe gritar por ella: un contrato que avisa de algo
+    # deliberado enseña a ignorar los avisos.
+    #
+    # Lo que sí sería un fallo silencioso es que coincidieran en las DOS
+    # cosas. Ahí el abogado pagaría el escalón superior por exactamente el
+    # mismo motor, y nadie se enteraría: no hay error, sólo dos constantes
+    # iguales.
     pro = constantes.get("REDACTOR_PRO_MODEL")
     plat = constantes.get("REDACTOR_PLATINUM_MODEL")
-    if pro and plat and pro == plat:
+    esf_pro = constantes.get("REDACTOR_PRO_ESFUERZO")
+    esf_plat = constantes.get("REDACTOR_PLATINUM_ESFUERZO")
+    if pro and plat and pro == plat and esf_pro == esf_plat:
         fallos.append(
-            f"redaccion_pro y redaccion_platinum comparten modelo ({pro}): "
-            f"Platinum sólo se distingue por el esfuerzo de razonamiento "
-            f"({constantes.get('REDACTOR_PRO_ESFUERZO')} vs "
-            f"{constantes.get('REDACTOR_PLATINUM_ESFUERZO')}). "
-            f"Decisión de producto, no de programa.")
+            f"redaccion_pro y redaccion_platinum son IDÉNTICOS ({pro}, "
+            f"esfuerzo {esf_pro}): el escalón superior no entrega nada más.")
 
     return fallos
 
