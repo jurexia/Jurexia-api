@@ -10615,6 +10615,22 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # ── Búsqueda web (complemento, nunca sustituto) ───────────────────
         # Va en paralelo con el RAG: si tarda o falla, la consulta sigue sin
         # ella. Apagable con BUSQUEDA_WEB_ACTIVA=false sin desplegar.
+        # ── Doctrina (obras jurídicas, sólo-cita) ────────────────────────
+        # Corre en paralelo con el RAG, como la web: si no aporta o falla, la
+        # consulta sigue igual. La regla de entrada vive en doctrina.py y está
+        # medida: sólo entra cuando el tema de verdad pega.
+        _doctrina_task = None
+        _doctrina_frags = []          # definida ANTES de cualquier bifurcación
+        try:
+            import doctrina as _doctrina_mod
+            if _doctrina_mod.activa():
+                async def _buscar_doctrina():
+                    v = await get_dense_embedding(last_user_message[:500])
+                    return await _doctrina_mod.buscar(qdrant_client, v, last_user_message)
+                _doctrina_task = asyncio.create_task(_buscar_doctrina())
+        except Exception as _de:
+            print(f"   📚 No pude lanzar la capa doctrinal: {_de}")
+
         _web_tasks = []
         try:
             from busqueda_web import lanzar_agentes
@@ -10848,6 +10864,22 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         yield f"<!--PASO:web|{_det_final if _det_final else SIN_NOVEDADES}-->"
                     except Exception as _wb:
                         print(f"   🌐 No pude anexar el bloque web: {_wb}")
+
+                # ── Doctrina: se recoge, entra al contexto y anuncia su etapa ──
+                _doctrina_frags = []
+                if _doctrina_task is not None:
+                    try:
+                        _doctrina_frags = await asyncio.wait_for(_doctrina_task, timeout=6.0)
+                    except Exception as _dfe:
+                        print(f"   📚 Doctrina no llegó a tiempo: {_dfe}")
+                        _doctrina_frags = []
+                    if _doctrina_frags:
+                        import doctrina as _doctrina_mod
+                        context_xml = (context_xml or "") + "\n\n" + _doctrina_mod.bloque_para_prompt(_doctrina_frags)
+                        _autores = ";".join(dict.fromkeys(
+                            str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
+                        print(f"   📚 Doctrina: {len(_doctrina_frags)} fragmentos · {_autores}")
+                        yield f"<!--PASO:doctrina|{_autores}-->"
 
                 # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────
                 #
@@ -12160,6 +12192,24 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         "dominios oficiales y complementan, sin sustituir, la "
                         "legislación y jurisprudencia del acervo de Iurexia.",
                     ) + "\n\n"
+
+                # ── Doctrina: la tarjeta con la cita verificada ─────────────────
+                # El mismo contrato que el detector del Semanario: sólo se
+                # afirma lo comprobable. Las citas textuales que la respuesta
+                # atribuya a la doctrina se contrastan contra los fragmentos
+                # recuperados; la respuesta ya se transmitió y no se puede
+                # retirar, pero la tarjeta advierte si alguna no se verificó.
+                if _doctrina_frags:
+                    try:
+                        import doctrina as _doctrina_mod
+                        _no_verif = _doctrina_mod.citas_sin_verificar(content_buffer or "", _doctrina_frags)
+                        if _no_verif:
+                            print(f"   📚 ⚠️ {_no_verif} cita(s) doctrinal(es) sin verificar contra la obra")
+                        else:
+                            print(f"   📚 Citas doctrinales verificadas contra los fragmentos")
+                        yield "\n\n" + _doctrina_mod.bloque_doctrina_html(_doctrina_frags, _no_verif) + "\n\n"
+                    except Exception as _dhe:
+                        print(f"   📚 No pude anexar la tarjeta doctrinal: {_dhe}")
 
                 # ── FIX 2026-05-25: Detectar registros digitales alucinados ────
                 # Red de seguridad: después de la respuesta del LLM, extraer todos los
