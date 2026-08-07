@@ -11506,10 +11506,18 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Platinum emite su propio marcador para que la insignia diga la
                 # verdad: si el plan no daba para Platinum, arriba se degradó a
                 # Pro y aquí sale PRO.
+                # De once motores del catálogo (ver motores.py) sólo DOS se
+                # anunciaban. Una respuesta escrita por el escalón base salía
+                # sin insignia, así que el abogado no tenía forma de saber qué
+                # la escribió — y cuando veía PLATINUM con el botón en
+                # Profesional, concluía que las funciones estaban mezcladas.
+                # Ahora los tres escalones de redacción se declaran.
                 if is_chat_drafting_platinum:
                     yield "<!--MODE:PLATINUM-->"
                 elif is_chat_drafting_pro:
                     yield "<!--MODE:PRO-->"
+                elif is_chat_drafting:
+                    yield "<!--MODE:PROFESIONAL-->"
 
                 # ── Emit RAG source count for frontend (filterable) ──
                 if search_results:
