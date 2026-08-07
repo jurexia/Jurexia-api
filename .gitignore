@@ -91,4 +91,6 @@ test.png
 # Banco de calidad: el banco de preguntas SÍ viaja (es parte de la medición);
 # las corridas no, son mediciones locales.
 !_calidad/preguntas.json
+# El catálogo doctrinal también: es la lista aprobada de obras, no un temporal.
+!_calidad/catalogo_doctrina.json
 _calidad/corridas/

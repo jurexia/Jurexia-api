@@ -1,0 +1,156 @@
+{
+  "_comentario": "Catálogo doctrinal aprobado por David el 7-ago-2026. Sólo-cita (art. 148 fr. I LFDA): los vectores viven en Qdrant para retrieval; al usuario sólo cita breve + referencia con página + enlace a la fuente. estado=listo → tiene fuente localizada e ingestable; pendiente_localizar → falta hallar copia pública.",
+  "obras": [
+    {
+      "clave": "fix-zamudio-ensayos-amparo",
+      "autor": "Héctor Fix-Zamudio",
+      "obra": "Ensayos sobre el derecho de amparo",
+      "anio": 1993,
+      "editorial": "UNAM, Instituto de Investigaciones Jurídicas",
+      "materia": "amparo",
+      "bjv_detalle": "https://biblio.juridicas.unam.mx/bjv/detalle-libro/911-ensayos-sobre-el-derecho-de-amparo",
+      "estado": "listo"
+    },
+    {
+      "clave": "atienza-razones-del-derecho",
+      "autor": "Manuel Atienza",
+      "obra": "Las razones del derecho. Teorías de la argumentación jurídica",
+      "anio": 2005,
+      "editorial": "UNAM, Instituto de Investigaciones Jurídicas",
+      "materia": "argumentacion",
+      "bjv_detalle": "https://biblio.juridicas.unam.mx/bjv/detalle-libro/710-las-razones-del-derecho-teorias-de-la-argumentacion-juridica",
+      "estado": "listo"
+    },
+    {
+      "clave": "carbonell-derechos-fundamentales",
+      "autor": "Miguel Carbonell",
+      "obra": "Los derechos fundamentales en México",
+      "anio": 2004,
+      "editorial": "UNAM, Instituto de Investigaciones Jurídicas",
+      "materia": "constitucional",
+      "licencia": "CC BY-NC-ND 4.0",
+      "bjv_detalle": "https://biblio.juridicas.unam.mx/bjv/detalle-libro/1408-los-derechos-fundamentales-en-mexico",
+      "estado": "listo"
+    },
+    {
+      "clave": "ferrer-panoramica-dpc",
+      "autor": "Eduardo Ferrer Mac-Gregor",
+      "obra": "Panorámica del derecho procesal constitucional y convencional",
+      "anio": 2017,
+      "editorial": "UNAM-Marcial Pons",
+      "materia": "constitucional",
+      "bjv_detalle": "https://biblio.juridicas.unam.mx/bjv/detalle-libro/3384-panoramica-del-derecho-procesal-constitucional-y-convencional",
+      "estado": "listo"
+    },
+    {
+      "clave": "diccionario-dpc-t1",
+      "autor": "Ferrer Mac-Gregor, Martínez Ramírez y Figueroa Mejía (coords.)",
+      "obra": "Diccionario de derecho procesal constitucional y convencional, t. I",
+      "anio": 2014,
+      "editorial": "UNAM, Instituto de Investigaciones Jurídicas",
+      "materia": "constitucional",
+      "bjv_detalle": "https://biblio.juridicas.unam.mx/bjv/detalle-libro/3632-diccionario-de-derecho-procesal-constitucional-y-convencional-t-i",
+      "estado": "listo"
+    },
+    {
+      "clave": "diccionario-dpc-t2",
+      "autor": "Ferrer Mac-Gregor, Martínez Ramírez y Figueroa Mejía (coords.)",
+      "obra": "Diccionario de derecho procesal constitucional y convencional, t. II",
+      "anio": 2014,
+      "editorial": "UNAM, Instituto de Investigaciones Jurídicas",
+      "materia": "constitucional",
+      "bjv_detalle": "https://biblio.juridicas.unam.mx/bjv/detalle-libro/3633-diccionario-de-derecho-procesal-constitucional-y-convencional-t-ii",
+      "estado": "listo"
+    },
+    {
+      "clave": "guastini-interpretacion",
+      "autor": "Riccardo Guastini",
+      "obra": "Estudios sobre la interpretación jurídica",
+      "anio": 1999,
+      "editorial": "UNAM, Instituto de Investigaciones Jurídicas",
+      "materia": "argumentacion",
+      "estado": "pendiente_localizar",
+      "nota": "En RU Jurídicas handle 10567; falta URL de PDF descargable"
+    },
+    {
+      "clave": "burgoa-juicio-amparo",
+      "autor": "Ignacio Burgoa Orihuela",
+      "obra": "El juicio de amparo",
+      "editorial": "Porrúa",
+      "materia": "amparo",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "couture-fundamentos",
+      "autor": "Eduardo J. Couture",
+      "obra": "Fundamentos del derecho procesal civil",
+      "editorial": "Depalma",
+      "materia": "procesal",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "gomez-lara-teoria-proceso",
+      "autor": "Cipriano Gómez Lara",
+      "obra": "Teoría general del proceso",
+      "editorial": "Oxford University Press",
+      "materia": "procesal",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "ovalle-teoria-proceso",
+      "autor": "José Ovalle Favela",
+      "obra": "Teoría general del proceso",
+      "editorial": "Oxford University Press",
+      "materia": "procesal",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "chiovenda-instituciones",
+      "autor": "Giuseppe Chiovenda",
+      "obra": "Instituciones de derecho procesal civil",
+      "editorial": "Revista de Derecho Privado (trad.)",
+      "materia": "procesal",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "alexy-argumentacion",
+      "autor": "Robert Alexy",
+      "obra": "Teoría de la argumentación jurídica",
+      "editorial": "CEPC (trad.)",
+      "materia": "argumentacion",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "aguilo-fuentes",
+      "autor": "Josep Aguiló Regla",
+      "obra": "Teoría general de las fuentes del derecho",
+      "editorial": "Ariel",
+      "materia": "argumentacion",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "borja-soriano-obligaciones",
+      "autor": "Manuel Borja Soriano",
+      "obra": "Teoría general de las obligaciones",
+      "editorial": "Porrúa",
+      "materia": "civil",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "rojina-compendio-civil",
+      "autor": "Rafael Rojina Villegas",
+      "obra": "Compendio de derecho civil",
+      "editorial": "Porrúa",
+      "materia": "civil",
+      "estado": "pendiente_localizar"
+    },
+    {
+      "clave": "de-la-cueva-derecho-trabajo",
+      "autor": "Mario de la Cueva",
+      "obra": "El nuevo derecho mexicano del trabajo",
+      "editorial": "Porrúa",
+      "materia": "laboral",
+      "estado": "pendiente_localizar"
+    }
+  ]
+}
