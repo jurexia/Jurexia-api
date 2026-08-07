@@ -83,6 +83,7 @@ async def buscar(qdrant_client, dense_vector, consulta: str) -> List[Dict[str, A
             continue
         pl = p.payload or {}
         frags.append({
+            "id": str(p.id),
             "score": p.score,
             "texto": pl.get("texto", ""),
             "autor": pl.get("autor", ""),
@@ -130,22 +131,30 @@ def bloque_doctrina_html(frags: List[Dict[str, Any]], citas_no_verificadas: int 
     del chat convierte los saltos en <br/>."""
     if not frags:
         return ""
-    vistos = set()
+    # Agrupada POR OBRA, con las páginas juntas: dos fragmentos del mismo tomo
+    # salían como dos filas idénticas (pp. 711 y 712) y parecía un error.
+    obras: dict = {}
+    for f in frags:
+        if not f.get("url_oficial"):
+            continue
+        clave = (f["autor"], f["obra"])
+        o = obras.setdefault(clave, {**f, "paginas": []})
+        if f.get("pagina") and f["pagina"] not in o["paginas"]:
+            o["paginas"].append(f["pagina"])
+
     partes = ['<div class="fuentes-web"><div class="fw-cab">'
               '<span class="fw-globo">\U0001F4DA</span>'
               '<span>Doctrina consultada</span></div><div class="fw-lista">']
-    for f in frags:
-        clave = (f["autor"], f["obra"], f["pagina"])
-        if clave in vistos or not f.get("url_oficial"):
-            continue
-        vistos.add(clave)
-        enlace = f"{f['url_oficial']}#page={f['pagina_pdf']}" if f.get("pagina_pdf") else f["url_oficial"]
-        anio = f", {f['anio']}" if f.get("anio") else ""
+    for (autor, obra), o in obras.items():
+        pags = sorted(p for p in o["paginas"] if p)
+        etiqueta = ("p. " + str(pags[0])) if len(pags) == 1 else ("pp. " + ", ".join(map(str, pags)))
+        enlace = f"{o['url_oficial']}#page={o['pagina_pdf']}" if o.get("pagina_pdf") else o["url_oficial"]
+        anio = f", {o['anio']}" if o.get("anio") else ""
         partes.append(
             f'<a class="fw-item" href="{_esc(enlace)}" target="_blank" rel="noopener noreferrer">'
             f'<span class="fw-ico fw-ico--oficial"></span>'
-            f'<span class="fw-txt"><span class="fw-tit">{_esc(f["autor"])} — {_esc(f["obra"])}</span>'
-            f'<span class="fw-dom">{_esc(f.get("editorial") or "")}{_esc(anio)} · p. {_esc(f["pagina"])}</span></span>'
+            f'<span class="fw-txt"><span class="fw-tit">{_esc(autor)} — {_esc(obra)}</span>'
+            f'<span class="fw-dom">{_esc(o.get("editorial") or "")}{_esc(anio)} · {_esc(etiqueta)}</span></span>'
             f'<span class="fw-flecha">&#8599;</span></a>')
     nota = ("Referencias doctrinales con su página; el enlace abre la obra en su "
             "repositorio oficial. La doctrina ilustra el concepto; el fundamento "

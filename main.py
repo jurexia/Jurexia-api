@@ -5429,6 +5429,18 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             f'TRANSCRIBE el texto de estos artículos PRIMERO con su [Doc ID: uuid]. '
             f'La jurisprudencia va DESPUÉS como complemento interpretativo. -->'
         )
+
+    if any(r.silo == "doctrina" for r in results):
+        xml_parts.append(
+            '<!-- INSTRUCCIÓN DOCTRINA: Los documentos tipo="DOCTRINA" son obras '
+            'jurídicas de referencia. Úsalos para enriquecer el concepto citándolos '
+            'con su [Doc ID: uuid] como cualquier fuente. Si citas TEXTUAL: copia el '
+            'pasaje CARÁCTER POR CARÁCTER del documento, máximo 40 palabras, entre '
+            'comillas « », seguido de (autor, obra, página) y su [Doc ID]. PROHIBIDO '
+            'poner comillas a una paráfrasis: si no copias exacto, parafrasea SIN '
+            'comillas. La doctrina ilustra; el fundamento son la ley y la '
+            'jurisprudencia. -->'
+        )
     
     # ── REGLA DE JERARQUÍA: Reordenar para que CPEUM/leyes precedan jurisprudencia ──
     # Esto garantiza que el LLM vea primero la norma vigente y después las tesis.
@@ -5468,6 +5480,10 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
                 tipo_tag = ' tipo="CONSTITUCION" prioridad="SUPREMA"'
         elif r.silo in ("leyes_federales", "codigo_nacional"):
             tipo_tag = ' tipo="LEY_FEDERAL" prioridad="PRIMARIA"'
+        elif r.silo == "doctrina":
+            # La doctrina ilustra: prioridad explícita para que el modelo no la
+            # trate como norma. La instrucción de cita exacta va aparte, abajo.
+            tipo_tag = ' tipo="DOCTRINA" prioridad="ILUSTRATIVA"'
         
         # Obtener jerarquía para el XML
         jerarquia = _get_jerarquia_label(r.silo)
@@ -10865,21 +10881,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     except Exception as _wb:
                         print(f"   🌐 No pude anexar el bloque web: {_wb}")
 
-                # ── Doctrina: se recoge, entra al contexto y anuncia su etapa ──
-                _doctrina_frags = []
-                if _doctrina_task is not None:
-                    try:
-                        _doctrina_frags = await asyncio.wait_for(_doctrina_task, timeout=6.0)
-                    except Exception as _dfe:
-                        print(f"   📚 Doctrina no llegó a tiempo: {_dfe}")
-                        _doctrina_frags = []
-                    if _doctrina_frags:
-                        import doctrina as _doctrina_mod
-                        context_xml = (context_xml or "") + "\n\n" + _doctrina_mod.bloque_para_prompt(_doctrina_frags)
-                        _autores = ";".join(dict.fromkeys(
-                            str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
-                        print(f"   📚 Doctrina: {len(_doctrina_frags)} fragmentos · {_autores}")
-                        yield f"<!--PASO:doctrina|{_autores}-->"
+                # ── Doctrina: anunciar la etapa ────────────────────────────
+                # La recolección ocurre DENTRO del retrieval —así entra al
+                # doc_id_map y al XML con su [Doc ID], que es lo que le da el
+                # botón numerado—. Aquí sólo se anuncia la etapa al flujo.
+                if _doctrina_frags:
+                    _autores = ";".join(dict.fromkeys(
+                        str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
+                    print(f"   📚 Doctrina: {len(_doctrina_frags)} fragmentos · {_autores}")
+                    yield f"<!--PASO:doctrina|{_autores}-->"
 
                 # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────
                 #
