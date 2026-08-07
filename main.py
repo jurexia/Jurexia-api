@@ -6381,10 +6381,21 @@ async def _do_enrichment_search(
 
 
 def _parse_article_number(text: str) -> Optional[int]:
-    """Extrae el número de artículo de un campo ref o texto."""
+    """Extrae el número de artículo de un campo `ref` o de un texto.
+
+    OJO (7-ago-2026): el patrón anterior decía reconocer «Art. 123» pero NO
+    podía: exigía `art` seguido de `[íi]culo`, así que la abreviatura nunca
+    casaba. Como las colecciones estatales escriben «Art. 923» —y las
+    federales «Artículo 923.»—, los artículos vecinos llevaban muertos para
+    TODO el corpus estatal, en silencio y devolviendo cero. Lo delató el
+    recuento diagnóstico: «5 leyes candidatas, 0 con nombre».
+
+    Ahora «ículo» es opcional y «Sección 283» sigue sin casar, que es lo
+    correcto: una sección no es un artículo.
+    """
     import re
-    # Match: "Artículo 19", "Art. 123", "ARTÍCULO 45"
-    match = re.search(r'[Aa]rt[íi]culos?\s*\.?\s*(\d+)', text or "")
+    # «Artículo 19» · «Art. 123» · «ARTÍCULO 45» · «Artículos 52 y 53»
+    match = re.search(r'\bart(?:[íi]culos?|s)?\.?\s*(\d+)', text or "", re.I)
     if match:
         return int(match.group(1))
     return None
