@@ -6319,29 +6319,39 @@ async def _cross_silo_enrichment(
     4. Retornar resultados nuevos (sin duplicados)
     """
     refs = _extract_legal_refs(initial_results)
-    if not refs:
-        return []
-    
-    print(f"   🔗 Cross-silo refs extraídas: {refs}")
-    
+
     enrichment_results = []
     existing_ids = {r.id for r in initial_results}
-    
-    # Formular queries de enriquecimiento
     enrichment_tasks = []
+
+    # La Constitución se consulta SIEMPRE y con la pregunta del abogado, no
+    # con una consulta derivada de las referencias ya halladas.
+    #
+    # Antes sólo se buscaba a partir de esas referencias, así que una pregunta
+    # sobre un principio constitucional —«interés superior de la niñez»— no
+    # disparaba ninguna búsqueda constitucional si la primera pasada no había
+    # traído ya un artículo. Y si no había referencias, la función se salía
+    # aquí mismo sin buscar nada. Por eso una consulta de derecho familiar
+    # terminaba diciendo «el contexto no recupera el texto literal del
+    # Artículo 4o»: nunca se preguntó por él.
+    enrichment_tasks.append(_buscar_en_la_constitucion(query, top_k=4))
+
+    if refs:
+        print(f"   🔗 Cross-silo refs extraídas: {refs}")
     
-    for ref in refs[:3]:
-        # Buscar jurisprudencia que cite este artículo/ley
-        juris_query = f"tesis jurisprudencia criterio judicial {ref}"
-        enrichment_tasks.append(
-            _do_enrichment_search("jurisprudencia_nacional_v2", juris_query)
-        )
-        
-        # Buscar fundamento constitucional relacionado
-        const_query = f"constitución derecho fundamental garantía {ref}"
-        enrichment_tasks.append(
-            _do_enrichment_search("bloque_constitucional", const_query)
-        )
+        for ref in refs[:3]:
+            # Buscar jurisprudencia que cite este artículo/ley
+            juris_query = f"tesis jurisprudencia criterio judicial {ref}"
+            enrichment_tasks.append(
+                _do_enrichment_search("jurisprudencia_nacional_v2", juris_query)
+            )
+
+            # El bloque convencional (CoIDH, tratados) por su cuenta: aporta,
+            # pero ya no le quita el sitio a la Constitución.
+            const_query = f"constitución derecho fundamental garantía {ref}"
+            enrichment_tasks.append(
+                _do_enrichment_search("bloque_constitucional", const_query)
+            )
     
     # Ejecutar todas las búsquedas en paralelo
     all_enriched = await asyncio.gather(*enrichment_tasks)
@@ -6360,8 +6370,10 @@ async def _cross_silo_enrichment(
 async def _do_enrichment_search(
     collection: str,
     query: str,
+    filtro=None,
+    top_k: int = 4,
 ) -> List[SearchResult]:
-    """Ejecuta una búsqueda ligera para enrichment (solo dense, sin filtros)."""
+    """Ejecuta una búsqueda ligera para enrichment."""
     try:
         dense_vector = await get_dense_embedding(query)
         sparse_vector = get_sparse_embedding(query)
@@ -6370,14 +6382,40 @@ async def _do_enrichment_search(
             query=query,
             dense_vector=dense_vector,
             sparse_vector=sparse_vector,
-            filter_=None,
-            top_k=4,
+            filter_=filtro,
+            top_k=top_k,
             alpha=0.7,
         )
         return results
     except Exception as e:
         print(f"      ⚠️ Enrichment search falló en {collection}: {e}")
         return []
+
+
+async def _buscar_en_la_constitucion(consulta: str, top_k: int = 4) -> List[SearchResult]:
+    """La Constitución compitiendo CONTRA SÍ MISMA, no contra el silo entero.
+
+    EL PROBLEMA, MEDIDO (7-ago-2026)
+    `bloque_constitucional` tiene 6,823 fragmentos y la CPEUM son 355: el 5 %.
+    El otro 95 % son cuadernillos de la CoIDH (76 %), convenciones (13 %) y
+    sentencias interamericanas (4 %).
+
+    Y los párrafos de la CoIDH ganan siempre, porque están escritos SOBRE el
+    concepto: para «interés superior de la niñez» puntúan 0.59-0.66 y el
+    artículo 4º constitucional 0.39. Resultado: la norma suprema del orden
+    jurídico mexicano no entraba nunca al contexto, y la respuesta salía
+    diciendo «el contexto no recupera el texto literal del Artículo 4o».
+
+    Con el filtro por tipo, ese mismo artículo 4º sale PRIMERO. No es un
+    reordenamiento: es dejar de comparar una norma con sus comentaristas.
+    """
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    return await _do_enrichment_search(
+        "bloque_constitucional",
+        consulta,
+        filtro=Filter(must=[FieldCondition(key="tipo", match=MatchValue(value="constitucion"))]),
+        top_k=top_k,
+    )
 
 
 def _parse_article_number(text: str) -> Optional[int]:
