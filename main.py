@@ -13115,7 +13115,16 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
                         yield chunk.text
                 
                 print(f"   📝 Chat sentencia respuesta: {len(content_buffer)} chars")
-                
+
+                # La misma comprobación que /chat: un registro que no viajó en
+                # el contexto lo escribió el modelo de memoria. Esta ruta la
+                # usa un juzgador revisando una sentencia — si algún sitio no
+                # admite una cita sin respaldo, es éste.
+                _rf = registros_fuera_del_contexto(content_buffer or "", search_results or [])
+                if _rf:
+                    print(f"   🚨 SENTENCIA · REGISTROS FUERA DEL CONTEXTO ({len(_rf)}): {', '.join(_rf[:12])}")
+                    yield f"<!--REGISTROS_FUERA:{','.join(_rf)}-->"
+
                 # Emit metadata if RAG was used
                 if rag_context and search_results:
                     doc_id_map = build_doc_id_map(search_results)
