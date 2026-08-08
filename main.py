@@ -5703,6 +5703,55 @@ def repair_hallucinated_uuids(
     return repaired_text
 
 
+_RE_REGISTRO_CITADO = re.compile(
+    r"[Rr]egistro(?:\s+digital)?\s*(?:n[uú]m(?:ero)?\.?)?\s*[:.]?\s*(\d{6,8})")
+
+
+def registros_fuera_del_contexto(respuesta: str, search_results: List[SearchResult]) -> List[str]:
+    """Registros digitales citados que NO estaban en el contexto recuperado.
+
+    POR QUÉ ESTO NO SE PODÍA RESOLVER PIDIÉNDOLO (8-ago-2026)
+    ---------------------------------------------------------
+    El prompt maestro prohíbe inventar registros de forma explícita y en
+    cuatro sitios distintos. Aun así, un abogado reportó que «al solicitarle
+    tesis, SIEMPRE se equivoca». Al contrastar sus conversaciones contra el
+    Semanario: los 180 registros citados EXISTÍAN —ni uno inventado— pero de
+    12 pares (registro ↔ rubro) revisados, los 12 estaban MAL EMPAREJADOS.
+    «TUTELA JUDICIAL EFECTIVA» (2000004) es en realidad «CHEQUES. SON TÍTULOS
+    PAGADEROS A LA VISTA».
+
+    Ninguno de esos registros estaba en nuestro corpus: el modelo los escribió
+    de memoria y acertaron por azar. El espacio de registros es tan denso que
+    casi cualquier número plausible corresponde a ALGUNA tesis real, así que
+    comprobar la existencia contra el Semanario no detecta nada. Delatan el
+    patrón las series correlativas —2000001-2000004, 2008402-2008407—: los
+    registros reales de un mismo tema nunca salen seguidos.
+
+    Eso es más grave que inventar un número: la cita PARECE verificable y
+    resiste el primer clic. El abogado que la copia a un escrito queda
+    expuesto ante un tribunal.
+
+    La única defensa que no depende de la buena voluntad del modelo es
+    aritmética: si el número no viaja en el contexto, no puede citarse.
+    """
+    if not respuesta:
+        return []
+    del_contexto = {
+        str(r.registro).strip()
+        for r in (search_results or [])
+        if getattr(r, "registro", None)
+    }
+    fuera, vistos = [], set()
+    for m in _RE_REGISTRO_CITADO.finditer(respuesta):
+        reg = m.group(1)
+        if reg in vistos:
+            continue
+        vistos.add(reg)
+        if reg not in del_contexto:
+            fuera.append(reg)
+    return fuera
+
+
 def build_doc_id_map(search_results: List[SearchResult]) -> Dict[str, SearchResult]:
     """
     Construye un diccionario de Doc ID -> SearchResult para validación rápida.
@@ -12374,6 +12423,17 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     else:
                         print(f"   ✅ Validación OK: {validation.valid_count} citas verificadas")
                     
+                    # ── Registros citados que NO venían en el contexto ──────
+                    # Se emiten al frontend para que el sello los marque como
+                    # no comprobables contra el acervo. No se pueden retirar
+                    # del texto —ya se transmitió por streaming— pero el
+                    # abogado tiene que verlo señalado ANTES de copiarlo a un
+                    # escrito, que es donde el error se vuelve caro.
+                    _regs_fuera = registros_fuera_del_contexto(content_buffer or "", search_results)
+                    if _regs_fuera:
+                        print(f"   🚨 REGISTROS FUERA DEL CONTEXTO ({len(_regs_fuera)}): {', '.join(_regs_fuera[:12])}")
+                        yield f"<!--REGISTROS_FUERA:{','.join(_regs_fuera)}-->"
+
                     # Always emit CITATION_META with sources map (includes repair aliases)
                     meta = json.dumps({
                         "valid": validation.valid_count,
