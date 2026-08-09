@@ -484,13 +484,30 @@ TRATADOS INTERNACIONALES:
 - Convención sobre los Derechos del Niño
 - Otros tratados ratificados por México
 
-LEGISLACIÓN DE LAS 32 ENTIDADES FEDERATIVAS:
-Aguascalientes, Baja California, Baja California Sur, Campeche, Chiapas,
-Chihuahua, Ciudad de México, Coahuila, Colima, Durango, Guanajuato, Guerrero,
-Hidalgo, Jalisco, Estado de México, Michoacán, Morelos, Nayarit, Nuevo León,
-Oaxaca, Puebla, Querétaro, Quintana Roo, San Luis Potosí, Sinaloa, Sonora,
-Tabasco, Tamaulipas, Tlaxcala, Veracruz, Yucatán, Zacatecas.
-(Incluye Códigos Penales, Civiles, Familiares y Procedimientos de cada entidad)
+LEGISLACIÓN DE LAS 32 ENTIDADES FEDERATIVAS — CON PROFUNDIDAD DESIGUAL:
+
+Este inventario decía «las 32 entidades (incluye Códigos Penales, Civiles,
+Familiares y Procedimientos de cada entidad)». Medido contra Qdrant el
+10-ago-2026, era falso para 19 de las 32: no todas tienen código familiar
+ni procesal penal propios, y varias no tienen su Constitución estatal.
+Prometer de más aquí es la peor de las causas de invención, porque el
+modelo confía en el inventario por encima del contexto que sí recibió: si
+cree que debería tener la norma y no la ve, la reconstruye.
+
+- Cobertura amplia (más de 100 ordenamientos): Estado de México, Guerrero,
+  Ciudad de México, Nuevo León, Jalisco, Veracruz, Michoacán, Sinaloa,
+  Morelos, Querétaro, Puebla, Guanajuato.
+- Cobertura media: Chihuahua, Oaxaca, Yucatán.
+- Cobertura básica — sólo sus códigos principales y unas pocas leyes:
+  Aguascalientes, Baja California, Baja California Sur, Campeche, Chiapas,
+  Coahuila, Colima, Durango, Hidalgo, Nayarit, Quintana Roo, San Luis
+  Potosí, Sonora, Tabasco, Tamaulipas, Tlaxcala, Zacatecas.
+
+REGLA: no afirmes tener un ordenamiento estatal que no venga en el
+contexto recuperado, y no lo cites de memoria. Si no está, dilo con
+claridad, nombra la norma federal o supletoria que sí puedes citar, y
+sigue adelante con eso. Decir «no tengo ese ordenamiento» es una
+respuesta correcta; inventarlo no lo es nunca.
 
 JURISPRUDENCIA:
 - Tesis y Jurisprudencias de la SCJN (1917-2025)
@@ -10486,11 +10503,38 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     )
                 else:
                     # Consulta normal
+                    #
+                    # EL ESTADO QUE SE NOMBRA EN LA PREGUNTA MANDA SOBRE EL DEL
+                    # SELECTOR (10-ago-2026).
+                    #
+                    # Antes el texto sólo se miraba si el selector venía vacío, y
+                    # eso producía el peor fallo posible: preguntar «en el fuero
+                    # común de Nayarit…» con Querétaro puesto en la barra
+                    # devolvía el Código Penal de Querétaro, artículo por
+                    # artículo, presentado con total naturalidad —«que es el
+                    # estado desde el que se realiza la consulta»—. Derecho
+                    # correcto, entidad equivocada: parece impecable y no hay
+                    # nada en pantalla que lo delate.
+                    #
+                    # El selector es una preferencia que quedó puesta hace
+                    # sesiones; el estado escrito en la pregunta es explícito y
+                    # es de ahora. Gana el segundo. `detect_single_estado_from_query`
+                    # sólo responde cuando hay UNA entidad mencionada, así que
+                    # las comparativas no entran por aquí (las atiende
+                    # `detect_multi_state_query` más arriba), y con fuero federal
+                    # no se toca nada.
                     effective_estado = request.estado
-                    if not effective_estado:
-                        auto_estado = detect_single_estado_from_query(last_user_message)
-                        if auto_estado:
-                            effective_estado = auto_estado
+                    _estado_en_texto = detect_single_estado_from_query(last_user_message)
+                    if (
+                        _estado_en_texto
+                        and request.fuero != "federal"
+                        and _estado_en_texto != effective_estado
+                    ):
+                        print(
+                            f"   ⚖️ ESTADO POR TEXTO: la pregunta dice {_estado_en_texto} "
+                            f"y el selector marca {effective_estado or 'ninguno'} — manda la pregunta"
+                        )
+                        effective_estado = _estado_en_texto
 
                     # ── DIRECT LOOKUP: extrae artículos explícitos del query ──────
                     # Corre en paralelo con la búsqueda semántica.
