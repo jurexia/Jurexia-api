@@ -462,6 +462,45 @@ def _is_cache_valid(genio_id: str) -> bool:
     return elapsed < (ttl_seconds * 0.98)
 
 
+def _reloj_desde_caducidad(remote_cache) -> float:
+    """Traduce el `expire_time` de Google a nuestro reloj de creación.
+
+    Devuelve el instante en que ESTE caché tendría que haber nacido para que
+    nuestro TTL local caduque a la vez que el suyo. Si Google no da la fecha
+    —o no se puede leer— se asume lo peor: que está a punto de morir. Vale
+    más recrear un caché de sobra que entregar uno muerto.
+    """
+    ttl = CACHE_TTL_MINUTES * 60
+    exp = getattr(remote_cache, "expire_time", None)
+    if exp is None:
+        return time.time() - ttl - 1.0       # se da por caducado, sin empates
+    try:
+        restante = exp.timestamp() - time.time()
+    except Exception:
+        return time.time() - ttl - 1.0
+    # nacimiento_equivalente = ahora - (ttl - restante)
+    return time.time() - max(0.0, ttl - max(0.0, restante))
+
+
+def invalidar(genio_id: str, cache_name: Optional[str] = None) -> None:
+    """Olvida el caché de un genio.
+
+    Se llama cuando Gemini rechaza la referencia (403 / 400 INVALID_ARGUMENT):
+    si allá no existe, aquí no debe seguir anotado. Sin esto el nombre muerto
+    se reutiliza en cada consulta siguiente y el error se vuelve permanente.
+
+    `cache_name` opcional evita una carrera: sólo borra si el que falló sigue
+    siendo el vigente, para no tirar un caché recién creado por otro hilo.
+    """
+    state = _get_state(genio_id)
+    if cache_name and state.cache_name != cache_name:
+        return
+    if state.cache_name:
+        logger.warning(f"  [{genio_id}] Caché invalidado localmente: {state.cache_name}")
+    state.cache_name = None
+    state.cache_created_at = 0.0
+
+
 async def _refresh_cache_ttl(genio_id: str, cache_name: str):
     """Background task to extend the TTL of an active cache."""
     try:
@@ -472,9 +511,18 @@ async def _refresh_cache_ttl(genio_id: str, cache_name: str):
             name=cache_name,
             config=gtypes.UpdateCachedContentConfig(ttl=f"{ttl_seconds}s")
         )
+        # El reloj de aquí sólo avanza CUANDO Google ya confirmó la
+        # extensión, nunca antes. Adelantarlo de forma optimista es lo que
+        # abría la ventana en la que entregábamos un caché ya borrado.
+        state = _get_state(genio_id)
+        if state.cache_name == cache_name:
+            state.cache_created_at = time.time()
         logger.info(f"  [{genio_id}] Cache TTL refreshed: {cache_name}")
     except Exception as e:
+        # Si no se pudo extender, el caché de allá caduca antes que el reloj
+        # de acá y quedaríamos entregando un puntero muerto. Se olvida.
         logger.error(f"  [{genio_id}] Failed to refresh cache TTL: {e}")
+        invalidar(genio_id, cache_name)
 
 
 async def get_or_create_cache(genio_id: str = "amparo") -> Optional[str]:
@@ -493,7 +541,9 @@ async def get_or_create_cache(genio_id: str = "amparo") -> Optional[str]:
 
     # Tier 1: Local Valid Cache
     if _is_cache_valid(genio_id):
-        state.cache_created_at = time.time()
+        # Sin `state.cache_created_at = time.time()` aquí: el reloj lo mueve
+        # `_refresh_cache_ttl` sólo si Google confirma. Si la extensión falla,
+        # ese mismo camino invalida el caché en vez de dejarlo entregándose.
         asyncio.create_task(_refresh_cache_ttl(genio_id, state.cache_name))
         return state.cache_name
 
@@ -506,7 +556,11 @@ async def get_or_create_cache(genio_id: str = "amparo") -> Optional[str]:
         remote_cache = await _find_existing_cache_remote(genio_id)
         if remote_cache:
             state.cache_name = remote_cache.name
-            state.cache_created_at = time.time()
+            # Un caché adoptado NO nace ahora: puede llevar dos de sus tres
+            # minutos gastados. Darle el TTL completo aquí es la misma
+            # ventana de puntero muerto por otra puerta, así que el reloj se
+            # ancla a lo que Google dice que le queda de vida.
+            state.cache_created_at = _reloj_desde_caducidad(remote_cache)
             asyncio.create_task(_refresh_cache_ttl(genio_id, state.cache_name))
             logger.info(f"🔄 [{genio_id}] Adopted remote cache: {state.cache_name}")
             return state.cache_name
@@ -516,12 +570,37 @@ async def get_or_create_cache(genio_id: str = "amparo") -> Optional[str]:
 
 
 def get_cache_name(genio_id: str = "amparo") -> Optional[str]:
-    """Get current active cache name for a genio (sync)."""
-    state = _get_state(genio_id)
-    if _is_cache_valid(genio_id):
-        state.cache_created_at = time.time()
-        return state.cache_name
-    return None
+    """Nombre del caché vigente de un genio (síncrono).
+
+    NO toca `cache_created_at`. Leer no rejuvenece nada.
+
+    LA INVARIANTE QUE ESTO PROTEGE (10-ago-2026)
+    --------------------------------------------
+    El reloj de aquí tiene que caducar ANTES que el caché de Google, nunca
+    después. `_create_cache` los arranca a la vez con el mismo TTL, así que
+    la invariante se cumple sola... hasta que alguien reinicia el reloj de
+    aquí sin extender el de allá.
+
+    Esta función hacía justo eso: `state.cache_created_at = time.time()` en
+    cada lectura. La versión asíncrona también lo reinicia, pero además
+    lanza `_refresh_cache_ttl`, que extiende el caché remoto; ésta no. Cada
+    lectura le regalaba tres minutos de vida imaginaria a un caché que en
+    Google ya se había borrado.
+
+    Qué producía: el servidor mandaba `cached_content=cachedContents/…` de
+    un caché inexistente y Gemini contestaba 403 —o 400 INVALID_ARGUMENT,
+    según la ruta— que llegaba tal cual al abogado. Y como el nombre muerto
+    se quedaba anotado, la conversación no volvía a funcionar nunca: una
+    suscriptora de pago escribió once veces a soporte el mismo día porque
+    su chat quedó roto para siempre. Comprobado ese día: cero cachés vivos
+    en Gemini y dos nombres de hace cinco y siete horas todavía guardados
+    aquí; pedir uno devolvía 403.
+
+    Al no reiniciar el reloj, lo peor que puede pasar es desaprovechar un
+    caché que aún vivía — se recrea y ya. Antes, lo peor que pasaba era
+    romperle el producto a quien paga.
+    """
+    return _get_state(genio_id).cache_name if _is_cache_valid(genio_id) else None
 
 
 async def get_cache_name_async(genio_id: str = "amparo") -> Optional[str]:
