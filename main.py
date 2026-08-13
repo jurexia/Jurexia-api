@@ -12572,15 +12572,57 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 print(f"   📝 Respuesta ({len(content_buffer)} chars content{thinking_info})")
                 
             except Exception as e:
+                # SI NO LLEGÓ NADA, LA CONSULTA SE DEVUELVE (10-ago-2026)
+                #
+                # `consume_query` descuenta al ENTRAR a /chat, antes de buscar y
+                # antes de llamar al modelo. Cuando algo falla aquí, el abogado
+                # se quedaba sin respuesta Y sin consulta. Dos usuarias lo
+                # reportaron; una lo escribió tal cual: «encima de la respuesta
+                # errónea me quita una consulta».
+                #
+                # El criterio es el búfer, no el tipo de excepción: si no salió
+                # ni un carácter, no hubo servicio y no hay nada que cobrar. Si
+                # ya había texto, se respeta el cobro aunque el final se corte
+                # —el trabajo se hizo y el usuario puede pedir «continúa»—.
+                #
+                # Cortar desde el navegador NO entra por aquí: eso llega como
+                # CancelledError/GeneratorExit, que heredan de BaseException y
+                # este `except Exception` no los ve. Así que abandonar a medias
+                # sigue costando su consulta, como debe ser.
+                _hubo_respuesta = bool(content_buffer.strip())
+                if not _hubo_respuesta and request.user_id and supabase_admin:
+                    try:
+                        _dev = await asyncio.to_thread(
+                            lambda: supabase_admin.rpc(
+                                'devolver_consulta', {'p_user_id': request.user_id}
+                            ).execute()
+                        )
+                        _d = _dev.data if isinstance(_dev.data, dict) else {}
+                        if _d.get('devuelta'):
+                            print(f"   ↩️ Consulta devuelta a {request.user_id} "
+                                  f"(quedó en {_d.get('used')}/{_d.get('limit')})")
+                    except Exception as _err_dev:
+                        print(f"   ⚠️ No se pudo devolver la consulta: {_err_dev}")
+
                 error_msg = str(e).strip()
-                if not error_msg or error_msg == "None":
-                    # Stream cut off (likely max_tokens exhausted) — helpful message
-                    if content_buffer:
-                        yield f"\n\n---\n⚠️ **Respuesta truncada** — el modelo alcanzó su límite de generación. Envía **'continúa'** para que siga redactando desde donde se quedó."
-                    else:
-                        yield f"\n\n❌ Error de conexión con el modelo. Intenta de nuevo."
+                print(f"   ❌ Fallo del stream: {type(e).__name__}: {error_msg[:400]}")
+
+                if content_buffer:
+                    # Hubo texto: se avisa que quedó a medias y se ofrece seguir.
+                    yield ("\n\n---\n⚠️ **Respuesta truncada** — el modelo alcanzó su "
+                           "límite de generación. Envía **'continúa'** para que siga "
+                           "redactando desde donde se quedó.")
                 else:
-                    yield f"\n\n❌ Error: {error_msg}"
+                    # NO se filtra la excepción de Python al abogado. Antes esta
+                    # rama hacía `yield f"❌ Error: {error_msg}"` y en pantalla
+                    # aparecía «RetryError[<Future at 0x7a47… raised
+                    # BadRequestError>]» donde debía ir el análisis del caso. El
+                    # detalle técnico queda en el log, que es donde sirve.
+                    yield ("\n\n❌ **No pudimos completar esta consulta.** No se te "
+                           "descontó: puedes intentarlo de nuevo.\n\n"
+                           "Si el documento es muy extenso, prueba a consultarlo por "
+                           "partes. Si vuelve a fallar, escríbenos desde el botón de "
+                           "soporte y lo revisamos.")
         
         return StreamingResponse(
             generate_stream(),
@@ -13242,8 +13284,30 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
                         yield f"\n\n<!-- CITATION_META:{meta} -->"
                 
             except Exception as e:
-                print(f"   ❌ Chat sentencia error: {e}")
-                yield f"\n\n❌ Error: {str(e)}"
+                # Mismo criterio que en /chat: sin texto no hubo servicio, así
+                # que la consulta vuelve. Esta es la ruta del borrador de
+                # sentencia, la que más tarda y la que peor sienta perder.
+                print(f"   ❌ Chat sentencia error: {type(e).__name__}: {str(e)[:400]}")
+                if not content_buffer.strip() and request.user_id and supabase_admin:
+                    try:
+                        _dev = await asyncio.to_thread(
+                            lambda: supabase_admin.rpc(
+                                'devolver_consulta', {'p_user_id': request.user_id}
+                            ).execute()
+                        )
+                        _d = _dev.data if isinstance(_dev.data, dict) else {}
+                        if _d.get('devuelta'):
+                            print(f"   ↩️ Consulta devuelta a {request.user_id} "
+                                  f"(quedó en {_d.get('used')}/{_d.get('limit')})")
+                    except Exception as _err_dev:
+                        print(f"   ⚠️ No se pudo devolver la consulta: {_err_dev}")
+
+                if content_buffer.strip():
+                    yield ("\n\n---\n⚠️ **Respuesta truncada.** Envía **'continúa'** "
+                           "para que siga desde donde se quedó.")
+                else:
+                    yield ("\n\n❌ **No pudimos completar esta consulta.** No se te "
+                           "descontó: puedes intentarlo de nuevo.")
         
         return StreamingResponse(
             generate_sentencia_stream(),
