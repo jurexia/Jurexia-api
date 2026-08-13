@@ -4567,6 +4567,47 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     return filtered
 
 
+# text-embedding-3-small corta en 8,192 tokens y devuelve 400 si te pasas.
+# Sin tiktoken en el entorno el tope se pone en caracteres, y conviene pecar de
+# corto: la prosa española ronda 3.5-4 caracteres por token, pero un texto denso
+# en artículos, fracciones y números romanos tokeniza mucho peor. Con 20,000
+# caracteres se aguanta incluso a 2.5 car./token (8,000 tokens), que es el peor
+# caso realista. Poner 26,000 —lo que salía de multiplicar por 3.2— se pasaba
+# del tope justo con el tipo de texto que provoca el problema.
+MAX_CHARS_EMBEDDING = 20_000
+
+
+def _acotar_para_embedding(texto: str) -> str:
+    """Recorta lo que se va a embeber para no rebasar el tope del modelo.
+
+    POR QUÉ ESTO EXISTE (10-ago-2026)
+    ---------------------------------
+    Un abogado abrió el análisis de una carpeta con 35 documentos —201,965
+    caracteres, unos 50,500 tokens— y en la pantalla le apareció esto:
+
+        Error: RetryError[<Future at 0x7a47a2b56110 state=finished
+        raised BadRequestError>]
+
+    El análisis de carpeta manda su instrucción entera como consulta, y esa
+    consulta se embebe para buscar en el acervo. 50,500 tokens contra un tope
+    de 8,192: la API devolvía 400, tenacity reintentaba tres veces y soltaba
+    `RetryError`, cuyo texto crudo terminaba pintado como si fuera el análisis.
+
+    Se acota aquí, en el único punto por el que pasan las doce llamadas, y no
+    en cada una: cualquier ruta futura que embeba texto largo queda protegida
+    sin acordarse de esto.
+
+    Recortar el vector de búsqueda no degrada la respuesta: sirve para
+    encontrar leyes parecidas al tema, y el tema ya está en los primeros miles
+    de caracteres. El texto completo sigue viajando al modelo por su camino.
+    """
+    if len(texto) <= MAX_CHARS_EMBEDDING:
+        return texto
+    print(f"   ✂️ Consulta de {len(texto):,} caracteres acotada a "
+          f"{MAX_CHARS_EMBEDDING:,} para el embedding")
+    return texto[:MAX_CHARS_EMBEDDING]
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=8),
@@ -4578,7 +4619,7 @@ async def get_dense_embedding(text: str) -> List[float]:
     async with OPENAI_SEM:
         response = await openai_client.embeddings.create(
             model=EMBEDDING_MODEL,
-            input=text,
+            input=_acotar_para_embedding(text),
         )
         return response.data[0].embedding
 
@@ -4588,7 +4629,10 @@ def get_sparse_embedding(text: str) -> SparseVector:
     if sparse_encoder is None:
         # Modelo BM25 todavía cargando en background — degradar a dense-only search
         return SparseVector(indices=[], values=[])
-    embeddings = list(sparse_encoder.query_embed(text))
+    # BM25 corre en local y no devuelve 400, pero con 200,000 caracteres tarda
+    # y diluye los términos que de verdad distinguen la consulta. Se acota con
+    # el mismo criterio que el denso para que ambos vectores miren lo mismo.
+    embeddings = list(sparse_encoder.query_embed(_acotar_para_embedding(text)))
     if not embeddings:
         return SparseVector(indices=[], values=[])
     
