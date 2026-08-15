@@ -8482,6 +8482,9 @@ async def analyze_document(
     sub_type = "gratuito"
     user_email = None
     is_platinum_or_admin = False
+    # Sólo los administradores quedan exentos del cobro. Un platinum SÍ gasta
+    # de sus consultas: para eso las paga.
+    es_admin = False
 
     if user_id and supabase_admin:
         try:
@@ -8500,9 +8503,10 @@ async def analyze_document(
                 user_email = row.get('email', '').strip().lower()
                 
                 # Check si es plan premium o admin
+                es_admin = bool(user_email and user_email in ADMIN_EMAILS)
                 is_platinum_or_admin = (
-                    sub_type in ('platinum_monthly', 'platinum_annual', 'ultra_secretarios') or
-                    (user_email and user_email in ADMIN_EMAILS)
+                    sub_type in ('platinum_monthly', 'platinum_annual', 'ultra_secretarios')
+                    or es_admin
                 )
                 is_pro = sub_type in ('pro_monthly', 'pro_annual')
 
@@ -8530,6 +8534,56 @@ async def analyze_document(
     t_read = _time.time()
     print(f"\n📄 [ANALYZE-DOC] Archivo: {filename} ({len(content)/1024:.0f}KB), Prompt: {prompt[:80]}...")
     print(f"   ⏱️ File read: {t_read - t0:.2f}s")
+
+    # ── COBRO DE LA CONSULTA ─────────────────────────────────────────────
+    #
+    # Esta ruta NO cobraba nada (16-ago-2026). El frontend sumaba +1 en
+    # pantalla, y al terminar releía el contador de la base, con lo que ese
+    # +1 desaparecía. Medido en logs: 309 análisis en cinco días, 62 al día
+    # de media, TODOS gratis — incluidos 26 de cuentas gratuitas, que tienen
+    # cinco consultas al mes y se las saltaban enteras.
+    #
+    # Y es la ruta más cara del sistema: extrae el documento completo (con
+    # OCR de Gemini si viene escaneado) y lo manda al modelo con 32,768
+    # tokens de salida. Un platinum puede subir un millón de caracteres.
+    #
+    # Se cobra AQUÍ y no antes: después de validar formato y tamaño —para
+    # que un archivo inservible no cueste consulta— y antes de la
+    # extracción, que ya gasta. Si el modelo falla sin entregar nada, se
+    # devuelve más abajo, con el mismo criterio que /chat.
+    _cobrada = False
+    if user_id and supabase_admin and not es_admin:
+        try:
+            _q = await asyncio.to_thread(
+                lambda: supabase_admin.rpc('consume_query', {'p_user_id': user_id}).execute()
+            )
+            _qd = _q.data if isinstance(_q.data, dict) else {}
+            if not _qd.get('allowed', True):
+                print(f"   🚫 Sin consultas disponibles ({_qd.get('used')}/{_qd.get('limit')}) — no se analiza")
+                raise HTTPException(
+                    status_code=402,
+                    detail=_qd.get('error') or "Has alcanzado tu límite de consultas para este período.",
+                )
+            _cobrada = True
+            print(f"   ✅ Consulta cobrada: {_qd.get('used')}/{_qd.get('limit')}")
+        except HTTPException:
+            raise
+        except Exception as _e_cobro:
+            # Si el cobro falla por infraestructura no se bloquea al abogado:
+            # se deja pasar y queda la traza para cuadrarlo después.
+            print(f"   ⚠️ No se pudo cobrar la consulta de analyze-document: {_e_cobro}")
+
+    def _devolver_si_no_hubo_nada(hubo_texto: bool):
+        """Devuelve la consulta si el análisis no entregó una sola letra."""
+        if not _cobrada or hubo_texto or not user_id or not supabase_admin:
+            return
+        try:
+            _d = supabase_admin.rpc('devolver_consulta', {'p_user_id': user_id}).execute()
+            _dd = _d.data if isinstance(_d.data, dict) else {}
+            if _dd.get('devuelta'):
+                print(f"   ↩️ Consulta devuelta a {user_id} (quedó en {_dd.get('used')}/{_dd.get('limit')})")
+        except Exception as _e_dev:
+            print(f"   ⚠️ No se pudo devolver la consulta: {_e_dev}")
 
     # ── Step 1: Extract text from document ──
     extracted_text = ""
@@ -8698,9 +8752,11 @@ CONTENIDO DEL DOCUMENTO:
                 temperature=0.3,
             )
             first_token = True
+            _hubo_texto = False
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     token = chunk.choices[0].delta.content
+                    _hubo_texto = True
                     if first_token:
                         first_token = False
                         t_first_token = _time.time()
@@ -8733,8 +8789,15 @@ CONTENIDO DEL DOCUMENTO:
                     print(f"   🌐 No pude anexar fuentes al documento: {_wfin}")
             yield f"data: {json.dumps({'done': True, 'filename': filename, 'chars_analyzed': min(original_len, effective_max_chars)})}\n\n"
         except Exception as llm_err:
-            print(f"   ❌ Error LLM: {llm_err}")
-            yield f"data: {json.dumps({'error': str(llm_err)})}\n\n"
+            # Mismo criterio que /chat: sin una sola letra entregada, no hubo
+            # servicio y la consulta vuelve. Fue por aquí por donde se colaron
+            # los 402 de OpenRouter del 15-ago sin devolver nada.
+            print(f"   ❌ Error LLM: {type(llm_err).__name__}: {str(llm_err)[:300]}")
+            await asyncio.to_thread(_devolver_si_no_hubo_nada, locals().get('_hubo_texto', False))
+            _msg = ("No pudimos completar el análisis de este documento. "
+                    "No se te descontó la consulta: puedes intentarlo de nuevo. "
+                    "Si el documento es muy extenso, prueba a dividirlo en partes.")
+            yield f"data: {json.dumps({'error': _msg})}\n\n"
 
     return StreamingResponse(
         stream_analysis(),
