@@ -8549,18 +8549,21 @@ async def analyze_document(
     # abogado sabe contar.
     #
     # Los topes cubren, con los datos de arriba:
-    #   30 hojas  → el 79 % de los documentos (una promoción típica)
-    #   60 hojas  → el 90 %
-    #  150 hojas  → el 98 % (casi cualquier expediente)
+    #   20 hojas  → el 62 % de los documentos (una promoción corta)
+    #   50 hojas  → el 85 %
+    #  100 hojas  → el 93 %
     #  600 hojas  → todo lo medido, con margen sobre el máximo de 522
+    #
+    # El salto de 100 a 600 es deliberado: el expediente completo de tribunal
+    # es justo lo que distingue a Platinum, y es donde el OCR cuesta de verdad.
     PAGINAS_POR_PLAN = {
-        "gratuito": 30,
-        "basico_monthly": 60, "basico_annual": 60,
-        "pro_monthly": 150, "pro_annual": 150,
+        "gratuito": 20,
+        "basico_monthly": 50, "basico_annual": 50,
+        "pro_monthly": 100, "pro_annual": 100,
         "platinum_monthly": 600, "platinum_annual": 600,
         "ultra_secretarios": 600,
     }
-    PLAN_QUE_CUBRE = [(60, "Básico"), (150, "Pro"), (600, "Platinum")]
+    PLAN_QUE_CUBRE = [(50, "Básico"), (100, "Pro"), (600, "Platinum")]
 
     def _plan_necesario(paginas: int) -> Optional[str]:
         """El plan más barato que sí leería un documento de este tamaño."""
