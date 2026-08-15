@@ -8485,6 +8485,8 @@ async def analyze_document(
     # Sólo los administradores quedan exentos del cobro. Un platinum SÍ gasta
     # de sus consultas: para eso las paga.
     es_admin = False
+    # El plan hace falta fuera del try para decidir cuántas hojas se leen.
+    plan_actual = "gratuito"
 
     if user_id and supabase_admin:
         try:
@@ -8500,6 +8502,7 @@ async def analyze_document(
             if profile_res.data and len(profile_res.data) > 0:
                 row = profile_res.data[0]
                 sub_type = row.get('subscription_type', 'gratuito')
+                plan_actual = sub_type or "gratuito"
                 user_email = row.get('email', '').strip().lower()
                 
                 # Check si es plan premium o admin
@@ -8534,6 +8537,72 @@ async def analyze_document(
     t_read = _time.time()
     print(f"\n📄 [ANALYZE-DOC] Archivo: {filename} ({len(content)/1024:.0f}KB), Prompt: {prompt[:80]}...")
     print(f"   ⏱️ File read: {t_read - t0:.2f}s")
+
+    # ── CUÁNTAS HOJAS LEE CADA PLAN ──────────────────────────────────────
+    #
+    # Medido sobre 365 documentos reales subidos entre el 8 y el 16-ago-2026:
+    # la mediana tiene 15 páginas, el percentil 90 llega a 64 y el mayor visto
+    # fue de 522. Un documento con texto seleccionable trae 2,191 caracteres
+    # por página de mediana. El 47 % entra escaneado y hay que pasarlo por OCR
+    # de Gemini, que es la parte cara: por eso el tope se mide en HOJAS y no
+    # en caracteres — es lo que de verdad cuesta, y además es lo que un
+    # abogado sabe contar.
+    #
+    # Los topes cubren, con los datos de arriba:
+    #   30 hojas  → el 79 % de los documentos (una promoción típica)
+    #   60 hojas  → el 90 %
+    #  150 hojas  → el 98 % (casi cualquier expediente)
+    #  600 hojas  → todo lo medido, con margen sobre el máximo de 522
+    PAGINAS_POR_PLAN = {
+        "gratuito": 30,
+        "basico_monthly": 60, "basico_annual": 60,
+        "pro_monthly": 150, "pro_annual": 150,
+        "platinum_monthly": 600, "platinum_annual": 600,
+        "ultra_secretarios": 600,
+    }
+    PLAN_QUE_CUBRE = [(60, "Básico"), (150, "Pro"), (600, "Platinum")]
+
+    def _plan_necesario(paginas: int) -> Optional[str]:
+        """El plan más barato que sí leería un documento de este tamaño."""
+        for tope, nombre in PLAN_QUE_CUBRE:
+            if paginas <= tope:
+                return nombre
+        return None
+
+    paginas_doc = 0
+    if extension == "pdf":
+        try:
+            import fitz
+            with fitz.open(stream=content, filetype="pdf") as _d:
+                paginas_doc = _d.page_count
+        except Exception as _e_pag:
+            print(f"   ⚠️ No se pudo contar páginas ({_e_pag}) — se deja pasar")
+
+    tope_paginas = PAGINAS_POR_PLAN.get(plan_actual, 30)
+    if paginas_doc and not es_admin and paginas_doc > tope_paginas:
+        # Se rechaza ANTES de cobrar y ANTES del OCR: no se le quita una
+        # consulta al abogado por un documento que no vamos a leer entero.
+        # Antes esto se resolvía recortando en silencio: se leía media
+        # demanda, se cobraba igual y nadie se enteraba.
+        sugerido = _plan_necesario(paginas_doc)
+        print(f"   📏 Documento de {paginas_doc} págs supera el tope de {tope_paginas} "
+              f"del plan {plan_actual} — no se cobra")
+        if sugerido:
+            detalle = (
+                f"Este documento tiene {paginas_doc} páginas y tu plan lee hasta "
+                f"{tope_paginas}. El plan {sugerido} lee documentos de este tamaño. "
+                f"También puedes dividirlo y subirlo por partes."
+            )
+        else:
+            detalle = (
+                f"Este documento tiene {paginas_doc} páginas y el máximo que leemos "
+                f"de una sola vez son {PLAN_QUE_CUBRE[-1][0]}. Divídelo en partes y "
+                f"súbelas por separado: la carpeta las junta igual."
+            )
+        raise HTTPException(status_code=413, detail=detalle)
+
+    if paginas_doc:
+        print(f"   📏 {paginas_doc} págs · tope del plan {plan_actual}: {tope_paginas}")
 
     # ── COBRO DE LA CONSULTA ─────────────────────────────────────────────
     #
