@@ -8454,6 +8454,67 @@ SI EL USUARIO NO DA UNA INSTRUCCIÓN ESPECÍFICA, entonces genera un análisis j
 RECUERDA: tu objetivo es ser la herramienta más útil posible para el abogado. Produce texto de calidad profesional que pueda incorporarse directamente en un trabajo jurídico."""
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# AMORTIGUADOR DE SALDO — que una petición grande no muera por unos centavos
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# EL INCIDENTE (16-ago-2026, reportes 1850-01 y 38-01)
+# ----------------------------------------------------
+# La cuenta del proveedor tocó fondo un sábado. El error que devuelve es un 402
+# que dice cuánto SÍ se puede pagar:
+#
+#   "You requested up to 32768 tokens, but can only afford 13383"
+#
+# Con el saldo casi agotado, toda petición de 32k rebotaba aunque hubiera de
+# sobra para una respuesta completa: 13,383 tokens son unas veinte páginas.
+# Perder eso por no preguntar es absurdo.
+#
+# POR QUÉ HAY UN SUELO Y NO SE REINTENTA SIEMPRE
+# ----------------------------------------------
+# Recortar sin límite es peor que fallar. Un análisis que se corta a la mitad
+# de una frase parece un fallo del producto —o peor, pasa por completo— y el
+# abogado no tiene forma de saber que le faltan páginas. Por debajo de
+# SUELO_TOKENS no se reintenta: se falla limpio, se devuelve la consulta y el
+# usuario puede repetir cuando esté recargado.
+#
+# Esto es un amortiguador, NO la defensa. La defensa es la alarma de saldo del
+# bloque diario, que avisa con diez días de margen. Si este código llega a
+# entrar en acción, es que la alarma se ignoró.
+
+SUELO_TOKENS_AMORTIGUADOR = 6000     # por debajo de esto, cortar es engañar
+MARGEN_TOKENS = 400                  # el proveedor cobra también el prompt
+
+
+def _tokens_que_alcanzan(err) -> Optional[int]:
+    """Lee del 402 cuántos tokens sí se pueden pagar. None si no es ese caso."""
+    texto = str(err)
+    if "402" not in texto and "more credits" not in texto:
+        return None
+    m = re.search(r"can only afford (\d+)", texto)
+    return int(m.group(1)) if m else None
+
+
+async def _crear_con_amortiguador(cliente, *, etiqueta: str, **kwargs):
+    """Lanza la petición y, si el saldo no da para el `max_tokens` pedido, la
+    repite con lo que sí alcanza. Cualquier otro error sube tal cual."""
+    try:
+        return await cliente.chat.completions.create(**kwargs)
+    except Exception as e:
+        alcanza = _tokens_que_alcanzan(e)
+        if alcanza is None:
+            raise
+        recorte = alcanza - MARGEN_TOKENS
+        pedido = kwargs.get("max_tokens", 0)
+        if recorte < SUELO_TOKENS_AMORTIGUADOR:
+            print(f"   💸 {etiqueta}: saldo insuficiente ({alcanza} tokens disponibles, "
+                  f"suelo {SUELO_TOKENS_AMORTIGUADOR}) — no se recorta, se falla limpio")
+            raise
+        print(f"   💸 {etiqueta}: el saldo no cubre {pedido} tokens; se reintenta con "
+              f"{recorte} (RECARGAR EL PROVEEDOR)")
+        kwargs["max_tokens"] = recorte
+        return await cliente.chat.completions.create(**kwargs)
+
+
 @app.post("/analyze-document")
 async def analyze_document(
     file: UploadFile = File(...),
@@ -8813,7 +8874,9 @@ CONTENIDO DEL DOCUMENTO:
     async def stream_analysis():
         try:
             t_llm_start = _time.time()
-            response = await deepseek_client.chat.completions.create(
+            response = await _crear_con_amortiguador(
+                deepseek_client,
+                etiqueta="analyze-document",
                 model=model_to_use,
                 messages=[
                     {"role": "system", "content": DOCUMENT_SYSTEM_PROMPT},
