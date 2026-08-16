@@ -8589,11 +8589,32 @@ async def analyze_document(
     if extension not in ("pdf", "doc", "docx"):
         raise HTTPException(status_code=400, detail=f"Formato no soportado: .{extension}. Use .pdf, .docx o .doc")
 
-    # Validate file size (25MB max)
+    # Tope de peso POR PLAN (16-ago-2026, reporte 14-01).
+    #
+    # El tope plano de 25 MB chocaba con el de hojas: platinum tiene derecho a
+    # 600 hojas por archivo, pero un expediente escaneado de ese tamaño pesa
+    # mucho más de 25 MB — el derecho existía en el papel y no cabía por la
+    # puerta. Platinum sube ahora hasta 50 MB; el resto se queda en 25.
+    #
+    # El detalle del 400 lo LEE el usuario en pantalla (el frontend lo
+    # propaga desde ese mismo día): tiene que decir el peso, el tope del plan
+    # y qué hacer, no ser una nota interna.
     content = await file.read()
-    max_size = 25 * 1024 * 1024
-    if len(content) > max_size:
-        raise HTTPException(status_code=400, detail=f"Archivo muy grande ({len(content) / 1024 / 1024:.1f}MB). Máximo 25MB.")
+    _es_plan_50 = str(plan_actual).startswith("platinum") or plan_actual == "ultra_secretarios"
+    max_mb = 50 if _es_plan_50 else 25
+    if len(content) > max_mb * 1024 * 1024:
+        _peso = len(content) / 1024 / 1024
+        if _es_plan_50:
+            detalle = (f"Este archivo pesa {_peso:.0f} MB y el máximo por archivo es {max_mb} MB. "
+                       f"Divídelo en partes y súbelas por separado: la carpeta las analiza juntas.")
+        else:
+            detalle = (f"Este archivo pesa {_peso:.0f} MB y tu plan acepta hasta {max_mb} MB por archivo. "
+                       + (f"El plan Platinum acepta archivos de hasta 50 MB. "
+                          if _peso <= 50 else "")
+                       + "También puedes dividirlo en partes y subirlas por separado: "
+                         "la carpeta las analiza juntas.")
+        print(f"   ⚖️ Archivo de {_peso:.0f} MB rechazado (tope {max_mb} MB del plan {plan_actual}) — no se cobra")
+        raise HTTPException(status_code=400, detail=detalle)
 
     t_read = _time.time()
     print(f"\n📄 [ANALYZE-DOC] Archivo: {filename} ({len(content)/1024:.0f}KB), Prompt: {prompt[:80]}...")
