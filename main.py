@@ -3662,13 +3662,13 @@ async def expand_legal_query_llm(query: str) -> str:
         # Limitar a máximo 6 términos para no diluir la búsqueda
         terms = expanded_terms.split()[:6]
         result = f"{query} {' '.join(terms)}"
-        print(f"   ⚡ Query expandido: '{query}' → '{result}'")
+        print(f"   ⚡ Query expandido: {huella(query)} → {huella(result)}")
         paso("expandir")
         return result
         
     except Exception as e:
         print(f"   ⚠️ ERROR en expansión LLM: {type(e).__name__}: {e}")
-        print(f"   ⚠️ Usando fallback estático para query: '{query}'")
+        print(f"   ⚠️ Usando fallback estático para query: {huella(query)}")
         # Fallback a expansión estática
         return expand_legal_query(query)
 
@@ -3921,13 +3921,13 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
         print(f"   🧠 Metadata extraction exitosa:")
         print(f"      Materia: {result['materia']}")
         print(f"      Temas: {', '.join(result['temas'][:3])}")
-        print(f"      Query expandido: '{expanded_query}'")
+        print(f"      Query expandido: {huella(expanded_query)}")
         
         return result
         
     except Exception as e:
         print(f"   ❌ ERROR en metadata extraction: {type(e).__name__}: {e}")
-        print(f"   ❌ Usando fallback dogmático para query: '{query}'")
+        print(f"   ❌ Usando fallback dogmático para query: {huella(query)}")
         # Fallback: solo expansión dogmática tradicional sin metadata
         expanded = await expand_legal_query_llm(query)
         return {
@@ -8576,12 +8576,12 @@ async def analyze_document(
 
                 if is_platinum_or_admin:
                     effective_max_chars = 1_000_000  # 1M caracteres ~ 250K tokens (ideal para 60-150 páginas)
-                    print(f"   💎 Platinum user detected ({user_email}, plan: {sub_type}) — Extracted char limit bumped to {effective_max_chars:,}")
+                    print(f"   💎 Platinum user detected ({correo_opaco(user_email)}, plan: {sub_type}) — Extracted char limit bumped to {effective_max_chars:,}")
                 elif is_pro:
                     effective_max_chars = 500_000  # 500K caracteres ~ 125K tokens (ideal para 35-70 páginas)
-                    print(f"   🚀 Pro user detected ({user_email}, plan: {sub_type}) — Extracted char limit bumped to {effective_max_chars:,}")
+                    print(f"   🚀 Pro user detected ({correo_opaco(user_email)}, plan: {sub_type}) — Extracted char limit bumped to {effective_max_chars:,}")
                 else:
-                    print(f"   👤 Standard user detected ({user_email}, plan: {sub_type}) — Extracted char limit: {effective_max_chars:,}")
+                    print(f"   👤 Standard user detected ({correo_opaco(user_email)}, plan: {sub_type}) — Extracted char limit: {effective_max_chars:,}")
         except Exception as e:
             print(f"   ⚠️ Error checking subscription for user {user_id} in analyze-document: {e}")
 
@@ -9377,10 +9377,58 @@ _GENIO_PROFUNDIDAD_CONSULTA = (
 )
 
 
+# El razonamiento del genio se le ENSEÑA al abogado —el panel se llama «Ver
+# razonamiento jurídico»— y llegaba en inglés: «I'm currently focused on the
+# requirements for an indirect amparo petition under Mexican law…». Se vio en
+# el flujo de producción del 17-ago-2026 mientras se grababa el video.
+#
+# `include_thoughts` devuelve el pensamiento en el idioma en que el modelo
+# razona, y no hay parámetro de API que lo cambie: se pide por instrucción, y
+# tiene que ir en el bloque de contexto —no en `system_instruction`—, porque
+# cuando el caché del genio está activo el system se descarta.
+_GENIO_IDIOMA_RAZONAMIENTO = (
+    "IDIOMA DEL RAZONAMIENTO — OBLIGATORIO:\n"
+    "Piensa EN ESPAÑOL. Todo tu razonamiento intermedio, incluidos los "
+    "encabezados que uses para organizarlo, debe estar redactado en español "
+    "de México y con vocabulario jurídico mexicano. El abogado LEE ese "
+    "razonamiento en pantalla: si aparece en inglés, la respuesta se descarta.\n"
+)
+
+
+# ── LO QUE NO SE ESCRIBE EN LOS REGISTROS ────────────────────────────────────
+#
+# La consulta de un abogado no es una cadena cualquiera: lleva el nombre del
+# quejoso, el número de expediente y los hechos del caso. Los registros de
+# Render los ve cualquiera con acceso al panel, y no hay razón para que estén
+# ahí. Se registra la FORMA de la consulta —cuánto mide, qué se detectó— y
+# nunca su contenido.
+def huella(texto: str, n: int = 8) -> str:
+    """Identificador estable y corto de un texto, para poder seguirlo por los
+    registros sin escribir jamás lo que decía."""
+    import hashlib
+    if not texto:
+        return "vacío"
+    return f"{len(texto)}c/{hashlib.sha256(texto.encode('utf-8')).hexdigest()[:n]}"
+
+
+def correo_opaco(correo: str) -> str:
+    """`ana.lopez@despacho.mx` → `a…z@despacho.mx`. Basta para distinguir a un
+    usuario en un registro y no basta para identificarlo de un vistazo."""
+    if not correo or "@" not in correo:
+        return "anon"
+    u, d = correo.split("@", 1)
+    return f"{u[0]}…{u[-1]}@{d}" if len(u) > 2 else f"…@{d}"
+
+
 def profundidad_genio(es_redaccion: bool) -> str:
-    """Instrucciones de profundidad del genio, según el modo."""
-    return (_GENIO_PROFUNDIDAD_REDACCION if es_redaccion
-            else _GENIO_PROFUNDIDAD_CONSULTA)
+    """Instrucciones de profundidad del genio, según el modo.
+
+    Incluye la exigencia de razonar en español: el panel «Ver razonamiento
+    jurídico» es visible y estaba llegando en inglés.
+    """
+    return (_GENIO_IDIOMA_RAZONAMIENTO + "\n"
+            + (_GENIO_PROFUNDIDAD_REDACCION if es_redaccion
+               else _GENIO_PROFUNDIDAD_CONSULTA))
 
 def should_use_thinking(has_document: bool, is_drafting: bool) -> bool:
     """Activa thinking mode SOLO para modos especiales.
@@ -9454,7 +9502,7 @@ def _log_security_alert(user_id: str, user_email: str, query: str, alert_type: s
             "alert_type": alert_type,
             "severity": severity,
         }).execute()
-        print(f"🚨 SECURITY ALERT [{severity.upper()}]: {alert_type} by {user_email or user_id}")
+        print(f"🚨 SECURITY ALERT [{severity.upper()}]: {alert_type} by {correo_opaco(user_email) if user_email else user_id}")
     except Exception as e:
         print(f"⚠️ Failed to log security alert: {e}")
 
@@ -13331,7 +13379,7 @@ async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No se encontró mensaje del usuario")
     
-    print(f"\n🏛️ CHAT SENTENCIA — user: {request.user_email or 'anon'}")
+    print(f"\n🏛️ CHAT SENTENCIA — user: {correo_opaco(request.user_email)}")
     print(f"   📝 Query ({len(last_user_message)} chars): {last_user_message[:200]}...")
     print(f"   🔍 RAG: {'ON' if request.use_rag else 'OFF'}")
     print(f"   📎 Documento adjunto: {'Sí' if request.attached_document else 'No'}")
@@ -14365,7 +14413,7 @@ async def admin_toggle_sentencia(user_id: str, authorization: str = Header(...))
 
         action = "enable_sentencia" if new_value else "disable_sentencia"
         _log_admin_action(admin["email"], action, user_id, {"user_email": user_email})
-        print(f"   🔄 Sentencia access for {user_email} ({user_id}): {current} → {new_value}")
+        print(f"   🔄 Sentencia access for {correo_opaco(user_email)} ({user_id}): {current} → {new_value}")
 
         return {"success": True, "can_access_sentencia": new_value}
     except HTTPException:
@@ -15190,7 +15238,7 @@ async def draft_sentencia_stream(
                 pdf_parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} ({filename}) ---\n"))
                 pdf_parts.append(gtypes.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
 
-            print(f"\n🏛️ REDACTOR v2 — {tipo} — {user_email}")
+            print(f"\n🏛️ REDACTOR v2 — {tipo} — {correo_opaco(user_email)}")
 
             # ══════════════════════════════════════════════════════════════
             # FASE 1: Extracción (Flash, ~10s)
@@ -15438,7 +15486,7 @@ async def redactor_v2_analyze(
         pdf_parts.append(gtypes.Part.from_text(text=f"\n--- DOCUMENTO: {label} ---\n"))
         pdf_parts.append(gtypes.Part.from_bytes(data=data, mime_type="application/pdf"))
 
-    print(f"\n🏛️ REDACTOR v2 ANALYZE (SSE) — {tipo} — {user_email}")
+    print(f"\n🏛️ REDACTOR v2 ANALYZE (SSE) — {tipo} — {correo_opaco(user_email)}")
     total_start = time_module.time()
 
     async def generate_sse():
@@ -15651,7 +15699,7 @@ async def redactor_v2_solve(
     if not _can_access_sentencia(user_email):
         raise HTTPException(403, "Acceso restringido")
 
-    print(f"\n⚖️ REDACTOR v2 SOLVE — genio:{genio_id} — {user_email}")
+    print(f"\n⚖️ REDACTOR v2 SOLVE — genio:{genio_id} — {correo_opaco(user_email)}")
     print(f"   Problema: {problema[:100]}...")
 
     # ── Parallel: Genio query + Qdrant RAG ──
@@ -15836,7 +15884,7 @@ async def redactor_v2_generate(
     term = _get_term(tipo)
     total_groups = len(group_list)
 
-    print(f"\n✨ REDACTOR v2 GENERATE — {tipo} — {user_email}")
+    print(f"\n✨ REDACTOR v2 GENERATE — {tipo} — {correo_opaco(user_email)}")
     print(f"   {total_groups} grupos | Pipeline: gpt-4o (prompt) → Gemini 2.5 Pro (writer)")
 
     async def generate_sse():
@@ -16170,7 +16218,7 @@ async def redactor_v4_generate_comprehensive(
     if not caso_context.strip():
         raise HTTPException(400, "Debe proveer al menos el texto del acto reclamado o la demanda")
 
-    print(f"\n🚀 REDACTOR V4 GEMINI PIPELINE — {tipo} — {user_email}")
+    print(f"\n🚀 REDACTOR V4 GEMINI PIPELINE — {tipo} — {correo_opaco(user_email)}")
     print(f"   Contexto: {len(caso_context)} chars | Pipeline: Gemini 2.5 Pro x4 fases")
 
     # Judge role based on tipo
@@ -17088,7 +17136,7 @@ async def redactor_tcc_beta_generate(
     if not deepseek_key:
         raise HTTPException(500, "DeepSeek API key not configured")
     
-    print(f"\n🏛️ REDACTOR TCC BETA — {tipo_asunto} ({materia}) — {user_email}")
+    print(f"\n🏛️ REDACTOR TCC BETA — {tipo_asunto} ({materia}) — {correo_opaco(user_email)}")
     
     async def generate_sse():
         nonlocal resumen_acto, texto_cv
@@ -17617,7 +17665,7 @@ async def redactor_tcc_v4_summarize(
     if not texto_cv and not doc_conceptos_bytes:
         raise HTTPException(400, "Falta texto o PDF de los conceptos/agravios")
 
-    print(f"\n📝 REDACTOR TCC V4 SUMMARIZE — {user_email}")
+    print(f"\n📝 REDACTOR TCC V4 SUMMARIZE — {correo_opaco(user_email)}")
 
     async def generate_sse():
         nonlocal texto_acto, texto_cv
@@ -17727,7 +17775,7 @@ async def redactor_tcc_v4_regenerate_summary(payload: dict):
     if not instruccion:
         raise HTTPException(400, "Falta `instruccion`")
 
-    print(f"\n🔁 REDACTOR TCC V4 REGENERATE-SUMMARY ({kind}) — {user_email}")
+    print(f"\n🔁 REDACTOR TCC V4 REGENERATE-SUMMARY ({kind}) — {correo_opaco(user_email)}")
 
     async def generate_sse():
         def sse(event_type: str, data: dict) -> str:
@@ -17806,7 +17854,7 @@ async def redactor_tcc_v4_analyze(
     if not deepseek_key:
         raise HTTPException(500, "DeepSeek API key no configurada")
 
-    print(f"\n🏛️ REDACTOR TCC V4 ANALYZE — {tipo_asunto} ({materia}) — {user_email}")
+    print(f"\n🏛️ REDACTOR TCC V4 ANALYZE — {tipo_asunto} ({materia}) — {correo_opaco(user_email)}")
 
     async def generate_sse():
         nonlocal resumen_acto, texto_cv
@@ -17954,7 +18002,7 @@ async def redactor_tcc_v4_finalize(payload: dict):
     if not deepseek_key:
         raise HTTPException(500, "DeepSeek API key no configurada")
 
-    print(f"\n🏛️ REDACTOR TCC V4 FINALIZE — job {job_id[:8]} — {user_email}")
+    print(f"\n🏛️ REDACTOR TCC V4 FINALIZE — job {job_id[:8]} — {correo_opaco(user_email)}")
 
     async def generate_sse():
         def sse(event_type: str, data: dict) -> str:
@@ -18988,7 +19036,7 @@ async def admin_confirm_email(user_id: str, authorization: str = Header(...)):
         user_email = getattr(result.user, 'email', 'unknown') if hasattr(result, 'user') else 'unknown'
 
         _log_admin_action(admin["email"], "confirm_email", user_id, {"user_email": user_email})
-        print(f"✅ Admin confirmed email for: {user_email} ({user_id})")
+        print(f"✅ Admin confirmed email for: {correo_opaco(user_email)} ({user_id})")
 
         return {"status": "confirmed", "user_id": user_id, "email": user_email}
     except Exception as e:
@@ -19022,7 +19070,7 @@ async def admin_block_user(user_id: str, authorization: str = Header(...)):
         }).execute()
 
         _log_admin_action(admin["email"], "block_user", user_id, {"user_email": user_email})
-        print(f"🚫 Admin blocked user: {user_email} ({user_id})")
+        print(f"🚫 Admin blocked user: {correo_opaco(user_email)} ({user_id})")
 
         return {"status": "blocked", "user_id": user_id, "user_email": user_email}
     except HTTPException:
@@ -19044,7 +19092,7 @@ async def admin_unblock_user(user_id: str, authorization: str = Header(...)):
         user_email = user_info.data[0]["email"] if user_info.data else "unknown"
 
         _log_admin_action(admin["email"], "unblock_user", user_id, {"user_email": user_email})
-        print(f"✅ Admin unblocked user: {user_email} ({user_id})")
+        print(f"✅ Admin unblocked user: {correo_opaco(user_email)} ({user_id})")
 
         return {"status": "unblocked", "user_id": user_id, "user_email": user_email}
     except Exception as e:
@@ -19566,7 +19614,7 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
     elapsed = now_ts - last_ts
     if elapsed < SALVAME_COOLDOWN_SECONDS:
         remaining = int(SALVAME_COOLDOWN_SECONDS - elapsed)
-        print(f"   🛑 SALVAME cooldown: {user_email} must wait {remaining}s")
+        print(f"   🛑 SALVAME cooldown: {correo_opaco(user_email)} must wait {remaining}s")
         raise HTTPException(
             status_code=429,
             detail=f"Debes esperar {remaining} segundos antes de generar otro amparo."
@@ -19606,14 +19654,14 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
 
         # ── Check limits ────────────────────────────────────────────────
         if daily_count >= limits["daily"]:
-            print(f"   🛑 SALVAME daily limit: {user_email} ({daily_count}/{limits['daily']})")
+            print(f"   🛑 SALVAME daily limit: {correo_opaco(user_email)} ({daily_count}/{limits['daily']})")
             raise HTTPException(
                 status_code=429,
                 detail=f"Has alcanzado tu límite diario de {limits['daily']} amparos. Intenta mañana."
             )
 
         if monthly_count >= limits["monthly"]:
-            print(f"   🛑 SALVAME monthly limit: {user_email} ({monthly_count}/{limits['monthly']})")
+            print(f"   🛑 SALVAME monthly limit: {correo_opaco(user_email)} ({monthly_count}/{limits['monthly']})")
             raise HTTPException(
                 status_code=429,
                 detail=f"Has alcanzado tu límite mensual de {limits['monthly']} amparos. El límite se renueva el próximo mes."
@@ -19628,7 +19676,7 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
             )
             print(f"   🚨 SALVAME abuse alert: IP {client_ip} → {ip_count} requests today")
 
-        print(f"   ✅ SALVAME rate OK: {user_email} (today: {daily_count}/{limits['daily']}, month: {monthly_count}/{limits['monthly']})")
+        print(f"   ✅ SALVAME rate OK: {correo_opaco(user_email)} (today: {daily_count}/{limits['daily']}, month: {monthly_count}/{limits['monthly']})")
 
     except HTTPException:
         raise
@@ -19650,7 +19698,7 @@ async def _log_salvame_usage(user_id: str, user_email: str, ip_address: str, hos
                 "hospital_estado": hospital_estado,
             }).execute()
         await asyncio.to_thread(_insert)
-        print(f"   📝 SALVAME usage logged: {user_email} ({hospital_estado})")
+        print(f"   📝 SALVAME usage logged: {correo_opaco(user_email)} ({hospital_estado})")
     except Exception as e:
         print(f"   ⚠️ Failed to log SALVAME usage: {e}")
 
@@ -20030,7 +20078,7 @@ async def redaccion_sentencias(
     if not doc1_bytes or not doc2_bytes:
         raise HTTPException(400, "Ambos documentos deben tener contenido")
 
-    print(f"\n🏛️ REDACCIÓN SENTENCIAS v3 — {tipo_config['label']} — {user_email}")
+    print(f"\n🏛️ REDACCIÓN SENTENCIAS v3 — {tipo_config['label']} — {correo_opaco(user_email)}")
     print(f"   📄 {doc1.filename} ({len(doc1_bytes)/1024:.0f}KB) + {doc2.filename} ({len(doc2_bytes)/1024:.0f}KB)")
 
     # ── Phase 1: Extract data with Gemini Flash ──────────────────────────
@@ -20244,7 +20292,7 @@ async def redaccion_sentencias_gemini(
     if not doc1_bytes or not doc2_bytes:
         raise HTTPException(400, "Ambos documentos deben tener contenido")
 
-    print(f"\n🏛️ REDACCIÓN GEMINI DIRECTO — {tipo_config['label']} — {user_email}")
+    print(f"\n🏛️ REDACCIÓN GEMINI DIRECTO — {tipo_config['label']} — {correo_opaco(user_email)}")
     print(f"   📄 {doc1.filename} ({len(doc1_bytes)/1024:.0f}KB) + {doc2.filename} ({len(doc2_bytes)/1024:.0f}KB)")
 
     # ── Build parts: PDFs go DIRECTLY to 3.1 Pro (no Flash extraction) ───
@@ -20379,7 +20427,7 @@ async def redactor_sentencia_v2_generate(request: Request):
     if acto_reclamado_upload and hasattr(acto_reclamado_upload, 'read'):
         acto_bytes = await acto_reclamado_upload.read()
 
-    print(f"\n🏛️ REDACTOR TCC v2 — ESTUDIO DE FONDO — {user_email}")
+    print(f"\n🏛️ REDACTOR TCC v2 — ESTUDIO DE FONDO — {correo_opaco(user_email)}")
     print(f"   📄 Demanda: {len(demanda_bytes)/1024:.0f}KB | Acto reclamado: {len(acto_bytes)/1024:.0f}KB")
     print(f"   📋 Tipo: {tipo_amparo}")
 
@@ -20799,7 +20847,7 @@ async def redaccion_sentencias_estatal(request: Request):
     if not demanda_bytes:
         raise HTTPException(400, "El documento de demanda está vacío")
 
-    print(f"\n🏛️ REDACCIÓN ESTATAL 1RA INSTANCIA — {user_email}")
+    print(f"\n🏛️ REDACCIÓN ESTATAL 1RA INSTANCIA — {correo_opaco(user_email)}")
     print(f"   📄 Demanda: {getattr(demanda_upload, 'filename', 'demanda.pdf')} ({len(demanda_bytes)/1024:.0f}KB)")
     print(f"   👥 Demandados: {num_demandados} — {nombres}")
 
