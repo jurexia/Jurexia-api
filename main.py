@@ -2814,7 +2814,7 @@ async def lifespan(app: FastAPI):
             sparse_encoder = await loop.run_in_executor(None, _download)
             print("   BM25 Encoder cargado")
         except Exception as e:
-            print(f"   WARN: BM25 Encoder falló al cargar: {e}. RAG sparse deshabilitado hasta reinicio.")
+            print(f"   WARN: BM25 Encoder falló al cargar: {err(e)}. RAG sparse deshabilitado hasta reinicio.")
     asyncio.ensure_future(_load_sparse_encoder())
 
     
@@ -2873,7 +2873,7 @@ async def lifespan(app: FastAPI):
         await cleanup_on_startup()
         print("   🏛️ Gemini Cache: ON-DEMAND mode v6 (9 safety locks, TTL=8m)")
     except Exception as e:
-        print(f"   ⚠️ Cache startup cleanup failed (non-fatal): {e}")
+        print(f"   ⚠️ Cache startup cleanup failed (non-fatal): {err(e)}")
     # ONE-TIME FIX: Reclasificar "Ley Reglamentaria fracción XVII bis" de constitucion -> ley
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
@@ -2895,7 +2895,7 @@ async def lifespan(app: FastAPI):
         if _fixed:
             print(f"   🔧 FIX: Reclasificados {_fixed} chunks de Ley Reglamentaria XVII bis (constitucion→ley)")
     except Exception as e:
-        print(f"   ⚠️ Fix Michoacán tipo (non-fatal): {e}")
+        print(f"   ⚠️ Fix Michoacán tipo (non-fatal): {err(e)}")
     
     print(" Iurexia Core Engine LISTO")
     
@@ -3667,7 +3667,7 @@ async def expand_legal_query_llm(query: str) -> str:
         return result
         
     except Exception as e:
-        print(f"   ⚠️ ERROR en expansión LLM: {type(e).__name__}: {e}")
+        print(f"   ⚠️ ERROR en expansión LLM: {err(e)}")
         print(f"   ⚠️ Usando fallback estático para query: {huella(query)}")
         # Fallback a expansión estática
         return expand_legal_query(query)
@@ -3844,7 +3844,7 @@ async def _legal_strategy_agent(query: str, fuero_manual: Optional[str] = None) 
         return result
 
     except Exception as e:
-        print(f"   ❌ Legal Strategy Agent falló ({type(e).__name__}: {e}) — usando defaults")
+        print(f"   ❌ Legal Strategy Agent falló ({err(e)}) — usando defaults")
         return {
             "fuero_detectado": fuero_manual or "mixto",
             "materia_principal": None,
@@ -3926,7 +3926,7 @@ async def expand_query_with_metadata(query: str) -> Dict[str, Any]:
         return result
         
     except Exception as e:
-        print(f"   ❌ ERROR en metadata extraction: {type(e).__name__}: {e}")
+        print(f"   ❌ ERROR en metadata extraction: {err(e)}")
         print(f"   ❌ Usando fallback dogmático para query: {huella(query)}")
         # Fallback: solo expansión dogmática tradicional sin metadata
         expanded = await expand_legal_query_llm(query)
@@ -4433,7 +4433,7 @@ async def _traer_codigo_nacional(materia: str, dense_vector, limite: int = 6):
             ))
         return salida
     except Exception as e:
-        print(f"   ⚠️ código nacional ({materia}): {type(e).__name__}: {e}")
+        print(f"   ⚠️ código nacional ({materia}): {err(e)}")
         return []
 
 
@@ -5453,7 +5453,7 @@ async def inject_cross_referenced_articles(
                 existing_ids.add(str(point.id))
 
     except Exception as e:
-        print(f"   ⚠️ Cross-Ref error: {e}")
+        print(f"   ⚠️ Cross-Ref error: {err(e)}")
 
     if injected:
         print(f"   ✅ Cross-Ref: Inyectados {len(injected)} artículos de ley citados en precedentes")
@@ -6211,7 +6211,7 @@ async def hybrid_search_single_silo(
                 print(f"   ❌ Retry sin filtro también falló en {collection}: {retry_e}")
                 return []
         
-        print(f"   ❌ Error en búsqueda sobre {collection}: {e}")
+        print(f"   ❌ Error en búsqueda sobre {collection}: {err(e)}")
         return []
 
 
@@ -6242,7 +6242,7 @@ async def _extract_juris_concepts(query: str) -> str:
         print(f"   ⚖️ Conceptos jurisprudencia extraídos: {concepts}")
         return concepts
     except Exception as e:
-        print(f"   ⚠️ Extracción de conceptos falló: {e}")
+        print(f"   ⚠️ Extracción de conceptos falló: {err(e)}")
         return query  # Fallback: usar el query original
 
 async def _extract_sentencia_temas(doc_content: str) -> str:
@@ -6273,7 +6273,7 @@ async def _extract_sentencia_temas(doc_content: str) -> str:
         print(f"   🧠 Extracción dinámica de temas (RAG Libre): {temas}")
         return temas
     except Exception as e:
-        print(f"   ⚠️ Extracción dinámica falló: {e}")
+        print(f"   ⚠️ Extracción dinámica falló: {err(e)}")
         return ""
 
 
@@ -6384,7 +6384,7 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
         return search_results
         
     except Exception as e:
-        print(f"      ⚠️ Boost search falló: {e}")
+        print(f"      ⚠️ Boost search falló: {err(e)}")
         return []
 
 
@@ -6514,7 +6514,7 @@ async def _do_enrichment_search(
         )
         return results
     except Exception as e:
-        print(f"      ⚠️ Enrichment search falló en {collection}: {e}")
+        print(f"      ⚠️ Enrichment search falló en {collection}: {err(e)}")
         return []
 
 
@@ -6780,13 +6780,13 @@ async def _law_level_routing(
                         existing_ids.add(r.id)
                         
             except Exception as e:
-                print(f"      ⚠️ Law routing search falló para '{law_name}': {e}")
+                print(f"      ⚠️ Law routing search falló para '{law_name}': {err(e)}")
                 continue
         
         return new_results
         
     except Exception as e:
-        print(f"   ⚠️ Law-Level Routing falló: {e}")
+        print(f"   ⚠️ Law-Level Routing falló: {err(e)}")
         return []
 
 
@@ -6858,7 +6858,7 @@ async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> O
     except asyncio.TimeoutError:
         print(f"   ⚠️ HyDE timeout (>1.5s) — usando query original")
     except Exception as e:
-        print(f"   ⚠️ HyDE falló (usando query original): {e}")
+        print(f"   ⚠️ HyDE falló (usando query original): {err(e)}")
     
     return None
 
@@ -6914,7 +6914,7 @@ async def _decompose_query(query: str) -> list[str]:
                 print(f"      [{i+1}] {sq[:80]}")
         return sub_queries
     except Exception as e:
-        print(f"   ⚠️ Query Decomposition falló: {e}")
+        print(f"   ⚠️ Query Decomposition falló: {err(e)}")
         return []
 
 
@@ -6992,7 +6992,7 @@ async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 2
         return reranked
     
     except Exception as e:
-        print(f"   ⚠️ Cohere Rerank falló (usando orden original): {e}")
+        print(f"   ⚠️ Cohere Rerank falló (usando orden original): {err(e)}")
         return results
 
 
@@ -7089,7 +7089,7 @@ async def _deterministic_article_fetch(article_numbers: List[str]) -> List[Searc
                     ))
                     print(f"   🎯 ARTICLE LOCK: Art. {num} → {collection} → {point.payload.get('ref')} (score=2.0)")
             except Exception as e:
-                print(f"   ⚠️ Deterministic fetch error for Art. {num} in {collection}: {e}")
+                print(f"   ⚠️ Deterministic fetch error for Art. {num} in {collection}: {err(e)}")
     
     return results
 
@@ -7524,7 +7524,7 @@ async def hybrid_search_all_silos(
             else:
                 print(f"   ⚠️ CPEUM MULTI-INJECTION: Sin chunks para artículos {_cpeum_art_nums}")
         except Exception as e:
-            print(f"   ❌ CPEUM MULTI-INJECTION error: {e}")
+            print(f"   ❌ CPEUM MULTI-INJECTION error: {err(e)}")
     
     # === DIAGNOSTIC LOGGING: TOP-3 per silo para diagnóstico de relevancia ===
     print(f"\n   🔎 RAW RETRIEVAL SCORES (pre-merge):")
@@ -7680,7 +7680,7 @@ async def hybrid_search_all_silos(
                                 _existing_ids.add(_ar.id)
                                 print(f"      ✅ INJECT: {_ar.ref} | {_ar.origen[:60]} | score→{_ar.score:.4f}")
                 except Exception as e:
-                    print(f"      ⚠️ Materia secondary search falló para '{_anchor}': {e}")
+                    print(f"      ⚠️ Materia secondary search falló para '{_anchor}': {err(e)}")
             
             if _injected:
                 # Insertar al INICIO del merged para máxima prioridad
@@ -7752,7 +7752,7 @@ async def hybrid_search_all_silos(
                     merged.extend(new_results)
                     print(f"   🔍 Multi-query artículo {art_num} en {silo_col}: +{len(new_results)} resultados nuevos")
                 except Exception as e:
-                    print(f"   ⚠️ Multi-query falló para artículo {art_num} en {silo_col}: {e}")
+                    print(f"   ⚠️ Multi-query falló para artículo {art_num} en {silo_col}: {err(e)}")
     
     # ═══════════════════════════════════════════════════════════════════════════
     # ARTICLE-AWARE RERANKING
@@ -7818,7 +7818,7 @@ async def hybrid_search_all_silos(
                         print(f"   ⚠️ {label} falló (continuando): {res}")
                 return ("enrichment", new_docs)
             except Exception as e:
-                print(f"   ⚠️ Enrichment falló (continuando): {e}")
+                print(f"   ⚠️ Enrichment falló (continuando): {err(e)}")
                 return ("enrichment", [])
 
         _post_tasks["enrichment"] = _run_enrichment()
@@ -7875,7 +7875,7 @@ async def hybrid_search_all_silos(
                 ]
                 return await asyncio.gather(*silo_tasks)
             except Exception as e:
-                print(f"   ⚠️ Sub-query búsqueda falló: {e}")
+                print(f"   ⚠️ Sub-query búsqueda falló: {err(e)}")
                 return []
 
         all_sq_results = await asyncio.gather(*[_search_sub_query(sq) for sq in sub_queries])
@@ -8291,7 +8291,7 @@ async def quota_status_endpoint(user_id: str):
             return result.data
         return {"error": "user_not_found"}
     except Exception as e:
-        print(f"⚠️ Quota status check failed: {e}")
+        print(f"⚠️ Quota status check failed: {err(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch quota status")
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -8583,7 +8583,7 @@ async def analyze_document(
                 else:
                     print(f"   👤 Standard user detected ({correo_opaco(user_email)}, plan: {sub_type}) — Extracted char limit: {effective_max_chars:,}")
         except Exception as e:
-            print(f"   ⚠️ Error checking subscription for user {user_id} in analyze-document: {e}")
+            print(f"   ⚠️ Error checking subscription for user {user_id} in analyze-document: {err(e)}")
 
     # Validate file type
     if extension not in ("pdf", "doc", "docx"):
@@ -9238,7 +9238,7 @@ async def get_full_document(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"   ❌ Error reconstruyendo documento '{origen}': {e}")
+        print(f"   ❌ Error reconstruyendo documento '{origen}': {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al reconstruir documento: {str(e)}")
 
 
@@ -9417,6 +9417,22 @@ _GENIO_IDIOMA_RAZONAMIENTO = (
 # Render los ve cualquiera con acceso al panel, y no hay razón para que estén
 # ahí. Se registra la FORMA de la consulta —cuánto mide, qué se detectó— y
 # nunca su contenido.
+def err(e) -> str:
+    """El mensaje de una excepción, ACOTADO.
+
+    Un error del proveedor del modelo puede traer el prompt entero dentro de su
+    mensaje —y el prompt lleva el expediente del cliente—. Imprimir `{e}` a pelo
+    volcó en los registros de Render, el 17-ago-2026 a las 12:48, una respuesta
+    completa seguida del contenido de los documentos de una carpeta: el dictamen
+    médico, la resolución del IMSS y el escrito de inconformidad.
+
+    Se conserva el tipo, que es lo que sirve para diagnosticar, y del mensaje
+    sólo el principio, que es donde el proveedor pone la causa.
+    """
+    m = str(e).replace("\n", " ")
+    return f"{type(e).__name__}: {m[:300]}" + ("…" if len(m) > 300 else "")
+
+
 def huella(texto: str, n: int = 8) -> str:
     """Identificador estable y corto de un texto, para poder seguirlo por los
     registros sin escribir jamás lo que decía."""
@@ -9520,7 +9536,7 @@ def _log_security_alert(user_id: str, user_email: str, query: str, alert_type: s
         }).execute()
         print(f"🚨 SECURITY ALERT [{severity.upper()}]: {alert_type} by {correo_opaco(user_email) if user_email else user_id}")
     except Exception as e:
-        print(f"⚠️ Failed to log security alert: {e}")
+        print(f"⚠️ Failed to log security alert: {err(e)}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DIRECT ARTICLE LOOKUP — Deterministic Retrieval for Cited Articles & Tesis
@@ -9776,7 +9792,7 @@ async def _direct_article_lookup(
                                 all_candidate_points.extend([(collection, p) for p in points])
                         
                     except Exception as e:
-                        print(f"   ⚠️ Direct lookup error for {ref_val} in {collection}: {e}")
+                        print(f"   ⚠️ Direct lookup error for {ref_val} in {collection}: {err(e)}")
                         continue
             
             if all_candidate_points:
@@ -9875,7 +9891,7 @@ async def _direct_article_lookup(
                         pdf_url=payload.get("url_pdf"),
                     ))
         except Exception as e:
-            print(f"   ⚠️ Direct lookup error for registro {registro}: {e}")
+            print(f"   ⚠️ Direct lookup error for registro {registro}: {err(e)}")
     
     # ── 3. Direct Jurisprudencia Lookup by Tesis Number ──
     for tesis_num in citations.get("tesis_nums", []):
@@ -9920,7 +9936,7 @@ async def _direct_article_lookup(
                         pdf_url=payload.get("url_pdf"),
                     ))
         except Exception as e:
-            print(f"   ⚠️ Direct lookup error for tesis {tesis_num}: {e}")
+            print(f"   ⚠️ Direct lookup error for tesis {tesis_num}: {err(e)}")
     
     print(f"   📌 DIRECT LOOKUP SUMMARY: Found {len(results)} items "
           f"({lookup_count}/{MAX_LOOKUPS} queries used)")
@@ -10148,7 +10164,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             
             return None
         except Exception as e:
-            print(f"⚠️ Infra check failed (proceeding): {e}")
+            print(f"⚠️ Infra check failed (proceeding): {err(e)}")
             return None
 
     # Start infrastructure check early
@@ -10298,7 +10314,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         or (_cw and _cw in ADMIN_EMAILS)
                     )
             except Exception as _e:
-                print(f"   ⚠️ No pude leer el plan para la búsqueda web: {_e}")
+                print(f"   ⚠️ No pude leer el plan para la búsqueda web: {err(_e)}")
         # Si el plan no se puede leer, NO se corre: equivocarse hacia arriba
         # cuesta dinero en cada consulta de cada usuario gratuito.
         if not _web_permitida:
@@ -10381,7 +10397,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         or (_correo and _correo in ADMIN_EMAILS)
                     )
             except Exception as _e:
-                print(f"   ⚠️ No se pudo verificar el plan Platinum: {_e}")
+                print(f"   ⚠️ No se pudo verificar el plan Platinum: {err(_e)}")
         if not _tiene_platinum:
             is_chat_drafting_platinum = False
             print("   ⛔ REDACCIÓN PLATINUM sin plan Platinum → se atiende como Redacción Pro")
@@ -10416,7 +10432,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         or (_c and _c in ADMIN_EMAILS)
                     )
             except Exception as _e:
-                print(f"   ⚠️ No pude leer el plan para el esfuerzo de redacción: {_e}")
+                print(f"   ⚠️ No pude leer el plan para el esfuerzo de redacción: {err(_e)}")
         if not _plan_alto:
             _profesional_esfuerzo = REDACTOR_PROFESIONAL_ESFUERZO
             print(f"   ✍️ REDACCIÓN PROFESIONAL (plan base) → razonamiento {_profesional_esfuerzo}")
@@ -10521,7 +10537,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             from cache_manager import get_cache_name_async
             return await get_cache_name_async(_primary_genio_id)
         except Exception as e:
-            print(f"   ⚠️ Cache allocation failed ({_primary_genio_id}): {e}")
+            print(f"   ⚠️ Cache allocation failed ({_primary_genio_id}): {err(e)}")
             return None
     
     # LAZY CACHE: Don't create cache proactively -- it will only be
@@ -11126,7 +11142,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 print(f"   ⏱️ CACHE TIMEOUT: cache_task excedió 8s — stream continua sin cache")
                 return None
             except Exception as _e:
-                print(f"   ⚠️ CACHE ERROR: {_e}")
+                print(f"   ⚠️ CACHE ERROR: {err(_e)}")
                 return None
 
         # Defaults for headers — actual values set inside generate_stream() before LLM call
@@ -11984,7 +12000,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 if has_document:
                                     _local_cached = None # Override if doc attached
                             except Exception as e:
-                                print(f"   ⚠️ Cache allocation failed for {genio_id}: {e}")
+                                print(f"   ⚠️ Cache allocation failed for {genio_id}: {err(e)}")
                                 _local_cached = None
                         
                         system_instruction = system_instruction_base
@@ -13383,7 +13399,7 @@ async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
                         media_type="application/json",
                     )
         except Exception as e:
-            print(f"⚠️ Quota check failed for chat-sentencia (proceeding): {e}")
+            print(f"⚠️ Quota check failed for chat-sentencia (proceeding): {err(e)}")
     
     # ── Extract last user message ─────────────────────────────────────────
     last_user_message = None
@@ -13420,7 +13436,7 @@ async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
                     rag_count = len(search_results)
                     print(f"   ✅ RAG: {rag_count} resultados, {len(rag_context)} chars contexto")
             except Exception as e:
-                print(f"   ⚠️ RAG search failed (continuing without): {e}")
+                print(f"   ⚠️ RAG search failed (continuing without): {err(e)}")
                 rag_context = ""
         
         # ── Build conversation for Gemini ─────────────────────────────────
@@ -13654,13 +13670,13 @@ def _can_access_sentencia(user_email: str) -> bool:
                 row = result.data[0]
                 sub_type = row.get('subscription_type', '')
                 if sub_type == 'ultra_secretarios':
-                    print(f"   ✅ Acceso Redactor concedido: {email_lower} (suscripción {sub_type})")
+                    print(f"   ✅ Acceso Redactor concedido: {correo_opaco(email_lower)} (suscripción {sub_type})")
                     return True
                 if row.get('can_access_sentencia', False):
-                    print(f"   ✅ Acceso Redactor concedido: {email_lower} (habilitado manualmente por admin)")
+                    print(f"   ✅ Acceso Redactor concedido: {correo_opaco(email_lower)} (habilitado manualmente por admin)")
                     return True
         except Exception as e:
-            print(f"   ⚠️ Error checking subscription for {email_lower}: {e}")
+            print(f"   ⚠️ Error checking subscription for {correo_opaco(email_lower)}: {err(e)}")
 
     return False
 
@@ -13713,7 +13729,7 @@ def _can_access_jurimetria(user_email: str) -> bool:
             if result.data:
                 return result.data[0].get("subscription_type") in PLANES_CON_JURIMETRIA
         except Exception as e:
-            print(f"   ⚠️ jurimetria access check error for {email_lower}: {e}")
+            print(f"   ⚠️ jurimetria access check error for {correo_opaco(email_lower)}: {err(e)}")
     return False
 
 
@@ -13734,7 +13750,7 @@ def _can_access_jurisconsulto(user_email: str) -> bool:
             if result.data:
                 return result.data[0].get("subscription_type") in PLANES_CON_JURISCONSULTO
         except Exception as e:
-            print(f"   ⚠️ jurisconsulto access check error for {email_lower}: {e}")
+            print(f"   ⚠️ jurisconsulto access check error for {correo_opaco(email_lower)}: {err(e)}")
     return False
 
 
@@ -13842,7 +13858,7 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
                 return text
             print(f"   📷 PDF is scanned ({n_pages} pages, {len(text)} chars) — using Gemini 3.1 Pro OCR")
         except Exception as e:
-            print(f"   ⚠️ PyMuPDF error: {e}")
+            print(f"   ⚠️ PyMuPDF error: {err(e)}")
             n_pages = 0
 
         # ── 2. Gemini 3.1 Pro OCR (most powerful vision model) ───
@@ -13912,7 +13928,7 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
                 return result
                 
         except Exception as e:
-            print(f"   ❌ Gemini 3.1 Pro OCR error: {e}")
+            print(f"   ❌ Gemini 3.1 Pro OCR error: {err(e)}")
             import traceback
             traceback.print_exc()
             return ""
@@ -14026,7 +14042,7 @@ async def jurimetria_endpoint(
 
             print(f"   ⚖️ Extraccion OK: {extraccion.get('n_conceptos')} conceptos, acto={acto_tipo}")
         except Exception as e:
-            print(f"   ⚠️ Error extraccion Gemini: {e}")
+            print(f"   ⚠️ Error extraccion Gemini: {err(e)}")
             extraccion = {}
 
     if not query_base:
@@ -14058,7 +14074,7 @@ async def jurimetria_endpoint(
         points = response.points
         print(f"   ⚖️ Jurimetria search: {len(points)} precedentes (filtro: circuito={circuito or 'global'}, acto={acto_tipo or '-'})")
     except Exception as e:
-        print(f"   ⚠️ Jurimetria Qdrant error: {e}")
+        print(f"   ⚠️ Jurimetria Qdrant error: {err(e)}")
         raise HTTPException(500, f"Error en búsqueda de precedentes: {e}")
 
     # ── Agregación estadística ─────────────────────────────────────────────
@@ -14134,7 +14150,7 @@ async def jurimetria_endpoint(
         )
         narrativa = resp.text or ""
     except Exception as e:
-        print(f"   ⚠️ Jurimetria narrativa error: {e}")
+        print(f"   ⚠️ Jurimetria narrativa error: {err(e)}")
         narrativa = "No fue posible generar la narrativa predictiva en este momento."
 
     elapsed = round(_t.time() - t0, 2)
@@ -14265,7 +14281,7 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[jurisconsulto] cuota fallo: {e}")
+        print(f"[jurisconsulto] cuota fallo: {err(e)}")
 
     # 4) Sin tesis no se inventa nada: se dice y ya.
     if not payload.tesis:
@@ -14343,7 +14359,7 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
                         completo.append(delta)
                         yield json.dumps({"tipo": "delta", "texto": delta}) + "\n"
             except Exception as e:
-                print(f"[jurisconsulto] streaming revento: {e}")
+                print(f"[jurisconsulto] streaming revento: {err(e)}")
                 yield json.dumps({"tipo": "error", "mensaje": "No se pudo generar la respuesta."}) + "\n"
                 return
 
@@ -14383,7 +14399,7 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
         )
         respuesta = (r.choices[0].message.content or "").strip()
     except Exception as e:
-        print(f"[jurisconsulto] revento: {e}")
+        print(f"[jurisconsulto] revento: {err(e)}")
         raise HTTPException(status_code=502, detail="No se pudo generar la respuesta.")
 
     if not respuesta:
@@ -14435,7 +14451,7 @@ async def admin_toggle_sentencia(user_id: str, authorization: str = Header(...))
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Toggle sentencia error: {e}")
+        print(f"❌ Toggle sentencia error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al cambiar acceso: {str(e)}")
 
 
@@ -14863,7 +14879,7 @@ async def extract_expediente(client, pdf_parts: list, tipo: str) -> dict:
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             return json.loads(text)
         except Exception as e:
-            print(f"   ⚠️ Extracción intento {attempt+1}/{max_retries}: {e}")
+            print(f"   ⚠️ Extracción intento {attempt+1}/{max_retries}: {err(e)}")
             if attempt == max_retries - 1:
                 return {}
     return {}
@@ -14936,7 +14952,7 @@ async def batch_rag_search(extracted_data: dict, calificaciones: list, tipo: str
                     seen_ids.add(r.id)
                     all_results.append(r)
     except Exception as e:
-        print(f"   ⚠️ RAG error: {e}")
+        print(f"   ⚠️ RAG error: {err(e)}")
     
     # Sort by score and build context
     all_results.sort(key=lambda r: r.score, reverse=True)
@@ -15084,7 +15100,7 @@ DEBES calificar este agravio como {calificacion.upper()}.
                 await stream_callback("\n\n")
             
         except Exception as e:
-            print(f"   ❌ {agravio_label} error: {e}")
+            print(f"   ❌ {agravio_label} error: {err(e)}")
             agravio_texts.append(f"\n[Error al redactar {agravio_label}: {str(e)}]\n")
     
     # Build header
@@ -15182,7 +15198,7 @@ Partes:
         
         return text
     except Exception as e:
-        print(f"   ❌ Efectos/Resolutivos error: {e}")
+        print(f"   ❌ Efectos/Resolutivos error: {err(e)}")
         return f"\n[Error al generar efectos: {str(e)}]\n"
 
 
@@ -15391,7 +15407,7 @@ async def draft_sentencia_stream(
             print(f"\n   🏁 COMPLETADO: {len(sentencia_text)} chars en {total_elapsed:.1f}s")
 
         except Exception as e:
-            print(f"   ❌ Pipeline error: {e}")
+            print(f"   ❌ Pipeline error: {err(e)}")
             import traceback
             traceback.print_exc()
             yield sse("error", {"message": str(e)})
@@ -15572,7 +15588,7 @@ async def redactor_v2_analyze(
                     )
                     interrogante = prompt_response.choices[0].message.content.strip()
                 except Exception as e:
-                    print(f"   ⚠️ OpenAI formulation error: {e}")
+                    print(f"   ⚠️ OpenAI formulation error: {err(e)}")
                     # Fallback to local logic if AI generation fails
                     interrogante = _build_interrogante(titulo, sintesis, tipo)
 
@@ -15615,7 +15631,7 @@ async def redactor_v2_analyze(
             yield sse("done", final_data)
 
         except Exception as e:
-            print(f"   ❌ Generate v2/analyze error: {e}")
+            print(f"   ❌ Generate v2/analyze error: {err(e)}")
             import traceback
             traceback.print_exc()
             yield sse("error", {"message": str(e)})
@@ -15764,7 +15780,7 @@ async def redactor_v2_solve(
             )
             return response.text or ""
         except Exception as e:
-            print(f"   ⚠️ Genio query error: {e}")
+            print(f"   ⚠️ Genio query error: {err(e)}")
             return f"⚠️ Error consultando genio: {str(e)[:200]}"
 
     async def query_rag():
@@ -15805,7 +15821,7 @@ async def redactor_v2_solve(
                 })
             return formatted
         except Exception as e:
-            print(f"   ⚠️ RAG query error: {e}")
+            print(f"   ⚠️ RAG query error: {err(e)}")
             return []
 
     # Run in parallel
@@ -16142,7 +16158,7 @@ async def redactor_v2_generate(
                         print(f"   ✅ Conclusión añadida: {len(conclusion_text)} chars")
 
                 except Exception as e:
-                    print(f"   ❌ Error generando conclusión: {e}")
+                    print(f"   ❌ Error generando conclusión: {err(e)}")
 
             elapsed = time_module.time() - total_start
 
@@ -16156,7 +16172,7 @@ async def redactor_v2_generate(
             print(f"   🏁 COMPLETADO: {len(full_text)} chars en {elapsed:.1f}s ({total_api_calls} calls)")
 
         except Exception as e:
-            print(f"   ❌ Generate error: {e}")
+            print(f"   ❌ Generate error: {err(e)}")
             import traceback
             traceback.print_exc()
             yield sse("error", {"message": str(e)})
@@ -16443,7 +16459,7 @@ Genera el análisis ahora. Encabeza con "**III. FIJACIÓN DE LOS PROBLEMAS JURÍ
                     problemas_derivados = json.loads(json_match.group(1))
                     print(f"   📊 Problemas derivados: {len(problemas_derivados)}")
             except Exception as e:
-                print(f"   ⚠️ JSON parse error: {e}")
+                print(f"   ⚠️ JSON parse error: {err(e)}")
 
             # Fallback to manual problems if auto-derivation failed
             if not problemas_derivados and problemas_manual:
@@ -16503,7 +16519,7 @@ Genera el análisis ahora. Encabeza con "**III. FIJACIÓN DE LOS PROBLEMAS JURÍ
                         rag_context += f"\n--- {tag} ---\nFuente: {r.ref or r.origen}\n{str(r.texto)[:1500]}\n"
                     print(f"     📚 RAG: {len(rag_results)} resultados")
                 except Exception as e:
-                    print(f"     ⚠️ RAG Error P{i+1}: {e}")
+                    print(f"     ⚠️ RAG Error P{i+1}: {err(e)}")
 
                 # ── Gemini: resolver el problema ──
                 is_last = (i == total_problems - 1)
@@ -16574,7 +16590,7 @@ Redacta ahora. Texto directo para la sentencia, sin metadiscurso."""
                     print(f"   ✅ P{i+1}/{total_problems} completado")
 
                 except Exception as e:
-                    print(f"   ⚠️ Generation Error P{i+1}: {e}")
+                    print(f"   ⚠️ Generation Error P{i+1}: {err(e)}")
                     yield sse("error", {"message": f"Error resolviendo problema {i+1}: {str(e)}"})
 
             elapsed = time_module.time() - total_start
@@ -16589,7 +16605,7 @@ Redacta ahora. Texto directo para la sentencia, sin metadiscurso."""
             print(f"   🏁 COMPLETADO V4 Gemini en {elapsed:.1f}s ({total_api_calls} calls, {total_problems} problemas)")
 
         except Exception as e:
-            print(f"   ❌ Generate V4 error: {e}")
+            print(f"   ❌ Generate V4 error: {err(e)}")
             import traceback
             traceback.print_exc()
             yield sse("error", {"message": str(e)})
@@ -16625,7 +16641,7 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
                 if row.get('can_access_sentencia', False):
                     return True
         except Exception as e:
-            print(f"   ⚠️ Error checking redactor TCC access for {email_lower}: {e}")
+            print(f"   ⚠️ Error checking redactor TCC access for {correo_opaco(email_lower)}: {err(e)}")
     return False
 
 
@@ -16741,7 +16757,7 @@ def _build_qdrant_search_for_redactor():
                         "_source_collection": "jurisprudencia_nacional_v2",
                     })
             except Exception as e:
-                print(f"     ⚠️ jurisprudencia_nacional_v2 search error: {e}")
+                print(f"     ⚠️ jurisprudencia_nacional_v2 search error: {err(e)}")
             return ("tesis", items)
 
         async def _search_bloque_constitucional():
@@ -16771,7 +16787,7 @@ def _build_qdrant_search_for_redactor():
                         "_source_collection": "bloque_constitucional",
                     })
             except Exception as e:
-                print(f"     ⚠️ bloque_constitucional search error: {e}")
+                print(f"     ⚠️ bloque_constitucional search error: {err(e)}")
             return ("constitucional", items)
 
         async def _search_leyes(collection_name: str, label: str):
@@ -16799,7 +16815,7 @@ def _build_qdrant_search_for_redactor():
                         "_source_collection": collection_name,
                     })
             except Exception as e:
-                print(f"     ⚠️ {collection_name} search error: {e}")
+                print(f"     ⚠️ {collection_name} search error: {err(e)}")
             return ("normas", items)
 
         async def _search_ef_circuito():
@@ -16839,7 +16855,7 @@ def _build_qdrant_search_for_redactor():
                         "_kind": "ef_tcc",
                     })
             except Exception as e:
-                print(f"     ⚠️ sentencias_ef_c{circuito_num} search error: {e}")
+                print(f"     ⚠️ sentencias_ef_c{circuito_num} search error: {err(e)}")
             return ("holdings", items)
 
         async def _search_ef_scjn(sala_collection: str):
@@ -16872,7 +16888,7 @@ def _build_qdrant_search_for_redactor():
                         "_kind": "ef_scjn",
                     })
             except Exception as e:
-                print(f"     ⚠️ {sala_collection} search error: {e}")
+                print(f"     ⚠️ {sala_collection} search error: {err(e)}")
             return ("holdings", items)
 
         async def _search_holdings_tcc():
@@ -16941,7 +16957,7 @@ def _build_qdrant_search_for_redactor():
                         "_kind": "holding_tcc",
                     })
             except Exception as e:
-                print(f"     ⚠️ sentencias_holdings search error: {e}")
+                print(f"     ⚠️ sentencias_holdings search error: {err(e)}")
             return ("holdings", items)
 
         async def _search_holdings_scjn():
@@ -16973,7 +16989,7 @@ def _build_qdrant_search_for_redactor():
                         "_kind": "holding_scjn",
                     })
             except Exception as e:
-                print(f"     ⚠️ sentencias_scjn_holdings search error: {e}")
+                print(f"     ⚠️ sentencias_scjn_holdings search error: {err(e)}")
             return ("holdings", items)
 
         # ── Build task list ──────────────────────────────────────────────────
@@ -17057,7 +17073,7 @@ def _build_qdrant_search_for_redactor():
             except Exception as e:
                 # Sin PDF la cita sigue siendo util: se ve el texto del criterio.
                 # No merece tumbar la consulta entera.
-                print(f"     ⚠️ no se pudo recuperar el PDF de los EF: {e}")
+                print(f"     ⚠️ no se pudo recuperar el PDF de los EF: {err(e)}")
 
         # ── Marco anticipado: búsquedas adicionales suaves ──────────────────
         for marco_query in marco_anticipado[:3]:
@@ -17095,7 +17111,7 @@ def _build_qdrant_search_for_redactor():
                             "from_marco_anticipado": True,
                         })
             except Exception as e:
-                print(f"     ⚠️ marco anticipado search error: {e}")
+                print(f"     ⚠️ marco anticipado search error: {err(e)}")
 
         return result
 
@@ -17197,7 +17213,7 @@ async def redactor_tcc_beta_generate(
                                 return text
                             print(f"   PDF needs OCR ({n_pages} pages, {empty_ratio:.0%} empty pages) — Mistral OCR via OpenRouter")
                         except Exception as e:
-                            print(f"   PyMuPDF error: {e}")
+                            print(f"   PyMuPDF error: {err(e)}")
                             n_pages = 0
 
                         # OCR via OpenRouter `file-parser` plugin with engine=mistral-ocr.
@@ -17347,7 +17363,7 @@ async def redactor_tcc_beta_generate(
                 cv_chars = len(texto_cv) if texto_cv else 0
                 yield sse("progress", {"step": -1, "progress": 80, "detail": f"OCR completo · acto: {acto_chars:,} chars · conceptos: {cv_chars:,} chars"})
             except Exception as e:
-                print(f"   OCR error (parallel): {e}")
+                print(f"   OCR error (parallel): {err(e)}")
                 import traceback; traceback.print_exc()
                 yield sse("error", {"message": f"Error al procesar documentos: {str(e)[:150]}"})
                 return
@@ -17422,7 +17438,7 @@ async def redactor_tcc_beta_generate(
                                 "rubro_real": (p.get("rubro") or "").strip(),
                             }
             except Exception as e:
-                print(f"   ⚠️ Validador tesis error (fail-closed): {e}")
+                print(f"   ⚠️ Validador tesis error (fail-closed): {err(e)}")
                 # NO sobrescribimos — todo queda como no verificable
             return out
 
@@ -17450,7 +17466,7 @@ async def redactor_tcc_beta_generate(
                                 .execute()
                             if user_result.data and len(user_result.data) > 0:
                                 uid = user_result.data[0].get('id')
-                                print(f"   👤 Found user_id={uid} for {email_lower}")
+                                print(f"   👤 Found user_id={uid} for {correo_opaco(email_lower)}")
                                 if uid:
                                     for i in range(10):
                                         supabase_admin.rpc('consume_query', {'p_user_id': uid}).execute()
@@ -17463,7 +17479,7 @@ async def redactor_tcc_beta_generate(
                                     if updated.data:
                                         event["data"]["queries_used"] = updated.data[0].get('queries_used', 0)
                                         event["data"]["queries_limit"] = updated.data[0].get('queries_limit', 0)
-                                    print(f"   💰 Consumed 10 queries for TCC Beta — user {email_lower}")
+                                    print(f"   💰 Consumed 10 queries for TCC Beta — user {correo_opaco(email_lower)}")
                                     
                                     # Save study to redactor_estudios
                                     try:
@@ -17485,13 +17501,13 @@ async def redactor_tcc_beta_generate(
                                     except Exception as save_err:
                                         print(f"   ⚠️ Failed to save study: {save_err}")
                             else:
-                                print(f"   ⚠️ No user_profiles row found for {email_lower}")
+                                print(f"   ⚠️ No user_profiles row found for {correo_opaco(email_lower)}")
                         except Exception as e:
-                            print(f"   ⚠️ Post-success query consumption error: {e}")
+                            print(f"   ⚠️ Post-success query consumption error: {err(e)}")
                 
                 yield sse(event["type"], event["data"])
         except Exception as e:
-            print(f"   ❌ Redactor TCC pipeline error: {e}")
+            print(f"   ❌ Redactor TCC pipeline error: {err(e)}")
             import traceback
             traceback.print_exc()
             yield sse("error", {"message": str(e)})
@@ -17531,7 +17547,7 @@ async def extract_pdf_text_with_ocr(content: bytes, filename: str) -> str:
                 return text
             print(f"   [OCR helper] needs OCR ({n_pages} pages, {empty_ratio:.0%} empty)")
         except Exception as e:
-            print(f"   [OCR helper] PyMuPDF error: {e}")
+            print(f"   [OCR helper] PyMuPDF error: {err(e)}")
             n_pages = 0
 
         import base64, asyncio as _asyncio, time as _time
@@ -17751,7 +17767,7 @@ async def redactor_tcc_v4_summarize(
             ):
                 yield sse(event["type"], event["data"])
         except Exception as e:
-            print(f"   ❌ V4 summarize error: {e}")
+            print(f"   ❌ V4 summarize error: {err(e)}")
             import traceback; traceback.print_exc()
             yield sse("error", {"message": str(e)})
 
@@ -17808,7 +17824,7 @@ async def redactor_tcc_v4_regenerate_summary(payload: dict):
             ):
                 yield sse(event["type"], event["data"])
         except Exception as e:
-            print(f"   ❌ V4 regenerate-summary error: {e}")
+            print(f"   ❌ V4 regenerate-summary error: {err(e)}")
             import traceback; traceback.print_exc()
             yield sse("error", {"message": str(e)})
 
@@ -17966,7 +17982,7 @@ async def redactor_tcc_v4_analyze(
                         if reg and reg in out:
                             out[reg] = {"valid": True, "rubro_real": (p.get("rubro") or "").strip()}
             except Exception as e:
-                print(f"   ⚠️ V4 Validador tesis error (fail-closed): {e}")
+                print(f"   ⚠️ V4 Validador tesis error (fail-closed): {err(e)}")
             return out
 
         try:
@@ -17979,7 +17995,7 @@ async def redactor_tcc_v4_analyze(
             ):
                 yield sse(event["type"], event["data"])
         except Exception as e:
-            print(f"   ❌ V4 analyze error: {e}")
+            print(f"   ❌ V4 analyze error: {err(e)}")
             import traceback; traceback.print_exc()
             yield sse("error", {"message": str(e)})
 
@@ -18068,11 +18084,11 @@ async def redactor_tcc_v4_finalize(payload: dict):
                                     except Exception as save_err:
                                         print(f"   ⚠️ V4 save error: {save_err}")
                         except Exception as e:
-                            print(f"   ⚠️ V4 post-success error: {e}")
+                            print(f"   ⚠️ V4 post-success error: {err(e)}")
 
                 yield sse(event["type"], event["data"])
         except Exception as e:
-            print(f"   ❌ V4 finalize error: {e}")
+            print(f"   ❌ V4 finalize error: {err(e)}")
             import traceback; traceback.print_exc()
             yield sse("error", {"message": str(e)})
 
@@ -18111,7 +18127,7 @@ async def redactor_tcc_export_docx(
             meta={"tipo_asunto": tipo_asunto, "materia": materia, "circuito": circuito},
         )
     except Exception as e:
-        print(f"   ❌ DOCX generation error: {e}")
+        print(f"   ❌ DOCX generation error: {err(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(500, f"Error al generar DOCX: {str(e)[:100]}")
@@ -18493,7 +18509,7 @@ Responde SOLO con JSON válido."""
     except HTTPException:
         raise
     except Exception as e:
-        print(f"   ❌ Error en análisis: {e}")
+        print(f"   ❌ Error en análisis: {err(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(500, f"Error al analizar expediente: {str(e)}")
@@ -18972,7 +18988,7 @@ async def _verify_admin(authorization: str = Header(...)) -> dict:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"⚠️ Admin auth error: {e}")
+        print(f"⚠️ Admin auth error: {err(e)}")
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 def _log_admin_action(admin_email: str, action: str, target_id: str = None, details: dict = None):
@@ -18987,7 +19003,7 @@ def _log_admin_action(admin_email: str, action: str, target_id: str = None, deta
             "details": details or {},
         }).execute()
     except Exception as e:
-        print(f"⚠️ Failed to log admin action: {e}")
+        print(f"⚠️ Failed to log admin action: {err(e)}")
 
 
 @app.get("/admin/users")
@@ -19000,7 +19016,7 @@ async def admin_list_users(authorization: str = Header(...)):
         users = result.data or []
         return {"users": users, "total": len(users) if isinstance(users, list) else 0}
     except Exception as e:
-        print(f"❌ Admin users error: {e}")
+        print(f"❌ Admin users error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al listar usuarios: {str(e)}")
 
 
@@ -19034,7 +19050,7 @@ async def admin_unconfirmed_users(authorization: str = Header(...)):
         print(f"📋 Admin: {len(unconfirmed)} unconfirmed users found")
         return {"unconfirmed": unconfirmed, "total": len(unconfirmed)}
     except Exception as e:
-        print(f"❌ Admin unconfirmed users error: {e}")
+        print(f"❌ Admin unconfirmed users error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al listar usuarios no confirmados: {str(e)}")
 
 
@@ -19056,7 +19072,7 @@ async def admin_confirm_email(user_id: str, authorization: str = Header(...)):
 
         return {"status": "confirmed", "user_id": user_id, "email": user_email}
     except Exception as e:
-        print(f"❌ Confirm email error: {e}")
+        print(f"❌ Confirm email error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al confirmar email: {str(e)}")
 
 
@@ -19092,7 +19108,7 @@ async def admin_block_user(user_id: str, authorization: str = Header(...)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Block user error: {e}")
+        print(f"❌ Block user error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al bloquear usuario: {str(e)}")
 
 
@@ -19112,7 +19128,7 @@ async def admin_unblock_user(user_id: str, authorization: str = Header(...)):
 
         return {"status": "unblocked", "user_id": user_id, "user_email": user_email}
     except Exception as e:
-        print(f"❌ Unblock user error: {e}")
+        print(f"❌ Unblock user error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al desbloquear usuario: {str(e)}")
 
 
@@ -19132,7 +19148,7 @@ async def admin_list_alerts(
         result = query.execute()
         return {"alerts": result.data or [], "total": len(result.data or [])}
     except Exception as e:
-        print(f"❌ Admin alerts error: {e}")
+        print(f"❌ Admin alerts error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al listar alertas: {str(e)}")
 
 
@@ -19151,7 +19167,7 @@ async def admin_review_alert(alert_id: int, authorization: str = Header(...)):
         _log_admin_action(admin["email"], "review_alert", details={"alert_id": alert_id})
         return {"status": "reviewed", "alert_id": alert_id}
     except Exception as e:
-        print(f"❌ Review alert error: {e}")
+        print(f"❌ Review alert error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al revisar alerta: {str(e)}")
 
 
@@ -19202,7 +19218,7 @@ async def admin_stats(authorization: str = Header(...)):
             "plans": plans,
         }
     except Exception as e:
-        print(f"❌ Admin stats error: {e}")
+        print(f"❌ Admin stats error: {err(e)}")
         raise HTTPException(status_code=500, detail=f"Error al obtener estadísticas: {str(e)}")
 
 
@@ -19299,7 +19315,7 @@ async def admin_reingest_sparse(req: ReingestRequest):
                             points=updates,
                         )
                     except Exception as e:
-                        print(f"[REINGEST] Batch update error: {e}")
+                        print(f"[REINGEST] Batch update error: {err(e)}")
                         _reingest_status["errors"] += 1
                 
                 _reingest_status["processed"] += len(results)
@@ -19318,7 +19334,7 @@ async def admin_reingest_sparse(req: ReingestRequest):
             
         except Exception as e:
             _reingest_status["status"] = f"error: {str(e)}"
-            print(f"[REINGEST] Fatal error: {e}")
+            print(f"[REINGEST] Fatal error: {err(e)}")
         finally:
             _reingest_running = False
     
@@ -19612,7 +19628,7 @@ async def _verify_salvame_user(authorization: str) -> dict:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"⚠️ SALVAME auth error: {e}")
+        print(f"⚠️ SALVAME auth error: {err(e)}")
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 
@@ -19697,7 +19713,7 @@ async def _check_salvame_rate_limit(user_email: str, user_id: str, subscription_
     except HTTPException:
         raise
     except Exception as e:
-        print(f"   ⚠️ SALVAME rate limit check error (allowing through): {e}")
+        print(f"   ⚠️ SALVAME rate limit check error (allowing through): {err(e)}")
 
 
 async def _log_salvame_usage(user_id: str, user_email: str, ip_address: str, hospital_estado: str):
@@ -19716,7 +19732,7 @@ async def _log_salvame_usage(user_id: str, user_email: str, ip_address: str, hos
         await asyncio.to_thread(_insert)
         print(f"   📝 SALVAME usage logged: {correo_opaco(user_email)} ({hospital_estado})")
     except Exception as e:
-        print(f"   ⚠️ Failed to log SALVAME usage: {e}")
+        print(f"   ⚠️ Failed to log SALVAME usage: {err(e)}")
 
 
 @app.post("/generate-amparo-salud")
@@ -19819,7 +19835,7 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
                 print(f"   🏛️  Juzgado en turno: {turno_name}")
                 print(f"   📍  Oficialía: {oficialia_addr}")
         except Exception as e:
-            print(f"   ⚠️  No se pudo buscar juzgado: {e}")
+            print(f"   ⚠️  No se pudo buscar juzgado: {err(e)}")
 
     print(f"\n🏥 SALVAME — Generando amparo de salud")
     print(f"   Paciente: {req.paciente_nombre}")
@@ -19877,7 +19893,7 @@ IMPORTANTE: El encabezado del escrito SIEMPRE dice 'C. {turno_name} / P R E S E 
                        "capturados y no se pierden.]")
 
         except Exception as e:
-            print(f"   ❌ SALVAME error: {e}")
+            print(f"   ❌ SALVAME error: {err(e)}")
             yield f"\n\n[Error al generar el amparo: {str(e)}]"
 
     return StreamingResponse(
@@ -20006,7 +20022,7 @@ async def export_amparo_salud_docx(req: ExportAmparoSaludRequest):
         )
 
     except Exception as e:
-        print(f"   ❌ SALVAME DOCX error: {e}")
+        print(f"   ❌ SALVAME DOCX error: {err(e)}")
         raise HTTPException(500, f"Error al generar DOCX: {str(e)}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -20144,7 +20160,7 @@ Sé MUY detallado en la transcripción de los agravios — necesito el texto ín
         print(f"   📋 Extracción: {len(extracted_text)} chars")
 
     except Exception as e:
-        print(f"   ❌ Extracción error: {e}")
+        print(f"   ❌ Extracción error: {err(e)}")
         raise HTTPException(500, f"Error al leer los PDFs: {str(e)}")
 
     # ── Phase 2: Stream estudio de fondo with DeepSeek ───────────────────
@@ -20185,7 +20201,7 @@ Sé profundo en los agravios fundados y conciso en los infundados/inoperantes.""
                     yield chunk.choices[0].delta.content
 
         except Exception as e:
-            print(f"   ❌ DeepSeek streaming error: {e}")
+            print(f"   ❌ DeepSeek streaming error: {err(e)}")
             yield f"\n\n[Error al generar el estudio de fondo: {str(e)}]"
 
     return StreamingResponse(stream_response(), media_type="text/plain")
@@ -20350,7 +20366,7 @@ Sé profundo en los agravios fundados y conciso en los infundados/inoperantes.""
                     yield token
 
         except Exception as e:
-            print(f"   ❌ Gemini 3.1 Pro streaming error: {e}")
+            print(f"   ❌ Gemini 3.1 Pro streaming error: {err(e)}")
             yield f"\n\n[Error al generar: {str(e)}]"
 
     return StreamingResponse(stream_gemini(), media_type="text/plain")
@@ -20550,9 +20566,9 @@ Sé EXHAUSTIVO al identificar TODOS los agravios/conceptos de violación. Cada p
                                 "score": r.score,
                             })
                 except Exception as e:
-                    print(f"   ⚠️ RAG juris error: {e}")
+                    print(f"   ⚠️ RAG juris error: {err(e)}")
         except Exception as e:
-            print(f"   ⚠️ RAG jurisprudencia error: {e}")
+            print(f"   ⚠️ RAG jurisprudencia error: {err(e)}")
 
         # RAG: sentencias similares
         sentencias_ejemplo = []
@@ -20579,7 +20595,7 @@ Sé EXHAUSTIVO al identificar TODOS los agravios/conceptos de violación. Cada p
                         "score": r.score,
                     })
         except Exception as e:
-            print(f"   ⚠️ RAG sentencias error ({sentencia_collection}): {e}")
+            print(f"   ⚠️ RAG sentencias error ({sentencia_collection}): {err(e)}")
 
         print(f"   📚 RAG: {len(juris)} tesis, {len(sentencias_ejemplo)} sentencias ejemplo")
         return {
@@ -20676,7 +20692,7 @@ Sé EXHAUSTIVO al identificar TODOS los agravios/conceptos de violación. Cada p
                             if genio_response:
                                 articles_text += f"\n[GENIO {materia.upper()}]\n{genio_response}\n"
                         except Exception as e:
-                            print(f"   ⚠️ Genio query error ({materia}): {e}")
+                            print(f"   ⚠️ Genio query error ({materia}): {err(e)}")
 
                 # Build DeepSeek prompt
                 deepseek_prompt = f"""{ESTUDIO_FONDO_TCC_SYSTEM}
@@ -20737,7 +20753,7 @@ Sé profundo, exhaustivo y técnicamente impecable. Mínimo 3 páginas."""
                     print(f"   ✅ Agravio {agravio['num']}/{n_agravios} completado")
 
                 except Exception as e:
-                    print(f"   ❌ DeepSeek error agravio {agravio['num']}: {e}")
+                    print(f"   ❌ DeepSeek error agravio {agravio['num']}: {err(e)}")
                     yield f"\n\n[Error al generar agravio {agravio['num']}: {str(e)}]\n"
 
             yield f"\n\n{'═' * 60}\n"
@@ -20745,7 +20761,7 @@ Sé profundo, exhaustivo y técnicamente impecable. Mínimo 3 páginas."""
             yield f"{'═' * 60}\n"
 
         except Exception as e:
-            print(f"   ❌ Pipeline v2 error: {e}")
+            print(f"   ❌ Pipeline v2 error: {err(e)}")
             import traceback
             traceback.print_exc()
             yield f"\n\n[Error en el pipeline: {str(e)}]\n"
@@ -20939,7 +20955,7 @@ Sé MUY detallado — necesito toda la información para redactar la sentencia c
         print(f"   📋 Extracción completa: {len(extracted_text)} chars")
 
     except Exception as e:
-        print(f"   ❌ Extracción error: {e}")
+        print(f"   ❌ Extracción error: {err(e)}")
         raise HTTPException(500, f"Error al leer los PDFs: {str(e)}")
 
     # ── Phase 2: 3 sequential DeepSeek calls, each streamed to client ────
@@ -21052,7 +21068,7 @@ Redacta con precisión técnica. Los resolutivos deben ser autosuficientes — q
                 print(f"   ✅ DeepSeek pasada {i+1}/3 ({call_config['label']}) completada")
 
         except Exception as e:
-            print(f"   ❌ DeepSeek streaming error (estatal): {e}")
+            print(f"   ❌ DeepSeek streaming error (estatal): {err(e)}")
             yield f"\n\n[Error al generar: {str(e)}]"
 
     return StreamingResponse(stream_3_passes(), media_type="text/plain")
@@ -21166,7 +21182,7 @@ async def get_juzgados_distrito(
         }
 
     except Exception as e:
-        print(f"❌ Error querying juzgados: {e}")
+        print(f"❌ Error querying juzgados: {err(e)}")
         raise HTTPException(500, f"Error al consultar juzgados: {str(e)}")
 
 
@@ -21269,7 +21285,7 @@ async def _query_sep_cedula(cedula: str) -> dict | None:
                 "estado": estado,
             }
     except Exception as e:
-        print(f"⚠️ Cédula lookup error: {e}")
+        print(f"⚠️ Cédula lookup error: {err(e)}")
         return None
 
 
@@ -21367,7 +21383,7 @@ async def connect_sepomex(cp: str):
                         "municipio": item.get("municipio", ""),
                     }
     except Exception as e:
-        print(f"⚠️ SEPOMEX lookup error: {e}")
+        print(f"⚠️ SEPOMEX lookup error: {err(e)}")
     
     # Fallback: return CP but empty location
     return {"cp": cp, "estado": "", "municipio": "", "note": "No se pudo resolver el código postal. Ingrese manualmente."}
@@ -21399,7 +21415,7 @@ async def connect_search_lawyers(req: LawyerSearchRequest):
             "note": "Resultados filtrados por abogados verificados y activos." if lawyers else "No se encontraron abogados verificados en este momento. El directorio está creciendo.",
         }
     except Exception as e:
-        print(f"❌ Lawyer search error: {e}")
+        print(f"❌ Lawyer search error: {err(e)}")
         raise HTTPException(500, f"Error en búsqueda: {str(e)}")
 
 
@@ -21440,7 +21456,7 @@ async def connect_index_lawyer(profile: dict):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Lawyer index error: {e}")
+        print(f"❌ Lawyer index error: {err(e)}")
         raise HTTPException(500, f"Error al indexar perfil: {str(e)}")
 
 
@@ -21527,7 +21543,7 @@ async def connect_admin_register_lawyer(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Admin register lawyer error: {e}")
+        print(f"❌ Admin register lawyer error: {err(e)}")
         raise HTTPException(500, f"Error al registrar abogado: {str(e)}")
 
 
@@ -21845,7 +21861,7 @@ async def verificar_compra_apple(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"⚠️ Apple verificar-compra, auth falló: {e}")
+        print(f"⚠️ Apple verificar-compra, auth falló: {err(e)}")
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
     # 2) ¿El comprobante es de la tienda que dice, de esta app, y de un
@@ -21878,12 +21894,12 @@ async def verificar_compra_apple(
             # 503 y no 422: la compra puede ser perfectamente buena, lo que
             # falla es nuestra configuración. Con un 5xx la app NO cierra la
             # transacción y Play la vuelve a entregar cuando esto se arregle.
-            print(f"⚠️ Play sin configurar: {e}")
+            print(f"⚠️ Play sin configurar: {err(e)}")
             raise HTTPException(
                 status_code=503,
                 detail="La verificación con Google Play no está disponible todavía.",
             )
-        print(f"⚠️ verificar-compra ({tienda}) reventó: {e}")
+        print(f"⚠️ verificar-compra ({tienda}) reventó: {err(e)}")
         raise HTTPException(status_code=500, detail=f"No se pudo verificar la compra con {tienda}")
 
     # 3) Compras ya reembolsadas o retiradas no dan plan.
@@ -21949,7 +21965,7 @@ async def notificaciones_apple(request: Request):
         aviso = await asyncio.to_thread(apple_iap.verificar_notificacion, firmado)
     except apple_iap.CompraInvalida as e:
         # Aquí sí conviene rechazar: si la firma no es de Apple, no es de Apple.
-        print(f"🚨 Apple notificación no verificable: {e}")
+        print(f"🚨 Apple notificación no verificable: {err(e)}")
         raise HTTPException(status_code=400, detail="Notificación no verificable")
 
     tipo = str(aviso.rawNotificationType or "")
@@ -21969,7 +21985,7 @@ async def notificaciones_apple(request: Request):
             apple_iap.verificar_transaccion, datos.signedTransactionInfo
         )
     except apple_iap.CompraInvalida as e:
-        print(f"⚠️ Apple aviso {tipo}: transacción no aplicable ({e})")
+        print(f"⚠️ Apple aviso {tipo}: transacción no aplicable ({err(e)})")
         return {"ok": True, "tipo": tipo, "nota": "transacción no aplicable"}
 
     # ¿De quién es esta suscripción? El `appAccountToken` es el id de Supabase
@@ -21995,7 +22011,7 @@ async def notificaciones_apple(request: Request):
     except Exception as e:
         # 200 igual: reintentar no arreglaría un fallo de nuestra base, y Apple
         # insistiría durante días con el mismo aviso.
-        print(f"⚠️ Apple aviso {tipo}: no se pudo escribir el perfil: {e}")
+        print(f"⚠️ Apple aviso {tipo}: no se pudo escribir el perfil: {err(e)}")
 
     return {"ok": True, "tipo": tipo, "plan": nuevo_plan}
 
