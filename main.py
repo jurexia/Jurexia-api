@@ -9296,18 +9296,32 @@ THINKING_BUDGET = 20000  # Aumentado de 16K para permitir razonamientos más lar
 # precisión jurídica, sólo espera. La extensión que se pierde la repone la
 # instrucción de profundidad que ahora sí llega a esta rama.
 #
-# PERO apagarlo del todo sale caro con el genio, al revés que en el chat: con
-# la instrucción de profundidad completa y contexto RAG, `budget 0` bajó de
-# 13.0 a 7.7 artículos citados y de 2,648 a 978 palabras. Aquí el razonamiento
-# sí está comprando precisión jurídica, no sólo espera.
+# APAGADO el 17-ago-2026, y esta vez con la medición delante.
 #
-# Por eso la espera no se recorta: se ENSEÑA. Con include_thoughts el abogado
-# ve al genio razonar desde el primer segundo —qué artículo está buscando, qué
-# vía descarta— en vez de mirar una pantalla en blanco, y la respuesta conserva
-# su profundidad.
+# El razonamiento se justificaba con una nota vieja —«budget 0 bajó de 13,0 a
+# 7,7 artículos citados»— tomada cuando el presupuesto era 20,000. Se volvió a
+# medir con el presupuesto que estaba en producción (3,000), tres consultas de
+# materias distintas más una redacción completa:
 #
-# GENIO_THINKING=<n> y GENIO_RAZONAMIENTO_VISIBLE=0 lo ajustan sin desplegar.
-GENIO_THINKING_BUDGET = int(os.getenv("GENIO_THINKING", "20000"))
+#                        con 3,000    con 0
+#   tiempo total          53,2 s      40,0 s     −25%
+#   palabras (consulta)   2,111       1,585      −25%
+#   artículos citados      9,7         6,7       −31%
+#   REDACTAR una demanda  72 s        54 s       −25% de tiempo
+#                         3,275 pal.  3,501 pal. +7% de texto
+#
+# Es decir: en las consultas de barrido el razonamiento compraba amplitud, pero
+# **para redactar —que es para lo que existen los genios— no compraba nada**:
+# el escrito sale más rápido y más largo sin él.
+#
+# Y el argumento de fondo es de David y es correcto: el genio ya lleva la ley
+# ENTERA en el contexto en caché —2.6 millones de tokens entre los nueve, la Ley
+# de Amparo, el CFF, la LFT, el CNPP, los cuadernillos de la CoIDH—. No necesita
+# deducir dónde está el artículo: lo tiene delante. Pagar tokens de razonamiento
+# para releer lo que ya está en contexto es pagar dos veces.
+#
+# GENIO_THINKING=<n> lo reactiva sin desplegar si algún día conviene.
+GENIO_THINKING_BUDGET = int(os.getenv("GENIO_THINKING", "0"))
 # PROBADO Y DESCARTADO (17-ago-2026): pedirle a Gemini que razone en español
 # NO funciona. La instrucción llega —los registros lo confirman: «caché=SÍ …
 # visible=True»— y el resumen de pensamiento sigue saliendo en inglés, porque
@@ -12121,7 +12135,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             ))
                             gemini_config = gtypes.GenerateContentConfig(
                                 cached_content=_local_cached,
-                                max_output_tokens=25000,
+                                max_output_tokens=32000,
                                 temperature=0.5,
                                 thinking_config=gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET),
                             )
@@ -12218,7 +12232,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                     dynamic_parts.append(cnpcf_caveat)
 
                                 _gemini_contents.insert(0, gtypes.Content(role="user", parts=[gtypes.Part(text="\n\n".join(dynamic_parts))]))
-                                gemini_config = gtypes.GenerateContentConfig(cached_content=_local_cached, max_output_tokens=25000, temperature=0.5, thinking_config=gtypes.ThinkingConfig(thinking_budget=GENIO_THINKING_BUDGET))
+                                gemini_config = gtypes.GenerateContentConfig(cached_content=_local_cached, max_output_tokens=32000, temperature=0.5, thinking_config=gtypes.ThinkingConfig(thinking_budget=GENIO_THINKING_BUDGET))
                             else:
                                 gemini_config = gtypes.GenerateContentConfig(system_instruction=system_instruction, temperature=0.5, max_output_tokens=max_tokens, **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}))
                             
@@ -12349,7 +12363,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             # saber si la consulta seguía viva.
                             gemini_config = gtypes.GenerateContentConfig(
                                 cached_content=_local_cached,
-                                max_output_tokens=25000,
+                                max_output_tokens=32000,
                                 temperature=0.5,
                                 thinking_config=gtypes.ThinkingConfig(
                                     thinking_budget=GENIO_THINKING_BUDGET,
