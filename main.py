@@ -9308,7 +9308,22 @@ THINKING_BUDGET = 20000  # Aumentado de 16K para permitir razonamientos más lar
 #
 # GENIO_THINKING=<n> y GENIO_RAZONAMIENTO_VISIBLE=0 lo ajustan sin desplegar.
 GENIO_THINKING_BUDGET = int(os.getenv("GENIO_THINKING", "20000"))
-GENIO_MOSTRAR_RAZONAMIENTO = os.getenv("GENIO_RAZONAMIENTO_VISIBLE", "1") == "1"
+# PROBADO Y DESCARTADO (17-ago-2026): pedirle a Gemini que razone en español
+# NO funciona. La instrucción llega —los registros lo confirman: «caché=SÍ …
+# visible=True»— y el resumen de pensamiento sigue saliendo en inglés, porque
+# `include_thoughts` devuelve un RESUMEN que el modelo redacta en su idioma de
+# razonamiento y no hay parámetro ni prompt que lo cambie.
+#
+# Así que se deja de enseñar. El motivo original de enseñarlo —que el abogado
+# miraba una pantalla en blanco hasta 53 s— ya lo resuelve otra cosa: los pasos
+# con nombre, que van EN ESPAÑOL y dicen más («Fijando la jurisdicción»,
+# «Recorriendo el acervo · 102 fuentes»), y que empiezan a llegar a los 1,8 s.
+#
+# El presupuesto de razonamiento NO se toca: `thinking_budget` es lo que compra
+# la precisión jurídica —con budget 0 se cayó de 13,0 a 7,7 artículos citados—.
+# Lo único que se apaga es devolver su resumen. GENIO_RAZONAMIENTO_VISIBLE=1
+# lo vuelve a encender sin desplegar, si algún día el modelo resume en español.
+GENIO_MOSTRAR_RAZONAMIENTO = os.getenv("GENIO_RAZONAMIENTO_VISIBLE", "0") == "1"
 
 
 # ── Instrucciones de profundidad para el genio ───────────────────────────────
@@ -9426,9 +9441,10 @@ def profundidad_genio(es_redaccion: bool) -> str:
     Incluye la exigencia de razonar en español: el panel «Ver razonamiento
     jurídico» es visible y estaba llegando en inglés.
     """
-    return (_GENIO_IDIOMA_RAZONAMIENTO + "\n"
-            + (_GENIO_PROFUNDIDAD_REDACCION if es_redaccion
-               else _GENIO_PROFUNDIDAD_CONSULTA))
+    base = (_GENIO_PROFUNDIDAD_REDACCION if es_redaccion
+            else _GENIO_PROFUNDIDAD_CONSULTA)
+    # Sólo se paga la instrucción de idioma si el razonamiento se va a enseñar.
+    return (_GENIO_IDIOMA_RAZONAMIENTO + "\n" + base) if GENIO_MOSTRAR_RAZONAMIENTO else base
 
 def should_use_thinking(has_document: bool, is_drafting: bool) -> bool:
     """Activa thinking mode SOLO para modos especiales.
