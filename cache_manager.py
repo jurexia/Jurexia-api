@@ -6,21 +6,25 @@ its own corpus, system instruction, and lifecycle.
 
 Active Genios:
   - amparo:    ~303K tokens — CPEUM, Ley de Amparo, Tratados DDHH, Jurisprudencias
-  - mercantil: ~277K tokens — CCom, LGTOC, LGSM, Ley Contrato de Seguro, LISF
+  - mercantil: ~233K tokens — CCom (sin arbitraje ni transportes), LGTOC, LGSM,
+               Ley Contrato de Seguro. LISF fuera: regula a la aseguradora, no al contrato.
   - civil:     ~432K tokens — Código Civil Federal, CNPCF
   - penal:     ~268K tokens — CPF, CNPP, Delinc.Org, Trata, Arts.18-23 CPEUM
   - laboral:   ~390K tokens — LFT, LSS, LFTSE, INFONAVIT, Art.123 CPEUM
-  - fiscal:    ~465K tokens — CFF, LISR (sin Títulos VI-VII), LIVA, Proc. Contencioso
+  - fiscal:    ~439K tokens — CFF, LISR (sin Títulos III, V, VI y VII), LIVA,
+               Proc. Contencioso
   - administrativo: ~117K tokens — LFPA, LOAPF, LGRA, Resp.Patrimonial
   - agrario:   ~42K tokens — Ley Agraria, Org. Tribunales Agrarios, Art.27 CPEUM
-  - cidh:      ~414K tokens — CPEUM (DDHH), CADH, PIDCP, Conv.Tortura, Cuadernillos CoIDH
+  - cidh:      ~333K tokens — CPEUM (arts. 1-30 y 103-107), CADH, PIDCP,
+               Conv.Tortura, Cuadernillos CoIDH
 
 SAFETY LOCKS (9 total):
   1. Orphan Cleanup — deletes ALL existing caches before creating a new one
   2. asyncio.Lock — prevents concurrent creation (race conditions)
   3. Double-check — re-verifies inside the lock
   4. Token Count — refuses to create if corpus exceeds MAX_CACHE_TOKENS
-  5. MIN_CORPUS_FILES — refuse if fewer than expected files
+  5. MIN_CORPUS_FILES — DOCUMENTADO PERO NO IMPLEMENTADO: el único guardia
+     real es «cero archivos». Quitar uno del corpus no aborta la creación.
   6. Startup Cleanup — kills orphans on server restart (cost protection)
   7. Token Validation — per-genio max token check
   8. Daily Budget — max N cache creates/day (shared across all genios)
@@ -84,7 +88,7 @@ GENIO_CONFIGS = {
     },
     "mercantil": {
         "corpus_dir": os.getenv("CACHE_CORPUS_MERCANTIL_DIR", "cache_corpus_mercantil"),
-        "display_name": "iurexia-mercantil-corpus-v1",
+        "display_name": "iurexia-mercantil-corpus-v2",
         "max_tokens": 300_000,
         "system_instruction": (
             "Eres el Genio Mercantil de Iurexia, un asistente jurídico de élite "
@@ -160,7 +164,7 @@ GENIO_CONFIGS = {
     },
     "fiscal": {
         "corpus_dir": os.getenv("CACHE_CORPUS_FISCAL_DIR", "cache_corpus_fiscal"),
-        "display_name": "iurexia-fiscal-corpus-v1",
+        "display_name": "iurexia-fiscal-corpus-v2",
         "max_tokens": 500_000,
         "system_instruction": (
             "Eres el Genio Fiscal de Iurexia, un asistente jurídico de élite "
@@ -216,7 +220,7 @@ GENIO_CONFIGS = {
     },
     "cidh": {
         "corpus_dir": os.getenv("CACHE_CORPUS_CIDH_DIR", "cache_corpus_cidh"),
-        "display_name": "iurexia-cidh-corpus-v1",
+        "display_name": "iurexia-cidh-corpus-v2",
         "max_tokens": 500_000,
         "system_instruction": (
             "Eres el Genio de Convencionalidad (CIDH) de Iurexia, un asistente jurídico de élite "
