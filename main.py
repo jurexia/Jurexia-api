@@ -8295,6 +8295,83 @@ async def quota_status_endpoint(user_id: str):
         raise HTTPException(status_code=500, detail="Failed to fetch quota status")
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINT: ELIMINAR CUENTA (Apple 5.1.1(v) — borrado total, no desactivación)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/cuenta/eliminar")
+async def eliminar_cuenta(request: Request):
+    """Borra la cuenta del usuario que llama, con todo lo suyo.
+
+    La identidad NO viene en el cuerpo: viene del token. Los demás endpoints
+    aceptan un `user_id` posteado porque leen o cobran; aquí se destruye, y un
+    user_id posteado dejaría que cualquiera borrara cuentas ajenas. El token
+    Bearer se valida contra Supabase y se borra al dueño del token, a nadie más.
+
+    Orden del borrado, y por qué:
+      1. Archivos del bucket `expedientes` y el avatar — primero, porque las
+         rutas salen de `expediente_documentos` y tras borrar las filas ya no
+         habría cómo encontrarlos (quedarían huérfanos pagando almacenamiento).
+      2. Las filas, en una sola función SQL atómica (`eliminar_cuenta_datos`).
+      3. El usuario de auth — al final, para que un fallo a mitad deje una
+         cuenta aún capaz de reintentar, no un fantasma sin dueño.
+
+    La suscripción de Apple NO se cancela aquí: Apple no lo permite desde el
+    servidor. La app avisa al usuario y lo manda a cancelarla ANTES, como exige
+    la propia directriz.
+    """
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Supabase no configurado")
+
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Falta el token de sesión")
+    try:
+        quien = supabase_admin.auth.get_user(token)
+        uid, correo = quien.user.id, (quien.user.email or "")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+
+    print(f"🗑️ Eliminación de cuenta solicitada · {correo_opaco(correo)}")
+
+    # 1) los archivos: documentos de expedientes y avatar
+    try:
+        filas = supabase_admin.table('expediente_documentos') \
+            .select('storage_path').eq('user_id', uid).execute().data or []
+        rutas = [f['storage_path'] for f in filas if f.get('storage_path')]
+        for i in range(0, len(rutas), 100):
+            supabase_admin.storage.from_('expedientes').remove(rutas[i:i+100])
+        avatares = supabase_admin.storage.from_('avatars').list(uid) or []
+        if avatares:
+            supabase_admin.storage.from_('avatars').remove(
+                [f"{uid}/{a['name']}" for a in avatares])
+        print(f"   archivos borrados: {len(rutas)} de expedientes, {len(avatares)} avatares")
+    except Exception as e:
+        # Un archivo atorado no debe dejar al usuario preso de su cuenta: se
+        # sigue con el borrado de datos y se deja constancia para limpiar a mano.
+        print(f"   ⚠️ storage incompleto ({err(e)}) — el borrado de datos continúa")
+
+    # 2) las filas, atómicas
+    try:
+        resumen = supabase_admin.rpc(
+            'eliminar_cuenta_datos', {'p_user_id': uid, 'p_email': correo}
+        ).execute().data
+    except Exception as e:
+        print(f"   🚨 fallo borrando filas: {err(e)}")
+        raise HTTPException(status_code=500, detail="No se pudo completar el borrado; inténtelo de nuevo")
+
+    # 3) el usuario de auth, al final
+    try:
+        supabase_admin.auth.admin.delete_user(uid)
+    except Exception as e:
+        print(f"   🚨 filas borradas pero auth falló: {err(e)} · uid={uid}")
+        raise HTTPException(status_code=500, detail="Borrado incompleto; inténtelo de nuevo")
+
+    borradas = sum(v for v in resumen.values() if isinstance(v, int)) if isinstance(resumen, dict) else 0
+    print(f"   ✅ cuenta eliminada · {borradas} registros · {correo_opaco(correo)}")
+    return {"eliminada": True, "registros": borradas}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: EXTRACT TEXT FROM DOCUMENT
 # ══════════════════════════════════════════════════════════════════════════════
 
