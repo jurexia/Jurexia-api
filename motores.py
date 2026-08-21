@@ -113,16 +113,23 @@ CATALOGO: list[Motor] = [
         clave="redaccion_con_documento", boton="Redactar con documento adjunto",
         marcador=None, proveedor="deepseek", modelo="DEEPSEEK_OFFICIAL_REASONER_MODEL",
         razona=True, esfuerzo=None, max_tokens=32_000, planes="todos",
+        nota="Desde el 21-ago-2026 el alias apunta a deepseek-v4-pro (0813). El "
+             "comentario del código ya decía V4 Pro pero el alias seguía en "
+             "flash: intención y realidad divergían. A/B con auditoría "
+             "determinista sobre un incidente de nulidad: pro citó los arts. "
+             "1068-1070 del CCom y flash los omitió (7/8 vs 6/8). 3× el costo "
+             "por documento (~$0.015), volumen bajo, riesgo alto: se paga.",
     ),
     Motor(
         clave="buscar", boton="Buscar (el chat por omisión)", marcador=None,
         proveedor="deepseek", modelo="DEEPSEEK_OFFICIAL_CHAT_MODEL", razona=False,
         esfuerzo=None, max_tokens=30_000, planes="todos",
-        nota="Razonamiento APAGADO a propósito. Medido: por omisión 34.9 s hasta "
-             "el primer token; apagado, 0.9 s — con la misma extensión de "
-             "respuesta. 30,000 tokens y no 16,384 porque v4-flash razona aunque "
-             "el interruptor esté OFF y descuenta del mismo tope: una respuesta "
-             "chocó con el límite y llegó sin conclusión. CHAT_MAX_TOKENS lo cambia.",
+        nota="Razonamiento APAGADO a propósito, y desde el 21-ago-2026 APAGADO DE "
+             "VERDAD: omitir el parámetro `thinking` es encendido por defecto en "
+             "v4 — medido: sin parámetro, 2,000 tokens de salida (1,633 de "
+             "razonamiento oculto) en 20.9 s; con disabled explícito, 601 tokens "
+             "y 7.0 s. El chat pagó ~3× de salida por consulta durante semanas. "
+             "El tope de 30,000 se conserva por prudencia. CHAT_MAX_TOKENS lo cambia.",
     ),
     Motor(
         clave="salvame", boton="Sálvame", marcador=None,

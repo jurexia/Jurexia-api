@@ -130,7 +130,13 @@ deepseek_official_client = AsyncOpenAI(
     base_url="https://api.deepseek.com",
 )
 DEEPSEEK_OFFICIAL_CHAT_MODEL = "deepseek-v4-flash"  # Replaces deprecated "deepseek-chat" (sunset Jul 2026)
-DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-v4-flash"  # V4: thinking via param, no modelo separado (sunset legacy Jul 2026)
+# Subido a v4-pro (versión 0813, liberada el 13-ago-2026) tras un A/B con
+# auditoría determinista sobre un incidente de nulidad real: pro citó los
+# arts. 1068-1070 del CCom —el corazón del incidente— y flash los omitió
+# (7/8 contra 6/8). Cuesta 3× por documento (~$0.015 vs $0.005), y este motor
+# es de bajo volumen y alto riesgo: es el que redacta CON el expediente del
+# cliente. La calidad aquí vale tres centavos.
+DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-v4-pro"
 
 # OpenAI API Configuration (gpt-5-mini for chat + sentencia analysis + embeddings)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
@@ -12600,6 +12606,17 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             api_kwargs["max_completion_tokens"] = max_tokens
                         else:
                             api_kwargs["max_tokens"] = max_tokens
+                        # V4 RAZONA POR DEFECTO SI EL PARÁMETRO SE OMITE. Medido
+                        # el 21-ago-2026 contra la API: la misma pregunta sin el
+                        # parámetro gastó 2,000 tokens de salida (1,633 de puro
+                        # razonamiento, topó el límite) en 20.9 s; con
+                        # `disabled` explícito, 601 tokens y 7.0 s. El chat
+                        # llevaba pagando ~3× de salida en cada consulta — era
+                        # el «v4-flash razona aunque el interruptor esté OFF»
+                        # que motores.py anotaba sin causa conocida.
+                        if "deepseek" in active_model.lower():
+                            api_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+                            print("   💤 DeepSeek thinking DESACTIVADO explícito (antes se omitía = encendido)")
 
                     # Precedentes es síntesis: con esfuerzo de razonamiento
                     # mínimo gpt-5-mini da el primer token en <1 s (medido) en
