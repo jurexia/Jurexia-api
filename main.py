@@ -3146,7 +3146,26 @@ def normalize_estado(estado: Optional[str]) -> Optional[str]:
     """
     if not estado:
         return None
-    normalized = estado.upper().strip().replace(" ", "_").replace("-", "_")
+
+    # Quitar acentos ANTES de comparar. La lista canónica los guarda sin
+    # tilde —NUEVO_LEON, QUERETARO, YUCATAN— así que "Nuevo León" se convertía
+    # en "NUEVO_LEÓN", no casaba con nada, y la función devolvía None.
+    #
+    # Devolver None no falla ruidosamente: significa «sin entidad», y entonces
+    # NO se abre el silo de ese estado. El abogado de Nuevo León preguntaba
+    # desde Nuevo León y recibía una respuesta sin una sola ley de su estado,
+    # sin ningún aviso. Medido el 22-ago-2026 sobre las 32 entidades: los seis
+    # nombres con tilde —Estado de México, Michoacán, Nuevo León, Querétaro,
+    # San Luis Potosí y Yucatán— devolvieron CERO artículos locales, y los 26
+    # sin tilde sí abrieron su silo. Correlación de seis sobre seis.
+    #
+    # NFD separa la letra de su tilde y el filtro se queda sólo con la letra.
+    import unicodedata as _ud
+    _sin_tilde = "".join(
+        c for c in _ud.normalize("NFD", estado)
+        if _ud.category(c) != "Mn"
+    )
+    normalized = _sin_tilde.upper().strip().replace(" ", "_").replace("-", "_")
     # Colapsar múltiples underscores
     while "__" in normalized:
         normalized = normalized.replace("__", "_")
@@ -8152,14 +8171,27 @@ except ImportError:
 # Dónde puede vivir un documento citado. El orden importa: se consulta en
 # paralelo, pero ante el rarísimo caso de un UUID repetido entre colecciones
 # gana la primera de esta lista, así que van primero las fuentes primarias.
-_COLECCIONES_CITA = [
-    "leyes_federales", "bloque_constitucional", "jurisprudencia_nacional_v2",
-    "sentencias_scjn_holdings", "sentencias_holdings", "leyes_estatales",
-    "leyes_cdmx", "leyes_edomex", "leyes_guerrero", "leyes_nuevo_leon",
-    "leyes_jalisco", "leyes_veracruz", "leyes_morelos", "leyes_sinaloa",
-    "leyes_queretaro", "leyes_guanajuato", "leyes_puebla", "leyes_chihuahua",
-    "leyes_michoacan", "leyes_aguascalientes",
-]
+# Se DERIVA de las constantes, no se escribe a mano. La lista literal anterior
+# se quedó con 20 colecciones mientras el sistema crecía a 40, y lo que faltaba
+# no fallaba ruidosamente: la cita simplemente devolvía 404 al tocarla.
+# Auditado el 22-ago-2026 — faltaban DIECIOCHO entidades (Oaxaca, Coahuila,
+# Yucatán, Sonora…) y la doctrina entera. Un abogado de Oaxaca veía la cita de
+# su propio código con su superíndice y, al tocarla, no abría nada.
+#
+# Derivarla significa que ingerir un estado nuevo lo vuelve citable solo.
+_COLECCIONES_CITA = list(dict.fromkeys(
+    # Primero las fuentes primarias: ante un UUID repetido —rarísimo— gana la
+    # primera de la lista, y debe ganar la ley sobre el comentario.
+    list(FIXED_SILOS.values())
+    + ["jurisprudencia_nacional", "sentencias_scjn_holdings", "sentencias_holdings"]
+    + [LEGACY_ESTATAL_SILO]
+    + list(ESTADO_SILO.values())
+    + list(SENTENCIA_SILOS.values())
+    # La doctrina va al final a propósito: es fuente secundaria, y hasta hoy
+    # ni siquiera estaba, que es la razón de que las citas de Ferrer Mac-Gregor
+    # se vieran en la respuesta y no abrieran nada.
+    + ["doctrina"]
+))
 
 
 @app.get("/cita/{doc_id}")
@@ -8209,6 +8241,33 @@ async def resolver_cita(doc_id: str):
         materia = ", ".join(str(m) for m in materia) if materia else None
     origen = (pay.get("origen") or pay.get("ley")
               or pay.get("cuerpo_legal_oficial") or pay.get("tribunal") or "")
+
+    # La doctrina guarda su identidad en otros campos —autor, obra, página— y
+    # no en `origen`/`ref`. Sin esta traducción la cita abre, pero se presenta
+    # como «Fuente legal» sin referencia: el abogado ve el párrafo y no sabe de
+    # quién es, que para una fuente doctrinal es justamente lo que importa.
+    if col == "doctrina":
+        _autor = (pay.get("autor") or "").strip()
+        _obra = (pay.get("obra") or "").strip()
+        _pag = pay.get("pagina_impresa") or pay.get("pagina_pdf")
+        origen = " — ".join(x for x in (_autor, _obra) if x) or origen
+        _ref_doc = ", ".join(
+            x for x in (_obra or None, f"p. {_pag}" if _pag else None) if x
+        )
+        return {
+            "origen": origen or "Doctrina",
+            "ref": _ref_doc or (_autor or ""),
+            "texto": pay.get("texto") or "",
+            "pdf_url": pay.get("url_oficial") or pay.get("pdf_url") or None,
+            "silo": col,
+            "entidad": None,
+            "registro": None,
+            "tesis_num": None,
+            "tipo_criterio": "doctrina",
+            "instancia": _autor or None,
+            "materia": materia,
+        }
+
     return {
         "origen": humanize_origen(origen) or "Fuente legal",
         "ref": (pay.get("ref") or pay.get("numero_tesis")
@@ -10649,6 +10708,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # ─────────────────────────────────────────────────────────────────────
     # PASO 1: Búsqueda Híbrida en Qdrant (Knowledge Retrieval)
     # ─────────────────────────────────────────────────────────────────────
+    # ── El veredicto del Agente Estratega, compartido entre ámbitos ──────────
+    # `legal_plan` nace dentro de _perform_retrieval() y muere ahí: es local de
+    # esa función anidada. generate_stream() —otra función anidada hermana— lo
+    # leía con `'legal_plan' in dir()`, que SIEMPRE daba False, y el `except:`
+    # desnudo se tragaba la evidencia. Consecuencia medida el 22-ago-2026: en 40
+    # de 48 consultas auditadas se le ordenó al modelo «las leyes del estado son
+    # la FUENTE PRINCIPAL, TRANSCRIBE PRIMERO» aunque el Estratega hubiera
+    # dictaminado fuero CONSTITUCIONAL. De ahí que 20 de 32 entidades fundaran
+    # un amparo federal en su ley de alcoholes o de salud.
+    #
+    # Este buzón vive en el ámbito de chat_endpoint, así que ambas hijas lo ven.
+    _plan_estratega: Dict[str, Any] = {}
+
     try:
         # Define search as a local async block for gather
         async def _perform_retrieval():
@@ -11106,6 +11178,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     )
                     print(f"   ⏱ PARALLEL SEARCH+LLM: {time.perf_counter() - _t_presearch:.2f}s (antes: serial ~5s)")
 
+                    # El Estratega ya dictaminó: que su veredicto salga de aquí.
+                    if isinstance(legal_plan, dict):
+                        _plan_estratega.update(legal_plan)
+
                     # Fusionar resultados con deduplicación (el primero gana — mayor relevancia)
                     _seen_ids = set()
                     _merged = []
@@ -11117,6 +11193,47 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 _merged.append(_r)
                     semantic_results = _merged
                     print(f"   🔍 MULTI-QUERY FUSIÓN: {len(semantic_results)} docs únicos tras deduplicación")
+
+                    # ── FRENO DE RUIDO LOCAL EN MATERIA FEDERAL ──────────────
+                    # La búsqueda arranca ANTES de que el Estratega dictamine
+                    # —van en paralelo para ahorrar dos segundos— así que se
+                    # lanza con fuero vacío y eso abre el silo estatal con
+                    # prioridad. Cuando el dictamen llega, el contexto ya está
+                    # armado; pero AQUÍ todavía se puede reordenar, y sale
+                    # gratis: el Estratega ya terminó en este punto.
+                    #
+                    # Medido el 22-ago-2026 sobre la misma consulta federal de
+                    # amparo en las 32 entidades: 20 fundaron la respuesta en
+                    # ley local ajena al caso —Chihuahua en su Ley de Alcoholes,
+                    # Morelos en su Ley de Educación—. Las 12 limpias lo eran
+                    # sólo por tener el acervo delgado.
+                    #
+                    # No se BORRA lo estatal: en un amparo, la ley local es la
+                    # que describe el acto reclamado y a veces hace falta. Se
+                    # limita y se manda detrás, que es lo que corresponde a una
+                    # fuente referencial. Apagable sin desplegar.
+                    _freno = os.getenv("FRENO_RUIDO_LOCAL", "true").lower() != "false"
+                    _fuero_est = (_plan_estratega.get("fuero_detectado") or "").lower().strip()
+                    _genio_local = any(g in ("civil", "laboral", "familiar")
+                                       for g in _resolved_genio_ids)
+                    if _freno and _fuero_est in ("federal", "constitucional") and not _genio_local:
+                        _CUPO_LOCAL = int(os.getenv("CUPO_LOCAL_EN_FEDERAL", "6"))
+                        _locales, _resto = [], []
+                        for _r in semantic_results:
+                            _silo = getattr(_r, "silo", "") or ""
+                            if _silo.startswith("leyes_") and _silo != "leyes_federales":
+                                _locales.append(_r)
+                            else:
+                                _resto.append(_r)
+                        if len(_locales) > _CUPO_LOCAL:
+                            print(f"   🚦 FRENO RUIDO LOCAL (fuero={_fuero_est}): "
+                                  f"{len(_locales)} docs estatales → {_CUPO_LOCAL}, y detrás de los federales")
+                        elif _locales:
+                            print(f"   🚦 FRENO RUIDO LOCAL (fuero={_fuero_est}): "
+                                  f"{len(_locales)} docs estatales movidos detrás de los federales")
+                        # El orden interno de cada grupo se respeta: sólo cambia
+                        # el grupo al que pertenece cada documento.
+                        semantic_results = _resto + _locales[:_CUPO_LOCAL]
 
                     
                     # Merge: Direct Lookup al frente (artículos exactos primero)
@@ -11594,14 +11711,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # ── FUERO AWARENESS: Determinar el fuero efectivo para la inyección de estado ──
                 # Prioridad: 1) fuero manual del usuario, 2) fuero detectado por el Agente Estratega
                 _effective_fuero_for_prompt = (request.fuero or "").lower().strip() or None
-                if not _effective_fuero_for_prompt and 'legal_plan' in dir():
-                    try:
-                        _detected = legal_plan.get("fuero_detectado", None)
-                        if _detected and _detected not in ("mixto", None):
-                            _effective_fuero_for_prompt = _detected.lower().strip()
-                    except:
-                        pass
+                if not _effective_fuero_for_prompt:
+                    # Se lee del buzón, no de `legal_plan`: aquél vive en el
+                    # ámbito de chat_endpoint y éste es local de la función
+                    # hermana _perform_retrieval(). Ver la nota de ese buzón.
+                    _detected = (_plan_estratega.get("fuero_detectado") or "").strip()
+                    if _detected and _detected.lower() != "mixto":
+                        _effective_fuero_for_prompt = _detected.lower()
                 _is_federal_or_const = _effective_fuero_for_prompt in ("federal", "constitucional")
+                print(f"   ⚖️ FUERO PARA EL PROMPT: {_effective_fuero_for_prompt or 'sin determinar'} "
+                      f"(manual={request.fuero or 'no'} · estratega={_plan_estratega.get('fuero_detectado', 'no llegó')})")
 
                 if _estado_for_llm:
                     estado_humano = _estado_for_llm.replace("_", " ").title()
@@ -12740,14 +12859,73 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             # Cerrar la fase para que el aviso no caiga dentro
                             # del panel de razonamiento.
                             yield "<!--/thinking-->"
-                        fallback = (
-                            "\n\n**Análisis completado.**\n\n"
-                            "El modelo utilizó todos los tokens disponibles durante el análisis interno. "
-                            "Envía un mensaje de seguimiento como *\"responde\"* o *\"continúa\"* "
-                            "para obtener la respuesta estructurada."
-                        )
-                        content_buffer = fallback
-                        yield fallback
+
+                        # ── REINTENTO SIN RAZONAR ────────────────────────────
+                        # Antes se le pedía al abogado que escribiera
+                        # «continúa». Medido el 22-ago-2026: una contestación de
+                        # demanda para Querétaro tardó 139 segundos, reunió 69
+                        # fuentes en el contexto y entregó ese letrero. La
+                        # consulta ya se le había cobrado.
+                        #
+                        # Aquí no hay nada que perder: el modelo YA gastó su
+                        # presupuesto y no produjo una sola letra. Se reintenta
+                        # una vez con el razonamiento apagado —que es
+                        # justamente lo que se lo comió— y con el mismo
+                        # contexto, que sigue en memoria y no se vuelve a
+                        # buscar. Si el reintento tampoco da nada, entonces sí
+                        # se muestra el aviso de siempre.
+                        #
+                        # Cada familia apaga el razonamiento a su manera; usar
+                        # la ajena devuelve 400. Se replica lo que este mismo
+                        # archivo ya hace más arriba para cada una.
+                        _reintentado = ""
+                        if os.getenv("REINTENTO_SIN_RAZONAR", "true").lower() != "false":
+                            try:
+                                _m = (active_model or "").lower()
+                                _kw = dict(api_kwargs)
+                                if "deepseek" in _m:
+                                    _eb = dict(_kw.get("extra_body") or {})
+                                    _eb["thinking"] = {"type": "disabled"}
+                                    _kw["extra_body"] = _eb
+                                    _kw.pop("reasoning_effort", None)
+                                elif "gpt-5" in _m:
+                                    _kw["reasoning_effort"] = "minimal"
+                                else:
+                                    _kw.pop("reasoning_effort", None)
+                                print(f"   🔁 REINTENTO SIN RAZONAR sobre {active_model} "
+                                      f"(el razonamiento agotó el presupuesto)")
+                                _t_re = time.perf_counter()
+                                _stream2 = await active_client.chat.completions.create(**_kw)
+                                async for _c2 in _stream2:
+                                    if not _c2.choices:
+                                        continue
+                                    _t2 = _c2.choices[0].delta.content
+                                    if _t2:
+                                        _reintentado += _t2
+                                        yield _t2
+                                        _last_yield_time = time.perf_counter()
+                                    elif time.perf_counter() - _last_yield_time > 5.0:
+                                        yield "<!--PING-->"
+                                        _last_yield_time = time.perf_counter()
+                                print(f"   {'✅' if _reintentado.strip() else '⚠️'} REINTENTO: "
+                                      f"{len(_reintentado)} chars en {time.perf_counter() - _t_re:.1f}s")
+                            except Exception as _re_err:
+                                # Un reintento que falla jamás rompe el stream:
+                                # se cae al aviso de siempre.
+                                print(f"   ⚠️ REINTENTO SIN RAZONAR falló: {err(_re_err)}")
+                                _reintentado = ""
+
+                        if _reintentado.strip():
+                            content_buffer = _reintentado
+                        else:
+                            fallback = (
+                                "\n\n**Análisis completado.**\n\n"
+                                "El modelo utilizó todos los tokens disponibles durante el análisis interno. "
+                                "Envía un mensaje de seguimiento como *\"responde\"* o *\"continúa\"* "
+                                "para obtener la respuesta estructurada."
+                            )
+                            content_buffer = fallback
+                            yield fallback
                 
                 # ── 🔒 CANDADO: Reparar UUIDs alucinados ANTES de validar ──
                 # Los LLMs en modo reasoning (GPT-5.5, DeepSeek Reasoner) alteran UUIDs
