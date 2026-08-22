@@ -3139,6 +3139,52 @@ def enrich_missing_metadata(results: list) -> list:
                 r.ref = inferred_ref
     return results
 
+# ── COHERENCIA DEL FUERO ─────────────────────────────────────────────────────
+# Materias de competencia local en las que un juez del estado aplica el código
+# del estado. No incluye MERCANTIL: su derecho sustantivo es federal (Código de
+# Comercio, LGTOC) aunque el juicio se siga ante un juez local.
+_MATERIAS_DE_FUERO_LOCAL = {"civil", "familiar"}
+
+
+def _fuero_coherente(plan: Dict[str, Any], estado: Optional[str]) -> Dict[str, Any]:
+    """Corrige el fuero cuando contradice a la materia del propio diagnóstico.
+
+    El Agente Estratega devuelve materia, vía procesal y fuero en el mismo JSON,
+    y a veces se contradice. Medido el 22-ago-2026 sobre una contestación de
+    demanda en Querétaro:
+
+        Materia: civil | Vía: juicio ordinario civil | Fuero detectado: FEDERAL
+
+    Un juicio ordinario civil en Querétaro se rige por el código civil y el de
+    procedimientos de Querétaro. Llamarle federal es sencillamente falso.
+
+    Mientras la etiqueta no se usaba, la contradicción era inofensiva. Ahora que
+    sí gobierna el prompt, ordenaba «NO uses leyes del estado de Querétaro» en
+    un escrito que sólo puede fundarse en leyes de Querétaro, y el modelo se
+    quedaba discutiendo consigo mismo en la respuesta.
+
+    Regla: si la materia es de competencia local, hay entidad elegida y la vía
+    NO es de amparo, el fuero baja a «mixto» —que es la vía de en medio: ni
+    prohíbe la ley local ni la impone—. El amparo se respeta como federal
+    aunque el acto reclamado nazca de un pleito civil, porque ahí sí manda la
+    Ley de Amparo.
+    """
+    if not isinstance(plan, dict):
+        return plan
+    fuero = (plan.get("fuero_detectado") or "").lower().strip()
+    if fuero not in ("federal", "constitucional"):
+        return plan
+    materia = (plan.get("materia_principal") or "").lower().strip()
+    via = (plan.get("via_procesal") or "").lower()
+    if (materia in _MATERIAS_DE_FUERO_LOCAL and estado and "amparo" not in via):
+        corregido = dict(plan)
+        corregido["fuero_detectado"] = "mixto"
+        print(f"   ⚖️ FUERO CORREGIDO: el Estratega dijo '{fuero}' con materia "
+              f"'{materia}' y vía '{via[:38]}' en {estado} → mixto")
+        return corregido
+    return plan
+
+
 def normalize_estado(estado: Optional[str]) -> Optional[str]:
     """
     Normaliza el nombre del estado al formato EXACTO almacenado en Qdrant.
@@ -11180,7 +11226,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
 
                     # El Estratega ya dictaminó: que su veredicto salga de aquí.
                     if isinstance(legal_plan, dict):
-                        _plan_estratega.update(legal_plan)
+                        _plan_estratega.update(_fuero_coherente(legal_plan, effective_estado))
 
                     # Fusionar resultados con deduplicación (el primero gana — mayor relevancia)
                     _seen_ids = set()
