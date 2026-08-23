@@ -15269,6 +15269,339 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  ABOGADO IA — el consultor por voz
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# QUÉ ES, Y EN QUÉ SE DIFERENCIA DEL CHAT
+# ---------------------------------------
+# El chat de escritorio tarda entre 45 y 70 segundos y devuelve veinte mil
+# caracteres con todas sus citas verificadas. Es lo correcto cuando el abogado
+# está sentado redactando. En una audiencia no sirve: ahí se necesita el
+# artículo y el plazo, dichos en voz alta, en dos segundos.
+#
+# Éste es un camino SEPARADO. No toca `chat_endpoint` ni una línea. Esa
+# separación no es prudencia: la recuperación por concepto y HyDE del chat
+# costaron meses de arreglar y hay directriz expresa de no perderlas.
+#
+# LO QUE MANDA AQUÍ ES LA VERDAD, NO LA VELOCIDAD
+# -----------------------------------------------
+# David lo dijo con la frase que define el producto: «el abogado que busca un
+# artículo o una tesis no puede inventarla en plena audiencia». En el chat, una
+# cita dudosa se toca y se comprueba. Hablada, no hay nada que tocar: lo que se
+# dice, se dice. Por eso aquí el sello de correspondencia BLOQUEA en vez de
+# observar, y por eso está permitido —y es preferible— que el agente diga que
+# no lo tiene.
+#
+# EL CORPUS
+# ---------
+# Todo el acervo normativo: leyes federales, las 32 entidades, bloque
+# constitucional, jurisprudencia y doctrina. Se busca en paralelo, así que se
+# paga el silo más lento y no la suma: 158–343 ms de mediana medidos el
+# 23-ago-2026.
+#
+# FUERA queda el corpus de sentencias completas, y con motivo medido: la misma
+# colección responde en 87 ms o en 7.262 ms según si sus páginas siguen en
+# memoria. Siete segundos no los salva ninguna muletilla. Y en audiencia no se
+# necesita un amparo directo entero: se necesita el artículo. Para lo otro está
+# el chat escrito, que ya lo hace bien.
+
+VOZ_MODELO = os.getenv("VOZ_MODELO", "google/gemini-2.5-flash-lite")
+
+# Tope de salida. Es una decisión de diseño antes que de coste: una respuesta
+# hablada de más de tres frases es insoportable de oír. Mismo criterio y mismo
+# número que Jurisconsulto, que ya lleva tiempo en manos de usuarios.
+VOZ_MAX_TOKENS = 260
+
+# Cuántos documentos entran al contexto. Pocos a propósito: el modelo tiene que
+# poder sostener CADA frase en algo que tiene delante, y con cuarenta documentos
+# encima empieza a mezclar. Además cada uno son tokens de entrada en cada turno.
+VOZ_TOPE_DOCS = 10
+
+# A quién se le enseña. Va por variable de entorno para poder abrirlo sin
+# desplegar; los dos correos del piloto son el valor por defecto.
+def _voz_permitida(correo: str) -> bool:
+    lista = os.getenv("VOZ_CORREOS", "jdm.juridico@gmail.com,administracion@iurexia.com")
+    permitidos = {c.strip().lower() for c in lista.split(",") if c.strip()}
+    return (correo or "").strip().lower() in permitidos
+
+
+_VOZ_SISTEMA = (
+    "Eres el Abogado IA de Iurexia. Hablas por voz con un abogado mexicano que puede estar "
+    "de pie en una audiencia, así que respondes en 2 o 3 frases, sin listas, sin markdown, sin "
+    "encabezados y sin asteriscos: lo que escribas se va a leer en voz alta tal cual.\n"
+    "REGLA ABSOLUTA: cada artículo, cada ley y cada criterio que menciones tiene que estar en "
+    "los DOCUMENTOS que se te entregan en este mismo mensaje. No recurres a tu memoria. Si lo "
+    "que se te dio no responde la pregunta, lo dices con esas palabras —«no lo tengo en mi "
+    "acervo»— y ofreces reformular. Eso es una respuesta CORRECTA, no un fracaso.\n"
+    "Está PROHIBIDO dictar un número de artículo que no aparezca en los documentos, y está "
+    "PROHIBIDO atribuir un artículo a una ley distinta de aquella de la que viene, aunque el "
+    "número coincida: el mismo número dice cosas distintas en cada ordenamiento.\n"
+    "Di primero la respuesta y después su fundamento, que es como se contesta a alguien que "
+    "está esperando: «el plazo es de cinco días hábiles, conforme al artículo tal de tal ley». "
+    "Nunca al revés.\n"
+    "Español de México, en el registro del foro. Directo, sin preámbulos ni cortesías de "
+    "relleno. Si necesitas un momento para buscar, ya se le avisó: no te disculpes otra vez."
+)
+
+
+class VozRequest(BaseModel):
+    pregunta: str
+    #: Estado del usuario, para saber qué colección estatal mirar.
+    estado: Optional[str] = None
+    #: Los últimos turnos. Se recortan: una conversación hablada es corta y
+    #: arrastrar más historia sólo suma tokens de entrada en CADA turno — que es
+    #: exactamente cómo un platinum anual llegó a topar el millón en el chat.
+    historial: List[Message] = Field(default_factory=list)
+    stream: bool = True
+
+
+async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
+    """Recupera del acervo normativo. En paralelo, y sin sentencias.
+
+    DOS ANCLAS, Y NO ES UN LUJO
+    ---------------------------
+    La primera versión buscaba con las palabras crudas de la pregunta y, en la
+    primera prueba, «qué artículos regulan el derecho del tanto en Querétaro»
+    devolvió la Ley del Deporte del Estado de Querétaro. Es exactamente el
+    síntoma que tuvo el chat durante meses con HyDE apagado, y hay directriz
+    expresa de no volver a perder la recuperación por concepto.
+
+    Aquí no se puede usar HyDE: es una llamada más a un modelo y son dos
+    segundos que la voz no tiene. Pero la otra ancla del chat —el concepto
+    limpio— es un regex que no cuesta nada. Se buscan las dos y se funden.
+
+    CUOTA POR SILO
+    --------------
+    Sin ella, cuatro documentos de la entidad ahogaban a los federales, y a una
+    pregunta laboral —materia federal— no llegaba ni un artículo de la Ley
+    Federal del Trabajo. Cada silo tiene sitio garantizado.
+    """
+    silos = list(FIXED_SILOS.values())
+    silo_estado = ESTADO_SILO.get((estado or "").upper().strip())
+    if silo_estado:
+        silos.append(silo_estado)
+    silos.append("doctrina")
+
+    # Ancla 1: la pregunta. Ancla 2: el concepto sin el andamio de la pregunta.
+    # Si el denoiser no deja nada distinto, la pregunta ya ERA el concepto.
+    concepto = _texto_concepto(pregunta, estado) or ""
+    anclas = [pregunta] + ([concepto] if concepto and concepto != pregunta else [])
+
+    vectores = await asyncio.gather(*[get_dense_embedding(a) for a in anclas])
+
+    async def uno(col: str, vector):
+        try:
+            r = await qdrant_client.query_points(
+                collection_name=col, query=vector, limit=4,
+                with_payload=True, using="dense",
+            )
+            return col, r.points
+        except Exception as e:
+            # Un silo que falla no tumba la respuesta: se sigue con los demás y
+            # se deja constancia. Callarlo sería repetir el fallo mudo de HyDE.
+            print(f"   🔇 VOZ: silo {col} falló ({err(e)}) — se sigue sin él")
+            return col, []
+
+    tareas = [uno(c, v) for v in vectores for c in silos]
+    resultados = await asyncio.gather(*tareas)
+
+    # Los payloads NO son homogéneos entre colecciones: `articulo_num` llega como
+    # texto en leyes_federales y como número en otras. Un `.strip()` directo
+    # revienta con AttributeError, y aquí eso serían quinientos en mitad de una
+    # audiencia. Se fuerza el tipo antes de tocar nada.
+    def _txt(v) -> str:
+        return "" if v is None else str(v).strip()
+
+    por_silo: dict = {c: {} for c in silos}
+    for col, puntos in resultados:
+        for p in puntos:
+            pl = p.payload or {}
+            ref = _txt(pl.get("ref"))
+            ley = _txt(pl.get("ley") or pl.get("origen"))
+            clave = f"{col}|{ley}|{ref}"          # el mismo doc puede venir por las dos anclas
+            previo = por_silo[col].get(clave)
+            score = float(p.score or 0)
+            if previo and previo["score"] >= score:
+                continue
+            texto = _txt(pl.get("texto_raw") or pl.get("texto"))
+            if not texto:
+                continue                           # un documento sin texto no sostiene nada
+            por_silo[col][clave] = {
+                "coleccion": col, "score": score, "ley": ley, "ref": ref,
+                "articulo": _txt(pl.get("articulo_num")),
+                "texto": texto[:900],
+                "pdf": _txt(pl.get("url_pdf") or pl.get("pdf")),
+                "entidad": _txt(pl.get("entidad")),
+            }
+
+    # Reparto: dos garantizados por silo, y el resto por puntuación.
+    elegidos, sobrantes = [], []
+    for col in silos:
+        ordenados = sorted(por_silo[col].values(), key=lambda d: -d["score"])
+        elegidos.extend(ordenados[:2])
+        sobrantes.extend(ordenados[2:])
+    elegidos.extend(sorted(sobrantes, key=lambda d: -d["score"]))
+
+    # Lo de la entidad primero cuando lo hay: es lo que rige para quien pregunta.
+    elegidos.sort(key=lambda d: (d["coleccion"] != silo_estado, -d["score"]))
+    return elegidos[:VOZ_TOPE_DOCS]
+
+
+def _voz_revisar_citas(texto: str, docs: List[dict]) -> tuple:
+    """¿Dijo algún artículo que no le dimos?
+
+    Devuelve (limpio, sospechas). Es deliberadamente conservador: sólo señala
+    cuando hay prueba positiva de que el número no está en el contexto. Un
+    detector que salta por las dudas se acaba apagando, y entonces no sirve el
+    día que hace falta.
+    """
+    numeros_dados = {d["articulo"] for d in docs if d["articulo"]}
+    for d in docs:
+        # El número también puede venir dentro del `ref` («Artículo 2500.»).
+        for m in re.finditer(r"(\d+)", d.get("ref") or ""):
+            numeros_dados.add(m.group(1))
+
+    citados = set(re.findall(r"art[íi]culos?\s+(\d{1,4})", texto, re.I))
+    # Y en letra, que es como los dicta una voz: «artículo cuarenta y siete».
+    sospechas = sorted(c for c in citados if c not in numeros_dados)
+    return (not sospechas), sospechas
+
+
+@app.post("/api/voz")
+async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None)):
+    """El Abogado IA. Respuesta hablada, corta y anclada a documentos reales."""
+    if not payload.pregunta.strip():
+        raise HTTPException(status_code=400, detail="No llegó la pregunta.")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    if not supabase_admin:
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+
+    # 1) Quién pregunta. El token, siempre. Nunca un correo ni un id del cuerpo:
+    #    catorce endpoints de este archivo se protegen con un `user_email` que
+    #    escribe el cliente, y ese candado se abre tecleando otro correo.
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        user = user_resp.user
+        if not user:
+            raise HTTPException(status_code=401, detail="Token inválido")
+        user_id, user_email = str(user.id), (user.email or "")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+    # 2) El piloto. Dos cuentas.
+    if not _voz_permitida(user_email):
+        raise HTTPException(status_code=403, detail="El Abogado IA está en pruebas cerradas.")
+
+    # 3) Cupo antes de gastar API, como en /chat y en jurisconsulto.
+    try:
+        q = await asyncio.to_thread(
+            lambda: supabase_admin.rpc("consume_query", {"p_user_id": user_id}).execute()
+        )
+        if q.data and not q.data.get("allowed", True):
+            raise HTTPException(status_code=429, detail="Se te acabaron las consultas de este periodo.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[voz] cuota falló: {err(e)}")
+
+    t0 = time.time()
+    docs = await _voz_buscar(payload.pregunta, payload.estado)
+    t_rag = time.time() - t0
+    print(f"   🎙️ VOZ: {len(docs)} documentos en {t_rag*1000:.0f} ms · {correo_opaco(user_email)}")
+
+    if not docs:
+        return {
+            "respuesta": ("No encontré nada sobre eso en mi acervo. "
+                          "Dígamelo de otra forma o precise el ordenamiento."),
+            "fuentes": [], "modelo": None,
+        }
+
+    contexto = "\n\n".join(
+        f"[{i+1}] {d['ley']} — {d['ref']}\n{d['texto']}"
+        for i, d in enumerate(docs)
+    )
+    mensajes = [{"role": "system", "content": _VOZ_SISTEMA}]
+    for m in payload.historial[-4:]:
+        if m.role in ("user", "assistant"):
+            mensajes.append({"role": m.role, "content": (m.content or "")[:600]})
+    mensajes.append({"role": "user",
+                     "content": f"DOCUMENTOS:\n{contexto}\n\nPREGUNTA: {payload.pregunta.strip()}"})
+
+    fuentes = [{"ley": d["ley"], "ref": d["ref"], "pdf": d["pdf"], "entidad": d["entidad"]}
+               for d in docs]
+
+    if payload.stream:
+        async def emitir():
+            # Las fuentes van PRIMERO: la pantalla puede pintarlas mientras el
+            # modelo todavía redacta. En audiencia, eso es lo que el abogado
+            # mira mientras escucha.
+            yield json.dumps({"tipo": "fuentes", "fuentes": fuentes}) + "\n"
+            trozos = []
+            try:
+                flujo = await deepseek_client.chat.completions.create(
+                    model=VOZ_MODELO, messages=mensajes, max_tokens=VOZ_MAX_TOKENS,
+                    temperature=0.2, stream=True,
+                    extra_body={"reasoning": {"enabled": False}},
+                )
+                async for parte in flujo:
+                    if not parte.choices:
+                        continue
+                    delta = parte.choices[0].delta.content or ""
+                    if delta:
+                        trozos.append(delta)
+                        yield json.dumps({"tipo": "delta", "texto": delta}) + "\n"
+            except Exception as e:
+                print(f"[voz] streaming reventó: {err(e)}")
+                yield json.dumps({"tipo": "error", "mensaje": "No se pudo generar la respuesta."}) + "\n"
+                return
+
+            texto = "".join(trozos).strip()
+            limpio, sospechas = _voz_revisar_citas(texto, docs)
+            if not limpio:
+                # Aquí no se corrige ni se matiza: se retira. Un número de
+                # artículo dictado en audiencia no admite un «quizá».
+                print(f"   🛑 VOZ: retirada por citar {sospechas} sin respaldo")
+                yield json.dumps({
+                    "tipo": "retirada", "articulos": sospechas,
+                    "respuesta": ("Tengo la respuesta a medias y prefiero no dictarle un número "
+                                  "que no puedo respaldar. Permítame buscarlo de otra forma."),
+                }) + "\n"
+                return
+
+            print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO} · {len(texto)} chars")
+            yield json.dumps({"tipo": "fin", "respuesta": texto, "fuentes": fuentes}) + "\n"
+
+        return StreamingResponse(
+            emitir(), media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    try:
+        r = await deepseek_client.chat.completions.create(
+            model=VOZ_MODELO, messages=mensajes, max_tokens=VOZ_MAX_TOKENS,
+            temperature=0.2, extra_body={"reasoning": {"enabled": False}},
+        )
+        respuesta = (r.choices[0].message.content or "").strip()
+    except Exception as e:
+        print(f"[voz] reventó: {err(e)}")
+        raise HTTPException(status_code=502, detail="No se pudo generar la respuesta.")
+
+    limpio, sospechas = _voz_revisar_citas(respuesta, docs)
+    if not limpio:
+        print(f"   🛑 VOZ: retirada por citar {sospechas} sin respaldo")
+        respuesta = ("Tengo la respuesta a medias y prefiero no dictarle un número que no puedo "
+                     "respaldar. Permítame buscarlo de otra forma.")
+        fuentes = []
+
+    print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO}")
+    return {"respuesta": respuesta, "fuentes": fuentes, "modelo": VOZ_MODELO}
+
+
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
 @app.post("/admin/users/{user_id}/toggle-sentencia")
 async def admin_toggle_sentencia(user_id: str, authorization: str = Header(...)):
