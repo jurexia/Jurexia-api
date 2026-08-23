@@ -18,6 +18,12 @@ import html
 import json
 import os
 import re
+# Alias de módulo para `re`. Parece redundante y no lo es: dentro de
+# chat_endpoint hay un `import re` local, y eso convierte el nombre `re`
+# en local para TODA la función —incluidas las líneas anteriores al
+# import—. Cualquier uso previo lanzaría UnboundLocalError. Este alias
+# sí se resuelve como global. Mismo tropiezo que el de `legal_plan`.
+import re as _re_mod
 import uuid
 from typing import AsyncGenerator, List, Literal, Optional, Dict, Set, Tuple, Any
 from contextlib import asynccontextmanager
@@ -10904,6 +10910,56 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 break
         print(f"   ⚖️ MODO PRECEDENTES activado (corte={precedentes_corte}, sala={precedentes_sala or 'todas'}, circuito={precedentes_circuit}, tribunal={tribunal_filter or 'todos'})")
     
+    # ── LA CORRECCIÓN DEL ABOGADO, ANOTADA ─────────────────────────────────
+    # Medida 4 del plan de calidad, y la idea es de David: cuando un litigante
+    # se molesta en decir «estás equivocado» y explicar por qué, nos está
+    # haciendo la auditoría más cara que existe, gratis. Hasta hoy nadie la
+    # leía: Marie Mejía escribió «estás equivocado, ambas reformas sí existen»
+    # el 29 de julio y canceló el 22 de agosto. Nadie vio la primera frase.
+    #
+    # Se anota junto con la respuesta anterior —que es lo que está corrigiendo—
+    # porque una queja sin el texto que la provocó obliga a reconstruir la
+    # conversación para entenderla, y entonces no se hace.
+    #
+    # Es a fuego y olvido: si esto falla, la consulta sigue igual. Una alarma
+    # que rompe el producto que vigila no sirve de nada.
+    try:
+        if os.getenv("ANOTAR_CORRECCIONES", "true").lower() != "false" and supabase_admin:
+            import deteccion_correccion as _detcorr
+            _es, _senal = _detcorr.es_correccion(last_user_message or "")
+            if _es:
+                _previa = ""
+                for _m in reversed(request.messages[:-1] if len(request.messages) > 1 else []):
+                    if _m.role == "assistant":
+                        _t = _m.content or ""
+                        # Fuera el razonamiento: lo que corrige el abogado es
+                        # lo que LEYÓ, no lo que el modelo pensó por dentro.
+                        _a, _b = _t.find("<!--THINKING_START-->"), _t.find("<!--THINKING_END-->")
+                        if _a >= 0 and _b > _a:
+                            _t = _t[:_a] + _t[_b + 19:]
+                        # Y fuera los marcadores del flujo (<!--PASO:...-->, <!--PING-->).
+                        # Sin esto lo que se guarda son 2.500 caracteres de fontanería
+                        # en lugar de la prosa que el abogado está corrigiendo.
+                        _t = _re_mod.sub(r"<!--.*?-->", "", _t, flags=_re_mod.S).strip()
+                        _previa = _t[:2500]
+                        break
+                print(f"   🔔 CORRECCIÓN DEL USUARIO detectada ({_senal}): "
+                      f"«{(last_user_message or '')[:90]}»")
+                supabase_admin.table("correcciones_usuario").insert({
+                    "user_id": request.user_id or None,
+                    # correo y plan van vacíos a propósito: este endpoint no los
+                    # tiene en memoria y consultarlos aquí añadiría una ida a la
+                    # base dentro de la ruta de la consulta. Se resuelven por
+                    # user_id cuando se lee la tabla, que es una vez al día.
+                    "conversation_id": getattr(request, "conversation_id", None),
+                    "estado": request.estado or None,
+                    "senal": _senal[:200],
+                    "texto": (last_user_message or "")[:2000],
+                    "respuesta_previa": _previa or None,
+                }).execute()
+    except Exception as _e_corr_det:
+        print(f"   ⚠️ No pude anotar la corrección (no fatal): {err(_e_corr_det)}")
+
     if is_drafting:
         # Extraer tipo y subtipo del mensaje de redacción (UI-triggered)
         import re
@@ -12180,6 +12236,88 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         print(f"   📍 Estado inyectado al LLM (sin leyes estatales detectadas, priorizando federal/const): {estado_humano}")
 
                     dynamic_injections.append(_estado_prompt)
+
+                    # ── EL INVENTARIO DE LO QUE SÍ HAY ─────────────────────
+                    # Medida 3 del plan de calidad. El modelo sabe lo que tiene
+                    # delante, pero no sabe lo que NO tiene, y ésa es la
+                    # diferencia entre decir «no lo recuperé» y rellenar el
+                    # hueco con otra cosa.
+                    #
+                    # El caso que la motiva (9-jul-2026, Platinum de Sonora):
+                    # no se recuperó el Código de Procedimientos Civiles de
+                    # Sonora, y en vez de decirlo se citó el artículo 371 de la
+                    # Ley Federal del Trabajo como si fuera de ese código. Con
+                    # esta lista delante, el modelo habría visto que ese código
+                    # no estaba entre sus fuentes.
+                    #
+                    # La lista se construye de los documentos REALES del
+                    # contexto —no de lo que creemos haber buscado—, así que no
+                    # puede mentir en la dirección peligrosa: si una ley
+                    # aparece aquí, está.
+                    #
+                    # El filtro es por el silo EXACTO de la entidad, no por
+                    # cualquier `leyes_*`. Los saltos entre silos traen artículos
+                    # de otros estados —en la prueba de Sonora entraron el código
+                    # del Distrito Federal y el de Jalisco—, y meterlos en esta
+                    # lista sería justo la mentira que la medida quiere evitar:
+                    # presentarle al modelo la ley de otro estado como si fuera
+                    # de la entidad del usuario.
+                    # Interruptor de reversa. Vale para las dos direcciones: si
+                    # el inventario resultara contraproducente —haciendo al
+                    # modelo excesivamente cauto—, se apaga con una variable de
+                    # entorno sin tocar código ni desplegar.
+                    try:
+                        # Apagado = ningún silo que mirar, y el bucle no entra.
+                        # Se hace así y no lanzando StopIteration porque esto vive
+                        # dentro de un generador asíncrono, y ahí una StopIteration
+                        # que se escapara se convertiría en RuntimeError (PEP 479).
+                        _encendido = os.getenv("INVENTARIO_LEYES", "true").lower() != "false"
+                        _silo_estado = ESTADO_SILO.get(_estado_for_llm or "") if _encendido else None
+                        _leyes_ctx = {}
+                        for _r in (search_results or []) if _silo_estado else []:
+                            if (getattr(_r, "silo", "") or "") != _silo_estado:
+                                continue
+                            _org = (getattr(_r, "origen", "") or "").strip()
+                            if _org:
+                                _leyes_ctx[_org] = _leyes_ctx.get(_org, 0) + 1
+                        if _leyes_ctx:
+                            # Por frecuencia: las que más fragmentos aportan son
+                            # las que de verdad sostienen la respuesta.
+                            _orden = sorted(_leyes_ctx.items(), key=lambda x: -x[1])
+                            _tope = int(os.getenv("INVENTARIO_LEYES_TOPE", "14"))
+                            _lista = "\n".join(f"  · {n} ({c} fragmento{'s' if c > 1 else ''})"
+                                                for n, c in _orden[:_tope])
+                            _sobran = len(_orden) - _tope
+                            # La lista COMPLETA autoriza a negar; la recortada, no.
+                            # Con 24 ordenamientos y un tope de 14 —medido en Nuevo
+                            # León—, decirle al modelo «son TODOS» y prohibirle citar
+                            # fuera de la lista le haría negar diez leyes que sí
+                            # tiene delante. La regla dura sólo vale si la lista es
+                            # entera; si se recorta, se dice y se calla la orden.
+                            if _sobran > 0:
+                                _cabeza = (f"ORDENAMIENTOS DE {estado_humano.upper()} MÁS PRESENTES EN ESTE "
+                                           f"CONTEXTO (los {_tope} con más fragmentos, de {len(_orden)} en total):")
+                                _cola = f"\n  · …y {_sobran} ordenamiento(s) más, no listados aquí"
+                                _regla = ("REGLA: cita únicamente ordenamientos que estén en tu contexto. Si el que "
+                                          "hace falta no aparece, dilo —«no recuperé el [nombre] en esta búsqueda»— "
+                                          "y ofrece reformular. Está PROHIBIDO citar un artículo de otro "
+                                          "ordenamiento en su lugar, aunque el número coincida: el mismo número "
+                                          "dice cosas distintas en cada ley.")
+                            else:
+                                _cabeza = (f"ORDENAMIENTOS DE {estado_humano.upper()} QUE TIENES EN ESTE CONTEXTO "
+                                           f"—y son TODOS los que tienes de esa entidad—:")
+                                _cola = ""
+                                _regla = ("REGLA: si la consulta se refiere a un ordenamiento de esa entidad que "
+                                          "NO figura en esta lista, dilo con esas palabras —«no recuperé el "
+                                          "[nombre] en esta búsqueda»— y ofrece reformular. Está PROHIBIDO citar "
+                                          "un artículo de otro ordenamiento en su lugar, aunque el número coincida: "
+                                          "el mismo número dice cosas distintas en cada ley.")
+                            dynamic_injections.append(f"{_cabeza}\n{_lista}{_cola}\n\n{_regla}")
+                            print(f"   📋 INVENTARIO: {min(len(_orden), _tope)} de {len(_orden)} ordenamientos "
+                                  f"de {estado_humano} declarados al modelo"
+                                  f"{' (lista recortada: sin regla de exclusividad)' if _sobran > 0 else ''}")
+                    except Exception as _e_inv:
+                        print(f"   ⚠️ Inventario de leyes falló (no fatal): {err(_e_inv)}")
 
                 # ═══════════════════════════════════════════════════════════════════
                 # INYECCIÓN DE MATERIA ESTRICTA (cuando el usuario selecciona materia)
