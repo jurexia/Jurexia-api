@@ -809,6 +809,29 @@ confianza del usuario y la credibilidad de todo el sistema.
 PRINCIPIO RECTOR: Si una tesis NO tiene [Doc ID: uuid] del contexto,
 PARA TI ESA TESIS NO EXISTE. Punto.
 
+🔴 PROHIBIDO MUDAR UN ARTÍCULO DE UNA LEY A OTRA.
+
+Un documento del contexto pertenece al ordenamiento que dice su origen, y a
+ningún otro. Si el abogado pregunta por el Código de Procedimientos Civiles de
+su estado y en el contexto NO está ese código, la respuesta es decirlo — nunca
+tomar un artículo del mismo número de otra ley y presentarlo como si fuera el
+suyo.
+
+Ocurrió, y es el peor fallo que ha tenido esta plataforma (9-jul-2026, cuenta
+Platinum de Sonora): no se recuperó el Código de Procedimientos Civiles de
+Sonora, y se citó el ARTÍCULO 371 DE LA LEY FEDERAL DEL TRABAJO —que habla de
+sindicatos— presentándolo como procedimiento civil de Sonora. El abogado lo
+leyó y contestó: «el artículo 371 que citas no dice eso».
+
+Es peor que inventar, porque la cita ABRE: lleva su identificador, su
+documento existe y el sello la da por verificada. El abogado no tiene forma de
+detectarlo salvo leyendo el documento entero, que es justo lo que la
+plataforma promete ahorrarle.
+
+El número de artículo NO es la identidad de la norma. El artículo 371 existe
+en decenas de ordenamientos y dice algo distinto en cada uno. La identidad es
+la pareja LEY + ARTÍCULO, y las dos tienen que salir del MISMO documento.
+
 🔴 Y LA OTRA MITAD DE ESA REGLA, QUE ES IGUAL DE IMPORTANTE:
 «NO ESTÁ EN MI ACERVO» NO ES «NO EXISTE». JAMÁS lo digas.
 
@@ -13459,11 +13482,65 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         print(f"   🚨 REGISTROS FUERA DEL CONTEXTO ({len(_regs_fuera)}): {', '.join(_regs_fuera[:12])}")
                         yield f"<!--REGISTROS_FUERA:{','.join(_regs_fuera)}-->"
 
+                    # ── SELLO DE CORRESPONDENCIA ───────────────────────
+                    # La validación de arriba comprueba que el identificador
+                    # esté entre los documentos recuperados. NO comprueba que
+                    # la frase diga lo que el documento dice. Por eso un
+                    # Platinum de Sonora recibió el artículo 371 de la Ley
+                    # Federal del Trabajo presentado como procedimiento civil
+                    # de Sonora, y el sello lo dio por verificado.
+                    #
+                    # Medido sobre 959 citas reales antes de escribir esto:
+                    # 98.2% corresponden · 1.1% apuntan al artículo de al lado
+                    # · 0.2% a otra ley. Una de cada sesenta va a otro sitio.
+                    #
+                    # ARRANCA EN MODO OBSERVACIÓN y no toca la respuesta. La
+                    # medición de laboratorio no autoriza a modificar lo que
+                    # lee un abogado: primero se mira la tasa en producción,
+                    # después se decide. SELLO_CORRESPONDENCIA=marcar lo
+                    # activa cuando esa tasa esté vista.
+                    _corr = {"revisadas": 0, "discrepantes": 0, "detalle": []}
+                    try:
+                        if os.getenv("SELLO_CORRESPONDENCIA", "observar").lower() != "off":
+                            import correspondencia as _corresp
+                            _RE_PAR = __import__("re").compile(
+                                r'\*\s*Art[íi]culo\s+([\w\.º°]+)[^*\[]{0,40}?,\s*'
+                                r'([^*\[]{4,90}?)\s*\*\s*\[Doc ID:\s*([0-9a-fA-F\-]{32,36})\]')
+                            for _m in _RE_PAR.finditer(content_buffer or ""):
+                                _art, _ley, _uuid = _m.groups()
+                                _doc = doc_id_map.get(_uuid) or doc_id_map.get(_uuid.lower())
+                                if not _doc:
+                                    continue
+                                _corr["revisadas"] += 1
+                                _est, _por = _corresp.veredicto(
+                                    " ".join(_ley.split()), _art,
+                                    getattr(_doc, "origen", "") or "",
+                                    getattr(_doc, "ref", "") or "",
+                                    (getattr(_doc, "texto", "") or "")[:4000])
+                                if _est != "ok":
+                                    _corr["discrepantes"] += 1
+                                    _corr["detalle"].append(
+                                        {"doc": _uuid.lower(), "art": _art,
+                                         "ley": " ".join(_ley.split())[:60],
+                                         "tipo": _est, "motivo": _por[:120]})
+                            if _corr["discrepantes"]:
+                                print(f"   🔎 SELLO DE CORRESPONDENCIA: "
+                                      f"{_corr['discrepantes']} de {_corr['revisadas']} citas "
+                                      f"no corresponden a su documento (modo observación)")
+                                for _d in _corr["detalle"][:6]:
+                                    print(f"      · art. {_d['art']} de «{_d['ley']}» → {_d['tipo']}: {_d['motivo']}")
+                            elif _corr["revisadas"]:
+                                print(f"   🔎 SELLO DE CORRESPONDENCIA: {_corr['revisadas']}/{_corr['revisadas']} corresponden")
+                    except Exception as _e_corr:
+                        # Un sello que rompe la respuesta es peor que no tenerlo.
+                        print(f"   ⚠️ Sello de correspondencia falló (no fatal): {err(_e_corr)}")
+
                     # Always emit CITATION_META with sources map (includes repair aliases)
                     meta = json.dumps({
                         "valid": validation.valid_count,
                         "invalid": validation.invalid_count,
                         "total": validation.total_citations,
+                        "correspondencia": _corr,
                         "invalid_ids": [c.doc_id for c in validation.citations if c.status == "invalid"],
                         "sources": sources_map,
                         "repaired": len(uuid_repair_map),  # Count of repaired UUIDs for monitoring
