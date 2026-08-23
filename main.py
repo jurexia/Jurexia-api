@@ -6945,6 +6945,38 @@ async def _law_level_routing(
 # ADVANCED RAG: HyDE (Hypothetical Document Embeddings)
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── SALUD DE LA RECUPERACIÓN ────────────────────────────────────────────────
+# HyDE estuvo meses apagado y NADA avisó: cero documentos generados, ochenta y
+# ocho tiempos agotados en diez horas, y la respuesta seguía saliendo —peor,
+# pero saliendo—. Se descubrió porque un abogado notó que faltaba lo obvio.
+#
+# Una capa que puede apagarse sin romper nada hay que MEDIRLA encendida. Esto
+# lleva la cuenta y `/salud/recuperacion` la publica para que la alarma diaria
+# la lea. Es memoria del proceso, no base de datos: si Render corre varios
+# obreros, cada uno ve lo suyo — suficiente, porque una caída de HyDE los
+# afecta a todos por igual.
+from collections import deque as _deque
+
+_SALUD_VENTANA = 200          # últimos N intentos
+_HYDE_INTENTOS: "_deque[tuple]" = _deque(maxlen=_SALUD_VENTANA)
+_CONCEPTO_PASADAS: "_deque[tuple]" = _deque(maxlen=_SALUD_VENTANA)
+
+
+def _anotar_hyde(resultado: str, ms: int = 0) -> None:
+    """resultado: 'generado' | 'plazo_agotado' | 'error'"""
+    try:
+        _HYDE_INTENTOS.append((time.time(), resultado, ms))
+    except Exception:
+        pass
+
+
+def _anotar_concepto(ancla_usada: str, nuevos: int) -> None:
+    try:
+        _CONCEPTO_PASADAS.append((time.time(), ancla_usada, nuevos))
+    except Exception:
+        pass
+
+
 async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> Optional[str]:
     """
     HyDE: Genera un documento jurídico hipotético que respondería a la query.
@@ -6990,6 +7022,7 @@ async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> O
             "sin explicaciones ni preámbulos. Usa terminología jurídica técnica mexicana."
             + estado_context
         )
+        _t_hyde = time.perf_counter()
         _hyde_resp = await asyncio.wait_for(
             _gemini.aio.models.generate_content(
                 model=GEMINI_LITE_MODEL,
@@ -7012,13 +7045,18 @@ async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> O
         )
         hyde_doc = (_hyde_resp.text or "").strip()
         if hyde_doc and len(hyde_doc) > 50:
+            _anotar_hyde("generado", int((time.perf_counter() - _t_hyde) * 1000))
             print(f"   🔮 HyDE generado ({len(hyde_doc)} chars): {hyde_doc[:100]}...")
             return hyde_doc
+        _anotar_hyde("error", int((time.perf_counter() - _t_hyde) * 1000))
     except asyncio.TimeoutError:
-        print(f"   ⚠️ HyDE timeout (>1.5s) — usando query original")
+        _anotar_hyde("plazo_agotado", int((time.perf_counter() - locals().get('_t_hyde', time.perf_counter())) * 1000))
+        print(f"   ⚠️ HyDE: se agotó el plazo de {os.getenv('HYDE_PLAZO_SEG', '4.0')}s "
+              f"— se usa el concepto limpio")
     except Exception as e:
+        _anotar_hyde("error", int((time.perf_counter() - locals().get('_t_hyde', time.perf_counter())) * 1000))
         print(f"   ⚠️ HyDE falló (usando query original): {err(e)}")
-    
+
     return None
 
 
@@ -8424,6 +8462,56 @@ async def resolver_cita(doc_id: str):
 # ══════════════════════════════════════════════════════════════════════════════
 # ENDPOINT: HEALTH CHECK
 # ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/salud/recuperacion")
+async def salud_recuperacion():
+    """Qué tan viva está la recuperación por concepto.
+
+    Existe porque HyDE se apagó durante meses sin que nada fallara: la
+    respuesta seguía saliendo, sólo que peor. Lo que no se mide, se pierde.
+
+    `tasa_hyde` es la fracción de intentos que produjeron documento. Si cae a
+    cero con volumen suficiente, la capa está muerta otra vez. La alarma diaria
+    lee esto; también sirve para mirarlo a mano en cualquier momento.
+
+    OJO: son contadores del proceso que responde, no de todo el servicio. Con
+    varios obreros cada uno ve lo suyo — basta, porque una caída de HyDE los
+    golpea a todos igual.
+    """
+    ahora = time.time()
+    def _en_ventana(cola, horas):
+        corte = ahora - horas * 3600
+        return [x for x in cola if x[0] >= corte]
+
+    hyde = _en_ventana(_HYDE_INTENTOS, 24)
+    generados = sum(1 for x in hyde if x[1] == "generado")
+    agotados = sum(1 for x in hyde if x[1] == "plazo_agotado")
+    errores = sum(1 for x in hyde if x[1] == "error")
+    tiempos = sorted(x[2] for x in hyde if x[2])
+    conceptos = _en_ventana(_CONCEPTO_PASADAS, 24)
+
+    return {
+        "ventana_horas": 24,
+        "hyde": {
+            "intentos": len(hyde),
+            "generados": generados,
+            "plazo_agotado": agotados,
+            "errores": errores,
+            "tasa": round(generados / len(hyde), 3) if hyde else None,
+            "plazo_seg": float(os.getenv("HYDE_PLAZO_SEG", "4.0")),
+            "ms_mediana": tiempos[len(tiempos) // 2] if tiempos else None,
+        },
+        "pasada_concepto": {
+            "veces": len(conceptos),
+            "activa": os.getenv("PASADA_CONCEPTO", "true").lower() != "false",
+            "docs_nuevos_promedio": (
+                round(sum(x[2] for x in conceptos) / len(conceptos), 1) if conceptos else None
+            ),
+            "solo_concepto_limpio": sum(1 for x in conceptos if x[1] == "concepto limpio"),
+            "con_hyde": sum(1 for x in conceptos if "HyDE" in x[1]),
+        },
+    }
+
 
 @app.get("/health")
 async def health_check():
@@ -11421,6 +11509,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                     # el freno de ruido local siguen mandando
                                     # después sobre el conjunto.
                                     semantic_results = _nuevos + semantic_results
+                                _anotar_concepto(_origen_ancla, len(_nuevos))
                                 print(f"   🎯 PASADA POR CONCEPTO ({_origen_ancla}): «{_ancla[:56]}» "
                                       f"→ {len(_nuevos)} documentos nuevos "
                                       f"({len(_anclas)} anclas × {len(_silos_ancla)} silos)")
