@@ -3185,6 +3185,86 @@ def _fuero_coherente(plan: Dict[str, Any], estado: Optional[str]) -> Dict[str, A
     return plan
 
 
+# ── EL CONCEPTO, LIMPIO DE ANDAMIO ──────────────────────────────────────────
+# Las palabras con que se pregunta envenenan la búsqueda. Medido el 22-ago-2026
+# contra el silo de Querétaro con la consulta real de un abogado:
+#
+#   «Que artículos regulan el derecho del tanto en el estao de querétaro?»
+#        → Ley del Deporte, Ley de Profesiones, Código Fiscal. Ni un acierto.
+#   «derecho del tanto»
+#        → artículos 964 y 965 del Código Civil, que son LOS artículos.
+#
+# El andamio interrogativo —«qué artículos regulan», «en el estado de X»— pesa
+# más en el vector que el concepto jurídico, y arrastra la búsqueda hacia
+# cualquier ley que hable del Estado de Querétaro. Quitarlo es gratis y no
+# depende de ningún modelo: por eso esto es una función y no una llamada.
+_ANDAMIO = [
+    r'^\s*[¿?]*\s*',
+    r'\b(?:qu[ée]|cu[áa]l(?:es)?|cu[áa]nto|c[óo]mo|d[óo]nde|cu[áa]ndo)\b',
+    r'\b(?:art[íi]culos?|numerales?|preceptos?|normas?|leyes?|disposiciones?)\b',
+    r'\b(?:regulan?|rigen?|establecen?|contemplan?|prev[ée]n?|disponen?|se\s+regula|'
+    r'aplican?|se\s+aplica|dice|se\s+encuentra|est[áa]\s+regulado)\b',
+    r'\b(?:me\s+puedes?\s+decir|dime|expl[íi]came|quiero\s+saber|necesito\s+saber)\b',
+]
+# «en el estado de Querétaro», «para el estado de Jalisco», «en Querétaro».
+# El `esta[d]?o` tolera el dedazo: la consulta real decía «estao».
+_MENCION_ESTADO = (
+    r'\b(?:en|para|de|del|conforme\s+a|seg[úu]n)\s+'
+    r'(?:el|la|los|las)?\s*(?:esta[d]?o\s+(?:libre\s+y\s+soberano\s+)?(?:de\s+)?)?'
+    r'(?:%s)\b'
+)
+
+
+def _con_acentos(nombre: str) -> str:
+    """Patrón que casa el nombre lleve o no lleve tilde.
+
+    La lista canónica guarda QUERETARO sin tilde y el abogado escribe
+    «querétaro». Sin esto, la mención de la entidad sobrevive al filtro y sigue
+    arrastrando la búsqueda hacia cualquier ley que hable de ese estado —que es
+    justo lo que se quiere quitar.
+    """
+    equiv = {'a': '[aá]', 'e': '[eé]', 'i': '[ií]', 'o': '[oó]', 'u': '[uú]',
+             'á': '[aá]', 'é': '[eé]', 'í': '[ií]', 'ó': '[oó]', 'ú': '[uú]',
+             'n': '[nñ]', 'ñ': '[nñ]'}
+    salida = []
+    for c in nombre.lower():
+        if c == '_' or c == ' ':
+            salida.append(r'\s+')
+        else:
+            salida.append(equiv.get(c, c))
+    return ''.join(salida)
+
+
+def _texto_concepto(consulta: str, estado: Optional[str] = None) -> str:
+    """La consulta sin el andamio de la pregunta: sólo el concepto jurídico.
+
+    Devuelve cadena vacía si al quitar el andamio no queda nada con sustancia
+    —entonces la consulta original YA era el concepto y no hay nada que hacer—.
+    """
+    import re as _re
+    if not consulta:
+        return ""
+    t = consulta.strip()
+    for patron in _ANDAMIO:
+        t = _re.sub(patron, ' ', t, flags=_re.I)
+    # Quitar la mención de la entidad, que es lo que arrastra a leyes ajenas.
+    nombres = [_con_acentos(e) for e in ESTADOS_MEXICO]
+    nombres += ['cdmx', _con_acentos('ciudad de mexico'),
+                _con_acentos('distrito federal'), 'edomex']
+    if estado:
+        nombres.append(_con_acentos(estado))
+    # Los de nombre largo primero: si «baja california» va después de «baja
+    # california sur», éste se corta a la mitad y deja un «sur» huérfano.
+    nombres.sort(key=len, reverse=True)
+    t = _re.sub(_MENCION_ESTADO % '|'.join(nombres), ' ', t, flags=_re.I)
+    t = _re.sub(r'[¿?¡!]', ' ', t)
+    t = _re.sub(r'\s{2,}', ' ', t).strip(' ,.;:-—')
+    # Si quedó un muñón sin sustancia, no sirve de ancla.
+    if len(t) < 4 or len(t.split()) < 1:
+        return ""
+    return t
+
+
 def normalize_estado(estado: Optional[str]) -> Optional[str]:
     """
     Normaliza el nombre del estado al formato EXACTO almacenado en Qdrant.
@@ -6920,7 +7000,15 @@ async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> O
                     max_output_tokens=350,
                 ),
             ),
-            timeout=1.5,  # Flash Lite directo — sin overhead de OpenRouter
+            # Medido en producción el 22-ago-2026 sobre diez horas de tráfico:
+            # «HyDE generado» 0 veces, «HyDE timeout» 88 veces. CIEN POR CIENTO
+            # de fallos. El plazo de 1.5 s no lo alcanzaba nunca, así que la capa
+            # entera llevaba meses muerta sin que nada lo dijera.
+            #
+            # Subirlo no cuesta latencia: HyDE se genera EN PARALELO con la
+            # búsqueda, que tarda de cuatro a seis segundos. Ajustable sin
+            # desplegar por si el proveedor se degrada.
+            timeout=float(os.getenv('HYDE_PLAZO_SEG', '4.0')),
         )
         hyde_doc = (_hyde_resp.text or "").strip()
         if hyde_doc and len(hyde_doc) > 50:
@@ -11239,6 +11327,108 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 _merged.append(_r)
                     semantic_results = _merged
                     print(f"   🔍 MULTI-QUERY FUSIÓN: {len(semantic_results)} docs únicos tras deduplicación")
+
+                    # ── PASADA POR CONCEPTO ──────────────────────────────────
+                    # Las tres búsquedas de arriba embeben la pregunta TAL CUAL
+                    # la escribió el abogado, y el andamio interrogativo pesa
+                    # más que el concepto jurídico. Medido el 22-ago-2026 con
+                    # una consulta real contra el silo de Querétaro:
+                    #
+                    #   «Que artículos regulan el derecho del tanto en el estao
+                    #    de querétaro?»  →  Ley del Deporte, Ley de Profesiones,
+                    #                      Código Fiscal. Ni un acierto.
+                    #   «derecho del tanto»            → arts. 964 y 965 CC Qro.
+                    #   el concepto DESCRITO (HyDE)    → 964 (0.90), 2164 (0.86),
+                    #                                    965 (0.73).
+                    #
+                    # HyDE existía justo para esto y estaba muerto por partida
+                    # doble: se agotaba su plazo de 1.5 s el CIEN POR CIENTO de
+                    # las veces (0 aciertos y 88 tiempos agotados en diez horas
+                    # de producción), y aunque hubiera llegado, el chat le pasa
+                    # `precomputed_hyde=None` a las tres búsquedas y jamás usa
+                    # el documento que generó. Se pagaba y se tiraba.
+                    #
+                    # Aquí sí se usa, y sin costar una llamada nueva: el
+                    # documento ya se está generando en paralelo. Si no llega,
+                    # se cae al concepto limpio, que no depende de ningún
+                    # modelo. Apagable sin desplegar.
+                    if os.getenv("PASADA_CONCEPTO", "true").lower() != "false":
+                        try:
+                            # DOS anclas, no una. Medido sobre tres corridas de
+                            # la misma consulta: con una sola ancla, dos de tres
+                            # traían los artículos 964, 965 y 2164 completos y
+                            # la tercera perdía el 965 y volvía a confesar que
+                            # no había recuperado el texto. La diferencia era
+                            # cuál ancla tocaba: HyDE describe el concepto y
+                            # puntúa 0.90, mientras que el concepto limpio
+                            # puntúa 0.50 y a veces no alcanza.
+                            #
+                            # Se usan LAS DOS siempre que existan. Cuestan una
+                            # búsqueda más en Qdrant, no una llamada de modelo.
+                            _anclas = []
+                            _limpio = _texto_concepto(last_user_message, effective_estado)
+                            if _limpio and _limpio.lower() != last_user_message.lower().strip():
+                                _anclas.append(("concepto limpio", _limpio))
+                            _hy = (hyde_doc or "").strip()
+                            if len(_hy) >= 60:
+                                _anclas.append(("HyDE", _hy))
+                            _origen_ancla = " + ".join(a for a, _ in _anclas) or "ninguna"
+                            _ancla = _anclas[0][1] if _anclas else ""
+                            if _anclas:
+                                _silos_ancla = ["leyes_federales", "jurisprudencia_nacional_v2",
+                                                "sentencias_holdings"]
+                                _silo_est = _silo_del_estado(effective_estado)
+                                if _silo_est:
+                                    _silos_ancla.insert(0, _silo_est)
+                                _tareas_ancla = []
+                                for _etq, _txt in _anclas:
+                                    _dv = await get_dense_embedding(_txt)
+                                    _sv = get_sparse_embedding(_txt)
+                                    for _c in _silos_ancla:
+                                        # Al silo del estado se le da más cupo:
+                                        # es el que la pregunta con nombre de
+                                        # entidad enterraba bajo leyes ajenas.
+                                        # Ajustables sin desplegar: la pasada
+                                        # engorda el contexto (77 → ~170
+                                        # fuentes en la consulta medida) y eso
+                                        # son tokens que se pagan. Éstos son
+                                        # los valores con los que la prueba
+                                        # salió 5 de 5; bajarlos ahorra dinero
+                                        # a costa de reintroducir variación.
+                                        _cupo = (int(os.getenv("CUPO_CONCEPTO_ESTADO", "25"))
+                                                 if _c == _silo_est
+                                                 else int(os.getenv("CUPO_CONCEPTO_OTROS", "10")))
+                                        _tareas_ancla.append(hybrid_search_single_silo(
+                                            collection=_c, query=_txt,
+                                            dense_vector=_dv, sparse_vector=_sv,
+                                            filter_=get_filter_for_silo(_c, effective_estado),
+                                            top_k=_cupo, alpha=0.5,
+                                        ))
+                                _res_ancla = await asyncio.gather(*_tareas_ancla,
+                                                                  return_exceptions=True)
+                                _vistos = {r.id for r in semantic_results if hasattr(r, "id")}
+                                _nuevos = []
+                                for _lote in _res_ancla:
+                                    if isinstance(_lote, Exception):
+                                        continue
+                                    for _r in _lote:
+                                        if _r.id not in _vistos:
+                                            _vistos.add(_r.id)
+                                            _nuevos.append(_r)
+                                if _nuevos:
+                                    # Van DELANTE: responden al concepto, que es
+                                    # lo que se preguntó. El rerank de Cohere y
+                                    # el freno de ruido local siguen mandando
+                                    # después sobre el conjunto.
+                                    semantic_results = _nuevos + semantic_results
+                                print(f"   🎯 PASADA POR CONCEPTO ({_origen_ancla}): «{_ancla[:56]}» "
+                                      f"→ {len(_nuevos)} documentos nuevos "
+                                      f"({len(_anclas)} anclas × {len(_silos_ancla)} silos)")
+                            else:
+                                print(f"   🎯 PASADA POR CONCEPTO: la consulta YA era el concepto, se omite")
+                        except Exception as _e_anc:
+                            # Nunca romper la consulta por una pasada extra.
+                            print(f"   ⚠️ Pasada por concepto falló (no fatal): {err(_e_anc)}")
 
                     # ── FRENO DE RUIDO LOCAL EN MATERIA FEDERAL ──────────────
                     # La búsqueda arranca ANTES de que el Estratega dictamine
