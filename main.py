@@ -15340,12 +15340,36 @@ VOZ_TOPE_DOCS = 10
 # consumo real de un turno (0,2757 MXN: 96% ElevenLabs, 4% el modelo).
 VOZ_TOPE_DIARIO = int(os.getenv("VOZ_TOPE_DIARIO", "10"))
 
-# A quién se le enseña. Va por variable de entorno para poder abrirlo sin
-# desplegar; los dos correos del piloto son el valor por defecto.
-def _voz_permitida(correo: str) -> bool:
-    lista = os.getenv("VOZ_CORREOS", "jdm.juridico@gmail.com,administracion@iurexia.com")
-    permitidos = {c.strip().lower() for c in lista.split(",") if c.strip()}
-    return (correo or "").strip().lower() in permitidos
+def _voz_permitida(correo: str, user_id: str = "") -> bool:
+    """¿Puede esta persona usar el Agente IA?
+
+    LA BANDERA DEL PERFIL MANDA, y la lista de correos es sólo un atajo.
+    Empecé al revés —sólo la lista— y falló en la primera prueba real: David
+    tiene una segunda cuenta, `jdm.juridicoo@gmail.com` con dos oes, y el
+    teléfono había entrado con ésa. El servidor le devolvió 403 y desde su lado
+    la función simplemente «no funcionaba». Un permiso atado a una cadena de
+    texto se rompe con un correo parecido, con un alias, o el día que alguien
+    cambia de dirección.
+
+    `puede_agente_ia` se escribe SÓLO con la llave de servicio —los permisos de
+    columna de user_profiles se cerraron esta mañana— así que nadie puede
+    regalarse el acceso, y abrirlo a un plan entero es un UPDATE, no un
+    despliegue.
+    """
+    lista = os.getenv("VOZ_CORREOS", "")
+    if lista and (correo or "").strip().lower() in {c.strip().lower() for c in lista.split(",") if c.strip()}:
+        return True
+    if not user_id or not supabase_admin:
+        return False
+    try:
+        r = supabase_admin.table("user_profiles").select("puede_agente_ia") \
+            .eq("id", user_id).limit(1).execute()
+        return bool(r.data and r.data[0].get("puede_agente_ia"))
+    except Exception as e:
+        # Si no se puede comprobar, NO se abre. Un candado que se cae abierto
+        # ante un error es peor que no tenerlo.
+        print(f"   ⚠️ VOZ: no pude comprobar el permiso: {err(e)}")
+        return False
 
 
 _VOZ_SISTEMA = (
@@ -15553,8 +15577,8 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
     # 2) El piloto. Dos cuentas.
-    if not _voz_permitida(user_email):
-        raise HTTPException(status_code=403, detail="El Abogado IA está en pruebas cerradas.")
+    if not _voz_permitida(user_email, user_id):
+        raise HTTPException(status_code=403, detail="El Agente IA está en pruebas cerradas.")
 
     # 3) El tope DIARIO. Va antes que la cuota mensual porque protege de otra
     #    cosa: la mensual cuida el margen; ésta cuida del accidente. Un teléfono
@@ -15743,14 +15767,14 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
         user = user_resp.user
         if not user:
             raise HTTPException(status_code=401, detail="Token inválido")
-        user_email = user.email or ""
+        user_id, user_email = str(user.id), (user.email or "")
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-    if not _voz_permitida(user_email):
-        raise HTTPException(status_code=403, detail="El Abogado IA está en pruebas cerradas.")
+    if not _voz_permitida(user_email, user_id):
+        raise HTTPException(status_code=403, detail="El Agente IA está en pruebas cerradas.")
 
     import httpx
 
