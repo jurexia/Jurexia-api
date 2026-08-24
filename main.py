@@ -15324,10 +15324,15 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
 # precio. La velocidad se eligió DESPUÉS de la precisión, no antes.
 VOZ_MODELO = os.getenv("VOZ_MODELO", "openai/gpt-5.6-luna")
 
-# Tope de salida. Es una decisión de diseño antes que de coste: una respuesta
-# hablada de más de tres frases es insoportable de oír. Mismo criterio y mismo
-# número que Jurisconsulto, que ya lleva tiempo en manos de usuarios.
-VOZ_MAX_TOKENS = int(os.getenv("VOZ_MAX_TOKENS", "180"))
+# Tope de salida. Empezó en 180 tokens copiando a Jurisconsulto —dos frases,
+# porque una respuesta hablada larga cansa—, y David lo probó en el teléfono:
+# «las respuestas son demasiado cortas». Tenía razón, y el corte no era un
+# estilo sino una amputación: a 180 tokens el modelo se queda sin sitio justo
+# cuando iba a decir QUÉ dice el artículo, y con las tesis ni siquiera cabe el
+# rubro. 420 da de tres a seis frases —unos 900 caracteres— y sigue siendo un
+# turno hablado, no una lectura. Se paga por carácter: son 0,26 MXN de más por
+# cada mil turnos, y a cambio la respuesta se puede usar sin repreguntar.
+VOZ_MAX_TOKENS = int(os.getenv("VOZ_MAX_TOKENS", "420"))
 
 # Cuántos documentos entran al contexto. Pocos a propósito: el modelo tiene que
 # poder sostener CADA frase en algo que tiene delante, y con cuarenta documentos
@@ -15385,32 +15390,41 @@ def _voz_permitida(correo: str, user_id: str = "") -> bool:
 
 _VOZ_SISTEMA = (
     "Eres el Abogado IA de Iurexia. Hablas por voz con un abogado mexicano que puede estar "
-    "de pie en una audiencia. Responde en DOS frases como máximo, sin listas, sin markdown, "
-    "sin encabezados y sin asteriscos: lo que escribas se va a leer en voz alta tal cual.\n"
-    "SÉ BREVE DE VERDAD. Da el dato y su fundamento, y para. No repitas la pregunta, no "
-    "anuncies lo que vas a decir, no cierres ofreciendo ayuda, no expliques cada artículo "
-    "que citas si con nombrarlos basta. Cada palabra de más es un segundo más de espera "
-    "para alguien que está de pie frente a un juez —y se paga por carácter.\n"
+    "de pie en una audiencia. Lo que escribas se va a leer en voz alta tal cual: sin listas, "
+    "sin markdown, sin encabezados, sin asteriscos y sin abreviaturas —di «artículo», no "
+    "«art.»; di «fracción segunda», no «fr. II»—.\n"
+    "CUÁNTO DECIR: de tres a seis frases. No basta con el número del artículo: di QUÉ dice, "
+    "y añade lo que el abogado necesita para usarlo ahí mismo —el plazo, el requisito, la "
+    "excepción, quién tiene la carga—. Si hay una regla estatal y una federal, di las dos y "
+    "cuál rige. Si el asunto se agota en tres frases, para en tres; no rellenes, no repitas "
+    "la pregunta, no anuncies lo que vas a decir y no cierres ofreciendo más ayuda.\n"
     "REGLA ABSOLUTA: cada artículo, cada ley y cada criterio que menciones tiene que estar en "
     "los DOCUMENTOS que se te entregan en este mismo mensaje. No recurres a tu memoria. Si lo "
     "que se te dio no responde la pregunta, lo dices con esas palabras —«no lo tengo en mi "
-    "acervo»— y ofreces reformular. Eso es una respuesta CORRECTA, no un fracaso.\n"
+    "acervo»— y ofreces reformular. Eso es una respuesta CORRECTA, no un fracaso. Y si lo que "
+    "tienes responde sólo una parte, contesta esa parte y di qué falta.\n"
     "Está PROHIBIDO dictar un número de artículo que no aparezca en los documentos, y está "
     "PROHIBIDO atribuir un artículo a una ley distinta de aquella de la que viene, aunque el "
     "número coincida: el mismo número dice cosas distintas en cada ordenamiento.\n"
     "Di primero la respuesta y después su fundamento, que es como se contesta a alguien que "
     "está esperando: «el plazo es de cinco días hábiles, conforme al artículo tal de tal ley». "
     "Nunca al revés.\n"
+    "CUANDO CITES UNA TESIS, DI SU RUBRO Y SU REGISTRO. NUNCA LA CLAVE. La clave —«2a./J. "
+    "39/95», «XXII.3o.A.C.1 A (11a.)»— es ilegible dicha en voz alta: son letras sueltas y "
+    "números romanos que nadie puede seguir de oído, y no sirven para buscarla. Lo que "
+    "identifica al criterio hablando es el RUBRO —dilo, aunque sea resumido en una frase— y "
+    "el REGISTRO, que es lo que se teclea en el Semanario. Di también qué resolvió y en qué "
+    "sentido, no sólo que existe. Si el documento no trae registro, di el rubro y aclara que "
+    "no tienes el registro a la vista; nunca te lo inventes.\n"
+    "NO ENUMERES DOCUMENTOS. La pantalla ya enseña de dónde salió cada cosa. Menciona sólo "
+    "aquello en lo que de verdad te apoyas para contestar; nombrar de pasada cinco leyes que "
+    "no usaste sólo hace ruido.\n"
     "SI LA RESPUESTA VIENE DE INTERNET, DILO Y DI DE QUIÉN. Un artículo de opinión no es "
     "una ley ni una tesis: nómbralo por su autor y dónde se publicó —«según Ferrajoli, en un "
     "artículo publicado en Jueces para la Democracia…»— y deja claro que es doctrina, no "
     "acervo. Y JAMÁS dictes un número de artículo apoyándote en lo que encontraste en "
     "internet: si un blog menciona el artículo 17, eso no lo convierte en fundamento. Los "
     "artículos se citan sólo desde el acervo.\n"
-    "CUANDO CITES UNA TESIS, DI SU REGISTRO. La clave —«2a./J. 39/95»— no le sirve a "
-    "quien quiere comprobarla: el número de registro es lo que se teclea en el Semanario. "
-    "Di el criterio, después el registro. Si el documento que tienes no trae registro, no "
-    "te lo inventes: di la clave y aclara que no tienes el registro a la vista.\n"
     "CUANDO TE PIDAN UNA CANTIDAD, HAZ LA CUENTA Y DI LA CIFRA. La regla de no salirte de "
     "los documentos es sobre la NORMA, no sobre la aritmética: el fundamento tiene que estar "
     "en tu acervo, pero la multiplicación la haces tú. Di el resultado y, en una frase, cómo "
@@ -15504,6 +15518,197 @@ async def _voz_web(pregunta: str) -> dict:
         return {}
 
 
+# Cuántos candidatos se piden por silo y por ancla. Eran CUATRO, y con cuatro
+# se perdía lo que David reportó: preguntando por la tesis que exenta del pago
+# de copias certificadas, la 2025216 —cuyo rubro dice literalmente «DERECHOS
+# POR LA CERTIFICACIÓN DE COPIAS. SU PAGO NO ES OBLIGATORIO…»— quedaba fuera
+# del corte y el agente contestaba con el arancel del estado. Medido el
+# 24-ago-2026: con red de 12 entra en el cuarto puesto; con red de 4 no entra.
+# El coste es de milisegundos —Qdrant devuelve 12 casi por lo mismo que 4—.
+_VOZ_POR_SILO = 12
+
+# La fusión es POR RANGO (RRF), no por score, y esto sí es un arreglo de fondo.
+# Antes se ordenaban juntos los resultados de dos búsquedas distintas usando su
+# coseno: números que NO son comparables entre sí, porque cada uno mide contra
+# un vector distinto. El resultado era una lista que parecía ordenada y no lo
+# estaba.
+_VOZ_K_RRF = 12
+
+# Y el concepto pesa más que la pregunta. No es un capricho: buscando con la
+# pregunta entera —«qué artículos regulan el derecho del tanto en Querétaro»—
+# el silo estatal devuelve la Ley del Deporte y el Código Penal; buscando el
+# concepto limpio —«derecho del tanto»— devuelve, en los cinco primeros
+# puestos, los artículos 2606, 964, 1186, 995 y 965 del Código Civil del
+# Estado. El andamio de la pregunta envenena el vector; es el mismo mal que
+# tuvo el chat con HyDE apagado.
+_VOZ_PESO_CONCEPTO = 1.6
+
+# ¿La pregunta va de criterios? Decide dos cosas: cuánto sitio se le da a la
+# jurisprudencia y si se paga el reordenador.
+_VOZ_ES_CRITERIO = _re_mod.compile(
+    r"tesis|jurisprudenc|criterio|precedent|contradicci[óo]n|registro\s+\d{6}|"
+    r"\bscjn\b|corte|colegiado|sala\b", _re_mod.I)
+
+
+def _voz_registro_de(pl: dict, *cadenas: str) -> str:
+    """El número de registro, lo lleve donde lo lleve.
+
+    El acervo tiene TRECE formas de payload y el registro aparece en su propio
+    campo, dentro del `ref` («2a./J. 173/2009 | Registro 165908») o delante del
+    nombre del fichero («2025216_XXII.3o.A.C.1 A (11a.).txt»). La versión
+    anterior sólo miraba el `ref`, y por eso con la tesis de las copias
+    certificadas el agente dijo «no tengo su número de registro a la vista»
+    teniéndolo en el nombre del fichero. Sin registro tampoco hay enlace al
+    Semanario, así que el fallo se pagaba dos veces.
+    """
+    directo = pl.get("registro")
+    if directo and str(directo).strip().isdigit():
+        return str(directo).strip()
+    for cad in cadenas:
+        if not cad:
+            continue
+        m = _re_mod.search(r"[Rr]egistro\s*[:\s]\s*(\d{6,7})", cad)
+        if m:
+            return m.group(1)
+        m = _re_mod.match(r"\s*(\d{6,7})[_\s]", cad)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _voz_documento(col: str, punto) -> Optional[dict]:
+    """Convierte un punto de Qdrant en lo que el agente necesita para hablar.
+
+    LO QUE SE DICE DE UNA TESIS ES EL RUBRO, NO LA CLAVE. David lo dijo tras
+    oírlo: «cuando cita las tesis no se entiende nada por los números romanos».
+    Tiene razón y es un problema de diseño, no de estilo: «XXII.3o.A.C.1 A
+    (11a.)» leído por un sintetizador es una ristra de letras sueltas, mientras
+    que el rubro —«DERECHOS POR LA CERTIFICACIÓN DE COPIAS. SU PAGO NO ES
+    OBLIGATORIO…»— dice en una frase QUÉ resolvió el criterio, y el registro es
+    lo único que se teclea en el Semanario para comprobarlo.
+
+    Antes el rubro sólo se usaba si `ley` venía vacío; como `ley` cae de vuelta
+    en `origen` —el nombre del fichero—, nunca estaba vacío y el rubro no se
+    usaba jamás. De ahí que el modelo leyera la clave: era lo único legible que
+    tenía delante.
+    """
+    def _txt(v) -> str:
+        return "" if v is None else str(v).strip()
+
+    pl = punto.payload or {}
+    texto = _txt(pl.get("texto_raw") or pl.get("texto") or pl.get("text")
+                 or pl.get("chunk_text") or pl.get("holding"))
+    if not texto:
+        return None                     # un documento sin texto no sostiene nada
+
+    ref = _txt(pl.get("ref"))
+    origen = _txt(pl.get("origen"))
+    ley = _txt(pl.get("ley")) or origen
+    rubro = _txt(pl.get("rubro"))
+    registro = _voz_registro_de(pl, ref, origen, ley, texto[:200])
+    clave = _txt(pl.get("numero_tesis") or pl.get("tesis") or pl.get("tesis_num"))
+    if not clave and registro:
+        # «2025216_XXII.3o.A.C.1 A (11a.).txt» — la clave va detrás del registro.
+        m = _re_mod.match(r"\s*\d{6,7}_(.+?)\.txt\s*$", origen or ley or "")
+        if m:
+            clave = m.group(1).strip()
+    es_tesis = bool(registro) or col.startswith("jurisprudencia")
+
+    # El rótulo que verá el abogado en pantalla y que oirá por el altavoz.
+    if es_tesis:
+        etiqueta = rubro[:160] or (f"Tesis {clave}" if clave else "Tesis del Semanario Judicial")
+        # El nombre del fichero NO es un rótulo. Si es lo único que hay, mejor
+        # decir qué es que leer «165908_2a.J. 1732009.txt».
+        if _txt(ley).endswith(".txt") or _re_mod.match(r"^\d{6,7}_", _txt(ley)):
+            ley = etiqueta
+        referencia = (f"{clave} · Registro {registro}" if clave and registro
+                      else (f"Registro {registro}" if registro else clave or ref))
+    else:
+        etiqueta = ley
+        referencia = ref
+
+    enlace = _txt(pl.get("url_pdf") or pl.get("pdf"))
+    if not enlace and registro:
+        enlace = f"https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
+
+    return {
+        "coleccion": col,
+        "score": float(punto.score or 0),
+        "ley": etiqueta,
+        "ref": referencia,
+        "articulo": _txt(pl.get("articulo_num")),
+        # 900 caracteres dejaban la tesis a medias justo donde dice lo que
+        # resuelve. Con 1.400 cabe el rubro y el arranque del texto, y diez
+        # documentos siguen siendo un contexto pequeño.
+        "texto": texto[:1400],
+        "pdf": enlace,
+        "registro": registro,
+        "rubro": rubro,
+        "clave": clave,
+        "es_tesis": es_tesis,
+        "entidad": _txt(pl.get("entidad")),
+    }
+
+
+def _voz_llave(d: dict) -> str:
+    """Dos trozos del mismo artículo son un solo documento.
+
+    El Código Civil de Nuevo León está partido en trozos que arrastran todos el
+    mismo `ref` («Art. 337»): en la prueba de David, CINCO de los diez huecos
+    del contexto eran el mismo artículo cinco veces, y con ellos dentro no
+    cabía el artículo que sí contestaba.
+    """
+    if d["registro"]:
+        return f"reg:{d['registro']}"
+    # El número de artículo sólo vale como llave si el texto EMPIEZA por él.
+    # En el Código Civil de Nuevo León cinco trozos distintos vienen todos
+    # etiquetados «Art. 337» —el corte de la ingesta arrastró la etiqueta— y
+    # con la llave a ciegas se fundían en uno solo, tirando cuatro trozos de
+    # arrendamiento que sí hacían falta.
+    if d["articulo"] and _re_mod.match(
+            rf"\s*(?:art[íi]culo|art[sº°]?\.)\s*{_re_mod.escape(d['articulo'])}\b",
+            d["texto"], _re_mod.I):
+        return f"{d['coleccion']}|{d['ley']}|art:{d['articulo']}"
+    return f"{d['coleccion']}|{d['ley']}|{d['ref']}|{d['texto'][:80]}"
+
+
+async def _voz_reordenar(consulta: str, docs: List[dict], top_n: int) -> List[dict]:
+    """El cross-encoder de Cohere, y SÓLO para preguntas de criterio.
+
+    Medido sobre el mismo banco (24-ago-2026): en «qué dice la jurisprudencia
+    sobre la suplencia de la queja» el reordenador sube de UNA tesis pertinente
+    a CINCO. Pero en «qué artículos regulan el derecho del tanto» hace lo
+    contrario: inunda de tesis los diez huecos y deja fuera los artículos del
+    código, porque el rubro de una tesis repite el concepto más veces que el
+    texto del artículo. Por eso se paga sólo donde gana, no siempre —son 400 ms
+    y en audiencia se notan.
+
+    Se reordena por el CONCEPTO, no por la pregunta, por el mismo motivo por el
+    que se busca así.
+    """
+    if not COHERE_RERANK_ENABLED or not docs or _http_pool is None:
+        return docs[:top_n]
+    try:
+        cuerpos = [f"[{d['ley']} {d['ref']}] {d['rubro']} {d['texto']}"[:1500] for d in docs]
+        async with COHERE_SEM:
+            r = await _http_pool.post(
+                "https://api.cohere.com/v2/rerank",
+                headers={"Authorization": f"Bearer {COHERE_API_KEY}"},
+                json={"model": COHERE_RERANK_MODEL, "query": consulta,
+                      "documents": cuerpos, "top_n": min(top_n, len(cuerpos))},
+                timeout=6.0,
+            )
+        if r.status_code != 200:
+            print(f"   ⚠️ VOZ: reordenador HTTP {r.status_code} — se sigue con el orden propio")
+            return docs[:top_n]
+        return [docs[i["index"]] for i in r.json().get("results", []) if i["index"] < len(docs)]
+    except Exception as e:
+        # Nunca tumba un turno: si el reordenador falla, el orden de la fusión
+        # ya es utilizable.
+        print(f"   ⚠️ VOZ: reordenador falló (no fatal): {err(e)}")
+        return docs[:top_n]
+
+
 async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
     """Recupera del acervo normativo. En paralelo, y sin sentencias.
 
@@ -15517,13 +15722,16 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
 
     Aquí no se puede usar HyDE: es una llamada más a un modelo y son dos
     segundos que la voz no tiene. Pero la otra ancla del chat —el concepto
-    limpio— es un regex que no cuesta nada. Se buscan las dos y se funden.
+    limpio— es un regex que no cuesta nada. Se buscan las dos y se FUNDEN POR
+    RANGO, con el concepto pesando más.
 
-    CUOTA POR SILO
-    --------------
-    Sin ella, cuatro documentos de la entidad ahogaban a los federales, y a una
-    pregunta laboral —materia federal— no llegaba ni un artículo de la Ley
-    Federal del Trabajo. Cada silo tiene sitio garantizado.
+    CUPOS QUE SE ADAPTAN A LA PREGUNTA
+    ----------------------------------
+    Un cupo plano de dos por silo dejaba fuera la tesis que contestaba, y a la
+    vez, en cuanto se abría la mano, la jurisprudencia se comía los diez huecos
+    en preguntas que pedían un artículo. Así que el cupo depende de lo que se
+    pregunta: quien pide un criterio recibe criterios; quien pide un artículo
+    recibe artículos, con jurisprudencia de acompañamiento y no al revés.
     """
     silos = list(FIXED_SILOS.values())
     silo_estado = ESTADO_SILO.get((estado or "").upper().strip())
@@ -15531,113 +15739,77 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
         silos.append(silo_estado)
     silos.append("doctrina")
 
-    # Ancla 1: la pregunta. Ancla 2: el concepto sin el andamio de la pregunta.
-    # Si el denoiser no deja nada distinto, la pregunta ya ERA el concepto.
     concepto = _texto_concepto(pregunta, estado) or ""
-    anclas = [pregunta] + ([concepto] if concepto and concepto != pregunta else [])
+    anclas = [(pregunta, 1.0)]
+    if concepto and concepto != pregunta:
+        anclas.append((concepto, _VOZ_PESO_CONCEPTO))
 
-    vectores = await asyncio.gather(*[get_dense_embedding(a) for a in anclas])
+    vectores = await asyncio.gather(*[get_dense_embedding(a) for a, _ in anclas])
 
-    async def uno(col: str, vector):
+    async def uno(col: str, vector, peso: float):
         try:
             r = await qdrant_client.query_points(
-                collection_name=col, query=vector, limit=4,
+                collection_name=col, query=vector, limit=_VOZ_POR_SILO,
                 with_payload=True, using="dense",
             )
-            return col, r.points
+            return col, peso, r.points
         except Exception as e:
             # Un silo que falla no tumba la respuesta: se sigue con los demás y
             # se deja constancia. Callarlo sería repetir el fallo mudo de HyDE.
             print(f"   🔇 VOZ: silo {col} falló ({err(e)}) — se sigue sin él")
-            return col, []
+            return col, peso, []
 
-    tareas = [uno(c, v) for v in vectores for c in silos]
+    tareas = [uno(c, vectores[i], anclas[i][1])
+              for i in range(len(anclas)) for c in silos]
     resultados = await asyncio.gather(*tareas)
 
-    # Los payloads NO son homogéneos entre colecciones: `articulo_num` llega como
-    # texto en leyes_federales y como número en otras. Un `.strip()` directo
-    # revienta con AttributeError, y aquí eso serían quinientos en mitad de una
-    # audiencia. Se fuerza el tipo antes de tocar nada.
-    def _txt(v) -> str:
-        return "" if v is None else str(v).strip()
-
-    por_silo: dict = {c: {} for c in silos}
-    for col, puntos in resultados:
-        for p in puntos:
-            pl = p.payload or {}
-            ref = _txt(pl.get("ref"))
-            ley = _txt(pl.get("ley") or pl.get("origen"))
-            clave_doc = f"{col}|{ley}|{ref}"      # el mismo doc puede venir por las dos anclas
-            previo = por_silo[col].get(clave_doc)
-            score = float(p.score or 0)
-            if previo and previo["score"] >= score:
+    puntos_rrf: dict = {}
+    mejor: dict = {}
+    for col, peso, puntos in resultados:
+        for rango, p in enumerate(puntos):
+            d = _voz_documento(col, p)
+            if not d:
                 continue
-            texto = _txt(pl.get("texto_raw") or pl.get("texto"))
-            if not texto:
-                continue                           # un documento sin texto no sostiene nada
-            # LAS TESIS NO TIENEN PDF, y sin enlace no sirven de nada: David
-            # lo dijo con todas sus letras —«me deja abrir las leyes pero no
-            # las tesis, y eso es fundamental»—. El respaldo que ya usa el
-            # resto del sistema es el Semanario: sjf2.scjn.gob.mx/detalle/tesis
-            # más el registro. Sin registro no hay enlace, y entonces es mejor
-            # no pintar la tarjeta que pintar una que no abre.
-            # El registro vive en sitios distintos según la versión de ingesta
-            # —el acervo tiene TRECE formas de payload—: unas veces en su
-            # propio campo, otras dentro del `ref` («2a./J. 173/2009 | Registro
-            # 165908») y otras en el nombre del fichero de origen. Mirar sólo
-            # el campo dejaba a las tesis sin enlace, que es justo lo que David
-            # reportó como fundamental.
-            registro = _txt(pl.get("registro"))
-            if not registro:
-                _m = _re_mod.search(r"[Rr]egistro\s*[:\s]\s*(\d{6,7})",
-                                    f"{ref} {_txt(pl.get('origen'))}")
-                if not _m:
-                    # «2028413_I.13o.T.13 L (11a.).txt» — el registro va delante.
-                    _m = _re_mod.match(r"\s*(\d{6,7})_", ref)
-                registro = _m.group(1) if _m else ""
-            enlace = _txt(pl.get("url_pdf") or pl.get("pdf"))
-            if not enlace and registro:
-                enlace = f"https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
-            # Y el rótulo: en una tesis, `ref` viene vacío o con el nombre del
-            # fichero. Lo que el abogado reconoce es la clave y el registro.
-            if registro and not ley:
-                ley = _txt(pl.get("rubro"))[:120] or "Tesis del Semanario Judicial"
-            if registro and (not ref or ref.endswith(".txt")):
-                clave = _txt(pl.get("numero_tesis"))
-                ref = f"{clave} · Registro {registro}" if clave else f"Registro {registro}"
-            por_silo[col][clave_doc] = {
-                "coleccion": col, "score": score, "ley": ley, "ref": ref,
-                "articulo": _txt(pl.get("articulo_num")),
-                "texto": texto[:900],
-                "pdf": enlace,
-                "registro": registro,
-                "entidad": _txt(pl.get("entidad")),
-            }
+            k = _voz_llave(d)
+            puntos_rrf[k] = puntos_rrf.get(k, 0.0) + peso / (_VOZ_K_RRF + rango)
+            # De dos trozos del mismo artículo se queda el más largo: es el que
+            # tiene el texto entero y no el arrastre del anterior.
+            if k not in mejor or len(d["texto"]) > len(mejor[k]["texto"]):
+                mejor[k] = d
 
-    # Reparto: dos garantizados por silo… salvo cuando la pregunta es DE
-    # jurisprudencia, y entonces ese silo se lleva cinco.
-    #
-    # Con el reparto plano, «¿se pueden obtener copias certificadas sin pagar
-    # derechos?» recibió el Arancel de Honorarios y la Ley de Juicio Político
-    # del Estado, mientras la tesis 2031803 —cuyo rubro dice literalmente que es
-    # inaplicable el cobro— se quedaba fuera. El agente contestó «no lo tengo en
-    # mi acervo» teniéndolo. Un «no» falso es tan dañino como una invención:
-    # enseña al abogado a no preguntar.
-    _busca_criterio = bool(_re_mod.search(
-        r"tesis|jurisprudenc|criterio|precedent|contradicci[óo]n|registro\s+\d{6}|"
-        r"\bscjn\b|corte|colegiado|sala\b", pregunta, _re_mod.I))
-    elegidos, sobrantes = [], []
-    for col in silos:
-        ordenados = sorted(por_silo[col].values(), key=lambda d: -d["score"])
-        cupo = 5 if (_busca_criterio and col == FIXED_SILOS["jurisprudencia"]) else 2
-        elegidos.extend(ordenados[:cupo])
-        sobrantes.extend(ordenados[cupo:])
-    elegidos.extend(sorted(sobrantes, key=lambda d: -d["score"]))
-    if _busca_criterio:
+    ordenados = [mejor[k] for k, _ in sorted(puntos_rrf.items(), key=lambda kv: -kv[1])]
+    if not ordenados:
+        return []
+
+    criterio = bool(_VOZ_ES_CRITERIO.search(pregunta or ""))
+    silo_juris = FIXED_SILOS["jurisprudencia"]
+
+    if criterio:
         print("   ⚖️ VOZ: pregunta de criterio — jurisprudencia con cupo ampliado")
+        elegidos = await _voz_reordenar(concepto or pregunta, ordenados[:40], VOZ_TOPE_DOCS)
+    else:
+        # Sin reordenador —no lo gana en preguntas de artículo—, pero con techo
+        # a la jurisprudencia para que no desplace a la ley, y con sitio
+        # garantizado para el silo del estado y para el federal.
+        elegidos, vistos = [], {}
+        for d in ordenados:
+            if len(elegidos) >= VOZ_TOPE_DOCS:
+                break
+            col = d["coleccion"]
+            techo = 3 if col == silo_juris else (2 if col == "doctrina" else 5)
+            if vistos.get(col, 0) >= techo:
+                continue
+            vistos[col] = vistos.get(col, 0) + 1
+            elegidos.append(d)
+        # Si con los techos no se llenaron los diez huecos, se completan con lo
+        # mejor que quedó: un hueco vacío no ayuda a nadie.
+        if len(elegidos) < VOZ_TOPE_DOCS:
+            ya = {id(d) for d in elegidos}
+            elegidos += [d for d in ordenados if id(d) not in ya][:VOZ_TOPE_DOCS - len(elegidos)]
+        # Y lo de la entidad primero: es lo que rige para quien pregunta.
+        if silo_estado:
+            elegidos.sort(key=lambda d: d["coleccion"] != silo_estado)
 
-    # Lo de la entidad primero cuando lo hay: es lo que rige para quien pregunta.
-    elegidos.sort(key=lambda d: (d["coleccion"] != silo_estado, -d["score"]))
     return elegidos[:VOZ_TOPE_DOCS]
 
 
@@ -15671,8 +15843,16 @@ def _voz_revisar_citas(texto: str, docs: List[dict], pregunta: str = "") -> tupl
         # Se buscan sólo los que van precedidos de «artículo», no todos los
         # números del texto: un año, un registro o una cantidad no respaldan
         # nada, y aceptarlos convertiría el candado en un adorno.
-        for m in re.finditer(r"art[íi]culos?\s+(\d{1,4})", d.get("texto") or "", re.I):
-            numeros_dados.add(m.group(1))
+        # Y con la abreviatura, que es como está escrito medio acervo. El
+        # Código Civil de Nuevo León no dice «artículo 2334»: dice «Art.
+        # 2334.-». Mirando sólo la palabra entera, el verificador daba por
+        # inventado un artículo que estaba delante, retiraba la respuesta
+        # buena y el abogado oía «prefiero no dictarle un número» teniendo el
+        # texto en el contexto. Pasó con «requisitos del arrendamiento en
+        # Nuevo León» en el banco del 24-ago-2026.
+        for m in re.finditer(r"\bart[íi]culos?\s+(\d{1,4})|\bart[sº°]?\.\s*(\d{1,4})",
+                             d.get("texto") or "", re.I):
+            numeros_dados.add(m.group(1) or m.group(2))
 
     # Los números que vienen EN LA PREGUNTA no cuentan. Cuando el abogado pide
     # «el artículo 9999» y el agente contesta «no tengo el artículo 9999», está
@@ -15684,6 +15864,107 @@ def _voz_revisar_citas(texto: str, docs: List[dict], pregunta: str = "") -> tupl
     citados = set(re.findall(r"art[íi]culos?\s+(\d{1,4})", texto, re.I))
     sospechas = sorted(c for c in citados if c not in numeros_dados)
     return (not sospechas), sospechas
+
+
+# ── Lo que se dice y lo que se enseña ────────────────────────────────────────
+#
+# Dos arreglos que salen de oír la app, no de leer el código:
+#
+#   «cuando habla y cita las tesis no se entiende nada por los números romanos»
+#   «me tira fuentes que ni siquiera cita habladas»
+#
+# El primero se ataca en el prompt —se le pide el rubro y el registro— pero el
+# prompt es una petición, no una garantía, y esto se lee en voz alta delante de
+# un juez. Así que además se borra la clave del texto ANTES de mandarlo a la
+# voz. El segundo es de bulto: la pantalla pintaba los diez documentos
+# recuperados aunque la respuesta se apoyara en dos.
+
+# Una clave de tesis, en sus tres formas: la de Pleno o Sala («2a./J. 39/95»,
+# «P./J. 20/2014»), la de Plenos de Circuito («PC.III.C. J/21 C (10a.)») y la
+# de Tribunal Colegiado («XXII.3o.A.C.1 A (11a.)»). Se exige que haya barra o
+# paréntesis de época para no morder nunca un «fracción II» ni un «artículo
+# 17»: sin esa exigencia, cualquier romano seguido de punto sería sospechoso.
+_VOZ_CLAVE_TESIS = _re_mod.compile(
+    r"(?:\b(?:P|PC|\d[ªaº])\.(?:[A-Z]{1,4}\.)*\s*/?\s*J\.?\s*/?\s*\d+(?:/\d{2,4})?"
+    r"(?:\s+[A-Z]{1,3})?(?:\s*\(\d{1,2}[ªaº]?\.\))?"
+    r"|\b\d[ªaº]\.\s*[A-Z]{1,4}/\d{2,4}(?:\s*\(\d{1,2}[ªaº]?\.\))?"
+    r"|\b[IVXLCDM]{1,6}\.\d{1,2}[ºo]\.[A-Za-z0-9º°.]{0,20}(?:\s+[A-Z]{1,3})?"
+    r"(?:\s*\(\d{1,2}[ªaº]?\.\))?"
+    r"|\b[IVXLCDM]{1,6}\.[A-Za-z0-9º°.]{1,24}(?:\s+[A-Z]{1,3})?\s*\(\d{1,2}[ªaº]?\.\))")
+
+
+def _voz_sin_claves(texto: str, docs: List[dict]) -> str:
+    """Quita del texto hablado las claves de tesis y deja el registro.
+
+    No se borra la referencia: se SUSTITUYE por lo que sí sirve de oído. Si la
+    clave que dijo el modelo es de un documento que tenemos, se cambia por «con
+    registro 2025216»; si no lo es, se quita y la frase se queda con el rubro,
+    que es lo que identifica al criterio hablando.
+    """
+    if not texto:
+        return texto
+    salida = texto
+    # Primero las claves que conocemos, que son las que podemos cambiar por su
+    # registro exacto.
+    for d in sorted(docs, key=lambda x: -len(x.get("clave") or "")):
+        clave = (d.get("clave") or "").strip()
+        if not clave or clave not in salida:
+            continue
+        registro = (d.get("registro") or "").strip()
+        salida = salida.replace(clave, f"con registro {registro}" if registro
+                                and registro not in salida else "")
+    # Y después, lo que quede con forma de clave aunque no sea de un documento
+    # nuestro: dicho en voz alta es ruido igual.
+    salida = _VOZ_CLAVE_TESIS.sub("", salida)
+    # Costuras: dobles espacios, comas huérfanas y «la tesis , registro».
+    salida = _re_mod.sub(r"\s+([,;.])", r"\1", salida)
+    salida = _re_mod.sub(r"([,;])\s*([,;.])", r"\2", salida)
+    salida = _re_mod.sub(r"\s{2,}", " ", salida)
+    salida = _re_mod.sub(r"\(\s*\)", "", salida)
+    return salida.strip()
+
+
+def _voz_fuentes_citadas(texto: str, docs: List[dict], fuentes: List[dict]) -> List[dict]:
+    """De los diez documentos, los que la respuesta usó de verdad.
+
+    David lo dijo tras probarla: «me tira fuentes que ni siquiera cita
+    habladas». Medido en el banco antes de arreglarlo: de diez fuentes
+    pintadas, entre seis y ocho no se mencionaban. Eso no es transparencia, es
+    ruido — y encima invita a abrir un PDF que no sostiene lo que se acaba de
+    oír.
+
+    Se cuenta como citada si el texto dice su registro, o su número de artículo
+    precedido de «artículo», o tres palabras largas de su rótulo. Si no queda
+    ninguna —una negativa, un cálculo— se devuelven todas: una pantalla vacía
+    es peor que una pantalla de más.
+    """
+    if not texto or not docs:
+        return fuentes
+    bajo = texto.lower()
+    citados = _re_mod.findall(r"art[íi]culos?\s+([\d\s,yo\.]+)", bajo)
+    numeros = set()
+    for tramo in citados:
+        numeros.update(_re_mod.findall(r"\d{1,4}", tramo))
+
+    usadas = []
+    for d, f in zip(docs, fuentes):
+        registro = (d.get("registro") or "").strip()
+        if registro and registro in texto:
+            usadas.append(f)
+            continue
+        articulo = (d.get("articulo") or "").strip() or "".join(
+            _re_mod.findall(r"\d{1,4}", d.get("ref") or "")[:1])
+        if articulo and articulo in numeros:
+            usadas.append(f)
+            continue
+        rotulo = (d.get("rubro") or d.get("ley") or "").lower()
+        palabras = [p for p in _re_mod.findall(r"\w{5,}", rotulo)][:4]
+        if len(palabras) >= 3 and sum(1 for p in palabras if p in bajo) >= 3:
+            usadas.append(f)
+    # Las de internet no se filtran: si se buscaron, es porque la pregunta las
+    # pedía, y el abogado tiene que poder ir a leerlas antes de citarlas él.
+    usadas += [f for f in fuentes[len(docs):]]
+    return usadas or fuentes
 
 
 def _voz_anotar_caracteres(user_id: str, cuantos: int) -> None:
@@ -15798,10 +16079,30 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
             "fuentes": [], "modelo": None,
         }
 
-    contexto = "\n\n".join(
-        f"[{i+1}] {d['ley']} — {d['ref']}\n{d['texto']}"
-        for i, d in enumerate(docs)
-    )
+    # CADA DOCUMENTO, CON SUS CAMPOS SEPARADOS Y CON NOMBRE.
+    #
+    # Antes iba todo en una línea —«ley — ref»— y con las tesis eso significaba
+    # entregarle al modelo el nombre del fichero y la clave, que es justo lo
+    # ilegible. Si lo único que tiene delante es «2a./J. 39/95», eso es lo que
+    # va a decir. Poniendo RUBRO y REGISTRO con su etiqueta, el modelo puede
+    # cumplir la regla de decirlos, y se le recuerda en el propio documento
+    # que la clave no se dicta.
+    def _bloque(i: int, d: dict) -> str:
+        if d.get("es_tesis"):
+            cabeza = f"[{i+1}] TESIS"
+            if d.get("rubro"):
+                cabeza += f"\nRUBRO: {d['rubro']}"
+            if d.get("registro"):
+                cabeza += f"\nREGISTRO: {d['registro']}"
+            if d.get("clave"):
+                cabeza += f"\nCLAVE (NO LA DIGAS EN VOZ ALTA): {d['clave']}"
+            return f"{cabeza}\nTEXTO: {d['texto']}"
+        cabeza = f"[{i+1}] {d['ley']}"
+        if d.get("ref"):
+            cabeza += f" — {d['ref']}"
+        return f"{cabeza}\n{d['texto']}"
+
+    contexto = "\n\n".join(_bloque(i, d) for i, d in enumerate(docs))
     web = {}
     if _tarea_web is not None:
         try:
@@ -15882,9 +16183,24 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                 }) + "\n"
                 return
 
+            # Se quita la clave de tesis ANTES de que nadie la oiga, y se
+            # recorta la lista de fuentes a las que la respuesta usó de verdad.
+            # Las fuentes se vuelven a mandar: la pantalla ya pintó la lista
+            # larga con el primer byte —eso es lo que da la sensación de
+            # rapidez— y este segundo envío la sustituye por la buena. La app
+            # repinta con cada evento «fuentes», así que no hace falta tocarla.
+            antes = texto
+            texto = _voz_sin_claves(texto, docs)
+            if texto != antes:
+                print("   🔇 VOZ: clave de tesis retirada del texto hablado")
+            citadas = _voz_fuentes_citadas(texto, docs, fuentes)
+            if len(citadas) != len(fuentes):
+                print(f"   📚 VOZ: {len(citadas)} de {len(fuentes)} fuentes se citaron de viva voz")
+                yield json.dumps({"tipo": "fuentes", "fuentes": citadas}) + "\n"
+
             _voz_anotar_caracteres(user_id, len(texto))
             print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO} · {len(texto)} chars")
-            yield json.dumps({"tipo": "fin", "respuesta": texto, "fuentes": fuentes}) + "\n"
+            yield json.dumps({"tipo": "fin", "respuesta": texto, "fuentes": citadas}) + "\n"
 
         return StreamingResponse(
             emitir(), media_type="text/event-stream",
@@ -15907,6 +16223,9 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         respuesta = ("Tengo la respuesta a medias y prefiero no dictarle un número que no puedo "
                      "respaldar. Permítame buscarlo de otra forma.")
         fuentes = []
+    else:
+        respuesta = _voz_sin_claves(respuesta, docs)
+        fuentes = _voz_fuentes_citadas(respuesta, docs, fuentes)
 
     _voz_anotar_caracteres(user_id, len(respuesta))
     print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO}")
