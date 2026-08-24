@@ -15390,6 +15390,12 @@ _VOZ_SISTEMA = (
     "Di primero la respuesta y después su fundamento, que es como se contesta a alguien que "
     "está esperando: «el plazo es de cinco días hábiles, conforme al artículo tal de tal ley». "
     "Nunca al revés.\n"
+    "SI LA RESPUESTA VIENE DE INTERNET, DILO Y DI DE QUIÉN. Un artículo de opinión no es "
+    "una ley ni una tesis: nómbralo por su autor y dónde se publicó —«según Ferrajoli, en un "
+    "artículo publicado en Jueces para la Democracia…»— y deja claro que es doctrina, no "
+    "acervo. Y JAMÁS dictes un número de artículo apoyándote en lo que encontraste en "
+    "internet: si un blog menciona el artículo 17, eso no lo convierte en fundamento. Los "
+    "artículos se citan sólo desde el acervo.\n"
     "CUANDO CITES UNA TESIS, DI SU REGISTRO. La clave —«2a./J. 39/95»— no le sirve a "
     "quien quiere comprobarla: el número de registro es lo que se teclea en el Semanario. "
     "Di el criterio, después el registro. Si el documento que tienes no trae registro, no "
@@ -15413,6 +15419,78 @@ class VozRequest(BaseModel):
     #: exactamente cómo un platinum anual llegó a topar el millón en el chat.
     historial: List[Message] = Field(default_factory=list)
     stream: bool = True
+
+
+# ¿Esta pregunta necesita internet? El acervo tiene leyes y tesis; NO tiene
+# opinión, doctrina, ni lo publicado la semana pasada. Preguntar por lo que
+# dijo un jurista en un artículo no se responde con un código.
+#
+# Se detecta en vez de buscar siempre porque la web cuesta 3,2 s medidos —el
+# presupuesto entero de un turno— y la mayoría de las preguntas no la necesita.
+# El abogado que pregunta un plazo en audiencia no quiere doctrina.
+_VOZ_PIDE_WEB = _re_mod.compile(
+    r"\b(?:qu[ée]\s+(?:dijo|opina|opin[óo]|piensa|escribi[óo]|public[óo]|declar[óo]|sostiene))\b"
+    r"|\b(?:art[íi]culo|ensayo|columna|entrevista|conferencia|ponencia|libro)\s+(?:de|del|publicad)"
+    r"|\b(?:doctrina|doctrinal|acad[ée]mic\w+|jurista|autor|profesor)\b"
+    r"|\b(?:not[ii]cia|reciente|[úu]ltim\w+\s+(?:reforma|semana|mes)|hoy|ayer|este a[ñn]o|202[4-9])\b",
+    _re_mod.I)
+
+_VOZ_MISION_WEB = (
+    "Localiza lo que juristas y académicos hayan PUBLICADO sobre el tema: artículos de "
+    "opinión, revistas jurídicas, blogs académicos y universitarios. Prioriza "
+    "juridicas.unam.mx, revistas universitarias y publicaciones del propio autor. Da el "
+    "título del texto, dónde se publicó y su fecha. Si citas a un autor, sé literal con lo "
+    "que dijo. Responde en español de México y en tres frases como máximo."
+)
+
+
+def _dominio_legible(url: str) -> str:
+    """El sitio, sin protocolo ni «www». En pantalla, «juridicas.unam.mx» dice
+    más que una dirección de ochenta caracteres."""
+    try:
+        d = _re_mod.sub(r"^https?://(www\.)?", "", url or "").split("/")[0]
+        return d or "internet"
+    except Exception:
+        return "internet"
+
+
+async def _voz_web(pregunta: str) -> dict:
+    """Busca doctrina y opinión en internet. Nunca lanza: si falla, se sigue.
+
+    Los tres agentes que ya existen en `busqueda_web` miran SÓLO fuentes
+    oficiales —DOF, SCJN, congresos estatales— y ninguno habría encontrado el
+    artículo de Ferrajoli que preguntó David. Ésta es la misión que faltaba.
+    """
+    try:
+        import httpx
+        clave = os.getenv("OPENROUTER_API_KEY")
+        if not clave:
+            return {}
+        async with httpx.AsyncClient(timeout=12.0) as cli:
+            r = await cli.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {clave}"},
+                json={"model": os.getenv("VOZ_MODELO_WEB", "perplexity/sonar"),
+                      "max_tokens": 420, "temperature": 0.2,
+                      "messages": [{"role": "system", "content": _VOZ_MISION_WEB},
+                                   {"role": "user", "content": pregunta}]},
+            )
+            if r.status_code != 200:
+                print(f"   🌐 VOZ web {r.status_code}"); return {}
+            d = r.json()
+        msg = (d.get("choices") or [{}])[0].get("message", {})
+        urls = []
+        for c in (d.get("citations") or msg.get("annotations") or []):
+            if isinstance(c, str):
+                urls.append(c)
+            elif isinstance(c, dict):
+                u = c.get("url") or (c.get("url_citation") or {}).get("url")
+                if u:
+                    urls.append(u)
+        return {"texto": (msg.get("content") or "").strip(), "urls": urls[:5]}
+    except Exception as e:
+        print(f"   🌐 VOZ web falló (no fatal): {err(e)}")
+        return {}
 
 
 async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
@@ -15522,6 +15600,14 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
 
 
 def _voz_revisar_citas(texto: str, docs: List[dict], pregunta: str = "") -> tuple:
+    """El respaldo sale SÓLO del acervo, nunca de la web.
+
+    Es la regla que sostiene el producto. Un artículo de opinión que menciona
+    el artículo 17 no autoriza a dictarlo como fundamento: un blog no es una
+    ley. Si se aceptara, un día el agente diría «el artículo 17 establece X»
+    apoyado en una columna de periódico, y ahí se pierde todo lo construido.
+    Por eso `docs` aquí son únicamente los del acervo — el bloque web se pasa
+    al modelo, pero no cuenta como aval."""
     """¿Dijo algún artículo que no le dimos?
 
     Devuelve (limpio, sospechas). Es deliberadamente conservador: sólo señala
@@ -15651,6 +15737,11 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         print(f"[voz] cuota falló: {err(e)}")
 
     t0 = time.time()
+    # La web arranca A LA VEZ que el RAG, no después: así sus 3,2 s corren
+    # dentro de los del acervo en vez de sumarse.
+    _con_web = bool(_VOZ_PIDE_WEB.search(payload.pregunta or "")) and \
+        os.getenv("VOZ_WEB", "true").lower() != "false"
+    _tarea_web = asyncio.create_task(_voz_web(payload.pregunta)) if _con_web else None
     docs = await _voz_buscar(payload.pregunta, payload.estado)
     t_rag = time.time() - t0
     print(f"   🎙️ VOZ: {len(docs)} documentos en {t_rag*1000:.0f} ms · {correo_opaco(user_email)}")
@@ -15666,6 +15757,23 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         f"[{i+1}] {d['ley']} — {d['ref']}\n{d['texto']}"
         for i, d in enumerate(docs)
     )
+    web = {}
+    if _tarea_web is not None:
+        try:
+            web = await asyncio.wait_for(_tarea_web, timeout=9.0)
+        except Exception:
+            _tarea_web.cancel()
+            web = {}
+    if web.get("texto"):
+        # Va SEPARADO del acervo y con su etiqueta. La distinción no es
+        # cosmética: es la diferencia entre «la ley dice» y «un jurista opina».
+        contexto += (
+            "\n\n─── LO QUE SE ENCONTRÓ EN INTERNET (NO ES ACERVO) ───\n"
+            + web["texto"][:1800]
+            + ("\n\nFuentes: " + " · ".join(web.get("urls") or []) if web.get("urls") else "")
+        )
+        print(f"   🌐 VOZ: web con {len(web.get('urls') or [])} fuentes")
+
     mensajes = [{"role": "system", "content": _VOZ_SISTEMA}]
     for m in payload.historial[-4:]:
         if m.role in ("user", "assistant"):
@@ -15675,6 +15783,11 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
 
     fuentes = [{"ley": d["ley"], "ref": d["ref"], "pdf": d["pdf"], "entidad": d["entidad"]}
                for d in docs]
+    # Las de internet van al final y con el enlace abierto: «según Ferrajoli»
+    # sólo vale si el abogado puede ir a leerlo antes de citarlo él.
+    for u in (web.get("urls") or [])[:3]:
+        fuentes.append({"ley": _dominio_legible(u), "ref": "Publicación en internet",
+                        "pdf": u, "entidad": "WEB"})
 
     if payload.stream:
         async def emitir():
@@ -15682,6 +15795,13 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
             # modelo todavía redacta. En audiencia, eso es lo que el abogado
             # mira mientras escucha.
             yield json.dumps({"tipo": "fuentes", "fuentes": fuentes}) + "\n"
+            if _con_web:
+                # Se dice EN VOZ ALTA mientras la búsqueda ya corre. Tres
+                # segundos de silencio se sienten como una avería; tres
+                # segundos después de «permítame buscarlo» se sienten como
+                # alguien consultando. No cuesta tiempo: lo esconde.
+                yield json.dumps({"tipo": "buscando",
+                                  "texto": "Permítame buscarlo, un segundo."}) + "\n"
             trozos = []
             try:
                 flujo = await deepseek_client.chat.completions.create(
