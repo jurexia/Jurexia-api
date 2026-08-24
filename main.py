@@ -16388,8 +16388,13 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                     pendiente += delta
                     # Arrancar cuanto antes: mientras no se haya dicho nada, el
                     # primer trozo se corta en la primera coma con cuerpo.
-                    if not dichas and len(pendiente) >= 60:
-                        cabeza, resto = _voz_primer_aliento(pendiente)
+                    # El corte por coma era para arrancar antes cuando la voz
+                    # tardaba tres segundos en empezar. Con Azure empieza en
+                    # 750 ms, así que ya sólo se usa si la primera oración es
+                    # larguísima —por encima de 220 caracteres—: cortar por una
+                    # coma cualquiera es precisamente lo que sonaba a tirones.
+                    if not dichas and len(pendiente) >= 220:
+                        cabeza, resto = _voz_primer_aliento(pendiente, 140)
                         if cabeza:
                             primera = _cocinar(cabeza)
                             if primera:
@@ -16409,7 +16414,16 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                         listas, junta = [], ""
                         for f in completas:
                             junta = f"{junta} {f}".strip() if junta else f
-                            if len(junta) >= 40:
+                            # 180 y no 40: cada trozo es un audio aparte y cada
+                            # costura se oye. Con trozos de una sola oración,
+                            # una respuesta salían siete audios y siete pausas;
+                            # juntando hasta 180 caracteres salen tres. La voz
+                            # además entona mejor cuanto más contexto tiene.
+                            # El PRIMER trozo se manda antes —a los 100— para
+                            # que la conversación arranque; a partir de ahí se
+                            # juntan hasta 180, que es donde deja de haber
+                            # costuras audibles. Empezar rápido y luego fluir.
+                            if len(junta) >= (100 if not dichas else 180):
                                 listas.append(junta)
                                 junta = ""
                         pendiente = " ".join(x for x in (junta, resto) if x)
@@ -16532,6 +16546,38 @@ VOZ_PICO_TECHO = float(os.getenv("VOZ_PICO_TECHO", "-1.5"))
 VOZ_GANANCIA_MAX = float(os.getenv("VOZ_GANANCIA_MAX", "24"))
 VOZ_PCM_HZ = 22050
 VOZ_MP3_KBPS = int(os.getenv("VOZ_MP3_KBPS", "64"))
+
+
+def _voz_recortar_silencio(pcm: bytes, hz: int, cabeza_ms: int = 25,
+                           cola_ms: int = 60, umbral_db: float = -45.0) -> bytes:
+    """Quita el silencio que cada trozo trae pegado delante y detrás.
+
+    ES LO QUE SE OÍA COMO PAUSA. David lo dijo tras probarlo: «me parece muy
+    pausada la conversación entre comas y puntos». No era el ritmo de la voz:
+    hablamos por frases, cada frase es un audio distinto, y CADA AUDIO viene
+    con su propio silencio de cortesía. Medido en Azure el 24-ago-2026: hasta
+    71 ms delante y 293 ms detrás. Sumados en cada costura, más el hueco de
+    pedir el siguiente, la conversación se oía a trompicones.
+
+    Se deja un resto —25 ms delante, 60 detrás— porque quitarlo del todo pega
+    las frases y suena atropellado. La separación natural entre oraciones la
+    pone la propia entonación, no el silencio.
+    """
+    m = array.array("h")
+    m.frombytes(pcm[:len(pcm) - (len(pcm) % 2)])
+    if not len(m):
+        return pcm
+    umbral = 32768 * (10 ** (umbral_db / 20))
+    ini, fin = 0, len(m) - 1
+    while ini < len(m) and abs(m[ini]) < umbral:
+        ini += 1
+    while fin > ini and abs(m[fin]) < umbral:
+        fin -= 1
+    if ini >= fin:
+        return pcm                      # todo silencio: no se toca
+    resto_ini = max(0, ini - int(hz * cabeza_ms / 1000))
+    resto_fin = min(len(m), fin + int(hz * cola_ms / 1000))
+    return m[resto_ini:resto_fin].tobytes()
 
 
 def _voz_medir(muestras) -> tuple:
@@ -16868,6 +16914,7 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
         quien = "ElevenLabs/Liza"
     if crudo:
         try:
+            crudo = await asyncio.to_thread(_voz_recortar_silencio, crudo, hz_crudo)
             nivelado, subida = await asyncio.to_thread(_voz_nivelar, crudo)
             mp3 = await asyncio.to_thread(_voz_a_mp3, nivelado, hz_crudo)
             print(f"   🔊 VOZ: {len(texto)} caracteres · {quien} · +{subida:.1f} dB · "
