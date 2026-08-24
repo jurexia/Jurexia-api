@@ -30,7 +30,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from qdrant_client import QdrantClient, AsyncQdrantClient
 from qdrant_client.http import models
@@ -16492,6 +16492,98 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
     return {"respuesta": respuesta, "fuentes": fuentes, "modelo": VOZ_MODELO}
 
 
+import array
+import math
+
+# ── El volumen ───────────────────────────────────────────────────────────────
+#
+# David: «en el teléfono le falta volumen». No era el altavoz —eso se arregló—
+# ni el formato. Es LA VOZ: está grabada bajísima. Medido el 24-ago-2026 sobre
+# la misma frase y el mismo modelo, en dBFS:
+#
+#     Liza      RMS -36,2   pico -17,6      ← la nuestra
+#     Fernanda  RMS -26,9   pico  -6,9
+#     Jaime     RMS -22,1   pico  -4,1
+#     Carlos    RMS -14,4   pico  -0,9      ← nivel normal de voz
+#
+# Liza sale VEINTIDÓS decibelios por debajo de una voz normal. Ningún ajuste de
+# la app lo compensa: el reproductor de iOS no puede subir por encima del uno,
+# y el volumen del sistema ya estaba al máximo.
+#
+# Así que se nivela aquí, en el servidor, y no se toca la voz que David eligió.
+# Se pide PCM en vez de MP3 —el mismo precio, ElevenLabs no cobra por formato—,
+# se sube hasta un objetivo de sonoridad con un techo que impide que nada se
+# salga por arriba, y se vuelve a comprimir a MP3. Medido: 24 ms de ganancia y
+# 20 ms de codificación para diez segundos de audio; frente a los 2.300 ms que
+# tarda la propia voz en generarse, no se nota.
+#
+# Y NO ES SÓLO PARA ELEVENLABS: el día que se cambie de proveedor, el nivel de
+# salida se seguirá midiendo aquí. Es la capa que hace comparable una voz con
+# otra.
+
+# Sonoridad a la que se quiere llegar. -20 dBFS RMS es lo normal en habla
+# grabada para reproducción; por encima empieza a sonar apretado.
+VOZ_RMS_OBJETIVO = float(os.getenv("VOZ_RMS_OBJETIVO", "-20"))
+# Ningún pico puede pasar de aquí. Deja margen para que el MP3 no distorsione
+# al reconstruir la onda.
+VOZ_PICO_TECHO = float(os.getenv("VOZ_PICO_TECHO", "-1.5"))
+# Tope de ganancia. Sin él, un fragmento casi mudo se amplificaría hasta sacar
+# a flote el ruido de fondo.
+VOZ_GANANCIA_MAX = float(os.getenv("VOZ_GANANCIA_MAX", "24"))
+VOZ_PCM_HZ = 22050
+VOZ_MP3_KBPS = int(os.getenv("VOZ_MP3_KBPS", "64"))
+
+
+def _voz_medir(muestras) -> tuple:
+    """RMS y pico en dBFS. Devuelve (-99, -99) para el silencio."""
+    if not len(muestras):
+        return -99.0, -99.0
+    pico = max(abs(x) for x in muestras)
+    suma = 0.0
+    for x in muestras:
+        suma += float(x) * x
+    rms = math.sqrt(suma / len(muestras))
+    def _db(v):
+        return 20 * math.log10(v / 32768) if v > 0 else -99.0
+    return _db(rms), _db(pico)
+
+
+def _voz_nivelar(pcm: bytes) -> tuple:
+    """Sube el audio a una sonoridad normal sin dejar que nada se recorte.
+
+    Devuelve (pcm_nivelado, decibelios_aplicados). La ganancia es la MENOR de
+    dos: la que hace falta para llegar al objetivo de sonoridad, y la que cabe
+    antes de tocar el techo de picos. Así una frase con una sílaba fuerte no se
+    distorsiona y una frase floja sí se levanta.
+    """
+    muestras = array.array("h")
+    muestras.frombytes(pcm[:len(pcm) - (len(pcm) % 2)])
+    rms, pico = _voz_medir(muestras)
+    if rms <= -98:
+        return pcm, 0.0
+    ganancia = min(VOZ_RMS_OBJETIVO - rms, VOZ_PICO_TECHO - pico, VOZ_GANANCIA_MAX)
+    if ganancia <= 0.5:
+        return pcm, 0.0
+    factor = 10 ** (ganancia / 20)
+    techo = int(32767 * (10 ** (VOZ_PICO_TECHO / 20)))
+    for i, v in enumerate(muestras):
+        s = int(v * factor)
+        muestras[i] = techo if s > techo else (-techo if s < -techo else s)
+    return muestras.tobytes(), ganancia
+
+
+def _voz_a_mp3(pcm: bytes) -> bytes:
+    """PCM a MP3. Si el codificador no está, quien llama se las arregla."""
+    import lameenc
+    e = lameenc.Encoder()
+    e.set_bit_rate(VOZ_MP3_KBPS)
+    e.set_in_sample_rate(VOZ_PCM_HZ)
+    e.set_channels(1)
+    e.set_quality(5)          # 0 es el mejor y el más lento; 5 es el término medio
+    e.silence()
+    return bytes(e.encode(pcm)) + bytes(e.flush())
+
+
 # ── La voz de Liza ───────────────────────────────────────────────────────────
 #
 # El audio se sirve DESDE AQUÍ y no desde el teléfono, por una razón que no es
@@ -16657,34 +16749,51 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
 
     import httpx
 
-    async def audio():
-        url = (f"https://api.elevenlabs.io/v1/text-to-speech/{VOZ_ELEVEN_ID}/stream"
-               f"?output_format=mp3_22050_32")
-        cuerpo = {
-            "text": texto,
-            "model_id": VOZ_ELEVEN_MODELO,
-            # Ajustes de conversación, no de narración: estabilidad media para
-            # que module sin sonar plano, y algo de estilo para que no lea de
-            # corrido. Son los mismos con los que David la escuchó y la eligió.
-            "voice_settings": {"stability": 0.45, "similarity_boost": 0.8,
-                               "style": 0.15, "use_speaker_boost": True},
-        }
+    ajustes = {"stability": 0.45, "similarity_boost": 0.8,
+               "style": 0.15, "use_speaker_boost": True}
+
+    async def _pedir(formato: str) -> Optional[bytes]:
+        url = (f"https://api.elevenlabs.io/v1/text-to-speech/{VOZ_ELEVEN_ID}"
+               f"?output_format={formato}")
         try:
             async with httpx.AsyncClient(timeout=60.0) as cli:
-                async with cli.stream("POST", url, json=cuerpo,
-                                      headers={"xi-api-key": clave}) as r:
-                    if r.status_code != 200:
-                        detalle = (await r.aread()).decode("utf-8", "replace")[:200]
-                        print(f"   🔇 VOZ TTS {r.status_code}: {detalle}")
-                        return
-                    async for trozo in r.aiter_bytes():
-                        yield trozo
+                r = await cli.post(url, json={"text": texto, "model_id": VOZ_ELEVEN_MODELO,
+                                              "voice_settings": ajustes},
+                                   headers={"xi-api-key": clave})
+            if r.status_code != 200:
+                print(f"   🔇 VOZ TTS {r.status_code}: {r.text[:200]}")
+                return None
+            return r.content
         except Exception as e:
             print(f"   🔇 VOZ TTS reventó: {err(e)}")
+            return None
 
-    print(f"   🔊 VOZ: {len(texto)} caracteres a Liza · {correo_opaco(user_email)}")
-    return StreamingResponse(audio(), media_type="audio/mpeg",
-                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+    # Se pide PCM para poder medirlo y nivelarlo. Cuesta lo mismo —ElevenLabs
+    # cobra por carácter, no por formato— y pesa más sólo en el tramo interno
+    # entre Render y la API; al teléfono le llega MP3, más pequeño que antes en
+    # calidad equivalente.
+    t_voz = time.time()
+    crudo = await _pedir(f"pcm_{VOZ_PCM_HZ}")
+    if crudo:
+        try:
+            nivelado, subida = await asyncio.to_thread(_voz_nivelar, crudo)
+            mp3 = await asyncio.to_thread(_voz_a_mp3, nivelado)
+            print(f"   🔊 VOZ: {len(texto)} caracteres a Liza · +{subida:.1f} dB · "
+                  f"{len(mp3)//1024} KB · {(time.time()-t_voz)*1000:.0f} ms · "
+                  f"{correo_opaco(user_email)}")
+            return Response(content=mp3, media_type="audio/mpeg",
+                            headers={"Cache-Control": "no-store"})
+        except Exception as e:
+            # Si el codificador falta o falla, NO se queda mudo el agente: se
+            # sirve el MP3 de siempre, bajo de volumen pero audible.
+            print(f"   ⚠️ VOZ: no pude nivelar ({err(e)}) — se sirve sin nivelar")
+
+    mp3 = await _pedir("mp3_22050_32")
+    if not mp3:
+        raise HTTPException(status_code=502, detail="La voz no respondió.")
+    print(f"   🔊 VOZ: {len(texto)} caracteres a Liza · SIN NIVELAR · {correo_opaco(user_email)}")
+    return Response(content=mp3, media_type="audio/mpeg",
+                    headers={"Cache-Control": "no-store"})
 
 
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
