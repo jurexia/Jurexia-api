@@ -15334,6 +15334,12 @@ VOZ_MAX_TOKENS = 260
 # encima empieza a mezclar. Además cada uno son tokens de entrada en cada turno.
 VOZ_TOPE_DOCS = 10
 
+# Preguntas habladas por día y por persona. Con las 10 que planteó David, un
+# Platinum que las gaste todas cada día del mes consume 300 de sus 560 consultas
+# y cuesta 82,71 MXN sobre un plan de 599 — un 86% de margen, medido con el
+# consumo real de un turno (0,2757 MXN: 96% ElevenLabs, 4% el modelo).
+VOZ_TOPE_DIARIO = int(os.getenv("VOZ_TOPE_DIARIO", "10"))
+
 # A quién se le enseña. Va por variable de entorno para poder abrirlo sin
 # desplegar; los dos correos del piloto son el valor por defecto.
 def _voz_permitida(correo: str) -> bool:
@@ -15524,7 +15530,36 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
     if not _voz_permitida(user_email):
         raise HTTPException(status_code=403, detail="El Abogado IA está en pruebas cerradas.")
 
-    # 3) Cupo antes de gastar API, como en /chat y en jurisconsulto.
+    # 3) El tope DIARIO. Va antes que la cuota mensual porque protege de otra
+    #    cosa: la mensual cuida el margen; ésta cuida del accidente. Un teléfono
+    #    que se queda escuchando en un bolsillo factura hasta agotar la batería,
+    #    y cada turno son caracteres de ElevenLabs —el 96% del coste, medido—.
+    #
+    #    El contador vive en `voz_uso`, con RLS activada y CERO políticas: nadie
+    #    salvo el servidor puede tocarlo. Es el patrón de salvame_usage_log, y
+    #    es lo contrario de lo que permitía user_profiles hasta hoy.
+    try:
+        cuenta = await asyncio.to_thread(
+            lambda: supabase_admin.rpc("voz_contar", {"p_user_id": user_id, "p_caracteres": 0}).execute()
+        )
+        llevados = int(cuenta.data or 0)
+        if llevados > VOZ_TOPE_DIARIO:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Llegaste a las {VOZ_TOPE_DIARIO} preguntas de voz de hoy. "
+                       f"Mañana se reinicia; mientras tanto, el chat sigue disponible.",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Si el contador falla, NO se bloquea: se deja pasar y se avisa. Un
+        # candado roto que cierra la puerta es peor que uno que no cuenta.
+        print(f"[voz] contador diario falló (se deja pasar): {err(e)}")
+
+    # 4) Y la cuota mensual del plan, que se descuenta de las mismas consultas.
+    #    Un turno de voz cuesta lo mismo que una consulta escrita para el
+    #    usuario, aunque para nosotros cueste distinto: es más fácil de
+    #    entender y no obliga a explicar dos contadores.
     try:
         q = await asyncio.to_thread(
             lambda: supabase_admin.rpc("consume_query", {"p_user_id": user_id}).execute()
@@ -15627,6 +15662,98 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
 
     print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO}")
     return {"respuesta": respuesta, "fuentes": fuentes, "modelo": VOZ_MODELO}
+
+
+# ── La voz de Liza ───────────────────────────────────────────────────────────
+#
+# El audio se sirve DESDE AQUÍ y no desde el teléfono, por una razón que no es
+# negociable: la llave de ElevenLabs no puede viajar dentro de la app. Una app
+# publicada es un archivo que cualquiera descarga y abre; una llave ahí dentro
+# es una llave regalada, y se paga por carácter.
+#
+# Liza la eligió David de oído, entre diez candidatas diciendo la misma frase
+# jurídica —con su número de artículo, sus siglas y la negativa a dictar una
+# tesis sin verificar—. Ver la carpeta voces-abogado.
+#
+# El modelo es flash: 265 ms hasta el primer byte, medido con esta misma cuenta,
+# frente a 591 ms del de más calidad. En una conversación esos 326 ms se pagan
+# en CADA respuesta.
+
+VOZ_ELEVEN_ID = os.getenv("VOZ_ELEVEN_ID", "kl7d390GatBPfqhRTyAl")   # Liza
+VOZ_ELEVEN_MODELO = os.getenv("VOZ_ELEVEN_MODELO", "eleven_flash_v2_5")
+
+
+class VozHablarRequest(BaseModel):
+    texto: str
+
+
+@app.post("/api/voz/hablar")
+async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Header(None)):
+    """Convierte a audio lo que el Abogado IA acaba de decir.
+
+    Va en streaming para que el teléfono empiece a reproducir con el primer
+    trozo en vez de esperar el archivo entero: es la diferencia entre responder
+    y parecer que se quedó pensando.
+    """
+    texto = (payload.texto or "").strip()
+    if not texto:
+        raise HTTPException(status_code=400, detail="No llegó texto.")
+    # Tope de seguridad: una respuesta hablada larga no existe, y cada carácter
+    # se factura. Si llega algo enorme es un fallo aguas arriba, no una consulta.
+    if len(texto) > 1200:
+        texto = texto[:1200]
+
+    clave = os.getenv("ELEVENLABS_API_KEY")
+    if not clave:
+        raise HTTPException(status_code=503, detail="La voz no está configurada.")
+    if not authorization or not supabase_admin:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        user = user_resp.user
+        if not user:
+            raise HTTPException(status_code=401, detail="Token inválido")
+        user_email = user.email or ""
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+    if not _voz_permitida(user_email):
+        raise HTTPException(status_code=403, detail="El Abogado IA está en pruebas cerradas.")
+
+    import httpx
+
+    async def audio():
+        url = (f"https://api.elevenlabs.io/v1/text-to-speech/{VOZ_ELEVEN_ID}/stream"
+               f"?output_format=mp3_22050_32")
+        cuerpo = {
+            "text": texto,
+            "model_id": VOZ_ELEVEN_MODELO,
+            # Ajustes de conversación, no de narración: estabilidad media para
+            # que module sin sonar plano, y algo de estilo para que no lea de
+            # corrido. Son los mismos con los que David la escuchó y la eligió.
+            "voice_settings": {"stability": 0.45, "similarity_boost": 0.8,
+                               "style": 0.15, "use_speaker_boost": True},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as cli:
+                async with cli.stream("POST", url, json=cuerpo,
+                                      headers={"xi-api-key": clave}) as r:
+                    if r.status_code != 200:
+                        detalle = (await r.aread()).decode("utf-8", "replace")[:200]
+                        print(f"   🔇 VOZ TTS {r.status_code}: {detalle}")
+                        return
+                    async for trozo in r.aiter_bytes():
+                        yield trozo
+        except Exception as e:
+            print(f"   🔇 VOZ TTS reventó: {err(e)}")
+
+    print(f"   🔊 VOZ: {len(texto)} caracteres a Liza · {correo_opaco(user_email)}")
+    return StreamingResponse(audio(), media_type="audio/mpeg",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
