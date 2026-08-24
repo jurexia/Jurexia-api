@@ -15327,7 +15327,7 @@ VOZ_MODELO = os.getenv("VOZ_MODELO", "openai/gpt-5.6-luna")
 # Tope de salida. Es una decisión de diseño antes que de coste: una respuesta
 # hablada de más de tres frases es insoportable de oír. Mismo criterio y mismo
 # número que Jurisconsulto, que ya lleva tiempo en manos de usuarios.
-VOZ_MAX_TOKENS = 260
+VOZ_MAX_TOKENS = int(os.getenv("VOZ_MAX_TOKENS", "180"))
 
 # Cuántos documentos entran al contexto. Pocos a propósito: el modelo tiene que
 # poder sostener CADA frase en algo que tiene delante, y con cuarenta documentos
@@ -15350,8 +15350,12 @@ def _voz_permitida(correo: str) -> bool:
 
 _VOZ_SISTEMA = (
     "Eres el Abogado IA de Iurexia. Hablas por voz con un abogado mexicano que puede estar "
-    "de pie en una audiencia, así que respondes en 2 o 3 frases, sin listas, sin markdown, sin "
-    "encabezados y sin asteriscos: lo que escribas se va a leer en voz alta tal cual.\n"
+    "de pie en una audiencia. Responde en DOS frases como máximo, sin listas, sin markdown, "
+    "sin encabezados y sin asteriscos: lo que escribas se va a leer en voz alta tal cual.\n"
+    "SÉ BREVE DE VERDAD. Da el dato y su fundamento, y para. No repitas la pregunta, no "
+    "anuncies lo que vas a decir, no cierres ofreciendo ayuda, no expliques cada artículo "
+    "que citas si con nombrarlos basta. Cada palabra de más es un segundo más de espera "
+    "para alguien que está de pie frente a un juez —y se paga por carácter.\n"
     "REGLA ABSOLUTA: cada artículo, cada ley y cada criterio que menciones tiene que estar en "
     "los DOCUMENTOS que se te entregan en este mismo mensaje. No recurres a tu memoria. Si lo "
     "que se te dio no responde la pregunta, lo dices con esas palabras —«no lo tengo en mi "
@@ -15501,6 +15505,28 @@ def _voz_revisar_citas(texto: str, docs: List[dict], pregunta: str = "") -> tupl
     return (not sospechas), sospechas
 
 
+def _voz_anotar_caracteres(user_id: str, cuantos: int) -> None:
+    """Suma al contador del día los caracteres que se van a hablar.
+
+    Es lo que hace medible el gasto de ElevenLabs SIN depender de su API —la
+    llave de la casa no tiene permiso de lectura de cuenta— y sobre todo lo
+    hace medible por usuario, que es lo que la factura nunca dice.
+
+    A fuego y olvido: si esto falla, la respuesta ya está dada y no se toca.
+    """
+    if not supabase_admin or cuantos <= 0:
+        return
+    try:
+        # Por RPC y no con un UPDATE desde aquí: un leer-modificar-escribir se
+        # pisa cuando dos respuestas terminan a la vez, y así el día se calcula
+        # en hora de México DENTRO de la base, sin depender de la zona horaria
+        # del proceso.
+        supabase_admin.rpc("voz_sumar_caracteres",
+                           {"p_user_id": user_id, "p_caracteres": int(cuantos)}).execute()
+    except Exception as e:
+        print(f"   ⚠️ VOZ: no pude anotar caracteres (no fatal): {err(e)}")
+
+
 @app.post("/api/voz")
 async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None)):
     """El Abogado IA. Respuesta hablada, corta y anclada a documentos reales."""
@@ -15635,6 +15661,7 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                 }) + "\n"
                 return
 
+            _voz_anotar_caracteres(user_id, len(texto))
             print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO} · {len(texto)} chars")
             yield json.dumps({"tipo": "fin", "respuesta": texto, "fuentes": fuentes}) + "\n"
 
@@ -15660,6 +15687,7 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                      "respaldar. Permítame buscarlo de otra forma.")
         fuentes = []
 
+    _voz_anotar_caracteres(user_id, len(respuesta))
     print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO}")
     return {"respuesta": respuesta, "fuentes": fuentes, "modelo": VOZ_MODELO}
 
