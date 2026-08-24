@@ -15967,6 +15967,35 @@ def _voz_fuentes_citadas(texto: str, docs: List[dict], fuentes: List[dict]) -> L
     return usadas or fuentes
 
 
+def _voz_frases(texto: str) -> List[str]:
+    """Corta en frases SIN partir por dentro de unas comillas.
+
+    Un rubro lleva punto: «Derecho del tanto. No se actualiza cuando la
+    transmisión se realiza entre copropietarios». Cortando por el punto a
+    secas, ese rubro son dos frases, y al podar la segunda quedó en pantalla
+    «La tesis con rubro "Derecho del tanto. Hay un punto que no pude
+    respaldar…»: una comilla abierta que no cierra y una cita descabezada.
+    Lo vio David en el simulador el 24-ago-2026.
+    """
+    abre, cierra = "«“\"", "»”\""
+    frases, actual, dentro = [], [], False
+    for i, ch in enumerate(texto):
+        actual.append(ch)
+        if ch in abre and not dentro:
+            dentro = True
+        elif ch in cierra and dentro:
+            dentro = False
+        elif ch in ".!?" and not dentro:
+            # Se corta sólo si lo que sigue es espacio y arranca otra frase.
+            resto = texto[i + 1:i + 3]
+            if resto[:1] in (" ", "\n", ""):
+                frases.append("".join(actual).strip())
+                actual = []
+    if actual:
+        frases.append("".join(actual).strip())
+    return [f for f in frases if f]
+
+
 def _voz_podar_sin_respaldo(texto: str, sospechas: List[str]) -> str:
     """Tira la frase que trae el número sin respaldo, no la respuesta entera.
 
@@ -15983,7 +16012,7 @@ def _voz_podar_sin_respaldo(texto: str, sospechas: List[str]) -> str:
     """
     if not texto or not sospechas:
         return texto
-    frases = _re_mod.split(r"(?<=[.!?])\s+", texto)
+    frases = _voz_frases(texto)
     numeros = "|".join(_re_mod.escape(n) for n in sospechas)
     patron = _re_mod.compile(rf"art[íi]culos?\s+[^.;]*?\b(?:{numeros})\b", _re_mod.I)
     quedan = [f for f in frases if not patron.search(f)]
@@ -15992,6 +16021,11 @@ def _voz_podar_sin_respaldo(texto: str, sospechas: List[str]) -> str:
     # cita en pie; si no, mejor la negativa honrada que un muñón.
     if len(podado) < 120 or not _re_mod.search(r"art[íi]culo|registro|tesis", podado, _re_mod.I):
         return ""
+    # Si la frase podada se llevó el cierre de unas comillas, se quita el que
+    # quedó abierto: una cita a medias es peor que ninguna.
+    for a, c in (("«", "»"), ("“", "”")):
+        if podado.count(a) > podado.count(c):
+            podado = podado.replace(a, "", podado.count(a) - podado.count(c))
     return podado + " Hay un punto que no pude respaldar en mi acervo y preferí omitirlo."
 
 
