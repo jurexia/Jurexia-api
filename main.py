@@ -15400,9 +15400,18 @@ _VOZ_SISTEMA = (
     "la pregunta, no anuncies lo que vas a decir y no cierres ofreciendo más ayuda.\n"
     "REGLA ABSOLUTA: cada artículo, cada ley y cada criterio que menciones tiene que estar en "
     "los DOCUMENTOS que se te entregan en este mismo mensaje. No recurres a tu memoria. Si lo "
-    "que se te dio no responde la pregunta, lo dices con esas palabras —«no lo tengo en mi "
-    "acervo»— y ofreces reformular. Eso es una respuesta CORRECTA, no un fracaso. Y si lo que "
-    "tienes responde sólo una parte, contesta esa parte y di qué falta.\n"
+    "que se te dio NO responde la pregunta EN ABSOLUTO, lo dices con esas palabras —«no lo "
+    "tengo en mi acervo»— y ofreces reformular. Eso es una respuesta CORRECTA, no un fracaso.\n"
+    "NO NARRES LO QUE TE FALTA. Si puedes contestar, contesta y calla lo demás. Nada de «el "
+    "documento no contiene», «según el documento proporcionado», «no tengo a la vista el texto "
+    "completo del artículo tal»: al abogado que está de pie frente a un juez no le sirve el "
+    "inventario de tu acervo, le sirve la respuesta. Si falta algo importante para lo que "
+    "preguntó, cabe UNA cláusula corta al final, no un párrafo, y sólo si cambia lo que debe "
+    "hacer.\n"
+    "SI VARIOS ARTÍCULOS DEL MISMO CÓDIGO REGULAN LA FIGURA, DILOS TODOS. El derecho del "
+    "tanto en un código civil vive en varios preceptos —copropietarios, usufructuario, "
+    "coherederos, socios—: nombrar sólo uno deja al abogado a medio camino. Di cada número "
+    "con la hipótesis que gobierna, en una frase por cada uno.\n"
     "Está PROHIBIDO dictar un número de artículo que no aparezca en los documentos, y está "
     "PROHIBIDO atribuir un artículo a una ley distinta de aquella de la que viene, aunque el "
     "número coincida: el mismo número dice cosas distintas en cada ordenamiento.\n"
@@ -15624,7 +15633,14 @@ def _voz_documento(col: str, punto) -> Optional[dict]:
         referencia = (f"{clave} · Registro {registro}" if clave and registro
                       else (f"Registro {registro}" if registro else clave or ref))
     else:
-        etiqueta = ley
+        # Una tarjeta sin rótulo es una tarjeta que no dice nada: se vieron dos
+        # en blanco en la prueba. Si no hay ley ni origen, al menos que diga de
+        # qué acervo salió.
+        etiqueta = ley or {
+            FIXED_SILOS["jurisprudencia"]: "Jurisprudencia del Semanario Judicial",
+            FIXED_SILOS["constitucional"]: "Bloque constitucional",
+            "doctrina": "Doctrina",
+        }.get(col, "Acervo de Iurexia")
         referencia = ref
 
     enlace = _txt(pl.get("url_pdf") or pl.get("pdf"))
@@ -15709,6 +15725,39 @@ async def _voz_reordenar(consulta: str, docs: List[dict], top_n: int) -> List[di
         return docs[:top_n]
 
 
+def _voz_sin_tildes(t: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", (t or "").lower())
+                   if unicodedata.category(c) != "Mn")
+
+
+def _voz_empujon(concepto: str, d: dict) -> float:
+    """Cuánto vale que el documento DIGA lo que se preguntó.
+
+    La fusión por rango tiene un punto ciego: un documento que es el primero de
+    un silo pequeño e irrelevante puntúa igual que el primero del silo que sí
+    contesta. Preguntando «qué artículos regulan el derecho del tanto en
+    Querétaro» se colaban dos Cuadernillos de la Corte Interamericana y el
+    artículo 17 del Código Civil Federal, y se quedaban fuera los artículos
+    964, 965 y 995 del Código Civil del Estado —que empiezan literalmente por
+    «derecho del tanto»—.
+
+    El desempate es lo más tonto y lo más fiable: si el texto del documento
+    contiene la frase del concepto, sube; si contiene todas sus palabras con
+    peso, sube menos. No hace falta un modelo para esto.
+    """
+    if not concepto:
+        return 1.0
+    frase = _voz_sin_tildes(concepto)
+    cuerpo = _voz_sin_tildes(f"{d.get('rubro','')} {d.get('ley','')} {d.get('texto','')}")
+    if frase and frase in cuerpo:
+        return 1.6
+    palabras = [p for p in _re_mod.findall(r"\w{4,}", frase)]
+    if palabras and all(p in cuerpo for p in palabras):
+        return 1.25
+    return 1.0
+
+
 async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
     """Recupera del acervo normativo. En paralelo, y sin sentencias.
 
@@ -15777,7 +15826,9 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
             if k not in mejor or len(d["texto"]) > len(mejor[k]["texto"]):
                 mejor[k] = d
 
-    ordenados = [mejor[k] for k, _ in sorted(puntos_rrf.items(), key=lambda kv: -kv[1])]
+    ordenados = [mejor[k] for k, _ in sorted(
+        puntos_rrf.items(),
+        key=lambda kv: -(kv[1] * _voz_empujon(concepto or pregunta, mejor[kv[0]])))]
     if not ordenados:
         return []
 
@@ -15792,11 +15843,30 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
         # a la jurisprudencia para que no desplace a la ley, y con sitio
         # garantizado para el silo del estado y para el federal.
         elegidos, vistos = [], {}
+        # PRIMERO LA CASA. Si la pregunta es de un estado, sus artículos entran
+        # antes que nada: preguntando por el derecho del tanto en Querétaro
+        # llegaban tres artículos del código local y el resto de los huecos se
+        # iba en federales y tesis, cuando el código del estado tiene la figura
+        # repartida en cinco preceptos —copropietarios, usufructuario,
+        # coherederos, socios, aparceros— y el abogado los quiere todos.
+        if silo_estado:
+            for d in ordenados:
+                if len(elegidos) >= 5:
+                    break
+                if d["coleccion"] == silo_estado:
+                    vistos[silo_estado] = vistos.get(silo_estado, 0) + 1
+                    elegidos.append(d)
+            ya_dentro = {id(x) for x in elegidos}
+            ordenados = [d for d in ordenados if id(d) not in ya_dentro]
         for d in ordenados:
             if len(elegidos) >= VOZ_TOPE_DOCS:
                 break
             col = d["coleccion"]
-            techo = 3 if col == silo_juris else (2 if col == "doctrina" else 5)
+            # El bloque constitucional y la doctrina acompañan, no mandan: sus
+            # Cuadernillos de la CoIDH ocupaban dos de los diez huecos en una
+            # pregunta sobre el Código Civil de Querétaro.
+            techo = {silo_juris: 3, "doctrina": 1,
+                     FIXED_SILOS["constitucional"]: 1}.get(col, 5)
             if vistos.get(col, 0) >= techo:
                 continue
             vistos[col] = vistos.get(col, 0) + 1
@@ -16314,12 +16384,19 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
 # jurídica —con su número de artículo, sus siglas y la negativa a dictar una
 # tesis sin verificar—. Ver la carpeta voces-abogado.
 #
-# El modelo es flash: 265 ms hasta el primer byte, medido con esta misma cuenta,
-# frente a 591 ms del de más calidad. En una conversación esos 326 ms se pagan
-# en CADA respuesta.
-
+# El modelo era el flash —265 ms hasta el primer byte, frente a 591 ms del de
+# más calidad—, y se eligió por esos 326 ms. El 24-ago-2026 David comparó las
+# dos a ciegas sobre la misma frase jurídica y se quedó con la de calidad:
+# «me gusta la 3». Manda el oído, que es quien usa esto en una audiencia.
+#
+# Lo que cuesta, dicho claro: +326 ms en cada respuesta y el DOBLE de crédito
+# por carácter (el flash va a mitad de precio). Un turno pasa de 0,2757 a unos
+# 0,53 MXN; un platinum que gaste sus diez preguntas todos los días del mes
+# cuesta unos 159 MXN sobre un plan de 599. Sigue habiendo margen, pero ya no
+# es el 86%. Si algún día aprieta, se vuelve al flash cambiando VOZ_ELEVEN_MODELO
+# —sin tocar código— y la voz sigue siendo la misma.
 VOZ_ELEVEN_ID = os.getenv("VOZ_ELEVEN_ID", "kl7d390GatBPfqhRTyAl")   # Liza
-VOZ_ELEVEN_MODELO = os.getenv("VOZ_ELEVEN_MODELO", "eleven_flash_v2_5")
+VOZ_ELEVEN_MODELO = os.getenv("VOZ_ELEVEN_MODELO", "eleven_multilingual_v2")
 
 
 # ── Los números, para el oído ────────────────────────────────────────────────
