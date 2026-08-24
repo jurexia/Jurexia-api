@@ -16096,6 +16096,29 @@ def _voz_frases(texto: str) -> List[str]:
     return [f for f in frases if f]
 
 
+def _voz_primer_aliento(pendiente: str, minimo: int = 60) -> tuple:
+    """El primer trozo se corta antes: en la primera coma que ya tenga cuerpo.
+
+    Medido: la primera frase completa tardaba 5,9 s en salir —el modelo tiene
+    que escribirla entera— y hasta entonces el teléfono estaba mudo. Pero una
+    voz puede empezar a hablar en la primera cláusula: «La jurisprudencia
+    sostiene que en amparo laboral la suplencia opera a favor del trabajador,»
+    ya es algo que decir, y el sintetizador hace ahí una pausa natural.
+
+    SÓLO PARA EL PRIMER TROZO. Después manda la frase completa, que suena
+    mejor; esto es para que la conversación arranque, no para trocearla toda.
+    """
+    abre, cierra, dentro = "«“\"", "»”\"", False
+    for i, ch in enumerate(pendiente):
+        if ch in abre and not dentro:
+            dentro = True
+        elif ch in cierra and dentro:
+            dentro = False
+        elif ch in ",;:" and not dentro and i >= minimo:
+            return pendiente[:i + 1].strip(), pendiente[i + 1:]
+    return "", pendiente
+
+
 def _voz_podar_sin_respaldo(texto: str, sospechas: List[str]) -> str:
     """Tira la frase que trae el número sin respaldo, no la respuesta entera.
 
@@ -16317,7 +16340,37 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
             # modelo todavía redacta. En audiencia, eso es lo que el abogado
             # mira mientras escucha.
             yield json.dumps({"tipo": "fuentes", "fuentes": fuentes}) + "\n"
-            trozos = []
+            # ── SE HABLA POR FRASES, NO AL FINAL ──────────────────────
+            #
+            # Con respuestas de tres a seis frases, esperar al texto entero son
+            # de tres a seis segundos de silencio, y encima la voz de calidad
+            # tarda otro segundo y medio en arrancar. De pie frente a un juez
+            # eso parece una avería.
+            #
+            # Así que cada frase se manda en cuanto está completa y el teléfono
+            # la va diciendo mientras el modelo sigue escribiendo. El `delta`
+            # se mantiene para la PANTALLA —el texto aparece letra a letra como
+            # hasta ahora—; la frase es para el ALTAVOZ.
+            #
+            # Y aquí está lo que hace que esto sea admisible: CADA FRASE SE
+            # VERIFICA ANTES DE SALIR. Emitir sin comprobar rompería la regla
+            # que sostiene el producto —no dictar un artículo que no está en el
+            # acervo—, porque lo dicho, dicho está. La frase que cita un número
+            # sin respaldo no se manda: es la misma poda de antes, aplicada
+            # sobre la marcha en vez de al final.
+            trozos, dichas, pendiente, retiradas = [], [], "", []
+
+            def _cocinar(frase: str):
+                """Verifica, limpia y decide si esa frase se puede decir."""
+                frase = frase.strip()
+                if not frase:
+                    return None
+                limpia, sospecha = _voz_revisar_citas(frase, docs, payload.pregunta)
+                if not limpia:
+                    retiradas.extend(sospecha)
+                    return None
+                return _voz_sin_claves(frase, docs).strip() or None
+
             try:
                 flujo = await deepseek_client.chat.completions.create(
                     model=VOZ_MODELO, messages=mensajes, max_tokens=VOZ_MAX_TOKENS,
@@ -16328,50 +16381,82 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                     if not parte.choices:
                         continue
                     delta = parte.choices[0].delta.content or ""
-                    if delta:
-                        trozos.append(delta)
-                        yield json.dumps({"tipo": "delta", "texto": delta}) + "\n"
+                    if not delta:
+                        continue
+                    trozos.append(delta)
+                    yield json.dumps({"tipo": "delta", "texto": delta}) + "\n"
+                    pendiente += delta
+                    # Arrancar cuanto antes: mientras no se haya dicho nada, el
+                    # primer trozo se corta en la primera coma con cuerpo.
+                    if not dichas and len(pendiente) >= 60:
+                        cabeza, resto = _voz_primer_aliento(pendiente)
+                        if cabeza:
+                            primera = _cocinar(cabeza)
+                            if primera:
+                                dichas.append(primera)
+                                yield json.dumps({"tipo": "frase", "texto": primera}) + "\n"
+                                pendiente = resto
+                            else:
+                                pendiente = resto
+                    frases = _voz_frases(pendiente)
+                    if len(frases) > 1:
+                        # La última siempre puede estar a medias: se guarda
+                        # para la vuelta siguiente. Y una frase de tres
+                        # palabras no se manda sola —«Sí.» suena
+                        # entrecortado—: se junta con la que viene hasta
+                        # juntar cuerpo suficiente para que suene a frase.
+                        completas, resto = frases[:-1], frases[-1]
+                        listas, junta = [], ""
+                        for f in completas:
+                            junta = f"{junta} {f}".strip() if junta else f
+                            if len(junta) >= 40:
+                                listas.append(junta)
+                                junta = ""
+                        pendiente = " ".join(x for x in (junta, resto) if x)
+                        for f in listas:
+                            lista = _cocinar(f)
+                            if lista:
+                                dichas.append(lista)
+                                yield json.dumps({"tipo": "frase", "texto": lista}) + "\n"
             except Exception as e:
                 print(f"[voz] streaming reventó: {err(e)}")
                 yield json.dumps({"tipo": "error", "mensaje": "No se pudo generar la respuesta."}) + "\n"
                 return
 
-            texto = "".join(trozos).strip()
-            limpio, sospechas = _voz_revisar_citas(texto, docs, payload.pregunta)
-            if not limpio:
-                # El número sin respaldo NO se dice. Pero primero se intenta
-                # salvar lo que sí está respaldado: se poda la frase y se
-                # sigue. Sólo si no queda respuesta se retira entera.
-                podado = _voz_podar_sin_respaldo(texto, sospechas)
-                if podado:
-                    print(f"   ✂️ VOZ: frase con {sospechas} podada; el resto se mantiene")
-                    texto = podado
-                else:
-                    print(f"   🛑 VOZ: retirada por citar {sospechas} sin respaldo")
-                    yield json.dumps({
-                        "tipo": "retirada", "articulos": sospechas,
-                        "respuesta": ("Tengo la respuesta a medias y prefiero no dictarle un número "
-                                      "que no puedo respaldar. Permítame buscarlo de otra forma."),
-                    }) + "\n"
-                    return
+            ultima = _cocinar(pendiente)
+            if ultima:
+                dichas.append(ultima)
+                yield json.dumps({"tipo": "frase", "texto": ultima}) + "\n"
 
-            # Se quita la clave de tesis ANTES de que nadie la oiga, y se
-            # recorta la lista de fuentes a las que la respuesta usó de verdad.
-            # Las fuentes se vuelven a mandar: la pantalla ya pintó la lista
-            # larga con el primer byte —eso es lo que da la sensación de
-            # rapidez— y este segundo envío la sustituye por la buena. La app
-            # repinta con cada evento «fuentes», así que no hace falta tocarla.
-            antes = texto
-            texto = _voz_sin_claves(texto, docs)
-            if texto != antes:
-                print("   🔇 VOZ: clave de tesis retirada del texto hablado")
+            texto = " ".join(dichas).strip()
+            if retiradas:
+                print(f"   ✂️ VOZ: {len(retiradas)} cita(s) sin respaldo retiradas: {sorted(set(retiradas))}")
+            if not texto:
+                # No sobrevivió nada: se dice que no, que es una respuesta
+                # correcta, y no se dicta un número que no se puede respaldar.
+                print(f"   🛑 VOZ: retirada por citar {sorted(set(retiradas))} sin respaldo")
+                yield json.dumps({
+                    "tipo": "retirada", "articulos": sorted(set(retiradas)),
+                    "respuesta": ("Tengo la respuesta a medias y prefiero no dictarle un número "
+                                  "que no puedo respaldar. Permítame buscarlo de otra forma."),
+                }) + "\n"
+                return
+            if retiradas:
+                texto += " Hay un punto que no pude respaldar en mi acervo y preferí omitirlo."
+
+            # Las fuentes se vuelven a mandar recortadas a las que la respuesta
+            # usó de verdad. La pantalla ya pintó la lista larga con el primer
+            # byte —eso es lo que da la sensación de rapidez— y este segundo
+            # envío la sustituye por la buena; la app repinta con cada evento
+            # «fuentes», así que no hace falta tocarla.
             citadas = _voz_fuentes_citadas(texto, docs, fuentes)
             if len(citadas) != len(fuentes):
                 print(f"   📚 VOZ: {len(citadas)} de {len(fuentes)} fuentes se citaron de viva voz")
                 yield json.dumps({"tipo": "fuentes", "fuentes": citadas}) + "\n"
 
             _voz_anotar_caracteres(user_id, len(texto))
-            print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO} · {len(texto)} chars")
+            print(f"   🎙️ VOZ: {time.time()-t0:.2f}s total · {VOZ_MODELO} · {len(texto)} chars "
+                  f"· {len(dichas)} frases habladas")
             yield json.dumps({"tipo": "fin", "respuesta": texto, "fuentes": citadas}) + "\n"
 
         return StreamingResponse(
