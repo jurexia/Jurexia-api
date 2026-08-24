@@ -16572,12 +16572,17 @@ def _voz_nivelar(pcm: bytes) -> tuple:
     return muestras.tobytes(), ganancia
 
 
-def _voz_a_mp3(pcm: bytes) -> bytes:
-    """PCM a MP3. Si el codificador no está, quien llama se las arregla."""
+def _voz_a_mp3(pcm: bytes, hz: int = VOZ_PCM_HZ) -> bytes:
+    """PCM a MP3. Si el codificador no está, quien llama se las arregla.
+
+    La frecuencia se pasa porque no todos hablan igual: ElevenLabs devuelve
+    22.050 Hz y Azure 24.000. Codificar a la frecuencia equivocada no falla —
+    suena más grave o más agudo, que es peor que fallar.
+    """
     import lameenc
     e = lameenc.Encoder()
     e.set_bit_rate(VOZ_MP3_KBPS)
-    e.set_in_sample_rate(VOZ_PCM_HZ)
+    e.set_in_sample_rate(hz)
     e.set_channels(1)
     e.set_quality(5)          # 0 es el mejor y el más lento; 5 es el término medio
     e.silence()
@@ -16700,8 +16705,84 @@ def _voz_para_el_oido(texto: str) -> str:
     return salida
 
 
+# ── Las dos voces, y de quién son ────────────────────────────────────────────
+#
+# David las eligió de oído el 24-ago-2026, tras oír quince candidatas con la
+# misma respuesta y todas igualadas de volumen: **Valeria** para la voz de
+# mujer y **Jorge** para la de hombre. Y añadió lo que ninguna de las dos
+# resuelve por separado: «que el usuario elija si quiere voz de hombre o de
+# mujer». Tiene razón — un abogado escucha esto en un pasillo y el timbre es
+# cuestión de gusto, no de producto.
+#
+# POR QUÉ SE DEJA ELEVENLABS: no se borra, se pone de reserva. Si Azure
+# devuelve un error o tarda de más, el agente sigue hablando con Liza en vez de
+# quedarse mudo. Una función de voz que enmudece no es una función degradada,
+# es una función rota.
+#
+# LO QUE CAMBIA EN DINERO, con nuestro consumo medido de 855 caracteres por
+# turno: de ~3,5 MXN por respuesta a ~0,24 con Jorge (15 USD/M, precio
+# confirmado al SKU de Microsoft) y ~0,35 con Valeria. La voz deja de costar
+# 350 veces lo que cuesta pensar la respuesta y pasa a costar unas 24.
+#
+# LO QUE HAY QUE VIGILAR: Valeria es de la familia MAI-Voice-2 y está en VISTA
+# PREVIA —sin SLA, puede cambiar—. Por eso el reparto de voces vive en un mapa
+# y no repartido por el código: el día que Microsoft la mueva, se cambia una
+# línea. La suplente natural es `es-MX-DaliaNeural`, que es GA y puntuó 18.
+
+AZURE_REGION = os.getenv("AZURE_SPEECH_REGION", "eastus")
+AZURE_LLAVE = os.getenv("AZURE_SPEECH_KEY", "")
+
+# El timbre que pidió cada quien → la voz y el estilo con que se le contesta.
+# Jorge lleva `chat` porque es su único estilo conversacional y con él subió de
+# 17 a 18 en el jurado; Valeria va NEUTRA, sin estilo, que es como gustó.
+VOZ_AZURE = {
+    "mujer":  ("es-MX-Valeria:MAI-Voice-2", None),
+    "hombre": ("es-MX-JorgeNeural", "chat"),
+}
+VOZ_AZURE_POR_DEFECTO = os.getenv("VOZ_AZURE_DEFECTO", "mujer")
+
+
+async def _voz_azure(texto: str, timbre: str) -> Optional[bytes]:
+    """PCM crudo de Azure, listo para nivelar. None si algo va mal.
+
+    Se pide PCM y no MP3 a propósito: el nivelado y la compresión son nuestros,
+    iguales para todos los proveedores. Así una voz no suena más fuerte que
+    otra por venir de otra casa —que es justo el fallo que trajo aquí—.
+    """
+    if not AZURE_LLAVE:
+        return None
+    voz, estilo = VOZ_AZURE.get(timbre) or VOZ_AZURE[VOZ_AZURE_POR_DEFECTO]
+    # El texto va escapado: una respuesta jurídica trae comillas y ampersands,
+    # y un SSML mal formado devuelve 400 con el agente en mitad de una frase.
+    seguro = (texto.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    dentro = (f"<mstts:express-as style='{estilo}'>{seguro}</mstts:express-as>"
+              if estilo else seguro)
+    ssml = ("<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' "
+            "xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='es-MX'>"
+            f"<voice name='{voz}'>{dentro}</voice></speak>")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as cli:
+            r = await cli.post(
+                f"https://{AZURE_REGION}.tts.speech.microsoft.com/cognitiveservices/v1",
+                content=ssml.encode("utf-8"),
+                headers={"Ocp-Apim-Subscription-Key": AZURE_LLAVE,
+                         "Content-Type": "application/ssml+xml",
+                         "X-Microsoft-OutputFormat": "raw-24khz-16bit-mono-pcm",
+                         "User-Agent": "iurexia-agente-ia"})
+        if r.status_code != 200:
+            print(f"   🔇 VOZ Azure {r.status_code}: {r.text[:160]}")
+            return None
+        return r.content
+    except Exception as e:
+        print(f"   🔇 VOZ Azure reventó: {err(e)}")
+        return None
+
+
 class VozHablarRequest(BaseModel):
     texto: str
+    #: «mujer» o «hombre». Lo manda la app con lo que el abogado eligió en la
+    #: pantalla; si no llega, se contesta con la voz por defecto.
+    voz: Optional[str] = None
 
 
 @app.post("/api/voz/hablar")
@@ -16768,17 +16849,28 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
             print(f"   🔇 VOZ TTS reventó: {err(e)}")
             return None
 
-    # Se pide PCM para poder medirlo y nivelarlo. Cuesta lo mismo —ElevenLabs
-    # cobra por carácter, no por formato— y pesa más sólo en el tramo interno
-    # entre Render y la API; al teléfono le llega MP3, más pequeño que antes en
-    # calidad equivalente.
+    # ── Azure primero, ElevenLabs de reserva ─────────────────────────────
+    #
+    # Se pide PCM y no MP3 en los dos: el nivelado y la compresión son
+    # nuestros e iguales para ambos, así una voz no suena más fuerte que otra
+    # por venir de otra casa.
     t_voz = time.time()
-    crudo = await _pedir(f"pcm_{VOZ_PCM_HZ}")
+    timbre = (payload.voz or "").strip().lower()
+    if timbre not in VOZ_AZURE:
+        timbre = VOZ_AZURE_POR_DEFECTO
+    crudo = await _voz_azure(texto, timbre)
+    hz_crudo = 24000 if crudo else VOZ_PCM_HZ
+    quien = f"Azure/{timbre}"
+    if not crudo:
+        if AZURE_LLAVE:
+            print("   ⚠️ VOZ: Azure no respondió — se habla con la voz de reserva")
+        crudo = await _pedir(f"pcm_{VOZ_PCM_HZ}")
+        quien = "ElevenLabs/Liza"
     if crudo:
         try:
             nivelado, subida = await asyncio.to_thread(_voz_nivelar, crudo)
-            mp3 = await asyncio.to_thread(_voz_a_mp3, nivelado)
-            print(f"   🔊 VOZ: {len(texto)} caracteres a Liza · +{subida:.1f} dB · "
+            mp3 = await asyncio.to_thread(_voz_a_mp3, nivelado, hz_crudo)
+            print(f"   🔊 VOZ: {len(texto)} caracteres · {quien} · +{subida:.1f} dB · "
                   f"{len(mp3)//1024} KB · {(time.time()-t_voz)*1000:.0f} ms · "
                   f"{correo_opaco(user_email)}")
             return Response(content=mp3, media_type="audio/mpeg",
