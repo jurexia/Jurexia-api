@@ -15967,6 +15967,34 @@ def _voz_fuentes_citadas(texto: str, docs: List[dict], fuentes: List[dict]) -> L
     return usadas or fuentes
 
 
+def _voz_podar_sin_respaldo(texto: str, sospechas: List[str]) -> str:
+    """Tira la frase que trae el número sin respaldo, no la respuesta entera.
+
+    El candado —no dictar un artículo que no está en el acervo— es correcto y
+    no se toca. Lo que estaba mal era el castigo: por UN número inventado en la
+    quinta frase se retiraba todo, y el abogado oía «prefiero no dictarle un
+    número» después de esperar tres segundos, sin nada aprovechable. Pasó en
+    producción el 24-ago-2026 con «qué es el derecho del tanto»: el modelo
+    coló un artículo 244 y se perdieron cuatro frases correctas.
+
+    Se corta por frases, se tiran las que contienen el número señalado y se
+    devuelve el resto. Si lo que queda no sostiene una respuesta, quien llama
+    se queda con la retirada de siempre.
+    """
+    if not texto or not sospechas:
+        return texto
+    frases = _re_mod.split(r"(?<=[.!?])\s+", texto)
+    numeros = "|".join(_re_mod.escape(n) for n in sospechas)
+    patron = _re_mod.compile(rf"art[íi]culos?\s+[^.;]*?\b(?:{numeros})\b", _re_mod.I)
+    quedan = [f for f in frases if not patron.search(f)]
+    podado = " ".join(quedan).strip()
+    # ¿Sobrevivió una respuesta de verdad? Hace falta cuerpo y al menos una
+    # cita en pie; si no, mejor la negativa honrada que un muñón.
+    if len(podado) < 120 or not _re_mod.search(r"art[íi]culo|registro|tesis", podado, _re_mod.I):
+        return ""
+    return podado + " Hay un punto que no pude respaldar en mi acervo y preferí omitirlo."
+
+
 def _voz_anotar_caracteres(user_id: str, cuantos: int) -> None:
     """Suma al contador del día los caracteres que se van a hablar.
 
@@ -16173,15 +16201,21 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
             texto = "".join(trozos).strip()
             limpio, sospechas = _voz_revisar_citas(texto, docs, payload.pregunta)
             if not limpio:
-                # Aquí no se corrige ni se matiza: se retira. Un número de
-                # artículo dictado en audiencia no admite un «quizá».
-                print(f"   🛑 VOZ: retirada por citar {sospechas} sin respaldo")
-                yield json.dumps({
-                    "tipo": "retirada", "articulos": sospechas,
-                    "respuesta": ("Tengo la respuesta a medias y prefiero no dictarle un número "
-                                  "que no puedo respaldar. Permítame buscarlo de otra forma."),
-                }) + "\n"
-                return
+                # El número sin respaldo NO se dice. Pero primero se intenta
+                # salvar lo que sí está respaldado: se poda la frase y se
+                # sigue. Sólo si no queda respuesta se retira entera.
+                podado = _voz_podar_sin_respaldo(texto, sospechas)
+                if podado:
+                    print(f"   ✂️ VOZ: frase con {sospechas} podada; el resto se mantiene")
+                    texto = podado
+                else:
+                    print(f"   🛑 VOZ: retirada por citar {sospechas} sin respaldo")
+                    yield json.dumps({
+                        "tipo": "retirada", "articulos": sospechas,
+                        "respuesta": ("Tengo la respuesta a medias y prefiero no dictarle un número "
+                                      "que no puedo respaldar. Permítame buscarlo de otra forma."),
+                    }) + "\n"
+                    return
 
             # Se quita la clave de tesis ANTES de que nadie la oiga, y se
             # recorta la lista de fuentes a las que la respuesta usó de verdad.
@@ -16218,12 +16252,15 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         raise HTTPException(status_code=502, detail="No se pudo generar la respuesta.")
 
     limpio, sospechas = _voz_revisar_citas(respuesta, docs, payload.pregunta)
-    if not limpio:
+    if not limpio and not _voz_podar_sin_respaldo(respuesta, sospechas):
         print(f"   🛑 VOZ: retirada por citar {sospechas} sin respaldo")
         respuesta = ("Tengo la respuesta a medias y prefiero no dictarle un número que no puedo "
                      "respaldar. Permítame buscarlo de otra forma.")
         fuentes = []
     else:
+        if not limpio:
+            print(f"   ✂️ VOZ: frase con {sospechas} podada; el resto se mantiene")
+            respuesta = _voz_podar_sin_respaldo(respuesta, sospechas)
         respuesta = _voz_sin_claves(respuesta, docs)
         fuentes = _voz_fuentes_citadas(respuesta, docs, fuentes)
 
