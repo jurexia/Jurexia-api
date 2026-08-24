@@ -15362,9 +15362,20 @@ def _voz_permitida(correo: str, user_id: str = "") -> bool:
     if not user_id or not supabase_admin:
         return False
     try:
-        r = supabase_admin.table("user_profiles").select("puede_agente_ia") \
+        r = supabase_admin.table("user_profiles") \
+            .select("puede_agente_ia, subscription_type") \
             .eq("id", user_id).limit(1).execute()
-        return bool(r.data and r.data[0].get("puede_agente_ia"))
+        if not r.data:
+            return False
+        fila = r.data[0]
+        # El plan Platinum lo incluye, y así lo anuncia la tabla de precios de
+        # la app. Prometerlo ahí y rechazarlo aquí sería lo peor de los dos
+        # mundos: el cliente ve la ventaja que paga y se topa con un «no
+        # autorizado». La bandera sigue existiendo para dar acceso suelto a
+        # quien no es Platinum —el piloto, una cortesía, una prueba—.
+        if bool(fila.get("puede_agente_ia")):
+            return True
+        return str(fila.get("subscription_type") or "").startswith("platinum")
     except Exception as e:
         # Si no se puede comprobar, NO se abre. Un candado que se cae abierto
         # ante un error es peor que no tenerlo.
@@ -15570,7 +15581,20 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
             # resto del sistema es el Semanario: sjf2.scjn.gob.mx/detalle/tesis
             # más el registro. Sin registro no hay enlace, y entonces es mejor
             # no pintar la tarjeta que pintar una que no abre.
+            # El registro vive en sitios distintos según la versión de ingesta
+            # —el acervo tiene TRECE formas de payload—: unas veces en su
+            # propio campo, otras dentro del `ref` («2a./J. 173/2009 | Registro
+            # 165908») y otras en el nombre del fichero de origen. Mirar sólo
+            # el campo dejaba a las tesis sin enlace, que es justo lo que David
+            # reportó como fundamental.
             registro = _txt(pl.get("registro"))
+            if not registro:
+                _m = _re_mod.search(r"[Rr]egistro\s*[:\s]\s*(\d{6,7})",
+                                    f"{ref} {_txt(pl.get('origen'))}")
+                if not _m:
+                    # «2028413_I.13o.T.13 L (11a.).txt» — el registro va delante.
+                    _m = _re_mod.match(r"\s*(\d{6,7})_", ref)
+                registro = _m.group(1) if _m else ""
             enlace = _txt(pl.get("url_pdf") or pl.get("pdf"))
             if not enlace and registro:
                 enlace = f"https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
