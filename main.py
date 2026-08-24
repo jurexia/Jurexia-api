@@ -15556,19 +15556,37 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
             pl = p.payload or {}
             ref = _txt(pl.get("ref"))
             ley = _txt(pl.get("ley") or pl.get("origen"))
-            clave = f"{col}|{ley}|{ref}"          # el mismo doc puede venir por las dos anclas
-            previo = por_silo[col].get(clave)
+            clave_doc = f"{col}|{ley}|{ref}"      # el mismo doc puede venir por las dos anclas
+            previo = por_silo[col].get(clave_doc)
             score = float(p.score or 0)
             if previo and previo["score"] >= score:
                 continue
             texto = _txt(pl.get("texto_raw") or pl.get("texto"))
             if not texto:
                 continue                           # un documento sin texto no sostiene nada
-            por_silo[col][clave] = {
+            # LAS TESIS NO TIENEN PDF, y sin enlace no sirven de nada: David
+            # lo dijo con todas sus letras —«me deja abrir las leyes pero no
+            # las tesis, y eso es fundamental»—. El respaldo que ya usa el
+            # resto del sistema es el Semanario: sjf2.scjn.gob.mx/detalle/tesis
+            # más el registro. Sin registro no hay enlace, y entonces es mejor
+            # no pintar la tarjeta que pintar una que no abre.
+            registro = _txt(pl.get("registro"))
+            enlace = _txt(pl.get("url_pdf") or pl.get("pdf"))
+            if not enlace and registro:
+                enlace = f"https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
+            # Y el rótulo: en una tesis, `ref` viene vacío o con el nombre del
+            # fichero. Lo que el abogado reconoce es la clave y el registro.
+            if registro and not ley:
+                ley = _txt(pl.get("rubro"))[:120] or "Tesis del Semanario Judicial"
+            if registro and (not ref or ref.endswith(".txt")):
+                clave = _txt(pl.get("numero_tesis"))
+                ref = f"{clave} · Registro {registro}" if clave else f"Registro {registro}"
+            por_silo[col][clave_doc] = {
                 "coleccion": col, "score": score, "ley": ley, "ref": ref,
                 "articulo": _txt(pl.get("articulo_num")),
                 "texto": texto[:900],
-                "pdf": _txt(pl.get("url_pdf") or pl.get("pdf")),
+                "pdf": enlace,
+                "registro": registro,
                 "entidad": _txt(pl.get("entidad")),
             }
 
@@ -15742,6 +15760,9 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
     _con_web = bool(_VOZ_PIDE_WEB.search(payload.pregunta or "")) and \
         os.getenv("VOZ_WEB", "true").lower() != "false"
     _tarea_web = asyncio.create_task(_voz_web(payload.pregunta)) if _con_web else None
+    # El RAG también arranca ya, en paralelo con la web. Se aguarda enseguida
+    # —el contexto hace falta para el prompt— pero las dos esperas se solapan
+    # en vez de sumarse.
     docs = await _voz_buscar(payload.pregunta, payload.estado)
     t_rag = time.time() - t0
     print(f"   🎙️ VOZ: {len(docs)} documentos en {t_rag*1000:.0f} ms · {correo_opaco(user_email)}")
@@ -15781,7 +15802,8 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
     mensajes.append({"role": "user",
                      "content": f"DOCUMENTOS:\n{contexto}\n\nPREGUNTA: {payload.pregunta.strip()}"})
 
-    fuentes = [{"ley": d["ley"], "ref": d["ref"], "pdf": d["pdf"], "entidad": d["entidad"]}
+    fuentes = [{"ley": d["ley"], "ref": d["ref"], "pdf": d["pdf"],
+                "registro": d.get("registro") or "", "entidad": d["entidad"]}
                for d in docs]
     # Las de internet van al final y con el enlace abierto: «según Ferrajoli»
     # sólo vale si el abogado puede ir a leerlo antes de citarlo él.
@@ -15791,17 +15813,19 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
 
     if payload.stream:
         async def emitir():
-            # Las fuentes van PRIMERO: la pantalla puede pintarlas mientras el
+            # EL AVISO VA LO PRIMERO DE TODO, antes incluso de las fuentes.
+            #
+            # Medido: colocado después del RAG salía a los 5,6 s, o sea cuando
+            # la espera ya había ocurrido. Un relleno que llega tarde no
+            # consuela: sólo suma ruido. Aquí sale con el primer byte de la
+            # respuesta, mientras la búsqueda corre por detrás.
+            if _con_web:
+                yield json.dumps({"tipo": "buscando",
+                                  "texto": "Permítame buscarlo, un segundo."}) + "\n"
+            # Las fuentes van después: la pantalla puede pintarlas mientras el
             # modelo todavía redacta. En audiencia, eso es lo que el abogado
             # mira mientras escucha.
             yield json.dumps({"tipo": "fuentes", "fuentes": fuentes}) + "\n"
-            if _con_web:
-                # Se dice EN VOZ ALTA mientras la búsqueda ya corre. Tres
-                # segundos de silencio se sienten como una avería; tres
-                # segundos después de «permítame buscarlo» se sienten como
-                # alguien consultando. No cuesta tiempo: lo esconde.
-                yield json.dumps({"tipo": "buscando",
-                                  "texto": "Permítame buscarlo, un segundo."}) + "\n"
             trozos = []
             try:
                 flujo = await deepseek_client.chat.completions.create(
