@@ -15306,7 +15306,23 @@ async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Head
 # necesita un amparo directo entero: se necesita el artículo. Para lo otro está
 # el chat escrito, que ya lo hace bien.
 
-VOZ_MODELO = os.getenv("VOZ_MODELO", "google/gemini-2.5-flash-lite")
+# Elegido MIDIENDO trabajo jurídico real, no velocidad. Sobre tres casos de
+# aritmética forense repetidos tres veces cada uno (36 llamadas):
+#
+#   gpt-5.6-luna            8 de 9   ·   677 ms   ·  10.0 MXN/1.000 turnos
+#   gemini-3.7-flash        8 de 9   · 1.286 ms   ·  18.7 MXN/1.000 turnos
+#   qwen3.7-flash           2 de 9   ·   687 ms   ·   1.5 MXN/1.000 turnos
+#   gemini-2.5-flash-lite   0 de 9   ·   654 ms   ·   4.7 MXN/1.000 turnos
+#
+# Los baratos son rápidos y NO SABEN CALCULAR. Y fallan de la peor manera: a
+# una prima de antigüedad de 24.000 pesos, qwen contestó DOSCIENTOS MIL citando
+# bien el artículo 162 y enunciando bien la fórmula; gemini-2.5-flash-lite dio
+# 8.500 donde eran 85.000. Una cifra equivocada dicha con el artículo correcto
+# es exactamente lo que hunde a un abogado en audiencia.
+#
+# Entre los dos que sí calculan, luna es el doble de rápido por la mitad de
+# precio. La velocidad se eligió DESPUÉS de la precisión, no antes.
+VOZ_MODELO = os.getenv("VOZ_MODELO", "openai/gpt-5.6-luna")
 
 # Tope de salida. Es una decisión de diseño antes que de coste: una respuesta
 # hablada de más de tres frases es insoportable de oír. Mismo criterio y mismo
@@ -15340,6 +15356,11 @@ _VOZ_SISTEMA = (
     "Di primero la respuesta y después su fundamento, que es como se contesta a alguien que "
     "está esperando: «el plazo es de cinco días hábiles, conforme al artículo tal de tal ley». "
     "Nunca al revés.\n"
+    "CUANDO TE PIDAN UNA CANTIDAD, HAZ LA CUENTA Y DI LA CIFRA. La regla de no salirte de "
+    "los documentos es sobre la NORMA, no sobre la aritmética: el fundamento tiene que estar "
+    "en tu acervo, pero la multiplicación la haces tú. Di el resultado y, en una frase, cómo "
+    "salió. Sin esta licencia los modelos se niegan a calcular una indemnización aunque tengan "
+    "el artículo delante, y una indemnización sin número no le sirve a nadie.\n"
     "Español de México, en el registro del foro. Directo, sin preámbulos ni cortesías de "
     "relleno. Si necesitas un momento para buscar, ya se le avisó: no te disculpes otra vez."
 )
@@ -15448,7 +15469,7 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
     return elegidos[:VOZ_TOPE_DOCS]
 
 
-def _voz_revisar_citas(texto: str, docs: List[dict]) -> tuple:
+def _voz_revisar_citas(texto: str, docs: List[dict], pregunta: str = "") -> tuple:
     """¿Dijo algún artículo que no le dimos?
 
     Devuelve (limpio, sospechas). Es deliberadamente conservador: sólo señala
@@ -15462,8 +15483,14 @@ def _voz_revisar_citas(texto: str, docs: List[dict]) -> tuple:
         for m in re.finditer(r"(\d+)", d.get("ref") or ""):
             numeros_dados.add(m.group(1))
 
+    # Los números que vienen EN LA PREGUNTA no cuentan. Cuando el abogado pide
+    # «el artículo 9999» y el agente contesta «no tengo el artículo 9999», está
+    # repitiendo la pregunta para negarla —que es exactamente la conducta que
+    # queremos— y contarlo como invención retiraba la respuesta CORRECTA. Se vio
+    # en la prueba de humo: la negativa buena se quedaba sin decir.
+    numeros_dados |= set(re.findall(r"(\d{1,4})", pregunta or ""))
+
     citados = set(re.findall(r"art[íi]culos?\s+(\d{1,4})", texto, re.I))
-    # Y en letra, que es como los dicta una voz: «artículo cuarenta y siete».
     sospechas = sorted(c for c in citados if c not in numeros_dados)
     return (not sospechas), sospechas
 
@@ -15561,7 +15588,7 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                 return
 
             texto = "".join(trozos).strip()
-            limpio, sospechas = _voz_revisar_citas(texto, docs)
+            limpio, sospechas = _voz_revisar_citas(texto, docs, payload.pregunta)
             if not limpio:
                 # Aquí no se corrige ni se matiza: se retira. Un número de
                 # artículo dictado en audiencia no admite un «quizá».
@@ -15591,7 +15618,7 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         print(f"[voz] reventó: {err(e)}")
         raise HTTPException(status_code=502, detail="No se pudo generar la respuesta.")
 
-    limpio, sospechas = _voz_revisar_citas(respuesta, docs)
+    limpio, sospechas = _voz_revisar_citas(respuesta, docs, payload.pregunta)
     if not limpio:
         print(f"   🛑 VOZ: retirada por citar {sospechas} sin respaldo")
         respuesta = ("Tengo la respuesta a medias y prefiero no dictarle un número que no puedo "
