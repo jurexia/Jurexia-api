@@ -15409,13 +15409,13 @@ _VOZ_SISTEMA = (
     "Di primero la respuesta y después su fundamento, que es como se contesta a alguien que "
     "está esperando: «el plazo es de cinco días hábiles, conforme al artículo tal de tal ley». "
     "Nunca al revés.\n"
-    "CUANDO CITES UNA TESIS, DI SU RUBRO Y SU REGISTRO. NUNCA LA CLAVE. La clave —«2a./J. "
-    "39/95», «XXII.3o.A.C.1 A (11a.)»— es ilegible dicha en voz alta: son letras sueltas y "
-    "números romanos que nadie puede seguir de oído, y no sirven para buscarla. Lo que "
-    "identifica al criterio hablando es el RUBRO —dilo, aunque sea resumido en una frase— y "
-    "el REGISTRO, que es lo que se teclea en el Semanario. Di también qué resolvió y en qué "
-    "sentido, no sólo que existe. Si el documento no trae registro, di el rubro y aclara que "
-    "no tienes el registro a la vista; nunca te lo inventes.\n"
+    "CUANDO CITES UNA TESIS, DI SU RUBRO. NUNCA LA CLAVE NI EL NÚMERO DE REGISTRO. La clave "
+    "—«2a./J. 39/95», «XXII.3o.A.C.1 A (11a.)»— es ilegible dicha en voz alta, y el registro "
+    "son siete cifras que nadie retiene de oído. Los dos están escritos en la pantalla, con "
+    "su enlace al Semanario. Así que hablando se identifica el criterio por su RUBRO —dilo, "
+    "aunque sea resumido en una frase— y se remite a la pantalla: «con el registro que "
+    "aparece en pantalla». Di también qué resolvió y en qué sentido, no sólo que existe. Si "
+    "el documento no trae registro, dilo, y nunca te lo inventes.\n"
     "NO ENUMERES DOCUMENTOS. La pantalla ya enseña de dónde salió cada cosa. Menciona sólo "
     "aquello en lo que de verdad te apoyas para contestar; nombrar de pasada cinco leyes que "
     "no usaste sólo hace ruido.\n"
@@ -16288,6 +16288,96 @@ VOZ_ELEVEN_ID = os.getenv("VOZ_ELEVEN_ID", "kl7d390GatBPfqhRTyAl")   # Liza
 VOZ_ELEVEN_MODELO = os.getenv("VOZ_ELEVEN_MODELO", "eleven_flash_v2_5")
 
 
+# ── Los números, para el oído ────────────────────────────────────────────────
+#
+# David lo oyó y lo dijo así: «los números los lee mal, sería mejor "con el
+# registro que ve en pantalla"». Tiene razón por partida doble.
+#
+# El registro es un número de siete cifras. Dicho en voz alta no sirve para
+# nada: nadie lo memoriza de oído, y en la pantalla ya está escrito, con su
+# enlace al Semanario. Así que no se dicta: se remite a la pantalla, que es
+# donde se puede leer, tocar y comprobar.
+#
+# Y los demás números —el artículo, el plazo, la cantidad— se convierten a
+# letras antes de mandarlos al sintetizador. No es un capricho: el modelo de
+# voz rápido (flash) no normaliza el texto, así que «2606» le llega tal cual y
+# lo resuelve como puede. «Dos mil seiscientos seis» no admite interpretación.
+# Se hace aquí, en el TTS, y no en la respuesta, porque en PANTALLA el número
+# tiene que seguir siendo un número: se lee mejor y se copia.
+
+_VOZ_UNIDADES = ("cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho",
+                 "nueve", "diez", "once", "doce", "trece", "catorce", "quince", "dieciséis",
+                 "diecisiete", "dieciocho", "diecinueve", "veinte", "veintiuno", "veintidós",
+                 "veintitrés", "veinticuatro", "veinticinco", "veintiséis", "veintisiete",
+                 "veintiocho", "veintinueve")
+_VOZ_DECENAS = ("", "", "", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta",
+                "ochenta", "noventa")
+_VOZ_CENTENAS = ("", "ciento", "doscientos", "trescientos", "cuatrocientos", "quinientos",
+                 "seiscientos", "setecientos", "ochocientos", "novecientos")
+
+
+def _voz_centenas(n: int) -> str:
+    """De 0 a 999, dicho como se dice."""
+    if n < 30:
+        return _VOZ_UNIDADES[n]
+    if n < 100:
+        d, u = divmod(n, 10)
+        return _VOZ_DECENAS[d] + (f" y {_VOZ_UNIDADES[u]}" if u else "")
+    if n == 100:
+        return "cien"
+    c, r = divmod(n, 100)
+    return _VOZ_CENTENAS[c] + (f" {_voz_centenas(r)}" if r else "")
+
+
+def _voz_en_letras(n: int) -> str:
+    """Hasta los millones, que es todo lo que aparece en un juicio."""
+    if n < 1000:
+        return _voz_centenas(n)
+    if n < 1_000_000:
+        millares, resto = divmod(n, 1000)
+        cabeza = "mil" if millares == 1 else f"{_voz_centenas(millares)} mil"
+        return cabeza + (f" {_voz_centenas(resto)}" if resto else "")
+    millones, resto = divmod(n, 1_000_000)
+    cabeza = "un millón" if millones == 1 else f"{_voz_en_letras(millones)} millones"
+    return cabeza + (f" {_voz_en_letras(resto)}" if resto else "")
+
+
+# «con registro 2025216», «registro digital 190370», «registro número 165908».
+# Se sustituye SÓLO desde la palabra «registro» hacia adelante, sin tocar lo
+# que la precede: así «con registro 190370, permite…» queda «con registro que
+# aparece en pantalla, permite…» y la frase conserva su costura.
+_VOZ_REGISTRO_DICHO = _re_mod.compile(
+    r"registro(?:\s+digital)?(?:\s+n[úu]mero)?\s*[:\s]\s*\d{5,8}", _re_mod.I)
+
+_VOZ_CIFRA = _re_mod.compile(r"\d[\d.,]*")
+
+
+def _voz_para_el_oido(texto: str) -> str:
+    """Deja el texto listo para el sintetizador: sin registros y sin cifras."""
+    if not texto:
+        return texto
+    salida = _VOZ_REGISTRO_DICHO.sub("registro que aparece en pantalla", texto)
+
+    def _a_letras(m):
+        crudo = m.group(0).rstrip(".,")
+        entero, _, decimal = crudo.replace(",", "").partition(".")
+        if not entero.isdigit():
+            return m.group(0)
+        # Más de siete cifras no es una cantidad, es un identificador: no se
+        # dicta, se remite a la pantalla.
+        if len(entero) > 7:
+            return "el número que aparece en pantalla"
+        dicho = _voz_en_letras(int(entero))
+        if decimal and decimal.isdigit():
+            dicho += f" punto {_voz_en_letras(int(decimal))}"
+        return dicho + m.group(0)[len(crudo):]
+
+    salida = _VOZ_CIFRA.sub(_a_letras, salida)
+    # El símbolo tampoco se lee solo.
+    salida = _re_mod.sub(r"\s*%", " por ciento", salida)
+    return salida
+
+
 class VozHablarRequest(BaseModel):
     texto: str
 
@@ -16307,6 +16397,12 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
     # se factura. Si llega algo enorme es un fallo aguas arriba, no una consulta.
     if len(texto) > 1200:
         texto = texto[:1200]
+    # Lo que se dice NO es lo que se lee: en pantalla el registro es un número
+    # con su enlace; por el altavoz es una ristra de siete cifras que nadie
+    # retiene. Aquí se convierte para el oído, y sólo aquí.
+    hablado = _voz_para_el_oido(texto)
+    if hablado != texto:
+        texto = hablado
 
     clave = os.getenv("ELEVENLABS_API_KEY")
     if not clave:
