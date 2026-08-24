@@ -15390,6 +15390,10 @@ _VOZ_SISTEMA = (
     "Di primero la respuesta y después su fundamento, que es como se contesta a alguien que "
     "está esperando: «el plazo es de cinco días hábiles, conforme al artículo tal de tal ley». "
     "Nunca al revés.\n"
+    "CUANDO CITES UNA TESIS, DI SU REGISTRO. La clave —«2a./J. 39/95»— no le sirve a "
+    "quien quiere comprobarla: el número de registro es lo que se teclea en el Semanario. "
+    "Di el criterio, después el registro. Si el documento que tienes no trae registro, no "
+    "te lo inventes: di la clave y aclara que no tienes el registro a la vista.\n"
     "CUANDO TE PIDAN UNA CANTIDAD, HAZ LA CUENTA Y DI LA CIFRA. La regla de no salirte de "
     "los documentos es sobre la NORMA, no sobre la aritmética: el fundamento tiene que estar "
     "en tu acervo, pero la multiplicación la haces tú. Di el resultado y, en una frase, cómo "
@@ -15490,13 +15494,27 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
                 "entidad": _txt(pl.get("entidad")),
             }
 
-    # Reparto: dos garantizados por silo, y el resto por puntuación.
+    # Reparto: dos garantizados por silo… salvo cuando la pregunta es DE
+    # jurisprudencia, y entonces ese silo se lleva cinco.
+    #
+    # Con el reparto plano, «¿se pueden obtener copias certificadas sin pagar
+    # derechos?» recibió el Arancel de Honorarios y la Ley de Juicio Político
+    # del Estado, mientras la tesis 2031803 —cuyo rubro dice literalmente que es
+    # inaplicable el cobro— se quedaba fuera. El agente contestó «no lo tengo en
+    # mi acervo» teniéndolo. Un «no» falso es tan dañino como una invención:
+    # enseña al abogado a no preguntar.
+    _busca_criterio = bool(_re_mod.search(
+        r"tesis|jurisprudenc|criterio|precedent|contradicci[óo]n|registro\s+\d{6}|"
+        r"\bscjn\b|corte|colegiado|sala\b", pregunta, _re_mod.I))
     elegidos, sobrantes = [], []
     for col in silos:
         ordenados = sorted(por_silo[col].values(), key=lambda d: -d["score"])
-        elegidos.extend(ordenados[:2])
-        sobrantes.extend(ordenados[2:])
+        cupo = 5 if (_busca_criterio and col == FIXED_SILOS["jurisprudencia"]) else 2
+        elegidos.extend(ordenados[:cupo])
+        sobrantes.extend(ordenados[cupo:])
     elegidos.extend(sorted(sobrantes, key=lambda d: -d["score"]))
+    if _busca_criterio:
+        print("   ⚖️ VOZ: pregunta de criterio — jurisprudencia con cupo ampliado")
 
     # Lo de la entidad primero cuando lo hay: es lo que rige para quien pregunta.
     elegidos.sort(key=lambda d: (d["coleccion"] != silo_estado, -d["score"]))
