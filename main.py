@@ -15516,6 +15516,17 @@ def _voz_revisar_citas(texto: str, docs: List[dict], pregunta: str = "") -> tupl
         # El número también puede venir dentro del `ref` («Artículo 2500.»).
         for m in re.finditer(r"(\d+)", d.get("ref") or ""):
             numeros_dados.add(m.group(1))
+        # Y —esto faltaba— DENTRO DEL TEXTO del documento. Una tesis cuyo rubro
+        # dice «es inaplicable el artículo 166 de la Ley de Hacienda del Estado»
+        # respalda perfectamente que el agente cite el 166; mirar sólo los
+        # metadatos lo daba por inventado y retiraba una respuesta correcta.
+        # Le pasó a David en su primera prueba en el teléfono.
+        #
+        # Se buscan sólo los que van precedidos de «artículo», no todos los
+        # números del texto: un año, un registro o una cantidad no respaldan
+        # nada, y aceptarlos convertiría el candado en un adorno.
+        for m in re.finditer(r"art[íi]culos?\s+(\d{1,4})", d.get("texto") or "", re.I):
+            numeros_dados.add(m.group(1))
 
     # Los números que vienen EN LA PREGUNTA no cuentan. Cuando el abogado pide
     # «el artículo 9999» y el agente contesta «no tengo el artículo 9999», está
