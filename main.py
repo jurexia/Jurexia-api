@@ -15758,6 +15758,36 @@ def _voz_empujon(concepto: str, d: dict) -> float:
     return 1.0
 
 
+def _voz_estado_del_perfil(user_id: str) -> Optional[str]:
+    """La entidad del abogado, cuando la app no la manda.
+
+    EL FALLO QUE EXPLICA LA QUEJA DE FONDO. La pantalla del Agente IA leía el
+    estado de `user` —el objeto de sesión de Supabase, que no tiene ese
+    campo— en vez de `profile`, que es donde vive. Resultado: TODAS las
+    preguntas llegaban con `estado: null`, el silo del estado no se buscaba
+    nunca, y a «qué artículos regulan el derecho del tanto en Querétaro» el
+    agente contestaba con el Código Civil Federal y criterios de Michoacán.
+    Eso es exactamente lo que David reportó: «no aporta lo que es el derecho
+    del tanto como sí lo hace la consulta normal de Iurexia» —la web sí manda
+    el estado—.
+
+    Se arregla en la app en una línea, pero se arregla TAMBIÉN aquí: hay
+    versiones instaladas y en TestFlight que seguirán mandando null durante
+    semanas, y el servidor sabe perfectamente en qué estado ejerce quien
+    pregunta. Cuesta una consulta a Supabase y sólo cuando falta el dato.
+    """
+    if not user_id or not supabase_admin:
+        return None
+    try:
+        r = supabase_admin.table("user_profiles").select("estado") \
+            .eq("id", user_id).limit(1).execute()
+        if r.data and r.data[0].get("estado"):
+            return str(r.data[0]["estado"])
+    except Exception as e:
+        print(f"   ⚠️ VOZ: no pude leer el estado del perfil: {err(e)}")
+    return None
+
+
 async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
     """Recupera del acervo normativo. En paralelo, y sin sentencias.
 
@@ -16200,7 +16230,11 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
     # El RAG también arranca ya, en paralelo con la web. Se aguarda enseguida
     # —el contexto hace falta para el prompt— pero las dos esperas se solapan
     # en vez de sumarse.
-    docs = await _voz_buscar(payload.pregunta, payload.estado)
+    estado = (payload.estado or "").strip() or await asyncio.to_thread(
+        _voz_estado_del_perfil, user_id)
+    if estado and not (payload.estado or "").strip():
+        print(f"   📍 VOZ: la app no mandó estado; el perfil dice {estado}")
+    docs = await _voz_buscar(payload.pregunta, estado)
     t_rag = time.time() - t0
     print(f"   🎙️ VOZ: {len(docs)} documentos en {t_rag*1000:.0f} ms · {correo_opaco(user_email)}")
 
