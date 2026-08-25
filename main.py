@@ -15820,6 +15820,64 @@ def _voz_estado_del_perfil(user_id: str) -> Optional[str]:
     return None
 
 
+# ── El hilo de la conversación ───────────────────────────────────────────────
+#
+# David: «no quiero que el agente pierda el contexto de la pregunta anterior,
+# sino que conecte con lo que estamos hablando».
+#
+# El historial YA se le pasaba al modelo, así que redactaba enlazando. Lo que
+# NO enlazaba era la BÚSQUEDA: `_voz_buscar` sólo veía la pregunta nueva. Y ahí
+# es donde se rompía la conversación de verdad — preguntar «¿y en materia
+# laboral?» después de hablar de la suplencia de la queja buscaba literalmente
+# «y en materia laboral», que no recupera nada, y el agente contestaba «no lo
+# tengo en mi acervo» sobre un tema del que acababa de hablar.
+#
+# La regla: si la pregunta NO SE SOSTIENE SOLA, se le pega el tema del turno
+# anterior antes de buscar. Y se detecta sin llamar a ningún modelo —eso serían
+# dos segundos— con dos señales que bastan:
+#
+#   · es corta (menos de siete palabras), o
+#   · empieza por una conjunción o trae un demostrativo sin sustantivo:
+#     «¿y si…?», «¿eso aplica…?», «ahí qué pasa», «entonces…».
+#
+# Lo que NO se hace: arrastrar el tema cuando la pregunta se sostiene sola. Si
+# el abogado cambia de asunto, cambia de asunto; pegarle el tema anterior
+# envenenaría la búsqueda igual que la envenenaba el andamio de la pregunta.
+
+_VOZ_SIGUE_EL_HILO = _re_mod.compile(
+    r"^\s*(?:y|e|o|pero|entonces|además|ademas|también|tambien)\b"
+    r"|^\s*¿?\s*(?:eso|ese|esa|esos|esas|ahí|ahi|allí|alli|lo mismo|igual)\b"
+    r"|\b(?:en ese caso|en tal caso|y si|qué tal si|que tal si)\b",
+    _re_mod.I)
+
+
+def _voz_pregunta_con_hilo(pregunta: str, historial: list) -> str:
+    """La pregunta que se va a BUSCAR, con el tema anterior si hace falta.
+
+    No cambia lo que se le manda al modelo —eso lleva el historial completo—:
+    cambia sólo el texto con el que se recupera del acervo.
+    """
+    limpia = (pregunta or "").strip()
+    if not limpia:
+        return limpia
+    palabras = len(limpia.split())
+    if palabras > 7 and not _VOZ_SIGUE_EL_HILO.search(limpia):
+        return limpia                      # se sostiene sola: no se toca
+
+    # El tema es la última pregunta del abogado, no la respuesta del agente: la
+    # respuesta trae rubros y artículos que arrastrarían la búsqueda hacia lo ya
+    # dicho en vez de hacia lo que se pregunta ahora.
+    anterior = ""
+    for m in reversed(historial or []):
+        if getattr(m, "role", "") == "user" and (getattr(m, "content", "") or "").strip():
+            anterior = m.content.strip()
+            break
+    if not anterior:
+        return limpia
+    print(f"   🧵 VOZ: la pregunta sigue el hilo — se busca con «{anterior[:40]}…»")
+    return f"{anterior} {limpia}"
+
+
 async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
     """Recupera del acervo normativo. En paralelo, y sin sentencias.
 
@@ -16121,11 +16179,16 @@ def _voz_frases(texto: str) -> List[str]:
             # Se corta sólo si lo que sigue es espacio y arranca otra frase.
             resto = texto[i + 1:i + 3]
             if resto[:1] in (" ", "\n", ""):
-                frases.append("".join(actual).strip())
+                frases.append("".join(actual))
                 actual = []
     if actual:
-        frases.append("".join(actual).strip())
-    return [f for f in frases if f]
+        frases.append("".join(actual))
+    # SIN `strip()`, y esto no es una manía. El texto llega por trozos del
+    # modelo, y un trozo puede acabar en espacio —«El artículo » y luego «79»—.
+    # Recortando aquí y volviendo a unir después, ese espacio se perdía y salía
+    # «El artículo79», en la pantalla y en la voz. Se limpia al usarlas, no al
+    # cortarlas.
+    return [f for f in frases if f.strip()]
 
 
 def _voz_primer_aliento(pendiente: str, minimo: int = 60) -> tuple:
@@ -16289,7 +16352,9 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         _voz_estado_del_perfil, user_id)
     if estado and not (payload.estado or "").strip():
         print(f"   📍 VOZ: la app no mandó estado; el perfil dice {estado}")
-    docs = await _voz_buscar(payload.pregunta, estado)
+    # Lo que se BUSCA lleva el hilo de la conversación; lo que se le manda al
+    # modelo sigue siendo la pregunta tal cual, con su historial aparte.
+    docs = await _voz_buscar(_voz_pregunta_con_hilo(payload.pregunta, payload.historial), estado)
     t_rag = time.time() - t0
     print(f"   🎙️ VOZ: {len(docs)} documentos en {t_rag*1000:.0f} ms · {correo_opaco(user_email)}")
 
@@ -16342,7 +16407,12 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
         print(f"   🌐 VOZ: web con {len(web.get('urls') or [])} fuentes")
 
     mensajes = [{"role": "system", "content": _VOZ_SISTEMA}]
-    for m in payload.historial[-4:]:
+    # Seis turnos y no cuatro: una consulta jurídica hablada encadena —«¿y el
+    # plazo?», «¿y si ya venció?», «¿eso aplica en materia laboral?»— y con
+    # cuatro se perdía el asunto justo cuando la conversación se ponía útil.
+    # Cada turno recortado a 600 caracteres, que es lo que impide que esto
+    # crezca sin freno como pasó en el chat escrito.
+    for m in payload.historial[-6:]:
         if m.role in ("user", "assistant"):
             mensajes.append({"role": m.role, "content": (m.content or "")[:600]})
     mensajes.append({"role": "user",
@@ -16451,7 +16521,7 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                         completas, resto = frases[:-1], frases[-1]
                         listas, junta = [], ""
                         for f in completas:
-                            junta = f"{junta} {f}".strip() if junta else f
+                            junta += f
                             # 180 y no 40: cada trozo es un audio aparte y cada
                             # costura se oye. Con trozos de una sola oración,
                             # una respuesta salían siete audios y siete pausas;
@@ -16477,7 +16547,7 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                             if len(junta) >= 250:
                                 listas.append(junta)
                                 junta = ""
-                        pendiente = " ".join(x for x in (junta, resto) if x)
+                        pendiente = junta + resto
                         for f in listas:
                             lista = _cocinar(f)
                             if lista:
@@ -16493,7 +16563,7 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                 dichas.append(ultima)
                 yield json.dumps({"tipo": "frase", "texto": ultima}) + "\n"
 
-            texto = " ".join(dichas).strip()
+            texto = " ".join(d.strip() for d in dichas).strip()
             if retiradas:
                 print(f"   ✂️ VOZ: {len(retiradas)} cita(s) sin respaldo retiradas: {sorted(set(retiradas))}")
             if not texto:
