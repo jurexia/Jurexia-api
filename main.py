@@ -15329,15 +15329,26 @@ VOZ_MODELO = os.getenv("VOZ_MODELO", "openai/gpt-5.6-luna")
 # «las respuestas son demasiado cortas». Tenía razón, y el corte no era un
 # estilo sino una amputación: a 180 tokens el modelo se queda sin sitio justo
 # cuando iba a decir QUÉ dice el artículo, y con las tesis ni siquiera cabe el
-# rubro. 420 da de tres a seis frases —unos 900 caracteres— y sigue siendo un
-# turno hablado, no una lectura. Se paga por carácter: son 0,26 MXN de más por
-# cada mil turnos, y a cambio la respuesta se puede usar sin repreguntar.
-VOZ_MAX_TOKENS = int(os.getenv("VOZ_MAX_TOKENS", "420"))
+# rubro.
+#
+# 420 daban de tres a seis frases. David volvió a pedir más: «me gustaría que la
+# respuesta fuera más amplia y precisa». Con ElevenLabs alargar costaba dinero
+# de verdad; con Azure un turno vale 0,24 MXN, así que 700 tokens —unas ocho
+# frases, 1.400 caracteres— añaden unos siete centavos por respuesta. Eso ya no
+# es una decisión de coste sino de producto: se contesta lo que la pregunta pide
+# y se para.
+VOZ_MAX_TOKENS = int(os.getenv("VOZ_MAX_TOKENS", "700"))
 
 # Cuántos documentos entran al contexto. Pocos a propósito: el modelo tiene que
 # poder sostener CADA frase en algo que tiene delante, y con cuarenta documentos
-# encima empieza a mezclar. Además cada uno son tokens de entrada en cada turno.
-VOZ_TOPE_DOCS = 10
+# encima empieza a mezclar.
+#
+# Sube de 10 a 14 porque la queja era de PRECISIÓN, y una respuesta sólo puede
+# ser tan precisa como lo que tiene delante: con diez, en preguntas que tocan
+# ley estatal y federal a la vez, uno de los dos lados se quedaba con un solo
+# artículo. Catorce siguen cabiendo sin que mezcle, y los tokens de entrada son
+# la parte barata del turno.
+VOZ_TOPE_DOCS = 14
 
 # Preguntas habladas por día y por persona.
 #
@@ -15404,11 +15415,18 @@ _VOZ_SISTEMA = (
     "de pie en una audiencia. Lo que escribas se va a leer en voz alta tal cual: sin listas, "
     "sin markdown, sin encabezados, sin asteriscos y sin abreviaturas —di «artículo», no "
     "«art.»; di «fracción segunda», no «fr. II»—.\n"
-    "CUÁNTO DECIR: de tres a seis frases. No basta con el número del artículo: di QUÉ dice, "
-    "y añade lo que el abogado necesita para usarlo ahí mismo —el plazo, el requisito, la "
-    "excepción, quién tiene la carga—. Si hay una regla estatal y una federal, di las dos y "
-    "cuál rige. Si el asunto se agota en tres frases, para en tres; no rellenes, no repitas "
-    "la pregunta, no anuncies lo que vas a decir y no cierres ofreciendo más ayuda.\n"
+    "CUÁNTO DECIR: lo que la pregunta pida, hasta ocho frases. Si se agota en tres, para en "
+    "tres — pero no te quedes corto por prudencia: el abogado está de pie y no puede "
+    "repreguntar cinco veces.\n"
+    "EL ORDEN DE UNA BUENA RESPUESTA, y este orden importa porque quien escucha puede "
+    "cortarte en cualquier momento: (1) la respuesta, en una frase; (2) el fundamento, con "
+    "QUÉ DICE el artículo y no sólo su número; (3) lo que lo mueve —el plazo, el requisito, "
+    "quién tiene la carga, desde cuándo cuenta—; (4) la excepción o el matiz que cambiaría "
+    "la respuesta, si lo hay en tus documentos; (5) el criterio judicial que lo confirma, por "
+    "su rubro. Si hay regla estatal y federal, di las dos y CUÁL RIGE en el caso.\n"
+    "PRECISIÓN ANTES QUE AMPLITUD. Amplia no es larga: es que no falte lo que el abogado "
+    "necesita para actuar. Una frase que no aporta un dato nuevo sobra. No rellenes, no "
+    "repitas la pregunta, no anuncies lo que vas a decir y no cierres ofreciendo más ayuda.\n"
     "REGLA ABSOLUTA: cada artículo, cada ley y cada criterio que menciones tiene que estar en "
     "los DOCUMENTOS que se te entregan en este mismo mensaje. No recurres a tu memoria. Si lo "
     "que se te dio NO responde la pregunta EN ABSOLUTO, lo dices con esas palabras —«no lo "
@@ -15666,8 +15684,11 @@ def _voz_documento(col: str, punto) -> Optional[dict]:
         "articulo": _txt(pl.get("articulo_num")),
         # 900 caracteres dejaban la tesis a medias justo donde dice lo que
         # resuelve. Con 1.400 cabe el rubro y el arranque del texto, y diez
-        # documentos siguen siendo un contexto pequeño.
-        "texto": texto[:1400],
+        # documentos siguen siendo un contexto pequeño. Ahora 1.900, porque los
+        # artículos largos —el 964 de Querétaro, con su aviso, su plazo y su
+        # sanción— también se cortaban, y de un artículo cortado sale una
+        # respuesta incompleta que además suena segura.
+        "texto": texto[:1900],
         "pdf": enlace,
         "registro": registro,
         "rubro": rubro,
@@ -16436,21 +16457,24 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                             # una respuesta salían siete audios y siete pausas;
                             # juntando hasta 180 caracteres salen tres. La voz
                             # además entona mejor cuanto más contexto tiene.
-                            # UNA SOLA COSTURA POR RESPUESTA.
+                            # EL TROZO TIENE QUE DURAR MÁS DE LO QUE TARDA EL
+                            # SIGUIENTE EN FABRICARSE. Ésa es toda la regla.
                             #
-                            # Cada trozo es un audio aparte, y cada cambio de
-                            # audio se oye: 140 ms de silencio de cortesía más
-                            # lo que tarda el teléfono en montar el siguiente
-                            # reproductor. Con siete trozos eran siete baches;
-                            # con tres, tres. David lo siguió notando: «las
-                            # pausas entre puntos son muy largas».
+                            # Mandar el resto de la respuesta ENTERO al final
+                            # parecía lo más limpio —una sola costura— pero
+                            # dejaba justo el bache que David describió: «la
+                            # primera coma deja una pausa muy larga». La razón
+                            # es de aritmética: ese segundo trozo no se puede
+                            # empezar a fabricar hasta que el modelo termina de
+                            # escribir, y para entonces el primero ya casi se
+                            # acabó de oír.
                             #
-                            # Así que sólo se corta UNA vez: el arranque, a los
-                            # 100 caracteres, para que la conversación empiece
-                            # pronto. Todo lo demás va de una pieza al final,
-                            # que además es como mejor entona la voz —ve la
-                            # frase entera y no la lee a trompicones—.
-                            if not dichas and len(junta) >= 100:
+                            # Con trozos de 250 caracteres, cada uno dura unos
+                            # 17 segundos hablados y el siguiente tarda 2,5 en
+                            # estar listo: llega con quince segundos de sobra y
+                            # el cambio no se oye. Más costuras, pero todas
+                            # tapadas — que es mejor que una sola al aire.
+                            if len(junta) >= 250:
                                 listas.append(junta)
                                 junta = ""
                         pendiente = " ".join(x for x in (junta, resto) if x)
