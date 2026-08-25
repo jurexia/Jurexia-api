@@ -16953,6 +16953,40 @@ class VozHablarRequest(BaseModel):
     voz: Optional[str] = None
 
 
+# ── Lo que se repite se guarda ───────────────────────────────────────────────
+#
+# El saludo de bienvenida es SIEMPRE el mismo texto y sólo hay dos voces. Pagar
+# por sintetizarlo en cada apertura de la pantalla —y, peor, hacer esperar al
+# abogado segundo y medio antes de oír nada— es tirar dinero y paciencia por
+# algo que no cambia.
+#
+# Se guardan sólo las frases CORTAS: el saludo, los avisos, el «permítame
+# buscarlo». Las respuestas jurídicas no se repiten nunca, así que cachearlas
+# sólo llenaría la memoria del contenedor. Y el tope de entradas existe porque
+# esto vive en un proceso que no se reinicia en semanas.
+from collections import OrderedDict as _OrderedDict
+_VOZ_CACHE: dict = _OrderedDict()
+_VOZ_CACHE_MAX_CHARS = 220
+_VOZ_CACHE_ENTRADAS = 40
+
+
+def _voz_cache_leer(voz: str, texto: str) -> Optional[bytes]:
+    if len(texto) > _VOZ_CACHE_MAX_CHARS:
+        return None
+    dato = _VOZ_CACHE.get(f"{voz}|{texto}")
+    if dato is not None:
+        _VOZ_CACHE.move_to_end(f"{voz}|{texto}")
+    return dato
+
+
+def _voz_cache_guardar(voz: str, texto: str, mp3: bytes) -> None:
+    if len(texto) > _VOZ_CACHE_MAX_CHARS or not mp3:
+        return
+    _VOZ_CACHE[f"{voz}|{texto}"] = mp3
+    while len(_VOZ_CACHE) > _VOZ_CACHE_ENTRADAS:
+        _VOZ_CACHE.popitem(last=False)
+
+
 @app.post("/api/voz/hablar")
 async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Header(None)):
     """Convierte a audio lo que el Abogado IA acaba de decir.
@@ -17026,6 +17060,13 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
     timbre = (payload.voz or "").strip().lower()
     if timbre not in VOZ_AZURE:
         timbre = VOZ_AZURE_POR_DEFECTO
+
+    guardado = _voz_cache_leer(timbre, texto)
+    if guardado is not None:
+        print(f"   🔊 VOZ: {len(texto)} caracteres · {timbre} · DE CACHÉ · "
+              f"{len(guardado)//1024} KB · {correo_opaco(user_email)}")
+        return Response(content=guardado, media_type="audio/mpeg",
+                        headers={"Cache-Control": "no-store"})
     crudo = await _voz_azure(texto, timbre)
     hz_crudo = 24000 if crudo else VOZ_PCM_HZ
     quien = f"Azure/{timbre}"
@@ -17039,6 +17080,7 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
             crudo = await asyncio.to_thread(_voz_recortar_silencio, crudo, hz_crudo)
             nivelado, subida = await asyncio.to_thread(_voz_nivelar, crudo)
             mp3 = await asyncio.to_thread(_voz_a_mp3, nivelado, hz_crudo)
+            _voz_cache_guardar(timbre, texto, mp3)
             print(f"   🔊 VOZ: {len(texto)} caracteres · {quien} · +{subida:.1f} dB · "
                   f"{len(mp3)//1024} KB · {(time.time()-t_voz)*1000:.0f} ms · "
                   f"{correo_opaco(user_email)}")
