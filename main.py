@@ -15339,11 +15339,22 @@ VOZ_MAX_TOKENS = int(os.getenv("VOZ_MAX_TOKENS", "420"))
 # encima empieza a mezclar. Además cada uno son tokens de entrada en cada turno.
 VOZ_TOPE_DOCS = 10
 
-# Preguntas habladas por día y por persona. Con las 10 que planteó David, un
-# Platinum que las gaste todas cada día del mes consume 300 de sus 560 consultas
-# y cuesta 82,71 MXN sobre un plan de 599 — un 86% de margen, medido con el
-# consumo real de un turno (0,2757 MXN: 96% ElevenLabs, 4% el modelo).
-VOZ_TOPE_DIARIO = int(os.getenv("VOZ_TOPE_DIARIO", "10"))
+# Preguntas habladas por día y por persona.
+#
+# Eran 10, y ese número se fijó cuando un turno costaba 3,50 MXN de voz. Con
+# Azure cuesta 0,24 con Jorge y 0,35 con Valeria, así que el tope estaba
+# limitando el producto por un motivo que ya no existe. David lo dijo al ver los
+# números: «el límite de 10 no tiene sentido dado el costo».
+#
+# CON 25, y con nuestro consumo MEDIDO de 855 caracteres por turno: un Platinum
+# que las gaste todas cada día del mes consume 750 de sus 560 consultas —o sea,
+# se queda antes sin consultas que sin voz, que es como debe ser— y la voz le
+# cuesta a la casa entre 180 y 262 MXN al mes sobre un plan de 599. Sigue
+# habiendo margen, y el que agote eso es un usuario que usa la app cada día.
+#
+# El tope no es de coste, es de abuso: impide que una cuenta compartida o un
+# script conviertan la función en un servicio de síntesis de voz gratis.
+VOZ_TOPE_DIARIO = int(os.getenv("VOZ_TOPE_DIARIO", "25"))
 
 def _voz_permitida(correo: str, user_id: str = "") -> bool:
     """¿Puede esta persona usar el Agente IA?
@@ -16388,13 +16399,19 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                     pendiente += delta
                     # Arrancar cuanto antes: mientras no se haya dicho nada, el
                     # primer trozo se corta en la primera coma con cuerpo.
-                    # El corte por coma era para arrancar antes cuando la voz
-                    # tardaba tres segundos en empezar. Con Azure empieza en
-                    # 750 ms, así que ya sólo se usa si la primera oración es
-                    # larguísima —por encima de 220 caracteres—: cortar por una
-                    # coma cualquiera es precisamente lo que sonaba a tirones.
-                    if not dichas and len(pendiente) >= 220:
-                        cabeza, resto = _voz_primer_aliento(pendiente, 140)
+                    # EL ARRANQUE SE CORTA EN LA PRIMERA COMA CON CUERPO.
+                    #
+                    # Esperar a la primera oración COMPLETA sonaba mejor, pero
+                    # medido son 6 s de silencio antes de la primera palabra;
+                    # cortando en la coma son 3. Y la pausa que deja una coma
+                    # es la que el oído espera ahí de todas formas.
+                    #
+                    # Sólo el arranque: el resto va de una pieza, así que la
+                    # respuesta entera tiene UNA costura, y encima al principio,
+                    # que es donde menos se nota porque el abogado todavía está
+                    # colocándose el teléfono.
+                    if not dichas and len(pendiente) >= 90:
+                        cabeza, resto = _voz_primer_aliento(pendiente, 70)
                         if cabeza:
                             primera = _cocinar(cabeza)
                             if primera:
@@ -16419,11 +16436,21 @@ async def abogado_ia_voz(payload: VozRequest, authorization: str = Header(None))
                             # una respuesta salían siete audios y siete pausas;
                             # juntando hasta 180 caracteres salen tres. La voz
                             # además entona mejor cuanto más contexto tiene.
-                            # El PRIMER trozo se manda antes —a los 100— para
-                            # que la conversación arranque; a partir de ahí se
-                            # juntan hasta 180, que es donde deja de haber
-                            # costuras audibles. Empezar rápido y luego fluir.
-                            if len(junta) >= (100 if not dichas else 180):
+                            # UNA SOLA COSTURA POR RESPUESTA.
+                            #
+                            # Cada trozo es un audio aparte, y cada cambio de
+                            # audio se oye: 140 ms de silencio de cortesía más
+                            # lo que tarda el teléfono en montar el siguiente
+                            # reproductor. Con siete trozos eran siete baches;
+                            # con tres, tres. David lo siguió notando: «las
+                            # pausas entre puntos son muy largas».
+                            #
+                            # Así que sólo se corta UNA vez: el arranque, a los
+                            # 100 caracteres, para que la conversación empiece
+                            # pronto. Todo lo demás va de una pieza al final,
+                            # que además es como mejor entona la voz —ve la
+                            # frase entera y no la lee a trompicones—.
+                            if not dichas and len(junta) >= 100:
                                 listas.append(junta)
                                 junta = ""
                         pendiente = " ".join(x for x in (junta, resto) if x)
@@ -16548,8 +16575,8 @@ VOZ_PCM_HZ = 22050
 VOZ_MP3_KBPS = int(os.getenv("VOZ_MP3_KBPS", "64"))
 
 
-def _voz_recortar_silencio(pcm: bytes, hz: int, cabeza_ms: int = 25,
-                           cola_ms: int = 60, umbral_db: float = -45.0) -> bytes:
+def _voz_recortar_silencio(pcm: bytes, hz: int, cabeza_ms: int = 12,
+                           cola_ms: int = 35, umbral_db: float = -45.0) -> bytes:
     """Quita el silencio que cada trozo trae pegado delante y detrás.
 
     ES LO QUE SE OÍA COMO PAUSA. David lo dijo tras probarlo: «me parece muy
@@ -16559,9 +16586,10 @@ def _voz_recortar_silencio(pcm: bytes, hz: int, cabeza_ms: int = 25,
     71 ms delante y 293 ms detrás. Sumados en cada costura, más el hueco de
     pedir el siguiente, la conversación se oía a trompicones.
 
-    Se deja un resto —25 ms delante, 60 detrás— porque quitarlo del todo pega
-    las frases y suena atropellado. La separación natural entre oraciones la
-    pone la propia entonación, no el silencio.
+    Se deja un resto —12 ms delante, 35 detrás— porque quitarlo del todo corta
+    la última consonante. La separación entre oraciones la pone la entonación,
+    no el silencio: el sintetizador ya baja el tono al terminar la frase, y ese
+    descenso es lo que el oído lee como punto final.
     """
     m = array.array("h")
     m.frombytes(pcm[:len(pcm) - (len(pcm) % 2)])
@@ -16933,6 +16961,102 @@ async def abogado_ia_hablar(payload: VozHablarRequest, authorization: str = Head
     print(f"   🔊 VOZ: {len(texto)} caracteres a Liza · SIN NIVELAR · {correo_opaco(user_email)}")
     return Response(content=mp3, media_type="audio/mpeg",
                     headers={"Cache-Control": "no-store"})
+
+
+# ── Oír al abogado cuando el teléfono no sabe ────────────────────────────────
+#
+# El dictado lo hace el teléfono: en iPhone es el de Apple y es excelente, es
+# gratis, es instantáneo y la voz no sale del aparato. Eso NO se toca.
+#
+# El problema es Android. Ahí el reconocimiento depende del fabricante y de que
+# estén los servicios de Google: en un gama baja, o en un teléfono sin ellos,
+# sencillamente no hay dictado y la app enseñaba «este dispositivo no permite
+# dictado». Para un abogado en un pasillo eso es quedarse sin medio producto.
+#
+# Este endpoint es la red: recibe el audio y devuelve el texto. Se usa SÓLO
+# cuando el teléfono no puede o falla, nunca por delante del suyo.
+#
+# POR QUÉ AZURE: ya está contratado para la voz, cuesta alrededor de un dólar
+# por hora de audio —una pregunta de diez segundos son unos cinco centavos de
+# peso— y entiende el vocabulario forense sin entrenarlo. Medido el 24-ago-2026
+# con cinco preguntas jurídicas: cinco de cinco correctas, y en la de los
+# artículos escribió «2606» donde el audio decía «dos mil seiscientos seis»,
+# que es justo como lo quiere el buscador.
+#
+# Y POR QUÉ LA API DE TRANSCRIPCIÓN RÁPIDA Y NO LA DE AUDIO CORTO, que era lo
+# primero que probé: porque acepta el formato que los teléfonos graban de
+# verdad. El endpoint clásico quiere WAV o OGG-OPUS, y `expo-audio` en Android
+# sólo sabe grabar AAC —no ofrece Opus—. Transcodificar en el servidor exigiría
+# ffmpeg en el contenedor por una función de reserva. La rápida traga el m4a
+# tal cual, tarda 668 ms en vez de 1.300, y el fichero pesa 17 KB en vez de 143,
+# que en la red de un juzgado es la diferencia entre funcionar y no.
+VOZ_OIDO_MAX_BYTES = 2 * 1024 * 1024      # un minuto largo de AAC; más es un fallo
+
+
+@app.post("/api/voz/escuchar")
+async def abogado_ia_escuchar(request: Request, authorization: str = Header(None)):
+    """Convierte a texto lo que el abogado acaba de decir. Reserva de Android."""
+    audio = await request.body()
+    if not audio:
+        raise HTTPException(status_code=400, detail="No llegó audio.")
+    if len(audio) > VOZ_OIDO_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="El audio es demasiado largo.")
+    if not AZURE_LLAVE:
+        raise HTTPException(status_code=503, detail="El dictado de reserva no está configurado.")
+
+    if not authorization or not supabase_admin:
+        raise HTTPException(status_code=401, detail="Autenticación requerida")
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        user = user_resp.user
+        if not user:
+            raise HTTPException(status_code=401, detail="Token inválido")
+        user_id, user_email = str(user.id), (user.email or "")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
+    if not _voz_permitida(user_email, user_id):
+        raise HTTPException(status_code=403, detail="El Agente IA está en pruebas cerradas.")
+
+    t0 = time.time()
+    frontera = uuid.uuid4().hex
+    cuerpo = b"".join([
+        f"--{frontera}\r\nContent-Disposition: form-data; name=\"audio\"; "
+        f"filename=\"pregunta.m4a\"\r\nContent-Type: application/octet-stream\r\n\r\n".encode(),
+        audio,
+        f"\r\n--{frontera}\r\nContent-Disposition: form-data; name=\"definition\"\r\n"
+        f"Content-Type: application/json\r\n\r\n".encode(),
+        json.dumps({"locales": ["es-MX"]}).encode(),
+        f"\r\n--{frontera}--\r\n".encode(),
+    ])
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as cli:
+            r = await cli.post(
+                f"https://{AZURE_REGION}.api.cognitive.microsoft.com/speechtotext/"
+                f"transcriptions:transcribe?api-version=2024-11-15",
+                content=cuerpo,
+                headers={"Ocp-Apim-Subscription-Key": AZURE_LLAVE,
+                         "Content-Type": f"multipart/form-data; boundary={frontera}"})
+        if r.status_code != 200:
+            print(f"   👂 VOZ oído {r.status_code}: {r.text[:160]}")
+            raise HTTPException(status_code=502, detail="No se pudo transcribir.")
+        d = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"   👂 VOZ oído reventó: {err(e)}")
+        raise HTTPException(status_code=502, detail="No se pudo transcribir.")
+
+    texto = ((d.get("combinedPhrases") or [{}])[0].get("text") or "").strip()
+    print(f"   👂 VOZ: {len(audio)//1024} KB · {len(texto)} caracteres · "
+          f"{(time.time()-t0)*1000:.0f} ms · {correo_opaco(user_email)}")
+    # Devolver cadena vacía NO es un error: el abogado pudo pulsar sin hablar, o
+    # el pasillo estaba demasiado ruidoso. La app lo distingue y le pide que
+    # repita, en vez de mandar una consulta en blanco al modelo.
+    return {"texto": texto, "motivo": "" if texto else "no_entendido"}
 
 
 # ── Admin: Toggle sentencia access for a user ────────────────────────────────
