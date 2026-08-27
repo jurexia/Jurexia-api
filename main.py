@@ -283,6 +283,78 @@ JURIS_SILOS = ("jurisprudencia_nacional", "jurisprudencia_nacional_v2",
                "jurisprudencia_nacional_v3")
 
 
+def _cabecera_tesis(payload: dict) -> str:
+    """La cabecera entre corchetes que el visor de tesis necesita para existir.
+
+    NO ES DECORACIÓN. `PdfViewerPanel.tsx` decide si algo es una tesis con tres
+    puertas y basta una: que el silo esté en su lista, que el texto contenga
+    `[TIPO:` o `[REGISTRO:`, o que `origen` empiece por el registro. Si ninguna
+    se abre, `tesisMeta` sale nulo — y con él desaparecen la ficha, el sello de
+    verificacion, el PDF incrustado, la descarga y la impresion.
+
+    La v2 la traia dentro del propio texto desde la ingesta. La v3 guarda los
+    campos por separado —mas limpio para el vector— asi que la cabecera se
+    compone AQUI, al leer, con los mismos nombres de etiqueta que el frontend
+    parsea.
+
+    Orden y formato importan: el parser quita las etiquetas y luego toma como
+    rubro las primeras lineas EN VERSALES. Por eso la cabecera va en su propia
+    linea y el rubro en la siguiente.
+    """
+    campos = (
+        ("TIPO", payload.get("tipo") or payload.get("tipo_criterio")),
+        ("MATERIA", payload.get("materia")),
+        ("INSTANCIA", payload.get("instancia")),
+        ("TESIS", payload.get("clave_tesis") or payload.get("numero_tesis")),
+        ("REGISTRO", payload.get("registro")),
+    )
+    return " ".join(f"[{k}: {v}]" for k, v in campos if v)
+
+
+def _origen_tesis(payload: dict) -> Optional[str]:
+    """El `origen` en el formato que el visor reconoce: «REGISTRO_CLAVE.txt».
+
+    Es la tercera puerta del visor y tambien el respaldo del que el frontend
+    saca el registro cuando no hay etiquetas. Humanizarlo —que es lo que hice la
+    primera vez— le quita el numero con el que arma el enlace al Semanario.
+    """
+    reg = payload.get("registro")
+    if not reg:
+        return None
+    clave = payload.get("clave_tesis") or payload.get("numero_tesis") or ""
+    return f"{reg}_{clave}.txt" if clave else f"{reg}_.txt"
+
+
+def _con_rubro(payload: dict) -> str:
+    """El texto de una tesis tal como el visor y el modelo lo esperan:
+
+        [TIPO: ...] [MATERIA: ...] [INSTANCIA: ...] [TESIS: ...] [REGISTRO: ...]
+        RUBRO COMPLETO EN VERSALES
+        cuerpo...
+
+    Dos cosas dependen de esto y las rompi las dos:
+
+    · El MODELO lee el rubro para citar el criterio por su nombre. Sin el, las
+      respuestas salian con el rubro a medias.
+    · El VISOR lee las etiquetas para saber que es una tesis y montar la ficha.
+
+    Se compone al leer y no al ingerir, para que el vector siga limpio.
+    """
+    t = (payload.get("texto") or payload.get("text")
+         or payload.get("chunk_text") or payload.get("holding") or "")
+    # Si el texto ya trae la cabecera —la v2— no se toca nada.
+    if "[TIPO:" in t[:400] or "[REGISTRO:" in t[:400]:
+        return t
+    r = (payload.get("rubro") or "").strip()
+    cab = _cabecera_tesis(payload)
+    if not cab and not r:
+        return t
+    cuerpo = t.lstrip()
+    if r and cuerpo.upper().startswith(r[:40].upper()):
+        cuerpo = cuerpo[len(r):].lstrip(" .\n")
+    return "\n".join(x for x in (cab, r, cuerpo) if x)
+
+
 def _vector_de(coleccion: str) -> str:
     """El nombre del vector denso que tiene esa colección."""
     return "texto" if str(coleccion or "").endswith("_v3") else "dense"
@@ -6342,13 +6414,7 @@ async def hybrid_search_single_silo(
             payload = point.payload or {}
             # Los silos EF (sentencias_ef y SCJN particionadas) almacenan el
             # contenido en `chunk_text`; otros silos usan `texto` o `text`.
-            texto = (
-                payload.get("texto")
-                or payload.get("text")
-                or payload.get("chunk_text")
-                or payload.get("holding")
-                or ""
-            )
+            texto = _con_rubro(payload)
             origen_raw = payload.get("origen") or ""
             
             # ── Extract registro: payload > texto tags > origen prefix ──
@@ -6365,10 +6431,10 @@ async def hybrid_search_single_silo(
                     registro = _orig_m.group(1)
             
             # ── Extract tesis_num: payload > texto tags > ref ──
-            # v2 la guarda como `numero_tesis`; v3 como `clave_tesis`. Se leen
-            # las dos o la app pierde la clave en todas las citas.
-            tesis_num = payload.get("tesis") or payload.get("numero_tesis") \
-                or payload.get("clave_tesis") or payload.get("tesis_num")
+            # v2 la llama `numero_tesis`; v3, `clave_tesis`. Leer sólo una deja
+            # la clave en blanco en todas las citas de la app.
+            tesis_num = (payload.get("tesis") or payload.get("numero_tesis")
+                         or payload.get("clave_tesis") or payload.get("tesis_num"))
             if not tesis_num:
                 _tes_m = re.search(r'\[TESIS:\s*([^\]]+)\]', texto)
                 if _tes_m:
@@ -6406,7 +6472,10 @@ async def hybrid_search_single_silo(
                 # ley, sin artículo y sin fuente. El rubro es lo que la nombra.
                 ref=payload.get("ref") or payload.get("rubro") or tesis_num or (
                     f"Registro {registro}" if registro else None),
-                origen=origen_raw or None,
+                # «REGISTRO_CLAVE.txt» cuando no hay origen propio: es la
+                # tercera puerta del visor de tesis y de donde saca el número
+                # para el enlace al Semanario. Ver `_origen_tesis`.
+                origen=(origen_raw or _origen_tesis(payload) or None),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
                 silo=collection,
@@ -6667,12 +6736,11 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
             search_results.append(SearchResult(
                 id=str(point.id),
                 score=point.score,
-                texto=payload.get("texto", payload.get("text", "")),
-                # El numero de tesis es lo que un abogado escribe al citarla; si
-                # no lo hay, el registro digital la identifica sin ambiguedad.
-                ref=payload.get("ref") or _tesis_num or (
-                    f"Registro {_registro}" if _registro else None),
-                origen=payload.get("origen") or payload.get("ley"),
+                texto=_con_rubro(payload),
+                ref=(payload.get("ref") or payload.get("rubro") or _tesis_num
+                     or (f"Registro {_registro}" if _registro else None)),
+                origen=(payload.get("origen") or payload.get("ley")
+                        or _origen_tesis(payload)),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
                 silo=FIXED_SILOS["jurisprudencia"],
@@ -8603,19 +8671,29 @@ async def resolver_cita(doc_id: str):
             "materia": materia,
         }
 
+    # El visor de tesis reconstruye su ficha desde ESTA respuesta. Lo que
+    # necesita es el `origen` con el registro delante y el texto con la cabecera
+    # entre corchetes — humanizar el origen, que fue mi error, deja al visor sin
+    # el número con el que arma el enlace al Semanario y la ficha no aparece.
+    _es_tesis = col in JURIS_SILOS or bool(pay.get("clave_tesis") or pay.get("numero_tesis"))
+    _origen_final = origen or (_origen_tesis(pay) if _es_tesis else None)
+
     return {
-        "origen": humanize_origen(origen) or "Fuente legal",
-        "ref": (pay.get("ref") or pay.get("numero_tesis")
+        "origen": _origen_final or humanize_origen(origen) or "Fuente legal",
+        "ref": (pay.get("ref") or pay.get("rubro")
+                or pay.get("clave_tesis") or pay.get("numero_tesis")
                 or pay.get("expediente")
                 or (f"Registro {registro}" if registro else "")),
-        "texto": (pay.get("texto") or pay.get("text")
-                  or pay.get("holding") or pay.get("chunk_text") or ""),
+        "texto": (_con_rubro(pay) if _es_tesis else
+                  (pay.get("texto") or pay.get("text")
+                   or pay.get("holding") or pay.get("chunk_text") or "")),
         "pdf_url": (pay.get("pdf_url") or pay.get("url_pdf")
                     or pay.get("pdf") or None),
         "silo": col,
         "entidad": pay.get("entidad"),
         "registro": str(registro) if registro else None,
-        "tesis_num": pay.get("numero_tesis") or pay.get("tesis_num"),
+        "tesis_num": (pay.get("clave_tesis") or pay.get("numero_tesis")
+                      or pay.get("tesis_num")),
         "tipo_criterio": pay.get("tipo") or pay.get("tipo_criterio"),
         "instancia": pay.get("instancia"),
         "materia": materia,
