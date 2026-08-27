@@ -264,52 +264,9 @@ REDACTOR_MODEL_GENERATE = REDACTOR_MODEL_GENERATE
 
 # Silos V5.0 de Iurexia — Arquitectura 32 Silos por Estado
 # Silos FIJOS: siempre se buscan independientemente del estado
-# ── Los dos formatos de la jurisprudencia ────────────────────────────────────
-#
-# La v2 tiene UN vector llamado «dense». La v3 los separa en «texto» y «rubro»,
-# porque el rubro es la enunciación canónica del criterio y buscar contra él es
-# otra pregunta que buscar contra el desarrollo.
-#
-# Todo el código que consulta silos pide `using="dense"` —y para las otras 51
-# colecciones eso sigue siendo correcto—. Este resolutor traduce sólo cuando la
-# colección es la jurisprudencia nueva, para no tener que tocar veinticinco
-# llamadas ni arriesgarse a cambiar una que no era.
-#
-# Se elige «texto» y no «rubro»: medido sobre 404 citas reales sacadas de
-# engroses del PJF, el vector de texto acierta 23% en top-10 frente al 15% del
-# rubro. El rubro sólo gana cuando la consulta ya viene enunciada como un rubro,
-# y eso —medido sin filtración— no ocurre en producción.
-JURIS_SILOS = ("jurisprudencia_nacional", "jurisprudencia_nacional_v2",
-               "jurisprudencia_nacional_v3")
-
-
-def _con_rubro(payload: dict) -> str:
-    """El texto de la tesis, empezando por su rubro.
-
-    La v2 lo traía repetido dentro del texto; al ingerir la v3 se quitó por
-    «limpieza», creyendo que ensuciaba el vector. Lo que hacía era otra cosa: es
-    lo que el modelo lee para poder CITAR el criterio por su nombre. Sin él las
-    respuestas salían con el rubro a medias o sin él.
-
-    Se recompone AL LEER, no al ingerir: el vector sigue limpio y la cita vuelve
-    a estar completa.
-    """
-    t = (payload.get("texto") or payload.get("text")
-         or payload.get("chunk_text") or payload.get("holding") or "")
-    r = (payload.get("rubro") or "").strip()
-    if r and not t.lstrip().upper().startswith(r[:40].upper()):
-        return f"{r}\n\n{t}"
-    return t
-
-
-def _vector_de(coleccion: str) -> str:
-    """El nombre del vector denso que tiene esa colección."""
-    return "texto" if str(coleccion or "").endswith("_v3") else "dense"
-
-
 FIXED_SILOS = {
     "federal": "leyes_federales",
-    "jurisprudencia": "jurisprudencia_nacional_v3",
+    "jurisprudencia": "jurisprudencia_nacional_v2",
     "constitucional": "bloque_constitucional",  # Constitución, Tratados DDHH, Jurisprudencia CoIDH
 }
 
@@ -485,19 +442,6 @@ ESTADOS_MEXICO = [
 ]
 
 EMBEDDING_MODEL = "text-embedding-3-small"
-
-# La jurisprudencia v3 se vectorizó con otro modelo, y eso NO es un capricho:
-# medido sobre 404 citas reales de engroses, recupera 24% en top-10 frente al
-# 17% de la v2. Pero un vector de 3072 dimensiones no entra en una colección de
-# 1536: Qdrant responde 400 y el try/except se lo traga, así que la
-# jurisprudencia desaparecía de TODAS las respuestas sin que nada fallara
-# visiblemente. El servidor arrancaba, /health decía «sano», y el abogado
-# dejaba de recibir tesis.
-#
-# Por eso la consulta se embebe dos veces: una para los 51 silos de 1536 y otra
-# para la jurisprudencia. Son ~100 tokens de más por consulta —milésimas de
-# peso— y evitan tener que reingerir 71.655 tesis para igualar dimensiones.
-EMBEDDING_MODEL_JURIS = "text-embedding-3-large"
 EMBEDDING_DIM = 1536
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2610,13 +2554,6 @@ class SearchResult(BaseModel):
     tipo_criterio: Optional[str] = None
     instancia_meta: Optional[str] = None
     materia_meta: Optional[str] = None
-    # La cita tal como la redacta la Corte —«[J]; 11a. Época; 1a. Sala; Gaceta
-    # S.J.F.; Libro 5, Abril de 2014; Tomo I; Pág. 451»—. Sólo la trae v3. Se
-    # copia literal en vez de componerla, que es donde se cuelan los errores.
-    localizacion: Optional[str] = None
-    # True = jurisprudencia OBLIGATORIA. De 71.655 tesis sólo vinculan 17.930;
-    # hasta ahora no se distinguía y todo se citaba igual.
-    vincula: Optional[bool] = None
     # Campos LLM Tagging (conceptos semánticos para Concept Boost)
     conceptos_transversales: Optional[List[str]] = None
     tema_articulo: Optional[str] = None
@@ -4584,7 +4521,7 @@ def _filtrar_por_distancia(results: list, protected_silo: Optional[str] = None) 
     if not results:
         return results
 
-    _PROTEGIDOS = {*JURIS_SILOS,
+    _PROTEGIDOS = {"jurisprudencia_nacional", "jurisprudencia_nacional_v2",
                    "bloque_constitucional"}
     piso = results[0].score - RAG_DISTANCIA_MAXIMA
     guardados, descartados = [], 0
@@ -4782,7 +4719,7 @@ def _apply_materia_threshold(results: list, detected_materias: Optional[List[str
     for r in results:
         # SIEMPRE mantener jurisprudencia, constitucional, y el silo del estado seleccionado
         # El silo del estado seleccionado es la fuente primaria — nunca descartar por materia
-        if r.silo in (*JURIS_SILOS, "bloque_constitucional") or r.silo == protected_silo:
+        if r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2", "bloque_constitucional") or r.silo == protected_silo:
             filtered.append(r)
             continue
         
@@ -4884,36 +4821,14 @@ def _acotar_para_embedding(texto: str) -> str:
     retry=retry_if_exception_type(Exception),
     before_sleep=lambda rs: print(f"   ⏳ Embedding retry #{rs.attempt_number} after error...")
 )
-async def get_dense_embedding(text: str, modelo: Optional[str] = None) -> List[float]:
-    """Genera embedding denso usando OpenAI (con reintentos automáticos + semáforo)."""
+async def get_dense_embedding(text: str) -> List[float]:
+    """Genera embedding denso usando OpenAI (con reintentos automáticos + semáforo)"""
     async with OPENAI_SEM:
         response = await openai_client.embeddings.create(
-            model=modelo or EMBEDDING_MODEL,
+            model=EMBEDDING_MODEL,
             input=_acotar_para_embedding(text),
         )
         return response.data[0].embedding
-
-
-# Los silos se consultan EN PARALELO y varios pueden ser de jurisprudencia, así
-# que sin esto la misma consulta se embebería varias veces por petición. La
-# caché es pequeña y se limpia sola: sólo tiene que sobrevivir a una ráfaga.
-# Un dict normal basta y evita depender de un import que en este fichero llega
-# mil líneas más abajo: desde Python 3.7 conserva el orden de inserción, que es
-# lo único que hace falta para desalojar el más viejo.
-_CACHE_EMB_JURIS: Dict[str, List[float]] = {}
-_CACHE_EMB_MAX = 64
-
-
-async def _embedding_juris(texto: str) -> List[float]:
-    """El vector para la jurisprudencia v3, que usa otro modelo y otra dimensión."""
-    llave = (texto or "")[:400]
-    if llave in _CACHE_EMB_JURIS:
-        return _CACHE_EMB_JURIS[llave]
-    v = await get_dense_embedding(texto, modelo=EMBEDDING_MODEL_JURIS)
-    _CACHE_EMB_JURIS[llave] = v
-    if len(_CACHE_EMB_JURIS) > _CACHE_EMB_MAX:
-        _CACHE_EMB_JURIS.pop(next(iter(_CACHE_EMB_JURIS)))
-    return v
 
 
 def get_sparse_embedding(text: str) -> SparseVector:
@@ -5292,7 +5207,6 @@ SILO_HIERARCHY_PRIORITY: Dict[str, int] = {
     # Nivel 3: Jurisprudencia (complementaria, subordinada a norma)
     "jurisprudencia_nacional": 3,
     "jurisprudencia_nacional_v2": 3,
-    "jurisprudencia_nacional_v3": 3,
     "jurisprudencia_tcc": 3,
     "jurisprudencia": 3,
 }
@@ -5631,7 +5545,7 @@ async def inject_cross_referenced_articles(
     # Identify which silos contain precedentes
     _precedente_silos = {
         "sentencias_holdings", "sentencias_scjn_holdings",
-        *JURIS_SILOS,
+        "jurisprudencia_nacional", "jurisprudencia_nacional_v2",
         "jurisprudencia_tcc",
     }
     # Also include circuit-specific silos
@@ -5823,7 +5737,7 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         tipo_tag = ""
         if estado and (r.silo == "leyes_estatales" or r.silo in _dedicated_silos):
             tipo_tag = ' tipo="LEGISLACION_ESTATAL" prioridad="PRINCIPAL"'
-        elif r.silo in (*JURIS_SILOS, "jurisprudencia_tcc", "jurisprudencia"):
+        elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2", "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
         elif r.silo == "bloque_constitucional":
             # Distinguish CPEUM from treaties/conventions within bloque_constitucional
@@ -5847,7 +5761,7 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         # fragmentan la síntesis y el modelo tiende a citar sumarios en vez de
         # tejer la jurisprudencia en prosa continua.
         ratio_tags = ""
-        if r.silo in JURIS_SILOS and not prose_mode:
+        if r.silo == "jurisprudencia_nacional_v2" and not prose_mode:
             if r.ratio_decidendi:
                 ratio_tags += f'\n<ratio_decidendi>{html.escape(r.ratio_decidendi)}</ratio_decidendi>'
             if r.condicion_de_aplicacion:
@@ -5864,7 +5778,7 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         # INVENTABA registros, rubros e instancias = ALUCINACIONES CRÍTICAS.
         # AHORA: Los campos reales de Qdrant se inyectan como atributos XML.
         juris_attrs = ""
-        _juris_silos = (*JURIS_SILOS,
+        _juris_silos = ("jurisprudencia_nacional", "jurisprudencia_nacional_v2",
                         "jurisprudencia_tcc", "jurisprudencia")
         if r.silo in _juris_silos:
             if r.registro:
@@ -6277,20 +6191,6 @@ async def hybrid_search_single_silo(
     RESILIENTE: Si el filtro causa error 400 (índice faltante), reintenta SIN filtro.
     """
     global _HYBRID_PREFETCH_BROKEN
-
-    # La v3 vive en otro espacio vectorial: si se le manda el vector de 1536
-    # devuelve 400, esta función acaba en el except y devuelve lista vacía sin
-    # decir por qué.
-    #
-    # VA AQUÍ Y NO DENTRO DE `_do_search`. Ponerlo dentro parecía inocente y
-    # tumbó los 51 silos restantes: al haber una ASIGNACIÓN a `dense_vector`
-    # dentro de la función anidada, Python la trata como local de toda ella, así
-    # que en las colecciones donde la condición NO se cumple se leía antes de
-    # existir. UnboundLocalError → except → cero resultados. Las leyes no
-    # perdían la puja: ni siquiera se buscaban.
-    if _vector_de(collection) != "dense":
-        dense_vector = await _embedding_juris(query)
-
     async def _do_search(search_filter: Optional[Filter]) -> list:
         """Ejecuta la búsqueda con el filtro dado (protegida por semáforo)."""
         async with QDRANT_SEM:
@@ -6299,7 +6199,7 @@ async def hybrid_search_single_silo(
             has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
         
         # Threshold diferenciado: jurisprudencia y silos estatales necesitan mayor recall
-        if collection in JURIS_SILOS:
+        if collection in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2"):
             threshold = 0.02
         elif collection.startswith("leyes_") and collection != "leyes_federales":
             threshold = 0.02  # State silos: lower threshold for colloquial queries
@@ -6319,12 +6219,12 @@ async def hybrid_search_single_silo(
                 ),
                 Prefetch(
                     query=dense_vector,
-                    using=_vector_de(collection),
+                    using="dense",
                     limit=top_k * 5,
                     filter=search_filter,
                 ),
             ]
-            if collection in JURIS_SILOS:
+            if collection == "jurisprudencia_nacional_v2":
                 # 3er prefetch: busca por ratio_decidendi semánticamente
                 prefetches.append(
                     Prefetch(
@@ -6347,7 +6247,7 @@ async def hybrid_search_single_silo(
             return await qdrant_client.query_points(
                 collection_name=collection,
                 query=dense_vector,
-                using=_vector_de(collection),
+                using="dense",
                 limit=top_k,
                 query_filter=search_filter,
                 with_payload=True,
@@ -6361,7 +6261,13 @@ async def hybrid_search_single_silo(
             payload = point.payload or {}
             # Los silos EF (sentencias_ef y SCJN particionadas) almacenan el
             # contenido en `chunk_text`; otros silos usan `texto` o `text`.
-            texto = _con_rubro(payload)
+            texto = (
+                payload.get("texto")
+                or payload.get("text")
+                or payload.get("chunk_text")
+                or payload.get("holding")
+                or ""
+            )
             origen_raw = payload.get("origen") or ""
             
             # ── Extract registro: payload > texto tags > origen prefix ──
@@ -6378,10 +6284,7 @@ async def hybrid_search_single_silo(
                     registro = _orig_m.group(1)
             
             # ── Extract tesis_num: payload > texto tags > ref ──
-            # v2 la guarda como `numero_tesis`; v3 como `clave_tesis`. Se leen
-            # las dos o la app pierde la clave en todas las citas.
-            tesis_num = payload.get("tesis") or payload.get("numero_tesis") \
-                or payload.get("clave_tesis") or payload.get("tesis_num")
+            tesis_num = payload.get("tesis", payload.get("numero_tesis", payload.get("tesis_num")))
             if not tesis_num:
                 _tes_m = re.search(r'\[TESIS:\s*([^\]]+)\]', texto)
                 if _tes_m:
@@ -6414,11 +6317,7 @@ async def hybrid_search_single_silo(
                 id=str(point.id),
                 score=point.score,
                 texto=texto,
-                # Sin `ref` la interfaz rotula la cita como «Disposición legal» y
-                # no la reconoce como tesis: el abogado se queda con un título de
-                # ley, sin artículo y sin fuente. El rubro es lo que la nombra.
-                ref=payload.get("ref") or payload.get("rubro") or tesis_num or (
-                    f"Registro {registro}" if registro else None),
+                ref=payload.get("ref"),
                 origen=origen_raw or None,
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
@@ -6429,10 +6328,6 @@ async def hybrid_search_single_silo(
                 tipo_criterio=tipo_criterio,
                 instancia_meta=instancia,
                 materia_meta=materia,
-                # Sólo v3: la cita canónica redactada por la Corte, para
-                # copiarla en vez de componerla, y si el criterio OBLIGA.
-                localizacion=payload.get("localizacion"),
-                vincula=payload.get("vincula"),
                 # LLM Tagging fields (Concept Boost)
                 conceptos_transversales=payload.get("conceptos_transversales"),
                 tema_articulo=payload.get("tema_articulo"),
@@ -6458,11 +6353,11 @@ async def hybrid_search_single_silo(
             has_sparse = sparse_cfg is not None and len(sparse_cfg) > 0
             if has_sparse:
                 print(f"   ⚠️ Hybrid devolvió 0 en {collection}, fallback a dense-only...")
-                threshold = 0.02 if collection in JURIS_SILOS else 0.03
+                threshold = 0.02 if collection in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2") else 0.03
                 dense_results = await qdrant_client.query_points(
                     collection_name=collection,
                     query=dense_vector,
-                    using=_vector_de(collection),
+                    using="dense",
                     limit=top_k,
                     query_filter=filter_,
                     with_payload=True,
@@ -6482,11 +6377,11 @@ async def hybrid_search_single_silo(
             _HYBRID_PREFETCH_BROKEN = True
             print(f"   ⚠️ typing.Union error en {collection}, fallback a dense-only (hybrid DISABLED globally)...")
             try:
-                threshold = 0.02 if collection in JURIS_SILOS else 0.03
+                threshold = 0.02 if collection in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2") else 0.03
                 dense_results = await qdrant_client.query_points(
                     collection_name=collection,
                     query=dense_vector,
-                    using=_vector_de(collection),
+                    using="dense",
                     limit=top_k,
                     query_filter=filter_,
                     with_payload=True,
@@ -6595,31 +6490,24 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
     para maximizar recall de tesis relevantes.
     """
     try:
-        # El mismo tropiezo que en la búsqueda por silo: esta función SIEMPRE
-        # consulta la jurisprudencia, así que su vector tiene que ser el del
-        # modelo con que se vectorizó esa colección. Con el de por omisión
-        # devolvía 400 y el refuerzo se quedaba mudo.
-        _col_juris = FIXED_SILOS["jurisprudencia"]
-        dense_vector = (await _embedding_juris(query)
-                        if _vector_de(_col_juris) != "dense"
-                        else await get_dense_embedding(query))
+        dense_vector = await get_dense_embedding(query)
         sparse_vector = get_sparse_embedding(query)
-
+        
         # Verificar si tiene sparse vectors
-        col_info = await qdrant_client.get_collection(_col_juris)
+        col_info = await qdrant_client.get_collection("jurisprudencia_nacional_v2")
         sparse_vectors_config = col_info.config.params.sparse_vectors
         has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
 
         if has_sparse:
             try:
                 results = await qdrant_client.query_points(
-                    collection_name=FIXED_SILOS["jurisprudencia"],
+                    collection_name="jurisprudencia_nacional_v2",
                     prefetch=[
                         Prefetch(query=sparse_vector, using="sparse", limit=50, filter=None),
                         Prefetch(query=dense_vector, using="ratio", limit=30, filter=None),
                     ],
                     query=dense_vector,
-                    using=_vector_de(FIXED_SILOS["jurisprudencia"]),
+                    using="dense",
                     limit=10,
                     query_filter=None,
                     with_payload=True,
@@ -6629,9 +6517,9 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 # Fallback if Prefetch crashes (typing.Union on Python 3.14)
                 print(f"      ⚠️ Prefetch falló en juris boost: {prefetch_err}, usando dense-only...")
                 results = await qdrant_client.query_points(
-                    collection_name=FIXED_SILOS["jurisprudencia"],
+                    collection_name="jurisprudencia_nacional_v2",
                     query=dense_vector,
-                    using=_vector_de(FIXED_SILOS["jurisprudencia"]),
+                    using="dense",
                     limit=10,
                     query_filter=None,
                     with_payload=True,
@@ -6639,9 +6527,9 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
                 )
         else:
             results = await qdrant_client.query_points(
-                collection_name=FIXED_SILOS["jurisprudencia"],
+                collection_name="jurisprudencia_nacional_v2",
                 query=dense_vector,
-                using=_vector_de(FIXED_SILOS["jurisprudencia"]),
+                using="dense",
                 limit=10,
                 query_filter=None,
                 with_payload=True,
@@ -6669,10 +6557,7 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
             # captura que reporto David.
             _registro = payload.get("registro")
             _registro = str(_registro) if _registro else None
-            # v3 lo guarda como `clave_tesis`; v2 como `numero_tesis`. Sin
-            # leer los dos, la app pierde la clave en TODAS las citas.
-            _tesis_num = (payload.get("numero_tesis") or payload.get("clave_tesis")
-                          or payload.get("tesis_num"))
+            _tesis_num = payload.get("numero_tesis") or payload.get("tesis_num")
             _materia = payload.get("materia")
             if isinstance(_materia, list):
                 _materia = ", ".join(str(m) for m in _materia) if _materia else None
@@ -6680,24 +6565,21 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
             search_results.append(SearchResult(
                 id=str(point.id),
                 score=point.score,
-                texto=_con_rubro(payload),
-                # El RUBRO primero: es el nombre del criterio y lo que el
-                # abogado escribe al citarlo. La clave y el registro lo
-                # identifican, pero no dicen de qué trata.
-                ref=(payload.get("ref") or payload.get("rubro") or _tesis_num
-                     or (f"Registro {_registro}" if _registro else None)),
+                texto=payload.get("texto", payload.get("text", "")),
+                # El numero de tesis es lo que un abogado escribe al citarla; si
+                # no lo hay, el registro digital la identifica sin ambiguedad.
+                ref=payload.get("ref") or _tesis_num or (
+                    f"Registro {_registro}" if _registro else None),
                 origen=payload.get("origen") or payload.get("ley"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
-                silo=FIXED_SILOS["jurisprudencia"],
+                silo="jurisprudencia_nacional_v2",
                 pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
                 registro=_registro,
                 tesis_num=_tesis_num,
                 tipo_criterio=payload.get("tipo") or payload.get("tipo_criterio"),
                 instancia_meta=payload.get("instancia"),
                 materia_meta=_materia,
-                localizacion=payload.get("localizacion"),
-                vincula=payload.get("vincula"),
                 ratio_decidendi=payload.get("ratio_decidendi"),
                 condicion_de_aplicacion=payload.get("condicion_de_aplicacion"),
                 distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
@@ -6794,7 +6676,7 @@ async def _cross_silo_enrichment(
             # Buscar jurisprudencia que cite este artículo/ley
             juris_query = f"tesis jurisprudencia criterio judicial {ref}"
             enrichment_tasks.append(
-                _do_enrichment_search(FIXED_SILOS["jurisprudencia"], juris_query)
+                _do_enrichment_search("jurisprudencia_nacional_v2", juris_query)
             )
 
             # El bloque convencional (CoIDH, tratados) por su cuenta: aporta,
@@ -6975,10 +6857,7 @@ async def _fetch_neighbor_chunks(
                 id=point_id,
                 score=0.15,  # Score bajo: contexto, no resultado principal
                 texto=payload.get("texto", payload.get("text", "")),
-                # Sin `ref` la interfaz rotula la cita como «Disposición legal»
-                # y no la reconoce como tesis. El rubro es lo que la identifica.
-                ref=payload.get("ref") or payload.get("rubro") or tesis_num or (
-                    f"Registro {registro}" if registro else None),
+                ref=payload.get("ref"),
                 origen=payload.get("origen") or payload.get("ley"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
@@ -7587,7 +7466,7 @@ async def hybrid_search_all_silos(
     
     if fuero_parts:
         silos_set = set()
-        silos_set.add(FIXED_SILOS["jurisprudencia"])  # SIEMPRE
+        silos_set.add("jurisprudencia_nacional_v2")  # SIEMPRE
         
         for fp in fuero_parts:
             if fp == "constitucional":
@@ -7699,7 +7578,7 @@ async def hybrid_search_all_silos(
             silo_top_k = top_k * 2  # Más resultados de la ley enfocada
         
         # Inyectar materia should-filter en silos de leyes (NO en juris/constitucional)
-        if _materia_should_filter and silo_name not in (*JURIS_SILOS, "bloque_constitucional"):
+        if _materia_should_filter and silo_name not in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2", "bloque_constitucional"):
             combined_filter = _combine_filters_for_silo(state_filter, _materia_should_filter)
         else:
             combined_filter = state_filter
@@ -7789,7 +7668,7 @@ async def hybrid_search_all_silos(
         for r in results:
             if r.silo == "leyes_federales":
                 federales.append(r)
-            elif r.silo in JURIS_SILOS:
+            elif r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2"):
                 jurisprudencia.append(r)
             elif r.silo == "bloque_constitucional":
                 constitucional.append(r)
@@ -8147,7 +8026,7 @@ async def hybrid_search_all_silos(
         _post_tasks = {}
 
         # JURISPRUDENCIA BOOST (if fewer than 5 tesis found)
-        juris_in_merged = [r for r in merged if r.silo in JURIS_SILOS]
+        juris_in_merged = [r for r in merged if r.silo in ("jurisprudencia_nacional", "jurisprudencia_nacional_v2")]
         if len(juris_in_merged) < 5:
             print(f"   ⚖️ JURISPRUDENCIA BOOST V2: Solo {len(juris_in_merged)} tesis, ejecutando multi-query...")
 
@@ -8617,56 +8496,22 @@ async def resolver_cita(doc_id: str):
             "materia": materia,
         }
 
-    # ── La tesis se identifica por su RUBRO, no por su registro ──────────────
-    #
-    # `ref` es lo que el visor enseña como encabezado. Con «Registro 163925» el
-    # abogado abre la ficha y no sabe qué criterio está viendo. El rubro es el
-    # nombre del criterio y es lo que se cita en un escrito.
-    #
-    # Y `clave_tesis` va delante de `numero_tesis`: la colección v3 usa el
-    # primero y la v2 el segundo. Leer sólo uno deja la clave en blanco.
-    _rubro = (pay.get("rubro") or "").strip()
-    _clave = pay.get("clave_tesis") or pay.get("numero_tesis") or pay.get("tesis_num")
-
-    # ── El PDF de una tesis no está en el payload: se construye ──────────────
-    #
-    # Las leyes traen `pdf_url` porque su PDF vive en GCS. Una tesis no: su
-    # ficha oficial es la del Semanario, que se arma con el registro. Sin esto
-    # el visor recibe pdf_url nulo y no abre nada — que es exactamente lo que
-    # pasó al cambiar de colección.
-    _pdf = (pay.get("pdf_url") or pay.get("url_pdf") or pay.get("pdf"))
-    if not _pdf and registro and (col in JURIS_SILOS or _clave or _rubro):
-        _pdf = f"https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
-
-    # El texto que se enseña ha de EMPEZAR por el rubro, como en la v2. La v3 lo
-    # guarda aparte para no ensuciar el vector, pero al leerlo hay que
-    # recomponerlo o la cita sale a medias.
-    _texto = (pay.get("texto") or pay.get("text")
-              or pay.get("holding") or pay.get("chunk_text") or "")
-    if _rubro and not _texto.lstrip().upper().startswith(_rubro[:40].upper()):
-        _texto = f"{_rubro}\n\n{_texto}"
-
     return {
-        "origen": (humanize_origen(origen)
-                   or (pay.get("instancia") if col in JURIS_SILOS else None)
-                   or ("Semanario Judicial de la Federación" if col in JURIS_SILOS
-                       else "Fuente legal")),
-        "ref": (pay.get("ref") or _rubro or _clave
+        "origen": humanize_origen(origen) or "Fuente legal",
+        "ref": (pay.get("ref") or pay.get("numero_tesis")
                 or pay.get("expediente")
                 or (f"Registro {registro}" if registro else "")),
-        "texto": _texto,
-        "pdf_url": _pdf,
+        "texto": (pay.get("texto") or pay.get("text")
+                  or pay.get("holding") or pay.get("chunk_text") or ""),
+        "pdf_url": (pay.get("pdf_url") or pay.get("url_pdf")
+                    or pay.get("pdf") or None),
         "silo": col,
         "entidad": pay.get("entidad"),
         "registro": str(registro) if registro else None,
-        "tesis_num": _clave,
+        "tesis_num": pay.get("numero_tesis") or pay.get("tesis_num"),
         "tipo_criterio": pay.get("tipo") or pay.get("tipo_criterio"),
         "instancia": pay.get("instancia"),
         "materia": materia,
-        # Nuevos en v3: la cita canónica de la Corte y si el criterio OBLIGA.
-        "localizacion": pay.get("localizacion"),
-        "vincula": pay.get("vincula"),
-        "epoca": pay.get("epoca"),
     }
 
 
@@ -11724,7 +11569,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             _origen_ancla = " + ".join(a for a, _ in _anclas) or "ninguna"
                             _ancla = _anclas[0][1] if _anclas else ""
                             if _anclas:
-                                _silos_ancla = ["leyes_federales", FIXED_SILOS["jurisprudencia"],
+                                _silos_ancla = ["leyes_federales", "jurisprudencia_nacional_v2",
                                                 "sentencias_holdings"]
                                 _silo_est = _silo_del_estado(effective_estado)
                                 if _silo_est:
