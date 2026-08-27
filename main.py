@@ -283,6 +283,25 @@ JURIS_SILOS = ("jurisprudencia_nacional", "jurisprudencia_nacional_v2",
                "jurisprudencia_nacional_v3")
 
 
+def _con_rubro(payload: dict) -> str:
+    """El texto de la tesis, empezando por su rubro.
+
+    La v2 lo traía repetido dentro del texto; al ingerir la v3 se quitó por
+    «limpieza», creyendo que ensuciaba el vector. Lo que hacía era otra cosa: es
+    lo que el modelo lee para poder CITAR el criterio por su nombre. Sin él las
+    respuestas salían con el rubro a medias o sin él.
+
+    Se recompone AL LEER, no al ingerir: el vector sigue limpio y la cita vuelve
+    a estar completa.
+    """
+    t = (payload.get("texto") or payload.get("text")
+         or payload.get("chunk_text") or payload.get("holding") or "")
+    r = (payload.get("rubro") or "").strip()
+    if r and not t.lstrip().upper().startswith(r[:40].upper()):
+        return f"{r}\n\n{t}"
+    return t
+
+
 def _vector_de(coleccion: str) -> str:
     """El nombre del vector denso que tiene esa colección."""
     return "texto" if str(coleccion or "").endswith("_v3") else "dense"
@@ -6342,13 +6361,7 @@ async def hybrid_search_single_silo(
             payload = point.payload or {}
             # Los silos EF (sentencias_ef y SCJN particionadas) almacenan el
             # contenido en `chunk_text`; otros silos usan `texto` o `text`.
-            texto = (
-                payload.get("texto")
-                or payload.get("text")
-                or payload.get("chunk_text")
-                or payload.get("holding")
-                or ""
-            )
+            texto = _con_rubro(payload)
             origen_raw = payload.get("origen") or ""
             
             # ── Extract registro: payload > texto tags > origen prefix ──
@@ -6667,11 +6680,12 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
             search_results.append(SearchResult(
                 id=str(point.id),
                 score=point.score,
-                texto=payload.get("texto", payload.get("text", "")),
-                # El numero de tesis es lo que un abogado escribe al citarla; si
-                # no lo hay, el registro digital la identifica sin ambiguedad.
-                ref=payload.get("ref") or _tesis_num or (
-                    f"Registro {_registro}" if _registro else None),
+                texto=_con_rubro(payload),
+                # El RUBRO primero: es el nombre del criterio y lo que el
+                # abogado escribe al citarlo. La clave y el registro lo
+                # identifican, pero no dicen de qué trata.
+                ref=(payload.get("ref") or payload.get("rubro") or _tesis_num
+                     or (f"Registro {_registro}" if _registro else None)),
                 origen=payload.get("origen") or payload.get("ley"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
@@ -8603,22 +8617,56 @@ async def resolver_cita(doc_id: str):
             "materia": materia,
         }
 
+    # ── La tesis se identifica por su RUBRO, no por su registro ──────────────
+    #
+    # `ref` es lo que el visor enseña como encabezado. Con «Registro 163925» el
+    # abogado abre la ficha y no sabe qué criterio está viendo. El rubro es el
+    # nombre del criterio y es lo que se cita en un escrito.
+    #
+    # Y `clave_tesis` va delante de `numero_tesis`: la colección v3 usa el
+    # primero y la v2 el segundo. Leer sólo uno deja la clave en blanco.
+    _rubro = (pay.get("rubro") or "").strip()
+    _clave = pay.get("clave_tesis") or pay.get("numero_tesis") or pay.get("tesis_num")
+
+    # ── El PDF de una tesis no está en el payload: se construye ──────────────
+    #
+    # Las leyes traen `pdf_url` porque su PDF vive en GCS. Una tesis no: su
+    # ficha oficial es la del Semanario, que se arma con el registro. Sin esto
+    # el visor recibe pdf_url nulo y no abre nada — que es exactamente lo que
+    # pasó al cambiar de colección.
+    _pdf = (pay.get("pdf_url") or pay.get("url_pdf") or pay.get("pdf"))
+    if not _pdf and registro and (col in JURIS_SILOS or _clave or _rubro):
+        _pdf = f"https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
+
+    # El texto que se enseña ha de EMPEZAR por el rubro, como en la v2. La v3 lo
+    # guarda aparte para no ensuciar el vector, pero al leerlo hay que
+    # recomponerlo o la cita sale a medias.
+    _texto = (pay.get("texto") or pay.get("text")
+              or pay.get("holding") or pay.get("chunk_text") or "")
+    if _rubro and not _texto.lstrip().upper().startswith(_rubro[:40].upper()):
+        _texto = f"{_rubro}\n\n{_texto}"
+
     return {
-        "origen": humanize_origen(origen) or "Fuente legal",
-        "ref": (pay.get("ref") or pay.get("numero_tesis")
+        "origen": (humanize_origen(origen)
+                   or (pay.get("instancia") if col in JURIS_SILOS else None)
+                   or ("Semanario Judicial de la Federación" if col in JURIS_SILOS
+                       else "Fuente legal")),
+        "ref": (pay.get("ref") or _rubro or _clave
                 or pay.get("expediente")
                 or (f"Registro {registro}" if registro else "")),
-        "texto": (pay.get("texto") or pay.get("text")
-                  or pay.get("holding") or pay.get("chunk_text") or ""),
-        "pdf_url": (pay.get("pdf_url") or pay.get("url_pdf")
-                    or pay.get("pdf") or None),
+        "texto": _texto,
+        "pdf_url": _pdf,
         "silo": col,
         "entidad": pay.get("entidad"),
         "registro": str(registro) if registro else None,
-        "tesis_num": pay.get("numero_tesis") or pay.get("tesis_num"),
+        "tesis_num": _clave,
         "tipo_criterio": pay.get("tipo") or pay.get("tipo_criterio"),
         "instancia": pay.get("instancia"),
         "materia": materia,
+        # Nuevos en v3: la cita canónica de la Corte y si el criterio OBLIGA.
+        "localizacion": pay.get("localizacion"),
+        "vincula": pay.get("vincula"),
+        "epoca": pay.get("epoca"),
     }
 
 
