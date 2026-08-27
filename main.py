@@ -466,6 +466,19 @@ ESTADOS_MEXICO = [
 ]
 
 EMBEDDING_MODEL = "text-embedding-3-small"
+
+# La jurisprudencia v3 se vectorizó con otro modelo, y eso NO es un capricho:
+# medido sobre 404 citas reales de engroses, recupera 24% en top-10 frente al
+# 17% de la v2. Pero un vector de 3072 dimensiones no entra en una colección de
+# 1536: Qdrant responde 400 y el try/except se lo traga, así que la
+# jurisprudencia desaparecía de TODAS las respuestas sin que nada fallara
+# visiblemente. El servidor arrancaba, /health decía «sano», y el abogado
+# dejaba de recibir tesis.
+#
+# Por eso la consulta se embebe dos veces: una para los 51 silos de 1536 y otra
+# para la jurisprudencia. Son ~100 tokens de más por consulta —milésimas de
+# peso— y evitan tener que reingerir 71.655 tesis para igualar dimensiones.
+EMBEDDING_MODEL_JURIS = "text-embedding-3-large"
 EMBEDDING_DIM = 1536
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4852,14 +4865,36 @@ def _acotar_para_embedding(texto: str) -> str:
     retry=retry_if_exception_type(Exception),
     before_sleep=lambda rs: print(f"   ⏳ Embedding retry #{rs.attempt_number} after error...")
 )
-async def get_dense_embedding(text: str) -> List[float]:
-    """Genera embedding denso usando OpenAI (con reintentos automáticos + semáforo)"""
+async def get_dense_embedding(text: str, modelo: Optional[str] = None) -> List[float]:
+    """Genera embedding denso usando OpenAI (con reintentos automáticos + semáforo)."""
     async with OPENAI_SEM:
         response = await openai_client.embeddings.create(
-            model=EMBEDDING_MODEL,
+            model=modelo or EMBEDDING_MODEL,
             input=_acotar_para_embedding(text),
         )
         return response.data[0].embedding
+
+
+# Los silos se consultan EN PARALELO y varios pueden ser de jurisprudencia, así
+# que sin esto la misma consulta se embebería varias veces por petición. La
+# caché es pequeña y se limpia sola: sólo tiene que sobrevivir a una ráfaga.
+# Un dict normal basta y evita depender de un import que en este fichero llega
+# mil líneas más abajo: desde Python 3.7 conserva el orden de inserción, que es
+# lo único que hace falta para desalojar el más viejo.
+_CACHE_EMB_JURIS: Dict[str, List[float]] = {}
+_CACHE_EMB_MAX = 64
+
+
+async def _embedding_juris(texto: str) -> List[float]:
+    """El vector para la jurisprudencia v3, que usa otro modelo y otra dimensión."""
+    llave = (texto or "")[:400]
+    if llave in _CACHE_EMB_JURIS:
+        return _CACHE_EMB_JURIS[llave]
+    v = await get_dense_embedding(texto, modelo=EMBEDDING_MODEL_JURIS)
+    _CACHE_EMB_JURIS[llave] = v
+    if len(_CACHE_EMB_JURIS) > _CACHE_EMB_MAX:
+        _CACHE_EMB_JURIS.pop(next(iter(_CACHE_EMB_JURIS)))
+    return v
 
 
 def get_sparse_embedding(text: str) -> SparseVector:
@@ -6225,6 +6260,12 @@ async def hybrid_search_single_silo(
     global _HYBRID_PREFETCH_BROKEN
     async def _do_search(search_filter: Optional[Filter]) -> list:
         """Ejecuta la búsqueda con el filtro dado (protegida por semáforo)."""
+        # La v3 vive en otro espacio vectorial: si se le manda el vector de 1536
+        # devuelve 400 y esta función acaba en el except, devolviendo lista vacía
+        # sin decir por qué.
+        if _vector_de(collection) != "dense":
+            dense_vector = await _embedding_juris(query)
+
         async with QDRANT_SEM:
             col_info = await qdrant_client.get_collection(collection)
             sparse_vectors_config = col_info.config.params.sparse_vectors
@@ -6316,7 +6357,10 @@ async def hybrid_search_single_silo(
                     registro = _orig_m.group(1)
             
             # ── Extract tesis_num: payload > texto tags > ref ──
-            tesis_num = payload.get("tesis", payload.get("numero_tesis", payload.get("tesis_num")))
+            # v2 la guarda como `numero_tesis`; v3 como `clave_tesis`. Se leen
+            # las dos o la app pierde la clave en todas las citas.
+            tesis_num = payload.get("tesis") or payload.get("numero_tesis") \
+                or payload.get("clave_tesis") or payload.get("tesis_num")
             if not tesis_num:
                 _tes_m = re.search(r'\[TESIS:\s*([^\]]+)\]', texto)
                 if _tes_m:
@@ -6349,7 +6393,11 @@ async def hybrid_search_single_silo(
                 id=str(point.id),
                 score=point.score,
                 texto=texto,
-                ref=payload.get("ref"),
+                # Sin `ref` la interfaz rotula la cita como «Disposición legal» y
+                # no la reconoce como tesis: el abogado se queda con un título de
+                # ley, sin artículo y sin fuente. El rubro es lo que la nombra.
+                ref=payload.get("ref") or payload.get("rubro") or tesis_num or (
+                    f"Registro {registro}" if registro else None),
                 origen=origen_raw or None,
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
@@ -6360,6 +6408,10 @@ async def hybrid_search_single_silo(
                 tipo_criterio=tipo_criterio,
                 instancia_meta=instancia,
                 materia_meta=materia,
+                # Sólo v3: la cita canónica redactada por la Corte, para
+                # copiarla en vez de componerla, y si el criterio OBLIGA.
+                localizacion=payload.get("localizacion"),
+                vincula=payload.get("vincula"),
                 # LLM Tagging fields (Concept Boost)
                 conceptos_transversales=payload.get("conceptos_transversales"),
                 tema_articulo=payload.get("tema_articulo"),
@@ -6894,7 +6946,10 @@ async def _fetch_neighbor_chunks(
                 id=point_id,
                 score=0.15,  # Score bajo: contexto, no resultado principal
                 texto=payload.get("texto", payload.get("text", "")),
-                ref=payload.get("ref"),
+                # Sin `ref` la interfaz rotula la cita como «Disposición legal»
+                # y no la reconoce como tesis. El rubro es lo que la identifica.
+                ref=payload.get("ref") or payload.get("rubro") or tesis_num or (
+                    f"Registro {registro}" if registro else None),
                 origen=payload.get("origen") or payload.get("ley"),
                 jurisdiccion=payload.get("jurisdiccion"),
                 entidad=payload.get("entidad"),
