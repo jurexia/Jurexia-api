@@ -6258,14 +6258,22 @@ async def hybrid_search_single_silo(
     RESILIENTE: Si el filtro causa error 400 (índice faltante), reintenta SIN filtro.
     """
     global _HYBRID_PREFETCH_BROKEN
+
+    # La v3 vive en otro espacio vectorial: si se le manda el vector de 1536
+    # devuelve 400, esta función acaba en el except y devuelve lista vacía sin
+    # decir por qué.
+    #
+    # VA AQUÍ Y NO DENTRO DE `_do_search`. Ponerlo dentro parecía inocente y
+    # tumbó los 51 silos restantes: al haber una ASIGNACIÓN a `dense_vector`
+    # dentro de la función anidada, Python la trata como local de toda ella, así
+    # que en las colecciones donde la condición NO se cumple se leía antes de
+    # existir. UnboundLocalError → except → cero resultados. Las leyes no
+    # perdían la puja: ni siquiera se buscaban.
+    if _vector_de(collection) != "dense":
+        dense_vector = await _embedding_juris(query)
+
     async def _do_search(search_filter: Optional[Filter]) -> list:
         """Ejecuta la búsqueda con el filtro dado (protegida por semáforo)."""
-        # La v3 vive en otro espacio vectorial: si se le manda el vector de 1536
-        # devuelve 400 y esta función acaba en el except, devolviendo lista vacía
-        # sin decir por qué.
-        if _vector_de(collection) != "dense":
-            dense_vector = await _embedding_juris(query)
-
         async with QDRANT_SEM:
             col_info = await qdrant_client.get_collection(collection)
             sparse_vectors_config = col_info.config.params.sparse_vectors
@@ -6574,11 +6582,18 @@ async def _jurisprudencia_boost_search(query: str, exclude_ids: set) -> List[Sea
     para maximizar recall de tesis relevantes.
     """
     try:
-        dense_vector = await get_dense_embedding(query)
+        # El mismo tropiezo que en la búsqueda por silo: esta función SIEMPRE
+        # consulta la jurisprudencia, así que su vector tiene que ser el del
+        # modelo con que se vectorizó esa colección. Con el de por omisión
+        # devolvía 400 y el refuerzo se quedaba mudo.
+        _col_juris = FIXED_SILOS["jurisprudencia"]
+        dense_vector = (await _embedding_juris(query)
+                        if _vector_de(_col_juris) != "dense"
+                        else await get_dense_embedding(query))
         sparse_vector = get_sparse_embedding(query)
-        
+
         # Verificar si tiene sparse vectors
-        col_info = await qdrant_client.get_collection("jurisprudencia_nacional_v2")
+        col_info = await qdrant_client.get_collection(_col_juris)
         sparse_vectors_config = col_info.config.params.sparse_vectors
         has_sparse = sparse_vectors_config is not None and len(sparse_vectors_config) > 0
 
@@ -6765,7 +6780,7 @@ async def _cross_silo_enrichment(
             # Buscar jurisprudencia que cite este artículo/ley
             juris_query = f"tesis jurisprudencia criterio judicial {ref}"
             enrichment_tasks.append(
-                _do_enrichment_search("jurisprudencia_nacional_v2", juris_query)
+                _do_enrichment_search(FIXED_SILOS["jurisprudencia"], juris_query)
             )
 
             # El bloque convencional (CoIDH, tratados) por su cuenta: aporta,
