@@ -25310,6 +25310,89 @@ async def notificaciones_apple(request: Request):
     return {"ok": True, "tipo": tipo, "plan": nuevo_plan}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# TALLER DE SENTENCIAS — el adelanto completo desde dos documentos
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# El circuito vive en `redactor_adelanto.py` y aquí sólo se expone. Se importa
+# DENTRO del endpoint a propósito: si falta `python-docx` o la plantilla, que
+# falle esta ruta y no el arranque del servidor entero.
+
+@app.post("/taller/adelanto")
+async def taller_adelanto(
+    numero: str = Form(...),
+    encabezado: str = Form(...),
+    quejoso: str = Form(...),
+    magistrado: str = Form(...),
+    secretario: str = Form(...),
+    notificacion: str = Form(...),           # ISO: 2026-05-11
+    presentacion: str = Form(...),
+    user_email: str = Form(...),
+    regla_surtimiento: str = Form("tja_qro_boletin"),
+    plazo: int = Form(15),
+    responsable: Optional[str] = Form(None),
+    es_recurso: bool = Form(False),
+    plantilla: UploadFile = File(...),       # el .docx del propio tribunal
+    acto: UploadFile = File(...),
+    conceptos: UploadFile = File(...),
+):
+    """Genera el adelanto y lo devuelve como .docx.
+
+    LA VÍA Y EL PLAZO LLEGAN COMO CAMPOS, no se adivinan. Está medido: al
+    inferir la vía por palabra clave, el cómputo se iba ±1 día en la mitad de
+    los casos, y un plazo mal contado invalida la sentencia. Los confirma el
+    secretario, que los tiene delante.
+    """
+    import datetime as _dtm
+    import tempfile
+
+    if not _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "El taller de sentencias requiere plan Platinum")
+
+    import redactor_adelanto as _ra
+
+    tmp = tempfile.mkdtemp(prefix="taller_")
+    ruta_plantilla = f"{tmp}/plantilla.docx"
+    with open(ruta_plantilla, "wb") as fh:
+        fh.write(await plantilla.read())
+
+    # Se reutiliza el lector que ya existe: texto nativo gratis, OCR sólo si
+    # el PDF viene escaneado.
+    texto_acto = await _extract_text_from_upload(acto)
+    texto_conceptos = await _extract_text_from_upload(conceptos)
+    if len(texto_acto) < 200 or len(texto_conceptos) < 200:
+        raise HTTPException(400, "No se pudo leer alguno de los documentos.")
+
+    encargo = _ra.Encargo(
+        numero=numero, encabezado=encabezado, quejoso=quejoso,
+        magistrado=magistrado, secretario=secretario,
+        notificacion=_dtm.date.fromisoformat(notificacion),
+        presentacion=_dtm.date.fromisoformat(presentacion),
+        regla_surtimiento=regla_surtimiento, plazo=plazo,
+        responsable=responsable, es_recurso=es_recurso,
+        plantilla=ruta_plantilla,
+    )
+    salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
+    r = await _ra.generar(chat_client, encargo, texto_acto, texto_conceptos, salida)
+
+    print(f"   ⚖️ TALLER: adelanto {numero} · "
+          f"{len(r.fases.problemas)} problemas · {len(r.huecos)} huecos")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        r.ruta,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=salida.split("/")[-1],
+        headers={
+            # Lo que el secretario tiene que leer ANTES de abrir el documento.
+            "X-Oportunidad": "en-tiempo" if r.computo.oportuna else "EXTEMPORANEA",
+            "X-Problemas": str(len(r.fases.problemas)),
+            "X-Huecos": str(len(r.huecos)),
+            "X-Avisos": str(len(r.avisos)),
+        },
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     
