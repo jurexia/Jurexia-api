@@ -43,19 +43,24 @@ LO QUE LA AUDITORÍA DICE HOY — 28-ago-2026, y hay que leerlo antes de usar
 ═══════════════════════════════════════════════════════════════════════════
 
 Contrastado contra 49 cómputos LEGIBLES de adelantos y engroses firmados
-(`scratchpad/auditar_fase0.py`):
+(`auditar_fase0.py`):
 
-    reproduce exacto ....  9   (18%)
-    discrepa ............ 40
+    sin los calendarios oficiales ....  4  ( 8%)
+    con dos reglas deducidas .........  9  (18%)
+    CON LOS CALENDARIOS DEL OAJ ...... 37  (76%)   ← estado actual
+
+La pieza que faltaba no era lógica: eran DATOS. Los periodos vacacionales y
+las semanas santas no se derivan de ninguna regla —la de 2025 fue del 16 al 18
+de abril y la de 2026 es del 1 al 3— y hay que transcribirlos del sitio del
+OAJ.
 
 NO ES APTO PARA FIRMAR TODAVÍA. Sirve para proponer y para revisar; no para
 sustituir el cómputo del secretario.
 
-El desfase NO está donde parecía. De los 40 fallos, **32 se van por ±1 día**
-—20 con el vencimiento un día tarde y 12 un día pronto—, y sólo 8 tienen
-desfases grandes. Un ±1 sistemático no es calendario incompleto: es la REGLA
-DE SURTIMIENTO, que cambia según la ley que rige el acto y que aquí se está
-adivinando por palabra clave en el texto («boletín», «por lista»).
+De los 12 fallos que quedan, DOS son del propio auditor (desfase de +365 días
+= error al heredar el año en la extracción). De los otros diez, la mitad se va
+por ±1 día: es la REGLA DE SURTIMIENTO, que cambia según la ley que rige el
+acto y que el auditor adivina por palabra clave («boletín», «por lista»).
 
 Conclusión de ingeniería: la vía de notificación y el plazo NO deben
 inferirse. Tienen que ser campos que el secretario confirme, porque un plazo
@@ -145,20 +150,46 @@ class Calendario:
 # OJO A QUIEN TOQUE ESTO: la lista es de consulta obligada contra el texto
 # vigente y contra el acuerdo del CJF del año. No se cambia de memoria. Los
 # periodos vacacionales del PJF se cargan en `sueltos`/`periodos` por año.
+_d = _dt.date
+
+# ── LOS DÍAS INHÁBILES OFICIALES ──────────────────────────────────────────
+#
+# Copiados del sitio del Órgano de Administración Judicial, que es la fuente
+# que David señaló:
+#     https://www.oaj.gob.mx/transparencia/paginas/diasinhabiles.htm
+#
+# NO se derivan de reglas: se transcriben. Los periodos vacacionales (16-31 de
+# julio y 16-31 de diciembre) y la Semana Santa cambian cada año y no hay
+# fórmula que los prediga — la de 2025 fue del 16 al 18 de abril y la de 2026
+# es del 1 al 3.
+#
+# Al transcribir hay una trampa: en el sitio las llamadas a nota van PEGADAS al
+# número del día, así que «Lunes 23,4» es el lunes 2 con las notas 3 y 4, y
+# «Lunes 156» es el lunes 15 con la nota 6. Se desambigua exigiendo que el
+# resto tenga forma de lista de notas y comprobando el día de la semana.
+#
+# PARA AÑADIR UN AÑO: se copia del sitio y se vuelve a correr `auditar_fase0.py`.
+INHABILES_OAJ = {
+    2024: {_d(2024,1,1), _d(2024,2,5), _d(2024,3,18), _d(2024,3,21), _d(2024,3,27), _d(2024,3,28), _d(2024,3,29), _d(2024,5,1), _d(2024,9,16), _d(2024,10,1), _d(2024,11,1), _d(2024,11,18), _d(2024,11,20)},
+    2025: {_d(2025,1,1), _d(2025,2,3), _d(2025,2,5), _d(2025,3,17), _d(2025,3,21), _d(2025,4,16), _d(2025,4,17), _d(2025,4,18), _d(2025,5,1), _d(2025,5,2), _d(2025,5,5), _d(2025,9,15), _d(2025,9,16), _d(2025,11,17), _d(2025,11,20)},
+    2026: {_d(2026,1,1), _d(2026,2,2), _d(2026,2,5), _d(2026,3,16), _d(2026,4,1), _d(2026,4,2), _d(2026,4,3), _d(2026,5,1), _d(2026,5,4), _d(2026,5,5), _d(2026,9,14), _d(2026,9,15), _d(2026,9,16), _d(2026,10,12), _d(2026,11,2), _d(2026,11,16), _d(2026,11,20), _d(2026,12,25)},
+}
+
+PERIODOS_OAJ = {
+    2024: [(_d(2024,7,16), _d(2024,7,3)), (_d(2024,12,16), _d(2024,12,3))],
+    2025: [(_d(2025,7,16), _d(2025,7,3)), (_d(2025,12,16), _d(2025,12,3))],
+    2026: [(_d(2026,7,16), _d(2026,7,31)), (_d(2026,12,16), _d(2026,12,31))],
+}
+
+
 CALENDARIO_AMPARO = Calendario(
     nombre="Poder Judicial de la Federación",
     fundamento="artículo 19 de la Ley de Amparo",
-    fijos={(1, 1), (1, 5), (5, 5), (16, 9), (12, 10), (25, 12)},
+    # El art. 19 dice «catorce Y dieciséis de septiembre» — el 14 faltaba.
+    fijos={(1, 1), (1, 5), (5, 5), (14, 9), (16, 9), (12, 10), (25, 12)},
     trasladados={2: 1, 3: 3, 11: 3},
-    # SUSPENSIONES DEL ÓRGANO. No salen del art. 19: salen de los acuerdos del
-    # CJF y son las que más descuadran el cómputo. La Semana Santa de 2025 se
-    # dedujo de los engroses ADA 448-2025 y 449-2025, donde el vencimiento
-    # firmado (7 de mayo) sólo se reproduce si la semana del 14 al 18 de abril
-    # está entera como inhábil.
-    #
-    # FALTAN LOS DEMÁS AÑOS Y LOS DOS PERIODOS VACACIONALES ANUALES. Cada uno
-    # que se añada hay que comprobarlo contra un engrose firmado, como éste.
-    periodos=[(_dt.date(2025, 4, 14), _dt.date(2025, 4, 18))],
+    sueltos=set().union(*INHABILES_OAJ.values()),
+    periodos=[p for v in PERIODOS_OAJ.values() for p in v],
 )
 
 
@@ -168,7 +199,38 @@ CALENDARIO_AMPARO = Calendario(
 # añade conforme se confirmen sus acuerdos de suspensión de labores. Mientras
 # una responsable no esté declarada, `computar` avisa y usa el federal, que es
 # la aproximación menos mala, PERO deja constancia de que fue una aproximación.
-CALENDARIOS_RESPONSABLE: dict[str, Calendario] = {}
+CALENDARIOS_RESPONSABLE: dict[str, Calendario] = {
+    # Poder Judicial del Estado de Querétaro — calendario 2026, copiado de
+    #     https://www.poderjudicialqro.gob.mx/nv/calendario.php
+    # (acuerdo del Consejo de la Judicatura, art. 140 fr. XII de su Ley
+    # Orgánica). El propio acuerdo dice: «Los plazos procesales no se
+    # computarán en los días inhábiles».
+    #
+    # MIRA LO DISTINTO QUE ES DEL FEDERAL, que es justo la razón de que haya
+    # dos calendarios: sus vacaciones de julio van del 20 al 31 (el PJF, del
+    # 16 al 31), las de diciembre del 17 al 31 (el PJF, del 16), y además
+    # tiene DOS periodos extraordinarios que el federal no contempla.
+    #
+    # OJO: esto es el PODER JUDICIAL del estado —materia civil, familiar,
+    # penal local—. El Tribunal de Justicia Administrativa de Querétaro, que
+    # fue la responsable del ADA 240/2026, es otro órgano y tiene su propio
+    # calendario, que aún no está aquí.
+    "pj_queretaro": Calendario(
+        nombre="Poder Judicial del Estado de Querétaro",
+        fundamento="acuerdo del Consejo de la Judicatura del Estado",
+        sueltos={
+            _d(2026, 1, 1), _d(2026, 2, 2), _d(2026, 3, 16), _d(2026, 4, 2),
+            _d(2026, 4, 3), _d(2026, 5, 1), _d(2026, 9, 15), _d(2026, 9, 16),
+            _d(2026, 11, 2), _d(2026, 11, 16), _d(2026, 12, 25),
+        },
+        periodos=[
+            (_d(2026, 6, 29), _d(2026, 7, 10)),   # primer extraordinario
+            (_d(2026, 7, 20), _d(2026, 7, 31)),   # primer ordinario
+            (_d(2026, 12, 17), _d(2026, 12, 31)), # segundo ordinario
+            (_d(2027, 1, 11), _d(2027, 1, 22)),   # segundo extraordinario
+        ],
+    ),
+}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -214,6 +276,18 @@ REGLAS_SURTE: dict[str, ReglaSurte] = {
         clave="lista",
         descripcion="por lista",
         dias_habiles=1,
+    ),
+    # Contencioso administrativo federal. Leída de la nota al pie de
+    # «Notificación en Revisión Fiscal.docx» del propio corpus:
+    #     «ARTÍCULO 70. Las notificaciones surtirán sus efectos, el día hábil
+    #      siguiente a aquél en que fueren hechas.»
+    # Comprobada con su ejemplo trabajado: notificación del 2 de septiembre de
+    # 2024, surtió el 3, plazo de 15 días vencido el 25. Reproduce al día.
+    "lfpca": ReglaSurte(
+        clave="lfpca",
+        descripcion="conforme a la Ley Federal de Procedimiento Contencioso Administrativo",
+        dias_habiles=1,
+        fundamento="artículo 70 de la Ley Federal de Procedimiento Contencioso Administrativo",
     ),
 }
 
