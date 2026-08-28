@@ -38,12 +38,32 @@ import asyncio
 import datetime
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, field
 
 logger = logging.getLogger("cache_manager")
+
+# ── QUE SE VEA EN PRODUCCIÓN ─────────────────────────────────────────────────
+# Hasta el 28-ago-2026 este módulo era MUDO en Render: `logging.basicConfig` no
+# se llama en ninguna parte del proyecto, así que el logger no tenía destino y
+# todos sus `info` se tiraban. Resultado: cero líneas «Cache created», cero
+# «BUDGET GUARD», cero errores de creación. Toda la contabilidad del caché
+# —que es de donde sale la factura de Gemini— era inobservable, y por eso no se
+# podía responder «¿cuántas cachés se crean al día?» sin simularlo.
+#
+# Render captura la salida estándar, así que se le pone un handler propio a
+# stdout. `propagate = False` evita que se duplique si alguien configura el
+# logger raíz más adelante, y el guardia `if not logger.handlers` evita que se
+# apilen handlers si el módulo se reimporta.
+if not logger.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter("   🧞 %(message)s"))
+    logger.addHandler(_h)
+    logger.propagate = False
+logger.setLevel(logging.INFO)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # gemini-3.5-flash y no gemini-3-flash-preview: medido el 1-ago-2026 sobre el

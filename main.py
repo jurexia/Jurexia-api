@@ -11412,6 +11412,31 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     _resolved_genio_ids = request.genio_ids or []
     if not _resolved_genio_ids and request.enable_genio_juridico:
         _resolved_genio_ids = ["amparo"]  # Legacy compatibility
+
+    # ── SÓLO GENIOS QUE EXISTEN ──────────────────────────────────────────────
+    # Medido en los registros del 21 al 28-ago-2026: llegaron `genio_ids` que
+    # no son genios —«Oaxaca», «Queretaro»—, seguramente el estado colándose
+    # por el campo equivocado. Un id inexistente no encuentra configuración, la
+    # caché nunca se crea, y la consulta igual se va por la rama del genio: se
+    # paga el camino caro y se ensucia la señal de materia que va al RAG.
+    #
+    # Se filtran contra GENIO_CONFIGS, que es la única lista verdadera. No se
+    # rechaza la petición entera: el abogado recibe su respuesta por el camino
+    # normal, que es lo que quería. Sólo se descarta el id inválido y se deja
+    # dicho en el registro para poder cazar de dónde sale.
+    if _resolved_genio_ids:
+        try:
+            from cache_manager import GENIO_CONFIGS as _GENIOS_VALIDOS
+            _validos = [g for g in _resolved_genio_ids if g in _GENIOS_VALIDOS]
+            _invalidos = [g for g in _resolved_genio_ids if g not in _GENIOS_VALIDOS]
+            if _invalidos:
+                print(f"   ⚠️ GENIO_IDS INVÁLIDOS descartados: {_invalidos} "
+                      f"(válidos: {sorted(_GENIOS_VALIDOS)})")
+            _resolved_genio_ids = _validos
+        except Exception as _e:
+            # Si no se puede leer el catálogo, se deja pasar lo que vino: mejor
+            # una consulta cara que una consulta rota.
+            print(f"   ⚠️ No se pudo validar genio_ids: {err(_e)}")
     
     # Extract primary genio for cache logic (backward compatibility)
     _primary_genio_id = _resolved_genio_ids[0] if _resolved_genio_ids else None
