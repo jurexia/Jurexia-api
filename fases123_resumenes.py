@@ -86,8 +86,11 @@ de modo que quien lea entienda la resolución impugnada sin tenerla enfrente.
 - SUJETO: {', '.join(SUJETOS_RESPONSABLE[:4])}. Nunca su nombre propio.
 - NO LA CALIFIQUES TODAVÍA. Aquí sólo se reconstruye su razonamiento con
   fidelidad; el juicio viene después, en el estudio.
-- CADA AFIRMACIÓN ANCLADA a la página del documento de origen, para que el
-  secretario coteje sin releer.
+- CADA AFIRMACIÓN ANCLADA a su origen, para que el secretario coteje sin
+  releer. Se marca con [[p.7 §3]] al final de la frase —página y párrafo— y NO
+  entre paréntesis: el ensamblador convierte esas marcas en NOTAS AL PIE con la
+  forma «Cfr. página 7, párrafo 3», que es como se cita en una sentencia. Un
+  «(p. 7)» en mitad del texto ensucia la prosa y hay que borrarlo a mano.
 - EXTENSIÓN: alrededor de {PALABRAS_RESUMEN_ACTO} palabras, que es la mediana
   medida en los engroses reales."""
 

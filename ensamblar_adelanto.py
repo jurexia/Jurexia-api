@@ -51,6 +51,7 @@ from typing import Iterable, Optional
 
 try:
     import docx
+    from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.text.paragraph import Paragraph
 except ImportError:                                     # pragma: no cover
@@ -103,6 +104,101 @@ def clonar_tras(p, texto: str, modelo=None):
     return q
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Notas al pie DE VERDAD
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Las citas a página NO van entre paréntesis en el cuerpo. David lo pidió así y
+# es la convención del oficio: al pie, «Cfr. página 7, párrafo 3».
+#
+# `docx_generator_tcc.py` las finge con un superíndice y una lista al final del
+# documento. Aquí se hacen de verdad, escribiendo en `word/footnotes.xml`, que
+# la plantilla ya tiene —trae tres notas propias—, y copiando el formato de las
+# suyas para que las nuevas no desentonen.
+
+_NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _parte_notas(doc):
+    """La parte `footnotes.xml`, o None si la plantilla no tiene notas.
+
+    OJO: python-docx la entrega como `Part` GENÉRICO, no como parte XML — no
+    tiene `.element`, sólo `.blob` con los bytes. Hay que analizarla y volver a
+    escribirla a mano.
+    """
+    for rel in doc.part.rels.values():
+        if rel.reltype.endswith("/footnotes"):
+            return rel.target_part
+    return None
+
+
+def _leer_notas(parte):
+    from lxml import etree
+    return etree.fromstring(parte.blob)
+
+
+def _guardar_notas(parte, raiz) -> None:
+    from lxml import etree
+    parte._blob = etree.tostring(raiz, xml_declaration=True,
+                                 encoding="UTF-8", standalone=True)
+
+
+def _siguiente_id(raiz) -> int:
+    ids = [int(n.get(qn("w:id"))) for n in raiz.findall(qn("w:footnote"))
+           if n.get(qn("w:id")) is not None]
+    return max(ids) + 1 if ids else 1
+
+
+def anadir_nota(doc, parrafo, texto: str) -> bool:
+    """Cuelga una nota al pie del final de `parrafo`. Devuelve si pudo.
+
+    Se clona una nota EXISTENTE de la plantilla para heredar su estilo —tamaño,
+    fuente, sangría— en vez de fabricar una desde cero, que saldría con el
+    formato por defecto y cantaría al lado de las suyas.
+    """
+    parte = _parte_notas(doc)
+    if parte is None:
+        return False
+    raiz = _leer_notas(parte)
+    modelo = None
+    for n in raiz.findall(qn("w:footnote")):
+        tipo = n.get(qn("w:type"))
+        if tipo in (None, "normal") and n.findall(qn("w:p")):
+            modelo = n
+            break
+    if modelo is None:
+        return False
+
+    nid = _siguiente_id(raiz)
+    nueva = copy.deepcopy(modelo)
+    nueva.set(qn("w:id"), str(nid))
+    # Se deja UN párrafo y se le escribe el texto MANIPULANDO EL XML, no con
+    # `Paragraph`: la parte se analiza con lxml plano y sus elementos no son
+    # los `CT_P` de python-docx, así que `.runs` no existe ahí.
+    ps = nueva.findall(qn("w:p"))
+    for extra in ps[1:]:
+        nueva.remove(extra)
+    textos = ps[0].findall(f".//{qn('w:t')}") if ps else []
+    if textos:
+        textos[0].text = texto
+        textos[0].set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        for sobra in textos[1:]:
+            sobra.text = ""
+    raiz.append(nueva)
+    _guardar_notas(parte, raiz)
+
+    # La llamada en el cuerpo: un run con estilo de referencia.
+    r = parrafo.add_run()
+    rpr = r._element.get_or_add_rPr()
+    estilo = OxmlElement("w:rStyle")
+    estilo.set(qn("w:val"), "Refdenotaalpie")
+    rpr.append(estilo)
+    ref = OxmlElement("w:footnoteReference")
+    ref.set(qn("w:id"), str(nid))
+    r._element.append(ref)
+    return True
+
+
 def modelos_de_formato(doc) -> dict:
     """Un párrafo de muestra por cada formato, tomado de la propia plantilla.
 
@@ -126,7 +222,41 @@ def modelos_de_formato(doc) -> dict:
             cuerpo = p
         if rotulo is not None and cuerpo is not None:
             break
-    return {"rotulo": rotulo, "cuerpo": cuerpo}
+    # El párrafo VACÍO también es un modelo, y es el que faltaba.
+    #
+    # David lo dijo mirando el documento: «sin espacios». No era una propiedad
+    # de espaciado: en su plantilla hay UN PÁRRAFO VACÍO entre cada párrafo de
+    # texto —la secuencia real es T · T · T ·— y yo los escribía pegados.
+    vacio = next((p for p in doc.paragraphs if not texto_de(p).strip()), None)
+    return {"rotulo": rotulo, "cuerpo": cuerpo, "vacio": vacio}
+
+
+# Las marcas que deja el pipeline: [[p.7 §3]] o [[p.7]].
+_MARCA_CITA = re.compile(r"\s*\[\[\s*p\.?\s*(\d{1,4})\s*(?:§\s*(\d{1,3}))?\s*\]\]")
+
+
+def _texto_de_nota(pagina: str, parrafo: Optional[str]) -> str:
+    return (f"Cfr. página {pagina}, párrafo {parrafo}." if parrafo
+            else f"Cfr. página {pagina}.")
+
+
+def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None):
+    """Varios párrafos con su separador vacío detrás, como los escribe él.
+
+    Y con las marcas de cita convertidas en NOTAS AL PIE. Si el documento no
+    admite notas, la marca se retira del texto: nunca se deja un «[[p.7 §3]]»
+    a la vista.
+    """
+    for t in textos:
+        citas = [(m.group(1), m.group(2)) for m in _MARCA_CITA.finditer(t)]
+        limpio = _MARCA_CITA.sub("", t)
+        ancla = clonar_tras(ancla, limpio, modelo)
+        if doc is not None:
+            for pagina, parrafo in citas:
+                anadir_nota(doc, ancla, _texto_de_nota(pagina, parrafo))
+        if modelo_vacio is not None:
+            ancla = clonar_tras(ancla, "", modelo_vacio)
+    return ancla
 
 
 def buscar(doc, patron: str, desde: int = 0):
@@ -266,9 +396,7 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         fin = buscar(doc, r"^SEXTO\.\s*Estudio", desde=indice_de(doc, p) + 1) if p else None
         borrar_entre(doc, p, fin)
         if p is not None:
-            ancla = p
-            for t in r.antecedentes:
-                ancla = clonar_tras(ancla, t, mod["cuerpo"])
+            ancla = clonar_bloque(p, r.antecedentes, mod["cuerpo"], mod["vacio"], doc)
 
     # ── SEXTO. Estudio ───────────────────────────────────────────────────
     p = buscar(doc, r"^SEXTO\.\s*Estudio")
@@ -286,8 +414,9 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
             if not parrafos:
                 continue
             ancla = clonar_tras(ancla, rotulo, mod["rotulo"])
-            for t in parrafos:
-                ancla = clonar_tras(ancla, t, mod["cuerpo"])
+            if mod["vacio"] is not None:
+                ancla = clonar_tras(ancla, "", mod["vacio"])
+            ancla = clonar_bloque(ancla, parrafos, mod["cuerpo"], mod["vacio"], doc)
 
     # ── El NOMBRE de la parte, allí donde la plantilla lo arrastra ───────
     #
