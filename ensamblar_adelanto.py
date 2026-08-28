@@ -253,6 +253,54 @@ def anadir_nota(doc, parrafo, texto: str) -> bool:
     return True
 
 
+# ── El formato de la TRANSCRIPCIÓN de una tesis ──────────────────────────
+#
+# Medido sobre 1,676 transcripciones reales del corpus, y es DISTINTO del
+# cuerpo en cuatro cosas a la vez:
+#
+#                    cuerpo (17,715 párr.)   transcripción (1,676)
+#     sangría izq.   ninguna (91%)           709 twips (48%)  ← 1.25 cm
+#     1ª línea       709 twips (55%)         ninguna (80%)
+#     interlineado   1.5 (75%)               1.0 (48%)
+#     tamaño         14 pt (76%)             13 pt (72%)
+#     cursiva        no (97%)                SÍ (100%)
+#
+# Clonarla del cuerpo —que es lo que se hacía— la deja sin sangrar, a 14 puntos
+# y con interlineado y medio: se lee como si fuera prosa del tribunal y no como
+# lo que es, texto ajeno transcrito.
+SANGRIA_CITA = 709          # twips = 1.25 cm
+TAMANO_CITA = 13            # puntos
+
+
+def _aplicar_formato_cita(p) -> None:
+    """Sangra, achica e inclina un párrafo ya escrito."""
+    from docx.shared import Pt, Twips
+    pf = p.paragraph_format
+    pf.left_indent = Twips(SANGRIA_CITA)
+    pf.first_line_indent = Twips(0)
+    pf.line_spacing = 1.0
+    for r in p.runs:
+        r.italic = True
+        r.font.size = Pt(TAMANO_CITA)
+
+
+def formato_cita(modelo_cuerpo):
+    """El modelo del cuerpo, ajustado a las medidas de la transcripción."""
+    if modelo_cuerpo is None:
+        return None
+    from docx.shared import Pt, Twips
+    nuevo = copy.deepcopy(modelo_cuerpo._p)
+    q = Paragraph(nuevo, modelo_cuerpo._parent)
+    pf = q.paragraph_format
+    pf.left_indent = Twips(SANGRIA_CITA)
+    pf.first_line_indent = Twips(0)
+    pf.line_spacing = 1.0
+    for r in q.runs:
+        r.italic = True
+        r.font.size = Pt(TAMANO_CITA)
+    return q
+
+
 def modelos_de_formato(doc) -> dict:
     """Un párrafo de muestra por cada formato, tomado de la propia plantilla.
 
@@ -365,6 +413,9 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                     ancla = clonar_tras(ancla, "", modelo_vacio)
                 ancla = clonar_tras(ancla, cuerpo, modelo_cita or modelo)
                 escribir_tramos(ancla, [(cuerpo, {"italic": True})])
+                # El formato va DESPUÉS de escribir: `escribir_tramos` clona el
+                # primer run como molde y heredaría el tamaño del cuerpo.
+                _aplicar_formato_cita(ancla)
 
         if modelo_vacio is not None:
             ancla = clonar_tras(ancla, "", modelo_vacio)
