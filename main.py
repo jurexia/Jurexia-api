@@ -1351,9 +1351,17 @@ DEBES IGNORAR todo tono conversacional o introductorio (e.g. "¡Claro! Aquí tie
  FORMATO DE SALIDA
 ────────────────────────────────────────────────────────────────
 
-- NO USES *Markdown* exótico. Nada de asteriscos de negrita ni almohadillas: el
-  escrito se copia a Word y los símbolos llegan hasta ahí. Los encabezados van
-  en texto llano, en versalitas si el registro lo pide.
+- NADA de Markdown exótico: sin almohadillas de título, sin tablas, sin bloques
+  de código, sin viñetas fuera de los apartados que el registro sí numera.
+- La negrita con **dobles asteriscos** se admite ÚNICAMENTE en el encabezado de
+  un apartado —«**SEXTO. Estudio.**», «**PRIMER AGRAVIO. …**», «**HECHOS**»— y
+  en la palabra que califica («**fundados**»). La interfaz la convierte en
+  negrita real, también al exportar a Word, así que no llega ningún símbolo al
+  documento.
+- PROHIBIDO resaltar dentro del cuerpo del párrafo. Ni nombres de ley, ni
+  números de artículo, ni conceptos, ni frases que te parezcan importantes: un
+  escrito jurídico no se subraya solo, y medio texto en negrita no se firma.
+  Como regla dura: menos de diez tramos en negrita en todo el documento.
 - NO EXPLIQUES pasajes paso a paso. Entrega la prosa final ensamblada de inicio a fin.
 - Usa lenguaje sobrio, persuasivo e irrefutable.
 
@@ -11194,7 +11202,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 print(f"   ⚠️ No pude leer el plan para el esfuerzo de redacción: {err(_e)}")
         if not _plan_alto:
             _profesional_esfuerzo = REDACTOR_PROFESIONAL_ESFUERZO
-            print(f"   ✍️ REDACCIÓN PROFESIONAL (plan base) → razonamiento {_profesional_esfuerzo}")
+            # Se resuelve aquí, pero sólo VIAJA si la llamada lleva razonamiento
+            # encendido. Redacción Profesional corre sin él desde el 27-ago-2026,
+            # así que en ese escalón este valor queda en el tintero.
+            print(f"   ✍️ REDACCIÓN PROFESIONAL (plan base) → esfuerzo resuelto: "
+                  f"{_profesional_esfuerzo} (sólo se envía si el motor razona)")
 
     # ── Precedentes — triggered by [MODO_PRECEDENTES] marker ──────────────
     # Frontend puede pasar:
@@ -12787,14 +12799,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # traiga el modelo por omisión.
                 _esfuerzo_redaccion = None
 
-                # ── FORCE THINKING FOR REDACCIÓN ──────────────────────────────────
-                # deepseek-chat has a hard 8K output limit which truncates long legal
-                # drafting responses mid-word, causing empty "❌ Error:" messages.
-                # deepseek-reasoner supports 64K output (we cap at 32K) — sufficient
-                # for full marco jurídico/estudio de fondo redaction.
+                # ── LA BANDERA QUE ELIGE LA RAMA DEL REDACTOR ─────────────────────
+                # Esto NO enciende el razonamiento: enciende la bandera que hace
+                # que el enrutado de más abajo caiga en la rama del redactor, y
+                # esa rama lo vuelve a apagar.
+                #
+                # Nació por otra razón, hoy caduca: `deepseek-chat` topaba la
+                # salida en 8K y cortaba los escritos a media palabra, así que se
+                # forzaba el modo razonador sólo para ganar ventana. Ese modelo se
+                # retiró en julio de 2026 y `v4-flash` admite 384,000 de salida:
+                # el razonamiento ya no compra nada aquí.
                 if is_chat_drafting and not use_thinking:
                     use_thinking = True
-                    print(f"   ✍️ REDACCIÓN → Thinking mode FORZADO (deepseek-reasoner, 32K output vs 8K chat limit)")
+                    print(f"   ✍️ REDACCIÓN → rama del redactor (la bandera elige rama, no enciende el razonamiento)")
 
                 # _cached results already retrieved in Paso 1 gather
                 _gemini_key = os.getenv("GEMINI_API_KEY", "")
@@ -12919,14 +12936,40 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # DeepSeek con thinking mode — sin genios disponibles.
                     # NOTE: Keep genio_ids for RAG materia hints (don't clear them)
                     if is_chat_drafting and not is_drafting and not has_document:
-                        # REDACTOR SIN GENIO: DeepSeek V4 Flash con reasoning para redacción jurídica.
-                        # Thinking mode permite al modelo planificar la estructura del documento
-                        # antes de escribir → mejor calidad en redacción legal.
+                        # REDACCIÓN PROFESIONAL (el escalón de los gratuitos):
+                        # v4-flash SIN razonar. Se llega aquí porque el bloque
+                        # «FORCE THINKING» de más arriba encendió la bandera para
+                        # elegir esta rama; una vez elegida, se apaga.
+                        #
+                        # Medido el 27-ago-2026 contra la API, misma petición:
+                        #
+                        #   razonando  · 1ª palabra 92.9 s · total 141 s
+                        #                14,209 tokens de salida, 9,260 de puro
+                        #                razonamiento (65%) · 3,012 palabras
+                        #   apagado    · 1ª palabra  1.5 s · total  49 s
+                        #                 4,682 tokens, 0 de razonamiento
+                        #                 · 2,943 palabras
+                        #
+                        # El escrito NO se acorta —en el considerando incluso
+                        # salió más largo (1,841 frente a 1,484 palabras)— y el
+                        # abogado deja de mirar minuto y medio de pantalla vacía
+                        # mientras se paga un razonamiento que nunca ve.
+                        #
+                        # El tope sube de 16,384 a 32,000 porque ese presupuesto
+                        # era COMPARTIDO con el razonamiento: sin él, va entero
+                        # al escrito. Es un tope, no un gasto: sólo se paga lo
+                        # que se genera.
+                        #
+                        # El «FORCE THINKING» de arriba se justificaba en el
+                        # límite duro de 8K de `deepseek-chat`. Ese modelo se
+                        # retiró en julio de 2026; v4-flash admite 384,000 de
+                        # salida, así que el razonamiento ya no compra ventana.
                         active_client = get_deepseek_official_client()
                         active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL  # deepseek-v4-flash
-                        max_tokens = 16384
-                        use_thinking = True  # Reasoning ON para mejor redacción
-                        print(f"   ✍️ REDACTOR sin genio → {active_model} (V4 Flash + Reasoning)")
+                        max_tokens = 32000
+                        use_thinking = False
+                        print(f"   ✍️ REDACCIÓN PROFESIONAL → {active_model} "
+                              f"(V4 Flash, SIN razonamiento) | max_tokens: {max_tokens}")
                     elif is_drafting or is_chat_drafting:
                         # REDACTOR con documento adjunto: DeepSeek V4 Pro (1.6T MoE, 49B active) con thinking.
                         active_client = get_deepseek_official_client()
@@ -13586,8 +13629,20 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # pierde la profundidad que justifica el modo.
                     if _esfuerzo_redaccion:
                         api_kwargs["reasoning_effort"] = _esfuerzo_redaccion
-                    elif _profesional_esfuerzo:
+                    elif _profesional_esfuerzo and use_thinking:
                         # Escalón base con plan gratuito o básico.
+                        #
+                        # El `and use_thinking` es lo que impide mandar un nivel
+                        # de razonamiento a una llamada que lo lleva DESACTIVADO:
+                        # desde el 27-ago-2026 Redacción Profesional corre sin
+                        # razonar, y las dos instrucciones juntas se contradicen.
+                        # (Sobre v4-flash el parámetro además no hacía nada: está
+                        # medido que ignora `reasoning_effort`.)
+                        #
+                        # No se pone `_profesional_esfuerzo = None` en la rama del
+                        # motor: se asigna FUERA de generate_stream y se lee aquí
+                        # dentro, así que asignarlo aquí lo volvería local y toda
+                        # otra ruta del chat moriría con UnboundLocalError.
                         api_kwargs["reasoning_effort"] = _profesional_esfuerzo
 
                     # El chat por defecto (Buscar) responde SIN razonamiento.
