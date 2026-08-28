@@ -21,6 +21,8 @@ from typing import Optional
 
 import ensamblar_adelanto as ens
 import fase0_oportunidad as f0
+import fase6_estudio as f6
+import fase6_rag as f6rag
 import fases123_pipeline as f123
 
 
@@ -40,6 +42,7 @@ class Encargo:
     responsable: Optional[str] = None
     es_recurso: bool = False
     plantilla: str = ""               # el .docx del propio tribunal
+    coleccion_estatal: str = ""       # «leyes_queretaro», para el RAG del fondo
 
 
 @dataclass
@@ -49,6 +52,11 @@ class Resultado:
     fases: f123.Fases123
     huecos: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    # Se guardan para poder REENSAMBLAR cuando llegue el criterio, sin releer
+    # los PDF ni volver a pagar los resúmenes.
+    encargo: Optional["Encargo"] = None
+    estudio: str = ""
+    advertencias: str = ""
 
     @property
     def listo_para_el_secretario(self) -> bool:
@@ -86,8 +94,76 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     )
     ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
 
-    return Resultado(ruta=ruta, computo=c, fases=f,
+    return Resultado(ruta=ruta, computo=c, fases=f, encargo=e,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# La segunda mitad: el criterio del secretario entra AQUÍ y sólo aquí
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# El proceso se parte en dos a propósito, porque así es como David lo describió:
+# la máquina lee y ordena, él decide, la máquina redacta la demostración. Entre
+# `generar()` y `resolver()` hay una persona, y ese es el punto del diseño.
+#
+#   generar()   →  adelanto con los problemas jurídicos planteados
+#   consultar() →  lo que el acervo tiene sobre esos problemas, para que decida
+#   resolver()  →  la sentencia, con su criterio dentro
+
+
+async def consultar(qdrant, embed_juris, embed_leyes,
+                    r: Resultado) -> f6.Material:
+    """Lo que el acervo dice sobre los problemas del caso.
+
+    Se le enseña ANTES de pedirle el criterio: decidir el sentido sin ver la
+    jurisprudencia obligatoria del tema es exactamente el error que este
+    utillaje existe para evitar.
+    """
+    problemas = ([r.fases.problema_global] if r.fases.problema_global else [])
+    problemas += list(r.fases.problemas or [])
+    coleccion = (r.encargo.coleccion_estatal if r.encargo else "") or None
+    return await f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
+                                         problemas, coleccion)
+
+
+async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
+                   material: f6.Material, ruta_salida: str) -> Resultado:
+    """La sentencia: el mismo documento, ahora con el estudio de fondo dentro.
+
+    Se REENSAMBLA desde la plantilla en vez de editar el adelanto, porque el
+    ensamblador trabaja sobre los formatos de la plantilla original y aplicarlo
+    dos veces sobre su propia salida duplica bloques.
+    """
+    if r.encargo is None:
+        raise ValueError("El resultado no trae el encargo: no se puede reensamblar.")
+    e = r.encargo
+
+    estudio, advertencias, avisos = await f6.redactar(
+        cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
+        criterios, material, e.es_recurso)
+
+    relleno = ens.Relleno(
+        encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
+        magistrado=e.magistrado, secretario=e.secretario,
+        oportunidad=f0.parrafo_oportunidad(r.computo),
+        antecedentes=r.fases.parrafos_antecedentes(),
+        resumen_acto=r.fases.parrafos_acto(),
+        resumen_conceptos=r.fases.parrafos_conceptos(),
+        problemas=r.fases.parrafos_problemas(),
+        estudio=f6.parrafos(estudio),
+        calificaciones=[c.sentido for c in criterios],
+        es_recurso=e.es_recurso,
+    )
+    ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
+    _, aviso_efectos = ens.formula_resolutivo(relleno.calificaciones)
+    if aviso_efectos:
+        avisos.append(aviso_efectos)
+    avisos.extend(ens.avisos_ensamblado)
+
+    return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
+                     estudio=estudio, advertencias=advertencias,
+                     huecos=ens.huecos_pendientes(ruta),
+                     avisos=list(r.avisos) + avisos)
 
 
 # ── Los ANTECEDENTES ya se generan ────────────────────────────────────────

@@ -329,9 +329,15 @@ class Relleno:
     resumen_conceptos: list[str] = field(default_factory=list)
     problemas: list[str] = field(default_factory=list)
 
+    # Fase 6 — el estudio de fondo, ya con el criterio del secretario dentro.
+    # Vacío mientras no lo haya dictado: entonces el documento es un ADELANTO,
+    # con su hueco, y no una sentencia a medio resolver.
+    estudio: list[str] = field(default_factory=list)
+
     # Lo que decide el secretario. Mientras esté vacío se deja el hueco
     # marcado, igual que en el adelanto de papel.
-    sentido: str = ""
+    sentido: str = ""                    # la FÓRMULA literal, si ya se tiene
+    calificaciones: list[str] = field(default_factory=list)   # o las del fondo
     tema: str = ""
 
     es_recurso: bool = False             # revisión → «agravios», no «conceptos»
@@ -339,6 +345,38 @@ class Relleno:
 
 
 HUECO = "*********"
+
+# Lo que el ensamblador quiere decir sobre el documento que acaba de escribir.
+avisos_ensamblado: list[str] = []
+
+# ── La calificación de los conceptos NO ES el resolutivo ──────────────────
+#
+# «ineficaces» califica los conceptos de violación; el resolutivo dice si la
+# Justicia de la Unión ampara o no. Meter la primera donde va el segundo produce
+# «La Justicia de la Unión ineficaz a María Fernanda Ruiz», que no significa
+# nada y que es exactamente la línea que se firma.
+_AMPARA = "AMPARA Y PROTEGE"
+_NO_AMPARA = "NO AMPARA NI PROTEGE"
+
+
+def formula_resolutivo(calificaciones: list[str]) -> tuple[str, str]:
+    """(fórmula, aviso). Basta un concepto fundado para que se conceda.
+
+    Con calificaciones mixtas la fórmula es la de concesión, pero el resolutivo
+    real lleva además los EFECTOS, y esos no los escribe una tabla: se avisa
+    para que los ponga quien firma.
+    """
+    cs = [str(c or "").strip().lower() for c in calificaciones if str(c or "").strip()]
+    if not cs:
+        return "", ""
+    hay_fundado = any(c.startswith("fundad") for c in cs)
+    if not hay_fundado:
+        return _NO_AMPARA, ""
+    if len(set(cs)) > 1:
+        return _AMPARA, ("El resolutivo concede porque hay conceptos fundados, "
+                         "pero la calificación es mixta: los EFECTOS de la "
+                         "concesión los tienes que redactar tú.")
+    return _AMPARA, ""
 
 
 def _quejoso_de_plantilla(ruta: str) -> str:
@@ -354,6 +392,7 @@ def _quejoso_de_plantilla(ruta: str) -> str:
 
 def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
     """Rellena la plantilla y guarda el adelanto. Devuelve la ruta escrita."""
+    avisos_ensamblado.clear()
     doc = docx.Document(ruta_plantilla)
     q = "agravios" if r.es_recurso else "conceptos de violación"
     # PRIMERO los modelos de formato: luego se borra el contenido viejo y con
@@ -400,7 +439,8 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
 
     # ── SEXTO. Estudio ───────────────────────────────────────────────────
     p = buscar(doc, r"^SEXTO\.\s*Estudio")
-    if p is not None and (r.resumen_acto or r.resumen_conceptos or r.problemas):
+    if p is not None and (r.resumen_acto or r.resumen_conceptos or r.problemas
+                          or r.estudio):
         fin = buscar(doc, r"^Por lo expuesto", desde=indice_de(doc, p) + 1)
         borrar_entre(doc, p, fin)
         escribir(p, f"SEXTO. Estudio de los {q}.")
@@ -409,13 +449,18 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
             ("Consideraciones relevantes de la resolución reclamada.", r.resumen_acto),
             (q.capitalize() + ".", r.resumen_conceptos),
             ("Problemas jurídicos.", r.problemas),
+            # El estudio va SIN rótulo propio: abre con su encabezado ordinal y
+            # la calificación —«Los conceptos son ineficaces»—, que es como
+            # arranca el 40% de los engroses y lo que el lector busca primero.
+            ("", r.estudio),
         ]
         for rotulo, parrafos in bloques:
             if not parrafos:
                 continue
-            ancla = clonar_tras(ancla, rotulo, mod["rotulo"])
-            if mod["vacio"] is not None:
-                ancla = clonar_tras(ancla, "", mod["vacio"])
+            if rotulo:
+                ancla = clonar_tras(ancla, rotulo, mod["rotulo"])
+                if mod["vacio"] is not None:
+                    ancla = clonar_tras(ancla, "", mod["vacio"])
             ancla = clonar_bloque(ancla, parrafos, mod["cuerpo"], mod["vacio"], doc)
 
     # ── El NOMBRE de la parte, allí donde la plantilla lo arrastra ───────
@@ -440,14 +485,31 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
 
     # ── El sentido y la síntesis: huecos si el secretario no ha decidido ──
     p = buscar(doc, r"^ÚNICO\.|^PRIMERO\.\s*(?:Se |La Justicia)")
-    if p is not None and r.sentido:
-        escribir(p, texto_de(p).replace(HUECO, r.sentido))
+    if p is not None:
+        formula = r.sentido or formula_resolutivo(r.calificaciones)[0]
+        # Sólo se toca el resolutivo de AMPARO. En un recurso la fórmula es otra
+        # —se confirma, se revoca, se declara infundado— y depende de lo que se
+        # recurrió: dejar el hueco es más honesto que rellenarlo por analogía.
+        if formula and "justicia de la unión" in texto_de(p).lower():
+            escribir(p, texto_de(p).replace(HUECO, formula))
+            # El quejoso se sustituye, pero el APODERADO, el acto reclamado y la
+            # autoridad siguen siendo los de la plantilla. Un hueco se ve; un
+            # nombre de otro asunto, no, y aquí se firma.
+            avisos_ensamblado.append(
+                "Revisa el resolutivo: la plantilla arrastra el apoderado, la "
+                "autoridad y el acto del asunto anterior.")
     p = buscar(doc, r"^TEMA\s*:")
     if p is not None and r.tema:
         escribir(p, f"TEMA: {r.tema}")
 
     doc.save(ruta_salida)
     return ruta_salida
+
+
+# Lo que el ensamblador quiere decir sobre el documento que acaba de escribir.
+# Vive fuera porque `ensamblar()` devuelve una ruta y cambiar su firma obligaría
+# a tocar el endpoint y el frontend por un aviso.
+
 
 
 def huecos_pendientes(ruta: str) -> list[str]:
