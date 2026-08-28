@@ -19957,7 +19957,7 @@ def _build_qdrant_search_for_redactor():
             circuito_num = None
         marco_anticipado = problem_context.get("marco_anticipado", [])
 
-        result = {"tesis": [], "normas": [], "holdings": []}
+        result = {"tesis": [], "normas": [], "holdings": [], "estudio_fondo": []}
 
         embedding = await get_dense_embedding(query)
         if not embedding:
@@ -19997,13 +19997,27 @@ def _build_qdrant_search_for_redactor():
 
         # ── Tasks definitions (each returns (kind, list_of_items)) ───────────
         async def _search_tesis_jurisprudencia():
+            """Jurisprudencia para el redactor — desde el 28-ago-2026, sobre v3.
+
+            Se quedó apuntando a `jurisprudencia_nacional_v2` cuando el chat
+            migró a v3: el redactor de sentencias, que es donde MÁS importa
+            citar bien, era el único que seguía leyendo el acervo viejo. v3
+            recupera un 41% más y cita mejor.
+            """
             items = []
+            _col = FIXED_SILOS.get("jurisprudencia", "jurisprudencia_nacional_v3")
             try:
+                # v3 vive en otro espacio vectorial (text-embedding-3-large,
+                # 3072 dims, vector «texto»); mandarle el embedding de 1536 da
+                # HTTP 400 y la lista vuelve vacía sin ruido. Ya pasó una vez.
+                _emb = await _embedding_juris(query) if _col.endswith("_v3") else embedding
+                if not _emb:
+                    return ("tesis", items)
                 async with QDRANT_SEM:
                     hits = await qdrant_client.query_points(
-                        collection_name="jurisprudencia_nacional_v2",
-                        query=embedding,
-                        using="dense",
+                        collection_name=_col,
+                        query=_emb,
+                        using=_vector_de(_col),
                         query_filter=_materia_filter(),
                         limit=25,
                         with_payload=True,
@@ -20020,10 +20034,10 @@ def _build_qdrant_search_for_redactor():
                         "epoca": p.get("epoca", ""),
                         "tipo": p.get("tipo", ""),
                         "numero_tesis": p.get("numero_tesis", ""),
-                        "_source_collection": "jurisprudencia_nacional_v2",
+                        "_source_collection": _col,
                     })
             except Exception as e:
-                print(f"     ⚠️ jurisprudencia_nacional_v2 search error: {err(e)}")
+                print(f"     ⚠️ {_col} search error: {err(e)}")
             return ("tesis", items)
 
         async def _search_bloque_constitucional():
@@ -20085,10 +20099,21 @@ def _build_qdrant_search_for_redactor():
             return ("normas", items)
 
         async def _search_ef_circuito():
-            """Estudios de Fondo TCC del propio circuito."""
+            """Estudios de Fondo TCC del propio circuito.
+
+            Devuelve al cubo `estudio_fondo`, NO a `holdings`, y la distinción
+            importa: un holding es autoridad citable; un estudio de fondo es
+            MOLDE DE FORMA. Mezclarlos invita al modelo a citar como precedente
+            una sentencia que sólo estaba ahí para que imitara su prosa, que es
+            exactamente lo que prohíbe la regla de oro del corpus.
+
+            Hasta el 28-ago-2026 estas tres búsquedas devolvían ("holdings", …)
+            y el cubo `estudio_fondo` estaba muerto por los DOS extremos: nadie
+            lo llenaba en main.py y nadie lo leía en redactor_tcc_v3.py.
+            """
             items = []
             if circuito_num not in EF_CIRCUITOS_DISPONIBLES:
-                return ("holdings", items)
+                return ("estudio_fondo", items)
             try:
                 async with QDRANT_SEM:
                     hits = await qdrant_client.query_points(
@@ -20122,7 +20147,7 @@ def _build_qdrant_search_for_redactor():
                     })
             except Exception as e:
                 print(f"     ⚠️ sentencias_ef_c{circuito_num} search error: {err(e)}")
-            return ("holdings", items)
+            return ("estudio_fondo", items)
 
         async def _search_ef_scjn(sala_collection: str):
             items = []
@@ -20155,7 +20180,7 @@ def _build_qdrant_search_for_redactor():
                     })
             except Exception as e:
                 print(f"     ⚠️ {sala_collection} search error: {err(e)}")
-            return ("holdings", items)
+            return ("estudio_fondo", items)
 
         async def _search_holdings_tcc():
             items = []
@@ -20301,6 +20326,9 @@ def _build_qdrant_search_for_redactor():
                 result["normas"].extend(items)
             elif kind == "holdings":
                 result["holdings"].extend(items)
+            elif kind == "estudio_fondo":
+                # Molde de FORMA, no autoridad citable. Ver `_search_ef_circuito`.
+                result["estudio_fondo"].extend(items)
 
         # ── Recuperar el PDF de los estudios de fondo ────────────────────────
         #
@@ -20314,7 +20342,7 @@ def _build_qdrant_search_for_redactor():
         # punto en sentencias_holdings, que si trae la URL de GCS. Se resuelve
         # con un unico retrieve por lote —los IDs son exactos, no hay busqueda
         # vectorial— en vez de migrar los novecientos mil puntos.
-        _sin_pdf = [it for it in result["holdings"]
+        _sin_pdf = [it for it in (result["holdings"] + result["estudio_fondo"])
                     if not it.get("pdf_url") and it.get("holding_id")]
         if _sin_pdf:
             try:

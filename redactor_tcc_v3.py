@@ -71,6 +71,7 @@ PASS3_TIMEOUT_S = float(os.getenv("REDACTOR_PASS3_TIMEOUT_S", "900"))
 # DeepSeek v4-pro con max_tokens 16-24k en Pass 2 — caben holgadamente.
 MAX_TESIS_PER_PROBLEM = 25
 MAX_HOLDINGS_PER_PROBLEM = 18
+MAX_EF_PER_PROBLEM = 3      # moldes de forma: pocos y buenos, no un muestrario
 MAX_NORMAS_PER_PROBLEM = 20
 
 
@@ -1066,6 +1067,31 @@ def _build_pass2_prompt(pass0: dict, pass1: list[dict], caso_meta: dict) -> str:
             parts.append(f"\n  [H{i}] score={h.get('score')} · expediente: {h.get('expediente','')}")
             parts.append(f"  HOLDING: {(h.get('holding','') or '')[:1000]}")
         
+        # Estudios de fondo — MOLDE DE FORMA, nunca fundamento
+        #
+        # Este cubo llevaba vivo en el código desde v3 y estaba muerto por los
+        # dos extremos: main.py devolvía los estudios de fondo bajo «holdings»
+        # y aquí nadie leía «estudio_fondo». Arreglado el 28-ago-2026.
+        #
+        # Va SEPARADO de los holdings a propósito. Un holding es autoridad que
+        # se cita; un estudio de fondo es un molde del que se copia la prosa y
+        # el orden del razonamiento. Mezclarlos hacía que el modelo pudiera
+        # citar como precedente una sentencia que sólo estaba de ejemplo.
+        all_ef = sorted(cat.get("estudio_fondo", []), key=lambda x: x.get("score", 0),
+                        reverse=True)[:MAX_EF_PER_PROBLEM]
+        if all_ef:
+            parts.append(f"\n\n✍️ ESTUDIOS DE FONDO ({len(all_ef)} de "
+                         f"{len(cat.get('estudio_fondo', []))} total) — "
+                         f"SÓLO COMO MODELO DE REDACCIÓN:")
+            parts.append("  Imita su prosa, su orden de estudio y su manera de calificar.")
+            parts.append("  PROHIBIDO citarlos como fundamento o precedente: no son")
+            parts.append("  jurisprudencia. Para fundar, usa TESIS y NORMAS.")
+            for i, e in enumerate(all_ef, 1):
+                parts.append(f"\n  [EF{i}] score={e.get('score')} · {e.get('tribunal','')} · "
+                             f"expediente: {e.get('expediente','')} · sentido: {e.get('sentido','')}")
+                parts.append(f"  TEMA: {e.get('tema','')}")
+                parts.append(f"  {(e.get('holding','') or '')[:1200]}")
+
         # Normas — marco anticipado first
         all_normas = cat.get("normas", [])
         marco_first = sorted(all_normas, key=lambda x: (not x.get("from_marco_anticipado", False), -x.get("score", 0)))[:MAX_NORMAS_PER_PROBLEM]
@@ -1336,24 +1362,70 @@ def _normalize_rubro(s: str) -> str:
     return s
 
 
+# Partículas que INVIERTEN el sentido de un rubro. Si una está en un rubro y no
+# en el otro, no son el mismo criterio por muchas palabras que compartan.
+_POLARIDAD = {
+    "no", "sin", "ni", "improcedente", "improcedencia", "inoperante",
+    "inoperantes", "inoperancia", "inaplicable", "inaplicabilidad",
+    "innecesario", "inexistente", "inexistencia", "infundado", "infundados",
+    "ineficaz", "ineficaces", "nunca", "jamas", "niega", "negativa",
+    "prohibido", "prohibida", "excluye", "excluida", "carece", "salvo",
+}
+
+
+def _bigramas(palabras: list) -> set:
+    """Pares consecutivos. El ORDEN es lo que una bolsa de palabras pierde."""
+    return {f"{palabras[i]} {palabras[i+1]}" for i in range(len(palabras) - 1)}
+
+
 def _rubros_match(rubro_plan: str, rubro_real: str) -> bool:
-    """Considera que coinciden si el solapamiento de palabras significativas
-    es alto. Tolerante a abreviaciones, comas, mayúsculas. Falso en caso de
-    rubros completamente distintos (caso del registro 2023205 con rubro inventado)."""
-    a = set(_normalize_rubro(rubro_plan).split())
-    b = set(_normalize_rubro(rubro_real).split())
-    if not a or not b:
+    """¿El rubro que citó el modelo es el del registro que dice?
+
+    Antes comparaba BOLSAS DE PALABRAS, y eso tenía dos agujeros probados:
+
+      · «PROCEDE EL AMPARO» casaba con «NO PROCEDE EL AMPARO» — comparten
+        todas las palabras significativas y «no» ni siquiera estaba en las
+        vacías. El modelo podía atribuirle a un registro real el criterio
+        CONTRARIO al que sostiene, que es la peor cita posible: existe, se
+        verifica, y dice lo opuesto.
+      · Las palabras barajadas casaban al 100%, porque un conjunto no tiene
+        orden.
+
+    Ahora se exigen tres cosas, y las tres son necesarias:
+      1. MISMA POLARIDAD — las partículas que invierten el sentido tienen que
+         aparecer en los dos rubros o en ninguno.
+      2. Solapamiento de palabras ≥ 50% en ambos sentidos (como antes).
+      3. Solapamiento de BIGRAMAS ≥ 35%, que es lo que detecta el barajado.
+
+    Se falla hacia el NO: ante la duda, la cita se marca y la revisa el
+    humano. Un falso negativo cuesta una comprobación; un falso positivo mete
+    en la sentencia una tesis que dice lo contrario.
+    """
+    na, nb = _normalize_rubro(rubro_plan), _normalize_rubro(rubro_real)
+    if not na or not nb:
         return False
-    # Eliminar stopwords muy comunes para no inflar la coincidencia
+    pa, pb = na.split(), nb.split()
+
+    # 1. Polaridad
+    if (set(pa) & _POLARIDAD) != (set(pb) & _POLARIDAD):
+        return False
+
     stop = {"de", "la", "el", "los", "las", "y", "o", "del", "en", "que", "se", "a", "por", "para", "su", "con", "al", "es", "lo"}
-    a -= stop; b -= stop
+    a = set(pa) - stop
+    b = set(pb) - stop
     if not a or not b:
         return False
+
+    # 2. Palabras
     inter = len(a & b)
-    cobertura_real = inter / max(1, len(b))
-    cobertura_plan = inter / max(1, len(a))
-    # Pedimos al menos 50% de coincidencia en ambos sentidos.
-    return cobertura_real >= 0.5 and cobertura_plan >= 0.5
+    if inter / max(1, len(b)) < 0.5 or inter / max(1, len(a)) < 0.5:
+        return False
+
+    # 3. Orden
+    ba, bb = _bigramas(pa), _bigramas(pb)
+    if not ba or not bb:
+        return True          # rubros de una sola palabra: la bolsa ya decidió
+    return len(ba & bb) / max(1, min(len(ba), len(bb))) >= 0.35
 
 
 async def _validate_tesis_in_plan(
