@@ -1412,6 +1412,13 @@ reclamación, incidente, revisión fiscal.
   rótulo de la sección, tal como «SEXTO. Estudio.», «SEXTO. Estudio de los
   conceptos de violación.» o «SEXTO. Estudio de fondo.» (medido: 98% de los
   engroses reales lo hacen así). Si el abogado indicó otro ordinal, respétalo.
+- EL ENCABEZADO VA UNA SOLA VEZ, en la primera línea. No lo repitas después ni
+  lo reabras al cambiar de tema: dentro del estudio se avanza con conectores,
+  no con encabezados nuevos.
+- SI TE PIDEN CONTINUAR un estudio ya empezado, NO reescribas lo que ya está
+  redactado ni vuelvas a resumir el acto reclamado y los conceptos: enlaza con
+  lo que el abogado te dio y sigue desde ahí. Repetir lo ya escrito le obliga a
+  borrar a mano.
 - CALIFICA DE ENTRADA: anuncia en las primeras líneas si los conceptos de
   violación o los agravios son **fundados**, **infundados**, **inoperantes** o
   **ineficaces**, y sólo después demuéstralo. Ese es el orden que sigue el 40%
@@ -3725,9 +3732,23 @@ def detect_multi_state_query(query: str) -> Optional[List[str]]:
         print(f"   🔍 DA VINCI: Detectados {len(found_states)} estados en query: {found_states}")
         return found_states
     
-    # Si hay patrón comparativo y al menos 1 estado, buscar "todos los estados"
-    is_comparative = any(re.search(p, query_lower) for p in COMPARE_PATTERNS)
-    if is_comparative and "todos" in query_lower:
+    # Si el abogado pide expresamente TODOS LOS ESTADOS, se comparan los cinco
+    # con más material.
+    #
+    # Antes bastaba un patrón comparativo MÁS la palabra «todos» suelta en
+    # cualquier punto del mensaje, y eso secuestró una redacción real
+    # (28-ago-2026): el abogado pegó una sentencia de 12,184 caracteres para
+    # que se continuara el estudio, y dentro venían «recargos y DIFERENCIAS
+    # hipotecarias» y «confirmando en TODOS sus términos». Con esas dos
+    # palabras, Iurexia se puso a comparar Querétaro, Nuevo León, Jalisco,
+    # CDMX y Puebla, y devolvió el esquema del chat en vez del escrito.
+    #
+    # Ahora se exige la frase entera —«todos los estados», «los 32 estados»,
+    # «cada estado»—, que ya vive en COMPARE_PATTERNS y no aparece por
+    # accidente dentro de un documento pegado.
+    if any(re.search(p, query_lower) for p in
+           (r"todos\s+los\s+estados", r"los\s+32\s+estados", r"cada\s+estado",
+            r"en\s+qu[ée]\s+estados")):
         print(f"   🔍 DA VINCI: Query comparativa para TODOS los estados")
         # Retornar top 5 estados con más datos para no saturar
         return ["QUERETARO", "NUEVO_LEON", "JALISCO", "CIUDAD_DE_MEXICO", "PUEBLA"]
@@ -11657,7 +11678,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # ─────────────────────────────────────────────────────────────────
                 # Detección multi-estado para comparaciones
                 # ─────────────────────────────────────────────────────────────────
-                multi_states = detect_multi_state_query(last_user_message)
+                # Si el abogado pulsó Redactar, quiere UN escrito, no una
+                # comparación entre entidades. El modo comparativo cambia la
+                # búsqueda Y el prompt, así que se descarta de raíz.
+                multi_states = (None if is_chat_drafting
+                                else detect_multi_state_query(last_user_message))
                 is_comparative = multi_states is not None
                 
                 if is_comparative:
@@ -12423,7 +12448,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     print("   ⚖️ Usando prompt MAGISTRADO para análisis de sentencia")
                 elif has_document:
                     system_prompt = SYSTEM_PROMPT_DOCUMENT_ANALYSIS
-                elif not is_drafting and not has_document and multi_states:
+                elif (not is_drafting and not has_document
+                      and not is_chat_drafting and multi_states):
                     # DA VINCI: Prompt comparativo para multi-estado
                     system_prompt = SYSTEM_PROMPT_CHAT + (
                         "\n\n## MODO COMPARATIVO CROSS-STATE\n"
