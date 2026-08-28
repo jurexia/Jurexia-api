@@ -11192,29 +11192,59 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # de rechazarse — el abogado igual recibe su escrito, sólo que con el motor
     # que le corresponde.
     if is_chat_drafting_platinum:
+        # UN TROPIEZO NO ES UNA FALTA DE PLAN.
+        #
+        # Medido el 28-ago-2026: justo después de un despliegue, una cuenta
+        # `platinum_monthly` real recibió la insignia PRO; minutos más tarde,
+        # 6 de 6 intentos dieron PLATINUM. La lectura del perfil se cae o tarda
+        # en la ventana de arranque en frío de Render, el `except` se la tragaba
+        # y el cliente pagaba Platinum recibiendo Pro, sin rastro visible.
+        #
+        # Ahora se reintenta antes de degradar, con la misma doctrina que rige
+        # el vigilante de producción. Se distingue además NO TIENE PLAN (se
+        # degrada, que es lo correcto) de NO PUDE COMPROBARLO (se degrada
+        # igual, porque equivocarse hacia arriba cuesta ~8× por escrito, pero
+        # queda gritado en el registro para poder contarlo).
         _tiene_platinum = False
+        _plan_leido = False
         if request.user_id and supabase_admin:
-            try:
-                def _perfil_platinum():
-                    return supabase_admin.table('user_profiles') \
-                        .select('subscription_type, email') \
-                        .eq('id', request.user_id) \
-                        .limit(1) \
-                        .execute()
-                _res = await asyncio.to_thread(_perfil_platinum)
-                if _res.data:
-                    _fila = _res.data[0]
-                    _correo = (_fila.get('email') or '').strip().lower()
-                    _tiene_platinum = (
-                        _fila.get('subscription_type') in (
-                            'platinum_monthly', 'platinum_annual', 'ultra_secretarios')
-                        or (_correo and _correo in ADMIN_EMAILS)
-                    )
-            except Exception as _e:
-                print(f"   ⚠️ No se pudo verificar el plan Platinum: {err(_e)}")
+            def _perfil_platinum():
+                return supabase_admin.table('user_profiles') \
+                    .select('subscription_type, email') \
+                    .eq('id', request.user_id) \
+                    .limit(1) \
+                    .execute()
+            for _intento in (1, 2, 3):
+                try:
+                    _res = await asyncio.wait_for(
+                        asyncio.to_thread(_perfil_platinum), timeout=6.0)
+                    if _res.data:
+                        _fila = _res.data[0]
+                        _correo = (_fila.get('email') or '').strip().lower()
+                        _tiene_platinum = (
+                            _fila.get('subscription_type') in (
+                                'platinum_monthly', 'platinum_annual', 'ultra_secretarios')
+                            or (_correo and _correo in ADMIN_EMAILS)
+                        )
+                        _plan_leido = True
+                        break
+                    # Sin filas: el perfil no existe. Reintentar no lo va a crear.
+                    _plan_leido = True
+                    break
+                except Exception as _e:
+                    print(f"   ⚠️ Plan Platinum, intento {_intento}/3: {err(_e)}")
+                    if _intento < 3:
+                        await asyncio.sleep(0.4 * _intento)
         if not _tiene_platinum:
             is_chat_drafting_platinum = False
-            print("   ⛔ REDACCIÓN PLATINUM sin plan Platinum → se atiende como Redacción Pro")
+            if _plan_leido:
+                print("   ⛔ REDACCIÓN PLATINUM sin plan Platinum → se atiende como Redacción Pro")
+            else:
+                # Esta línea es la que hay que buscar en los registros si un
+                # cliente se queja de que su Platinum «a veces» no responde
+                # como Platinum.
+                print("   🚨 PLATINUM DEGRADADO SIN PODER COMPROBAR EL PLAN "
+                      "(3 intentos fallidos) → se atiende como Redacción Pro")
 
     # ── Redacción PROFESIONAL: el razonamiento depende del PLAN, no del botón ──
     # v4-flash razona alto por omisión. En el escalón base eso significa gastar
