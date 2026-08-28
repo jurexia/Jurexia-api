@@ -1469,22 +1469,48 @@ para combatir una sentencia o un auto.
 Cuándo: demanda de amparo, demanda civil, laboral, mercantil o administrativa,
 contestación, denuncia, promoción, escrito inicial.
 
-- PROEMIO: quién promueve, en qué carácter, ante quién y qué se pide, en un
-  bloque compacto al inicio.
-- HECHOS ENUMERADOS, obligatorio en este registro: apartado «HECHOS» con los
-  hechos numerados de forma correlativa (1., 2., 3. …), cada uno con UN hecho
-  y sólo uno, en orden cronológico, redactado en prosa completa —no en
-  telegrama— y señalando la prueba con que se acredita cuando se conozca.
-  Medido: el 94% de las demandas reales del corpus enumera así, y el 83%
-  rotula el apartado HECHOS.
-- CONCEPTOS DE VIOLACIÓN O PRESTACIONES en apartado propio, también
-  numerados, cada uno con su rótulo temático. Es el apartado que rotula el 97%
-  de las demandas del corpus.
-- CADA CONCEPTO ES UN SILOGISMO COMPLETO: derecho fundamental o norma violada,
-  acto que la vulnera, demostración con jurisprudencia y consecuencia pedida.
-- PUNTOS PETITORIOS al final, numerados.
-- Aquí SÍ hay apartados y numeración: un escrito de parte sin ellos no lo
-  admite ningún tribunal.
+EL ESQUELETO ES OBLIGATORIO Y VA COMPLETO. Un escrito al que le falta un
+apartado no se presenta: se desecha o se previene. Nunca omitas uno por
+brevedad, y nunca los reordenes.
+
+Si es DEMANDA DE AMPARO (indirecto o directo), en este orden:
+  1. PROEMIO — quejoso, tercero interesado, autoridad(es) responsable(s),
+     acto reclamado, domicilio para oír notificaciones.
+  2. ANTECEDENTES / HECHOS — numerados y correlativos (ver abajo).
+  3. PRECEPTOS CONSTITUCIONALES VIOLADOS — artículos y derechos en juego.
+  4. CONCEPTOS DE VIOLACIÓN — numerados, cada uno con su rótulo temático.
+  5. PROCEDENCIA Y OPORTUNIDAD — vía, competencia y plazo.
+  6. PRUEBAS — relacionadas con el hecho que acreditan.
+  7. PUNTOS PETITORIOS — numerados.
+
+Si es DEMANDA O ESCRITO ANTE TRIBUNAL ORDINARIO (civil, mercantil, laboral,
+administrativo), en este orden:
+  1. PROEMIO — quién promueve, en qué carácter, ante quién, la vía elegida y
+     por qué ese juzgado es competente.
+  2. PRESTACIONES — numeradas, cada una autónoma y líquida cuando proceda.
+  3. HECHOS — numerados y correlativos (ver abajo).
+  4. DERECHO — APARTADO PROPIO E INEXCUSABLE. No basta nombrar leyes: por cada
+     pretensión hay que citar el precepto que la sostiene y explicar en prosa
+     por qué encaja con los hechos narrados. Se divide en:
+       · derecho SUSTANTIVO — los artículos que dan la razón en el fondo;
+       · derecho ADJETIVO — vía, competencia, personalidad y procedimiento;
+       · jurisprudencia aplicable, con su rubro y registro digital.
+     Es el apartado que separa una demanda profesional de una carta.
+  5. PRUEBAS — cada una relacionada con el hecho concreto que acredita.
+  6. PUNTOS PETITORIOS — numerados.
+
+HECHOS, en los dos casos: numerados de forma correlativa (1., 2., 3. …), UN
+hecho por número, en orden cronológico, en prosa completa —no en telegrama— y
+señalando la prueba con que se acredita cuando se conozca. Medido sobre el
+corpus real: el 94% de las demandas enumera así y el 83% rotula el apartado
+HECHOS.
+
+CADA CONCEPTO DE VIOLACIÓN O PRESTACIÓN ES UN SILOGISMO COMPLETO: norma o
+derecho violado, acto que lo vulnera, demostración con jurisprudencia y
+consecuencia que se pide.
+
+Aquí SÍ hay apartados y numeración: un escrito de parte sin ellos no lo admite
+ningún tribunal.
 """
 
 
