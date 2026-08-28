@@ -14,7 +14,7 @@ en un apartado de advertencias en lugar de cambiar el sentido por su cuenta.
 
 EL REGISTRO ESTÁ MEDIDO, no inventado. Sobre 40 estudios firmados del corpus:
 
-    largo ............ mediana 3,454 palabras
+    largo ............ mediana 3,733 palabras · p90 6,618 (117 estudios)
     párrafo .......... 49 palabras (p90 101)
     frase ............ 35 palabras (p90 69)
     conectores ....... «Lo anterior» 26/40, «En ese sentido» 23, «Por tanto» 22,
@@ -43,7 +43,13 @@ MODELO_ESTUDIO = os.getenv("MODELO_ESTUDIO", "gpt-5.6-luna")
 # razonamiento porque son lectura; esto es argumentación.
 ESFUERZO_ESTUDIO = os.getenv("ESFUERZO_ESTUDIO", "high")
 
-PALABRAS_ESTUDIO = 3454
+# Medido sobre 117 estudios de fondo reales de las carpetas del tribunal —no
+# sobre los 40 del primer muestreo—. La DISPERSIÓN es lo que importa: el p90
+# está en 6,618 palabras, así que el tope de aviso no puede ser un múltiplo de
+# la mediana. Con el umbral anterior (1.6 x mediana) se marcaba como excesivo
+# el 25% de los engroses del propio secretario, incluido el de este caso.
+PALABRAS_ESTUDIO = 3733
+PALABRAS_ESTUDIO_P90 = 6618
 
 CONECTORES = ("Lo anterior", "En ese sentido", "Por tanto", "En consecuencia",
               "No obstante", "En efecto", "Ahora bien")
@@ -188,7 +194,12 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
 FUNDAMENTO — la regla que no se rompe:
 - Sólo se cita lo que está en el MATERIAL. NUNCA inventes un registro digital
   ni un número de tesis: tus datos de entrenamiento son viejos y falsos.
-- Al citar una tesis, transcribe su rubro y su registro tal como vienen.
+- Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
+  registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta
+  S.J.F.; Libro 52…»— NO se escribe en el cuerpo: el documento la coloca sola
+  al pie, que es donde va en una sentencia, y escribirla dos veces obliga a
+  borrarla a mano. El texto de la tesis tampoco lo transcribas: se transcribe
+  solo, desde el acervo, palabra por palabra.
 - La INOPERANCIA se razona: hay que decir POR QUÉ el planteamiento no combate
   la razón toral, no basta con declararla.
 {_bloque_criterio(criterios)}
@@ -260,6 +271,26 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list
     # 4. Higiene.
     if "**" in estudio or "##" in estudio:
         avisos.append("Se coló Markdown.")
+    # 4-bis. Rubros citados que no casan con ninguna tesis del material. Un
+    #        registro correcto con el rubro cambiado es más difícil de ver que
+    #        un registro inventado, y engaña igual.
+    import unicodedata as _ud
+
+    def _n(x):
+        x = _ud.normalize("NFKD", (x or "").upper())
+        return re.sub(r"[^A-Z0-9]+", " ", x).strip()
+
+    rubros_material = [_n(t.get("rubro", "")) for t in material.tesis]
+    for m_ in re.finditer(r"[“\"]([A-ZÁÉÍÓÚÑ][^”\"]{25,}?)[”\"]", estudio):
+        cit = _n(m_.group(1))
+        if len(cit) < 30:
+            continue
+        if not any(r.startswith(cit[:60]) or cit.startswith(r[:60])
+                   for r in rubros_material if r):
+            avisos.append(f"RUBRO CITADO QUE NO CASA CON EL ACERVO: "
+                          f"«{m_.group(1)[:70]}…». Compruébalo.")
+            break
+
     # 5. Preceptos citados que no salieron del acervo. Un artículo inventado de
     #    un código sustantivo es tan grave como un registro inventado, y hasta
     #    ahora sólo se vigilaban los registros.
@@ -276,24 +307,32 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list
         if any(n in cola_n for n in _NOTORIAS):
             continue
         vc = _voces(cola_n)
+        # La ley se reconoce por sus voces propias, pero hay que quedarse con la
+        # QUE MÁS CASA, no con la primera. «Código Civil del Estado de Querétaro»
+        # y «Código Civil Federal» comparten «código» y «civil»: con el primer
+        # acierto ganaba el federal y el verificador denunciaba como inventado un
+        # artículo correctamente citado del código local. Un aviso falso enseña a
+        # ignorar los avisos, que es peor que no tenerlos.
+        mejor, puntos = None, 0
         for cuerpo in leyes_material:
             vl = _voces(cuerpo)
-            # La ley se reconoce por sus voces propias («código», «civil»,
-            # «querétaro»), no por igualdad de cadena: el estudio la nombra de
-            # mil maneras y ninguna coincide carácter a carácter.
-            if vl and len(vc & vl) >= max(2, len(vl) // 2):
-                if (cuerpo, art) not in en_material:
-                    fuera.add(f"art. {art} — {cuerpo}")
-                break
+            if not vl:
+                continue
+            n_comun = len(vc & vl)
+            if n_comun >= max(2, len(vl) // 2) and n_comun > puntos:
+                mejor, puntos = cuerpo, n_comun
+        if mejor and (mejor, art) not in en_material:
+            fuera.add(f"art. {art} — {mejor}")
     if fuera:
         avisos.append(f"PRECEPTOS CITADOS QUE NO ESTÁN EN EL MATERIAL: "
                       f"{sorted(fuera)}. Compruébalos antes de firmar.")
 
     # 6. Largo por exceso. El corpus tiene una medida y pasarse al doble no es
     #    rigor: es repetir el argumento con otras palabras.
-    if n > 1.6 * PALABRAS_ESTUDIO:
-        avisos.append(f"El estudio tiene {n} palabras frente a las "
-                      f"{PALABRAS_ESTUDIO} de mediana. Revisa si hay repetición.")
+    if n > PALABRAS_ESTUDIO_P90:
+        avisos.append(f"El estudio tiene {n} palabras; sólo el 10% de los "
+                      f"engroses reales pasa de {PALABRAS_ESTUDIO_P90}. "
+                      f"Revisa si hay repetición.")
 
     # 7. La medida de la prosa. El modelo tiende a apilar frases cortas dentro
     #    de párrafos largos —informe—; el corpus hace lo contrario: párrafo

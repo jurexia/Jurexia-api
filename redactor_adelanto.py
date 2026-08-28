@@ -119,8 +119,20 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     jurisprudencia obligatoria del tema es exactamente el error que este
     utillaje existe para evitar.
     """
+    # Los problemas de la Fase 3 son DICCIONARIOS —pregunta, resolvió, combate,
+    # impedimento—, no cadenas. Con datos de prueba sintéticos nunca se notó;
+    # con el primer caso real, `'dict' object has no attribute 'strip'`.
     problemas = ([r.fases.problema_global] if r.fases.problema_global else [])
-    problemas += list(r.fases.problemas or [])
+    for p in (r.fases.problemas or []):
+        pregunta = p.get("pregunta", "") if isinstance(p, dict) else str(p)
+        if pregunta:
+            problemas.append(pregunta)
+        # El impedimento técnico ES una cuestión jurídica que hay que fundar:
+        # la inoperancia se razona con tesis, no se declara.
+        imp = p.get("impedimento") if isinstance(p, dict) else None
+        if isinstance(imp, dict) and imp.get("explicacion"):
+            problemas.append(f"¿{imp.get('motivo','inoperancia').capitalize()}: "
+                             f"{imp['explicacion']}?")
     coleccion = (r.encargo.coleccion_estatal if r.encargo else "") or None
     return await f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
                                          problemas, coleccion)
@@ -151,6 +163,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         resumen_conceptos=r.fases.parrafos_conceptos(),
         problemas=r.fases.parrafos_problemas(),
         estudio=f6.parrafos(estudio),
+        tesis=material.tesis,
         calificaciones=[c.sentido for c in criterios],
         es_recurso=e.es_recurso,
     )
@@ -158,7 +171,11 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     _, aviso_efectos = ens.formula_resolutivo(relleno.calificaciones)
     if aviso_efectos:
         avisos.append(aviso_efectos)
-    avisos.extend(ens.avisos_ensamblado)
+    # Deduplicado: el aviso del nombre se dispara una vez por párrafo donde
+    # aparece, y el secretario no necesita leer tres veces lo mismo.
+    for a in ens.avisos_ensamblado:
+        if a not in avisos:
+            avisos.append(a)
 
     return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
                      estudio=estudio, advertencias=advertencias,

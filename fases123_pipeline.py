@@ -289,7 +289,18 @@ class Fases123:
     avisos: list[str] = field(default_factory=list)
 
     def parrafos_antecedentes(self) -> list[str]:
-        return [p.strip() for p in self.antecedentes.split("\n") if p.strip()]
+        """Sin el encabezado que el modelo se pone a sí mismo.
+
+        El prompt se titula «QUINTO. ANTECEDENTES» y el modelo lo reproduce como
+        primera línea. La plantilla ya trae el suyo —«QUINTO. Antecedentes. Para
+        una mejor comprensión del asunto…»— y el documento salía con los dos
+        seguidos. Mismo caso que el estudio de fondo, misma cura.
+        """
+        ps = [p.strip() for p in self.antecedentes.split("\n") if p.strip()]
+        if ps and re.match(r"^(?:QUINTO|CUARTO|SEXTO)\.?\s*ANTECEDENTES\s*\.?$",
+                           ps[0], re.I):
+            ps = ps[1:]
+        return ps
 
     def parrafos_acto(self) -> list[str]:
         return [p.strip() for p in self.resumen_acto.split("\n") if p.strip()]

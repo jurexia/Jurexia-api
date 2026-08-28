@@ -142,9 +142,18 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
     material también se le entrega de una vez, deduplicado por registro y por
     artículo. Si se le mandara por problema, citaría la misma tesis tres veces.
     """
+    # Se acepta la pregunta suelta o el problema entero de la Fase 3: que el
+    # módulo aguante las dos formas cuesta tres líneas y evita repetir el fallo
+    # en cada sitio que lo llame.
+    preguntas = []
+    for p in (problemas or []):
+        q = p.get("pregunta", "") if isinstance(p, dict) else str(p or "")
+        if q.strip():
+            preguntas.append(q.strip())
+
     partes = await asyncio.gather(*[
         material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal)
-        for p in problemas if (p or "").strip()])
+        for p in preguntas])
 
     tesis, normas = [], []
     r_vistos, n_vistos = set(), set()

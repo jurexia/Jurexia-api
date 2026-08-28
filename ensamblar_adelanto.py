@@ -54,6 +54,7 @@ try:
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.text.paragraph import Paragraph
+    from docx.text.run import Run
 except ImportError:                                     # pragma: no cover
     docx = None
 
@@ -80,6 +81,59 @@ def escribir(p, texto: str) -> None:
     runs[0].text = texto
     for r in runs[1:]:
         r._element.getparent().remove(r._element)
+
+
+def escribir_tramos(p, tramos) -> None:
+    """El párrafo con VARIOS formatos dentro: [(texto, {"bold":…, "italic":…}), …].
+
+    `escribir()` mete todo en el primer run y hereda su formato, que es por qué
+    el resolutivo salía ENTERO en negrita: el primer run de la plantilla es
+    «ÚNICO.» y va en negrita. Aquí el primer run se usa como MOLDE —de él salen
+    la fuente, el tamaño y el color— y se clona uno por tramo.
+    """
+    runs = p.runs
+    if not runs:
+        for texto, fmt in tramos:
+            r = p.add_run(texto)
+            r.bold = fmt.get("bold", False)
+            r.italic = fmt.get("italic", False)
+        return
+
+    molde = runs[0]._element
+    nuevos = []
+    for texto, fmt in tramos:
+        e = copy.deepcopy(molde)
+        nuevos.append(e)
+        molde.addprevious(e)
+        r = Run(e, p)
+        r.text = texto
+        r.bold = fmt.get("bold", False)
+        r.italic = fmt.get("italic", False)
+    for r in list(p.runs):
+        if r._element not in nuevos:
+            r._element.getparent().remove(r._element)
+
+
+# El rubro de una tesis se escribe entre comillas y EN NEGRITA; así lo hace él
+# en los 5 casos del ADC 174-2026 y en todos los engroses revisados. La cita se
+# reconoce por las comillas tipográficas y por ir en versales, que es como la
+# publica la Corte.
+_RX_RUBRO = re.compile(r"[“\"]([A-ZÁÉÍÓÚÑ][^”\"]{18,}?)[”\"]")
+
+
+def tramos_con_rubro(texto: str):
+    """Parte el párrafo en tramos para que el rubro salga en negrita."""
+    tramos, i = [], 0
+    for m in _RX_RUBRO.finditer(texto):
+        if m.start() > i:
+            tramos.append((texto[i:m.start()], {}))
+        tramos.append((texto[m.start():m.end()], {"bold": True}))
+        i = m.end()
+    if not tramos:
+        return None
+    if i < len(texto):
+        tramos.append((texto[i:], {}))
+    return tramos
 
 
 def clonar_tras(p, texto: str, modelo=None):
@@ -232,15 +286,51 @@ def modelos_de_formato(doc) -> dict:
 
 
 # Las marcas que deja el pipeline: [[p.7 §3]] o [[p.7]].
-_MARCA_CITA = re.compile(r"\s*\[\[\s*p\.?\s*(\d{1,4})\s*(?:§\s*(\d{1,3}))?\s*\]\]")
+# El modelo no siempre ancla un párrafo suelto: cuando la idea abarca varios
+# escribe «[[p.39 §2-3]]», y a veces encadena dos marcas para dos páginas. El
+# patrón original sólo admitía «§3» y esas marcas se quedaban CRUDAS dentro de
+# la sentencia — visibles, con corchetes, en el documento que se firma.
+_MARCA_CITA = re.compile(
+    r"\s*\[\[\s*p{1,2}\.?\s*(\d{1,4})(?:\s*[-–]\s*\d{1,4})?"
+    r"\s*(?:§+\s*(\d{1,3}(?:\s*[-–]\s*\d{1,3})?))?\s*\]\]")
 
 
 def _texto_de_nota(pagina: str, parrafo: Optional[str]) -> str:
-    return (f"Cfr. página {pagina}, párrafo {parrafo}." if parrafo
-            else f"Cfr. página {pagina}.")
+    if not parrafo:
+        return f"Cfr. página {pagina}."
+    p = re.sub(r"\s*[-–]\s*", " a ", parrafo)
+    return (f"Cfr. página {pagina}, párrafos {p}." if " a " in p
+            else f"Cfr. página {pagina}, párrafo {p}.")
 
 
-def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None):
+def _normaliza_rubro(x: str) -> str:
+    return re.sub(r"[^A-ZÁÉÍÓÚÑ0-9]+", " ", (x or "").upper()).strip()
+
+
+def tesis_del_rubro(texto: str, tesis: list) -> Optional[dict]:
+    """La tesis del acervo cuyo rubro se cita en este párrafo, si alguna.
+
+    Se compara NORMALIZANDO —fuera comillas, acentos de puntuación y espacios—
+    porque el modelo reproduce el rubro con comillas tipográficas y a veces
+    corta la coletilla final.
+    """
+    m = _RX_RUBRO.search(texto or "")
+    if not m:
+        return None
+    citado = _normaliza_rubro(m.group(1))
+    if len(citado) < 25:
+        return None
+    for t in (tesis or []):
+        real = _normaliza_rubro(t.get("rubro", ""))
+        if not real:
+            continue
+        if real.startswith(citado[:70]) or citado.startswith(real[:70]):
+            return t
+    return None
+
+
+def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
+                  modelo_cita=None):
     """Varios párrafos con su separador vacío detrás, como los escribe él.
 
     Y con las marcas de cita convertidas en NOTAS AL PIE. Si el documento no
@@ -251,9 +341,31 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None):
         citas = [(m.group(1), m.group(2)) for m in _MARCA_CITA.finditer(t)]
         limpio = _MARCA_CITA.sub("", t)
         ancla = clonar_tras(ancla, limpio, modelo)
+
+        # El rubro va en NEGRITA dentro del párrafo, como él lo escribe.
+        tramos = tramos_con_rubro(limpio)
+        if tramos:
+            escribir_tramos(ancla, tramos)
+
         if doc is not None:
             for pagina, parrafo in citas:
                 anadir_nota(doc, ancla, _texto_de_nota(pagina, parrafo))
+
+        # Y la tesis se completa desde el acervo: la LOCALIZACIÓN a pie de
+        # página —«Semanario Judicial…, Novena Época, tomo XXXI, página 830»— y
+        # el TEXTO ÍNTEGRO en párrafo aparte y en cursiva. Citar sólo el rubro
+        # deja al lector sin poder comprobar qué dice la tesis.
+        hallada = tesis_del_rubro(limpio, tesis) if tesis else None
+        if hallada:
+            if doc is not None and hallada.get("localizacion"):
+                anadir_nota(doc, ancla, " " + hallada["localizacion"].strip())
+            cuerpo = (hallada.get("texto") or "").strip()
+            if cuerpo:
+                if modelo_vacio is not None:
+                    ancla = clonar_tras(ancla, "", modelo_vacio)
+                ancla = clonar_tras(ancla, cuerpo, modelo_cita or modelo)
+                escribir_tramos(ancla, [(cuerpo, {"italic": True})])
+
         if modelo_vacio is not None:
             ancla = clonar_tras(ancla, "", modelo_vacio)
     return ancla
@@ -334,6 +446,11 @@ class Relleno:
     # con su hueco, y no una sentencia a medio resolver.
     estudio: list[str] = field(default_factory=list)
 
+    # Las tesis del acervo (registro, rubro, texto, localizacion). El ensamblador
+    # TRANSCRIBE de aquí, no de lo que escriba el modelo: la transcripción de una
+    # tesis es dato verificado, y hacérsela redactar es invitarle a alterarla.
+    tesis: list[dict] = field(default_factory=list)
+
     # Lo que decide el secretario. Mientras esté vacío se deja el hueco
     # marcado, igual que en el adelanto de papel.
     sentido: str = ""                    # la FÓRMULA literal, si ya se tiene
@@ -355,8 +472,10 @@ avisos_ensamblado: list[str] = []
 # Justicia de la Unión ampara o no. Meter la primera donde va el segundo produce
 # «La Justicia de la Unión ineficaz a María Fernanda Ruiz», que no significa
 # nada y que es exactamente la línea que se firma.
-_AMPARA = "AMPARA Y PROTEGE"
-_NO_AMPARA = "NO AMPARA NI PROTEGE"
+# En MINÚSCULAS y en negrita: así lo escribe él —«La Justicia de la Unión **no
+# ampara ni protege** a…»—. Las versales son de otro tribunal, no del suyo.
+_AMPARA = "ampara y protege"
+_NO_AMPARA = "no ampara ni protege"
 
 
 def formula_resolutivo(calificaciones: list[str]) -> tuple[str, str]:
@@ -446,13 +565,19 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         escribir(p, f"SEXTO. Estudio de los {q}.")
         ancla = p
         bloques: list[tuple[str, list[str]]] = [
-            ("Consideraciones relevantes de la resolución reclamada.", r.resumen_acto),
+            ("Consideraciones relevantes de la sentencia recurrida"
+             if r.estudio else
+             "Consideraciones relevantes de la resolución reclamada.", r.resumen_acto),
             (q.capitalize() + ".", r.resumen_conceptos),
-            ("Problemas jurídicos.", r.problemas),
+            # «Problema jurídico a resolver» y «Solución» son los rótulos del
+            # ENGROSE; «Problemas jurídicos» era el del adelanto. Al llegar el
+            # criterio, el documento deja de ser adelanto y toma los suyos.
+            ("Problema jurídico a resolver" if r.estudio else "Problemas jurídicos.",
+             r.problemas),
             # El estudio va SIN rótulo propio: abre con su encabezado ordinal y
             # la calificación —«Los conceptos son ineficaces»—, que es como
             # arranca el 40% de los engroses y lo que el lector busca primero.
-            ("", r.estudio),
+            ("Solución", r.estudio),
         ]
         for rotulo, parrafos in bloques:
             if not parrafos:
@@ -461,7 +586,8 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
                 ancla = clonar_tras(ancla, rotulo, mod["rotulo"])
                 if mod["vacio"] is not None:
                     ancla = clonar_tras(ancla, "", mod["vacio"])
-            ancla = clonar_bloque(ancla, parrafos, mod["cuerpo"], mod["vacio"], doc)
+            ancla = clonar_bloque(ancla, parrafos, mod["cuerpo"], mod["vacio"],
+                                  doc, tesis=r.tesis)
 
     # ── El NOMBRE de la parte, allí donde la plantilla lo arrastra ───────
     #
@@ -470,6 +596,26 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
     # más peligroso que dejar un hueco: un hueco se ve, un nombre equivocado
     # se firma. Se sustituye por el del asunto en curso.
     quejoso_viejo = _quejoso_de_plantilla(ruta_plantilla)
+
+    # La plantilla puede traer el MISMO nombre escrito de dos maneras —en este
+    # tribunal, «Larrañaga» en el proemio y «Larragaña» en el resolutivo—. Se
+    # sustituye la forma canónica y la otra sobrevive intacta hasta la firma.
+    # No se corrige automáticamente: un apellido no se arregla por parecido.
+    if r.quejoso:
+        _apellidos = [w for w in re.findall(r"[\wÁÉÍÓÚÑáéíóúñ]{5,}", r.quejoso)]
+        for p_ in doc.paragraphs:
+            t_ = texto_de(p_)
+            for ap in _apellidos:
+                for cand in re.findall(r"\b[\wÁÉÍÓÚÑáéíóúñ]{5,}\b", t_):
+                    if cand.lower() == ap.lower():
+                        continue
+                    if (sorted(cand.lower()) == sorted(ap.lower())
+                            and cand.lower() not in (x.lower() for x in _apellidos)):
+                        avisos_ensamblado.append(
+                            f"La plantilla escribe «{cand}» donde el quejoso es "
+                            f"«{ap}». Compruébalo: se firma tal cual.")
+                        break
+
     if r.quejoso and quejoso_viejo:
         for p in doc.paragraphs:
             t = texto_de(p)
@@ -491,7 +637,24 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         # —se confirma, se revoca, se declara infundado— y depende de lo que se
         # recurrió: dejar el hueco es más honesto que rellenarlo por analogía.
         if formula and "justicia de la unión" in texto_de(p).lower():
-            escribir(p, texto_de(p).replace(HUECO, formula))
+            # El resolutivo NO va entero en negrita. Medido en su engrose: sólo
+            # «ÚNICO.» y la fórmula. `escribir()` metía todo en el primer run,
+            # que es el del ordinal, y heredaba su negrita: el resolutivo entero
+            # salía resaltado y había que deshacerlo a mano.
+            entero = texto_de(p).replace(HUECO, formula)
+            m_ord = re.match(r"^(ÚNICO\.|PRIMERO\.|SEGUNDO\.)", entero)
+            tramos = []
+            resto = entero
+            if m_ord:
+                tramos.append((m_ord.group(1), {"bold": True}))
+                resto = entero[m_ord.end():]
+            i = resto.find(formula)
+            if i >= 0:
+                tramos += [(resto[:i], {}), (formula, {"bold": True}),
+                           (resto[i + len(formula):], {})]
+            else:
+                tramos.append((resto, {}))
+            escribir_tramos(p, [t for t in tramos if t[0]])
             # El quejoso se sustituye, pero el APODERADO, el acto reclamado y la
             # autoridad siguen siendo los de la plantilla. Un hueco se ve; un
             # nombre de otro asunto, no, y aquí se firma.
