@@ -131,3 +131,60 @@ frente a lo que se combate. No de la demanda sola ni del acto solo.
   de esa sola pregunta y se gana claridad. Sólo desglosa en problemas
   particulares cuando de verdad sean independientes entre sí."""
     return base
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUINTO. Antecedentes — medido sobre 199 apartados reales del corpus
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# NO ES EL RESUMEN DEL ACTO, y confundirlos es el error natural: los dos salen
+# de la misma sentencia. Pero el resumen cuenta lo que la responsable RESOLVIÓ
+# y por qué; los antecedentes cuentan lo que PASÓ en el juicio de origen. Uno
+# es razonamiento, el otro es crónica.
+#
+# Y se nota en la medida: 645 palabras en 17 párrafos de 37 —frases cortas de
+# trámite— frente a las 438 del resumen en prosa larga.
+#
+# Los verbos lo confirman: dictó (186), admitió (112), interpuso (82),
+# resolvió (80), confirmó (64), turnó (49). Todos de PROCEDIMIENTO, todos en
+# pretérito. Y los párrafos arrancan «Por auto de», «En proveído de», «En auto
+# de», «Seguido el juicio», «Inconforme con esa resolución».
+
+PALABRAS_ANTECEDENTES = 645
+PARRAFOS_ANTECEDENTES = 17
+
+# Las cuatro entradas que usa el corpus, por frecuencia.
+ENTRADAS_ANTECEDENTES = (
+    "Para contextualizar el estudio de los motivos de disenso",           # 51
+    "Previo al análisis de los conceptos de violación que se propone",    # 39
+    "Previo al análisis de los conceptos de violación, es menester",      # 28
+    "A efecto de dar claridad a la presente resolución",                  # 26
+)
+
+VERBOS_ANTECEDENTES = ("dictó", "admitió", "interpuso", "resolvió",
+                       "confirmó", "turnó", "presentó", "revocó")
+
+ARRANQUES_ANTECEDENTES = ("Por auto de", "En proveído de", "En auto de",
+                          "Seguido el juicio", "Inconforme con esa resolución",
+                          "Radicada la demanda")
+
+
+def instrucciones_antecedentes() -> str:
+    return f"""QUINTO. ANTECEDENTES
+
+Lo que PASÓ en el juicio de origen, en orden cronológico. NO es el resumen de
+lo que la responsable resolvió —eso va aparte y después—: aquí sólo se cuenta
+el trámite, para que quien lea entienda de dónde viene el asunto.
+
+- ARRANCA con una de estas fórmulas: «{ENTRADAS_ANTECEDENTES[0]}…» o
+  «{ENTRADAS_ANTECEDENTES[3]}…».
+- PÁRRAFOS CORTOS: mediana de 37 palabras, unos {PARRAFOS_ANTECEDENTES} en
+  total, alrededor de {PALABRAS_ANTECEDENTES} palabras. Un hecho procesal por
+  párrafo, nada de encadenar.
+- PRETÉRITO y verbos de TRÁMITE: {', '.join(VERBOS_ANTECEDENTES[:6])}.
+- ASÍ EMPIEZAN los párrafos en los engroses reales:
+  {'; '.join(f'«{a}…»' for a in ARRANQUES_ANTECEDENTES[:5])}.
+- CADA FECHA EN LETRA, como en todo documento judicial.
+- Los puntos resolutivos de las sentencias de origen se TRANSCRIBEN entre
+  comillas cuando importan al asunto.
+- NO opines, NO califiques y NO adelantes el estudio."""

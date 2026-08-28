@@ -81,13 +81,52 @@ def escribir(p, texto: str) -> None:
         r._element.getparent().remove(r._element)
 
 
-def clonar_tras(p, texto: str):
-    """Un párrafo nuevo con el mismo formato, justo después de `p`."""
-    nuevo = copy.deepcopy(p._p)
+def clonar_tras(p, texto: str, modelo=None):
+    """Un párrafo nuevo DESPUÉS de `p`, con el formato de `modelo`.
+
+    EL MODELO NO ES UN DETALLE. Antes se clonaba siempre el párrafo ancla, y
+    el ancla es el ENCABEZADO —«SEXTO. Estudio…»—, que va en negrita y con otra
+    sangría. Resultado: el estudio entero salía en negrita y con el sangrado
+    del título, y el secretario tenía que arreglar el formato a mano, que es
+    justo el tiempo que este programa pretende ahorrarle.
+
+    Medido en la plantilla de David hay TRES formatos distintos:
+        encabezado  negrita, sangría 540385
+        rótulo      negrita, SIN sangría
+        cuerpo      sin negrita, sangría 457200
+    """
+    fuente = modelo if modelo is not None else p
+    nuevo = copy.deepcopy(fuente._p)
     p._p.addnext(nuevo)
     q = Paragraph(nuevo, p._parent)
     escribir(q, texto)
     return q
+
+
+def modelos_de_formato(doc) -> dict:
+    """Un párrafo de muestra por cada formato, tomado de la propia plantilla.
+
+    HAY QUE LLAMARLA ANTES DE BORRAR NADA: los modelos son los párrafos que el
+    secretario ya escribió, y al limpiar la sección para rellenarla se van con
+    ella.
+    """
+    rotulo = cuerpo = None
+    for p in doc.paragraphs:
+        t = texto_de(p).strip()
+        if not t or not p.runs:
+            continue
+        negrita = bool(p.runs[0].bold)
+        palabras = len(t.split())
+        # Rótulo: negrita, corto y sin numeral ordinal delante.
+        if rotulo is None and negrita and 2 <= palabras <= 9 \
+                and not re.match(r"^(PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|S[ÉE]PTIMO)\.", t):
+            rotulo = p
+        # Cuerpo: prosa larga sin negrita.
+        if cuerpo is None and not negrita and palabras > 25:
+            cuerpo = p
+        if rotulo is not None and cuerpo is not None:
+            break
+    return {"rotulo": rotulo, "cuerpo": cuerpo}
 
 
 def buscar(doc, patron: str, desde: int = 0):
@@ -187,6 +226,9 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
     """Rellena la plantilla y guarda el adelanto. Devuelve la ruta escrita."""
     doc = docx.Document(ruta_plantilla)
     q = "agravios" if r.es_recurso else "conceptos de violación"
+    # PRIMERO los modelos de formato: luego se borra el contenido viejo y con
+    # él se irían los ejemplos de los que se copia el estilo.
+    mod = modelos_de_formato(doc)
 
     # ── Cabecera ─────────────────────────────────────────────────────────
     # Aparece DOS veces: al inicio y en la página de síntesis. Se cambian las
@@ -226,7 +268,7 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         if p is not None:
             ancla = p
             for t in r.antecedentes:
-                ancla = clonar_tras(ancla, t)
+                ancla = clonar_tras(ancla, t, mod["cuerpo"])
 
     # ── SEXTO. Estudio ───────────────────────────────────────────────────
     p = buscar(doc, r"^SEXTO\.\s*Estudio")
@@ -243,9 +285,9 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         for rotulo, parrafos in bloques:
             if not parrafos:
                 continue
-            ancla = clonar_tras(ancla, rotulo)
+            ancla = clonar_tras(ancla, rotulo, mod["rotulo"])
             for t in parrafos:
-                ancla = clonar_tras(ancla, t)
+                ancla = clonar_tras(ancla, t, mod["cuerpo"])
 
     # ── El NOMBRE de la parte, allí donde la plantilla lo arrastra ───────
     #

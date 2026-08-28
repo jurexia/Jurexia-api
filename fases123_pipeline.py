@@ -30,8 +30,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from fases123_resumenes import (
+    PALABRAS_ANTECEDENTES,
     PALABRAS_RESUMEN_ACTO,
     PALABRAS_RESUMEN_CONCEPTOS,
+    instrucciones_antecedentes,
     instrucciones_problemas,
     instrucciones_resumen_acto,
     instrucciones_resumen_conceptos,
@@ -144,6 +146,26 @@ def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False) -> 
 Escribe el resumen de los {q}, un párrafo por cada uno. Sólo el resumen."""
 
 
+def prompt_antecedentes(texto_acto: str) -> str:
+    """Los antecedentes se leen del documento ENTERO, no del recorte.
+
+    El recorte del resumen se queda con el estudio de fondo, y ahí no está el
+    trámite: la presentación, la admisión y el emplazamiento viven al principio
+    del documento, en la parte que el otro recorte descarta.
+    """
+    return f"""{_NUCLEO}
+
+{instrucciones_antecedentes()}
+
+Éste es el documento:
+
+──────────────────────────────────────────
+{texto_acto[:TOPE_CARACTERES]}
+──────────────────────────────────────────
+
+Escribe el apartado de antecedentes, un párrafo por línea. Sólo el apartado."""
+
+
 def prompt_problemas(resumen_acto: str, resumen_conceptos: str,
                      es_recurso: bool = False) -> str:
     return f"""{_NUCLEO}
@@ -234,11 +256,12 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
     import asyncio
     import json as _json
 
-    ra, rc = await asyncio.gather(
+    an, ra, rc = await asyncio.gather(
+        _pedir(cliente, prompt_antecedentes(texto_acto), 3000),
         _pedir(cliente, prompt_resumen_acto(texto_acto, es_recurso)),
         _pedir(cliente, prompt_resumen_conceptos(texto_conceptos, es_recurso)),
     )
-    f = Fases123(resumen_acto=ra, resumen_conceptos=rc)
+    f = Fases123(antecedentes=an, resumen_acto=ra, resumen_conceptos=rc)
     try:
         crudo = await _pedir(cliente, prompt_problemas(ra, rc, es_recurso),
                              3500, json_estricto=True)
@@ -258,11 +281,15 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
 
 @dataclass
 class Fases123:
+    antecedentes: str = ""
     resumen_acto: str = ""
     resumen_conceptos: str = ""
     problema_global: str = ""
     problemas: list[dict] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+
+    def parrafos_antecedentes(self) -> list[str]:
+        return [p.strip() for p in self.antecedentes.split("\n") if p.strip()]
 
     def parrafos_acto(self) -> list[str]:
         return [p.strip() for p in self.resumen_acto.split("\n") if p.strip()]

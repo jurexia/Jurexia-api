@@ -78,7 +78,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
         magistrado=e.magistrado, secretario=e.secretario,
         oportunidad=f0.parrafo_oportunidad(c),
-        antecedentes=[],                       # se llenan aparte; ver nota abajo
+        antecedentes=f.parrafos_antecedentes(),
         resumen_acto=f.parrafos_acto(),
         resumen_conceptos=f.parrafos_conceptos(),
         problemas=f.parrafos_problemas(),
@@ -90,17 +90,18 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos)
 
 
-# ── Nota sobre los ANTECEDENTES ───────────────────────────────────────────
+# ── Los ANTECEDENTES ya se generan ────────────────────────────────────────
 #
-# El QUINTO. Antecedentes se queda vacío a propósito en esta versión. Salen de
-# la sentencia reclamada, igual que el resumen del acto, pero son otra cosa: el
-# resumen cuenta lo que la responsable RESOLVIÓ, y los antecedentes cuentan lo
-# que PASÓ en el juicio de origen —escrito inicial, admisión, sentencia de
-# primera instancia, apelación—.
+# Medidos sobre 199 apartados reales antes de escribir una línea de prompt:
+# 645 palabras en 17 párrafos de 37 —crónica de trámite, frases cortas—, con
+# verbos de procedimiento (dictó 186, admitió 112, interpuso 82) y arranques
+# fijos («Por auto de», «En proveído de», «Seguido el juicio»).
 #
-# Se pueden generar con una cuarta llamada sobre el mismo texto, pero antes hay
-# que medirlos en el corpus como se midieron los resúmenes. Hacerlo a ojo sería
-# volver a inventar el estilo, que es justo lo que este proyecto no hace.
+# NO son el resumen del acto, aunque salgan de la misma sentencia: el resumen
+# cuenta lo que la responsable RESOLVIÓ y por qué; los antecedentes, lo que
+# PASÓ en el juicio de origen. Uno es razonamiento, el otro es crónica. Por eso
+# se piden con otro prompt y sobre el documento ENTERO —el recorte del resumen
+# se queda con el estudio de fondo, donde el trámite ya no está—.
 
 
 def resumen_legible(r: Resultado) -> str:
@@ -110,6 +111,8 @@ def resumen_legible(r: Resultado) -> str:
         f"Oportunidad: {'en tiempo' if r.computo.oportuna else 'EXTEMPORÁNEA'} "
         f"· plazo del {r.computo.inicio} al {r.computo.vencimiento} "
         f"({r.computo.plazo} días hábiles)",
+        f"Antecedentes: {len(r.fases.antecedentes.split())} palabras "
+        f"en {len(r.fases.parrafos_antecedentes())} párrafos",
         f"Resumen del acto: {len(r.fases.resumen_acto.split())} palabras",
         f"Resumen de conceptos: {len(r.fases.resumen_conceptos.split())} palabras",
         f"Problemas jurídicos: {len(r.fases.problemas)}"
