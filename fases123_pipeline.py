@@ -24,6 +24,7 @@ razonamiento.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -167,6 +168,88 @@ Devuelve JSON y nada más:
 }}
 Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
 "impedimento" como {{"motivo": "inoperancia", "explicacion": "..."}}."""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# El motor
+# ═══════════════════════════════════════════════════════════════════════════
+
+# `gpt-5.6-luna` POR LA API DE OPENAI, no por OpenRouter. Decisión de David
+# (28-ago-2026): la cuenta de OpenAI ya está pagada y el modelo sale más barato
+# que por el intermediario —$0.200/$1.200 por millón frente a $0.375/$1.875 de
+# gemini-3.7-flash—, así que no hay razón para dar el rodeo.
+#
+# Es el mismo motor que ya corre en Redacción Pro y Platinum, con el mismo
+# cliente (`chat_client` de main.py). Ver [[motores-iurexia]].
+MODELO_FASES = os.getenv("MODELO_FASES", "gpt-5.6-luna")
+
+# SIN RAZONAMIENTO, y lo decidió David: «es un proceso de resumen y recolección
+# de información para ser plasmados en el docx». No hay nada que deducir — lo
+# que se pide ya está escrito en el documento; hay que encontrarlo y contarlo
+# en el registro correcto.
+#
+# Y no es sólo cuestión de coste: razonando, la fase de problemas devolvió
+# respuesta VACÍA en uno de los dos casos de prueba, porque el razonamiento se
+# comió el presupuesto de salida. Sin razonar salió a la primera. El
+# razonamiento aquí no es que sobre: estorba.
+#
+# La familia 5.6 acepta none/low/medium/high/xhigh. `max` NO existe.
+ESFUERZO_FASES = os.getenv("ESFUERZO_FASES", "none")
+
+
+async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = False) -> str:
+    """Una llamada al motor. `json_estricto` obliga al modelo a devolver JSON.
+
+    Sin ese modo, extraer el objeto con un regex falla de vez en cuando —el
+    modelo antepone una frase, o parte el objeto— y la fase de problemas se
+    queda vacía con un error críptico. Pasó en el ADC 274-2025.
+    """
+    kw = dict(model=MODELO_FASES,
+              messages=[{"role": "user", "content": prompt}],
+              max_completion_tokens=tope)
+    if ESFUERZO_FASES:
+        kw["reasoning_effort"] = ESFUERZO_FASES
+    if json_estricto:
+        kw["response_format"] = {"type": "json_object"}
+    r = await cliente.chat.completions.create(**kw)
+    txt = (r.choices[0].message.content or "").strip()
+    if not txt:
+        # RESPUESTA VACÍA: el razonamiento se comió el presupuesto de salida.
+        # Es el mismo fallo que main.py ya documenta para los modelos 5.6, y
+        # aquí lo delataba un «Expecting value: line 1 column 1» que parecía un
+        # problema de JSON y no lo era. Se reintenta con el doble de tope y sin
+        # razonamiento: para leer un documento no hace falta.
+        kw["max_completion_tokens"] = tope * 2
+        kw.pop("reasoning_effort", None)
+        r = await cliente.chat.completions.create(**kw)
+        txt = (r.choices[0].message.content or "").strip()
+    return txt
+
+
+async def correr(cliente, texto_acto: str, texto_conceptos: str,
+                 es_recurso: bool = False) -> "Fases123":
+    """Las tres fases, en orden. Los dos resúmenes van EN PARALELO —son
+    independientes— y los problemas esperan a los dos, porque salen de su
+    contraste."""
+    import asyncio
+    import json as _json
+
+    ra, rc = await asyncio.gather(
+        _pedir(cliente, prompt_resumen_acto(texto_acto, es_recurso)),
+        _pedir(cliente, prompt_resumen_conceptos(texto_conceptos, es_recurso)),
+    )
+    f = Fases123(resumen_acto=ra, resumen_conceptos=rc)
+    try:
+        crudo = await _pedir(cliente, prompt_problemas(ra, rc, es_recurso),
+                             3500, json_estricto=True)
+        m = re.search(r"\{.*\}", crudo, re.S)
+        j = _json.loads(m.group(0) if m else crudo)
+        f.problema_global = j.get("problema_global", "")
+        f.problemas = j.get("problemas", []) or []
+    except Exception as e:
+        f.avisos.append(f"No se pudieron derivar los problemas jurídicos: {e}")
+    f.avisos.extend(revisar(f))
+    return f
 
 
 # ═══════════════════════════════════════════════════════════════════════════
