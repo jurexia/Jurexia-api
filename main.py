@@ -25540,11 +25540,20 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
         "avisos": list(r.avisos or []),
         "tmp": tmp,
     }
+    # LA PLANTILLA VIAJA CON LA SESIÓN. Vive en el /tmp del worker que atendió el
+    # adelanto y el que resuelve no lo ve: `PackageNotFoundError` al reensamblar.
+    # Son unos 450 KB por asunto en curso, y se borran con la sesión.
+    fila = {"email": (email or "").strip().lower(), "expediente": numero,
+            "estado": estado, "consultado": False}
     try:
-        supabase_admin.table("taller_sesiones").upsert({
-            "email": (email or "").strip().lower(), "expediente": numero,
-            "estado": estado, "consultado": False,
-        }, on_conflict="email,expediente").execute()
+        import base64 as _b64
+        with open(e.plantilla, "rb") as _fh:
+            fila["plantilla"] = "\\x" + _fh.read().hex()
+    except Exception as ex:
+        logger.warning("No se pudo guardar la plantilla del taller: %s", ex)
+    try:
+        supabase_admin.table("taller_sesiones").upsert(
+            fila, on_conflict="email,expediente").execute()
     except Exception as ex:
         logger.warning("No se pudo guardar la sesión del taller: %s", ex)
 
@@ -25557,7 +25566,8 @@ def _taller_recuperar_sesion(email: str, numero: str):
     if not supabase_admin:
         return None
     try:
-        r = supabase_admin.table("taller_sesiones").select("estado, consultado") \
+        r = supabase_admin.table("taller_sesiones") \
+            .select("estado, consultado, plantilla") \
             .eq("email", (email or "").strip().lower()) \
             .eq("expediente", numero).limit(1).execute()
         if not r.data:
@@ -25599,7 +25609,25 @@ def _taller_recuperar_sesion(email: str, numero: str):
                            encargo.responsable)
     resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
                               partes=partes, avisos=list(est.get("avisos") or []))
-    ses = {"resultado": resultado, "tmp": est.get("tmp") or _tmpmod.mkdtemp(prefix="taller_"),
+    tmp = est.get("tmp") or ""
+    if not os.path.isdir(tmp):
+        tmp = _tmpmod.mkdtemp(prefix="taller_")
+
+    # Si la plantilla no está en este worker, se escribe desde la base.
+    if not os.path.exists(encargo.plantilla):
+        cruda = r.data[0].get("plantilla")
+        if cruda:
+            try:
+                if isinstance(cruda, str):
+                    cruda = bytes.fromhex(cruda[2:] if cruda.startswith("\\x") else cruda)
+                destino = os.path.join(tmp, "plantilla.docx")
+                with open(destino, "wb") as fh:
+                    fh.write(cruda)
+                encargo.plantilla = destino
+            except Exception as ex:
+                logger.warning("No se pudo restaurar la plantilla: %s", ex)
+
+    ses = {"resultado": resultado, "tmp": tmp,
            "ts": time.time(), "consultado": r.data[0].get("consultado", False)}
     _TALLER_SESIONES[_taller_llave(email, numero)] = ses
     return ses
