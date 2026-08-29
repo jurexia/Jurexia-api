@@ -24,7 +24,11 @@ from docx import Document
 # tipo → (campo, valores aceptables, % del corpus que cae dentro)
 ESPERADO = {
     "cuerpo": [
-        ("first_line_indent", {709, 708, None}, 84),
+        # El 0 es DECISIÓN de David: el corpus usa 709 en el 63-70% de los
+        # párrafos, pero él lo ve «muy desplazado» y su proyecto terminado del
+        # ADC 174-2026 va a cero. Se aceptan los dos: no se le reprocha al
+        # corpus lo que él pidió cambiar.
+        ("first_line_indent", {0, 709, 708, None}, 84),
         ("alignment", {"JUSTIFY", None}, 99),
         ("line_spacing", {1.5, None}, 92),
         ("size", {14.0, None}, 90),

@@ -203,6 +203,19 @@ def _siguiente_id(raiz) -> int:
     return max(ids) + 1 if ids else 1
 
 
+def _estilo_referencia(doc) -> str:
+    """El styleId que la plantilla usa para la llamada de nota al pie."""
+    try:
+        for st in doc.styles:
+            if (st.name or "").strip().lower() in ("footnote reference",
+                                                   "ref. de nota al pie",
+                                                   "referencia de nota al pie"):
+                return st.style_id
+    except Exception:
+        pass
+    return "FootnoteReference"
+
+
 def anadir_nota(doc, parrafo, texto: str) -> bool:
     """Cuelga una nota al pie del final de `parrafo`. Devuelve si pudo.
 
@@ -241,12 +254,23 @@ def anadir_nota(doc, parrafo, texto: str) -> bool:
     raiz.append(nueva)
     _guardar_notas(parte, raiz)
 
-    # La llamada en el cuerpo: un run con estilo de referencia.
+    # La llamada en el cuerpo: un run con estilo de referencia Y con superíndice
+    # explícito. El estilo por nombre —«Refdenotaalpie»— sólo se aplica si la
+    # plantilla lo define; cuando no existe, Word ignora la referencia y el
+    # número sale como texto corrido pegado a la palabra, que es lo que David vio
+    # como «caracteres incorrectos en lugar del número». El superíndice directo
+    # no depende de ningún estilo.
     r = parrafo.add_run()
     rpr = r._element.get_or_add_rPr()
+    # El styleId REAL de la plantilla, leído de ella: «FootnoteReference». El
+    # nombre que yo puse —«Refdenotaalpie»— es el rótulo español de Word y NO
+    # existe como identificador ahí, así que Word lo ignoraba en silencio.
     estilo = OxmlElement("w:rStyle")
-    estilo.set(qn("w:val"), "Refdenotaalpie")
+    estilo.set(qn("w:val"), _estilo_referencia(doc))
     rpr.append(estilo)
+    va = OxmlElement("w:vertAlign")
+    va.set(qn("w:val"), "superscript")
+    rpr.append(va)
     ref = OxmlElement("w:footnoteReference")
     ref.set(qn("w:id"), str(nid))
     r._element.append(ref)
@@ -269,7 +293,19 @@ def anadir_nota(doc, parrafo, texto: str) -> bool:
 # y con interlineado y medio: se lee como si fuera prosa del tribunal y no como
 # lo que es, texto ajeno transcrito.
 SANGRIA_CITA = 709          # twips = 1.25 cm
+
+# La sangría de PRIMERA LÍNEA del cuerpo. El corpus la usa en el 63-70% de los
+# párrafos (709 twips), pero David la ve «muy desplazada» y su propio proyecto
+# terminado del ADC 174-2026 va a CERO. Su criterio manda sobre la moda del
+# corpus: son sus sentencias y él es quien las firma.
+SANGRIA_PARRAFO = 0
 TAMANO_CITA = 13            # puntos
+
+
+def _sangrar(p) -> None:
+    """La sangría del cuerpo, uniforme en todo lo que generamos."""
+    from docx.shared import Twips
+    p.paragraph_format.first_line_indent = Twips(SANGRIA_PARRAFO)
 
 
 def _aplicar_formato_cita(p) -> None:
@@ -338,9 +374,25 @@ def modelos_de_formato(doc) -> dict:
 # escribe «[[p.39 §2-3]]», y a veces encadena dos marcas para dos páginas. El
 # patrón original sólo admitía «§3» y esas marcas se quedaban CRUDAS dentro de
 # la sentencia — visibles, con corchetes, en el documento que se firma.
-_MARCA_CITA = re.compile(
-    r"\s*\[\[\s*p{1,2}\.?\s*(\d{1,4})(?:\s*[-–]\s*\d{1,4})?"
-    r"\s*(?:§+\s*(\d{1,3}(?:\s*[-–]\s*\d{1,3})?))?\s*\]\]")
+# Y no siempre es UNA cita: cuando la idea abarca dos páginas el modelo escribe
+# «[[p.33 §1; p.34 §§1-2]]» —dos referencias dentro de la misma marca, con «§§»
+# para el plural—. El patrón anterior exigía una sola y esas marcas se quedaban
+# CRUDAS, con corchetes, justo donde debía ir el número de la nota al pie. Ahora
+# se captura la marca ENTERA y se despieza aparte.
+_MARCA_CITA = re.compile(r"\s*\[\[([^\[\]]{2,120})\]\]")
+_UNA_CITA = re.compile(
+    r"p{1,2}\.?\s*(\d{1,4})(?:\s*[-–]\s*\d{1,4})?"
+    r"(?:\s*§+\s*(\d{1,3}(?:\s*[-–]\s*\d{1,3})?))?", re.I)
+
+
+def _citas_de(marca: str) -> list[tuple[str, str]]:
+    """Las (página, párrafo) que hay dentro de una marca, sean una o varias."""
+    fuera = []
+    for trozo in re.split(r"[;,]", marca):
+        m = _UNA_CITA.search(trozo)
+        if m:
+            fuera.append((m.group(1), m.group(2) or ""))
+    return fuera
 
 
 def _texto_de_nota(pagina: str, parrafo: Optional[str]) -> str:
@@ -386,9 +438,10 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
     a la vista.
     """
     for t in textos:
-        citas = [(m.group(1), m.group(2)) for m in _MARCA_CITA.finditer(t)]
+        citas = [c for m in _MARCA_CITA.finditer(t) for c in _citas_de(m.group(1))]
         limpio = _MARCA_CITA.sub("", t)
         ancla = clonar_tras(ancla, limpio, modelo)
+        _sangrar(ancla)
 
         # El rubro va en NEGRITA dentro del párrafo, como él lo escribe.
         tramos = tramos_con_rubro(limpio)
@@ -409,8 +462,13 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                 anadir_nota(doc, ancla, " " + hallada["localizacion"].strip())
             cuerpo = (hallada.get("texto") or "").strip()
             if cuerpo:
+                # El rubro y su transcripción son UNA cita partida en dos
+                # párrafos. Sin esto Word los separa en el salto de página y la
+                # tesis aparece dos hojas después de lo que anuncia.
+                ancla.paragraph_format.keep_with_next = True
                 if modelo_vacio is not None:
                     ancla = clonar_tras(ancla, "", modelo_vacio)
+                ancla.paragraph_format.keep_with_next = True   # el vacío también
                 ancla = clonar_tras(ancla, cuerpo, modelo_cita or modelo)
                 escribir_tramos(ancla, [(cuerpo, {"italic": True})])
                 # El formato va DESPUÉS de escribir: `escribir_tramos` clona el
@@ -715,6 +773,21 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
     p = buscar(doc, r"^TEMA\s*:")
     if p is not None and r.tema:
         escribir(p, f"TEMA: {r.tema}")
+
+    # ÚLTIMA RED. Si alguna marca sobrevivió a todo lo anterior —una forma que
+    # el patrón no previó— se retira antes de guardar. Un «[[p.33 §1]]» con
+    # corchetes dentro de una sentencia firmada es el peor final posible, y más
+    # vale perder la referencia que publicarla así.
+    huerfanas = 0
+    for p in doc.paragraphs:
+        t = texto_de(p)
+        if "[[" in t:
+            huerfanas += 1
+            escribir(p, re.sub(r"\s*\[\[[^\]]*\]\]", "", t))
+    if huerfanas:
+        avisos_ensamblado.append(
+            f"{huerfanas} marcas de cita no se pudieron convertir en nota al pie "
+            f"y se retiraron. Esas afirmaciones quedaron sin su referencia.")
 
     doc.save(ruta_salida)
     return ruta_salida
