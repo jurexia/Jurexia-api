@@ -15170,6 +15170,33 @@ def _aggregate_jurimetria(points: list) -> dict:
     }
 
 
+def _texto_nativo_sirve(texto: str, paginas: int) -> bool:
+    """¿La capa de texto del PDF es el documento, o es basura de sellos?
+
+    EL UMBRAL DE 200 CARACTERES NO BASTA, y costó un proyecto entero
+    descubrirlo. La `Sentencia.pdf` del ADC 125-2026 son 29 páginas escaneadas
+    con una capa de texto de 2,406 caracteres: el nombre de la firmante y su
+    cadena de firma digital, repetidos una vez por página. **116 palabras, de
+    las que sólo CUATRO son distintas.** Pasaba el umbral, nunca llegaba al OCR,
+    y el redactor escribió 4,133 palabras sobre un documento que no había leído.
+
+    Se mide la RIQUEZA, no la longitud: un sello repetido tiene poquísimas
+    palabras distintas, y un documento judicial ronda el 20-40% de únicas.
+    """
+    if not texto or len(texto) < 200:
+        return False
+    palabras = re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}", texto)
+    if len(palabras) < 120:
+        return False
+    unicas = {w.lower() for w in palabras}
+    if len(unicas) / len(palabras) < 0.12:      # sellos: 0.03 · documento: 0.2-0.4
+        return False
+    # Y un documento de verdad tiene cuerpo en cada página, no una línea.
+    if paginas > 3 and len(texto) / paginas < 250:
+        return False
+    return True
+
+
 async def _extract_text_from_upload(file: UploadFile) -> str:
     """Extrae texto de PDF/DOCX subido.
     
@@ -15193,10 +15220,11 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
             n_pages = len(doc)
             doc.close()
             text = "\n\n".join(pages).strip()
-            if len(text) > 200:
+            if _texto_nativo_sirve(text, n_pages):
                 print(f"   📄 PDF native text: {len(text)} chars, {n_pages} pages")
                 return text
-            print(f"   📷 PDF is scanned ({n_pages} pages, {len(text)} chars) — using Gemini 3.1 Pro OCR")
+            print(f"   📷 PDF escaneado o con capa inútil ({n_pages} pág, "
+                  f"{len(text)} chars) — se pasa al OCR")
         except Exception as e:
             print(f"   ⚠️ PyMuPDF error: {err(e)}")
             n_pages = 0
@@ -25442,8 +25470,22 @@ async def taller_adelanto(
     # el PDF viene escaneado.
     texto_acto = await _extract_text_from_upload(acto)
     texto_conceptos = await _extract_text_from_upload(conceptos)
-    if len(texto_acto) < 200 or len(texto_conceptos) < 200:
-        raise HTTPException(400, "No se pudo leer alguno de los documentos.")
+    # PARADA DURA. Antes bastaba con 200 caracteres y el redactor escribió un
+    # proyecto de 4,133 palabras que empezaba diciendo «no fue posible
+    # identificar una sentencia reclamada en el texto proporcionado». Un
+    # documento plausible construido sobre nada es peor que un error: el error
+    # se ve, y ese texto se firma.
+    for etiqueta, txt in (("acto reclamado", texto_acto),
+                          ("escrito de conceptos", texto_conceptos)):
+        pal = re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}", txt or "")
+        unicas = {w.lower() for w in pal}
+        if len(pal) < 200 or (pal and len(unicas) / len(pal) < 0.12):
+            raise HTTPException(400,
+                f"No se pudo leer el {etiqueta}: sólo se obtuvieron "
+                f"{len(unicas)} palabras distintas en {len(pal)}. El PDF puede "
+                f"venir escaneado sin capa de texto útil, o traer únicamente los "
+                f"sellos de firma. Vuelve a subirlo o pásalo antes por un OCR: "
+                f"NO se genera un proyecto sobre un documento que no se leyó.")
 
     encargo = _ra.Encargo(
         numero=numero, encabezado=encabezado, quejoso=quejoso,
