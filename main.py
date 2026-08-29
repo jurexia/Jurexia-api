@@ -19995,6 +19995,33 @@ _taller_piloto_cache = {"n": None, "ts": 0.0}
 _TALLER_PILOTO_TTL = 120.0
 
 
+# Las plantillas del propio tribunal, limpias de datos de las partes. Son
+# PROYECTOS TERMINADOS y no adelantos: el adelanto se detiene antes del
+# resolutivo, y con él la sentencia sale sin RESUELVE.
+PLANTILLAS_PRECARGADAS = {
+    "amparo_directo", "amparo_revision", "queja", "revision_fiscal",
+}
+_ALIAS_PLANTILLA = {
+    "amparo directo": "amparo_directo", "directo": "amparo_directo",
+    "amparo en revision": "amparo_revision", "amparo en revisión": "amparo_revision",
+    "revision": "amparo_revision", "revisión": "amparo_revision",
+    "recurso de queja": "queja", "queja urgente": "queja",
+    "revision fiscal": "revision_fiscal", "revisión fiscal": "revision_fiscal",
+}
+
+
+def _plantilla_precargada(tipo: str) -> str:
+    """La ruta de la plantilla de esa familia, o '' si no hay."""
+    clave = (tipo or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if clave not in PLANTILLAS_PRECARGADAS:
+        clave = _ALIAS_PLANTILLA.get((tipo or "").strip().lower(), "")
+    if not clave:
+        return ""
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "plantillas", f"{clave}.docx")
+    return ruta if os.path.exists(ruta) else ""
+
+
 def _taller_secretarios_distintos() -> int:
     """Cuántas personas distintas han usado ya el taller."""
     ahora = time.time()
@@ -25506,7 +25533,8 @@ async def taller_adelanto(
     plazo: int = Form(15),
     responsable: Optional[str] = Form(None),
     es_recurso: bool = Form(False),
-    plantilla: UploadFile = File(...),       # el .docx del propio tribunal
+    tipo_asunto: str = Form("amparo_directo"),
+    plantilla: Optional[UploadFile] = File(None),   # opcional: hay precargadas
     acto: UploadFile = File(...),
     conceptos: UploadFile = File(...),
 ):
@@ -25526,8 +25554,25 @@ async def taller_adelanto(
 
     tmp = tempfile.mkdtemp(prefix="taller_")
     ruta_plantilla = f"{tmp}/plantilla.docx"
-    with open(ruta_plantilla, "wb") as fh:
-        fh.write(await plantilla.read())
+
+    # LA PLANTILLA YA NO SE PIDE. Está precargada por familia de asunto, y el
+    # secretario sólo la sube si quiere usar una suya. Pedírsela era además la
+    # causa de un defecto real: en el proyecto 360/2025 se subió un adelanto
+    # —que por definición se detiene ANTES del resolutivo— y la sentencia salió
+    # sin «Por lo expuesto», sin RESUELVE y sin puntos resolutivos. Las
+    # precargadas son proyectos terminados: traen la estructura completa.
+    if plantilla is not None and getattr(plantilla, "filename", ""):
+        with open(ruta_plantilla, "wb") as fh:
+            fh.write(await plantilla.read())
+    else:
+        base = _plantilla_precargada(tipo_asunto)
+        if not base:
+            raise HTTPException(400,
+                f"No hay plantilla precargada para «{tipo_asunto}». Sube la tuya "
+                f"o elige entre: {', '.join(sorted(PLANTILLAS_PRECARGADAS))}.")
+        import shutil as _sh
+        _sh.copy(base, ruta_plantilla)
+        print(f"   📄 TALLER: plantilla precargada «{tipo_asunto}»")
 
     # Se reutiliza el lector que ya existe: texto nativo gratis, OCR sólo si
     # el PDF viene escaneado.

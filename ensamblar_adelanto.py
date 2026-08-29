@@ -509,6 +509,11 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
             m_r = _RX_RUBRO.search(limpio)
             if m_r:
                 antes = limpio[:m_r.start()].rstrip(" ,;:")
+                # Lo que el modelo escribió DESPUÉS del rubro —«…, establece que
+                # la pensión debe…»— es prosa que continúa la frase. Se conserva
+                # como párrafo propio detrás de la transcripción, en vez de
+                # perderse: es argumento del estudio, no relleno de la cita.
+                cola = limpio[m_r.end():].lstrip(" ,;:.")
                 # Se rehace el anuncio y se tira la coleta que venía después del
                 # rubro («, registro X, reconoce que…»): la dice el texto.
                 anuncio = re.sub(r"\s*(?:de\s+)?rubro(?:\s+y\s+registro)?\s*:?\s*$",
@@ -525,6 +530,7 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                 for r_ in ancla.runs:
                     r_.bold = True
                 ancla.paragraph_format.keep_with_next = True
+                _cola_pendiente = cola if len(cola.split()) > 6 else ""
 
         if hallada:
             cuerpo = (hallada.get("texto") or "").strip()
@@ -555,6 +561,14 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                     _aplicar_formato_cita(ancla)
                 if doc is not None and hallada.get("localizacion"):
                     anadir_nota(doc, ancla, " " + hallada["localizacion"].strip())
+                # Y detrás, la prosa que el modelo había puesto tras el rubro.
+                if locals().get("_cola_pendiente"):
+                    if modelo_vacio is not None:
+                        ancla = clonar_tras(ancla, "", modelo_vacio)
+                    ancla = clonar_tras(ancla, _cola_pendiente[0].upper()
+                                        + _cola_pendiente[1:], modelo)
+                    _sangrar(ancla)
+                    _cola_pendiente = ""
             elif doc is not None and hallada.get("localizacion"):
                 anadir_nota(doc, ancla, " " + hallada["localizacion"].strip())
 

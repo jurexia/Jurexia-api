@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 from typing import Awaitable, Callable, Optional
 
 log = logging.getLogger("fase6_rag")
@@ -45,6 +46,42 @@ COLECCION_FEDERAL = "leyes_federales"
 
 TESIS_POR_PROBLEMA = 6          # 6 entran en el prompt sin ahogar el material
 NORMAS_POR_PROBLEMA = 4
+
+
+# El rubro de una tesis local lo dice sin ambigüedad: «(LEGISLACIÓN DEL ESTADO
+# DE PUEBLA)». Un criterio sobre el código de otra entidad no rige aquí, por
+# obligatorio que sea en su circuito.
+_RX_LEGISLACION = re.compile(r"LEGISLACI[ÓO]N\s+(?:DEL?\s+)?(?:ESTADO\s+DE\s+)?"
+                             r"([A-ZÁÉÍÓÚÑ ]{4,40}?)\s*\)", re.I)
+
+_ESTADO_DE_COLECCION = {
+    "leyes_queretaro": "QUERETARO", "leyes_jalisco": "JALISCO",
+    "leyes_cdmx": "CIUDAD DE MEXICO", "leyes_nuevo_leon": "NUEVO LEON",
+    "leyes_guanajuato": "GUANAJUATO", "leyes_puebla": "PUEBLA",
+}
+
+
+def _sin_acentos(x: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", (x or "").upper())
+                   if not unicodedata.combining(c))
+
+
+def _de_otro_estado(t: dict, coleccion: Optional[str]) -> bool:
+    """True si la tesis interpreta la legislación de OTRA entidad."""
+    m = _RX_LEGISLACION.search(t.get("rubro", "") or "")
+    if not m:
+        return False
+    mia = _ESTADO_DE_COLECCION.get((coleccion or "").lower(), "")
+    suya = _sin_acentos(m.group(1)).strip()
+    return bool(mia) and mia not in suya and suya not in mia
+
+
+def _es_scjn(t: dict) -> bool:
+    """Pleno o Salas. David: «preferentemente jurisprudencia de la Suprema Corte»."""
+    inst = _sin_acentos(t.get("instancia", ""))
+    return any(x in inst for x in ("PRIMERA SALA", "SEGUNDA SALA", "PLENO",
+                                   "SUPREMA CORTE"))
 
 
 def _tesis_de(p: dict) -> dict:
@@ -115,10 +152,20 @@ async def material_para(qdrant, embed_juris, embed_leyes,
                for c in colecciones]
     res = await asyncio.gather(*tareas)
 
-    # Las obligatorias primero: en una sentencia la jerarquía de la fuente es
-    # parte del argumento, no un detalle de presentación.
+    # EL ORDEN NO ES SÓLO POR OBLIGATORIEDAD. Medido en el proyecto 360/2025 que
+    # generó David: el estudio citó jurisprudencia sobre la LEGISLACIÓN DEL
+    # ESTADO DE PUEBLA en un asunto de Querétaro. El rubro lo dice —«(LEGISLACIÓN
+    # DEL ESTADO DE PUEBLA)»— y aun así subió a los primeros puestos porque sólo
+    # se ordenaba por `vincula`.
+    #
+    # Tres criterios, en este orden:
+    #   1. Que NO sea de la legislación de otro estado.
+    #   2. Que venga de la Suprema Corte (Pleno o Salas) antes que de un Colegiado.
+    #   3. Que sea obligatoria.
     tesis = [_tesis_de(p) for p in res[0]]
-    tesis.sort(key=lambda t: not t["obligatoria"])
+    tesis.sort(key=lambda t: (_de_otro_estado(t, coleccion_estatal),
+                              not _es_scjn(t),
+                              not t["obligatoria"]))
     vistos: set[str] = set()
     unicas: list[dict] = []
     for t in tesis:
@@ -168,5 +215,6 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
                 n_vistos.add(clave)
                 normas.append(n)
 
-    tesis.sort(key=lambda t: not t["obligatoria"])
+    tesis.sort(key=lambda t: (_de_otro_estado(t, coleccion_estatal),
+                              not _es_scjn(t), not t["obligatoria"]))
     return f6.Material(tesis=tesis, normas=normas)

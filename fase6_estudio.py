@@ -258,10 +258,22 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   Si una tesis concreta no sostiene lo que quieres afirmar, usa OTRA de las que
   tienes; abstenerse de citar del todo no es la salida: el material se buscó
   para ESTOS problemas y lo normal es que varias apliquen.
-- EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro:
-  «…la jurisprudencia de registro 2022074, de rubro y texto siguientes:». La
-  clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie puede
-  comprobar la cita en el Semanario, que es para lo que sirve citarla.
+- ASÍ SE CITA, Y NO DE OTRA FORMA. La cita ocupa su propio final de párrafo y
+  el rubro NO se embebe en mitad de una frase que sigue después:
+
+      Sirve de apoyo la jurisprudencia de la Primera Sala de la Suprema Corte
+      de Justicia de la Nación, de registro 2022074, de rubro y texto
+      siguientes:
+
+  Y ahí se detiene el párrafo. El documento coloca solo, debajo, el rubro y el
+  texto íntegro de la tesis. Escribir «la jurisprudencia de registro X, de rubro
+  «Y», establece que…» deja la cita partida por la mitad y sin transcripción.
+- LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
+  de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
+  Circuito». Sin ella no se sabe qué peso tiene el criterio.
+- EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
+  La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
+  la cita en el Semanario, que es para lo que sirve citarla.
 - Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
   registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta
   S.J.F.; Libro 52…»— NO se escribe en el cuerpo: el documento la coloca sola
