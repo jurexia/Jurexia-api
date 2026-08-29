@@ -25458,8 +25458,7 @@ async def taller_adelanto(
     r = await _ra.generar(chat_client, encargo, texto_acto, texto_conceptos, salida)
 
     _taller_registrar_uso(user_email, numero, "adelanto")
-    _TALLER_SESIONES[_taller_llave(user_email, numero)] = {
-        "resultado": r, "tmp": tmp, "ts": time.time()}
+    _taller_guardar_sesion(user_email, numero, r, tmp)
 
     print(f"   ⚖️ TALLER: adelanto {numero} · "
           f"{len(r.fases.problemas)} problemas · {len(r.huecos)} huecos")
@@ -25489,7 +25488,13 @@ async def taller_adelanto(
 # máquina lee y ordena; él decide; la máquina redacta la demostración. El
 # adelanto queda en memoria entre una llamada y la otra: rehacer los resúmenes
 # para resolver costaría otra vez el modelo y otra vez la espera.
-_TALLER_SESIONES: dict = {}
+# EL ADELANTO NO PUEDE VIVIR EN MEMORIA. Render levanta varios workers de
+# gunicorn y cada petición cae en el que toque. Medido en producción: el
+# adelanto se guardó en el worker A, /consultar cayó en A por suerte y funcionó,
+# y /resolver cayó en B y contestó «no hay un adelanto reciente» sobre un
+# expediente que acababa de generarse. Un diccionario de proceso funciona en la
+# máquina de uno y falla en cuanto hay dos workers.
+_TALLER_SESIONES: dict = {}          # caché del proceso, sobre la persistencia
 _TALLER_SESION_TTL = 3600.0
 
 
@@ -25502,6 +25507,113 @@ def _taller_purgar() -> None:
     for k in [k for k, v in _TALLER_SESIONES.items()
               if ahora - v.get("ts", 0) > _TALLER_SESION_TTL]:
         _TALLER_SESIONES.pop(k, None)
+
+
+def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
+    """Lo serializable del adelanto, para que otro worker pueda continuarlo."""
+    _TALLER_SESIONES[_taller_llave(email, numero)] = {
+        "resultado": r, "tmp": tmp, "ts": time.time()}
+    if not supabase_admin:
+        return
+    e = r.encargo
+    estado = {
+        "encargo": {
+            "numero": e.numero, "encabezado": e.encabezado, "quejoso": e.quejoso,
+            "magistrado": e.magistrado, "secretario": e.secretario,
+            "notificacion": e.notificacion.isoformat(),
+            "presentacion": e.presentacion.isoformat(),
+            "regla_surtimiento": e.regla_surtimiento, "plazo": e.plazo,
+            "responsable": e.responsable, "es_recurso": e.es_recurso,
+            "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
+        },
+        "fases": {
+            "antecedentes": r.fases.antecedentes,
+            "resumen_acto": r.fases.resumen_acto,
+            "resumen_conceptos": r.fases.resumen_conceptos,
+            "problema_global": r.fases.problema_global,
+            "problemas": r.fases.problemas,
+            "avisos": list(r.fases.avisos or []),
+        },
+        "partes": (r.partes.__dict__ if r.partes else None),
+        "computo": {"oportuna": r.computo.oportuna,
+                    "parrafo": __import__("fase0_oportunidad").parrafo_oportunidad(r.computo)},
+        "avisos": list(r.avisos or []),
+        "tmp": tmp,
+    }
+    try:
+        supabase_admin.table("taller_sesiones").upsert({
+            "email": (email or "").strip().lower(), "expediente": numero,
+            "estado": estado, "consultado": False,
+        }, on_conflict="email,expediente").execute()
+    except Exception as ex:
+        logger.warning("No se pudo guardar la sesión del taller: %s", ex)
+
+
+def _taller_recuperar_sesion(email: str, numero: str):
+    """El adelanto, del proceso o de la base. None si no existe."""
+    ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
+    if ses:
+        return ses
+    if not supabase_admin:
+        return None
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado, consultado") \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+        if not r.data:
+            return None
+        est = r.data[0]["estado"]
+    except Exception as ex:
+        logger.warning("No se pudo recuperar la sesión del taller: %s", ex)
+        return None
+
+    # Se rehidrata lo justo para poder resolver: los resúmenes, los problemas y
+    # la ficha de partes. Volver a leer los PDF costaría el modelo otra vez.
+    import datetime as _d
+    import tempfile as _tmpmod
+
+    import fase0_oportunidad as _f0
+    import fase_partes as _fp
+    import fases123_pipeline as _f123
+    import redactor_adelanto as _ra
+
+    e = est["encargo"]
+    encargo = _ra.Encargo(
+        numero=e["numero"], encabezado=e["encabezado"], quejoso=e["quejoso"],
+        magistrado=e["magistrado"], secretario=e["secretario"],
+        notificacion=_d.date.fromisoformat(e["notificacion"]),
+        presentacion=_d.date.fromisoformat(e["presentacion"]),
+        regla_surtimiento=e["regla_surtimiento"], plazo=e["plazo"],
+        responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
+        plantilla=e["plantilla"], coleccion_estatal=e.get("coleccion_estatal", ""))
+    f = _f123.Fases123()
+    for k, v in (est.get("fases") or {}).items():
+        setattr(f, k, v)
+    partes = None
+    if est.get("partes"):
+        partes = _fp.Partes()
+        for k, v in est["partes"].items():
+            setattr(partes, k, v)
+    computo = _f0.computar(encargo.notificacion, encargo.presentacion,
+                           encargo.regla_surtimiento, encargo.plazo,
+                           encargo.responsable)
+    resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
+                              partes=partes, avisos=list(est.get("avisos") or []))
+    ses = {"resultado": resultado, "tmp": est.get("tmp") or _tmpmod.mkdtemp(prefix="taller_"),
+           "ts": time.time(), "consultado": r.data[0].get("consultado", False)}
+    _TALLER_SESIONES[_taller_llave(email, numero)] = ses
+    return ses
+
+
+def _taller_marcar_consultado(email: str, numero: str) -> None:
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("taller_sesiones").update({"consultado": True}) \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).execute()
+    except Exception as ex:
+        logger.warning("No se pudo marcar la consulta del taller: %s", ex)
 
 
 @app.post("/taller/consultar")
@@ -25518,7 +25630,7 @@ async def taller_consultar(
     """
     _taller_puerta(user_email)
     _taller_purgar()
-    ses = _TALLER_SESIONES.get(_taller_llave(user_email, numero))
+    ses = _taller_recuperar_sesion(user_email, numero)
     if not ses:
         raise HTTPException(404, "No hay un adelanto reciente de ese expediente. "
                                  "Genéralo primero.")
@@ -25531,6 +25643,8 @@ async def taller_consultar(
         qdrant_client, _embedding_juris,
         lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r)
     ses["material"] = material
+    ses["consultado"] = True
+    _taller_marcar_consultado(user_email, numero)
     _taller_registrar_uso(user_email, numero, "consulta")
 
     return {
@@ -25568,13 +25682,21 @@ async def taller_resolver(
     """La sentencia, con el criterio del secretario dentro."""
     _taller_puerta(user_email)
     _taller_purgar()
-    ses = _TALLER_SESIONES.get(_taller_llave(user_email, numero))
+    ses = _taller_recuperar_sesion(user_email, numero)
     if not ses:
         raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
-    if "material" not in ses:
+    if not (ses.get("material") or ses.get("consultado")):
         raise HTTPException(409, "Consulta primero el acervo: el estudio se funda "
                                  "con lo que ahí se encuentre, no con la memoria "
                                  "del modelo.")
+    if "material" not in ses:
+        # La consulta la hizo otro worker: se rehace. Son tres segundos, y es
+        # preferible a arrastrar 36 tesis por la base de datos entre llamadas.
+        import redactor_adelanto as _ra0
+        ses["material"] = await _ra0.consultar(
+            qdrant_client, _embedding_juris,
+            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+            ses["resultado"])
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
 
