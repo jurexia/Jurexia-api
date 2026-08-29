@@ -294,16 +294,19 @@ def anadir_nota(doc, parrafo, texto: str) -> bool:
 # lo que es, texto ajeno transcrito.
 SANGRIA_CITA = 709          # twips = 1.25 cm
 
-# La sangría de PRIMERA LÍNEA del cuerpo. El corpus la usa en el 63-70% de los
-# párrafos (709 twips), pero David la ve «muy desplazada» y su propio proyecto
-# terminado del ADC 174-2026 va a CERO. Su criterio manda sobre la moda del
-# corpus: son sus sentencias y él es quien las firma.
-SANGRIA_PARRAFO = 0
+# La sangría de PRIMERA LÍNEA. El corpus la usa en el 63-70% de los párrafos
+# (709 twips). Quitarla de TODO el documento fue una sobrecorrección mía: él se
+# quejó de los RESÚMENES, no del estudio, y me lo dijo con todas las letras
+# —«quitaste toda la sangría en el estudio de fondo, yo no pedí eso»—. Se
+# conserva donde el corpus la pone y se hereda de la plantilla.
+SANGRIA_PARRAFO = None      # None = no se toca, hereda del modelo
 TAMANO_CITA = 13            # puntos
 
 
 def _sangrar(p) -> None:
-    """La sangría del cuerpo, uniforme en todo lo que generamos."""
+    """La sangría del cuerpo. Con SANGRIA_PARRAFO=None no se toca nada."""
+    if SANGRIA_PARRAFO is None:
+        return
     from docx.shared import Twips
     p.paragraph_format.first_line_indent = Twips(SANGRIA_PARRAFO)
 
@@ -429,6 +432,38 @@ def tesis_del_rubro(texto: str, tesis: list) -> Optional[dict]:
     return None
 
 
+# Una marca de cita por párrafo es lo normal; VEINTIDÓS seguidas al final de uno
+# solo significa que el modelo devolvió el apartado entero sin saltos de línea y
+# todas las llamadas se apilaron en el último punto. Se ve como
+# «recurrida.³⁴⁵⁶⁷⁸⁹¹⁰…» y es lo primero que salta a la vista en el papel.
+MAX_CITAS_POR_PARRAFO = 3
+
+
+def _partir_si_es_un_bloque(textos: list[str]) -> list[str]:
+    """Si un apartado llegó como UN párrafo con muchas citas, se parte por ellas.
+
+    Cada marca cierra la idea que anota, así que cortar tras la marca deja
+    párrafos que corresponden a una afirmación y su fuente — que es justamente
+    como se lee un engrose.
+    """
+    fuera: list[str] = []
+    for t in textos:
+        if len(_MARCA_CITA.findall(t)) <= MAX_CITAS_POR_PARRAFO:
+            fuera.append(t)
+            continue
+        trozos, resto = [], t
+        while True:
+            m = _MARCA_CITA.search(resto)
+            if not m:
+                break
+            trozos.append(resto[:m.end()].strip())
+            resto = resto[m.end():].lstrip()
+        if resto.strip():
+            trozos.append(resto.strip())
+        fuera.extend(x for x in trozos if x)
+    return fuera
+
+
 def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                   modelo_cita=None):
     """Varios párrafos con su separador vacío detrás, como los escribe él.
@@ -437,7 +472,7 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
     admite notas, la marca se retira del texto: nunca se deja un «[[p.7 §3]]»
     a la vista.
     """
-    for t in textos:
+    for t in _partir_si_es_un_bloque(list(textos)):
         citas = [c for m in _MARCA_CITA.finditer(t) for c in _citas_de(m.group(1))]
         limpio = _MARCA_CITA.sub("", t)
         ancla = clonar_tras(ancla, limpio, modelo)
@@ -457,9 +492,41 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
         # el TEXTO ÍNTEGRO en párrafo aparte y en cursiva. Citar sólo el rubro
         # deja al lector sin poder comprobar qué dice la tesis.
         hallada = tesis_del_rubro(limpio, tesis) if tesis else None
+
+        # ESTRUCTURA DE LA CITA, dictada por David con un ejemplo:
+        #
+        #     …la tesis orientadora de rubro y texto siguientes:
+        #     «RUBRO.»                    ← párrafo aparte
+        #     Texto de la tesis…          ← cursiva, sangrado
+        #     ÓRGANO EMISOR.              ← y ahí la nota al pie
+        #
+        # El corpus mete el rubro DENTRO de la prosa 430 veces frente a 203 que
+        # lo ponen aparte, así que la moda dice lo contrario. Pero cuando se
+        # transcribe el texto ÍNTEGRO debajo, embeber el rubro en una frase que
+        # sigue después deja la cita partida por la mitad. Su forma es la buena
+        # y es quien firma.
+        if hallada and (hallada.get("texto") or "").strip():
+            m_r = _RX_RUBRO.search(limpio)
+            if m_r:
+                antes = limpio[:m_r.start()].rstrip(" ,;:")
+                # Se rehace el anuncio y se tira la coleta que venía después del
+                # rubro («, registro X, reconoce que…»): la dice el texto.
+                anuncio = re.sub(r"\s*(?:de\s+)?rubro(?:\s+y\s+registro)?\s*:?\s*$",
+                                 "", antes).rstrip(" ,;:")
+                escribir(ancla, f"{anuncio} de rubro y texto siguientes:")
+                _sangrar(ancla)
+                ancla.paragraph_format.keep_with_next = True
+                if modelo_vacio is not None:
+                    ancla = clonar_tras(ancla, "", modelo_vacio)
+                    ancla.paragraph_format.keep_with_next = True
+                ancla = clonar_tras(ancla, m_r.group(0), modelo_cita or modelo)
+                escribir_tramos(ancla, [(m_r.group(0), {"bold": True, "italic": True})])
+                _aplicar_formato_cita(ancla)
+                for r_ in ancla.runs:
+                    r_.bold = True
+                ancla.paragraph_format.keep_with_next = True
+
         if hallada:
-            if doc is not None and hallada.get("localizacion"):
-                anadir_nota(doc, ancla, " " + hallada["localizacion"].strip())
             cuerpo = (hallada.get("texto") or "").strip()
             if cuerpo:
                 # El rubro y su transcripción son UNA cita partida en dos
@@ -474,6 +541,22 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                 # El formato va DESPUÉS de escribir: `escribir_tramos` clona el
                 # primer run como molde y heredaría el tamaño del cuerpo.
                 _aplicar_formato_cita(ancla)
+
+                # El ÓRGANO EMISOR cierra la cita, y de él cuelga la nota con la
+                # localización. Así lo cierra él: «CUARTO TRIBUNAL COLEGIADO DEL
+                # VIGÉSIMO SEGUNDO CIRCUITO.» y el pie detrás.
+                organo = (hallada.get("instancia") or "").strip()
+                if organo and organo.upper() not in cuerpo.upper()[-160:]:
+                    if modelo_vacio is not None:
+                        ancla = clonar_tras(ancla, "", modelo_vacio)
+                    ancla = clonar_tras(ancla, organo.upper() + ".",
+                                        modelo_cita or modelo)
+                    escribir_tramos(ancla, [(organo.upper() + ".", {"italic": True})])
+                    _aplicar_formato_cita(ancla)
+                if doc is not None and hallada.get("localizacion"):
+                    anadir_nota(doc, ancla, " " + hallada["localizacion"].strip())
+            elif doc is not None and hallada.get("localizacion"):
+                anadir_nota(doc, ancla, " " + hallada["localizacion"].strip())
 
         if modelo_vacio is not None:
             ancla = clonar_tras(ancla, "", modelo_vacio)
@@ -648,14 +731,32 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
 
     # ── TERCERO. Legitimación y oportunidad ──────────────────────────────
     if r.oportunidad:
-        p = buscar(doc, r"^TERCERO\.\s*Legitimaci")
-        if p is not None:
-            # El cómputo es el párrafo SIGUIENTE al de legitimación.
-            sig = p._p.getnext()
-            while sig is not None and sig.tag != qn("w:p"):
-                sig = sig.getnext()
-            if sig is not None:
-                escribir(Paragraph(sig, p._parent), r.oportunidad)
+        # NO basta con «el párrafo siguiente»: entre el de legitimación y el
+        # cómputo puede haber un vacío, y entonces se escribía en él y el
+        # cómputo del ASUNTO ANTERIOR sobrevivía debajo. En el papel salían dos
+        # párrafos de oportunidad seguidos, con fechas distintas, en el mismo
+        # documento que se firma. Se busca el que HABLA de oportunidad y los
+        # demás se retiran.
+        ini = buscar(doc, r"^TERCERO\.\s*Legitimaci")
+        fin = buscar(doc, r"^CUARTO\.",
+                     desde=indice_de(doc, ini) + 1) if ini is not None else None
+        if ini is not None:
+            i0 = indice_de(doc, ini) + 1
+            i1 = indice_de(doc, fin) if fin is not None else len(doc.paragraphs)
+            candidatos = [q for q in doc.paragraphs[i0:i1]
+                          if re.search(r"(presentaci[óo]n de la demanda result|"
+                                       r"oportun|surti[óo] efectos|plazo para la "
+                                       r"promoci[óo]n)", texto_de(q), re.I)]
+            if candidatos:
+                escribir(candidatos[0], r.oportunidad)
+                for sobra in candidatos[1:]:
+                    sobra._p.getparent().remove(sobra._p)
+            else:
+                sig = ini._p.getnext()
+                while sig is not None and sig.tag != qn("w:p"):
+                    sig = sig.getnext()
+                if sig is not None:
+                    escribir(Paragraph(sig, ini._parent), r.oportunidad)
 
     # ── QUINTO. Antecedentes ─────────────────────────────────────────────
     if r.antecedentes:

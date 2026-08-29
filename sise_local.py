@@ -180,6 +180,63 @@ def _elegir(filas: list[dict]) -> list[tuple[str, str, str, str]]:
     return fuera
 
 
+async def bajar_en(page, numero: str, tipo_asunto: str = "amparo directo",
+                   destino: str = ".") -> Descarga:
+    """La descarga sobre una página YA autenticada.
+
+    Separado de `bajar()` porque el agente mantiene una sola sesión viva toda la
+    jornada: abrir un navegador por orden obligaría al secretario a teclear su
+    clave cada vez, que es justo lo que este diseño evita.
+    """
+    d = Descarga(expediente=numero)
+    os.makedirs(destino, exist_ok=True)
+
+    await page.goto(SISE_CONSULTA)
+    await page.select_option(
+        "#ctl00_MainContentPlaceHolder_ucFiltro_ddlTipoAsuntoPorUsuario",
+        TIPOS.get(tipo_asunto.lower(), "10"))
+    await _buscar_expediente(page, numero)
+    await page.wait_for_load_state("networkidle")
+
+    texto = await page.inner_text("body")
+    m = re.search(r"Único Nacional:\s*([\d]+)", texto)
+    if m:
+        d.neun = m.group(1)
+
+    car = await page.query_selector("input[type=image][src*='caratula']")
+    if car:
+        await car.click()
+        await page.wait_for_load_state("networkidle")
+
+    filas = await _filas(page)
+    if not filas:
+        d.avisos.append("El expediente no tiene rejilla de documentos.")
+        return d
+
+    for cid, tipo, etiqueta, fecha in _elegir(filas):
+        try:
+            await page.click("#" + cid)
+            await page.wait_for_load_state("networkidle")
+            if tipo == "promocion":
+                txt = await page.inner_text("body")
+                if "Fecha de Presentación" in txt:
+                    mm = _RX_FECHA.search(txt.split("Fecha de Presentación")[-1])
+                    if mm:
+                        d.presentacion = mm.group(1)
+            nombre = f"{numero.replace('/','-')} {tipo} {fecha.replace('/','-')}.pdf"
+            ruta = await _bajar_de_panel(page, destino, nombre)
+            if ruta:
+                d.documentos.append(Documento(0, tipo, etiqueta, fecha, ruta))
+            else:
+                d.avisos.append(f"El panel de {tipo} ({fecha}) no ofreció documento.")
+            await page.go_back()
+            await page.wait_for_load_state("networkidle")
+        except Exception as e:
+            d.avisos.append(f"No se pudo bajar {tipo} de {fecha}: "
+                            f"{type(e).__name__}: {str(e)[:90]}")
+    return d
+
+
 async def bajar(numero: str, tipo_asunto: str = "amparo directo",
                 destino: str = ".", visible: bool = True) -> Descarga:
     """El circuito completo. `numero` como «174/2026»."""
