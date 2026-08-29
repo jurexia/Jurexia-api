@@ -655,6 +655,10 @@ class Relleno:
 
 HUECO = "*********"
 
+# El hueco se escribe con el número de asteriscos que a cada plantilla le tocó.
+# Buscar una longitud fija deja restos a la vista en el resolutivo.
+_RX_HUECO = re.compile(r"\*{3,}")
+
 # Lo que el ensamblador quiere decir sobre el documento que acaba de escribir.
 avisos_ensamblado: list[str] = []
 
@@ -871,12 +875,15 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         # vista —«Es ********** el recurso»— porque sólo se rellenaba cuando el
         # párrafo decía «la Justicia de la Unión».
         t_res = texto_de(p)
-        if HUECO in t_res and re.search(r"\brecurso\b", t_res, re.I):
+        # La plantilla no siempre pone NUEVE asteriscos: en la de queja hay
+        # diez, y `replace(HUECO, …)` dejaba uno suelto —«Es fundado* el
+        # recurso»—. Se sustituye la RACHA, no una longitud concreta.
+        if _RX_HUECO.search(t_res) and re.search(r"\brecurso\b", t_res, re.I):
             calif = (r.calificaciones or [""])[0].strip().lower()
             palabra = {"fundado": "fundado", "infundado": "infundado",
                        "inoperante": "inoperante", "ineficaz": "ineficaz"}.get(calif)
             if palabra:
-                entero = t_res.replace(HUECO, palabra)
+                entero = _RX_HUECO.sub(palabra, t_res, count=1)
                 m_o = re.match(r"^(ÚNICO\.|PRIMERO\.|SEGUNDO\.)", entero)
                 tr = []
                 resto = entero
@@ -899,7 +906,7 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
             # «ÚNICO.» y la fórmula. `escribir()` metía todo en el primer run,
             # que es el del ordinal, y heredaba su negrita: el resolutivo entero
             # salía resaltado y había que deshacerlo a mano.
-            entero = texto_de(p).replace(HUECO, formula)
+            entero = _RX_HUECO.sub(formula, texto_de(p), count=1)
             m_ord = re.match(r"^(ÚNICO\.|PRIMERO\.|SEGUNDO\.)", entero)
             tramos = []
             resto = entero
