@@ -690,6 +690,16 @@ def formula_resolutivo(calificaciones: list[str]) -> tuple[str, str]:
     return _AMPARA, ""
 
 
+def _inicio_considerando(doc) -> int:
+    """Dónde empieza el CONSIDERANDO. Los ordinales se repiten entre el
+    RESULTANDO y el CONSIDERANDO, y sin este corte se toma el equivocado."""
+    for i, q in enumerate(doc.paragraphs):
+        t = re.sub(r"\s+", "", texto_de(q)).upper()
+        if t.startswith("CONSIDERANDO"):
+            return i
+    return 0
+
+
 def _quejoso_de_plantilla(ruta: str) -> str:
     """El quejoso que trae la plantilla, para poder sustituirlo en todo el texto."""
     d = docx.Document(ruta)
@@ -767,12 +777,22 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
             ancla = clonar_bloque(p, r.antecedentes, mod["cuerpo"], mod["vacio"], doc)
 
     # ── SEXTO. Estudio ───────────────────────────────────────────────────
-    p = buscar(doc, r"^SEXTO\.\s*Estudio")
+    # EL ORDINAL DEL ESTUDIO NO ES FIJO. En amparo directo es el SEXTO; en un
+    # recurso de queja el considerando de estudio es el QUINTO, porque el
+    # RESULTANDO tiene tres apartados y no seis. Buscar «^SEXTO. Estudio» a
+    # secas deja el estudio fuera del documento en toda la familia de recursos.
+    p = None
+    for _ord in ("SEXTO", "QUINTO", "SÉPTIMO", "SEPTIMO", "CUARTO", "OCTAVO"):
+        cand = buscar(doc, rf"^{_ord}\.\s*Estudio")
+        if cand is not None and indice_de(doc, cand) > _inicio_considerando(doc):
+            p = cand
+            break
     if p is not None and (r.resumen_acto or r.resumen_conceptos or r.problemas
                           or r.estudio):
         fin = buscar(doc, r"^Por lo expuesto", desde=indice_de(doc, p) + 1)
         borrar_entre(doc, p, fin)
-        escribir(p, f"SEXTO. Estudio de los {q}.")
+        _m_ord = re.match(r"^([A-ZÉ]+)\.", texto_de(p))
+        escribir(p, f"{_m_ord.group(1) if _m_ord else 'SEXTO'}. Estudio de los {q}.")
         ancla = p
         bloques: list[tuple[str, list[str]]] = [
             ("Consideraciones relevantes de la sentencia recurrida"
