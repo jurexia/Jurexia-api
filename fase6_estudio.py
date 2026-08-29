@@ -52,6 +52,14 @@ ESFUERZO_ESTUDIO = os.getenv("ESFUERZO_ESTUDIO", "high")
 # ronda los 3,000 caracteres. Cortarlo es peor que no citarla.
 TESIS_CARACTERES = 4000
 
+# CUÁNTAS TESIS ENTRAN AL PROMPT. El RAG devuelve todas las que encuentra —44 en
+# el QA 143-2026— y meterlas enteras da un prompt de 108,000 caracteres del que
+# el 93% es material. Medido: con ese prompt el estudio citó UNA sola tesis, y
+# la instrucción de fundar quedaba al 2% del texto, enterrada bajo 30,000 tokens
+# de jurisprudencia. Diez bien elegidas se leen; cuarenta y cuatro se hojean.
+MAX_TESIS_PROMPT = 10
+MAX_NORMAS_PROMPT = 12
+
 PALABRAS_ESTUDIO = 3733
 PALABRAS_ESTUDIO_P90 = 6618
 
@@ -134,12 +142,16 @@ def _bloque_criterio(criterios: list[Criterio]) -> str:
 
 def _bloque_material(m: Material) -> str:
     p = ["", "═" * 71, "MATERIAL PARA FUNDAR", "═" * 71]
-    if m.tesis:
+    # Las obligatorias primero: ya vienen ordenadas, así que el recorte se lleva
+    # las orientadoras del final, que es lo que sobra.
+    tesis = (m.tesis or [])[:MAX_TESIS_PROMPT]
+    normas = (m.normas or [])[:MAX_NORMAS_PROMPT]
+    if tesis:
         p.append("\nTESIS Y JURISPRUDENCIA (existen: salen del acervo, no de tu memoria).")
         p.append("  La OBLIGATORIA vincula a este Tribunal y se invoca como razón que")
         p.append("  decide; la ORIENTADORA sólo ilustra y se cita como apoyo. Tratarlas")
         p.append("  igual es un error de fondo, no de estilo.")
-        for t in m.tesis:
+        for t in tesis:
             fuerza = "JURISPRUDENCIA OBLIGATORIA" if t.get("obligatoria") else "tesis orientadora"
             p.append(f"\n  · [{fuerza}] Registro {t.get('registro','')} — {t.get('instancia','')}")
             p.append(f"    {t.get('rubro','')}")
@@ -150,9 +162,9 @@ def _bloque_material(m: Material) -> str:
             # 182597 LO CONTRARIO de lo que sostiene, y era el único punto
             # donde la quejosa tenía apoyo. El rubro es un título, no la regla.
             p.append(f"    {(t.get('texto') or '')[:TESIS_CARACTERES]}")
-    if m.normas:
+    if normas:
         p.append("\n\nPRECEPTOS:")
-        for n in m.normas:
+        for n in normas:
             p.append(f"\n  · {n.get('cuerpo_legal','')} — Art. {n.get('articulo','')}")
             p.append(f"    {(n.get('texto') or '')[:700]}")
     if m.convencional:
@@ -261,9 +273,16 @@ LO QUE SE COMBATE
 ═══════════════════════════════════════════════════════════════════════
 {resumen_conceptos}
 
-Escribe el estudio de fondo. Si hay obstáculos al sentido fijado, añade al
-final un apartado «ADVERTENCIAS» —fuera del cuerpo de la sentencia— con lo que
-el secretario debe valorar. Nada más."""
+Escribe el estudio de fondo.
+
+ANTES DE EMPEZAR, LO QUE MÁS SE OLVIDA: funda. Invoca entre TRES y SEIS de los
+criterios de arriba —con su rubro y su registro— y explica en cada caso por qué
+aplica a este asunto. Un estudio sin citas es una opinión con formato de
+sentencia, y el material se buscó precisamente para estos problemas.
+
+Si hay obstáculos al sentido fijado, añade al final un apartado «ADVERTENCIAS»
+—fuera del cuerpo de la sentencia— con lo que el secretario debe valorar.
+Nada más."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
