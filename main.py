@@ -25536,8 +25536,15 @@ async def taller_consultar(
     return {
         "expediente": numero,
         "problema_global": r.fases.problema_global,
-        "problemas": [p.get("pregunta", "") if isinstance(p, dict) else str(p)
-                      for p in (r.fases.problemas or [])],
+        # Se devuelve el problema ENTERO, no sólo la pregunta: «qué resolvió» y
+        # «qué lo combate» son el contraste del que nace, y en pantalla es lo que
+        # permite al secretario decidir sin volver al expediente.
+        "problemas": [
+            {"pregunta": p.get("pregunta", ""), "resolvio": p.get("resolvio", ""),
+             "combate": p.get("combate", ""), "impedimento": p.get("impedimento")}
+            if isinstance(p, dict) else
+            {"pregunta": str(p), "resolvio": "", "combate": "", "impedimento": None}
+            for p in (r.fases.problemas or [])],
         "tesis": [{"registro": t["registro"], "rubro": t["rubro"],
                    "instancia": t["instancia"], "obligatoria": t["obligatoria"],
                    "localizacion": t.get("localizacion", ""),
