@@ -305,7 +305,16 @@ Nada más."""
 # Verificación antes de entregar
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Un registro digital NO es cualquier cifra de seis o siete dígitos. En los
+# expedientes aparecen números de recibo —«2024/2837851»—, de operación y de
+# expediente que casan igual, y contarlos como tesis inventadas produce alarmas
+# falsas justo donde la alarma tiene que valer: probado sobre el ARA 103-2025,
+# los dos «registros inventados» eran los recibos de pago del Registro Público.
+#
+# Se exige que la cifra vaya ANUNCIADA como registro, que es como se cita.
 _RX_REGISTRO = re.compile(r"\b(\d{6,7})\b")
+_RX_REGISTRO_CITA = re.compile(
+    r"(?:registro(?:\s+digital)?|reg\.)\s*[:\s]\s*(\d{6,7})\b", re.I)
 # «ineficaz» lleva z y «ineficaces» c: la raíz «ineficac» sola NUNCA casaba
 # la forma singular, y el verificador acusaba de no calificar a un estudio
 # que calificaba en su primera línea.
@@ -366,7 +375,8 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
 
     # 1. Registros inventados — el fallo que descalifica.
     validos = {str(t.get("registro", "")) for t in material.tesis}
-    citados = set(_RX_REGISTRO.findall(estudio))
+    # Sólo las cifras anunciadas como registro: lo demás son recibos y expedientes.
+    citados = set(_RX_REGISTRO_CITA.findall(estudio))
     inventados = {r for r in citados if r not in validos}
     if inventados:
         avisos.append(f"REGISTROS QUE NO ESTÁN EN EL MATERIAL: {sorted(inventados)}. "
