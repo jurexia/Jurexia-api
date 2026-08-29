@@ -18,12 +18,29 @@ LO QUE SE APRENDIÓ MIRANDO EL SISE POR DENTRO (28-ago-2026, expediente 174/2026
   sesión con ViewState. Obliga a navegador real; un cliente HTTP no sirve.
 · El campo del número lleva MÁSCARA («00/0000») que revierte cualquier escritura
   sintética. Se esquiva con el setter nativo de HTMLInputElement.
-· La rejilla del expediente tiene nombres de control sistemáticos:
-      ctl00$MainContentPlaceHolder$grvPanelCentral$ctl{NN}${tipo}
-  con tipo ∈ imgPromocion (escrito de la parte) · imgDetJud (determinación
-  judicial) · imgAcuDetJud (acuse) · imgNotConsCon (notificación).
-  `ctl02` es la primera fila.
-· El visor abre `Controles/DescargaArchivos.aspx` mediante `modalWin()`.
+· EL VALOR NO SOBREVIVE A UNA RECARGA. Hay que fijar el número y pulsar Buscar
+  en la MISMA operación de JavaScript; si media un ciclo de vida de la página,
+  el postback devuelve el campo a su máscara y la búsqueda sale vacía.
+· El combo se llama `ucFiltro_ddlTipoAsuntoPorUsuario`, no `ddlTipoAsunto`.
+· SON CUATRO NIVELES, no dos:
+      DefaultConsulta.aspx        buscar por número + tipo
+        └ ibCuaderno1             la carátula del cuaderno
+          └ PanelCentralDeConsultas.aspx      rejilla de acuerdos
+              grvPanelCentral$ctl{NN}$imgPromocion  → escrito de la parte
+              grvPanelCentral$ctl{NN}$imgDetJud     → determinación judicial
+            └ PanelPromociones.aspx           el documento en sí
+                grvPanelCentral$ctl02$imgArchivo    → el PDF de la promoción
+                imgArchivoDJ                        → el PDF de la determinación
+· Y ese último clic devuelve el PDF como DESCARGA DIRECTA (Content-Disposition),
+  no como visor: Playwright la recoge con `expect_download()`.
+
+EL REGALO QUE NADIE ESPERABA
+════════════════════════════
+`PanelPromociones.aspx` muestra la FECHA DE PRESENTACIÓN de la promoción, que es
+justo el dato que el secretario tecleaba a mano para el cómputo de oportunidad.
+Se lee, pero NO se da por buena sin más: puede ser la fecha de recepción en el
+Colegiado y no la de presentación ante la responsable, y esa diferencia mueve el
+plazo. Se propone y él confirma.
 
 PARA EL ADELANTO SÓLO HACEN FALTA TRES: la promoción de la primera fila —que en
 amparo directo trae la demanda Y el acto reclamado en el mismo escaneo—, su
@@ -68,6 +85,9 @@ class Descarga:
     expediente: str
     neun: str = ""
     documentos: list[Documento] = field(default_factory=list)
+    # Leída del propio SISE. Se PROPONE, no se da por buena: puede ser la de
+    # recepción en el Colegiado y no la de presentación ante la responsable.
+    presentacion: str = ""
     avisos: list[str] = field(default_factory=list)
 
 
@@ -84,14 +104,22 @@ async def _esperar_sesion(page) -> bool:
     return False
 
 
-async def _poner_expediente(page, numero: str) -> None:
-    """El campo lleva máscara JS: se escribe con el setter nativo."""
+async def _buscar_expediente(page, numero: str) -> None:
+    """Fija el número y pulsa Buscar EN LA MISMA OPERACIÓN.
+
+    Separarlo en dos pasos no funciona: el campo lleva máscara y el ciclo de
+    vida de la página lo devuelve a «00/0000» antes de que se pulse el botón.
+    Comprobado tres veces contra el SISE real.
+    """
     await page.evaluate(
         """(n) => {const i=document.getElementById(
              'ctl00_MainContentPlaceHolder_txtNoExpAsignado');
            const set=Object.getOwnPropertyDescriptor(
              window.HTMLInputElement.prototype,'value').set;
-           set.call(i,n); i.dispatchEvent(new Event('change',{bubbles:true}));}""",
+           set.call(i, n);
+           i.dispatchEvent(new Event('change',{bubbles:true}));
+           document.getElementById(
+             'ctl00_MainContentPlaceHolder_btnBuscarExpediente').click();}""",
         numero)
 
 
@@ -106,6 +134,32 @@ async def _filas(page) -> list[dict]:
             const im=[...tr.querySelectorAll('input[type=image]')].map(x=>x.id);
             return td.length ? {celdas:td, controles:im} : null;
         }).filter(Boolean);}""")
+
+
+_RX_FECHA = re.compile(r"\b(\d{2}/\d{2}/\d{4})\b")
+
+
+async def _bajar_de_panel(page, destino: str, nombre: str) -> Optional[str]:
+    """Del PanelPromociones, el PDF. Devuelve la ruta o None.
+
+    Se prueban los dos iconos que hay ahí —el de la promoción y el de la
+    determinación asociada— porque según de dónde se venga sólo existe uno.
+    """
+    for cid in ("ctl00_MainContentPlaceHolder_grvPanelCentral_ctl02_imgArchivo",
+                "ctl00_MainContentPlaceHolder_imgArchivoDJ"):
+        el = await page.query_selector("#" + cid)
+        if not el:
+            continue
+        try:
+            async with page.expect_download(timeout=60000) as espera:
+                await el.click()
+            dl = await espera.value
+            ruta = os.path.join(destino, nombre)
+            await dl.save_as(ruta)
+            return ruta
+        except Exception:
+            continue
+    return None
 
 
 def _elegir(filas: list[dict]) -> list[tuple[str, str, str, str]]:
@@ -148,10 +202,10 @@ async def bajar(numero: str, tipo_asunto: str = "amparo directo",
                 return d
 
             await page.goto(SISE_CONSULTA)
-            await page.select_option("#ctl00_MainContentPlaceHolder_ddlTipoAsunto",
-                                     TIPOS.get(tipo_asunto.lower(), "10"))
-            await _poner_expediente(page, numero)
-            await page.click("#ctl00_MainContentPlaceHolder_btnBuscarExpediente")
+            await page.select_option(
+                "#ctl00_MainContentPlaceHolder_ucFiltro_ddlTipoAsuntoPorUsuario",
+                TIPOS.get(tipo_asunto.lower(), "10"))
+            await _buscar_expediente(page, numero)
             await page.wait_for_load_state("networkidle")
 
             texto = await page.inner_text("body")
@@ -170,18 +224,35 @@ async def bajar(numero: str, tipo_asunto: str = "amparo directo",
                 d.avisos.append("El expediente no tiene rejilla de documentos.")
                 return d
 
-            for cid, tipo, etiqueta, fecha in _elegir(filas):
+            elegidos = _elegir(filas)
+            for cid, tipo, etiqueta, fecha in elegidos:
                 try:
-                    async with page.expect_download(timeout=45000) as espera:
-                        await page.click("#" + cid)
-                    dl = await espera.value
-                    ruta = os.path.join(destino, f"{numero.replace('/','-')} "
-                                                 f"{tipo} {fecha.replace('/','-')}.pdf")
-                    await dl.save_as(ruta)
-                    d.documentos.append(Documento(0, tipo, etiqueta, fecha, ruta))
+                    # Nivel 3: el icono lleva al panel del documento.
+                    await page.click("#" + cid)
+                    await page.wait_for_load_state("networkidle")
+
+                    # De paso, la fecha de presentación que ahí se publica.
+                    if tipo == "promocion":
+                        txt = await page.inner_text("body")
+                        m = _RX_FECHA.search(txt.split("Fecha de Presentación")[-1]
+                                             if "Fecha de Presentación" in txt else "")
+                        if m:
+                            d.presentacion = m.group(1)
+
+                    # Nivel 4: la descarga.
+                    nombre = (f"{numero.replace('/','-')} {tipo} "
+                              f"{fecha.replace('/','-')}.pdf")
+                    ruta = await _bajar_de_panel(page, destino, nombre)
+                    if ruta:
+                        d.documentos.append(Documento(0, tipo, etiqueta, fecha, ruta))
+                    else:
+                        d.avisos.append(f"El panel de {tipo} ({fecha}) no ofreció "
+                                        f"documento descargable.")
+                    await page.go_back()
+                    await page.wait_for_load_state("networkidle")
                 except Exception as e:
                     d.avisos.append(f"No se pudo bajar {tipo} de {fecha}: "
-                                    f"{type(e).__name__}")
+                                    f"{type(e).__name__}: {str(e)[:90]}")
         finally:
             await ctx.close()
             await navegador.close()
