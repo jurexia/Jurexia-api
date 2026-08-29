@@ -214,14 +214,18 @@ ARQUITECTURA — para que se vea de un vistazo que no quedó nada sin contestar:
 - CIERRA con UNA SOLA calificación y el sentido. Oscilar entre «ineficaz» e
   «infundado» en el mismo estudio obliga a rehacer el resolutivo.
 
-FUNDAMENTO — la regla que no se rompe:
+FUNDAMENTO — hay que fundar, y hay que fundar bien:
+- FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL. Un estudio de fondo sin una
+  sola cita no es un engrose: es una opinión. Si el material trae jurisprudencia
+  obligatoria sobre la cuestión, se invoca y se explica por qué aplica a este
+  caso. Lo esperable es apoyar cada tramo decisorio en la fuente que lo sostiene.
 - Sólo se cita lo que está en el MATERIAL. NUNCA inventes un registro digital
   ni un número de tesis: tus datos de entrenamiento son viejos y falsos.
 - LEE EL TEXTO DE LA TESIS ANTES DE INVOCARLA, no sólo su rubro. El rubro es
   un título y a menudo dice menos —o algo distinto— de lo que la tesis resuelve.
-  Si el texto no sostiene lo que quieres afirmar, NO la cites: busca otra o
-  razona sin ella. Hacerle decir a un criterio lo contrario de lo que dice es
-  peor que no citarlo.
+  Si una tesis concreta no sostiene lo que quieres afirmar, usa OTRA de las que
+  tienes; abstenerse de citar del todo no es la salida: el material se buscó
+  para ESTOS problemas y lo normal es que varias apliquen.
 - Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
   registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta
   S.J.F.; Libro 52…»— NO se escribe en el cuerpo: el documento la coloca sola
@@ -295,6 +299,20 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list
     if inventados:
         avisos.append(f"REGISTROS QUE NO ESTÁN EN EL MATERIAL: {sorted(inventados)}. "
                       "No se citan hasta comprobarlos en el Semanario.")
+
+    # 1-bis. Un estudio SIN NINGUNA cita, teniendo obligatorias pertinentes en el
+    #        material, es una opinión con formato de sentencia. Salió midiendo el
+    #        ADC 125-2026: el acervo ofreció 33 tesis —incluidas dos sobre el
+    #        derecho de habitación de menores, que era el tema exacto— y el
+    #        estudio no invocó ni una. La causa fue el propio prompt, que tras
+    #        los arreglos avisaba tres veces contra citar mal y ninguna a favor
+    #        de citar bien.
+    obligatorias = [t for t in material.tesis if t.get("obligatoria")]
+    if obligatorias and not citados:
+        avisos.append(f"El estudio NO CITA NI UNA TESIS teniendo "
+                      f"{len(obligatorias)} obligatorias en el material "
+                      f"(p. ej. {obligatorias[0].get('registro','')}). Un estudio "
+                      f"de fondo sin fuente es una opinión: revísalo.")
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:
