@@ -48,6 +48,10 @@ ESFUERZO_ESTUDIO = os.getenv("ESFUERZO_ESTUDIO", "high")
 # está en 6,618 palabras, así que el tope de aviso no puede ser un múltiplo de
 # la mediana. Con el umbral anterior (1.6 x mediana) se marcaba como excesivo
 # el 25% de los engroses del propio secretario, incluido el de este caso.
+# El texto de una tesis de la Undécima Época con Hechos/Criterio/Justificación
+# ronda los 3,000 caracteres. Cortarlo es peor que no citarla.
+TESIS_CARACTERES = 4000
+
 PALABRAS_ESTUDIO = 3733
 PALABRAS_ESTUDIO_P90 = 6618
 
@@ -141,7 +145,11 @@ def _bloque_material(m: Material) -> str:
             p.append(f"    {t.get('rubro','')}")
             if t.get("localizacion"):
                 p.append(f"    {t['localizacion']}")
-            p.append(f"    {(t.get('texto') or '')[:900]}")
+            # ENTERA. Con 900 caracteres el criterio quedaba cortado y el
+            # modelo razonaba desde el rubro: así le hizo decir a la tesis
+            # 182597 LO CONTRARIO de lo que sostiene, y era el único punto
+            # donde la quejosa tenía apoyo. El rubro es un título, no la regla.
+            p.append(f"    {(t.get('texto') or '')[:TESIS_CARACTERES]}")
     if m.normas:
         p.append("\n\nPRECEPTOS:")
         for n in m.normas:
@@ -163,7 +171,7 @@ def _bloque_material(m: Material) -> str:
 
 def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
-                   es_recurso: bool = False) -> str:
+                   es_recurso: bool = False, partes=None) -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     calif = _calificacion(criterios)
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
@@ -191,9 +199,29 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   reforzadores y las objeciones previsibles con su refutación.
 - Sin Markdown, sin viñetas, sin esquemas.
 
+ARQUITECTURA — para que se vea de un vistazo que no quedó nada sin contestar:
+- UN APARTADO POR CADA {q[:-1]}, en el orden en que se plantearon, cada uno
+  abierto por su ordinal en letra («En el primer {q[:-1]} la parte quejosa
+  sostiene que…»). El discurso corrido impide comprobar la exhaustividad y deja
+  al tribunal expuesto al reproche de omisión de estudio.
+- Si lo que se combate es la REDACCIÓN de una parte del acto reclamado,
+  TRANSCRÍBELA entre comillas antes de analizarla.
+- SUPLENCIA DE LA QUEJA: si el asunto toca derechos de menores, materia laboral
+  en favor de la parte obrera o materia penal, dilo expresamente con la fracción
+  del artículo 79 de la Ley de Amparo que la ordena.
+- EFECTOS: si se concede, enumera los efectos de la concesión de forma que se
+  puedan ejecutar sin interpretarlos.
+- CIERRA con UNA SOLA calificación y el sentido. Oscilar entre «ineficaz» e
+  «infundado» en el mismo estudio obliga a rehacer el resolutivo.
+
 FUNDAMENTO — la regla que no se rompe:
 - Sólo se cita lo que está en el MATERIAL. NUNCA inventes un registro digital
   ni un número de tesis: tus datos de entrenamiento son viejos y falsos.
+- LEE EL TEXTO DE LA TESIS ANTES DE INVOCARLA, no sólo su rubro. El rubro es
+  un título y a menudo dice menos —o algo distinto— de lo que la tesis resuelve.
+  Si el texto no sostiene lo que quieres afirmar, NO la cites: busca otra o
+  razona sin ella. Hacerle decir a un criterio lo contrario de lo que dice es
+  peor que no citarlo.
 - Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
   registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta
   S.J.F.; Libro 52…»— NO se escribe en el cuerpo: el documento la coloca sola
@@ -202,6 +230,12 @@ FUNDAMENTO — la regla que no se rompe:
   solo, desde el acervo, palabra por palabra.
 - La INOPERANCIA se razona: hay que decir POR QUÉ el planteamiento no combate
   la razón toral, no basta con declararla.
+- NUNCA SUPONGAS LO QUE CONSTA. Un tribunal tiene los autos delante: o el hecho
+  consta y se AFIRMA, o no consta y se dice que no obra. Están PROHIBIDAS las
+  fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
+  ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
+  escribe que el punto no está acreditado y sigue.
+{partes.bloque() if partes is not None else ""}
 {_bloque_criterio(criterios)}
 {_bloque_material(material)}
 
@@ -238,6 +272,13 @@ _RX_ARTICULO = re.compile(r"art[íi]culos?\s+(\d{1,4})\s*(?:bis|ter)?\.?\s*([^.;
 
 _VACIAS = {"de", "del", "la", "el", "los", "las", "y", "en", "que", "propio",
            "citado", "mencionado", "invocado", "referido", "aludido", "a", "su"}
+
+# «si la copropiedad fue efectivamente reconocida», «se afirma que», «de ser
+# cierto»: un tribunal con los autos delante no supone lo que consta.
+_RX_CONDICIONAL = re.compile(
+    r"\b(si\s+(?:\w+\s+){0,3}(?:fue|fuera|hubiera|resultara|efectivamente)"
+    r"|se\s+afirma\s+que|seg[úu]n\s+lo\s+planteado|de\s+ser\s+cierto"
+    r"|en\s+el\s+supuesto\s+de\s+que|de\s+haberse\s+acreditado)\b", re.I)
 
 _NOTORIAS = ("ley de amparo", "constitución", "constitucion",
              "ley orgánica del poder judicial", "ley organica del poder judicial")
@@ -290,6 +331,21 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list
             avisos.append(f"RUBRO CITADO QUE NO CASA CON EL ACERVO: "
                           f"«{m_.group(1)[:70]}…». Compruébalo.")
             break
+
+    # 4-ter. El condicional sobre autos. Determinista y barato, y cierra el
+    #        modo de falla que el panel puso en segundo lugar por impacto.
+    condicionales = _RX_CONDICIONAL.findall(estudio)
+    if condicionales:
+        avisos.append(f"{len(condicionales)} frases SUPONEN hechos en vez de "
+                      f"afirmarlos contra autos: {sorted(set(condicionales))[:5]}. "
+                      f"Ciérralas o suprímelas.")
+
+    # 4-quater. Una sola calificación al cierre.
+    cierre = " ".join(estudio.split()[-160:]).lower()
+    califs = {m.group(1)[:7] for m in _RX_CALIF.finditer(cierre)}
+    if len(califs) > 1 and len({c.sentido[:7].lower() for c in criterios}) == 1:
+        avisos.append(f"El cierre oscila entre calificaciones {sorted(califs)}; "
+                      f"el criterio pedía una sola. Obliga a rehacer el resolutivo.")
 
     # 5. Preceptos citados que no salieron del acervo. Un artículo inventado de
     #    un código sustantivo es tan grave como un registro inventado, y hasta
@@ -377,14 +433,20 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
 
 async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
-                   es_recurso: bool = False) -> tuple[str, str, list[str]]:
+                   es_recurso: bool = False, partes=None
+                   ) -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos)."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
-                  resumen_acto, resumen_conceptos, criterios, material, es_recurso)}])
+                  resumen_acto, resumen_conceptos, criterios, material,
+                  es_recurso, partes)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     r = await cliente.chat.completions.create(**kw)
     crudo = (r.choices[0].message.content or "").strip()
     estudio, advertencias = separar_advertencias(crudo)
-    return estudio, advertencias, revisar(estudio, criterios, material)
+    avisos = revisar(estudio, criterios, material)
+    if partes is not None:
+        import fase_partes
+        avisos.extend(fase_partes.revisar_partes(estudio, partes))
+    return estudio, advertencias, avisos

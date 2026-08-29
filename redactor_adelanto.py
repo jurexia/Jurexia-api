@@ -21,6 +21,7 @@ from typing import Optional
 
 import ensamblar_adelanto as ens
 import fase0_oportunidad as f0
+import fase_partes as fpartes
 import fase6_estudio as f6
 import fase6_rag as f6rag
 import fases123_pipeline as f123
@@ -57,6 +58,7 @@ class Resultado:
     encargo: Optional["Encargo"] = None
     estudio: str = ""
     advertencias: str = ""
+    partes: Optional["fpartes.Partes"] = None
 
     @property
     def listo_para_el_secretario(self) -> bool:
@@ -78,8 +80,14 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                       "si es correcto, el asunto no se resuelve en el fondo.")
 
     # ── Fases 1-3 — lectura ──────────────────────────────────────────────
-    f = await f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso)
+    # La ficha de partes se hace AQUÍ, con los documentos delante, y viaja al
+    # estudio. Sin ella el redactor resuelve los sujetos por proximidad, y en un
+    # juicio con reconvención y tercero interesado la proximidad miente.
+    f, partes = await asyncio.gather(
+        f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso),
+        fpartes.fichar(cliente, texto_acto, texto_conceptos))
     avisos.extend(f.avisos)
+    avisos.extend(partes.avisos)
 
     # ── Fase 7 — el documento ────────────────────────────────────────────
     relleno = ens.Relleno(
@@ -94,7 +102,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     )
     ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
 
-    return Resultado(ruta=ruta, computo=c, fases=f, encargo=e,
+    return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos)
 
 
@@ -152,7 +160,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 
     estudio, advertencias, avisos = await f6.redactar(
         cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
-        criterios, material, e.es_recurso)
+        criterios, material, e.es_recurso, r.partes)
 
     relleno = ens.Relleno(
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
@@ -178,7 +186,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             avisos.append(a)
 
     return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
-                     estudio=estudio, advertencias=advertencias,
+                     partes=r.partes, estudio=estudio, advertencias=advertencias,
                      huecos=ens.huecos_pendientes(ruta),
                      avisos=list(r.avisos) + avisos)
 
