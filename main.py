@@ -19884,6 +19884,89 @@ Redacta ahora. Texto directo para la sentencia, sin metadiscurso."""
 # Acceso exclusivo: plan Platinum + admins
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════
+# PILOTO DEL TALLER DE SENTENCIAS — abierto a Platinum, con fecha de cierre
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# David lo definió así: se abre a Platinum «por tiempo limitado, ya que esta
+# función será exclusivamente para Ultra», y dura «hasta que tengamos más de 10
+# secretarios distintos utilizando la herramienta».
+#
+# Se cuentan PERSONAS, no usos. Un secretario que genera treinta proyectos sigue
+# siendo un secretario, así que el conteo va sobre email DISTINTO. Contar filas
+# cerraría el piloto en una tarde con un solo usuario entusiasta.
+TALLER_PILOTO_CUPO = int(os.getenv("TALLER_PILOTO_CUPO", "10"))
+TALLER_PILOTO_ACTIVO = os.getenv("TALLER_PILOTO_ACTIVO", "1") != "0"
+
+# El conteo se cachea: es una consulta por petición sobre un número que cambia
+# como mucho diez veces en la vida del piloto.
+_taller_piloto_cache = {"n": None, "ts": 0.0}
+_TALLER_PILOTO_TTL = 120.0
+
+
+def _taller_secretarios_distintos() -> int:
+    """Cuántas personas distintas han usado ya el taller."""
+    ahora = time.time()
+    if (_taller_piloto_cache["n"] is not None
+            and ahora - _taller_piloto_cache["ts"] < _TALLER_PILOTO_TTL):
+        return _taller_piloto_cache["n"]
+    n = 0
+    if supabase_admin:
+        try:
+            r = supabase_admin.table("taller_piloto_uso").select("email").execute()
+            n = len({(x.get("email") or "").strip().lower()
+                     for x in (r.data or []) if x.get("email")})
+        except Exception as e:
+            # Si no se puede contar NO se cierra el piloto: dejar fuera a un
+            # secretario por un fallo de base de datos es peor que dejar entrar
+            # a uno de más.
+            logger.warning("No se pudo contar el piloto del taller: %s", e)
+            return _taller_piloto_cache["n"] or 0
+    _taller_piloto_cache.update(n=n, ts=ahora)
+    return n
+
+
+def _taller_registrar_uso(email: str, expediente: str = "", etapa: str = "adelanto") -> None:
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("taller_piloto_uso").insert({
+            "email": (email or "").strip().lower(),
+            "expediente": expediente or None, "etapa": etapa}).execute()
+        _taller_piloto_cache["ts"] = 0.0        # que el próximo conteo sea fresco
+    except Exception as e:
+        logger.warning("No se pudo registrar el uso del taller: %s", e)
+
+
+def _taller_puerta(user_email: str) -> None:
+    """Deja pasar o explica por qué no. Lanza HTTPException si no procede."""
+    if not _can_access_redactor_tcc(user_email):
+        raise HTTPException(403, "El taller de sentencias es una función Platinum.")
+    if not TALLER_PILOTO_ACTIVO:
+        raise HTTPException(403, "El piloto del taller ha terminado. La función "
+                                 "pasa a estar disponible en el plan Ultra.")
+    correo = (user_email or "").strip().lower()
+    if correo in ADMIN_EMAILS:
+        return
+    n = _taller_secretarios_distintos()
+    if n > TALLER_PILOTO_CUPO:
+        # Quien YA estaba dentro sigue dentro: cerrarle la puerta a alguien que
+        # tiene un proyecto a medias por haberse llenado el cupo es la peor
+        # forma de terminar un piloto.
+        if supabase_admin:
+            try:
+                r = supabase_admin.table("taller_piloto_uso").select("email") \
+                    .eq("email", correo).limit(1).execute()
+                if r.data:
+                    return
+            except Exception:
+                return
+        raise HTTPException(403,
+            f"El piloto del taller de sentencias se cerró al completar "
+            f"{TALLER_PILOTO_CUPO} secretarios. La función estará disponible en "
+            f"el plan Ultra.")
+
+
 def _can_access_redactor_tcc(user_email: str) -> bool:
     """
     Check if a user can access the Redactor TCC Beta.
@@ -25346,8 +25429,7 @@ async def taller_adelanto(
     import datetime as _dtm
     import tempfile
 
-    if not _can_access_redactor_tcc(user_email):
-        raise HTTPException(403, "El taller de sentencias requiere plan Platinum")
+    _taller_puerta(user_email)
 
     import redactor_adelanto as _ra
 
@@ -25375,6 +25457,10 @@ async def taller_adelanto(
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
     r = await _ra.generar(chat_client, encargo, texto_acto, texto_conceptos, salida)
 
+    _taller_registrar_uso(user_email, numero, "adelanto")
+    _TALLER_SESIONES[_taller_llave(user_email, numero)] = {
+        "resultado": r, "tmp": tmp, "ts": time.time()}
+
     print(f"   ⚖️ TALLER: adelanto {numero} · "
           f"{len(r.fases.problemas)} problemas · {len(r.huecos)} huecos")
 
@@ -25389,8 +25475,142 @@ async def taller_adelanto(
             "X-Problemas": str(len(r.fases.problemas)),
             "X-Huecos": str(len(r.huecos)),
             "X-Avisos": str(len(r.avisos)),
+            "X-Piloto-Secretarios": str(_taller_secretarios_distintos()),
+            "X-Piloto-Cupo": str(TALLER_PILOTO_CUPO),
         },
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# La segunda mitad: el criterio del secretario entra AQUÍ
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# El proceso se parte en dos porque entre las dos mitades hay una PERSONA. La
+# máquina lee y ordena; él decide; la máquina redacta la demostración. El
+# adelanto queda en memoria entre una llamada y la otra: rehacer los resúmenes
+# para resolver costaría otra vez el modelo y otra vez la espera.
+_TALLER_SESIONES: dict = {}
+_TALLER_SESION_TTL = 3600.0
+
+
+def _taller_llave(email: str, numero: str) -> str:
+    return f"{(email or '').strip().lower()}|{numero}"
+
+
+def _taller_purgar() -> None:
+    ahora = time.time()
+    for k in [k for k, v in _TALLER_SESIONES.items()
+              if ahora - v.get("ts", 0) > _TALLER_SESION_TTL]:
+        _TALLER_SESIONES.pop(k, None)
+
+
+@app.post("/taller/consultar")
+async def taller_consultar(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    coleccion_estatal: str = Form("leyes_queretaro"),
+):
+    """Lo que el acervo dice sobre los problemas de ESTE asunto.
+
+    Se le enseña ANTES de pedirle el criterio: decidir el sentido sin ver la
+    jurisprudencia obligatoria del tema es justo el error que este utillaje
+    existe para evitar.
+    """
+    _taller_puerta(user_email)
+    _taller_purgar()
+    ses = _TALLER_SESIONES.get(_taller_llave(user_email, numero))
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente. "
+                                 "Genéralo primero.")
+    import redactor_adelanto as _ra
+
+    r = ses["resultado"]
+    if r.encargo is not None:
+        r.encargo.coleccion_estatal = coleccion_estatal
+    material = await _ra.consultar(
+        qdrant_client, _embedding_juris,
+        lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r)
+    ses["material"] = material
+    _taller_registrar_uso(user_email, numero, "consulta")
+
+    return {
+        "expediente": numero,
+        "problema_global": r.fases.problema_global,
+        "problemas": [p.get("pregunta", "") if isinstance(p, dict) else str(p)
+                      for p in (r.fases.problemas or [])],
+        "tesis": [{"registro": t["registro"], "rubro": t["rubro"],
+                   "instancia": t["instancia"], "obligatoria": t["obligatoria"],
+                   "localizacion": t.get("localizacion", ""),
+                   "texto": (t.get("texto") or "")[:1200]}
+                  for t in material.tesis],
+        "normas": [{"cuerpo_legal": n["cuerpo_legal"], "articulo": n["articulo"],
+                    "texto": (n.get("texto") or "")[:600]}
+                   for n in material.normas],
+        "avisos": r.avisos,
+    }
+
+
+@app.post("/taller/resolver")
+async def taller_resolver(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    sentido: str = Form(...),                # fundado|infundado|inoperante|ineficaz
+    problema: str = Form(""),
+    razonamiento: str = Form(""),            # SU criterio: lo que alinea el estudio
+):
+    """La sentencia, con el criterio del secretario dentro."""
+    _taller_puerta(user_email)
+    _taller_purgar()
+    ses = _TALLER_SESIONES.get(_taller_llave(user_email, numero))
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    if "material" not in ses:
+        raise HTTPException(409, "Consulta primero el acervo: el estudio se funda "
+                                 "con lo que ahí se encuentre, no con la memoria "
+                                 "del modelo.")
+    import fase6_estudio as _f6
+    import redactor_adelanto as _ra
+
+    r = ses["resultado"]
+    crit = [_f6.Criterio(
+        problema=problema or (r.fases.problema_global or ""),
+        sentido=sentido, razonamiento=razonamiento)]
+    salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
+    r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida)
+    _taller_registrar_uso(user_email, numero, "proyecto")
+
+    print(f"   ⚖️ TALLER: proyecto {numero} · {len(r2.estudio.split())} palabras "
+          f"· {len(r2.avisos)} avisos")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        r2.ruta,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=salida.split("/")[-1],
+        headers={
+            # Esto NO es un proyecto firmable y el secretario tiene que saberlo
+            # antes de abrirlo, no en un aviso legal que nadie lee.
+            "X-Borrador": "1",
+            "X-Palabras": str(len(r2.estudio.split())),
+            "X-Avisos": str(len(r2.avisos)),
+            "X-Huecos": str(len(r2.huecos)),
+            "X-Advertencias": "1" if r2.advertencias else "0",
+        },
+    )
+
+
+@app.get("/taller/estado")
+async def taller_estado(user_email: str):
+    """Si el piloto sigue abierto y cuánto le queda."""
+    n = _taller_secretarios_distintos()
+    return {
+        "activo": TALLER_PILOTO_ACTIVO and n <= TALLER_PILOTO_CUPO,
+        "secretarios": n,
+        "cupo": TALLER_PILOTO_CUPO,
+        "tiene_acceso": _can_access_redactor_tcc(user_email),
+        "aviso": ("Borrador asistido. No es un proyecto firmable: verifique las "
+                  "partes, las citas y que estén contestados todos los conceptos."),
+    }
 
 
 if __name__ == "__main__":
