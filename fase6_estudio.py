@@ -215,10 +215,18 @@ ARQUITECTURA — para que se vea de un vistazo que no quedó nada sin contestar:
   «infundado» en el mismo estudio obliga a rehacer el resolutivo.
 
 FUNDAMENTO — hay que fundar, y hay que fundar bien:
-- FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL. Un estudio de fondo sin una
-  sola cita no es un engrose: es una opinión. Si el material trae jurisprudencia
-  obligatoria sobre la cuestión, se invoca y se explica por qué aplica a este
-  caso. Lo esperable es apoyar cada tramo decisorio en la fuente que lo sostiene.
+- FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL. Un estudio de fondo sin citas
+  no es un engrose: es una opinión con formato de sentencia.
+
+  LA MEDIDA, tomada de los engroses reales de este tribunal: entre TRES y SEIS
+  criterios invocados por estudio. Con una sola cita el escrito se queda corto;
+  el secretario que firma espera ver la cuestión apoyada, no enunciada.
+
+  Para CADA tramo decisorio —la regla que aplicas, la excepción que descartas,
+  el estándar que exiges— busca en el material la fuente que lo sostiene y cítala
+  con su rubro y su registro, explicando por qué aplica a ESTE caso. Si de veras
+  ninguna de las que tienes sirve para un punto, razónalo sin ella y sigue: pero
+  que eso sea la excepción, no la norma.
 - Sólo se cita lo que está en el MATERIAL. NUNCA inventes un registro digital
   ni un número de tesis: tus datos de entrenamiento son viejos y falsos.
 - LEE EL TEXTO DE LA TESIS ANTES DE INVOCARLA, no sólo su rubro. El rubro es
@@ -308,11 +316,13 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list
     #        los arreglos avisaba tres veces contra citar mal y ninguna a favor
     #        de citar bien.
     obligatorias = [t for t in material.tesis if t.get("obligatoria")]
-    if obligatorias and not citados:
-        avisos.append(f"El estudio NO CITA NI UNA TESIS teniendo "
+    if obligatorias and len(citados) < 2:
+        cuantas = "NI UNA TESIS" if not citados else "una sola tesis"
+        avisos.append(f"El estudio cita {cuantas} teniendo "
                       f"{len(obligatorias)} obligatorias en el material "
-                      f"(p. ej. {obligatorias[0].get('registro','')}). Un estudio "
-                      f"de fondo sin fuente es una opinión: revísalo.")
+                      f"(p. ej. {obligatorias[0].get('registro','')}). Los "
+                      f"engroses de este tribunal invocan entre tres y seis: "
+                      f"revisa si la cuestión quedó apoyada o sólo enunciada.")
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:
@@ -432,9 +442,23 @@ def parrafos(estudio: str) -> list[str]:
     delatan el documento. La CALIFICACIÓN que va pegada a él —«Los conceptos son
     ineficaces»— SE CONSERVA: es la frase que abre el estudio.
     """
-    t = re.sub(r"^\s*(?:SEXTO|S[ÉE]PTIMO|QUINTO)\.\s*Estudio(?:\s+de\s+fondo)?\.?\s*",
+    t = re.sub(r"^\s*(?:SEXTO|S[ÉE]PTIMO|QUINTO|CUARTO|OCTAVO)\.\s*"
+               r"Estudio(?:\s+de\s+(?:fondo|los?\s+\w+))?\.?\s*",
                "", estudio.strip(), flags=re.I)
-    return [p.strip() for p in t.split("\n") if p.strip()]
+    fuera = []
+    for linea in t.split("\n"):
+        linea = linea.strip()
+        if not linea:
+            continue
+        # El ensamblador ya pone los rótulos desde la plantilla; cuando el
+        # modelo escribe los suyos —«Agravios:», «Solución:»— salen dos veces
+        # seguidos y el documento se lee como un borrador sin repasar.
+        if re.fullmatch(r"(?:Agravios|Conceptos de violaci[óo]n|Soluci[óo]n|"
+                        r"Consideraciones relevantes[^:]*|Problemas? jur[íi]dicos?"
+                        r"[^:]*)\s*[:.]?", linea, re.I):
+            continue
+        fuera.append(linea)
+    return fuera
 
 
 def separar_advertencias(estudio: str) -> tuple[str, str]:

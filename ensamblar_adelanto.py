@@ -866,6 +866,34 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
         # Sólo se toca el resolutivo de AMPARO. En un recurso la fórmula es otra
         # —se confirma, se revoca, se declara infundado— y depende de lo que se
         # recurrió: dejar el hueco es más honesto que rellenarlo por analogía.
+        # EL RESOLUTIVO DE UN RECURSO NO LLEVA LA FÓRMULA DEL AMPARO. En queja
+        # se escribe «Es fundado el recurso de queja» y el hueco quedaba a la
+        # vista —«Es ********** el recurso»— porque sólo se rellenaba cuando el
+        # párrafo decía «la Justicia de la Unión».
+        t_res = texto_de(p)
+        if HUECO in t_res and re.search(r"\brecurso\b", t_res, re.I):
+            calif = (r.calificaciones or [""])[0].strip().lower()
+            palabra = {"fundado": "fundado", "infundado": "infundado",
+                       "inoperante": "inoperante", "ineficaz": "ineficaz"}.get(calif)
+            if palabra:
+                entero = t_res.replace(HUECO, palabra)
+                m_o = re.match(r"^(ÚNICO\.|PRIMERO\.|SEGUNDO\.)", entero)
+                tr = []
+                resto = entero
+                if m_o:
+                    tr.append((m_o.group(1), {"bold": True}))
+                    resto = entero[m_o.end():]
+                i_p = resto.find(palabra)
+                if i_p >= 0:
+                    tr += [(resto[:i_p], {}), (palabra, {"bold": True}),
+                           (resto[i_p + len(palabra):], {})]
+                else:
+                    tr.append((resto, {}))
+                escribir_tramos(p, [x for x in tr if x[0]])
+                avisos_ensamblado.append(
+                    "Revisa el resolutivo del recurso: los EFECTOS —qué se "
+                    "revoca y qué debe hacer el juez— los redactas tú.")
+
         if formula and "justicia de la unión" in texto_de(p).lower():
             # El resolutivo NO va entero en negrita. Medido en su engrose: sólo
             # «ÚNICO.» y la fórmula. `escribir()` metía todo en el primer run,
