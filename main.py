@@ -25883,7 +25883,26 @@ async def taller_resolver(
         problema=problema or (r.fases.problema_global or ""),
         sentido=sentido, razonamiento=razonamiento)]
     salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
-    r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida)
+    # El marco jurídico de ESTE asunto. Si los problemas no lo piden, sale vacío
+    # y no se escribe: pegar derechos humanos en todos los asuntos era el riesgo
+    # que David mismo descartó —«no fijar un marco constitucional para todos los
+    # casos, sino sobre la solución en función del problema jurídico»—.
+    import marco_juridico as _mj
+    _probs = ([r.fases.problema_global] if r.fases.problema_global else [])
+    _probs += [p.get("pregunta", "") if isinstance(p, dict) else str(p)
+               for p in (r.fases.problemas or [])]
+    try:
+        _marco = _mj.bloque(await _mj.construir(
+            qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None),
+            r.encargo.es_recurso if r.encargo else False)
+    except Exception as _e:
+        logger.warning("No se pudo construir el marco jurídico: %s", _e)
+        _marco = ""
+    if _marco:
+        print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres")
+
+    r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida, _marco)
     _taller_registrar_uso(user_email, numero, "proyecto")
 
     print(f"   ⚖️ TALLER: proyecto {numero} · {len(r2.estudio.split())} palabras "

@@ -24,6 +24,7 @@ import fase0_oportunidad as f0
 import fase_partes as fpartes
 import fase6_estudio as f6
 import fase6_rag as f6rag
+import marco_juridico as mjur
 import fases123_pipeline as f123
 
 
@@ -147,7 +148,8 @@ async def consultar(qdrant, embed_juris, embed_leyes,
 
 
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
-                   material: f6.Material, ruta_salida: str) -> Resultado:
+                   material: f6.Material, ruta_salida: str,
+                   marco: str = "") -> Resultado:
     """La sentencia: el mismo documento, ahora con el estudio de fondo dentro.
 
     Se REENSAMBLA desde la plantilla en vez de editar el adelanto, porque el
@@ -160,7 +162,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 
     estudio, advertencias, avisos = await f6.redactar(
         cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
-        criterios, material, e.es_recurso, r.partes)
+        criterios, material, e.es_recurso, r.partes, marco)
 
     relleno = ens.Relleno(
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,

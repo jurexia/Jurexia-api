@@ -95,19 +95,66 @@ de modo que quien lea entienda la resolución impugnada sin tenerla enfrente.
   medida en los engroses reales."""
 
 
+# ── Cómo se estructuran los conceptos, medido sobre 72 apartados reales ──────
+#
+# LA REGLA DE ORO, y es contraintuitiva: NO SE AGRUPA EN LA SÍNTESIS, SE AGRUPA
+# EN LA SOLUCIÓN. La síntesis respeta el orden y el número que propuso el
+# quejoso; el reagrupamiento se anuncia después, al abrir el estudio, y siempre
+# con fundamento en el artículo 76 de la Ley de Amparo. Sólo 6 de 72 apartados
+# agrupan ya dentro de la síntesis.
+#
+# Y NO ES UN PÁRRAFO POR CONCEPTO: es un APARTADO por concepto, con MEDIANA DE
+# TRES párrafos cada uno. El apartado entero ronda los 10 párrafos.
+#
+# El ordinal explícito es OPCIONAL —32% lo usa, 42% corre por conectores— pero
+# la separación NO lo es.
+PARRAFOS_POR_CONCEPTO = 3
+CONCEPTOS_TIPICOS = "de 1 a 7; lo normal, entre 2 y 4"
+
+BISAGRA_CONCEPTOS = (
+    "En contra de esas consideraciones, la parte quejosa plantea los siguientes "
+    "conceptos de violación:")
+BISAGRA_AGRAVIOS = (
+    "En contra de las anteriores consideraciones, la parte recurrente formula "
+    "los agravios siguientes:")
+
+# Los conectores con que enlaza cuando no numera, por frecuencia real.
+CONECTORES_CONCEPTOS = ("Finalmente", "Asimismo", "Además", "También",
+                        "Por otro lado", "Aunado a lo anterior", "Adicionalmente",
+                        "En diverso aspecto")
+
+
 def instrucciones_resumen_conceptos(es_recurso: bool = False) -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
+    sing = "agravio" if es_recurso else "concepto de violación"
+    bisagra = BISAGRA_AGRAVIOS if es_recurso else BISAGRA_CONCEPTOS
     return f"""RESUMEN DE LOS {q.upper()}
 
 Va inmediatamente después del resumen del acto reclamado.
 
+ESTRUCTURA — medida sobre 72 apartados reales de este tribunal:
+- ABRE CON LA BISAGRA, tal cual: «{bisagra}»
+- UN APARTADO POR {sing.upper()}, en el orden y con el número que planteó quien
+  promueve. NO los fundas, NO los reordenas y NO los agrupas aquí: el
+  reagrupamiento por temas se anuncia DESPUÉS, al abrir el estudio, y con el
+  artículo 76 de la Ley de Amparo. Una demanda puede traer siete {q} repetitivos
+  y aun así la síntesis los respeta uno por uno.
+- CADA APARTADO, unos {PARRAFOS_POR_CONCEPTO} párrafos. No una línea: un
+  {sing} resumido en media frase no se puede contestar después.
+- ENLÁZALOS de una de estas dos formas, sin mezclarlas:
+    · con el ORDINAL: «En el primer {sing} la quejosa aduce que…», «En el
+      segundo {sing} afirma que…», «En el tercero sostiene que…»
+    · o con CONECTORES: {', '.join(f'«{c}»' for c in CONECTORES_CONCEPTOS[:6])}.
+- EL ÚLTIMO SE ABRE CON «Finalmente». Aparece así en 46 de 72 apartados.
+- SI HAY UNO SOLO, se dice: «En el único {sing} formulado, la quejosa se duele
+  de…»
+
+Y lo de siempre:
 - TIEMPO VERBAL: PRESENTE, sin excepción. {', '.join(VERBOS_PARTE[:6])}.
-  Lo que la parte reclama se está diciendo ahora ante el tribunal.
 - SUJETO: {', '.join(SUJETOS_PARTE[:3])}.
-- UN PÁRRAFO POR {q[:-1].upper()}, en el orden en que se plantearon, sin
-  fundirlos ni reordenarlos.
-- NO LOS CALIFIQUES. Aquí sólo se expone lo que se alega.
-- EXTENSIÓN: alrededor de {PALABRAS_RESUMEN_CONCEPTOS} palabras."""
+- NO LOS CALIFIQUES. Aquí sólo se expone lo que se alega; el juicio viene en el
+  estudio.
+- EXTENSIÓN: alrededor de {PALABRAS_RESUMEN_CONCEPTOS} palabras en total."""
 
 
 def instrucciones_problemas(global_primero: bool = True) -> str:

@@ -151,6 +151,10 @@ def _bloque_material(m: Material) -> str:
         p.append("  La OBLIGATORIA vincula a este Tribunal y se invoca como razón que")
         p.append("  decide; la ORIENTADORA sólo ilustra y se cita como apoyo. Tratarlas")
         p.append("  igual es un error de fondo, no de estilo.")
+        p.append("  PREFIERE LA SUPREMA CORTE. Entre dos criterios que sirven igual, se")
+        p.append("  cita el del Pleno o de una Sala antes que el de un Tribunal")
+        p.append("  Colegiado: pesa más y evita el reproche de haberse quedado corto.")
+        p.append("  Vienen ordenados: los primeros son los que más aplican.")
         for t in tesis:
             fuerza = "JURISPRUDENCIA OBLIGATORIA" if t.get("obligatoria") else "tesis orientadora"
             p.append(f"\n  · [{fuerza}] Registro {t.get('registro','')} — {t.get('instancia','')}")
@@ -183,7 +187,7 @@ def _bloque_material(m: Material) -> str:
 
 def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
-                   es_recurso: bool = False, partes=None) -> str:
+                   es_recurso: bool = False, partes=None, marco=None) -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     calif = _calificacion(criterios)
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
@@ -222,6 +226,21 @@ NO REPITAS LO QUE YA ESTÁ ESCRITO — esto es lo primero:
   dos párrafos más arriba y se encuentra lo mismo por tercera vez.
 - Y NO ESCRIBAS RÓTULOS. Nada de «Agravios:», «Conceptos de violación:» ni
   «Solución:»: el documento ya los trae de la plantilla y salen duplicados.
+
+AQUÍ SÍ SE AGRUPA, Y SE ANUNCIA — la regla que él sigue sin excepción:
+- La síntesis de arriba respetó el orden y el número que propuso quien promueve.
+  ES AQUÍ donde se reordena o se juntan varios, y NUNCA en silencio: se dice
+  antes de empezar y con fundamento en el ARTÍCULO 76 DE LA LEY DE AMPARO.
+      «Por cuestión de método, los {q} se analizarán agrupados por bloques
+       temáticos, conforme al artículo 76 de la Ley de Amparo, privilegiando el
+       estudio de las violaciones procesales que inciden en el sentido del fallo.»
+      «se procede al análisis conjunto de los {q} identificados como TERCERO y
+       QUINTO, dada su estrecha vinculación con el fondo del asunto.»
+- EL CRITERIO PARA AGRUPAR NO ES EL ARTÍCULO CONSTITUCIONAL INVOCADO —casi todos
+  repiten el 14, el 16 y el 17— sino EL NUDO DE LA SENTENCIA QUE SE ATACA: el
+  presupuesto procesal, el elemento de la acción o la prueba concreta en disputa.
+- Y SI NO REAGRUPAS, DILO IGUAL: «por razón de método y atendiendo a su
+  prelación lógica, los {q} se analizarán en el orden propuesto».
 
 ARQUITECTURA — para que se vea de un vistazo que no quedó nada sin contestar:
 - UN APARTADO POR CADA {q[:-1]}, en el orden en que se plantearon, cada uno
@@ -271,6 +290,10 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 - LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
   de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
   Circuito». Sin ella no se sabe qué peso tiene el criterio.
+- Y NUNCA CITES UNA TESIS SOBRE LA LEGISLACIÓN DE OTRO ESTADO como si rigiera
+  aquí. El rubro lo dice —«(LEGISLACIÓN DEL ESTADO DE PUEBLA)»— y un criterio
+  sobre el código de otra entidad no gobierna este asunto por obligatorio que
+  sea en su circuito. Si lo traes, es por analogía y se dice que lo es.
 - EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
   La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
   la cita en el Semanario, que es para lo que sirve citarla.
@@ -288,6 +311,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
   escribe que el punto no está acreditado y sigue.
 {partes.bloque() if partes is not None else ""}
+{marco if isinstance(marco, str) else ""}
 {_bloque_criterio(criterios)}
 {_bloque_material(material)}
 
@@ -430,6 +454,22 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
             avisos.append(f"El estudio REPITE el resumen del acto: {100*eco:.0f}% "
                           f"de sus frases ya estaban en el apartado anterior. El "
                           f"lector se lo encuentra dos veces.")
+
+    # 1-quinquies. Si el acervo trajo criterios de la Suprema Corte y el estudio
+    #              sólo invocó Colegiados, se avisa. David: «que se cite
+    #              jurisprudencia de la SCJN preferentemente».
+    def _scjn(t):
+        i = (t.get("instancia") or "").upper()
+        return any(x in i for x in ("PRIMERA SALA", "SEGUNDA SALA", "PLENO",
+                                    "SUPREMA CORTE"))
+    hay_scjn = [t for t in material.tesis if _scjn(t)]
+    citó_scjn = [t for t in material.tesis
+                 if _scjn(t) and str(t.get("registro", "")) in citados]
+    if hay_scjn and citados and not citó_scjn:
+        avisos.append(f"El estudio sólo cita criterios de Tribunales Colegiados "
+                      f"teniendo {len(hay_scjn)} de la Suprema Corte en el "
+                      f"material (p. ej. {hay_scjn[0].get('registro','')}). "
+                      f"Un criterio de la Corte pesa más.")
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:
@@ -582,13 +622,13 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
 
 async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
-                   es_recurso: bool = False, partes=None
+                   es_recurso: bool = False, partes=None, marco=None
                    ) -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos)."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
-                  es_recurso, partes)}])
+                  es_recurso, partes, marco)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     r = await cliente.chat.completions.create(**kw)
