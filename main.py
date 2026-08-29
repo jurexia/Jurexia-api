@@ -15170,6 +15170,47 @@ def _aggregate_jurimetria(points: list) -> dict:
     }
 
 
+AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY", "")
+AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT", "").rstrip("/")
+
+
+async def _ocr_azure(contenido: bytes) -> str:
+    """Azure AI Document Intelligence, modelo `prebuilt-read`.
+
+    Se eligió midiendo, no por catálogo: 8 segundos para 42 páginas escaneadas
+    de un expediente real frente a los 88 de Gemini, con la misma cobertura del
+    texto literal. Y da confianza por palabra, que es lo que permitirá marcar
+    páginas dudosas cuando se enganche la segunda opinión.
+    """
+    import httpx
+
+    url = (f"{AZURE_DOCINT_ENDPOINT}/documentintelligence/documentModels/"
+           f"prebuilt-read:analyze?api-version=2024-11-30")
+    cab = {"Ocp-Apim-Subscription-Key": AZURE_DOCINT_KEY,
+           "Content-Type": "application/pdf"}
+    async with httpx.AsyncClient(timeout=120) as cli:
+        r = await cli.post(url, content=contenido, headers=cab)
+        r.raise_for_status()
+        operacion = r.headers.get("Operation-Location")
+        if not operacion:
+            return ""
+        for _ in range(60):
+            await asyncio.sleep(2)
+            s = await cli.get(operacion, headers={"Ocp-Apim-Subscription-Key": AZURE_DOCINT_KEY})
+            j = s.json()
+            if j.get("status") in ("succeeded", "failed"):
+                break
+        if j.get("status") != "succeeded":
+            return ""
+    res = j.get("analyzeResult", {})
+    partes = []
+    for i, pg in enumerate(res.get("pages", []), 1):
+        lineas = [l.get("content", "") for l in pg.get("lines", [])]
+        if lineas:
+            partes.append(f"[[PÁGINA {i}]]\n" + "\n".join(lineas))
+    return "\n\n".join(partes)
+
+
 def _texto_nativo_sirve(texto: str, paginas: int) -> bool:
     """¿La capa de texto del PDF es el documento, o es basura de sellos?
 
@@ -15229,7 +15270,29 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
             print(f"   ⚠️ PyMuPDF error: {err(e)}")
             n_pages = 0
 
-        # ── 2. Gemini 3.1 Pro OCR (most powerful vision model) ───
+        # ── 2. Azure Document Intelligence — el OCR rápido ───────
+        #
+        # MEDIDO SOBRE LAS MISMAS 42 PÁGINAS del ADC 174-2026:
+        #     Azure prebuilt-read ...... 8 segundos
+        #     Gemini 3.7 Flash ......... 88 segundos
+        #
+        # Once veces más rápido, misma cobertura del texto literal (44%) y los
+        # mismos artículos. Y es lo que hace viable el taller: 43 páginas de OCR
+        # con Gemini no caben en los 240 s del worker de gunicorn, y con Azure
+        # sobran más de tres minutos para las fases del modelo.
+        if AZURE_DOCINT_KEY and AZURE_DOCINT_ENDPOINT:
+            try:
+                t0 = time.time()
+                texto_az = await _ocr_azure(content)
+                if texto_az and len(texto_az) > 400:
+                    print(f"   ⚡ Azure OCR: {len(texto_az)} chars en "
+                          f"{time.time()-t0:.0f}s ({n_pages} pág)")
+                    return texto_az
+                print("   ⚠️ Azure devolvió poco texto; se prueba con Gemini")
+            except Exception as e:
+                print(f"   ⚠️ Azure OCR falló ({err(e)}); se cae a Gemini")
+
+        # ── 3. Gemini como respaldo ──────────────────────────────
         try:
             import tempfile, os as _os
             gemini_cl = get_gemini_client()
