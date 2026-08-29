@@ -211,6 +211,18 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   reforzadores y las objeciones previsibles con su refutación.
 - Sin Markdown, sin viñetas, sin esquemas.
 
+NO REPITAS LO QUE YA ESTÁ ESCRITO — esto es lo primero:
+- Los dos resúmenes que vienen abajo —lo que resolvió la responsable y lo que se
+  combate— YA OCUPAN SU PROPIO APARTADO en la sentencia, antes del tuyo. Se te
+  dan para que sepas de qué va el asunto, NO para que los reproduzcas.
+- TU TEXTO EMPIEZA EN LA SOLUCIÓN. Abre con la calificación y entra a demostrar.
+  Puedes referirte a lo que la responsable sostuvo cuando lo estés refutando
+  —«la Sala afirmó X; ese razonamiento es incorrecto porque…»—, pero no vuelvas
+  a contar la resolución ni a enumerar los agravios: el lector acaba de leerlos
+  dos párrafos más arriba y se encuentra lo mismo por tercera vez.
+- Y NO ESCRIBAS RÓTULOS. Nada de «Agravios:», «Conceptos de violación:» ni
+  «Solución:»: el documento ya los trae de la plantilla y salen duplicados.
+
 ARQUITECTURA — para que se vea de un vistazo que no quedó nada sin contestar:
 - UN APARTADO POR CADA {q[:-1]}, en el orden en que se plantearon, cada uno
   abierto por su ordinal en letra («En el primer {q[:-1]} la parte quejosa
@@ -246,6 +258,10 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   Si una tesis concreta no sostiene lo que quieres afirmar, usa OTRA de las que
   tienes; abstenerse de citar del todo no es la salida: el material se buscó
   para ESTOS problemas y lo normal es que varias apliquen.
+- EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro:
+  «…la jurisprudencia de registro 2022074, de rubro y texto siguientes:». La
+  clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie puede
+  comprobar la cita en el Semanario, que es para lo que sirve citarla.
 - Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
   registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta
   S.J.F.; Libro 52…»— NO se escribe en el cuerpo: el documento la coloca sola
@@ -315,7 +331,36 @@ _NOTORIAS = ("ley de amparo", "constitución", "constitucion",
              "ley orgánica del poder judicial", "ley organica del poder judicial")
 
 
-def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list[str]:
+# Las comillas de un rubro llegan de tres formas —tipográficas, latinas y
+# rectas— según lo que escriba el modelo. Cubrir sólo una deja el verificador
+# mudo: probado con « » y no saltaba ni una alarma.
+_RX_RUBRO_CITADO = re.compile(
+    r"[“«\"]\s*[A-ZÁÉÍÓÚÑ][^”»\"]{25,}[”»\"]")
+
+
+def _frases(t: str) -> set:
+    return {re.sub(r"\W+", " ", f).strip().lower()
+            for f in re.split(r"(?<=[.])\s+", t or "")
+            if len(f.split()) >= 8}
+
+
+def _solapamiento(a: str, b: str) -> float:
+    """Qué proporción de las frases de `a` reaparece casi igual en `b`."""
+    fa, fb = _frases(a), _frases(b)
+    if not fa:
+        return 0.0
+    # Se compara por trozos: una frase reescrita comparte casi todas sus palabras.
+    voc_b = [set(f.split()) for f in fb]
+    repetidas = 0
+    for f in fa:
+        p = set(f.split())
+        if any(len(p & v) / max(1, len(p)) > 0.75 for v in voc_b):
+            repetidas += 1
+    return repetidas / len(fa)
+
+
+def revisar(estudio: str, criterios: list[Criterio], material: Material,
+            resumen_acto: str = "") -> list[str]:
     """Lo comprobable sin modelo. Ninguna de estas es opinión."""
     avisos: list[str] = []
 
@@ -342,6 +387,27 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list
                       f"(p. ej. {obligatorias[0].get('registro','')}). Los "
                       f"engroses de este tribunal invocan entre tres y seis: "
                       f"revisa si la cuestión quedó apoyada o sólo enunciada.")
+
+    # 1-ter. Toda cita necesita su registro. Una tesis identificada sólo por su
+    #        clave —«2a./J. 58/2010»— no se puede comprobar en el Semanario, que
+    #        es justo para lo que se cita.
+    sin_registro = 0
+    for m_ in _RX_RUBRO_CITADO.finditer(estudio):
+        ventana = estudio[max(0, m_.start() - 320):m_.start()]
+        if not _RX_REGISTRO.search(ventana):
+            sin_registro += 1
+    if sin_registro:
+        avisos.append(f"{sin_registro} tesis se citan SIN REGISTRO DIGITAL. La "
+                      f"clave no basta: sin el registro no se comprueban en el "
+                      f"Semanario.")
+
+    # 1-quater. El estudio no repite los resúmenes que ya están arriba.
+    if resumen_acto:
+        eco = _solapamiento(resumen_acto, estudio)
+        if eco > 0.35:
+            avisos.append(f"El estudio REPITE el resumen del acto: {100*eco:.0f}% "
+                          f"de sus frases ya estaban en el apartado anterior. El "
+                          f"lector se lo encuentra dos veces.")
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:
@@ -370,7 +436,7 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material) -> list
 
     rubros_material = [_n(t.get("rubro", "")) for t in material.tesis]
     for m_ in re.finditer(r"[“\"]([A-ZÁÉÍÓÚÑ][^”\"]{25,}?)[”\"]", estudio):
-        cit = _n(m_.group(1))
+        cit = _n(m_.group(0))
         if len(cit) < 30:
             continue
         if not any(r.startswith(cit[:60]) or cit.startswith(r[:60])
@@ -506,7 +572,7 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
     r = await cliente.chat.completions.create(**kw)
     crudo = (r.choices[0].message.content or "").strip()
     estudio, advertencias = separar_advertencias(crudo)
-    avisos = revisar(estudio, criterios, material)
+    avisos = revisar(estudio, criterios, material, resumen_acto)
     if partes is not None:
         import fase_partes
         avisos.extend(fase_partes.revisar_partes(estudio, partes))
