@@ -51,6 +51,8 @@ TAMANO = Pt(14)
 TAMANO_CITA = Pt(12)
 TAMANO_TABLA = Pt(11)
 SANGRIA = Cm(1.25)
+# La sangría del bloque transcrito —artículo o tesis—, medida en el corpus.
+SANGRIA_CITA = Cm(1.25)
 INTERLINEADO = 1.5
 INTERLINEADO_CITA = 1.0
 
@@ -324,7 +326,12 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
         _fmt(q, sangria=False, tamano=TAMANO_CITA,
              interlineado=INTERLINEADO_CITA)
         q.paragraph_format.left_indent = Cm(1.25)
-        q.paragraph_format.keep_with_next = True
+        # EL BLOQUE LARGO NO SE ATA A LO SIGUIENTE. Con `keep_with_next` en
+        # toda la cadena —anuncio, rubro, texto y órgano— Word empuja el
+        # conjunto entero a la página siguiente y deja media hoja en blanco:
+        # ése era el «espacio enorme antes de citar una tesis». El rubro sí
+        # sigue atado a su texto, que es lo que no puede partirse.
+        q.paragraph_format.keep_with_next = False
 
     # El órgano, y ahí cuelga la nota con la localización.
     inst = (t.get("instancia") or "").strip()
@@ -337,6 +344,7 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
         _fmt(z, sangria=False, tamano=TAMANO_CITA,
              interlineado=INTERLINEADO_CITA)
         z.paragraph_format.left_indent = Cm(1.25)
+        z.paragraph_format.keep_with_next = False
         if loc or reg:
             pie = loc if loc else ""
             if reg and reg not in pie:
@@ -755,6 +763,53 @@ def _norma_del_texto(frag: str, num: str, normas: list):
     return mejor
 
 
+def escribir_precepto(doc, texto_articulo: str, ley: str, num: str):
+    """El artículo transcrito, como lo hace el secretario.
+
+    David: «Cuando citamos un artículo hay que hacerlo con interlineado uno y
+    con sangría en todo el artículo… No se dice en el mismo párrafo, se abren
+    dos puntos, se cita textualmente el artículo y luego se sigue con la
+    redacción». Así queda:
+
+        …conforme al artículo 296 del Código Civil del Estado de Querétaro,
+        que dispone:
+            «Artículo 296. Los alimentos han de ser…»        ← sangrado, a uno
+        Como se advierte del precepto transcrito, …          ← sigue la prosa
+
+    El precepto sale del acervo, palabra por palabra. Un artículo transcrito de
+    memoria es el error que nadie detecta al revisar.
+    """
+    cuerpo = " ".join(str(texto_articulo or "").split())
+    if not cuerpo:
+        return None
+    cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,14}\.?[-–]?\s*", "", cuerpo,
+                    flags=re.I)
+    q = doc.add_paragraph()
+    r = q.add_run(f"«Artículo {num}. {cuerpo}»")
+    _fmt(q, sangria=False, tamano=TAMANO_CITA,
+         interlineado=INTERLINEADO_CITA)
+    q.paragraph_format.left_indent = SANGRIA_CITA
+    q.paragraph_format.right_indent = Cm(0.5)
+    q.paragraph_format.space_before = Pt(6)
+    q.paragraph_format.space_after = Pt(6)
+    q.paragraph_format.keep_with_next = False
+    return q
+
+
+def _preceptos_del_parrafo(texto: str, normas: list) -> list:
+    """[(número, norma)] de los artículos que este párrafo cita y tenemos."""
+    fuera, vistos = [], set()
+    for m in _RX_ARTICULO_CITADO.finditer(texto or ""):
+        num = m.group(1)
+        if num in vistos:
+            continue
+        n = _norma_del_texto(m.group(0), num, normas)
+        if n and str(n.get("texto") or "").strip():
+            vistos.add(num)
+            fuera.append((num, n))
+    return fuera
+
+
 def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
     """Cuelga del párrafo el texto de los artículos que cita. Devuelve cuántos."""
     if not normas:
@@ -866,6 +921,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
     citadas = 0
     ultima_tesis = None
+    transcritos = set()
     for t in (estudio or []):
         t = (t or "").strip()
         if not t:
@@ -896,8 +952,16 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             if len(t.split()) < 6:
                 continue
         p_ = parrafo_con_citas(doc, t, notas)
-        if p_ is not None and len([x for x in notas if x.startswith("«Artículo")]) < MAX_NOTAS_DE_ARTICULOS:
-            notas_de_articulos(doc, p_, t, normas, notas)
+        # EL PRECEPTO SE TRANSCRIBE, NO SE RESUME. Va en bloque aparte, con
+        # sangría y a un espacio, detrás del párrafo que lo anuncia.
+        if p_ is not None:
+            for num, n_ in _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_PARRAFO]:
+                if (num, str(n_.get("cuerpo_legal") or n_.get("fuente") or "")) in transcritos:
+                    continue
+                transcritos.add((num, str(n_.get("cuerpo_legal") or n_.get("fuente") or "")))
+                escribir_precepto(doc, n_.get("texto"),
+                                  n_.get("cuerpo_legal") or n_.get("fuente") or "",
+                                  num)
     return citadas
 
 
@@ -1000,11 +1064,20 @@ def _caratula(doc, datos):
               ("AUTORIDAD RESPONSABLE", datos.get("responsable", "")),
               ("MAGISTRADO PONENTE", datos.get("magistrado", "")),
               ("SECRETARIA/O", datos.get("secretario", ""))]
+    # LOS DATOS DE IDENTIFICACIÓN VAN A LA IZQUIERDA Y EN MAYÚSCULAS, como en
+    # sus proyectos. Justificados y en caja mixta parecían prosa; son una ficha
+    # y se leen de un golpe de vista.
     for etiqueta, valor in campos:
         if not valor:
             continue
-        tramos(doc, [(f"{etiqueta}: ", {"bold": True}), (str(valor), {})],
-               sangria=False, interlineado=1.15)
+        p = doc.add_paragraph()
+        r1 = p.add_run(f"{etiqueta}: ")
+        r1.bold = True
+        r2 = p.add_run(str(valor).upper())
+        r2.bold = True
+        _fmt(p, sangria=False, interlineado=1.0,
+             alineacion=WD_ALIGN_PARAGRAPH.LEFT)
+        p.paragraph_format.space_after = Pt(0)
     doc.add_paragraph()
 
 
