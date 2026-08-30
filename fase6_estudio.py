@@ -315,6 +315,14 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 - LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
   de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
   Circuito». Sin ella no se sabe qué peso tiene el criterio.
+- CITA LOS ARTÍCULOS QUE TIENES, NO LOS QUE RECUERDAS. En el bloque de NORMAS
+  van los preceptos que el acervo encontró para este asunto, con su texto
+  íntegro. Ésos son los que se citan, por su número y su cuerpo legal exacto.
+  Si citas un artículo que no está ahí —«el 242 del Código Civil Federal»— pasan
+  dos cosas malas a la vez: nadie puede comprobar que diga lo que le atribuyes,
+  y el documento no puede llevar su texto al pie, que es lo que permite a quien
+  firma verificarlo de un vistazo. Cuando de verdad necesites uno que no tengas,
+  dilo con esas palabras en vez de citarlo de memoria.
 - EL CÓDIGO QUE RIGE ES EL DE LA ENTIDAD, Y SÓLO EL QUE ESTÁ EN EL MATERIAL.
   El CÓDIGO NACIONAL DE PROCEDIMIENTOS CIVILES Y FAMILIARES entró en vigor de
   forma ESCALONADA y en muchas entidades —Querétaro entre ellas— TODAVÍA NO
@@ -402,6 +410,11 @@ LO QUE SE COMBATE
 {resumen_conceptos}
 
 Escribe el estudio de fondo.
+
+Y LOS ARTÍCULOS, DE LOS QUE TIENES ARRIBA. Cada precepto del bloque de NORMAS
+viene con su texto: cítalos por su número y su cuerpo legal, y el documento
+pondrá ese texto al pie para que quien firma lo compruebe sin levantarse. Un
+artículo citado de memoria no puede llevar esa nota.
 
 Y LO ÚLTIMO, QUE ES LO QUE MÁS SE ROMPE: NO REPITAS LA TESIS. El documento
 transcribe su texto íntegro debajo de la cita, palabra por palabra. Si después
