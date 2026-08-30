@@ -99,6 +99,9 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         resumen_acto=f.parrafos_acto(),
         resumen_conceptos=f.parrafos_conceptos(),
         problemas=f.parrafos_problemas(),
+        presentacion=f0.fecha_en_letra(e.presentacion)
+                     if getattr(e, 'presentacion', None) else '',
+        responsable=getattr(e, 'responsable', '') or '',
         es_recurso=e.es_recurso,
     )
     ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
@@ -178,6 +181,9 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         estudio=f6.parrafos(estudio),
         tesis=material.tesis,
         calificaciones=[c.sentido for c in criterios],
+        presentacion=f0.fecha_en_letra(e.presentacion)
+                     if getattr(e, 'presentacion', None) else '',
+        responsable=getattr(e, 'responsable', '') or '',
         es_recurso=e.es_recurso,
     )
     ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
@@ -192,6 +198,13 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     for a in ens.residuo_de_plantilla(ruta, e.numero, e.plantilla):
         if a not in avisos:
             avisos.append(a)
+    # LA CONGRUENCIA VA LA PRIMERA. Es el único aviso de esta lista que no
+    # describe algo mejorable sino algo que no se puede firmar, y el secretario
+    # tiene que verlo antes que los otros trece.
+    incongruente = ens.revisar_congruencia(ruta, relleno.calificaciones)
+    for a in reversed(incongruente):
+        if a not in avisos:
+            avisos.insert(0, a)
 
     return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
                      partes=r.partes, estudio=estudio, advertencias=advertencias,

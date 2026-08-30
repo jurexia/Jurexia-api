@@ -25974,13 +25974,80 @@ async def taller_consultar(
     }
 
 
+@app.post("/taller/proponer")
+async def taller_proponer(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+):
+    """LA PROPUESTA DE SOLUCIÓN. Propone, no decide.
+
+    Faltaba este escalón. El secretario veía el acervo y tenía que fijar el
+    sentido con eso delante; si no lo fijaba, el proyecto salía con la
+    calificación que traía la plantilla —así nació la incongruencia del ADC
+    380/2025: efectos de concesión y un resolutivo que negaba—.
+
+    Ahora el motor propone un sentido por problema, con su razón en tres
+    renglones y los registros del acervo en que se apoya. El secretario lo
+    acepta, lo corrige, o dicta el suyo con la mecánica de siempre.
+    """
+    _taller_puerta(user_email)
+    _taller_purgar()
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    if not (ses.get("material") or ses.get("consultado")):
+        raise HTTPException(409, "Consulta primero el acervo: una propuesta sin "
+                                 "material es una opinión.")
+    if "material" not in ses:
+        import redactor_adelanto as _ra0
+        ses["material"] = await _ra0.consultar(
+            qdrant_client, _embedding_juris,
+            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+            ses["resultado"])
+
+    import fase5_propuesta as _f5
+    r = ses["resultado"]
+    problemas = [p if isinstance(p, dict) else {"pregunta": str(p)}
+                 for p in (r.fases.problemas or [])]
+    if not problemas and r.fases.problema_global:
+        problemas = [{"pregunta": r.fases.problema_global}]
+
+    propuestas, avisos = await _f5.proponer(
+        chat_client, problemas, ses["material"],
+        "\n".join(r.fases.parrafos_acto() or []),
+        "\n".join(r.fases.parrafos_conceptos() or []),
+        bool(r.encargo and r.encargo.es_recurso))
+
+    ses["propuestas"] = propuestas
+    _taller_guardar_sesion(user_email, numero, ses)
+    _taller_registrar_uso(user_email, numero, "propuesta")
+    print(f"   ⚖️ TALLER: propuesta {numero} · {len(propuestas)} sentidos · "
+          f"{len(avisos)} avisos · modelo {_f5.MODELO_PROPUESTA}")
+
+    return {
+        "expediente": numero,
+        "modelo": _f5.MODELO_PROPUESTA,
+        # El secretario decide sobre esto: se le da entero, no resumido.
+        "propuestas": [
+            {"problema": p.problema, "sentido": p.sentido, "razon": p.razon,
+             "apoyos": p.apoyos, "confianza": p.confianza, "alcanza": p.alcanza}
+            for p in propuestas],
+        "resumen": _f5.resumen(propuestas),
+        "avisos": avisos,
+        # Lo que hay que mandar a /taller/resolver para aceptarla tal cual.
+        "para_aceptar": {"sentido": (_f5.calificaciones_de(propuestas) or [""])[0],
+                         "usar_propuesta": True},
+    }
+
+
 @app.post("/taller/resolver")
 async def taller_resolver(
     numero: str = Form(...),
     user_email: str = Form(...),
-    sentido: str = Form(...),                # fundado|infundado|inoperante|ineficaz
+    sentido: str = Form(""),                 # fundado|infundado|inoperante|ineficaz
     problema: str = Form(""),
     razonamiento: str = Form(""),            # SU criterio: lo que alinea el estudio
+    usar_propuesta: bool = Form(False),      # acepta la de /taller/proponer
 ):
     """La sentencia, con el criterio del secretario dentro."""
     _taller_puerta(user_email)
@@ -26004,9 +26071,25 @@ async def taller_resolver(
     import redactor_adelanto as _ra
 
     r = ses["resultado"]
-    crit = [_f6.Criterio(
-        problema=problema or (r.fases.problema_global or ""),
-        sentido=sentido, razonamiento=razonamiento)]
+    # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
+    # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
+    # decidir— y era el que producía sentencias incongruentes: el estudio se
+    # escribía y el resolutivo se quedaba con la calificación de la plantilla.
+    if usar_propuesta:
+        props = ses.get("propuestas") or []
+        crit = [_f6.Criterio(problema=p.problema, sentido=p.sentido,
+                             razonamiento=p.razon)
+                for p in props if getattr(p, "alcanza", True) and p.sentido]
+        if not crit:
+            raise HTTPException(409, "No hay propuesta que aceptar. Pide primero "
+                                     "/taller/proponer, o dicta tu criterio.")
+    else:
+        if not sentido:
+            raise HTTPException(422, "Falta el sentido. Dicta tu criterio o "
+                                     "acepta la propuesta con usar_propuesta=1.")
+        crit = [_f6.Criterio(
+            problema=problema or (r.fases.problema_global or ""),
+            sentido=sentido, razonamiento=razonamiento)]
     salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
     # El marco jurídico de ESTE asunto. Si los problemas no lo piden, sale vacío
     # y no se escribe: pegar derechos humanos en todos los asuntos era el riesgo

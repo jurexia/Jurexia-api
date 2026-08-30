@@ -673,6 +673,10 @@ class Relleno:
     # marcado, igual que en el adelanto de papel.
     sentido: str = ""                    # la FÓRMULA literal, si ya se tiene
     calificaciones: list[str] = field(default_factory=list)   # o las del fondo
+    # Datos del asunto que la plantilla trae del SUYO. Si no se pasan, no se
+    # inventan: se dejan en hueco, que se ve, en vez de firmar los de otro.
+    presentacion: str = ""               # «quince de abril de dos mil veinticinco»
+    responsable: str = ""                # «Primera Sala Civil del Tribunal…»
     tema: str = ""
 
     es_recurso: bool = False             # revisión → «agravios», no «conceptos»
@@ -684,6 +688,11 @@ HUECO = "*********"
 # El hueco se escribe con el número de asteriscos que a cada plantilla le tocó.
 # Buscar una longitud fija deja restos a la vista en el resolutivo.
 _RX_HUECO = re.compile(r"\*{3,}")
+
+# La fórmula que el resolutivo ya trae escrita, para poder pisarla cuando el
+# sentido del asunto es el contrario.
+_RX_FORMULA_AMPARO = re.compile(
+    r"no\s+ampara\s+ni\s+protege|ampara\s+y\s+protege", re.I)
 
 # La coleta con que el modelo cierra el anuncio de una cita. Se le quita entera
 # antes de poner la fórmula canónica, porque si no se escribe dos veces.
@@ -1076,11 +1085,51 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
                 f"{_cambiados} párrafos por el quejoso de este asunto. "
                 f"Compruébalo, que es un nombre y se firma.")
     if r.numero_asunto:
-        rx_num = re.compile(r"\b\d{1,4}\s*/\s*\d{4}\b")
+        # NO TODOS LOS NÚMEROS DEL RESOLUTIVO SON EL DEL AMPARO. La frase dice
+        # «…contra la sentencia dictada el X, por la Sala Y, EN EL TOCA CIVIL
+        # Z», y sustituir todas las cifras escribía el número del amparo en el
+        # sitio del toca: en el ADC 380/2025 el resolutivo acabó diciendo «en el
+        # toca civil 380/2025», que es falso y además verosímil. Se sustituye
+        # sólo el número del juicio de amparo, no el que va tras «toca» o
+        # «expediente», que pertenecen al asunto de origen.
+        rx_num = re.compile(
+            r"(?<!toca\s)(?<!toca\scivil\s)(?<!toca\sfamiliar\s)"
+            r"(?<!expediente\s)\b\d{1,4}\s*/\s*\d{4}\b")
+
+        def _solo_amparo(texto: str) -> str:
+            fuera, i = [], 0
+            for m in re.finditer(r"\b\d{1,4}\s*/\s*\d{4}\b", texto):
+                previo = texto[max(0, m.start() - 34):m.start()].lower()
+                fuera.append(texto[i:m.start()])
+                if re.search(r"(?:toca|expediente|juicio de origen)"
+                             r"(?:\s+\w+){0,2}\s*$", previo):
+                    fuera.append(m.group(0))          # es del origen: intacto
+                else:
+                    fuera.append(r.numero_asunto)
+                i = m.end()
+            fuera.append(texto[i:])
+            return "".join(fuera)
+
         for patron in (r"^V\s?I\s?S\s?T", r"^ÚNICO\.", r"^PRIMERO\.\s*(?:Se |La Justicia)"):
             q = buscar(doc, patron)
             if q is not None:
-                escribir(q, rx_num.sub(r.numero_asunto, texto_de(q)))
+                escribir(q, _solo_amparo(texto_de(q)))
+
+    # ── RESULTANDO PRIMERO y RESOLUTIVO: los datos del asunto ────────────
+    # La plantilla los trae del SUYO y sólo se cambiaba el nombre, así que el
+    # proyecto afirmaba que la demanda se presentó el «seis de febrero de dos
+    # mil veintiséis» —fecha del asunto de Quevedo— bajo el nombre de la
+    # quejosa de éste. Un dato falso y verosímil en el resultando es peor que
+    # un hueco: el hueco se ve.
+    if r.presentacion:
+        q = buscar(doc, r"^PRIMERO\.\s*Presentaci")
+        if q is not None:
+            t_q = texto_de(q)
+            nuevo_q, n_q = re.subn(
+                r"(escrito\s+presentado\s+el\s+)([^,]{6,70})(,)",
+                lambda m: m.group(1) + r.presentacion + m.group(3), t_q, count=1)
+            if n_q and nuevo_q != t_q:
+                escribir(q, nuevo_q)
 
     # ── El sentido y la síntesis: huecos si el secretario no ha decidido ──
     p = buscar(doc, r"^ÚNICO\.|^PRIMERO\.\s*(?:Se |La Justicia)")
@@ -1125,7 +1174,22 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
             # «ÚNICO.» y la fórmula. `escribir()` metía todo en el primer run,
             # que es el del ordinal, y heredaba su negrita: el resolutivo entero
             # salía resaltado y había que deshacerlo a mano.
-            entero = _RX_HUECO.sub(formula, texto_de(p), count=1)
+            # LA PLANTILLA NO TRAE UN HUECO AQUÍ: TRAE LA FÓRMULA DEL ASUNTO
+            # ANTERIOR. `_RX_HUECO.sub` no encontraba nada que sustituir y la
+            # negativa heredada sobrevivía intacta, pasara lo que pasara con el
+            # estudio. Así salió el ADC 380/2025: cuatro efectos de concesión
+            # redactados y un resolutivo que negaba el amparo. Es la
+            # incongruencia que ningún proyecto puede llevar.
+            entero = texto_de(p)
+            if _RX_HUECO.search(entero):
+                entero = _RX_HUECO.sub(formula, entero, count=1)
+            else:
+                entero, _n = _RX_FORMULA_AMPARO.subn(formula, entero, count=1)
+                if _n:
+                    avisos_ensamblado.append(
+                        f"El resolutivo de la plantilla decía lo contrario y se "
+                        f"corrigió a «{formula}». Comprueba que concuerda con el "
+                        f"estudio antes de firmar.")
             m_ord = re.match(r"^(ÚNICO\.|PRIMERO\.|SEGUNDO\.)", entero)
             tramos = []
             resto = entero
@@ -1139,6 +1203,36 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
             else:
                 tramos.append((resto, {}))
             escribir_tramos(p, [t for t in tramos if t[0]])
+
+    # VA DESPUÉS DE LA FÓRMULA, no antes. Puesto delante, el hueco que se
+    # abre aquí para la fecha del acto era el primero del párrafo y la
+    # sustitución de la fórmula lo tomaba por suyo: el resolutivo salió
+    # diciendo «contra la sentencia dictada el ampara y protege». Lo cazó el
+    # verificador de congruencia recién escrito, que para eso está.
+    # El resolutivo nombra la fecha del acto, la Sala y el toca. La Sala la
+    # sabemos por el encargo; la fecha y el toca no viajan como campo, y ahí se
+    # abre hueco antes que dejar los del asunto anterior.
+    p_res = buscar(doc, r"^ÚNICO\.|^PRIMERO\.\s*(?:Se |La Justicia)")
+    if p_res is not None and "justicia de la unión" in texto_de(p_res).lower():
+        t_r = texto_de(p_res)
+        original = t_r
+        if r.responsable:
+            t_r = re.sub(r"(,\s*por\s+la\s+)([^,]{10,120})(,\s*en\s+el\s+toca)",
+                         lambda m: m.group(1) + r.responsable + m.group(3),
+                         t_r, count=1)
+        t_r, n_f = re.subn(r"(sentencia\s+dictada\s+el\s+)([^,]{6,70})(,)",
+                           lambda m: m.group(1) + HUECO + m.group(3), t_r, count=1)
+        t_r, n_t = re.subn(r"((?:toca|expediente)\s+(?:civil|familiar|penal)?\s*)"
+                           r"\d{1,5}\s*/\s*\d{4}",
+                           lambda m: m.group(1) + HUECO, t_r, count=1)
+        if t_r != original:
+            escribir(p_res, t_r)
+            if n_f or n_t:
+                avisos_ensamblado.append(
+                    "En el resolutivo se abrieron huecos donde iban la fecha del "
+                    "acto y el toca: la plantilla traía los del asunto anterior "
+                    "y no viajan como dato del encargo. Rellénalos.")
+
             # El quejoso se sustituye, pero el APODERADO, el acto reclamado y la
             # autoridad siguen siendo los de la plantilla. Un hueco se ve; un
             # nombre de otro asunto, no, y aquí se firma.
@@ -1285,6 +1379,60 @@ def residuo_de_plantilla(ruta: str, numero: str = "",
                     f"{len(calcados)} párrafos siguen IGUALES a los de la "
                     f"plantilla, palabra por palabra: no los escribió este "
                     f"asunto. El primero empieza «{calcados[0][:150]}…»")
+    return fuera
+
+
+# ═══ LA INCONGRUENCIA QUE NO PUEDE PASAR ═══════════════════════════════════
+# David, 30-ago-2026, sobre el ADC 380/2025: «El proyecto contiene
+# consideraciones para conceder el amparo, precisa efectos y,
+# contradictoriamente, termina negando el amparo. La incongruencia no debe
+# pasar por ningún proyecto».
+#
+# Es el único defecto de esta lista que invalida por sí solo: un resolutivo que
+# no dice lo que dice el estudio no es un proyecto mejorable, es un proyecto
+# que no se puede firmar. Se comprueba SIEMPRE y contra el documento final, no
+# contra lo que el pipeline creía estar escribiendo.
+_RX_CONCEDE = re.compile(r"(?<!no\s)ampara\s+y\s+protege", re.I)
+_RX_NIEGA = re.compile(r"no\s+ampara\s+ni\s+protege", re.I)
+_RX_EFECTOS = re.compile(
+    r"(?:como\s+(?:primer|segundo|tercer|cuarto|quinto)\s+efecto"
+    r"|efectos?\s+de\s+la\s+concesi[óo]n"
+    r"|deber[áa]\s+dejar\s+insubsistente"
+    r"|dejar[áa]\s+insubsistente)", re.I)
+
+
+def revisar_congruencia(ruta: str, calificaciones=None) -> list[str]:
+    """El resolutivo tiene que decir lo que dice el estudio. Sin excepción."""
+    doc = docx.Document(ruta)
+    texto = "\n".join(texto_de(p) for parte in _partes_con_texto(doc)
+                      for p in _parrafos_todos(parte))
+    fuera: list[str] = []
+
+    concede = bool(_RX_CONCEDE.search(texto))
+    niega = bool(_RX_NIEGA.search(texto))
+    efectos = bool(_RX_EFECTOS.search(texto))
+
+    if concede and niega:
+        fuera.append("EL DOCUMENTO CONCEDE Y NIEGA A LA VEZ: aparecen «ampara y "
+                     "protege» y «no ampara ni protege» en el mismo proyecto.")
+
+    if niega and not concede and efectos:
+        fuera.append("INCONGRUENCIA QUE INVALIDA: el estudio fija EFECTOS de la "
+                     "concesión —«deberá dejar insubsistente…»— y el resolutivo "
+                     "NIEGA el amparo. Un resolutivo que no dice lo que dice el "
+                     "estudio no se puede firmar.")
+
+    cs = [str(c or "").strip().lower() for c in (calificaciones or []) if str(c or "").strip()]
+    if cs:
+        hay_fundado = any(c.startswith("fundad") for c in cs)
+        if hay_fundado and niega and not concede:
+            fuera.append(f"El secretario calificó «{cs[0]}» y el resolutivo "
+                         f"NIEGA el amparo. Basta un concepto fundado para "
+                         f"conceder.")
+        if not hay_fundado and concede and not niega:
+            fuera.append(f"Ningún concepto se calificó de fundado "
+                         f"({', '.join(sorted(set(cs)))}) y el resolutivo "
+                         f"CONCEDE el amparo.")
     return fuera
 
 
