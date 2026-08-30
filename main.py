@@ -26018,8 +26018,12 @@ async def taller_proponer(
         "\n".join(r.fases.parrafos_conceptos() or []),
         bool(r.encargo and r.encargo.es_recurso))
 
+    # LA PROPUESTA VIAJA DE VUELTA, no se queda aquí. Render corre gunicorn con
+    # DOS workers: lo que guarde este proceso puede no existir en el que atienda
+    # el /taller/resolver siguiente. Se deja en memoria por si cae en el mismo
+    # —es gratis— pero lo que manda es lo que el cliente devuelva, que además es
+    # lo correcto: el secretario acepta explícitamente lo que acaba de leer.
     ses["propuestas"] = propuestas
-    _taller_guardar_sesion(user_email, numero, ses)
     _taller_registrar_uso(user_email, numero, "propuesta")
     print(f"   ⚖️ TALLER: propuesta {numero} · {len(propuestas)} sentidos · "
           f"{len(avisos)} avisos · modelo {_f5.MODELO_PROPUESTA}")
@@ -26035,8 +26039,13 @@ async def taller_proponer(
         "resumen": _f5.resumen(propuestas),
         "avisos": avisos,
         # Lo que hay que mandar a /taller/resolver para aceptarla tal cual.
-        "para_aceptar": {"sentido": (_f5.calificaciones_de(propuestas) or [""])[0],
-                         "usar_propuesta": True},
+        # Esto se manda TAL CUAL a /taller/resolver en el campo `criterios_json`
+        # para aceptar la propuesta. El secretario puede editar cualquier razón
+        # o cualquier sentido antes de mandarlo: es su criterio el que gobierna.
+        "criterios_json": json.dumps(
+            [{"problema": p.problema, "sentido": p.sentido,
+              "razonamiento": p.razon}
+             for p in propuestas if p.alcanza and p.sentido], ensure_ascii=False),
     }
 
 
@@ -26048,6 +26057,7 @@ async def taller_resolver(
     problema: str = Form(""),
     razonamiento: str = Form(""),            # SU criterio: lo que alinea el estudio
     usar_propuesta: bool = Form(False),      # acepta la de /taller/proponer
+    criterios_json: str = Form(""),          # la propuesta devuelta, ya revisada
 ):
     """La sentencia, con el criterio del secretario dentro."""
     _taller_puerta(user_email)
@@ -26075,14 +26085,30 @@ async def taller_resolver(
     # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
     # decidir— y era el que producía sentencias incongruentes: el estudio se
     # escribía y el resolutivo se quedaba con la calificación de la plantilla.
-    if usar_propuesta:
+    if criterios_json.strip():
+        # El camino bueno: el secretario devuelve lo que aceptó, con sus
+        # ediciones si las hizo. No depende de qué worker atendió la propuesta.
+        try:
+            _datos = json.loads(criterios_json)
+        except Exception:
+            raise HTTPException(422, "criterios_json no es JSON válido.")
+        crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
+                             sentido=str(d.get("sentido", "")).strip().lower(),
+                             razonamiento=str(d.get("razonamiento", "")))
+                for d in (_datos if isinstance(_datos, list) else [])
+                if str(d.get("sentido", "")).strip()]
+        if not crit:
+            raise HTTPException(422, "criterios_json no trae ningún sentido.")
+    elif usar_propuesta:
         props = ses.get("propuestas") or []
         crit = [_f6.Criterio(problema=p.problema, sentido=p.sentido,
                              razonamiento=p.razon)
                 for p in props if getattr(p, "alcanza", True) and p.sentido]
         if not crit:
-            raise HTTPException(409, "No hay propuesta que aceptar. Pide primero "
-                                     "/taller/proponer, o dicta tu criterio.")
+            raise HTTPException(409, "No hay propuesta en este proceso. Vuelve a "
+                                     "pedir /taller/proponer y manda su "
+                                     "`criterios_json` aquí, que no depende del "
+                                     "worker que atienda.")
     else:
         if not sentido:
             raise HTTPException(422, "Falta el sentido. Dicta tu criterio o "
