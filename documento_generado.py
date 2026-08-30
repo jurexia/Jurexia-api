@@ -1102,12 +1102,38 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     q = esq["q"]
     con_apartados = []
 
-    if (estructura.competencia or "").strip():
-        con_apartados.append(("Competencia.",
-                              (lambda c: lambda p: _texto_en(p, c))(estructura.competencia)))
-    if esq["existencia"] and (estructura.existencia or "").strip():
-        con_apartados.append(("Existencia del acto reclamado.",
-                              (lambda c: lambda p: _texto_en(p, c))(estructura.existencia)))
+    # ═══ EL BANCO MANDA DONDE LA REDACCIÓN ES FORMAL ═══════════════════
+    # La competencia, la existencia, la legitimación y la dispensa tienen UNA
+    # frase en el oficio, con su cadena de fundamentos en un orden que no es
+    # casual. El modelo escribía una versión correcta y anodina, y el
+    # secretario la reescribía entera: entonces el adelanto no le ahorró nada.
+    # Medido sobre 363 documentos. El estudio y los antecedentes NO llevan
+    # plantilla: ahí no hay fórmula que valga.
+    import banco as _bk
+    _datos_bk = dict(datos)
+    _datos_bk.setdefault("q", q)
+    _datos_bk.setdefault("objeto", f"una sentencia definitiva en materia "
+                                   f"{datos.get('materia', '') or HUECO}")
+    _huecos_bk = []
+
+    def _del_banco(ident, respaldo):
+        """La frase del oficio si el banco la tiene; si no, la del modelo."""
+        t, faltan = _bk.texto_de(tipo_asunto, ident, _datos_bk)
+        if t:
+            _huecos_bk.extend(faltan)
+            return t
+        return respaldo
+
+
+    _comp = _del_banco("competencia", estructura.competencia)
+    if (_comp or "").strip():
+        con_apartados.append((_bk.rotulo_de(tipo_asunto, "competencia", "Competencia."),
+                              (lambda c: lambda p: _texto_en(p, c))(_comp)))
+    _exi = _del_banco("existencia", estructura.existencia)
+    if esq["existencia"] and (_exi or "").strip():
+        con_apartados.append((_bk.rotulo_de(tipo_asunto, "existencia",
+                                            "Existencia del acto reclamado."),
+                              (lambda c: lambda p: _texto_en(p, c))(_exi)))
 
     # Legitimación y oportunidad, con LA TABLA detrás.
     from fase0_oportunidad import parrafo_oportunidad
@@ -1119,7 +1145,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         if esq["tabla_computo"]:
             tabla_computo(doc, computo, fecha_en_letra)
 
-    con_apartados.append((esq["legitimacion"], _legitimacion))
+    con_apartados.append((_bk.rotulo_de(tipo_asunto, "legitimacion",
+                                        esq["legitimacion"]), _legitimacion))
 
     # PROCEDENCIA NO ES UN CONSIDERANDO PROPIO cuando hay «Existencia del acto
     # reclamado»: medido, es su ALTERNATIVA —3 de 26, en asuntos venidos de
@@ -1140,6 +1167,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     def _dispensa(p):
         _texto_en(
             p,
+            _del_banco("dispensa", "") or
             f"Es innecesario transcribir el contenido de "
             f"{esq['recurrido']} y los {q} hechos valer, pues el deber formal "
             f"y material de "
