@@ -516,8 +516,12 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                 cola = limpio[m_r.end():].lstrip(" ,;:.")
                 # Se rehace el anuncio y se tira la coleta que venía después del
                 # rubro («, registro X, reconoce que…»): la dice el texto.
-                anuncio = re.sub(r"\s*(?:de\s+)?rubro(?:\s+y\s+registro)?\s*:?\s*$",
-                                 "", antes).rstrip(" ,;:")
+                # EL ANUNCIO SE LIMPIA ENTERO, no sólo «de rubro:». El prompt
+                # le enseña al modelo a cerrar con «de rubro y texto
+                # siguientes:» —así se cita aquí— y el ensamblador volvía a
+                # añadirlo, dejando «…de rubro y texto siguientes: de rubro y
+                # texto siguientes:». Lo vio David en el ADC 380/2025.
+                anuncio = _RX_COLA_ANUNCIO.sub("", antes).rstrip(" ,;:")
                 escribir(ancla, f"{anuncio} de rubro y texto siguientes:")
                 _sangrar(ancla)
                 ancla.paragraph_format.keep_with_next = True
@@ -673,6 +677,18 @@ HUECO = "*********"
 # Buscar una longitud fija deja restos a la vista en el resolutivo.
 _RX_HUECO = re.compile(r"\*{3,}")
 
+# La coleta con que el modelo cierra el anuncio de una cita. Se le quita entera
+# antes de poner la fórmula canónica, porque si no se escribe dos veces.
+# Cubre lo que de verdad escribe: «de rubro y texto siguientes:», «de rubro y
+# texto:», «cuyo rubro y texto son los siguientes:», «de rubro:», «de rubro y
+# registro:», y la coma que a veces queda colgando delante.
+_RX_COLA_ANUNCIO = re.compile(
+    r"\s*,?\s*(?:cuy[oa]s?\s+|de\s+|del\s+)?"
+    r"rubro(?:\s+y\s+(?:texto|registro|contenido))?"
+    r"(?:\s+(?:es|son|se\s+transcribe[n]?|siguientes?|los\s+siguientes?|"
+    r"el\s+siguiente|la\s+siguiente))*"
+    r"\s*[:.]?\s*$", re.I)
+
 # Lo que el ensamblador quiere decir sobre el documento que acaba de escribir.
 avisos_ensamblado: list[str] = []
 
@@ -718,21 +734,135 @@ def _inicio_considerando(doc) -> int:
     return 0
 
 
+# Un nombre tachado NO es un nombre. Las plantillas vienen anonimizadas y su
+# quejoso es «*********»; los MISMOS asteriscos son los huecos que el
+# secretario rellena. Tomarlos por un nombre y sustituirlos en todo el texto
+# convertía cada hueco en el nombre del quejoso: en el ADC 380/2025 salió «de
+# conformidad con el Parte Quejosa 6/2026, del Pleno del Órgano de Parte
+# Quejosa». Con un nombre real ahí iría el de una persona, dentro de una frase
+# que no habla de ella. Se firma tal cual.
+_RX_TACHADO = re.compile(r"^[\s*_\-–—.·•xX]+$")
+
+
 def _quejoso_de_plantilla(ruta: str) -> str:
-    """El quejoso que trae la plantilla, para poder sustituirlo en todo el texto."""
+    """El quejoso que trae la plantilla, para poder sustituirlo en todo el texto.
+
+    Devuelve vacío si viene tachado: entonces NO hay nada que sustituir.
+    """
     d = docx.Document(ruta)
     for p in d.paragraphs:
         t = texto_de(p).strip()
         m = re.match(r"^QUEJOS[OA]\s*:\s*(.+?)\.?$", t, re.I)
         if m:
-            return m.group(1).strip()
+            nombre = m.group(1).strip()
+            if _RX_TACHADO.match(nombre):
+                return ""
+            return nombre
     return ""
+
+
+# ═══ EL NÚMERO QUE SE QUEDÓ DE LA PLANTILLA ════════════════════════════════
+# Cada plantilla precargada ES UNA SENTENCIA REAL y arrastra su propio número
+# de expediente: amparo_directo lleva 125/2026, queja lleva 143/2026. Aparece
+# en los DOS encabezados y dos o tres veces más en el cuerpo —en la celda del
+# rubro y en el resultando del registro y alta—. El ensamblador cambiaba la
+# línea «AMPARO DIRECTO CIVIL: …» y dejaba todo lo demás, así que el proyecto
+# del ADC 380/2025 salió encabezado «AMPARO DIRECTO CIVIL 125/2026». Lo vio
+# David, y es la clase de error que invalida una sentencia entera.
+#
+# LA TRAMPA: en el cuerpo hay números con la misma forma que NO son
+# expedientes —«2a./J. 58/2010», «P./J. 3/2013» son claves de tesis—. Por eso
+# no se barre el patrón: se barre LA CADENA EXACTA que trae el encabezado, y
+# aun así se comprueba que no vaya precedida de la marca de una clave.
+_RX_CLAVE_TESIS = re.compile(r"(?:[JP]\.|/J\.|[0-9]a\.)\s*$")
+
+
+def _partes_con_texto(doc):
+    """Cuerpo, encabezados y pies. Lo que se olvida son los dos últimos."""
+    yield doc
+    for sec in doc.sections:
+        for parte in (sec.header, sec.footer,
+                      getattr(sec, "first_page_header", None),
+                      getattr(sec, "first_page_footer", None),
+                      getattr(sec, "even_page_header", None),
+                      getattr(sec, "even_page_footer", None)):
+            if parte is not None:
+                yield parte
+
+
+def _parrafos_todos(parte):
+    for p in parte.paragraphs:
+        yield p
+    for t in parte.tables:
+        for fila in t.rows:
+            for celda in fila.cells:
+                for p in celda.paragraphs:
+                    yield p
+
+
+def _expediente_de_plantilla(doc) -> str:
+    """El número propio de la plantilla. La verdad está en el encabezado."""
+    for sec in doc.sections:
+        for parte in (sec.first_page_header, sec.header, sec.even_page_header):
+            if parte is None:
+                continue
+            for p in _parrafos_todos(parte):
+                m = re.search(r"\b\d{1,5}/20\d{2}\b", texto_de(p))
+                if m:
+                    return m.group(0)
+    return ""
+
+
+def _sustituir_en_parrafo(p, viejo: str, nuevo: str) -> int:
+    """Cambia respetando el formato. Si el número viene partido entre runs,
+    se junta en el primero —perder el reparto de runs no cambia cómo se ve—."""
+    entero = texto_de(p)
+    if viejo not in entero:
+        return 0
+    # No se toca una clave de tesis: «2a./J. 58/2010» no es un expediente.
+    veces = 0
+    for m in re.finditer(re.escape(viejo), entero):
+        if not _RX_CLAVE_TESIS.search(entero[max(0, m.start() - 10):m.start()]):
+            veces += 1
+    if not veces:
+        return 0
+    for run in p.runs:                      # el caso normal: cabe en un run
+        if viejo in run.text:
+            run.text = run.text.replace(viejo, nuevo)
+    if viejo not in texto_de(p):
+        return veces
+    if p.runs:                              # venía partido entre varios
+        p.runs[0].text = entero.replace(viejo, nuevo)
+        for run in p.runs[1:]:
+            run.text = ""
+    return veces
+
+
+def _sanear_expediente(doc, numero: str) -> int:
+    """Borra del documento el expediente que traía la plantilla."""
+    viejo = _expediente_de_plantilla(doc)
+    if not viejo or not numero or viejo == numero:
+        return 0
+    n = 0
+    for parte in _partes_con_texto(doc):
+        for p in _parrafos_todos(parte):
+            n += _sustituir_en_parrafo(p, viejo, numero)
+    if n:
+        avisos_ensamblado.append(
+            f"Se sustituyeron {n} apariciones del expediente {viejo} que traía "
+            f"la plantilla por {numero}.")
+    return n
 
 
 def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
     """Rellena la plantilla y guarda el adelanto. Devuelve la ruta escrita."""
     avisos_ensamblado.clear()
     doc = docx.Document(ruta_plantilla)
+    # ANTES QUE NADA: quitar el número de expediente de la plantilla. Si se hace
+    # después, los párrafos nuevos ya escritos lo llevarían dentro.
+    _num = re.search(r"\b\d{1,5}/20\d{2}\b", r.encabezado or "")
+    if _num:
+        _sanear_expediente(doc, _num.group(0))
     q = "agravios" if r.es_recurso else "conceptos de violación"
     # PRIMERO los modelos de formato: luego se borra el contenido viejo y con
     # él se irían los ejemplos de los que se copia el estilo.
@@ -967,6 +1097,81 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
 # Vive fuera porque `ensamblar()` devuelve una ruta y cambiar su firma obligaría
 # a tocar el endpoint y el frontend por un aviso.
 
+
+
+# ═══ EL DOCUMENTO SE LEE ANTES DE ENTREGARLO ═══════════════════════════════
+# David, 30-ago-2026: «lee bien los documentos que saca el redactor sólo para
+# verificar inconsistencias». Encontró dos —el expediente de la plantilla en el
+# encabezado y el anuncio de cita repetido— y el barrido destapó tres más. Un
+# residuo de plantilla no se ve leyendo por encima: se ve contándolo.
+_RX_EXPEDIENTE = re.compile(r"\b\d{1,5}/(?:19|20)\d{2}\b")
+# Lo que tiene forma de expediente y no lo es: claves de tesis y acuerdos
+# generales del Pleno, que son cita legítima y no residuo.
+_RX_NO_ES_EXPEDIENTE = re.compile(
+    r"(?:[JP]\.|/J\.|[0-9]a\.|Acuerdo\s+General|acuerdo\s+general|"
+    r"diverso|tesis|jurisprudencia)\s*$", re.I)
+
+
+def _numeros_de(ruta: str) -> set:
+    """Los expedientes que contiene un .docx, encabezados y tablas incluidos."""
+    doc = docx.Document(ruta)
+    out = set()
+    for parte in _partes_con_texto(doc):
+        for p in _parrafos_todos(parte):
+            out |= set(_RX_EXPEDIENTE.findall(texto_de(p)))
+    return out
+
+
+def residuo_de_plantilla(ruta: str, numero: str = "",
+                         ruta_plantilla: str = "") -> list[str]:
+    """Lo que quedó del asunto ANTERIOR dentro del proyecto entregado.
+
+    No decide por el secretario: se lo enseña. Un número de otro expediente en
+    la carátula es exactamente el error que invalida una sentencia, y es
+    invisible si nadie lo cuenta.
+    """
+    doc = docx.Document(ruta)
+    partes = list(_partes_con_texto(doc))
+    entero = []
+    for parte in partes:
+        for p in _parrafos_todos(parte):
+            entero.append(texto_de(p))
+    texto = "\n".join(entero)
+    fuera: list[str] = []
+
+    # 1. Números de expediente ajenos al asunto.
+    propio = {numero.strip()} if numero else set()
+    # LA SEÑAL PRECISA: un número que está en el proyecto Y EN LA PLANTILLA, y
+    # que no es el de este asunto, viene de la plantilla. Los demás —el toca de
+    # origen, el juicio natural— salieron de los documentos del caso y son
+    # legítimos; señalarlos todos ahoga el aviso que importa.
+    de_plantilla = _numeros_de(ruta_plantilla) if ruta_plantilla else None
+    ajenos: dict[str, str] = {}
+    for m in _RX_EXPEDIENTE.finditer(texto):
+        num = m.group(0)
+        if num in propio:
+            continue
+        if de_plantilla is not None and num not in de_plantilla:
+            continue
+        if _RX_NO_ES_EXPEDIENTE.search(texto[max(0, m.start() - 22):m.start()]):
+            continue
+        ajenos.setdefault(num, re.sub(r"\s+", " ",
+                                      texto[max(0, m.start() - 60):m.end() + 30]))
+    if ajenos:
+        fuera.append("EXPEDIENTES DE LA PLANTILLA QUE SIGUEN EN EL PROYECTO: " + "; ".join(f"{k} («…{v}…»)"
+                                                 for k, v in list(ajenos.items())[:8]))
+
+    # 2. El anuncio de cita escrito dos veces.
+    dobles = len(re.findall(r"(?:de\s+rubro\s+y\s+texto\s+siguientes\s*:\s*){2,}",
+                            texto, re.I))
+    if dobles:
+        fuera.append(f"{dobles} citas anuncian «de rubro y texto siguientes:» "
+                     f"DOS VECES seguidas.")
+
+    # 3. El nombre del quejoso metido donde no habla de él. Si aparece pegado a
+    #    un acuerdo, un órgano o una fecha, es una sustitución que se pasó de
+    #    largo, no una mención.
+    return fuera
 
 
 def huecos_pendientes(ruta: str) -> list[str]:

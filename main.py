@@ -20173,6 +20173,14 @@ def _taller_registrar_uso(email: str, expediente: str = "", etapa: str = "adelan
         logger.warning("No se pudo registrar el uso del taller: %s", e)
 
 
+def _cabecera_segura(avisos: list) -> str:
+    """Los avisos en una cabecera HTTP: latin-1, sin saltos y acotados."""
+    import unicodedata
+    txt = " | ".join(str(a) for a in (avisos or [])[:6])
+    txt = unicodedata.normalize("NFKD", txt).encode("latin-1", "ignore").decode("latin-1")
+    return " ".join(txt.split())[:900]
+
+
 def _taller_puerta(user_email: str) -> None:
     """Deja pasar o explica por qué no. Lanza HTTPException si no procede."""
     if not _can_access_redactor_tcc(user_email):
@@ -26036,6 +26044,10 @@ async def taller_resolver(
             "X-Borrador": "1",
             "X-Palabras": str(len(r2.estudio.split())),
             "X-Avisos": str(len(r2.avisos)),
+            # El conteo solo no sirve de nada: el secretario ve «4 avisos» y no
+            # sabe cuáles. Van también en claro, recortados a lo que cabe en
+            # una cabecera y sin acentos raros que rompan latin-1.
+            "X-Avisos-Detalle": _cabecera_segura(r2.avisos),
             "X-Huecos": str(len(r2.huecos)),
             "X-Advertencias": "1" if r2.advertencias else "0",
         },

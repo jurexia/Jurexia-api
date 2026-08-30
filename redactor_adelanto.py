@@ -102,6 +102,9 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         es_recurso=e.es_recurso,
     )
     ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
+    # El documento se lee antes de entregarlo: lo que quedó de la plantilla no
+    # se ve leyendo por encima, se ve contándolo.
+    avisos.extend(ens.residuo_de_plantilla(ruta, e.numero, e.plantilla))
 
     return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos)
@@ -184,6 +187,9 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # Deduplicado: el aviso del nombre se dispara una vez por párrafo donde
     # aparece, y el secretario no necesita leer tres veces lo mismo.
     for a in ens.avisos_ensamblado:
+        if a not in avisos:
+            avisos.append(a)
+    for a in ens.residuo_de_plantilla(ruta, e.numero, e.plantilla):
         if a not in avisos:
             avisos.append(a)
 
