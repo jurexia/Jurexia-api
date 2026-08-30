@@ -712,12 +712,16 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
         if despues and _solapamiento(cuerpo, despues) > 0.30:
             repetidas.append(reg)
     if repetidas:
+        # EL AVISO MIDE LO QUE ESCRIBIÓ EL MODELO, NO LO QUE SE ENTREGA: el
+        # compositor borra el eco después. Decirle al secretario que el
+        # proyecto repite una tesis cuando ya no la repite lo manda a buscar
+        # algo que no está, y un aviso que no se comprueba deja de leerse.
         avisos.append(
-            f"Tras citar {'la tesis' if len(repetidas) == 1 else 'las tesis'} "
-            f"{', '.join(repetidas)} el estudio REPITE su contenido en vez de "
-            f"extraer su punto. La tesis ya se transcribe: lo que sigue a la "
-            f"cita es «Conforme a la jurisprudencia citada, es claro que…» y el "
-            f"porqué aplica a ESTE asunto.")
+            f"{'La tesis' if len(repetidas) == 1 else 'Las tesis'} "
+            f"{', '.join(repetidas)} venían repetidas tras su cita y el eco se "
+            f"BORRÓ al componer. El documento sale limpio; queda dicho por si "
+            f"al leerlo echas en falta el enlace con el caso, que es lo que "
+            f"debía ir ahí: «Conforme a la jurisprudencia citada, es claro que…»")
 
     # 1-decies. UN CÓDIGO QUE NO ESTÁ EN EL ACERVO NO RIGE AQUÍ. El Código
     #           Nacional de Procedimientos Civiles y Familiares entró en vigor
