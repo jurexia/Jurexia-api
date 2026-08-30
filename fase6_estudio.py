@@ -315,6 +315,14 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 - LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
   de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
   Circuito». Sin ella no se sabe qué peso tiene el criterio.
+- Y NOMBRA LA LEY EN LA MISMA FRASE, SIEMPRE. «El artículo 4º» a secas no
+  identifica nada: el 4º existe en la Constitución, en el Código Civil, en el
+  Procesal y en veinte leyes más. Escribe «el artículo 4º de la Constitución
+  Política de los Estados Unidos Mexicanos», «el artículo 296 del Código Civil
+  del Estado de Querétaro». No es pedantería: el documento baja al pie el TEXTO
+  ÍNTEGRO de cada precepto que puede identificar, y esa nota es lo que permite
+  a quien firma comprobar de un vistazo si el artículo dice lo que le atribuyes.
+  Un artículo sin su ley se queda sin nota, y la afirmación sin respaldo.
 - CITA LOS ARTÍCULOS QUE TIENES, NO LOS QUE RECUERDAS. En el bloque de NORMAS
   van los preceptos que el acervo encontró para este asunto, con su texto
   íntegro. Ésos son los que se citan, por su número y su cuerpo legal exacto.
@@ -411,10 +419,11 @@ LO QUE SE COMBATE
 
 Escribe el estudio de fondo.
 
-Y LOS ARTÍCULOS, DE LOS QUE TIENES ARRIBA. Cada precepto del bloque de NORMAS
-viene con su texto: cítalos por su número y su cuerpo legal, y el documento
-pondrá ese texto al pie para que quien firma lo compruebe sin levantarse. Un
-artículo citado de memoria no puede llevar esa nota.
+Y LOS ARTÍCULOS: SU NÚMERO Y SU LEY, JUNTOS, SIEMPRE. «El artículo 296 del
+Código Civil del Estado de Querétaro», nunca «el 296» a secas. El documento
+baja al pie el texto íntegro de cada precepto que puede identificar —y sólo de
+ésos—, y esa nota es lo que permite a quien firma comprobarlo sin levantarse.
+Un artículo sin su ley se queda sin nota, y la afirmación sin respaldo.
 
 Y LO ÚLTIMO, QUE ES LO QUE MÁS SE ROMPE: NO REPITAS LA TESIS. El documento
 transcribe su texto íntegro debajo de la cita, palabra por palabra. Si después
