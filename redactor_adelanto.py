@@ -324,9 +324,7 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             ruta, av_gen, _est = await _componer_generado(
                 cliente, e, relleno, r.computo, ruta_salida,
                 estructura_previa=getattr(r, "estructura", None),
-                marco_escrito=marco_escrito,
-        tipo_asunto=getattr(e, "tipo_asunto", "") or
-                    ("amparo_revision" if e.es_recurso else "amparo_directo"))
+                marco_escrito=marco_escrito)
         avisos.extend(av_gen)
     else:
         with cronometrar("ensamblado"):
@@ -411,7 +409,11 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
         estudio=relleno.estudio,
         calificaciones=relleno.calificaciones,
         tesis=relleno.tesis,
-        marco_escrito=marco_escrito)
+        marco_escrito=marco_escrito,
+        # El tipo decide el esqueleto: los recursos no llevan «Existencia del
+        # acto reclamado» y la queja hace el cómputo en prosa.
+        tipo_asunto=(getattr(e, "tipo_asunto", "") or
+                     ("amparo_revision" if e.es_recurso else "amparo_directo")))
     avisos = list(est.avisos)
     if not e.tribunal:
         avisos.append(
