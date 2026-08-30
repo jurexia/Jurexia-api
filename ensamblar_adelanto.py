@@ -1265,12 +1265,15 @@ def residuo_de_plantilla(ruta: str, numero: str = "",
             # tribunal y debe repetirse. Lo que no puede repetirse es un
             # párrafo con datos del otro asunto dentro: un nombre propio, un
             # número de expediente o una fecha escrita en letra.
+            # El nombre propio NO sirve de marca: «Tercer Tribunal Colegiado»
+            # son tres mayúsculas seguidas y aparece en la fórmula de apertura.
+            # Lo que sí distingue un asunto de otro es su expediente y su fecha
+            # escrita en letra, que es como las escribe una sentencia.
             _rx_dato = re.compile(
                 r"\b\d{1,5}/(?:19|20)\d{2}\b"
-                r"|\b(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
-                r"septiembre|octubre|noviembre|diciembre)\b"
-                r"|\b(?:[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+){2}[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\b",
-                re.I)
+                r"|\bde\s+dos\s+mil\s+\w+"
+                r"|\bexpediente\s+\d"
+                r"|\btoca\s+(?:civil|familiar|penal)?\s*\d", re.I)
             calcados = []
             for parte in partes:
                 for p in _parrafos_todos(parte):
