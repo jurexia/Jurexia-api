@@ -46,6 +46,12 @@ ESFUERZO_PROPUESTA = os.getenv("ESFUERZO_PROPUESTA", "high")
 
 # Cuántas tesis se le enseñan por problema. Más no ayuda: con el acervo entero
 # delante el modelo elige la que suena, no la que aplica.
+# EL RAZONAMIENTO CONSUME DEL MISMO PRESUPUESTO QUE LA RESPUESTA. La primera
+# versión pedía 4,000 tokens con esfuerzo alto y volvió VACÍA: el modelo gastó
+# el presupuesto pensando y no le quedó para escribir el JSON. La salida útil
+# son doscientas palabras, pero el sitio para pensarlas hay que dárselo.
+MAX_TOKENS_PROPUESTA = int(os.getenv("MAX_TOKENS_PROPUESTA", "16000"))
+
 MAX_TESIS_PROPUESTA = 8
 TESIS_CARACTERES = 1200
 
@@ -214,7 +220,8 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     """Devuelve (propuestas, avisos). No decide nada: propone."""
     if not problemas:
         return [], []
-    kw = dict(model=MODELO_PROPUESTA, max_completion_tokens=4000,
+    kw = dict(model=MODELO_PROPUESTA,
+              max_completion_tokens=MAX_TOKENS_PROPUESTA,
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,
                   es_recurso)}])
@@ -223,8 +230,20 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     r = await cliente.chat.completions.create(**kw)
     crudo = (r.choices[0].message.content or "").strip()
 
+    # SI NO VUELVE NADA, HAY QUE PODER SABER POR QUÉ. Una lista vacía puede
+    # ser «el modelo no respondió» o «respondió algo que no supe leer», y son
+    # dos averías distintas. Se distinguen aquí y no adivinando en los logs.
+    leidas = _leer(crudo)
+    if not leidas:
+        motivo = ("el modelo no devolvió texto —probablemente agotó el "
+                  "presupuesto razonando—" if not crudo.strip()
+                  else f"la respuesta no traía el JSON esperado: «{crudo[:200]}»")
+        print(f"   ⚖️ PROPUESTA sin resultado ({MODELO_PROPUESTA}): {motivo}")
+        return [], [f"El motor no propuso ningún sentido: {motivo}. "
+                    f"Dicta tu criterio con la mecánica de siempre."]
+
     fuera = []
-    for d in _leer(crudo):
+    for d in leidas:
         fuera.append(Propuesta(
             problema=str(d.get("problema", ""))[:400],
             sentido=str(d.get("sentido", "")).strip().lower(),
