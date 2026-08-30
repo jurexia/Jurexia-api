@@ -25659,6 +25659,12 @@ async def taller_adelanto(
     responsable: Optional[str] = Form(None),
     es_recurso: bool = Form(False),
     tipo_asunto: str = Form("amparo_directo"),
+    # EL TRIBUNAL VIENE DEL SECRETARIO, NO DEL CÓDIGO. Con `modo=generado` el
+    # documento se escribe entero con estos datos y no hereda la identidad de
+    # ninguna plantilla ajena: es lo que permite usar esto fuera de un circuito.
+    tribunal: str = Form(""),
+    ciudad: str = Form(""),
+    modo: str = Form("plantilla"),                  # plantilla | generado
     plantilla: Optional[UploadFile] = File(None),   # opcional: hay precargadas
     acto: UploadFile = File(...),
     conceptos: UploadFile = File(...),
@@ -25689,6 +25695,11 @@ async def taller_adelanto(
     if plantilla is not None and getattr(plantilla, "filename", ""):
         with open(ruta_plantilla, "wb") as fh:
             fh.write(await plantilla.read())
+    elif modo.lower() == "generado":
+        # No hay plantilla que copiar: el documento se escribe entero.
+        ruta_plantilla = ""
+        print(f"   📄 TALLER: modo GENERADO — sin plantilla · tribunal "
+              f"«{(tribunal or 'SIN INDICAR')[:70]}»")
     else:
         base = _plantilla_precargada(tipo_asunto)
         if not base:
@@ -25727,6 +25738,7 @@ async def taller_adelanto(
         presentacion=_dtm.date.fromisoformat(presentacion),
         regla_surtimiento=regla_surtimiento, plazo=plazo,
         responsable=responsable, es_recurso=es_recurso,
+        tribunal=tribunal, ciudad=ciudad, modo=modo,
         plantilla=ruta_plantilla,
     )
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
@@ -25800,6 +25812,11 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "regla_surtimiento": e.regla_surtimiento, "plazo": e.plazo,
             "responsable": e.responsable, "es_recurso": e.es_recurso,
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
+            # Sin esto, el /taller/resolver que caiga en el otro worker
+            # reconstruye el encargo en modo plantilla y el documento sale con
+            # la identidad de un tribunal que no es el suyo.
+            "tribunal": getattr(e, "tribunal", ""), "ciudad": getattr(e, "ciudad", ""),
+            "modo": getattr(e, "modo", "plantilla"),
         },
         "fases": {
             "antecedentes": r.fases.antecedentes,
@@ -25870,6 +25887,8 @@ def _taller_recuperar_sesion(email: str, numero: str):
         presentacion=_d.date.fromisoformat(e["presentacion"]),
         regla_surtimiento=e["regla_surtimiento"], plazo=e["plazo"],
         responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
+        tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
+        modo=e.get("modo", "plantilla"),
         plantilla=e["plantilla"], coleccion_estatal=e.get("coleccion_estatal", ""))
     f = _f123.Fases123()
     for k, v in (est.get("fases") or {}).items():

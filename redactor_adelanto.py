@@ -43,6 +43,14 @@ class Encargo:
     plazo: int = 15
     responsable: Optional[str] = None
     es_recurso: bool = False
+    # LA HERRAMIENTA NO ES DE UN TRIBUNAL, ES DE TODOS. Estos tres campos son
+    # lo que impide que un secretario de otro circuito firme «Resolución del
+    # Tercer Tribunal Colegiado… del Vigésimo Segundo Circuito» sin verlo: en
+    # modo `generado` el documento se escribe entero con ESTOS datos y no hay
+    # plantilla ajena de la que heredar identidad.
+    tribunal: str = ""                # «Primer Tribunal Colegiado… del Décimo…»
+    ciudad: str = ""                  # «Mérida, Yucatán»
+    modo: str = "plantilla"           # plantilla | generado
     plantilla: str = ""               # el .docx del propio tribunal
     coleccion_estatal: str = ""       # «leyes_queretaro», para el RAG del fondo
 
@@ -104,10 +112,15 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         responsable=getattr(e, 'responsable', '') or '',
         es_recurso=e.es_recurso,
     )
-    ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
-    # El documento se lee antes de entregarlo: lo que quedó de la plantilla no
-    # se ve leyendo por encima, se ve contándolo.
-    avisos.extend(ens.residuo_de_plantilla(ruta, e.numero, e.plantilla))
+    if (e.modo or "").lower() == "generado":
+        ruta, av_gen = await _componer_generado(
+            cliente, e, relleno, c, ruta_salida)
+        avisos.extend(av_gen)
+    else:
+        ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
+        # El documento se lee antes de entregarlo: lo que quedó de la plantilla
+        # no se ve leyendo por encima, se ve contándolo.
+        avisos.extend(ens.residuo_de_plantilla(ruta, e.numero, e.plantilla))
 
     return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos)
@@ -186,7 +199,12 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         responsable=getattr(e, 'responsable', '') or '',
         es_recurso=e.es_recurso,
     )
-    ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
+    if (e.modo or "").lower() == "generado":
+        ruta, av_gen = await _componer_generado(
+            cliente, e, relleno, r.computo, ruta_salida)
+        avisos.extend(av_gen)
+    else:
+        ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
     _, aviso_efectos = ens.formula_resolutivo(relleno.calificaciones)
     if aviso_efectos:
         avisos.append(aviso_efectos)
@@ -224,6 +242,43 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 # PASÓ en el juicio de origen. Uno es razonamiento, el otro es crónica. Por eso
 # se piden con otro prompt y sobre el documento ENTERO —el recorte del resumen
 # se queda con el estudio de fondo, donde el trámite ya no está—.
+
+
+async def _componer_generado(cliente, e: Encargo, relleno, computo,
+                             ruta_salida: str):
+    """El documento escrito entero, sin plantilla. Devuelve (ruta, avisos)."""
+    import documento_generado as dg
+    import fase0_oportunidad as _f0
+
+    datos = {
+        "tribunal": e.tribunal or "",
+        "ciudad": e.ciudad or "",
+        "encabezado": e.encabezado,
+        "quejoso": e.quejoso,
+        "responsable": e.responsable or "",
+        "magistrado": e.magistrado,
+        "secretario": e.secretario,
+        "presentacion": _f0.fecha_en_letra(e.presentacion),
+        "es_recurso": e.es_recurso,
+        "antecedentes": "\n".join(relleno.antecedentes or []),
+    }
+    est = await dg.redactar_estructura(cliente, datos)
+    ruta = dg.componer(
+        datos, est, computo, _f0.fecha_en_letra, ruta_salida,
+        antecedentes=relleno.antecedentes,
+        resumen_acto=relleno.resumen_acto,
+        resumen_conceptos=relleno.resumen_conceptos,
+        problemas=relleno.problemas,
+        estudio=relleno.estudio,
+        calificaciones=relleno.calificaciones,
+        tesis=relleno.tesis)
+    avisos = list(est.avisos)
+    if not e.tribunal:
+        avisos.append(
+            "No se indicó el TRIBUNAL que resuelve: la competencia y la "
+            "fórmula de apertura salen incompletas. Es el dato que hace que "
+            "esto sirva fuera de un solo circuito.")
+    return ruta, avisos
 
 
 def resumen_legible(r: Resultado) -> str:
