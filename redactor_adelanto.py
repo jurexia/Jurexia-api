@@ -246,6 +246,50 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
             criterios, material, e.es_recurso, r.partes, marco)
 
+    return await _terminar(cliente, r, e, criterios, material, estudio,
+                           advertencias, avisos, tarea_marco, ruta_salida)
+
+
+async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
+                           material: f6.Material, ruta_salida: str,
+                           marco: str = ""):
+    """La sentencia, viéndose escribir. Rinde trozos y, al final, el Resultado."""
+    e = r.encargo
+    avisos: list[str] = []
+    tarea_marco = None
+    if (e.modo or "").lower() == "generado" and (marco or "").strip():
+        import documento_generado as _dg3
+        tarea_marco = asyncio.create_task(_dg3.redactar_marco(
+            cliente, marco, [p for p in (r.fases.problemas or [])],
+            e.es_recurso))
+
+    estudio = advertencias = ""
+    t0 = _time.perf_counter()
+    async for paso in f6.redactar_en_vivo(
+            cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
+            criterios, material, e.es_recurso, r.partes, marco):
+        if paso.get("tipo") == "texto":
+            yield paso
+        else:
+            estudio = paso.get("estudio", "")
+            advertencias = paso.get("advertencias", "")
+            avisos.extend(paso.get("avisos", []))
+    TIEMPOS["estudio de fondo"] = round(_time.perf_counter() - t0, 1)
+
+    yield {"tipo": "componiendo"}
+    res = await _terminar(cliente, r, e, criterios, material, estudio,
+                          advertencias, avisos, tarea_marco, ruta_salida)
+    yield {"tipo": "listo", "resultado": res}
+
+
+async def _terminar(cliente, r, e, criterios, material, estudio,
+                    advertencias, avisos, tarea_marco, ruta_salida):
+    """De la salida del modelo al documento entregado.
+
+    Vive fuera de `resolver()` porque la versión en vivo hace exactamente lo
+    mismo cuando el flujo termina, y tener dos copias de esto es tener dos
+    sitios donde se rompe la congruencia.
+    """
     relleno = ens.Relleno(
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
         magistrado=e.magistrado, secretario=e.secretario,
@@ -302,6 +346,8 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                      partes=r.partes, estudio=estudio, advertencias=advertencias,
                      huecos=ens.huecos_pendientes(ruta),
                      avisos=list(r.avisos) + avisos)
+
+
 
 
 # ── Los ANTECEDENTES ya se generan ────────────────────────────────────────

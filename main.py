@@ -26081,6 +26081,145 @@ async def taller_proponer(
     }
 
 
+@app.post("/taller/resolver/stream")
+async def taller_resolver_stream(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    sentido: str = Form(""),
+    problema: str = Form(""),
+    razonamiento: str = Form(""),
+    criterios_json: str = Form(""),
+):
+    """La sentencia, viéndose escribir.
+
+    David: «que el usuario vea el texto escribiéndose sería de ayuda». El
+    estudio son setenta segundos y no hay forma honesta de recortarlos sin
+    tocar la calidad; lo que sí se puede es no dejar la pantalla quieta. Esto
+    no acelera nada: cambia la espera.
+
+    Emite `text/event-stream`. Cada evento es un JSON con `tipo`:
+      texto       → un trozo del estudio según se escribe
+      componiendo → el modelo terminó; se está armando el .docx
+      listo       → con `descarga`, `avisos`, `palabras`
+      error       → con `mensaje`
+    """
+    from fastapi.responses import StreamingResponse
+
+    _taller_puerta(user_email)
+    _taller_purgar()
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    if not (ses.get("material") or ses.get("consultado")):
+        raise HTTPException(409, "Consulta primero el acervo.")
+    if "material" not in ses:
+        import redactor_adelanto as _ra0
+        ses["material"] = await _ra0.consultar(
+            qdrant_client, _embedding_juris,
+            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+            ses["resultado"])
+
+    import fase6_estudio as _f6
+    import redactor_adelanto as _ra
+    r = ses["resultado"]
+
+    if criterios_json.strip():
+        try:
+            _datos = json.loads(criterios_json)
+        except Exception:
+            raise HTTPException(422, "criterios_json no es JSON válido.")
+        crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
+                             sentido=str(d.get("sentido", "")).strip().lower(),
+                             razonamiento=str(d.get("razonamiento", "")))
+                for d in (_datos if isinstance(_datos, list) else [])
+                if str(d.get("sentido", "")).strip()]
+        if not crit:
+            raise HTTPException(422, "criterios_json no trae ningún sentido.")
+    else:
+        if not sentido:
+            raise HTTPException(422, "Falta el sentido o la propuesta aceptada.")
+        crit = [_f6.Criterio(problema=problema or (r.fases.problema_global or ""),
+                             sentido=sentido, razonamiento=razonamiento)]
+
+    salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
+    import marco_juridico as _mj
+    _probs = ([r.fases.problema_global] if r.fases.problema_global else [])
+    _probs += [p.get("pregunta", "") if isinstance(p, dict) else str(p)
+               for p in (r.fases.problemas or [])]
+    try:
+        _marco = _mj.bloque(await _mj.construir(
+            qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None),
+            bool(r.encargo and r.encargo.es_recurso))
+    except Exception as _e:
+        print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
+        _marco = ""
+
+    async def emitir():
+        try:
+            async for paso in _ra.resolver_en_vivo(
+                    chat_client, r, crit, ses["material"], salida, _marco):
+                tipo = paso.get("tipo")
+                if tipo == "texto":
+                    yield ("data: " + json.dumps(
+                        {"tipo": "texto", "dato": paso["dato"]},
+                        ensure_ascii=False) + "\n\n")
+                elif tipo == "componiendo":
+                    yield ('data: {"tipo":"componiendo"}\n\n')
+                elif tipo == "listo":
+                    res = paso["resultado"]
+                    _taller_registrar_uso(user_email, numero, "proyecto")
+                    ses["salida"] = res.ruta
+                    print(f"   ⚖️ TALLER: proyecto EN VIVO {numero} · "
+                          f"{len(res.estudio.split())} palabras · "
+                          f"{len(res.avisos)} avisos")
+                    # EL DOCUMENTO VIAJA EN EL PROPIO FLUJO. Con dos workers,
+                    # una descarga posterior puede caer en el proceso que no
+                    # tiene el fichero en su /tmp: el secretario vería el texto
+                    # escribirse y luego un 404. Son unos 75 KB en base64.
+                    import base64 as _b64d
+                    try:
+                        _doc = _b64d.b64encode(open(res.ruta, "rb").read()).decode()
+                    except Exception:
+                        _doc = ""
+                    yield ("data: " + json.dumps({
+                        "tipo": "listo",
+                        "docx_b64": _doc,
+                        "nombre": res.ruta.split("/")[-1],
+                        "descarga": f"/taller/descargar?numero={numero}",
+                        "palabras": len(res.estudio.split()),
+                        "avisos": res.avisos,
+                        "huecos": res.huecos,
+                        "tiempos": _ra.reloj_resumen(),
+                    }, ensure_ascii=False) + "\n\n")
+        except Exception as ex:
+            print(f"   ⚠️ TALLER en vivo: {ex}")
+            yield ("data: " + json.dumps(
+                {"tipo": "error", "mensaje": str(ex)[:300]},
+                ensure_ascii=False) + "\n\n")
+
+    return StreamingResponse(emitir(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
+@app.get("/taller/descargar")
+async def taller_descargar(numero: str, user_email: str = ""):
+    """El .docx que dejó la generación en vivo."""
+    from fastapi.responses import FileResponse
+    import os as _os
+    ses = _taller_recuperar_sesion(user_email, numero) if user_email else None
+    ruta = (ses or {}).get("salida") or ""
+    if not ruta or not _os.path.exists(ruta):
+        raise HTTPException(404, "No hay documento generado para ese expediente "
+                                 "en este proceso. Vuelve a resolver.")
+    return FileResponse(
+        ruta,
+        media_type="application/vnd.openxmlformats-officedocument."
+                   "wordprocessingml.document",
+        filename=ruta.split("/")[-1])
+
+
 @app.post("/taller/resolver")
 async def taller_resolver(
     numero: str = Form(...),

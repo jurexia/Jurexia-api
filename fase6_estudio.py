@@ -809,6 +809,41 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
     return estudio[:m.start()].strip(), estudio[m.end():].strip()
 
 
+async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
+                           criterios: list[Criterio], material: Material,
+                           es_recurso: bool = False, partes=None, marco=None):
+    """El estudio, trozo a trozo, según lo escribe el modelo.
+
+    David: «que el usuario vea el texto escribiéndose sería de ayuda». No
+    acorta el reloj —el estudio son los mismos setenta segundos— pero cambia
+    por completo la espera: setenta segundos de pantalla quieta se sienten como
+    una avería, y viéndose escribir se sienten como trabajo.
+
+    Va rindiendo cada trozo y, al final, el texto entero. Quien lo consume
+    distingue por el tipo: «texto» mientras escribe, «fin» cuando termina.
+    """
+    kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000, stream=True,
+              messages=[{"role": "user", "content": prompt_estudio(
+                  resumen_acto, resumen_conceptos, criterios, material,
+                  es_recurso, partes, marco)}])
+    if ESFUERZO_ESTUDIO:
+        kw["reasoning_effort"] = ESFUERZO_ESTUDIO
+    entero = []
+    flujo = await cliente.chat.completions.create(**kw)
+    async for trozo in flujo:
+        if not trozo.choices:
+            continue
+        pieza = trozo.choices[0].delta.content or ""
+        if pieza:
+            entero.append(pieza)
+            yield {"tipo": "texto", "dato": pieza}
+    crudo = "".join(entero).strip()
+    estudio, advertencias = separar_advertencias(crudo)
+    yield {"tipo": "fin", "estudio": estudio, "advertencias": advertencias,
+           "avisos": revisar(estudio, criterios, material, resumen_acto,
+                             marco if isinstance(marco, str) else "")}
+
+
 async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
                    es_recurso: bool = False, partes=None, marco=None
