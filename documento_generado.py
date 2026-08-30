@@ -146,6 +146,204 @@ def _celda(celda, texto, negrita=False, color=NEGRO, fondo=None,
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# LAS NOTAS AL PIE
+# ═══════════════════════════════════════════════════════════════════════════
+# Un documento nuevo NO trae la parte `word/footnotes.xml`, y el utillaje del
+# ensamblador clona una nota existente de la plantilla para heredar su estilo.
+# Aquí no hay plantilla, así que la parte se escribe entera: el XML, su
+# relación y su tipo de contenido. Sin esto, la localización de cada tesis
+# —«Gaceta S.J.F., Undécima Época, Libro 52, tomo III, página 2489»— se
+# quedaba en el cuerpo o se perdía, que es lo que David detectó.
+
+_NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_REL_NOTAS = ("http://schemas.openxmlformats.org/officeDocument/2006/"
+              "relationships/footnotes")
+_TIPO_NOTAS = ("application/vnd.openxmlformats-officedocument."
+               "wordprocessingml.footnotes+xml")
+
+
+def _run_llamada(parrafo, ident: int):
+    """El numerito volado que llama a la nota."""
+    r = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    est = OxmlElement("w:rStyle")
+    est.set(qn("w:val"), "FootnoteReference")
+    va = OxmlElement("w:vertAlign")
+    va.set(qn("w:val"), "superscript")
+    rpr.append(est)
+    rpr.append(va)
+    r.append(rpr)
+    ref = OxmlElement("w:footnoteReference")
+    ref.set(qn("w:id"), str(ident))
+    r.append(ref)
+    parrafo._p.append(r)
+
+
+def _xml_notas(notas: list) -> bytes:
+    """`word/footnotes.xml` con las dos notas de sistema y las nuestras."""
+    def _esc(x):
+        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;"))
+    piezas = [f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+              f'<w:footnotes xmlns:w="{_NS_W}">']
+    for ident, tipo in ((-1, "separator"), (0, "continuationSeparator")):
+        marca = "separator" if tipo == "separator" else "continuationSeparator"
+        piezas.append(
+            f'<w:footnote w:type="{tipo}" w:id="{ident}"><w:p><w:pPr>'
+            f'<w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
+            f'<w:r><w:{marca}/></w:r></w:p></w:footnote>')
+    for i, texto in enumerate(notas, start=1):
+        piezas.append(
+            f'<w:footnote w:id="{i}"><w:p><w:pPr>'
+            f'<w:spacing w:after="0" w:line="240" w:lineRule="auto"/>'
+            f'<w:jc w:val="both"/></w:pPr>'
+            f'<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/>'
+            f'<w:vertAlign w:val="superscript"/></w:rPr>'
+            f'<w:footnoteRef/></w:r>'
+            f'<w:r><w:rPr><w:rFonts w:ascii="{FUENTE}" w:hAnsi="{FUENTE}"/>'
+            f'<w:sz w:val="18"/></w:rPr>'
+            f'<w:t xml:space="preserve"> {_esc(texto)}</w:t></w:r>'
+            f'</w:p></w:footnote>')
+    piezas.append("</w:footnotes>")
+    return "".join(piezas).encode("utf8")
+
+
+def _inyectar_notas(ruta: str, notas: list) -> None:
+    """Mete la parte de notas en el .docx ya guardado.
+
+    python-docx no sabe crear notas al pie, así que se añaden sobre el paquete:
+    el XML, la relación desde document.xml y el Override del tipo. Se reescribe
+    el zip entero porque no se puede modificar una entrada en su sitio.
+    """
+    import shutil
+    import zipfile as _zp
+    if not notas:
+        return
+    tmp = ruta + ".tmp"
+    with _zp.ZipFile(ruta) as z:
+        nombres = z.namelist()
+        datos = {n: z.read(n) for n in nombres}
+
+    datos["word/footnotes.xml"] = _xml_notas(notas)
+
+    rels = datos["word/_rels/document.xml.rels"].decode("utf8")
+    if "footnotes.xml" not in rels:
+        ids = re.findall(r'Id="rId(\d+)"', rels)
+        nuevo = max((int(x) for x in ids), default=0) + 1
+        rels = rels.replace(
+            "</Relationships>",
+            f'<Relationship Id="rId{nuevo}" Type="{_REL_NOTAS}" '
+            f'Target="footnotes.xml"/></Relationships>')
+        datos["word/_rels/document.xml.rels"] = rels.encode("utf8")
+
+    ct = datos["[Content_Types].xml"].decode("utf8")
+    if "footnotes+xml" not in ct:
+        ct = ct.replace("</Types>",
+                        f'<Override PartName="/word/footnotes.xml" '
+                        f'ContentType="{_TIPO_NOTAS}"/></Types>')
+        datos["[Content_Types].xml"] = ct.encode("utf8")
+
+    with _zp.ZipFile(tmp, "w", _zp.ZIP_DEFLATED) as z:
+        for n in list(datos):
+            z.writestr(n, datos[n])
+    shutil.move(tmp, ruta)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA CITA DE UNA TESIS
+# ═══════════════════════════════════════════════════════════════════════════
+# Como la dictó David y como quedó medida en su corpus:
+#
+#     …de rubro y texto siguientes:          ← anuncio, fin de párrafo
+#     «RUBRO EN NEGRITA.»                    ← párrafo aparte
+#     Texto íntegro de la tesis…             ← cursiva, sangrado, 12pt, a uno
+#     ÓRGANO EMISOR.¹                        ← y ahí la nota con la localización
+#
+# El modelo escribe el rubro EMBEBIDO en la prosa —«…siguientes: «RUBRO.» La
+# responsable…»— y así la cita queda partida y sin transcripción. Esto la
+# rehace desde el ACERVO, que es de donde tiene que salir el texto: palabra por
+# palabra, no de la memoria del modelo.
+
+_RX_RUBRO = re.compile(r"[“«\"]([A-ZÁÉÍÓÚÑ][^”»\"]{18,}?)[”»\"]")
+
+
+# La coleta con que el modelo cierra el anuncio, para no escribirla dos veces.
+_RX_COLA_ANUNCIO = re.compile(
+    r"\s*,?\s*(?:cuy[oa]s?\s+|de\s+|del\s+)?"
+    r"rubro(?:\s+y\s+(?:texto|registro|contenido))?"
+    r"(?:\s+(?:es|son|siguientes?|los\s+siguientes?))*\s*[:.]?\s*$", re.I)
+
+# Un estudio invoca entre tres y seis criterios; más transcripciones que eso
+# convierten la sentencia en un compendio.
+MAX_CITAS_DOCUMENTO = 8
+
+
+def _normaliza_rubro(x: str) -> str:
+    import unicodedata
+    x = unicodedata.normalize("NFKD", (x or "").upper())
+    x = "".join(c for c in x if not unicodedata.combining(c))
+    return re.sub(r"[^A-Z0-9]+", " ", x).strip()
+
+
+def tesis_del_rubro(texto: str, tesis: list):
+    """La tesis del acervo cuyo rubro se cita en este párrafo, si alguna."""
+    m = _RX_RUBRO.search(texto or "")
+    if not m:
+        return None, None
+    citado = _normaliza_rubro(m.group(1))
+    if len(citado) < 25:
+        return None, None
+    for t in (tesis or []):
+        real = _normaliza_rubro(t.get("rubro", ""))
+        if real and (real.startswith(citado[:70]) or citado.startswith(real[:70])):
+            return t, m
+    return None, m
+
+
+def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
+    """El bloque entero de la cita, con su nota al pie."""
+    if anuncio.strip():
+        parrafo(doc, anuncio.rstrip(" ,;:") + " de rubro y texto siguientes:")
+
+    # El rubro, solo y en negrita.
+    p = doc.add_paragraph()
+    r = p.add_run(f"«{(t.get('rubro') or '').strip().rstrip('.')}.»")
+    r.bold = True
+    _fmt(p, sangria=False, tamano=TAMANO_CITA, interlineado=INTERLINEADO_CITA)
+    p.paragraph_format.left_indent = Cm(1.25)
+    p.paragraph_format.keep_with_next = True
+
+    # El texto ÍNTEGRO, en cursiva y desde el acervo.
+    cuerpo = (t.get("texto") or "").strip()
+    if cuerpo:
+        q = doc.add_paragraph()
+        rq = q.add_run(cuerpo)
+        rq.italic = True
+        _fmt(q, sangria=False, tamano=TAMANO_CITA,
+             interlineado=INTERLINEADO_CITA)
+        q.paragraph_format.left_indent = Cm(1.25)
+        q.paragraph_format.keep_with_next = True
+
+    # El órgano, y ahí cuelga la nota con la localización.
+    inst = (t.get("instancia") or "").strip()
+    loc = (t.get("localizacion") or "").strip()
+    reg = str(t.get("registro") or "").strip()
+    if inst or loc:
+        z = doc.add_paragraph()
+        rz = z.add_run(inst.upper() + ("." if inst else ""))
+        rz.bold = True
+        _fmt(z, sangria=False, tamano=TAMANO_CITA,
+             interlineado=INTERLINEADO_CITA)
+        z.paragraph_format.left_indent = Cm(1.25)
+        if loc or reg:
+            pie = loc if loc else ""
+            if reg and reg not in pie:
+                pie = (pie + ", " if pie else "") + f"registro digital {reg}"
+            notas.append(pie)
+            _run_llamada(z, len(notas))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LA TABLA DEL CÓMPUTO
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -302,6 +500,70 @@ async def redactar_estructura(cliente, datos: dict) -> Estructura:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# EL MARCO JURÍDICO — se compone, no se pide
+# ═══════════════════════════════════════════════════════════════════════════
+# Dos intentos por prompt fallaron: el material del bloque de
+# constitucionalidad llegaba al estudio —6,400 caracteres con el artículo 4º y
+# la Convención sobre los Derechos del Niño— y el modelo no lo escribía. Se
+# movió al 93% del prompt y siguió sin escribirlo.
+#
+# Lo que tiene que aparecer se compone. El marco pasa a ser un apartado propio
+# del CONSIDERANDO, escrito por su propia llamada y colocado por el compositor
+# ANTES del estudio. Sigue dependiendo del caso —si el acervo no devuelve nada
+# constitucional ni convencional, el apartado no existe—, que es lo que David
+# pidió: «no fijar un marco constitucional para todos los casos, sino sobre la
+# solución en función del problema jurídico».
+
+async def redactar_marco(cliente, material_marco: str, problemas: list,
+                         es_recurso: bool = False) -> str:
+    """El marco jurídico, escrito. Devuelve texto vacío si no hay material."""
+    if not (material_marco or "").strip():
+        return ""
+    q = "agravios" if es_recurso else "conceptos de violación"
+    lista = "\n".join(
+        f"- {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
+        for p in (problemas or []))
+    prompt = f"""Eres el secretario de un Tribunal Colegiado y escribes el apartado
+de MARCO JURÍDICO de una sentencia de amparo: la premisa mayor con la que
+después se resolverán los planteamientos.
+
+LOS PROBLEMAS QUE HAY QUE RESOLVER
+{lista}
+
+MATERIAL RECUPERADO DEL BLOQUE DE CONSTITUCIONALIDAD Y DE LA LEY LOCAL
+{material_marco[:12000]}
+
+CÓMO SE ESCRIBE, medido sobre los engroses de este tribunal:
+- ARRANCA POR LA FIGURA JURÍDICA discutida —los alimentos, la convivencia, la
+  acción—, NO por los derechos humanos en abstracto.
+- LA CONSTITUCIÓN SE PARAFRASEA, no se transcribe: «el artículo 4º de la
+  Constitución reconoce el derecho de la niñez a…». Nómbrala expresamente, con
+  su número de artículo.
+- EL PRECEPTO LOCAL O SECUNDARIO decisivo SÍ se transcribe, entre comillas y
+  con su número al frente.
+- LA FUENTE CONVENCIONAL —Convención sobre los Derechos del Niño, Convención
+  Americana— y los criterios de la CORTE INTERAMERICANA entran SÓLO si el
+  problema los exige. Cuando entran, se dice qué obligación imponen, no que
+  existen.
+- NO INVENTES NADA que no esté en el material de arriba. Ni un artículo, ni un
+  caso, ni un párrafo de cuadernillo.
+- EXTENSIÓN: entre 300 y 600 palabras. Frase de unas 35 palabras, subordinada,
+  voz impersonal. Sin Markdown ni viñetas.
+- CIERRA con la bisagra que devuelve al expediente: «Con ese marco jurídico, es
+  posible dar solución a los planteamientos de la parte quejosa.»
+
+Devuelve SÓLO el texto del apartado, en párrafos separados por una línea en
+blanco. Sin rótulo ni encabezado: el documento se lo pone."""
+    kw = dict(model=MODELO_ESTRUCTURA,
+              max_completion_tokens=MAX_TOKENS_ESTRUCTURA,
+              messages=[{"role": "user", "content": prompt}])
+    if ESFUERZO_ESTRUCTURA:
+        kw["reasoning_effort"] = ESFUERZO_ESTRUCTURA
+    r = await cliente.chat.completions.create(**kw)
+    return (r.choices[0].message.content or "").strip()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # La composición
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -389,9 +651,10 @@ def _bloque_firmas(doc, datos):
 def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
-             calificaciones=None, tesis=None) -> str:
+             calificaciones=None, tesis=None, marco_escrito="") -> str:
     """Escribe el .docx entero. No hay plantilla de la que partir."""
     doc = docx.Document()
+    notas: list = []
     _pagina(doc)
     _encabezado(doc, datos.get("encabezado", ""))
     _caratula(doc, datos)
@@ -459,12 +722,37 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             if t.strip():
                 parrafo(doc, t.strip())
 
-    # ── EL ESTUDIO ──
-    for i, t in enumerate(estudio or []):
-        if not t.strip():
+    # ── EL MARCO JURÍDICO, si el asunto lo pidió ──
+    if (marco_escrito or "").strip():
+        trozos = [x.strip() for x in re.split(r"\n\s*\n", marco_escrito)
+                  if x.strip()]
+        tramos(doc, [(f"{_ORDINALES[min(n, 9)]}. ", {"bold": True}),
+                     ("Marco jurídico aplicable. ", {"bold": True}),
+                     (trozos[0], {})])
+        n += 1
+        for x in trozos[1:]:
+            parrafo(doc, x)
+
+    # ── EL ESTUDIO, con sus citas rehechas desde el acervo ──
+    # El modelo escribe «…de rubro y texto siguientes: «RUBRO.» La responsable…»
+    # y deja la cita partida, sin transcripción y sin localización. Aquí se
+    # reconstruye: anuncio, rubro solo en negrita, texto íntegro en cursiva
+    # tomado del ACERVO —no de la memoria del modelo— y la localización al pie.
+    citadas = 0
+    for t in (estudio or []):
+        t = (t or "").strip()
+        if not t:
             continue
-        # El estudio ya trae su propio encabezado ordinal desde fase 6.
-        parrafo(doc, t.strip())
+        hallada, m_r = tesis_del_rubro(t, tesis or [])
+        if hallada and m_r and citadas < MAX_CITAS_DOCUMENTO:
+            antes = _RX_COLA_ANUNCIO.sub("", t[:m_r.start()].rstrip(" ,;:"))
+            cola = t[m_r.end():].lstrip(" ,;:.")
+            escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
+            citadas += 1
+            if len(cola.split()) > 6:
+                parrafo(doc, cola)
+            continue
+        parrafo(doc, t)
 
     # ── RESUELVE ──
     rotulo(doc, "Resuelve")
@@ -486,4 +774,5 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     _bloque_firmas(doc, datos)
     doc.save(ruta_salida)
+    _inyectar_notas(ruta_salida, notas)
     return ruta_salida

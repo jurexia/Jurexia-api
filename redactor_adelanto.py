@@ -229,6 +229,18 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         raise ValueError("El resultado no trae el encargo: no se puede reensamblar.")
     e = r.encargo
 
+    # EL MARCO SE ESCRIBE A LA VEZ QUE EL ESTUDIO. Son dos llamadas
+    # independientes —la del marco sólo mira el material constitucional, la del
+    # estudio mira el caso— y ponerlas en paralelo hace que el marco no cueste
+    # un segundo de espera. Que APAREZCA ya no depende de que el modelo del
+    # estudio se acuerde de escribirlo: lo coloca el compositor.
+    tarea_marco = None
+    if (e.modo or "").lower() == "generado" and (marco or "").strip():
+        import documento_generado as _dg2
+        tarea_marco = asyncio.create_task(_dg2.redactar_marco(
+            cliente, marco,
+            [p for p in (r.fases.problemas or [])], e.es_recurso))
+
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
@@ -250,11 +262,19 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         responsable=getattr(e, 'responsable', '') or '',
         es_recurso=e.es_recurso,
     )
+    marco_escrito = ""
+    if tarea_marco is not None:
+        with cronometrar("marco escrito"):
+            try:
+                marco_escrito = await tarea_marco
+            except Exception as _em:
+                avisos.append(f"No se pudo escribir el marco jurídico: {_em}")
     if (e.modo or "").lower() == "generado":
         with cronometrar("recomposición"):
             ruta, av_gen, _est = await _componer_generado(
                 cliente, e, relleno, r.computo, ruta_salida,
-                estructura_previa=getattr(r, "estructura", None))
+                estructura_previa=getattr(r, "estructura", None),
+                marco_escrito=marco_escrito)
         avisos.extend(av_gen)
     else:
         with cronometrar("ensamblado"):
@@ -317,7 +337,8 @@ def _datos_estructura(e: Encargo, antecedentes: str = "") -> dict:
 
 
 async def _componer_generado(cliente, e: Encargo, relleno, computo,
-                             ruta_salida: str, estructura_previa=None):
+                             ruta_salida: str, estructura_previa=None,
+                             marco_escrito: str = ""):
     """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
     import documento_generado as dg
     import fase0_oportunidad as _f0
@@ -335,7 +356,8 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
         problemas=relleno.problemas,
         estudio=relleno.estudio,
         calificaciones=relleno.calificaciones,
-        tesis=relleno.tesis)
+        tesis=relleno.tesis,
+        marco_escrito=marco_escrito)
     avisos = list(est.avisos)
     if not e.tribunal:
         avisos.append(
