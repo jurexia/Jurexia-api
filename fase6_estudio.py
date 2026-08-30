@@ -190,6 +190,25 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    es_recurso: bool = False, partes=None, marco=None) -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     calif = _calificacion(criterios)
+    # EL MARCO SE REPITE AL FINAL. Medido en el proyecto 360/2025: se le
+    # entregaron 6,338 caracteres de marco —artículo 4º constitucional y
+    # Convención sobre los Derechos del Niño— y el estudio salió con CERO
+    # menciones a ambos. El material iba en el 78% del prompt, sin imperativo.
+    # Es el mismo fallo que tuvieron las citas, y se arregla igual: repitiendo
+    # la orden al final, que es lo último que el modelo lee antes de escribir.
+    cierre_marco = ""
+    if isinstance(marco, str) and marco.strip():
+        cierre_marco = f"""
+Y USA EL MARCO JURÍDICO QUE SE TE DIO. No es material de consulta: es una capa
+del estudio y va ESCRITA, después de anunciar el sentido y antes de entrar al
+caso concreto. Arranca por la figura jurídica discutida; PARAFRASEA el precepto
+constitucional —«el artículo 4º de la Constitución reconoce…»—, TRANSCRIBE entre
+comillas el precepto local decisivo, y trae la fuente convencional o a la Corte
+Interamericana SÓLO si el problema las exige. Cierra con la bisagra que devuelve
+al expediente —«Con ese marco jurídico, es posible dar solución a los
+planteamientos de la parte quejosa.»— y entra al caso. Un marco que se recibe y
+no se escribe deja el estudio resolviendo sin premisa mayor.
+"""
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
 estudio de fondo de una sentencia de amparo. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
@@ -290,10 +309,41 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 - LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
   de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
   Circuito». Sin ella no se sabe qué peso tiene el criterio.
-- Y NUNCA CITES UNA TESIS SOBRE LA LEGISLACIÓN DE OTRO ESTADO como si rigiera
-  aquí. El rubro lo dice —«(LEGISLACIÓN DEL ESTADO DE PUEBLA)»— y un criterio
-  sobre el código de otra entidad no gobierna este asunto por obligatorio que
-  sea en su circuito. Si lo traes, es por analogía y se dice que lo es.
+- LA LEY AJENA NO ENTRA; EL CRITERIO AJENO SÍ. Es la distinción que más veces
+  se ha roto y está medida sobre 139 documentos de este tribunal: NO HAY UNA
+  SOLA aplicación de ley de otra entidad, y hay decenas de criterios que
+  interpretan la de otra entidad, invocados con toda naturalidad.
+  · PROHIBIDO razonar con el Código Civil o de Procedimientos de Jalisco, de la
+    Ciudad de México o de cualquier otra entidad. El juicio de origen se rige
+    por la legislación del Estado de Querétaro y ESA es la que se aplica. La
+    analogía ENTRE CÓDIGOS DE ENTIDADES DISTINTAS no existe aquí: cuando la
+    parte la propone, este Tribunal la rechaza —«la analogía es improcedente»—.
+    La única analogía de ley admisible es dentro del propio código queretano.
+  · PERMITIDO invocar jurisprudencia que interprete legislación de otra
+    entidad, por una de estas tres razones y sólo por ellas:
+      – porque de ella deriva un MANDATO INTERPRETATIVO DE FUENTE
+        CONSTITUCIONAL: la Corte fija cómo debe entenderse la figura jurídica;
+      – porque la legislación interpretada ES LA DE QUERÉTARO;
+      – porque la de otro estado es DE CONTENIDO SIMILAR a la queretana.
+  · Y SE CITA SIN EXCUSARSE, anclando al PRINCIPIO y no a la norma ajena. Están
+    PROHIBIDAS las fórmulas «por tratarse de legislación diversa a la aplicable
+    al caso», «aunque referido a la legislación del Estado de X» y cualquier
+    otra que ponga la entidad ajena como razón: no aparecen ni una vez en el
+    corpus. Se escribe así:
+        «Sustenta esa consideración, por analogía, la jurisprudencia 2a./J.
+         58/2010 de la Segunda Sala de la Suprema Corte de Justicia de la
+         Nación, de registro …, de rubro y texto siguientes:»
+        «De acuerdo con el principio rector que informa la tesis precitada, es
+         factible considerar que…»
+        «resulta aplicable, por identidad de razón, … pues si bien en aquel
+         precedente el análisis se centró en X, el principio rector es el mismo»
+    La cláusula concesiva —«si bien…», «aun cuando…»— salva una distancia DE
+    TEMA O DE SUPUESTO, NUNCA de entidad federativa.
+  · SI EL CRITERIO ES DE LA SUPREMA CORTE NO HAY PUENTE QUE TENDER: es
+    obligatorio conforme al artículo 217 de la Ley de Amparo y la legislación
+    que interpretó resulta irrelevante. Se aplica en seco, sin «por analogía».
+  · SI ES DE UN COLEGIADO DE OTRO CIRCUITO el verbo es COMPARTIR, no obedecer:
+    «Por lo anterior se comparte el criterio sustentado en la jurisprudencia…».
 - EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
   La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
   la cita en el Semanario, que es para lo que sirve citarla.
@@ -332,6 +382,7 @@ criterios de arriba —con su rubro y su registro— y explica en cada caso por 
 aplica a este asunto. Un estudio sin citas es una opinión con formato de
 sentencia, y el material se buscó precisamente para estos problemas.
 
+{cierre_marco}
 Si hay obstáculos al sentido fijado, añade al final un apartado «ADVERTENCIAS»
 —fuera del cuerpo de la sentencia— con lo que el secretario debe valorar.
 Nada más."""
@@ -404,8 +455,114 @@ def _solapamiento(a: str, b: str) -> float:
     return repetidas / len(fa)
 
 
+# ═══ LA LEY AJENA ═══════════════════════════════════════════════════════════
+# Barrido de 139 documentos de este tribunal: CERO aplicaciones de ley de otra
+# entidad. Es la regla más firme del corpus y la que el redactor rompió en el
+# proyecto 360/2025 —«por analogía y por tratarse de legislación diversa»—.
+#
+# LA TRAMPA, y por eso el primer arreglo produjo alarmas falsas: el texto de una
+# tesis transcrita NOMBRA la ley que interpretó —«los artículos 940 y 941 del
+# Código de Procedimientos Civiles para el Distrito Federal»— y eso es CITA, no
+# aplicación. Verificadas las 38 apariciones de códigos ajenos en el corpus: las
+# 38 van dentro de una tesis o de un precedente transcrito.
+#
+# El deslinde es mecánico: lo entrecomillado es cita ajena; lo demás es la prosa
+# del secretario, y ahí la ley de fuera no puede estar.
+_ENTIDADES_AJENAS = (
+    "AGUASCALIENTES", "BAJA CALIFORNIA", "CAMPECHE", "COAHUILA", "COLIMA",
+    "CHIAPAS", "CHIHUAHUA", "DISTRITO FEDERAL", "CIUDAD DE MEXICO", "DURANGO",
+    "GUANAJUATO", "GUERRERO", "HIDALGO", "JALISCO", "MEXICO", "MICHOACAN",
+    "MORELOS", "NAYARIT", "NUEVO LEON", "OAXACA", "PUEBLA", "QUINTANA ROO",
+    "SAN LUIS POTOSI", "SINALOA", "SONORA", "TABASCO", "TAMAULIPAS", "TLAXCALA",
+    "VERACRUZ", "YUCATAN", "ZACATECAS",
+)
+_RX_NORMA_CERCA = re.compile(r"(c[óo]digo|ley|legislaci[óo]n|art[íi]culos?|"
+                             r"reglamento)", re.I)
+# Si la mención cuelga de un CRITERIO, no es aplicación de ley ajena sino cita
+# de jurisprudencia ajena —que sí está permitida—. Distinguirlo importa: en el
+# 360/2025, «el criterio referido a la legislación del Estado de Puebla» es una
+# excusa territorial mal escrita, no la aplicación del código poblano, y
+# acusarla de lo segundo manda al secretario a buscar un error que no está ahí.
+_RX_ES_CRITERIO = re.compile(r"(criterio|tesis|jurisprudencia|precedente|"
+                             r"contradicci[óo]n|rubro)", re.I)
+
+# Las fórmulas que ponen la entidad ajena como razón. Ninguna aparece en el
+# corpus; la primera es la que el redactor escribió y hay que matar.
+_RX_EXCUSA_ENTIDAD = re.compile(
+    r"(por\s+tratarse\s+de\s+legislaci[óo]n\s+diversa"
+    r"|legislaci[óo]n\s+diversa\s+a\s+la\s+aplicable"
+    r"|aunque\s+(?:referid[oa]|se\s+refiera)\s+a\s+la\s+legislaci[óo]n\s+d"
+    r"|aunque\s+referid[oa]s?\s+a\s+otras?\s+legislaci"
+    r"|si\s+bien\s+(?:se\s+trata|corresponde|es)\s+de\s+(?:una\s+)?"
+    r"legislaci[óo]n\s+(?:de\s+otr|diversa|ajena)"
+    r"|por\s+analog[íi]a\s+y\s+por\s+tratarse)", re.I)
+
+
+def _prosa_propia(estudio: str, material=None) -> str:
+    """Lo que escribió el secretario, sin lo que transcribe de otros.
+
+    EL DESLINDE NO PUEDE SER POR COMILLAS. Comprobado sobre el proyecto
+    360/2025: el ensamblador pega el texto de la tesis como párrafo suelto, SIN
+    comillas, y ahí dentro van «los artículos 940 y 941 del Código de
+    Procedimientos Civiles para el Distrito Federal». Filtrando por comillas
+    salían cuatro infracciones donde no había ninguna.
+
+    El deslinde exacto es contra el ACERVO: lo que coincide con el texto de una
+    tesis que el acervo entregó es transcripción; lo demás es prosa propia.
+    """
+    t = re.sub(r"[“«\"][^”»\"]{20,}[”»\"]", " ", estudio)
+    t = re.sub(r"\([^)]{0,120}LEGISLACI[ÓO]N[^)]{0,80}\)", " ", t, flags=re.I)
+    if material is None:
+        return t
+    fuente = " ".join(_norm_frase(x.get("texto", "") + " " + x.get("rubro", ""))
+                      for x in getattr(material, "tesis", []) or [])
+    if not fuente.strip():
+        return t
+    quedan = []
+    for frase in re.split(r"(?<=[.;:])\s+", t):
+        n = _norm_frase(frase)
+        if len(n) > 40 and n in fuente:
+            continue          # está en el acervo palabra por palabra: es cita
+        quedan.append(frase)
+    return " ".join(quedan)
+
+
+def _norm_frase(x: str) -> str:
+    x = re.sub(r"[^a-z0-9 ]+", " ", _sin_acentos_est(x).lower())
+    return re.sub(r"\s+", " ", x).strip()
+
+
+def _sin_acentos_est(x: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", (x or "").upper())
+                   if not unicodedata.combining(c))
+
+
+def _leyes_ajenas_aplicadas(estudio: str, material=None) -> list[str]:
+    """Entidades cuya LEY se invoca en PROSA PROPIA. Las transcripciones no cuentan."""
+    limpio = _sin_acentos_est(_prosa_propia(estudio, material))
+    halladas: list[str] = []
+    for ent in _ENTIDADES_AJENAS:
+        for m in re.finditer(r"\b" + re.escape(ent) + r"\b", limpio):
+            # «Estado de México» exige el rótulo; «México» a secas es el país.
+            if ent == "MEXICO" and not re.search(
+                    r"ESTADO\s+DE\s*$", limpio[max(0, m.start() - 12):m.start()]):
+                continue
+            ventana = limpio[max(0, m.start() - 140):m.start()]
+            # LA VENTANA MIRA A LOS DOS LADOS. En el 360/2025 la palabra que
+            # delata la cita va DETRÁS —«…del Estado de Puebla, resulta
+            # ilustrativo el criterio…»— y mirando sólo hacia atrás el aviso
+            # salía como aplicación de ley poblana, que no es lo que ocurrió.
+            if _RX_ES_CRITERIO.search(ventana + limpio[m.end():m.end() + 90]):
+                continue      # es jurisprudencia ajena: permitida
+            if _RX_NORMA_CERCA.search(ventana[-110:]):
+                halladas.append(ent.title())
+                break
+    return halladas
+
+
 def revisar(estudio: str, criterios: list[Criterio], material: Material,
-            resumen_acto: str = "") -> list[str]:
+            resumen_acto: str = "", marco: str = "") -> list[str]:
     """Lo comprobable sin modelo. Ninguna de estas es opinión."""
     avisos: list[str] = []
 
@@ -470,6 +627,38 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
                       f"teniendo {len(hay_scjn)} de la Suprema Corte en el "
                       f"material (p. ej. {hay_scjn[0].get('registro','')}). "
                       f"Un criterio de la Corte pesa más.")
+
+    # 1-sexies. LA LEY DE OTRA ENTIDAD, aplicada en prosa propia.
+    ajenas = _leyes_ajenas_aplicadas(estudio, material)
+    if ajenas:
+        avisos.append(
+            f"SE INVOCA LEGISLACIÓN DE OTRA ENTIDAD ({', '.join(ajenas)}) fuera "
+            f"de una cita. El juicio de origen se rige por las leyes de "
+            f"Querétaro; la analogía entre códigos de entidades distintas no "
+            f"procede. La jurisprudencia ajena sí se puede invocar; la ley no.")
+
+    # 1-septies. La excusa territorial. No existe en el corpus y delata que el
+    #            redactor tendió un puente donde no hacía falta ninguno.
+    excusas = {m.group(0).strip() for m in _RX_EXCUSA_ENTIDAD.finditer(estudio)}
+    if excusas:
+        avisos.append(
+            f"Se justifica una cita por la ENTIDAD de la que procede "
+            f"({'; '.join(sorted(excusas))}). El criterio ajeno se invoca "
+            f"anclado al principio rector, sin excusarse: la concesiva salva "
+            f"una distancia de tema, nunca de entidad federativa.")
+
+    # 1-octies. El marco que se construyó y no se escribió. Medido en el
+    #           360/2025: 6,338 caracteres entregados, cero usados.
+    if marco:
+        arts = set(re.findall(r"Artículo (\d{1,3}) de la Constitución", marco))
+        usados = {a for a in arts
+                  if re.search(r"art[íi]culo\s+" + a + r"[ºo°]?\s+"
+                               r"(?:de\s+la\s+)?constituci", estudio, re.I)}
+        if arts and not usados:
+            avisos.append(
+                f"El marco jurídico trajo el artículo {', '.join(sorted(arts))} "
+                f"constitucional y el estudio NO lo menciona. El marco se "
+                f"recibió y no se escribió: el estudio resuelve sin premisa mayor.")
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:
@@ -634,7 +823,8 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
     r = await cliente.chat.completions.create(**kw)
     crudo = (r.choices[0].message.content or "").strip()
     estudio, advertencias = separar_advertencias(crudo)
-    avisos = revisar(estudio, criterios, material, resumen_acto)
+    avisos = revisar(estudio, criterios, material, resumen_acto,
+                     marco if isinstance(marco, str) else "")
     if partes is not None:
         import fase_partes
         avisos.extend(fase_partes.revisar_partes(estudio, partes))

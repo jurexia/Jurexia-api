@@ -152,20 +152,24 @@ async def material_para(qdrant, embed_juris, embed_leyes,
                for c in colecciones]
     res = await asyncio.gather(*tareas)
 
-    # EL ORDEN NO ES SÓLO POR OBLIGATORIEDAD. Medido en el proyecto 360/2025 que
-    # generó David: el estudio citó jurisprudencia sobre la LEGISLACIÓN DEL
-    # ESTADO DE PUEBLA en un asunto de Querétaro. El rubro lo dice —«(LEGISLACIÓN
-    # DEL ESTADO DE PUEBLA)»— y aun así subió a los primeros puestos porque sólo
-    # se ordenaba por `vincula`.
+    # EL ORDEN, CORREGIDO. La primera versión de esto penalizaba la tesis por
+    # venir de otra entidad y la mandaba al fondo. Estaba mal, y el barrido de
+    # 139 documentos de este tribunal lo demuestra: hay decenas de criterios
+    # sobre legislación ajena invocados con toda naturalidad —la XVI.1o.A. J/54,
+    # sobre la Ley de Hacienda de GUANAJUATO, sostiene el interés jurídico en
+    # SEIS amparos queretanos— y CERO aplicaciones de ley de otra entidad.
     #
-    # Tres criterios, en este orden:
-    #   1. Que NO sea de la legislación de otro estado.
-    #   2. Que venga de la Suprema Corte (Pleno o Salas) antes que de un Colegiado.
-    #   3. Que sea obligatoria.
+    # Lo que no entra es la LEY ajena, y eso no se arregla ordenando tesis: se
+    # arregla en el prompt y en el verificador. Aquí sólo se ordena por peso.
+    #
+    #   1. Que venga de la Suprema Corte (Pleno o Salas): es obligatoria por el
+    #      artículo 217 y la legislación que interpretó es irrelevante.
+    #   2. Que sea obligatoria.
+    #   3. A igualdad de lo anterior, antes la de Querétaro que la de fuera.
     tesis = [_tesis_de(p) for p in res[0]]
-    tesis.sort(key=lambda t: (_de_otro_estado(t, coleccion_estatal),
-                              not _es_scjn(t),
-                              not t["obligatoria"]))
+    tesis.sort(key=lambda t: (not _es_scjn(t),
+                              not t["obligatoria"],
+                              _de_otro_estado(t, coleccion_estatal)))
     vistos: set[str] = set()
     unicas: list[dict] = []
     for t in tesis:
@@ -215,6 +219,6 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
                 n_vistos.add(clave)
                 normas.append(n)
 
-    tesis.sort(key=lambda t: (_de_otro_estado(t, coleccion_estatal),
-                              not _es_scjn(t), not t["obligatoria"]))
+    tesis.sort(key=lambda t: (not _es_scjn(t), not t["obligatoria"],
+                              _de_otro_estado(t, coleccion_estatal)))
     return f6.Material(tesis=tesis, normas=normas)
