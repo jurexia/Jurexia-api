@@ -25712,8 +25712,17 @@ async def taller_adelanto(
 
     # Se reutiliza el lector que ya existe: texto nativo gratis, OCR sólo si
     # el PDF viene escaneado.
-    texto_acto = await _extract_text_from_upload(acto)
-    texto_conceptos = await _extract_text_from_upload(conceptos)
+    # LOS DOS DOCUMENTOS SE LEEN A LA VEZ. Son independientes y el OCR es lo
+    # más lento del adelanto: en el ADC 380/2025, ochenta y cuatro páginas de
+    # sentencia y treinta y ocho de demanda, uno detrás de otro. Ponerlos en
+    # paralelo no cambia una coma del resultado y devuelve la mitad del tiempo.
+    import time as _t_ocr
+    _t0_ocr = _t_ocr.perf_counter()
+    texto_acto, texto_conceptos = await asyncio.gather(
+        _extract_text_from_upload(acto),
+        _extract_text_from_upload(conceptos))
+    print(f"   ⏱️  OCR de los dos documentos: "
+          f"{_t_ocr.perf_counter() - _t0_ocr:.1f}s")
     # PARADA DURA. Antes bastaba con 200 caracteres y el redactor escribió un
     # proyecto de 4,133 palabras que empezaba diciendo «no fue posible
     # identificar una sentencia reclamada en el texto proporcionado». Un
@@ -26145,6 +26154,7 @@ async def taller_resolver(
     # que David mismo descartó —«no fijar un marco constitucional para todos los
     # casos, sino sobre la solución en función del problema jurídico»—.
     import marco_juridico as _mj
+    _t0_marco = time.time()
     _probs = ([r.fases.problema_global] if r.fases.problema_global else [])
     _probs += [p.get("pregunta", "") if isinstance(p, dict) else str(p)
                for p in (r.fases.problemas or [])]
@@ -26157,7 +26167,8 @@ async def taller_resolver(
         print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
         _marco = ""
     if _marco:
-        print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres")
+        print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres "
+              f"· {time.time() - _t0_marco:.1f}s")
 
     r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida, _marco)
     _taller_registrar_uso(user_email, numero, "proyecto")
@@ -26180,6 +26191,8 @@ async def taller_resolver(
             # sabe cuáles. Van también en claro, recortados a lo que cabe en
             # una cabecera y sin acentos raros que rompan latin-1.
             "X-Avisos-Detalle": _cabecera_segura(r2.avisos),
+            # El reloj, para poder medir sin escarbar en los logs.
+            "X-Tiempos": _cabecera_segura([_ra.reloj_resumen()]),
             "X-Huecos": str(len(r2.huecos)),
             "X-Advertencias": "1" if r2.advertencias else "0",
         },

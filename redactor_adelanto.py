@@ -68,11 +68,42 @@ class Resultado:
     estudio: str = ""
     advertencias: str = ""
     partes: Optional["fpartes.Partes"] = None
+    # Las partes estructurales ya escritas, para no volver a pedirlas.
+    estructura: object = None
+
 
     @property
     def listo_para_el_secretario(self) -> bool:
         """El documento está completo HASTA donde puede estarlo sin criterio."""
         return not self.avisos
+
+
+# ═══ EL RELOJ ═════════════════════════════════════════════════════════════
+# David, 30-ago-2026: «¿cómo aceleramos la generación de la sentencia sin
+# perder calidad? mide cuánto tarda». Lo primero es medir por fase: sin eso se
+# optimiza lo que se supone lento, que casi nunca es lo que lo es.
+import time as _time
+from contextlib import contextmanager
+
+TIEMPOS: dict = {}
+
+
+@contextmanager
+def cronometrar(nombre: str):
+    t0 = _time.perf_counter()
+    try:
+        yield
+    finally:
+        dt = _time.perf_counter() - t0
+        TIEMPOS[nombre] = round(dt, 1)
+        print(f"   ⏱️  {nombre}: {dt:.1f}s")
+
+
+def reloj_resumen(total: float = 0.0) -> str:
+    if not TIEMPOS:
+        return ""
+    partes = " · ".join(f"{k} {v}s" for k, v in TIEMPOS.items())
+    return f"{partes}" + (f" · TOTAL {total:.1f}s" if total else "")
 
 
 async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
@@ -92,9 +123,10 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # La ficha de partes se hace AQUÍ, con los documentos delante, y viaja al
     # estudio. Sin ella el redactor resuelve los sujetos por proximidad, y en un
     # juicio con reconvención y tercero interesado la proximidad miente.
-    f, partes = await asyncio.gather(
-        f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso),
-        fpartes.fichar(cliente, texto_acto, texto_conceptos))
+    with cronometrar("fases1-3+partes"):
+        f, partes = await asyncio.gather(
+            f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso),
+            fpartes.fichar(cliente, texto_acto, texto_conceptos))
     avisos.extend(f.avisos)
     avisos.extend(partes.avisos)
 
@@ -112,18 +144,22 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         responsable=getattr(e, 'responsable', '') or '',
         es_recurso=e.es_recurso,
     )
+    estructura = None
     if (e.modo or "").lower() == "generado":
-        ruta, av_gen = await _componer_generado(
-            cliente, e, relleno, c, ruta_salida)
+        with cronometrar("estructura+docx"):
+            ruta, av_gen, estructura = await _componer_generado(
+                cliente, e, relleno, c, ruta_salida)
         avisos.extend(av_gen)
     else:
-        ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
-        # El documento se lee antes de entregarlo: lo que quedó de la plantilla
-        # no se ve leyendo por encima, se ve contándolo.
-        avisos.extend(ens.residuo_de_plantilla(ruta, e.numero, e.plantilla))
+        with cronometrar("ensamblado"):
+            ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
+            # El documento se lee antes de entregarlo: lo que quedó de la
+            # plantilla no se ve leyendo por encima, se ve contándolo.
+            avisos.extend(ens.residuo_de_plantilla(ruta, e.numero, e.plantilla))
 
     return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
-                     huecos=ens.huecos_pendientes(ruta), avisos=avisos)
+                     huecos=ens.huecos_pendientes(ruta), avisos=avisos,
+                     estructura=estructura)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -179,9 +215,10 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         raise ValueError("El resultado no trae el encargo: no se puede reensamblar.")
     e = r.encargo
 
-    estudio, advertencias, avisos = await f6.redactar(
-        cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
-        criterios, material, e.es_recurso, r.partes, marco)
+    with cronometrar("estudio de fondo"):
+        estudio, advertencias, avisos = await f6.redactar(
+            cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
+            criterios, material, e.es_recurso, r.partes, marco)
 
     relleno = ens.Relleno(
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
@@ -200,11 +237,14 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         es_recurso=e.es_recurso,
     )
     if (e.modo or "").lower() == "generado":
-        ruta, av_gen = await _componer_generado(
-            cliente, e, relleno, r.computo, ruta_salida)
+        with cronometrar("recomposición"):
+            ruta, av_gen, _est = await _componer_generado(
+                cliente, e, relleno, r.computo, ruta_salida,
+                estructura_previa=getattr(r, "estructura", None))
         avisos.extend(av_gen)
     else:
-        ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
+        with cronometrar("ensamblado"):
+            ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
     _, aviso_efectos = ens.formula_resolutivo(relleno.calificaciones)
     if aviso_efectos:
         avisos.append(aviso_efectos)
@@ -245,8 +285,8 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 
 
 async def _componer_generado(cliente, e: Encargo, relleno, computo,
-                             ruta_salida: str):
-    """El documento escrito entero, sin plantilla. Devuelve (ruta, avisos)."""
+                             ruta_salida: str, estructura_previa=None):
+    """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
     import documento_generado as dg
     import fase0_oportunidad as _f0
 
@@ -262,7 +302,10 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
         "es_recurso": e.es_recurso,
         "antecedentes": "\n".join(relleno.antecedentes or []),
     }
-    est = await dg.redactar_estructura(cliente, datos)
+    # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
+    # entero, y volver a pedirla al modelo son treinta segundos por nada: no
+    # depende del estudio ni del criterio, sólo del asunto.
+    est = estructura_previa or await dg.redactar_estructura(cliente, datos)
     ruta = dg.componer(
         datos, est, computo, _f0.fecha_en_letra, ruta_salida,
         antecedentes=relleno.antecedentes,
@@ -278,7 +321,7 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
             "No se indicó el TRIBUNAL que resuelve: la competencia y la "
             "fórmula de apertura salen incompletas. Es el dato que hace que "
             "esto sirva fuera de un solo circuito.")
-    return ruta, avisos
+    return ruta, avisos, est
 
 
 def resumen_legible(r: Resultado) -> str:
