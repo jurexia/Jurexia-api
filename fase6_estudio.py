@@ -744,8 +744,13 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     # que el corpus manda hacer con el precepto local decisivo, y saltaba como
     # rubro inventado. El aviso importa demasiado para dejar que se ahogue en
     # falsos positivos.
-    for m_ in re.finditer(r"[“\"]([A-ZÁÉÍÓÚÑ][^”\"]{25,}?)[”\"]", estudio):
-        cit = _n(m_.group(0))
+    # LAS COMILLAS ANGULARES CONTABAN COMO NADA. Esta comprobación sólo miraba
+    # «"» y «“»; el documento escribe los rubros con « », así que la alarma de
+    # rubro inventado no sonaba nunca donde el proyecto de verdad la escribe.
+    for m_ in re.finditer(r"[“«\"]([A-ZÁÉÍÓÚÑ][^”»\"]{25,}?)[”»\"]", estudio):
+        if _rx_precepto.match(m_.group(1)):
+            continue                      # es la ley transcrita, no un rubro
+        cit = _n(m_.group(1))
         if len(cit) < 30:
             continue
         if not any(r.startswith(cit[:60]) or cit.startswith(r[:60])
