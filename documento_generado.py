@@ -312,6 +312,26 @@ _AMPARA = "ampara y protege"
 _NO_AMPARA = "no ampara ni protege"
 
 
+def _con_articulo(nombre: str) -> str:
+    """«Primera Sala Civil…» → «la Primera Sala Civil…».
+
+    Sin esto el resolutivo dice «reclamó de Primera Sala Civil», que no es
+    español. El artículo se elige por la primera palabra, y si ya viene con él
+    no se duplica.
+    """
+    n = (nombre or "").strip()
+    if not n:
+        return ""
+    if re.match(r"^(?:el|la|los|las)\s", n, re.I):
+        return n
+    primera = n.split()[0].lower()
+    femeninas = ("sala", "junta", "primera", "segunda", "tercera", "cuarta",
+                 "quinta", "sexta", "séptima", "octava", "novena", "décima",
+                 "autoridad", "comisión", "procuraduría", "secretaría",
+                 "dirección", "delegación", "subdelegación")
+    return f"{'la' if primera in femeninas else 'el'} {n}"
+
+
 def _pagina(doc):
     s = doc.sections[0]
     s.page_width, s.page_height = Cm(21.59), Cm(34.03)
@@ -379,8 +399,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     if estructura.apertura:
         parrafo(doc, estructura.apertura, sangria=False)
     if estructura.visto:
-        tramos(doc, [("V I S T O, ", {"bold": True}), (estructura.visto, {})],
-               sangria=False)
+        # El rótulo lo pone la composición; el modelo lo repite igual aunque se
+        # le pida que no —«V I S T O, VISTO, para resolver…»—. Se le quita.
+        _v = re.sub(r"^\s*V\s*I\s*S\s*T\s*O\s*S?\s*,?\s*", "",
+                    estructura.visto.strip(), flags=re.I)
+        tramos(doc, [("V I S T O, ", {"bold": True}), (_v, {})], sangria=False)
 
     # ── RESULTANDO ──
     rotulo(doc, "Resultando")
@@ -451,9 +474,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     tramos(doc, [("ÚNICO. ", {"bold": True}),
                  ("La Justicia de la Unión ", {}),
                  (formula, {"bold": True}),
-                 (f" a {datos.get('quejoso','')}, contra el acto que reclamó de "
-                  f"{datos.get('responsable','')}, precisado en el "
-                  f"{_ORDINALES[0].lower()} resultando de esta ejecutoria.", {})],
+                 (f" a {datos.get('quejoso','')}, contra el acto que reclamó "
+                  f"de {_con_articulo(datos.get('responsable',''))}, precisado "
+                  f"en el {_ORDINALES[0].lower()} resultando de esta "
+                  f"ejecutoria.", {})],
            sangria=False)
 
     parrafo(doc, "Notifíquese; con testimonio de esta resolución, devuélvanse "
