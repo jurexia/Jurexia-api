@@ -1801,6 +1801,116 @@ def extract_session_context(messages: list) -> dict:
     return context
 
 
+# ── El historial que viaja al modelo tiene tope ──────────────────────────────
+#
+# EL CASO QUE LO OBLIGA (medido el 29-ago-2026)
+# ----------------------------------------------
+# Un Platinum llevaba una conversación de 118 mensajes y 2,861,219 caracteres:
+# 59 preguntas suyas de mil caracteres y 59 respuestas nuestras de cuarenta y
+# siete mil. Cada turno reenviaba TODO lo anterior. Funcionó hasta que la
+# historia previa llegó a 2,853,240 caracteres —unos 790,000 tokens—; en el
+# turno siguiente, la suma de historia + acervo + prompt rebasó la ventana del
+# modelo y el proveedor rechazó la petición. A partir de ahí, sus OCHO intentos
+# entre el 28 y el 29 de agosto devolvieron el mismo aviso genérico. Él lo
+# reportó cinco veces: «no me deja interactuar», «con cualquier consulta».
+#
+# Desde su silla era verdad: el frontend le reabría ese hilo, y ese hilo ya no
+# cabía. Cualquier otra conversación suya habría respondido a la primera.
+#
+# LO QUE COSTABA, ADEMÁS DE LA CAÍDA: esos 59 turnos reenviaron 94.5 millones
+# de caracteres —unos 26 millones de tokens de entrada— en una sola
+# conversación. El tope no es sólo un candado contra el fallo; es la factura.
+#
+# EL CRITERIO DEL RECORTE. No se tira ningún turno: se acorta. Y se acorta por
+# donde sobra, que son las respuestas viejas del asistente —2.80 de los 2.86
+# millones eran nuestros, no suyos—:
+#   · los últimos turnos van ENTEROS: son la pregunta viva;
+#   · el primer mensaje del usuario va como ancla, con tope propio, porque ahí
+#     suele venir el documento o el planteamiento del caso;
+#   · lo de en medio entra del más nuevo al más viejo mientras quepa, y lo que
+#     no cabe entero entra por la cabeza: una respuesta vieja sigue diciendo de
+#     qué iba aunque no vaya completa.
+#
+# Los topes se pueden mover sin desplegar, por variable de entorno.
+HISTORIAL_MAX_CHARS = int(os.getenv("HISTORIAL_MAX_CHARS", "600000"))
+HISTORIAL_TURNOS_INTACTOS = int(os.getenv("HISTORIAL_TURNOS_INTACTOS", "6"))
+HISTORIAL_ANCLA_MAX = int(os.getenv("HISTORIAL_ANCLA_MAX", "120000"))
+HISTORIAL_CABEZA_ASISTENTE = 1500
+HISTORIAL_CABEZA_USUARIO = 3000
+_HISTORIAL_MARCA = "\n\n[…recortado del historial para que la conversación siga cabiendo…]"
+_HISTORIAL_OMITIDO = "[…turno anterior omitido por extensión…]"
+
+
+def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: int = 0):
+    """Acorta el historial para que quepa en la ventana del modelo.
+
+    Devuelve `(mensajes, chars_antes, chars_después)`. Si el historial ya cabe,
+    devuelve la MISMA lista sin tocar y los dos totales iguales — el caso
+    normal no paga nada por este candado.
+
+    Nunca deja un `content` vacío: hay proveedores que rechazan el turno vacío,
+    y un hueco silencioso en la conversación es peor que un marcador visible.
+    """
+    presupuesto = presupuesto or HISTORIAL_MAX_CHARS
+    turnos_intactos = turnos_intactos or HISTORIAL_TURNOS_INTACTOS
+
+    antes = sum(len(m.content or "") for m in mensajes)
+    if antes <= presupuesto or not mensajes:
+        return mensajes, antes, antes
+
+    n = len(mensajes)
+    corte = max(0, n - turnos_intactos)
+    nuevos: list = [None] * n
+    gastado = 0
+
+    # 1. Los últimos turnos, enteros y sin discusión: son la pregunta viva.
+    for i in range(corte, n):
+        nuevos[i] = mensajes[i].content or ""
+        gastado += len(nuevos[i])
+
+    # 2. El suelo de lo que queda: cada turno deja constancia de que existió,
+    #    aunque sea con un marcador. Se reserva ANTES de repartir nada más —
+    #    si se dejara para el final, el reparto se pasaría del tope justo por
+    #    la suma de los marcadores.
+    ancla = 0 if (corte > 0 and mensajes[0].role == "user") else None
+    medio = [i for i in range(corte) if i != ancla]
+    for i in medio:
+        c = mensajes[i].content or ""
+        nuevos[i] = c if len(c) <= len(_HISTORIAL_OMITIDO) else _HISTORIAL_OMITIDO
+        gastado += len(nuevos[i])
+
+    # 3. El ancla: el primer mensaje del usuario, con tope propio. Ahí suele
+    #    venir el documento o el planteamiento del caso.
+    if ancla is not None:
+        c = mensajes[ancla].content or ""
+        tope = max(0, min(HISTORIAL_ANCLA_MAX, presupuesto - gastado))
+        nuevos[ancla] = c if len(c) <= tope else (c[:tope].rstrip() + _HISTORIAL_MARCA)
+        gastado += len(nuevos[ancla])
+
+    # 4. Y se sube de categoría lo de en medio, del más nuevo al más viejo,
+    #    pagando sólo la diferencia mientras quepa: primero entero, si no por
+    #    la cabeza. Una respuesta vieja sigue diciendo de qué iba aunque no
+    #    vaya completa.
+    for i in reversed(medio):
+        c = mensajes[i].content or ""
+        actual = len(nuevos[i])
+        if nuevos[i] == c:
+            continue
+        cabeza = (HISTORIAL_CABEZA_ASISTENTE if mensajes[i].role == "assistant"
+                  else HISTORIAL_CABEZA_USUARIO)
+        recorte = c if len(c) <= cabeza else (c[:cabeza].rstrip() + _HISTORIAL_MARCA)
+        for candidato in (c, recorte):
+            if len(candidato) > actual and gastado - actual + len(candidato) <= presupuesto:
+                gastado += len(candidato) - actual
+                nuevos[i] = candidato
+                break
+
+    recortados = [
+        m if nuevos[i] == (m.content or "") else m.model_copy(update={"content": nuevos[i]})
+        for i, m in enumerate(mensajes)
+    ]
+    return recortados, antes, gastado
+
 
 # System prompt for document analysis (user-uploaded documents)
 SYSTEM_PROMPT_DOCUMENT_ANALYSIS = """Eres IUREXIA, IA Jurídica para análisis de documentos legales mexicanos.
@@ -12860,8 +12970,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         dynamic_injections.append(_session_msg)
                         print(f"   🔗 SESSION CTX: materia={_session_ctx.get('materia_detectada','?')}, proceso={_session_ctx.get('proceso_detectado','?')}")
 
-                # Agregar historial conversacional
-                for i, msg in enumerate(request.messages):
+                # Agregar historial conversacional, con tope. Ver
+                # `_recortar_historial`: una conversación que no cabe en la
+                # ventana del modelo no falla «a veces», falla SIEMPRE y desde
+                # el turno en que la rebasó.
+                _hist, _hist_antes, _hist_despues = _recortar_historial(request.messages)
+                if _hist_despues < _hist_antes:
+                    print(f"   ✂️ HISTORIAL RECORTADO: {_hist_antes:,} → {_hist_despues:,} chars "
+                          f"en {len(_hist)} mensajes (tope {HISTORIAL_MAX_CHARS:,})")
+                for i, msg in enumerate(_hist):
                     msg_content = msg.content
 
                     # Para sentencias: truncar si es necesario para token budget
@@ -12884,7 +13001,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 print(f"   ⚖️ Sentencia completa: {len(sentencia_text)} chars (dentro del límite)")
 
                     # 🔥 PREFIX CACHING OPTIMIZATION: Inject dynamic stuff onto the LAST user message
-                    if i == len(request.messages) - 1 and dynamic_injections:
+                    if i == len(_hist) - 1 and dynamic_injections:
                         msg_content += "\n\n" + "\n\n".join(dynamic_injections)
                         print(f"   🚀 Optimizando Caché: {len(dynamic_injections)} bloques dinámicos apendados al final del prompt.")
 
