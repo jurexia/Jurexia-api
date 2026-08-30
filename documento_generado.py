@@ -735,9 +735,44 @@ def _subtitulo(doc, texto: str):
     return p
 
 
+def _sin_eco(texto: str, cuerpo_tesis: str) -> str:
+    """Quita del párrafo las frases que repiten la tesis ya transcrita.
+
+    Pedirlo en el prompt no basta: se dijo en el cuerpo y al final, y aun así
+    el modelo vuelve a contar la tesis en una de cada dos corridas. Se hace
+    aquí, que es donde no falla, y QUIRÚRGICAMENTE: se borran las frases que
+    repiten y se conserva lo que aplica el criterio al caso, que es lo único
+    que el lector no tiene ya delante.
+    """
+    if not (cuerpo_tesis or "").strip():
+        return texto
+    voc = [set(_norm_palabras(f)) for f in _frases_de(cuerpo_tesis)]
+    if not voc:
+        return texto
+    quedan = []
+    for frase in re.split(r"(?<=[.])\s+", texto or ""):
+        p = set(_norm_palabras(frase))
+        if len(p) >= 8 and any(len(p & v) / max(1, len(p)) > 0.72 for v in voc):
+            continue                       # el lector acaba de leerla arriba
+        quedan.append(frase)
+    return " ".join(x for x in quedan if x.strip()).strip()
+
+
+def _frases_de(t: str) -> list:
+    return [f for f in re.split(r"(?<=[.])\s+", t or "") if len(f.split()) >= 8]
+
+
+def _norm_palabras(t: str) -> list:
+    import unicodedata
+    t = unicodedata.normalize("NFKD", (t or "").lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9 ]+", " ", t).split()
+
+
 def _escribir_estudio(doc, estudio, tesis, notas) -> int:
     """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
     citadas = 0
+    ultima_tesis = None
     for t in (estudio or []):
         t = (t or "").strip()
         if not t:
@@ -757,9 +792,16 @@ def _escribir_estudio(doc, estudio, tesis, notas) -> int:
             cola = t[m_r.end():].lstrip(" ,;:.")
             escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
             citadas += 1
+            cola = _sin_eco(cola, hallada.get("texto") or "")
             if len(cola.split()) > 6:
-                parrafo(doc, cola)
+                parrafo_con_citas(doc, cola, notas)
+            ultima_tesis = hallada
             continue
+        if ultima_tesis is not None:
+            t = _sin_eco(t, ultima_tesis.get("texto") or "")
+            ultima_tesis = None
+            if len(t.split()) < 6:
+                continue
         parrafo_con_citas(doc, t, notas)
     return citadas
 
