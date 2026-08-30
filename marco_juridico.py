@@ -102,19 +102,85 @@ TEMAS_CONVENCIONALES = (
 )
 
 
+# ARTÍCULOS QUE ABREN EL BLOQUE. Si el asunto toca uno de éstos, la fuente
+# convencional y la Corte Interamericana son pertinentes: son los derechos
+# cuyo contenido está también en los tratados.
+ARTS_DE_BLOQUE = ("1", "4", "14", "17")
+
+
 def _pide_convencional(problemas: list[str]) -> bool:
+    """Si el asunto llama al bloque de constitucionalidad.
+
+    NO basta con buscar palabras sueltas. Medido en el ADC 380/2025: los
+    problemas decían «pensión alimenticia definitiva en favor de E.M.O.R.» —la
+    menor va por sus iniciales— y ninguna clave casaba, así que la capa
+    convencional NO SE BUSCÓ NUNCA. El estudio acabó nombrando la Convención
+    sobre los Derechos del Niño seis veces de memoria del modelo, sin un solo
+    fragmento del acervo detrás. Una cita que nadie puede comprobar es
+    exactamente lo que este sistema existe para evitar.
+
+    La regla buena: si el mapa temático disparó un artículo del bloque, la
+    fuente convencional viene al caso.
+    """
     t = " ".join(problemas or []).lower()
-    return any(c in t for c in TEMAS_CONVENCIONALES)
+    if any(c in t for c in TEMAS_CONVENCIONALES):
+        return True
+    return any(a in _arts_base(problemas) for a in ARTS_DE_BLOQUE)
+
+
+def _arts_base(problemas: list[str]) -> list[str]:
+    """Los artículos por tema, sin la puerta del 1º: rompe la circularidad."""
+    texto = " ".join(problemas or []).lower()
+    return [art for art, claves in TEMAS_CONSTITUCIONALES.items()
+            if any(c in texto for c in claves)]
 
 
 def _articulos_del_problema(problemas: list[str]) -> list[str]:
     """Los artículos constitucionales que ESTE asunto toca, por su tema."""
-    texto = " ".join(problemas or []).lower()
-    fuera = []
-    for art, claves in TEMAS_CONSTITUCIONALES.items():
-        if any(c in texto for c in claves):
-            fuera.append(art)
+    fuera = list(_arts_base(problemas))
+    # EL 1º ES LA PUERTA DEL BLOQUE. Si el asunto llama a fuente convencional o
+    # a la Corte Interamericana, el artículo que permite aplicarlas en México
+    # es el 1º: sin él la cita de un tratado queda sin anclaje constitucional.
+    # David lo pidió así —«sería bueno el 1 y 4 de la constitución y preceptos
+    # convencionales aplicables»— y el asunto de alimentos sólo disparaba el 4º.
+    if "1" not in fuera and _pide_convencional(problemas):
+        fuera.insert(0, "1")
     return fuera
+
+
+# LA CONSULTA CONVENCIONAL NO SE HACE CON LA PROSA DEL CASO. Medido: el
+# Cuadernillo No. 5 de la CoIDH —«Niños, Niñas y Adolescentes»— tiene 424
+# fragmentos en el acervo y no salía ni uno, porque se buscaba con «¿la pensión
+# alimenticia del quince por ciento de los ingresos…?» y eso no casa con la
+# doctrina de infancia. Es la misma lección que el RAG de jurisprudencia: la
+# pregunta conceptual encuentra, la prosa del expediente no.
+CONSULTA_POR_ARTICULO = {
+    "1": "principio pro persona, interpretación conforme, control de "
+         "convencionalidad, obligación de promover, respetar, proteger y "
+         "garantizar los derechos humanos",
+    "4": "interés superior del niño, derechos de niñas, niños y adolescentes, "
+         "obligación reforzada de protección de la infancia, derecho a "
+         "alimentos y a un nivel de vida adecuado, deberes de los progenitores",
+    "14": "debido proceso, formalidades esenciales del procedimiento, derecho "
+          "de audiencia y defensa",
+    "16": "fundamentación y motivación de los actos de autoridad",
+    "17": "acceso a la justicia, tutela judicial efectiva, recurso sencillo y "
+          "efectivo, plazo razonable",
+    "123": "derechos laborales, condiciones equitativas y satisfactorias de "
+           "trabajo",
+}
+
+
+def _consulta_convencional(arts: list[str], problemas: list[str]) -> str:
+    """Lo que se le pregunta al bloque de constitucionalidad.
+
+    Se construye con los CONCEPTOS de los artículos que el asunto disparó, no
+    con el relato del expediente.
+    """
+    piezas = [CONSULTA_POR_ARTICULO[a] for a in arts if a in CONSULTA_POR_ARTICULO]
+    if not piezas:
+        piezas = [" ".join(problemas or [])[:400]]
+    return " ".join(piezas)[:900]
 
 
 @dataclass
@@ -226,12 +292,16 @@ async def construir(qdrant, embed, problemas: list[str],
     # el tema que los problemas mencionen.
     arts_pedidos = _articulos_del_problema(problemas)
     quiere_conv = _pide_convencional(problemas)
+    # DOS VECTORES, NO UNO. El constitucional y el local se buscan con el caso;
+    # el convencional y la Corte Interamericana, con los conceptos.
+    v_conv = await embed(_consulta_convencional(arts_pedidos, problemas)) \
+        if quiere_conv else None
     const, conv, coidh, locales = await asyncio.gather(
         _buscar(qdrant, COLECCION, "dense", v, 60, _f("constitucion"))
         if arts_pedidos else _vacio(),
-        _buscar(qdrant, COLECCION, "dense", v, 8, _f("convencion"))
+        _buscar(qdrant, COLECCION, "dense", v_conv, 8, _f("convencion"))
         if quiere_conv else _vacio(),
-        _buscar(qdrant, COLECCION, "dense", v, 6, _f("cuadernillo"))
+        _buscar(qdrant, COLECCION, "dense", v_conv, 10, _f("cuadernillo"))
         if quiere_conv else _vacio(),
         _buscar(qdrant, coleccion_estatal, "dense", v, 8) if coleccion_estatal else _vacio(),
     )

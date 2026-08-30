@@ -311,6 +311,8 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         with cronometrar("marco escrito"):
             try:
                 marco_escrito = await tarea_marco
+                import documento_generado as _dg4
+                avisos.extend(_dg4.revisar_marco(marco_escrito, marco or ""))
             except Exception as _em:
                 avisos.append(f"No se pudo escribir el marco jurídico: {_em}")
     if (e.modo or "").lower() == "generado":

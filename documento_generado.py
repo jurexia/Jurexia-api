@@ -514,6 +514,42 @@ async def redactar_estructura(cliente, datos: dict) -> Estructura:
 # pidió: «no fijar un marco constitucional para todos los casos, sino sobre la
 # solución en función del problema jurídico».
 
+# Lo que se nombra tiene que estar en el material. En el ADC 380/2025 el
+# estudio citó la Convención sobre los Derechos del Niño SEIS veces sin que la
+# capa convencional se hubiera buscado siquiera: el modelo la escribió de
+# memoria. Una cita que nadie puede comprobar es lo que este sistema existe
+# para evitar, y da igual que la Convención exista: lo que no consta, no consta.
+_RX_TRATADO = re.compile(
+    r"(Convenci[óo]n\s+(?:sobre|Americana|Interamericana|de)[^.,;]{0,60}"
+    r"|Pacto\s+(?:de\s+San\s+Jos[ée]|Internacional[^.,;]{0,40})"
+    r"|Protocolo\s+de\s+San\s+Salvador)", re.I)
+_RX_COIDH = re.compile(r"Corte\s+Interamericana|CoIDH|caso\s+[A-ZÁÉÍÓÚÑ][\w]+\s+Vs\.",
+                       re.I)
+
+
+def revisar_marco(marco_escrito: str, material_marco: str) -> list:
+    """Lo que el marco nombra y el acervo no respalda."""
+    fuera = []
+    if not (marco_escrito or "").strip():
+        return fuera
+    mat = material_marco or ""
+    nombrados = {m.group(0).strip() for m in _RX_TRATADO.finditer(marco_escrito)}
+    sin_respaldo = [x for x in nombrados
+                    if x.split()[0].lower() not in mat.lower()
+                    or not any(p.lower() in mat.lower()
+                               for p in x.split()[:4] if len(p) > 4)]
+    if sin_respaldo:
+        fuera.append(
+            f"El marco nombra instrumentos que NO están en el material "
+            f"recuperado: {sorted(sin_respaldo)[:4]}. El modelo los escribió de "
+            f"memoria; compruébalos antes de firmar.")
+    if _RX_COIDH.search(marco_escrito) and not _RX_COIDH.search(mat):
+        fuera.append(
+            "El marco invoca a la Corte Interamericana y el acervo no devolvió "
+            "ni un fragmento suyo para este asunto. Sin la fuente no se cita.")
+    return fuera
+
+
 async def redactar_marco(cliente, material_marco: str, problemas: list,
                          es_recurso: bool = False) -> str:
     """El marco jurídico, escrito. Devuelve texto vacío si no hay material."""
