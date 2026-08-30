@@ -442,6 +442,11 @@ ANTECEDENTES DEL ASUNTO, ya redactados
 {datos.get('antecedentes','')[:4000]}
 
 REGLAS:
+- ESTOS SON LOS ROTULOS MEDIDOS EN 26 ENGROSES DE ESTE TRIBUNAL, no una
+  propuesta: escríbelos tal cual. El resultando lleva esos cuatro apartados y
+  el documento añade solo el de la sesión.
+- NO ESCRIBAS ORDINALES. Nada de «PRIMERO.» ni «SEGUNDO.»: el documento los
+  calcula y ponerlos aquí los duplica.
 - NO INVENTES DATOS. Si no sabes una fecha, un número de toca o un nombre, NO
   lo pongas y NO lo sustituyas por uno verosímil: redacta la frase de modo que
   no lo necesite, o deja constancia de que consta en autos. Un dato inventado
@@ -461,9 +466,10 @@ Devuelve SÓLO este JSON:
   "visto": "<la fórmula VISTO, para resolver el juicio de amparo directo…, sin repetir el rótulo>",
   "resultandos": [
      {{"titulo": "Presentación de la demanda de amparo",
-       "texto": "<quién promovió, cuándo, ante quién, contra qué acto y qué autoridad>"}},
-     {{"titulo": "Derechos humanos cuya violación se alega", "texto": "<…>"}},
-     {{"titulo": "Admisión y trámite", "texto": "<…>"}}
+       "texto": "<fecha, oficialía, promovente y su carácter. Después, IDENTIFICA el acto: fecha, sala, toca y expediente de origen, y qué confirmó, modificó o revocó. PROHIBIDO resumir aquí su razonamiento: eso va en el estudio>"}},
+     {{"titulo": "Derechos humanos cuya violación se alega", "texto": "<UNA sola frase con la lista de artículos constitucionales. No argumenta>"}},
+     {{"titulo": "Tercero interesado", "texto": "<una frase: le resulta tal carácter a X, quien fue emplazado al presente juicio, según las constancias>"}},
+     {{"titulo": "Trámite del juicio de amparo", "texto": "<auto de Presidencia, registro, admisión, vista del artículo 181 de la Ley de Amparo, y que el agente del Ministerio Público adscrito omitió formular pedimento>"}}
   ],
   "competencia": "<por qué este tribunal es competente, con su fundamento>",
   "existencia": "<la existencia del acto reclamado, acreditada con el informe justificado y los autos>",
@@ -635,6 +641,77 @@ def _con_articulo(nombre: str) -> str:
     return f"{'la' if primera in femeninas else 'el'} {n}"
 
 
+HUECO = "*********"
+
+_PLURAL = {"fundado": "fundados", "infundado": "infundados",
+           "inoperante": "inoperantes", "ineficaz": "ineficaces"}
+
+
+def _calificacion_plural(cs: list) -> str:
+    """«fundados», «en parte fundados y en parte inoperantes»…
+
+    La calificativa va PEGADA al rótulo del Estudio en 17 de 26 engroses:
+    «SEXTO. Estudio. Los conceptos de violación son infundados.»
+    """
+    limpios = [c for c in cs if c in _PLURAL]
+    if not limpios:
+        return ""
+    unicos = []
+    for c in limpios:
+        if c not in unicos:
+            unicos.append(c)
+    if len(unicos) == 1:
+        return _PLURAL[unicos[0]]
+    if len(unicos) == 2:
+        return f"en parte {_PLURAL[unicos[0]]} y en parte {_PLURAL[unicos[1]]}"
+    return ", ".join(_PLURAL[c] for c in unicos[:-1]) + f" y {_PLURAL[unicos[-1]]}"
+
+
+def _subtitulo(doc, texto: str):
+    """Subtítulo en negrita SIN ordinal, como los del Estudio.
+
+    Medido: «Sentencia reclamada», «Conceptos de violación», «Solución»,
+    «Conclusión». No llevan número: no son considerandos, son las partes de
+    uno solo.
+    """
+    doc.add_paragraph()
+    p = doc.add_paragraph()
+    r = p.add_run(texto)
+    r.bold = True
+    _fmt(p, sangria=False)
+    p.paragraph_format.keep_with_next = True
+    return p
+
+
+def _escribir_estudio(doc, estudio, tesis, notas) -> int:
+    """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
+    citadas = 0
+    for t in (estudio or []):
+        t = (t or "").strip()
+        if not t:
+            continue
+        # El encabezado ordinal que el modelo se pone a sí mismo sobra: el
+        # ordinal lo calcula el compositor y ya está escrito arriba.
+        t = re.sub(r"^(?:PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|"
+                   r"S[ÉE]PTIMO|OCTAVO|NOVENO)\.\s*(?:Estudio(?:\s+de\s+fondo)?\.\s*)?",
+                   "", t)
+        t = re.sub(r"^Los\s+(?:conceptos\s+de\s+violaci[óo]n|agravios)\s+son\s+"
+                   r"[^.]{3,60}\.\s*", "", t)
+        if not t.strip():
+            continue
+        hallada, m_r = tesis_del_rubro(t, tesis or [])
+        if hallada and m_r and citadas < MAX_CITAS_DOCUMENTO:
+            antes = _RX_COLA_ANUNCIO.sub("", t[:m_r.start()].rstrip(" ,;:"))
+            cola = t[m_r.end():].lstrip(" ,;:.")
+            escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
+            citadas += 1
+            if len(cola.split()) > 6:
+                parrafo(doc, cola)
+            continue
+        parrafo(doc, t)
+    return citadas
+
+
 def _pagina(doc):
     s = doc.sections[0]
     s.page_width, s.page_height = Cm(21.59), Cm(34.03)
@@ -709,104 +786,164 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                     estructura.visto.strip(), flags=re.I)
         tramos(doc, [("V I S T O, ", {"bold": True}), (_v, {})], sangria=False)
 
+    # ═══ LA ESTRUCTURA, MEDIDA SOBRE 58 ENGROSES ═══════════════════════
+    # 26 amparos directos civiles, 16 administrativos y 16 revisiones. En
+    # NINGUNO existe un considerando llamado «Consideraciones de la sentencia
+    # reclamada», ni «Planteamientos de la parte quejosa», ni «Marco jurídico»
+    # —éste aparece 1 vez en 58 y como SUBTÍTULO dentro del Estudio—. Todo eso
+    # vive DENTRO del considerando de Estudio, en subtítulos en negrita SIN
+    # ordinal. El redactor los emitía como considerandos propios y por eso el
+    # estudio acababa en OCTAVO, chocando con su propio encabezado.
+    #
+    # LOS ORDINALES SE CALCULAN, NO SE ESCRIBEN. Se numera al final la lista de
+    # apartados realmente emitidos. Así el Estudio cae en QUINTO cuando no hay
+    # Antecedentes —que es lo que dijo David— y en SEXTO cuando sí los hay, sin
+    # que nadie tenga que decidirlo.
+    def _emitir(apartados):
+        """Numera y escribe. Cada apartado es (rótulo, escritor)."""
+        for k, (rot, escribir_cuerpo) in enumerate(apartados):
+            doc.add_paragraph()
+            p = doc.add_paragraph()
+            r1 = p.add_run(f"{_ORDINALES[min(k, 9)]}. ")
+            r1.bold = True
+            r2 = p.add_run(f"{rot} ")
+            r2.bold = True
+            _fmt(p, sangria=False)
+            p.paragraph_format.keep_with_next = True
+            escribir_cuerpo(p)
+
+    def _texto_en(p, texto, resto=None):
+        """El primer párrafo continúa el rótulo; el resto van aparte."""
+        if (texto or "").strip():
+            r = p.add_run(texto.strip())
+            r.font.name = FUENTE
+            r.font.size = TAMANO
+        for x in (resto or []):
+            if x.strip():
+                parrafo(doc, x.strip())
+
     # ── RESULTANDO ──
     rotulo(doc, "Resultando")
-    n = 0
+    res_apartados = []
     for res in (estructura.resultandos or []):
-        if not (res.get("texto") or "").strip():
+        cuerpo = (res.get("texto") or "").strip()
+        if not cuerpo:
             continue
-        tramos(doc, [(f"{_ORDINALES[min(n, 9)]}. ", {"bold": True}),
-                     (f"{res.get('titulo','').strip()}. ", {"bold": True}),
-                     (res["texto"].strip(), {})])
-        n += 1
-    for t in (antecedentes or []):
-        if t.strip():
-            parrafo(doc, t.strip())
+        rot = (res.get("titulo") or "").strip().rstrip(".") + "."
+        res_apartados.append((rot, (lambda c: lambda p: _texto_en(p, c))(cuerpo)))
+    # La sesión SIEMPRE cierra el resultando y enlaza con el considerando.
+    res_apartados.append((
+        "Verificación de la sesión vía remota.",
+        lambda p: _texto_en(p, f"El presente asunto se listó para la sesión de "
+                               f"{HUECO}, la cual se celebró conforme a las "
+                               f"disposiciones aplicables; y,")))
+    _emitir(res_apartados)
 
     # ── CONSIDERANDO ──
     rotulo(doc, "Considerando")
-    n = 0
-
-    def _apartado(titulo, cuerpo):
-        nonlocal n
-        if not (cuerpo or "").strip():
-            return
-        tramos(doc, [(f"{_ORDINALES[min(n, 9)]}. ", {"bold": True}),
-                     (f"{titulo}. ", {"bold": True}), (cuerpo.strip(), {})])
-        n += 1
-
-    _apartado("Competencia", estructura.competencia)
-    _apartado("Existencia del acto reclamado", estructura.existencia)
-
-    # Legitimación y oportunidad, con LA TABLA
-    from fase0_oportunidad import parrafo_oportunidad
-    _apartado("Legitimación y oportunidad", parrafo_oportunidad(computo))
-    tabla_computo(doc, computo, fecha_en_letra)
-
-    _apartado("Procedencia", estructura.procedencia)
-
-    if resumen_acto:
-        tramos(doc, [(f"{_ORDINALES[min(n, 9)]}. ", {"bold": True}),
-                     ("Consideraciones de la sentencia reclamada. ", {"bold": True}),
-                     ((resumen_acto[0] or "").strip(), {})])
-        n += 1
-        for t in resumen_acto[1:]:
-            if t.strip():
-                parrafo(doc, t.strip())
-
-    if resumen_conceptos:
-        tramos(doc, [(f"{_ORDINALES[min(n, 9)]}. ", {"bold": True}),
-                     ("Planteamientos de la parte quejosa. ", {"bold": True}),
-                     ((resumen_conceptos[0] or "").strip(), {})])
-        n += 1
-        for t in resumen_conceptos[1:]:
-            if t.strip():
-                parrafo(doc, t.strip())
-
-    # ── EL MARCO JURÍDICO, si el asunto lo pidió ──
-    if (marco_escrito or "").strip():
-        trozos = [x.strip() for x in re.split(r"\n\s*\n", marco_escrito)
-                  if x.strip()]
-        tramos(doc, [(f"{_ORDINALES[min(n, 9)]}. ", {"bold": True}),
-                     ("Marco jurídico aplicable. ", {"bold": True}),
-                     (trozos[0], {})])
-        n += 1
-        for x in trozos[1:]:
-            parrafo(doc, x)
-
-    # ── EL ESTUDIO, con sus citas rehechas desde el acervo ──
-    # El modelo escribe «…de rubro y texto siguientes: «RUBRO.» La responsable…»
-    # y deja la cita partida, sin transcripción y sin localización. Aquí se
-    # reconstruye: anuncio, rubro solo en negrita, texto íntegro en cursiva
-    # tomado del ACERVO —no de la memoria del modelo— y la localización al pie.
-    citadas = 0
-    for t in (estudio or []):
-        t = (t or "").strip()
-        if not t:
-            continue
-        hallada, m_r = tesis_del_rubro(t, tesis or [])
-        if hallada and m_r and citadas < MAX_CITAS_DOCUMENTO:
-            antes = _RX_COLA_ANUNCIO.sub("", t[:m_r.start()].rstrip(" ,;:"))
-            cola = t[m_r.end():].lstrip(" ,;:.")
-            escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
-            citadas += 1
-            if len(cola.split()) > 6:
-                parrafo(doc, cola)
-            continue
-        parrafo(doc, t)
-
-    # ── RESUELVE ──
-    rotulo(doc, "Resuelve")
     cs = [str(c or "").strip().lower() for c in (calificaciones or []) if c]
     concede = any(c.startswith("fundad") for c in cs)
+    q = "agravios" if datos.get("es_recurso") else "conceptos de violación"
+    con_apartados = []
+
+    if (estructura.competencia or "").strip():
+        con_apartados.append(("Competencia.",
+                              (lambda c: lambda p: _texto_en(p, c))(estructura.competencia)))
+    if (estructura.existencia or "").strip():
+        con_apartados.append(("Existencia del acto reclamado.",
+                              (lambda c: lambda p: _texto_en(p, c))(estructura.existencia)))
+
+    # Legitimación y oportunidad, con LA TABLA detrás.
+    from fase0_oportunidad import parrafo_oportunidad
+    _op = parrafo_oportunidad(computo)
+
+    def _legitimacion(p):
+        _texto_en(p, _op)
+        tabla_computo(doc, computo, fecha_en_letra)
+
+    con_apartados.append(("Legitimación y oportunidad.", _legitimacion))
+
+    # PROCEDENCIA NO ES UN CONSIDERANDO PROPIO cuando hay «Existencia del acto
+    # reclamado»: medido, es su ALTERNATIVA —3 de 26, en asuntos venidos de
+    # juez y no de sala—, no un apartado más. Emitirlos los dos corría todo un
+    # ordinal y dejaba el Estudio en SÉPTIMO donde el corpus lo tiene SEXTO.
+    if (estructura.procedencia or "").strip() and not (estructura.existencia or "").strip():
+        con_apartados.append(("Procedencia.",
+                              (lambda c: lambda p: _texto_en(p, c))(estructura.procedencia)))
+
+    # LA DISPENSA. El rótulo promete el acto reclamado y los conceptos, y el
+    # contenido es justamente que NO hace falta transcribirlos: 21 de 26.
+    def _dispensa(p):
+        _texto_en(
+            p,
+            f"Es innecesario transcribir el contenido de la sentencia reclamada "
+            f"y los {q} hechos valer, pues el deber formal y material de "
+            f"exponer los argumentos legales que sustenten esta resolución no "
+            f"depende de la reproducción literal de los aspectos que conforman "
+            f"la litis, sino de su adecuado análisis.")
+
+    con_apartados.append((f"Acto reclamado y {q}.", _dispensa))
+
+    if antecedentes:
+        def _antecedentes(p):
+            _texto_en(p,
+                      "Previo al análisis de los planteamientos que se proponen, "
+                      "es menester relatar los hechos relevantes del asunto.",
+                      list(antecedentes))
+        con_apartados.append(("Antecedentes.", _antecedentes))
+
+    # EL ESTUDIO. Es el ÚLTIMO considerando salvo que detrás vaya Efectos, y
+    # lleva dentro los subtítulos en negrita, sin ordinal.
+    def _estudio(p):
+        calif = _calificacion_plural(cs)
+        _texto_en(p, f"Los {q} son {calif}." if calif else "")
+        if resumen_acto:
+            _subtitulo(doc, "Sentencia reclamada")
+            for x in resumen_acto:
+                if x.strip():
+                    parrafo(doc, x.strip())
+        if resumen_conceptos:
+            _subtitulo(doc, q[0].upper() + q[1:])
+            for x in resumen_conceptos:
+                if x.strip():
+                    parrafo(doc, x.strip())
+        if (marco_escrito or "").strip():
+            _subtitulo(doc, "Marco jurídico")
+            for x in re.split(r"\n\s*\n", marco_escrito):
+                if x.strip():
+                    parrafo(doc, x.strip())
+        _subtitulo(doc, "Solución")
+        _escribir_estudio(doc, estudio, tesis, notas)
+        if not concede:
+            parrafo(doc,
+                    f"Por lo expuesto, dado lo {_calificacion_plural(cs) or 'infundado'} "
+                    f"de los {q}, lo procedente es negar el amparo solicitado.")
+
+    con_apartados.append(("Estudio.", _estudio))
+
+    if concede:
+        def _efectos(p):
+            _texto_en(p,
+                      f"Consecuentemente, procede conceder el amparo y protección "
+                      f"de la Justicia Federal a {datos.get('quejoso','')} para el "
+                      f"efecto de que {_con_articulo(datos.get('responsable',''))} "
+                      f"deje insubsistente la sentencia reclamada y dicte otra en "
+                      f"la que atienda los lineamientos de esta ejecutoria.")
+        con_apartados.append(("Efectos.", _efectos))
+
+    _emitir(con_apartados)
+
+    # ── RESUELVE ──
+    doc.add_paragraph()
+    parrafo(doc, "Por lo expuesto y fundado, se:", sangria=False)
+    rotulo(doc, "Resuelve")
     formula = _AMPARA if concede else _NO_AMPARA
     tramos(doc, [("ÚNICO. ", {"bold": True}),
                  ("La Justicia de la Unión ", {}),
                  (formula, {"bold": True}),
                  (f" a {datos.get('quejoso','')}, contra el acto que reclamó "
                   f"de {_con_articulo(datos.get('responsable',''))}, precisado "
-                  f"en el {_ORDINALES[0].lower()} resultando de esta "
-                  f"ejecutoria.", {})],
+                  f"en el primer resultando de esta ejecutoria.", {})],
            sangria=False)
 
     parrafo(doc, "Notifíquese; con testimonio de esta resolución, devuélvanse "
