@@ -40,13 +40,20 @@ MAX_ARTICULOS = 12
 
 # «artículo 296 del Código Civil del Estado de Querétaro», «artículos 74,
 # fracción IV y 76 de la Ley de Amparo», «el 1º constitucional».
-_RX_CITA = re.compile(
-    r"art[íi]culos?\s+"
-    r"(\d{1,4})\s*(?:bis|ter|qu[áa]ter)?"
+# LAS CITAS SE ENUMERAN. «los artículos 84, 86, 276 y 277 del Código de
+# Procedimientos Civiles del Estado de Querétaro» son CUATRO artículos y UNA
+# ley, y la ley va al final de la enumeración. Capturar sólo dos números —como
+# hacía la primera versión— perdía la mitad de las citas y, peor, dejaba el
+# nombre de la ley fuera de la ventana, así que ni siquiera se sabía dónde
+# buscarlos.
+_RX_ENUM = re.compile(
+    r"art[íi]culos?\s+"                       # el rótulo
+    r"((?:\d{1,4}(?:\s*(?:bis|ter|qu[áa]ter))?"
     r"(?:\s*,?\s*fracci[óo]n(?:es)?\s+[IVXLC]+(?:\s*(?:,|y)\s*[IVXLC]+)*)?"
-    r"(?:\s*(?:,|y)\s*(\d{1,4}))?"
-    r"([^.;:]{0,110})",
+    r"(?:\s*(?:,|y|e)\s*)?)+)"                # uno o varios números
+    r"([^.;:]{0,140})",                       # y la ley, que va al final
     re.I)
+_RX_NUMERO = re.compile(r"\b(\d{1,4})\b")
 
 _RX_CONSTITUCION = re.compile(r"constituci[óo]n|constitucional", re.I)
 _RX_CONVENCIONAL = re.compile(
@@ -69,7 +76,7 @@ def _palabras(x: str) -> set:
 def citados(estudio: str) -> list:
     """[(número, cómo lo nombró el estudio)] sin repetir."""
     fuera, vistos = [], set()
-    for m in _RX_CITA.finditer(estudio or ""):
+    for m in _RX_ENUM.finditer(estudio or ""):
         # SE MIRA A LOS DOS LADOS. La ley va detrás en «artículo 296 DEL Código
         # Civil» pero DELANTE en «la Convención sobre los Derechos del Niño, en
         # su artículo 3»: mirando sólo hacia atrás, ese artículo se buscaba en
@@ -80,11 +87,10 @@ def citados(estudio: str) -> list:
         # frase, no el párrafo entero.
         antes = (estudio or "")[max(0, m.start() - 140):m.start()]
         antes = re.split(r"(?<=[.;:])\s+", antes)[-1]
-        cola = (antes + " " + (m.group(3) or "")).strip()
-        for num in (m.group(1), m.group(2)):
-            if not num:
-                continue
-            clave = (num, _palabras(cola) and min(_palabras(cola)) or "")
+        cola = (antes + " " + (m.group(2) or "")).strip()
+        # Todos los números de la enumeración comparten la MISMA ley.
+        for num in _RX_NUMERO.findall(m.group(1) or ""):
+            clave = (num, " ".join(sorted(_palabras(cola))[:3]))
             if clave in vistos:
                 continue
             vistos.add(clave)
@@ -139,7 +145,15 @@ def _elegir(pl: list, cola: str) -> list:
         n = len(pedidas & _palabras(ley))
         if n > puntos:
             mejor, puntos = ley, n
-    if not mejor or puntos < 2:
+    # UNA PALABRA DISTINTIVA BASTA cuando es la que separa un código de otro:
+    # «procedimientos» distingue el procesal del civil, «penal» del ambiental.
+    # Exigir dos descartaba citas correctas como «del código procesal civil».
+    _distintivas = {"procedimientos", "penal", "civil", "familiar", "ambiental",
+                    "amparo", "fiscal", "administrativo", "mercantil",
+                    "hacienda", "trabajo"}
+    if not mejor:
+        return []
+    if puntos < 2 and not (_palabras(mejor) & pedidas & _distintivas):
         return []
     return [p for p in pl
             if str(p.get("cuerpo_legal_oficial") or p.get("origen")
