@@ -782,8 +782,15 @@ def escribir_precepto(doc, texto_articulo: str, ley: str, num: str):
     cuerpo = " ".join(str(texto_articulo or "").split())
     if not cuerpo:
         return None
-    cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,14}\.?[-–]?\s*", "", cuerpo,
-                    flags=re.I)
+    # EL ACERVO GUARDA UNA MIGAJA DELANTE: «[Ley de Amparo | CAPÍTULO X
+    # Sentencias | Disposiciones Fundamentales] Artículo 79. La autoridad…».
+    # Es su índice interno, no el precepto, y transcrita queda ridícula en una
+    # sentencia. Se quita, y con ella el «Artículo N.» duplicado que viene
+    # detrás.
+    cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", cuerpo)
+    for _ in range(2):
+        cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,14}\.?[-–]?\s*", "",
+                        cuerpo, flags=re.I)
     q = doc.add_paragraph()
     r = q.add_run(f"«Artículo {num}. {cuerpo}»")
     _fmt(q, sangria=False, tamano=TAMANO_CITA,
@@ -827,6 +834,7 @@ def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
             continue
         _ley = n.get("cuerpo_legal") or n.get("fuente") or ""
         # El texto del acervo ya suele venir con «Artículo N.» delante.
+        cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", cuerpo)
         cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "", cuerpo,
                         flags=re.I)
         pie = f"«Artículo {num}. {cuerpo}» — {_ley}".strip()

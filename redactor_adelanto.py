@@ -251,7 +251,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             criterios, material, e.es_recurso, r.partes, marco)
 
     return await _terminar(cliente, r, e, criterios, material, estudio,
-                           advertencias, avisos, tarea_marco, ruta_salida, qdrant)
+                           advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
 
 
 async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
@@ -282,12 +282,13 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
 
     yield {"tipo": "componiendo"}
     res = await _terminar(cliente, r, e, criterios, material, estudio,
-                          advertencias, avisos, tarea_marco, ruta_salida, qdrant)
+                          advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
     yield {"tipo": "listo", "resultado": res}
 
 
 async def _terminar(cliente, r, e, criterios, material, estudio,
-                    advertencias, avisos, tarea_marco, ruta_salida, qdrant=None):
+                    advertencias, avisos, tarea_marco, ruta_salida, qdrant=None,
+                    marco: str = ""):
     """De la salida del modelo al documento entregado.
 
     Vive fuera de `resolver()` porque la versión en vivo hace exactamente lo
