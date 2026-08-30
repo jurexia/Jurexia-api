@@ -678,7 +678,10 @@ def _calificacion_plural(cs: list) -> str:
 # generador nuevo no las tocaba y salían LITERALES en el cuerpo —quince en el
 # proyecto que leyó David—. Una referencia visible entre corchetes dobles no es
 # una cita rota por descuido: es el andamio del redactor asomando en el papel.
-_MARCA_CITA = re.compile(r"\s*\[\[([^\[\]]{2,120})\]\]")
+# UN CORCHETE DE CIERRE O DOS. El modelo escribió «[[p.38 §3-4; p.39 §1]» con
+# uno solo y la marca sobrevivió entera en el papel. Exigir la forma perfecta
+# de algo que escribe un modelo es garantizar que un día no case.
+_MARCA_CITA = re.compile(r"\s*\[\[([^\[\]]{2,120})\]\]?")
 _UNA_CITA = re.compile(
     r"p{1,2}\.?\s*(\d{1,4})(?:\s*[-–]\s*\d{1,4})?"
     r"(?:\s*§+\s*(\d{1,3}(?:\s*[-–]\s*\d{1,3})?))?", re.I)
@@ -1136,6 +1139,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                  "archívese el expediente como asunto concluido.", sangria=False)
 
     _bloque_firmas(doc, datos)
+    # RED DE SEGURIDAD. Si alguna marca sobrevivió a todo lo anterior —porque el
+    # modelo la escribió de una forma que no previmos—, se borra antes de
+    # guardar. El andamio no sale al papel, y punto.
+    _RX_RESTO = re.compile(r"\s*\[{1,2}[^\[\]]{0,120}\]{0,2}")
+    for p in doc.paragraphs:
+        if "[[" in p.text:
+            entero = _RX_RESTO.sub("", p.text)
+            if p.runs:
+                p.runs[0].text = entero
+                for r in p.runs[1:]:
+                    r.text = ""
     doc.save(ruta_salida)
     _inyectar_notas(ruta_salida, notas)
     return ruta_salida
