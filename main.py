@@ -26161,7 +26161,8 @@ async def taller_resolver_stream(
     async def emitir():
         try:
             async for paso in _ra.resolver_en_vivo(
-                    chat_client, r, crit, ses["material"], salida, _marco):
+                    chat_client, r, crit, ses["material"], salida, _marco,
+                    qdrant=qdrant_client):
                 tipo = paso.get("tipo")
                 if tipo == "texto":
                     yield ("data: " + json.dumps(
@@ -26312,7 +26313,8 @@ async def taller_resolver(
         print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres "
               f"· {time.time() - _t0_marco:.1f}s")
 
-    r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida, _marco)
+    r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida,
+                            _marco, qdrant=qdrant_client)
     _taller_registrar_uso(user_email, numero, "proyecto")
 
     print(f"   ⚖️ TALLER: proyecto {numero} · {len(r2.estudio.split())} palabras "

@@ -222,7 +222,7 @@ async def consultar(qdrant, embed_juris, embed_leyes,
 
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                    material: f6.Material, ruta_salida: str,
-                   marco: str = "") -> Resultado:
+                   marco: str = "", qdrant=None) -> Resultado:
     """La sentencia: el mismo documento, ahora con el estudio de fondo dentro.
 
     Se REENSAMBLA desde la plantilla en vez de editar el adelanto, porque el
@@ -251,12 +251,12 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             criterios, material, e.es_recurso, r.partes, marco)
 
     return await _terminar(cliente, r, e, criterios, material, estudio,
-                           advertencias, avisos, tarea_marco, ruta_salida)
+                           advertencias, avisos, tarea_marco, ruta_salida, qdrant)
 
 
 async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                            material: f6.Material, ruta_salida: str,
-                           marco: str = ""):
+                           marco: str = "", qdrant=None):
     """La sentencia, viéndose escribir. Rinde trozos y, al final, el Resultado."""
     e = r.encargo
     avisos: list[str] = []
@@ -282,12 +282,12 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
 
     yield {"tipo": "componiendo"}
     res = await _terminar(cliente, r, e, criterios, material, estudio,
-                          advertencias, avisos, tarea_marco, ruta_salida)
+                          advertencias, avisos, tarea_marco, ruta_salida, qdrant)
     yield {"tipo": "listo", "resultado": res}
 
 
 async def _terminar(cliente, r, e, criterios, material, estudio,
-                    advertencias, avisos, tarea_marco, ruta_salida):
+                    advertencias, avisos, tarea_marco, ruta_salida, qdrant=None):
     """De la salida del modelo al documento entregado.
 
     Vive fuera de `resolver()` porque la versión en vivo hace exactamente lo
@@ -311,6 +311,32 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         responsable=getattr(e, 'responsable', '') or '',
         es_recurso=e.es_recurso,
     )
+    # ═══ LOS ARTÍCULOS QUE DE VERDAD CITÓ ══════════════════════════════
+    # Antes se buscaban por parecido ANTES de escribir, cuatro por problema, y
+    # si el estudio acababa citando otros se quedaban sin texto y sin nota al
+    # pie. Ahora se lee qué citó y se piden ESOS por número: `articulo_num`
+    # está indexado en las 34 colecciones de leyes. No es adivinar lo que hará
+    # falta, es traer lo que hizo falta.
+    try:
+        if qdrant is None:
+            raise RuntimeError("sin cliente de Qdrant")
+        import fase_normas as _fn
+        with cronometrar("artículos citados"):
+            _extra = await _fn.recuperar(
+                qdrant, estudio,
+                (e.coleccion_estatal or "") if hasattr(e, "coleccion_estatal") else "")
+        if _extra:
+            _ya = {(str(n_.get("articulo")), str(n_.get("cuerpo_legal") or
+                                                 n_.get("fuente") or ""))
+                   for n_ in (material.normas or [])}
+            nuevos = [x for x in _extra
+                      if (x["articulo"], x["cuerpo_legal"]) not in _ya]
+            material.normas = list(material.normas or []) + nuevos
+            print(f"   ⚖️ artículos citados recuperados: {len(nuevos)} nuevos "
+                  f"de {len(_extra)} hallados")
+    except Exception as _ea:
+        avisos.append(f"No se pudieron recuperar los artículos citados: {_ea}")
+
     marco_escrito = ""
     if tarea_marco is not None:
         with cronometrar("marco escrito"):
