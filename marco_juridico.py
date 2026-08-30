@@ -297,8 +297,12 @@ async def construir(qdrant, embed, problemas: list[str],
     v_conv = await embed(_consulta_convencional(arts_pedidos, problemas)) \
         if quiere_conv else None
     const, conv, coidh, locales = await asyncio.gather(
-        _buscar(qdrant, COLECCION, "dense", v, 60, _f("constitucion"))
-        if arts_pedidos else _vacio(),
+        # LA CONSTITUCIÓN NO SE BUSCA POR SEMEJANZA: SE PIDE POR NÚMERO. Con
+        # 355 fragmentos y una consulta sobre alimentos, el 1º y el 4º no
+        # entraban entre los sesenta primeros y el marco salía sin ellos —y el
+        # modelo acababa citándolos de memoria—. El payload trae `articulo_num`
+        # exacto: se filtra, que es determinista y completo.
+        _traer_articulos(qdrant, arts_pedidos) if arts_pedidos else _vacio(),
         _buscar(qdrant, COLECCION, "dense", v_conv, 8, _f("convencion"))
         if quiere_conv else _vacio(),
         _buscar(qdrant, COLECCION, "dense", v_conv, 10, _f("cuadernillo"))
@@ -345,6 +349,10 @@ async def construir(qdrant, embed, problemas: list[str],
                 tema=str(p.get("cuadernillo_tema") or ""),
                 parrafo=str(p.get("parrafo") or ""), texto=t))
 
+    print(f"   ⚖️ marco: arts pedidos {arts_pedidos} · constitucionales "
+          f"{len(m.constitucionales)} · convencionales {len(m.convencionales)} "
+          f"· CoIDH {len(m.coidh)} · locales {min(len(locales or []), MAX_LOCALES)}")
+
     for p in (locales or [])[:MAX_LOCALES]:
         t = (p.get("texto") or "").strip()
         if t:
@@ -352,6 +360,27 @@ async def construir(qdrant, embed, problemas: list[str],
                 fuente=str(p.get("cuerpo_legal_oficial") or p.get("ref") or ""),
                 articulo=str(p.get("articulo_num") or ""), texto=t, orden=3))
     return m
+
+
+async def _traer_articulos(qdrant, arts: list[str]) -> list[dict]:
+    """Los fragmentos de esos artículos constitucionales, todos y exactos."""
+    import inspect
+    from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
+    filtro = Filter(must=[
+        FieldCondition(key="tipo", match=MatchValue(value="constitucion")),
+        FieldCondition(key="articulo_num",
+                       match=MatchAny(any=[str(a) for a in arts])),
+    ])
+    try:
+        r = qdrant.scroll(collection_name=COLECCION, scroll_filter=filtro,
+                          limit=400, with_payload=True)
+        if inspect.isawaitable(r):
+            r = await r
+        puntos = r[0] if isinstance(r, tuple) else r
+        return [p.payload for p in puntos]
+    except Exception as e:
+        print(f"   ⚠️ marco: no se pudieron traer los artículos {arts}: {e}")
+        return []
 
 
 async def _vacio():
