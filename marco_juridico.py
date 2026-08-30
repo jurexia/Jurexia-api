@@ -62,9 +62,15 @@ _RX_ART_JERARQUIA = re.compile(r"Art\.?\s*(\d{1,3})\s*[o°ºª]?\s*(?:BIS|TER)?\
 TEMAS_CONSTITUCIONALES = {
     "1": ("derechos humanos", "pro persona", "interpretación conforme",
           "control de convencionalidad", "discriminación", "convencionalidad"),
+    # RAÍCES, NO PALABRAS ENTERAS. El problema jurídico del ADC 380/2025 decía
+    # «la pensión alimenticia definitiva en favor de E.M.O.R.»: no contiene
+    # «alimentos» ni «menor» —la menor va por sus iniciales— y el marco no se
+    # construyó en un asunto de familia con una niña de por medio. Con «aliment»
+    # entra alimentos, alimenticia y alimentaria.
     "4": ("interés superior", "menor", "menores", "niña", "niño", "adolescente",
-          "familia", "alimentos", "habitación", "igualdad entre el hombre y la mujer",
-          "salud", "vivienda digna"),
+          "infancia", "familia", "aliment", "orfandad", "pensión", "habitación",
+          "custodia", "guarda", "convivencia", "patria potestad", "filiación",
+          "igualdad entre el hombre y la mujer", "salud", "vivienda digna"),
     "14": ("retroactividad", "formalidades esenciales", "debido proceso",
            "privación", "audiencia", "exacta aplicación"),
     "16": ("fundamentación", "motivación", "acto de molestia", "mandamiento escrito"),

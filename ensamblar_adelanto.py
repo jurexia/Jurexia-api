@@ -522,13 +522,21 @@ def clonar_bloque(ancla, textos, modelo, modelo_vacio, doc=None, tesis=None,
                 # añadirlo, dejando «…de rubro y texto siguientes: de rubro y
                 # texto siguientes:». Lo vio David en el ADC 380/2025.
                 anuncio = _RX_COLA_ANUNCIO.sub("", antes).rstrip(" ,;:")
-                escribir(ancla, f"{anuncio} de rubro y texto siguientes:")
-                _sangrar(ancla)
-                ancla.paragraph_format.keep_with_next = True
-                if modelo_vacio is not None:
-                    ancla = clonar_tras(ancla, "", modelo_vacio)
+                # SI NO HAY ANUNCIO, EL ANUNCIO YA ESTÁ ARRIBA. El modelo suele
+                # escribir «…de registro 2018735, de rubro y texto siguientes:»
+                # en un párrafo y el rubro en el SIGUIENTE. Al procesar el del
+                # rubro, `antes` viene vacío y aquí se escribía la etiqueta a
+                # secas, dejando «de rubro y texto siguientes:» dos veces
+                # seguidas. Es el defecto que vio David, y no estaba en la
+                # coleta sino en el párrafo sin anuncio.
+                if anuncio:
+                    escribir(ancla, f"{anuncio} de rubro y texto siguientes:")
+                    _sangrar(ancla)
                     ancla.paragraph_format.keep_with_next = True
-                ancla = clonar_tras(ancla, m_r.group(0), modelo_cita or modelo)
+                    if modelo_vacio is not None:
+                        ancla = clonar_tras(ancla, "", modelo_vacio)
+                        ancla.paragraph_format.keep_with_next = True
+                    ancla = clonar_tras(ancla, m_r.group(0), modelo_cita or modelo)
                 escribir_tramos(ancla, [(m_r.group(0), {"bold": True, "italic": True})])
                 _aplicar_formato_cita(ancla)
                 for r_ in ancla.runs:
@@ -744,10 +752,60 @@ def _inicio_considerando(doc) -> int:
 _RX_TACHADO = re.compile(r"^[\s*_\-–—.·•xX]+$")
 
 
+# La línea «QUEJOSO:» viene tachada, pero el RESOLUTIVO y el RESULTANDO no: la
+# plantilla `amparo_directo` es el asunto de una persona real y la nombra
+# cuatro veces. La anonimización rompió el mecanismo por los dos lados —tachó
+# la referencia que se usaba para sustituir y dejó el nombre donde de verdad
+# está—, así que el nombre de un litigante ajeno viajaba dentro de CADA
+# proyecto que salía. Se busca donde de verdad aparece.
+_RX_NOMBRE_RESOLUTIVO = re.compile(
+    r"(?:no\s+)?ampara(?:\s+y|\s+ni)\s+protege\s+a\s+"
+    r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ.\s]{5,70}?)\s*,", re.I)
+_RX_NOMBRE_PROMOVIO = re.compile(
+    r"promovid[oa]\s+por\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ.\s]{5,70}?)\s*,")
+# «…, Juan Carlos Quevedo Regadado, por propio derecho, promovió…»: aquí el
+# nombre va ANTES del verbo, y con la otra grafía del apellido.
+_RX_NOMBRE_DERECHO = re.compile(
+    r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ.\s]{5,70}?)\s*,\s*por\s+(?:su\s+)?propio\s+derecho")
+_RX_NOMBRE_ACTOR = re.compile(
+    r"(?:del|el|la)\s+(?:actor|actora|demandad[oa]|apelante)\s+"
+    r"([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ.\s]{5,70}?)\s*,")
+_NO_ES_NOMBRE = ("la parte", "el quejoso", "la quejosa", "quien", "la suscrita",
+                 "el suscrito", "la parte citada", "propio derecho")
+
+
+def nombres_de_plantilla(ruta: str) -> list[str]:
+    """Los nombres de personas reales que trae la plantilla dentro.
+
+    Se leen del resolutivo, del resultando y de la síntesis, que es donde la
+    anonimización no llegó. Devuelve TODAS las grafías: esta plantilla escribe
+    el mismo apellido de dos maneras —«Regadado» y «Regalado»—, y sustituir
+    sólo una deja la otra firmada.
+    """
+    d = docx.Document(ruta)
+    fuera: list[str] = []
+    for parte in _partes_con_texto(d):
+        for p in _parrafos_todos(parte):
+            t = texto_de(p)
+            for rx in (_RX_NOMBRE_RESOLUTIVO, _RX_NOMBRE_PROMOVIO,
+                       _RX_NOMBRE_DERECHO, _RX_NOMBRE_ACTOR):
+                for m in rx.finditer(t):
+                    nombre = " ".join(m.group(1).split())
+                    if _RX_TACHADO.match(nombre):
+                        continue
+                    if any(x in nombre.lower() for x in _NO_ES_NOMBRE):
+                        continue
+                    if len(nombre.split()) < 2:      # un nombre lleva apellido
+                        continue
+                    if nombre not in fuera:
+                        fuera.append(nombre)
+    return fuera
+
+
 def _quejoso_de_plantilla(ruta: str) -> str:
     """El quejoso que trae la plantilla, para poder sustituirlo en todo el texto.
 
-    Devuelve vacío si viene tachado: entonces NO hay nada que sustituir.
+    Si la línea «QUEJOSO:» viene tachada, se busca en el resolutivo.
     """
     d = docx.Document(ruta)
     for p in d.paragraphs:
@@ -755,10 +813,10 @@ def _quejoso_de_plantilla(ruta: str) -> str:
         m = re.match(r"^QUEJOS[OA]\s*:\s*(.+?)\.?$", t, re.I)
         if m:
             nombre = m.group(1).strip()
-            if _RX_TACHADO.match(nombre):
-                return ""
-            return nombre
-    return ""
+            if not _RX_TACHADO.match(nombre):
+                return nombre
+    nombres = nombres_de_plantilla(ruta)
+    return nombres[0] if nombres else ""
 
 
 # ═══ EL NÚMERO QUE SE QUEDÓ DE LA PLANTILLA ════════════════════════════════
@@ -994,12 +1052,29 @@ def ensamblar(ruta_plantilla: str, r: Relleno, ruta_salida: str) -> str:
                             f"«{ap}». Compruébalo: se firma tal cual.")
                         break
 
-    if r.quejoso and quejoso_viejo:
-        for p in doc.paragraphs:
-            t = texto_de(p)
-            if quejoso_viejo.lower() in t.lower():
-                escribir(p, re.sub(re.escape(quejoso_viejo), r.quejoso.title(),
-                                   t, flags=re.I))
+    # TODAS las grafías, y en todas las partes. La plantilla escribe el mismo
+    # apellido de dos maneras y en el encabezado, el cuerpo y la síntesis.
+    if r.quejoso:
+        _ajenos = nombres_de_plantilla(ruta_plantilla)
+        if quejoso_viejo and quejoso_viejo not in _ajenos:
+            _ajenos.insert(0, quejoso_viejo)
+        _cambiados = 0
+        for parte in _partes_con_texto(doc):
+            for p in _parrafos_todos(parte):
+                t = texto_de(p)
+                nuevo = t
+                for viejo in _ajenos:
+                    if viejo.lower() in nuevo.lower():
+                        nuevo = re.sub(re.escape(viejo), r.quejoso.title(),
+                                       nuevo, flags=re.I)
+                if nuevo != t:
+                    escribir(p, nuevo)
+                    _cambiados += 1
+        if _cambiados:
+            avisos_ensamblado.append(
+                f"La plantilla nombraba a {', '.join(_ajenos)}: se sustituyó en "
+                f"{_cambiados} párrafos por el quejoso de este asunto. "
+                f"Compruébalo, que es un nombre y se firma.")
     if r.numero_asunto:
         rx_num = re.compile(r"\b\d{1,4}\s*/\s*\d{4}\b")
         for patron in (r"^V\s?I\s?S\s?T", r"^ÚNICO\.", r"^PRIMERO\.\s*(?:Se |La Justicia)"):
@@ -1168,9 +1243,45 @@ def residuo_de_plantilla(ruta: str, numero: str = "",
         fuera.append(f"{dobles} citas anuncian «de rubro y texto siguientes:» "
                      f"DOS VECES seguidas.")
 
-    # 3. El nombre del quejoso metido donde no habla de él. Si aparece pegado a
-    #    un acuerdo, un órgano o una fecha, es una sustitución que se pasó de
-    #    largo, no una mención.
+    # 3. PÁRRAFOS ENTEROS QUE SOBREVIVEN IDÉNTICOS. La señal más fuerte y la
+    #    más general: si un párrafo largo del proyecto está palabra por palabra
+    #    en la plantilla, no lo escribió este asunto. Así salió la página de
+    #    síntesis del ADC 380/2025, que seguía contando una disolución de
+    #    copropiedad ajena bajo el rótulo «Antecedentes».
+    if ruta_plantilla:
+        try:
+            plan = docx.Document(ruta_plantilla)
+        except Exception:
+            plan = None
+        if plan is not None:
+            suyos = set()
+            for parte in _partes_con_texto(plan):
+                for p in _parrafos_todos(parte):
+                    t = " ".join(texto_de(p).split())
+                    if len(t.split()) >= 25:
+                        suyos.add(t)
+            # NO TODO LO CALCADO ES DEFECTO. «Querétaro, Querétaro. Resolución
+            # del Tercer Tribunal Colegiado…» abre TODAS las sentencias de este
+            # tribunal y debe repetirse. Lo que no puede repetirse es un
+            # párrafo con datos del otro asunto dentro: un nombre propio, un
+            # número de expediente o una fecha escrita en letra.
+            _rx_dato = re.compile(
+                r"\b\d{1,5}/(?:19|20)\d{2}\b"
+                r"|\b(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|"
+                r"septiembre|octubre|noviembre|diciembre)\b"
+                r"|\b(?:[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+){2}[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\b",
+                re.I)
+            calcados = []
+            for parte in partes:
+                for p in _parrafos_todos(parte):
+                    t = " ".join(texto_de(p).split())
+                    if len(t.split()) >= 25 and t in suyos and _rx_dato.search(t):
+                        calcados.append(t)
+            if calcados:
+                fuera.append(
+                    f"{len(calcados)} párrafos siguen IGUALES a los de la "
+                    f"plantilla, palabra por palabra: no los escribió este "
+                    f"asunto. El primero empieza «{calcados[0][:150]}…»")
     return fuera
 
 
