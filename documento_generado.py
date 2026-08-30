@@ -925,6 +925,47 @@ def _norm_palabras(t: str) -> list:
     return re.sub(r"[^a-z0-9 ]+", " ", t).split()
 
 
+# ═══ LOS EFECTOS LOS ESCRIBE EL MODELO, NO LA PLANTILLA ════════════════════
+# Auditando el proyecto salió el defecto más caro de todos: el modelo había
+# redactado SIETE efectos concretos —«el quinto efecto consiste en que obtenga
+# información oficial sobre el importe, periodicidad y condiciones de pago de
+# la pensión por orfandad»— y el compositor los tiraba para poner en su lugar
+# «dicte otra en la que atienda los lineamientos de esta ejecutoria».
+#
+# Es justo el efecto que NO se puede ejecutar sin interpretarlo, que es lo que
+# el corpus prohíbe. La responsable recibe la ejecutoria y no sabe qué hacer.
+# Se usan los del modelo; la fórmula de plantilla queda de respaldo para cuando
+# no los haya escrito.
+_RX_INICIO_EFECTOS = re.compile(
+    r"(?:^|\s)(?:por\s+tanto,?\s+)?la\s+concesi[óo]n\s+del\s+amparo\s+debe\s+"
+    r"producir\s+los\s+efectos|^\s*los\s+efectos\s+de\s+la\s+concesi[óo]n|"
+    r"^\s*el\s+primer\s+efecto\s+consiste", re.I)
+_RX_UN_EFECTO = re.compile(
+    r"^\s*(?:el\s+)?(?:primer|segundo|tercer|cuarto|quinto|sexto|s[ée]ptimo|"
+    r"octavo)\s+efecto\b", re.I)
+
+
+def partir_efectos(estudio: list) -> tuple:
+    """(estudio sin los efectos, párrafos de efectos). Vacío si no los escribió."""
+    if not estudio:
+        return list(estudio or []), []
+    corte = None
+    for i, t in enumerate(estudio):
+        if _RX_INICIO_EFECTOS.search(t or "") or _RX_UN_EFECTO.match(t or ""):
+            corte = i
+            break
+    if corte is None:
+        return list(estudio), []
+    cuerpo = list(estudio[:corte])
+    efectos = [x for x in estudio[corte:] if (x or "").strip()]
+    # El párrafo final de cierre —«por lo que procede conceder el amparo…»— no
+    # es un efecto: cierra el estudio y ya lo pone el resolutivo.
+    while efectos and re.search(r"procede\s+conceder\s+el\s+amparo",
+                                efectos[-1], re.I) and len(efectos) > 1:
+        efectos.pop()
+    return cuerpo, efectos
+
+
 def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
     citadas = 0
@@ -1300,6 +1341,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     # EL ESTUDIO. Es el ÚLTIMO considerando salvo que detrás vaya Efectos, y
     # lleva dentro los subtítulos en negrita, sin ordinal.
+    _cuerpo_estudio, _efectos_escritos = partir_efectos(estudio or [])
+
     def _estudio(p):
         calif = _calificacion_plural(cs)
         _texto_en(p, f"Los {q} son {calif}." if calif else "")
@@ -1319,7 +1362,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 if x.strip():
                     parrafo(doc, x.strip())
         _subtitulo(doc, "Solución")
-        _escribir_estudio(doc, estudio, tesis, notas, normas)
+        _escribir_estudio(doc, _cuerpo_estudio, tesis, notas, normas)
         if not concede:
             parrafo(doc,
                     f"Por lo expuesto, dado lo {_calificacion_plural(cs) or 'infundado'} "
@@ -1329,6 +1372,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     if concede:
         def _efectos(p):
+            if _efectos_escritos:
+                _texto_en(p, _efectos_escritos[0], _efectos_escritos[1:])
+                return
             _texto_en(p,
                       f"Consecuentemente, procede conceder el amparo y protección "
                       f"de la Justicia Federal a {datos.get('quejoso','')} para el "
