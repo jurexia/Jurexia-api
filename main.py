@@ -26009,10 +26009,46 @@ async def taller_consultar(
     }
 
 
+@app.post("/taller/contexto")
+async def taller_contexto(
+    user_email: str = Form(...),
+    texto: str = Form(""),
+    documento: Optional[UploadFile] = File(None),
+):
+    """Lo que el acervo no tiene y el secretario sí.
+
+    Cuando el motor no alcanza a proponer lo dice con precisión —«falta el
+    texto contractual y el resultado del cotejo», «el acervo no contiene la
+    cláusula 64»— y hasta ahora eso era un callejón sin salida: el secretario
+    leía el diagnóstico y no podía hacer nada con él.
+
+    Aquí sube el contrato colectivo, el convenio o el acta, o lo escribe a
+    mano, y el texto vuelve a él para que lo mande con la propuesta y con el
+    estudio. NO se guarda en el servidor: viaja con la petición, que es lo que
+    hace que funcione con dos workers y lo que evita quedarse con documentos
+    de un expediente ajeno más tiempo del necesario.
+    """
+    _taller_puerta(user_email)
+    partes = []
+    if (texto or "").strip():
+        partes.append(texto.strip())
+    if documento is not None and getattr(documento, "filename", ""):
+        extraido = await _extract_text_from_upload(documento)
+        if (extraido or "").strip():
+            partes.append(f"[{documento.filename}]\n{extraido.strip()}")
+    junto = "\n\n".join(partes)
+    if not junto:
+        raise HTTPException(400, "No llegó ni documento ni texto que aportar.")
+    print(f"   ⚖️ TALLER: contexto aportado · {len(junto)} caracteres")
+    return {"texto": junto[:60000], "caracteres": len(junto),
+            "recortado": len(junto) > 60000}
+
+
 @app.post("/taller/proponer")
 async def taller_proponer(
     numero: str = Form(...),
     user_email: str = Form(...),
+    contexto: str = Form(""),
 ):
     """LA PROPUESTA DE SOLUCIÓN. Propone, no decide.
 
@@ -26051,7 +26087,8 @@ async def taller_proponer(
         chat_client, problemas, ses["material"],
         "\n".join(r.fases.parrafos_acto() or []),
         "\n".join(r.fases.parrafos_conceptos() or []),
-        bool(r.encargo and r.encargo.es_recurso))
+        bool(r.encargo and r.encargo.es_recurso),
+        contexto)
 
     # LA PROPUESTA VIAJA DE VUELTA, no se queda aquí. Render corre gunicorn con
     # DOS workers: lo que guarde este proceso puede no existir en el que atienda
@@ -26092,6 +26129,7 @@ async def taller_resolver_stream(
     problema: str = Form(""),
     razonamiento: str = Form(""),
     criterios_json: str = Form(""),
+    contexto: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -26162,7 +26200,7 @@ async def taller_resolver_stream(
         try:
             async for paso in _ra.resolver_en_vivo(
                     chat_client, r, crit, ses["material"], salida, _marco,
-                    qdrant=qdrant_client):
+                    qdrant=qdrant_client, contexto=contexto):
                 tipo = paso.get("tipo")
                 if tipo == "texto":
                     yield ("data: " + json.dumps(
@@ -26233,6 +26271,7 @@ async def taller_resolver(
     razonamiento: str = Form(""),            # SU criterio: lo que alinea el estudio
     usar_propuesta: bool = Form(False),      # acepta la de /taller/proponer
     criterios_json: str = Form(""),          # la propuesta devuelta, ya revisada
+    contexto: str = Form(""),                # lo que el acervo no tenía
 ):
     """La sentencia, con el criterio del secretario dentro."""
     _taller_puerta(user_email)
@@ -26314,7 +26353,7 @@ async def taller_resolver(
               f"· {time.time() - _t0_marco:.1f}s")
 
     r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida,
-                            _marco, qdrant=qdrant_client)
+                            _marco, qdrant=qdrant_client, contexto=contexto)
     _taller_registrar_uso(user_email, numero, "proyecto")
 
     print(f"   ⚖️ TALLER: proyecto {numero} · {len(r2.estudio.split())} palabras "

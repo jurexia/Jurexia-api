@@ -112,8 +112,35 @@ def _bloque_normas(material, limite: int = 10) -> str:
     return "\n".join(fuera)
 
 
+def _bloque_contexto(contexto: str) -> str:
+    """Lo que el secretario aportó porque el acervo no lo tenía.
+
+    El motor dice qué le falta —«falta el texto contractual y el resultado del
+    cotejo», «el acervo no contiene la cláusula 64»— y hasta ahora eso era un
+    callejón sin salida: el secretario leía el diagnóstico y no podía hacer
+    nada con él. Ahora sube el contrato, el convenio o el acta y el motor
+    propone con eso delante.
+    """
+    c = (contexto or "").strip()
+    if not c:
+        return ""
+    return f"""
+
+═══════════════════════════════════════════════════════════════════════
+DOCUMENTO APORTADO POR EL SECRETARIO
+═══════════════════════════════════════════════════════════════════════
+Esto NO estaba en el acervo: lo aporta quien tiene el expediente delante
+porque tú dijiste que te faltaba. Vale como material: cítalo por lo que dice,
+identificándolo como el documento aportado, y NO lo confundas con
+jurisprudencia ni le inventes un registro.
+
+{c[:20000]}
+"""
+
+
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
-                     resumen_conceptos: str, es_recurso: bool = False) -> str:
+                     resumen_conceptos: str, es_recurso: bool = False,
+                     contexto: str = "") -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     tesis = _tesis_del_material(material)
     lista = "\n".join(
@@ -143,6 +170,7 @@ JURISPRUDENCIA DEL ACERVO — es TODO lo que puedes invocar
 
 NORMAS DEL ACERVO
 {_bloque_normas(material)}
+{_bloque_contexto(contexto)}
 
 CÓMO SE CALIFICA, y no son sinónimos:
 - FUNDADO: el planteamiento combate la razón de la responsable y tiene razón.
@@ -227,8 +255,8 @@ def revisar(propuestas: list, material) -> list:
 
 
 async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
-                   resumen_conceptos: str = "", es_recurso: bool = False
-                   ) -> tuple[list, list]:
+                   resumen_conceptos: str = "", es_recurso: bool = False,
+                   contexto: str = "") -> tuple[list, list]:
     """Devuelve (propuestas, avisos). No decide nada: propone."""
     if not problemas:
         return [], []
@@ -236,7 +264,7 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,
-                  es_recurso)}])
+                  es_recurso, contexto)}])
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     r = await cliente.chat.completions.create(**kw)

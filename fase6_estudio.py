@@ -191,9 +191,24 @@ def _bloque_material(m: Material) -> str:
     return "\n".join(p)
 
 
+def _bloque_aportado(contexto: str) -> str:
+    """El documento que el secretario subió porque el acervo no lo tenía."""
+    c = (contexto or "").strip()
+    if not c:
+        return ""
+    return ("\n═══════════════════════════════════════════════════════════════\n"
+            "DOCUMENTO APORTADO POR EL SECRETARIO — no estaba en el acervo\n"
+            "═══════════════════════════════════════════════════════════════\n"
+            "Lo trae quien tiene el expediente delante. Cítalo por lo que dice,\n"
+            "identificándolo como el documento aportado; NO le inventes un\n"
+            "registro ni lo trates como jurisprudencia.\n\n"
+            + c[:20000] + "\n")
+
+
 def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
-                   es_recurso: bool = False, partes=None, marco=None) -> str:
+                   es_recurso: bool = False, partes=None, marco=None,
+                   contexto: str = "") -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     calif = _calificacion(criterios)
     # EL MARCO SE REPITE AL FINAL. Medido en el proyecto 360/2025: se le
@@ -402,6 +417,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
   ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
   escribe que el punto no está acreditado y sigue.
+{_bloque_aportado(contexto)}
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_criterio(criterios)}
@@ -942,7 +958,8 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
 
 async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                            criterios: list[Criterio], material: Material,
-                           es_recurso: bool = False, partes=None, marco=None):
+                           es_recurso: bool = False, partes=None, marco=None,
+                           contexto: str = ""):
     """El estudio, trozo a trozo, según lo escribe el modelo.
 
     David: «que el usuario vea el texto escribiéndose sería de ayuda». No
@@ -956,7 +973,7 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000, stream=True,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
-                  es_recurso, partes, marco)}])
+                  es_recurso, partes, marco, contexto)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     entero = []
@@ -977,13 +994,13 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
 
 async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
-                   es_recurso: bool = False, partes=None, marco=None
-                   ) -> tuple[str, str, list[str]]:
+                   es_recurso: bool = False, partes=None, marco=None,
+                   contexto: str = "") -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos)."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
-                  es_recurso, partes, marco)}])
+                  es_recurso, partes, marco, contexto)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     r = await cliente.chat.completions.create(**kw)

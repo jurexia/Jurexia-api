@@ -222,7 +222,7 @@ async def consultar(qdrant, embed_juris, embed_leyes,
 
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                    material: f6.Material, ruta_salida: str,
-                   marco: str = "", qdrant=None) -> Resultado:
+                   marco: str = "", qdrant=None, contexto: str = "") -> Resultado:
     """La sentencia: el mismo documento, ahora con el estudio de fondo dentro.
 
     Se REENSAMBLA desde la plantilla en vez de editar el adelanto, porque el
@@ -248,7 +248,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
-            criterios, material, e.es_recurso, r.partes, marco)
+            criterios, material, e.es_recurso, r.partes, marco, contexto)
 
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
@@ -256,7 +256,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 
 async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                            material: f6.Material, ruta_salida: str,
-                           marco: str = "", qdrant=None):
+                           marco: str = "", qdrant=None, contexto: str = ""):
     """La sentencia, viéndose escribir. Rinde trozos y, al final, el Resultado."""
     e = r.encargo
     avisos: list[str] = []
@@ -271,7 +271,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     t0 = _time.perf_counter()
     async for paso in f6.redactar_en_vivo(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
-            criterios, material, e.es_recurso, r.partes, marco):
+            criterios, material, e.es_recurso, r.partes, marco, contexto):
         if paso.get("tipo") == "texto":
             yield paso
         else:
