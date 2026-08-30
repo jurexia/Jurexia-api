@@ -193,6 +193,14 @@ def _leer(crudo: str) -> list:
     return datos.get("propuestas") or []
 
 
+# El modelo escribe el apoyo como lo diría una sentencia —«registro 2007719»,
+# «art. 296 del Código Civil del Estado de Querétaro»— y comparar esa cadena
+# contra los registros pelados cantaba invención donde no la había. Se compara
+# la CIFRA, y lo que no trae cifra de registro es una norma: se deja pasar,
+# porque una norma también es apoyo legítimo.
+_RX_CIFRA_REGISTRO = re.compile(r"\b(\d{6,7})\b")
+
+
 def revisar(propuestas: list, material) -> list:
     """Lo comprobable sin modelo. Ninguna de estas es opinión."""
     avisos = []
@@ -202,7 +210,11 @@ def revisar(propuestas: list, material) -> list:
             continue
         if p.sentido not in SENTIDOS:
             avisos.append(f"Sentido no reconocido: «{p.sentido}».")
-        inventados = [a for a in p.apoyos if str(a) not in validos]
+        inventados = []
+        for a in p.apoyos:
+            m = _RX_CIFRA_REGISTRO.search(str(a))
+            if m and m.group(1) not in validos:
+                inventados.append(str(a))
         if inventados:
             avisos.append(
                 f"La propuesta se apoya en registros que NO están en el acervo: "

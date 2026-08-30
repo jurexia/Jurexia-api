@@ -20155,7 +20155,7 @@ def _taller_secretarios_distintos() -> int:
             # Si no se puede contar NO se cierra el piloto: dejar fuera a un
             # secretario por un fallo de base de datos es peor que dejar entrar
             # a uno de más.
-            logger.warning("No se pudo contar el piloto del taller: %s", e)
+            print(f"   ⚠️ No se pudo contar el piloto del taller: {e}")
             return _taller_piloto_cache["n"] or 0
     _taller_piloto_cache.update(n=n, ts=ahora)
     return n
@@ -20170,7 +20170,7 @@ def _taller_registrar_uso(email: str, expediente: str = "", etapa: str = "adelan
             "expediente": expediente or None, "etapa": etapa}).execute()
         _taller_piloto_cache["ts"] = 0.0        # que el próximo conteo sea fresco
     except Exception as e:
-        logger.warning("No se pudo registrar el uso del taller: %s", e)
+        print(f"   ⚠️ No se pudo registrar el uso del taller: {e}")
 
 
 def _cabecera_segura(avisos: list) -> str:
@@ -25837,17 +25837,21 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
     # Son unos 450 KB por asunto en curso, y se borran con la sesión.
     fila = {"email": (email or "").strip().lower(), "expediente": numero,
             "estado": estado, "consultado": False}
-    try:
-        import base64 as _b64
-        with open(e.plantilla, "rb") as _fh:
-            fila["plantilla"] = "\\x" + _fh.read().hex()
-    except Exception as ex:
-        logger.warning("No se pudo guardar la plantilla del taller: %s", ex)
+    # En modo `generado` NO HAY PLANTILLA que viajar: el documento se escribe
+    # entero. Intentar abrir la ruta vacía reventaba el adelanto entero —y el
+    # `logger` de este manejador no existe en este módulo, así que el
+    # FileNotFoundError salía disfrazado de NameError y no se veía la causa—.
+    if e.plantilla:
+        try:
+            with open(e.plantilla, "rb") as _fh:
+                fila["plantilla"] = "\\x" + _fh.read().hex()
+        except Exception as ex:
+            print(f"   ⚠️ TALLER: no se pudo guardar la plantilla: {ex}")
     try:
         supabase_admin.table("taller_sesiones").upsert(
             fila, on_conflict="email,expediente").execute()
     except Exception as ex:
-        logger.warning("No se pudo guardar la sesión del taller: %s", ex)
+        print(f"   ⚠️ TALLER: no se pudo guardar la sesión: {ex}")
 
 
 def _taller_recuperar_sesion(email: str, numero: str):
@@ -25866,7 +25870,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
             return None
         est = r.data[0]["estado"]
     except Exception as ex:
-        logger.warning("No se pudo recuperar la sesión del taller: %s", ex)
+        print(f"   ⚠️ No se pudo recuperar la sesión del taller: {ex}")
         return None
 
     # Se rehidrata lo justo para poder resolver: los resúmenes, los problemas y
@@ -25919,7 +25923,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
                     fh.write(cruda)
                 encargo.plantilla = destino
             except Exception as ex:
-                logger.warning("No se pudo restaurar la plantilla: %s", ex)
+                print(f"   ⚠️ No se pudo restaurar la plantilla: {ex}")
 
     ses = {"resultado": resultado, "tmp": tmp,
            "ts": time.time(), "consultado": r.data[0].get("consultado", False)}
@@ -25935,7 +25939,7 @@ def _taller_marcar_consultado(email: str, numero: str) -> None:
             .eq("email", (email or "").strip().lower()) \
             .eq("expediente", numero).execute()
     except Exception as ex:
-        logger.warning("No se pudo marcar la consulta del taller: %s", ex)
+        print(f"   ⚠️ No se pudo marcar la consulta del taller: {ex}")
 
 
 @app.post("/taller/consultar")
@@ -26150,7 +26154,7 @@ async def taller_resolver(
             _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None),
             r.encargo.es_recurso if r.encargo else False)
     except Exception as _e:
-        logger.warning("No se pudo construir el marco jurídico: %s", _e)
+        print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
         _marco = ""
     if _marco:
         print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres")
