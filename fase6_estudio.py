@@ -736,6 +736,14 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
         return re.sub(r"[^A-Z0-9]+", " ", x).strip()
 
     rubros_material = [_n(t.get("rubro", "")) for t in material.tesis]
+    # Lo entrecomillado que empieza por «Artículo N» es un precepto, no un
+    # rubro: se transcribe así por diseño y no debe sonar como cita inventada.
+    _rx_precepto = re.compile(r"^\s*ART[ÍI]CULO\s+\d", re.I)
+    # UN PRECEPTO TRANSCRITO NO ES UN RUBRO. «"Artículo 568. La sentencia que
+    # decrete los alimentos…"» es la ley entrecomillada, que es exactamente lo
+    # que el corpus manda hacer con el precepto local decisivo, y saltaba como
+    # rubro inventado. El aviso importa demasiado para dejar que se ahogue en
+    # falsos positivos.
     for m_ in re.finditer(r"[“\"]([A-ZÁÉÍÓÚÑ][^”\"]{25,}?)[”\"]", estudio):
         cit = _n(m_.group(0))
         if len(cit) < 30:
