@@ -388,6 +388,19 @@ LO QUE SE COMBATE
 
 Escribe el estudio de fondo.
 
+Y LO ÚLTIMO, QUE ES LO QUE MÁS SE ROMPE: NO REPITAS LA TESIS. El documento
+transcribe su texto íntegro debajo de la cita, palabra por palabra. Si después
+vuelves a contar lo que dice, el lector se encuentra lo mismo dos veces y la
+sentencia engorda sin decir nada nuevo. Decide: si la tesis sólo REFUERZA algo
+ya razonado, cítala y sigue con el caso, sin comentarla. Si es la PREMISA de tu
+razonamiento, escribe UNA frase que extraiga la regla —con palabras tuyas, más
+abstracta que el texto transcrito— y gírala al asunto de inmediato:
+    «Conforme a la jurisprudencia citada, es claro que…»
+    «Conforme al criterio en cita, la correcta interpretación de…»
+    «Del criterio transcrito se desprende que…»
+Si lo que escribes tras la cita se entiende sin conocer el expediente, es un
+resumen de la tesis: bórralo.
+
 ANTES DE EMPEZAR, LO QUE MÁS SE OLVIDA: funda. Invoca entre TRES y SEIS de los
 criterios de arriba —con su rubro y su registro— y explica en cada caso por qué
 aplica a este asunto. Un estudio sin citas es una opinión con formato de
