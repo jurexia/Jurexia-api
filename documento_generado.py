@@ -687,6 +687,13 @@ _UNA_CITA = re.compile(
 # pasa cuando el modelo devuelve el apartado entero sin saltos de línea.
 MAX_CITAS_POR_PARRAFO = 3
 
+# Y UN TOPE TOTAL. Medido contra los engroses reales: el ARC 448-2025 firmado
+# lleva TRES notas al pie y el proyecto generado llevaba VEINTIOCHO. Una nota
+# por cada afirmación del resumen no es rigor, es ruido: el secretario anota
+# las que sostienen lo que se discute, no todas las que podría. Seis deja
+# margen sobre su media sin convertir el pie en un segundo documento.
+MAX_NOTAS_DEL_RESUMEN = 6
+
 
 def _citas_de(marca: str) -> list:
     fuera = []
@@ -714,6 +721,8 @@ def parrafo_con_citas(doc, texto: str, notas: list):
         return None
     p = parrafo(doc, limpio)
     for pagina, parr in citas[:MAX_CITAS_POR_PARRAFO]:
+        if len([x for x in notas if x.startswith("Cfr.")]) >= MAX_NOTAS_DEL_RESUMEN:
+            break
         notas.append(_texto_de_nota(pagina, parr))
         _run_llamada(p, len(notas))
     return p
@@ -806,6 +815,72 @@ def _escribir_estudio(doc, estudio, tesis, notas) -> int:
     return citadas
 
 
+# ═══ EL ESQUELETO DE CADA TIPO, MEDIDO ═════════════════════════════════════
+# amparo directo civil 26 · administrativo 16 · queja 20 (y 153 de recuento) ·
+# revisión civil 31 · administrativa 16 · fiscal 28. La regla que vale para
+# TODOS: el resumen de lo recurrido NO es considerando; el considerando que
+# lleva su nombre es la DISPENSA de transcribirlo.
+#
+# Lo que cambia de un tipo a otro y rompería una plantilla única:
+#   · Los RECURSOS no tienen «Existencia del acto reclamado»: es del amparo.
+#   · En la QUEJA el cómputo va en PROSA, sin tabla, y la procedencia lleva
+#     UNA nota al pie con el artículo 97 de la Ley de Amparo.
+#   · El secretario escribe «Trascripción» sin la n: 104 veces contra 12.
+#   · El estudio no tiene ordinal fijo: es el último, y su número sale de
+#     cuántos apartados le preceden.
+ESQUELETO = {
+    "amparo_directo": {
+        "q": "conceptos de violación",
+        "recurrido": "la sentencia reclamada",
+        "tabla_computo": True,
+        "dispensa": "Acto reclamado y {q}.",
+        "legitimacion": "Legitimación y oportunidad.",
+        "existencia": True,
+        "sub_recurrido": "Sentencia reclamada",
+        "adhesivo": "Amparo adhesivo.",
+    },
+    "amparo_revision": {
+        "q": "agravios",
+        "recurrido": "la resolución recurrida",
+        "tabla_computo": True,
+        "dispensa": "Resolución recurrida y {q} de la parte recurrente.",
+        "legitimacion": "Legitimación y oportunidad para interponer el recurso.",
+        "existencia": False,
+        "sub_recurrido": "Resolución recurrida",
+        "adhesivo": "Revisión adhesiva.",
+    },
+    "queja": {
+        "q": "agravios",
+        "recurrido": "el auto recurrido",
+        # EN LA QUEJA EL CÓMPUTO VA EN PROSA. Medido: ni una tabla en 20
+        # documentos. Dibujarla aquí sería inventarle un formato al secretario.
+        "tabla_computo": False,
+        "dispensa": "Trascripción innecesaria del auto recurrido y {q}.",
+        "legitimacion": "Legitimación y oportunidad.",
+        "existencia": False,
+        "procedencia_propia": True,
+        "sub_recurrido": "Auto recurrido",
+        "adhesivo": "",
+    },
+    "revision_fiscal": {
+        "q": "agravios",
+        "recurrido": "la sentencia impugnada",
+        "tabla_computo": True,
+        "dispensa": "Consideraciones de la sentencia impugnada y {q}.",
+        "legitimacion": "Legitimación y oportunidad.",
+        "existencia": False,
+        "procedencia_propia": True,
+        "sub_recurrido": "Sentencia impugnada",
+        "adhesivo": "",
+    },
+}
+
+
+def esqueleto_de(tipo: str) -> dict:
+    return ESQUELETO.get((tipo or "").strip().lower(),
+                         ESQUELETO["amparo_directo"])
+
+
 def _pagina(doc):
     s = doc.sections[0]
     s.page_width, s.page_height = Cm(21.59), Cm(34.03)
@@ -862,7 +937,8 @@ def _bloque_firmas(doc, datos):
 def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
-             calificaciones=None, tesis=None, marco_escrito="") -> str:
+             calificaciones=None, tesis=None, marco_escrito="",
+             tipo_asunto="amparo_directo") -> str:
     """Escribe el .docx entero. No hay plantilla de la que partir."""
     doc = docx.Document()
     notas: list = []
@@ -940,13 +1016,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     rotulo(doc, "Considerando")
     cs = [str(c or "").strip().lower() for c in (calificaciones or []) if c]
     concede = any(c.startswith("fundad") for c in cs)
-    q = "agravios" if datos.get("es_recurso") else "conceptos de violación"
+    esq = esqueleto_de(tipo_asunto)
+    q = esq["q"]
     con_apartados = []
 
     if (estructura.competencia or "").strip():
         con_apartados.append(("Competencia.",
                               (lambda c: lambda p: _texto_en(p, c))(estructura.competencia)))
-    if (estructura.existencia or "").strip():
+    if esq["existencia"] and (estructura.existencia or "").strip():
         con_apartados.append(("Existencia del acto reclamado.",
                               (lambda c: lambda p: _texto_en(p, c))(estructura.existencia)))
 
@@ -956,15 +1033,23 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     def _legitimacion(p):
         _texto_en(p, _op)
-        tabla_computo(doc, computo, fecha_en_letra)
+        # En la QUEJA el cómputo va en prosa: ni una tabla en 20 documentos.
+        if esq["tabla_computo"]:
+            tabla_computo(doc, computo, fecha_en_letra)
 
-    con_apartados.append(("Legitimación y oportunidad.", _legitimacion))
+    con_apartados.append((esq["legitimacion"], _legitimacion))
 
     # PROCEDENCIA NO ES UN CONSIDERANDO PROPIO cuando hay «Existencia del acto
     # reclamado»: medido, es su ALTERNATIVA —3 de 26, en asuntos venidos de
     # juez y no de sala—, no un apartado más. Emitirlos los dos corría todo un
     # ordinal y dejaba el Estudio en SÉPTIMO donde el corpus lo tiene SEXTO.
-    if (estructura.procedencia or "").strip() and not (estructura.existencia or "").strip():
+    # PROCEDENCIA sólo donde el corpus la tiene como apartado propio —queja
+    # (14 de 20) y revisión fiscal (16 de 28)— o en el amparo cuando sustituye
+    # a «Existencia del acto reclamado». En revisión civil aparece en 2 de 31:
+    # emitirla por defecto ahí corría un ordinal contra la medida.
+    if (estructura.procedencia or "").strip() and (
+            esq.get("procedencia_propia")
+            or (esq["existencia"] and not (estructura.existencia or "").strip())):
         con_apartados.append(("Procedencia.",
                               (lambda c: lambda p: _texto_en(p, c))(estructura.procedencia)))
 
@@ -973,13 +1058,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     def _dispensa(p):
         _texto_en(
             p,
-            f"Es innecesario transcribir el contenido de la sentencia reclamada "
-            f"y los {q} hechos valer, pues el deber formal y material de "
+            f"Es innecesario transcribir el contenido de "
+            f"{esq['recurrido']} y los {q} hechos valer, pues el deber formal "
+            f"y material de "
             f"exponer los argumentos legales que sustenten esta resolución no "
             f"depende de la reproducción literal de los aspectos que conforman "
             f"la litis, sino de su adecuado análisis.")
 
-    con_apartados.append((f"Acto reclamado y {q}.", _dispensa))
+    con_apartados.append((esq["dispensa"].format(q=q), _dispensa))
 
     if antecedentes:
         def _antecedentes(p):
@@ -997,7 +1083,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         calif = _calificacion_plural(cs)
         _texto_en(p, f"Los {q} son {calif}." if calif else "")
         if resumen_acto:
-            _subtitulo(doc, "Sentencia reclamada")
+            _subtitulo(doc, esq["sub_recurrido"])
             for x in resumen_acto:
                 if x.strip():
                     parrafo_con_citas(doc, x.strip(), notas)

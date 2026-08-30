@@ -48,6 +48,10 @@ class Encargo:
     # Tercer Tribunal Colegiado… del Vigésimo Segundo Circuito» sin verlo: en
     # modo `generado` el documento se escribe entero con ESTOS datos y no hay
     # plantilla ajena de la que heredar identidad.
+    # El tipo decide el ESQUELETO del documento: los recursos no llevan
+    # «Existencia del acto reclamado», la queja hace el cómputo en prosa y cada
+    # uno rotula la dispensa a su manera. Medido por tipo, no supuesto.
+    tipo_asunto: str = "amparo_directo"
     tribunal: str = ""                # «Primer Tribunal Colegiado… del Décimo…»
     ciudad: str = ""                  # «Mérida, Yucatán»
     modo: str = "plantilla"           # plantilla | generado
@@ -320,7 +324,9 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             ruta, av_gen, _est = await _componer_generado(
                 cliente, e, relleno, r.computo, ruta_salida,
                 estructura_previa=getattr(r, "estructura", None),
-                marco_escrito=marco_escrito)
+                marco_escrito=marco_escrito,
+        tipo_asunto=getattr(e, "tipo_asunto", "") or
+                    ("amparo_revision" if e.es_recurso else "amparo_directo"))
         avisos.extend(av_gen)
     else:
         with cronometrar("ensamblado"):

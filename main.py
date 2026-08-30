@@ -25748,6 +25748,7 @@ async def taller_adelanto(
         regla_surtimiento=regla_surtimiento, plazo=plazo,
         responsable=responsable, es_recurso=es_recurso,
         tribunal=tribunal, ciudad=ciudad, modo=modo,
+        tipo_asunto=tipo_asunto,
         plantilla=ruta_plantilla,
     )
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
@@ -25826,6 +25827,7 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             # la identidad de un tribunal que no es el suyo.
             "tribunal": getattr(e, "tribunal", ""), "ciudad": getattr(e, "ciudad", ""),
             "modo": getattr(e, "modo", "plantilla"),
+            "tipo_asunto": getattr(e, "tipo_asunto", "amparo_directo"),
         },
         "fases": {
             "antecedentes": r.fases.antecedentes,
@@ -25902,6 +25904,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
         responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
         tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
         modo=e.get("modo", "plantilla"),
+        tipo_asunto=e.get("tipo_asunto", "amparo_directo"),
         plantilla=e["plantilla"], coleccion_estatal=e.get("coleccion_estatal", ""))
     f = _f123.Fases123()
     for k, v in (est.get("fases") or {}).items():
