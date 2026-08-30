@@ -77,7 +77,12 @@ TEMAS_CONSTITUCIONALES = {
     "17": ("acceso a la justicia", "tutela judicial", "justicia pronta",
            "recurso efectivo", "gratuidad"),
     "27": ("propiedad de tierras y aguas", "expropiación", "dominio de la nación"),
-    "31": ("proporcionalidad y equidad", "legalidad tributaria", "contribuciones"),
+    # «proporcionalidad y equidad» a secas disparaba el 31 —que es TRIBUTARIO—
+    # en un asunto de alimentos, donde «proporcionalidad» es la del artículo
+    # 296 del código civil. Un artículo de más en el marco no es neutro: ocupa
+    # una de las tres plazas y deja fuera al que sí venía al caso.
+    "31": ("proporcionalidad y equidad tributaria", "legalidad tributaria",
+           "contribuciones", "gasto público", "impuesto"),
     "123": ("relación de trabajo", "salario", "jornada", "despido", "trabajador"),
 }
 

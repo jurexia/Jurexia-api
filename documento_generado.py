@@ -581,6 +581,10 @@ CÓMO SE ESCRIBE, medido sobre los engroses de este tribunal:
 - LA CONSTITUCIÓN SE PARAFRASEA, no se transcribe: «el artículo 4º de la
   Constitución reconoce el derecho de la niñez a…». Nómbrala expresamente, con
   su número de artículo.
+- Y NOMBRA TODOS LOS ARTÍCULOS CONSTITUCIONALES QUE TE DIERON. Están arriba
+  porque el asunto los tocó; el que no escribas queda sin premisa. Si uno de
+  verdad no viene al caso, DILO en una frase —«el artículo X no rige aquí
+  porque…»— en vez de callarlo: el silencio no se distingue del olvido.
 - EL PRECEPTO LOCAL O SECUNDARIO decisivo SÍ se transcribe, entre comillas y
   con su número al frente.
 - LA FUENTE CONVENCIONAL —Convención sobre los Derechos del Niño, Convención
