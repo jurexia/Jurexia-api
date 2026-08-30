@@ -123,6 +123,18 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # La ficha de partes se hace AQUÍ, con los documentos delante, y viaja al
     # estudio. Sin ella el redactor resuelve los sujetos por proximidad, y en un
     # juicio con reconvención y tercero interesado la proximidad miente.
+    # LA ESTRUCTURA ARRANCA A LA VEZ QUE LAS FASES. Medido: 14.6s las fases,
+    # 13.6s la estructura, en serie 28. Pero la competencia, la existencia del
+    # acto y la procedencia sólo necesitan los datos del encargo —quién es el
+    # tribunal, quién promueve, contra qué acto—, no los resúmenes. Corriendo a
+    # la vez, la espera es la del más lento y no la suma. No se pierde nada:
+    # son dos llamadas independientes que ya se hacían por separado.
+    tarea_estructura = None
+    if (e.modo or "").lower() == "generado":
+        import documento_generado as _dg
+        tarea_estructura = asyncio.create_task(
+            _dg.redactar_estructura(cliente, _datos_estructura(e)))
+
     with cronometrar("fases1-3+partes"):
         f, partes = await asyncio.gather(
             f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso),
@@ -147,8 +159,10 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     estructura = None
     if (e.modo or "").lower() == "generado":
         with cronometrar("estructura+docx"):
+            estructura = await tarea_estructura if tarea_estructura else None
             ruta, av_gen, estructura = await _componer_generado(
-                cliente, e, relleno, c, ruta_salida)
+                cliente, e, relleno, c, ruta_salida,
+                estructura_previa=estructura)
         avisos.extend(av_gen)
     else:
         with cronometrar("ensamblado"):
@@ -284,13 +298,11 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 # se queda con el estudio de fondo, donde el trámite ya no está—.
 
 
-async def _componer_generado(cliente, e: Encargo, relleno, computo,
-                             ruta_salida: str, estructura_previa=None):
-    """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
-    import documento_generado as dg
+def _datos_estructura(e: Encargo, antecedentes: str = "") -> dict:
+    """Lo que la estructura necesita. TODO sale del encargo, y por eso puede
+    escribirse antes de que las fases terminen de leer el expediente."""
     import fase0_oportunidad as _f0
-
-    datos = {
+    return {
         "tribunal": e.tribunal or "",
         "ciudad": e.ciudad or "",
         "encabezado": e.encabezado,
@@ -300,8 +312,17 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
         "secretario": e.secretario,
         "presentacion": _f0.fecha_en_letra(e.presentacion),
         "es_recurso": e.es_recurso,
-        "antecedentes": "\n".join(relleno.antecedentes or []),
+        "antecedentes": antecedentes,
     }
+
+
+async def _componer_generado(cliente, e: Encargo, relleno, computo,
+                             ruta_salida: str, estructura_previa=None):
+    """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
+    import documento_generado as dg
+    import fase0_oportunidad as _f0
+
+    datos = _datos_estructura(e, "\n".join(relleno.antecedentes or []))
     # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.
