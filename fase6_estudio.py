@@ -353,6 +353,17 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   al pie, que es donde va en una sentencia, y escribirla dos veces obliga a
   borrarla a mano. El texto de la tesis tampoco lo transcribas: se transcribe
   solo, desde el acervo, palabra por palabra.
+- Y DESPUÉS DE LA CITA, HAZLA HABLAR. Esto es lo que más se rompe: tras
+  anunciar la tesis, el modelo vuelve a contar lo que la tesis dice, con otras
+  palabras, y el lector se encuentra el mismo contenido dos veces —una en la
+  transcripción y otra en la paráfrasis—. NO es eso. Lo que sigue a una cita es
+  EXTRAER SU PUNTO y aplicarlo a este asunto, en una o dos frases:
+      «Conforme a la jurisprudencia citada, es claro que…»
+      «Conforme al criterio en cita, la correcta interpretación de…»
+      «De acuerdo con el principio rector que informa la tesis precitada…»
+  Y a continuación, POR QUÉ eso decide ESTE caso. Si lo que escribes después de
+  la cita se pudiera entender sin conocer el expediente, es un resumen de la
+  tesis y sobra. La tesis ya está transcrita: no la repitas, úsala.
 - La INOPERANCIA se razona: hay que decir POR QUÉ el planteamiento no combate
   la razón toral, no basta con declararla.
 - NUNCA SUPONGAS LO QUE CONSTA. Un tribunal tiene los autos delante: o el hecho
@@ -659,6 +670,32 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
                 f"El marco jurídico trajo el artículo {', '.join(sorted(arts))} "
                 f"constitucional y el estudio NO lo menciona. El marco se "
                 f"recibió y no se escribió: el estudio resuelve sin premisa mayor.")
+
+    # 1-nonies. LA TESIS REPETIDA. Tras la cita, el modelo vuelve a contar lo
+    #           que la tesis dice en vez de extraer su punto y aplicarlo. Se
+    #           mide por solapamiento entre el texto de la tesis del acervo y
+    #           lo que el estudio escribe justo después de invocarla.
+    repetidas = []
+    for t_ in material.tesis:
+        reg = str(t_.get("registro") or "")
+        cuerpo = (t_.get("texto") or "").strip()
+        # 20 palabras, no 30: el umbral de 30 dejaba fuera tesis reales —la
+        # 2018735 tiene 29— y el aviso no saltaba nunca donde más importa.
+        if not (reg and len(cuerpo.split()) >= 20):
+            continue
+        m_ = re.search(re.escape(reg), estudio)
+        if not m_:
+            continue
+        despues = estudio[m_.end():m_.end() + 900]
+        if despues and _solapamiento(cuerpo, despues) > 0.30:
+            repetidas.append(reg)
+    if repetidas:
+        avisos.append(
+            f"Tras citar {'la tesis' if len(repetidas) == 1 else 'las tesis'} "
+            f"{', '.join(repetidas)} el estudio REPITE su contenido en vez de "
+            f"extraer su punto. La tesis ya se transcribe: lo que sigue a la "
+            f"cita es «Conforme a la jurisprudencia citada, es claro que…» y el "
+            f"porqué aplica a ESTE asunto.")
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:

@@ -581,6 +581,11 @@ CÓMO SE ESCRIBE, medido sobre los engroses de este tribunal:
   Americana— y los criterios de la CORTE INTERAMERICANA entran SÓLO si el
   problema los exige. Cuando entran, se dice qué obligación imponen, no que
   existen.
+- SI ARRIBA HAY MATERIAL DE LA CORTE INTERAMERICANA, ÚSALO. Está ahí porque el
+  acervo lo encontró para ESTOS problemas, y desaprovecharlo deja el marco a
+  medias. Se cita por el caso y el párrafo que trae la ficha —«Caso X Vs. Y,
+  párr. N»— y se dice qué estándar fija, no que existe. Si de veras no viene al
+  caso, no lo pongas; pero entonces tampoco cites la Corte de memoria.
 - NO INVENTES NADA que no esté en el material de arriba. Ni un artículo, ni un
   caso, ni un párrafo de cuadernillo.
 - EXTENSIÓN: entre 300 y 600 palabras. Frase de unas 35 palabras, subordinada,

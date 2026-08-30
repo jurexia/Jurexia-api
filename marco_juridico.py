@@ -368,8 +368,13 @@ async def _traer_articulos(qdrant, arts: list[str]) -> list[dict]:
     from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
     filtro = Filter(must=[
         FieldCondition(key="tipo", match=MatchValue(value="constitucion")),
+        # `articulo_num` ES ENTERO en el payload. Pasarlo como cadena devuelve
+        # 400 Bad Request y el marco se quedaba sin constitucionales sin que
+        # nadie se enterara —salía «constitucionales 0» y el modelo citaba el
+        # artículo de memoria—.
         FieldCondition(key="articulo_num",
-                       match=MatchAny(any=[str(a) for a in arts])),
+                       match=MatchAny(any=[int(a) for a in arts
+                                           if str(a).isdigit()])),
     ])
     try:
         r = qdrant.scroll(collection_name=COLECCION, scroll_filter=filtro,
