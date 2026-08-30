@@ -341,8 +341,11 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
             pie = loc if loc else ""
             if reg and reg not in pie:
                 pie = (pie + ", " if pie else "") + f"registro digital {reg}"
-            notas.append(pie)
-            _run_llamada(z, len(notas))
+            if pie in notas:
+                _run_llamada(z, notas.index(pie) + 1)   # se reusa la existente
+            else:
+                notas.append(pie)
+                _run_llamada(z, len(notas))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -716,6 +719,67 @@ def _texto_de_nota(pagina: str, parrafo: str) -> str:
             f"Cfr. página {pagina}, párrafo {p}, de la sentencia reclamada.")
 
 
+# ═══ EL ARTÍCULO CITADO, CON SU TEXTO AL PIE ═══════════════════════════════
+# David: «cuando el redactor cita artículos (de cualquier fuente) debería citar
+# su contenido textual a pie de página; eso incrementará dramáticamente el
+# valor argumentativo del proyecto». Tiene razón y es barato: el precepto ya
+# está en el acervo, palabra por palabra. Quien revisa deja de tener que ir a
+# buscarlo, y quien firma ve de un vistazo si el artículo dice lo que se le
+# atribuye —que es donde se cuelan los errores que nadie detecta—.
+_RX_ARTICULO_CITADO = re.compile(
+    r"art[íi]culos?\s+(\d{1,4})(?:\s*(?:bis|ter|qu[áa]ter))?"
+    r"(?:[^.;]{0,90}?(c[óo]digo|ley|constituci[óo]n|reglamento)[^.;,]{0,60})?",
+    re.I)
+
+
+def _norma_del_texto(frag: str, num: str, normas: list):
+    """El precepto del acervo que se está citando, si lo hay.
+
+    Se exige que coincidan el NÚMERO y, cuando el texto nombra una ley, que la
+    fuente comparta palabras con ella: el «artículo 296» del código civil de
+    Querétaro y el «artículo 296» de otro cuerpo no son el mismo, y poner al
+    pie el texto equivocado es peor que no poner nada.
+    """
+    ley = (frag or "").lower()
+    mejor, puntos = None, 0
+    for n in (normas or []):
+        if str(n.get("articulo", "")).strip() != str(num):
+            continue
+        fuente = str(n.get("fuente", "")).lower()
+        p = sum(1 for w in re.findall(r"[a-záéíóúñ]{4,}", fuente) if w in ley)
+        if p > puntos or (mejor is None and p == 0):
+            mejor, puntos = n, p
+    return mejor
+
+
+def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
+    """Cuelga del párrafo el texto de los artículos que cita. Devuelve cuántos."""
+    if not normas:
+        return 0
+    puestos = 0
+    for m in _RX_ARTICULO_CITADO.finditer(texto or ""):
+        if puestos >= MAX_ARTICULOS_POR_PARRAFO:
+            break
+        num = m.group(1)
+        n = _norma_del_texto(m.group(0), num, normas)
+        if not n:
+            continue
+        cuerpo = " ".join(str(n.get("texto", "")).split())[:900]
+        if not cuerpo:
+            continue
+        pie = f"«Artículo {num}. {cuerpo}» — {n.get('fuente', '')}".strip()
+        if pie in notas:
+            continue
+        notas.append(pie)
+        _run_llamada(p, len(notas))
+        puestos += 1
+    return puestos
+
+
+MAX_ARTICULOS_POR_PARRAFO = 1
+MAX_NOTAS_DE_ARTICULOS = 8
+
+
 def parrafo_con_citas(doc, texto: str, notas: list):
     """Escribe el párrafo y baja sus marcas a notas al pie."""
     citas = [c for m in _MARCA_CITA.finditer(texto) for c in _citas_de(m.group(1))]
@@ -723,11 +787,21 @@ def parrafo_con_citas(doc, texto: str, notas: list):
     if not limpio:
         return None
     p = parrafo(doc, limpio)
-    for pagina, parr in citas[:MAX_CITAS_POR_PARRAFO]:
-        if len([x for x in notas if x.startswith("Cfr.")]) >= MAX_NOTAS_DEL_RESUMEN:
-            break
-        notas.append(_texto_de_nota(pagina, parr))
-        _run_llamada(p, len(notas))
+    # UNA LLAMADA POR PÁRRAFO, Y NUNCA DOS PEGADAS. Dos referencias seguidas sin
+    # texto en medio se leen como un solo número: las notas 3 y 4 aparecían como
+    # «34». Lo vio David. Y la MISMA página se citaba cinco veces seguidas
+    # porque el modelo repite la marca párrafo tras párrafo; una nota repetida
+    # no aporta nada y ensucia el pie.
+    if not citas:
+        return p
+    pagina, parr = citas[0]
+    texto_nota = _texto_de_nota(pagina, parr)
+    if texto_nota in notas:
+        return p                       # ya está al pie: no se repite
+    if len([x for x in notas if x.startswith("Cfr.")]) >= MAX_NOTAS_DEL_RESUMEN:
+        return p
+    notas.append(texto_nota)
+    _run_llamada(p, len(notas))
     return p
 
 
@@ -742,7 +816,7 @@ def _subtitulo(doc, texto: str):
     p.paragraph_format.space_before = Pt(12)
     r = p.add_run(texto)
     r.bold = True
-    _fmt(p, sangria=False)
+    _fmt(p, sangria=True)
     p.paragraph_format.keep_with_next = True
     return p
 
@@ -781,7 +855,7 @@ def _norm_palabras(t: str) -> list:
     return re.sub(r"[^a-z0-9 ]+", " ", t).split()
 
 
-def _escribir_estudio(doc, estudio, tesis, notas) -> int:
+def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
     citadas = 0
     ultima_tesis = None
@@ -814,7 +888,9 @@ def _escribir_estudio(doc, estudio, tesis, notas) -> int:
             ultima_tesis = None
             if len(t.split()) < 6:
                 continue
-        parrafo_con_citas(doc, t, notas)
+        p_ = parrafo_con_citas(doc, t, notas)
+        if p_ is not None and len([x for x in notas if x.startswith("«Artículo")]) < MAX_NOTAS_DE_ARTICULOS:
+            notas_de_articulos(doc, p_, t, normas, notas)
     return citadas
 
 
@@ -941,7 +1017,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
              calificaciones=None, tesis=None, marco_escrito="",
-             tipo_asunto="amparo_directo") -> str:
+             tipo_asunto="amparo_directo", normas=None) -> str:
     """Escribe el .docx entero. No hay plantilla de la que partir."""
     doc = docx.Document()
     notas: list = []
@@ -950,13 +1026,13 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     _caratula(doc, datos)
 
     if estructura.apertura:
-        parrafo(doc, estructura.apertura, sangria=False)
+        parrafo(doc, estructura.apertura, sangria=True)
     if estructura.visto:
         # El rótulo lo pone la composición; el modelo lo repite igual aunque se
         # le pida que no —«V I S T O, VISTO, para resolver…»—. Se le quita.
         _v = re.sub(r"^\s*V\s*I\s*S\s*T\s*O\s*S?\s*,?\s*", "",
                     estructura.visto.strip(), flags=re.I)
-        tramos(doc, [("V I S T O, ", {"bold": True}), (_v, {})], sangria=False)
+        tramos(doc, [("V I S T O, ", {"bold": True}), (_v, {})], sangria=True)
 
     # ═══ LA ESTRUCTURA, MEDIDA SOBRE 58 ENGROSES ═══════════════════════
     # 26 amparos directos civiles, 16 administrativos y 16 revisiones. En
@@ -984,7 +1060,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             r1.bold = True
             r2 = p.add_run(f"{rot} ")
             r2.bold = True
-            _fmt(p, sangria=False)
+            # TODO EL PROYECTO CON SANGRÍA, también el párrafo que abre cada
+            # apartado: el ordinal en negrita no lo exime. Lo pidió David y es
+            # lo que hace el corpus.
+            _fmt(p, sangria=True)
             p.paragraph_format.keep_with_next = True
             escribir_cuerpo(p)
 
@@ -1101,7 +1180,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 if x.strip():
                     parrafo(doc, x.strip())
         _subtitulo(doc, "Solución")
-        _escribir_estudio(doc, estudio, tesis, notas)
+        _escribir_estudio(doc, estudio, tesis, notas, normas)
         if not concede:
             parrafo(doc,
                     f"Por lo expuesto, dado lo {_calificacion_plural(cs) or 'infundado'} "
@@ -1122,7 +1201,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     _emitir(con_apartados)
 
     # ── RESUELVE ──
-    p_pe = parrafo(doc, "Por lo expuesto y fundado, se:", sangria=False)
+    p_pe = parrafo(doc, "Por lo expuesto y fundado, se:", sangria=True)
     p_pe.paragraph_format.space_before = Pt(14)
     rotulo(doc, "Resuelve")
     formula = _AMPARA if concede else _NO_AMPARA
@@ -1136,7 +1215,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     parrafo(doc, "Notifíquese; con testimonio de esta resolución, devuélvanse "
                  "los autos a su lugar de origen y, en su oportunidad, "
-                 "archívese el expediente como asunto concluido.", sangria=False)
+                 "archívese el expediente como asunto concluido.", sangria=True)
 
     _bloque_firmas(doc, datos)
     # RED DE SEGURIDAD. Si alguna marca sobrevivió a todo lo anterior —porque el

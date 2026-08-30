@@ -304,6 +304,7 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         problemas=r.fases.parrafos_problemas(),
         estudio=f6.parrafos(estudio),
         tesis=material.tesis,
+        normas=material.normas,
         calificaciones=[c.sentido for c in criterios],
         presentacion=f0.fecha_en_letra(e.presentacion)
                      if getattr(e, 'presentacion', None) else '',
@@ -413,7 +414,8 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
         # El tipo decide el esqueleto: los recursos no llevan «Existencia del
         # acto reclamado» y la queja hace el cómputo en prosa.
         tipo_asunto=(getattr(e, "tipo_asunto", "") or
-                     ("amparo_revision" if e.es_recurso else "amparo_directo")))
+                     ("amparo_revision" if e.es_recurso else "amparo_directo")),
+        normas=getattr(relleno, "normas", None))
     avisos = list(est.avisos)
     if not e.tribunal:
         avisos.append(

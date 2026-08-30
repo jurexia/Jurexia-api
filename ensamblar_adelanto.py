@@ -667,6 +667,8 @@ class Relleno:
     # Las tesis del acervo (registro, rubro, texto, localizacion). El ensamblador
     # TRANSCRIBE de aquí, no de lo que escriba el modelo: la transcripción de una
     # tesis es dato verificado, y hacérsela redactar es invitarle a alterarla.
+    # Las normas del acervo, para poner su texto al pie cuando se citan.
+    normas: list = field(default_factory=list)
     tesis: list[dict] = field(default_factory=list)
 
     # Lo que decide el secretario. Mientras esté vacío se deja el hueco
