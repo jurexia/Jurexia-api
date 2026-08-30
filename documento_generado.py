@@ -305,8 +305,10 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     if anuncio.strip():
         parrafo(doc, anuncio.rstrip(" ,;:") + " de rubro y texto siguientes:")
 
-    # El rubro, solo y en negrita.
+    # El rubro, solo y en negrita. Sin párrafo vacío delante: la cita va
+    # pegada a su anuncio y el aire lo pone el espaciado.
     p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(8)
     r = p.add_run(f"«{(t.get('rubro') or '').strip().rstrip('.')}.»")
     r.bold = True
     _fmt(p, sangria=False, tamano=TAMANO_CITA, interlineado=INTERLINEADO_CITA)
@@ -400,7 +402,6 @@ def tabla_computo(doc, computo, fecha_en_letra) -> None:
     for fila in t.rows:
         fila.cells[0].width = Cm(9.5)
         fila.cells[1].width = Cm(5.0)
-    doc.add_paragraph()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -671,6 +672,53 @@ def _calificacion_plural(cs: list) -> str:
     return ", ".join(_PLURAL[c] for c in unicos[:-1]) + f" y {_PLURAL[unicos[-1]]}"
 
 
+# ═══ LAS MARCAS DE CITA DEL RESUMEN ════════════════════════════════════════
+# Las fases 1-3 anotan de dónde sale cada afirmación del resumen del acto
+# reclamado: «[[p.82 §3]]». En la plantilla se convertían en nota al pie; el
+# generador nuevo no las tocaba y salían LITERALES en el cuerpo —quince en el
+# proyecto que leyó David—. Una referencia visible entre corchetes dobles no es
+# una cita rota por descuido: es el andamio del redactor asomando en el papel.
+_MARCA_CITA = re.compile(r"\s*\[\[([^\[\]]{2,120})\]\]")
+_UNA_CITA = re.compile(
+    r"p{1,2}\.?\s*(\d{1,4})(?:\s*[-–]\s*\d{1,4})?"
+    r"(?:\s*§+\s*(\d{1,3}(?:\s*[-–]\s*\d{1,3})?))?", re.I)
+
+# Tres por párrafo. Veintidós llamadas apiladas en el último punto es lo que
+# pasa cuando el modelo devuelve el apartado entero sin saltos de línea.
+MAX_CITAS_POR_PARRAFO = 3
+
+
+def _citas_de(marca: str) -> list:
+    fuera = []
+    for trozo in re.split(r"[;,]", marca):
+        m = _UNA_CITA.search(trozo)
+        if m:
+            fuera.append((m.group(1), m.group(2) or ""))
+    return fuera
+
+
+def _texto_de_nota(pagina: str, parrafo: str) -> str:
+    if not parrafo:
+        return f"Cfr. página {pagina} de la sentencia reclamada."
+    p = re.sub(r"\s*[-–]\s*", " a ", parrafo)
+    return (f"Cfr. página {pagina}, párrafos {p}, de la sentencia reclamada."
+            if " a " in p else
+            f"Cfr. página {pagina}, párrafo {p}, de la sentencia reclamada.")
+
+
+def parrafo_con_citas(doc, texto: str, notas: list):
+    """Escribe el párrafo y baja sus marcas a notas al pie."""
+    citas = [c for m in _MARCA_CITA.finditer(texto) for c in _citas_de(m.group(1))]
+    limpio = _MARCA_CITA.sub("", texto).strip()
+    if not limpio:
+        return None
+    p = parrafo(doc, limpio)
+    for pagina, parr in citas[:MAX_CITAS_POR_PARRAFO]:
+        notas.append(_texto_de_nota(pagina, parr))
+        _run_llamada(p, len(notas))
+    return p
+
+
 def _subtitulo(doc, texto: str):
     """Subtítulo en negrita SIN ordinal, como los del Estudio.
 
@@ -678,8 +726,8 @@ def _subtitulo(doc, texto: str):
     «Conclusión». No llevan número: no son considerandos, son las partes de
     uno solo.
     """
-    doc.add_paragraph()
     p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(12)
     r = p.add_run(texto)
     r.bold = True
     _fmt(p, sangria=False)
@@ -712,7 +760,7 @@ def _escribir_estudio(doc, estudio, tesis, notas) -> int:
             if len(cola.split()) > 6:
                 parrafo(doc, cola)
             continue
-        parrafo(doc, t)
+        parrafo_con_citas(doc, t, notas)
     return citadas
 
 
@@ -758,7 +806,6 @@ def _caratula(doc, datos):
 
 
 def _bloque_firmas(doc, datos):
-    doc.add_paragraph()
     for etiqueta, quien in (("MAGISTRADO PONENTE", datos.get("magistrado", "")),
                             ("SECRETARIA/O DE TRIBUNAL", datos.get("secretario", ""))):
         if not quien:
@@ -806,8 +853,12 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     def _emitir(apartados):
         """Numera y escribe. Cada apartado es (rótulo, escritor)."""
         for k, (rot, escribir_cuerpo) in enumerate(apartados):
-            doc.add_paragraph()
+            # SEPARACIÓN POR ESPACIADO, NO POR PÁRRAFO VACÍO. Un párrafo en
+            # blanco entre cada apartado y cada cita dejaba huecos enormes en
+            # el papel —22 de 173 párrafos eran aire— y además se arrastran al
+            # editar. Word tiene `space_before` justo para esto.
             p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(14)
             r1 = p.add_run(f"{_ORDINALES[min(k, 9)]}. ")
             r1.bold = True
             r2 = p.add_run(f"{rot} ")
@@ -892,8 +943,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         def _antecedentes(p):
             _texto_en(p,
                       "Previo al análisis de los planteamientos que se proponen, "
-                      "es menester relatar los hechos relevantes del asunto.",
-                      list(antecedentes))
+                      "es menester relatar los hechos relevantes del asunto.")
+            for x in (antecedentes or []):
+                if x.strip():
+                    parrafo_con_citas(doc, x.strip(), notas)
         con_apartados.append(("Antecedentes.", _antecedentes))
 
     # EL ESTUDIO. Es el ÚLTIMO considerando salvo que detrás vaya Efectos, y
@@ -905,12 +958,12 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             _subtitulo(doc, "Sentencia reclamada")
             for x in resumen_acto:
                 if x.strip():
-                    parrafo(doc, x.strip())
+                    parrafo_con_citas(doc, x.strip(), notas)
         if resumen_conceptos:
             _subtitulo(doc, q[0].upper() + q[1:])
             for x in resumen_conceptos:
                 if x.strip():
-                    parrafo(doc, x.strip())
+                    parrafo_con_citas(doc, x.strip(), notas)
         if (marco_escrito or "").strip():
             _subtitulo(doc, "Marco jurídico")
             for x in re.split(r"\n\s*\n", marco_escrito):
@@ -938,8 +991,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     _emitir(con_apartados)
 
     # ── RESUELVE ──
-    doc.add_paragraph()
-    parrafo(doc, "Por lo expuesto y fundado, se:", sangria=False)
+    p_pe = parrafo(doc, "Por lo expuesto y fundado, se:", sangria=False)
+    p_pe.paragraph_format.space_before = Pt(14)
     rotulo(doc, "Resuelve")
     formula = _AMPARA if concede else _NO_AMPARA
     tramos(doc, [("ÚNICO. ", {"bold": True}),

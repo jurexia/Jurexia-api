@@ -309,6 +309,15 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 - LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
   de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
   Circuito». Sin ella no se sabe qué peso tiene el criterio.
+- EL CÓDIGO QUE RIGE ES EL DE LA ENTIDAD, Y SÓLO EL QUE ESTÁ EN EL MATERIAL.
+  El CÓDIGO NACIONAL DE PROCEDIMIENTOS CIVILES Y FAMILIARES entró en vigor de
+  forma ESCALONADA y en muchas entidades —Querétaro entre ellas— TODAVÍA NO
+  RIGE: ahí siguen aplicándose el Código Civil y el Código de Procedimientos
+  Civiles del Estado. Aplicar un código que aún no ha entrado en vigor invalida
+  la sentencia entera, y es un error que no perdona nadie.
+  LA REGLA MECÁNICA: no cites ningún código que no aparezca en las NORMAS del
+  material. El acervo trae la legislación vigente de la entidad del asunto; si
+  el Código Nacional no está ahí, es porque en esa entidad no rige.
 - LA LEY AJENA NO ENTRA; EL CRITERIO AJENO SÍ. Es la distinción que más veces
   se ha roto y está medida sobre 139 documentos de este tribunal: NO HAY UNA
   SOLA aplicación de ley de otra entidad, y hay decenas de criterios que
@@ -709,6 +718,23 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
             f"extraer su punto. La tesis ya se transcribe: lo que sigue a la "
             f"cita es «Conforme a la jurisprudencia citada, es claro que…» y el "
             f"porqué aplica a ESTE asunto.")
+
+    # 1-decies. UN CÓDIGO QUE NO ESTÁ EN EL ACERVO NO RIGE AQUÍ. El Código
+    #           Nacional de Procedimientos Civiles y Familiares entró en vigor
+    #           escalonadamente y en Querétaro todavía no: siguen rigiendo el
+    #           Código Civil y el de Procedimientos Civiles del Estado. Se citó
+    #           igual, y aplicar una ley no vigente invalida la sentencia.
+    _fuentes = " ".join(str(n_.get("fuente", "")) for n_ in material.normas).lower()
+    for _cod, _ley in (("nacional de procedimientos civiles",
+                        "Código Nacional de Procedimientos Civiles y Familiares"),
+                       ("nacional de procedimientos penales",
+                        "Código Nacional de Procedimientos Penales")):
+        if _cod in estudio.lower() and _cod not in _fuentes:
+            avisos.append(
+                f"SE CITA EL {_ley.upper()} y NO está en el acervo de esta "
+                f"entidad. Su entrada en vigor es escalonada: comprueba que ya "
+                f"rija en el Estado, porque de lo contrario la ley aplicable es "
+                f"el código local y aplicar una no vigente invalida la sentencia.")
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:
