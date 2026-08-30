@@ -1,0 +1,1003 @@
+{
+ "amparo-directo": {
+  "documentos_leidos": {
+   "competencia": 62,
+   "existencia_y_legitimacion": 86,
+   "resultandos": 44,
+   "dispensa_y_resolutivo": 87,
+   "expedientes_unicos": 50
+  },
+  "resultandos": [
+   {
+    "id": "ad-r1-presentacion",
+    "rotulo": "PRIMERO. Presentación de la demanda de amparo.",
+    "fijo": true,
+    "frecuencia": "42/44",
+    "plantilla": "PRIMERO. Presentación de la demanda de amparo. Mediante escrito presentado el {fecha_presentacion}, ante la Oficialía de Partes del {tribunal_origen}, {quejoso}, por conducto de su apoderado legal {representante}, promovió juicio de amparo directo, en contra de la autoridad responsable y por el acto, que a continuación se indican:\nAUTORIDAD RESPONSABLE.\n{responsable}.\nACTO RECLAMADO.\nSentencia de {fecha_acto}, dictada en el toca civil {toca}.",
+    "cuando": "Arranque invariable. Ésta es la ARQUITECTURA DE BLOQUE (rótulos AUTORIDAD RESPONSABLE / ACTO RECLAMADO en renglón aparte, 33/44): civil y familiar contra Sala del TSJ, acto identificado por toca (20/44 dicen «dictada en el toca civil {toca}»). 30/44 «presentado el», 8/44 «recibido el»; 36/44 «promovió juicio de amparo directo».",
+    "variantes": [
+     {
+      "id": "ad-r1-embebida",
+      "texto": "PRIMERO. Presentación de la demanda de amparo. Mediante escrito presentado el {fecha_presentacion}, ante la Oficialía de Partes del {tribunal_origen}, {quejoso}, por propio derecho, promovió juicio de amparo directo en contra de la sentencia dictada el {fecha_acto}, en el {expediente}.",
+      "frecuencia": "11/44",
+      "cuando": "ARQUITECTURA ALTERNA, sin bloque: administrativo y agrario. NO se sacan los rótulos AUTORIDAD RESPONSABLE / ACTO RECLAMADO; el acto va embebido en la misma frase."
+     },
+     {
+      "id": "ad-r1-dos-autoridades",
+      "texto": "..., promovió juicio de amparo directo, en contra de las autoridades y por los actos que a continuación se exponen:\nOrdenadora:\n{responsable_ordenadora}.\nEjecutora:\n{responsable_ejecutora}.",
+      "frecuencia": "11/44",
+      "cuando": "Cuando hay autoridad ordenadora y ejecutora: el bloque se desdobla."
+     },
+     {
+      "id": "ad-r1-propio-derecho",
+      "texto": ", por propio derecho,",
+      "frecuencia": "7/44",
+      "cuando": "Sustituye a «por conducto de su apoderado legal {representante}» cuando el quejoso promueve solo. Si es persona moral: «por conducto de su apoderada legal, {representante},»."
+     },
+     {
+      "id": "ad-r1-indirecto-reencauzado",
+      "texto": "PRIMERO. Presentación de la demanda de amparo indirecto.",
+      "frecuencia": "1/44",
+      "cuando": "EXCEPCIÓN, no plantilla (ADA 767-2025): asunto que llegó como amparo indirecto y se reencauzó; el resultando se infla con la incompetencia, el requerimiento y el emplazamiento inválido (seis párrafos)."
+     }
+    ]
+   },
+   {
+    "id": "ad-r2-derechos",
+    "rotulo": "SEGUNDO. Derechos humanos cuya violación se alega.",
+    "fijo": true,
+    "frecuencia": "17/44 (rótulo 23/44)",
+    "plantilla": "SEGUNDO. Derechos humanos cuya violación se alega. La parte quejosa señaló trasgredidos sus derechos previstos en los artículos {q} de la Constitución Política de los Estados Unidos Mexicanos.",
+    "cuando": "Materia CIVIL. Resultando de UNA sola oración: nunca se argumenta aquí. {q} casi siempre «1°, 14, 16 y 17».",
+    "variantes": [
+     {
+      "id": "ad-r2-admvo",
+      "texto": "SEGUNDO. Derechos humanos que se estiman vulnerados. La parte quejosa considera que el acto reclamado trasgrede en su perjuicio los derechos contenidos en los preceptos {q}, de la Constitución Política de los Estados Unidos Mexicanos.",
+      "frecuencia": "9/44",
+      "cuando": "Administrativo y agrario (7 dicen «preceptos», 2 «artículos»); en agrario {q} añade el 27."
+     },
+     {
+      "id": "ad-r2-tercera",
+      "texto": "SEGUNDO. Derechos humanos que se estiman vulnerados. La parte quejosa señaló como derechos fundamentales violados los contenidos en los artículos {q} de la Constitución Política de los Estados Unidos Mexicanos.",
+      "frecuencia": "6/44",
+      "cuando": "Tercera variante viva. Otro rótulo en uso: «Derechos fundamentales violados» (4/44)."
+     }
+    ]
+   },
+   {
+    "id": "ad-r3-tercero",
+    "rotulo": "TERCERO. Tercero interesado.",
+    "fijo": true,
+    "frecuencia": "23/44",
+    "plantilla": "TERCERO. Tercero interesado. Le resulta tal carácter a {tercero}, quien fue emplazado al presente juicio, según se aprecia en las constancias que obran en este expediente de amparo.",
+    "cuando": "Cola mayoritaria. Rótulos vivos: «Tercero interesado» 24/44, «Terceros interesados» 9/44, «Parte tercera interesada» 8/44, «Tercero interesada» 2/44. Concordancia obligada: «Le resulta tal carácter a» 15/44 / «Les resulta tal carácter a» 9/44; «quien fue emplazado» 4/44, «quien fue emplazada» 7/44, «quienes fueron emplazados» 8/44.",
+    "variantes": [
+     {
+      "id": "ad-r3-admvo",
+      "texto": "TERCERO. Tercero interesado. Tiene ese carácter {tercero}, quien fue emplazado al presente juicio por parte de la autoridad responsable, de acuerdo con las constancias correspondientes que obran en autos.",
+      "frecuencia": "6/44",
+      "cuando": "Administrativo y agrario."
+     },
+     {
+      "id": "ad-r3-tercera",
+      "texto": "TERCERO. Parte tercera interesada. En el presente caso, resulta ser tercero interesado {tercero}, quien fue legalmente emplazado para acudir a este juicio en defensa de sus intereses, según constancias que obran en autos del presente juicio de amparo.",
+      "frecuencia": "7/44",
+      "cuando": "Tercera cola viva."
+     }
+    ]
+   },
+   {
+    "id": "ad-r4-tramite",
+    "rotulo": "CUARTO. Trámite del juicio de amparo.",
+    "fijo": true,
+    "frecuencia": "40/44",
+    "plantilla": "CUARTO. Trámite del juicio de amparo. Por auto de Presidencia de {fecha_auto}, este Tribunal Colegiado registró la demanda de amparo bajo el número {expediente}, se admitió a trámite y mandó dar vista a las partes para que dentro del término de quince días presentaran alegatos o amparo adhesivo, como lo dispone el artículo 181 de la Ley de Amparo.\nEl agente del Ministerio Público de la Federación adscrito, notificado en términos legales del auto admisorio, fue omiso en formular pedimento.",
+    "cuando": "Siempre. «Por auto de Presidencia de» 37/44; «registró la demanda de amparo bajo el número» 26/44; «mandó dar vista a las partes para que dentro del término de quince días presentaran alegatos o amparo adhesivo» 32/44; «el artículo 181 de la Ley de Amparo» 40/44 (19/44 «tal como lo dispone», 21/44 «como lo dispone»).",
+    "nota_al_pie": "15/44: cuelga de la mención «artículo 181 de la Ley de Amparo» y es la transcripción íntegra del precepto, entre comillas tipográficas y con el punto DENTRO del cierre: «Artículo 181. Si el presidente del tribunal colegiado de circuito no encuentra motivo de improcedencia o defecto en el escrito de demanda, o si este último fuera subsanado, la admitirá y mandará notificar a las partes el acuerdo relativo, para que en el plazo de quince días presenten sus alegatos o promuevan amparo adhesivo.» Junto a ella, notas de foja con la abreviatura y la coma exactas del original: «Cfr. Foja {n} cuaderno de amparo.», «Cfr., fojas {n} a {n} del presente juicio.», «Ibid., fojas {n}.», «Ibíd., foja {n}.» (alternan «Ibid.» e «Ibíd.» dentro del mismo documento). Los otros 28 documentos llevan los resultandos limpios y reservan las notas para el CONSIDERANDO.",
+    "variantes": [
+     {
+      "id": "ad-r4-registro-alta",
+      "texto": "ordenó el registro y alta de la demanda de amparo con el número {expediente}, al que por turno correspondió el conocimiento del asunto",
+      "frecuencia": "6/44",
+      "cuando": "Variante del verbo de registro."
+     },
+     {
+      "id": "ad-r4-mp-omitio",
+      "texto": "El agente del Ministerio Público de la Federación adscrito a este órgano colegiado, notificado en términos legales, omitió formular pedimento.",
+      "frecuencia": "9/44 («omitió formular pedimento») frente a 6/44 («fue omiso en formular pedimento»)",
+      "cuando": "El giro «adscrito a este órgano colegiado, notificado en términos legales,» es propio del administrativo."
+     },
+     {
+      "id": "ad-r4-alegatos-tercero",
+      "texto": "Mediante proveído de {fecha}, se tuvo a la parte tercera interesada por formulando manifestaciones a manera de alegatos.",
+      "frecuencia": "9/44",
+      "cuando": "Sólo si el tercero interesado alegó."
+     },
+     {
+      "id": "ad-r4-turno-embebido",
+      "texto": "Finalmente, el {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para la elaboración del proyecto de resolución correspondiente, acorde a lo previsto en los artículos 183 de la Ley de Amparo y 41, fracción II, de la Ley Orgánica del Poder Judicial de la Federación.",
+      "frecuencia": "19/44",
+      "cuando": "Cuando el turno NO va como resultando propio, se ahoga al final del CUARTO. Ojo: entonces el resultando de sesión remota sube un ordinal."
+     }
+    ]
+   },
+   {
+    "id": "ad-r5-turno",
+    "rotulo": "QUINTO. Turno del asunto.",
+    "fijo": false,
+    "frecuencia": "25/44",
+    "plantilla": "QUINTO. Turno del asunto. El {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para la elaboración del proyecto de resolución correspondiente, acorde a lo previsto en los artículos 183 de la Ley de Amparo y 41, fracción II, de la Ley Orgánica del Poder Judicial de la Federación.",
+    "cuando": "Resultando propio en 25/44 («QUINTO. Turno del asunto.» 16/44, «QUINTO. Turno.» 9/44). En el resto va dentro del CUARTO. La coletilla «y 41, fracción II, de la Ley Orgánica del Poder Judicial de la Federación» sólo en 10/44; 7/44 cortan en «acorde a lo previsto en los artículos 183 de la Ley de Amparo.» (en plural «los artículos» aunque cite uno solo).",
+    "variantes": [
+     {
+      "id": "ad-r5-returno-101",
+      "texto": "acorde a lo previsto en el artículo 101 de la Ley de Amparo",
+      "frecuencia": "no medida por separado",
+      "cuando": "Sólo en el returno tras readscripción, en lugar del 183.",
+      "no_medido": true
+     }
+    ]
+   },
+   {
+    "id": "ad-r-returno",
+    "rotulo": "{ordinal}. Nueva integración y returno.",
+    "fijo": false,
+    "frecuencia": "23/44",
+    "condicional": true,
+    "plantilla": "{ordinal}. Nueva integración y returno. En proveído de {fecha}, se hizo del conocimiento de las partes, que a través del oficio SEADS/3771/2025 de veintinueve de octubre de dos mil veinticinco, firmado electrónicamente por el Secretario Ejecutivo de la Comisión de Adscripción del Órgano de Administración Judicial, se tomó conocimiento que {integracion}; en consecuencia, se returnó el asunto al Magistrado {magistrado}.",
+    "cuando": "Sólo si hubo cambio de titular (Acuerdo General del Pleno del Órgano de Administración Judicial de adscripciones del Proceso Electoral Extraordinario 2024-2025 + oficio SEADS/3771/2025). Cuando entra, TODO lo que sigue corre un ordinal y la sesión remota pasa a SÉPTIMO.",
+    "no_medido": true,
+    "nota": "El cuerpo literal está medido en QUEJA (30 docs) y en REVISIÓN («Mediante aviso general de quince de septiembre de dos mil veinticinco, el Secretario Ejecutivo de Adscripción del Órgano de Administración Judicial del Poder Judicial de la Federación, informó que…»); para AMPARO DIRECTO sólo está medida la frecuencia del resultando, no su redacción palabra por palabra."
+   },
+   {
+    "id": "ad-r6-sesion",
+    "rotulo": "SEXTO. Verificación de la sesión vía remota.",
+    "fijo": true,
+    "frecuencia": "43/44",
+    "plantilla": "SEXTO. Verificación de la sesión vía remota. El presente asunto se listó el {fecha_listado}, para verse en sesión ordinaria de {fecha_sesion} siguiente; lo anterior, de conformidad con el Acuerdo General 6/2026, del Pleno del Órgano de Administración Judicial que regula la integración y trámite del expediente electrónico y el uso de videoconferencias en todos los asuntos competencia de los órganos jurisdiccionales a cargo del Órgano, publicado en el Diario Oficial de la Federación el diecisiete de abril de dos mil veintiséis; y,",
+    "cuando": "SIEMPRE el último resultando. La frase «El presente asunto se listó el {fecha_listado}, para verse en sesión…» está en 43/44. Cola vigente (Acuerdo 6/2026) en 20/44: asuntos listados de abril de 2026 en adelante. Rótulos: «Verificación de la sesión vía remota» 18/44, «Sesión vía remota» 15/44, «Celebración de la sesión vía remota» 11/44. Cierra con «; y,» porque enlaza con el CONSIDERANDO: NO se cierra con punto.",
+    "variantes": [
+     {
+      "id": "ad-r6-covid",
+      "texto": "SÉPTIMO. Celebración de la sesión vía remota. El presente asunto se listó el {fecha_listado}, para verse en sesión ordinaria de {fecha_sesion} siguiente, lo anterior, de conformidad con los Acuerdos Generales del Pleno del otrora Consejo de la Judicatura Federal 16/2009 y 12/2020 en relación con el de catorce de octubre de dos mil veintidós y que entró en vigor el siete de noviembre siguiente del propio Consejo que abroga los acuerdos de contingencia por COVID-19 y reforma, adiciona y deroga diversas disposiciones relativas a la utilización de medios electrónicos y soluciones digitales como ejes rectores del nuevo esquema de trabajo en las áreas administrativas y órganos jurisdiccionales del propio Consejo; y,",
+      "frecuencia": "23/44",
+      "cuando": "Sesiones anteriores a abril de 2026. Con esta cola el ordinal suele ser SÉPTIMO, y en 4/44 se dice «para verse en sesión ordinaria virtual de». EXCLUYENTE con la del Acuerdo 6/2026: ningún documento las encadena."
+     },
+     {
+      "id": "ad-r6-adelanto",
+      "texto": "El presente asunto se listó el ______________ de dos mil veintiséis, para verse en sesión ordinaria de ________________ siguiente",
+      "frecuencia": "9/44 con guiones bajos (1 con asteriscos)",
+      "cuando": "ADELANTOS. NO es fórmula: es el hueco que el secretario llena el día del listado. El compositor debe emitir el hueco, no inventar la fecha."
+     }
+    ]
+   }
+  ],
+  "considerandos": [
+   {
+    "id": "ad-c1-competencia",
+    "rotulo": "PRIMERO. Competencia.",
+    "fijo": true,
+    "frecuencia": "52/62",
+    "plantilla": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es competente para conocer y resolver el presente juicio de amparo directo, por haberse promovido en contra de {objeto}, dictada por {responsable}, {concordancia} en la circunscripción territorial en la que este órgano colegiado ejerce jurisdicción, con fundamento en los artículos 103, fracción I y 107, fracción V, inciso {inciso}), de la Constitución Federal; 33, fracción II, 34 y 170, fracción I, párrafo primero, de la Ley de Amparo; 35, fracción I, inciso {inciso}) y 210 de la Ley Orgánica del Poder Judicial de la Federación; así como el punto tercero, fracción XXII, del Acuerdo General 3/2013, en relación con el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal.",
+    "cuando": "Fórmula VIGENTE y por defecto: la única en asuntos recientes (2024-2026); es la que debe salir en el adelanto salvo indicación en contrario. UN SOLO párrafo, sin nota al pie, inmediatamente después de «C O N S I D E R A N D O:». Se cita «Constitución Federal» (no «Política de los Estados Unidos Mexicanos»); el 170 lleva «párrafo primero»; el orgánico es el 210 (no 124 ni 211); el Consejo es el «otrora» Consejo de la Judicatura Federal.",
+    "nota_al_pie": "",
+    "variantes": [
+     {
+      "id": "ad-c1-antigua",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, es competente para conocer y resolver este juicio de amparo directo, de conformidad con lo dispuesto en los artículos 103, fracción I, y 107, fracción V, inciso {inciso}), de la Constitución Política de los Estados Unidos Mexicanos; 34 y 170, fracción I, de la Ley de Amparo y 35, fracción I, inciso {inciso}), de la Ley Orgánica del Poder Judicial de la Federación vigente; así como en los Acuerdos Generales 3/2013 y 28/2017 del Pleno del Consejo de la Judicatura Federal, publicados en el Diario Oficial de la Federación el quince de febrero de dos mil trece y trece de noviembre de dos mil diecisiete, al haberse promovido contra una sentencia dictada por {responsable}, con residencia en esta ciudad, lugar en donde este órgano colegiado ejerce jurisdicción.",
+      "frecuencia": "7/62",
+      "cuando": "Fórmula ANTIGUA (2022-2025, mesa vieja). Invierte el orden: primero el fundamento, al final el «al haberse promovido contra». NO menciona la materia del acto y las fechas de publicación van con letra. Variantes internas verificadas: «es competente para conocer del presente asunto» (2/7); «con sede en esta ciudad» (3/7); en algunos el orgánico es «35, fracción I,» a secas o «37, fracción I,». NO usarla para asuntos nuevos."
+     },
+     {
+      "id": "ad-c1-residual",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, es legalmente competente para conocer y resolver el presente juicio de amparo directo, de conformidad con los artículos 103, fracción I y 107, fracción V, inciso {inciso}), de la Constitución Federal; 33, fracción II, 34 y 170, fracción I, de la Ley de Amparo; 35, fracción I, inciso {inciso}) y 124 de la Ley Orgánica del Poder Judicial de la Federación vigente; así como en los Acuerdos Generales 3/2013 y 28/2017, ambos del Pleno del Consejo de la Judicatura Federal, ya que se promovió contra una sentencia, dictada por {responsable}, con residencia en esta ciudad, materia y territorio sobre los que este órgano colegiado ejerce jurisdicción.",
+      "frecuencia": "3/62",
+      "cuando": "Residual: «es LEGALMENTE competente» y cierre por doble vínculo. Aparece en agrario (Tribunal Unitario Agrario, Distrito 42) y en un engrose civil de 2023. Ahí el orgánico es 124 (no 210) y el 170 va sin «párrafo primero». Subvariante 2023: abre «de conformidad con lo preceptuado por los artículos ... en relación con los artículos 33, fracción II, 34 y 170, fracción I, de la Ley de Amparo» y cierra «... publicados en el Diario Oficial de la Federación el quince de febrero de dos mil trece y trece de noviembre de dos mil diecisiete, respectivamente, ya que se promovió en contra de una sentencia definitiva dictada por {responsable}, lugar en donde este órgano colegiado ejerce jurisdicción»."
+     },
+     {
+      "id": "ad-c1-coletilla-oral-mercantil",
+      "texto": "Además se advierte que la sentencia reclamada es definitiva, puesto que resolvió un juicio oral mercantil, tramitado conforme a las disposiciones previstas en el Código de Comercio, entre ellas, la contenida en el numeral 1390 bis, que establece que, contra las resoluciones pronunciadas en ese tipo de procedimientos, no procederá recurso ordinario alguno.",
+      "frecuencia": "4/62",
+      "cuando": "SÓLO en oral mercantil. Se PEGA al final del mismo párrafo de competencia, después de «...Consejo de la Judicatura Federal.», sin abrir apartado nuevo."
+     },
+     {
+      "id": "ad-c1-coletilla-170",
+      "texto": "Asimismo, el juicio es procedente en virtud de que la resolución reclamada es definitiva, como se establece en los párrafos segundo y tercero de la fracción I, del artículo 170 de la Ley de Amparo, que a la letra dicen: “Se entenderá por sentencias definitivas o laudos, los que decidan el juicio en lo principal; por resoluciones que pongan fin al juicio, las que sin decidirlo en lo principal lo den por concluido. […]”",
+      "frecuencia": "3/62",
+      "cuando": "Cuando la definitividad es discutible y se prefiere transcribir el 170. Se pega igual al final del párrafo. Variante de encabezado en un engrose: «Por otro lado, el juicio de amparo directo es procedente, porque la sentencia reclamada es definitiva como se establece en los párrafos segundo y tercero de la fracción I del artículo 170 de la Ley de Amparo, que a la letra dicen:» — y ahí la transcripción va SIN comillas."
+     }
+    ]
+   },
+   {
+    "id": "ad-c2-existencia",
+    "rotulo": "SEGUNDO. Existencia del acto reclamado.",
+    "fijo": true,
+    "frecuencia": "38/86",
+    "plantilla": "SEGUNDO. Existencia del acto reclamado. La existencia del acto reclamado está acreditada con el informe justificado rendido por {responsable}, certeza que se corrobora con los autos del expediente {expediente}, que acompañó al referido informe. Documentales que en términos de los artículos 129 y 202 del Código Federal de Procedimientos Civiles, de aplicación supletoria a la Ley de Amparo, merecen eficacia probatoria plena.",
+    "cuando": "Regla general y única variante en ADMINISTRATIVO. La autoridad se nombra completa y con su cargo («la Magistrada Titular del Tribunal Unitario Agrario, Distrito Cuarenta y Dos», «el Juez Primero Administrativo en Querétaro del Tribunal de Justicia Administrativa del Estado de Querétaro»); sólo se escribe «la autoridad responsable» a secas cuando ya quedó identificada en el resultando. Si además del expediente se remitió el toca, se encadenan: «con los autos del {toca} y del expediente {expediente}».",
+    "nota_al_pie": "",
+    "variantes": [
+     {
+      "id": "ad-c2-civil",
+      "texto": "SEGUNDO. Existencia del acto reclamado. La existencia de la sentencia reclamada, materia del presente juicio, está acreditada con el informe justificado rendido por la Sala responsable, certeza que se corrobora con los autos del {toca} y del expediente {expediente}, que acompañó a tal informe. Documentales que en términos de los artículos 129 y 202 del Código Federal de Procedimientos Civiles, de aplicación supletoria a la Ley de Amparo, merecen eficacia probatoria plena.",
+      "frecuencia": "32/86",
+      "cuando": "Materia CIVIL con Sala responsable del TSJ. La fórmula más estable del corpus: en los 32 sólo cambian toca y expediente. Aquí se dice «sentencia reclamada» y no «acto reclamado»; el cierre es «que acompañó a tal informe» (2/32 escriben «que acompañan a tal informe» cuando enumeran toca y expediente)."
+     },
+     {
+      "id": "ad-c2-sin-cierre-probatorio",
+      "texto": "...que acompañó al referido informe.",
+      "frecuencia": "25/86 (61/86 sí llevan el cierre probatorio)",
+      "cuando": "Una cuarta parte CORTA el considerando ahí y no cita el 129 y 202. Ponerlo siempre es tan erróneo como omitirlo siempre. En agrario y en algún administrativo la terna es «129, 197 y 202»."
+     }
+    ]
+   },
+   {
+    "id": "ad-c3-legitimacion",
+    "rotulo": "TERCERO. Legitimación y oportunidad.",
+    "fijo": true,
+    "frecuencia": "55/90 abren con «La demanda de amparo fue promovida por»; 14/90 la doble frase completa",
+    "plantilla": "TERCERO. Legitimación y oportunidad. La demanda de amparo fue promovida por {representante}, en su carácter de mandatario judicial de la parte quejosa, personalidad que fue reconocida en el juicio de origen mediante auto de {fecha_auto}. Además, {quejoso}, está legitimado para promover este juicio en términos del artículo 6° de la Ley de Amparo, toda vez que tiene reconocido el carácter de parte actora en el juicio de origen, aunado a que la resolución dictada en ese procedimiento resultó adversa a sus intereses.",
+    "cuando": "Cuando comparece un representante y hay que legitimar a dos personas: primero al que firma, luego al quejoso. El «mediante auto de {fecha_auto}» se omite si no consta la fecha; el «aunado a que la resolución... adversa a sus intereses» se omite si el quejoso fue el actor victorioso en primera instancia. Otros títulos vivos: «Legitimación y oportunidad de la demanda de amparo», «Legitimación y oportunidad del amparo», «Legitimación y oportunidad de la demanda de amparo y del amparo adhesivo», «Legitimación del quejoso y oportunidad», y «Oportunidad» a secas cuando el problema es la legitimación de la autoridad.",
+    "nota_al_pie": "Minoritaria: 10/64 documentos medibles llevan llamada, y NUNCA en el considerando de existencia, siempre en el de legitimación. Tres contenidos en este orden: (1) la constancia de la personalidad — «Cfr., foja 26 del juicio de origen.», «Cfr., fojas 46 y 47 del juicio de origen.», «Cfr., foja 65 del juicio natural.» (coma después de «Cfr.», alternancia libre entre «juicio de origen» y «juicio natural»); (2) la transcripción íntegra y entrecomillada del artículo 11 de la Ley de Amparo, y en 4 casos la del artículo 5 («Son partes en el juicio de amparo: I. El quejoso, teniendo tal carácter quien...»); (3) el anclaje de la tesis, invariable: «Semanario Judicial de la Federación y su Gaceta, novena época, tomo III, marzo de 1996, p. 464.» (6/10). Donde hay adhesivo se añade la transcripción del artículo 182. REGLA PRÁCTICA: si el adelanto no cita el artículo 11 ni la tesis P. XXXIV/96, NO lleva nota al pie.",
+    "variantes": [
+     {
+      "id": "ad-c3-propio-derecho",
+      "texto": "La demanda de amparo fue promovida por {quejoso}, por propio derecho, quien se encuentra legitimado para promover juicio de amparo en términos del artículo 6° de la Ley de Amparo, toda vez que es parte actora en el juicio de origen.",
+      "frecuencia": "10/90",
+      "cuando": "El quejoso promueve por sí mismo: la fórmula colapsa en una sola frase."
+     },
+     {
+      "id": "ad-c3-parte-legitima",
+      "texto": "El juicio de amparo se promovió por parte legítima",
+      "frecuencia": "8/90",
+      "cuando": "Variante que escribe «artículo 6º» con ordinal volado en vez de «artículo 6°»."
+     },
+     {
+      "id": "ad-c3-personalidad-11",
+      "texto": "en términos del artículo 11, segundo párrafo, de la Ley de Amparo",
+      "frecuencia": "11/90 (y 12/90 acompañan la tesis P. XXXIV/96 «PERSONALIDAD DE LAS PARTES EN EL JUICIO DE AMPARO. LA QUE TENGAN RECONOCIDA ANTE LA AUTORIDAD RESPONSABLE, DEBE ADMITIRSE EN CUALQUIER MOMENTO PROCESAL.»)",
+      "cuando": "Personalidad reconocida ante la responsable. Es el disparador de la nota al pie."
+     },
+     {
+      "id": "ad-c3-computo",
+      "texto": "Igualmente, la presentación de la demanda resultó oportuna, a la luz del precepto 17 del mencionado ordenamiento, toda vez que la sentencia reclamada se notificó a la parte quejosa el {fecha_notificacion} mediante {medio_notificacion} y surtió efectos al día siguiente, por lo que el plazo para la promoción del juicio constitucional fue del {inicio_plazo} al {fin_plazo}, sin contar sábados y domingos por ser inhábiles en términos del artículo 19 de la Ley de Amparo, así como el {dias_inhabiles}, entonces si se presentó el {fecha_presentacion}, es claro que fue hecho valer oportunamente.",
+      "frecuencia": "34/90",
+      "cuando": "El párrafo del cómputo día por día. Va PEGADO al de legitimación, en el MISMO considerando, siempre abierto por «Igualmente,» (42/90) y NUNCA por «Asimismo». Cuatro cláusulas de surtimiento mutuamente excluyentes, atadas al medio: «y surtió efectos al día siguiente» (22) personal o electrónica; «y surtió efectos ese mismo día» (3) cédula; «y surtió efectos al día siguiente hábil» (10); «y surtió efectos al tercer día hábil siguiente, es decir, el {fecha}» (4) Boletín Jurisdiccional. El cierre es moneda al aire entre «entonces si se presentó el» (17) y «por tanto, si se presentó el» (17) — ambos SIN tilde en «si»."
+     },
+     {
+      "id": "ad-c3-cierre-breve",
+      "texto": "Por otra parte, la presentación de la demanda resultó oportuna, a la luz del artículo 17 de la Ley de Amparo.",
+      "frecuencia": "29/90 remiten al 17 en corto; 4/90 con esta redacción literal exacta",
+      "cuando": "Cierre breve, sin cómputo. Es el estado legítimo de reposo cuando la oportunidad no está en disputa, y el hueco que el secretario rellena después: en 38 pares adelanto/engrose del MISMO expediente, 8 pasan de esta frase al cómputo y CERO al revés. El cómputo se AÑADE, nunca se quita."
+     },
+     {
+      "id": "ad-c3-adhesivo",
+      "texto": "Por su parte, la demanda de amparo adhesivo fue promovida por {tercero}, quien tiene legitimación para promover, en virtud de que en el juicio de origen tiene reconocido el carácter de parte actora, toda vez que la sentencia reclamada resultó favorable a sus intereses. Además, la presentación de la demanda de amparo y la de amparo adhesivo, resultó oportuna, a la luz de los artículos 17 y 181 de la Ley de Amparo.",
+      "frecuencia": "7/90",
+      "cuando": "Bloque entero que se pega al final del MISMO considerando cuando hay amparo adhesivo. Nótese «favorable» donde el principal dice «adversa», y la coma anómala tras «adhesivo» antes de «resultó oportuna». Legitimación del adhesivo: artículo 182."
+     }
+    ]
+   },
+   {
+    "id": "ad-c4-dispensa",
+    "rotulo": "{ordinal}. Acto reclamado y conceptos de violación.",
+    "fijo": true,
+    "frecuencia": "59/87 (la dispensa); 74/87 citan la tesis",
+    "plantilla": "{ordinal}. Acto reclamado y conceptos de violación. Es innecesario transcribir el contenido de la sentencia reclamada y los conceptos de violación hechos valer, pues el deber formal y material de exponer los argumentos legales que sustenten esta resolución, así como examinar las cuestiones efectivamente planteadas, que respectivamente establecen los artículos 74, fracción IV y 76 de la Ley de Amparo, no depende de la reproducción literal de los aspectos que conforman la litis, sino de su adecuado análisis.\n\nAl respecto, es aplicable la jurisprudencia 2a./J. 58/2010, de la Segunda Sala de la Suprema Corte de Justicia de la Nación, que se cita a continuación: “CONCEPTOS DE VIOLACIÓN O AGRAVIOS. PARA CUMPLIR CON LOS PRINCIPIOS DE CONGRUENCIA Y EXHAUSTIVIDAD EN LAS SENTENCIAS DE AMPARO ES INNECESARIA SU TRANSCRIPCIÓN.”.",
+    "cuando": "Siempre que hay estudio de fondo. {ordinal} es CUARTO en 50 documentos y QUINTO en 9 (es QUINTO cuando delante hubo un considerando extra: existencia del acto, legitimación o improcedencia). NO fijar «CUARTO.» en la plantilla: hay que contar los considerandos previos.",
+    "nota_al_pie": "SÍ, y sólo aquí (el resolutivo no lleva ninguna). 85/87 documentos tienen notas al pie. Dos anclas: (1) de «artículos 74, fracción IV y 76 de la Ley de Amparo» cuelgan DOS notas, una por precepto, transcritas y entrecomilladas — 65/87 llevan ambas: «“Artículo 74. La sentencia debe contener: (…) IV. Las consideraciones y fundamentos legales en que se apoye para conceder, negar o sobreseer; (…).”» y «“Artículo 76. El órgano jurisdiccional, deberá corregir los errores u omisiones que advierta en la cita de los preceptos constitucionales y legales que se estimen violados, y podrá examinar en su conjunto los conceptos de violación y los agravios, así como los demás razonamientos de las partes, a fin de resolver la cuestión efectivamente planteada, sin cambiar los hechos expuestos en la demanda.”»; (2) de la clave de la tesis cuelga la localización, SIN comillas y terminada en punto — 48/87: «Semanario Judicial de la Federación y su Gaceta, Novena Época, tomo XXXI, mayo de 2010, página 830, con registro 164618.» (variantes: «…novena época, tomo XXXI, mayo de 2010, página 830, número de registro: 164618.» y «…Tomo XXXI, mayo de 2010, página 830, Novena Época, registro 164618.»). Los datos de localización NUNCA van en el cuerpo: van abajo.",
+    "variantes": [
+     {
+      "id": "ad-c4-rubro-alterno",
+      "texto": "{ordinal}. Consideraciones de la sentencia reclamada y conceptos de violación.",
+      "frecuencia": "16/87",
+      "cuando": "Rótulo alterno. En los 6 documentos de este rubro «Litis» va en MAYÚSCULA («los aspectos que conforman la Litis»): son dos plantillas distintas conviviendo, no descuidos que haya que unificar."
+     },
+     {
+      "id": "ad-c4-tesis-solo-rubro",
+      "texto": "Al respecto, es aplicable la tesis 2a./J. 58/2010, de la Segunda Sala de la Suprema Corte de Justicia de la Nación, de rubro: “CONCEPTOS DE VIOLACIÓN O AGRAVIOS. PARA CUMPLIR CON LOS PRINCIPIOS DE CONGRUENCIA Y EXHAUSTIVIDAD EN LAS SENTENCIAS DE AMPARO ES INNECESARIA SU TRANSCRIPCIÓN.”.",
+      "frecuencia": "15/87",
+      "cuando": "Forma corta: sólo el rubro. La forma «que se cita a continuación:» (32/87) OBLIGA a transcribir el texto completo de la tesis a renglón seguido."
+     },
+     {
+      "id": "ad-c4-menores",
+      "texto": "hechos valer en su contra",
+      "frecuencia": "10/87 («hechos valer» a secas 25/87)",
+      "cuando": "Variante menor. «sentencia reclamada» (48) se vuelve «resolución reclamada» (5) cuando el acto no es sentencia definitiva."
+     }
+    ]
+   },
+   {
+    "id": "ad-c5-estudio",
+    "rotulo": "{ordinal}. Estudio.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "-",
+    "plantilla": "",
+    "apertura": "",
+    "nota_al_pie": "",
+    "cuando": "NO lleva plantilla: la redacción es del expediente. Es el considerando al que remite el resolutivo, por lo que su ordinal debe fijarse ANTES de escribir el resolutivo.",
+    "no_medido": true
+   },
+   {
+    "id": "ad-c6-efectos",
+    "rotulo": "{ordinal}. Efectos.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "14/87 con apartado propio; 19/87 ordenan «dejar insubsistente la sentencia reclamada»",
+    "plantilla": "",
+    "apertura": "{ordinal}. Efectos. En consecuencia, procede conceder el amparo para efectos de que {responsable} deberá:",
+    "esqueleto": [
+     "a) Dejar insubsistente la sentencia reclamada.",
+     "b) Emitir una nueva resolución en la que reitere las consideraciones que no fueron materia de la concesión del amparo, es decir, aquellas que no fueron controvertidas por la parte quejosa o que, habiendo sido impugnadas, resultaron infundadas o inoperantes, tal como se determinó en el considerando {considerando} de esta ejecutoria.",
+     "c) Siguiendo los lineamientos trazados en esta ejecutoria, {mandato_del_caso}.",
+     "d) Hecho lo anterior, con plenitud de jurisdicción, resuelva lo que en derecho corresponda."
+    ],
+    "cuando": "SÓLO cuando se concede. Es el único apartado donde la literalidad se acaba pronto: lo que se repite es el ESQUELETO de tres o cuatro pasos, no las palabras del inciso c), que son siempre del expediente. Aperturas alternas: «{ordinal}. Efectos de la concesión del amparo.»; «{ordinal}. Efectos del fallo protector. De conformidad con el artículo 77 de la Ley de Amparo, a continuación se precisan los efectos de la concesión otorgada en este fallo a favor de la parte quejosa:»; «{ordinal}. Efectos. A fin de restituir al quejoso en el pleno goce del derecho humano violado, {responsable} deberá realizar lo siguiente:» (4/87). «Plenitud de jurisdicción» (8) y «libertad de jurisdicción» (7) se usan indistintamente. Los pasos van con a) b) c), con 1. 2. 3. o sin marca: no hay uniformidad. ENTREGAR UN PÁRRAFO DE EFECTOS GENÉRICO REDACTADO ES PEOR QUE DEJAR EL ESQUELETO VACÍO: el inciso del mandato es exactamente donde está el criterio del secretario.",
+    "nota_al_pie": ""
+   }
+  ],
+  "resolutivo": {
+   "plantilla": "{cierre_negativo} Por lo expuesto y fundado, se resuelve:\n\nR E S U E L V E\n\nÚNICO. {sentido} a {quejoso}, contra la sentencia dictada el {fecha_acto}, por {responsable}, en el toca civil {toca}, por los motivos y fundamentos expuestos en el {considerando} de esta ejecutoria.",
+   "encabezados": [
+    {
+     "texto": "Por lo expuesto y fundado, se resuelve:",
+     "frecuencia": "38/87"
+    },
+    {
+     "texto": "Por lo expuesto, fundado, y con apoyo además en los ordinales 74, 77, 183 y 184 de la Ley Reglamentaria de los Artículos 103 y 107 Constitucionales, se",
+     "frecuencia": "13/87"
+    },
+    {
+     "texto": "Por lo expuesto y con fundamento en los artículos 76, 77, 78, 80, 184 y 190, de la Ley de Amparo, se:",
+     "frecuencia": "4/87"
+    },
+    {
+     "texto": "Por lo expuesto, fundado y con apoyo en los artículos 73, 74, 75 y 217 de la Ley de Amparo, se resuelve:",
+     "frecuencia": "3/87"
+    }
+   ],
+   "cierre_negativo": {
+    "plantilla": "En ese sentido, ante la ineficacia de los conceptos de violación planteados, lo procedente es negar el amparo solicitado.",
+    "frecuencia": "11/87 con este esqueleto exacto; 17/87 con «lo procedente es negar el amparo solicitado»",
+    "cuando": "Párrafo que cierra el considerando de estudio y da paso a «Por lo expuesto y fundado». El conector de entrada rota sin cambiar el cuerpo: «En ese sentido,» / «En tal sentido,» / «En esas condiciones,» / «En resumen,» / «Así, ante la conclusión alcanzada,» / «Por lo expuesto, dado lo infundado de los conceptos de violación,». Cuando se dice el nombre entero es «negar el amparo y protección de la Justicia Federal» (11) o «…de la Justicia de la Unión» (4); abreviado es sólo «negar el amparo solicitado».",
+    "variante_suplencia": "En ese sentido, al haber resultado infundados e inoperantes los conceptos de violación hechos valer, y no advirtiéndose deficiencia de la queja que suplir en términos de la fracción IV del artículo 79 de la Ley de Amparo, lo procedente conforme a derecho es negar el amparo y protección de la justicia federal solicitado."
+   },
+   "variantes": {
+    "niega": "ÚNICO. La Justicia de la Unión no ampara ni protege a {quejoso}, contra la sentencia dictada el {fecha_acto}, por {responsable}, en el toca civil {toca}, por los motivos y fundamentos expuestos en el último considerando de esta ejecutoria.",
+    "concede": "ÚNICO. La Justicia de la Unión ampara y protege a {quejoso}, contra la sentencia de {fecha_acto}, dictada por {responsable}, en el toca civil {toca}, por las razones expuestas en el sexto considerando de este fallo y para los efectos precisados en el último considerando de la misma.",
+    "adelanto": "ÚNICO. La Justicia de la Unión ********* a {quejoso}, contra la sentencia dictada el {fecha_acto}, por {responsable}, en el toca civil {toca}, por los motivos y fundamentos expuestos en el último considerando de esta ejecutoria."
+   },
+   "frecuencias": {
+    "niega": "49/87 (45 «no ampara ni protege» + 4 con la errata «no ampara y protege»)",
+    "concede": "23/87 (25/87 llevan la coletilla «para los efectos precisados en…»)",
+    "adelanto": "5/87"
+   },
+   "reglas": [
+    "La coletilla «y para los efectos precisados en el último considerando de la misma» / «…en la parte final de esta ejecutoria» / «para los efectos y motivos puntualizados en el último considerando de este fallo» es OBLIGATORIA al conceder: amarra el resolutivo al considerando de EFECTOS.",
+    "«en el toca civil {toca}» se vuelve «en el toca familiar {toca}» en familiar (42/87 usan toca) y «en el expediente {expediente}» o «en el recurso de revisión {expediente}» en administrativo y en oralidad mercantil (15/87).",
+    "«La Justicia de la Unión» (75) y «La Justicia Federal» (5) conviven sin regla por materia ni por ponente. No imponer uniformidad: el adelanto debe traer la que use el magistrado del asunto.",
+    "59/87 remiten a considerando por su NOMBRE: «el último considerando de esta ejecutoria», «el considerando sexto», «el sexto considerando de este fallo». Si el ensamblado renumera los considerandos DESPUÉS de escribir el resolutivo, la remisión queda apuntando a otro apartado."
+   ]
+  },
+  "cierre": "Notifíquese; publíquese y anótese en el libro de control de este tribunal, hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes, con testimonio de esta resolución vuelvan los autos a su lugar de origen y, en su oportunidad archívese como asunto concluido.\n\nAsí, por unanimidad de votos, lo resolvieron y aprobaron los integrantes del pleno del Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito en el Estado de Querétaro, en sesión ordinaria virtual remota realizada a través del Sistema de Videoconferencia, el Magistrado Presidente {magistrado} y los Magistrados {magistrado_2} e {magistrado_3}, siendo ponente el primero de los nombrados, quienes firman electrónicamente con el licenciado {secretario}, Secretario que autoriza y da fe. (FIRMAS ELECTRÓNICAS).\n\nRazón: El licenciado {secretario}, Secretario del Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, HAGO CONSTAR QUE:\n• La presente resolución concuerda con la que en fecha {fecha_engrose}, se engrosó e integró al expediente electrónico.\n• Esta foja corresponde a la última de la resolución dictada en esta propia fecha, en los autos del toca en que se actúa. Doy fe.",
+  "cierre_frecuencias": {
+   "Notifíquese (fondo)": "56/87",
+   "Así, por unanimidad de votos": "28/87 (remedido sobre 87 expedientes únicos de DIRECTOS)",
+   "Razón del secretario": "27/87",
+   "siendo ponente el primero de los nombrados": "23/87",
+   "siendo ponente el último de los nombrados": "5/87"
+  },
+  "cierre_variantes": {
+   "sobreseimiento_o_incompetencia": "Notifíquese; publíquese y hágase la anotación en el Libro de Gobierno de este Tribunal, hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes, envíese testimonio de esta resolución y, en su oportunidad, devuélvanse los autos al lugar de procedencia. — 9/87, con «Libro de Gobierno» en versales. NO es intercambiable con el de fondo: copiar el de fondo en un sobreseimiento es un error de oficio visible.",
+   "presidenta": "la Magistrada Presidenta Jenica Campos Juárez y los Magistrados Ismael Camacho Herrera y Luis Armando Pérez Topete, siendo ponente el último de los nombrados — cuando el Magistrado Pérez Topete no presidió. Depende de la FECHA DE LA SESIÓN, no del expediente.",
+   "proyecto_circulado": "Los engroses llevan la Razón del secretario con dos viñetas; los proyectos circulados NO la llevan y en su lugar va el bloque de firma del magistrado y la SÍNTESIS con TEMA. Si el adelanto se genera con Razón, se promete un engrose que todavía no existe."
+  },
+  "marcadores": {
+   "{materia}": "materia de la sentencia reclamada, en minúscula y femenino singular concordando con «materia»: civil (34 de 50 con dato), administrativa (13), mercantil (3). Es el dato que MANDA sobre el inciso.",
+   "{responsable}": "autoridad que dictó el acto, con artículo incluido y denominación completa. Usados: «la Segunda Sala Civil del Tribunal Superior de Justicia del Estado de Querétaro» (10), «la Primera Sala Civil…» (8), «la Sala Familiar…» (8), «el Tribunal Unitario Agrario, Distrito 42», «la Sala Regional en Querétaro del Tribunal Federal de Justicia Administrativa», «el Juez Primero de Primera Instancia Especializado en Oralidad Mercantil del Distrito Judicial de Querétaro», «la Segunda Sección de la Sala Superior del Tribunal de Justicia Administrativa del Estado de Querétaro».",
+   "{inciso}": "letra del inciso; va DOS VECES en la misma frase (Constitución y Ley Orgánica), siempre la MISMA letra. Regla real: civil y mercantil → c) (88 apariciones); administrativa, laboral y agraria → b) (32).",
+   "{concordancia}": "participio tras la coma que sigue a {responsable}: «localizado» por defecto (49/52), «localizada» si se hace concordar con «la Sala» (2), «localizados» con DOS autoridades unidas por «y» (1).",
+   "{objeto}": "lo reclamado. Por defecto «una sentencia definitiva en materia {materia}». Variantes literales medidas: «un auto que pone fin a juicio» (sin materia), «una resolución definitiva en materia {materia}», «una resolución que puso fin a un juicio en materia {materia}».",
+   "{expediente}": "número del expediente de origen con año: 1373/2023; o «455/2021 y su acumulado 657/2022».",
+   "{toca}": "toca de alzada con su materia: «toca civil 5245/2025», «toca familiar 4520/2024»; en administrativo «el recurso de revisión 2506005-S1». Cifras y diagonal, nunca en letra.",
+   "{quejoso}": "nombre tal como se le reconoció en el juicio natural; persona moral con el régimen desarrollado en letra («Sociedad de Responsabilidad Limitada de Capital Variable», nunca «S. de R.L. de C.V.»).",
+   "{representante}": "quien firma por el quejoso: mandatario judicial, apoderado legal o representante legal.",
+   "{fecha_auto}": "fecha del auto que reconoció la personalidad, en letra: «nueve de septiembre de dos mil veinticuatro».",
+   "{fecha_notificacion}": "fecha de notificación de la sentencia reclamada, en letra.",
+   "{medio_notificacion}": "«mediante lista», «mediante listas», «mediante cédula de notificación», «mediante notificación personal», «de manera electrónica», «mediante Boletín Jurisdiccional», «mediante boletín judicial».",
+   "{inicio_plazo} {fin_plazo}": "extremos del plazo de quince días, en letra; si caen en el mismo mes se contrae a «del nueve al treinta de marzo de dos mil veintiséis».",
+   "{fecha_presentacion}": "fecha de presentación de la demanda, en letra.",
+   "{dias_inhabiles}": "inhábiles distintos de sábado y domingo, en letra y con su fundamento propio encadenado después (artículo 74, fracción II, de la Ley Federal del Trabajo, 6/90; o la Circular 1/2025 del Secretario Ejecutivo del Pleno del Consejo de la Judicatura Federal, 5/90).",
+   "{fecha_acto}": "fecha de la resolución reclamada, en letra. Nunca en dígitos.",
+   "{tribunal_origen}": "oficialía donde se presentó: «Tribunal Superior de Justicia del Estado de Querétaro» (15/44), «Oficina de Correspondencia Común de los Juzgados de Distrito…» (5/44), «Sala Superior del Tribunal de Justicia Administrativa del Estado de Querétaro», «Tribunal Unitario Agrario, Distrito Cuarenta y Dos».",
+   "{tercero}": "tercero interesado, con todas sus variantes de nombre si las constancias las traen.",
+   "{q}": "artículos constitucionales invocados por el quejoso, tal como él los enumeró, respetando el volado: «1°, 14, 16 y 17» / «1º, 14, 16, 17 y 27».",
+   "{fecha_turno} {fecha_listado} {fecha_sesion} {fecha_engrose}": "en letra; {fecha_sesion} normalmente abreviada con «siguiente».",
+   "{magistrado} {magistrado_2} {magistrado_3} {secretario}": "ponente e integrantes del pleno, y el secretario que autoriza; no aparecen en los considerandos: viven en el rubro, en el fallo y en la Razón.",
+   "{ordinal}": "ordinal escrito del considerando, en mayúsculas y seguido de punto. No se abrevia.",
+   "{considerando}": "el considerando al que remite el resolutivo o los efectos: «el último considerando de esta ejecutoria», «el considerando sexto», «el sexto considerando de este fallo», «este fallo».",
+   "{mandato_del_caso}": "el inciso de efectos que NO es plantilla: la orden concreta a la responsable. Sale del estudio, no del formulario."
+  },
+  "trampas": [
+   "EL APARTADO DE COMPETENCIA NO EMPIEZA SOLO: va SIEMPRE precedido de «C O N S I D E R A N D O:» con las letras separadas por espacios (verificado en los 62; rarezas: «C O N S I D E R A N D O :» y una «C O N S I D E R A N D O S:» en plural). Si el adelanto arranca en «PRIMERO.» sin ese encabezado, le falta la pieza.",
+   "«SEGUNDO» NO SIRVE PARA CERRAR EL APARTADO DE COMPETENCIA: el propio nombre del tribunal es «Vigésimo Segundo Circuito» y cae DENTRO de la primera frase. Hay que exigir «SEGUNDO.» seguido de rúbrica y descartar la ocurrencia precedida de «Vigésimo».",
+   "EL FILTRO «R E S U E L V E» SE ESCAPA MÁS DE LO QUE ATRAPA: este tribunal cierra en minúscula y en línea corrida («Por lo expuesto y fundado, se resuelve:»). El filtro correcto es (?i)se\\s+resuelve|R\\s*E\\s*S\\s*U\\s*E\\s*L\\s*V\\s*E.",
+   "EL INCISO SIGUE A LA MATERIA, Y HAY DOS DOCUMENTOS DONDE NO CASA: en ADA 278-2026 (Adelanto) el acto es de la Segunda Sala Civil en materia civil pero se escribió inciso b) en los dos lugares. Es un ERROR DE COPIADO del tribunal, no una regla; si el generador aprende de él, lo arrastra.",
+   "ADELANTO Y PROYECTO TERMINADO DEL MISMO ASUNTO DUPLICAN LA FÓRMULA: 12 de 62 son la segunda versión del mismo expediente (ADC 554-2025, ADC 560-2025, ADC 296-2025, ADC 526-2024...). Contar documentos infla la frecuencia; los asuntos distintos son 50. En competencia el párrafo es IDÉNTICO entre adelanto y engrose: la competencia NO se retoca al engrosar.",
+   "EL ÚLTIMO CIERRE DE LA CADENA ES EL QUE MÁS SE MUEVE: «210 de la Ley Orgánica» (vigente) frente a «124» (antigua) y «211» (una versión local). Y «del otrora Consejo de la Judicatura Federal» en la nueva frente a «del Pleno del Consejo de la Judicatura Federal» en la antigua. Ese «otrora» es el marcador más fiable de que se usa la redacción actual.",
+   "LA CACHÉ NO TRAE NOTAS AL PIE: el extractor (utillaje/extraer.py) lee sólo word/document.xml, nunca word/footnotes.xml. Toda conclusión sobre notas al pie sacada de esos JSON es un falso negativo por construcción; hay que abrirlo con el lector que sí incluye footnotes (leer_docx.py) sobre un .docx real.",
+   "EL APARTADO DE EXISTENCIA/LEGITIMACIÓN PUEDE NO EXISTIR: si el tribunal se declara incompetente el considerando es «ÚNICA. Incompetencia» y no hay existencia ni legitimación (ADC 614-2025). Ningún adelanto debe forzar el apartado sin comprobar antes que el acto reclamado es sentencia definitiva.",
+   "LA NUMERACIÓN NO ES FIJA: «Existencia del acto reclamado» es SEGUNDO en 83/86 pero TERCERO en 3 — los que insertan «SEGUNDO. Procedencia» antes; ahí la legitimación se corre a CUARTO y cambia de título. El ordinal de la dispensa es CUARTO en 50 y QUINTO en 9. El número de resultandos tampoco es fijo, y con él se mueve el ordinal de la sesión remota.",
+   "«no ampara Y protege» es una ERRATA VIVA por «no ampara ni protege» en 4/87 resolutivos NEGATIVOS (ADC 170-2025, ADC 557-2024, ADC 386-2024, ADC 529-2024). El discriminante fiable del sentido es la palabra «no» al inicio, NO el «y/ni».",
+   "LOS ADELANTOS DEJAN EL SENTIDO EN BLANCO con una fila de asteriscos (5/87). No es fórmula ni defecto de OCR: es el hueco deliberado que el secretario llena en la sesión. Un banco que lo ingiera aprende a escribir asteriscos, y medir el acierto de sentido contra un adelanto da cero por construcción.",
+   "LAS FECHAS VAN SIEMPRE EN LETRA; los números de expediente, toca y acuerdo SIEMPRE EN CIFRAS. Mezclar los dos registros es el error más visible.",
+   "«trasgredidos» y «trasgrede» van SIN la n (27/44 frente a 3 con «transgred-»). Es la grafía de la casa; corregirla delata la máquina. También se conservan «de conformidad la Circular 1/2025», «conformidad con el artículo 74 fracción II» y «artículo 74 de la Ley Federal de Trabajo» sin el «del» (se propagan por copia entre asuntos hermanos: ADA 448 a 451-2025).",
+   "«returnar» y «returno» (24/44) no son erratas: son palabra del oficio para el segundo turno tras readscripción, en minúscula y sin comillas.",
+   "EL NOMBRE DEL ÓRGANO CAMBIA CON LA ÉPOCA: «Consejo de la Judicatura Federal» → «otrora / entonces Consejo de la Judicatura Federal» (13/44) → «Órgano de Administración Judicial». Poner «Consejo de la Judicatura Federal» a secas en un asunto de 2026 fecha mal la sentencia.",
+   "DIEZ DOCUMENTOS SUSTITUYEN LA PROSA DEL CÓMPUTO POR UN CALENDARIO EN TABLA (celdas «Not. por boletín jurisdiccional», «Surte efectos», «1 de 15», «Día inhábil», «15 de 15 Promueve amparo»); uno usa cuadro de cuatro columnas «Parte | Notificación | Surte efectos | Plazo | Presentación». Un extractor de texto plano los aplasta a basura tabular: hay que detectarlos y no leerlos como párrafo.",
+   "HAY ERRORES ARITMÉTICOS REALES EN EL CORPUS que no deben replicarse como estilo: ADA 134-2026 fija el plazo en 2026 y remata «si se presentó el catorce de marzo de dos mil veinticinco»; ADC 158-2026 abre el plazo «del veintisiete de febrero» para cerrarlo «al trece de febrero». El banco enseña la redacción, no la cuenta: las fechas las verifica el secretario.",
+   "«litis» va en minúscula en la variante mayoritaria de la dispensa pero en mayúscula («la Litis») en los 6 documentos del rubro «Consideraciones de la sentencia reclamada y conceptos de violación»: dos plantillas conviviendo, no descuidos que unificar."
+  ]
+ },
+ "queja": {
+  "documentos_leidos": {
+   "queja": 30
+  },
+  "cabecera": "RECURSO DE QUEJA {materia} {q}/{anio}\n\nQUEJOSO Y RECURRENTE: {quejoso}\n\nMAGISTRADO PONENTE: {magistrado}\n\nSECRETARIO: {secretario}\n\nQuerétaro, Querétaro. Resolución del {tribunal}, correspondiente a la sesión de {fecha_sesion} de dos mil veintiséis.\n\nV I S T O, para resolver el recurso de queja {materia} {q}/{anio}, interpuesto por la parte citada al rubro, contra del auto de {fecha_acto}, dictado por {responsable}, en el juicio de amparo {expediente}; y,\n\nR E S U L T A N D O:",
+  "cabecera_frecuencia": "30/30 el rubro y el «Querétaro, Querétaro. Resolución del…»; 26/30 el «contra del auto de»",
+  "cabecera_reglas": [
+   "«V I S T O» va en SINGULAR en el asunto ordinario y «V I S T O S» —con espacio antes de la S— cuando la queja es urgente o de suspensión y hay que resolver «los autos del recurso». No es descuido: marca el tipo de asunto.",
+   "«contra del auto de» —sin la palabra «el»— es la redacción fija del V I S T O en 26/30. No es «contra el auto».",
+   "El rubro se escribe «{q}/{anio}», nunca con guion."
+  ],
+  "resultandos": [
+   {
+    "id": "qj-r1-interposicion",
+    "rotulo": "PRIMERO. Interposición del recurso de queja.",
+    "fijo": true,
+    "frecuencia": "22/30",
+    "plantilla": "PRIMERO. Interposición del recurso de queja. Por escrito presentado el {fecha_presentacion}, en la Oficina de Correspondencia Común de los Juzgados de Distrito en Materia de Amparo Civil, Administrativo y de Trabajo y de Juicios Federales en el Estado de Querétaro, {quejoso}, interpuso recurso de queja en contra del auto de {fecha_acto}, dictado por {responsable} en el juicio de amparo indirecto {expediente}, mediante el cual desechó de plano la demanda de amparo promovida.",
+    "cuando": "Cuando el toca nace del escrito de agravios.",
+    "variantes": [
+     {
+      "id": "qj-r1-suspension",
+      "texto": "PRIMERO. Presentación de la demanda de amparo indirecto. Por escrito presentado el {fecha_presentacion}, se depositó en el buzón judicial en la Oficina de Correspondencia Común de los Juzgados de Distrito en Materia de Amparo Civil, Administrativo y de Trabajo y de Juicios Federales en el Estado de Querétaro, {quejoso}, …",
+      "frecuencia": "6/30",
+      "cuando": "Queja urgente o de suspensión: hay que narrar antes el amparo."
+     }
+    ]
+   },
+   {
+    "id": "qj-r2-tramite",
+    "rotulo": "SEGUNDO. Trámite del recurso de queja.",
+    "fijo": true,
+    "frecuencia": "24/30",
+    "plantilla": "SEGUNDO. Trámite del recurso de queja. Por auto de Presidencia de {fecha_auto_presidencia}, este Tribunal Colegiado, al que por cuestión de turno correspondió el conocimiento del asunto, lo registró con el número {toca}, y se admitió el medio de impugnación de mérito.",
+    "cuando": "Siempre."
+   },
+   {
+    "id": "qj-r3-turno",
+    "rotulo": "TERCERO. Turno del asunto.",
+    "fijo": true,
+    "frecuencia": "24/30",
+    "plantilla": "TERCERO. Turno del asunto. En proveído de {fecha_turno}, se ordenó turnar el asunto a la ponencia del Magistrado {magistrado}, a fin de formular el proyecto de resolución.",
+    "cuando": "Siempre. El fundamento del turno en queja es el artículo 101 de la Ley de Amparo."
+   },
+   {
+    "id": "qj-r-returno",
+    "rotulo": "CUARTO. Nueva integración y returno.",
+    "fijo": false,
+    "frecuencia": "no medida por separado",
+    "condicional": true,
+    "plantilla": "CUARTO. Nueva integración y returno. En proveído de {fecha}, se hizo del conocimiento de las partes, que a través del oficio SEADS/3771/2025 de veintinueve de octubre de dos mil veinticinco, firmado electrónicamente por el Secretario Ejecutivo de la Comisión de Adscripción del Órgano de Administración Judicial, se tomó conocimiento que {integracion}.",
+    "cuando": "Sólo si hubo readscripción. Cuando entra, TODO lo demás corre un ordinal."
+   },
+   {
+    "id": "qj-r4-sesion",
+    "rotulo": "CUARTO. Verificación de la sesión vía remota.",
+    "fijo": true,
+    "frecuencia": "14/30 (Acuerdo 6/2026) + 14/30 (cola COVID)",
+    "plantilla": "CUARTO. Verificación de la sesión vía remota. El presente asunto se listó el {fecha_lista}, para verse en sesión ordinaria de {fecha_sesion} siguiente; lo anterior, de conformidad con el Acuerdo General 6/2026, del Pleno del Órgano de Administración Judicial que regula la integración y trámite del expediente electrónico y el uso de videoconferencias en todos los asuntos competencia de los órganos jurisdiccionales a cargo del Órgano, publicado en el Diario Oficial de la Federación el diecisiete de abril de dos mil veintiséis; y,",
+    "cuando": "Sesiones de 2026 en adelante. Cierra el resultando con «; y,» porque enlaza con el CONSIDERANDO.",
+    "variantes": [
+     {
+      "id": "qj-r4-covid",
+      "texto": "CUARTO. Celebración de la sesión vía remota. El presente asunto se listó el {fecha_lista}, para verse en sesión ordinaria de {fecha_sesion} siguiente, lo anterior, de conformidad con los Acuerdos Generales del Pleno del otrora Consejo de la Judicatura Federal 16/2009 y 12/2020 en relación con el de catorce de octubre de dos mil veintidós y que entró en vigor el siete de noviembre siguiente del propio Consejo que abroga los acuerdos de contingencia por COVID-19 y reforma, adiciona y deroga diversas disposiciones relativas a la utilización de medios electrónicos y soluciones digitales como ejes rectores del nuevo esquema de trabajo en las áreas administrativas y órganos jurisdiccionales del propio Consejo; y,",
+      "frecuencia": "14/30",
+      "cuando": "Sesiones anteriores a abril de 2026. EXCLUYENTE con la del 6/2026."
+     }
+    ]
+   }
+  ],
+  "considerandos": [
+   {
+    "id": "qj-c1-competencia",
+    "rotulo": "PRIMERO. Competencia.",
+    "fijo": true,
+    "frecuencia": "26/30 (24/30 la cadena completa de fundamentos)",
+    "plantilla": "PRIMERO. Competencia. Este {tribunal} es competente para conocer y resolver el presente recurso de queja, pues se interpone en contra {descripcion_acto}, dictado en un juicio de amparo indirecto, por el {responsable}, localizado en la circunscripción territorial en que ejerce jurisdicción este órgano colegiado, lo anterior con fundamento en los artículos 103 y 107 de la Constitución Federal; 97, fracción I, inciso {inciso}) de la Ley de Amparo; 35, fracción III y 210 de la Ley Orgánica del Poder Judicial de la Federación; así como el punto tercero, fracción XXII, del Acuerdo General 3/2013, en relación con el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal.",
+    "cuando": "Esqueleto de toda queja procedente. {descripcion_acto} literal medido: «del acuerdo que desecho la demanda» / «del acuerdo que desechó la demanda de amparo» / «del acuerdo que desechó de plano la demanda de amparo promovida por la parte quejosa» / «del acuerdo que desechó el incidente de nulidad de notificaciones planteado por {quejoso}, por notoriamente improcedente» / «del acuerdo que desechó la prueba pericial en materia de grafoscopía» / «del acuerdo que admitió la demanda de amparo» / «de un auto dictado en un juicio de amparo indirecto» (esta última en suspensión).",
+    "nota_al_pie": "",
+    "variantes": [
+     {
+      "id": "qj-c1-incompetencia",
+      "texto": "ÚNICA. Incompetencia. Este {tribunal} carece de competencia legal, por razón de materia, para conocer y resolver el presente recurso de queja interpuesto en contra de un auto dictado por un Juzgado de Distrito con competencia mixta, a través del cual desechó la demanda de amparo por estimar que las responsables no son autoridad para efectos del juicio constitucional, como se demostrará a continuación.",
+      "frecuencia": "no medida (aparece como considerando ÚNICO)",
+      "cuando": "Juzgado de origen mixto que desechó por no ser autoridad: NO hay PRIMERO/SEGUNDO, hay un considerando ÚNICO."
+     }
+    ]
+   },
+   {
+    "id": "qj-c2-procedencia",
+    "rotulo": "SEGUNDO. Procedencia.",
+    "fijo": true,
+    "frecuencia": "24/30",
+    "plantilla": "SEGUNDO. Procedencia. El presente recurso resulta procedente de conformidad con lo dispuesto por el artículo 97, fracción I, inciso {inciso}), de la Ley de Amparo,[NOTA 1] en razón a que se impugna el auto de {fecha_acto}, dictado por el {responsable}, en el juicio de amparo {expediente}, por el cual se desechó la demanda de amparo.",
+    "cuando": "Queja de desechamiento (inciso a), 16/30). «en razón a que se impugna» —no «en razón de que»— en 21/30.",
+    "nota_al_pie": "NOTA 1, en 23/30: cuelga justo después de «…de la Ley de Amparo,» y ANTES de «en razón a que se impugna el auto de…». Transcribe el precepto con puntos suspensivos entre paréntesis: «“Artículo 97. El recurso de queja procede: (…) I. En amparo indirecto, contra las siguientes resoluciones: (….) a) Las que admitan total o parcialmente, desechen o tengan por no presentada una demanda de amparo o su ampliación;”». El inciso transcrito DEBE ser el mismo que se invocó en Competencia y en Procedencia: a) desechamiento (16/30); b) «Las que concedan o nieguen la suspensión de plano o la provisional;» suspensión; e) «Las que se dicten durante la tramitación del juicio, o del incidente de suspensión, que no admitan expresamente el recurso de revisión y que por su naturaleza trascendental y grave puedan causar perjuicio a alguna de las partes, no reparable en la sentencia definitiva; así como las que con las mismas características se emitan después de dictada la sentencia en la audiencia constitucional;» (3/30); f) incidente de daños y perjuicios; y la fracción II inciso b) en amparo directo. Dos maneras de puntuar la nota conviven: la larga con «(…) I. …» y «(….) a) …», y la corta sin puntos suspensivos intermedios: «“Artículo 97. El recurso de queja procede: I. En amparo indirecto, contra las siguientes resoluciones: a) …; (…)”».",
+    "variantes": [
+     {
+      "id": "qj-c2-suspension",
+      "texto": "SEGUNDO. Procedencia. El recurso es procedente de conformidad con el artículo 97, fracción I, inciso b), de la Ley de Amparo, en razón de que se impugna el auto de {fecha_acto}, dictado por la {responsable}, dentro del juicio de amparo indirecto {expediente}, en el que negó la suspensión provisional del acto reclamado.",
+      "frecuencia": "5/30",
+      "cuando": "Queja de suspensión: se acorta, dice «El recurso es procedente» y «en razón de que»."
+     }
+    ]
+   },
+   {
+    "id": "qj-c3-legitimacion",
+    "rotulo": "TERCERO. Legitimación y oportunidad.",
+    "fijo": true,
+    "frecuencia": "22/30 el título; 18/30 la fórmula de oportunidad",
+    "plantilla": "TERCERO. Legitimación y oportunidad. El recurso de queja fue interpuesto por parte legítima, ya que fue presentado por {promovente}, quien tiene reconocido en el juicio de amparo, el carácter de autorizado en términos amplios del artículo 12 de la Ley de Amparo[NOTA 3] de {quejoso}, y por ende, cuenta con facultad para interponer el presente medio de impugnación.\n\nAdemás, la presentación del recurso resultó oportuna, a la luz del artículo 98 de la Ley de Amparo, en virtud de que la resolución recurrida se notificó a la parte quejosa de forma electrónica el {fecha_notificacion}, surtió efectos el mismo día, por tanto, el plazo para la interposición del medio de impugnación fue del {plazo}, sin contar los días sábados y domingos por ser inhábiles, de conformidad con el artículo 19 de la Ley de Amparo, por lo que el recurso se presentó el {fecha_presentacion}, por lo que resulta oportuna su presentación.",
+    "cuando": "Variante «por parte legítima» (8/30): quien firma NO es el quejoso sino su autorizado, apoderado o representante.",
+    "nota_al_pie": "NOTA 3, sólo cuando el promovente es autorizado (7/30): cuelga de «…artículo 12 de la Ley de Amparo» o del cierre «…medio de impugnación.» y transcribe el precepto: «Cfr. “Artículo 12. El quejoso y el tercero interesado podrán autorizar para oír notificaciones en su nombre, a cualquier persona con capacidad legal, quien quedará facultada para interponer los recursos que procedan, ofrecer y rendir pruebas, alegar en las audiencias, solicitar su suspensión o diferimiento y realizar cualquier acto que resulte ser necesario para la defensa de los derechos del autorizante, pero no podrá substituir o delegar dichas facultades en un tercero. (…)”». Si se cita la P. LX/95 su nota es «Semanario Judicial de la Federación y su Gaceta, novena época, tomo II, octubre de 1995, p. 75.» (6/30).",
+    "variantes": [
+     {
+      "id": "qj-c3-quejoso",
+      "texto": "TERCERO. Legitimación y oportunidad. {quejoso}, está legitimado para interponer el presente recurso, por tener el carácter de quejoso en el juicio de amparo indirecto del cual deriva este toca, en términos del numeral 5°, fracción I, de la Ley de Amparo.",
+      "frecuencia": "14/30 (el numeral se escribe «5º» en 16/30)",
+      "cuando": "Firma el propio quejoso."
+     },
+     {
+      "id": "qj-c3-autorizado-reciente",
+      "texto": "Además, el medio de impugnación fue interpuesto por {promovente}, en su carácter de autorizado de la quejosa en términos amplios del artículo 12, mismo que le fue reconocido por la {responsable}, mediante acuerdo de {fecha}, y por ende, debe tenerse como tal en este asunto. Por ilustrativa se cita la tesis número P. LX/95, emitida por la Suprema Corte de Justicia de la Nación, cuyo rubro es: “AUTORIZADO CON FACULTADES AMPLIAS EN TÉRMINOS DEL ARTÍCULO 27 DE LA LEY DE AMPARO. A QUIEN SE DEBE RECONOCER ESE CARÁCTER PARA EFECTOS DE LA ADMISIÓN DEL RECURSO DE REVISIÓN.”.",
+      "frecuencia": "6/30",
+      "cuando": "El autorizado es de reconocimiento reciente: se intercala este bloque."
+     },
+     {
+      "id": "qj-c3-sin-computo",
+      "texto": "Además, la presentación del recurso resultó oportuna, a la luz del artículo 98 de la Ley de Amparo.",
+      "frecuencia": "9/30 (ahí el considerando se titula sólo «Legitimación»)",
+      "cuando": "Cierre seco, sin cómputo."
+     },
+     {
+      "id": "qj-c3-computo-personal",
+      "texto": "Igualmente, la presentación de la demanda resultó oportuna, a la luz del precepto 98 del mencionado ordenamiento, toda vez que se notificó a la parte quejosa el {fecha_notificacion} de manera personal y surtió efectos al día hábil siguiente, es decir, el {fecha_surtimiento}, por lo que el plazo para la promoción del juicio constitucional fue del {plazo}, sin contar sábados y domingos por ser inhábiles en términos del artículo 19 de la Ley de Amparo, ni el {dias_inhabiles} en términos del artículo 74 fracción III de la Ley Federal del Trabajo, entonces si se presentó el {fecha_presentacion}, es claro que fue hecho valer oportunamente.",
+      "frecuencia": "6/30",
+      "cuando": "Notificación personal o por lista: cambia el enganche del surtimiento."
+     }
+    ]
+   },
+   {
+    "id": "qj-c4-dispensa",
+    "rotulo": "CUARTO. Trascripción innecesaria del auto recurrido y agravios.",
+    "fijo": true,
+    "frecuencia": "21/30 (28/30 el rubro de la tesis)",
+    "plantilla": "CUARTO. Trascripción innecesaria del auto recurrido y agravios. Es innecesario transcribir el contenido del auto recurrido y los agravios hechos valer en su contra, pues el deber formal y material de exponer los argumentos legales que sustenten esta resolución, así como examinar las cuestiones previamente planteadas, que respectivamente establecen los artículos 74, fracción IV y 76, de la Ley de Amparo, no depende de la reproducción literal de los aspectos que conforman la litis, sino de su adecuado análisis.\n\nEs aplicable al respecto, la jurisprudencia 2a./J. 58/2010,[NOTA 2] emitida por la Segunda Sala de la Suprema Corte de Justicia de la Nación, de rubro: “CONCEPTOS DE VIOLACIÓN O AGRAVIOS. PARA CUMPLIR CON LOS PRINCIPIOS DE CONGRUENCIA Y EXHAUSTIVIDAD EN LAS SENTENCIAS DE AMPARO ES INNECESARIA SU TRANSCRIPCIÓN”.",
+    "cuando": "SIEMPRE y ENTERA, palabra por palabra: es el párrafo más estable de todo el corpus.",
+    "nota_al_pie": "NOTA 2, en 21/30: cuelga después de «la jurisprudencia 2a./J. 58/2010,» y su texto es SÓLO la localización: «Semanario Judicial de la Federación y su Gaceta, Novena Época, tomo XXXI, mayo de dos mil diez, página 830.». En las quejas de suspensión se escribe «Semanario Judicial de la Federación y su Gaceta, Tomo XXXI, mayo de 2010, página 830, Novena Época, registro 164618.» (5/30).",
+    "variantes": [
+     {
+      "id": "qj-c4-suspension",
+      "texto": "CUARTO. Auto recurrido y agravios. Es innecesario trascribir el acuerdo impugnado y los agravios hechos valer en su contra, ya que obran agregados a los autos y se tienen a la vista por formar parte del acervo del expediente; además, el deber formal y material de exponer los argumentos legales que sustenten esta resolución, así como de examinar las cuestiones efectivamente planteadas, no depende de la reproducción literal de los aspectos que conforman la Litis, sino de su adecuado análisis. Sustenta esa consideración, por analogía, la jurisprudencia 2a./J. 58/2010 de la Segunda Sala…",
+      "frecuencia": "4/30",
+      "cuando": "Quejas de suspensión. Aquí el verbo va sin n («trascribir») y «Litis» va en mayúscula."
+     }
+    ]
+   },
+   {
+    "id": "qj-c5-antecedentes",
+    "rotulo": "QUINTO. Antecedentes.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "21/30",
+    "plantilla": "",
+    "apertura": "QUINTO. Antecedentes. Para mayor claridad, es de precisarse los antecedentes que se desprenden del expediente del índice del {responsable}, los cuales consisten en lo siguiente:",
+    "cuando": "El contenido es del expediente: NO hay plantilla, sólo apertura. Aperturas medidas: la de arriba (7/30); «QUINTO. Antecedentes. Para contextualizar el estudio del presente recurso de queja, es preciso dar cuenta de los antecedentes siguientes:» (6/30); «Para mayor claridad, es de precisarse los siguientes antecedentes:» (2/30); «Para mayor claridad, se precisan los antecedentes que se desprenden de las constancias remitidas por {responsable}, los cuales consisten en:» (2/30). En 3/30 el considerando se llama «QUINTO. Estudio del asunto.» y entra directo con los subtítulos «Auto recurrido:», «Agravios.» y «Solución:».",
+    "nota_al_pie": ""
+   },
+   {
+    "id": "qj-c6-estudio",
+    "rotulo": "{ordinal}. Estudio.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "-",
+    "plantilla": "",
+    "apertura": "",
+    "nota_al_pie": "",
+    "cuando": "Del expediente. Sin plantilla.",
+    "no_medido": true
+   }
+  ],
+  "resolutivo": {
+   "plantilla": "{cierre_previo} Por lo expuesto y fundado, se\n\nR E S U E L V E:\n\nÚNICO. {sentido}",
+   "encabezados": [
+    {
+     "texto": "Por lo expuesto y fundado, se + R E S U E L V E:",
+     "frecuencia": "20/30"
+    },
+    {
+     "texto": "Por lo expuesto y fundado, se resuelve:",
+     "frecuencia": "9/30"
+    },
+    {
+     "texto": "Por lo anteriormente expuesto y fundado, con apoyo además en los artículos 97, fracción I, inciso b), 101, 102 y 103 de la Ley de Amparo, se R E S U E L V E",
+     "frecuencia": "queja de suspensión"
+    }
+   ],
+   "cierre_previo": {
+    "infundado": "En las relatadas condiciones, al resultar infundados los agravios esgrimidos, lo procedente es declarar infundado el presente recurso de queja y confirmar el auto recurrido.",
+    "fundado": "En las relatadas condiciones, ante lo fundado de los agravios analizados, se impone revocar el auto recurrido y, atendiendo a lo dispuesto en el artículo 103 de la Ley de Amparo, ordenar a la Juez de Distrito que, de no advertir la actualización de una diversa causa de improcedencia, admita la demanda de amparo, sin perjuicio de que al dictar la sentencia definitiva correspondiente proceda conforme a derecho."
+   },
+   "variantes": {
+    "niega": "ÚNICO. Es infundado el recurso de queja.",
+    "concede": "ÚNICO. Se declara fundado el recurso de queja.",
+    "otras": {
+     "ÚNICO. Es infundado el recurso de queja.": "12/30",
+     "ÚNICO. Se declara fundado el recurso de queja.": "5/30",
+     "ÚNICO. Es fundado el recurso de queja.": "4/30",
+     "ÚNICO. Se declara infundado el recurso de queja.": "3/30",
+     "ÚNICO. Se DESECHA por improcedente el recurso de queja. / ÚNICO. Se desecha por improcedente el presente recurso de queja.": "desechamiento",
+     "PRIMERO. Este Tribunal Colegiado es legalmente incompetente, por razón de materia, para resolver el presente recurso de queja. SEGUNDO. Remítanse el escrito de agravios y los anexos correspondientes a la Oficina de Correspondencia Común de los Tribunales Colegiados en Materia de Trabajo del Vigésimo Segundo Circuito, para que los turne al {tribunal_receptor}, con sede en esta ciudad, para que, de aceptar la competencia declinada, se avoque al conocimiento y resolución del asunto.": "incompetencia: DOS resolutivos"
+    }
+   }
+  },
+  "cierre": "Notifíquese; publíquese y anótese en el libro de control de este tribunal, hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes, envíese testimonio de esta resolución al juzgado de origen y, en su oportunidad archívese como asunto concluido.\n\nAsí, por unanimidad de votos, lo resolvieron y aprobaron los integrantes del pleno del {tribunal} en el Estado de Querétaro, en sesión remota realizada a través del Sistema de Videoconferencia, el Magistrado Presidente {magistrado} y los Magistrados {magistrado_2} e {magistrado_3}, siendo ponente el primero de los nombrados, quienes firman electrónicamente con el licenciado {secretario}, Secretario que autoriza y da fe. (FIRMAS ELECTRÓNICAS).\n\nRazón: El licenciado {secretario}, Secretario del {tribunal}, HAGO CONSTAR QUE:\n• La presente resolución concuerda con la que en fecha {fecha_engrose}, se engrosó e integró al expediente electrónico.\n• Esta foja corresponde a la última de la resolución dictada en esta propia fecha, en los autos del toca en que se actúa. Doy fe.",
+  "cierre_frecuencias": {
+   "Notifíquese": "30/30",
+   "forma con «al juzgado de origen»": "16/30",
+   "Así, por unanimidad de votos": "25/30",
+   "Razón del secretario": "25/30"
+  },
+  "cierre_variantes": {
+   "segunda_forma": "Notifíquese, publíquese y anótese en el Libro de Control de este Tribunal, hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes, con testimonio de esta resolución, y en su oportunidad, archívese el expediente. — 7/30. NO son intercambiables al azar: ésta lleva COMA tras «Notifíquese» y «Libro de Control» en MAYÚSCULAS; la primera lleva PUNTO Y COMA y «libro de control» en minúscula."
+  },
+  "marcadores": {
+   "{tribunal}": "«Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito». En el proemio precedido de «Querétaro, Querétaro. Resolución del…»; en el fallo seguido de «en el Estado de Querétaro».",
+   "{q}": "número del toca de queja sin año (143, 292, 350…).",
+   "{anio}": "año del toca.",
+   "{materia}": "ADMINISTRATIVO / ADMINISTRATIVA / CIVIL en el rubro (mayúsculas) y en minúsculas dentro del V I S T O. El género oscila en el propio corpus: hay «RECURSO DE QUEJA ADMINISTRATIVA 326/2026» cuyo V I S T O dice «recurso de queja administrativo 326/2026».",
+   "{quejoso}": "parte quejosa y recurrente: VERSALES en el rubro, capital y minúsculas en el cuerpo.",
+   "{promovente}": "quien materialmente firmó el escrito de agravios (autorizado del 12, apoderado, representante legal) cuando no es el propio quejoso.",
+   "{responsable}": "juzgado de origen con denominación completa: «Juzgado {ordinal} de Distrito en Materia de Amparo Civil, Administrativo y de Trabajo y de Juicios Federales en el Estado de Querétaro». En la Competencia se escribe «Juzgado…»; en el V I S T O y en la Procedencia, la persona juzgadora: «el Juez / la Jueza {ordinal} de Distrito…» o «la Secretaria en funciones de Jueza del Juzgado Segundo de Distrito…».",
+   "{expediente}": "juicio de amparo indirecto de origen (371/2026, 1064/2025, «544/2025 y su acumulado 945/2025»).",
+   "{toca}": "número con que se registró el recurso; coincide con {q}/{anio}.",
+   "{fecha_acto} {fecha_presentacion} {fecha_auto_presidencia} {fecha_turno} {fecha_lista} {fecha_sesion} {fecha_notificacion} {fecha_surtimiento} {fecha_engrose}": "todas en letra.",
+   "{plazo}": "arco del cómputo: «del {día inicial} al {día final} de {mes} de {año}».",
+   "{dias_inhabiles}": "días distintos de sábado y domingo que se descuentan, con su precepto («ni el dieciséis de marzo en términos del artículo 74 fracción III de la Ley Federal del Trabajo»).",
+   "{magistrado} {magistrado_2} {magistrado_3} {secretario}": "ponente, los otros dos integrantes unidos con «y los Magistrados … e …», y el secretario que autoriza y da fe (se repite idéntico en el rubro, en la firma y en la Razón).",
+   "{tribunal_receptor}": "sólo en la declinatoria de competencia."
+  },
+  "trampas": [
+   "«Trascripción» sin la n va en el TÍTULO del considerando CUARTO, pero el CUERPO del mismo párrafo escribe «Es innecesario transcribir», con n; y el rubro de la jurisprudencia dice «TRANSCRIPCIÓN». Las tres grafías conviven en el mismo considerando y así deben quedar.",
+   "«dos ml veintiséis» —sin la i— aparece en 9/30 en el V I S T O. Es la errata heredada de la plantilla, no del dictado.",
+   "«el acuerdo que desecho la demanda», sin acento en «desechó», es la forma más repetida de la Competencia (QA 292-2025, QA 369-2025, QA 395-2025, QA 313-2025, QC 71-2026, QC 94-2026). Coexiste con la acentuada.",
+   "EL ORDEN DE LA CADENA DE FUNDAMENTOS DE LA COMPETENCIA ES RÍGIDO: Constitución (103 y 107) → 97 fracción I inciso de la Ley de Amparo → 35 fracción III y 210 de la LOPJF → punto tercero fracción XXII del Acuerdo 3/2013 → artículo 1 del diverso 28/2017. Siempre cierra con «ambos del Pleno del otrora Consejo de la Judicatura Federal» —«otrora», no «entonces» ni «extinto».",
+   "EL INCISO DEL ARTÍCULO 97 TIENE QUE SER EL MISMO EN TRES SITIOS: Competencia, Procedencia y nota al pie. En QA 143-2026 el secretario escribió «El presente recurso resulta improcedente» donde debía decir «procedente» —y el asunto se declaró fundado. La palabra de la Procedencia siempre es «procedente» salvo que el resolutivo deseche.",
+   "SURTIMIENTO: electrónica → «surtió efectos el mismo día»; personal o por lista → «surtió efectos al día hábil siguiente, es decir, el {fecha}». Equivocarlo corre todo el cómputo un día y hace inoportuno un recurso oportuno.",
+   "El artículo 19 de la Ley de Amparo se invoca para sábados y domingos; los demás inhábiles, con el 74 de la Ley Federal del Trabajo. No se mezclan: van encadenados y en ese orden.",
+   "EL ADELANTO TRAE LOS DATOS DE FECHA EN BLANCO («sesión de ______ de ______ de dos mil veintiséis», «se listó el ******* de *******»). Es señal de que el documento aún no pasó por engrose, no de que falte información en el expediente.",
+   "LOS ENGROSES LLEVAN LA RAZÓN DEL SECRETARIO con dos viñetas; los proyectos circulados NO la llevan y en su lugar va el bloque de firma del magistrado y la SÍNTESIS con TEMA. Si el adelanto se genera con Razón, se promete un engrose que todavía no existe."
+  ]
+ },
+ "revision": {
+  "documentos_leidos": {
+   "informe_previo": 26,
+   "remedicion_propia": "62 expedientes únicos de /Users/josedavidalcantarmendoza/Documents/KINGSTON/CARPETA COMUN/REVISIONES (296 .docx → 173 sentencias con cierre resolutivo y más de 8.000 caracteres → 62 carpetas distintas; ARA/ARC amparo en revisión e IRA/IRC incidente en revisión). Las frecuencias «/62» son de esta remedición; las «/26» vienen del informe previo, cuyo bloque llegó truncado."
+  },
+  "cabecera": "AMPARO EN REVISIÓN {materia_rubro}: {toca}\n\nRECURRENTE: {recurrente}\n\nMAGISTRADO PONENTE: {magistrado}\n\nSECRETARIA: {secretario}\n\nQuerétaro, Querétaro. Resolución del Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, correspondiente a la sesión ordinaria virtual de _______ de ________ de {anio_letra}.\n\nV I S T O, para resolver el recurso de revisión administrativo {toca} interpuesto por la parte citada al rubro, contra la sentencia dictada el {fecha_sentencia}, en el juicio de amparo indirecto {expediente}, emitida por {juez_distrito}; y,\n\nR E S U L T A N D O:",
+  "cabecera_frecuencia": "26/26 la línea «Querétaro, Querétaro. Resolución del…» y el «V I S T O»; 23/26 «interpuesto por la parte citada al rubro»",
+  "cabecera_reglas": [
+   "LA FECHA DE SESIÓN SIEMPRE VA EN BLANCO: «_______ de ________ de {anio_letra}» o con asteriscos «********* de ******* de dos mil veintiséis». El compositor emite el hueco.",
+   "Con revisión ADHESIVA el V I S T O va en plural y con «los autos»: «V I S T O S, para resolver los autos del recurso de revisión administrativo {toca}, interpuesto por la parte citada al rubro, contra la sentencia de {fecha_sentencia}, dictada por {juez_distrito}, en los autos del juicio de amparo indirecto {expediente}; así como el recurso de revisión adhesivo interpuesto por {adherente}; y,», y el rubro suma dos renglones: «RECURRENTE Y QUEJOSO: {quejoso}» / «RECURRENTE ADHERENTE Y AUTORIDAD RESPONSABLE: {responsable}».",
+   "En 2026 se cae «ordinaria virtual» y queda sólo «a la sesión de»."
+  ],
+  "resultandos": [
+   {
+    "id": "rv-r1-demanda",
+    "rotulo": "PRIMERO. Presentación de la demanda de amparo indirecto.",
+    "fijo": true,
+    "frecuencia": "21/26",
+    "plantilla": "PRIMERO. Presentación de la demanda de amparo indirecto. Por escrito presentado el {fecha_presentacion}, en {oficina_recepcion} de los Juzgados de Distrito en Materia de Amparo Civil, Administrativo y de Trabajo y de Juicios Federales en el Estado de Querétaro, {quejoso}, por propio derecho, solicitó el amparo y protección de la Justicia Federal en contra de las autoridades y actos que a continuación se señalan:\n\n{transcripcion_autoridades_y_actos}",
+    "cuando": "Orden invariable PRIMERO-demanda / SEGUNDO-trámite / TERCERO-recurso / (CUARTO-Turno) / último-sesión remota.",
+    "variantes": [
+     {
+      "id": "rv-r1-corta",
+      "texto": "PRIMERO. Demanda de amparo indirecto. {quejoso}, por propio derecho, solicitó el amparo y protección de la Justicia Federal en contra de las autoridades y por los actos que a continuación se indican:",
+      "frecuencia": "5/26",
+      "cuando": "Versión corta, sin oficina ni fecha. Su SEGUNDO gemelo arranca «De la referida demanda correspondió conocer, por razón de turno, al {juzgado}, cuyo titular, por auto de {fecha_auto_admision}, la registró bajo el número {expediente}…»."
+     }
+    ]
+   },
+   {
+    "id": "rv-r2-tramite",
+    "rotulo": "SEGUNDO. Trámite del juicio de amparo indirecto.",
+    "fijo": true,
+    "frecuencia": "18/26",
+    "plantilla": "SEGUNDO. Trámite del juicio de amparo indirecto. Por auto de {fecha_auto_admision}, {juez_distrito}, a quien por razón de turno correspondió conocer del asunto, ordenó su registro bajo el número {expediente} y admitió la demanda a trámite; solicitó el informe justificado, ordenó dar al Agente del Ministerio Público Federal de la adscripción la intervención legal que le compete y señaló fecha para la audiencia constitucional.\n\nSeguido el procedimiento por sus fases, el {fecha_audiencia}, se celebró la audiencia constitucional y se dictó sentencia, en la que {sentido_sentencia}.",
+    "cuando": "Siempre."
+   },
+   {
+    "id": "rv-r3-recurso",
+    "rotulo": "TERCERO. Interposición y trámite del recurso de revisión.",
+    "fijo": true,
+    "frecuencia": "18/26",
+    "plantilla": "TERCERO. Interposición y trámite del recurso de revisión. Inconforme, por escrito presentado el {fecha_interposicion}, en la Oficialía de Partes del {juzgado}, {recurrente}, interpuso recurso de revisión, el cual por auto dictado por la Presidencia de este Tribunal Colegiado el {fecha_admision_toca}, se registró con el número {toca} y se admitió a trámite; se ordenó notificar dicho proveído a las partes, para que en el plazo de cinco días promovieran revisión adhesiva, sin que se ejerciera tal derecho.\n\nLuego, el {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para formular el proyecto correspondiente, en términos del artículo 92 de la Ley de Amparo.",
+    "cuando": "«para que en el plazo de cinco días promovieran revisión adhesiva» 15/26. Si SÍ se promovió adhesiva, se sustituye la coletilla «sin que se ejerciera tal derecho».",
+    "variantes": [
+     {
+      "id": "rv-r3-corto",
+      "texto": "TERCERO. Trámite del recurso de revisión. Inconforme con la sentencia de amparo, {recurrente}, interpuso recurso de revisión; por razón de turno correspondió conocer del medio de impugnación a este Tribunal Colegiado.",
+      "frecuencia": "7/26",
+      "cuando": "Versión corta."
+     },
+     {
+      "id": "rv-r3-turno-propio",
+      "texto": "CUARTO. Turno. El {fecha_turno}, se turnó el asunto al Magistrado {magistrado}, para la elaboración del proyecto de resolución correspondiente.",
+      "frecuencia": "9/26",
+      "cuando": "El turno se desprende como resultando propio; entonces la sesión remota corre un ordinal."
+     }
+    ]
+   },
+   {
+    "id": "rv-r-returno",
+    "rotulo": "{ordinal}. Nueva integración y returno.",
+    "fijo": false,
+    "frecuencia": "10/26",
+    "condicional": true,
+    "plantilla": "{ordinal}. Nueva integración y returno. Mediante aviso general de quince de septiembre de dos mil veinticinco, el Secretario Ejecutivo de Adscripción del Órgano de Administración Judicial del Poder Judicial de la Federación, informó que {integracion}; en consecuencia, se returnó el asunto al Magistrado {magistrado}.",
+    "cuando": "Desde sep-2025. Cuando entra, TODO lo demás corre un ordinal."
+   },
+   {
+    "id": "rv-r4-sesion",
+    "rotulo": "CUARTO. Celebración de la sesión vía remota.",
+    "fijo": true,
+    "frecuencia": "26/26 la frase «El presente asunto se listó el»",
+    "plantilla": "CUARTO. Celebración de la sesión vía remota. El presente asunto se listó el _________ de ________ de {anio_letra}, para verse en sesión de ______ de _______ siguiente, lo anterior, de conformidad con los Acuerdos Generales del Pleno del otrora Consejo de la Judicatura Federal 16/2009 y 12/2020 en relación con el de catorce de octubre de dos mil veintidós y que entró en vigor el siete de noviembre siguiente del propio Consejo que abroga los acuerdos de contingencia por COVID-19 y reforma, adiciona y deroga diversas disposiciones relativas a la utilización de medios electrónicos y soluciones digitales como ejes rectores del nuevo esquema de trabajo en las áreas administrativas y órganos jurisdiccionales del propio Consejo; y,\n\nC O N S I D E R A N D O:",
+    "cuando": "Cola COVID: sesiones anteriores a abril de 2026.",
+    "variantes": [
+     {
+      "id": "rv-r4-6-2026",
+      "texto": "SEXTO. Verificación de la sesión vía remota. El presente asunto se listó el ______ de dos mil veintiséis, para verse en sesión ordinaria de ______ siguiente; lo anterior, de conformidad con el Acuerdo General 6/2026, del Pleno del Órgano de Administración Judicial que regula la integración y trámite del expediente electrónico y el uso de videoconferencias en todos los asuntos competencia de los órganos jurisdiccionales a cargo del Órgano, publicado en el Diario Oficial de la Federación el diecisiete de abril de dos mil veintiséis; y,",
+      "frecuencia": "10/26",
+      "cuando": "En 2026 cambia de nombre y de fundamento. EXCLUYENTE con la cola COVID."
+     }
+    ]
+   }
+  ],
+  "considerandos": [
+   {
+    "id": "rv-c1-competencia",
+    "rotulo": "PRIMERO. Competencia.",
+    "fijo": true,
+    "frecuencia": "29/62 esta redacción; 55/62 citan «107, fracción VIII, último párrafo»; 50/62 «es competente para conocer y resolver el presente asunto»",
+    "plantilla": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es competente para conocer y resolver el presente asunto, en virtud de que se trata de un recurso de revisión interpuesto contra una sentencia dictada en un juicio de amparo indirecto en materia {materia}, por el {juez_distrito}, localizado en la circunscripción territorial en la que este órgano colegiado ejerce jurisdicción, con fundamento en los artículos 107, fracción VIII, último párrafo, de la Constitución Federal; 81, fracción I, inciso e) y 84 de la Ley de Amparo; 35, fracción V y 210 de la Ley Orgánica del Poder Judicial de la Federación; así como el punto tercero, fracción XXII, del Acuerdo General 3/2013, en relación con el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal.",
+    "cuando": "Fórmula VIGENTE y por defecto de la revisión contra sentencia de amparo indirecto. Misma cola de acuerdos que en amparo directo, con el «otrora» como marcador de redacción actual.",
+    "nota_al_pie": "",
+    "variantes": [
+     {
+      "id": "rv-c1-constitucionalidad",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es competente para conocer y resolver el presente asunto, en virtud de que se trata de un recurso de revisión interpuesto en contra de una sentencia dictada en un juicio de amparo indirecto en materia administrativa, en el que se impugnó la constitucionalidad de {norma_impugnada}; aunado a que dicha sentencia fue dictada por el {juez_distrito}, localizado en la circunscripción territorial en la que este órgano colegiado ejerce jurisdicción, con fundamento en los artículos 107, fracción VIII, último párrafo, de la Constitución Federal; 81, fracción I, inciso e) y 83, segundo párrafo de la Ley de Amparo; 35, fracción II y 210 de la Ley Orgánica del Poder Judicial de la Federación; punto cuarto, fracción I del Acuerdo General 2/2025, en relación con el punto segundo del diverso 11/2025, ambos del Pleno de la Suprema Corte de Justicia de la Nación; así como el punto tercero, fracción XXII, del Acuerdo General 3/2013 y el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal.",
+      "frecuencia": "7/62",
+      "cuando": "Cuando se impugnó la CONSTITUCIONALIDAD de una norma (Ley de Hacienda del Estado de Querétaro, leyes de ingresos municipales, listados de precios). Cambian tres cosas a la vez: se cita el 83, segundo párrafo (no el 84); el orgánico es 35 fracción II (no V); y se encadenan el punto cuarto, fracción I del Acuerdo General 2/2025 y el punto segundo del diverso 11/2025 del Pleno de la SCJN, ANTES del 3/2013."
+     },
+     {
+      "id": "rv-c1-suspension",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es competente para conocer y resolver el presente asunto, en virtud de que se trata de un recurso de revisión interpuesto contra una resolución dictada en un incidente de suspensión derivado del juicio de amparo indirecto en materia {materia}, por el {juez_distrito}, localizado en la circunscripción territorial en la que este órgano colegiado ejerce jurisdicción, con fundamento en los artículos 107, fracción VIII, último párrafo, de la Constitución Federal; 81, fracción I, inciso b) y 84 de la Ley de Amparo; 35, fracción II y 210 de la Ley Orgánica del Poder Judicial de la Federación; así como el punto tercero, fracción XXII, del Acuerdo General 3/2013, en relación con el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal.",
+      "frecuencia": "medida en los IRA/IRC del corpus",
+      "cuando": "Incidente en revisión (suspensión provisional): inciso b) del 81 y fracción II del 35."
+     },
+     {
+      "id": "rv-c1-suspension-definitiva",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es legalmente competente para conocer y resolver el presente recurso de revisión de conformidad con los artículos 107, fracción VIII, último párrafo, de la Constitución Federal; 81, fracción I, inciso a) y 84 de la Ley de Amparo; 35, fracción II de la Ley Orgánica del Poder Judicial de la Federación vigente, así como en los Acuerdos Generales 3/2013 y 28/2017, artículo 4°, ambos del Pleno del Consejo de la Judicatura Federal; ya que se promovió contra una resolución que decidió sobre la suspensión definitiva del acto reclamado en un juicio de amparo tramitado ante un juez de Distrito con residencia en el Estado de Querétaro, ámbito de jurisdicción territorial sobre el que ejerce competencia este tribunal colegiado.",
+      "frecuencia": "3/62",
+      "cuando": "Revisión contra suspensión DEFINITIVA (inciso a del 81). Aquí el orgánico puede ser «38, fracción II y 124». Nótese «es legalmente competente» y «una Jueza de Distrito» cuando corresponde."
+     },
+     {
+      "id": "rv-c1-antigua",
+      "texto": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito, es competente para conocer y resolver este amparo en revisión, de conformidad con lo dispuesto en los artículos 107, fracción VIII, último párrafo, de la Constitución Política de los Estados Unidos Mexicanos, 81, fracción I, inciso {inciso}) y 84, de Ley de Amparo y 35, fracción II, de la Ley Orgánica del Poder Judicial de la Federación vigente; así como en los Acuerdos Generales 3/2013 y 28/2017, ambos del Pleno del Consejo de la Judicatura Federal, publicados en el Diario Oficial de la Federación el quince de febrero de dos mil trece y trece de noviembre de dos mil diecisiete; por haber sido interpuesto contra una sentencia dictada en un juicio de amparo por el {juez_distrito}, lugar en donde este Tribunal Colegiado ejerce jurisdicción.",
+      "frecuencia": "3/62",
+      "cuando": "Fórmula ANTIGUA de mesa vieja, misma arquitectura invertida que en amparo directo: «de Ley de Amparo» sin el «la», fechas de publicación en letra, Consejo SIN «otrora». Cuando el acto es un auto de sobreseimiento fuera de audiencia el cierre dice «por haber sido interpuesto contra del auto que decretó el sobreseimiento fuera de audiencia dentro de un juicio de amparo indirecto, dictado por el {juez_distrito}, lugar en donde este Tribunal Colegiado ejerce jurisdicción». No usarla para asuntos nuevos."
+     }
+    ]
+   },
+   {
+    "id": "rv-c2-legitimacion",
+    "rotulo": "SEGUNDO. Legitimación y oportunidad para interponer el recurso de revisión.",
+    "fijo": true,
+    "frecuencia": "62/62 existe el apartado; 34/62 rótulo «Legitimación y oportunidad.», 21/62 «Legitimación y oportunidad para interponer el recurso de revisión»; 16/62 la frase «por parte legítima»; 17/62 el cierre corto del 86",
+    "plantilla": "SEGUNDO. Legitimación y oportunidad para interponer el recurso de revisión. El recurso de revisión fue interpuesto por parte legítima, ya que fue presentado por {recurrente}, quien tiene reconocido en el juicio de amparo, el carácter de {caracter}, y por ende, cuenta con facultad para interponer el presente medio de impugnación. Además, la interposición del recurso resultó oportuna, a la luz del artículo 86 de la Ley de Amparo.",
+    "cuando": "Regla general. El artículo de la oportunidad en revisión es el 86 (no el 17 ni el 98).",
+    "nota_al_pie": "Minoritaria. Sólo 1/62 cuelga del «artículo 86» su transcripción («Artículo 86. El recurso de revisión se interpondrá en el plazo de diez días por conducto del órgano jurisdiccional que haya dictado la resolución recurrida…») y 1/62 la del artículo 81. Lo habitual aquí son notas de foja: «Cfr. Reverso foja 188 y 189 del Juicio de Amparo Indirecto.» (20/62 llevan alguna nota con «Cfr.»).",
+    "variantes": [
+     {
+      "id": "rv-c2-adversa",
+      "texto": "El recurso de revisión fue interpuesto por parte legítima, ya que fue presentado por la quejosa {recurrente}, a quien la sentencia recurrida le resultó adversa y por ende, cuenta con facultad para interponer el presente medio de impugnación.",
+      "frecuencia": "8/62",
+      "cuando": "Se legitima por el agravio, no por el carácter reconocido."
+     },
+     {
+      "id": "rv-c2-articulo-5",
+      "texto": "El recurso de revisión fue interpuesto por {recurrente}, quien tiene el carácter de quejosa en el juicio de amparo indirecto, en términos del artículo 5º, fracción I, de la Ley de Amparo, por ende, cuenta con facultad para interponer el presente medio de impugnación, además de que la resolución recurrida resultó adversa a sus intereses.",
+      "frecuencia": "3/62 (el 6º en 2/62)",
+      "cuando": "Cuando se cita el precepto de partes."
+     },
+     {
+      "id": "rv-c2-tercero",
+      "texto": "SEGUNDO. Legitimación para interponer el recurso de revisión. {recurrente}, se encuentra legitimada para interponer el presente recurso, por ser la parte tercero interesada en el juicio de amparo en que se actúa, además de ser contrario a sus intereses. Asimismo, comparece por conducto de su apoderado legal {representante}.",
+      "frecuencia": "medida en el corpus",
+      "cuando": "Recurre el TERCERO INTERESADO. El rótulo se acorta a «Legitimación para interponer el recurso de revisión» y desaparece la oportunidad."
+     },
+     {
+      "id": "rv-c2-autorizado",
+      "texto": "El recurso fue interpuesto por conducto de {promovente}, en su carácter de autorizada en términos amplios del artículo 12 de la Ley de Amparo del tercero interesado, mismo que le fue reconocido mediante acuerdo de {fecha}, y por ende, debe tenerse como tal en este asunto. Por ilustrativa se cita la tesis número P. LX/95, emitida por la Suprema Corte de Justicia de la Nación, cuyo rubro es: “AUTORIZADO CON FACULTADES AMPLIAS EN TÉRMINOS DEL ARTÍCULO 27 DE LA LEY DE AMPARO. A QUIEN SE DEBE RECONOCER ESE CARÁCTER PARA EFECTOS DE LA ADMISIÓN DEL RECURSO DE REVISIÓN.”.",
+      "frecuencia": "7/62 citan el artículo 12; 4/62 la P. LX/95",
+      "cuando": "El escrito lo firma el autorizado en términos amplios."
+     },
+     {
+      "id": "rv-c2-oportunidad-alterna",
+      "texto": "Por otra parte, el recurso de revisión, fue presentado oportunamente, dentro del plazo previsto en el artículo 86 de la Ley de Amparo.",
+      "frecuencia": "2/62",
+      "cuando": "Segunda redacción del cierre corto."
+     },
+     {
+      "id": "rv-c2-computo",
+      "texto": "Además, la interposición del recurso resultó oportuna, a la luz del artículo 86 de la Ley de Amparo, toda vez que la resolución recurrida se notificó a la parte quejosa el {fecha_notificacion}, surtió efectos al día hábil siguiente, por lo que el plazo para la interposición del recurso fue del {plazo}, sin contar sábados y domingos, así como el {dias_inhabiles}, en términos del artículo 19 de la Ley de Amparo, ni el {dia_festivo}, conforme al artículo 74 de la Ley Federal del Trabajo, entonces si se presentó el {fecha_presentacion}, es claro que fue hecho valer oportunamente.",
+      "frecuencia": "22/62 cierran con «es claro que fue hecho valer oportunamente»; 21/62 citan el artículo 19; 3/62 el 74 de la LFT",
+      "cuando": "Cómputo día por día. Igual que en amparo directo, el cómputo se AÑADE al engrosar; nunca se quita. El plazo del recurso de revisión es de DIEZ días (artículo 86), no de quince."
+     }
+    ]
+   },
+   {
+    "id": "rv-c3-dispensa",
+    "rotulo": "TERCERO. Resolución recurrida y agravios de la parte recurrente.",
+    "fijo": true,
+    "frecuencia": "25/62 con «Es innecesario transcribir»; 46/62 citan la 2a./J. 58/2010",
+    "plantilla": "TERCERO. Resolución recurrida y agravios de la parte recurrente. Es innecesario transcribir el contenido de la sentencia recurrida y los agravios hechos valer en su contra, pues el deber formal y material de exponer los argumentos legales que sustenten esta resolución, así como examinar las cuestiones efectivamente planteadas, que respectivamente establecen los artículos 74, fracción IV y 76 de la Ley de Amparo, no depende de la reproducción literal de los aspectos que conforman la litis, sino de su adecuado análisis.\n\nAl respecto, es aplicable la jurisprudencia 2a./J. 58/2010, de la Segunda Sala de la Suprema Corte de Justicia de la Nación, de rubro: “CONCEPTOS DE VIOLACIÓN O AGRAVIOS. PARA CUMPLIR CON LOS PRINCIPIOS DE CONGRUENCIA Y EXHAUSTIVIDAD EN LAS SENTENCIAS DE AMPARO ES INNECESARIA SU TRANSCRIPCIÓN”.",
+    "cuando": "Redacción MAYORITARIA en revisión. Ojo: aquí el rubro cierra «TRANSCRIPCIÓN”.» — la comilla ANTES del punto, al revés que en amparo directo. Si el acto recurrido es un auto y no una sentencia: «Es innecesario transcribir el contenido del auto recurrido y los agravios hechos valer en su contra».",
+    "nota_al_pie": "SÍ. 56/62 documentos tienen footnotes.xml con notas. Dos anclas idénticas a las del amparo directo: (1) de «artículos 74, fracción IV y 76 de la Ley de Amparo» cuelgan DOS notas, una por precepto, transcritas y entrecomilladas (22/62 cada una): «“Artículo 74. La sentencia debe contener: (…) IV. Las consideraciones y fundamentos legales en que se apoye para conceder, negar o sobreseer; (…).”» y «“Artículo 76. El órgano jurisdiccional, deberá corregir los errores u omisiones que advierta en la cita de los preceptos constitucionales y legales que se estimen violados, y podrá examinar en su conjunto los conceptos de violación y los agravios, así como los demás razonamientos de las partes, a fin de resolver la cuestión efectivamente planteada, sin cambiar los hechos expuestos en la demanda.”»; (2) de la clave de la tesis cuelga sólo la localización, sin comillas y terminada en punto: «Semanario Judicial de la Federación y su Gaceta, novena época, tomo XXXI, mayo de 2010, página 830.» o «Semanario Judicial de la Federación y su Gaceta, Tomo XXXI, mayo de 2010, página 830, Novena Época, registro 164618.» (20/62 con registro).",
+    "variantes": [
+     {
+      "id": "rv-c3-sin-preceptos",
+      "texto": "CUARTO. Resolución recurrida y agravios. Es innecesario trascribir el contenido de la sentencia recurrida y los agravios hechos valer en su contra, pues el deber formal y material de exponer los argumentos legales que sustenten esta resolución, así como examinar las cuestiones efectivamente planteadas, no depende de la reproducción literal de los aspectos que conforman la Litis, sino de su adecuado análisis. No obstante, en el caso de que el estudio demande la transcripción de algún apartado del acuerdo impugnado o de los agravios, así se reflejara. Sustenta esa consideración, por analogía, la jurisprudencia 2a. /J. 58/2010 de la Segunda Sala de la Suprema Corte de Justicia de la Nación, de rubro: “CONCEPTOS DE VIOLACIÓN O AGRAVIOS. PARA CUMPLIR CON LOS PRINCIPIOS DE CONGRUENCIA Y EXHAUSTIVIDAD EN LAS SENTENCIAS DE AMPARO ES INNECESARIA SU TRANSCRIPCIÓN.”.",
+      "frecuencia": "20/62 («Es innecesario trascribir»); 19/62 con «Litis» en mayúscula",
+      "cuando": "SEGUNDA PLANTILLA VIVA, no un descuido. Se distingue por cinco rasgos que van JUNTOS: rótulo corto «Resolución recurrida y agravios»; verbo «trascribir» SIN la n; NO cita los artículos 74 y 76; añade «No obstante, en el caso de que el estudio demande la transcripción de algún apartado del acuerdo impugnado o de los agravios, así se reflejara.» (con «reflejara» sin tilde); abre la cita con «Sustenta esa consideración, por analogía,» y escribe la clave con espacio: «2a. /J. 58/2010». Nunca mezclar rasgos de las dos plantillas."
+     },
+     {
+      "id": "rv-c3-rubro-consideraciones",
+      "texto": "{ordinal}. Consideraciones de la sentencia recurrida",
+      "frecuencia": "11/62",
+      "cuando": "Rótulo alterno."
+     }
+    ]
+   },
+   {
+    "id": "rv-c4-antecedentes",
+    "rotulo": "CUARTO. Antecedentes.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "aperturas medidas en el corpus",
+    "plantilla": "",
+    "apertura": "CUARTO. Antecedentes. Previo a abordar el estudio de fondo y para efectos de claridad, es preciso traer al marco de estudio el contexto procesal del asunto que se resuelve.",
+    "cuando": "El contenido es del expediente: sólo apertura. Otras aperturas literales medidas: «QUINTO. Antecedentes. De las constancias del asunto se desprenden los siguientes antecedentes:»; «CUARTO. Antecedentes. Para una mejor comprensión del asunto, es preciso narrar lo siguiente:»; «QUINTO. Antecedentes. Para una mejor comprensión del asunto, es preciso narrar los antecedentes siguientes:»; «CUARTO. Consideraciones necesarias para resolver la litis planteada. En este apartado se realizará una síntesis de los antecedentes del acto reclamado; de la sentencia dictada por el juzgador de amparo y de los agravios que serán objeto de estudio en este fallo.»",
+    "nota_al_pie": ""
+   },
+   {
+    "id": "rv-c5-estudio",
+    "rotulo": "{ordinal}. Estudio.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "-",
+    "plantilla": "",
+    "apertura": "",
+    "nota_al_pie": "",
+    "cuando": "Del expediente. Sin plantilla. Rótulos vivos: «{ordinal}. Estudio.», «{ordinal}. Estudio de fondo.», y —cuando el recurso se desecha— «{ordinal}. Extemporaneidad del recurso de revisión. El presente medio de impugnación se interpuso de manera extemporánea, como se explica a continuación.»",
+    "no_medido": true
+   },
+   {
+    "id": "rv-c-acumulacion",
+    "rotulo": "{ordinal}. Acumulación.",
+    "fijo": false,
+    "frecuencia": "no medida por separado",
+    "plantilla": "",
+    "cuando": "Cuando hay dos recursos relacionados: «…motivo por el que deberán resolverse de manera conjunta, con el fin de evitar que se dicten sentencias contradictorias.»",
+    "nota_al_pie": "",
+    "no_medido": true
+   }
+  ],
+  "resolutivo": {
+   "plantilla": "{cierre_previo} Por lo expuesto, fundado y con apoyo en los artículos 74, 75, 93 y 217 de la Ley de Amparo, se resuelve:\n\nR E S U E L V E\n\nPRIMERO. Se confirma la sentencia recurrida.\n\nSEGUNDO. {sentido} a {quejoso}, contra los actos que quedaron precisados en el considerando segundo de la resolución que se revisa y por las razones expuestas en el último considerando de la misma.",
+   "cuando": "En revisión el resolutivo tiene DOS puntos, no uno: PRIMERO decide sobre la sentencia recurrida (confirma / modifica / revoca) y SEGUNDO reproduce el sentido del amparo (ampara / no ampara / sobresee). Sólo hay ÚNICO cuando se desecha el recurso.",
+   "encabezados": [
+    {
+     "texto": "Por lo expuesto y fundado, se resuelve:",
+     "frecuencia": "26/62"
+    },
+    {
+     "texto": "Por lo expuesto, fundado y con apoyo en los artículos 74, 75, 93 y 217 de la Ley de Amparo, se resuelve: / se:",
+     "frecuencia": "24/62 abren con «Por lo expuesto, fundado»"
+    },
+    {
+     "texto": "Por lo expuesto, fundado y con apoyo además en los artículos 73, 74, 77 y 217, de la Ley de Amparo, se resuelve:",
+     "frecuencia": "cadena alterna medida"
+    }
+   ],
+   "variantes": {
+    "niega": "PRIMERO. Se confirma la sentencia recurrida.\n\nSEGUNDO. La Justicia de la Unión no ampara ni protege a {quejoso}, respecto de los actos destacados en el resultando primero, y considerando segundo de la resolución recurrida, ante las razones del séptimo considerando.",
+    "concede": "PRIMERO. Se CONFIRMA la sentencia recurrida.\n\nSEGUNDO. La JUSTICIA DE LA UNIÓN AMPARA Y PROTEGE a {quejoso}, en términos del último considerando de la resolución recurrida.",
+    "sobresee": "PRIMERO. Se confirma la sentencia impugnada.\n\nSEGUNDO. Se SOBRESEE en el presente juicio de garantías, promovido por {quejoso}, contra los actos que quedaron precisados en el considerando segundo de la resolución que se revisa y por las razones expuestas en el último considerando de la misma.",
+    "desecha": "ÚNICO. Se desecha el recurso de revisión, al resultar improcedente por extemporáneo, por los motivos y fundamentos expuestos en el considerando último de la presente ejecutoria.",
+    "confirma_con_datos": "PRIMERO. Se confirma la sentencia dictada el {fecha_sentencia} por {juez_distrito}, en el juicio de amparo indirecto {expediente}.",
+    "adelanto": "PRIMERO. Se ********** la sentencia impugnada.\n\nSEGUNDO. Se ************ en el presente juicio de garantías, promovido por {quejoso}, contra los actos que quedaron precisados en el considerando segundo de la resolución que se revisa y por las razones expuestas en el último considerando de la misma."
+   },
+   "frecuencias": {
+    "ampara y protege": "18/62",
+    "no ampara ni protege": "8/62",
+    "sobresee": "10/62",
+    "confirma": "8/62 «Se confirma la sentencia recurrida»",
+    "modifica": "4/62",
+    "revoca": "2/62",
+    "SEGUNDO. La Justicia de la Unión": "20/62"
+   },
+   "reglas": [
+    "«Se confirma» / «Se CONFIRMA» y «no ampara ni protege» / «NO AMPARA NI PROTEGE» conviven en versales y en minúsculas sin regla discernible: se copia lo que traiga el asunto.",
+    "El SEGUNDO remite al considerando de la RESOLUCIÓN RECURRIDA («el considerando segundo de la resolución que se revisa», «el séptimo considerando», «el penúltimo considerando del fallo combatido»), no a los considerandos de esta ejecutoria. Es un salto de numeración que el compositor no debe renumerar.",
+    "Los ADELANTOS dejan ambos sentidos en asteriscos: «Se ********** la sentencia impugnada» / «Se ************ en el presente juicio». Es el hueco deliberado del secretario."
+   ]
+  },
+  "cierre": "Notifíquese; publíquese y anótese en el libro de control de este tribunal, hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes, con testimonio de esta resolución vuelvan los autos a su lugar de origen y, en su oportunidad archívese como asunto concluido.\n\nAsí, por unanimidad de votos, lo resolvieron y aprobaron los integrantes del pleno del Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito en el Estado de Querétaro, en sesión remota realizada a través del Sistema de Videoconferencia, el Magistrado Presidente {magistrado} y los Magistrados {magistrado_2} e {magistrado_3}, siendo ponente el primero de los nombrados, quienes firman electrónicamente con el licenciado {secretario}, Secretario que autoriza y da fe.",
+  "cierre_frecuencias": {
+   "Notifíquese;": "48/62",
+   "Sistema Integral de Seguimiento de Expedientes": "48/62",
+   "vuelvan los autos a su lugar de origen": "45/62",
+   "archívese como asunto concluido": "45/62",
+   "libro de control": "34/62",
+   "Así, por unanimidad de votos": "28/62",
+   "siendo ponente el primero de los nombrados": "23/62"
+  },
+  "cierre_variantes": {
+   "libro_de_gobierno": "Notifíquese; publíquese y anótese en el libro de gobierno de este tribunal, hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes, con testimonio de esta resolución vuelvan los autos a su lugar de origen y, en su oportunidad archívese como asunto concluido. — variante viva en revisión: aquí SÍ aparece «libro de gobierno» en minúscula donde el amparo directo escribe «libro de control».",
+   "devolucion": "Notifíquese; publíquese y hágase la anotación en el Libro de control de este Tribunal; hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes; con testimonio de esta resolución devuélvanse los autos al lugar de procedencia. — 3/62, con punto y coma separando cada mandato.",
+   "presidenta": "…en sesión ordinaria virtual remota realizada a través del Sistema de Videoconferencia, la Magistrada Presidenta Jenica Campos Juárez y los Magistrados Ismael Camacho Herrera y Luis Armando Pérez Topete, siendo ponente el último de los nombrados… — depende de la FECHA DE LA SESIÓN, no del expediente."
+  },
+  "marcadores": {
+   "{materia_rubro}": "CIVIL / ADMINISTRATIVO en el rubro (mayúsculas), tras «AMPARO EN REVISIÓN» y con dos puntos: «AMPARO EN REVISIÓN CIVIL: 97/2026.»",
+   "{toca}": "número del toca de revisión con año y diagonal.",
+   "{recurrente}": "quien interpuso el recurso; puede ser el quejoso, la autoridad responsable o el tercero interesado. En el rubro «RECURRENTE:» / «RECURRENTE Y QUEJOSO:» / «RECURRENTE Y TERCERO INTERESADO:».",
+   "{adherente}": "quien promovió la revisión adhesiva; añade el renglón «RECURRENTE ADHERENTE Y AUTORIDAD RESPONSABLE: {responsable}».",
+   "{quejoso}": "parte quejosa, con la denominación social entera si es persona moral.",
+   "{juez_distrito}": "órgano de amparo que dictó la sentencia recurrida. En la Competencia se escribe «el Juzgado {ordinal} de Distrito en Materia de Amparo Civil, Administrativo y de Trabajo y de Juicios Federales en el Estado de Querétaro»; en el V I S T O y en los resultandos, la persona juzgadora («el Juez / la Juez / la Jueza {ordinal} de Distrito…»).",
+   "{oficina_recepcion}": "«la Oficina de Correspondencia Común» / «el buzón judicial de la Oficina de Correspondencia Común».",
+   "{expediente}": "número del juicio de amparo indirecto de origen.",
+   "{norma_impugnada}": "la norma cuya constitucionalidad se combatió, con su nombre completo y, si es de ingresos, el ejercicio fiscal.",
+   "{caracter}": "«quejoso» / «quejosa» / «apoderado legal del quejoso {nombre}» / «parte tercero interesada».",
+   "{fecha_sentencia} {fecha_presentacion} {fecha_auto_admision} {fecha_audiencia} {fecha_interposicion} {fecha_admision_toca} {fecha_turno} {fecha_notificacion}": "todas en letra.",
+   "{sentido_sentencia}": "lo que resolvió el juez de Distrito: «se sobreseyó en el juicio», «se negó el amparo», «se concedió el amparo».",
+   "{anio_letra}": "año de la sesión, en letra.",
+   "{magistrado} {magistrado_2} {magistrado_3} {secretario}": "igual que en amparo directo. El rubro de revisión escribe «SECRETARIA:» o «SECRETARIO:» según corresponda."
+  },
+  "trampas": [
+   "EL PLAZO DE LA REVISIÓN ES DE DIEZ DÍAS Y EL PRECEPTO ES EL 86, no el 17 (amparo directo) ni el 98 (queja). Copiar el cómputo del amparo directo aquí cambia el plazo y el fundamento.",
+   "HAY DOS PLANTILLAS DE DISPENSA CONVIVIENDO Y NO SE MEZCLAN: la que cita los artículos 74, fracción IV y 76 y escribe «transcribir» y «litis» (25/62), y la que NO los cita, escribe «trascribir» y «Litis», añade «No obstante, en el caso de que el estudio demande la transcripción… así se reflejara» y abre con «Sustenta esa consideración, por analogía,» (20/62). Tomar la mitad de una y la mitad de la otra delata la máquina.",
+   "SI SE IMPUGNÓ LA CONSTITUCIONALIDAD DE UNA NORMA, LA CADENA DE COMPETENCIA CAMBIA TRES PIEZAS A LA VEZ: 83, segundo párrafo (no 84); 35 fracción II (no V); y se encadenan el punto cuarto, fracción I del Acuerdo General 2/2025 y el punto segundo del diverso 11/2025 del Pleno de la SCJN antes del 3/2013. Cambiar sólo una es un error visible.",
+   "EL RESOLUTIVO DE REVISIÓN TIENE DOS PUNTOS y el SEGUNDO remite a considerandos de la SENTENCIA RECURRIDA, no de esta ejecutoria. Un renumerador que trate ese «considerando segundo» como propio rompe la remisión.",
+   "EN LA COMPETENCIA DE REVISIÓN APARECE UNA COPIA DEL PÁRRAFO DE AMPARO DIRECTO: 3/62 documentos de la carpeta REVISIONES traen literalmente «es competente para conocer y resolver el presente juicio de amparo directo, por haberse promovido en contra de una sentencia definitiva en materia {materia}…» con los artículos 103/107 fracción V y 170. Es un pegado de la plantilla equivocada, no una variante: NO reproducirlo.",
+   "EL FILTRO DE CARPETA NO BASTA: en /Users/josedavidalcantarmendoza/Documents/KINGSTON/CARPETA COMUN/REVISIONES conviven ARA/ARC (amparo en revisión) e IRA/IRC (incidente en revisión, suspensión), y buena parte de los .docx son certificaciones («certificacion ACTO RECLAMADO.docx», «CERTIFICACIÓN EN FORMA DE CUADERNILLO.docx»), no sentencias. De 296 .docx, sólo 173 pasan el filtro de longitud y cierre resolutivo, y sólo 62 son expedientes distintos.",
+   "«MORAL QUEJOSA» APLICADO A UNA PERSONA FÍSICA: ARA 186-2025 dice «no ampara ni protege a la moral quejosa Pablo Otero Molina». Es un error del corpus, no una fórmula.",
+   "«Por lo expuesto, fundado y con apoyo además en los artículos… se resuelve:» seguido inmediatamente de «Por lo expuesto y fundado, se resuelve:» aparece duplicado en al menos un engrose (ARA 186-2025). Es un pegado doble del corpus: el compositor debe emitir UN solo encabezado.",
+   "El disco se monta en /Users/josedavidalcantarmendoza/Documents/KINGSTON, NO en /Volumes/KINGSTON. Un `find /Volumes/KINGSTON` devuelve vacío y cierra la tarea en falso."
+  ]
+ }
+}
