@@ -36,6 +36,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
+# Las entidades donde el Código Nacional YA rige. Vacío por omisión: la
+# vigencia es un dato del mundo, no del acervo, y ponerla a ojo sería inventar.
+# Se declara con CNPCF_VIGENTE=jalisco,colima… cuando se sepa con certeza.
+CNPCF_VIGENTE = {x.strip().lower() for x in
+                 os.getenv("CNPCF_VIGENTE", "").split(",") if x.strip()}
+
 MODELO_ESTUDIO = os.getenv("MODELO_ESTUDIO", "gpt-5.6-luna")
 
 # El estudio SÍ razona: es el único paso del pipeline donde hay que construir
@@ -728,12 +734,22 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     #           escalonadamente y en Querétaro todavía no: siguen rigiendo el
     #           Código Civil y el de Procedimientos Civiles del Estado. Se citó
     #           igual, y aplicar una ley no vigente invalida la sentencia.
-    _fuentes = " ".join(str(n_.get("fuente", "")) for n_ in material.normas).lower()
+    # LA REGLA DEL ACERVO NO BASTA PARA LA VIGENCIA. Comprobado: el Código
+    # Nacional de Procedimientos Civiles y Familiares ESTÁ en el acervo de
+    # Querétaro —se ingirió con el resto—, así que «no cites lo que no esté en
+    # el acervo» nunca lo habría detenido. Su entrada en vigor es escalonada y
+    # el acervo no sabe de fechas: la vigencia se declara, no se deduce.
+    #
+    # Por omisión NO se da por vigente en ninguna entidad, que es el lado
+    # seguro: avisar de más cuesta una comprobación; avisar de menos, una
+    # sentencia que aplica una ley que aún no rige.
+    _fuentes = " ".join(str(n_.get("cuerpo_legal") or n_.get("fuente") or "")
+                        for n_ in material.normas).lower()
     for _cod, _ley in (("nacional de procedimientos civiles",
                         "Código Nacional de Procedimientos Civiles y Familiares"),
                        ("nacional de procedimientos penales",
                         "Código Nacional de Procedimientos Penales")):
-        if _cod in estudio.lower() and _cod not in _fuentes:
+        if _cod in estudio.lower() and _cod.split()[1] not in CNPCF_VIGENTE:
             avisos.append(
                 f"SE CITA EL {_ley.upper()} y NO está en el acervo de esta "
                 f"entidad. Su entrada en vigor es escalonada: comprueba que ya "

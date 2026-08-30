@@ -745,7 +745,10 @@ def _norma_del_texto(frag: str, num: str, normas: list):
     for n in (normas or []):
         if str(n.get("articulo", "")).strip() != str(num):
             continue
-        fuente = str(n.get("fuente", "")).lower()
+        # El acervo llama al campo `cuerpo_legal`; sólo algunas fuentes usan
+        # `fuente`. Leer una sola de las dos daba CERO coincidencias y ninguna
+        # nota de artículo salía, sin que nada avisara.
+        fuente = str(n.get("cuerpo_legal") or n.get("fuente") or "").lower()
         p = sum(1 for w in re.findall(r"[a-záéíóúñ]{4,}", fuente) if w in ley)
         if p > puntos or (mejor is None and p == 0):
             mejor, puntos = n, p
@@ -767,7 +770,11 @@ def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
         cuerpo = " ".join(str(n.get("texto", "")).split())[:900]
         if not cuerpo:
             continue
-        pie = f"«Artículo {num}. {cuerpo}» — {n.get('fuente', '')}".strip()
+        _ley = n.get("cuerpo_legal") or n.get("fuente") or ""
+        # El texto del acervo ya suele venir con «Artículo N.» delante.
+        cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "", cuerpo,
+                        flags=re.I)
+        pie = f"«Artículo {num}. {cuerpo}» — {_ley}".strip()
         if pie in notas:
             continue
         notas.append(pie)
@@ -1112,8 +1119,31 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     import banco as _bk
     _datos_bk = dict(datos)
     _datos_bk.setdefault("q", q)
-    _datos_bk.setdefault("objeto", f"una sentencia definitiva en materia "
-                                   f"{datos.get('materia', '') or HUECO}")
+    # LOS MARCADORES QUE SÍ SE DEDUCEN. Salieron en hueco la primera vez y no
+    # tenían por qué: la materia está en el encabezado —«AMPARO DIRECTO CIVIL
+    # 380/2025»—, la concordancia depende del género de la autoridad, y el
+    # inciso lo manda la materia: c) en civil y mercantil, b) en administrativa
+    # y agraria. Medido en el corpus. Un hueco que se puede rellenar es trabajo
+    # que se le deja al secretario sin motivo.
+    _resp = str(datos.get("responsable", ""))
+    _fem = bool(re.match(r"\s*(?:la|las)\s", _resp, re.I) or
+                re.search(r"\b(sala|junta|secretar[íi]a|comisi[óo]n|"
+                          r"procuradur[íi]a|direcci[óo]n)\b", _resp, re.I))
+    _mat = (datos.get("materia") or "").strip().lower()
+    if not _mat:
+        _enc = str(datos.get("encabezado", "")).lower()
+        for m_, clave in (("civil", "civil"), ("administrativ", "administrativa"),
+                          ("mercantil", "mercantil"), ("laboral", "laboral"),
+                          ("familiar", "familiar"), ("agrari", "agraria")):
+            if m_ in _enc:
+                _mat = clave
+                break
+    _datos_bk.setdefault("materia", _mat)
+    _datos_bk.setdefault("inciso", "b" if _mat in ("administrativa", "agraria") else "c")
+    _datos_bk.setdefault("concordancia", "localizada" if _fem else "localizado")
+    _datos_bk["responsable"] = _con_articulo(_resp)
+    _datos_bk.setdefault("objeto", (f"una sentencia definitiva en materia {_mat}"
+                                    if _mat else "una sentencia definitiva"))
     _huecos_bk = []
 
     def _del_banco(ident, respaldo):
