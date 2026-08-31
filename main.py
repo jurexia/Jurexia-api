@@ -26067,7 +26067,6 @@ async def taller_contexto(
             "recortado": len(junto) > 60000}
 
 
-@app.post("/taller/proponer")
 def _con_autos(r, contexto: str) -> str:
     """El contexto del secretario, precedido por las constancias del expediente.
 
@@ -26083,6 +26082,7 @@ def _con_autos(r, contexto: str) -> str:
             f"{autos}\n\n" + (contexto or ""))
 
 
+@app.post("/taller/proponer")
 async def taller_proponer(
     numero: str = Form(...),
     user_email: str = Form(...),
