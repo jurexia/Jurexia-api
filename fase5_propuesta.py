@@ -432,7 +432,13 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     """Devuelve (propuestas, avisos). No decide nada: propone."""
     if not problemas:
         return [], []
+    # EL SENTIDO NO SE SORTEA. Medido: con material fijo esta llamada ya daba
+    # el mismo resultado cinco de cinco veces, así que esto no arregla nada
+    # hoy; lo que hace es impedir que mañana empiece a variar por un cambio de
+    # modelo o de proveedor. La decisión de un tribunal no puede depender del
+    # muestreo.
     kw = dict(model=MODELO_PROPUESTA,
+              temperature=0, seed=20260831,
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,

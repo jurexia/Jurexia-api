@@ -234,6 +234,10 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # entero al guardar la sesión: colgarlas del Resultado las perdería en
     # cuanto la petición siguiente cayera en el otro worker de gunicorn.
     f.autos = autos
+    # LOS TEXTOS DE ORIGEN, para poder comprobar después que nada del proyecto
+    # viene de fuera del asunto. Se guarda un extracto: comprobar la
+    # contaminación no justifica duplicar el expediente entero en la sesión.
+    f.fuentes = [(texto_acto or "")[:120000], (texto_conceptos or "")[:120000]]
     if autos:
         print(f"   📁 constancias del expediente: {len(autos)} caracteres")
     return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
@@ -498,6 +502,40 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     yield {"tipo": "listo", "resultado": res}
 
 
+def _revisar_contaminacion(r, e) -> list:
+    """Que nada del proyecto sea de otro asunto.
+
+    David: «asegúrate de que los formatos de salida no estén contaminados con
+    datos que no correspondan al asunto que proyecta el secretario». Se
+    comprueba sin modelo: todo nombre propio, número de expediente y cantidad
+    del proyecto debe estar en los documentos que él subió o en lo que tecleó.
+    Lo que no esté viene de otra parte.
+    """
+    try:
+        import contaminacion as _c
+    except Exception:
+        return []
+    fuentes = list(getattr(getattr(r, "fases", None), "fuentes", []) or [])
+    autos = str(getattr(getattr(r, "fases", None), "autos", "") or "")
+    if autos:
+        fuentes.append(autos)
+    enc = {k: getattr(e, k, "") for k in
+           ("numero", "encabezado", "quejoso", "responsable", "magistrado",
+            "secretario", "tribunal", "ciudad")}
+    try:
+        with open(r.ruta, "rb"):
+            pass
+        import docx as _dx
+        d = _dx.Document(r.ruta)
+        texto = "\n".join(p.text for p in d.paragraphs)
+        for tb in d.tables:
+            for fila in tb.rows:
+                texto += "\n" + " | ".join(c.text for c in fila.cells)
+    except Exception:
+        return []
+    return _c.revisar(texto, fuentes, enc)
+
+
 async def _terminar(cliente, r, e, criterios, material, estudio,
                     advertencias, avisos, tarea_marco, ruta_salida, qdrant=None,
                     marco: str = ""):
@@ -587,6 +625,14 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     for a in reversed(incongruente):
         if a not in avisos:
             avisos.insert(0, a)
+
+    # NADA DEL PROYECTO PUEDE SER DE OTRO ASUNTO. Se comprueba sobre el .docx ya
+    # escrito, que es lo que el secretario va a leer, y contra los documentos
+    # que él subió.
+    r_final = Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e)
+    for a in _revisar_contaminacion(r_final, e):
+        if a not in avisos:
+            avisos.append(a)
 
     return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
                      partes=r.partes, estudio=estudio, advertencias=advertencias,

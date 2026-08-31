@@ -204,6 +204,48 @@ Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
 # Es el mismo motor que ya corre en Redacción Pro y Platinum, con el mismo
 # cliente (`chat_client` de main.py). Ver [[motores-iurexia]].
 MODELO_FASES = os.getenv("MODELO_FASES", "gpt-5.6-luna")
+# Un número cualquiera, pero SIEMPRE el mismo: es lo que hace que dos lecturas
+# del mismo expediente den lo mismo.
+SEMILLA = int(os.getenv("SEMILLA_FASES", "20260831"))
+
+
+def _sin_repetidos(problemas: list) -> list:
+    """Dos problemas que preguntan lo mismo son uno.
+
+    Medido en las corridas de Kingston: una lectura del ADC 642/2024 sacó CINCO
+    problemas y dos eran «¿La Sala responsable vulneró los derechos de
+    legalidad, tutela judicial efectiva e impartición de justicia…?» palabra por
+    palabra; otra lectura del RQC 233/2025 sacó cuatro y los dos primeros
+    preguntaban ambos por el artículo 86 de la Ley de Instituciones de Crédito.
+    El motor los resuelve por separado y el estudio contesta dos veces lo mismo:
+    engorda el proyecto y en sesión se nota.
+
+    Se comparan por VOCABULARIO, no por cadena: la duplicación real no es
+    literal —el modelo reformula— y comparar textos exactos no habría cazado
+    ninguno de los dos casos.
+    """
+    import re as _re
+    import unicodedata as _ud
+
+    def _vocab(x: str) -> set:
+        y = _ud.normalize("NFKD", str(x or "").lower())
+        y = "".join(c for c in y if not _ud.combining(c))
+        vacias = {"que", "los", "las", "del", "para", "con", "por", "una", "sus",
+                  "responsable", "quejosa", "quejoso", "sala", "debia", "podia"}
+        return {w for w in _re.findall(r"[a-z]{4,}", y) if w not in vacias}
+
+    fuera, vistos = [], []
+    for p in problemas:
+        q = p.get("pregunta", "") if isinstance(p, dict) else str(p)
+        v = _vocab(q)
+        if len(v) < 4:
+            fuera.append(p)
+            continue
+        if any(len(v & w) / max(1, len(v | w)) > 0.60 for w in vistos):
+            continue                       # ya se preguntó esto
+        vistos.append(v)
+        fuera.append(p)
+    return fuera
 
 # SIN RAZONAMIENTO, y lo decidió David: «es un proceso de resumen y recolección
 # de información para ser plasmados en el docx». No hay nada que deducir — lo
@@ -226,9 +268,33 @@ async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = F
     modelo antepone una frase, o parte el objeto— y la fase de problemas se
     queda vacía con un error críptico. Pasó en el ADC 274-2025.
     """
+    # ═══════════════════════════════════════════════════════════════════
+    # LEER UN EXPEDIENTE NO ES REDACTAR: SE HACE IGUAL TODAS LAS VECES
+    # ═══════════════════════════════════════════════════════════════════
+    # David pidió estabilidad del sentido, y la medición dijo dónde estaba el
+    # problema. La fase que DECIDE es estable: cinco propuestas con el mismo
+    # material dieron el mismo sentido las cinco veces. La que varía es ÉSTA,
+    # la que lee. Tres lecturas del mismo escrito de agravios dieron:
+    #
+    #   lectura 1 → 3 problemas
+    #   lectura 2 → 3 problemas, redactados distinto
+    #   lectura 3 → 4 problemas, dos de ellos casi duplicados
+    #
+    # Y con problemas distintos se le hacen preguntas distintas al motor, así
+    # que el sentido cambia sin que nadie haya cambiado nada. Un secretario que
+    # genera el mismo asunto dos veces obtenía resoluciones opuestas.
+    #
+    # Extraer los antecedentes, los conceptos y los problemas jurídicos de un
+    # documento es identificar lo que YA ESTÁ ESCRITO: no admite creatividad, y
+    # el muestreo por defecto sólo puede estropearlo. Se fija.
+    #
+    # La `seed` no garantiza nada por contrato —el proveedor la respeta «en la
+    # medida de lo posible»— pero con temperature 0 el margen es mínimo, y no
+    # ponerla no ayuda.
     kw = dict(model=MODELO_FASES,
               messages=[{"role": "user", "content": prompt}],
-              max_completion_tokens=tope)
+              max_completion_tokens=tope,
+              temperature=0, seed=SEMILLA)
     if ESFUERZO_FASES:
         kw["reasoning_effort"] = ESFUERZO_FASES
     if json_estricto:
@@ -268,7 +334,7 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
         m = re.search(r"\{.*\}", crudo, re.S)
         j = _json.loads(m.group(0) if m else crudo)
         f.problema_global = j.get("problema_global", "")
-        f.problemas = j.get("problemas", []) or []
+        f.problemas = _sin_repetidos(j.get("problemas", []) or [])
     except Exception as e:
         f.avisos.append(f"No se pudieron derivar los problemas jurídicos: {e}")
     f.avisos.extend(revisar(f))
@@ -292,6 +358,8 @@ class Fases123:
     # guardar la sesión: con dos workers de gunicorn, lo que no viaja en ese
     # estado no existe para la petición siguiente.
     autos: str = ""
+    # Los textos del acto y del recurso, para el detector de contaminación.
+    fuentes: list = field(default_factory=list)
 
     def parrafos_antecedentes(self) -> list[str]:
         """Sin el encabezado que el modelo se pone a sí mismo.

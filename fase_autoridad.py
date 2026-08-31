@@ -45,6 +45,8 @@ _PATRONES = (
     r"(?:Juez|Jueza)\s+(?:Primero|Segundo|Tercero|Cuarto|Quinto|Sexto|S[ée]ptimo"
     r"|Octavo|Noveno|D[ée]cimo)?\s*de\s+Distrito[\w\sáéíóúñ,]{0,80}",
     r"Sala\s+Regional[\w\sáéíóúñ]{0,60}",
+    r"Juzgado\s+(?:Primero|Segundo|Tercero|Cuarto|Quinto|Sexto|S[ée]ptimo"
+    r"|Octavo|Noveno|D[ée]cimo)?\s*de\s+Distrito[\w\sáéíóúñ,]{0,80}",
     # LO ESPECÍFICO ANTES QUE LO GENÉRICO: «Sala Superior» casaba primero y se
     # quedaba con media identidad del Tribunal de Justicia Administrativa.
     r"Tribunal\s+de\s+Justicia\s+Administrativa[\w\sáéíóúñ,]{0,80}",
@@ -112,6 +114,20 @@ def _limpiar(x: str) -> str:
     return x.strip()[:MAX_NOMBRE]
 
 
+# QUIÉN NO PUEDE SER LA RESPONSABLE. La Suprema Corte y sus Salas aparecen en
+# las cabeceras porque los autos y las sentencias citan sus tesis, no porque
+# hayan dictado el acto: ningún colegiado revisa a la Corte. Ya pasó —el auto
+# de una queja hizo que la «responsable» fuera la Segunda Sala— y es de la misma
+# familia que el Tribunal Colegiado que ya se excluyó.
+_RX_NUNCA = re.compile(
+    r"Suprema\s+Corte|Tribunal\s+Colegiado|Tribunal\s+Pleno|"
+    r"(?:Primera|Segunda)\s+Sala\s+de\s+la\s+Suprema|Pleno\s+Regional", re.I)
+
+
+def _nunca_responsable(nombre: str) -> bool:
+    return bool(_RX_NUNCA.search(nombre or ""))
+
+
 def de_texto(acto: str) -> str:
     """La autoridad que dictó el acto, leída del propio documento.
 
@@ -136,22 +152,73 @@ def de_texto(acto: str) -> str:
     t = " ".join((acto or "").split())
     if not t:
         return ""
-    cabeza = t[:3000]
+
+    # ═══════════════════════════════════════════════════════════════════
+    # LA CABECERA MANDA; EL CUERPO SÓLO SI LA CABECERA CALLA
+    # ═══════════════════════════════════════════════════════════════════
+    # Tercer intento, y los dos anteriores fallaron por lo contrario:
+    #
+    #   · «la PRIMERA coincidencia» se quedaba con el sello escaneado del
+    #     laudo, que el OCR despedaza en «JUNTA FEDERAL DE / UNCILIACIÓN Y
+    #     ARBITRA / UERÉTARO QR»;
+    #   · «la coincidencia MÁS LARGA en todo el documento» eligió, en un amparo
+    #     directo CIVIL sobre reivindicación, el «Tribunal Unitario Agrario,
+    #     Distrito 42, visibles a fojas 14» que la sentencia menciona en su
+    #     segunda mitad al listar las pruebas del juicio agrario previo. La
+    #     responsable era la Sala Civil, y estaba en el proemio.
+    #
+    # La regla buena las concilia: la responsable de un acto se identifica en su
+    # ENCABEZADO, así que ahí se busca la más completa; y sólo si el encabezado
+    # no da ninguna —porque venía en un sello que el OCR rompió— se mira el
+    # cuerpo entero y gana la que MÁS SE REPITE, que es la que el documento
+    # nombra una y otra vez porque es la suya.
+    cabeza = t[:6000]
     for p in _PATRONES:
-        # LA MÁS LARGA, no la primera: el sello roto y el nombre bueno casan con
-        # el mismo patrón, y el roto suele ir delante.
         cands = [_limpiar(m.group(0)) for m in re.finditer(p, cabeza, re.I)]
-        cands += [_limpiar(m.group(0)) for m in re.finditer(p, t, re.I)]
+        cands = [c for c in cands if len(c) > 12 and not _nunca_responsable(c)]
         if cands:
             return max(cands, key=len)
+    # SI LA CABECERA NO DA NINGUNA, se sigue al cuerpo. No es un caso raro: el
+    # AUTO que se recurre en una queja no nombra a quien lo dictó —dice «el
+    # secretario da cuenta a la jueza»— y su identidad aparece más abajo, en el
+    # cuerpo o en la firma. Ahí gana la que más se repite, que es la suya.
+
     # Fuera de la cabecera hace falta insistencia para creérselo.
     mejor, veces = "", 0
     for p in _PATRONES:
         halladas = [_limpiar(x.group(0)) for x in re.finditer(p, t, re.I)]
+        halladas = [h for h in halladas if not _nunca_responsable(h)]
         if not halladas:
             continue
         from collections import Counter
-        nombre, n = Counter(halladas).most_common(1)[0]
-        if n > veces and n >= 2:
+        # NO BASTA LA MÁS FRECUENTE: con empate a uno, `most_common` devuelve la
+        # primera que se vio, y en el auto del 143/2026 eso era «Juzgado de
+        # Distrito» a secas —que no identifica a nadie— mientras el nombre
+        # completo, «Juzgado Tercero de Distrito en Materia de Amparo Civil,
+        # Administrativo y de Trabajo y de Juicios Federales», quedaba a su
+        # lado sin ser mirado. Se ordena por concreción, luego por frecuencia y
+        # luego por longitud.
+        cuenta = Counter(halladas)
+        nombre = max(cuenta, key=lambda x: (
+            bool(re.search(r"(?:Juez|Jueza|Juzgado)\s+\w+\s+de\s+Distrito"
+                           r"|Junta\s+Especial|Sala\s+Regional"
+                           r"|Tribunal\s+Unitario", x, re.I)),
+            cuenta[x], len(x)))
+        n = cuenta[nombre]
+        # DOS MENCIONES ERAN DEMASIADO EXIGENTES PARA UN AUTO. La regla nació
+        # para no confundir una cita con el emisor, y sirve cuando el documento
+        # es largo; pero el auto que se recurre en una queja nombra a quien lo
+        # dictó UNA sola vez —«Jueza Cuarto de Distrito en Materia de Amparo
+        # Civil»— y con el umbral en dos, la responsable salía vacía en las dos
+        # quejas de la prueba.
+        #
+        # Basta una cuando el patrón nombra un órgano jurisdiccional CONCRETO
+        # —un juzgado o un juez de distrito con su número—: eso no es una cita
+        # de tesis, es quien resolvió. Para los patrones genéricos se siguen
+        # pidiendo dos.
+        _concreto = re.search(r"(?:Juez|Jueza|Juzgado)\s+\w+\s+de\s+Distrito"
+                              r"|Junta\s+Especial|Sala\s+Regional"
+                              r"|Tribunal\s+Unitario", nombre, re.I)
+        if n > veces and (n >= 2 or _concreto):
             mejor, veces = nombre, n
     return mejor
