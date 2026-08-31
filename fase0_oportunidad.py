@@ -258,6 +258,18 @@ class ReglaSurte:
 # Lo que falta —laboral, civil local, fiscal federal, penal— se añade igual: se
 # lee de un engrose, se comprueba que el cómputo lo reproduce, y entra.
 REGLAS_SURTE: dict[str, ReglaSurte] = {
+    # ═══════════════════════════════════════════════════════════════════
+    # LA CLAVE DICE DE QUIÉN ES LA REGLA, Y ESO IMPORTA
+    # ═══════════════════════════════════════════════════════════════════
+    # `tja_qro_boletin` es del Tribunal de Justicia Administrativa DE
+    # QUERÉTARO, y era el valor POR OMISIÓN de todo el pipeline. Un secretario
+    # de Yucatán, de Jalisco o de Nuevo León generaba su proyecto y el cómputo
+    # se hacía con la regla de otro estado, en silencio. Un plazo mal contado
+    # invalida la sentencia: es el peor sitio donde heredar un valor ajeno.
+    #
+    # Ahora la omisión es `personal`, que es la regla general del artículo 31,
+    # fracción I, de la Ley de Amparo y vale en toda la república; las reglas
+    # locales se piden por su clave y se avisa de a quién pertenecen.
     "tja_qro_boletin": ReglaSurte(
         clave="tja_qro_boletin",
         descripcion="mediante Boletín Jurisdiccional",
@@ -328,7 +340,7 @@ class Computo:
 def computar(
     notificacion: Fecha,
     presentacion: Optional[Fecha] = None,
-    regla: str = "tja_qro_boletin",
+    regla: str = "personal",
     plazo: int = 15,
     responsable: Optional[str] = None,
 ) -> Computo:
@@ -342,6 +354,13 @@ def computar(
     avisos: list[str] = []
 
     r = REGLAS_SURTE.get(regla)
+    if r and str(getattr(r, "clave", "")).endswith("_qro_boletin"):
+        avisos.append(
+            "El cómputo usa la regla del Boletín Jurisdiccional del Tribunal de "
+            "Justicia Administrativa de QUERÉTARO (surte al tercer día hábil). "
+            "Si tu asunto es de otra entidad, comprueba cómo surte efectos la "
+            "notificación en la ley que rige el acto: un plazo mal contado "
+            "invalida la sentencia.")
     if r is None:
         r = REGLAS_SURTE["personal"]
         avisos.append(

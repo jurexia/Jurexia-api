@@ -40,7 +40,9 @@ class Encargo:
     secretario: str
     notificacion: _dt.date
     presentacion: _dt.date
-    regla_surtimiento: str = "tja_qro_boletin"
+    # LA OMISIÓN ES LA REGLA GENERAL DE LA LEY DE AMPARO, no la de un
+    # tribunal concreto: esto lo usan secretarios de toda la república.
+    regla_surtimiento: str = "personal"
     plazo: int = 15
     responsable: Optional[str] = None
     es_recurso: bool = False
@@ -138,7 +140,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # valor por omisión de otra materia: si la materia es laboral y nadie
     # declaró otra cosa, se cuenta personal y SE AVISA.
     _mat = fp_materia(e)
-    if _mat == "laboral" and e.regla_surtimiento == "tja_qro_boletin":
+    if _mat == "laboral" and e.regla_surtimiento in ("tja_qro_boletin", "lista"):
         e.regla_surtimiento = "personal"
         avisos.append(
             "El cómputo se hizo con notificación PERSONAL, que es como se "

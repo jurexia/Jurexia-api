@@ -25699,7 +25699,11 @@ async def taller_adelanto(
     notificacion: str = Form(...),           # ISO: 2026-05-11
     presentacion: str = Form(...),
     user_email: str = Form(...),
-    regla_surtimiento: str = Form("tja_qro_boletin"),
+    # NOTIFICACIÓN PERSONAL POR OMISIÓN — artículo 31, fracción I, de la Ley
+    # de Amparo, que vale en toda la república. Antes la omisión era la regla
+    # del Boletín Jurisdiccional del tribunal administrativo de Querétaro y se
+    # aplicaba, en silencio, al cómputo de un secretario de cualquier estado.
+    regla_surtimiento: str = Form("personal"),
     plazo: int = Form(15),
     # LA AUTORIDAD SE LEE DEL ACTO. Exigirla al secretario era la solución
     # equivocada al problema correcto: el dato está en la sentencia reclamada
