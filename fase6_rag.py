@@ -98,7 +98,15 @@ def _tesis_de(p: dict) -> dict:
 
 def _norma_de(p: dict) -> dict:
     return {
-        "cuerpo_legal": p.get("cuerpo_legal_oficial") or p.get("ref") or "",
+        # CUATRO NOMBRES PARA EL MISMO DATO, y cada colección usa el suyo:
+        # `cuerpo_legal_oficial` en leyes_federales, `origen` en el bloque
+        # constitucional, `ley` y `cuerpo_legal` en el silo laboral. Leer sólo
+        # uno dejaba el nombre VACÍO en las 22 normas del silo, y como el
+        # compositor ya no transcribe un artículo cuya ley no puede identificar
+        # —esa regla se puso hoy, para que no vuelva a pegar el texto de otra
+        # ley—, el documento se habría quedado sin una sola transcripción.
+        "cuerpo_legal": (p.get("cuerpo_legal_oficial") or p.get("cuerpo_legal")
+                         or p.get("ley") or p.get("origen") or p.get("ref") or ""),
         "articulo": p.get("articulo_num") or "",
         "texto": p.get("texto") or p.get("contenido") or "",
         "entidad": p.get("entidad") or "",
@@ -159,6 +167,11 @@ async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
     num, ley = norma.get("articulo"), str(norma.get("cuerpo_legal") or "")
     if not num or not ley:
         return norma
+    # EL SILO YA GUARDA EL ARTÍCULO ENTERO —un punto por artículo, que es su
+    # primera regla de diseño—, así que aquí no hay nada que completar y el
+    # scroll sería un viaje en balde por cada norma.
+    if coleccion in SILO_POR_MATERIA.values():
+        return norma
     try:
         r = qdrant.scroll(
             collection_name=coleccion,
@@ -174,7 +187,8 @@ async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
     # SÓLO LOS DE LA MISMA LEY. El artículo 47 existe en decenas de códigos y
     # juntarlos daría un texto que no es de ninguno.
     suyos = [x.payload for x in (pts or [])
-             if str((x.payload or {}).get("cuerpo_legal_oficial") or "") == ley]
+             if str((x.payload or {}).get("cuerpo_legal_oficial")
+                    or (x.payload or {}).get("ley") or "") == ley]
     if len(suyos) < 2:
         return norma
     partes, visto = [], set()
