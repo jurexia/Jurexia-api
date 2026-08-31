@@ -567,10 +567,41 @@ class Estructura:
 _RX_JSON = re.compile(r"\{.*\}", re.S)
 
 
+# CADA ASUNTO SE IDENTIFICA CON LO QUE TIENE, y no todos tienen lo mismo. El
+# prompt ordenaba identificar el acto por «fecha, SALA, TOCA y expediente de
+# origen, y qué confirmó, modificó o revocó»: eso es un amparo directo contra
+# una sentencia de segunda instancia. En una QUEJA se recurre un auto de un juez
+# de distrito y en una REVISIÓN una sentencia de amparo indirecto: no hay sala,
+# no hay toca y no hay nada que confirmar ni revocar. El modelo, obligado a
+# decirlo, escribía «dentro del toca y expediente de origen que constan en
+# autos, acto que no confirmó, modificó ni revocó otra resolución», que es la
+# frase defensiva que un dictamen ya nos reprochó: una sentencia no explica al
+# lector por qué NO hay toca; sencillamente no lo menciona.
+_IDENTIFICA_ACTO = {
+    "amparo_directo": ("fecha, sala, toca y expediente de origen, y qué "
+                       "confirmó, modificó o revocó"),
+    "amparo_revision": ("fecha, juzgado de distrito y número del juicio de "
+                        "amparo indirecto en que se dictó"),
+    "revision_fiscal": ("fecha, sala del Tribunal Federal de Justicia "
+                        "Administrativa y número del juicio de nulidad"),
+    "queja": ("fecha, juzgado de distrito y número del juicio de amparo en que "
+              "se dictó, y qué proveyó"),
+}
+_NOMBRE_ASUNTO = {
+    "amparo_directo": "amparo directo",
+    "amparo_revision": "amparo en revisión",
+    "revision_fiscal": "revisión fiscal",
+    "queja": "recurso de queja",
+}
+
+
 def prompt_estructura(datos: dict) -> str:
     q = "agravios" if datos.get("es_recurso") else "conceptos de violación"
+    _tipo = str(datos.get("tipo_asunto") or "amparo_directo").strip().lower()
+    _clase = _NOMBRE_ASUNTO.get(_tipo, "amparo directo")
+    _identifica = _IDENTIFICA_ACTO.get(_tipo, _IDENTIFICA_ACTO["amparo_directo"])
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito y escribes las
-partes ESTRUCTURALES de una sentencia de amparo directo. No escribes el estudio
+partes ESTRUCTURALES de una sentencia de {_clase}. No escribes el estudio
 de fondo —ese ya está hecho—: escribes lo que la ley obliga a decir antes de
 llegar a él, con los datos de ESTE asunto y de ESTE tribunal.
 
@@ -612,7 +643,7 @@ Devuelve SÓLO este JSON:
   "visto": "<la fórmula VISTO, para resolver el juicio de amparo directo…, sin repetir el rótulo>",
   "resultandos": [
      {{"titulo": "Presentación de la demanda de amparo",
-       "texto": "<fecha, oficialía, promovente y su carácter. Después, IDENTIFICA el acto: fecha, sala, toca y expediente de origen, y qué confirmó, modificó o revocó. PROHIBIDO resumir aquí su razonamiento: eso va en el estudio>"}},
+       "texto": "<fecha, oficialía, promovente y su carácter. Después, IDENTIFICA el acto: {_identifica}. Si alguno de esos datos NO consta, NO lo menciones ni expliques que no consta: se omite y ya. PROHIBIDO resumir aquí su razonamiento: eso va en el estudio>"}},
      {{"titulo": "Derechos humanos cuya violación se alega", "texto": "<UNA sola frase con la lista de artículos constitucionales. No argumenta>"}},
      {{"titulo": "Tercero interesado", "texto": "<una frase: le resulta tal carácter a X, quien fue emplazado al presente juicio, según las constancias>"}},
      {{"titulo": "Trámite del juicio de amparo", "texto": "<auto de Presidencia, registro, admisión, vista del artículo 181 de la Ley de Amparo, y que el agente del Ministerio Público adscrito omitió formular pedimento>"}}
@@ -861,9 +892,21 @@ def _normalizar_autoridad(nombre: str) -> str:
     # se llama la autoridad de su expediente mejor que yo.
     if any(c.isupper() for c in n[1:]):
         return n
+    # LOS NÚMEROS ROMANOS NO SE CAPITALIZAN. `"II".capitalize()` devuelve «Ii»,
+    # y el resolutivo salió diciendo «la Sala Regional del Centro Ii». Se
+    # reconocen y se dejan como están.
+    _romano = re.compile(r"^[IVXLCDM]{1,7}$")
     partes = []
     for i, w in enumerate(n.split()):
-        partes.append(w if (i and w.lower() in _CONECTIVAS) else w.capitalize())
+        limpio = w.strip(".,;:()")
+        if _romano.match(limpio.upper()) and limpio.upper() == limpio:
+            partes.append(w)                       # ya viene en versales
+        elif _romano.match(limpio.upper()) and len(limpio) > 1:
+            partes.append(w.upper())               # «ii» → «II»
+        elif i and w.lower() in _CONECTIVAS:
+            partes.append(w)
+        else:
+            partes.append(w.capitalize())
     return " ".join(partes)
 
 
@@ -1661,6 +1704,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # a su tribunal y fundaba su competencia en la fracción de otro. No se puede
     # deducir del expediente, así que se deja HUECO VISIBLE, que es la regla de
     # la casa: un hueco se ve y se rellena; una fracción equivocada se firma.
+    # LOS MARCADORES DE LA PLANTILLA DE REVISIÓN, que nadie llenaba: salían como
+    # «en materia *********, por el *********» en mitad del considerando de
+    # competencia. El juez de distrito ES la autoridad responsable —en una
+    # revisión de amparo indirecto lo recurrido es su sentencia— y la materia ya
+    # está calculada tres líneas más arriba.
+    _datos_bk.setdefault("juez_distrito", _normalizar_autoridad(_resp) or HUECO)
+    _datos_bk.setdefault("juzgado", _normalizar_autoridad(_resp) or HUECO)
+    _datos_bk.setdefault("recurrente", str(datos.get("quejoso") or "").strip() or HUECO)
     _datos_bk.setdefault("fraccion_acuerdo",
                          str(datos.get("fraccion_acuerdo") or "").strip() or HUECO)
     _datos_bk.setdefault("fecha_acto", str(datos.get("fecha_acto") or "").strip()

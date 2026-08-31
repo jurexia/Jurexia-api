@@ -623,6 +623,10 @@ def _datos_estructura(e: Encargo, antecedentes: str = "") -> dict:
         "magistrado": e.magistrado,
         "secretario": e.secretario,
         "presentacion": _f0.fecha_en_letra(e.presentacion),
+        # EL TIPO DE ASUNTO, que faltaba y por eso el prompt de estructura
+        # escribía siempre «una sentencia de amparo directo» y pedía identificar
+        # el acto por «sala, toca y expediente» aunque fuera una queja.
+        "tipo_asunto": getattr(e, "tipo_asunto", "amparo_directo"),
         "es_recurso": e.es_recurso,
         "antecedentes": antecedentes,
     }
