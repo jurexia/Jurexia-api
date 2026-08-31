@@ -123,6 +123,22 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         avisos.append("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "
                       "si es correcto, el asunto no se resuelve en el fondo.")
 
+    # ── La autoridad, leída del acto ─────────────────────────────────────
+    # No se le pregunta al secretario lo que está en el documento que ya subió.
+    # Cada campo que se le pide y podría deducirse es un minuto suyo y una
+    # ocasión de equivocarse: el adelanto vale por lo que le ahorra.
+    if not (e.responsable or "").strip():
+        import fase_autoridad as _fa
+        leida = _fa.de_texto(texto_acto)
+        if leida:
+            e.responsable = leida
+            print(f"   ⚖️ autoridad responsable leída del acto: «{leida[:70]}»")
+        else:
+            avisos.append(
+                "No se pudo leer la autoridad responsable del acto reclamado, y "
+                "sin ella la competencia, los efectos y el resolutivo salen con "
+                "hueco. Escríbela en el encargo.")
+
     # ── Fases 1-3 — lectura ──────────────────────────────────────────────
     # La ficha de partes se hace AQUÍ, con los documentos delante, y viaja al
     # estudio. Sin ella el redactor resuelve los sujetos por proximidad, y en un
