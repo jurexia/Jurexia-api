@@ -340,6 +340,16 @@ _RX_VERBO = re.compile(
 _POR_DEFECTO = "Sirve de apoyo"
 
 
+# Lo que puede quedar colgando al recortar el sintagma: el modelo escribe
+# «Sirve de apoyo, como criterio orientador, la jurisprudencia…» y el recorte se
+# lleva desde «criterio», dejando «Sirve de apoyo, como». Compuesto luego da
+# «Sirve de apoyo, como, la jurisprudencia…», con la palabra huérfana entre
+# comas. Se poda la cola.
+_RX_COLA_HUERFANA = re.compile(
+    r"[\s,;:]*\b(como|en\s+calidad\s+de|a\s+t[íi]tulo\s+de|con\s+car[áa]cter"
+    r"|por|de|del|la|el|los|las|y|e)\s*$", re.I)
+
+
 def _verbo_de_enlace(anuncio: str) -> str:
     """Lo único del anuncio que escribe el modelo y merece conservarse."""
     a = " ".join((anuncio or "").split())
@@ -347,7 +357,12 @@ def _verbo_de_enlace(anuncio: str) -> str:
         return _POR_DEFECTO
     m = _RX_VERBO.match(a)
     if m and m.group(1).strip():
-        return m.group(1).strip().rstrip(",;:")
+        v = m.group(1).strip().rstrip(",;:")
+        # Se poda dos veces: «Sirve de apoyo, como» → «Sirve de apoyo»; y un
+        # «Resulta aplicable, en calidad de» → «Resulta aplicable».
+        for _ in range(2):
+            v = _RX_COLA_HUERFANA.sub("", v).strip()
+        return v or _POR_DEFECTO
     # Sin sustantivo reconocible: se conserva sólo si es corto y no nombra
     # órgano ni tipo, que es lo que no puede venir de él.
     if len(a) <= 60 and not re.search(
@@ -1109,6 +1124,59 @@ def _sin_eco(texto: str, cuerpo_tesis: str) -> str:
     return " ".join(x for x in quedan if x.strip()).strip()
 
 
+# EL MISMO ECO, PERO CON LOS PRECEPTOS. El dictamen del 382/2024 v6 lo contó
+# cinco veces seguidas: el modelo escribe un extracto entrecomillado del
+# artículo 840 —«fracciones IV, VI y VII»— y el compositor pega debajo el
+# artículo íntegro; luego el 47, el 815, el 784 y el 48, todos dos veces. El
+# lector se encuentra lo mismo dos renglones después y el proyecto engorda de
+# paja legislativa.
+#
+# No se arregla en el prompt: al modelo hay que dejarle citar el trozo que le
+# interesa, porque es su razonamiento. Se arregla al componer, y en este orden:
+# si el documento va a transcribir el artículo entero justo debajo, el extracto
+# entrecomillado de arriba SOBRA y se borra.
+_RX_ENTRECOMILLADO = re.compile(r"[«\"“]([^»\"”]{40,1800})[»\"”]")
+
+
+def _sin_extracto_repetido(texto: str, preceptos: list) -> str:
+    """Quita del párrafo los entrecomillados del artículo que se va a transcribir."""
+    if not preceptos or not (texto or "").strip():
+        return texto
+    vocablos = []
+    for _num, n in preceptos:
+        pal = set(_norm_palabras(str(n.get("texto") or "")))
+        if len(pal) >= 12:
+            vocablos.append(pal)
+    if not vocablos:
+        return texto
+    fuera = texto
+    for m in list(_RX_ENTRECOMILLADO.finditer(texto)):
+        p = set(_norm_palabras(m.group(1)))
+        if len(p) < 8:
+            continue
+        # El extracto está CONTENIDO en el artículo: casi todas sus palabras
+        # aparecen en el texto que se va a transcribir. Ese es el eco.
+        if any(len(p & v) / max(1, len(p)) > 0.80 for v in vocablos):
+            fuera = fuera.replace(m.group(0), "")
+    if fuera == texto:
+        return texto
+    # LA FRASE QUE INTRODUCÍA EL EXTRACTO SE QUEDA COJA. Al borrar el
+    # entrecomillado, «…, que dispone: «…».» se convierte en «…, que dispone.»,
+    # que es peor que la repetición: no dice nada y se nota. Se poda el
+    # introductor entero, esté al final o en medio del párrafo, y la frase se
+    # cierra donde acababa el sujeto.
+    fuera = re.sub(
+        r"[,;]?\s*(?:en\s+la\s+parte\s+conducente[,\s]*)?"
+        r"(?:el\s+cual|la\s+cual|que|y\s+que|donde)?\s*"
+        r"(?:dispone|establece|se[ñn]ala|prev[ée]|dice|reza|indica|prescribe)"
+        r"(?:\s+lo\s+siguiente)?\s*:?\s*(?=[.;]|$)",
+        "", fuera, flags=re.I)
+    fuera = re.sub(r"\s*[,:;]\s*(?=[.;])", "", fuera)
+    fuera = re.sub(r"\s{2,}", " ", fuera).strip()
+    fuera = re.sub(r"\s+\.", ".", fuera)
+    return fuera.strip(" ,;:")
+
+
 def _frases_de(t: str) -> list:
     return [f for f in re.split(r"(?<=[.])\s+", t or "") if len(f.split()) >= 8]
 
@@ -1202,11 +1270,19 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             ultima_tesis = None
             if len(t.split()) < 6:
                 continue
+        # Se decide ANTES de escribir qué artículos van a transcribirse, para
+        # poder quitar del párrafo el extracto que quedaría repetido debajo.
+        _preceptos = [(n_, x) for n_, x in
+                      _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_PARRAFO]
+                      if n_ not in transcritos]
+        t = _sin_extracto_repetido(t, _preceptos)
+        if len(t.split()) < 6:
+            continue
         p_ = parrafo_con_citas(doc, t, notas)
         # EL PRECEPTO SE TRANSCRIBE, NO SE RESUME. Va en bloque aparte, con
         # sangría y a un espacio, detrás del párrafo que lo anuncia.
         if p_ is not None:
-            for num, n_ in _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_PARRAFO]:
+            for num, n_ in _preceptos:
                 # UN ARTÍCULO SE TRANSCRIBE UNA VEZ. La clave era (número,
                 # ley) y el 48 salió DOS veces porque llegó por dos caminos con
                 # el nombre de la ley escrito distinto —«Artículo 48.-» y
