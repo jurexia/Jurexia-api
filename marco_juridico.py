@@ -254,148 +254,49 @@ async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],
         return []
 
 
-def _reunir_articulo(fragmentos: list[dict]) -> str:
-    """Todas las partes de un artículo, en orden y sin repetir."""
-    partes = sorted(fragmentos, key=lambda p: _articulo_de(p)[1])
-    fuera, visto = [], set()
-    for p in partes:
-        t = (p.get("texto") or p.get("texto_visible") or "").strip()
-        if _RX_NOTA_REFORMA.match(t):      # notas de reforma, no articulado
-            continue
-        if t and t[:80] not in visto:
-            visto.add(t[:80])
-            fuera.append(t)
-    return "\n".join(fuera)
+def _reunir_articulo(fragmentos: list) -> str:
+    """El artículo entero… PERO SÓLO EL QUE ES.
 
+    En la Constitución hay DOS artículos 17: el del Título Primero —«Ninguna
+    persona podrá hacerse justicia por sí misma»— y el del Título Noveno, sobre
+    la inviolabilidad de la Constitución, que empieza «Los Templos y demás
+    bienes». El acervo los trae los dos con `articulo_num = 17` y esta función
+    los pegaba en un solo texto, así que el proyecto transcribía como artículo
+    17 constitucional un Frankenstein de dos artículos distintos.
 
-async def construir(qdrant, embed, problemas: list[str],
-                    coleccion_estatal: Optional[str] = None) -> Marco:
-    """El marco de ESTE asunto, no una plantilla de derechos humanos.
-
-    Medido sobre 125 proyectos del secretario: la Convención sobre los Derechos
-    del Niño aparece en UNO, el artículo 4º constitucional en siete y la Corte
-    Interamericana en seis. Lo que domina es la Ley de Amparo, la jurisprudencia
-    de la Corte y el código local. Y la regla que él sigue: **el marco arranca
-    por la naturaleza de la figura jurídica discutida, no por los derechos
-    humanos**.
-
-    Por eso aquí no se pega nada por defecto: se busca lo que los problemas
-    piden, y si no hay nada pertinente el marco se queda vacío y no se escribe.
+    Los fragmentos del MISMO artículo comparten título y capítulo. Se agrupan
+    por ahí y se conserva el grupo mayor, que es el articulado real; el otro es
+    casi siempre una disposición aislada de un título lejano.
     """
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-    m = Marco()
-    consulta = " ".join(p for p in problemas if p)[:900]
-    if not consulta.strip():
-        return m
-    v = await embed(consulta)
-
-    def _f(tipo):
-        return Filter(must=[FieldCondition(key="tipo", match=MatchValue(value=tipo))])
-
-    # Los constitucionales NO se buscan por vector: se piden por número, según
-    # el tema que los problemas mencionen.
-    arts_pedidos = _articulos_del_problema(problemas)
-    quiere_conv = _pide_convencional(problemas)
-    # DOS VECTORES, NO UNO. El constitucional y el local se buscan con el caso;
-    # el convencional y la Corte Interamericana, con los conceptos.
-    v_conv = await embed(_consulta_convencional(arts_pedidos, problemas)) \
-        if quiere_conv else None
-    const, conv, coidh, locales = await asyncio.gather(
-        # LA CONSTITUCIÓN NO SE BUSCA POR SEMEJANZA: SE PIDE POR NÚMERO. Con
-        # 355 fragmentos y una consulta sobre alimentos, el 1º y el 4º no
-        # entraban entre los sesenta primeros y el marco salía sin ellos —y el
-        # modelo acababa citándolos de memoria—. El payload trae `articulo_num`
-        # exacto: se filtra, que es determinista y completo.
-        _traer_articulos(qdrant, arts_pedidos) if arts_pedidos else _vacio(),
-        _buscar(qdrant, COLECCION, "dense", v_conv, 8, _f("convencion"))
-        if quiere_conv else _vacio(),
-        _buscar(qdrant, COLECCION, "dense", v_conv, 10, _f("cuadernillo"))
-        if quiere_conv else _vacio(),
-        _buscar(qdrant, coleccion_estatal, "dense", v, 8) if coleccion_estatal else _vacio(),
-    )
-
-    # Constitucionales: se agrupan por artículo y se reúnen sus partes, porque
-    # vienen troceados —el 2º en 19 pedazos— y citar un trozo no es citar el
-    # artículo.
-    por_art: dict = {}
-    for p in const:
-        if _es_transitorio(p):
-            continue
-        art = _articulo_de(p)[0]
-        if art and art in arts_pedidos:
-            por_art.setdefault(art, []).append(p)
-    for art in [a for a in arts_pedidos if a in por_art][:MAX_CONSTITUCIONALES]:
-        texto = _reunir_articulo(por_art[art])
-        if texto:
-            m.constitucionales.append(Precepto(
-                fuente="Constitución Política de los Estados Unidos Mexicanos",
-                articulo=f"{art}o.", texto=texto,
-                jerarquia=str(por_art[art][0].get("jerarquia") or ""), orden=1))
-
-    for p in conv[:MAX_CONVENCIONALES]:
-        t = (p.get("texto") or "").strip()
-        if t:
-            m.convencionales.append(Precepto(
-                fuente=str(p.get("origen") or p.get("ref") or "Tratado internacional"),
-                articulo=str(p.get("ref") or ""), texto=t, orden=2))
-
-    for p in coidh:
-        if len(m.coidh) >= MAX_COIDH:
-            break
-        t = (p.get("texto") or "").strip()
-        # Sin caso ni cuadernillo identificable no se cita: un párrafo de la
-        # Corte Interamericana sin su fuente no se puede comprobar, y una cita
-        # que no se comprueba no debería entrar en una sentencia.
-        if t and (p.get("caso") or p.get("vs") or p.get("cuadernillo_num")):
-            m.coidh.append(Precedente(
-                caso=str(p.get("caso") or p.get("vs") or ""),
-                cuadernillo=str(p.get("cuadernillo_num") or ""),
-                tema=str(p.get("cuadernillo_tema") or ""),
-                parrafo=str(p.get("parrafo") or ""), texto=t))
-
-    print(f"   ⚖️ marco: arts pedidos {arts_pedidos} · constitucionales "
-          f"{len(m.constitucionales)} · convencionales {len(m.convencionales)} "
-          f"· CoIDH {len(m.coidh)} · locales {min(len(locales or []), MAX_LOCALES)}")
-
-    for p in (locales or [])[:MAX_LOCALES]:
-        t = (p.get("texto") or "").strip()
-        if t:
-            m.locales.append(Precepto(
-                fuente=str(p.get("cuerpo_legal_oficial") or p.get("ref") or ""),
-                articulo=str(p.get("articulo_num") or ""), texto=t, orden=3))
-    return m
+    if not fragmentos:
+        return ""
+    grupos: dict = {}
+    for p in fragmentos:
+        clave = (str(p.get("titulo") or ""), str(p.get("capitulo") or ""))
+        grupos.setdefault(clave, []).append(p)
+    # El grupo con más fragmentos; a empate, el del título más temprano, que en
+    # la Constitución es el de las garantías.
+    elegidos = max(grupos.values(), key=lambda g: (len(g), -_orden_titulo(g[0])))
+    elegidos = sorted(elegidos, key=lambda p: int(p.get("chunk_index") or 0))
+    partes, visto = [], set()
+    for p in elegidos:
+        x = " ".join(str(p.get("texto") or "").split())
+        if x and x not in visto:
+            visto.add(x)
+            partes.append(x)
+    return " ".join(partes)
 
 
-async def _traer_articulos(qdrant, arts: list[str]) -> list[dict]:
-    """Los fragmentos de esos artículos constitucionales, todos y exactos."""
-    import inspect
-    from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
-    filtro = Filter(must=[
-        FieldCondition(key="tipo", match=MatchValue(value="constitucion")),
-        # `articulo_num` ES ENTERO en el payload. Pasarlo como cadena devuelve
-        # 400 Bad Request y el marco se quedaba sin constitucionales sin que
-        # nadie se enterara —salía «constitucionales 0» y el modelo citaba el
-        # artículo de memoria—.
-        FieldCondition(key="articulo_num",
-                       match=MatchAny(any=[int(a) for a in arts
-                                           if str(a).isdigit()])),
-    ])
-    try:
-        r = qdrant.scroll(collection_name=COLECCION, scroll_filter=filtro,
-                          limit=400, with_payload=True)
-        if inspect.isawaitable(r):
-            r = await r
-        puntos = r[0] if isinstance(r, tuple) else r
-        return [p.payload for p in puntos]
-    except Exception as e:
-        print(f"   ⚠️ marco: no se pudieron traer los artículos {arts}: {e}")
-        return []
+_ORD_TITULO = ["primero", "segundo", "tercero", "cuarto", "quinto", "sexto",
+               "septimo", "octavo", "noveno", "decimo"]
 
 
-async def _vacio():
-    return []
-
+def _orden_titulo(p: dict) -> int:
+    t = str(p.get("titulo") or "").lower()
+    for i, w in enumerate(_ORD_TITULO):
+        if w in t or w.replace("septimo", "séptimo") in t:
+            return i
+    return 99
 
 def bloque(m: Marco, es_recurso: bool = False) -> str:
     """Lo que se le pone al redactor para que construya el marco.

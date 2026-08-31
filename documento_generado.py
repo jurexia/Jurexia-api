@@ -892,6 +892,20 @@ _RX_ARTICULO_CITADO = re.compile(
     re.I)
 
 
+# Las palabras que no distinguen una ley de otra.
+_VACIAS_LEY = {"de", "del", "la", "el", "los", "las", "y", "en", "para", "por",
+               "sobre", "estado", "estados", "unidos", "nacional", "general"}
+_RX_NOMBRA_LEY = re.compile(
+    r"constituci[óo]n|constitucional|c[óo]digo|\bley\b|reglamento|convenci[óo]n|"
+    r"pacto|tratado|contrato\s+colectivo|condiciones\s+generales", re.I)
+
+
+def _sin_tildes(x: str) -> str:
+    import unicodedata
+    x = unicodedata.normalize("NFKD", x or "")
+    return "".join(c for c in x if not unicodedata.combining(c))
+
+
 def _norma_del_texto(frag: str, num: str, normas: list):
     """El precepto del acervo que se está citando, si lo hay.
 
@@ -900,18 +914,47 @@ def _norma_del_texto(frag: str, num: str, normas: list):
     Querétaro y el «artículo 296» de otro cuerpo no son el mismo, y poner al
     pie el texto equivocado es peor que no poner nada.
     """
-    ley = (frag or "").lower()
-    mejor, puntos = None, 0
+    ley = _sin_tildes((frag or "").lower())
+    # ¿La cita nombra una ley, o dice «el artículo 17» a secas?
+    nombra_ley = bool(_RX_NOMBRA_LEY.search(frag or ""))
+    mejor, puntos = None, -99
     for n in (normas or []):
         if str(n.get("articulo", "")).strip() != str(num):
             continue
         # El acervo llama al campo `cuerpo_legal`; sólo algunas fuentes usan
         # `fuente`. Leer una sola de las dos daba CERO coincidencias y ninguna
         # nota de artículo salía, sin que nada avisara.
-        fuente = str(n.get("cuerpo_legal") or n.get("fuente") or "").lower()
-        p = sum(1 for w in re.findall(r"[a-záéíóúñ]{4,}", fuente) if w in ley)
-        if p > puntos or (mejor is None and p == 0):
+        fuente = _sin_tildes(str(n.get("cuerpo_legal") or n.get("fuente") or "").lower())
+        suyas = {w for w in re.findall(r"[a-z]{4,}", fuente) if w not in _VACIAS_LEY}
+        acierta = len([w for w in suyas if w in ley])
+        # SE PENALIZA LO QUE SOBRA, igual que al traer los artículos por número.
+        # Contando sólo aciertos, «Ley Federal de Responsabilidad Patrimonial
+        # del Estado» empata con cualquier cosa que diga «Estado».
+        p = acierta - len(suyas - {w for w in suyas if w in ley})
+        if p > puntos:
             mejor, puntos = n, p
+    # Y LA REGLA QUE FALTABA, QUE ES LA QUE COSTÓ UN PROYECTO. Antes, si ninguna
+    # ley coincidía, esta función se quedaba con la PRIMERA norma que tuviera
+    # ese número —`mejor is None and p == 0`—, viniera de donde viniera. Así el
+    # documento transcribió, DENTRO DE COMILLAS y presentándolo como el artículo
+    # 17 de la Constitución, el artículo 17 de la Ley Federal de Responsabilidad
+    # Patrimonial del Estado: «Las resoluciones que se dicten con motivo de las
+    # reclamaciones deberán contener… relación de causalidad entre el
+    # funcionamiento del servicio público…». La prosa del modelo era correcta;
+    # lo que mentía era la transcripción que yo le pegaba debajo.
+    #
+    # Si la cita nombra una ley y ninguna norma del material es de esa ley, NO
+    # SE TRANSCRIBE NADA. Un artículo sin su texto se queda sin nota al pie y
+    # quien firma lo comprueba a mano; un artículo con el texto de otra ley se
+    # firma sin comprobar, y eso es lo que no se perdona.
+    # Y SIN NOMBRE DE LEY TAMPOCO SE ADIVINA. El prompt exige desde hace
+    # semanas nombrar la ley en la misma frase que el número —«el artículo 296
+    # del Código Civil del Estado de Querétaro», nunca «el 296» a secas—; si
+    # aun así llega pelado, elegir por él es apostar. Se queda sin nota y quien
+    # firma lo comprueba, que es exactamente lo que la nota existe para
+    # ahorrarle cuando SÍ se puede saber.
+    if mejor is None or puntos < 1:
+        return None
     return mejor
 
 

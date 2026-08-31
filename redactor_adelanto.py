@@ -126,6 +126,26 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     avisos: list[str] = []
 
     # ── Fase 0 — aritmética, sin modelo ──────────────────────────────────
+    # LA REGLA POR DEFECTO NO PUEDE SER LA DE OTRA MATERIA. `tja_qro_boletin`
+    # —Boletín Jurisdiccional, surte al tercer día hábil— es del Tribunal de
+    # Justicia Administrativa de Querétaro, y por ser el valor por omisión se
+    # aplicó a un amparo LABORAL contra un laudo de la Junta Federal. Los laudos
+    # se notifican PERSONALMENTE (artículo 742 de la Ley Federal del Trabajo) y
+    # el propio proyecto se contradecía: los antecedentes decían que el actuario
+    # notificó en persona y el cómputo hablaba de boletín.
+    #
+    # Un plazo mal contado invalida la sentencia, así que aquí no se hereda un
+    # valor por omisión de otra materia: si la materia es laboral y nadie
+    # declaró otra cosa, se cuenta personal y SE AVISA.
+    _mat = fp_materia(e)
+    if _mat == "laboral" and e.regla_surtimiento == "tja_qro_boletin":
+        e.regla_surtimiento = "personal"
+        avisos.append(
+            "El cómputo se hizo con notificación PERSONAL, que es como se "
+            "notifican los laudos (artículo 742 de la Ley Federal del "
+            "Trabajo). Venía declarada la regla del Boletín Jurisdiccional del "
+            "Tribunal de Justicia Administrativa de Querétaro, que es de otra "
+            "materia. Confírmalo contra la constancia de notificación.")
     c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
                     e.plazo, e.responsable)
     avisos.extend(c.avisos)
@@ -255,6 +275,20 @@ async def consultar(qdrant, embed_juris, embed_leyes,
             problemas.append(f"¿{imp.get('motivo','inoperancia').capitalize()}: "
                              f"{imp['explicacion']}?")
     coleccion = (r.encargo.coleccion_estatal if r.encargo else "") or None
+    # LA LEY DEL ESTADO NO PINTA NADA EN UN LABORAL FEDERAL. En el ADL 382/2024
+    # —IMSS contra un enfermero, ante la Junta Federal— el marco jurídico salió
+    # citando el artículo 142 de la LEY ORGÁNICA MUNICIPAL DE QUERÉTARO, que
+    # regula el recurso de inconformidad contra multas y licencias de comercio,
+    # y el Código de Procedimientos Civiles del Estado, que se traía sólo para
+    # decir que no rige. Una ejecutoria no cita leyes impertinentes para
+    # explicar que no aplican.
+    #
+    # Se busca en el acervo estatal sólo cuando la controversia puede regirse
+    # por ley local. En laboral la rige la Ley Federal del Trabajo, salvo el
+    # burocrático estatal, que se reconoce porque el patrón es el propio Estado
+    # o un municipio.
+    if fp_materia(r.encargo) == "laboral" and not _burocratico_estatal(r):
+        coleccion = None
 
     # EL SONDEO DE PRECEDENTE VA EN PARALELO al material. Cuesta menos de dos
     # segundos —se mide— y responde una pregunta que hasta ahora nadie hacía:
@@ -320,6 +354,23 @@ def _acotar_autos(texto: str) -> str:
         fuera.append(x)
         total += len(x)
     return " ".join(fuera)
+
+
+_RX_BUROCRATICO = re.compile(
+    r"trabajadores?\s+al\s+servicio\s+del\s+estado|burocr[áa]tic|"
+    r"tribunal\s+de\s+conciliaci[óo]n\s+y\s+arbitraje\s+del\s+estado|"
+    r"ley\s+de\s+los\s+trabajadores\s+del\s+estado", re.I)
+
+
+def _burocratico_estatal(r) -> bool:
+    """¿Es un laboral que SÍ se rige por ley local? Sólo el burocrático."""
+    f = getattr(r, "fases", None)
+    texto = " ".join(str(getattr(f, k, "") or "") for k in
+                     ("antecedentes", "resumen_acto", "problema_global"))
+    e = getattr(r, "encargo", None)
+    texto += " " + str(getattr(e, "encabezado", "") or "")
+    texto += " " + str(getattr(e, "responsable", "") or "")
+    return bool(_RX_BUROCRATICO.search(texto))
 
 
 def fp_materia(e) -> str:

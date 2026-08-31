@@ -26078,7 +26078,14 @@ def _con_autos(r, contexto: str) -> str:
     autos = str(getattr(getattr(r, "fases", None), "autos", "") or "")
     if not autos:
         return contexto or ""
-    return (f"CONSTANCIAS DEL EXPEDIENTE aportadas por el secretario:\n"
+    # EL RÓTULO IMPORTA porque el modelo lo copia. Decía «aportadas por el
+    # secretario» y el estudio salió diciendo «La constancia de audiencia
+    # aportada por el secretario muestra que…». Una sentencia habla en nombre
+    # del tribunal y las constancias son DE AUTOS: quién las digitalizó no es
+    # parte del razonamiento.
+    return ("CONSTANCIAS QUE OBRAN EN AUTOS (son del expediente; cítalas como "
+            "«las constancias de autos», «la documental que obra a foja…», "
+            "NUNCA como aportadas por nadie):\n"
             f"{autos}\n\n" + (contexto or ""))
 
 
