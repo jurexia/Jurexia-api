@@ -302,10 +302,125 @@ def tesis_del_rubro(texto: str, tesis: list):
     return None, m
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL ANUNCIO DE LA CITA SE COMPONE, NO SE COPIA
+# ═══════════════════════════════════════════════════════════════════════════
+# Una auditoría del proyecto 380/2025 encontró que TRES de las cuatro citas
+# llamaban «jurisprudencia» a lo que son tesis aisladas, y una de ellas
+# atribuía al Pleno como si fuera de la Primera Sala. Lo grave no es el error:
+# es que el documento SE DESMENTÍA A SÍ MISMO tres párrafos después, porque la
+# nota al pie —que sale del acervo— decía «[TA]; 9a. Época; Pleno». Cuerpo y
+# nota, en la misma página, diciendo cosas distintas.
+#
+# Y la causa no era del modelo. Era MÍA, en dos sitios:
+#
+#   1. El prompt le daba este ejemplo literal de cómo se cita:
+#         «Sirve de apoyo la jurisprudencia de la Primera Sala de la Suprema
+#          Corte de Justicia de la Nación, de registro 2022074…»
+#      El modelo lo copió y sólo cambió el número. Hizo lo que le pedí.
+#   2. El bloque de material le enseñaba si el criterio VINCULA —«JURISPRUDENCIA
+#      OBLIGATORIA» o «tesis orientadora»— pero nunca le enseñaba si es
+#      jurisprudencia o tesis aislada. Dos cosas distintas que yo había fundido
+#      en una etiqueta.
+#
+# Los dos se arreglan, pero ninguno de los dos es la defensa. La defensa es
+# ésta: el anuncio se construye aquí, con los campos del acervo que ya llegan
+# hasta la nota al pie. Del modelo se conserva SÓLO el verbo de enlace —«Sirve
+# de apoyo», «Resulta aplicable»—, que es lo que ata la cita al razonamiento y
+# es lo único que él sabe y yo no. Compuesto así el fallo es imposible: la
+# frase y la nota nacen del mismo dato.
+
+_RX_VERBO = re.compile(
+    r"^(.{0,90}?)\s*(?:,\s*)?(?:resulta[n]?\s+)?(?:la|el|las|los)?\s*"
+    r"(?:jurisprudencia|tesis|criterio)\b", re.I | re.S)
+
+# Los verbos de enlace que sabemos leer. Si el modelo escribe otra cosa, se usa
+# el suyo tal cual mientras no nombre instancia ni tipo; y si no hay nada
+# aprovechable, «Sirve de apoyo», que es la fórmula del oficio.
+_POR_DEFECTO = "Sirve de apoyo"
+
+
+def _verbo_de_enlace(anuncio: str) -> str:
+    """Lo único del anuncio que escribe el modelo y merece conservarse."""
+    a = " ".join((anuncio or "").split())
+    if not a:
+        return _POR_DEFECTO
+    m = _RX_VERBO.match(a)
+    if m and m.group(1).strip():
+        return m.group(1).strip().rstrip(",;:")
+    # Sin sustantivo reconocible: se conserva sólo si es corto y no nombra
+    # órgano ni tipo, que es lo que no puede venir de él.
+    if len(a) <= 60 and not re.search(
+            r"sala|pleno|colegiado|jurisprudencia|tesis aislada", a, re.I):
+        return a.rstrip(" ,;:")
+    return _POR_DEFECTO
+
+
+def anuncio_de(t: dict, anuncio_del_modelo: str = "") -> str:
+    """«Sirve de apoyo la tesis aislada del Pleno…, de registro 191358».
+
+    Cada pieza sale del acervo. `tipo` decide el sustantivo, `instancia` el
+    órgano y `obligatoria` el calificativo —esa parte YA funcionaba: las tres
+    aisladas iban «como criterio orientador» y la única jurisprudencia real «de
+    carácter obligatorio»—; lo que fallaba era el sustantivo y el nombre del
+    órgano, que venían del modelo.
+    """
+    tipo = str(t.get("tipo") or "").strip().upper()
+    inst = " ".join(str(t.get("instancia") or "").strip().split())
+    reg = str(t.get("registro") or "").strip()
+    verbo = _verbo_de_enlace(anuncio_del_modelo)
+
+    if "AISLAD" in tipo:
+        sustantivo = "la tesis aislada"
+    elif "JURISPRUDENCIA" in tipo:
+        sustantivo = "la jurisprudencia"
+    else:
+        # SIN EL DATO NO SE AFIRMA NINGUNO DE LOS DOS. «El criterio» es cierto
+        # de la jurisprudencia y de la tesis aislada, así que no miente; decir
+        # «jurisprudencia» sin saberlo, sí.
+        sustantivo = "el criterio"
+
+    # EL ORDEN ES EL DEL OFICIO, no el que salga. Un tribunal escribe «Sirve de
+    # apoyo, como criterio orientador, la tesis aislada del Pleno de la Suprema
+    # Corte de Justicia de la Nación, de registro digital 191358, de rubro y
+    # texto siguientes:». El calificativo va entre comas detrás del verbo, no
+    # colgando del órgano, donde suena a que el órgano es el orientador.
+    # EL CALIFICATIVO SÓLO CUANDO APORTA. En una jurisprudencia la
+    # obligatoriedad va de suyo y escribirla suena a énfasis de quien no está
+    # seguro; en una tesis aislada, en cambio, decir que sólo orienta es
+    # información necesaria y es lo que evita que se lea como vinculante.
+    if t.get("obligatoria"):
+        # Un verbo con inciso propio —«Es aplicable, además»— pide cerrar la
+        # coma antes del sustantivo, o queda «además la jurisprudencia».
+        frase = (f"{verbo}, {sustantivo}" if "," in verbo
+                 else f"{verbo} {sustantivo}")
+    else:
+        frase = f"{verbo}, como criterio orientador, {sustantivo}"
+    if inst:
+        # El artículo, según el órgano. «del Tribunales Colegiados» no es
+        # español: los órganos en plural piden «de los».
+        if re.match(r"^(primera|segunda|tercera|cuarta)\s+sala", inst, re.I):
+            de = "de la"
+        elif re.search(r"^(tribunales|plenos|salas)\b", inst.strip(), re.I):
+            de = "de los" if not inst.strip().lower().startswith("salas") else "de las"
+        else:
+            de = "del"
+        # El Pleno y las Salas son de la Corte y así se nombran en un engrose;
+        # los colegiados y los plenos regionales traen su nombre completo en el
+        # propio campo y no se les añade nada.
+        completo = inst
+        if re.match(r"^(pleno|primera\s+sala|segunda\s+sala)$", inst.strip(), re.I):
+            completo = f"{inst} de la Suprema Corte de Justicia de la Nación"
+        frase += f" {de} {completo}"
+    if reg:
+        frase += f", de registro digital {reg}"
+    return frase + ", de rubro y texto siguientes:"
+
+
 def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     """El bloque entero de la cita, con su nota al pie."""
-    if anuncio.strip():
-        parrafo(doc, anuncio.rstrip(" ,;:") + " de rubro y texto siguientes:")
+    # EL ANUNCIO NO SE COPIA: se compone del acervo. Ver `anuncio_de`.
+    parrafo(doc, anuncio_de(t, anuncio))
 
     # El rubro, solo y en negrita. Sin párrafo vacío delante: la cita va
     # pegada a su anuncio y el aire lo pone el espaciado.

@@ -178,8 +178,16 @@ def _bloque_material(m: Material) -> str:
         p.append("  Colegiado: pesa más y evita el reproche de haberse quedado corto.")
         p.append("  Vienen ordenados: los primeros son los que más aplican.")
         for t in tesis:
-            fuerza = "JURISPRUDENCIA OBLIGATORIA" if t.get("obligatoria") else "tesis orientadora"
-            p.append(f"\n  · [{fuerza}] Registro {t.get('registro','')} — {t.get('instancia','')}")
+            # DOS DATOS DISTINTOS, Y YO LOS TENÍA FUNDIDOS EN UNO. Que un
+            # criterio VINCULE y que SEA jurisprudencia no es lo mismo: hay
+            # tesis aisladas de la Corte que orientan y jurisprudencia de
+            # colegiado que obliga en su circuito. La etiqueta decía sólo lo
+            # primero, así que el modelo no tenía cómo saber que estaba citando
+            # una tesis aislada —y la llamó jurisprudencia—.
+            fuerza = "OBLIGATORIA" if t.get("obligatoria") else "orientadora"
+            tipo = str(t.get("tipo") or "").strip() or "tipo no declarado"
+            p.append(f"\n  · [{fuerza}] [{tipo}] Registro "
+                     f"{t.get('registro','')} — {t.get('instancia','')}")
             p.append(f"    {t.get('rubro','')}")
             if t.get("localizacion"):
                 p.append(f"    {t['localizacion']}")
@@ -627,12 +635,16 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 - ASÍ SE CITA, Y NO DE OTRA FORMA. La cita ocupa su propio final de párrafo y
   el rubro NO se embebe en mitad de una frase que sigue después:
 
-      Sirve de apoyo la jurisprudencia de la Primera Sala de la Suprema Corte
-      de Justicia de la Nación, de registro 2022074, de rubro y texto
-      siguientes:
+      Sirve de apoyo el criterio de registro 2022074:
 
-  Y ahí se detiene el párrafo. El documento coloca solo, debajo, el rubro y el
-  texto íntegro de la tesis. Escribir «la jurisprudencia de registro X, de rubro
+  Y ahí se detiene el párrafo. NO ESCRIBAS TÚ NI EL TIPO NI EL ÓRGANO: no digas
+  «la jurisprudencia», no digas «tesis aislada», no digas «de la Primera Sala».
+  El documento los pone solo, tomados del acervo, junto con el rubro y el texto
+  íntegro. Antes este ejemplo nombraba una Sala concreta y el modelo lo copiaba
+  cambiando sólo el número: así una tesis aislada del Pleno salió publicada como
+  «jurisprudencia de la Primera Sala», y la nota al pie de la misma página —que
+  sí sale del acervo— la desmentía. Tú escribes el verbo que ata la cita a tu
+  razonamiento; de identificarla se encarga el documento. Escribir «la jurisprudencia de registro X, de rubro
   «Y», establece que…» deja la cita partida por la mitad y sin transcripción.
 - LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
   de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
@@ -1034,6 +1046,51 @@ _RX_INSTRUMENTO = re.compile(
     r"|declaraci[óo]n\s+(?:americana|universal))", re.I)
 
 
+def _tipo_mal_atribuido(estudio: str, material) -> str:
+    """Llamar «jurisprudencia» a una tesis aislada, en la prosa.
+
+    El anuncio de la cita ya lo compone el documento con los campos del acervo,
+    así que ahí el error es imposible. Pero el modelo sigue escribiendo prosa
+    alrededor —«conforme a la jurisprudencia citada…»— y ahí sí puede
+    equivocarse. Es barato comprobarlo: se mira si en el entorno de cada
+    registro de una tesis AISLADA aparece la palabra jurisprudencia.
+
+    No se comprueba al revés. Llamar «criterio» o «tesis» a una jurisprudencia
+    es impreciso pero no falso; llamar jurisprudencia a lo que no lo es le
+    atribuye una fuerza vinculante que no tiene, y eso sí cambia el fallo.
+    """
+    aisladas = {str(x.get("registro")): x for x in (getattr(material, "tesis", None) or [])
+                if "AISLAD" in str(x.get("tipo") or "").upper()}
+    if not aisladas or not estudio:
+        return ""
+    # LA VENTANA ES LA FRASE, no un número de caracteres. Con 260 a cada lado,
+    # «Conforme al criterio de registro 191358… Y la jurisprudencia 2001812
+    # obliga» daba positivo: la palabra pertenecía a la OTRA cita. La
+    # atribución vive en la misma oración que el registro, y ahí se busca.
+    todos = {str(x.get("registro")) for x in (getattr(material, "tesis", None) or [])
+             if x.get("registro")}
+    malas = []
+    for reg in aisladas:
+        for m in re.finditer(re.escape(reg), estudio):
+            ini = max((estudio.rfind(c, 0, m.start()) for c in ".;\n"), default=-1) + 1
+            fin = min((x for x in (estudio.find(c, m.end()) for c in ".;\n")
+                       if x != -1), default=len(estudio))
+            frase = estudio[ini:fin]
+            # Y si en esa misma oración hay otro registro, no se puede saber a
+            # cuál se refiere la palabra: no se acusa.
+            if len([r for r in todos if r in frase]) > 1:
+                continue
+            if re.search(r"jurisprudencia", frase, re.I):
+                malas.append(reg)
+                break
+    if malas:
+        return (f"Se llama JURISPRUDENCIA a {'la tesis aislada' if len(malas)==1 else 'las tesis aisladas'} "
+                f"de registro {', '.join(sorted(malas))}. Una tesis aislada "
+                f"orienta, no vincula: atribuirle fuerza obligatoria cambia el "
+                f"peso del argumento que sostiene.")
+    return ""
+
+
 def _convencional_completo(estudio: str) -> str:
     """Que lo interamericano se pueda comprobar. No que se cite más.
 
@@ -1091,6 +1148,7 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
 
     # Lo que añadió la medición sobre 1,946 sentencias del acervo.
     for comprobacion in (
+            _tipo_mal_atribuido(estudio, material),
             _convencional_completo(estudio),
             _cierre_operativo(estudio, criterios)):
         if comprobacion:
