@@ -867,6 +867,26 @@ def _normalizar_autoridad(nombre: str) -> str:
     return " ".join(partes)
 
 
+# CONTRA QUÉ SE RECURRE, en las palabras del oficio. El banco lo midió: «del
+# acuerdo que desechó la demanda de amparo», «de un auto dictado en un juicio de
+# amparo indirecto». Si no se puede decir con precisión, se dice lo genérico
+# —que es cierto— en vez de dejar un hueco: un considerando de competencia con
+# un agujero en mitad de la frase no se puede leer en sesión.
+_GENERICO_ACTO = {
+    "queja": "del auto recurrido",
+    "amparo_revision": "de la sentencia recurrida",
+    "revision_fiscal": "de la sentencia recurrida",
+    "amparo_directo": "de la sentencia reclamada",
+}
+
+
+def _descripcion_del_acto(datos: dict, tipo: str) -> str:
+    d = " ".join(str(datos.get("descripcion_acto") or "").split()).strip(" .,;")
+    if d:
+        return d if d.lower().startswith(("del ", "de ", "de la ")) else f"del {d}"
+    return _GENERICO_ACTO.get(str(tipo or "").strip().lower(), "del acto recurrido")
+
+
 def _de_la(nombre: str) -> str:
     """«de la Sala Regional…», «del Tribunal Unitario…».
 
@@ -1624,7 +1644,27 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     _datos_bk.setdefault("materia", _mat)
     _datos_bk.setdefault("inciso", "b" if _mat in ("administrativa", "agraria") else "c")
     _datos_bk.setdefault("concordancia", "localizada" if _fem else "localizado")
-    _datos_bk["responsable"] = _con_articulo(_resp)
+    # EL ARTÍCULO LO PONE LA PLANTILLA, NO YO. Las fórmulas del banco ya dicen
+    # «por el {responsable}» y «dictado por el {responsable}», así que
+    # anteponerle el artículo aquí producía «por el el Juez de Distrito». Se
+    # entrega el nombre limpio y la plantilla lo enmarca; donde hace falta
+    # artículo —el resolutivo, los efectos— se pone en ese sitio.
+    _datos_bk["responsable"] = _normalizar_autoridad(_resp)
+    # Y LOS DATOS QUE LA PLANTILLA PIDE Y NADIE LLENABA. `{descripcion_acto}`
+    # salía como hueco «*********» en la competencia de toda queja: es la única
+    # frase que dice CONTRA QUÉ se recurre, y sin ella el considerando primero
+    # no se sostiene. Sale del propio acto, que el secretario ya subió.
+    _datos_bk.setdefault("descripcion_acto", _descripcion_del_acto(datos, tipo_asunto))
+    # LA FRACCIÓN DEL ACUERDO GENERAL ES LA DE CADA CIRCUITO. El banco traía
+    # escrita la XXII, que es la que reparte la jurisdicción del Vigésimo
+    # Segundo: el considerando PRIMERO de un secretario de Mérida nombraba bien
+    # a su tribunal y fundaba su competencia en la fracción de otro. No se puede
+    # deducir del expediente, así que se deja HUECO VISIBLE, que es la regla de
+    # la casa: un hueco se ve y se rellena; una fracción equivocada se firma.
+    _datos_bk.setdefault("fraccion_acuerdo",
+                         str(datos.get("fraccion_acuerdo") or "").strip() or HUECO)
+    _datos_bk.setdefault("fecha_acto", str(datos.get("fecha_acto") or "").strip()
+                         or HUECO)
     _datos_bk.setdefault("objeto", (f"una sentencia definitiva en materia {_mat}"
                                     if _mat else "una sentencia definitiva"))
     _huecos_bk = []

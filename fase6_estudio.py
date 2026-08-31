@@ -737,7 +737,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   interpretan la de otra entidad, invocados con toda naturalidad.
   · PROHIBIDO razonar con el Código Civil o de Procedimientos de Jalisco, de la
     Ciudad de México o de cualquier otra entidad. El juicio de origen se rige
-    por la legislación del Estado de Querétaro y ESA es la que se aplica. La
+    por la legislación del Estado de la entidad del asunto y ESA es la que se aplica. La
     analogía ENTRE CÓDIGOS DE ENTIDADES DISTINTAS no existe aquí: cuando la
     parte la propone, este Tribunal la rechaza —«la analogía es improcedente»—.
     La única analogía de ley admisible es dentro del propio código queretano.
@@ -944,13 +944,24 @@ def _solapamiento(a: str, b: str) -> float:
 #
 # El deslinde es mecánico: lo entrecomillado es cita ajena; lo demás es la prosa
 # del secretario, y ahí la ley de fuera no puede estar.
-_ENTIDADES_AJENAS = (
+# LAS 32, Y LA AJENA SE CALCULA. Esta lista tenía 31 entidades: todas menos
+# Querétaro, escrito así porque el verificador nació para un tribunal de
+# Querétaro. El resultado es que un secretario de Yucatán que aplica —bien— el
+# Código Civil de Yucatán recibía la acusación de estar invocando ley ajena,
+# mientras que aplicar el de Querétaro pasaba sin que nadie dijera nada. Y ni
+# siquiera servía a este tribunal: el Vigésimo Segundo Circuito cubre Querétaro
+# E HIDALGO, e Hidalgo estaba en la lista de ajenas.
+#
+# Ahora se declaran las 32 y la ajena es «todas menos la del asunto», que sale
+# del material.
+_ENTIDADES_TODAS = (
+    "QUERETARO",
     "AGUASCALIENTES", "BAJA CALIFORNIA", "CAMPECHE", "COAHUILA", "COLIMA",
     "CHIAPAS", "CHIHUAHUA", "DISTRITO FEDERAL", "CIUDAD DE MEXICO", "DURANGO",
     "GUANAJUATO", "GUERRERO", "HIDALGO", "JALISCO", "MEXICO", "MICHOACAN",
     "MORELOS", "NAYARIT", "NUEVO LEON", "OAXACA", "PUEBLA", "QUINTANA ROO",
     "SAN LUIS POTOSI", "SINALOA", "SONORA", "TABASCO", "TAMAULIPAS", "TLAXCALA",
-    "VERACRUZ", "YUCATAN", "ZACATECAS",
+    "VERACRUZ", "YUCATAN", "ZACATECAS", "BAJA CALIFORNIA SUR",
 )
 _RX_NORMA_CERCA = re.compile(r"(c[óo]digo|ley|legislaci[óo]n|art[íi]culos?|"
                              r"reglamento)", re.I)
@@ -1014,11 +1025,24 @@ def _sin_acentos_est(x: str) -> str:
                    if not unicodedata.combining(c))
 
 
+def _ajenas_para(material) -> tuple:
+    """Las entidades que NO son la del asunto."""
+    import unicodedata
+    ent = str(getattr(material, "entidad", "") or "").strip()
+    if not ent:
+        # SIN ENTIDAD DECLARADA NO SE ACUSA A NADIE. No saber de qué estado es
+        # el asunto no autoriza a suponer que es de Querétaro.
+        return ()
+    x = unicodedata.normalize("NFKD", ent.upper())
+    x = "".join(c for c in x if not unicodedata.combining(c))
+    return tuple(e for e in _ENTIDADES_TODAS if e != x)
+
+
 def _leyes_ajenas_aplicadas(estudio: str, material=None) -> list[str]:
     """Entidades cuya LEY se invoca en PROSA PROPIA. Las transcripciones no cuentan."""
     limpio = _sin_acentos_est(_prosa_propia(estudio, material))
     halladas: list[str] = []
-    for ent in _ENTIDADES_AJENAS:
+    for ent in _ajenas_para(material):
         for m in re.finditer(r"\b" + re.escape(ent) + r"\b", limpio):
             # «Estado de México» exige el rótulo; «México» a secas es el país.
             if ent == "MEXICO" and not re.search(
@@ -1292,8 +1316,9 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
         avisos.append(
             f"SE INVOCA LEGISLACIÓN DE OTRA ENTIDAD ({', '.join(ajenas)}) fuera "
             f"de una cita. El juicio de origen se rige por las leyes de "
-            f"Querétaro; la analogía entre códigos de entidades distintas no "
-            f"procede. La jurisprudencia ajena sí se puede invocar; la ley no.")
+            f"{getattr(material, 'entidad', '') or 'la entidad del asunto'}; la "
+            f"analogía entre códigos de entidades distintas no procede. La "
+            f"jurisprudencia ajena sí se puede invocar; la ley no.")
 
     # 1-septies. La excusa territorial. No existe en el corpus y delata que el
     #            redactor tendió un puente donde no hacía falta ninguno.

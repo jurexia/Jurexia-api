@@ -25717,7 +25717,16 @@ async def taller_adelanto(
     # ninguna plantilla ajena: es lo que permite usar esto fuera de un circuito.
     tribunal: str = Form(""),
     ciudad: str = Form(""),
-    modo: str = Form("plantilla"),                  # plantilla | generado
+    # EL MODO POR OMISIÓN ES «GENERADO», Y ESTO ERA UN AGUJERO DE FIRMA AJENA.
+    # Con «plantilla», si el secretario no sube la suya, se le copiaba una de
+    # las cuatro precargadas… que son ENGROSES REALES del Tercer Tribunal
+    # Colegiado del Vigésimo Segundo Circuito, con «Querétaro, Querétaro» en el
+    # proemio y el nombre propio de sus magistrados en el resultando del turno.
+    # Un secretario de Mérida recibía un documento que declaraba competente a un
+    # tribunal de Querétaro y turnaba el asunto a un magistrado que no es el
+    # suyo. El frontend manda «generado», pero el contrato HTTP caía aquí, y la
+    # app móvil o cualquier integración que omita el campo caían con él.
+    modo: str = Form("generado"),                   # plantilla | generado
     plantilla: Optional[UploadFile] = File(None),   # opcional: hay precargadas
     acto: UploadFile = File(...),
     conceptos: UploadFile = File(...),
@@ -25975,7 +25984,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
         regla_surtimiento=e["regla_surtimiento"], plazo=e["plazo"],
         responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
         tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
-        modo=e.get("modo", "plantilla"),
+        modo=e.get("modo", "generado"),
         tipo_asunto=e.get("tipo_asunto", "amparo_directo"),
         plantilla=e["plantilla"], coleccion_estatal=e.get("coleccion_estatal", ""))
     f = _f123.Fases123()
@@ -26030,7 +26039,12 @@ def _taller_marcar_consultado(email: str, numero: str) -> None:
 async def taller_consultar(
     numero: str = Form(...),
     user_email: str = Form(...),
-    coleccion_estatal: str = Form("leyes_queretaro"),
+    # LA ENTIDAD NO PUEDE TENER UNA OMISIÓN. Era «leyes_queretaro», y además se
+    # sobreescribía sobre el encargo en cada consulta: el fondo de TODO asunto
+    # del país se resolvía con el acervo de Querétaro. Vacío significa «no lo
+    # sé», y entonces no se consulta ninguna ley estatal y se avisa, que es
+    # honesto; inventar una entidad no lo es.
+    coleccion_estatal: str = Form(""),
 ):
     """Lo que el acervo dice sobre los problemas de ESTE asunto.
 
@@ -26048,7 +26062,11 @@ async def taller_consultar(
 
     r = ses["resultado"]
     if r.encargo is not None:
-        r.encargo.coleccion_estatal = coleccion_estatal
+        # NO SE BORRA LO QUE EL ENCARGO YA TRAÍA. Antes esta línea sobreescribía
+        # siempre, así que el valor por omisión del formulario ganaba a la
+        # entidad que el secretario hubiera declarado al crear el asunto.
+        if coleccion_estatal.strip():
+            r.encargo.coleccion_estatal = coleccion_estatal
     material = await _ra.consultar(
         qdrant_client, _embedding_juris,
         lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r)

@@ -175,11 +175,37 @@ INHABILES_OAJ = {
     2026: {_d(2026,1,1), _d(2026,2,2), _d(2026,2,5), _d(2026,3,16), _d(2026,4,1), _d(2026,4,2), _d(2026,4,3), _d(2026,5,1), _d(2026,5,4), _d(2026,5,5), _d(2026,9,14), _d(2026,9,15), _d(2026,9,16), _d(2026,10,12), _d(2026,11,2), _d(2026,11,16), _d(2026,11,20), _d(2026,12,25)},
 }
 
+# EL «31» PERDIÓ EL 1 EN 2024 Y EN 2025, y nadie se enteró durante meses.
+# Estaba escrito `(_d(2024,7,16), _d(2024,7,3))`: el periodo empezaba el 16 y
+# terminaba el 3, trece días ANTES. El bucle `while cur <= fin` no produce ni
+# una fecha, así que las dos segundas quincenas de vacaciones del Poder Judicial
+# —julio y diciembre— de 2024 y 2025 se contaron ENTERAS como hábiles. Son seis
+# semanas de días inhábiles perdidos, y todo cómputo que cruce esas ventanas
+# salía corto. No es un localismo: es nacional y nos afectaba a todos.
+#
+# Lo delata su propio vecino: 2026 sí dice 31.
 PERIODOS_OAJ = {
-    2024: [(_d(2024,7,16), _d(2024,7,3)), (_d(2024,12,16), _d(2024,12,3))],
-    2025: [(_d(2025,7,16), _d(2025,7,3)), (_d(2025,12,16), _d(2025,12,3))],
+    2024: [(_d(2024,7,16), _d(2024,7,31)), (_d(2024,12,16), _d(2024,12,31))],
+    2025: [(_d(2025,7,16), _d(2025,7,31)), (_d(2025,12,16), _d(2025,12,31))],
     2026: [(_d(2026,7,16), _d(2026,7,31)), (_d(2026,12,16), _d(2026,12,31))],
 }
+
+
+def _revisar_periodos() -> None:
+    """Un rango invertido no vuelve a pasar en silencio.
+
+    Cuesta microsegundos al importar y habría cazado esto el primer día.
+    """
+    for anio, ps in PERIODOS_OAJ.items():
+        for ini, fin in ps:
+            if fin < ini:
+                raise ValueError(
+                    f"Periodo vacacional {anio} invertido: {ini} → {fin}. "
+                    f"Un rango al revés no produce ningún día inhábil y el "
+                    f"cómputo sale corto sin avisar.")
+
+
+_revisar_periodos()
 
 
 CALENDARIO_AMPARO = Calendario(

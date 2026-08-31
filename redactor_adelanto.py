@@ -57,7 +57,7 @@ class Encargo:
     tipo_asunto: str = "amparo_directo"
     tribunal: str = ""                # «Primer Tribunal Colegiado… del Décimo…»
     ciudad: str = ""                  # «Mérida, Yucatán»
-    modo: str = "plantilla"           # plantilla | generado
+    modo: str = "generado"            # plantilla | generado
     plantilla: str = ""               # el .docx del propio tribunal
     coleccion_estatal: str = ""       # «leyes_queretaro», para el RAG del fondo
 
