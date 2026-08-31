@@ -1684,7 +1684,12 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             if m_ in _enc:
                 _mat = clave
                 break
-    _datos_bk.setdefault("materia", _mat)
+    # LA MATERIA NO PUEDE QUEDAR EN HUECO en mitad de la competencia. Si no se
+    # dedujo del encabezado ni del tribunal, se dice la del tipo de asunto, que
+    # es cierta: una revisión fiscal es administrativa por definición.
+    _datos_bk.setdefault("materia", _mat or {
+        "revision_fiscal": "administrativa", "queja": "administrativa",
+    }.get(str(tipo_asunto or "").strip().lower(), "") or HUECO)
     _datos_bk.setdefault("inciso", "b" if _mat in ("administrativa", "agraria") else "c")
     _datos_bk.setdefault("concordancia", "localizada" if _fem else "localizado")
     # EL ARTÍCULO LO PONE LA PLANTILLA, NO YO. Las fórmulas del banco ya dicen
@@ -1709,8 +1714,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # competencia. El juez de distrito ES la autoridad responsable —en una
     # revisión de amparo indirecto lo recurrido es su sentencia— y la materia ya
     # está calculada tres líneas más arriba.
-    _datos_bk.setdefault("juez_distrito", _normalizar_autoridad(_resp) or HUECO)
-    _datos_bk.setdefault("juzgado", _normalizar_autoridad(_resp) or HUECO)
+    # CON SU ARTÍCULO, porque la plantilla ya no lo pone: «por el Sala Regional»
+    # no es español y la concordancia depende del órgano, no de la frase.
+    _datos_bk.setdefault("juez_distrito", _con_articulo(_resp) or HUECO)
+    _datos_bk.setdefault("juzgado", _con_articulo(_resp) or HUECO)
     _datos_bk.setdefault("recurrente", str(datos.get("quejoso") or "").strip() or HUECO)
     _datos_bk.setdefault("fraccion_acuerdo",
                          str(datos.get("fraccion_acuerdo") or "").strip() or HUECO)

@@ -101,7 +101,13 @@ def _limpiar(x: str) -> str:
     # Los encabezados van en versales; el cuerpo de la sentencia no.
     if x.isupper() and len(x) > 12:
         menores = {"de", "del", "la", "las", "los", "el", "y", "en", "al"}
-        x = " ".join(w.lower() if w.lower() in menores else w.capitalize()
+        # LOS ROMANOS NO SE CAPITALIZAN: «II».capitalize() da «Ii», y el
+        # resolutivo salía diciendo «la Sala Regional del Centro Ii». Aquí
+        # también, no sólo en el compositor: la autoridad se normaliza dos
+        # veces y basta con que una de las dos la rompa.
+        _rom = re.compile(r"^[IVXLCDM]{2,7}$")
+        x = " ".join(w if _rom.match(w.strip(".,;:")) else
+                     (w.lower() if w.lower() in menores else w.capitalize())
                      for w in x.split())
     return x.strip()[:MAX_NOMBRE]
 
