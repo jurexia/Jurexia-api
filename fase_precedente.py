@@ -80,7 +80,14 @@ GRAFIAS = {
 # Cuántos precedentes se leen. Cuarenta por tiro es lo que midió el análisis;
 # más allá el sondeo tarda más de lo que aporta.
 TOP_SONDEO = 40
-MAX_MOLDES = 4          # estudios de los que se extrae el molde de regla
+# CUÁNTOS MOLDES SE QUIEREN Y CUÁNTOS SE INTENTAN. No todo estudio bien
+# puntuado sirve de molde: hace falta que tenga una fórmula de derivación
+# —«De dicho numeral se advierte que…»— y que el tramo hasta el primer anclaje
+# al caso ajeno dé para algo. Midiendo salió que aproximadamente la mitad de los
+# candidatos no la tienen, así que se piden el doble y se conservan los buenos.
+# Cuesta cuatro scrolls más, que corren en paralelo y no se notan.
+MAX_MOLDES = 3          # los que se entregan al redactor
+CANDIDATOS_MOLDE = 8    # los que se leen para conseguirlos
 MAX_OBJECION = 6        # sentencias que resolvieron al revés
 
 
@@ -364,7 +371,7 @@ async def _moldes(qdrant, buenos: list, s: Sondeo) -> list:
     # precedentes buenos, cuando lo que no hay es de dónde leerlos.
     con_texto = [(pid, pl) for pid, pl in buenos
                  if str(pl.get("circuito") or "").strip() in
-                 {str(c) for c in CIRCUITOS_CON_ESTUDIO}][:MAX_MOLDES]
+                 {str(c) for c in CIRCUITOS_CON_ESTUDIO}][:CANDIDATOS_MOLDE]
     if not con_texto:
         if buenos:
             s.avisos.append(
@@ -390,6 +397,8 @@ async def _moldes(qdrant, buenos: list, s: Sondeo) -> list:
             "calidad": pl.get("calidad_argumentativa_v2"),
             "pdf_url": pl.get("pdf_url"),
         })
+        if len(fuera) >= MAX_MOLDES:
+            break
     return fuera
 
 

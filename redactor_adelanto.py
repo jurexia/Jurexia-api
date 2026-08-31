@@ -292,11 +292,20 @@ async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
     if not materia:
         return None
     try:
-        return await fp.sondear(qdrant, embed, problemas[0], materia,
-                                circuito=fp.circuito_de(getattr(e, "tribunal", "")))
+        s = await fp.sondear(qdrant, embed, problemas[0], materia,
+                             circuito=fp.circuito_de(getattr(e, "tribunal", "")))
     except Exception as exc:
         print(f"   ⚠️ sondeo de precedente omitido: {exc}")
         return None
+    # SE DEJA CONSTANCIA AUNQUE VAYA BIEN. Hasta ahora este paso sólo hablaba
+    # cuando fallaba, y tras desplegarlo no había manera de saber desde los
+    # registros si había corrido: el silencio significaba «no falló», no
+    # «funcionó». Es el mismo defecto que el aviso que nadie veía. Una línea.
+    print(f"   ⚖️ precedente[{materia}]: "
+          f"{sum(s.distribucion.values())} sentencias del tema · "
+          f"{len(s.moldes)} moldes · {len(s.razonados)} con razón escrita"
+          + (f" · avisos: {len(s.avisos)}" if s.avisos else ""))
+    return s
 
 
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
