@@ -116,6 +116,18 @@ class Material:
     convencional: list[dict] = field(default_factory=list)
     # Los estudios de fondo van APARTE y son molde de FORMA, nunca fundamento.
     moldes: list[dict] = field(default_factory=list)
+    # El sondeo del acervo de precedentes: cómo resolvieron otros este mismo
+    # problema. No funda —un colegiado no obliga a otro— pero dice si uno se
+    # está apartando de la corriente y de dónde sacar la objeción que hay que
+    # responder. Es `fase_precedente.Sondeo`; se guarda suelto para no cruzar
+    # los imports.
+    sondeo: object = None
+    # LA MATERIA VIAJA CON EL MATERIAL, no como parámetro. Hay cuatro sitios que
+    # arman el prompt y cada parámetro nuevo es un sitio donde olvidarlo; el
+    # Material ya llega a todos. Y aquí importa de veras: entregar la
+    # arquitectura equivocada no es un defecto de forma, es mandar escribir al
+    # revés —en laboral se pide ciclos cortos y en administrativa lo contrario—.
+    materia: str = ""
 
 
 def _bloque_criterio(criterios: list[Criterio]) -> str:
@@ -205,10 +217,301 @@ def _bloque_aportado(contexto: str) -> str:
             + c[:20000] + "\n")
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CÓMO ESCRIBE UN TRIBUNAL QUE ESCRIBE BIEN — medido, no opinado
+# ═══════════════════════════════════════════════════════════════════════════
+# Cuatro agentes leyeron 966 sentencias de calidad alta y 980 de calidad media
+# del acervo —laboral, administrativa, civil y penal, siete circuitos— y
+# recuperaron el estudio de fondo completo de las mejores. El acervo se había
+# puntuado a sí mismo; aquí sólo se midió la diferencia.
+#
+# LO QUE NO ERA: no es citar más, ni escribir más largo, ni invocar más derechos
+# humanos. Hay estudios de calidad media de 225,000 caracteres y sentencias del
+# 0.06% superior de cinco páginas. La extensión ACOMPAÑA a la calidad; no la
+# produce. Y la doctrina es CONTRASEÑAL: 7% arriba contra 13% abajo.
+#
+# LO QUE ERA: poner por escrito las operaciones que normalmente se quedan en la
+# cabeza del redactor. Derivar la regla en abstracto antes de aplicarla aparece
+# en el 33% de las mejores civiles y en el 3.3% de las medias —la mayor
+# diferencia relativa de todo el análisis—.
+
+_ARQUITECTURA_COMUN = """
+═══════════════════════════════════════════════════════════════════════
+CÓMO SE ESCRIBE ESTE ESTUDIO
+═══════════════════════════════════════════════════════════════════════
+Esto está medido sobre 1,946 sentencias del propio acervo, comparando las que
+el corpus puntuó alto contra las que puntuó en la media. No son preferencias de
+estilo: son las operaciones que separan a unas de otras.
+
+1. TRANSCRIBE LA FUENTE, NO LA RESUMAS. Antes de aplicar un precepto,
+   transcríbelo entre comillas: «El artículo N de [ley] establece: "…"».
+   Recorta con […] si hace falta, pero nunca parafrasees la norma en el lugar
+   donde debería ir su texto. Arriba se cumple en 15 de 15; abajo, en el 58%.
+
+2. DERIVA LA REGLA EN ABSTRACTO. Tras cada transcripción, una frase puente que
+   extraiga la regla: «De dicho numeral se advierte que…», «Del precepto
+   transcrito deriva la regla de que…». Esa frase vale para CUALQUIER caso
+   igual: ahí todavía no nombras al quejoso, ni a la responsable, ni el
+   expediente. 33% arriba contra 3.3% abajo.
+
+3. DI PARA QUÉ EXISTE LA NORMA. Un párrafo de finalidad: qué problema resuelve
+   el precepto y a qué derecho sirve. 53-62% arriba contra 26-43% abajo.
+
+4. ENUNCIA EL LÍMITE DE LA REGLA. Toda regla se escribe con su frontera: «No
+   basta [X]», «El [órgano] no debe [Y]», «Tal es la regla general, que
+   encuentra excepción cuando…». SI NO PUEDES FORMULAR EL LÍMITE, LA REGLA ESTÁ
+   MAL FORMULADA: no la des por terminada. 53% arriba contra 31% abajo.
+
+5. RAZÓN PROPIA PRIMERO, CITA DESPUÉS. Cada tramo abre con dos o tres párrafos
+   de razonamiento del tribunal SIN citar nada, y sólo entonces entra la tesis
+   que lo respalda: «resulta aplicable la jurisprudencia…». Nunca abras un tramo
+   con la cita: ése es el patrón de las medias, donde la tesis sustituye al
+   razonamiento en vez de apoyarlo.
+
+6. VE A LA EJECUTORIA, NO SÓLO A LA TESIS. Si el criterio viene de una
+   contradicción o de un asunto identificable, nómbralo y resume en tres a seis
+   líneas los hechos que la Corte tuvo enfrente. Y si afirmas que OBLIGA,
+   escribe por qué: expediente, órgano, fecha de sesión, votación y el precepto
+   que le da fuerza (artículo 217 o 223 de la Ley de Amparo). Sin esos datos no
+   escribas que obliga: cítalo como criterio orientador.
+
+7. NOMBRA LA OPERACIÓN. Prohibido el salto tesis → conclusión. Después de cada
+   criterio di qué haces con él: aplicación directa, analogía, identidad de
+   razón, orientador, o distinguible. Si es analogía, di en qué se parecen los
+   hechos. Si lo descartas, di por qué no aplica.
+
+8. UN AGRAVIO, UN TRAMO. Por cada concepto: (a) transcribe entre comillas lo
+   que alegó la parte o la consideración que vas a calificar; (b) la
+   calificación en oración propia, corta y aislada, en punto y aparte —«Esa
+   determinación resulta ilegal.»—; (c) la razón; (d) la tesis de apoyo.
+   Prohibido resolver dos con una calificación conjunta, salvo que declares que
+   se estudian juntos y por qué.
+
+9. RESPONDE LA MEJOR OBJECIÓN DEL QUE PIERDE. Por cada cuestión, un párrafo
+   dedicado al argumento contrario más fuerte, respondido con razón propia. 93%
+   arriba contra 58% abajo. No vale el espantapájaros: identifica el argumento
+   real —lo tienes en el sondeo del acervo— y desmóntalo.
+
+10. TITULA POR FUNCIÓN. Cada apartado anuncia qué se decide ahí: «Decisión del
+    asunto», «Parámetro de control constitucional», «Aplicación al caso»,
+    «Efectos de la concesión», «Costas». Nunca «Estudio» a secas.
+
+11. NO TE VAYAS POR LA PUERTA PROCESAL. Antes de declarar inoperante, intenta
+    el fondo bajo suplencia o causa de pedir y DEJA CONSTANCIA ESCRITA de ese
+    intento. Sólo el 7% de las mejores sale por un filtro procesal, contra el
+    14% de las medias.
+
+12. NO ALARGUES. Si un párrafo no transcribe una fuente, no deriva una regla,
+    no aplica una regla a un hecho del expediente o no responde una objeción,
+    SOBRA. La extensión acompaña a la calidad; no la produce.
+"""
+
+# ── Y AQUÍ EL HALLAZGO QUE DESMONTA LO QUE YO HABÍA CONSTRUIDO ───────────────
+# Yo había hecho que el marco jurídico se escribiera ENTERO al principio y el
+# caso viniera después. En administrativa eso es exactamente lo que hacen las
+# buenas. En laboral y en civil es exactamente lo que hacen las MEDIAS.
+#
+# Medido: en laboral, la sentencia de calidad 5 cierra el circuito regla→caso
+# entre tres y cinco veces y el primer anclaje al expediente cae al 20% del
+# texto; la de calidad 3 hace UN ciclo largo, con el primer anclaje al 60%, y el
+# 37% no vuelve nunca al caso. En administrativa está al revés: las medias
+# vuelven al caso sin parar porque nunca se alejan lo bastante para construir
+# una regla (0.29 anclajes por 10,000 caracteres contra 0.18 arriba).
+#
+# No hay una arquitectura buena: hay una por materia, y son opuestas.
+
+_ARQUITECTURA = {
+    "laboral": """
+═══════════════════════════════════════════════════════════════════════
+ARQUITECTURA — MATERIA LABORAL
+═══════════════════════════════════════════════════════════════════════
+ESCRIBE EN CICLOS CORTOS, NO EN DOS MITADES. La sentencia media expone derecho
+durante media página o dos tercios y aplica al final, una sola vez; el 37% no
+escribe nunca «en el caso concreto». Tú haces TRES A CINCO ciclos de regla →
+caso, y el primero cae antes del 25% del estudio. Ningún bloque de derecho se
+cierra sin un párrafo inmediato que empiece por «En el caso concreto…» y aplique
+esa regla a un hecho nombrado, con su fecha y su foja.
+
+ORDEN. Primer párrafo: declara qué examinas, en qué orden y bajo qué principio
+—mayor beneficio, causa de pedir, suplencia cuando el quejoso es el trabajador—,
+con la tesis que autoriza ese orden. 40% arriba contra 12% abajo.
+
+CITAS. Pide primero criterios de la SEGUNDA SALA y de materia laboral: arriba
+son el 64% y el 56%. Abajo la materia más citada es Común (40%), es decir,
+técnica de amparo genérica: esos criterios sostienen el ORDEN del estudio, nunca
+el fondo. Cinco registros distintos como mínimo (media medida: 6.33 arriba,
+3.46 abajo). Jurisprudencia sobre tesis aislada, y Undécima Época sobre las
+anteriores —27% arriba contra 11%—; si usas una anterior a la reforma, escribe
+la razón.
+
+CONSTITUCIÓN. Amarra la regla a un precepto CON apartado y fracción y úsalo como
+premisa, no como adorno de apertura. Los dos anclajes medidos son el artículo 17
+—justicia pronta, fondo sobre formalismo: 73% arriba contra 38%— y el 123 con su
+apartado y fracción.
+
+CIERRE. Dos partes obligatorias: (1) los efectos como LISTA NUMERADA de órdenes
+en imperativo a la responsable, cada una verificable —«1. Deje insubsistente el
+laudo; 2. Dicte otro en el que…»—: 53% arriba contra 32%; (2) un párrafo que
+diga qué conceptos quedan sin estudiar y por qué. Si hay amparo adhesivo,
+pronúnciate.
+
+CONCENTRA. Agrupa conceptos conexos en una sola cuestión y desarróllala a fondo:
+arriba se resuelven 1.28 agravios por sentencia y abajo 1.75. Menos temas, más
+desarrollo en cada uno.
+""",
+    "administrativa": """
+═══════════════════════════════════════════════════════════════════════
+ARQUITECTURA — MATERIA ADMINISTRATIVA
+═══════════════════════════════════════════════════════════════════════
+AQUÍ ES AL REVÉS QUE EN LABORAL, y está medido: la regla se construye en un
+BLOQUE CONTINUO Y ABSTRACTO, y el caso entra después, una sola vez, cuando la
+regla ya está completa. Las medias vuelven al caso sin parar porque nunca se
+alejan lo bastante para construir una regla. NO escribas «en el caso concreto»
+ni «en la especie» hasta que el bloque de regla esté cerrado, y escribe ese
+bloque sin nombrar al quejoso, a la autoridad ni al expediente.
+
+DECLARA EL RÉGIMEN ANTES DE EMPEZAR. Di cuál de los dos casos es: (a) hay tesis
+exactamente aplicable —aplícala y detente—; o (b) hay que fijar el alcance de
+una regla —constrúyela—. Si es (b), el bloque abstracto es obligatorio, con su
+párrafo de finalidad y, cuando la regla tenga condiciones, la enumeración
+explícita de requisitos: 80% arriba contra 50%. Elaborar la regla en vez de
+limitarse a aplicarla es la ÚNICA diferencia que se sostiene en todos los cortes
+de esta materia.
+
+APERTURA. Título descriptivo de lo que se decide. Fija el orden de estudio
+citando y TRANSCRIBIENDO el precepto que lo manda (artículo 93 de la Ley de
+Amparo). Si quien recurre es la autoridad, declara que no opera la suplencia.
+
+CAPA INTERAMERICANA — es la única capa de fuentes que discrimina en esta materia
+y sobrevive el control por circuito y por longitud: 38% arriba contra 6% abajo.
+Cuando el problema toque un derecho humano, inserta un peldaño con TRES piezas,
+las tres o ninguna: (i) instrumento con artículo; (ii) fuente interamericana con
+localizador —caso «X vs. México» con número de párrafo, u Opinión Consultiva con
+su fecha—; (iii) el ancla de obligatoriedad (P./J. 21/2014). La palabra
+«convencionalidad» sin instrumento y sin párrafo está PROHIBIDA. Ese peldaño va
+DESPUÉS de la regla constitucional y ANTES del caso, nunca como coda final.
+
+NORMA REFORMADA. Si el precepto cambió y el cambio importa, pon un cuadro
+comparativo de dos columnas con el texto anterior y el vigente, y construye la
+premisa sobre el texto, no sobre su resumen.
+
+EN ESTA MATERIA NO HAGAS —todo esto está INVERTIDO, es decir, lo hacen MÁS las
+medias que las buenas—: preferir a la Corte por ser la Corte (la distribución
+por instancia es idéntica en los tres niveles); invocar la Constitución para
+subir de nivel (35.4% arriba contra 43.5% abajo); aplicar por analogía (31%
+contra 55%: es el atajo de quien no construyó la regla); citar exposición de
+motivos (6% contra 25%); acumular «en efecto», «ello es así».
+""",
+    "civil": """
+═══════════════════════════════════════════════════════════════════════
+ARQUITECTURA — MATERIA CIVIL
+═══════════════════════════════════════════════════════════════════════
+LA CADENA DE CUATRO ESLABONES, entera y en este orden, por cada cuestión de
+fondo: (1) transcribes el texto literal del precepto entre comillas; (2) derivas
+la regla con una frase puente —«De dicho numeral es posible advertir que, por
+regla general,…»—; (3) entra la autoridad TRANSCRITA, no citada: «es aplicable
+la jurisprudencia X, sustentada por la Primera Sala…, de rubro y texto
+siguientes:» y sigue el rubro y el texto íntegro; (4) nombras la operación que
+enlaza ese criterio con estos hechos. La cadena completa se cumple en el 53% de
+las de calidad máxima y en el 19% de las medias.
+
+Y ESCRIBE EN CICLOS: no toda la regla al principio y todo el caso al final. Eso
+último es el patrón de la calidad media.
+
+SI SÓLO TIENES EL REGISTRO Y NO EL TEXTO DE LA TESIS, NO LA CITES: OMÍTELA. Tres
+tesis transcritas como mínimo cuando el asunto tenga dos o más cuestiones de
+fondo (mediana medida: 4 rubros arriba, 1 abajo).
+
+EJECUTORIA. Cuando la tesis venga de una contradicción o de un amparo
+identificable, nombra el asunto, cuenta en tres a seis líneas los hechos que la
+Corte tuvo enfrente y escribe el paralelismo: «Las características del presente
+caso se asemejan a lo ocurrido en el diverso decidido por el Alto Tribunal y,
+cambiando lo necesario, conducen a resultado similar». 15 de 15 arriba.
+
+SUPLENCIA. Antes del fondo comprueba si el caso cae en un supuesto de suplencia
+—menores, materia familiar, orden público, violación manifiesta—. Si cae,
+anúnciala en la misma frase del veredicto y fúndala con precepto y tesis: 53%
+arriba contra 25%. Si no cae, no la menciones.
+
+PRINCIPIOS. Nombra expresamente los que gobiernan —congruencia, exhaustividad,
+seguridad jurídica, interés superior—: la meta medida es cuatro o más.
+""",
+    "penal": """
+═══════════════════════════════════════════════════════════════════════
+ARQUITECTURA — MATERIA PENAL
+═══════════════════════════════════════════════════════════════════════
+AQUÍ LA FORMA DE TRAER EL CRITERIO CAMBIA, y es contraintuitivo: las de calidad
+máxima NO transcriben un solo rubro en mayúsculas (0.0 por estudio contra 1.2 en
+las medias). Transcriben el RAZONAMIENTO NUMERADO de la ejecutoria —mediana de
+24.5 párrafos contra 3.5—. Lo universal es traer el CONTENIDO del criterio, no
+su clave; en penal el contenido es la ejecutoria, no la tesis.
+
+ABRE CON LA HIPÓTESIS NORMATIVA IMPERSONAL: «Cuando…», «Tratándose de…», «Para
+que…». 40% arriba contra 21%.
+
+LA FRONTERA NEGATIVA ES EL RASGO FUERTE de esta materia: «no basta», «no debe»,
+«no procede» —53% arriba contra 31%—, con la excepción explícita nombrada y, si
+la hay, la vía alternativa.
+
+CITAS: EXCLUYE tesis de Tribunales Colegiados. La suplencia de la queja en favor
+del reo (artículo 79, fracción III) es absoluta: opera aun sin conceptos.
+""",
+}
+
+
+def _bloque_arquitectura(materia: str) -> str:
+    """Lo común más UNA arquitectura de materia. Nunca dos: son opuestas."""
+    m = (materia or "").strip().lower()
+    propia = _ARQUITECTURA.get(m, "")
+    if not propia:
+        # Sin materia identificada se entrega sólo lo común. Entregar la
+        # arquitectura equivocada es peor que no entregar ninguna: en laboral
+        # manda escribir en ciclos cortos y en administrativa manda justo lo
+        # contrario.
+        return _ARQUITECTURA_COMUN
+    return _ARQUITECTURA_COMUN + propia
+
+
+def _sentido_del_fallo(criterios: list) -> str:
+    """De la calificación de los conceptos al sentido de la sentencia.
+
+    El acervo clasifica sentencias —concede, niega, confirma— y el secretario
+    califica conceptos —fundado, infundado, inoperante—. Son dos escalas y hay
+    que traducir: basta un concepto fundado para que el amparo se conceda,
+    aunque los demás caigan.
+    """
+    if not criterios:
+        return ""
+    for c in criterios:
+        s = str(getattr(c, "sentido", "") or "").strip().lower()
+        if s.startswith("fundad"):
+            return "concede"
+    return "niega"
+
+
+def _bloque_precedente(m: Material, criterios: list = None) -> str:
+    """El sondeo del acervo de colegiados, si lo hubo.
+
+    Va SEPARADO del material que funda, y así rotulado: un colegiado no obliga a
+    otro. Sirve para saber si uno se aparta de la corriente —y decirlo— y para
+    tomar del acervo la objeción que hay que responder, en vez de inventarse una
+    fácil de tumbar.
+    """
+    s = getattr(m, "sondeo", None)
+    if s is None:
+        return ""
+    try:
+        import fase_precedente as fp
+        return fp.bloque(s, _sentido_del_fallo(criterios or []))
+    except Exception:
+        return ""
+
+
 def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
                    es_recurso: bool = False, partes=None, marco=None,
-                   contexto: str = "") -> str:
+                   contexto: str = "", materia: str = "") -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     calif = _calificacion(criterios)
     # EL MARCO SE REPITE AL FINAL. Medido en el proyecto 360/2025: se le
@@ -436,6 +739,8 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_aportado(contexto)}
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
+{_bloque_arquitectura(materia or getattr(material, "materia", ""))}
+{_bloque_precedente(material, criterios)}
 {_bloque_criterio(criterios)}
 {_bloque_material(material)}
 
@@ -659,10 +964,133 @@ def _leyes_ajenas_aplicadas(estudio: str, material=None) -> list[str]:
     return halladas
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LO QUE LA MEDICIÓN AÑADIÓ A LA REVISIÓN
+# ═══════════════════════════════════════════════════════════════════════════
+
+# LA QUE NO SOBREVIVIÓ A SU PROPIA CALIBRACIÓN. Escribí una verificación de
+# «citas huérfanas»: después de cada cita debía aparecer, en los 1,200
+# caracteres siguientes, la fórmula que dijera qué se hace con ella. La probé
+# contra el acervo antes de enviarla y saltó en el 95% de las citas de las
+# sentencias de calidad 5 y en el 100% de las de calidad 3. No distinguía nada.
+#
+# La causa era estructural, no de vocabulario: la amplié y siguió saltando en el
+# 85%. En una sentencia real la fórmula va DELANTE de la cita —«resulta
+# aplicable la jurisprudencia 2a./J. 52/98, registro 195741, que dice: …»— y yo
+# la buscaba detrás. Mirando hacia atrás habría pasado todo, porque esa fórmula
+# es justamente la estándar. La comprobación no medía nada y se quitó.
+#
+# Lo que sí reprodujo la calibración, y con holgura: en laboral las de calidad 5
+# citan 6 tesis de mediana y las de calidad 3 citan 2 —84 citas en 12 estudios
+# contra 20 en 13—. En civil la mediana es 2 en los dos niveles. Por eso el
+# mínimo de cinco registros va SÓLO en el bloque laboral del prompt.
+
+_RX_ANCLAJE = re.compile(
+    r"(en\s+el\s+caso\s+concreto|en\s+la\s+especie|en\s+el\s+caso\s+a\s+estudio"
+    r"|en\s+el\s+asunto\s+que\s+nos\s+ocupa|en\s+el\s+caso\s+que\s+se\s+analiza"
+    r"|en\s+el\s+caso\s+sujeto\s+a\s+estudio|en\s+el\s+presente\s+(?:caso|asunto))",
+    re.I)
+
+_RX_COIDH = re.compile(r"Corte\s+Interamericana|interamerican|convencionalidad", re.I)
+_RX_CASO_CoIDH = re.compile(
+    r"\bcaso\s+[A-ZÁÉÍÓÚ][\w.\-]*.{0,60}?\bvs?\.?\s+[A-ZÁÉÍÓÚ]", re.I)
+_RX_PARRAFO_CoIDH = re.compile(r"p[áa]rr(?:afo)?s?\.?\s*\d+|§\s*\d+", re.I)
+
+_RX_ORDEN_NUMERADA = re.compile(
+    r"^\s*(?:\d+[.)]|[a-z][.)])\s*(?:deje|dej[eé]|declare|reponga|emita|dicte"
+    r"|resuelva|ordene|deber[áa]|proceda|realice|valore)", re.I | re.M)
+
+
+# LA SEGUNDA QUE NO SOBREVIVIÓ. El hallazgo más vistoso del análisis era que las
+# buenas cierran el circuito regla→caso de tres a cinco veces, con el primer
+# anclaje al 20% del texto, contra un ciclo largo y el 60% en las medias. Quise
+# convertirlo en comprobación y lo intenté tres veces:
+#
+#   · contando anclajes y exigiendo tres → saltaba en 6 de 6 sentencias de
+#     calidad 5, porque la mediana real que medí es 1.5, no 4;
+#   · exigiendo al menos uno en estudios largos → 3 de 8 civiles de calidad
+#     máxima acusadas, y en civil la señal está invertida: el primer anclaje
+#     llega al 48% en las buenas y al 31% en las medias;
+#   · acotada sólo a laboral → 2 de 6 buenas contra 1 de 8 medias. Al revés otra
+#     vez, y por una razón simple: las buenas son más largas (33 mil caracteres
+#     de mediana contra 20 mil), así que pasan el umbral de longitud más a
+#     menudo y se exponen más al aviso.
+#
+# El rasgo puede ser cierto y aun así no ser comprobable con una expresión
+# regular: «volver al caso» se escribe de cien maneras y sólo cuento cinco. La
+# instrucción SIGUE EN EL PROMPT —ahí es un consejo y no cuesta nada— pero no se
+# convierte en acusación automática. Una comprobación que señala a una de cada
+# tres sentencias bien escritas no protege al secretario: le enseña a no leer
+# los avisos, y el día que salte uno de verdad tampoco lo leerá.
+
+_RX_INSTRUMENTO = re.compile(
+    r"(convenci[óo]n\s+americana|pacto\s+de\s+san\s+jos[ée]|pacto\s+internacional"
+    r"|convenci[óo]n\s+(?:sobre|de|interamericana)|protocolo\s+de\s+san\s+salvador"
+    r"|declaraci[óo]n\s+(?:americana|universal))", re.I)
+
+
+def _convencional_completo(estudio: str) -> str:
+    """Que lo interamericano se pueda comprobar. No que se cite más.
+
+    ESTA TAMBIÉN SE RECORTÓ CON LA CALIBRACIÓN, aunque menos. Empecé exigiendo
+    las tres piezas —instrumento, caso con nombre y número de párrafo— y saltaba
+    en 4 de cada 10 sentencias administrativas de calidad 5. Estaba señalando lo
+    normal: citar el artículo 25 de la Convención Americana sin nombrar ningún
+    caso de la Corte Interamericana es correcto y frecuente.
+
+    Quedan los dos supuestos donde de verdad se esconde el error, y ninguno es
+    cuestión de estilo:
+
+    1. SE NOMBRA UN CASO Y NO SE DICE DÓNDE. «Caso Fulano vs. México» sin
+       párrafo es una atribución que nadie puede comprobar, y es exactamente la
+       forma que toma una cita inventada.
+    2. SE INVOCA LA CONVENCIONALIDAD SIN NADA DETRÁS: ni instrumento, ni
+       artículo, ni caso. El análisis del acervo la encontró como contraseñal
+       —aparenta altura y no sostiene nada—.
+    """
+    texto = estudio or ""
+    if not _RX_COIDH.search(texto):
+        return ""
+    caso = _RX_CASO_CoIDH.search(texto)
+    if caso and not _RX_PARRAFO_CoIDH.search(texto):
+        return ("Se nombra un caso de la Corte Interamericana "
+                f"(«{caso.group(0)[:60]}…») sin número de párrafo. Sin "
+                "localizador la atribución no se puede comprobar, y ésa es la "
+                "forma que toma una cita inventada: o se completa o se quita.")
+    if not caso and not _RX_INSTRUMENTO.search(texto):
+        return ("Se invoca el control de convencionalidad o a la Corte "
+                "Interamericana sin nombrar instrumento ni caso. Una invocación "
+                "que no se apoya en nada aparenta altura y no sostiene el fallo.")
+    return ""
+
+
+def _cierre_operativo(estudio: str, criterios: list) -> str:
+    """Si se concede, los efectos van como órdenes numeradas y verificables."""
+    concede = any("fundado" in str(getattr(c, "sentido", "") or c).lower()
+                  for c in (criterios or []))
+    if not concede or "efecto" not in (estudio or "").lower():
+        return ""
+    if not _RX_ORDEN_NUMERADA.search(estudio or ""):
+        return ("Se concede y los efectos van en prosa. Las sentencias mejor "
+                "calificadas los escriben como lista numerada de órdenes en "
+                "imperativo a la responsable —«1. Deje insubsistente el laudo; "
+                "2. Dicte otro en el que…»—, cada una verificable. Así se "
+                "cumplen y así se comprueba su cumplimiento.")
+    return ""
+
+
 def revisar(estudio: str, criterios: list[Criterio], material: Material,
             resumen_acto: str = "", marco: str = "") -> list[str]:
     """Lo comprobable sin modelo. Ninguna de estas es opinión."""
     avisos: list[str] = []
+
+    # Lo que añadió la medición sobre 1,946 sentencias del acervo.
+    for comprobacion in (
+            _convencional_completo(estudio),
+            _cierre_operativo(estudio, criterios)):
+        if comprobacion:
+            avisos.append(comprobacion)
 
     # 1. Registros inventados — el fallo que descalifica.
     validos = {str(t.get("registro", "")) for t in material.tesis}

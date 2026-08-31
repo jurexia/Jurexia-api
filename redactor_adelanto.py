@@ -232,8 +232,71 @@ async def consultar(qdrant, embed_juris, embed_leyes,
             problemas.append(f"¿{imp.get('motivo','inoperancia').capitalize()}: "
                              f"{imp['explicacion']}?")
     coleccion = (r.encargo.coleccion_estatal if r.encargo else "") or None
-    return await f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
-                                         problemas, coleccion)
+
+    # EL SONDEO DE PRECEDENTE VA EN PARALELO al material. Cuesta menos de dos
+    # segundos —se mide— y responde una pregunta que hasta ahora nadie hacía:
+    # cómo resolvieron otros colegiados este mismo problema. Se le enseña al
+    # redactor junto con el material, pero SEPARADO de él, porque un precedente
+    # de otro tribunal no funda: orienta.
+    material, sondeo = await asyncio.gather(
+        f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
+                                problemas, coleccion),
+        _sondear_precedente(qdrant, embed_leyes, r, problemas))
+    material.sondeo = sondeo
+    material.materia = fp_materia(r.encargo)
+    if sondeo is not None:
+        for a in (sondeo.avisos or []):
+            if a not in r.avisos:
+                r.avisos.append(a)
+    return material
+
+
+def fp_materia(e) -> str:
+    """La materia del asunto, leída del encabezado y del tribunal."""
+    try:
+        import fase_precedente as fp
+    except Exception:
+        return ""
+    return fp.materia_de(getattr(e, "encabezado", ""),
+                         getattr(e, "tribunal", ""),
+                         getattr(e, "tipo_asunto", ""))
+
+
+async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
+    """El acervo de colegiados, sondeado por el problema, no por el escrito.
+
+    El fraseo de la demanda envenena la búsqueda —es el fallo ya medido de
+    HyDE—, así que se sondea con el problema jurídico que la fase 3 normalizó
+    por concepto. Si algo falla, se devuelve None y el redactor sigue: el
+    sondeo mejora la sentencia, no la condiciona.
+
+    EL EMBEBEDOR ES EL DE 1536, NO EL DE JURISPRUDENCIA. Aquí hay dos modelos
+    distintos conviviendo: `jurisprudencia_nacional_v3` se indexó con
+    text-embedding-3-large (3072 dimensiones) y `sentencias_holdings` con
+    text-embedding-3-small (1536). Le pasé el de jurisprudencia por costumbre y
+    Qdrant devolvió «expected dim: 3072, got 1536»; como el sondeo captura sus
+    propios errores para no tumbar la sentencia, en producción se habría visto
+    sencillamente como «no hay precedentes». Lo cazó la prueba local, que es
+    justamente para lo que sirve correrla antes de desplegar.
+    """
+    try:
+        import fase_precedente as fp
+    except Exception:
+        return None
+    if not (qdrant and problemas):
+        return None
+    e = r.encargo
+    # NO SE PIDEN: se leen. La materia está en el encabezado y en el nombre del
+    # tribunal; el circuito, en ese mismo nombre.
+    materia = fp_materia(e)
+    if not materia:
+        return None
+    try:
+        return await fp.sondear(qdrant, embed, problemas[0], materia,
+                                circuito=fp.circuito_de(getattr(e, "tribunal", "")))
+    except Exception as exc:
+        print(f"   ⚠️ sondeo de precedente omitido: {exc}")
+        return None
 
 
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
