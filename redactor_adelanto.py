@@ -244,11 +244,34 @@ async def consultar(qdrant, embed_juris, embed_leyes,
         _sondear_precedente(qdrant, embed_leyes, r, problemas))
     material.sondeo = sondeo
     material.materia = fp_materia(r.encargo)
+    material.entidad = _entidad_de(coleccion)
     if sondeo is not None:
         for a in (sondeo.avisos or []):
             if a not in r.avisos:
                 r.avisos.append(a)
     return material
+
+
+_ENTIDADES = {
+    "aguascalientes": "Aguascalientes", "bajacalifornia": "Baja California",
+    "bajacaliforniasur": "Baja California Sur", "campeche": "Campeche",
+    "chiapas": "Chiapas", "chihuahua": "Chihuahua", "cdmx": "Ciudad de México",
+    "coahuila": "Coahuila", "colima": "Colima", "durango": "Durango",
+    "guanajuato": "Guanajuato", "guerrero": "Guerrero", "hidalgo": "Hidalgo",
+    "jalisco": "Jalisco", "edomex": "Estado de México", "mexico": "Estado de México",
+    "michoacan": "Michoacán", "morelos": "Morelos", "nayarit": "Nayarit",
+    "nuevoleon": "Nuevo León", "oaxaca": "Oaxaca", "puebla": "Puebla",
+    "queretaro": "Querétaro", "quintanaroo": "Quintana Roo",
+    "sanluispotosi": "San Luis Potosí", "sinaloa": "Sinaloa", "sonora": "Sonora",
+    "tabasco": "Tabasco", "tamaulipas": "Tamaulipas", "tlaxcala": "Tlaxcala",
+    "veracruz": "Veracruz", "yucatan": "Yucatán", "zacatecas": "Zacatecas",
+}
+
+
+def _entidad_de(coleccion: str) -> str:
+    """«leyes_queretaro» → «Querétaro». Sin adivinar: si no la conozco, vacío."""
+    c = (coleccion or "").strip().lower().replace("leyes_", "").replace("_", "")
+    return _ENTIDADES.get(c, "")
 
 
 def fp_materia(e) -> str:

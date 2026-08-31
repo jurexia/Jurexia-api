@@ -128,6 +128,10 @@ class Material:
     # arquitectura equivocada no es un defecto de forma, es mandar escribir al
     # revés —en laboral se pide ciclos cortos y en administrativa lo contrario—.
     materia: str = ""
+    # LA ENTIDAD, por el mismo motivo que la materia: viaja con el material
+    # porque el material ya llega a todos los prompts. Sale de la colección
+    # estatal que eligió el secretario («leyes_queretaro» → «Querétaro»).
+    entidad: str = ""
 
 
 def _bloque_criterio(criterios: list[Criterio]) -> str:

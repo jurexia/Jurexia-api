@@ -138,6 +138,96 @@ jurisprudencia ni le inventes un registro.
 """
 
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CÓMO RESOLVIÓ EL ACERVO — en el sitio donde de verdad se decide
+# ═══════════════════════════════════════════════════════════════════════════
+# Yair, 31-ago-2026: el motor le propuso INFUNDADO en un asunto donde los
+# precedentes se inclinan a fundado. Tenía razón y el fallo era de diseño mío:
+# construí el sondeo del acervo para que «se le enseñe al redactor ANTES de que
+# fije el sentido» y luego se lo enseñé al que ESCRIBE el estudio, que corre
+# cuando el sentido ya está fijado. El que propone —éste— decidía a ciegas.
+#
+# El sondeo viaja dentro del `material`, así que no hace falta cambiar ninguna
+# firma: estaba aquí desde el principio, sin que nadie lo mirara.
+#
+# LAS DOS ESCALAS NO SON LA MISMA, y hay que traducir: el acervo clasifica
+# SENTENCIAS —concede, niega, confirma— y aquí se califican CONCEPTOS —fundado,
+# infundado, inoperante—. Que el 70% de los precedentes conceda no significa que
+# todos los conceptos sean fundados: significa que al menos uno lo fue.
+
+# LA ENTIDAD NO SE ESCRIBE A MANO. Este prompt decía literalmente «LA LEY QUE
+# RIGE ES LA DEL ESTADO DE QUERÉTARO», y esto lo usan secretarios de toda la
+# república: a uno de Yucatán se le estaba ordenando aplicar el código de otro
+# estado, y en un amparo laboral federal la afirmación es sencillamente falsa.
+# El prompt del estudio ya lo decía bien —«el código que rige es el de la
+# entidad»— y éste se había quedado atrás.
+def _regla_de_ley(material) -> str:
+    ent = str(getattr(material, "entidad", "") or "").strip()
+    mat = str(getattr(material, "materia", "") or "").strip().lower()
+    if mat == "laboral":
+        return ("LA LEY QUE RIGE ES LA FEDERAL DEL TRABAJO, no la de ninguna "
+                "entidad. Si el asunto es de un trabajador al servicio del "
+                "Estado, comprueba en el material cuál de las dos leyes le "
+                "aplica antes de invocarla: confundirlas cambia el resultado.")
+    if mat == "penal":
+        return ("LA LEY QUE RIGE es el Código Nacional de Procedimientos "
+                "Penales y el código penal que corresponda al fuero del "
+                "asunto. No mezcles fuero común y federal.")
+    if ent:
+        return (f"LA LEY QUE RIGE ES LA DEL ESTADO DE {ent.upper()}. No "
+                f"propongas aplicar la ley de otra entidad. La jurisprudencia "
+                f"que interpreta legislación de otra entidad SÍ vale, y se "
+                f"invoca por el principio que fija, sin excusarse.")
+    return ("LA LEY QUE RIGE ES LA DE LA ENTIDAD DEL ASUNTO, y es la que está "
+            "en el material. No propongas aplicar la ley de otra entidad. La "
+            "jurisprudencia que interpreta legislación de otra entidad SÍ "
+            "vale, y se invoca por el principio que fija, sin excusarse.")
+
+
+def _bloque_acervo_sentidos(material) -> str:
+    s = getattr(material, "sondeo", None)
+    if s is None or not getattr(s, "distribucion", None):
+        return ""
+    total = sum(s.distribucion.values())
+    if total < 5:
+        return ""
+    favorables = sum(n for k, n in s.distribucion.items()
+                     if k in ("concede", "parcialmente_concede", "ampara", "revoca"))
+    L = ["", "═" * 71,
+         "CÓMO RESOLVIERON OTROS COLEGIADOS ESTE MISMO PROBLEMA",
+         "═" * 71,
+         f"Se buscaron en el acervo las sentencias sobre este tema. De {total}:"]
+    for k, n in sorted(s.distribucion.items(), key=lambda x: -x[1])[:6]:
+        L.append(f"   · {k}: {n}  ({100*n//total}%)")
+    L += ["",
+          f"Es decir: el {100*favorables//total}% dio la razón —total o "
+          f"parcialmente— a quien promovió.",
+          "",
+          "OJO CON LA ESCALA, QUE NO ES LA MISMA. El acervo clasifica SENTENCIAS",
+          "y tú calificas CONCEPTOS. Que la mayoría conceda no vuelve fundados",
+          "todos los conceptos: significa que al menos UNO lo fue. Y al revés,",
+          "que la mayoría niegue no obliga a declararlos todos infundados.",
+          "",
+          "PERO SÍ TE OBLIGA A ESTO: si vas a proponer que NINGÚN concepto es",
+          "fundado en un tema donde la mayoría de los tribunales concede —o al",
+          "contrario—, escribe en tu razón por qué este caso no cae en esa",
+          "corriente. Apartarse es legítimo; apartarse sin enterarse, no.",
+          ""]
+    if s.fundamentos:
+        L.append("LOS FUNDAMENTOS QUE SE REPITEN en las sentencias del tema:")
+        for f in s.fundamentos[:6]:
+            L.append(f"   · {f['fundamento']}  ({f['veces']})")
+        L.append("")
+    if getattr(s, "concordantes", None):
+        L += ["Y ASÍ RAZONARON LOS MÁS CERCANOS AL TUYO —no son fuente que",
+              "obligue: un colegiado no obliga a otro. Son cómo se ha resuelto:", ""]
+        for c in s.concordantes[:4]:
+            L.append(f"   [{c.get('sentido')}] {str(c.get('holding') or '')[:420]}")
+            L.append("")
+    return "\n".join(L)
+
+
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
                      resumen_conceptos: str, es_recurso: bool = False,
                      contexto: str = "") -> str:
@@ -170,6 +260,7 @@ JURISPRUDENCIA DEL ACERVO — es TODO lo que puedes invocar
 
 NORMAS DEL ACERVO
 {_bloque_normas(material)}
+{_bloque_acervo_sentidos(material)}
 {_bloque_contexto(contexto)}
 
 CÓMO SE CALIFICA, y no son sinónimos:
@@ -186,9 +277,7 @@ REGLAS QUE NO SE ROMPEN:
 2. SI EL ACERVO NO DA PARA SOSTENER UN SENTIDO, DILO. Pon alcanza=false y
    explica qué falta. Un sentido inventado con aire de fundado se firma, y ese
    es el daño que este paso existe para evitar.
-3. LA LEY QUE RIGE ES LA DEL ESTADO DE QUERÉTARO. No propongas aplicar la ley
-   de otra entidad. La jurisprudencia que interpreta legislación de otra
-   entidad SÍ vale, y se invoca por el principio que fija, sin excusarse.
+3. {_regla_de_ley(material)}
 4. NO SUPONGAS LO QUE NO CONSTA. Si el material no permite afirmar un hecho,
    di que no está acreditado; no escribas «si fuera cierto que…».
 5. LA RAZÓN, EN {PALABRAS_RAZON} PALABRAS. Es lo que el secretario lee antes de
