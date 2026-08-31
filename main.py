@@ -11085,6 +11085,20 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             if quota_res.data:
                 q_data = quota_res.data
                 if not q_data.get('allowed', True):
+                    # SUSPENDIDO NO ES «SIN CONSULTAS» (31-ago-2026). A quien no
+                    # se le pudo cobrar hay que decírselo con esas palabras y
+                    # enseñarle dónde pagar; si se le contesta que agotó su
+                    # límite, se pone a buscar un botón que no existe y acaba
+                    # escribiendo a soporte —o cancelando— por un malentendido.
+                    if q_data.get('error') == 'suscripcion_suspendida':
+                        return {
+                            "error": "suscripcion_suspendida",
+                            "message": ("Tu cuenta está en pausa porque no pudimos cobrar tu "
+                                        "mensualidad. Se reactiva sola en cuanto entre el pago."),
+                            "suspendido_at": q_data.get('suspendido_at'),
+                            "subscription_type": q_data.get('subscription_type', 'gratuito'),
+                            "status_code": 402,
+                        }
                     return {
                         "error": "quota_exceeded",
                         "message": "Has alcanzado tu límite de consultas para este período.",
@@ -12632,6 +12646,13 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Handle infrastructure errors inside generator
                 if infra_error:
                     err_msg = infra_error.get("message", "Error del sistema.")
+                    # La suspensión por impago viaja además como marcador, igual
+                    # que PRECEDENTES_META: el frontend lo cambia por un aviso
+                    # con el botón de pagar. Un abogado al que le decimos «no
+                    # pudimos cobrarte» y no le damos dónde arreglarlo escribe a
+                    # soporte, y a veces cancela.
+                    if infra_error.get("error") == "suscripcion_suspendida":
+                        yield "\n<!-- SUSCRIPCION_SUSPENDIDA -->"
                     yield f"\n❌ {err_msg}"
                     return
 
