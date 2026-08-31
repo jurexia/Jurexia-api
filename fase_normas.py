@@ -138,11 +138,24 @@ def _elegir(pl: list, cola: str) -> list:
     pedidas = _palabras(cola)
     if not pedidas:
         return []
-    mejor, puntos = None, 0
+    # NO BASTA CONTAR COINCIDENCIAS: HAY QUE PENALIZAR LO QUE SOBRA. «Ley
+    # Federal del Trabajo» y «Ley Federal de los Trabajadores al Servicio del
+    # Estado» comparten «ley», «federal» y la raíz de «trabajo»; contando sólo
+    # aciertos ganaba la segunda y el proyecto transcribió como artículo 123
+    # constitucional un precepto burocrático sobre la huelga. Lo vio el
+    # dictamen de un colega, y con razón: atribuir a la Carta Magna el texto de
+    # otra ley es de los errores que no se perdonan.
+    #
+    # Se resta lo que la ley candidata trae y la cita NO nombra. Así «Servicio»
+    # y «Estado» hunden a la burocrática cuando se pidió la del Trabajo.
+    mejor, puntos = None, -99
     for p in pl:
         ley = str(p.get("cuerpo_legal_oficial") or p.get("origen")
                   or p.get("ref") or "")
-        n = len(pedidas & _palabras(ley))
+        suyas = _palabras(ley)
+        acierta = len(pedidas & suyas)
+        sobra = len(suyas - pedidas)
+        n = acierta - sobra
         if n > puntos:
             mejor, puntos = ley, n
     # UNA PALABRA DISTINTIVA BASTA cuando es la que separa un código de otro:
@@ -151,9 +164,10 @@ def _elegir(pl: list, cola: str) -> list:
     _distintivas = {"procedimientos", "penal", "civil", "familiar", "ambiental",
                     "amparo", "fiscal", "administrativo", "mercantil",
                     "hacienda", "trabajo"}
-    if not mejor:
+    if not mejor or puntos < 0:
         return []
-    if puntos < 2 and not (_palabras(mejor) & pedidas & _distintivas):
+    _ac = len(pedidas & _palabras(mejor))
+    if _ac < 2 and not (_palabras(mejor) & pedidas & _distintivas):
         return []
     return [p for p in pl
             if str(p.get("cuerpo_legal_oficial") or p.get("origen")

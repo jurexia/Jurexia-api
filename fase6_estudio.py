@@ -412,6 +412,22 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   tesis y sobra. La tesis ya está transcrita: no la repitas, úsala.
 - La INOPERANCIA se razona: hay que decir POR QUÉ el planteamiento no combate
   la razón toral, no basta con declararla.
+- Y HAY MATERIAS DONDE LA INOPERANCIA POR DEFICIENCIA NO CABE. Si el asunto es
+  LABORAL y quien promueve es el TRABAJADOR, la suplencia de la queja del
+  artículo 79, fracción V, de la Ley de Amparo es ABSOLUTA: opera aun ante la
+  ausencia total de conceptos de violación. Declarar inoperante su argumento
+  porque «no combatió la razón toral» o «no precisó qué prueba se omitió» es
+  aplicarle una técnica de estricto derecho que la ley le releva, y
+  desnaturaliza la tutela de la parte débil de la relación de trabajo. Ahí, si
+  el planteamiento está mal expuesto, SE SUPLE Y SE ESTUDIA: se dice qué quiso
+  decir y se contesta. Lo mismo vale para el menor (fracción II) y para la
+  materia penal en favor del reo (fracción III).
+- SI CITAS UN CRITERIO, RESUELVE CONFORME A ÉL. Invocar una jurisprudencia que
+  dice que el reconocimiento de un hecho no releva al patrón de probar los
+  elementos de la causal, y acto seguido tener por probada la causal porque el
+  trabajador reconoció el hecho, es contradecirse dentro del mismo párrafo. Si
+  el criterio no lleva a donde quieres ir, NO lo cites: busca otro o razona sin
+  él. Una cita que el propio fallo desmiente es peor que ninguna cita.
 - NUNCA SUPONGAS LO QUE CONSTA. Un tribunal tiene los autos delante: o el hecho
   consta y se AFIRMA, o no consta y se dice que no obra. Están PROHIBIDAS las
   fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
@@ -434,6 +450,11 @@ LO QUE SE COMBATE
 {resumen_conceptos}
 
 Escribe el estudio de fondo.
+
+Y SI EL ASUNTO ES LABORAL Y PROMUEVE EL TRABAJADOR: NO HAY INOPERANCIA POR
+DEFICIENCIA. La suplencia del artículo 79, fracción V, es absoluta y opera aun
+sin conceptos de violación. Un argumento mal expuesto se SUPLE y se estudia; no
+se desecha por técnica.
 
 Y LOS ARTÍCULOS: SU NÚMERO Y SU LEY, JUNTOS, SIEMPRE. «El artículo 296 del
 Código Civil del Estado de Querétaro», nunca «el 296» a secas. El documento
@@ -793,6 +814,26 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
                 f"entidad. Su entrada en vigor es escalonada: comprueba que ya "
                 f"rija en el Estado, porque de lo contrario la ley aplicable es "
                 f"el código local y aplicar una no vigente invalida la sentencia.")
+
+    # 1-undecies. INOPERANCIA EN LABORAL DEL TRABAJADOR. La suplencia del
+    #             artículo 79, fracción V, es ABSOLUTA: opera aun sin conceptos
+    #             de violación. Declarar inoperante el argumento del obrero por
+    #             deficiencia en la impugnación le aplica una técnica de
+    #             estricto derecho que la ley le releva. Lo detectó el dictamen
+    #             de un colega sobre el ADL 382/2024 y era el defecto de fondo
+    #             más grave del proyecto.
+    _es_laboral = bool(re.search(r"\blaboral\b|junta\s+(?:especial|local|federal)|"
+                                 r"ley\s+federal\s+del\s+trabajo|trabajador",
+                                 estudio, re.I))
+    if _es_laboral and re.search(r"\binoperant", estudio, re.I):
+        _suple = re.search(r"suplencia[^.]{0,120}(?:fracci[óo]n\s+V\b|79)", estudio, re.I)
+        avisos.append(
+            "Se declara INOPERANTE un planteamiento en un asunto LABORAL. Si "
+            "quien promueve es el trabajador, la suplencia del artículo 79, "
+            "fracción V, de la Ley de Amparo es absoluta y opera aun sin "
+            "conceptos de violación: el argumento mal expuesto se suple y se "
+            "estudia, no se desecha por técnica."
+            + ("" if _suple else " Y el estudio ni siquiera menciona esa suplencia."))
 
     # 2. El sentido dictado tiene que aparecer.
     for c in criterios:

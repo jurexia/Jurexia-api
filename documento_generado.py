@@ -381,7 +381,11 @@ def tabla_computo(doc, computo, fecha_en_letra) -> None:
         filas.append(("Presentación de la demanda",
                       fecha_en_letra(computo.presentacion)))
     if computo.inhabiles_en_medio:
-        filas.append(("Días inhábiles descontados",
+        # LA FILA MENTÍA. Decía «Días inhábiles descontados: 1» mientras el
+        # párrafo explicaba que se descontaron seis sábados y domingos más un
+        # festivo. Contaba SÓLO los inhábiles declarados, no los fines de
+        # semana. Se dice lo que de verdad cuenta.
+        filas.append(("Días inhábiles declarados (además de sábados y domingos)",
                       str(len(computo.inhabiles_en_medio))))
 
     t = doc.add_table(rows=1, cols=2)
@@ -971,6 +975,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     citadas = 0
     ultima_tesis = None
     transcritos = set()
+    transcritas_tesis = set()
     for t in (estudio or []):
         t = (t or "").strip()
         if not t:
@@ -985,7 +990,13 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         if not t.strip():
             continue
         hallada, m_r = tesis_del_rubro(t, tesis or [])
+        # Y UNA TESIS TAMBIÉN. La 169606 se transcribió dos veces en el mismo
+        # considerando —una en el marco y otra al contestar el concepto—: el
+        # texto íntegro repetido no aporta y alarga la sentencia sin decir nada.
+        if hallada and str(hallada.get("registro") or "") in transcritas_tesis:
+            hallada = None
         if hallada and m_r and citadas < MAX_CITAS_DOCUMENTO:
+            transcritas_tesis.add(str(hallada.get("registro") or ""))
             antes = _RX_COLA_ANUNCIO.sub("", t[:m_r.start()].rstrip(" ,;:"))
             cola = t[m_r.end():].lstrip(" ,;:.")
             escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
@@ -1005,9 +1016,14 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         # sangría y a un espacio, detrás del párrafo que lo anuncia.
         if p_ is not None:
             for num, n_ in _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_PARRAFO]:
-                if (num, str(n_.get("cuerpo_legal") or n_.get("fuente") or "")) in transcritos:
+                # UN ARTÍCULO SE TRANSCRIBE UNA VEZ. La clave era (número,
+                # ley) y el 48 salió DOS veces porque llegó por dos caminos con
+                # el nombre de la ley escrito distinto —«Artículo 48.-» y
+                # «Artículo 48.»—. Al lector le da igual de dónde vino: lee lo
+                # mismo dos veces seguidas.
+                if num in transcritos:
                     continue
-                transcritos.add((num, str(n_.get("cuerpo_legal") or n_.get("fuente") or "")))
+                transcritos.add(num)
                 escribir_precepto(doc, n_.get("texto"),
                                   n_.get("cuerpo_legal") or n_.get("fuente") or "",
                                   num)
@@ -1378,7 +1394,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             _texto_en(p,
                       f"Consecuentemente, procede conceder el amparo y protección "
                       f"de la Justicia Federal a {datos.get('quejoso','')} para el "
-                      f"efecto de que {_con_articulo(datos.get('responsable',''))} "
+                      f"efecto de que "
+                      f"{_con_articulo(datos.get('responsable','')) or HUECO} "
                       f"deje insubsistente la sentencia reclamada y dicte otra en "
                       f"la que atienda los lineamientos de esta ejecutoria.")
         con_apartados.append(("Efectos.", _efectos))
@@ -1393,8 +1410,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     tramos(doc, [("ÚNICO. ", {"bold": True}),
                  ("La Justicia de la Unión ", {}),
                  (formula, {"bold": True}),
-                 (f" a {datos.get('quejoso','')}, contra el acto que reclamó "
-                  f"de {_con_articulo(datos.get('responsable',''))}, precisado "
+                 (f" a {datos.get('quejoso','') or HUECO}, contra el acto que "
+                  f"reclamó de "
+                  f"{_con_articulo(datos.get('responsable','')) or HUECO}, precisado "
                   f"en el primer resultando de esta ejecutoria.", {})],
            sangria=False)
 
