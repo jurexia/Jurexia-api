@@ -770,6 +770,69 @@ _ORDINALES = ("PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO", "SEXTO",
 _AMPARA = "ampara y protege"
 _NO_AMPARA = "no ampara ni protege"
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL RESOLUTIVO NO ES EL MISMO EN TODOS LOS ASUNTOS
+# ═══════════════════════════════════════════════════════════════════════════
+# Se generaron cinco asuntos reales del corpus del secretario y se compararon
+# con sus engroses. Tres de los cinco salieron con un resolutivo JURÍDICAMENTE
+# IMPOSIBLE, porque esta función escribía la fórmula del amparo directo pasara
+# lo que pasara:
+#
+#   queja QA 143/2026    engrose: «ÚNICO. Es fundado el recurso de queja.»
+#                        motor:   «La Justicia de la Unión ampara y protege…»
+#   revisión fiscal 6/25 engrose: «ÚNICO. Se confirma la sentencia de cuatro de
+#                                  octubre…, dictada en el expediente 293/24…»
+#                        motor:   «La Justicia de la Unión ampara y protege…»
+#
+# Una QUEJA no ampara: se declara fundada o infundada. Una REVISIÓN no ampara:
+# confirma, revoca o modifica la sentencia recurrida. Sólo el amparo directo
+# —y el resolutivo de fondo de una revisión que ampara— usan la fórmula de la
+# Justicia de la Unión. Escribirla en una queja no es un defecto de estilo: es
+# una resolución que no existe en derecho.
+#
+# Las fórmulas salen LITERALES de los engroses del propio tribunal, no de mi
+# idea de cómo se redactan.
+RESOLUTIVO = {
+    "queja": {
+        "punto": "Es {calificacion} el recurso de queja.",
+        "calif": ("fundado", "infundado"),
+        "notif": ("Notifíquese; publíquese y anótese en el libro de control de "
+                  "este tribunal, hágase la captura correspondiente en el "
+                  "Sistema Integral de Seguimiento de Expedientes, envíese "
+                  "testimonio de esta resolución al juzgado de origen y, en su "
+                  "oportunidad archívese como asunto concluido."),
+    },
+    "revision_fiscal": {
+        "punto": "Se {calificacion} la sentencia recurrida, dictada por {responsable}.",
+        "calif": ("revoca", "confirma"),
+        "notif": ("Notifíquese; publíquese y anótese en el Libro de control de "
+                  "este Tribunal, hágase la captura correspondiente en el "
+                  "Sistema Integral de Seguimiento de Expedientes, con "
+                  "testimonio de esta resolución vuelvan los autos a su lugar "
+                  "de origen y, en su oportunidad archívese como asunto "
+                  "concluido."),
+    },
+    "amparo_revision": {
+        "punto": "Se {calificacion} la sentencia recurrida, dictada por {responsable}.",
+        "calif": ("revoca", "confirma"),
+        "notif": ("Notifíquese; publíquese y anótese en el libro de control de "
+                  "este tribunal, hágase la captura correspondiente en el "
+                  "Sistema Integral de Seguimiento de Expedientes, con "
+                  "testimonio de esta resolución vuelvan los autos a su lugar "
+                  "de origen y, en su oportunidad archívese como asunto "
+                  "concluido."),
+    },
+    "amparo_directo": {
+        "punto": None,          # lleva la fórmula de la Justicia de la Unión
+        "notif": ("Notifíquese; publíquese y anótese en el libro de control de "
+                  "este tribunal, hágase la captura correspondiente en el "
+                  "Sistema Integral de Seguimiento de Expedientes, con "
+                  "testimonio de esta resolución vuelvan los autos a su lugar "
+                  "de origen y, en su oportunidad archívese como asunto "
+                  "concluido."),
+    },
+}
+
 
 # LO QUE TECLEA EL SECRETARIO TAMBIÉN SE COMPONE. En el proyecto 382/2024 el
 # resolutivo salió diciendo «contra el acto que reclamó de la Junta especial 50
@@ -802,6 +865,21 @@ def _normalizar_autoridad(nombre: str) -> str:
     for i, w in enumerate(n.split()):
         partes.append(w if (i and w.lower() in _CONECTIVAS) else w.capitalize())
     return " ".join(partes)
+
+
+def _de_la(nombre: str) -> str:
+    """«de la Sala Regional…», «del Tribunal Unitario…».
+
+    El resolutivo decía «contra el acto que reclamó de el Tribunal Unitario
+    Agrario», porque la plantilla ponía «de » delante de lo que `_con_articulo`
+    devolvía con su artículo. «De el» no es español: se contrae.
+    """
+    n = _con_articulo(nombre)
+    if not n:
+        return ""
+    if n.lower().startswith("el "):
+        return "del " + n[3:]
+    return "de " + n
 
 
 def _con_articulo(nombre: str) -> str:
@@ -1673,19 +1751,29 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     p_pe = parrafo(doc, "Por lo expuesto y fundado, se:", sangria=True)
     p_pe.paragraph_format.space_before = Pt(14)
     rotulo(doc, "Resuelve")
-    formula = _AMPARA if concede else _NO_AMPARA
-    tramos(doc, [("ÚNICO. ", {"bold": True}),
-                 ("La Justicia de la Unión ", {}),
-                 (formula, {"bold": True}),
-                 (f" a {datos.get('quejoso','') or HUECO}, contra el acto que "
-                  f"reclamó de "
-                  f"{_con_articulo(datos.get('responsable','')) or HUECO}, precisado "
-                  f"en el primer resultando de esta ejecutoria.", {})],
-           sangria=False)
+    _res = RESOLUTIVO.get(str(tipo_asunto or "").strip().lower(),
+                          RESOLUTIVO["amparo_directo"])
+    if _res.get("punto"):
+        # Queja y revisión: NO amparan. Se califica el recurso o se resuelve
+        # sobre la sentencia recurrida, que es lo que hacen los engroses.
+        _cal = _res["calif"][0] if concede else _res["calif"][1]
+        _texto = _res["punto"].format(
+            calificacion=_cal,
+            responsable=_con_articulo(datos.get("responsable", "")) or HUECO)
+        _texto = _texto.replace("por el ", "por el ").replace(" de el ", " del ")
+        tramos(doc, [("ÚNICO. ", {"bold": True}), (_texto, {})], sangria=False)
+    else:
+        formula = _AMPARA if concede else _NO_AMPARA
+        tramos(doc, [("ÚNICO. ", {"bold": True}),
+                     ("La Justicia de la Unión ", {}),
+                     (formula, {"bold": True}),
+                     (f" a {datos.get('quejoso','') or HUECO}, en contra de "
+                      f"{esq.get('recurrido','la sentencia reclamada')}, dictada "
+                      f"por {_con_articulo(datos.get('responsable','')) or HUECO}, "
+                      f"precisada en el primer resultando de esta ejecutoria.", {})],
+               sangria=False)
 
-    parrafo(doc, "Notifíquese; con testimonio de esta resolución, devuélvanse "
-                 "los autos a su lugar de origen y, en su oportunidad, "
-                 "archívese el expediente como asunto concluido.", sangria=True)
+    parrafo(doc, _res["notif"], sangria=True)
 
     _bloque_firmas(doc, datos)
     # RED DE SEGURIDAD. Si alguna marca sobrevivió a todo lo anterior —porque el

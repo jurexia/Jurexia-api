@@ -35,7 +35,16 @@ _PATRONES = (
     r"(?:\s+en\s+el\s+Estado\s+de\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)?",
     r"Junta\s+(?:Local|Federal)\s+de\s+Conciliaci[óo]n\s+y\s+Arbitraje"
     r"(?:\s+d[el]{1,2}\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ\s]{2,40})?",
-    r"Tribunal\s+(?:Laboral|Colegiado|Unitario)[\w\sáéíóúñ,]{5,80}",
+    # UN TRIBUNAL COLEGIADO NUNCA ES LA RESPONSABLE de un asunto que resuelve
+    # otro colegiado: ni en amparo directo, ni en queja, ni en revisión. Estaba
+    # en el patrón y el resultado fue que en cuatro de cinco asuntos reales la
+    # «autoridad responsable» salió de una CITA DE TESIS del acto —«Tribunal
+    # Colegiado en Materia Administrativa del Primer Circuito, publicada en la
+    # página 1620»— y en uno de ellos era ESTE MISMO tribunal.
+    r"Tribunal\s+(?:Laboral|Unitario|Agrario|Unitario\s+Agrario)[\w\sáéíóúñ,]{5,80}",
+    r"(?:Juez|Jueza)\s+(?:Primero|Segundo|Tercero|Cuarto|Quinto|Sexto|S[ée]ptimo"
+    r"|Octavo|Noveno|D[ée]cimo)?\s*de\s+Distrito[\w\sáéíóúñ,]{0,80}",
+    r"Sala\s+Regional[\w\sáéíóúñ]{0,60}",
     # LO ESPECÍFICO ANTES QUE LO GENÉRICO: «Sala Superior» casaba primero y se
     # quedaba con media identidad del Tribunal de Justicia Administrativa.
     r"Tribunal\s+de\s+Justicia\s+Administrativa[\w\sáéíóúñ,]{0,80}",
@@ -61,10 +70,22 @@ def _limpiar(x: str) -> str:
     # sumario civil» salía entero porque el patrón sigue tragando palabras: el
     # encabezado pone el órgano y a continuación el expediente, y hay que
     # cortar ahí.
+    # «AMPARO» A SECAS CORTABA EL NOMBRE POR LA MITAD. Media judicatura se
+    # llama «Juez Primero de Distrito en Materia de Amparo Civil…» y el corte
+    # dejaba «Juez Primero de Distrito en Materia». Sólo se corta cuando abre
+    # una frase nueva —«en el amparo indirecto 795/2023»—, no cuando forma
+    # parte de la denominación del órgano.
     x = re.split(r"\s+(?:con\s+residencia|con\s+sede|en\s+el\s+juicio|"
                  r"al\s+resolver|dict[óo]|pronunci[óo]|juicio|toca|expediente|"
-                 r"sentencia|laudo|resoluci[óo]n|amparo)\b", x, flags=re.I)[0]
+                 r"sentencia|laudo|resoluci[óo]n|"
+                 r"en\s+el\s+amparo|del\s+amparo)\b", x, flags=re.I)[0]
     x = x.strip(" ,;.")
+    # Y LA COLA DE UNA CITA DE TESIS NO ES PARTE DEL NOMBRE. «…del Primer
+    # Circuito, publicada en la página 1620, Tomo…» es una localización del
+    # Semanario, no una autoridad.
+    x = re.split(r"\s*,?\s*(?:publicad[ao]|visible|consultable|registro\s+digital"
+                 r"|Semanario|p[áa]gina|Tomo|[ÉE]poca|con\s+fecha)\b",
+                 x, flags=re.I)[0].strip(" ,;.")
     # Y EL NOMBRE ACABA EN NOMBRE PROPIO. Al pasar a quedarme con la
     # coincidencia MÁS LARGA —para no perder «de la Federal de Conciliación y
     # Arbitraje»— el patrón empezó a arrastrar el verbo que sigue: «Primera Sala
