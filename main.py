@@ -25947,9 +25947,42 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
 
 
 def _taller_recuperar_sesion(email: str, numero: str):
-    """El adelanto, del proceso o de la base. None si no existe."""
+    """El adelanto, del proceso o de la base. None si no existe.
+
+    LA MEMORIA GANABA SOBRE LA BASE, Y LA MEMORIA SE QUEDA RANCIA. Éste es el
+    fallo del «Consulta primero el acervo» que llevaba semanas apareciendo sin
+    explicación y que en una corrida de cinco asuntos tumbó tres.
+
+    La secuencia, con los dos workers de gunicorn que corren en Render:
+
+      1. /taller/adelanto  cae en el worker A → guarda la sesión en A con
+                           `consultado: False`.
+      2. /taller/consultar cae en el worker B → marca `consultado` en Supabase
+                           y en SU copia en memoria. La de A sigue en False.
+      3. /taller/resolver  vuelve al worker A → encuentra la sesión en memoria,
+                           la devuelve tal cual, ve `consultado: False` y
+                           responde 409 «Consulta primero el acervo».
+
+    El secretario acaba de consultar el acervo y el sistema le dice que no lo ha
+    hecho. La base sabía la verdad —las cinco filas de la prueba tenían
+    `consultado = true`— y nadie se la preguntaba.
+
+    Ahora, cuando la copia en memoria dice que NO se ha consultado, se comprueba
+    contra la base antes de creerla. Es una lectura de una columna y sólo ocurre
+    en el caso dudoso: si la memoria ya dice que sí, no hay nada que confirmar.
+    """
     ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
     if ses:
+        if not ses.get("consultado") and supabase_admin:
+            try:
+                r = supabase_admin.table("taller_sesiones") \
+                    .select("consultado") \
+                    .eq("email", (email or "").strip().lower()) \
+                    .eq("expediente", numero).limit(1).execute()
+                if r.data and r.data[0].get("consultado"):
+                    ses["consultado"] = True
+            except Exception as ex:
+                print(f"   ⚠️ No se pudo confirmar la consulta en la base: {ex}")
         return ses
     if not supabase_admin:
         return None
