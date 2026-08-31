@@ -65,6 +65,18 @@ def _limpiar(x: str) -> str:
                  r"al\s+resolver|dict[óo]|pronunci[óo]|juicio|toca|expediente|"
                  r"sentencia|laudo|resoluci[óo]n|amparo)\b", x, flags=re.I)[0]
     x = x.strip(" ,;.")
+    # Y EL NOMBRE ACABA EN NOMBRE PROPIO. Al pasar a quedarme con la
+    # coincidencia MÁS LARGA —para no perder «de la Federal de Conciliación y
+    # Arbitraje»— el patrón empezó a arrastrar el verbo que sigue: «Primera Sala
+    # Civil del Tribunal Superior de Justicia del Estado de Querétaro resolvió».
+    # Elegir la más larga premia justo lo que el patrón traga de más, así que
+    # hay que devolverlo. Se cortan las palabras finales en minúscula: el nombre
+    # de una autoridad termina en mayúscula —«Querétaro», «Arbitraje»— y las
+    # minúsculas de dentro («de la», «del Estado») nunca van al final.
+    partes = x.split()
+    while partes and partes[-1][:1].islower():
+        partes.pop()
+    x = " ".join(partes)
     # Los encabezados van en versales; el cuerpo de la sentencia no.
     if x.isupper() and len(x) > 12:
         menores = {"de", "del", "la", "las", "los", "el", "y", "en", "al"}
@@ -74,21 +86,37 @@ def _limpiar(x: str) -> str:
 
 
 def de_texto(acto: str) -> str:
-    """La autoridad que dictó el acto, leída de su propio encabezado.
+    """La autoridad que dictó el acto, leída del propio documento.
 
-    Se mira sobre todo el PRINCIPIO del documento, que es donde toda resolución
-    se identifica; si ahí no aparece, se busca en el resto pero exigiendo que
-    salga al menos dos veces —una mención aislada suele ser una cita, no el
-    emisor—.
+    DECÍA «leída de su propio encabezado» Y ERA MEDIA VERDAD. En un laudo
+    escaneado el encabezado no es texto: es el SELLO de la Junta, y el OCR lo
+    despedaza. Del laudo del 382/2024 salió esto:
+
+        JUNTA FEDERAL DE / UNCILIACIÓN Y ARBITRA / JUNTA ESPECIAL / No. 50 /
+        UERÉTARO QR / ANTIR
+
+    Mi extractor se quedaba con la PRIMERA coincidencia y devolvía «Junta
+    Especial Numero 50», medio nombre, mientras cinco mil caracteres más abajo
+    el cuerpo de la resolución la nombraba entera y bien escrita: «Junta
+    Especial Número 50 de la Federal de Conciliación y Arbitraje». El principio
+    del documento es el peor sitio donde mirar cuando viene de un escáner.
+
+    Ahora se recorre entero y gana la coincidencia MÁS COMPLETA, no la primera.
+    Un nombre más largo del mismo patrón es siempre mejor: contiene al corto y
+    añade lo que le falta. Y se sigue exigiendo insistencia fuera de la cabecera
+    —dos menciones— para no confundir una cita con el emisor.
     """
     t = " ".join((acto or "").split())
     if not t:
         return ""
     cabeza = t[:3000]
     for p in _PATRONES:
-        m = re.search(p, cabeza, re.I)
-        if m:
-            return _limpiar(m.group(0))
+        # LA MÁS LARGA, no la primera: el sello roto y el nombre bueno casan con
+        # el mismo patrón, y el roto suele ir delante.
+        cands = [_limpiar(m.group(0)) for m in re.finditer(p, cabeza, re.I)]
+        cands += [_limpiar(m.group(0)) for m in re.finditer(p, t, re.I)]
+        if cands:
+            return max(cands, key=len)
     # Fuera de la cabecera hace falta insistencia para creérselo.
     mejor, veces = "", 0
     for p in _PATRONES:

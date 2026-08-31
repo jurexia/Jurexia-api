@@ -756,6 +756,39 @@ _AMPARA = "ampara y protege"
 _NO_AMPARA = "no ampara ni protege"
 
 
+# LO QUE TECLEA EL SECRETARIO TAMBIÉN SE COMPONE. En el proyecto 382/2024 el
+# resolutivo salió diciendo «contra el acto que reclamó de la Junta especial 50
+# de la federal de arbitraje en el estado de querétaro.,, precisado en el primer
+# resultando». Tres defectos en una línea, y los tres del mismo origen: el campo
+# se copiaba verbatim.
+#
+#   · el punto final que escribió el usuario, seguido de la coma de la
+#     plantilla, da «.,» —y con la segunda coma de la frase, «.,,»—;
+#   · las minúsculas, que en un resolutivo se leen como descuido;
+#   · y el nombre convive en el mismo documento con la grafía correcta que el
+#     modelo sacó del laudo, «Junta Especial Número Cincuenta de la Federal de
+#     Conciliación y Arbitraje», así que el documento se contradice a sí mismo.
+#
+# No se cambia lo que el secretario escribió —eso es suyo y puede tener razones
+# para nombrarla así—: se le quita la puntuación final y se le arreglan las
+# mayúsculas si vino todo en minúsculas. Nada más.
+_CONECTIVAS = {"de", "del", "la", "las", "el", "los", "y", "en", "e", "al"}
+
+
+def _normalizar_autoridad(nombre: str) -> str:
+    n = " ".join((nombre or "").split()).strip(" \t.,;:")
+    if not n:
+        return ""
+    # Si trae mayúsculas propias, se respeta tal cual: el secretario sabe cómo
+    # se llama la autoridad de su expediente mejor que yo.
+    if any(c.isupper() for c in n[1:]):
+        return n
+    partes = []
+    for i, w in enumerate(n.split()):
+        partes.append(w if (i and w.lower() in _CONECTIVAS) else w.capitalize())
+    return " ".join(partes)
+
+
 def _con_articulo(nombre: str) -> str:
     """«Primera Sala Civil…» → «la Primera Sala Civil…».
 
@@ -763,7 +796,7 @@ def _con_articulo(nombre: str) -> str:
     español. El artículo se elige por la primera palabra, y si ya viene con él
     no se duplica.
     """
-    n = (nombre or "").strip()
+    n = _normalizar_autoridad(nombre)
     if not n:
         return ""
     if re.match(r"^(?:el|la|los|las)\s", n, re.I):
