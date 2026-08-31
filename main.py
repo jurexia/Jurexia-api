@@ -3293,7 +3293,16 @@ async def lifespan(app: FastAPI):
         api_key=QDRANT_API_KEY,
         timeout=30,
     )
-    print("   Qdrant Client conectado")
+    # SE CUENTA QUÉ COLECCIONES SE TOCAN DE VERDAD. Mi inventario anterior
+    # buscaba el NOMBRE de cada colección en el código y concluyó «53 de 53 en
+    # uso», que es una recomendación cómoda y mal fundada: que un nombre esté
+    # escrito no prueba que esa rama se ejecute. David lo dijo y tenía razón.
+    try:
+        import uso_colecciones as _uso
+        _n = _uso.instrumentar(qdrant_client)
+        print(f"   Qdrant Client conectado · uso instrumentado ({_n} métodos)")
+    except Exception as _e:
+        print(f"   Qdrant Client conectado · sin instrumentar: {_e}")
     
     # OpenAI Client (for embeddings only)
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
@@ -25643,6 +25652,21 @@ async def notificaciones_apple(request: Request):
 # El circuito vive en `redactor_adelanto.py` y aquí sólo se expone. Se importa
 # DENTRO del endpoint a propósito: si falta `python-docx` o la plantilla, que
 # falle esta ruta y no el arranque del servidor entero.
+
+@app.get("/admin/uso-colecciones")
+async def admin_uso_colecciones(user_email: str = ""):
+    """Qué colecciones se han tocado desde el último reinicio.
+
+    Sirve para decidir un borrado CON DATOS y no con un grep. Lo que salga en
+    cero tras una semana de tráfico normal es candidato; lo que no aparezca
+    tampoco se ha tocado. Con dos workers cada proceso lleva su cuenta, así que
+    conviene pedirlo varias veces.
+    """
+    if user_email and ADMIN_EMAILS and user_email.lower() not in ADMIN_EMAILS:
+        raise HTTPException(403, "Sólo para administración.")
+    import uso_colecciones as _uso
+    return _uso.informe()
+
 
 @app.post("/taller/adelanto")
 async def taller_adelanto(
