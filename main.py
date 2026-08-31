@@ -25672,6 +25672,18 @@ async def taller_adelanto(
     plantilla: Optional[UploadFile] = File(None),   # opcional: hay precargadas
     acto: UploadFile = File(...),
     conceptos: UploadFile = File(...),
+    # EL TERCER DOCUMENTO, Y NO ES UN EXTRA. En el ADL 382/2024 el motor propuso
+    # infundado diciendo textualmente «falta el texto de las cláusulas 40 y 83»
+    # del contrato colectivo. Ese texto estaba —la cláusula 40 se llama «Faltas
+    # Justificadas con Posterioridad», que es el corazón del asunto— en un PDF
+    # de constancias que el secretario había subido y que este endpoint no
+    # leía: sólo aceptaba el acto y los conceptos. El motor razonó bien con lo
+    # que tenía; lo que le faltaba era el expediente.
+    #
+    # Un contrato colectivo, un reglamento interior o un peritaje no están en
+    # ningún acervo público y no pueden estarlo: son del expediente. Si no
+    # entran por aquí, no entran.
+    constancias: Optional[UploadFile] = File(None),
 ):
     """Genera el adelanto y lo devuelve como .docx.
 
@@ -25722,9 +25734,12 @@ async def taller_adelanto(
     # paralelo no cambia una coma del resultado y devuelve la mitad del tiempo.
     import time as _t_ocr
     _t0_ocr = _t_ocr.perf_counter()
-    texto_acto, texto_conceptos = await asyncio.gather(
+    texto_acto, texto_conceptos, texto_autos = await asyncio.gather(
         _extract_text_from_upload(acto),
-        _extract_text_from_upload(conceptos))
+        _extract_text_from_upload(conceptos),
+        (_extract_text_from_upload(constancias)
+         if constancias is not None and getattr(constancias, "filename", "")
+         else asyncio.sleep(0, result="")))
     print(f"   ⏱️  OCR de los dos documentos: "
           f"{_t_ocr.perf_counter() - _t0_ocr:.1f}s")
     # PARADA DURA. Antes bastaba con 200 caracteres y el redactor escribió un
@@ -25756,7 +25771,8 @@ async def taller_adelanto(
         plantilla=ruta_plantilla,
     )
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
-    r = await _ra.generar(chat_client, encargo, texto_acto, texto_conceptos, salida)
+    r = await _ra.generar(chat_client, encargo, texto_acto, texto_conceptos,
+                          salida, texto_autos)
 
     _taller_registrar_uso(user_email, numero, "adelanto")
     _taller_guardar_sesion(user_email, numero, r, tmp)
@@ -25840,6 +25856,9 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "problema_global": r.fases.problema_global,
             "problemas": r.fases.problemas,
             "avisos": list(r.fases.avisos or []),
+            # Las constancias viajan con la sesión: el /taller/proponer que
+            # caiga en el otro worker las necesita tanto como éste.
+            "autos": getattr(r.fases, "autos", "") or "",
         },
         "partes": (r.partes.__dict__ if r.partes else None),
         "computo": {"oportuna": r.computo.oportuna,
@@ -26049,6 +26068,21 @@ async def taller_contexto(
 
 
 @app.post("/taller/proponer")
+def _con_autos(r, contexto: str) -> str:
+    """El contexto del secretario, precedido por las constancias del expediente.
+
+    El contrato colectivo de ESTE centro de trabajo, el reglamento interior o un
+    peritaje no están en ningún acervo público y no pueden estarlo. Si el
+    secretario los subió, son premisa: van delante de lo que él escriba, porque
+    son el documento y lo suyo es el comentario.
+    """
+    autos = str(getattr(getattr(r, "fases", None), "autos", "") or "")
+    if not autos:
+        return contexto or ""
+    return (f"CONSTANCIAS DEL EXPEDIENTE aportadas por el secretario:\n"
+            f"{autos}\n\n" + (contexto or ""))
+
+
 async def taller_proponer(
     numero: str = Form(...),
     user_email: str = Form(...),
@@ -26086,6 +26120,13 @@ async def taller_proponer(
                  for p in (r.fases.problemas or [])]
     if not problemas and r.fases.problema_global:
         problemas = [{"pregunta": r.fases.problema_global}]
+
+    # LAS CONSTANCIAS SE SUMAN AL CONTEXTO. No son algo que buscar en el
+    # acervo: son lo que el acervo no puede tener —el contrato colectivo de ESTE
+    # centro de trabajo, el reglamento interior, el peritaje— y sin ellas hay
+    # asuntos que no se pueden resolver. Van delante de lo que escriba el
+    # secretario, porque son el documento y él es el comentario.
+    contexto = _con_autos(r, contexto)
 
     propuestas, avisos = await _f5.proponer(
         chat_client, problemas, ses["material"],
@@ -26204,7 +26245,7 @@ async def taller_resolver_stream(
         try:
             async for paso in _ra.resolver_en_vivo(
                     chat_client, r, crit, ses["material"], salida, _marco,
-                    qdrant=qdrant_client, contexto=contexto):
+                    qdrant=qdrant_client, contexto=_con_autos(r, contexto)):
                 tipo = paso.get("tipo")
                 if tipo == "texto":
                     yield ("data: " + json.dumps(
@@ -26357,7 +26398,8 @@ async def taller_resolver(
               f"· {time.time() - _t0_marco:.1f}s")
 
     r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida,
-                            _marco, qdrant=qdrant_client, contexto=contexto)
+                            _marco, qdrant=qdrant_client,
+                            contexto=_con_autos(r, contexto))
     _taller_registrar_uso(user_email, numero, "proyecto")
 
     print(f"   ⚖️ TALLER: proyecto {numero} · {len(r2.estudio.split())} palabras "

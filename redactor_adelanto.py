@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as _dt
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -111,8 +112,17 @@ def reloj_resumen(total: float = 0.0) -> str:
 
 
 async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
-                  ruta_salida: str) -> Resultado:
-    """El circuito entero. `cliente` es el AsyncOpenAI de main.py."""
+                  ruta_salida: str, texto_autos: str = "") -> Resultado:
+    """El circuito entero. `cliente` es el AsyncOpenAI de main.py.
+
+    `texto_autos` son las constancias del expediente, si el secretario las
+    subió. NO son fuente de derecho y no se confunden con el acervo: son los
+    documentos del caso —contrato colectivo, reglamento, peritajes— que no
+    están en ninguna base pública y sin los cuales hay asuntos que no se pueden
+    resolver. En el ADL 382/2024 el motor dijo «falta el texto de las cláusulas
+    40 y 83» y ese texto estaba en un PDF que el secretario había subido y que
+    el pipeline no leía.
+    """
     avisos: list[str] = []
 
     # ── Fase 0 — aritmética, sin modelo ──────────────────────────────────
@@ -138,6 +148,13 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                 "No se pudo leer la autoridad responsable del acto reclamado, y "
                 "sin ella la competencia, los efectos y el resolutivo salen con "
                 "hueco. Escríbela en el encargo.")
+
+    # ── Las constancias, acotadas ────────────────────────────────────────
+    # Un expediente son cien mil caracteres y el prompt no los aguanta. Cuando
+    # no cabe entero se conserva lo NORMATIVO —las cláusulas, los preceptos del
+    # reglamento—, que es lo que un acervo público no puede darnos; el relato
+    # de los hechos ya viene por el acto reclamado y por la demanda.
+    autos = _acotar_autos(texto_autos)
 
     # ── Fases 1-3 — lectura ──────────────────────────────────────────────
     # La ficha de partes se hace AQUÍ, con los documentos delante, y viaja al
@@ -191,6 +208,12 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             # plantilla no se ve leyendo por encima, se ve contándolo.
             avisos.extend(ens.residuo_de_plantilla(ruta, e.numero, e.plantilla))
 
+    # Las constancias cuelgan de las fases porque son lo único que se serializa
+    # entero al guardar la sesión: colgarlas del Resultado las perdería en
+    # cuanto la petición siguiente cayera en el otro worker de gunicorn.
+    f.autos = autos
+    if autos:
+        print(f"   📁 constancias del expediente: {len(autos)} caracteres")
     return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos,
                      estructura=estructura)
@@ -272,6 +295,31 @@ def _entidad_de(coleccion: str) -> str:
     """«leyes_queretaro» → «Querétaro». Sin adivinar: si no la conozco, vacío."""
     c = (coleccion or "").strip().lower().replace("leyes_", "").replace("_", "")
     return _ENTIDADES.get(c, "")
+
+
+# Cuánto del expediente cabe. Generoso: es material que no está en ningún otro
+# sitio y su ausencia ya costó un asunto.
+MAX_AUTOS = 24000
+_RX_CLAUSULA = re.compile(
+    r"(cl[áa]usula|art[íi]culo|reglamento|contrato\s+colectivo|"
+    r"fracci[óo]n|condiciones\s+generales\s+de\s+trabajo)", re.I)
+
+
+def _acotar_autos(texto: str) -> str:
+    """El expediente, y si no cabe, su parte normativa."""
+    t = " ".join((texto or "").split())
+    if len(t) <= MAX_AUTOS:
+        return t
+    # Se trocea en párrafos y se conservan los que traen norma, en su orden.
+    trozos = re.split(r"(?<=[.;])\s+(?=[A-ZÁÉÍÓÚ])", t)
+    con_norma = [x for x in trozos if _RX_CLAUSULA.search(x)]
+    fuera, total = [], 0
+    for x in (con_norma or trozos):
+        if total + len(x) > MAX_AUTOS:
+            break
+        fuera.append(x)
+        total += len(x)
+    return " ".join(fuera)
 
 
 def fp_materia(e) -> str:

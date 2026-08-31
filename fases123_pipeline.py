@@ -287,6 +287,11 @@ class Fases123:
     problema_global: str = ""
     problemas: list[dict] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    # LAS CONSTANCIAS DEL EXPEDIENTE, si el secretario las subió. Van aquí y no
+    # en el Resultado porque las fases son lo único que se serializa entero al
+    # guardar la sesión: con dos workers de gunicorn, lo que no viaja en ese
+    # estado no existe para la petición siguiente.
+    autos: str = ""
 
     def parrafos_antecedentes(self) -> list[str]:
         """Sin el encabezado que el modelo se pone a sí mismo.
