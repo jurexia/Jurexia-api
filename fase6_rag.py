@@ -231,6 +231,136 @@ async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
 # corpus correcto es otro problema y sigue abierto.
 SILO_POR_MATERIA = {"laboral": "leyes_laboral"}
 
+# ═══════════════════════════════════════════════════════════════════════════
+# SEMBRAR CON LO QUE CITARON LOS TRIBUNALES
+# ═══════════════════════════════════════════════════════════════════════════
+# La versión barata de la idea de David —«conecta el corpus iuris con los
+# holdings»— antes de construir ningún grafo. En vez de buscar la norma por
+# parecido con la pregunta, se mira QUÉ ARTÍCULOS citaron los colegiados cuando
+# resolvieron el mismo tema, y se traen ésos por número.
+#
+# MEDIDO, y es contundente:
+#
+#   «¿A quién corresponde la carga de probar la causa de rescisión?»
+#     semántico → Ley Orgánica del PJF 179, 177, 191…   (el 784 no aparece)
+#     sembrado  → 47, 784, 517, 48…                     ✓
+#
+#   «¿Debe suplirse la deficiencia de la queja?»
+#     semántico → LFT 893, 862, 872…                    (el 79 no aparece)
+#     sembrado  → 76, 107, 79, 123…                     ✓
+#
+# Donde el parecido semántico falla del todo, el sembrado acierta. La razón es
+# obvia una vez vista: la pregunta «¿a quién corresponde la carga de la prueba?»
+# no se parece al TEXTO del artículo 784 —que es una lista de hechos—, pero
+# treinta y cuatro tribunales lo citaron al resolver eso mismo. El parecido
+# busca palabras; el sembrado usa lo que ya se decidió.
+#
+# NO SUSTITUYE AL SEMÁNTICO: lo precede. El sembrado trae lo que se usa siempre
+# y se quedaría corto ante una cuestión nueva; el semántico cubre esa cola.
+
+# «artículo 784 de la Ley Federal del Trabajo», con la ley al final de la cita.
+_RX_ART_CITADO = re.compile(
+    r"art[íi]culos?\s+(\d{1,4})(?:\s*,?\s*fracci[óo]n(?:es)?\s+[IVXLC]+)?[^.;]{0,90}?"
+    r"(Ley\s+Federal\s+del\s+Trabajo|Ley\s+de\s+Amparo|Constituci[óo]n|"
+    r"Ley\s+del\s+Seguro\s+Social|C[óo]digo\s+Federal\s+de\s+Procedimientos|"
+    r"Ley\s+Federal\s+de\s+los\s+Trabajadores)", re.I)
+_LEY_CANONICA = {
+    "ley federal del trabajo": "Ley Federal del Trabajo",
+    "ley de amparo": "Ley de Amparo",
+    "constitucion": "Constitución Política de los Estados Unidos Mexicanos",
+    "ley del seguro social": "Ley del Seguro Social",
+    "codigo federal de procedimientos": "Código Federal de Procedimientos Civiles",
+    "ley federal de los trabajadores": "Ley Federal de los Trabajadores al Servicio del Estado",
+}
+CIRCUITOS_CON_ESTUDIO = ("1", "2", "3", "4", "22")
+HOLDINGS_A_SEMBRAR = 10      # cuántas sentencias se leen
+ARTICULOS_SEMBRADOS = 6      # cuántos artículos entran por esta vía
+
+
+def _canonica(nombre: str) -> str:
+    import unicodedata
+    x = unicodedata.normalize("NFKD", (nombre or "").lower())
+    x = "".join(c for c in x if not unicodedata.combining(c)).strip()
+    return _LEY_CANONICA.get(x, "")
+
+
+async def _sembrar(qdrant, silo: str, vector, materia: str) -> list:
+    """Los artículos que los colegiados citaron al resolver este mismo tema."""
+    from collections import Counter
+    from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
+    grafias = {"laboral": ["laboral", "Trabajo"], "civil": ["civil", "Civil"],
+               "administrativa": ["administrativa", "Administrativa"],
+               "penal": ["penal", "Penal"]}.get((materia or "").lower())
+    if not (silo and grafias):
+        return []
+    try:
+        r = qdrant.query_points(
+            collection_name="sentencias_holdings", query=vector, using="dense",
+            query_filter=Filter(must=[FieldCondition(key="materia",
+                                                     match=MatchAny(any=grafias))]),
+            limit=HOLDINGS_A_SEMBRAR, with_payload=["circuito"])
+        if inspect.isawaitable(r):
+            r = await r
+        hold = [(str(p.id), str((p.payload or {}).get("circuito") or ""))
+                for p in (getattr(r, "points", None) or [])]
+    except Exception as e:
+        log.error("sembrado: no se pudo sondear holdings: %s", e)
+        return []
+
+    async def _estudio(hid, circ):
+        if circ not in CIRCUITOS_CON_ESTUDIO:
+            return ""
+        try:
+            rr = qdrant.scroll(
+                collection_name=f"sentencias_ef_c{circ}",
+                scroll_filter=Filter(must=[FieldCondition(
+                    key="holding_id", match=MatchValue(value=hid))]),
+                limit=60, with_payload=["chunk_text"])
+            if inspect.isawaitable(rr):
+                rr = await rr
+            pts = rr[0] if isinstance(rr, tuple) else rr
+            return " ".join(str((p.payload or {}).get("chunk_text") or "") for p in pts)
+        except Exception:
+            return ""
+
+    textos = await asyncio.gather(*[_estudio(h, c) for h, c in hold])
+    cuenta = Counter()
+    for txt in textos:
+        for m in _RX_ART_CITADO.finditer(txt):
+            ley = _canonica(m.group(2))
+            if ley:
+                cuenta[(ley, int(m.group(1)))] += 1
+    if not cuenta:
+        return []
+
+    from qdrant_client.models import FieldCondition as FC, Filter as F, MatchValue as MV
+
+    async def _traer(ley, num):
+        try:
+            rr = qdrant.scroll(collection_name=silo, limit=4, with_payload=True,
+                               scroll_filter=F(must=[
+                                   FC(key="articulo_num", match=MV(value=num)),
+                                   FC(key="ley", match=MV(value=ley))]))
+            if inspect.isawaitable(rr):
+                rr = await rr
+            pts = rr[0] if isinstance(rr, tuple) else rr
+            return [p.payload for p in (pts or [])][:1]
+        except Exception:
+            return []
+
+    top = [k for k, _ in cuenta.most_common(ARTICULOS_SEMBRADOS)]
+    traidos = await asyncio.gather(*[_traer(l, n) for l, n in top])
+    fuera = []
+    for (ley, num), pl in zip(top, traidos):
+        if pl:
+            n = _norma_de(pl[0])
+            n["sembrada"] = cuenta[(ley, num)]
+            fuera.append(n)
+    if fuera:
+        log.info("sembrado: %d artículos de lo que citaron los colegiados",
+                 len(fuera))
+    return fuera
+
 
 async def material_para(qdrant, embed_juris, embed_leyes,
                         problema: str, coleccion_estatal: Optional[str] = None,
@@ -280,15 +410,28 @@ async def material_para(qdrant, embed_juris, embed_leyes,
             vistos.add(t["registro"])
             unicas.append(t)
 
-    normas = [_norma_de(p) for grupo in res[1:] for p in grupo]
+    # CADA NORMA CON LA COLECCIÓN DE LA QUE SALIÓ, para poder completarla
+    # después sin volver a construir la lista. Reconstruirla era el fallo: lo
+    # sembrado se añadía aquí y `_completar` lo borraba tres líneas más abajo al
+    # rehacer `normas` desde `res`. Dos arreglos míos del mismo día, cada uno
+    # correcto por su cuenta, peleándose.
+    pares = []
+    for grupo, col in zip(res[1:], colecciones):
+        pares += [(col, _norma_de(p)) for p in grupo]
+
+    # LO SEMBRADO VA DELANTE. Son los artículos que los tribunales usaron de
+    # verdad para esta cuestión; lo semántico cubre la cola.
+    if silo:
+        sembradas = await _sembrar(qdrant, silo, v_leyes, materia)
+        vistos = {(str(n.get("cuerpo_legal")), str(n.get("articulo"))) for n in sembradas}
+        pares = [(silo, n) for n in sembradas] + [
+            (c, n) for c, n in pares
+            if (str(n.get("cuerpo_legal")), str(n.get("articulo"))) not in vistos]
+
     # Cada norma, completada con el resto de su articulado. Van en paralelo y
     # es un scroll por artículo: el mismo precio que ya paga la nota al pie.
-    if normas:
-        pares = []
-        for grupo, col in zip(res[1:], colecciones):
-            pares += [(col, _norma_de(p)) for p in grupo]
-        normas = list(await asyncio.gather(
-            *[_completar(qdrant, c, n) for c, n in pares]))
+    normas = list(await asyncio.gather(
+        *[_completar(qdrant, c, n) for c, n in pares])) if pares else []
 
     return f6.Material(tesis=unicas[:TESIS_POR_PROBLEMA],
                        normas=normas[:NORMAS_POR_PROBLEMA * 2])
