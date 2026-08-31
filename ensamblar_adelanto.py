@@ -1403,6 +1403,19 @@ _RX_EFECTOS = re.compile(
     r"|dejar[áa]\s+insubsistente)", re.I)
 
 
+_ORDINALES_CONCEPTO = ("primer", "segundo", "tercer", "cuarto", "quinto",
+                       "sexto", "séptimo", "octavo", "noveno")
+
+
+def _cuenta_conceptos(texto: str) -> int:
+    """El ordinal más alto que se nombra como concepto o agravio."""
+    alto = 0
+    for i, o in enumerate(_ORDINALES_CONCEPTO, 1):
+        if re.search(rf"\b{o}\s+(?:concepto|agravio)", texto, re.I):
+            alto = i
+    return alto
+
+
 def revisar_congruencia(ruta: str, calificaciones=None) -> list[str]:
     """El resolutivo tiene que decir lo que dice el estudio. Sin excepción."""
     doc = docx.Document(ruta)
@@ -1423,6 +1436,24 @@ def revisar_congruencia(ruta: str, calificaciones=None) -> list[str]:
                      "concesión —«deberá dejar insubsistente…»— y el resolutivo "
                      "NIEGA el amparo. Un resolutivo que no dice lo que dice el "
                      "estudio no se puede firmar.")
+
+    # EL ESTUDIO NO PUEDE ANALIZAR MÁS CONCEPTOS DE LOS QUE HAY. Medido en el
+    # ADL 382/2024: el resumen sintetizaba CINCO y la solución analizaba SEIS,
+    # atribuyendo al sexto lo que el quinto ya decía. Un concepto que nadie
+    # planteó y que la sentencia contesta es una incongruencia por exceso.
+    _i = texto.find("Conceptos de violación")
+    if _i < 0:
+        _i = texto.find("Agravios")
+    _j = texto.find("Solución")
+    if 0 <= _i < _j:
+        _en_resumen = _cuenta_conceptos(texto[_i:_j])
+        _en_estudio = _cuenta_conceptos(texto[_j:])
+        if _en_resumen and _en_estudio > _en_resumen:
+            fuera.append(
+                f"EL ESTUDIO ANALIZA {_en_estudio} PLANTEAMIENTOS Y EL RESUMEN "
+                f"SINTETIZA {_en_resumen}. Contestar uno que nadie planteó es "
+                f"incongruencia por exceso: comprueba si el «{_ORDINALES_CONCEPTO[_en_estudio-1]}» "
+                f"existe o si repite lo que ya dijo otro.")
 
     cs = [str(c or "").strip().lower() for c in (calificaciones or []) if str(c or "").strip()]
     if cs:

@@ -25656,7 +25656,12 @@ async def taller_adelanto(
     user_email: str = Form(...),
     regla_surtimiento: str = Form("tja_qro_boletin"),
     plazo: int = Form(15),
-    responsable: Optional[str] = Form(None),
+    # LA AUTORIDAD RESPONSABLE ES OBLIGATORIA. Sin ella la competencia, la
+    # existencia del acto, los efectos y el resolutivo salen con hueco —«contra
+    # el acto que reclamó de *********»— y es un dato de sello que el
+    # secretario tiene delante: pedirlo cuesta un segundo y evita cuatro
+    # huecos en la parte que se ejecuta.
+    responsable: str = Form(...),
     es_recurso: bool = Form(False),
     tipo_asunto: str = Form("amparo_directo"),
     # EL TRIBUNAL VIENE DEL SECRETARIO, NO DEL CÓDIGO. Con `modo=generado` el
@@ -25679,6 +25684,9 @@ async def taller_adelanto(
     import datetime as _dtm
     import tempfile
 
+    if not (responsable or "").strip():
+        raise HTTPException(422, "Falta la autoridad responsable. Sin ella el "
+                                 "resolutivo y la competencia salen con huecos.")
     _taller_puerta(user_email)
 
     import redactor_adelanto as _ra
