@@ -229,7 +229,23 @@ async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
 # de la Ley Orgánica del PJF, cuando la respuesta correcta es el artículo 784 de
 # la LFT. Filtrar por materia elimina la ley AJENA; la precisión dentro del
 # corpus correcto es otro problema y sigue abierto.
-SILO_POR_MATERIA = {"laboral": "leyes_laboral"}
+# LA TABLA DE SILOS. Cada materia apunta al suyo, y su composición se midió
+# sobre 1,600 trozos de sentencias reales de esa materia —no se eligió a ojo—.
+# El núcleo es común a las cuatro (Constitución, Ley de Amparo, Convención
+# Americana, Pacto Internacional, Ley Orgánica del PJF) porque todo amparo lo
+# lleva; lo demás lo puso la medición.
+#
+# LA LEY DEL ESTADO NO ESTÁ AQUÍ, y es deliberado. En civil los tres códigos
+# civiles estatales más citados son de Jalisco, la Ciudad de México y Querétaro:
+# no hay uno que sirva para todos. Se apunta aparte, por el ACTO RECLAMADO y no
+# por el circuito, porque el Vigésimo Segundo revisa actos de Querétaro y de
+# Hidalgo y el acto dice cuál rige.
+SILO_POR_MATERIA = {
+    "laboral": "leyes_laboral",              # 3,205 art · 9 ordenamientos
+    "civil": "leyes_civil",                  # 5,851 art · 9
+    "administrativa": "leyes_administrativa",  # 3,092 art · 12
+    "penal": "leyes_penal",                  # 2,187 art · 8
+}
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SEMBRAR CON LO QUE CITARON LOS TRIBUNALES
