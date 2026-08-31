@@ -297,7 +297,7 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # de otro tribunal no funda: orienta.
     material, sondeo = await asyncio.gather(
         f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
-                                problemas, coleccion),
+                                problemas, coleccion, fp_materia(r.encargo)),
         _sondear_precedente(qdrant, embed_leyes, r, problemas))
     material.sondeo = sondeo
     material.materia = fp_materia(r.encargo)

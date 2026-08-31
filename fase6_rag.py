@@ -194,9 +194,33 @@ async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
     return norma
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL SILO POR MATERIA
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 31-ago-2026: «si apuntamos el RAG a las normas que pudieran resultar
+# aplicables por materia, la recuperación sería significativamente superior».
+#
+# Lo medí antes de creérmelo, con las consultas reales del ADL 382/2024:
+#
+#   «¿La Junta valoró indebidamente las incapacidades médicas…?»
+#     corpus general → Ley del ISSSTE 58, 66, 37 · Responsabilidades Admvas 107
+#     silo laboral   → LFT 481, 492, 493, 497, 491
+#
+# El artículo 37 de la Ley del ISSSTE —licencias para padres de menores con
+# cáncer— es exactamente el que acabó transcrito en un despido de un enfermero
+# del IMSS. Con el silo deja de ser alcanzable.
+#
+# LO QUE EL SILO NO ARREGLA, y hay que decirlo: en otra consulta el general
+# devolvió cinco artículos de Responsabilidades Administrativas y el silo cinco
+# de la Ley Orgánica del PJF, cuando la respuesta correcta es el artículo 784 de
+# la LFT. Filtrar por materia elimina la ley AJENA; la precisión dentro del
+# corpus correcto es otro problema y sigue abierto.
+SILO_POR_MATERIA = {"laboral": "leyes_laboral"}
+
+
 async def material_para(qdrant, embed_juris, embed_leyes,
                         problema: str, coleccion_estatal: Optional[str] = None,
-                        ) -> f6.Material:
+                        materia: str = "") -> f6.Material:
     """El material verificado para UN problema jurídico.
 
     `embed_juris` vectoriza con el modelo de la v3 (3072 dim) y `embed_leyes`
@@ -206,7 +230,11 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     v_juris, v_leyes = await asyncio.gather(embed_juris(problema),
                                             embed_leyes(problema))
 
-    colecciones = [c for c in (coleccion_estatal, COLECCION_FEDERAL) if c]
+    # EL SILO SUSTITUYE, NO SE SUMA: si se buscara también en el corpus general
+    # volvería a entrar la ley ajena por la puerta de atrás, que es justo lo que
+    # el silo existe para cerrar.
+    silo = SILO_POR_MATERIA.get((materia or "").strip().lower())
+    colecciones = [silo] if silo else [c for c in (coleccion_estatal, COLECCION_FEDERAL) if c]
     tareas = [_buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v_juris,
                       TESIS_POR_PROBLEMA * 2)]
     tareas += [_buscar(qdrant, c, "dense", v_leyes, NORMAS_POR_PROBLEMA)
@@ -255,7 +283,7 @@ async def material_para(qdrant, embed_juris, embed_leyes,
 async def material_del_caso(qdrant, embed_juris, embed_leyes,
                             problemas: list[str],
                             coleccion_estatal: Optional[str] = None,
-                            ) -> f6.Material:
+                            materia: str = "") -> f6.Material:
     """Un solo Material con lo de TODOS los problemas, sin repetir tesis.
 
     El estudio se escribe de una vez —es una sola pieza de prosa— así que el
@@ -272,7 +300,8 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
             preguntas.append(q.strip())
 
     partes = await asyncio.gather(*[
-        material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal)
+        material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal,
+                      materia)
         for p in preguntas])
 
     tesis, normas = [], []
