@@ -134,7 +134,56 @@ class Material:
     entidad: str = ""
 
 
-def _bloque_criterio(criterios: list[Criterio]) -> str:
+# LA ÚNICA EXCEPCIÓN A «INNEGOCIABLE», y hubo que escribirla porque el pipeline
+# se contradecía a sí mismo. En el 382/2024 —un trabajador despedido— el bloque
+# del criterio decía «NO cambies el sentido» y la regla de suplencia decía que
+# la inoperancia no cabe. El modelo obedeció a la que iba rotulada INNEGOCIABLE,
+# escribió «inoperante» y le añadió un descargo sobre la suplencia. Hizo lo
+# único que podía hacer con dos órdenes contrarias.
+#
+# No se le quita la autoridad al secretario: el sentido sigue siendo suyo. Lo
+# que se le quita al modelo es la posibilidad de escribir la inoperancia SIN
+# haber intentado antes el fondo, que es lo que el artículo 79 manda. Si tras
+# suplir el argumento en su mejor versión la inoperancia se sostiene, se escribe
+# y se explica. Si no se sostiene, se dice en las advertencias, que es el cauce
+# que este pipeline ya tenía para discrepar.
+_SUPLENCIA_ABSOLUTA = {
+    "laboral": ("el trabajador", "79, fracción V"),
+    "penal": ("el reo", "79, fracción III"),
+}
+
+
+def _aviso_de_suplencia(criterios: list, materia: str) -> list:
+    m = (materia or "").strip().lower()
+    if m not in _SUPLENCIA_ABSOLUTA:
+        return []
+    if not any("inoperan" in str(getattr(c, "sentido", "")).lower()
+               for c in (criterios or [])):
+        return []
+    quien, precepto = _SUPLENCIA_ABSOLUTA[m]
+    return ["",
+            "── UNA SALVEDAD, Y SÓLO UNA ──",
+            f"Se te dicta INOPERANTE en un asunto de materia {m}. Si quien",
+            f"promueve es {quien}, la suplencia del artículo {precepto} de la Ley",
+            "de Amparo es ABSOLUTA y opera aun sin conceptos de violación. No",
+            "puedes escribir esa inoperancia sin haber hecho antes esto:",
+            "",
+            "  1. RECONSTRUYE el planteamiento en su mejor versión posible, la",
+            "     que la parte habría escrito con el mejor abogado, y DÉJALO",
+            "     ESCRITO: «Suplida la deficiencia, el concepto plantea que…».",
+            "  2. ESTÚDIALO EN EL FONDO así reconstruido.",
+            "  3. Y sólo si ni siquiera así toca ninguna razón del acto, escribe",
+            "     la inoperancia y di exactamente qué versión examinaste.",
+            "",
+            "Si al suplirlo resulta FUNDADO, no escribas la inoperancia: dilo en",
+            "ADVERTENCIAS con todas las letras para que el secretario lo valore.",
+            "Ésta es la única orden que está por encima del sentido dictado, y no",
+            "es criterio: es un mandato del artículo 79 que ningún acuerdo de",
+            "ponencia puede dispensar.",
+            ]
+
+
+def _bloque_criterio(criterios: list[Criterio], materia: str = "") -> str:
     if not criterios:
         return ""
     lineas = ["", "═" * 71,
@@ -159,6 +208,7 @@ def _bloque_criterio(criterios: list[Criterio]) -> str:
         "obligatoria en contra, una causal de improcedencia—, NO cambies el",
         "sentido: dilo en el apartado ADVERTENCIAS para que él lo valore.",
     ]
+    lineas += _aviso_de_suplencia(criterios, materia)
     return "\n".join(lineas)
 
 
@@ -757,7 +807,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
 {_bloque_precedente(material, criterios)}
-{_bloque_criterio(criterios)}
+{_bloque_criterio(criterios, materia or getattr(material, "materia", ""))}
 {_bloque_material(material)}
 
 ═══════════════════════════════════════════════════════════════════════
@@ -1316,21 +1366,45 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
                                  r"ley\s+federal\s+del\s+trabajo|trabajador",
                                  estudio, re.I))
     if _es_laboral and re.search(r"\binoperant", estudio, re.I):
-        _suple = re.search(r"suplencia[^.]{0,120}(?:fracci[óo]n\s+V\b|79)", estudio, re.I)
+        # MENCIONAR LA SUPLENCIA NO ES APLICARLA, y yo estaba dando por buena
+        # la mención. El aviso se apagaba en cuanto el estudio escribía la
+        # palabra; en el 382/2024 la escribió CINCO veces y no suplió ni una.
+        # Lo que prueba que se aplicó es la reconstrucción: «suplida la
+        # deficiencia, el concepto plantea que…». Eso sí se puede buscar.
+        _reconstruye = re.search(
+            r"suplid[ao]\s+la\s+deficiencia|supliendo\s+la\s+deficiencia|"
+            r"en\s+su\s+mejor\s+versi[óo]n|reconstruid[ao]\s+el\s+(?:concepto|argumento)|"
+            r"el\s+concepto,?\s+suplid[ao]", estudio, re.I)
         avisos.append(
             "Se declara INOPERANTE un planteamiento en un asunto LABORAL. Si "
             "quien promueve es el trabajador, la suplencia del artículo 79, "
             "fracción V, de la Ley de Amparo es absoluta y opera aun sin "
             "conceptos de violación: el argumento mal expuesto se suple y se "
             "estudia, no se desecha por técnica."
-            + ("" if _suple else " Y el estudio ni siquiera menciona esa suplencia."))
+            + ("" if _reconstruye else
+               " Y el estudio NO deja escrita la versión suplida que examinó: "
+               "mencionar la suplencia no es haberla aplicado."))
 
-    # 2. El sentido dictado tiene que aparecer.
+    # 2. El sentido dictado tiene que aparecer… SALVO la inoperancia que la
+    #    suplencia prohíbe. Esta regla y la anterior se contradecían: una
+    #    reprochaba escribir «inoperante» y la otra reprochaba NO escribirlo.
+    #    Entre las dos dejaban al modelo sin salida buena, y eligió obedecer a
+    #    la que iba rotulada innegociable.
+    _mat = str(getattr(material, "materia", "") or "").strip().lower()
     for c in criterios:
         raiz = c.sentido[:7].lower()
-        if raiz and raiz not in estudio.lower():
-            avisos.append(f"El criterio pedía «{c.sentido}» y esa calificación "
-                          f"no aparece en el estudio.")
+        if not raiz or raiz in estudio.lower():
+            continue
+        if raiz.startswith("inoperan") and _mat in _SUPLENCIA_ABSOLUTA:
+            avisos.append(
+                f"El criterio pedía «{c.sentido}» y el estudio no lo escribió. "
+                f"En materia {_mat}, con la suplencia del artículo 79, eso "
+                f"puede ser lo CORRECTO: revisa si el estudio suplió el "
+                f"planteamiento y lo resolvió en el fondo. Si es así, la "
+                f"calificación cambió y hay que confirmarla.")
+            continue
+        avisos.append(f"El criterio pedía «{c.sentido}» y esa calificación "
+                      f"no aparece en el estudio.")
 
     # 3. Largo.
     n = len(estudio.split())

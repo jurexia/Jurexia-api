@@ -185,6 +185,65 @@ def _regla_de_ley(material) -> str:
             "vale, y se invoca por el principio que fija, sin excusarse.")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA SUPLENCIA, EN LA FASE QUE DECIDE
+# ═══════════════════════════════════════════════════════════════════════════
+# El proyecto 382/2024 —un trabajador despedido por el IMSS— salió declarando
+# inoperantes conceptos del obrero. El prompt del ESTUDIO ya prohibía eso desde
+# hace semanas; lo que faltaba era que lo supiera la fase que fija el sentido.
+# Esta. Mientras la propuesta no conozca el artículo 79, fracción V, el estudio
+# recibe un «inoperante» ya decidido y lo único que puede hacer es escribirlo.
+#
+# Y OJO CON EL MATIZ, que es donde se equivocan los dos extremos: la suplencia
+# NO obliga a dar la razón al trabajador, y tampoco borra la inoperancia del
+# catálogo. Cura la DEFICIENCIA del argumento, no su falta de pertinencia. Un
+# concepto mal expuesto se suple y se estudia; un concepto que, ya suplido y
+# entendido en su mejor versión, sigue sin atacar la razón que sostiene el
+# laudo, puede declararse inoperante y hay que decir por qué.
+
+_SUPLENCIA = {
+    "laboral": ("el TRABAJADOR", "artículo 79, fracción V, de la Ley de Amparo"),
+    "penal": ("el REO o el imputado", "artículo 79, fracción III, de la Ley de Amparo"),
+}
+
+
+def _bloque_suplencia(material) -> str:
+    mat = str(getattr(material, "materia", "") or "").strip().lower()
+    if mat not in _SUPLENCIA:
+        return ""
+    quien, precepto = _SUPLENCIA[mat]
+    return f"""
+═══════════════════════════════════════════════════════════════════════
+ANTES DE CALIFICAR NADA: LA SUPLENCIA DE LA QUEJA
+═══════════════════════════════════════════════════════════════════════
+Éste es un asunto de materia {mat}. Si quien promueve es {quien}, la suplencia
+de la deficiencia de la queja prevista en el {precepto} es ABSOLUTA: opera aun
+ante la AUSENCIA TOTAL de conceptos de violación, y obliga al Tribunal a
+examinar el expediente y a reparar la violación que encuentre.
+
+QUÉ SIGNIFICA PARA TU CALIFICACIÓN:
+
+· NO PUEDES proponer INOPERANTE por deficiencia de la impugnación. «No precisó
+  qué prueba se omitió», «no combatió la razón toral», «no expresó argumento
+  contra tal consideración»: eso es exactamente lo que la suplencia repara. Un
+  argumento mal expuesto se SUPLE, se reconstruye en su mejor versión y se
+  estudia en el fondo.
+· TAMPOCO significa dar la razón. Suplir es examinar, no conceder. Si el
+  planteamiento, ya suplido y entendido en su mejor versión, es contrario a
+  derecho, es INFUNDADO y se dice por qué.
+· La inoperancia sólo queda para lo que la suplencia no cura: un argumento que,
+  ya reconstruido, no se dirige contra ninguna razón del acto. Si propones
+  inoperante, escribe qué versión suplida examinaste y por qué ni siquiera así
+  toca el fallo.
+· Y ANTES DE ESO, MIRA EL EXPEDIENTE. La suplencia obliga a buscar la violación
+  aunque nadie la haya alegado: si en lo que tienes delante aparece un vicio que
+  beneficia a {quien} y no está en ningún concepto, propónlo igual y dilo.
+
+Si por la suplencia te apartas de lo que literalmente pidió la parte, no es un
+exceso: es el mandato del precepto.
+"""
+
+
 def _bloque_acervo_sentidos(material) -> str:
     s = getattr(material, "sondeo", None)
     if s is None or not getattr(s, "distribucion", None):
@@ -260,6 +319,7 @@ JURISPRUDENCIA DEL ACERVO — es TODO lo que puedes invocar
 
 NORMAS DEL ACERVO
 {_bloque_normas(material)}
+{_bloque_suplencia(material)}
 {_bloque_acervo_sentidos(material)}
 {_bloque_contexto(contexto)}
 
