@@ -57,6 +57,8 @@ ESFUERZO_ESTUDIO = os.getenv("ESFUERZO_ESTUDIO", "high")
 # El texto de una tesis de la Undécima Época con Hechos/Criterio/Justificación
 # ronda los 3,000 caracteres. Cortarlo es peor que no citarla.
 TESIS_CARACTERES = 4000
+# La norma es la premisa mayor: se entrega entera o no se entrega.
+NORMA_CARACTERES = 4000
 
 # CUÁNTAS TESIS ENTRAN AL PROMPT. El RAG devuelve todas las que encuentra —44 en
 # el QA 143-2026— y meterlas enteras da un prompt de 108,000 caracteres del que
@@ -250,7 +252,12 @@ def _bloque_material(m: Material) -> str:
         p.append("\n\nPRECEPTOS:")
         for n in normas:
             p.append(f"\n  · {n.get('cuerpo_legal','')} — Art. {n.get('articulo','')}")
-            p.append(f"    {(n.get('texto') or '')[:700]}")
+            # ENTERO. Con 700 caracteres el artículo 47 de la Ley Federal del
+            # Trabajo llegaba cortado en la fracción I y la fracción X —«sin
+            # causa justificada», que era la bisagra del asunto— empieza en el
+            # 2,348. Es el mismo fallo que ya tuvieron las tesis, con la misma
+            # consecuencia: razonar desde el encabezado.
+            p.append(f"    {(n.get('texto') or '')[:NORMA_CARACTERES]}")
     if m.convencional:
         p.append("\n\nCONVENCIONAL:")
         for c in m.convencional:
@@ -1095,6 +1102,19 @@ _RX_INSTRUMENTO = re.compile(
     r"|convenci[óo]n\s+(?:sobre|de|interamericana)|protocolo\s+de\s+san\s+salvador"
     r"|declaraci[óo]n\s+(?:americana|universal))", re.I)
 
+
+# LA TERCERA QUE NO SOBREVIVIÓ A SU CALIBRACIÓN. Un auditor propuso avisar
+# cuando la suplencia sólo sirve para negar —«no permite», «aun bajo», «no
+# significa»—, que es exactamente lo que hace el ADL 382/2024. La escribí y la
+# probé contra ese mismo documento: cuenta SIETE usos y sólo TRES niegan; los
+# otros anuncian la suplencia, la usan para justificar la inoperancia o la usan
+# bien. Para que saltara tenía que bajar el umbral hasta ajustarlo a este caso,
+# y ajustar un detector a un documento es la definición de no medir nada.
+#
+# El defecto es real —la suplencia no produce ni un examen de oficio— pero es
+# una propiedad semántica y no la sé detectar con una expresión regular. Lo que
+# sí se detecta, y ya está arriba, es que el estudio no deje ESCRITA la versión
+# suplida que examinó. Ésa saltó a la primera en este documento y basta.
 
 def _tipo_mal_atribuido(estudio: str, material) -> str:
     """Llamar «jurisprudencia» a una tesis aislada, en la prosa.

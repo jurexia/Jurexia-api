@@ -133,6 +133,67 @@ async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],
         return []
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL ARTÍCULO ENTERO, NO EL TROZO QUE CASÓ
+# ═══════════════════════════════════════════════════════════════════════════
+# En el ADL 382/2024 —un trabajador despedido por faltas— el motor propuso
+# INFUNDADO cinco veces razonando sobre si las incapacidades se habían entregado
+# a tiempo. Nunca discutió lo único que decide el asunto: que el artículo 47,
+# fracción X, de la Ley Federal del Trabajo exige que las faltas sean «SIN CAUSA
+# JUSTIFICADA», y una incapacidad médica real es causa justificada, se entregue
+# el papel cuando se entregue.
+#
+# No fue un fallo de razonamiento. ES QUE NUNCA LO LEYÓ. El artículo 47 sí
+# llegó al material… con 600 caracteres: el encabezado y la fracción I. El
+# artículo tiene quince fracciones y está troceado; la búsqueda por parecido
+# devuelve EL TROZO que casó, y casó el primero. La fracción X se quedó fuera.
+#
+# Un trozo no es un artículo. Cuando la ley se trae para fundar, se trae entera:
+# `fase_normas` ya lo hacía para las notas al pie —«el artículo entero: viene
+# troceado y un trozo no es el artículo»— y el material que sostiene el
+# RAZONAMIENTO iba sin ese cuidado, que es donde más falta hace.
+
+async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
+    """Los demás trozos del mismo artículo y la misma ley, en orden."""
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+    num, ley = norma.get("articulo"), str(norma.get("cuerpo_legal") or "")
+    if not num or not ley:
+        return norma
+    try:
+        r = qdrant.scroll(
+            collection_name=coleccion,
+            scroll_filter=Filter(must=[FieldCondition(
+                key="articulo_num", match=MatchValue(value=int(num)))]),
+            limit=60, with_payload=True)
+        if inspect.isawaitable(r):
+            r = await r
+        pts = r[0] if isinstance(r, tuple) else r
+    except Exception as e:
+        log.error("no se pudo completar el artículo %s: %s", num, e)
+        return norma
+    # SÓLO LOS DE LA MISMA LEY. El artículo 47 existe en decenas de códigos y
+    # juntarlos daría un texto que no es de ninguno.
+    suyos = [x.payload for x in (pts or [])
+             if str((x.payload or {}).get("cuerpo_legal_oficial") or "") == ley]
+    if len(suyos) < 2:
+        return norma
+    partes, visto = [], set()
+    for pl in sorted(suyos, key=lambda z: int(z.get("chunk_index") or 0)):
+        # La migaja de cabecera «[Ley … | CAPITULO IV …]» se repite en cada
+        # trozo; una vez basta y en los demás estorba.
+        txt = re.sub(r"^\s*\[[^\]]{0,250}\]\s*", "",
+                     " ".join(str(pl.get("texto") or "").split()))
+        if txt and txt not in visto:
+            visto.add(txt)
+            partes.append(txt)
+    entero = " ".join(partes)
+    if len(entero) > len(str(norma.get("texto") or "")):
+        norma = dict(norma)
+        norma["texto"] = entero[:6000]
+        norma["completo"] = True
+    return norma
+
+
 async def material_para(qdrant, embed_juris, embed_leyes,
                         problema: str, coleccion_estatal: Optional[str] = None,
                         ) -> f6.Material:
@@ -178,6 +239,14 @@ async def material_para(qdrant, embed_juris, embed_leyes,
             unicas.append(t)
 
     normas = [_norma_de(p) for grupo in res[1:] for p in grupo]
+    # Cada norma, completada con el resto de su articulado. Van en paralelo y
+    # es un scroll por artículo: el mismo precio que ya paga la nota al pie.
+    if normas:
+        pares = []
+        for grupo, col in zip(res[1:], colecciones):
+            pares += [(col, _norma_de(p)) for p in grupo]
+        normas = list(await asyncio.gather(
+            *[_completar(qdrant, c, n) for c, n in pares]))
 
     return f6.Material(tesis=unicas[:TESIS_POR_PROBLEMA],
                        normas=normas[:NORMAS_POR_PROBLEMA * 2])

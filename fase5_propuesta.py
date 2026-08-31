@@ -104,11 +104,34 @@ def _bloque_tesis(tesis: list) -> str:
     return "\n\n".join(fuera)
 
 
+# EL PRECEPTO ENTERO, Y CON EL NOMBRE DE SU LEY. Dos fallos de una línea cada
+# uno, y entre los dos decidieron un asunto.
+#
+# En el ADL 382/2024 el motor propuso INFUNDADO cinco veces razonando sobre si
+# las incapacidades se habían entregado a tiempo, y no discutió ni una vez lo
+# único que decide: que el artículo 47, fracción X, de la Ley Federal del
+# Trabajo exige que las faltas sean «SIN CAUSA JUSTIFICADA». Fui a ver por qué y
+# no era el razonamiento: NUNCA LO LEYÓ. Ese artículo mide 4,351 caracteres, la
+# fracción X empieza en el 2,348 y aquí se recortaba en el 400. El modelo veía
+# el encabezado y la fracción I.
+#
+# Y el nombre de la ley salía vacío en las diez normas, siempre, porque se leía
+# de `fuente` y el material las trae en `cuerpo_legal`. El motor recibía
+# «· art. 47: …» sin saber de qué ley, en un asunto donde el artículo 47 existe
+# en sesenta y dos versiones distintas del acervo federal.
+#
+# Un precepto recortado antes de su fracción operativa no es una premisa: es un
+# encabezado. Y el coste de traerlo entero son unos miles de caracteres en un
+# prompt que ya pasa de treinta mil.
+NORMA_CARACTERES = 4000
+
+
 def _bloque_normas(material, limite: int = 10) -> str:
     fuera = []
     for n in list(getattr(material, "normas", []) or [])[:limite]:
-        fuera.append(f"· {n.get('fuente','')} art. {n.get('articulo','')}: "
-                     f"{(n.get('texto','') or '')[:400]}")
+        ley = n.get("cuerpo_legal") or n.get("fuente") or ""
+        fuera.append(f"· {ley} — artículo {n.get('articulo','')}: "
+                     f"{(n.get('texto','') or '')[:NORMA_CARACTERES]}")
     return "\n".join(fuera)
 
 
