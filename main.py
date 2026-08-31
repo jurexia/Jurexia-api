@@ -26067,6 +26067,39 @@ async def taller_contexto(
             "recortado": len(junto) > 60000}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA PUERTA DE LA OPORTUNIDAD
+# ═══════════════════════════════════════════════════════════════════════════
+# El proyecto 382/2024 v5 declaró en el considerando TERCERO que la demanda era
+# extemporánea —«resulta evidente su extemporaneidad»— y ochenta párrafos
+# después concedió el amparo. Es una incongruencia insubsanable: si la demanda
+# es extemporánea la consecuencia obligada es el SOBRESEIMIENTO (artículos 61,
+# fracción XIV, y 63, fracción V, de la Ley de Amparo), no el estudio de fondo.
+#
+# La fecha que provocó el cálculo la tecleé yo en una prueba. Da igual: el
+# pipeline ya sabía que era extemporánea —`computo.oportuna` valía False y se
+# emitía un aviso— y siguió adelante hasta amparar. Un aviso que no detiene
+# nada no es una defensa: es una nota al pie de un desastre.
+#
+# No se decide por el secretario. Se para y se le dice cuáles son las dos
+# salidas, porque una de las dos es un error de dato y la otra es una sentencia
+# distinta que este redactor todavía no sabe escribir.
+def _puerta_oportunidad(r) -> None:
+    c = getattr(r, "computo", None)
+    if c is None or getattr(c, "oportuna", None) is not False:
+        return
+    raise HTTPException(409, (
+        "EL CÓMPUTO DA LA DEMANDA EXTEMPORÁNEA y por eso no se escribe el "
+        "estudio de fondo: una sentencia que declara la extemporaneidad y "
+        "luego ampara es incongruente y no se sostiene en revisión. "
+        "Hay dos salidas y las dos son tuyas: (1) si la fecha de presentación "
+        "o la de notificación están mal, corrígelas y vuelve a generar; "
+        "(2) si el cómputo es correcto, el asunto no se resuelve en el fondo "
+        "—procede el SOBRESEIMIENTO conforme a los artículos 61, fracción XIV, "
+        "y 63, fracción V, de la Ley de Amparo— y ese proyecto todavía hay que "
+        "escribirlo a mano."))
+
+
 def _con_autos(r, contexto: str) -> str:
     """El contexto del secretario, precedido por las constancias del expediente.
 
@@ -26121,8 +26154,9 @@ async def taller_proponer(
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
             ses["resultado"])
 
-    import fase5_propuesta as _f5
     r = ses["resultado"]
+    _puerta_oportunidad(r)
+    import fase5_propuesta as _f5
     problemas = [p if isinstance(p, dict) else {"pregunta": str(p)}
                  for p in (r.fases.problemas or [])]
     if not problemas and r.fases.problema_global:
@@ -26215,6 +26249,7 @@ async def taller_resolver_stream(
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
     r = ses["resultado"]
+    _puerta_oportunidad(r)
 
     if criterios_json.strip():
         try:
@@ -26347,6 +26382,7 @@ async def taller_resolver(
     import redactor_adelanto as _ra
 
     r = ses["resultado"]
+    _puerta_oportunidad(r)
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
     # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
     # decidir— y era el que producía sentencias incongruentes: el estudio se
