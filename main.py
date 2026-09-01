@@ -25674,6 +25674,55 @@ async def notificaciones_apple(request: Request):
 # DENTRO del endpoint a propósito: si falta `python-docx` o la plantilla, que
 # falle esta ruta y no el arranque del servidor entero.
 
+@app.get("/taller/tipos")
+async def taller_tipos():
+    """El catálogo de asuntos, para que el formulario se construya desde él.
+
+    David: «lo primero sería preguntarle al usuario qué tipo de asunto va a
+    proyectar; una vez que seleccione, desplegar los campos que lleva cada
+    asunto».
+
+    Esto es lo que lo hace posible: la pantalla no necesita saber nada de
+    derecho —ni qué plazo tiene una queja, ni que una revisión fiscal no lleva
+    «existencia del acto reclamado»—. Lo pregunta aquí y lo pinta.
+
+    Y el plazo NO es un campo que el secretario deba teclear: lo dice la ley y
+    depende del tipo. Lo que sí se le pregunta son las excepciones, porque ésas
+    no se deducen del expediente: si la queja es contra una suspensión de plano
+    son dos días, y si se omitió tramitar la demanda no hay plazo.
+    """
+    import tipos_asunto as _ta
+    fuera = []
+    for clave in _ta.TIPOS:
+        v = _ta.vocabulario_de(clave)
+        p = _ta.plazo_de(clave)
+        est = _ta.estructura_de(clave)
+        fuera.append({
+            "clave": clave,
+            "nombre": v["nombre"],
+            "promovente": v["promovente"],       # «quejoso» o «recurrente»
+            "combate": v["combate"],             # «conceptos de violación» o «agravios»
+            "recurrido": v["recurrido"],
+            "escrito": v["escrito"],             # lo que el secretario sube
+            "plazo": {"dias": p["dias"], "fundamento": p["fundamento"]},
+            "excepciones_de_plazo": [
+                {"clave": e["clave"], "cuando": e["cuando"],
+                 "dias": e["dias"], "fundamento": e["fundamento"],
+                 "en_cualquier_tiempo": e["dias"] is None}
+                for e in _ta.excepciones_de(clave)],
+            # Para que la pantalla pueda decirle qué va a recibir.
+            "apartados": {
+                "resultandos": [n for n, _ in est["resultandos"]],
+                "considerandos": [n for n, _ in est["considerandos"]],
+            },
+            "medido_sobre": est["muestra"],
+        })
+    return {"tipos": fuera,
+            "nota": ("La estructura de cada tipo está contada sobre adelantos "
+                     "reales del corpus; el plazo sale de la ley, con su "
+                     "artículo. Ninguno de los dos se teclea.")}
+
+
 @app.get("/admin/uso-colecciones")
 async def admin_uso_colecciones(user_email: str = ""):
     """Qué colecciones se han tocado desde el último reinicio.
@@ -25704,7 +25753,17 @@ async def taller_adelanto(
     # del Boletín Jurisdiccional del tribunal administrativo de Querétaro y se
     # aplicaba, en silencio, al cómputo de un secretario de cualquier estado.
     regla_surtimiento: str = Form("personal"),
-    plazo: int = Form(15),
+    # EL PLAZO NO SE TECLEA: LO DICE LA LEY Y DEPENDE DEL TIPO. Era 15 por
+    # omisión para todo, y una QUEJA tiene CINCO días (artículo 98 de la Ley de
+    # Amparo) y una REVISIÓN diez (artículo 86). Se contaba con el triple del
+    # plazo que corresponde y nadie avisaba. Ahora 0 significa «el de la ley», y
+    # sólo se acepta un valor si el secretario lo declara a propósito.
+    plazo: int = Form(0),
+    # Y LO QUE SÍ HAY QUE PREGUNTARLE, porque no se deduce del expediente: si el
+    # asunto cae en una excepción de plazo. En la queja, la suspensión de plano
+    # o provisional son DOS días y la omisión de tramitar la demanda no tiene
+    # plazo; en el amparo, la norma autoaplicativa son treinta días.
+    excepcion_plazo: str = Form(""),
     # LA AUTORIDAD SE LEE DEL ACTO. Exigirla al secretario era la solución
     # equivocada al problema correcto: el dato está en la sentencia reclamada
     # que él ya subió y que ya pasa por OCR. Se acepta si la escribe —manda lo
@@ -25756,6 +25815,7 @@ async def taller_adelanto(
     _taller_puerta(user_email)
 
     import redactor_adelanto as _ra
+    import tipos_asunto as _ta
 
     tmp = tempfile.mkdtemp(prefix="taller_")
     ruta_plantilla = f"{tmp}/plantilla.docx"
@@ -25822,7 +25882,9 @@ async def taller_adelanto(
         magistrado=magistrado, secretario=secretario,
         notificacion=_dtm.date.fromisoformat(notificacion),
         presentacion=_dtm.date.fromisoformat(presentacion),
-        regla_surtimiento=regla_surtimiento, plazo=plazo,
+        regla_surtimiento=regla_surtimiento,
+        plazo=plazo or _ta.plazo_de(tipo_asunto, excepcion_plazo)["dias"] or 0,
+        excepcion_plazo=excepcion_plazo,
         responsable=responsable, es_recurso=es_recurso,
         tribunal=tribunal, ciudad=ciudad, modo=modo,
         tipo_asunto=tipo_asunto,

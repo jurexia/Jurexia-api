@@ -43,7 +43,12 @@ class Encargo:
     # LA OMISIÓN ES LA REGLA GENERAL DE LA LEY DE AMPARO, no la de un
     # tribunal concreto: esto lo usan secretarios de toda la república.
     regla_surtimiento: str = "personal"
-    plazo: int = 15
+    # EL PLAZO LO PONE LA LEY SEGÚN EL TIPO. Cero significa «el que
+    # corresponda»; se resuelve al computar, con `tipos_asunto`.
+    plazo: int = 0
+    # La excepción de plazo que el secretario haya declarado: en la queja,
+    # «suspension» (dos días) u «omision_tramite» (en cualquier tiempo).
+    excepcion_plazo: str = ""
     responsable: Optional[str] = None
     es_recurso: bool = False
     # LA HERRAMIENTA NO ES DE UN TRIBUNAL, ES DE TODOS. Estos tres campos son
@@ -139,6 +144,27 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # Un plazo mal contado invalida la sentencia, así que aquí no se hereda un
     # valor por omisión de otra materia: si la materia es laboral y nadie
     # declaró otra cosa, se cuenta personal y SE AVISA.
+    # ── El plazo y el tipo, del catálogo ─────────────────────────────────
+    import tipos_asunto as _ta
+    _tipo = _ta.normalizar(getattr(e, "tipo_asunto", "")) or "amparo_directo"
+    e.tipo_asunto = _tipo
+    # `es_recurso` DEJA DE SER UN CAMPO APARTE. Era independiente del tipo y
+    # podía contradecirlo —un amparo directo marcado como recurso escribía
+    # «agravios» donde van conceptos de violación—. Lo dice el tipo y punto.
+    e.es_recurso = _tipo != "amparo_directo"
+    _pl = _ta.plazo_de(_tipo, getattr(e, "excepcion_plazo", ""))
+    if _pl.get("aviso"):
+        avisos.append(_pl["aviso"])
+    if _pl["en_cualquier_tiempo"]:
+        # NO ES UN PLAZO LARGO: ES QUE NO HAY PLAZO. Contar días aquí y
+        # declarar extemporaneidad sería inventar una causa de improcedencia.
+        e.plazo = 0
+        avisos.append(
+            f"Este recurso procede EN CUALQUIER TIEMPO ({_pl['fundamento']}), "
+            f"así que no se computa plazo ni puede declararse extemporáneo.")
+    elif not e.plazo:
+        e.plazo = _pl["dias"]
+
     _mat = fp_materia(e)
     if _mat == "laboral" and e.regla_surtimiento in ("tja_qro_boletin", "lista"):
         e.regla_surtimiento = "personal"
@@ -149,7 +175,9 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             "Tribunal de Justicia Administrativa de Querétaro, que es de otra "
             "materia. Confírmalo contra la constancia de notificación.")
     c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
-                    e.plazo, e.responsable)
+                    e.plazo or 15, e.responsable)
+    if _pl["en_cualquier_tiempo"]:
+        c.oportuna = True                  # sin plazo no hay extemporaneidad
     avisos.extend(c.avisos)
     if c.oportuna is False:
         avisos.append("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "
