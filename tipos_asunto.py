@@ -867,3 +867,182 @@ def suplencia_de_otra_materia(texto: str, materia: str) -> list:
     m = (materia or "").strip().lower()
     return [nombre for nombre, pat in _MATERIAS_SUPLENCIA.items()
             if nombre != m and re.search(pat, t, re.I)]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LAS TRES RAMAS DEL AMPARO EN REVISIÓN
+# ═══════════════════════════════════════════════════════════════════════════
+# David las dicta, y el corpus del propio tribunal las tiene medidas sobre 62
+# expedientes —estaban en `banco_plantillas.json` sin que nadie las leyera—.
+# Hasta hoy el resolutivo de la revisión era UNA sola frase, «Se confirma la
+# sentencia recurrida», y con ella el proyecto nunca amparaba, nunca modificaba
+# efectos y nunca ordenaba reponer.
+#
+#   RAMA 1 — LEVANTAMIENTO DE SOBRESEIMIENTO (art. 93, fr. I). El a quo
+#   sobreseyó indebidamente; se destruye la causal, se levanta el
+#   sobreseimiento y, en plenitud de jurisdicción, se estudian por primera vez
+#   los conceptos de violación que aquél omitió. Resolutivo DOBLE.
+#
+#   RAMA 2 — FONDO (art. 93, frs. V y VI). Tres supuestos: revocar la negativa
+#   —se concede—, revocar la concesión —se niega— y modificar los EFECTOS, que
+#   es el único de los tres con resolutivo ÚNICO.
+#
+#   RAMA 3 — VIOLACIÓN PROCESAL DENTRO DEL AMPARO (art. 93, fr. IV). El único
+#   supuesto en que se devuelven los autos al Juzgado para reponer el
+#   procedimiento del amparo indirecto. Resolutivo ÚNICO.
+#
+# LA REGLA MEDIDA QUE NO SE PUEDE PERDER: «en revisión el resolutivo tiene DOS
+# puntos, no uno: PRIMERO decide sobre la sentencia recurrida —confirma,
+# modifica, revoca— y SEGUNDO reproduce el sentido del amparo —ampara, no
+# ampara, sobresee—. Sólo hay ÚNICO cuando se desecha el recurso.» Está escrita
+# en el banco, con sus frecuencias: «SEGUNDO. La Justicia de la Unión» 20/62.
+#
+# Y LA OTRA, que evita un error de renumeración: el SEGUNDO remite al
+# considerando DE LA RESOLUCIÓN RECURRIDA —«el considerando segundo de la
+# resolución que se revisa»—, no a los de esta ejecutoria. El compositor no lo
+# renumera.
+RAMAS_REVISION = {
+    # ── El recurso no prospera ────────────────────────────────────────────
+    "confirma_niega": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se confirma la sentencia recurrida.",
+            "SEGUNDO. La Justicia de la Unión no ampara ni protege a {quejoso}, "
+            "respecto de los actos precisados en la resolución recurrida, por "
+            "las razones expuestas en el último considerando de la misma."],
+        "frecuencia": "8/62 confirma · 8/62 no ampara ni protege",
+    },
+    "confirma_concede": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se confirma la sentencia recurrida.",
+            "SEGUNDO. La Justicia de la Unión ampara y protege a {quejoso}, en "
+            "términos del último considerando de la resolución recurrida."],
+        "frecuencia": "18/62 ampara y protege",
+    },
+    "confirma_sobresee": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se confirma la sentencia impugnada.",
+            "SEGUNDO. Se sobresee en el presente juicio de amparo, promovido "
+            "por {quejoso}, contra los actos que quedaron precisados en el "
+            "considerando segundo de la resolución que se revisa y por las "
+            "razones expuestas en el último considerando de la misma."],
+        "frecuencia": "10/62 sobresee",
+    },
+    # ── RAMA 1: se levanta el sobreseimiento y se asume jurisdicción ──────
+    "revoca_sobreseimiento_concede": {
+        "fundamento": "artículo 93, fracción I, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se revoca la sentencia recurrida.",
+            "SEGUNDO. La Justicia de la Unión ampara y protege a {quejoso}, "
+            "contra el acto reclamado a {responsable_originaria}, por los "
+            "motivos y fundamentos expuestos en el último considerando de esta "
+            "ejecutoria."],
+        # El estudio tiene que decir que asume jurisdicción y por qué puede.
+        "plenitud": True,
+    },
+    "revoca_sobreseimiento_niega": {
+        "fundamento": "artículo 93, fracción I, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se revoca la sentencia recurrida.",
+            "SEGUNDO. La Justicia de la Unión no ampara ni protege a {quejoso}, "
+            "contra el acto reclamado a {responsable_originaria}, por los "
+            "motivos y fundamentos expuestos en el último considerando de esta "
+            "ejecutoria."],
+        "plenitud": True,
+    },
+    # ── RAMA 2 A y B: se revoca el fondo ─────────────────────────────────
+    "revoca_fondo_concede": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se revoca la sentencia recurrida.",
+            "SEGUNDO. La Justicia de la Unión ampara y protege a {quejoso}, "
+            "contra el acto reclamado a {responsable_originaria}, por los "
+            "motivos y fundamentos expuestos en el último considerando de esta "
+            "ejecutoria."],
+        "plenitud": True,
+    },
+    "revoca_fondo_niega": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se revoca la sentencia recurrida.",
+            "SEGUNDO. La Justicia de la Unión no ampara ni protege a {quejoso}, "
+            "contra el acto reclamado a {responsable_originaria}, por los "
+            "motivos y fundamentos expuestos en el último considerando de esta "
+            "ejecutoria."],
+        "plenitud": True,
+    },
+    # ── RAMA 2 C: sólo los efectos. ÚNICO, y es el matiz que lo distingue:
+    # el amparo estuvo BIEN concedido; lo que falla es la restitución.
+    "modifica_efectos": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "ÚNICO. Se modifica la sentencia recurrida, únicamente para los "
+            "efectos precisados en el último considerando de esta ejecutoria."],
+        "frecuencia": "4/62 modifica",
+    },
+    # ── RAMA 3: reposición del procedimiento DEL AMPARO ──────────────────
+    "repone_procedimiento": {
+        "fundamento": "artículo 93, fracción IV, de la Ley de Amparo",
+        "puntos": [
+            "ÚNICO. Se revoca la sentencia recurrida y se ordena la reposición "
+            "del procedimiento en el juicio de amparo indirecto {expediente}, "
+            "para los efectos precisados en el último considerando de esta "
+            "resolución."],
+    },
+    # ── El recurso se desecha ────────────────────────────────────────────
+    "desecha": {
+        "fundamento": "artículo 86 de la Ley de Amparo",
+        "puntos": [
+            "ÚNICO. Se desecha el recurso de revisión, al resultar improcedente "
+            "por extemporáneo, por los motivos y fundamentos expuestos en el "
+            "considerando último de la presente ejecutoria."],
+    },
+    # ── Y EL HUECO DELIBERADO, que es como lo deja David en sus adelantos.
+    # Medido: «Se ********** la sentencia impugnada». Cuando no consta qué
+    # resolvió el a quo, inventarlo sería peor que dejarlo a la vista.
+    "sin_determinar": {
+        "fundamento": "artículo 93 de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se {HUECO} la sentencia recurrida.",
+            "SEGUNDO. {HUECO} a {quejoso}, respecto de los actos precisados en "
+            "la resolución recurrida."],
+        "aviso": ("NO CONSTA QUÉ RESOLVIÓ EL JUZGADO DE DISTRITO —si sobreseyó, "
+                  "negó o concedió—, así que el resolutivo sale con el hueco a "
+                  "la vista, como en tus adelantos. Sin ese dato no se puede "
+                  "saber si procede confirmar, revocar o modificar."),
+    },
+}
+
+
+def rama_revision(resolvio_a_quo: str, sentido: str,
+                  solo_efectos: bool = False,
+                  violacion_procesal: bool = False) -> str:
+    """La clave de RAMAS_REVISION que corresponde.
+
+    `resolvio_a_quo` es lo que hizo el Juzgado de Distrito —«sobresee»,
+    «niega», «concede»— y `sentido`, el del recurso. Las dos ramas de
+    resolutivo ÚNICO se piden expresamente porque no se pueden deducir del
+    fondo: modificar sólo los efectos y ordenar reponer son decisiones del
+    secretario, no consecuencias de que el agravio prospere.
+    """
+    if violacion_procesal:
+        return "repone_procedimiento"
+    if solo_efectos:
+        return "modifica_efectos"
+    a = (resolvio_a_quo or "").strip().lower()
+    s = (sentido or "").strip().lower()
+    if a not in ("sobresee", "niega", "concede"):
+        return "sin_determinar"
+    prospera = s in ("fundado", "fundado_suplido", "parcialmente_fundado")
+    if not prospera:
+        return {"sobresee": "confirma_sobresee", "niega": "confirma_niega",
+                "concede": "confirma_concede"}[a]
+    if a == "sobresee":
+        # Levantado el sobreseimiento, el sentido del AMPARO no lo dice el
+        # recurso: hay que estudiar los conceptos por primera vez. Se deja en
+        # «concede» sólo si el estudio lo afirma; por omisión, niega.
+        return "revoca_sobreseimiento_concede"
+    return ("revoca_fondo_niega" if a == "concede"
+            else "revoca_fondo_concede")

@@ -2384,9 +2384,62 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     p_pe = parrafo(doc, "Por lo expuesto y fundado, se:", sangria=True)
     p_pe.paragraph_format.space_before = Pt(14)
     rotulo(doc, "Resuelve")
-    _res = RESOLUTIVO.get(str(tipo_asunto or "").strip().lower(),
+    _res = RESOLUTIVO.get(_ta.normalizar(tipo_asunto),
                           RESOLUTIVO["amparo_directo"])
-    if _res.get("punto"):
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # EL AMPARO EN REVISIÓN TIENE DOS PUNTOS, NO UNO
+    # ═══════════════════════════════════════════════════════════════════════
+    # Está medido en el corpus del propio tribunal, con esas palabras: «en
+    # revisión el resolutivo tiene DOS puntos: PRIMERO decide sobre la
+    # sentencia recurrida —confirma, modifica, revoca— y SEGUNDO reproduce el
+    # sentido del amparo —ampara, no ampara, sobresee—. Sólo hay ÚNICO cuando
+    # se desecha el recurso». Y estaba en `banco_plantillas.json` sin que nadie
+    # lo leyera: el proyecto salía siempre con «ÚNICO. Se confirma la sentencia
+    # recurrida», de modo que un amparo en revisión NUNCA amparaba.
+    _hecho = False
+    if _ta.normalizar(tipo_asunto) == "amparo_revision":
+        _fuente_rama = " ".join([
+            str(datos.get("antecedentes") or ""),
+            " ".join(str(r.get("texto") or "")
+                     for r in (estructura.resultandos or [])),
+            str(estudio or "")[:6000]])
+        try:
+            import fase_rama as _fr
+            _que_hizo = _fr.resolvio_a_quo(_fuente_rama)
+            _clave = _ta.rama_revision(
+                _que_hizo,
+                "fundado" if concede else "infundado",
+                solo_efectos=_fr.solo_los_efectos(str(estudio or "")),
+                violacion_procesal=_fr.hay_violacion_procesal(str(estudio or "")))
+            _rama = _ta.RAMAS_REVISION[_clave]
+            _orig = (_fr.responsable_originaria(_fuente_rama)
+                     or _normalizar_autoridad(str(datos.get("responsable") or ""))
+                     or HUECO)
+            if _rama.get("aviso"):
+                _avisos_bk.append(_rama["aviso"])
+            for _pt in _rama["puntos"]:
+                _txt = (_pt.replace("{HUECO}", HUECO)
+                           .replace("{quejoso}", str(datos.get("quejoso") or HUECO))
+                           .replace("{responsable_originaria}", _orig)
+                           .replace("{expediente}",
+                                    str(_datos_bk.get("expediente") or HUECO)))
+                _cab, _resto = _txt.split(". ", 1) if ". " in _txt else (_txt, "")
+                tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})],
+                       sangria=False)
+            _avisos_bk.append(
+                f"RESOLUTIVO DE REVISIÓN, rama «{_clave}» "
+                f"({_rama['fundamento']}). El a quo "
+                f"{_que_hizo or 'no consta qué resolvió'}; el recurso resultó "
+                f"{'fundado' if concede else 'infundado'}. Compruébalo: de esto "
+                f"depende que se confirme, se revoque o se modifique.")
+            _hecho = True
+        except Exception as _erm:
+            print(f"   ⚠️ rama de revisión no determinada: {_erm}")
+
+    if _hecho:
+        pass
+    elif _res.get("punto"):
         # Queja y revisión: NO amparan. Se califica el recurso o se resuelve
         # sobre la sentencia recurrida, que es lo que hacen los engroses.
         _cal = _res["calif"][0] if concede else _res["calif"][1]
