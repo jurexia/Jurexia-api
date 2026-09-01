@@ -169,14 +169,38 @@ def procedencia_contradice(texto: str) -> str:
 
 
 # ── 5. PROMESA CUMPLIDA ────────────────────────────────────────────────────
+# LA PROMESA ES SOBRE EL ACTO, NO SOBRE LAS TESIS. El documento promete que es
+# innecesario transcribir la sentencia recurrida y los agravios; citar una
+# jurisprudencia con su rubro no rompe esa promesa —es fundar—. Medir las dos
+# cosas juntas hacía que un estudio con seis criterios invocados saliera
+# «promesa rota» por bien fundado, que es exactamente al revés.
+#
+# Se descuentan las citas que van identificadas como criterio: las precedidas
+# de «de rubro», «jurisprudencia», «tesis» o un registro digital.
+_RX_CITA_TESIS = re.compile(
+    r"(?:jurisprudencia|tesis|registro\s+digital|de\s+rubro)[^«\"“]{0,160}"
+    r"[«\"“]([^»\"”]{80,})[»\"”]", re.I)
+
+
 def promesa_rota(texto: str) -> dict:
-    """Prometió no transcribir y transcribió."""
-    promete = bool(re.search(r"innecesari[oa]\s+(?:su\s+)?tra[ns]scri", texto or "", re.I))
+    """Prometió no transcribir EL ACTO y lo transcribió."""
+    promete = bool(re.search(r"innecesari[oa]\s+(?:su\s+)?tra[ns]scri",
+                             texto or "", re.I))
     est = estudio_de(texto)
     d = densidad(est)
+    de_tesis = sum(len(re.findall(r"\w+", m.group(1)))
+                   for m in _RX_CITA_TESIS.finditer(est))
+    # Lo transcrito del ACTO es lo citado menos lo citado de criterios.
+    del_acto = max(0, d["transcritas"] - de_tesis)
+    pct_acto = del_acto / d["palabras"] if d["palabras"] else 0.0
     return {"prometio": promete,
             "pct_transcrito_despues": round(1 - d["pct_propio"], 3) if d["palabras"] else 0.0,
-            "rota": promete and d["palabras"] > 300 and d["pct_propio"] < 0.70}
+            "pct_del_acto": round(pct_acto, 3),
+            "palabras_de_tesis": de_tesis,
+            # El umbral es el de la referencia: los engroses transcriben entre
+            # el 42% y el 64%. Pasar de un tercio del estudio reproduciendo el
+            # acto, habiendo prometido no hacerlo, es romperla.
+            "rota": promete and d["palabras"] > 300 and pct_acto > 0.33}
 
 
 def medir(texto: str) -> dict:
@@ -215,6 +239,27 @@ def estadistica_en_el_texto(texto: str) -> list:
 # Medido en el ADC 642/2024: tres párrafos copiados palabra por palabra dentro
 # del mismo considerando, ochenta líneas después. Cero criterio jurídico, cero
 # coste: n-gramas de quince palabras repetidos dentro del estudio.
+# LAS FÓRMULAS DE ATRIBUCIÓN SE REPITEN CON RAZÓN. «La jurisprudencia de la
+# Segunda Sala de la Suprema Corte de Justicia de la Nación» aparece dos veces
+# cuando se citan dos tesis de esa Sala, y eso no es un párrafo copiado: es
+# cómo se nombra un criterio. Un detector que las cuenta acusa al documento
+# bien escrito, y por la regla de la casa el que está mal entonces es el
+# detector.
+_FORMULAS = (
+    "suprema corte de justicia de la nacion", "tribunal colegiado de circuito",
+    "semanario judicial de la federacion", "ley federal de procedimiento",
+    "constitucion politica de los estados unidos mexicanos",
+    "consejo de la judicatura federal", "de rubro y texto siguientes",
+    "tribunal federal de justicia administrativa",
+    "tribunal colegiado en materias administrativa y civil",
+)
+
+
+def _es_formula(g: str) -> bool:
+    t = _norm(g)
+    return any(f in t for f in _FORMULAS)
+
+
 def duplicacion_interna(estudio: str, n: int = 15) -> list:
     pal = re.findall(r"\w+", (estudio or "").lower())
     if len(pal) < n * 3:
@@ -237,7 +282,7 @@ def duplicacion_interna(estudio: str, n: int = 15) -> list:
     # dos repeticiones lejanas se fundían en una y una sola se contaba entera.
     fuera, ultimo = [], -10 ** 9
     for i, g in crudos:
-        if i - ultimo > n:
+        if i - ultimo > n and not _es_formula(g):
             fuera.append(g)
             ultimo = i
     return fuera[:6]

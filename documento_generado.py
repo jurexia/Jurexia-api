@@ -1549,10 +1549,19 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 continue
         # Se decide ANTES de escribir qué artículos van a transcribirse, para
         # poder quitar del párrafo el extracto que quedaría repetido debajo.
-        _preceptos = [(n_, x) for n_, x in
-                      _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_PARRAFO]
-                      if n_ not in transcritos]
-        t = _sin_extracto_repetido(t, _preceptos)
+        _del_parrafo = _preceptos_del_parrafo(t, normas)[:MAX_ARTICULOS_POR_PARRAFO]
+        _preceptos = [(n_, x) for n_, x in _del_parrafo if n_ not in transcritos]
+        # EL ECO SOBREVIVÍA CUANDO EL ARTÍCULO YA ESTABA TRANSCRITO. La poda
+        # miraba sólo los preceptos que este párrafo va a transcribir DEBAJO;
+        # si el compositor ya lo había puesto páginas antes, `_preceptos`
+        # quedaba vacío y la copia que el modelo escribió aquí se quedaba.
+        #
+        # Medido en el ARA 17/2025 generado: el artículo 76 de la Ley de Amparo
+        # aparece dos veces, una en el bloque del compositor —entre comillas
+        # angulares— y otra en el cuerpo, escrita por el modelo. Es el defecto
+        # que el detector de duplicación marcaba y la regla del prompt no
+        # bastaba para evitar, porque no es del modelo solo: es de los dos.
+        t = _sin_extracto_repetido(t, _del_parrafo)
         if len(t.split()) < 6:
             continue
         p_ = parrafo_con_citas(doc, t, notas)
