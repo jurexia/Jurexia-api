@@ -296,8 +296,18 @@ _RX_VERSALES = re.compile(r"[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s,.;:«»\"“”(
 # párrafos copiados ochenta líneas después, que es lo medido en el ADC
 # 642/2024—, así que se descuenta lo citado: los entrecomillados y los cuerpos
 # de tesis.
+# LO ENTRECOMILLADO SE QUEDA, y ésta es la corrección de la corrección. Lo
+# quité entero, y con ello desaparecieron las TRES duplicaciones reales del
+# engrose del ADC 642/2024 —párrafos copiados palabra por palabra ochenta
+# líneas después—, que estaban dentro de comillas porque lo repetido era la
+# transcripción de los conceptos de violación.
+#
+# Citar dos veces el mismo pasaje NO deja de ser repetirse porque vaya
+# entrecomillado: es el redactor pegando dos veces. Lo que sí es propio de la
+# fuente y no del redactor son los rubros en versales y el cuerpo de las tesis
+# modernas, cuyo «Criterio jurídico» reformula el rubro por diseño. Sólo eso
+# se descuenta.
 _RX_CITADO = re.compile(
-    r"[«\"“][^»\"”]{60,}[»\"”]|"
     r"(?:Hechos|Criterio\s+jur[íi]dico|Justificaci[óo]n)\s*:[^\n]{0,2000}",
     re.I)
 
