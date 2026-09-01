@@ -1815,8 +1815,29 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         if esq["tabla_computo"]:
             tabla_computo(doc, computo, fecha_en_letra, tipo_asunto)
 
-    con_apartados.append((_bk.rotulo_de(tipo_asunto, "legitimacion",
-                                        esq["legitimacion"]), _legitimacion))
+    _legit = (_bk.rotulo_de(tipo_asunto, "legitimacion", esq["legitimacion"]),
+              _legitimacion)
+
+    # EL ORDEN ENTRE PROCEDENCIA Y LEGITIMACIÓN LO FIJA EL CATÁLOGO, no este
+    # archivo. En la queja el corpus resuelve primero si el recurso procede
+    # —21 competencias, 20 procedencias, 16 legitimaciones, en ese orden— y el
+    # adelanto real de la QC 259/2025 hace lo mismo: SEGUNDO Procedencia,
+    # TERCERO Legitimación. Aquí salía al revés porque el orden estaba escrito
+    # a mano, y con razón: en el amparo directo la legitimación va primero.
+    # Es la misma pregunta de siempre —¿quién manda, el código o lo medido?—
+    # y la respuesta no cambia.
+    _cons = [c for c, _ in
+             (_ta.estructura_de(tipo_asunto).get("considerandos") or [])]
+
+    def _puesto(clave: str) -> int:
+        for i, c in enumerate(_cons):
+            if clave in c.lower():
+                return i
+        return 99
+
+    _procedencia_primero = _puesto("procedencia") < _puesto("legitim")
+    if not _procedencia_primero:
+        con_apartados.append(_legit)
 
     # PROCEDENCIA NO ES UN CONSIDERANDO PROPIO cuando hay «Existencia del acto
     # reclamado»: medido, es su ALTERNATIVA —3 de 26, en asuntos venidos de
@@ -1831,6 +1852,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             or (esq["existencia"] and not (estructura.existencia or "").strip())):
         con_apartados.append(("Procedencia.",
                               (lambda c: lambda p: _texto_en(p, c))(estructura.procedencia)))
+
+    if _procedencia_primero:
+        con_apartados.append(_legit)
 
     # LA DISPENSA. El rótulo promete el acto reclamado y los conceptos, y el
     # contenido es justamente que NO hace falta transcribirlos: 21 de 26.

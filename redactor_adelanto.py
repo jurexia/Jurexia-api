@@ -273,6 +273,18 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     f.fuentes = [(texto_acto or "")[:120000], (texto_conceptos or "")[:120000]]
     if autos:
         print(f"   📁 constancias del expediente: {len(autos)} caracteres")
+
+    # EL ADELANTO TAMBIÉN SE COMPRUEBA. La revisión de contaminación sólo
+    # corría en `_terminar()`, es decir, al final del camino largo: quien pide
+    # únicamente el adelanto —que es la mayoría— se llevaba los resultandos con
+    # sus nombres, expedientes y cantidades sin que nadie los contrastara con
+    # los documentos que subió. Y el adelanto es precisamente donde van los
+    # datos duros del asunto: quién promovió, contra qué, cuándo y por cuánto.
+    _r0 = Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes)
+    for _a in _revisar_contaminacion(_r0, e):
+        if _a not in avisos:
+            avisos.append(_a)
+
     return Resultado(ruta=ruta, computo=c, fases=f, encargo=e, partes=partes,
                      huecos=ens.huecos_pendientes(ruta), avisos=avisos,
                      estructura=estructura)

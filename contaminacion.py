@@ -110,10 +110,25 @@ def revisar(sentencia: str, fuentes: list, encargo: dict) -> list:
     # una queja mexicana, y ese caso estaba LITERALMENTE en el escrito de
     # agravios de la parte —11,515 caracteres de OCR lo confirmaron—. El
     # proyecto lo relataba bien; el que leía mal era yo.
+    # LA CANTIDAD NO ES LA MEDIDA, Y VOLVIÓ A COSTAR. Estos 95 folios de la
+    # sentencia agraria traen 8,740 caracteres de capa de texto: pasan de sobra
+    # los 3,000 y son ÍNTEGRAMENTE el sello de la firma electrónica —nombre de
+    # la firmante, cadena de la FIEL y hora, repetidos una vez por página—.
+    # Contra ese «texto» el detector acusó de ajenos a Gabriel Olvera Rodríguez
+    # y al Registro Agrario Nacional, que son las partes del asunto.
+    #
+    # Se mide la RIQUEZA, como ya hace `_texto_nativo_sirve` en el extractor:
+    # un sello repetido tiene poquísimas palabras distintas —0.03— y un
+    # documento judicial ronda el 0.2-0.4. Es la misma trampa que mandó a un
+    # redactor a escribir 4,133 palabras sobre un documento que no leyó, y la
+    # guarda de aquí no la conocía.
     docs = _norm(" ".join(f or "" for f in (fuentes or [])))
-    if len(docs) < 3000:
+    _pal = re.findall(r"[a-zñ]{3,}", docs)
+    _ricas = len({w for w in _pal}) / len(_pal) if _pal else 0
+    if len(docs) < 3000 or len(_pal) < 400 or _ricas < 0.12:
         return ["No se pudo comprobar la contaminación: los documentos del "
-                "asunto no traen texto suficiente (¿escaneo sin OCR?). Un "
+                "asunto no traen texto aprovechable —escaneo sin OCR, o una "
+                "capa que sólo repite el sello de la firma electrónica—. Un "
                 "detector sin fuentes acusa de todo."]
     # EL NÚMERO DEL PROPIO ASUNTO SE ESCRIBE DE DOS MANERAS. El encargo lo trae
     # como «143-2026» —así viaja en la URL y en el formulario— y la sentencia lo
