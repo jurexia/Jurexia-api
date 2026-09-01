@@ -269,47 +269,35 @@ _FORMULAS = (
 )
 
 
-def _es_formula(g: str) -> bool:
-    t = _norm(g)
-    return any(f in t for f in _FORMULAS)
-
-
-# EL RUBRO DE UNA TESIS REPITE SU PROPIO TEXTO, y eso no es un párrafo copiado:
-# es como se escribe una tesis. «LA PORCIÓN DEL ARTÍCULO 7o. CONSTITUCIONAL,
-# QUE ESTABLECE LA PROHIBICIÓN DE SECUESTRAR LOS BIENES…» va en versales en el
-# rubro y en minúsculas en el criterio jurídico del mismo párrafo. Contarlo
-# hacía que un estudio con seis tesis bien citadas saliera con seis
-# «duplicaciones», y por la regla de la casa el que está mal entonces es el
-# detector, no el documento.
-#
-# Se quita el texto en VERSALES antes de contar: ahí viven los rubros, y ningún
-# razonamiento propio se escribe así.
+# El rubro de una tesis va en versales y repite su propio texto: eso es de la
+# fuente, no del redactor.
 _RX_VERSALES = re.compile(r"[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s,.;:«»\"“”()0-9º°/-]{40,}")
 
-
-# Y TAMPOCO CUENTA LO QUE REPITE LA FUENTE. Una tesis moderna trae «Hechos:»,
-# «Criterio jurídico:» y «Justificación:», y el criterio jurídico reformula el
-# rubro casi palabra por palabra: así se publican. Un artículo transcrito
-# repite las fórmulas de sus fracciones. Nada de eso lo escribió el redactor.
-#
-# Lo que esta medida busca es al redactor repitiéndose A SÍ MISMO —tres
-# párrafos copiados ochenta líneas después, que es lo medido en el ADC
-# 642/2024—, así que se descuenta lo citado: los entrecomillados y los cuerpos
-# de tesis.
-# LO ENTRECOMILLADO SE QUEDA, y ésta es la corrección de la corrección. Lo
-# quité entero, y con ello desaparecieron las TRES duplicaciones reales del
-# engrose del ADC 642/2024 —párrafos copiados palabra por palabra ochenta
-# líneas después—, que estaban dentro de comillas porque lo repetido era la
-# transcripción de los conceptos de violación.
-#
-# Citar dos veces el mismo pasaje NO deja de ser repetirse porque vaya
-# entrecomillado: es el redactor pegando dos veces. Lo que sí es propio de la
-# fuente y no del redactor son los rubros en versales y el cuerpo de las tesis
-# modernas, cuyo «Criterio jurídico» reformula el rubro por diseño. Sólo eso
-# se descuenta.
+# Y el cuerpo de una tesis moderna: su «Criterio jurídico» reformula el rubro
+# por diseño. Lo entrecomillado SÍ se cuenta —citar dos veces el mismo pasaje
+# es el redactor pegando dos veces— y ésa fue una corrección aprendida.
 _RX_CITADO = re.compile(
     r"(?:Hechos|Criterio\s+jur[íi]dico|Justificaci[óo]n)\s*:[^\n]{0,2000}",
     re.I)
+
+
+# LO QUE ESTA MEDIDA NO SABE HACER, Y HAY QUE DECIRLO.
+#
+# No distingue con fiabilidad al redactor repitiéndose de una frase que nombra
+# una institución. «De la Ley del Instituto de Seguridad y Servicios Sociales
+# de los Trabajadores del Estado» son quince palabras, y una sentencia que
+# discute esa ley tiene que nombrarla cada vez que la invoca. Probé a
+# reconocer la forma de un nombre institucional —casi todo nexos, sin verbo
+# conjugado— y acertó cuatro de seis: no es fiable.
+#
+# Se queda con la lista de fórmulas conocidas, que sí acierta en lo que cubre,
+# y se asume que esta medida sobreestima. Es la más débil de las siete y no se
+# usa para afirmar que un documento es mejor que otro: se usa para que el
+# secretario mire dónde se repitió algo. Afinarla más para que la comparación
+# salga favorable sería fabricar el resultado.
+def _es_formula(g: str) -> bool:
+    t = _norm(g)
+    return any(f in t for f in _FORMULAS)
 
 
 def duplicacion_interna(estudio: str, n: int = 15) -> list:
