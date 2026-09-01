@@ -977,6 +977,20 @@ RESOLUTIVO = {
 _CONECTIVAS = {"de", "del", "la", "las", "el", "los", "y", "en", "e", "al"}
 
 
+def _sin_articulo(x: str) -> str:
+    """«el Juzgado Segundo» → «Juzgado Segundo». Lo pone la plantilla.
+
+    EL CONTRATO ESTABA ESCRITO Y NO IMPLEMENTADO: el comentario de `_datos_bk`
+    dice «se entrega el nombre limpio y la plantilla lo enmarca», y las
+    fórmulas del banco dicen «dictado por el {responsable}». Pero nada quitaba
+    el artículo, así que en cuanto el secretario teclea «el Juzgado Segundo de
+    Distrito» en el formulario —que es como se dice— sale «por el el Juzgado».
+    No pasaba con la autoridad LEÍDA del acto, que viene sin artículo; pasa con
+    la que se escribe a mano, que es la que existe para corregir la leída.
+    """
+    return re.sub(r"^\s*(?:el|la|los|las)\s+", "", x or "", flags=re.I)
+
+
 def _normalizar_autoridad(nombre: str) -> str:
     n = " ".join((nombre or "").split()).strip(" \t.,;:")
     if not n:
@@ -1996,7 +2010,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # anteponerle el artículo aquí producía «por el el Juez de Distrito». Se
     # entrega el nombre limpio y la plantilla lo enmarca; donde hace falta
     # artículo —el resolutivo, los efectos— se pone en ese sitio.
-    _datos_bk["responsable"] = _normalizar_autoridad(_resp)
+    _datos_bk["responsable"] = _sin_articulo(_normalizar_autoridad(_resp))
     # Y LOS DATOS QUE LA PLANTILLA PIDE Y NADIE LLENABA. `{descripcion_acto}`
     # salía como hueco «*********» en la competencia de toda queja: es la única
     # frase que dice CONTRA QUÉ se recurre, y sin ella el considerando primero
