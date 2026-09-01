@@ -1416,12 +1416,54 @@ def _cuenta_conceptos(texto: str) -> int:
     return alto
 
 
-def revisar_congruencia(ruta: str, calificaciones=None) -> list[str]:
+def revisar_congruencia(ruta: str, calificaciones=None,
+                        tipo_asunto: str = "") -> list[str]:
     """El resolutivo tiene que decir lo que dice el estudio. Sin excepción."""
     doc = docx.Document(ruta)
     texto = "\n".join(texto_de(p) for parte in _partes_con_texto(doc)
                       for p in _parrafos_todos(parte))
     fuera: list[str] = []
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # LA FÓRMULA DE OTRO TIPO DE ASUNTO
+    # ═══════════════════════════════════════════════════════════════════════
+    # POR QUÉ ESTO LLEGÓ A UN SECRETARIO SIN UN SOLO AVISO. Esta función corre
+    # SIEMPRE sobre el .docx terminado y es la última red antes de la firma,
+    # pero sólo conocía dos fórmulas: «ampara y protege» y «no ampara ni
+    # protege». Una queja que cerraba diciendo «lo procedente es negar el
+    # amparo solicitado» y decretaba «Es infundado el recurso de queja» pasaba
+    # limpia: las dos frases son congruentes ENTRE SÍ para quien sólo sabe de
+    # amparos, y ninguna de las dos activaba el par que se vigilaba.
+    #
+    # Se comprueba primero, porque una fórmula ajena no es un matiz de estilo:
+    # es una resolución que no existe en ese recurso.
+    if tipo_asunto:
+        try:
+            import tipos_asunto as _ta_cg
+            _aj = _ta_cg.cierre_ajeno(tipo_asunto, texto)
+        except Exception:
+            _aj = []
+        # LA LEY QUE NO GOBIERNA EL RECURSO, en el considerando que funda la
+        # jurisdicción. Acotado a ese párrafo: en el resto del documento la Ley
+        # de Amparo puede aparecer legítimamente —el cómputo cita su artículo
+        # 19 para los inhábiles— y una alarma que salta siempre no se lee.
+        try:
+            _leyes = _ta_cg.prohibido_en_competencia(tipo_asunto, texto)
+        except Exception:
+            _leyes = []
+        if _leyes:
+            fuera.append(
+                "LEY AJENA EN EL CONSIDERANDO DE COMPETENCIA: la jurisdicción "
+                "se funda en una ley que no gobierna este recurso. Es lo que "
+                "pasa cuando se cuela la plantilla de otro tipo de asunto, y "
+                "está en el primer considerando que se lee.")
+        if _aj:
+            _n = _ta_cg.vocabulario_de(tipo_asunto)["nombre"]
+            fuera.append(
+                f"FÓRMULA DE OTRO TIPO DE ASUNTO EN {_n.upper()}: aparece "
+                f"{', '.join('«' + a.replace(chr(92) + 'b', '') + '»' for a in _aj)}. "
+                f"En este recurso no hay amparo que negar ni conceder: se coló "
+                f"la plantilla del amparo directo y el proyecto no se sostiene.")
 
     concede = bool(_RX_CONCEDE.search(texto))
     niega = bool(_RX_NIEGA.search(texto))

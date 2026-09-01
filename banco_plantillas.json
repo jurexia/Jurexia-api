@@ -999,5 +999,121 @@
    "«Por lo expuesto, fundado y con apoyo además en los artículos… se resuelve:» seguido inmediatamente de «Por lo expuesto y fundado, se resuelve:» aparece duplicado en al menos un engrose (ARA 186-2025). Es un pegado doble del corpus: el compositor debe emitir UN solo encabezado.",
    "El disco se monta en /Users/josedavidalcantarmendoza/Documents/KINGSTON, NO en /Volumes/KINGSTON. Un `find /Volumes/KINGSTON` devuelve vacío y cierra la tarea en falso."
   ]
+ },
+ "revision-fiscal": {
+  "documentos_leidos": {
+   "revision_fiscal": 28,
+   "fuente": "banco_formulas_medidas.json · entrada tipo=revision-fiscal"
+  },
+  "cabecera": "REVISIÓN FISCAL: {toca}\n\nRECURRENTE: {recurrente}.\n\nMAGISTRADO PONENTE: {magistrado}.\n\nSECRETARIO: {secretario}.",
+  "cabecera_frecuencia": "28/28",
+  "proemio": "V I S T O S, para resolver el recurso de revisión fiscal número {toca}, interpuesto por la parte citada al rubro, contra la sentencia de {fecha_sentencia}, dictada en el expediente {expediente}, por {responsable}; y,",
+  "proemio_frecuencia": "28/28 (variante A del VISTOS: 19; variante B: 9)",
+  "resultandos": [],
+  "considerandos": [
+   {
+    "id": "rf-c1-competencia",
+    "rotulo": "PRIMERO. Competencia.",
+    "fijo": true,
+    "frecuencia": "28/28 (fórmula moderna 6, fórmula antigua 21)",
+    "plantilla": "PRIMERO. Competencia. Este Tercer Tribunal Colegiado en Materias Administrativa y Civil del Vigésimo Segundo Circuito es competente para conocer y resolver el presente recurso de revisión fiscal, toda vez que la sentencia recurrida fue dictada en un juicio de nulidad de naturaleza administrativa tramitado ante {responsable}, localizado en la circunscripción territorial en que ejerce jurisdicción este órgano colegiado, con fundamento en los artículos 104, fracción III, de la Constitución Federal; 35, fracción VI y 210 de la Ley Orgánica del Poder Judicial de la Federación; 63, párrafo primero, de la Ley Federal de Procedimiento Contencioso Administrativo; en relación con el punto tercero, fracción {fraccion_acuerdo}, del Acuerdo General 3/2013 y el artículo 1 del diverso 28/2017, ambos del Pleno del otrora Consejo de la Judicatura Federal.",
+    "cuando": "siempre",
+    "nota_al_pie": "",
+    "variantes": []
+   },
+   {
+    "id": "rf-c2-legitimacion",
+    "rotulo": "SEGUNDO. Legitimación y oportunidad.",
+    "fijo": true,
+    "frecuencia": "28/28 · «presentado oportunamente» 16/28",
+    "plantilla": "SEGUNDO. Legitimación y oportunidad. El recurso de revisión fue hecho valer por parte legítima en términos del artículo 63, párrafo primero, de la Ley Federal de Procedimiento Contencioso Administrativo, toda vez que lo interpone el representante de la autoridad demandada en el juicio de nulidad, en el que la sentencia le resultó adversa.",
+    "cuando": "siempre",
+    "nota_al_pie": "",
+    "variantes": []
+   },
+   {
+    "id": "rf-c3-dispensa",
+    "rotulo": "TERCERO. Consideraciones de la sentencia impugnada y agravios.",
+    "fijo": true,
+    "frecuencia": "20/28 (14 con esta redacción exacta)",
+    "plantilla": "TERCERO. Consideraciones de la sentencia impugnada y agravios. Los agravios expresados por la autoridad recurrente, obran agregados a los autos y se tienen a la vista por formar parte del acervo del expediente, por ello es innecesaria su trascripción, así como de la sentencia impugnada, pues el deber formal y material de exponer los argumentos legales que sustenten esta resolución, incluso examinar las cuestiones efectivamente planteadas, no depende de la inserción material de los aspectos que conforman la litis, sino de su adecuado análisis.",
+    "cuando": "siempre",
+    "nota_al_pie": "",
+    "variantes": []
+   },
+   {
+    "id": "rf-c4-procedencia",
+    "rotulo": "CUARTO. Procedencia.",
+    "fijo": true,
+    "frecuencia": "14/28 por la fracción VI",
+    "plantilla": "CUARTO. Procedencia. El recurso es procedente conforme al artículo 63, fracción VI, de la Ley Federal de Procedimiento Contencioso Administrativo.",
+    "cuando": "siempre",
+    "nota_al_pie": "",
+    "variantes": []
+   },
+   {
+    "id": "rf-c5-antecedentes",
+    "rotulo": "QUINTO. Antecedentes.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "15/28",
+    "plantilla": "",
+    "apertura": "Para una mejor comprensión del asunto,",
+    "cuando": "siempre",
+    "nota_al_pie": ""
+   },
+   {
+    "id": "rf-c6-estudio",
+    "rotulo": "{ordinal}. Estudio de los agravios.",
+    "generado": true,
+    "fijo": false,
+    "frecuencia": "15/28",
+    "plantilla": "",
+    "apertura": "",
+    "cuando": "siempre",
+    "nota_al_pie": "",
+    "no_medido": ""
+   }
+  ],
+  "resolutivo": {
+   "plantilla": "{cierre_previo} Por lo expuesto y fundado, se resuelve:\n\nR E S U E L V E\n\nÚNICO. {sentido}",
+   "encabezados": [
+    {
+     "texto": "Por lo expuesto y fundado, se resuelve:",
+     "frecuencia": "12/28"
+    },
+    {
+     "texto": "Por lo expuesto y fundado, se:",
+     "frecuencia": "8/28"
+    }
+   ],
+   "sentidos": {
+    "confirma": "Se confirma la sentencia de {fecha_sentencia}, dictada en el expediente {expediente}, por {responsable}.",
+    "frecuencia_confirma": "16/28"
+   }
+  },
+  "cierre": "Notifíquese; publíquese y anótese en el libro de control de este tribunal, hágase la captura correspondiente en el Sistema Integral de Seguimiento de Expedientes, con testimonio de esta resolución vuelvan los autos a su lugar de origen y, en su oportunidad, archívese el expediente como asunto concluido.",
+  "cierre_frecuencias": {
+   "Notifíquese; publíquese y anótese": "23/28"
+  },
+  "cierre_variantes": {},
+  "marcadores": [
+   "toca",
+   "recurrente",
+   "magistrado",
+   "secretario",
+   "responsable",
+   "fecha_sentencia",
+   "expediente",
+   "fraccion_acuerdo",
+   "sentido",
+   "cierre_previo",
+   "ordinal"
+  ],
+  "trampas": [
+   "El 63 de la LFPCA gobierna este recurso: la Ley de Amparo NO se cita.",
+   "La procedencia se motiva por la fracción del 63 —cuantía o materia—, no con «no se advierte causa de improcedencia».",
+   "No hay quejoso ni autoridad responsable: hay autoridad recurrente y parte actora en el juicio de nulidad."
+  ]
  }
 }

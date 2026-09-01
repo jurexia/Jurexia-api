@@ -35,6 +35,8 @@ patrón es un tipo que nadie ha verificado.
 
 from __future__ import annotations
 
+import re
+
 # ── Los plazos, leídos de la ley ─────────────────────────────────────────────
 # El plazo NO es un campo que el secretario deba teclear: lo dice la ley y
 # depende del tipo. Lo que sí hay que preguntarle es si cae en una excepción,
@@ -344,3 +346,271 @@ def rotulo_estudio_de(tipo: str) -> str:
     """
     cs = estructura_de(tipo).get("considerandos") or []
     return (cs[-1][0] if cs else "Estudio")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA CADENA DE COMPETENCIA
+# ═══════════════════════════════════════════════════════════════════════════
+# «El error más grave de todos», con esas palabras, en la auditoría de David:
+# la revisión fiscal fundaba la competencia del Tribunal Colegiado en el
+# artículo 107, fracción VIII, de la Constitución y en los artículos 81,
+# fracción I, inciso e), y 84 de la Ley de Amparo. Una revisión fiscal no es un
+# amparo ni un amparo en revisión, y citar ahí la Ley de Amparo no es un
+# desliz de redacción: es fundar la jurisdicción en una ley que no gobierna el
+# recurso, en el considerando PRIMERO, que es el primero que lee quien firma.
+#
+# LA CAUSA: la revisión fiscal no tiene banco propio y toma prestado el de la
+# revisión de amparo. El préstamo se pensó para las fórmulas de TRÁMITE, pero
+# la búsqueda del banco no distingue apartados, así que prestaba también la
+# competencia —y con ella, la ley equivocada—.
+#
+# ESTO NO ESTÁ INVENTADO. Sale del adelanto real de la RF 44/2025, palabra por
+# palabra, cambiando por marcadores lo que es de aquel tribunal y de aquel
+# asunto. Dos cosas que conviene que David confirme:
+#
+#   · su engrose cita el artículo 35, fracción VI, de la Ley Orgánica del Poder
+#     Judicial de la Federación, y su auditoría dice fracción V. Se respeta lo
+#     que dice el engrose, porque es lo que se firmó;
+#   · su engrose nombra el Consejo de la Judicatura Federal sin el «otrora» que
+#     sí llevan sus adelantos de amparo y de queja.
+COMPETENCIA = {
+    "revision_fiscal": {
+        "plantilla":
+            "Este {tribunal} ejerce jurisdicción y es competente para conocer "
+            "y resolver el presente recurso de revisión fiscal, de conformidad "
+            "con lo dispuesto en el precepto 104, fracción III, de la "
+            "Constitución Política de los Estados Unidos Mexicanos; artículo "
+            "35, fracción VI, de la Ley Orgánica del Poder Judicial de la "
+            "Federación vigente, así como en el diverso 63 de la Ley Federal "
+            "de Procedimiento Contencioso Administrativo, y en los Acuerdos "
+            "Generales 3/2013 y 28/2017, ambos del Pleno del Consejo de la "
+            "Judicatura Federal, publicados en el Diario Oficial de la "
+            "Federación el quince de febrero de dos mil trece y trece de "
+            "noviembre de dos mil diecisiete, respectivamente; en atención a "
+            "que fue interpuesto contra una sentencia dictada por "
+            "{responsable}, con residencia dentro de la jurisdicción de este "
+            "órgano colegiado.",
+        "fuente": "adelanto real RF 44/2025",
+        # Lo que NO puede aparecer en la competencia de este tipo. Una revisión
+        # fiscal fundada en la Ley de Amparo es la firma de que se coló la
+        # plantilla del amparo, y es barato comprobarlo antes de entregar.
+        "prohibido": [r"Ley\s+de\s+Amparo",
+                      r"art[íi]culos?\s+8[14]\b",
+                      r"107,?\s*fracci[óo]n\s+VIII"],
+    },
+}
+
+
+def competencia_de(tipo: str) -> dict:
+    """La cadena propia del tipo, o {} si la toma del banco."""
+    return COMPETENCIA.get(normalizar(tipo), {})
+
+
+# EL ALCANCE ES EL PÁRRAFO, NO EL DOCUMENTO. Correr esto sobre la sentencia
+# entera hacía saltar la alarma por el «artículo 19 de la Ley de Amparo» que el
+# párrafo del CÓMPUTO cita para los días inhábiles —otra discusión, y no
+# medida—. Una alarma que salta siempre deja de leerse, así que se acota al
+# considerando de competencia, que es donde la ley ajena sí es un vicio.
+_RX_COMPETENCIA = re.compile(
+    r"(?:PRIMERO\.\s*)?Competencia\.(.{0,2500}?)(?=\n\s*(?:SEGUNDO|TERCERO)\.|\Z)",
+    re.S | re.I)
+
+
+def parrafo_competencia(texto: str) -> str:
+    """El considerando de competencia, aislado del resto."""
+    m = _RX_COMPETENCIA.search(texto or "")
+    return m.group(1) if m else ""
+
+
+def prohibido_en_competencia(tipo: str, texto: str, acotar: bool = True) -> list:
+    """Qué se coló de otra plantilla. Determinista, sin modelo.
+
+    `acotar` recorta al considerando de competencia; pásalo en False cuando ya
+    se le entrega ese párrafo solo.
+    """
+    c = competencia_de(tipo)
+    if not c.get("prohibido"):
+        return []
+    t = parrafo_competencia(texto) if acotar else (texto or "")
+    if acotar and not t:
+        return []
+    return [pat for pat in c["prohibido"] if re.search(pat, t, re.I)]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CIERRE DEL ESTUDIO
+# ═══════════════════════════════════════════════════════════════════════════
+# LOS CUATRO PROYECTOS CERRABAN IGUAL, incluido el que resolvía una queja:
+#
+#     «Por lo expuesto, dado lo infundado de los agravios, lo procedente es
+#      negar el amparo solicitado.»
+#
+# En un amparo directo es correcto. En una queja es una resolución que no
+# existe —no hay amparo que negar, hay un recurso que declarar infundado— y,
+# peor, el documento llevaba LAS DOS frases: ésta en el estudio y «ÚNICO. Es
+# infundado el recurso de queja» treinta líneas más abajo. Se contradecía a sí
+# mismo, y la comprobación de congruencia que corre sobre el .docx no dijo nada
+# porque sólo conocía las fórmulas del amparo.
+#
+# LA CAUSA: el punto resolutivo SÍ salía de una tabla por tipo; el párrafo de
+# cierre del estudio y el apartado de Efectos estaban escritos a mano treinta
+# líneas más allá, en la misma función, sin mirarla. El saber de qué decreta
+# cada tipo vivía en un módulo de composición, así que sólo lo consultaba el
+# trozo de código que tenía al lado.
+#
+# LA FORMA ESTÁ MEDIDA y es la misma en los cuatro; lo único que cambia es el
+# desenlace:
+#
+#   amparo directo   «En ese sentido, ante la ineficacia de los conceptos de
+#                     violación planteados, lo procedente es negar el amparo
+#                     solicitado.»
+#   revisión fiscal  «En relatadas circunstancias, ante la ineficacia de los
+#                     agravios planteados, lo procedente es confirmar la
+#                     sentencia recurrida.»
+#
+# Y SÓLO EL AMPARO DIRECTO LLEVA APARTADO DE EFECTOS. «Procede conceder el
+# amparo y protección de la Justicia Federal para el efecto de que la
+# responsable deje insubsistente la sentencia reclamada» no se escribe en una
+# queja fundada: ahí se revoca el auto y se ordena proveer de nuevo.
+CIERRE = {
+    "amparo_directo": {
+        "negativo": "negar el amparo solicitado",
+        "positivo": "conceder el amparo y protección de la Justicia Federal",
+        "efectos": True,
+    },
+    "amparo_revision": {
+        "negativo": "confirmar la sentencia recurrida",
+        "positivo": "revocar la sentencia recurrida",
+        "efectos": False,
+    },
+    "queja": {
+        "negativo": "declarar infundado el recurso de queja",
+        "positivo": "declarar fundado el recurso de queja",
+        "efectos": False,
+    },
+    "revision_fiscal": {
+        "negativo": "confirmar la sentencia recurrida",
+        "positivo": "revocar la sentencia recurrida",
+        "efectos": False,
+    },
+}
+
+
+def cierre_de(tipo: str) -> dict:
+    return CIERRE.get(normalizar(tipo), CIERRE["amparo_directo"])
+
+
+def parrafo_cierre(tipo: str, concede: bool, calificacion: str = "") -> str:
+    """El cierre del estudio, con la forma del corpus y el desenlace del tipo."""
+    v = vocabulario_de(tipo)
+    c = cierre_de(tipo)
+    desenlace = c["positivo"] if concede else c["negativo"]
+    if concede:
+        return (f"En ese sentido, al resultar {calificacion or 'fundado'} "
+                f"lo planteado, lo procedente es {desenlace}.")
+    return (f"En ese sentido, ante la ineficacia de los {v['combate']} "
+            f"planteados, lo procedente es {desenlace}.")
+
+
+# LO QUE NINGÚN TIPO PUEDE DECIR. Determinista, sobre el .docx terminado: si
+# una queja habla de negar el amparo, se coló la plantilla del amparo directo.
+_AJENO = {
+    "amparo_directo": [],
+    "amparo_revision": [r"negar el amparo", r"conceder el amparo"],
+    "queja": [r"negar el amparo", r"conceder el amparo",
+              r"confirmar la sentencia recurrida"],
+    # OJO CON EL ALCANCE: «Ley de Amparo» a secas NO va aquí. El párrafo del
+    # cómputo cita el artículo 19 de esa ley para los días inhábiles, y eso es
+    # otra discusión —cuál es el calendario de una revisión fiscal ante un
+    # Colegiado— que no está medida en el corpus: los adelantos reales no
+    # desglosan el cómputo, así que no dicen qué precepto invocan. Prohibirla
+    # en todo el documento haría saltar la alarma en cada revisión fiscal, y
+    # una alarma que salta siempre deja de leerse. Donde sí está prohibida es
+    # en la COMPETENCIA, y de eso se ocupa `prohibido_en_competencia`.
+    "revision_fiscal": [r"negar el amparo", r"conceder el amparo",
+                        r"la Justicia de la Uni[óo]n"],
+}
+
+
+def cierre_ajeno(tipo: str, texto: str) -> list:
+    """Las fórmulas de otro tipo que aparecen en este documento."""
+    import re as _re
+    return [p for p in _AJENO.get(normalizar(tipo), [])
+            if _re.search(p, texto or "", _re.I)]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA CARÁTULA: QUIÉN ES QUIÉN EN CADA TIPO
+# ═══════════════════════════════════════════════════════════════════════════
+# «Rubro indebido: asienta como Autoridad Responsable al Juez de Distrito»,
+# «no hay quejoso; es Recurrente y Actora». Las dos son de la auditoría y las
+# dos salían de la misma línea: una lista de etiquetas escrita a mano con las
+# tres figuras del amparo directo, que se imprimía igual en los cuatro tipos
+# aunque la función tuviera el tipo en la mano.
+#
+# En un recurso NO HAY autoridad responsable. Hay un órgano cuya resolución se
+# recurre, y llamarlo «responsable» no es un matiz: en el amparo la autoridad
+# responsable es la que emitió el acto reclamado y es PARTE; el Juez de
+# Distrito que dictó la sentencia recurrida no es parte de nada, es el órgano
+# de control cuya decisión se revisa.
+#
+# Y LA PRIMERA LÍNEA NO SE ROTULA «EXPEDIENTE». El corpus escribe la clase del
+# asunto como etiqueta —«AMPARO DIRECTO CIVIL: 125/2026», «REVISIÓN FISCAL:
+# 87/2025»—, así que anteponerle «EXPEDIENTE: » la rotula dos veces.
+#
+# Cada fila: (etiqueta, clave de los datos, obligatoria).
+CARATULA = {
+    "amparo_directo": [
+        ("QUEJOSO", "quejoso", True),
+        ("TERCERO INTERESADO", "tercero", False),
+        ("AUTORIDAD RESPONSABLE", "responsable", True),
+    ],
+    "amparo_revision": [
+        ("RECURRENTE", "quejoso", True),
+        ("ÓRGANO RECURRIDO", "responsable", True),
+    ],
+    "queja": [
+        ("RECURRENTE", "quejoso", True),
+        ("ÓRGANO QUE DICTÓ EL AUTO RECURRIDO", "responsable", True),
+    ],
+    "revision_fiscal": [
+        ("AUTORIDAD RECURRENTE", "quejoso", True),
+        ("PARTE ACTORA", "tercero", False),
+        ("SALA RESPONSABLE", "responsable", True),
+    ],
+}
+
+
+def caratula_de(tipo: str) -> list:
+    return CARATULA.get(normalizar(tipo), CARATULA["amparo_directo"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL PROEMIO
+# ═══════════════════════════════════════════════════════════════════════════
+# «Visto apócrifo: dice VISTO, para resolver el juicio de amparo directo».
+# Salía en la queja y en la revisión fiscal, y la causa es la de siempre en
+# este proyecto: el prompt no DESCRIBÍA la fórmula, la ESCRIBÍA. El campo
+# `visto` del JSON de ejemplo decía «para resolver el juicio de amparo
+# directo…», y un modelo con un ejemplo concreto delante lo copia y le cambia
+# los datos. Es la tercera vez que un ejemplo del prompt se firma literal.
+#
+# Y EL RÓTULO ES PLURAL EN LA REVISIÓN FISCAL: el corpus abre «V I S T O S,
+# para resolver el recurso de revisión fiscal número…», 28 de 28. El
+# compositor lo imprimía en singular a máquina y además lo limpiaba con una
+# regex que admite la S, así que aunque el modelo acertara, se le borraba: la
+# revisión fiscal era incorregible por prompt.
+PROEMIO = {
+    "amparo_directo": {"rotulo": "V I S T O, ",
+                       "molde": "para resolver el juicio de amparo directo {materia} {numero}, promovido por {promovente}"},
+    "amparo_revision": {"rotulo": "V I S T O, ",
+                        "molde": "para resolver el recurso de revisión {numero}, interpuesto por {promovente}"},
+    "queja": {"rotulo": "V I S T O, ",
+              "molde": "para resolver el recurso de queja {materia} {numero}, interpuesto por {promovente}"},
+    "revision_fiscal": {"rotulo": "V I S T O S, ",
+                        "molde": "para resolver el recurso de revisión fiscal número {numero}, interpuesto por la parte citada al rubro"},
+}
+
+
+def proemio_de(tipo: str) -> dict:
+    return PROEMIO.get(normalizar(tipo), PROEMIO["amparo_directo"])

@@ -41,6 +41,8 @@ class Partes:
     # [{"hecho": "...", "de_quien": "...", "papel": "ofreció|confesó|aportó"}]
     atribuciones: list[dict] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    # Para rotular los papeles con las figuras que existen en ESTE tipo.
+    tipo_asunto: str = "amparo_directo"
 
     def nombres(self) -> dict[str, str]:
         """nombre → papel, para poder cotejar una frase contra la ficha."""
@@ -59,11 +61,21 @@ class Partes:
             return ""
         p = ["", "═" * 71, "QUIÉN ES QUIÉN EN ESTE EXPEDIENTE — SE COTEJA, NO SE SUPONE",
              "═" * 71]
-        for papel, quien in (("PARTE QUEJOSA", self.quejoso),
-                             ("TERCERO INTERESADO", self.tercero_interesado),
-                             ("AUTORIDAD RESPONSABLE", self.autoridad_responsable),
-                             ("ACTOR en el juicio de origen", self.actor_origen),
-                             ("DEMANDADO en el juicio de origen", self.demandado_origen)):
+        # LOS PAPELES SON DEL TIPO DE ASUNTO. Esta ficha es lo primero que lee
+        # el redactor del estudio, y llevaba escritas las tres figuras del
+        # amparo directo: en una revisión fiscal le decía «PARTE QUEJOSA» a la
+        # autoridad hacendaria recurrente, y esa etiqueta viajaba después a la
+        # prosa del fondo. El módulo que existe justamente para que no se
+        # confundan las partes las confundía él.
+        import tipos_asunto as _ta_p
+        _et = {c: e for e, c, _o in _ta_p.caratula_de(self.tipo_asunto)}
+        for papel, quien in (
+                (_et.get("quejoso", "PARTE QUEJOSA"), self.quejoso),
+                (_et.get("tercero", "TERCERO INTERESADO"), self.tercero_interesado),
+                (_et.get("responsable", "AUTORIDAD RESPONSABLE"),
+                 self.autoridad_responsable),
+                ("ACTOR en el juicio de origen", self.actor_origen),
+                ("DEMANDADO en el juicio de origen", self.demandado_origen)):
             if (quien or "").strip():
                 p.append(f"  {papel}: {quien}")
         if self.atribuciones:
@@ -81,7 +93,13 @@ class Partes:
         return "\n".join(p)
 
 
-_PROMPT = """Eres un secretario de tribunal fichando un expediente de amparo directo.
+# EL PROMPT DECÍA «amparo directo» EN LOS CUATRO TIPOS, y le pedía al motor un
+# JSON con las claves `quejoso` / `tercero_interesado` / `autoridad_responsable`.
+# En una revisión fiscal eso obliga a meter a la autoridad recurrente en un
+# campo llamado «quejoso»: la etiqueta equivocada no se queda en el JSON, viaja
+# a la ficha y de ahí al estudio. Las claves del JSON se conservan —cambiarlas
+# rompería a los tres consumidores— pero se le dice QUÉ ES cada una aquí.
+_PROMPT = """Eres un secretario de tribunal fichando un expediente de {clase}.
 
 De los dos documentos que siguen, extrae ÚNICAMENTE quién es quién y quién
 aportó qué. No resumas, no opines, no interpretes.
@@ -92,6 +110,12 @@ REGLAS:
 - El ACTOR y el DEMANDADO del juicio de ORIGEN no siempre coinciden con el
   quejoso: en amparo directo la quejosa puede ser la que perdió la apelación,
   sea cual fuera su papel abajo. Léelo, no lo supongas.
+- EN ESTE ASUNTO, las tres primeras claves del JSON significan:
+    "quejoso" = {figura_promovente}
+    "tercero_interesado" = {figura_tercero}
+    "autoridad_responsable" = {figura_organo}
+  Usa las claves tal cual —no las renombres— pero rellénalas con lo que
+  significan AQUÍ.
 - En ATRIBUCIONES pon los hechos probatorios relevantes y de QUIÉN son:
   quién ofreció una prueba, quién confesó algo, quién aportó dinero o trabajo,
   quién adquirió un bien. Es lo que evita que después se le adjudiquen al
@@ -110,10 +134,26 @@ Devuelve JSON y nada más:
 {conceptos}"""
 
 
-async def fichar(cliente, texto_acto: str, texto_conceptos: str) -> Partes:
+import tipos_asunto as _ta_f
+
+
+def _figura(tipo: str, clave: str) -> str:
+    """La etiqueta de esa figura en este tipo, o «(no existe en este tipo)»."""
+    for et, cl, _ob in _ta_f.caratula_de(tipo):
+        if cl == clave:
+            return et
+    return "(no existe en este tipo de asunto: deja la cadena vacía)"
+
+
+async def fichar(cliente, texto_acto: str, texto_conceptos: str,
+                 tipo_asunto: str = "amparo_directo") -> Partes:
     kw = dict(model=MODELO_PARTES, max_completion_tokens=4000,
               response_format={"type": "json_object"},
               messages=[{"role": "user", "content": _PROMPT.format(
+                  clase=_ta_f.vocabulario_de(tipo_asunto)["nombre"],
+                  figura_promovente=_figura(tipo_asunto, "quejoso"),
+                  figura_tercero=_figura(tipo_asunto, "tercero"),
+                  figura_organo=_figura(tipo_asunto, "responsable"),
                   acto=(texto_acto or "")[:22000],
                   conceptos=(texto_conceptos or "")[:14000])}])
     if ESFUERZO_PARTES:

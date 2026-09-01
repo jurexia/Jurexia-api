@@ -49,7 +49,14 @@ _LLAVE = {
     "amparo_directo": "amparo-directo",
     "amparo_revision": "revision",
     "queja": "queja",
-    "revision_fiscal": "revision",     # sin banco propio: se avisa
+    # YA TIENE BANCO PROPIO, medido sobre 28 expedientes. Estaba en
+    # `banco_formulas_medidas.json` —con su carátula, su competencia, su
+    # legitimación, su procedencia por la fracción del 63 y su resolutivo— y
+    # nunca se cargó en `banco_plantillas.json`, así que este mapeo lo mandaba
+    # al banco del amparo en revisión. De ahí salía «el error más grave de
+    # todos»: una revisión fiscal fundada en el artículo 107, fracción VIII,
+    # constitucional y en los artículos 81 y 84 de la Ley de Amparo.
+    "revision_fiscal": "revision-fiscal",
 }
 
 _BANCO = None
@@ -71,8 +78,24 @@ def del_tipo(tipo: str) -> dict:
     return cargar().get(_LLAVE.get((tipo or "").strip().lower(), ""), {}) or {}
 
 
+# LO QUE UN TIPO PRESTADO NO PUEDE TOMAR PRESTADO. El préstamo del banco se
+# pensó para las fórmulas de TRÁMITE —cómo se admite un recurso, cómo se turna,
+# cómo se lista la sesión—, que son iguales se llame el asunto como se llame.
+# Pero `apartado()` no distinguía apartados, así que la revisión fiscal se
+# llevaba también la COMPETENCIA del amparo en revisión: con ella, el artículo
+# 107, fracción VIII, constitucional y los artículos 81 y 84 de la Ley de
+# Amparo, en un recurso que no es de amparo. Ese es «el error más grave de
+# todos» de la auditoría, y sale de esta función.
+#
+# Estos tres dicen QUÉ ES el asunto —de dónde viene la jurisdicción, por qué
+# procede y qué se dispensa de transcribir—, y eso no se presta.
+NO_SE_PRESTA = ("competencia", "procedencia", "dispensa")
+
+
 def apartado(tipo: str, ident: str) -> dict:
     """El apartado del banco cuyo id contiene `ident`."""
+    if (tipo or "").strip().lower() in PRESTADO and ident in NO_SE_PRESTA:
+        return {}
     t = del_tipo(tipo)
     for grupo in ("considerandos", "resultandos"):
         for a in (t.get(grupo) or []):
@@ -181,7 +204,10 @@ def nota_de(tipo: str, ident: str) -> str:
 # «Legitimación y oportunidad para interponer el recurso de revisión», que es
 # del amparo en revisión. Los rótulos de estos tipos salen del catálogo, que
 # los tiene medidos sobre sus propios adelantos.
-PRESTADO = {"revision_fiscal"}
+# Ya no queda ninguno: los cuatro tipos tienen banco propio. El conjunto se
+# conserva porque el mecanismo —no prestar lo que define el asunto— sigue
+# siendo la regla si mañana entra un tipo sin corpus.
+PRESTADO = set()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -128,7 +128,52 @@ def _nunca_responsable(nombre: str) -> bool:
     return bool(_RX_NUNCA.search(nombre or ""))
 
 
-def de_texto(acto: str) -> str:
+# ═══════════════════════════════════════════════════════════════════════════
+# QUÉ ÓRGANO PUEDE SER, SEGÚN EL TIPO DE ASUNTO
+# ═══════════════════════════════════════════════════════════════════════════
+# De la auditoría de David, sobre la queja: «en competencia dice que el auto lo
+# dictó el Juez Quinto Civil en un amparo indirecto, pero fue la Secretaria en
+# funciones de Jueza de Distrito». Y tenía razón: en el auto recurrido —que es
+# un auto de un JUZGADO DE DISTRITO— se nombra al juez del juicio natural del
+# que vino el amparo, y el lector se quedaba con ése.
+#
+# El fallo no está en los patrones: cada uno es correcto en su sitio. Está en
+# que la función no sabía de qué tipo de asunto se trataba, así que aplicaba
+# los once a los cuatro tipos por igual. En una queja o en una revisión de
+# amparo, lo recurrido lo dictó un órgano FEDERAL de control; un Juez de
+# Primera Instancia o una Sala local no pueden serlo, por más veces que el
+# documento los nombre. Y al revés: en un amparo directo la responsable es un
+# tribunal local o una junta, nunca un Juzgado de Distrito.
+#
+# Se filtra DESPUÉS de extraer, no antes: los patrones no se tocan —cada uno
+# costó su corrección— y así el filtro se puede leer y discutir por separado.
+_SOLO_FEDERAL = re.compile(r"de\s+Distrito|Tribunal\s+Colegiado", re.I)
+_LOCAL = re.compile(
+    r"Primera\s+Instancia|Sala\s+(?:Civil|Familiar|Penal)|"
+    r"Tribunal\s+Superior\s+de\s+Justicia", re.I)
+
+_ADMITE = {
+    # En un recurso contra lo resuelto por un juez de amparo, el órgano es
+    # federal de control. Lo local que aparezca viene del juicio de origen.
+    "queja": lambda n: bool(_SOLO_FEDERAL.search(n)),
+    "amparo_revision": lambda n: bool(_SOLO_FEDERAL.search(n)),
+    # En la revisión fiscal es una Sala del Tribunal Federal de Justicia
+    # Administrativa. Nunca un juzgado ni una sala local.
+    "revision_fiscal": lambda n: bool(
+        re.search(r"Sala\s+Regional|Justicia\s+Administrativa|Sala\s+Superior",
+                  n, re.I)),
+    # En el amparo directo, cualquiera MENOS un órgano federal de control: el
+    # Juzgado de Distrito que aparezca viene de un amparo indirecto citado.
+    "amparo_directo": lambda n: not _SOLO_FEDERAL.search(n),
+}
+
+
+def _admisible(nombre: str, tipo: str) -> bool:
+    f = _ADMITE.get((tipo or "").strip().lower())
+    return True if f is None else bool(f(nombre))
+
+
+def de_texto(acto: str, tipo: str = "") -> str:
     """La autoridad que dictó el acto, leída del propio documento.
 
     DECÍA «leída de su propio encabezado» Y ERA MEDIA VERDAD. En un laudo
@@ -175,7 +220,8 @@ def de_texto(acto: str) -> str:
     cabeza = t[:6000]
     for p in _PATRONES:
         cands = [_limpiar(m.group(0)) for m in re.finditer(p, cabeza, re.I)]
-        cands = [c for c in cands if len(c) > 12 and not _nunca_responsable(c)]
+        cands = [c for c in cands if len(c) > 12 and not _nunca_responsable(c)
+                 and _admisible(c, tipo)]
         if cands:
             return max(cands, key=len)
     # SI LA CABECERA NO DA NINGUNA, se sigue al cuerpo. No es un caso raro: el
@@ -187,7 +233,8 @@ def de_texto(acto: str) -> str:
     mejor, veces = "", 0
     for p in _PATRONES:
         halladas = [_limpiar(x.group(0)) for x in re.finditer(p, t, re.I)]
-        halladas = [h for h in halladas if not _nunca_responsable(h)]
+        halladas = [h for h in halladas if not _nunca_responsable(h)
+                    and _admisible(h, tipo)]
         if not halladas:
             continue
         from collections import Counter

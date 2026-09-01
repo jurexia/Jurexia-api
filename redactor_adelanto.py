@@ -194,7 +194,10 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # ocasión de equivocarse: el adelanto vale por lo que le ahorra.
     if not (e.responsable or "").strip():
         import fase_autoridad as _fa
-        leida = _fa.de_texto(texto_acto)
+        # EL TIPO FILTRA QUÉ ÓRGANO PUEDE SER. Sin él, en la queja se quedaba
+        # con el juez del juicio natural que el auto recurrido nombra por
+        # dentro, en vez de con el Juzgado de Distrito que lo dictó.
+        leida = _fa.de_texto(texto_acto, e.tipo_asunto)
         if leida:
             e.responsable = leida
             print(f"   ⚖️ autoridad responsable leída del acto: «{leida[:70]}»")
@@ -230,7 +233,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     with cronometrar("fases1-3+partes"):
         f, partes = await asyncio.gather(
             f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso),
-            fpartes.fichar(cliente, texto_acto, texto_conceptos))
+            fpartes.fichar(cliente, texto_acto, texto_conceptos, e.tipo_asunto))
     avisos.extend(f.avisos)
     avisos.extend(partes.avisos)
 
@@ -666,7 +669,8 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     # LA CONGRUENCIA VA LA PRIMERA. Es el único aviso de esta lista que no
     # describe algo mejorable sino algo que no se puede firmar, y el secretario
     # tiene que verlo antes que los otros trece.
-    incongruente = ens.revisar_congruencia(ruta, relleno.calificaciones)
+    incongruente = ens.revisar_congruencia(ruta, relleno.calificaciones,
+                                           e.tipo_asunto)
     for a in reversed(incongruente):
         if a not in avisos:
             avisos.insert(0, a)

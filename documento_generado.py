@@ -30,6 +30,15 @@ FORMATO, medido sobre los engroses reales y no inventado:
 from __future__ import annotations
 
 import json
+
+# EL CATÁLOGO SE IMPORTA UNA VEZ, ARRIBA. Estaba importado dentro de las
+# funciones que lo usaban, y al añadir un uso NUEVO más arriba que el
+# `import` local, `_ta` quedaba sin ligar: el nombre es local a la función
+# desde que aparece un import suyo en cualquier punto de ella, así que
+# usarlo antes revienta con UnboundLocalError. No es un riesgo de ciclo:
+# tipos_asunto no importa nada de este módulo.
+import tipos_asunto as _ta
+
 import os
 import re
 from dataclasses import dataclass, field
@@ -513,7 +522,6 @@ def tabla_computo(doc, computo, fecha_en_letra,
     # cuando lo que se notificó fue un auto y lo que se presentó, un recurso.
     # El resto del documento ya hablaba con el vocabulario correcto: sólo la
     # tabla seguía anclada al tipo con el que nació.
-    import tipos_asunto as _ta
     _v = _ta.vocabulario_de(tipo_asunto)
     # El «recurrido» del catálogo trae artículo —«el auto recurrido»— y el
     # «escrito» no —«recurso de queja»—: cada uno necesita su contracción.
@@ -649,6 +657,33 @@ def prompt_estructura(datos: dict) -> str:
                    % (json.dumps(_rot, ensure_ascii=False), _que + _extra))
     _resultandos = ",\n".join(_rs)
 
+    # LA FÓRMULA DEL PROEMIO SALE DEL CATÁLOGO, NO DE UN EJEMPLO. Este campo
+    # traía ESCRITA la del amparo directo —«para resolver el juicio de amparo
+    # directo…»— y un modelo con un ejemplo concreto delante lo copia y le
+    # cambia los datos: de ahí salían «V I S T O, para resolver el juicio de
+    # amparo directo relacionado con el recurso de queja civil» y el mismo
+    # apócrifo en la revisión fiscal. Es la tercera vez en este proyecto que un
+    # ejemplo del prompt se firma literal —antes fue «la jurisprudencia de la
+    # Primera Sala» y «si lo traes, es por analogía»—, así que la regla ya no
+    # es una sospecha: en un prompt, lo que se escribe entero se copia entero.
+    _molde_visto = _ta_r.proemio_de(_tipo)["molde"]
+
+    # LA HOJA DE DATOS TAMBIÉN ENSEÑABA EL AMPARO DIRECTO. Le decía al motor
+    # «QUEJOSO: …» y «AUTORIDAD RESPONSABLE: …» en los cuatro tipos, así que
+    # aunque los rótulos de los resultandos ya vinieran bien del catálogo, la
+    # PROSA seguía hablando de quejoso y de autoridad responsable dentro de una
+    # queja. Era el canal por el que la plantilla única volvía a entrar después
+    # de haberla quitado de la estructura.
+    _vc = _ta_r.vocabulario_de(_tipo)
+    _ficha_partes = "\n".join(
+        f"{_et}: {datos.get(_cl, '')}"
+        for _et, _cl, _ob in _ta_r.caratula_de(_tipo)
+        if datos.get(_cl) or _ob)
+    _rotulo_acto = {"amparo_directo": "ACTO RECLAMADO"}.get(
+        _tipo, _vc["sub_recurrido"].upper())
+    _de_escrito = ("DE LA DEMANDA" if _tipo == "amparo_directo"
+                   else "DEL " + _vc["escrito"].upper())
+
     _identifica = _IDENTIFICA_ACTO.get(_tipo, _IDENTIFICA_ACTO["amparo_directo"])
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito y escribes las
 partes ESTRUCTURALES de una sentencia de {_clase}. No escribes el estudio
@@ -658,10 +693,9 @@ llegar a él, con los datos de ESTE asunto y de ESTE tribunal.
 EL TRIBUNAL QUE RESUELVE: {datos.get('tribunal','')}
 CIUDAD: {datos.get('ciudad','')}
 EXPEDIENTE: {datos.get('encabezado','')}
-QUEJOSO: {datos.get('quejoso','')}
-AUTORIDAD RESPONSABLE: {datos.get('responsable','')}
-ACTO RECLAMADO: {datos.get('acto','(consta en los antecedentes)')}
-FECHA DE PRESENTACIÓN DE LA DEMANDA: {datos.get('presentacion','')}
+{_ficha_partes}
+{_rotulo_acto}: {datos.get('acto','(consta en los antecedentes)')}
+FECHA DE PRESENTACIÓN {_de_escrito}: {datos.get('presentacion','')}
 MAGISTRADO PONENTE: {datos.get('magistrado','')}
 SECRETARIO: {datos.get('secretario','')}
 
@@ -690,7 +724,7 @@ REGLAS:
 
 Devuelve SÓLO este JSON:
 {{"apertura": "<ciudad y fórmula de resolución del tribunal; la FECHA DE LA SESIÓN se deja como ___ porque aún no ocurre>",
-  "visto": "<la fórmula VISTO, para resolver el juicio de amparo directo…, sin repetir el rótulo>",
+  "visto": "<{_molde_visto}. SIN repetir el rótulo V I S T O / V I S T O S, que lo pone el compositor>",
   "resultandos": [
 {_resultandos}
   ],
@@ -1615,13 +1649,23 @@ def _encabezado(doc, texto):
             p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
 
-def _caratula(doc, datos):
+def _caratula(doc, datos, tipo_asunto: str = ""):
     """La ficha de identificación. Del asunto, no de ningún otro."""
-    campos = [("EXPEDIENTE", datos.get("encabezado", "")),
-              ("QUEJOSO", datos.get("quejoso", "")),
-              ("AUTORIDAD RESPONSABLE", datos.get("responsable", "")),
-              ("MAGISTRADO PONENTE", datos.get("magistrado", "")),
-              ("SECRETARIA/O", datos.get("secretario", ""))]
+    # LAS FIGURAS SON DEL TIPO. Esta lista tenía las tres del amparo directo
+    # escritas a mano y se imprimía igual en los cuatro, teniendo el tipo en la
+    # mano: una revisión rotulaba «QUEJOSO» a quien es recurrente y
+    # «AUTORIDAD RESPONSABLE» al Juez de Distrito, que no es parte del recurso
+    # sino el órgano de control cuya sentencia se revisa.
+    import tipos_asunto as _ta_c
+    _t = str(datos.get("tipo_asunto") or tipo_asunto or "amparo_directo")
+    # LA PRIMERA LÍNEA NO SE ROTULA. El corpus escribe la clase del asunto como
+    # etiqueta —«REVISIÓN FISCAL: 87/2025»—, así que anteponerle «EXPEDIENTE: »
+    # la rotula dos veces; salía «EXPEDIENTE: REVISIÓN FISCAL».
+    campos = [("", datos.get("encabezado", ""))]
+    campos += [(et, datos.get(clave, "")) for et, clave, _ob
+               in _ta_c.caratula_de(_t)]
+    campos += [("MAGISTRADO PONENTE", datos.get("magistrado", "")),
+               ("SECRETARIA/O", datos.get("secretario", ""))]
     # LOS DATOS DE IDENTIFICACIÓN VAN A LA IZQUIERDA Y EN MAYÚSCULAS, como en
     # sus proyectos. Justificados y en caja mixta parecían prosa; son una ficha
     # y se leen de un golpe de vista.
@@ -1629,8 +1673,9 @@ def _caratula(doc, datos):
         if not valor:
             continue
         p = doc.add_paragraph()
-        r1 = p.add_run(f"{etiqueta}: ")
-        r1.bold = True
+        if etiqueta:
+            r1 = p.add_run(f"{etiqueta}: ")
+            r1.bold = True
         r2 = p.add_run(str(valor).upper())
         r2.bold = True
         _fmt(p, sangria=False, interlineado=1.0,
@@ -1661,7 +1706,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     notas: list = []
     _pagina(doc)
     _encabezado(doc, datos.get("encabezado", ""))
-    _caratula(doc, datos)
+    _caratula(doc, datos, tipo_asunto)
 
     if estructura.apertura:
         parrafo(doc, estructura.apertura, sangria=True)
@@ -1670,7 +1715,12 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # le pida que no —«V I S T O, VISTO, para resolver…»—. Se le quita.
         _v = re.sub(r"^\s*V\s*I\s*S\s*T\s*O\s*S?\s*,?\s*", "",
                     estructura.visto.strip(), flags=re.I)
-        tramos(doc, [("V I S T O, ", {"bold": True}), (_v, {})], sangria=True)
+        # «V I S T O S» en la revisión fiscal: 28 de 28 en el corpus. Se
+        # imprimía en singular a máquina y encima se limpiaba con una regex que
+        # admite la S, así que aunque el modelo acertara se le borraba: este
+        # tipo era incorregible por prompt.
+        tramos(doc, [(_ta.proemio_de(tipo_asunto)["rotulo"], {"bold": True}),
+                     (_v, {})], sangria=True)
 
     # ═══ LA ESTRUCTURA, MEDIDA SOBRE 58 ENGROSES ═══════════════════════
     # 26 amparos directos civiles, 16 administrativos y 16 revisiones. En
@@ -1871,7 +1921,6 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     # Legitimación y oportunidad, con LA TABLA detrás.
     from fase0_oportunidad import parrafo_oportunidad
-    import tipos_asunto as _ta
     # EL FUNDAMENTO Y EL VOCABULARIO SALEN DEL CATÁLOGO. Antes decía siempre
     # «el precepto 17 del mencionado ordenamiento», que es el del amparo: una
     # queja se fundaba en el artículo del amparo y una revisión fiscal, en la
@@ -1979,15 +2028,32 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                     parrafo(doc, x.strip())
         _subtitulo(doc, "Solución")
         _escribir_estudio(doc, _cuerpo_estudio, tesis, notas, normas)
+        # EL CIERRE ES DEL TIPO. Aquí decía «lo procedente es negar el amparo
+        # solicitado» en los cuatro, incluida la queja, que además decretaba
+        # «Es infundado el recurso de queja» treinta líneas más abajo: el mismo
+        # documento afirmaba dos desenlaces incompatibles.
+        #
+        # Y CUANDO CONCEDE, EL CIERRE VA AQUÍ TAMBIÉN salvo en el amparo
+        # directo, que lleva su apartado de «Efectos». Ponerlo en un apartado
+        # propio para los recursos correría el ordinal y dejaría el Estudio
+        # donde el corpus no lo tiene.
         if not concede:
-            parrafo(doc,
-                    f"Por lo expuesto, dado lo {_calificacion_plural(cs) or 'infundado'} "
-                    f"de los {q}, lo procedente es negar el amparo solicitado.")
+            parrafo(doc, _ta.parrafo_cierre(tipo_asunto, False))
+        elif not _ta.cierre_de(tipo_asunto)["efectos"]:
+            parrafo(doc, _ta.parrafo_cierre(tipo_asunto, True,
+                                            _calificacion_plural(cs)))
 
     con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",
                           _estudio))
 
-    if concede:
+    # EL APARTADO DE EFECTOS ES DEL AMPARO. «Procede conceder el amparo y
+    # protección de la Justicia Federal para el efecto de que la responsable
+    # deje insubsistente la sentencia reclamada» no se escribe en una queja
+    # fundada: ahí se revoca el auto y se ordena proveer de nuevo. Se emitía en
+    # los cuatro tipos, así que era la segunda puerta —la de la rama FUNDADA—
+    # por la que la fórmula del amparo entraba en un recurso. Arreglar sólo la
+    # otra habría tapado la mitad.
+    if concede and _ta.cierre_de(tipo_asunto)["efectos"]:
         def _efectos(p):
             if _efectos_escritos:
                 _texto_en(p, _efectos_escritos[0], _efectos_escritos[1:])
