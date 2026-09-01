@@ -1452,10 +1452,27 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
 #   · El estudio no tiene ordinal fijo: es el último, y su número sale de
 #     cuántos apartados le preceden.
 ESQUELETO = {
+    # ═══════════════════════════════════════════════════════════════════
+    # LA TABLA DE CÓMPUTO CASI NUNCA SE DIBUJA, Y YO LA DIBUJABA SIEMPRE
+    # ═══════════════════════════════════════════════════════════════════
+    # Contado sobre los adelantos reales del corpus:
+    #
+    #   amparo directo      tabla en  1 de 45 · «oportuna a la luz del art.» 22
+    #   amparo en revisión  tabla en  1 de 45 · «oportuna a la luz del art.» 29
+    #   revisión fiscal     tabla en 13 de 29
+    #   queja               tabla en  0 de 21 · «oportuna a la luz del art.» 16
+    #
+    # El secretario DECLARA la oportunidad citando el precepto —«la
+    # presentación de la demanda resultó oportuna, a la luz del artículo 17 de
+    # la Ley de Amparo»— y sólo desglosa el cómputo en la revisión fiscal, y ni
+    # siquiera siempre. Yo lo hacía al revés: tabla en tres de los cuatro tipos.
+    #
+    # El cómputo SE SIGUE HACIENDO —es lo que detecta una extemporaneidad y
+    # para el pipeline— pero se ESCRIBE como él lo escribe.
     "amparo_directo": {
         "q": "conceptos de violación",
         "recurrido": "la sentencia reclamada",
-        "tabla_computo": True,
+        "tabla_computo": False,
         "dispensa": "Acto reclamado y {q}.",
         "legitimacion": "Legitimación y oportunidad.",
         "existencia": True,
@@ -1465,7 +1482,7 @@ ESQUELETO = {
     "amparo_revision": {
         "q": "agravios",
         "recurrido": "la resolución recurrida",
-        "tabla_computo": True,
+        "tabla_computo": False,
         "dispensa": "Resolución recurrida y {q} de la parte recurrente.",
         "legitimacion": "Legitimación y oportunidad para interponer el recurso.",
         "existencia": False,
@@ -1748,7 +1765,15 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     # Legitimación y oportunidad, con LA TABLA detrás.
     from fase0_oportunidad import parrafo_oportunidad
-    _op = parrafo_oportunidad(computo)
+    import tipos_asunto as _ta
+    # EL FUNDAMENTO Y EL VOCABULARIO SALEN DEL CATÁLOGO. Antes decía siempre
+    # «el precepto 17 del mencionado ordenamiento», que es el del amparo: una
+    # queja se fundaba en el artículo del amparo y una revisión fiscal, en la
+    # Ley de Amparo cuando la suya es la LFPCA.
+    _op = parrafo_oportunidad(
+        computo,
+        _ta.plazo_de(tipo_asunto, "").get("fundamento") or "artículo 17 de la Ley de Amparo",
+        tipo_asunto)
 
     def _legitimacion(p):
         _texto_en(p, _op)

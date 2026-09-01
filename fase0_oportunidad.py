@@ -486,20 +486,62 @@ _ORDINAL_SURTE = {0: "el mismo día", 1: "al día hábil siguiente",
                   3: "al tercer día hábil siguiente"}
 
 
-def parrafo_oportunidad(c: Computo, fundamento: str = "17") -> str:
+def _del(x: str) -> str:
+    """«de la demanda de amparo», «del recurso de queja». La contracción
+    depende del sustantivo, y «de el recurso» no es español."""
+    x = (x or "").strip()
+    return f"del {x}" if x.split()[:1] and x.split()[0] in (
+        "recurso", "amparo", "juicio") else f"de la {x}"
+
+
+def parrafo_oportunidad(c: Computo, fundamento: str = "17",
+                        tipo: str = "amparo_directo", desglosar=None) -> str:
     """El párrafo tal como lo escribe el secretario.
 
-    Calcado del engrose ADA 240/2026 y parametrizado. No se «redacta»: se
-    rellena, porque su forma es fija y su contenido es aritmético.
+    ═══════════════════════════════════════════════════════════════════════
+    Y COMO LO ESCRIBE ÉL ES CORTO, salvo cuando hay algo que demostrar.
+    ═══════════════════════════════════════════════════════════════════════
+    Esto desglosaba SIEMPRE el cómputo día por día. Contado sobre los adelantos
+    reales del corpus, el desglose aparece en UNO de cada cuarenta y cinco:
+
+        amparo directo      desglose  1/45 · «oportuna a la luz del art.» 22/45
+        amparo en revisión  desglose  2/45 · «oportuna a la luz del art.» 29/45
+        queja               desglose  0/21 · «oportuna a la luz del art.» 16/21
+
+    Lo que el secretario escribe es una declaración con su precepto: «la
+    presentación de la demanda resultó oportuna, a la luz del artículo 17 de la
+    Ley de Amparo». El cómputo lo ha hecho —de eso depende que el asunto se
+    resuelva o se sobresea— pero no lo pone en el papel cuando sale en tiempo,
+    porque no hay nada que demostrar.
+
+    Cuando sale EXTEMPORÁNEA sí se desglosa, y ahí la aritmética no es adorno:
+    es la prueba de la improcedencia y quien firma tiene que poder recorrerla.
+
+    Y el vocabulario sale del tipo: en una queja no se dice «la sentencia
+    reclamada se notificó a la parte quejosa» ni «el juicio constitucional».
     """
+    import tipos_asunto as _ta
+    v = _ta.vocabulario_de(tipo)
+    if desglosar is None:
+        # Se desglosa si no está en tiempo, o si el tipo lo acostumbra.
+        desglosar = (c.oportuna is False) or _ta.normalizar(tipo) == "revision_fiscal"
+    if not desglosar:
+        cierre = ("" if c.presentacion is None
+                  else f", pues se presentó el {fecha_en_letra(c.presentacion)}")
+        return (f"Igualmente, la presentación {_del(v['escrito'])} resultó "
+                f"oportuna, a la luz del {fundamento}{cierre}.")
     surte = _ORDINAL_SURTE.get(c.regla.dias_habiles, "al día hábil siguiente")
+    # EL DESGLOSE NO ADELANTA EL VEREDICTO. Abría con «resultó oportuna» y
+    # terminaba, cuando el cómputo no daba, diciendo «resulta evidente su
+    # extemporaneidad»: la misma frase afirmaba y negaba. Se abre neutro y el
+    # veredicto llega al final, que es donde lo pone el corpus.
     p = [
-        "Igualmente, la presentación de la demanda resultó oportuna, a la luz "
-        f"del precepto {fundamento} del mencionado ordenamiento, toda vez que "
-        "la sentencia reclamada se notificó a la parte quejosa el "
+        f"Por cuanto hace a la oportunidad en la presentación "
+        f"{_del(v['escrito'])}, en términos del {fundamento}, "
+        f"{v['recurrido']} se notificó al {v['promovente']} el "
         f"{fecha_en_letra(c.notificacion)} {c.regla.descripcion} y surtió "
         f"efectos {surte}, es decir, el {fecha_en_letra(c.surtio)}, por lo que "
-        "el plazo para la promoción del juicio constitucional fue del "
+        f"el plazo para la promoción {_del(v['escrito'])} fue del "
         f"{fecha_en_letra(c.inicio)} al {fecha_en_letra(c.vencimiento)}, sin "
         f"contar sábados y domingos por ser inhábiles en términos del "
         f"{c.cal_amparo.fundamento}",
@@ -508,7 +550,7 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17") -> str:
         p.append(f", así como {lista_en_letra(c.inhabiles_en_medio)} del referido año")
     if c.presentacion is not None:
         veredicto = ("es claro que fue hecho valer oportunamente" if c.oportuna
-                     else "resulta evidente su extemporaneidad")
+                     else "resulta evidente su EXTEMPORANEIDAD")
         p.append(f", entonces si se presentó el {fecha_en_letra(c.presentacion)}, "
                  f"{veredicto}.")
     else:
