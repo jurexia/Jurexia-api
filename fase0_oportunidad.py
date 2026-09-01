@@ -81,6 +81,8 @@ añada debe comprobarse contra un engrose firmado, como estos dos.
 
 from __future__ import annotations
 
+from datetime import date as _date
+
 import datetime as _dt
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
@@ -426,6 +428,42 @@ def computar(
     si no se le pregunta el plazo sale corto.
     """
     avisos: list[str] = []
+
+    # ── LAS FECHAS IMPOSIBLES ──────────────────────────────────────────────
+    # David: «anacronismos temporales». No es una comprobación de higiene: un
+    # recurso presentado ANTES de que se notificara la resolución que combate
+    # es un imposible, y si la fecha entra mal el cómputo sale limpio y
+    # equivocado —dirá «oportuna» con toda seriedad—. Vale más una alarma que
+    # un plazo bien calculado sobre un dato falso.
+    #
+    # SE AVISA, NO SE ABORTA. La presentación anticipada existe de verdad: el
+    # amparo contra actos de tracto sucesivo, el que se promueve teniendo
+    # conocimiento del acto antes de la notificación formal. Quien firma tiene
+    # que verlo, no que se le decida.
+    if presentacion is not None and presentacion < notificacion:
+        avisos.append(
+            f"FECHA IMPOSIBLE: la presentación ({presentacion.isoformat()}) es "
+            f"ANTERIOR a la notificación ({notificacion.isoformat()}). O una de "
+            f"las dos está mal capturada, o se promovió antes de la "
+            f"notificación formal por conocimiento previo del acto —y eso hay "
+            f"que decirlo y razonarlo—. NO se ha calculado el plazo sobre este "
+            f"supuesto.")
+
+    _hoy = _date.today()
+    for _que, _f in (("notificación", notificacion), ("presentación", presentacion)):
+        if _f is None:
+            continue
+        if _f > _hoy:
+            avisos.append(
+                f"FECHA EN EL FUTURO: la {_que} ({_f.isoformat()}) es posterior "
+                f"a hoy ({_hoy.isoformat()}). Revisa la captura.")
+        # Antes de la Ley de Amparo vigente no pudo tramitarse este juicio.
+        elif _f.year < 2013:
+            avisos.append(
+                f"FECHA FUERA DE ÉPOCA: la {_que} ({_f.isoformat()}) es anterior "
+                f"a la Ley de Amparo vigente (2 de abril de 2013). Si el dato es "
+                f"correcto, el asunto se rige por la ley abrogada y este cómputo "
+                f"no le sirve.")
 
     # LOS INHÁBILES DECLARADOS ENTRAN AL CALENDARIO FEDERAL, que es el que rige
     # el plazo del recurso. Se copia el calendario para no contaminar el global:

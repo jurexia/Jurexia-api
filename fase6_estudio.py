@@ -162,20 +162,66 @@ class Material:
 # suplir el argumento en su mejor versión la inoperancia se sostiene, se escribe
 # y se explica. Si no se sostiene, se dice en las advertencias, que es el cauce
 # que este pipeline ya tenía para discrepar.
+# EL TEXTO DEL 79 LO DICE, Y NO DICE LO QUE YO SUPONÍA. Traído del archivo
+# oficial, no de memoria: «En los casos de las fracciones I, II, III, IV, V y
+# VII de este artículo la suplencia se dará AUN ANTE LA AUSENCIA de conceptos
+# de violación o agravios». La VI no está en esa lista: ésa exige una violación
+# evidente que haya dejado sin defensa, y por eso no entra aquí.
 _SUPLENCIA_ABSOLUTA = {
-    "laboral": ("el trabajador", "79, fracción V"),
-    "penal": ("el reo", "79, fracción III"),
+    "laboral": ("la persona trabajadora", "79, fracción V"),
+    "penal": ("la persona inculpada o sentenciada", "79, fracción III"),
+    "familiar": ("la persona menor de edad o incapaz", "79, fracción II"),
+    "agraria": ("el núcleo de población o el ejidatario", "79, fracción IV"),
 }
 
+# LA FRACCIÓN V NO SE ACABA EN LA MATERIA LABORAL, y ése era el hueco que se
+# comía el asunto de la cuota pensionaria. Dice, literal: «en favor de la
+# persona trabajadora, CON INDEPENDENCIA DE QUE LA RELACIÓN entre la persona
+# empleadora y empleada esté regulada por el derecho laboral O POR EL DERECHO
+# ADMINISTRATIVO». Una pensión del ISSSTE se litiga en materia administrativa y
+# llega aquí por revisión fiscal, pero quien promueve sigue siendo una persona
+# trabajadora: la suplencia opera igual. Clasificar el asunto como
+# «administrativa» lo dejaba fuera, que es tanto como quitarle la suplencia por
+# haber elegido bien la vía.
+_RX_TRABAJADOR_EN_ADMINISTRATIVA = re.compile(
+    r"pensi[óo]n|pensionari|jubilaci[óo]n|jubilad|cesant[íi]a|"
+    r"cuota\s+pensionaria|haber\s+de\s+retiro|ISSSTE|IMSS|"
+    r"burocr[áa]tic|trabajador(?:a|es)?\s+al\s+servicio\s+del\s+estado|"
+    r"seguridad\s+social", re.I)
 
-def _aviso_de_suplencia(criterios: list, materia: str) -> list:
+# LA FRACCIÓN VII NO DEPENDE DE LA MATERIA SINO DE LA PERSONA, así que aquí no
+# se puede decidir: se le RECUERDA LA REGLA a quien redacta y se le pide que
+# mire las constancias. Afirmar desde un patrón que alguien está en pobreza o
+# marginación sería inventarse un hecho del expediente.
+_RX_DESVENTAJA = re.compile(
+    r"pobreza|marginaci[óo]n|ind[íi]gena|comunidad\s+originaria|discapacidad|"
+    r"adulto\s+mayor|persona\s+mayor|analfabet|migrante|reclusi[óo]n", re.I)
+
+
+def _aviso_de_suplencia(criterios: list, materia: str,
+                       material: str = "") -> list:
     m = (materia or "").strip().lower()
-    if m not in _SUPLENCIA_ABSOLUTA:
+    par = _SUPLENCIA_ABSOLUTA.get(m)
+    # El trabajador que litiga en la vía administrativa.
+    if not par and _RX_TRABAJADOR_EN_ADMINISTRATIVA.search(material or ""):
+        par = ("la persona trabajadora o pensionada", "79, fracción V")
+    if not par:
         return []
     if not any("inoperan" in str(getattr(c, "sentido", "")).lower()
                for c in (criterios or [])):
         return []
-    quien, precepto = _SUPLENCIA_ABSOLUTA[m]
+    quien, precepto = par
+    extra = []
+    if _RX_DESVENTAJA.search(material or ""):
+        extra = ["",
+                 "Y MIRA ADEMÁS LA FRACCIÓN VII, que no depende de la materia",
+                 "sino de la persona: opera «en favor de quienes por sus",
+                 "condiciones de pobreza o marginación se encuentren en clara",
+                 "desventaja social para su defensa en el juicio». En el material",
+                 "hay indicios de esa condición. NO LA AFIRMES si el expediente no",
+                 "la acredita —eso sería inventar un hecho—, pero si consta, dilo y",
+                 "suple con ella.",
+                 ]
     return ["",
             "── UNA SALVEDAD, Y SÓLO UNA ──",
             f"Se te dicta INOPERANTE en un asunto de materia {m}. Si quien",
@@ -195,7 +241,7 @@ def _aviso_de_suplencia(criterios: list, materia: str) -> list:
             "Ésta es la única orden que está por encima del sentido dictado, y no",
             "es criterio: es un mandato del artículo 79 que ningún acuerdo de",
             "ponencia puede dispensar.",
-            ]
+            ] + extra
 
 
 # A FAVOR o EN CONTRA de quien promueve. Es lo único que hay que comparar: el
@@ -217,7 +263,8 @@ def _misma_direccion(a: str, b: str) -> bool:
                 or (a in _EN_CONTRA and b in _A_FAVOR))
 
 
-def _bloque_criterio(criterios: list[Criterio], materia: str = "") -> str:
+def _bloque_criterio(criterios: list[Criterio], materia: str = "",
+                     material_texto: str = "") -> str:
     if not criterios:
         return ""
     lineas = ["", "═" * 71,
@@ -284,8 +331,21 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "") -> str:
         "obligatoria en contra, una causal de improcedencia—, NO cambies el",
         "sentido: dilo en el apartado ADVERTENCIAS para que él lo valore.",
     ]
-    lineas += _aviso_de_suplencia(criterios, materia)
+    lineas += _aviso_de_suplencia(criterios, materia, material_texto)
     return "\n".join(lineas)
+
+
+def _texto_de(m) -> str:
+    """Todo lo que se sabe del asunto, en un solo hilo, para poder mirarlo."""
+    partes = []
+    for campo in ("resumen", "hechos", "antecedentes", "agravios", "conceptos",
+                  "acto_reclamado", "tema", "materia", "resumen_sentencia"):
+        v = getattr(m, campo, None)
+        if isinstance(v, str):
+            partes.append(v)
+        elif isinstance(v, (list, tuple)):
+            partes += [str(x) for x in v]
+    return " ".join(partes)[:60000]
 
 
 def _bloque_material(m: Material) -> str:
@@ -1005,7 +1065,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
 {_bloque_precedente(material, criterios)}
-{_bloque_criterio(criterios, materia or getattr(material, "materia", ""))}
+{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material))}
 {_bloque_material(material)}
 
 ═══════════════════════════════════════════════════════════════════════

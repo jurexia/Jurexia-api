@@ -58,9 +58,49 @@ _RX_NUMERO = re.compile(r"\b(\d{1,4})\b")
 _RX_CONSTITUCION = re.compile(r"constituci[óo]n|constitucional", re.I)
 _RX_CONVENCIONAL = re.compile(
     r"convenci[óo]n|pacto|tratado|protocolo|declaraci[óo]n americana", re.I)
+# LO QUE FALTABA EN ESTE PATRÓN COSTABA CITAS. «Código Fiscal de la
+# FEDERACIÓN» no dice «federal»; la Ley del Seguro Social y la del ISSSTE no
+# dicen ni lo uno ni lo otro. Todas caían al final de `_donde` y se buscaban en
+# la colección del ESTADO, donde no están, así que se quedaban sin texto al pie
+# —el mismo fallo mudo de la Ley de Amparo, sólo que con más leyes—.
 _RX_FEDERAL = re.compile(
     r"ley\s+de\s+amparo|c[óo]digo\s+federal|ley\s+federal|ley\s+org[áa]nica|"
-    r"c[óo]digo\s+nacional|ley\s+general", re.I)
+    r"c[óo]digo\s+nacional|ley\s+general|de\s+la\s+federaci[óo]n|"
+    r"ley\s+del\s+seguro\s+social|ISSSTE|INFONAVIT|"
+    r"ley\s+del\s+instituto\s+de\s+seguridad|ley\s+aduanera|"
+    r"ley\s+del\s+impuesto|ley\s+de\s+instituciones\s+de\s+cr[ée]dito", re.I)
+
+# ── EL FUERO DE LA AUTORIDAD ───────────────────────────────────────────────
+# David: «si la autoridad es federal, bloquear legislación local». Es una regla
+# de competencia, no de búsqueda: el SAT no aplica el Código Civil de Querétaro
+# y una cita así no es un error de recuperación sino un disparate jurídico.
+#
+# LA REGLA SÓLO CORRE EN UN SENTIDO. Una autoridad federal puede tener que
+# aplicar derecho local —el juez de distrito que conoce de un juicio mercantil
+# por jurisdicción concurrente, el que resuelve sobre bienes regidos por el
+# código civil de la entidad—, pero el caso frecuente y dañino es el contrario:
+# el asunto es puramente federal y la colección del estado le mete un código
+# que no le toca. Así que se bloquea el fondo estatal cuando el asunto es
+# federal Y la cita no nombra ninguna ley local.
+_RX_AUTORIDAD_FEDERAL = re.compile(
+    r"\bSAT\b|servicio\s+de\s+administraci[óo]n\s+tributaria|"
+    r"\bIMSS\b|instituto\s+mexicano\s+del\s+seguro\s+social|"
+    r"\bISSSTE\b|\bINFONAVIT\b|\bFOVISSSTE\b|\bPROFECO\b|"
+    r"junta\s+federal\s+de\s+conciliaci[óo]n|tribunal\s+federal\s+de\s+"
+    r"justicia\s+administrativa|administraci[óo]n\s+desconcentrada|"
+    r"secretar[íi]a\s+de\s+hacienda|comisi[óo]n\s+nacional|"
+    r"instituto\s+nacional\b|procuradur[íi]a\s+federal", re.I)
+
+# «del Estado de Querétaro», «local», «municipal»: si la cita lo dice, va al
+# acervo estatal aunque la autoridad sea federal.
+_RX_LEY_LOCAL = re.compile(
+    r"del\s+estado\b|estatal|municipal|del\s+municipio|de\s+la\s+entidad|"
+    r"local\b|ayuntamiento", re.I)
+
+
+def autoridad_es_federal(texto: str) -> bool:
+    """¿El acto viene de una autoridad del fuero federal?"""
+    return bool(_RX_AUTORIDAD_FEDERAL.search(texto or ""))
 
 _VACIAS = {"de", "del", "la", "el", "los", "las", "y", "en", "para", "por",
            "estado", "que", "artículo", "articulo", "artículos", "articulos"}
@@ -98,13 +138,19 @@ def citados(estudio: str) -> list:
     return fuera[: MAX_ARTICULOS * 2]
 
 
-def _donde(cola: str, coleccion_estatal: str) -> tuple:
+def _donde(cola: str, coleccion_estatal: str,
+           fuero_federal: bool = False) -> tuple:
     """(colección, filtro extra) según qué ley nombró el estudio."""
     if _RX_CONSTITUCION.search(cola):
         return COLECCION_BLOQUE, "constitucion"
     if _RX_CONVENCIONAL.search(cola):
         return COLECCION_BLOQUE, "convencion"
     if _RX_FEDERAL.search(cola):
+        return COLECCION_FEDERAL, ""
+    # El asunto es federal y la cita no nombra ninguna ley local: el acervo del
+    # estado no le toca. Antes que traer el código civil de Querétaro a un
+    # asunto del SAT, se prefiere no traer nada.
+    if fuero_federal and not _RX_LEY_LOCAL.search(cola or ""):
         return COLECCION_FEDERAL, ""
     return (coleccion_estatal or ""), ""
 
@@ -174,8 +220,44 @@ def _elegir(pl: list, cola: str) -> list:
                    or p.get("ref") or "") == mejor]
 
 
+# EL TRANSITORIO DE 1917. Los artículos transitorios del decreto constitucional
+# se ingestaron con el MISMO `articulo_num` que los permanentes, y ordenan
+# primero. Se reconocen por la jerarquía: cuelgan del «TITULO NOVENO. DE LA
+# INVIOLABILIDAD DE LA CONSTITUCION» porque en el PDF van detrás del 136, que
+# es el único artículo permanente de ese título. Medido sobre los 355 trozos de
+# la CPEUM: 17 artículos afectados, del 1º al 17 —el 1º, el 14, el 16 y el 17,
+# los cuatro que se citan en todo amparo—.
+def _es_transitorio(p: dict) -> bool:
+    j = str(p.get("jerarquia") or "")
+    return "INVIOLABILIDAD" in j and int(p.get("articulo_num") or 0) != 136
+
+
+# DOS INGESTAS EN LA MISMA COLECCIÓN. La CPEUM se cargó dos veces con troceados
+# distintos, y unirlas producía notas al pie con la palabra partida por la
+# mitad: «…idad judicial federal, a petición de…» era el final de «autoridad»
+# de un troceado pegado al otro. Se elige UNA rendición —la que más trozos
+# tenga, que es la más completa— y no se mezclan.
+def _una_sola_rendicion(fr: list) -> list:
+    if len(fr) < 2:
+        return fr
+    grupos: dict = {}
+    for p in fr:
+        grupos.setdefault(str(p.get("jerarquia") or ""), []).append(p)
+    if len(grupos) < 2:
+        return fr
+    def _abre(g):
+        primero = min(g, key=lambda p: int(p.get("chunk_index") or 0))
+        return bool(re.match(r"\s*Art[íi]culo?\.?\s*\d",
+                             str(primero.get("texto") or "")))
+    # Que EMPIECE por su propio número manda sobre que sea la más larga: una
+    # rendición que arranca a mitad de frase no es el artículo.
+    return max(grupos.values(), key=lambda g: (_abre(g), len(g)))
+
+
 def _reunir(fr: list) -> str:
     """El artículo entero: viene troceado y un trozo no es el artículo."""
+    fr = [p for p in fr if not _es_transitorio(p)]
+    fr = _una_sola_rendicion(fr)
     fr = sorted(fr, key=lambda p: int(p.get("chunk_index") or 0))
     partes, visto = [], set()
     for p in fr:
@@ -186,23 +268,38 @@ def _reunir(fr: list) -> str:
     return " ".join(partes)[:2000]
 
 
-async def recuperar(qdrant, estudio: str, coleccion_estatal: str = "") -> list:
+async def recuperar(qdrant, estudio: str, coleccion_estatal: str = "",
+                    fuero_federal: bool = False) -> list:
     """Las normas que el estudio cita, con su texto. Listas para la nota al pie."""
     pares = citados(estudio)
     if not pares:
         return []
-    tareas, meta = [], []
+    # LA LEY DE AMPARO NO SE BUSCA: SE SABE. No está en ninguna colección del
+    # acervo —medido: cero trozos en leyes_federales, en el bloque y en las de
+    # materia—, así que todas sus citas venían sin texto al pie desde siempre,
+    # y en silencio.
+    import normas_estaticas as _ne
+    estaticos, pendientes = [], []
     for num, cola in pares[:MAX_ARTICULOS]:
-        col, tipo = _donde(cola, coleccion_estatal)
+        fijo = _ne.articulo(num, cola)
+        if fijo:
+            estaticos.append(fijo)
+        else:
+            pendientes.append((num, cola))
+
+    tareas, meta = [], []
+    for num, cola in pendientes:
+        col, tipo = _donde(cola, coleccion_estatal, fuero_federal)
         if not col:
             continue
         tareas.append(_traer(qdrant, col, num, tipo))
         meta.append((num, cola))
     if not tareas:
-        return []
+        return estaticos
     res = await asyncio.gather(*tareas)
 
-    fuera, vistos = [], set()
+    fuera, vistos = list(estaticos), {(d["articulo"], d["cuerpo_legal"])
+                                      for d in estaticos}
     for (num, cola), pl in zip(meta, res):
         elegidos = _elegir(pl, cola)
         if not elegidos:

@@ -143,6 +143,8 @@ def revisar(texto: str) -> list:
         fuera.append((f"la frase se corta en «{m.group(1)}», que exige "
                       f"continuación", ctx))
 
+    fuera += [(f"orden contradictoria: {q}", d) for q, d in oximorones(t)]
+
     for m in _MINUSCULA.finditer(t):
         if _sin_abreviatura(t, m):
             ctx = " ".join(t[max(0, m.start() - 60):m.end() + 40].split())
@@ -159,3 +161,50 @@ def revisar(texto: str) -> list:
         if vistos[clave] <= 6:
             limpio.append((que, ctx))
     return limpio
+
+
+# ── 7. LA FÓRMULA QUE SE CONTRADICE A SÍ MISMA ─────────────────────────────
+# David: «fórmulas oximorónicas del tipo "reitere con plenitud de
+# jurisdicción"». No es un capricho de estilo: son dos destinos opuestos del
+# asunto y no pueden convivir en la misma orden.
+#
+#   PLENITUD DE JURISDICCIÓN es lo que hace ESTE tribunal cuando, levantado el
+#   sobreseimiento o revocada la sentencia, resuelve él mismo lo que el a quo
+#   no resolvió. Es asumir la decisión, no delegarla.
+#
+#   REITERAR, REPONER o DEJAR INSUBSISTENTE es lo que se ordena a OTRO órgano.
+#   Es devolver la decisión, no asumirla.
+#
+# Mandar «reitere con plenitud de jurisdicción» ordena a la responsable que
+# haga lo que por definición hace quien no recibe órdenes. Quien lo lea no sabe
+# quién decide.
+_OXIMORONES = [
+    (r"(?:reitere|reitera|reiterando|dicte|emita|deje\s+insubsistente|"
+     r"repon(?:ga|iendo)|devu[ée]lva\w*)[^.;]{0,80}"
+     r"plenitud\s+de\s+jurisdicci[óo]n",
+     "se ordena a otro órgano actuar «con plenitud de jurisdicción», que es "
+     "lo que hace quien resuelve por sí mismo: o se asume la decisión o se "
+     "devuelve, no las dos"),
+    (r"plenitud\s+de\s+jurisdicci[óo]n[^.;]{0,80}"
+     r"(?:reitere|reitera|dicte|emita|deje\s+insubsistente|repon(?:ga|iendo))",
+     "se invoca la plenitud de jurisdicción y en la misma frase se ordena a "
+     "otro que dicte: son destinos opuestos del asunto"),
+    (r"se\s+confirma[^.;]{0,60}y\s+se\s+revoca|"
+     r"se\s+revoca[^.;]{0,60}y\s+se\s+confirma",
+     "confirmar y revocar lo mismo en el mismo punto"),
+    (r"se\s+sobresee[^.;]{0,80}(?:ampara\s+y\s+protege|se\s+concede\s+el\s+amparo)",
+     "sobreseer y amparar sobre el mismo acto: el sobreseimiento impide "
+     "entrar al fondo"),
+]
+_OXIMORONES = [(re.compile(p, re.I | re.S), q) for p, q in _OXIMORONES]
+
+
+def oximorones(texto: str) -> list:
+    """Órdenes que se anulan entre sí. [(qué, dónde)]"""
+    t = texto or ""
+    fuera = []
+    for rx, porque in _OXIMORONES:
+        m = rx.search(t)
+        if m:
+            fuera.append((porque, " ".join(m.group(0).split())[:150]))
+    return fuera

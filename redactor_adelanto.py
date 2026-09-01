@@ -694,9 +694,24 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             raise RuntimeError("sin cliente de Qdrant")
         import fase_normas as _fn
         with cronometrar("artículos citados"):
+            # EL FUERO DE LA AUTORIDAD decide si el acervo del estado siquiera
+            # se consulta. Se lee de lo que ya se sabe del asunto —la autoridad
+            # responsable y el acto—, no del estudio, que aún puede no
+            # nombrarla.
+            _quien = " ".join(str(x) for x in (
+                getattr(e, "autoridad_responsable", ""),
+                getattr(e, "acto_reclamado", ""),
+                getattr(material, "acto_reclamado", ""),
+                " ".join(getattr(material, "autoridades", None) or []),
+            ) if x)
+            _fed = _fn.autoridad_es_federal(_quien)
+            if _fed:
+                print("   ⚖️ autoridad del fuero FEDERAL: no se consulta el "
+                      "acervo estatal salvo que la cita nombre una ley local")
             _extra = await _fn.recuperar(
                 qdrant, estudio,
-                (e.coleccion_estatal or "") if hasattr(e, "coleccion_estatal") else "")
+                (e.coleccion_estatal or "") if hasattr(e, "coleccion_estatal") else "",
+                fuero_federal=_fed)
         if _extra:
             _ya = {(str(n_.get("articulo")), str(n_.get("cuerpo_legal") or
                                                  n_.get("fuente") or ""))
