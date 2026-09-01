@@ -704,7 +704,10 @@ _INCISO_97 = [
     # No estaba en el corpus del banco —ahí sólo se contó el desechamiento de
     # la demanda, inciso a), 16 de 30— y por eso salía en hueco. Lo aporta él,
     # que es quien firma, y se anota de dónde viene para que se pueda discutir.
-    (r"incidente\s+de\s+nulidad\s+de\s+notificaciones"
+    # «nulidad de notificación» en singular, y «de actuaciones»: el resultando
+    # real decía «el incidente de nulidad de notificación de emplazamiento» y
+    # la exigencia del plural lo dejaba fuera.
+    (r"incidente\s+de\s+nulidad\s+de\s+(?:notificaci[óo]n(?:es)?|actuaciones)"
      r"|incidente\s+de\s+reposici[óo]n\s+de\s+autos"
      r"|dictad[ao]s?\s+despu[ée]s\s+de\s+(?:la\s+)?sentencia", "e"),
 ]

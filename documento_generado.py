@@ -2092,11 +2092,20 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             _avisos_bk.extend(_av_rf)
             if _p_rf:
                 _proc = _p_rf
-            else:
-                _del = _bk.texto_de(tipo_asunto, "procedencia", _datos_bk)[0]
-                _proc = _del or _proc
         except Exception:
             pass
+    # Y EN LOS CUATRO TIPOS, LA DEL BANCO ANTES QUE LA DEL MODELO. Éste era el
+    # apartado que tomaba SIEMPRE el texto libre, y por eso la queja decía «El
+    # recurso de queja es procedente y no se advierte causa de improcedencia»
+    # —una fórmula que no funda nada— teniendo el banco medida la suya, que
+    # cita el artículo 97, fracción I, con su inciso y con el auto que se
+    # impugna. Es el mismo patrón por tercera vez: una fórmula del corpus que
+    # existe y a la que nadie llama.
+    if not (_ta.normalizar(tipo_asunto) == "revision_fiscal" and _proc
+            != (estructura.procedencia or "")):
+        _del_banco_proc = _bk.texto_de(tipo_asunto, "procedencia", _datos_bk)[0]
+        if (_del_banco_proc or "").strip():
+            _proc = _del_banco_proc
     if (_proc or "").strip() and (
             esq.get("procedencia_propia")
             or (esq["existencia"] and not (estructura.existencia or "").strip())):
