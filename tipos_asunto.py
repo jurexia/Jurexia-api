@@ -328,3 +328,14 @@ RESULTANDOS = {
 def resultandos_de(tipo: str) -> list:
     """[(rótulo, qué va dentro)] del tipo."""
     return RESULTANDOS.get(normalizar(tipo), RESULTANDOS["amparo_directo"])
+
+
+def rotulo_estudio_de(tipo: str) -> str:
+    """Cómo rotula el corpus el considerando de fondo, en este tipo.
+
+    Estaba fijo como «Estudio.» en el ensamblador, y en revisión fiscal el
+    corpus lo llama «Estudio de los agravios» —17 de 29—, que es también como
+    lo rotula el adelanto real de la RF 44/2025.
+    """
+    cs = estructura_de(tipo).get("considerandos") or []
+    return (cs[-1][0] if cs else "Estudio")

@@ -1886,7 +1886,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                     f"Por lo expuesto, dado lo {_calificacion_plural(cs) or 'infundado'} "
                     f"de los {q}, lo procedente es negar el amparo solicitado.")
 
-    con_apartados.append(("Estudio.", _estudio))
+    con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",
+                          _estudio))
 
     if concede:
         def _efectos(p):
