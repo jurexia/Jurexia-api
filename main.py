@@ -25835,14 +25835,36 @@ async def taller_adelanto(
         print(f"   📄 TALLER: modo GENERADO — sin plantilla · tribunal "
               f"«{(tribunal or 'SIN INDICAR')[:70]}»")
     else:
-        base = _plantilla_precargada(tipo_asunto)
-        if not base:
-            raise HTTPException(400,
-                f"No hay plantilla precargada para «{tipo_asunto}». Sube la tuya "
-                f"o elige entre: {', '.join(sorted(PLANTILLAS_PRECARGADAS))}.")
-        import shutil as _sh
-        _sh.copy(base, ruta_plantilla)
-        print(f"   📄 TALLER: plantilla precargada «{tipo_asunto}»")
+        # ═══════════════════════════════════════════════════════════════
+        # LAS PLANTILLAS PRECARGADAS DEJAN DE SERVIRSE
+        # ═══════════════════════════════════════════════════════════════
+        # Los cuatro .docx de `plantillas/` no son formularios: son ENGROSES
+        # REALES del Tercer Tribunal Colegiado del Vigésimo Segundo Circuito,
+        # con «Querétaro, Querétaro» en el proemio, el nombre propio de sus
+        # magistrados en el resultando del turno y su competencia en el
+        # considerando primero. Y `ensamblar()` no sustituye ni el tribunal ni
+        # la ciudad —`Relleno` ni siquiera tiene esos campos— y el magistrado
+        # sólo lo cambia en la línea de rubro, no donde la plantilla lo nombra
+        # en prosa. Un secretario de Mérida recibía un documento que declaraba
+        # competente a un tribunal de Querétaro y turnaba el asunto a un
+        # magistrado que no es el suyo, con el rubro corregido dando la
+        # impresión de que la sustitución se había hecho.
+        #
+        # David: «no dejes plantillas o datos del Tercer Tribunal Colegiado.
+        # Todo tiene que ser generado con los campos que va llenando el
+        # secretario». Así que esta rama se cierra: o el secretario sube SU
+        # plantilla, o el documento se escribe entero con sus datos.
+        #
+        # Los cuatro ficheros no se borran: siguen siendo el corpus del que se
+        # midieron las fórmulas de `banco_plantillas.json`. Lo que se retira es
+        # servirlos como documento.
+        raise HTTPException(400,
+            "El modo «plantilla» sólo vale con la plantilla que tú subas. Las "
+            "que había precargadas eran engroses de un tribunal concreto —con "
+            "su ciudad y sus magistrados dentro— y servírselas a un secretario "
+            "de otro circuito le ponía en el documento una identidad que no es "
+            "la suya. Sube la tuya, o usa el modo «generado», que escribe el "
+            "proyecto entero con los datos de tu ficha.")
 
     # Se reutiliza el lector que ya existe: texto nativo gratis, OCR sólo si
     # el PDF viene escaneado.
