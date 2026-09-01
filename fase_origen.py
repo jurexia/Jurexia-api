@@ -70,3 +70,37 @@ def numero_de(resultandos: str, propio: str = "") -> str:
             continue
         return num
     return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA FECHA DE LO RECURRIDO
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «obligar a la IA a extraer el expediente de origen Y LA FECHA DEL
+# FALLO». Es el otro marcador que salía en asteriscos: la plantilla de
+# procedencia de la queja dice «se impugna el auto de {fecha_acto}» y nadie lo
+# alimentaba, así que el considerando que funda la procedencia decía «el auto de
+# *********» —justo al lado del inciso que sí se dedujo—.
+#
+# Se lee del mismo sitio y con la misma disciplina: de los resultandos ya
+# escritos, en letra (que es como los escribe el corpus), y sólo cuando la
+# fecha va PEGADA a la palabra que la declara —auto, acuerdo, sentencia,
+# resolución—. Un «primer día que aparezca» se llevaría la de la notificación,
+# la de la presentación o la del emplazamiento, que están en el mismo párrafo.
+_DIAS = (r"(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|"
+         r"trece|catorce|quince|diecis[éeí]is|diecisiete|dieciocho|diecinueve|"
+         r"veinte|veinti\w+|treinta(?:\s+y\s+uno)?)")
+_MESES = (r"enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|"
+          r"octubre|noviembre|diciembre")
+
+_RX_FECHA = re.compile(
+    r"\b(?:auto|acuerdo|sentencia|resoluci[óo]n|prove[íi]do|interlocutoria)\b"
+    r"[^.]{0,40}?\bde\s+(" + _DIAS + r"\s+de\s+(?:" + _MESES + r")\s+de\s+"
+    r"(?:dos\s+mil\s+\w+(?:\s+\w+)?|\d{4}))",
+    re.I)
+
+
+def fecha_de(resultandos: str) -> str:
+    """La fecha de lo recurrido, en letra, o cadena vacía."""
+    t = " ".join((resultandos or "").split())
+    m = _RX_FECHA.search(t)
+    return m.group(1).strip() if m else ""

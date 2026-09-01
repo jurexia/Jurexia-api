@@ -1953,6 +1953,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             _datos_bk["expediente"] = (_fo.numero_de(_res_txt,
                                                      str(datos.get("numero") or ""))
                                        or HUECO)
+            # Y LA FECHA DE LO RECURRIDO, del mismo sitio: la plantilla de
+            # procedencia dice «se impugna el auto de {fecha_acto}» y salía en
+            # asteriscos justo al lado del inciso que sí se dedujo.
+            if not str(_datos_bk.get("fecha_acto") or "").strip().strip("*"):
+                _datos_bk["fecha_acto"] = _fo.fecha_de(_res_txt) or HUECO
         except Exception:
             pass
     # LA FRACCIÓN DEL ACUERDO GENERAL ES LA DE CADA CIRCUITO, Y SE DEDUCE.
