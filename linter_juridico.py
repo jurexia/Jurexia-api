@@ -208,17 +208,38 @@ _RX_HUECO = re.compile(r"\*{4,}")
 # Mandar «reitere con plenitud de jurisdicción» ordena a la responsable que
 # haga lo que por definición hace quien no recibe órdenes. Quien lo lea no sabe
 # quién decide.
+# LO QUE ESTA COMPROBACIÓN CREÍA Y NO ERA. La primera versión prohibía
+# «plenitud de jurisdicción» a menos de ochenta caracteres de CUALQUIER orden a
+# otro órgano —«deje insubsistente», «emita», «dicte»—, y con eso acusaba al
+# párrafo de efectos del amparo directo, que es correcto y está MEDIDO en el
+# banco del tribunal con su esqueleto de cuatro pasos:
+#
+#   a) dejar insubsistente la sentencia reclamada;
+#   b) emitir otra REITERANDO lo ajeno a la concesión;
+#   c) el mandato concreto del caso;
+#   d) hecho lo anterior, resolver CON PLENITUD DE JURISDICCIÓN.
+#
+# Los pasos b) y d) conviven porque recaen sobre COSAS DISTINTAS: se reitera lo
+# que el amparo no tocó y se decide con plenitud lo que sí. Es la séptima
+# acusación falsa que se retira hoy, y la regla no cambia: si acusa al
+# documento firmado, la que está mal es la comprobación.
+#
+# EL OXÍMORON DE VERDAD, que es lo que David señaló, es más estrecho: el MISMO
+# verbo gobernando las dos cosas —«reitere CON PLENITUD DE JURISDICCIÓN»—, sin
+# nada en medio. Ahí sí se le ordena a otro que repita y a la vez que decida
+# libremente sobre lo mismo, y quien lo lea no sabe qué se le manda.
 _OXIMORONES = [
-    (r"(?:reitere|reitera|reiterando|dicte|emita|deje\s+insubsistente|"
-     r"repon(?:ga|iendo)|devu[ée]lva\w*)[^.;]{0,80}"
-     r"plenitud\s+de\s+jurisdicci[óo]n",
-     "se ordena a otro órgano actuar «con plenitud de jurisdicción», que es "
-     "lo que hace quien resuelve por sí mismo: o se asume la decisión o se "
-     "devuelve, no las dos"),
-    (r"plenitud\s+de\s+jurisdicci[óo]n[^.;]{0,80}"
-     r"(?:reitere|reitera|dicte|emita|deje\s+insubsistente|repon(?:ga|iendo))",
-     "se invoca la plenitud de jurisdicción y en la misma frase se ordena a "
-     "otro que dicte: son destinos opuestos del asunto"),
+    # LA COMA SÍ CABE —«deberá reiterar, con plenitud de jurisdicción, las
+    # consideraciones firmes» es el mismo disparate con puntuación—, pero el
+    # punto y el punto y coma NO: son la frontera entre dos pasos del párrafo
+    # de efectos, y ahí las dos órdenes ya recaen sobre cosas distintas.
+    (r"\breiter(?:e|en|ar|ando|e\s+lo)\b[^.;]{0,24}"
+     r"con\s+plenitud\s+de\s+jurisdicci[óo]n",
+     "se ordena REITERAR y a la vez actuar «con plenitud de jurisdicción» "
+     "sobre lo mismo: repetir y decidir libremente son órdenes opuestas. El "
+     "párrafo de efectos sí puede llevar las dos, pero sobre cosas distintas "
+     "—reiterar lo ajeno a la concesión y resolver con plenitud lo demás—, y "
+     "entonces van en pasos separados"),
     (r"se\s+confirma[^.;]{0,60}y\s+se\s+revoca|"
      r"se\s+revoca[^.;]{0,60}y\s+se\s+confirma",
      "confirmar y revocar lo mismo en el mismo punto"),

@@ -2497,11 +2497,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})], sangria=False)
         _hecho = True
     elif _ta.normalizar(tipo_asunto) == "amparo_revision":
+        # EL ESTUDIO ENTERO, NO SUS PRIMEROS SEIS MIL CARACTERES. `resolvio_a_quo`
+        # es un barrido de expresiones regulares: cuesta lo mismo mirarlo todo,
+        # y truncarlo sólo puede perder la frase que dice qué resolvió el
+        # juzgado. Un resolutivo en hueco por no haber leído el párrafo 40 es
+        # un precio absurdo por un ahorro que nadie iba a notar.
         _fuente_rama = " ".join([
             str(datos.get("antecedentes") or ""),
+            str(datos.get("acto") or ""),
             " ".join(str(r.get("texto") or "")
                      for r in (estructura.resultandos or [])),
-            str(estudio or "")[:6000]])
+            str(estudio or "")])
         try:
             import fase_rama as _fr
             _que_hizo = _fr.resolvio_a_quo(_fuente_rama)
