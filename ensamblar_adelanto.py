@@ -1317,12 +1317,28 @@ def residuo_de_plantilla(ruta: str, numero: str = "",
     # origen, el juicio natural— salieron de los documentos del caso y son
     # legítimos; señalarlos todos ahoga el aviso que importa.
     de_plantilla = _numeros_de(ruta_plantilla) if ruta_plantilla else None
+    # SIN PLANTILLA NO HAY ACUSACIÓN QUE HACER. El `is not None` dejaba pasar
+    # el descarte cuando no había con qué comparar, y entonces esta red
+    # señalaba TODOS los números del documento: el del propio asunto, el del
+    # amparo de origen, el del juicio natural. Un aviso que acusa al expediente
+    # correcto por su propio número enseña a no leer los avisos.
+    if de_plantilla is None:
+        de_plantilla = set()
+
+    # EL NÚMERO PROPIO SE ESCRIBE DE VARIAS MANERAS. En el formulario puede
+    # llegar «QA 143/2026» o «143-2026» y en el documento sale «143/2026»: si
+    # no se normalizan, el asunto se acusa a sí mismo.
+    def _clave(x: str) -> str:
+        m_ = re.search(r"(\d{1,5})\s*[/\-]\s*(\d{4})", str(x or ""))
+        return f"{m_.group(1)}/{m_.group(2)}" if m_ else ""
+
+    propio = {c for c in (_clave(numero), str(numero or "").strip()) if c}
     ajenos: dict[str, str] = {}
     for m in _RX_EXPEDIENTE.finditer(texto):
         num = m.group(0)
-        if num in propio:
+        if num in propio or _clave(num) in propio:
             continue
-        if de_plantilla is not None and num not in de_plantilla:
+        if num not in de_plantilla:
             continue
         if _RX_NO_ES_EXPEDIENTE.search(texto[max(0, m.start() - 22):m.start()]):
             continue
@@ -1416,6 +1432,35 @@ def _cuenta_conceptos(texto: str) -> int:
     return alto
 
 
+# EL DESENLACE SE ANCLA, NO SE MIDE EN CARACTERES. Un tope por longitud vale
+# para el documento largo y se traga el estudio entero en el corto, que es
+# justo donde una prueba parece pasar y no prueba nada. El desenlace empieza
+# donde el documento anuncia que va a resolver: el párrafo de «por lo expuesto»
+# o el «R E S U E L V E». Si ninguno aparece —un adelanto sin resolutivos—, se
+# usa el último tramo, que es lo único que queda.
+_COLA_DESENLACE = 3000
+_RX_DESENLACE = re.compile(
+    r"(?:por\s+lo\s+(?:expuesto|antes\s+expuesto)|"
+    r"en\s+las\s+relatadas\s+consideraciones|"
+    r"R\s*E\s*S\s*U\s*E\s*L\s*V\s*E)", re.I)
+
+
+def _cola_de(texto: str) -> str:
+    """Desde donde el documento anuncia que resuelve hasta el final."""
+    t = texto or ""
+    # EL PRIMER MARCADOR DEL ÚLTIMO TERCIO. Coger el último —el «R E S U E L V
+    # E»— dejaba fuera el párrafo de «por lo expuesto», que es exactamente
+    # donde se cuela la fórmula del otro tipo de asunto. Y coger el primero de
+    # todo el documento arrastraría un «por lo expuesto» que en el estudio
+    # cierra un razonamiento intermedio. El desenlace empieza en el primer
+    # anuncio de resolución que ya está en el último tercio.
+    desde = (len(t) * 2) // 3
+    for m in _RX_DESENLACE.finditer(t):
+        if m.start() >= desde:
+            return t[m.start():]
+    return t[-_COLA_DESENLACE:] if len(t) > _COLA_DESENLACE else t
+
+
 def revisar_congruencia(ruta: str, calificaciones=None,
                         tipo_asunto: str = "") -> list[str]:
     """El resolutivo tiene que decir lo que dice el estudio. Sin excepción."""
@@ -1440,6 +1485,7 @@ def revisar_congruencia(ruta: str, calificaciones=None,
     if tipo_asunto:
         try:
             import tipos_asunto as _ta_cg
+            import re as _re_cg
             _aj = _ta_cg.cierre_ajeno(tipo_asunto, texto)
         except Exception:
             _aj = []
@@ -1457,6 +1503,14 @@ def revisar_congruencia(ruta: str, calificaciones=None,
                 "se funda en una ley que no gobierna este recurso. Es lo que "
                 "pasa cuando se cuela la plantilla de otro tipo de asunto, y "
                 "está en el primer considerando que se lee.")
+        # ACOTADO AL DESENLACE, no a todo el documento. En la queja de hoy el
+        # proyecto razonaba, y bien, que «admitir la demanda no equivale a
+        # reconocer que el titular actuó como autoridad NI A CONCEDER EL
+        # AMPARO»: la fórmula aparece precisamente para DESCARTARLA. Prohibirla
+        # en el cuerpo del estudio castiga el razonamiento que distingue, que
+        # es el que hay que premiar. Donde no puede estar es donde se resuelve.
+        _desenlace = _cola_de(texto)
+        _aj = [a for a in _aj if _re_cg.search(a, _desenlace, _re_cg.I)]
         if _aj:
             _n = _ta_cg.vocabulario_de(tipo_asunto)["nombre"]
             fuera.append(
