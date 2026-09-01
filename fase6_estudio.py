@@ -825,6 +825,20 @@ abierto por su ordinal en letra.
   el rubro y el registro identifican la tesis; su texto íntegro va en la nota
   al pie, no en el cuerpo.
 
+- NO REPITAS EL MISMO PASAJE DOS VECES. Medido en el engrose del ADC 642/2024
+  que sirve de referencia: tres párrafos copiados palabra por palabra dentro
+  del mismo considerando, ochenta líneas después. Si el artículo 79 de la Ley
+  de Amparo ya se transcribió al fijar la premisa, más adelante se le NOMBRA
+  —«el precepto transcrito», «la regla ya enunciada»— y no se vuelve a copiar.
+  Un pasaje repetido no refuerza: delata que el estudio se escribió por trozos.
+
+- SI AGRUPAS PLANTEAMIENTOS, DILO Y DI CUÁLES. Estudiar conjuntamente varios
+  agravios por su estrecha relación es correcto y a veces es lo mejor —el
+  reencuadre que los hace caer todos a la vez ahorra treinta páginas—, pero
+  hay que nombrarlos uno por uno al agruparlos: «se examinan conjuntamente los
+  agravios primero, segundo y quinto, por su estrecha relación». Agrupar sin
+  decir cuáles es indistinguible de olvidarse de uno.
+
 - Y NO PROMETAS LO QUE NO VAS A CUMPLIR. Si el documento dijo que era
   innecesario transcribir la sentencia recurrida, no la parafrasees después
   entera: eso pasa en los CINCO engroses de referencia y es lo primero que se

@@ -752,6 +752,52 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         if a not in avisos:
             avisos.insert(0, a)
 
+    # LA CALIDAD DEL FONDO, MEDIDA SOBRE EL DOCUMENTO ENTREGADO. No es una
+    # opinión: son las cinco medidas que salieron de contar los defectos de los
+    # engroses reales —densidad, exhaustividad, congruencia interna, promesa
+    # cumplida y duplicación—. El secretario ve el número, no un adjetivo.
+    try:
+        import calidad_estudio as _ce
+        from docx import Document as _Doc
+        _txt = "\n".join(p.text for p in _Doc(ruta).paragraphs)
+        _m = _ce.medir(_txt)
+        _d = _m["densidad"]
+        if _d["palabras"] > 400 and _d["pct_propio"] < 0.70:
+            avisos.append(
+                f"EL ESTUDIO VIVE DE LA CITA: sólo el {_d['pct_propio']*100:.0f}% "
+                f"es razonamiento propio ({_d['transcritas']} palabras "
+                f"transcritas de {_d['palabras']}). La referencia de los "
+                f"engroses es el 45%, así que esto no es un desastre —pero el "
+                f"objetivo es el 70%.")
+        for _r in _m["remisiones_rotas"]:
+            avisos.append(f"REMISIÓN A UN APARTADO QUE NO EXISTE: «{_r}». Es el "
+                          f"defecto que se caza leyendo el resolutivo en voz alta.")
+        if _m["procedencia_contradice"]:
+            avisos.append("LA PROCEDENCIA CONTRADICE EL FALLO: dice improcedente "
+                          "en un asunto que se resuelve por el fondo.")
+        if _m["promesa"]["rota"]:
+            avisos.append("SE PROMETIÓ NO TRANSCRIBIR Y SE TRANSCRIBIÓ: el "
+                          "documento dice que es innecesario reproducir el acto "
+                          "y luego lo reproduce.")
+        _dup = _ce.duplicacion_interna(_ce.estudio_de(_txt))
+        if _dup:
+            avisos.append(
+                f"{len(_dup)} PASAJE(S) REPETIDO(S) dentro del estudio: «"
+                f"{_dup[0][:90]}…». Un pasaje repetido no refuerza; delata que "
+                f"se escribió por trozos.")
+        for _e in _ce.estadistica_en_el_texto(_txt):
+            avisos.append(f"LA CIFRA DEL ACERVO SE COLÓ EN LA SENTENCIA: «{_e[:110]}». "
+                          f"El criterio no se vota: quítala.")
+        _ex = _m["exhaustividad"]
+        if _ex.get("contesta_todo") is False:
+            avisos.append(
+                f"QUEDAN PLANTEAMIENTOS SIN RESPUESTA: se anuncian "
+                f"{_ex['planteamientos_anunciados']} y se emiten "
+                f"{_ex['calificaciones_emitidas']} calificaciones, sin decir que "
+                f"se estudian conjuntamente. Es omisión de estudio.")
+    except Exception as _ec:
+        print(f"   ⚠️ no se pudo medir la calidad del estudio: {_ec}")
+
     # NADA DEL PROYECTO PUEDE SER DE OTRO ASUNTO. Se comprueba sobre el .docx ya
     # escrito, que es lo que el secretario va a leer, y contra los documentos
     # que él subió.

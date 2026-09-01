@@ -110,13 +110,34 @@ _RX_CALIFICA = re.compile(
     r"innecesari[oa]s?)\b", re.I)
 
 
+# EL ESTUDIO AGRUPADO ES LEGÍTIMO, y contarlo como omisión era un fallo de la
+# medida, no del documento. El engrose del ARA 17/2025 —el mejor de los cinco
+# en este punto— no contesta agravio por agravio: hace «un solo movimiento de
+# reencuadre que los hace caer todos a la vez». Lo que hay que exigir no es una
+# calificación por planteamiento, sino que NINGUNO quede sin respuesta: o se le
+# contesta, o se dice expresamente que se estudia con otro.
+_RX_AGRUPA = re.compile(
+    r"(?:se\s+)?(?:examinar|analizar|estudiar)[áa]n?\s+"
+    r"(?:de\s+manera\s+)?conjunta(?:mente)?|"
+    r"en\s+(?:un|el)\s+(?:solo\s+)?(?:bloque|apartado)[^.]{0,60}"
+    r"(?:agravios?|conceptos?)|"
+    r"por\s+(?:su\s+)?(?:estrecha\s+)?relaci[óo]n[^.]{0,40}"
+    r"(?:se\s+)?(?:estudian|analizan|examinan)", re.I)
+
+
 def exhaustividad(estudio: str) -> dict:
-    """¿Se contesta todo lo que se enuncia?"""
-    anunciados = {_norm(m.group(1)).rstrip("o") for m in _RX_ANUNCIA.finditer(estudio or "")}
+    """¿Queda algún planteamiento sin respuesta?"""
+    anunciados = {_norm(m.group(1)).rstrip("o")
+                  for m in _RX_ANUNCIA.finditer(estudio or "")}
     calificados = len(_RX_CALIFICA.findall(estudio or ""))
+    agrupa = bool(_RX_AGRUPA.search(estudio or ""))
+    # Con estudio agrupado basta UNA calificación que los cubra; sin él, hace
+    # falta al menos una por planteamiento anunciado.
+    ok = (calificados >= 1) if agrupa else (calificados >= len(anunciados))
     return {"planteamientos_anunciados": len(anunciados),
             "calificaciones_emitidas": calificados,
-            "contesta_todo": calificados >= len(anunciados) if anunciados else None}
+            "estudio_agrupado": agrupa,
+            "contesta_todo": ok if anunciados else None}
 
 
 # ── 3. CONGRUENCIA INTERNA ─────────────────────────────────────────────────
