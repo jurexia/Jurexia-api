@@ -1842,6 +1842,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # Medido sobre 363 documentos. El estudio y los antecedentes NO llevan
     # plantilla: ahí no hay fórmula que valga.
     import banco as _bk
+    _avisos_bk: list = []
     _datos_bk = dict(datos)
     _datos_bk.setdefault("q", q)
     # LOS MARCADORES QUE SÍ SE DEDUCEN. Salieron en hueco la primera vez y no
@@ -1870,6 +1871,18 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         "revision_fiscal": "administrativa", "queja": "administrativa",
     }.get(str(tipo_asunto or "").strip().lower(), "") or HUECO)
     _datos_bk.setdefault("inciso", "b" if _mat in ("administrativa", "agraria") else "c")
+    # EL INCISO DEL 97 NO ES EL DE LA MATERIA. Ver la nota en tipos_asunto: un
+    # solo marcador servía a dos preceptos que se reparten por cosas distintas,
+    # y la queja acababa fundando su procedencia en el supuesto equivocado.
+    if _ta.normalizar(tipo_asunto) == "queja":
+        _i97 = _ta.inciso_97(_datos_bk.get("descripcion_acto", ""))
+        _datos_bk["inciso"] = _i97 or HUECO
+        if not _i97:
+            _avisos_bk.append(
+                "EL INCISO DEL ARTÍCULO 97, FRACCIÓN I, SALE EN HUECO: no se "
+                "pudo afirmar cuál corresponde a este acto. Escríbelo: es el "
+                "supuesto que hace procedente la queja, y uno equivocado se "
+                "caza en sesión.")
     _datos_bk.setdefault("concordancia", "localizada" if _fem else "localizado")
     # EL ARTÍCULO LO PONE LA PLANTILLA, NO YO. Las fórmulas del banco ya dicen
     # «por el {responsable}» y «dictado por el {responsable}», así que
@@ -2149,7 +2162,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # Los avisos deterministas de la carátula viajan con el documento. Se
     # cuelgan de la estructura porque es lo que ya recorre el camino de vuelta.
     try:
-        for _a in avisos_doc:
+        for _a in list(avisos_doc) + list(_avisos_bk):
             if _a not in estructura.avisos:
                 estructura.avisos.append(_a)
     except Exception:

@@ -614,3 +614,52 @@ PROEMIO = {
 
 def proemio_de(tipo: str) -> dict:
     return PROEMIO.get(normalizar(tipo), PROEMIO["amparo_directo"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL INCISO DEL ARTÍCULO 97: UN MARCADOR CON DOS SIGNIFICADOS
+# ═══════════════════════════════════════════════════════════════════════════
+# La queja salía fundada en «el artículo 97, fracción I, inciso c)» y el
+# adelanto real de la QC 259/2025 dice inciso e). No es que el valor fuera
+# malo: es que el marcador `{inciso}` sirve a DOS plantillas que quieren decir
+# cosas incompatibles.
+#
+#   · en el amparo directo abre el 107, fracción V, constitucional y el 35,
+#     fracción I, de la Ley Orgánica, que SÍ se reparten por materia —b) en
+#     administrativa y agraria, c) en civil y mercantil—;
+#   · en la queja abre el 97, fracción I, de la Ley de Amparo, cuyos incisos se
+#     reparten por QUÉ SE RECURRE: el desechamiento de la demanda, la
+#     suspensión, el carácter de tercero interesado…
+#
+# Darle el valor de la materia al segundo es fundar la procedencia del recurso
+# en un supuesto que no es el suyo, y eso se caza en sesión.
+#
+# SÓLO SE MAPEA LO MEDIDO. El corpus dice «Queja de desechamiento (inciso a),
+# 16 de 30» y nada más; el resto de los supuestos no está contado aquí. Lo que
+# no se puede afirmar sale en HUECO VISIBLE con su aviso: un inciso equivocado
+# se firma, un hueco se rellena. No es pereza —es que inventar el inciso de un
+# precepto de procedencia es justo lo que este trabajo existe para evitar.
+_INCISO_97 = [
+    (r"desech[óo]?\s+(?:de\s+plano\s+)?(?:total\s+o\s+parcialmente\s+)?la\s+demanda"
+     r"|desech[óo]?\s+la\s+demanda|tuvo\s+por\s+no\s+presentada\s+la\s+demanda"
+     r"|admit[ií][óo]?\s+.{0,30}\s+demanda\s+de\s+amparo", "a"),
+    (r"suspensi[óo]n\s+(?:de\s+plano|provisional)|conced[ií][óo]?\s+la\s+suspensi[óo]n"
+     r"|neg[óo]?\s+la\s+suspensi[óo]n", "b"),
+    (r"car[áa]cter\s+de\s+tercero\s+interesado", "d"),
+]
+
+
+def inciso_97(descripcion_acto: str) -> str:
+    """El inciso del 97, fracción I, o cadena vacía si no se puede afirmar.
+
+    Se lee de la DESCRIPCIÓN DEL ACTO —una frase—, nunca del OCR entero: una
+    heurística de una palabra dentro de cien mil caracteres casa siempre, y con
+    lo primero de la lista.
+    """
+    t = " ".join((descripcion_acto or "").split())
+    if not t or len(t) > 400:
+        return ""
+    for patron, inciso in _INCISO_97:
+        if re.search(patron, t, re.I):
+            return inciso
+    return ""
