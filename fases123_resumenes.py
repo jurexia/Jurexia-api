@@ -200,7 +200,20 @@ frente a lo que se combate. No de la demanda sola ni del acto solo.
 - Señala, cuando lo adviertas, el IMPEDIMENTO TÉCNICO que llevaría a
   inoperancia: que el planteamiento no combata la razón toral, que sea
   novedoso, que verse sobre cuestión firme, o que no haya concepto.
-- No propongas el sentido. El sentido lo pone el secretario."""
+- No propongas el sentido. El sentido lo pone el secretario.
+
+- JERARQUÍA. Marca UNO como «principal»: aquel del que dependen los demás,
+  el que si prospera vuelve innecesario estudiar el resto. Los demás son
+  «accesorio». Si de verdad son independientes entre sí —cada uno se sostiene
+  y se resuelve solo— marca «principal» sólo el primero y di en «depende_de»
+  null en todos: la independencia se declara, no se supone.
+
+- LA PREGUNTA NO PUEDE SER TENDENCIOSA. Una pregunta que ya lleva dentro la
+  respuesta no es un problema jurídico, es una conclusión disfrazada. «¿Fue
+  ilegal que la responsable omitiera valorar la prueba?» presupone la omisión
+  y presupone la ilegalidad; lo que se pregunta es «¿la responsable valoró la
+  prueba pericial y, de no haberlo hecho, esa omisión trasciende al fallo?».
+  Escribe la pregunta de modo que las dos respuestas quepan en ella."""
     if global_primero:
         base += """
 - FORMULA PRIMERO UN PROBLEMA GLOBAL: la cuestión toral de la que dependen

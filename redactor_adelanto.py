@@ -69,6 +69,9 @@ class Encargo:
     modo: str = "generado"            # plantilla | generado
     plantilla: str = ""               # el .docx del propio tribunal
     coleccion_estatal: str = ""       # «leyes_queretaro», para el RAG del fondo
+    # LA MATERIA, DECLARADA. Decide el silo del RAG y el filtro del sondeo de
+    # precedentes. Vacía = se deduce del tribunal y del encabezado, como antes.
+    materia: str = ""
 
 
 @dataclass
@@ -452,7 +455,22 @@ def _burocratico_estatal(r) -> bool:
 
 
 def fp_materia(e) -> str:
-    """La materia del asunto, leída del encabezado y del tribunal."""
+    """La materia del asunto. La DECLARADA manda sobre la deducida.
+
+    David: «en función de la materia el RAG es selectivo (como en laboral) y
+    eso lo determina un campo seleccionado por el secretario». Hasta ahora la
+    materia se deducía del nombre del tribunal y del encabezado, y eso acierta
+    casi siempre —un colegiado de trabajo no ve otra cosa— pero falla justo
+    donde más cuesta: en un tribunal MIXTO «en materias administrativa y
+    civil», donde el nombre no decide, y en un asunto laboral que llega a un
+    colegiado administrativo, que es cuando el silo laboral hace falta.
+
+    La deducción se conserva como respaldo: quien no declare materia sigue
+    teniendo el comportamiento de siempre.
+    """
+    declarada = str(getattr(e, "materia", "") or "").strip().lower()
+    if declarada:
+        return declarada
     try:
         import fase_precedente as fp
     except Exception:
@@ -491,16 +509,38 @@ async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
     materia = fp_materia(e)
     if not materia:
         return None
+    # UNO POR PROBLEMA, EN PARALELO. Sondeaba `problemas[0]` y ya: el acervo
+    # decía cómo se resuelve la cuestión principal y callaba sobre las demás,
+    # que es donde el secretario más agradece la señal —un accesorio que el
+    # 90% de los tribunales declara inoperante se resuelve en dos renglones—.
+    # Son N búsquedas contra la misma colección; corriendo a la vez, la espera
+    # es la de la más lenta.
+    _circ = fp.circuito_de(getattr(e, "tribunal", ""))
+    _txt = [p if isinstance(p, str) else str((p or {}).get("pregunta") or p)
+            for p in problemas]
     try:
-        s = await fp.sondear(qdrant, embed, problemas[0], materia,
-                             circuito=fp.circuito_de(getattr(e, "tribunal", "")))
+        _todos = await asyncio.gather(*[
+            fp.sondear(qdrant, embed, t, materia, circuito=_circ)
+            for t in _txt], return_exceptions=True)
     except Exception as exc:
         print(f"   ⚠️ sondeo de precedente omitido: {exc}")
         return None
+    _sondeos = [x if not isinstance(x, BaseException) else None for x in _todos]
+    if not any(_sondeos):
+        return None
+    s = next(x for x in _sondeos if x)
+    # Los demás viajan colgados del primero: `Material.sondeo` es lo que lee el
+    # estudio y no se le cambia la forma, pero la predicción de cada problema
+    # tiene que llegar a la pantalla.
+    s.por_problema = [
+        {"problema": t, "prediccion": fp.prediccion(x) if x else {}}
+        for t, x in zip(_txt, _sondeos)]
     # SE DEJA CONSTANCIA AUNQUE VAYA BIEN. Hasta ahora este paso sólo hablaba
     # cuando fallaba, y tras desplegarlo no había manera de saber desde los
     # registros si había corrido: el silencio significaba «no falló», no
     # «funcionó». Es el mismo defecto que el aviso que nadie veía. Una línea.
+    _pred = [d["prediccion"].get("frase", "—") for d in s.por_problema]
+    print(f"   ⚖️ jurimetría por problema: " + " · ".join(_pred[:4]))
     print(f"   ⚖️ precedente[{materia}]: "
           f"{sum(s.distribucion.values())} sentencias del tema · "
           f"{len(s.moldes)} moldes · {len(s.razonados)} con razón escrita"

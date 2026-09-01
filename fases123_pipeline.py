@@ -269,8 +269,10 @@ Devuelve JSON y nada más:
   "problema_global": "la cuestión toral EN FORMA DE PREGUNTA, empezando por ¿ y terminando en ?",
   "problemas": [
     {{"pregunta": "...",
-      "resolvio": "qué resolvió la responsable sobre este punto",
+      "jerarquia": "principal|accesorio",
+      "resolvio": "qué resolvió el órgano recurrido sobre este punto",
       "combate": "qué lo combate",
+      "depende_de": "el número del problema del que depende, o null",
       "impedimento": null}}
   ]
 }}

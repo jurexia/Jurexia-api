@@ -1075,7 +1075,12 @@ def _con_articulo(nombre: str) -> str:
 HUECO = "*********"
 
 _PLURAL = {"fundado": "fundados", "infundado": "infundados",
-           "inoperante": "inoperantes", "ineficaz": "ineficaces"}
+           "inoperante": "inoperantes", "ineficaz": "ineficaces",
+           # INNECESARIO NO ES UNA CALIFICACIÓN DEL PLANTEAMIENTO. No se dice
+           # que sea infundado —eso sería contestarlo— sino que no hace falta
+           # entrar: queda sin materia porque el principal ya resolvió el
+           # asunto. Va aquí para que la calificativa del rótulo lo diga.
+           "innecesario": "innecesarios de estudiar"}
 
 
 def _calificacion_plural(cs: list) -> str:
@@ -1936,6 +1941,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # ── CONSIDERANDO ──
     rotulo(doc, "Considerando")
     cs = [str(c or "").strip().lower() for c in (calificaciones or []) if c]
+    # «INNECESARIO» NO CONCEDE NI NIEGA. Empieza por «i» como «infundado» e
+    # «inoperante», pero significa otra cosa: que no se entra al planteamiento.
+    # Lo que decide el sentido del fallo es el PRINCIPAL, y si ése es fundado
+    # el asunto se concede aunque los accesorios queden sin materia.
     concede = any(c.startswith("fundad") for c in cs)
     esq = esqueleto_de(tipo_asunto)
     q = esq["q"]

@@ -107,6 +107,11 @@ class Sondeo:
     objeciones: list = field(default_factory=list)     # cómo razonó el que resolvió al revés
     moldes: list = field(default_factory=list)         # tramos de REGLA, molde de forma
     avisos: list = field(default_factory=list)
+    # La predicción de CADA problema: [{"problema", "prediccion"}]. El sondeo
+    # se hace uno por problema y el más rico se queda como `sondeo` del
+    # material —que es lo que lee el estudio—; esto lleva los demás a la
+    # pantalla, que es donde el secretario califica.
+    por_problema: list = field(default_factory=list)
 
     def objeciones_contra(self, sentido: str) -> list:
         """Cómo razonó el que resolvió al revés, ya sabido el sentido."""
@@ -580,3 +585,62 @@ def circuito_de(tribunal: str) -> str:
     for p in palabras:
         total += _ORDINALES.get(p.rstrip("aos"), 0) or _ORDINALES.get(p, 0)
     return str(total) if total else ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA PREDICCIÓN, POR PROBLEMA
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «además de los holdings hemos desperdiciado una herramienta que es
+# parte de Iurexia: Jurimetría. Esta herramienta da la predicción del resultado
+# del juicio en función de su contexto, permitiéndole calibrar el proyecto con
+# un clic».
+#
+# Y la desperdiciábamos dos veces. El endpoint /api/jurimetria existe desde
+# hace meses y el taller no lo llamaba nunca; y el sondeo de precedentes, que
+# calcula exactamente lo mismo —la distribución de sentidos del acervo sobre
+# este tema—, corría SÓLO SOBRE EL PRIMER PROBLEMA y su resultado se usaba de
+# material de lectura, no de predicción.
+#
+# NO HACE FALTA UNA SEGUNDA BÚSQUEDA. La jurimetría del endpoint agrega
+# `sentencias_holdings` por sentido; el sondeo consulta esa misma colección con
+# el vector del problema, que además está mejor apuntado —el endpoint busca por
+# la descripción del asunto entero—. Sondeando cada problema se obtiene la
+# predicción de cada uno con una llamada que ya se estaba haciendo para el
+# primero, y las N corren en paralelo.
+#
+# LO QUE ESTO NO ES: no es un pronóstico de lo que ESTE tribunal hará. Es la
+# distribución de lo que hicieron otros sobre el mismo tema, y se presenta así.
+# Un secretario que lea «82%» y crea que es la probabilidad de su asunto está
+# leyendo mal, y por eso el texto dice cuántas sentencias hay detrás.
+def prediccion(s: "Sondeo") -> dict:
+    """{'sentido', 'porcentaje', 'n', 'confianza', 'frase'} o {} si no alcanza."""
+    if s is None:
+        return {}
+    total = sum((s.distribucion or {}).values())
+    if not total:
+        return {}
+    sentido, cuantas = max(s.distribucion.items(), key=lambda kv: kv[1])
+    pct = cuantas / total
+    # La confianza es del TAMAÑO de la base, no del porcentaje: un 100% sobre
+    # tres sentencias no dice nada y un 60% sobre ochenta dice mucho.
+    confianza = "alta" if total >= 40 else "media" if total >= 15 else "baja"
+    return {
+        "sentido": sentido,
+        "porcentaje": round(pct, 3),
+        "n": total,
+        "confianza": confianza,
+        "frase": (f"{_ETIQUETA.get(sentido, sentido)} "
+                  f"({round(pct * 100)}% de {total} sentencias del acervo"
+                  f"{'' if confianza != 'baja' else ', base corta'})"),
+        "distribucion": dict(s.distribucion),
+    }
+
+
+# Cómo se dice cada sentido cuando se le enseña al secretario. El acervo los
+# guarda como los guarda; la pantalla no es sitio para su jerga.
+_ETIQUETA = {
+    "concede": "Conceder", "niega": "Negar", "sobresee": "Sobreseer",
+    "confirma": "Confirmar", "revoca": "Revocar", "modifica": "Modificar",
+    "fundado": "Fundado", "infundado": "Infundado", "inoperante": "Inoperante",
+    "desecha": "Desechar",
+}

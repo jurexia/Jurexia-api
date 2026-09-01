@@ -106,8 +106,19 @@ def _calificacion(criterios: list["Criterio"]) -> str:
 class Criterio:
     """Lo que el secretario decidió para un problema jurídico."""
     problema: str
-    sentido: str                      # fundado | infundado | inoperante | ineficaz
+    sentido: str                      # fundado | infundado | inoperante |
+                                      # ineficaz | innecesario
     razonamiento: str = ""            # el porqué, que es lo que de verdad alinea
+    # PRINCIPAL o ACCESORIO. El principal es aquel del que dependen los demás:
+    # si prospera, el estudio de los otros queda sin materia. Sin esta marca no
+    # se puede aplicar la sustracción de materia ni ordenar el estudio por
+    # prelación lógica, que es como se ordena un engrose.
+    jerarquia: str = "accesorio"
+    # La distribución del acervo sobre ESTE problema: {"sentido", "porcentaje",
+    # "n", "confianza", "frase"}. No funda nada —un colegiado no obliga a
+    # otro— pero dice si el sentido va con la corriente o contra ella, y eso
+    # cambia lo que hay que escribir.
+    prediccion: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -187,6 +198,25 @@ def _aviso_de_suplencia(criterios: list, materia: str) -> list:
             ]
 
 
+# A FAVOR o EN CONTRA de quien promueve. Es lo único que hay que comparar: el
+# acervo habla del fallo y el criterio, del planteamiento.
+_A_FAVOR = {"concede", "revoca", "modifica", "fundado", "fundado_suplido",
+            "ampara"}
+_EN_CONTRA = {"niega", "confirma", "sobresee", "desecha", "infundado",
+              "inoperante", "ineficaz", "inatendible"}
+
+
+def _misma_direccion(a: str, b: str) -> bool:
+    a, b = (a or "").strip().lower(), (b or "").strip().lower()
+    if not a or not b:
+        return True
+    for grupo in (_A_FAVOR, _EN_CONTRA):
+        if a in grupo and b in grupo:
+            return True
+    return not ((a in _A_FAVOR and b in _EN_CONTRA)
+                or (a in _EN_CONTRA and b in _A_FAVOR))
+
+
 def _bloque_criterio(criterios: list[Criterio], materia: str = "") -> str:
     if not criterios:
         return ""
@@ -196,11 +226,42 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "") -> str:
               "Tu papel NO es decidir el fallo: es CONSTRUIR la mejor demostración",
               "jurídica posible del sentido que él ya fijó. Elige los argumentos, las",
               "tesis y el orden de estudio que lo sostengan con el mayor rigor.", ""]
-    for i, c in enumerate(criterios, 1):
-        lineas.append(f"{i}. {c.problema}")
+    # EL ORDEN DE ESTUDIO ES EL DE PRELACIÓN LÓGICA, no el de llegada: primero
+    # el principal, del que dependen los demás. Un engrose que estudia un
+    # accesorio antes que el problema del que depende obliga a rehacerlo.
+    _ord = sorted(enumerate(criterios),
+                  key=lambda x: (0 if (x[1].jerarquia or "").lower() == "principal"
+                                 else 1, x[0]))
+    for i, (_, c) in enumerate(_ord, 1):
+        lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}] {c.problema}")
         lineas.append(f"   SENTIDO: {c.sentido.upper()}")
+        if (c.sentido or "").lower() == "innecesario":
+            lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
+                          "del principal. Se dice en una frase y se pasa; ni "
+                          "lo califiques ni lo contestes.")
+        # LA CORRIENTE DEL ACERVO. Si el sentido va CONTRA lo que hicieron los
+        # demás tribunales sobre el mismo tema, el estudio tiene que hacerse
+        # cargo de la objeción: apartarse del criterio mayoritario se puede
+        # —para eso existe la contradicción de tesis— pero no en silencio.
+        if c.prediccion and c.prediccion.get("frase"):
+            _p = c.prediccion
+            # «CONCEDE» Y «FUNDADO» SON LA MISMA DIRECCIÓN. El acervo guarda el
+            # sentido del FALLO —concede, niega, confirma, revoca— y aquí se
+            # califica el PLANTEAMIENTO —fundado, infundado—. Comparándolos
+            # como cadenas, la alarma de «va contra la corriente» saltaba
+            # siempre, y una alarma que salta siempre deja de leerse.
+            _va = _misma_direccion(_p.get("sentido", ""), c.sentido)
+            lineas.append(f"   EL ACERVO: {_p['frase']}")
+            if not _va and _p.get("confianza") in ("alta", "media"):
+                lineas.append(
+                    "   ⚠ EL SENTIDO VA CONTRA LA CORRIENTE del acervo. No lo "
+                    "cambies: hazte cargo. Enuncia la razón contraria —la de "
+                    "quienes resolvieron al revés— y explica por qué aquí no "
+                    "aplica. Un estudio que se aparta sin decirlo se cae.")
         if c.razonamiento:
             lineas.append(f"   RAZÓN DEL SECRETARIO: {c.razonamiento}")
+        elif (c.sentido or "").lower() == "innecesario":
+            pass          # su razón es el sentido del principal, ya dicha
         else:
             # Sin razón escrita, el modelo tiene que suponerla, y ahí es donde
             # el proyecto deja de parecerse a lo que el secretario pensaba.
@@ -698,13 +759,65 @@ AQUÍ SÍ SE AGRUPA, Y SE ANUNCIA — la regla que él sigue sin excepción:
 - Y SI NO REAGRUPAS, DILO IGUAL: «por razón de método y atendiendo a su
   prelación lógica, los {q} se analizarán en el orden propuesto».
 
-ARQUITECTURA — para que se vea de un vistazo que no quedó nada sin contestar:
-- UN APARTADO POR CADA {q1}, en el orden en que se plantearon, cada uno
-  abierto por su ordinal en letra («En el primer {q1} {parte}
-  sostiene que…»). El discurso corrido impide comprobar la exhaustividad y deja
-  al tribunal expuesto al reproche de omisión de estudio.
+ARQUITECTURA — CUATRO PASOS POR CADA {q1}, SIEMPRE LOS CUATRO Y EN ESTE ORDEN.
+
+Es la técnica silogística, y no es un adorno de método: es lo que permite
+comprobar, leyendo, que no quedó nada sin contestar y que lo contestado se
+sostiene. Un apartado por planteamiento, en el orden en que se plantearon,
+abierto por su ordinal en letra.
+
+  PASO 1 — EL PLANTEAMIENTO, EN SU VERSIÓN MÁS FUERTE.
+  Se enuncia con la voz de quien lo formula, no con la del tribunal, y en su
+  mejor versión: «En el primer {q1} {parte} sostiene que…». Prohibido
+  caricaturizarlo para tumbarlo después: si el argumento tiene un punto, se
+  dice, y luego se explica por qué no basta. Un planteamiento debilitado al
+  enunciarlo produce una respuesta que no responde.
+
+  PASO 2 — LA PREMISA NORMATIVA, ABSTRACTA Y CON SU FUENTE.
+  Qué dice la norma o el criterio que gobierna el punto, enunciado de modo que
+  valga para cualquier caso igual: «Del precepto transcrito deriva la regla de
+  que…», «con arreglo a la jurisprudencia de la Segunda Sala derivada de la
+  contradicción de tesis…». Aquí NO se nombra todavía al promovente, ni al
+  órgano recurrido, ni el expediente: si la frase no vale para otro asunto
+  idéntico, no es una premisa, es una conclusión adelantada.
+
+  PASO 3 — LA APLICACIÓN AL CASO, CONFRONTANDO.
+  Aquí entran los hechos de ESTE expediente contra la regla del paso 2, y aquí
+  —y sólo aquí— se abre con «en el caso», «en la especie». La confrontación se
+  escribe: qué dice la constancia, qué exige la norma, y por qué encaja o no.
+  Un salto del paso 2 al paso 4 sin este eslabón es la afirmación sin prueba
+  que se cae en revisión.
+
+  PASO 4 — LA CONCLUSIÓN CALIFICADA, Y SUS CONSECUENCIAS.
+  Una sola calificación —«es fundado», «es infundado», «es inoperante»— y qué
+  se sigue de ella. Si es inoperante, la razón TÉCNICA de la inoperancia: que
+  no combate la razón toral, que es novedoso, que versa sobre cuestión firme.
+
+  · SI EL PLANTEAMIENTO ES INNECESARIO, los cuatro pasos se sustituyen por uno
+    solo, breve y explícito: «Dado el sentido del estudio del primer {q1},
+    queda sin materia el análisis de…». No se calla: se dice por qué no se
+    entra. Callar es omisión de estudio; decirlo es economía procesal.
+
 - Si lo que se combate es la REDACCIÓN de una parte del acto reclamado,
-  TRANSCRÍBELA entre comillas antes de analizarla.
+  TRANSCRÍBELA entre comillas antes de analizarla. UNA VEZ y lo justo.
+
+- NO VIVAS DE LA CITA. Éste es el defecto medido en los engroses de este mismo
+  tribunal que sirven de referencia: en uno de ellos, 2,260 de las 3,798
+  palabras del estudio —el 59%— son la transcripción literal de una ejecutoria
+  de la Suprema Corte, y lo que sigue parafrasea lo mismo; el razonamiento
+  propio cabe en seiscientas. En otro, el 48% del considerando es relato de la
+  sentencia reclamada, después de haber prometido que era innecesario
+  transcribirla. Medido sobre los cinco: el razonamiento propio es el 45%.
+  Aquí ha de ser al revés. Transcribe cuando la letra decide —el precepto
+  discutido, el párrafo cuya redacción se combate— y nunca para llenar. Del
+  criterio que invoques, trae la REGLA en una o dos frases y sigue razonando:
+  el rubro y el registro identifican la tesis; su texto íntegro va en la nota
+  al pie, no en el cuerpo.
+
+- Y NO PROMETAS LO QUE NO VAS A CUMPLIR. Si el documento dijo que era
+  innecesario transcribir la sentencia recurrida, no la parafrasees después
+  entera: eso pasa en los CINCO engroses de referencia y es lo primero que se
+  nota al leerlos seguidos.
 - SUPLENCIA DE LA QUEJA: si el asunto toca derechos de menores, materia laboral
   en favor de la parte obrera o materia penal, dilo expresamente con la fracción
   del artículo 79 de la Ley de Amparo que la ordena.

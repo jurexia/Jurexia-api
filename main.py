@@ -25776,6 +25776,14 @@ async def taller_adelanto(
     # de Mérida suspendió labores un martes por un huracán. Eso lo declara quien
     # estuvo ahí. Fechas ISO separadas por coma.
     dias_inhabiles_extra: str = Form(""),
+    # LA MATERIA, DECLARADA POR EL SECRETARIO. Decide dos cosas caras: el silo
+    # de leyes que consulta el RAG del fondo —el laboral tiene 3,205 artículos
+    # de nueve ordenamientos que no están en ningún estatal— y el filtro del
+    # sondeo de precedentes. Se deducía del nombre del tribunal, y eso falla
+    # justo donde importa: en un colegiado MIXTO el nombre no decide, y un
+    # asunto laboral puede llegar a un colegiado administrativo. Vacía = se
+    # sigue deduciendo, como hasta hoy.
+    materia: str = Form(""),
     # LA AUTORIDAD SE LEE DEL ACTO. Exigirla al secretario era la solución
     # equivocada al problema correcto: el dato está en la sentencia reclamada
     # que él ya subió y que ya pasa por OCR. Se acepta si la escribe —manda lo
@@ -25925,6 +25933,7 @@ async def taller_adelanto(
         responsable=responsable, es_recurso=es_recurso,
         tribunal=tribunal, ciudad=ciudad, modo=modo,
         tipo_asunto=tipo_asunto,
+        materia=(materia or "").strip().lower(),
         plantilla=ruta_plantilla,
     )
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
@@ -26002,6 +26011,11 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
                                      getattr(e, "dias_inhabiles_extra", []) or []],
             "responsable": e.responsable, "es_recurso": e.es_recurso,
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
+            # LA MATERIA DECLARADA. Decide el silo del RAG y el filtro del
+            # sondeo; sin ella en la sesión, el /taller/resolver que caiga en
+            # el otro worker volvería a deducirla y el fondo se buscaría en
+            # otra parte que el adelanto.
+            "materia": getattr(e, "materia", ""),
             # Sin esto, el /taller/resolver que caiga en el otro worker
             # reconstruye el encargo en modo plantilla y el documento sale con
             # la identidad de un tribunal que no es el suyo.
@@ -26124,7 +26138,8 @@ def _taller_recuperar_sesion(email: str, numero: str):
         tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
         modo=e.get("modo", "generado"),
         tipo_asunto=e.get("tipo_asunto", "amparo_directo"),
-        plantilla=e["plantilla"], coleccion_estatal=e.get("coleccion_estatal", ""))
+        plantilla=e["plantilla"], coleccion_estatal=e.get("coleccion_estatal", ""),
+        materia=e.get("materia", ""))
     f = _f123.Fases123()
     for k, v in (est.get("fases") or {}).items():
         setattr(f, k, v)
@@ -26386,6 +26401,16 @@ async def taller_proponer(
     # el /taller/resolver siguiente. Se deja en memoria por si cae en el mismo
     # —es gratis— pero lo que manda es lo que el cliente devuelva, que además es
     # lo correcto: el secretario acepta explícitamente lo que acaba de leer.
+    # La predicción y la jerarquía se leen del sondeo y de las fases: no se
+    # vuelven a calcular ni se le piden otra vez al modelo.
+    _son = getattr(ses.get("material"), "sondeo", None)
+    _pred_por_problema = {d.get("problema", ""): d.get("prediccion") or {}
+                          for d in (getattr(_son, "por_problema", []) or [])}
+    _jer_por_problema = {
+        str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia")
+                                                 or "accesorio")
+        for p in (r.fases.problemas or []) if p}
+
     ses["propuestas"] = propuestas
     _taller_registrar_uso(user_email, numero, "propuesta")
     print(f"   ⚖️ TALLER: propuesta {numero} · {len(propuestas)} sentidos · "
@@ -26397,7 +26422,14 @@ async def taller_proponer(
         # El secretario decide sobre esto: se le da entero, no resumido.
         "propuestas": [
             {"problema": p.problema, "sentido": p.sentido, "razon": p.razon,
-             "apoyos": p.apoyos, "confianza": p.confianza, "alcanza": p.alcanza}
+             "apoyos": p.apoyos, "confianza": p.confianza, "alcanza": p.alcanza,
+             # LA JURIMETRÍA, POR PROBLEMA. Es la columna que faltaba en la
+             # pantalla: «Conceder (82% de 50 sentencias del acervo)». No es un
+             # pronóstico de lo que ESTE tribunal hará —es la distribución de
+             # lo que hicieron otros sobre el mismo tema— y por eso la frase
+             # dice cuántas sentencias hay detrás.
+             "prediccion": _pred_por_problema.get(p.problema, {}),
+             "jerarquia": _jer_por_problema.get(p.problema, "accesorio")}
             for p in propuestas],
         "resumen": _f5.resumen(propuestas),
         "avisos": avisos,
@@ -26463,7 +26495,9 @@ async def taller_resolver_stream(
             raise HTTPException(422, "criterios_json no es JSON válido.")
         crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
                              sentido=str(d.get("sentido", "")).strip().lower(),
-                             razonamiento=str(d.get("razonamiento", "")))
+                             razonamiento=str(d.get("razonamiento", "")),
+                             jerarquia=str(d.get("jerarquia", "accesorio")),
+                             prediccion=d.get("prediccion") or {})
                 for d in (_datos if isinstance(_datos, list) else [])
                 if str(d.get("sentido", "")).strip()]
         if not crit:
@@ -26564,6 +26598,17 @@ async def taller_resolver(
     usar_propuesta: bool = Form(False),      # acepta la de /taller/proponer
     criterios_json: str = Form(""),          # la propuesta devuelta, ya revisada
     contexto: str = Form(""),                # lo que el acervo no tenía
+    # ── LOS TRES MODOS DE DECIDIR ──────────────────────────────────────────
+    # David: «la interfaz deberá ofrecer la posibilidad de una solución a
+    # partir de holdings y jurimetría, posibilitar al secretario a introducir
+    # un sentido global del proyecto, o permitirle seguir la línea de
+    # resolución por conflicto como actualmente funciona».
+    #
+    # «global» es el que faltaba, y trae consigo la sustracción de materia: si
+    # el problema PRINCIPAL resulta fundado, los accesorios quedan sin materia
+    # y el proyecto lo DICE en una frase en vez de contestarlos uno por uno.
+    modo_decision: str = Form(""),           # acervo | global | por_problema
+    sentido_global: str = Form(""),          # el sentido del proyecto entero
 ):
     """La sentencia, con el criterio del secretario dentro."""
     _taller_puerta(user_email)
@@ -26592,6 +26637,7 @@ async def taller_resolver(
     # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
     # decidir— y era el que producía sentencias incongruentes: el estudio se
     # escribía y el resolutivo se quedaba con la calificación de la plantilla.
+    avisos_modo: list = []
     if criterios_json.strip():
         # El camino bueno: el secretario devuelve lo que aceptó, con sus
         # ediciones si las hizo. No depende de qué worker atendió la propuesta.
@@ -26606,6 +26652,37 @@ async def taller_resolver(
                 if str(d.get("sentido", "")).strip()]
         if not crit:
             raise HTTPException(422, "criterios_json no trae ningún sentido.")
+    elif (modo_decision or "").strip().lower() == "global":
+        # EL SENTIDO GLOBAL. El secretario dicta uno para el proyecto entero y
+        # la máquina lo reparte; si el principal alcanza, los accesorios quedan
+        # sin materia. Los frenos —lo que pide MAYOR BENEFICIO no se declara
+        # innecesario, y tampoco si el motor no pudo afirmar que alcance— están
+        # en modos_decision, no aquí: son de la regla, no del endpoint.
+        if not sentido_global.strip():
+            raise HTTPException(422, "El modo global necesita `sentido_global`.")
+        import modos_decision as _md
+        _probs = [p if isinstance(p, dict) else {"pregunta": str(p)}
+                  for p in (r.fases.problemas or [])]
+        if not _probs and r.fases.problema_global:
+            _probs = [{"pregunta": r.fases.problema_global,
+                       "jerarquia": "principal"}]
+        _props = [{"problema": p.problema, "sentido": p.sentido,
+                   "razon": p.razon, "alcanza": getattr(p, "alcanza", True)}
+                  for p in (ses.get("propuestas") or [])]
+        _repartido, _av_modo = _md.repartir(
+            _probs, _md.GLOBAL, sentido_global.strip().lower(), _props)
+        _pred = {d.get("problema", ""): d.get("prediccion") or {}
+                 for d in getattr(getattr(ses.get("material"), "sondeo", None),
+                                  "por_problema", []) or []}
+        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
+                             razonamiento=x["razonamiento"],
+                             jerarquia=x["jerarquia"],
+                             prediccion=_pred.get(x["problema"], {}))
+                for x in _repartido if x["sentido"]]
+        if not crit:
+            raise HTTPException(422, "No hay problemas jurídicos a los que "
+                                     "repartir el sentido global.")
+        avisos_modo = _av_modo
     elif usar_propuesta:
         props = ses.get("propuestas") or []
         crit = [_f6.Criterio(problema=p.problema, sentido=p.sentido,
@@ -26650,6 +26727,12 @@ async def taller_resolver(
                             contexto=_con_autos(r, contexto))
     _taller_registrar_uso(user_email, numero, "proyecto")
 
+    # Los avisos del modo —la sustracción de materia aplicada, o por qué NO se
+    # aplicó— viajan con los del documento: es lo que el secretario tiene que
+    # leer antes de firmar, y es donde se explica qué decidió la máquina por él.
+    for _a in avisos_modo:
+        if _a not in r2.avisos:
+            r2.avisos.insert(0, _a)
     print(f"   ⚖️ TALLER: proyecto {numero} · {len(r2.estudio.split())} palabras "
           f"· {len(r2.avisos)} avisos")
 
