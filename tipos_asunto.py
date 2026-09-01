@@ -798,3 +798,72 @@ SUJETOS = {
 
 def sujetos_de(tipo: str) -> dict:
     return SUJETOS.get(normalizar(tipo), SUJETOS["amparo_directo"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUÉ SE RECURRIÓ, SEGÚN EL INCISO DEL 97
+# ═══════════════════════════════════════════════════════════════════════════
+# La plantilla de procedencia de la queja terminaba, en duro, «por el cual se
+# desechó la demanda de amparo». Es cierto en el caso mayoritario —el inciso
+# a), 16 de 30— y se emitía con CUALQUIER inciso, así que con el e) la frase se
+# contradecía a sí misma: invocaba el supuesto de las resoluciones dictadas
+# después de la sentencia y a renglón seguido afirmaba que se había desechado
+# la demanda. Lo cazó David en la QC 259/2025, donde la demanda se admitió en
+# 2023 y ya había sentencia firme confirmada en revisión.
+#
+# LA REDACCIÓN DEL INCISO e) ES SUYA, palabra por palabra: «por tratarse de una
+# resolución dictada por un Juzgado de Distrito con posterioridad a la
+# sentencia definitiva en el juicio de amparo indirecto, que no admite recurso
+# de revisión». Se anota de quién viene, como el propio inciso.
+COLA_97 = {
+    "a": "por el cual se desechó la demanda de amparo",
+    "b": "en el que se resolvió sobre la suspensión del acto reclamado",
+    "d": "en el que se resolvió sobre el carácter de tercero interesado",
+    "e": ("por tratarse de una resolución dictada con posterioridad a la "
+          "sentencia definitiva en el juicio de amparo indirecto, que no "
+          "admite recurso de revisión"),
+}
+
+
+def cola_97(inciso: str) -> str:
+    """Qué se recurrió, en la redacción que corresponde al inciso."""
+    return COLA_97.get((inciso or "").strip().lower(), "")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA MATERIA QUE INVOCA LA PARTE Y NO ES LA DEL ASUNTO
+# ═══════════════════════════════════════════════════════════════════════════
+# Esto no nace de un defecto del proyecto sino de una duda que el proyecto no
+# supo despejar. En el ARC 25/2026 la síntesis decía que la recurrente pide
+# suplencia «al afirmar que se encuentran involucrados derechos de una persona
+# adulta mayor y que la controversia corresponde a un proceso penal», en un
+# juicio SUCESORIO. David preguntó lo único que había que preguntar: ¿lo citó
+# ella o lo alucinó la máquina?
+#
+# Lo citó ella. Su escrito dice, literal: «el diverso 79, fracción II, de la
+# Ley de Amparo… que en materia penal opera aun ante la ausencia de agravios» y
+# «además de darme el carácter de imputado, es que se patentiza que la litis se
+# refiere a un proceso penal». La síntesis fue fiel.
+#
+# PERO EL PROYECTO NO LO DIJO, y ahí está el hueco: quien lee no puede
+# distinguir el disparate de la parte del disparate de la máquina, y ante la
+# duda tiene que ir al escrito. Peor: una suplencia invocada por una materia
+# que no es la del asunto NO es una curiosidad, es una petición que hay que
+# contestar —normalmente declarándola improcedente— y el proyecto pasaba de
+# largo. El aviso hace las dos cosas: confirma de dónde viene y recuerda que
+# pide respuesta.
+_MATERIAS_SUPLENCIA = {
+    "penal": r"materia\s+penal|proceso\s+penal|car[áa]cter\s+de\s+imputad",
+    "laboral": r"materia\s+(?:laboral|de\s+trabajo)|en\s+favor\s+del\s+trabajador",
+    "agraria": r"materia\s+agraria|n[úu]cleo\s+de\s+poblaci[óo]n\s+ejidal",
+}
+
+
+def suplencia_de_otra_materia(texto: str, materia: str) -> list:
+    """Materias de suplencia invocadas que no son la del asunto."""
+    t = texto or ""
+    if not re.search(r"suplencia", t, re.I):
+        return []
+    m = (materia or "").strip().lower()
+    return [nombre for nombre, pat in _MATERIAS_SUPLENCIA.items()
+            if nombre != m and re.search(pat, t, re.I)]

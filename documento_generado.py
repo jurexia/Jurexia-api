@@ -1778,6 +1778,24 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     except Exception:
         pass
 
+    # LA SUPLENCIA POR UNA MATERIA QUE NO ES LA DEL ASUNTO. Ver la nota en
+    # tipos_asunto: no es un defecto de la máquina —la parte lo invocó— pero el
+    # proyecto no lo decía, y quien lee no puede distinguir el disparate de la
+    # parte del de la máquina sin ir al escrito. Además, esa petición hay que
+    # contestarla.
+    try:
+        _sup = _ta.suplencia_de_otra_materia(
+            " ".join(str(x) for x in [resumen_conceptos, estudio] if x),
+            str(datos.get("materia") or ""))
+        for _m in _sup:
+            _avisos_bk.append(
+                f"LA PARTE PIDE SUPLENCIA POR MATERIA {_m.upper()} y este "
+                f"asunto no lo es. Está en SU escrito, no lo puso el sistema; "
+                f"pero es una petición que hay que contestar, normalmente "
+                f"declarándola improcedente, y el proyecto no la contesta.")
+    except Exception:
+        pass
+
     avisos_doc = _caratula(doc, datos, tipo_asunto)
 
     if estructura.apertura:
@@ -1962,6 +1980,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         ])
         _i97 = _ta.inciso_97(_para_inciso)
         _datos_bk["inciso"] = _i97 or HUECO
+        # Y LA COLA VA CON SU INCISO. Si el inciso no se pudo afirmar, la cola
+        # tampoco: emitir la del desechamiento de la demanda junto a un inciso
+        # en hueco sería afirmar el hecho y callar el fundamento.
+        _datos_bk["cola_97"] = _ta.cola_97(_i97) or HUECO
         if not _i97:
             _avisos_bk.append(
                 "EL INCISO DEL ARTÍCULO 97, FRACCIÓN I, SALE EN HUECO: no se "
