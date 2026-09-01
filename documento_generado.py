@@ -1290,8 +1290,24 @@ def _en_lo_conducente(cuerpo: str, fraccion: str = "") -> str:
             fin = re.search(r"[;.]\s+[IVXLC]+\.\s", resto[3:])
             trozo = resto[:fin.start() + 3] if fin else resto
             if 10 <= len(trozo.split()) <= MAX_PALABRAS_PRECEPTO * 2:
-                cab = cuerpo.split(".")[0]
-                trozo = trozo.strip().lstrip(". ")
+                # EL RÓTULO SE CORTABA EN LA ABREVIATURA. `split(".")[0]`
+                # sobre «Art. 104.- Los Tribunales…» devuelve «Art», y el
+                # precepto salía encabezado por «Art. […]», que no dice qué
+                # artículo es. Se toma el rótulo entero, con su número.
+                _r = re.match(r"\s*(Art[íi]culos?|Art)\.?\s*(\d{1,3}\s*"
+                              r"(?:bis|ter)?)", cuerpo, re.I)
+                cab = (f"Artículo {_r.group(2).strip()}" if _r
+                       else cuerpo.split(".")[0])
+                # EL PUNTO Y COMA VIAJABA PEGADO AL TROZO y salía «[…] ; III.
+                # De los recursos…», con el espacio delante del signo. Se
+                # quitan los signos de puntuación con que empieza el corte:
+                # pertenecen a la frase anterior, que es la que se elidió.
+                trozo = trozo.strip().lstrip(".;,: ")
+                # Y EL RÓTULO NO SE ESCRIBE DOS VECES. El acervo guarda el
+                # texto empezando por «Art. 104.-», así que anteponerle el
+                # encabezado producía «Artículo 104. Art. […]».
+                if re.match(r"^Art[íi]?c?u?l?o?\.?\s*\d", trozo):
+                    return f"[…] {trozo}"
                 return f"{cab}. […] {trozo}"
     corte = " ".join(pal[:MAX_PALABRAS_PRECEPTO])
     ult = max(corte.rfind(". "), corte.rfind("; "))
