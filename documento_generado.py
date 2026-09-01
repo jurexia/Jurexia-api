@@ -2039,13 +2039,46 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         rot = (res.get("titulo") or "").strip().rstrip(".") + "."
         res_apartados.append((rot, (lambda c: lambda p: _texto_en(p, c))(cuerpo)))
     # La sesión SIEMPRE cierra el resultando y enlaza con el considerando.
+    # LA FÓRMULA ESTABA MEDIDA EN EL BANCO Y NADIE LA LEÍA. Otra vez: 43 de 44
+    # documentos del propio tribunal escriben «El presente asunto se listó el
+    # {fecha}, para verse en sesión ordinaria de {fecha} siguiente; lo
+    # anterior, de conformidad con el Acuerdo General…». Aquí se escribía una
+    # versión corta de mi cosecha —«se listó para la sesión de *********, la
+    # cual se celebró conforme a las disposiciones aplicables»— que fundía LAS
+    # DOS FECHAS en un solo hueco y se comía la cita del acuerdo, que es lo que
+    # da fundamento a que la sesión sea remota.
+    #
+    # LOS DOS HUECOS SE QUEDAN, y son honestos: el proyecto se redacta ANTES de
+    # la sesión, así que ni el secretario sabe todavía esas fechas. Lo que se
+    # arregla es que sean DOS huecos con su forma y su fundamento alrededor, y
+    # no un agujero que se traga medio párrafo.
+    #
+    # LA COLA NORMATIVA: el banco mide dos, y la frontera es abril de 2026. La
+    # del Acuerdo 6/2026 rige los asuntos listados a partir de entonces (20/44)
+    # y es la vigente; la cola COVID (23/44) es la de los anteriores. Como la
+    # fecha de sesión no consta, se escribe la vigente y se avisa.
+    _rot_sesion = ("Verificación de la sesión vía remota."
+                   if _ta.normalizar(tipo_asunto) in ("queja", "amparo_revision")
+                   else "Celebración de la sesión vía remota.")
+    _cola_sesion = (
+        "lo anterior, de conformidad con el Acuerdo General 6/2026, del Pleno "
+        "del Órgano de Administración Judicial que regula la integración y "
+        "trámite del expediente electrónico y el uso de videoconferencias en "
+        "todos los asuntos competencia de los órganos jurisdiccionales a cargo "
+        "del Órgano, publicado en el Diario Oficial de la Federación el "
+        "diecisiete de abril de dos mil veintiséis; y,")
     res_apartados.append((
-        # «Celebración», no «Verificación»: así lo rotulan los cuatro
-        # adelantos reales y el corpus. La sesión se celebra.
-        "Celebración de la sesión vía remota.",
-        lambda p: _texto_en(p, f"El presente asunto se listó para la sesión de "
-                               f"{HUECO}, la cual se celebró conforme a las "
-                               f"disposiciones aplicables; y,")))
+        _rot_sesion,
+        lambda p: _texto_en(p, f"El presente asunto se listó el {HUECO}, para "
+                               f"verse en sesión ordinaria de {HUECO} "
+                               f"siguiente; {_cola_sesion}")))
+    _avisos_bk.append(
+        "LAS DOS FECHAS DE LA SESIÓN VAN EN HUECO: cuándo se listó el asunto y "
+        "para qué sesión. No constan porque el proyecto se escribe antes de la "
+        "sesión. Y comprueba la cola normativa: se escribió la del Acuerdo "
+        "General 6/2026, que rige los asuntos listados desde abril de dos mil "
+        "veintiséis; si éste se listó antes, la cola es la de los Acuerdos "
+        "16/2009 y 12/2020 del otrora Consejo de la Judicatura Federal.")
     _emitir(res_apartados)
 
     # ── CONSIDERANDO ──

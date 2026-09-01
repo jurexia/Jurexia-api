@@ -71,8 +71,14 @@ _GENERICO = re.compile(
 # patrón cazaba «TERCERO. Resolución recurrida y agravios de la parte
 # recurrente», que es un RÓTULO de considerando perfectamente correcto —lo dice
 # el catálogo— y acusaba al engrose por escribirlo.
+# `\s*` ENTRE LAS LETRAS ADMITE CERO ESPACIOS, así que este patrón cazaba la
+# palabra «resuelve» —y «resuelven»— en cualquier frase del estudio, y de ahí
+# arrastraba 2,500 caracteres de razonamiento donde luego encontraba «la parte
+# quejosa» y acusaba al resolutivo de algo que estaba a diez párrafos. Se exige
+# el rótulo ESPACIADO, que es como se escribe en la sentencia y como no se
+# escribe nunca dentro de una frase.
 _RX_RESOLUTIVO = re.compile(
-    r"R\s*E\s*S\s*U\s*E\s*L\s*V\s*E.{0,2500}", re.S | re.I)
+    r"R\s+E\s+S\s+U\s+E\s+L\s+V\s+E.{0,2500}", re.S)
 
 # LO QUE ESTE LINTER NO SABE CAZAR, y lo digo en vez de inventar un patrón:
 # «El precepto cuyo texto. Del precepto transcrito deriva la regla.» El punto
