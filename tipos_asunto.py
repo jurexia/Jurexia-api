@@ -283,6 +283,11 @@ RESULTANDOS = {
          "auto de Presidencia, registro, admisión, vista del artículo 181 de "
          "la Ley de Amparo, y que el agente del Ministerio Público adscrito "
          "omitió formular pedimento"),
+        # 28 de 60 en el corpus, y presente en el adelanto real del ADA
+        # 448/2025 como QUINTO. Faltaba.
+        ("Turno del asunto",
+         "fecha del acuerdo, a quién se turnaron los autos para la elaboración "
+         "del proyecto, y el artículo 183 de la Ley de Amparo"),
     ],
     "amparo_revision": [
         ("Presentación de la demanda de amparo indirecto",

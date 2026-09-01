@@ -155,7 +155,18 @@ def nota_de(tipo: str, ident: str) -> str:
     return n if isinstance(n, str) and len(n) > 20 else ""
 
 
+# La revisión fiscal toma prestado el banco de la revisión de amparo para las
+# fórmulas de trámite, pero NO sus rótulos: el adelanto real de la RF 44/2025
+# rotula «SEGUNDO. Legitimación y oportunidad» y el prestado imponía
+# «Legitimación y oportunidad para interponer el recurso de revisión», que es
+# del amparo en revisión. Los rótulos de estos tipos salen del catálogo, que
+# los tiene medidos sobre sus propios adelantos.
+PRESTADO = {"revision_fiscal"}
+
+
 def rotulo_de(tipo: str, ident: str, por_defecto: str = "") -> str:
+    if (tipo or "").strip().lower() in PRESTADO:
+        return por_defecto
     a = apartado(tipo, ident)
     r = str(a.get("rotulo") or "").strip()
     r = re.sub(r"^\s*(?:\{ordinal\}|PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|"
