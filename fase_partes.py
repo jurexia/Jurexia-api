@@ -167,9 +167,17 @@ async def fichar(cliente, texto_acto: str, texto_conceptos: str,
         quejoso=j.get("quejoso", ""), tercero_interesado=j.get("tercero_interesado", ""),
         autoridad_responsable=j.get("autoridad_responsable", ""),
         actor_origen=j.get("actor_origen", ""), demandado_origen=j.get("demandado_origen", ""),
-        atribuciones=[a for a in (j.get("atribuciones") or []) if isinstance(a, dict)])
+        atribuciones=[a for a in (j.get("atribuciones") or []) if isinstance(a, dict)],
+        # SE LE PASABA EL TIPO AL PROMPT Y NO AL OBJETO. `fichar()` recibía
+        # `tipo_asunto`, lo usaba para redactar las instrucciones… y devolvía
+        # un `Partes` con el valor por omisión, así que `bloque()` —la ficha
+        # «QUIÉN ES QUIÉN» que se le pone delante al redactor del estudio—
+        # seguía rotulando «PARTE QUEJOSA» a la autoridad hacendaria. El dato
+        # llegaba a la mitad del camino y se caía en la última línea.
+        tipo_asunto=tipo_asunto or "amparo_directo")
     if not p.quejoso:
-        p.avisos.append("No se identificó a la parte quejosa: el redactor va a "
+        import tipos_asunto as _ta_av
+        p.avisos.append(f"No se identificó a {_ta_av.vocabulario_de(tipo_asunto)['parte']}: el redactor va a "
                         "resolver los sujetos por proximidad y puede equivocarse.")
     return p
 

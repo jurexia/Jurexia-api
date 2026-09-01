@@ -278,7 +278,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             estructura = estructura_previa
             ruta, av_gen, estructura = await _componer_generado(
                 cliente, e, relleno, c, ruta_salida,
-                estructura_previa=estructura)
+                estructura_previa=estructura, acto=texto_acto, partes=partes)
         avisos.extend(av_gen)
     else:
         with cronometrar("ensamblado"):
@@ -674,6 +674,10 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             ruta, av_gen, _est = await _componer_generado(
                 cliente, e, relleno, r.computo, ruta_salida,
                 estructura_previa=getattr(r, "estructura", None),
+                # Las constancias ya leídas viajan con las fases; si la
+                # estructura hubiera que rehacerla, que no sea a ciegas.
+                acto=(getattr(getattr(r, "fases", None), "fuentes", []) or [""])[0],
+                partes=getattr(r, "partes", None),
                 marco_escrito=marco_escrito)
         avisos.extend(av_gen)
     else:
@@ -749,6 +753,10 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         # sino lo justo para individualizarlo sin adivinar.
         "acto": (acto or "")[:6000],
         "tercero": _terceros,
+        # EL NÚMERO DEL PROPIO ASUNTO. Sin él, `fase_origen.numero_de` no puede
+        # descartarlo y devuelve el toca de ESTE recurso como si fuera el
+        # expediente de origen: el dict tenía `encabezado`, que es otra cosa.
+        "numero": e.numero,
         "tribunal": e.tribunal or "",
         "ciudad": e.ciudad or "",
         "encabezado": e.encabezado,
@@ -768,12 +776,18 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
 
 async def _componer_generado(cliente, e: Encargo, relleno, computo,
                              ruta_salida: str, estructura_previa=None,
-                             marco_escrito: str = ""):
+                             marco_escrito: str = "", acto: str = "",
+                             partes=None):
     """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
     import documento_generado as dg
     import fase0_oportunidad as _f0
 
-    datos = _datos_estructura(e, "\n".join(relleno.antecedentes or []))
+    # LA SEGUNDA LLAMADA TAMBIÉN NECESITA EL ACTO Y LAS PARTES. Se arregló la
+    # de arriba y ésta se quedó igual: cuando `estructura_previa` es None
+    # —porque se recompone el documento sin haber pasado por el adelanto— la
+    # estructura volvía a escribirse a ciegas, y con ella la perífrasis.
+    datos = _datos_estructura(e, "\n".join(relleno.antecedentes or []),
+                              acto=acto, partes=partes)
     # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.

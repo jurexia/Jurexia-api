@@ -85,6 +85,18 @@ class Propuesta:
                 f"    Se apoya en: {ap}")
 
 
+def _recorte_limpio(x: str, tope: int) -> str:
+    """El último corte crudo del taller. Mismo criterio que los otros tres:
+    por frontera de párrafo, nunca a mitad de frase, porque un corte a media
+    oración es lo que llevó al modelo a escribir «el texto proporcionado se
+    interrumpió» dentro de un considerando."""
+    try:
+        from fases123_pipeline import _cortar_bien
+        return _cortar_bien(x or "", tope)
+    except Exception:
+        return (x or "")[:tope]
+
+
 def _tesis_del_material(material, limite: int = MAX_TESIS_PROPUESTA) -> list:
     """Las tesis que se le enseñan, con la obligatoria delante."""
     tesis = list(getattr(material, "tesis", []) or [])
@@ -157,7 +169,7 @@ porque tú dijiste que te faltaba. Vale como material: cítalo por lo que dice,
 identificándolo como el documento aportado, y NO lo confundas con
 jurisprudencia ni le inventes un registro.
 
-{c[:20000]}
+{_recorte_limpio(c, 20000)}
 """
 
 
@@ -313,7 +325,17 @@ def _bloque_acervo_sentidos(material) -> str:
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
                      resumen_conceptos: str, es_recurso: bool = False,
                      contexto: str = "") -> str:
-    q = "agravios" if es_recurso else "conceptos de violación"
+    # EL TIPO VIAJA CON EL MATERIAL, igual que en el estudio: son dos módulos
+    # que reciben el mismo objeto y así no hay un parámetro que se olvide.
+    import tipos_asunto as _ta_p
+    _t5 = getattr(material, "tipo_asunto", "") or (
+        "amparo_revision" if es_recurso else "amparo_directo")
+    _voc5 = _ta_p.vocabulario_de(_t5)
+    q = _voc5["combate"]
+    # «LO QUE RESOLVIÓ LA RESPONSABLE» en mayúsculas, en los cuatro tipos. Esta
+    # fase fija el SENTIDO, así que la etiqueta viaja de aquí a la razón toral
+    # y de ahí al estudio: es de los sitios donde más caro sale.
+    _org5 = _ta_p.sujetos_de(_t5)["organo"][0].upper()
     tesis = _tesis_del_material(material)
     lista = "\n".join(
         f"{i}. {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
@@ -334,7 +356,7 @@ lo corrija o lo sustituya por su criterio.
 LOS PROBLEMAS JURÍDICOS DEL ASUNTO
 {lista}
 
-LO QUE RESOLVIÓ LA RESPONSABLE
+LO QUE RESOLVIÓ {_org5}
 {resumen_acto[:3000]}
 
 LO QUE SE COMBATE

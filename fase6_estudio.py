@@ -620,6 +620,12 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     _sjs = _ta_e.sujetos_de(
         getattr(material, "tipo_asunto", "") or "amparo_directo")
     _org = " o ".join(f"«{x}»" for x in _sjs["organo"][:2])
+    # EL RÓTULO EN MAYÚSCULAS es la forma más imitable que hay: le enseña al
+    # modelo cómo llamar al órgano antes de que escriba una palabra. Decía «LO
+    # QUE RESOLVIÓ LA RESPONSABLE» en los cuatro tipos, y en una queja lo que
+    # se recurre lo resolvió el Juzgado de Distrito, que no es responsable de
+    # nada: es el órgano de control cuya decisión se revisa.
+    _org_rotulo = _sjs["organo"][0].upper()
     calif = _calificacion(criterios)
     # EL MARCO SE REPITE AL FINAL. Medido en el proyecto 360/2025: se le
     # entregaron 6,338 caracteres de marco —artículo 4º constitucional y
@@ -856,7 +862,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_material(material)}
 
 ═══════════════════════════════════════════════════════════════════════
-LO QUE RESOLVIÓ LA RESPONSABLE
+LO QUE RESOLVIÓ {_org_rotulo}
 ═══════════════════════════════════════════════════════════════════════
 {resumen_acto}
 

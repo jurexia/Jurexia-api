@@ -37,8 +37,15 @@ import re
 # «expediente 905/2017», «juicio de amparo indirecto 742/2023-II», «toca civil
 # 374/2019», «juicio de nulidad 1409/24-09-01-5-OT».
 _RX = re.compile(
-    r"\b(?:expediente|juicio|toca|cuaderno|amparo(?:\s+(?:indirecto|directo))?"
-    r"|nulidad)\s+(?:de\s+\w+\s+)?"
+    r"\b(?:expediente|juicio|toca|cuaderno|amparo|nulidad)\s+"
+    # LA PALABRA CLAVE Y EL NÚMERO NO VAN PEGADOS. «toca civil 374/2019»,
+    # «juicio agrario 905/2017», «juicio de amparo indirecto 742/2023-II»,
+    # «amparo directo administrativo 448/2025»: entre una y otra caben hasta
+    # tres palabras de materia o de vía. Exigiéndolos pegados, mi propio
+    # ejemplo documentado —«toca civil»— devolvía vacío.
+    r"(?:(?:de\s+)?(?:amparo|nulidad|sucesorio|ejecutivo|ordinario|oral|"
+    r"indirecto|directo|civil|mercantil|penal|laboral|agrario|"
+    r"administrativo|familiar)\s+){0,3}"
     r"(?:n[úu]mero\s+)?"
     r"(\d{1,5}\s*/\s*\d{2,4}(?:\s*-\s*[\w-]{1,14})?)",
     re.I)

@@ -174,6 +174,14 @@ def prompt_resumen_acto(texto_acto: str, es_recurso: bool = False,
     import tipos_asunto as _tap
     _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
     que = _tap.vocabulario_de(_t)["recurrido"]
+    # EL EJEMPLO NOMBRA AL ÓRGANO, y un ejemplo se copia entero: decía «La Sala
+    # consideró… contrario a lo resuelto por la jueza» en los cuatro tipos, así
+    # que en una queja el modelo aprendía a llamar Sala al Juzgado de Distrito
+    # antes de leer una sola instrucción. Quinta vez en este proyecto.
+    # `.capitalize()` no: baja el resto y deja «La sala», «El juzgado de
+    # distrito». Sólo la inicial.
+    _ej_org = _tap.sujetos_de(_t)["organo"][0]
+    _ej_org = _ej_org[:1].upper() + _ej_org[1:]
     return f"""{_NUCLEO}
 
 {instrucciones_resumen_acto(_t)}
@@ -185,9 +193,9 @@ primera vez:
 - NADA de crónica cronológica del procedimiento.
 - Se entra DIRECTO a lo que la autoridad decidió sobre el fondo y por qué.
 
-UNA DECISIÓN POR FRASE. Así escribe el secretario: «La Sala consideró fundado
+UNA DECISIÓN POR FRASE. Así escribe el secretario: «{_ej_org} consideró fundado
 el agravio respecto a la carga de la prueba. Determinó que, contrario a lo
-resuelto por la jueza, cuando una mujer argumenta que se dedicó al hogar,
+resuelto por el inferior, cuando una mujer argumenta que se dedicó al hogar,
 existe una presunción de que necesita alimentos.» Dos frases, dos decisiones.
 No una sola oración de doscientas palabras encadenando gerundios.
 

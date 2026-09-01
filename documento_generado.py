@@ -1738,6 +1738,46 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # ANTES del primero que los usa: la lista se llenaba en dos puntos y se
     # declaraba entre ellos, que en Python es un UnboundLocalError esperando.
     _avisos_bk: list = []
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # UN SOLO EMBUDO PARA TODO LO QUE ESCRIBIÓ EL MODELO
+    # ═══════════════════════════════════════════════════════════════════════
+    # El meta-lenguaje se limpiaba en las fases de lectura, que es donde salió,
+    # pero al documento llegan CINCO salidas de modelo por caminos distintos:
+    # los resúmenes, la estructura, el estudio de fondo, el marco jurídico y la
+    # propuesta. Parchear cada fase deja siempre una puerta abierta —ya van
+    # tres rondas encontrando la siguiente—, así que se filtra aquí, que es por
+    # donde pasa todo lo que acaba en el .docx, sea cual sea su origen.
+    try:
+        import meta_lenguaje as _mlc
+
+        def _limpio(x):
+            t, q = _mlc.limpiar(x or "")
+            for f in q:
+                _avisos_bk.append(
+                    f"SE QUITÓ UNA FRASE QUE HABLABA DEL ARCHIVO, NO DEL "
+                    f"ASUNTO: «{f[:200]}». Va entera aquí por si el filtro se "
+                    f"equivocó y hay que devolverla.")
+            return t
+
+        estudio = _limpio(estudio) if isinstance(estudio, str) else estudio
+        marco_escrito = _limpio(marco_escrito)
+        if estructura is not None:
+            estructura.apertura = _limpio(getattr(estructura, "apertura", ""))
+            estructura.visto = _limpio(getattr(estructura, "visto", ""))
+            estructura.competencia = _limpio(getattr(estructura, "competencia", ""))
+            estructura.existencia = _limpio(getattr(estructura, "existencia", ""))
+            estructura.procedencia = _limpio(getattr(estructura, "procedencia", ""))
+            for _r in (estructura.resultandos or []):
+                if isinstance(_r, dict):
+                    _r["texto"] = _limpio(_r.get("texto", ""))
+        if isinstance(antecedentes, list):
+            antecedentes = [_limpio(x) for x in antecedentes]
+        elif isinstance(antecedentes, str):
+            antecedentes = _limpio(antecedentes)
+    except Exception:
+        pass
+
     avisos_doc = _caratula(doc, datos, tipo_asunto)
 
     if estructura.apertura:
