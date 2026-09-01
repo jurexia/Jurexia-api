@@ -1649,7 +1649,7 @@ def _encabezado(doc, texto):
             p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
 
-def _caratula(doc, datos, tipo_asunto: str = ""):
+def _caratula(doc, datos, tipo_asunto: str = "") -> list:
     """La ficha de identificación. Del asunto, no de ningún otro."""
     # LAS FIGURAS SON DEL TIPO. Esta lista tenía las tres del amparo directo
     # escritas a mano y se imprimía igual en los cuatro, teniendo el tipo en la
@@ -1661,7 +1661,21 @@ def _caratula(doc, datos, tipo_asunto: str = ""):
     # LA PRIMERA LÍNEA NO SE ROTULA. El corpus escribe la clase del asunto como
     # etiqueta —«REVISIÓN FISCAL: 87/2025»—, así que anteponerle «EXPEDIENTE: »
     # la rotula dos veces; salía «EXPEDIENTE: REVISIÓN FISCAL».
-    campos = [("", datos.get("encabezado", ""))]
+    # LOS AVISOS SE DEVUELVEN, NO SE ACUMULAN EN EL MÓDULO. Una lista global
+    # la comparten las peticiones que atiende el mismo worker de gunicorn: el
+    # aviso de un asunto acabaría en la sentencia de otro. Es la misma clase de
+    # error que la de mutar el calendario del cómputo.
+    _avisos: list = []
+    # UN ENCABEZADO SIN NÚMERO NO IDENTIFICA EL ASUNTO. Salía «REVISIÓN
+    # FISCAL» y «RECURSO DE QUEJA CIVIL» a secas, y de ahí el proemio decía
+    # «cuyo número consta en autos». Se avisa; no se inventa.
+    _enc = str(datos.get("encabezado", ""))
+    if _enc and not re.search(r"\b\d{1,5}\s*/\s*\d{2,4}\b", _enc):
+        _avisos.append(
+            f"EL ENCABEZADO NO TRAE NÚMERO DE EXPEDIENTE: «{_enc[:60]}». Sin él "
+            f"el proemio no puede citar el asunto y la carátula no lo "
+            f"identifica.")
+    campos = [("", _enc)]
     campos += [(et, datos.get(clave, "")) for et, clave, _ob
                in _ta_c.caratula_de(_t)]
     campos += [("MAGISTRADO PONENTE", datos.get("magistrado", "")),
@@ -1682,6 +1696,7 @@ def _caratula(doc, datos, tipo_asunto: str = ""):
              alineacion=WD_ALIGN_PARAGRAPH.LEFT)
         p.paragraph_format.space_after = Pt(0)
     doc.add_paragraph()
+    return _avisos
 
 
 def _bloque_firmas(doc, datos):
@@ -1706,7 +1721,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     notas: list = []
     _pagina(doc)
     _encabezado(doc, datos.get("encabezado", ""))
-    _caratula(doc, datos, tipo_asunto)
+    avisos_doc = _caratula(doc, datos, tipo_asunto)
 
     if estructura.apertura:
         parrafo(doc, estructura.apertura, sangria=True)
@@ -1719,6 +1734,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # imprimía en singular a máquina y encima se limpiaba con una regex que
         # admite la S, así que aunque el modelo acertara se le borraba: este
         # tipo era incorregible por prompt.
+        # «V I S T O, Para resolver…»: el modelo escribe su trozo como si
+        # empezara una frase, porque para él lo es. Detrás de la coma del
+        # rótulo va minúscula, y el corpus lo escribe así en los cuatro.
+        if _v[:1].isupper() and _v[:3] not in ("V I",):
+            _v = _v[:1].lower() + _v[1:]
         tramos(doc, [(_ta.proemio_de(tipo_asunto)["rotulo"], {"bold": True}),
                      (_v, {})], sangria=True)
 
@@ -1862,6 +1882,21 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # frase que dice CONTRA QUÉ se recurre, y sin ella el considerando primero
     # no se sostiene. Sale del propio acto, que el secretario ya subió.
     _datos_bk.setdefault("descripcion_acto", _descripcion_del_acto(datos, tipo_asunto))
+    # EL EXPEDIENTE DE ORIGEN. La plantilla de «Existencia del acto reclamado»
+    # pide `{expediente}` y nadie lo alimentaba: salía «los autos del
+    # expediente *********» en el considerando SEGUNDO. Se lee de lo que el
+    # modelo YA escribió en los resultandos —que salió del OCR— y no se le
+    # vuelve a preguntar: una llamada más es una ocasión más de inventarlo.
+    if not str(_datos_bk.get("expediente") or "").strip():
+        try:
+            import fase_origen as _fo
+            _res_txt = " ".join(str(r.get("texto") or "")
+                                for r in (estructura.resultandos or []))
+            _datos_bk["expediente"] = (_fo.numero_de(_res_txt,
+                                                     str(datos.get("numero") or ""))
+                                       or HUECO)
+        except Exception:
+            pass
     # LA FRACCIÓN DEL ACUERDO GENERAL ES LA DE CADA CIRCUITO, Y SE DEDUCE.
     # El banco traía escrita la XXII, que reparte la jurisdicción del Vigésimo
     # Segundo, así que un secretario de Mérida nombraba bien a su tribunal y
@@ -2111,4 +2146,12 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                     r.text = ""
     doc.save(ruta_salida)
     _inyectar_notas(ruta_salida, notas)
+    # Los avisos deterministas de la carátula viajan con el documento. Se
+    # cuelgan de la estructura porque es lo que ya recorre el camino de vuelta.
+    try:
+        for _a in avisos_doc:
+            if _a not in estructura.avisos:
+                estructura.avisos.append(_a)
+    except Exception:
+        pass
     return ruta_salida
