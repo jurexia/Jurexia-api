@@ -60,7 +60,7 @@ def cargar() -> dict:
     if _BANCO is None:
         try:
             with open(_RUTA, encoding="utf8") as fh:
-                _BANCO = json.load(fh)
+                _BANCO = _sin_andamio(json.load(fh))
         except Exception as e:
             print(f"   ⚠️ banco de plantillas no disponible: {e}")
             _BANCO = {}
@@ -122,6 +122,26 @@ def rellenar(texto: str, datos: dict) -> tuple:
     return _RX_MARCA.sub(_uno, texto), faltan
 
 
+# EL ANDAMIO VIENE DEL CORPUS, NO DEL MODELO. Tres plantillas del banco traen
+# «[NOTA 1]», «[NOTA 2]» y «[NOTA 3]» pegados al texto: son las llamadas a nota
+# al pie del engrose original, que el extractor conservó como marcador. El
+# compositor pone sus propias notas con su XML, así que esos corchetes llegan al
+# papel como basura —«la jurisprudencia 2a./J. 58/2010,[NOTA 2] emitida por…»—.
+# Se quitan al cargar: aquí hay tres y en el documento no debe haber ninguno.
+_RX_NOTA_CORPUS = re.compile(r"\s*\[\s*NOTA\s*\d*\s*\]", re.I)
+
+
+def _sin_andamio(x):
+    """Recursivo: el banco es un árbol de dicts, listas y cadenas."""
+    if isinstance(x, str):
+        return re.sub(r"\s+([,.;:])", r"\1", _RX_NOTA_CORPUS.sub("", x))
+    if isinstance(x, list):
+        return [_sin_andamio(i) for i in x]
+    if isinstance(x, dict):
+        return {k: _sin_andamio(v) for k, v in x.items()}
+    return x
+
+
 def _sin_rotulo(texto: str) -> str:
     """Quita el «PRIMERO. Competencia.» que la plantilla trae dentro.
 
@@ -162,6 +182,43 @@ def nota_de(tipo: str, ident: str) -> str:
 # del amparo en revisión. Los rótulos de estos tipos salen del catálogo, que
 # los tiene medidos sobre sus propios adelantos.
 PRESTADO = {"revision_fiscal"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA FRACCIÓN DEL ACUERDO GENERAL 3/2013 NO ES UN HUECO: SE DEDUCE
+# ═══════════════════════════════════════════════════════════════════════════
+# Las fórmulas del banco citan «el punto tercero, fracción XXII, del Acuerdo
+# General 3/2013», que es el que reparte la jurisdicción del tribunal que
+# generó el corpus. Como cambia con el circuito, se sustituía por asteriscos, y
+# los cuatro proyectos salían con «fracción *********» en el considerando de
+# competencia —el primero que se lee—.
+#
+# Pero ese punto enumera los circuitos EN ORDEN: la fracción es el número del
+# circuito en romanos. El propio adelanto real del Vigésimo Segundo Circuito lo
+# confirma: fracción XXII. Deducirla convierte un asterisco seguro en un valor
+# casi seguro, y el aviso de `aviso_de_procedencia` sigue pidiéndole al
+# secretario de otro circuito que revise la cadena entera antes de firmar.
+_ROMANOS = [(1000,"M"),(900,"CM"),(500,"D"),(400,"CD"),(100,"C"),(90,"XC"),
+            (50,"L"),(40,"XL"),(10,"X"),(9,"IX"),(5,"V"),(4,"IV"),(1,"I")]
+
+
+def _romano(n: int) -> str:
+    fuera = ""
+    for valor, letra in _ROMANOS:
+        while n >= valor:
+            fuera += letra
+            n -= valor
+    return fuera
+
+
+def fraccion_del_acuerdo(tribunal: str) -> str:
+    """«XXII» para un tribunal del Vigésimo Segundo Circuito. Vacío si no consta."""
+    try:
+        from fase_precedente import circuito_de
+    except Exception:
+        return ""
+    n = circuito_de(tribunal or "")
+    return _romano(int(n)) if n and n.isdigit() and 1 <= int(n) <= 32 else ""
 
 
 def rotulo_de(tipo: str, ident: str, por_defecto: str = "") -> str:

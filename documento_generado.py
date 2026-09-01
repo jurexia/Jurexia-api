@@ -490,6 +490,15 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
 # LA TABLA DEL CÓMPUTO
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _sin_partir(tabla) -> None:
+    """`cantSplit`: la fila entera va a la página donde quepa."""
+    from docx.oxml.ns import qn
+    for fila in tabla.rows:
+        trPr = fila._tr.get_or_add_trPr()
+        el = trPr.makeelement(qn("w:cantSplit"), {})
+        trPr.append(el)
+
+
 def tabla_computo(doc, computo, fecha_en_letra,
                   tipo_asunto: str = "amparo_directo") -> None:
     """El cómputo del plazo, en negro y gris.
@@ -563,6 +572,13 @@ def tabla_computo(doc, computo, fecha_en_letra,
                fondo=GRIS_CABECERA)
         _celda(fila.cells[1], veredicto, negrita=True, color=BLANCO,
                fondo=GRIS_CABECERA, alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+
+    # NINGUNA FILA SE PARTE ENTRE PÁGINAS, y se declara AL FINAL: puesto tras
+    # `add_table` sólo alcanzaba a la única fila que existía entonces, y las
+    # ocho que vienen después —las que de verdad se parten— se quedaban fuera.
+    # Cada fila es de un renglón; partida, Word deja media y su sombreado al
+    # pie de una hoja, que es la franja negra suelta.
+    _sin_partir(t)
 
     for fila in t.rows:
         fila.cells[0].width = Cm(9.5)
@@ -1272,6 +1288,28 @@ def _subtitulo(doc, texto: str):
     return p
 
 
+# ANDAMIO DEL MODELO QUE NO DEBE LLEGAR AL PAPEL. En la queja salió, dentro de
+# una jurisprudencia, «la jurisprudencia 2a./J. 58/2010,[NOTA 2] emitida por la
+# Segunda Sala…». Nadie le enseñó esa etiqueta: la inventó imitando una
+# convención de nota al pie, y el documento YA lleva notas de verdad —las
+# inserta el compositor con su XML— así que ese corchete es un marcador
+# huérfano que el secretario tiene que borrar a mano.
+#
+# El filtro es DELIBERADAMENTE ESTRECHO. Un limpiador de corchetes a secas se
+# llevaría «[sic]», «[…]» y los incisos «[a]» de una transcripción, que sí son
+# del documento. Sólo caen las etiquetas editoriales con su palabra clave.
+_RX_ANDAMIO = re.compile(
+    r"\s*\[\s*(?:NOTA|NOTAS|FOOTNOTE|CITA|REF|PIE)\s*[:#]?\s*\d*\s*\]", re.I)
+
+
+def sin_andamio(texto: str) -> str:
+    """Quita los marcadores que el modelo escribe para sí mismo."""
+    t = _RX_ANDAMIO.sub("", texto or "")
+    # El corchete se come el espacio de delante; si iba pegado a una coma,
+    # queda «58/2010, emitida», que es lo que debía decir.
+    return re.sub(r"\s+([,.;:])", r"\1", t)
+
+
 def _sin_eco(texto: str, cuerpo_tesis: str) -> str:
     """Quita del párrafo las frases que repiten la tesis ya transcrita.
 
@@ -1664,16 +1702,38 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # apartado: el ordinal en negrita no lo exime. Lo pidió David y es
             # lo que hace el corpus.
             _fmt(p, sangria=True)
+            # EL RÓTULO SE ATA A SU CUERPO; UN CUERPO NO SE ATA A LO SIGUIENTE.
+            # `keep_with_next` quedaba puesto en este párrafo SIEMPRE, y como
+            # el cuerpo del apartado se escribe DENTRO de él, lo que Word leía
+            # era «no separes este párrafo largo del que viene detrás»: si el
+            # siguiente no cabía, empujaba media página en blanco. Es el hueco
+            # que David vio detrás de la tabla del cómputo, y es exactamente el
+            # mismo fallo que ya se corrigió en el bloque de las tesis —donde
+            # atar la cadena entera dejaba media hoja vacía antes de cada
+            # jurisprudencia— sin que la lección llegara hasta aquí.
+            #
+            # Se ata sólo mientras el párrafo es un rótulo solo: si el cuerpo
+            # entra en él, deja de estarlo. Un párrafo que ya lleva su propio
+            # texto no puede quedar huérfano.
+            _solo_rotulo = len(p.text)
             p.paragraph_format.keep_with_next = True
             escribir_cuerpo(p)
+            if len(p.text) > _solo_rotulo + 40:
+                p.paragraph_format.keep_with_next = False
 
     def _texto_en(p, texto, resto=None):
-        """El primer párrafo continúa el rótulo; el resto van aparte."""
-        if (texto or "").strip():
+        """El primer párrafo continúa el rótulo; el resto van aparte.
+
+        Es el embudo: todo lo que el modelo escribe entra al documento por
+        aquí, así que el andamio se quita aquí una vez y no en catorce sitios.
+        """
+        texto = sin_andamio(texto or "")
+        if texto.strip():
             r = p.add_run(texto.strip())
             r.font.name = FUENTE
             r.font.size = TAMANO
         for x in (resto or []):
+            x = sin_andamio(x)
             if x.strip():
                 parrafo(doc, x.strip())
 
@@ -1752,12 +1812,23 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # frase que dice CONTRA QUÉ se recurre, y sin ella el considerando primero
     # no se sostiene. Sale del propio acto, que el secretario ya subió.
     _datos_bk.setdefault("descripcion_acto", _descripcion_del_acto(datos, tipo_asunto))
-    # LA FRACCIÓN DEL ACUERDO GENERAL ES LA DE CADA CIRCUITO. El banco traía
-    # escrita la XXII, que es la que reparte la jurisdicción del Vigésimo
-    # Segundo: el considerando PRIMERO de un secretario de Mérida nombraba bien
-    # a su tribunal y fundaba su competencia en la fracción de otro. No se puede
-    # deducir del expediente, así que se deja HUECO VISIBLE, que es la regla de
-    # la casa: un hueco se ve y se rellena; una fracción equivocada se firma.
+    # LA FRACCIÓN DEL ACUERDO GENERAL ES LA DE CADA CIRCUITO, Y SE DEDUCE.
+    # El banco traía escrita la XXII, que reparte la jurisdicción del Vigésimo
+    # Segundo, así que un secretario de Mérida nombraba bien a su tribunal y
+    # fundaba su competencia en la fracción de otro. Se dejó en hueco visible.
+    #
+    # Se dejó de más. Lo que no se deduce es del EXPEDIENTE —ahí no consta—,
+    # pero sí del TRIBUNAL, que el secretario declara en el formulario: el
+    # punto tercero enumera los circuitos en orden, de modo que la fracción es
+    # el número del circuito en romanos. El adelanto real del Vigésimo Segundo
+    # lo confirma: fracción XXII. Los cuatro proyectos salían con «fracción
+    # *********» en el considerando de competencia, que es el primero que se
+    # lee, y ese asterisco era evitable.
+    #
+    # La regla de la casa se respeta: si el tribunal no dice su circuito, sigue
+    # saliendo hueco. Y el aviso a los secretarios de otro circuito sigue
+    # pidiéndoles revisar la cadena de fundamentos entera antes de firmar,
+    # porque la fracción es una pieza de esa cadena, no la cadena.
     # LOS MARCADORES DE LA PLANTILLA DE REVISIÓN, que nadie llenaba: salían como
     # «en materia *********, por el *********» en mitad del considerando de
     # competencia. El juez de distrito ES la autoridad responsable —en una
@@ -1768,8 +1839,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     _datos_bk.setdefault("juez_distrito", _con_articulo(_resp) or HUECO)
     _datos_bk.setdefault("juzgado", _con_articulo(_resp) or HUECO)
     _datos_bk.setdefault("recurrente", str(datos.get("quejoso") or "").strip() or HUECO)
-    _datos_bk.setdefault("fraccion_acuerdo",
-                         str(datos.get("fraccion_acuerdo") or "").strip() or HUECO)
+    _datos_bk.setdefault(
+        "fraccion_acuerdo",
+        str(datos.get("fraccion_acuerdo") or "").strip()
+        or _bk.fraccion_del_acuerdo(str(datos.get("tribunal") or ""))
+        or HUECO)
     _datos_bk.setdefault("fecha_acto", str(datos.get("fecha_acto") or "").strip()
                          or HUECO)
     _datos_bk.setdefault("objeto", (f"una sentencia definitiva en materia {_mat}"
