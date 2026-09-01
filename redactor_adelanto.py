@@ -346,12 +346,21 @@ async def consultar(qdrant, embed_juris, embed_leyes,
         pregunta = p.get("pregunta", "") if isinstance(p, dict) else str(p)
         if pregunta:
             problemas.append(pregunta)
-        # El impedimento técnico ES una cuestión jurídica que hay que fundar:
-        # la inoperancia se razona con tesis, no se declara.
-        imp = p.get("impedimento") if isinstance(p, dict) else None
-        if isinstance(imp, dict) and imp.get("explicacion"):
-            problemas.append(f"¿{imp.get('motivo','inoperancia').capitalize()}: "
-                             f"{imp['explicacion']}?")
+        # EL ACERVO SE CONSULTA POR LAS DOS. El impedimento técnico es una
+        # cuestión jurídica que hay que fundar —la inoperancia se razona con
+        # tesis, no se declara— pero consultarlo SÓLO a él inclinaba la
+        # balanza antes de que nadie decidiera: el RAG volvía cargado de
+        # material para inoperar y vacío de material para entrar al fondo. Un
+        # buscador que sólo busca razones para no contestar acaba
+        # encontrándolas.
+        if isinstance(p, dict):
+            for _clave, _pre in (("impedimento", "inoperancia"),
+                                 ("apoyo", "sustento")):
+                _x = p.get(_clave)
+                if isinstance(_x, dict) and _x.get("explicacion"):
+                    problemas.append(
+                        f"¿{str(_x.get('motivo') or _pre).capitalize()}: "
+                        f"{_x['explicacion']}?")
     coleccion = (r.encargo.coleccion_estatal if r.encargo else "") or None
     # LA LEY DEL ESTADO NO PINTA NADA EN UN LABORAL FEDERAL. En el ADL 382/2024
     # —IMSS contra un enfermero, ante la Junta Federal— el marco jurídico salió

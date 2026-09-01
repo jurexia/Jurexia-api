@@ -158,7 +158,8 @@ async def fichar(cliente, texto_acto: str, texto_conceptos: str,
                   conceptos=(texto_conceptos or "")[:14000])}])
     if ESFUERZO_PARTES:
         kw["reasoning_effort"] = ESFUERZO_PARTES
-    r = await cliente.chat.completions.create(**kw)
+    import llamada_modelo as _lm
+    r = await _lm.crear(cliente, **kw)
     try:
         j = json.loads((r.choices[0].message.content or "{}").strip())
     except Exception as e:

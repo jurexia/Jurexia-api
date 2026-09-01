@@ -744,7 +744,8 @@ async def redactar_estructura(cliente, datos: dict) -> Estructura:
               messages=[{"role": "user", "content": prompt_estructura(datos)}])
     if ESFUERZO_ESTRUCTURA:
         kw["reasoning_effort"] = ESFUERZO_ESTRUCTURA
-    r = await cliente.chat.completions.create(**kw)
+    import llamada_modelo as _lm
+    r = await _lm.crear(cliente, **kw)
     crudo = (r.choices[0].message.content or "").strip()
     m = _RX_JSON.search(crudo)
     if not m:
@@ -880,7 +881,8 @@ blanco. Sin rótulo ni encabezado: el documento se lo pone."""
               messages=[{"role": "user", "content": prompt}])
     if ESFUERZO_ESTRUCTURA:
         kw["reasoning_effort"] = ESFUERZO_ESTRUCTURA
-    r = await cliente.chat.completions.create(**kw)
+    import llamada_modelo as _lm
+    r = await _lm.crear(cliente, **kw)
     return (r.choices[0].message.content or "").strip()
 
 

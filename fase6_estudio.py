@@ -1810,7 +1810,8 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                   es_recurso, partes, marco, contexto)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
-    r = await cliente.chat.completions.create(**kw)
+    import llamada_modelo as _lm
+    r = await _lm.crear(cliente, **kw)
     crudo = (r.choices[0].message.content or "").strip()
     estudio, advertencias = separar_advertencias(crudo)
     avisos = revisar(estudio, criterios, material, resumen_acto,

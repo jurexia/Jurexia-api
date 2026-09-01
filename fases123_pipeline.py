@@ -273,11 +273,16 @@ Devuelve JSON y nada más:
       "resolvio": "qué resolvió el órgano recurrido sobre este punto",
       "combate": "qué lo combate",
       "depende_de": "el número del problema del que depende, o null",
-      "impedimento": null}}
+      "impedimento": null,
+      "apoyo": null}}
   ]
 }}
 Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
-"impedimento" como {{"motivo": "inoperancia", "explicacion": "..."}}."""
+"impedimento" como {{"motivo": "inoperancia", "explicacion": "..."}}.
+Y si adviertes lo contrario —algo que sostenga el planteamiento— ponlo en
+"apoyo" como {{"motivo": "razón toral|jurisprudencia|constancia",
+"explicacion": "..."}}. Los dos campos son opcionales y ninguno obliga al
+otro; lo que no vale es rellenar siempre uno y nunca el otro."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -387,7 +392,8 @@ async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = F
         kw["reasoning_effort"] = ESFUERZO_FASES
     if json_estricto:
         kw["response_format"] = {"type": "json_object"}
-    r = await cliente.chat.completions.create(**kw)
+    import llamada_modelo as _lm
+    r = await _lm.crear(cliente, **kw)
     txt = (r.choices[0].message.content or "").strip()
     if not txt:
         # RESPUESTA VACÍA: el razonamiento se comió el presupuesto de salida.
@@ -397,7 +403,7 @@ async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = F
         # razonamiento: para leer un documento no hace falta.
         kw["max_completion_tokens"] = tope * 2
         kw.pop("reasoning_effort", None)
-        r = await cliente.chat.completions.create(**kw)
+        r = await _lm.crear(cliente, **kw)
         txt = (r.choices[0].message.content or "").strip()
     return txt
 
@@ -446,7 +452,22 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
         f.problema_global = j.get("problema_global", "")
         f.problemas = _sin_repetidos(j.get("problemas", []) or [])
     except Exception as e:
-        f.avisos.append(f"No se pudieron derivar los problemas jurídicos: {e}")
+        # ESTE AVISO NO BASTABA, Y COSTÓ SEMANAS. Cuando el motor dejó de
+        # aceptar `temperature`, esta captura apuntó el aviso y siguió: el
+        # adelanto devolvía 200, el documento salía bien de forma, y los
+        # PROBLEMAS JURÍDICOS iban vacíos. Sin ellos no hay consulta al acervo
+        # que apuntar, ni propuesta que calificar, ni estudio que ordenar: el
+        # corazón del taller estaba apagado y el único síntoma era una línea
+        # entre catorce avisos.
+        #
+        # Sigue sin tumbar el adelanto —el documento formal vale por sí solo—
+        # pero lo dice en mayúsculas, lo primero, y lo deja en los registros.
+        print(f"   ❌ PROBLEMAS JURÍDICOS: no se derivaron — {e}")
+        f.avisos.insert(0, (
+            "NO SE DERIVARON LOS PROBLEMAS JURÍDICOS. El adelanto sale, pero "
+            "SIN ELLOS no hay nada que consultar al acervo, nada que calificar "
+            "y nada que ordenar en el estudio: el fondo saldría vacío. "
+            f"Causa: {e}"))
     f.avisos.extend(revisar(f))
     return f
 

@@ -612,27 +612,64 @@ def circuito_de(tribunal: str) -> str:
 # distribución de lo que hicieron otros sobre el mismo tema, y se presenta así.
 # Un secretario que lea «82%» y crea que es la probabilidad de su asunto está
 # leyendo mal, y por eso el texto dice cuántas sentencias hay detrás.
+# LAS DOS HERRAMIENTAS DECÍAN LO CONTRARIO SOBRE LA MISMA BÚSQUEDA, y ésta es
+# justamente la cifra que va a la pantalla al lado de cada problema.
+#
+# La jurimetría del endpoint agrupa los sentidos en tres cubos —«confirma» y
+# «niega» e «infundado» son lo mismo desde el punto de vista de quien promueve—
+# y esta función tomaba el MÁXIMO sobre las etiquetas crudas. Con una
+# distribución {concede: 30, niega: 20, confirma: 15} el taller decía
+# «Conceder (46%)» y la jurimetría, «NIEGA 54%». Sentidos opuestos, la misma
+# consulta a la misma colección.
+#
+# Se agrupa igual que el endpoint, que es el mapa correcto: lo que importa no
+# es la palabra que usó cada tribunal en su resolutivo sino si le dio o no la
+# razón a quien promovía.
+_CUBO = {
+    "concede": "CONCEDE", "parcialmente_concede": "CONCEDE",
+    "fundado": "CONCEDE", "revoca": "CONCEDE",
+    "niega": "NIEGA", "infundado": "NIEGA", "confirma": "NIEGA",
+    "inoperante": "NIEGA", "ineficaz": "NIEGA",
+    "sobresee": "SOBRESEE", "desecha": "SOBRESEE", "sin_materia": "SOBRESEE",
+    "incompetencia": "SOBRESEE", "modifica": "SOBRESEE",
+}
+_NOMBRE_CUBO = {"CONCEDE": "Conceder", "NIEGA": "Negar",
+                "SOBRESEE": "Sobreseer"}
+
+
 def prediccion(s: "Sondeo") -> dict:
     """{'sentido', 'porcentaje', 'n', 'confianza', 'frase'} o {} si no alcanza."""
     if s is None:
         return {}
-    total = sum((s.distribucion or {}).values())
+    from collections import Counter
+    cubos: Counter = Counter()
+    for k, v in (s.distribucion or {}).items():
+        cubos[_CUBO.get(str(k).strip().lower(), "OTRO")] += v
+    cubos.pop("OTRO", None)
+    total = sum(cubos.values())
     if not total:
         return {}
-    sentido, cuantas = max(s.distribucion.items(), key=lambda kv: kv[1])
+    sentido, cuantas = max(cubos.items(), key=lambda kv: kv[1])
     pct = cuantas / total
-    # La confianza es del TAMAÑO de la base, no del porcentaje: un 100% sobre
+    # LA CONFIANZA ES DEL TAMAÑO DE LA BASE, no del porcentaje: un 100% sobre
     # tres sentencias no dice nada y un 60% sobre ochenta dice mucho.
-    confianza = "alta" if total >= 40 else "media" if total >= 15 else "baja"
+    #
+    # Y LOS UMBRALES SON LOS DE ESTA BÚSQUEDA, no los del endpoint. Allí se
+    # piden 80 resultados y «alta» exige 40; aquí se piden 40, así que exigir
+    # 40 con sentido significaba que TODOS lo trajeran: «alta» no salía nunca
+    # y la pantalla enseñaba «baja» en una base perfectamente sólida. Se
+    # calibran a la mitad, que es la misma proporción.
+    confianza = "alta" if total >= 20 else "media" if total >= 8 else "baja"
     return {
         "sentido": sentido,
         "porcentaje": round(pct, 3),
         "n": total,
         "confianza": confianza,
-        "frase": (f"{_ETIQUETA.get(sentido, sentido)} "
+        "frase": (f"{_NOMBRE_CUBO.get(sentido, sentido)} "
                   f"({round(pct * 100)}% de {total} sentencias del acervo"
                   f"{'' if confianza != 'baja' else ', base corta'})"),
-        "distribucion": dict(s.distribucion),
+        "distribucion": dict(cubos),
+        "detalle": dict(s.distribucion),
     }
 
 

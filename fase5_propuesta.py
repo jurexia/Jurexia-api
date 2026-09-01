@@ -470,7 +470,8 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                   es_recurso, contexto)}])
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
-    r = await cliente.chat.completions.create(**kw)
+    import llamada_modelo as _lm
+    r = await _lm.crear(cliente, **kw)
     crudo = (r.choices[0].message.content or "").strip()
 
     # SI NO VUELVE NADA, HAY QUE PODER SABER POR QUÉ. Una lista vacía puede

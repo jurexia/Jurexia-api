@@ -197,9 +197,18 @@ Salen del CONTRASTE entre los dos resúmenes: lo que la responsable resolvió
 frente a lo que se combate. No de la demanda sola ni del acto solo.
 
 - Cada uno se redacta COMO PREGUNTA, que es como se resuelve.
-- Señala, cuando lo adviertas, el IMPEDIMENTO TÉCNICO que llevaría a
-  inoperancia: que el planteamiento no combata la razón toral, que sea
-  novedoso, que verse sobre cuestión firme, o que no haya concepto.
+- SEÑALA LAS DOS COSAS, no sólo una. Este apartado pedía únicamente el
+  IMPEDIMENTO que llevaría a inoperancia —que el planteamiento no combata la
+  razón toral, que sea novedoso, que verse sobre cuestión firme— y no pedía
+  nada en el sentido contrario. Un cuestionario que sólo pregunta por lo que
+  descalifica produce un expediente lleno de razones para no entrar, y eso no
+  es neutralidad: es una tesis con formato de pregunta.
+    · «impedimento»: el obstáculo técnico, si de verdad lo adviertes.
+    · «apoyo»: lo que el planteamiento tiene A SU FAVOR, si lo tiene —que
+      combate la razón toral de frente, que hay jurisprudencia obligatoria en
+      ese sentido, que la constancia que invoca consta—.
+  Si sólo ves uno de los dos, pon el otro en null. Lo que no vale es mirar
+  sólo hacia un lado.
 - No propongas el sentido. El sentido lo pone el secretario.
 
 - JERARQUÍA. Marca UNO como «principal»: aquel del que dependen los demás,
