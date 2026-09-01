@@ -1071,6 +1071,15 @@ def _de_la(nombre: str) -> str:
     return "de " + n
 
 
+# EL ARTÍCULO CONTRAÍDO. «contra el acto reclamado a el Director» no es
+# español, y sale en cuanto una plantilla escribe la preposición y otra función
+# pone el artículo: ninguna de las dos ve a la otra. Se arregla al final, sobre
+# el texto ya armado, que es donde las dos se juntan.
+def _contraer(t: str) -> str:
+    t = re.sub(r"\ba\s+el\b(?!\s+que\b)", "al", t)
+    return re.sub(r"\bde\s+el\b(?!\s+que\b)", "del", t)
+
+
 def _con_articulo(nombre: str) -> str:
     """«Primera Sala Civil…» → «la Primera Sala Civil…».
 
@@ -2457,6 +2466,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                            .replace("{responsable_originaria}", _orig)
                            .replace("{expediente}",
                                     str(_datos_bk.get("expediente") or HUECO)))
+                _txt = _contraer(_txt)
                 _cab, _resto = _txt.split(". ", 1) if ". " in _txt else (_txt, "")
                 tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})],
                        sangria=False)

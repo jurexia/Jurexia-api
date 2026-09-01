@@ -1498,7 +1498,33 @@ def revisar_congruencia(ruta: str, calificaciones=None,
                 f"existe o si repite lo que ya dijo otro.")
 
     cs = [str(c or "").strip().lower() for c in (calificaciones or []) if str(c or "").strip()]
-    if cs:
+    # ESTA REGLA ES DEL AMPARO, NO DEL RECURSO, y aplicarla a los dos convierte
+    # en alarma el caso correcto. «Basta un concepto fundado para conceder» vale
+    # cuando quien plantea es el quejoso: sus conceptos van contra el acto, y si
+    # uno prospera el acto cae.
+    #
+    # EN UN RECURSO EL FUNDADO NO DICE QUIÉN GANA EL AMPARO, dice quién gana el
+    # RECURSO. Si recurre la autoridad porque el Juez de Distrito concedió, un
+    # agravio fundado significa que se REVOCA la sentencia y se NIEGA el
+    # amparo: fundado y niega a la vez, y perfectamente congruente. Es la rama
+    # 2-B, y sin esta salvedad el proyecto salía acusado de incongruencia
+    # precisamente por estar bien resuelto.
+    #
+    # No se invierte la regla para los recursos porque para invertirla haría
+    # falta saber QUIÉN recurrió, y eso el pipeline no lo afirma. Se calla, y
+    # el aviso de la rama —que sí dice qué resolvió el a quo— es el que queda
+    # para que lo compruebe quien firma.
+    # SE IMPORTA AQUÍ, no se reaprovecha `_ta_cg`: aquél vive dentro de un
+    # `if tipo_asunto:` y de un `try`, así que en un documento sin tipo
+    # declarado no existe. Un nombre que sólo está definido a veces es un
+    # `NameError` esperando al primer caso raro.
+    try:
+        import tipos_asunto as _ta_r
+        _es_recurso = _ta_r.normalizar(tipo_asunto) in (
+            "amparo_revision", "queja", "revision_fiscal")
+    except Exception:
+        _es_recurso = False
+    if cs and not _es_recurso:
         hay_fundado = any(c.startswith("fundad") for c in cs)
         if hay_fundado and niega and not concede:
             fuera.append(f"El secretario calificó «{cs[0]}» y el resolutivo "
