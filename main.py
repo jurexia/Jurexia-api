@@ -26437,9 +26437,21 @@ async def taller_proponer(
         # Esto se manda TAL CUAL a /taller/resolver en el campo `criterios_json`
         # para aceptar la propuesta. El secretario puede editar cualquier razón
         # o cualquier sentido antes de mandarlo: es su criterio el que gobierna.
+        # LO QUE VUELVE TIENE QUE TRAER TODO LO QUE SE SEMBRÓ. Este JSON es el
+        # que el cliente devuelve a /taller/resolver, y llevaba tres campos: la
+        # JERARQUÍA que sembró la fase 3 y la PREDICCIÓN que sembró el sondeo
+        # se perdían en el viaje de vuelta. Con ellas se pierde el orden por
+        # prelación lógica del estudio, el aviso de ir contra la corriente del
+        # acervo y la sustracción de materia: todo el trabajo de esta ronda
+        # quedaba muerto en el único camino que usa la pantalla.
+        #
+        # Es la trampa que este proyecto ya conoce con nombre propio: un
+        # arreglo reconstruye una lista y descarta lo que otro sembró.
         "criterios_json": json.dumps(
             [{"problema": p.problema, "sentido": p.sentido,
-              "razonamiento": p.razon}
+              "razonamiento": p.razon,
+              "jerarquia": _jer_por_problema.get(p.problema, "accesorio"),
+              "prediccion": _pred_por_problema.get(p.problema, {})}
              for p in propuestas if p.alcanza and p.sentido], ensure_ascii=False),
     }
 
