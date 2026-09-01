@@ -25705,6 +25705,12 @@ async def taller_tipos():
             "recurrido": v["recurrido"],
             "escrito": v["escrito"],             # lo que el secretario sube
             "plazo": {"dias": p["dias"], "fundamento": p["fundamento"]},
+            # LAS FIGURAS DE PARTE, para que la pantalla no rotule «Autoridad
+            # responsable» en un recurso donde no hay ninguna. Si el servidor
+            # las corrige y la pantalla las sigue pidiendo con el nombre viejo,
+            # el secretario teclea una cosa y firma otra.
+            "caratula": [{"etiqueta": et, "clave": cl, "obligatoria": ob}
+                         for et, cl, ob in _ta.caratula_de(clave)],
             "excepciones_de_plazo": [
                 {"clave": e["clave"], "cuando": e["cuando"],
                  "dias": e["dias"], "fundamento": e["fundamento"],
