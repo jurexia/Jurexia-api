@@ -59,8 +59,17 @@ _ALCANZAN = {"fundado", "fundado_suplido", "concede"}
 
 # Lo que un accesorio pide y que NO se puede declarar innecesario aunque el
 # principal prospere: da más de lo que el principal concede.
+# «DE FONDO» ESTABA AQUÍ Y HABRÍA MATADO LA FUNCIÓN. Casi todo problema
+# jurídico que redacta la fase 3 contiene esas dos palabras —«¿la responsable
+# resolvió el fondo del asunto?»—, así que la sustracción de materia, que es
+# justamente lo que David pidió por su nombre, no se habría aplicado NUNCA y
+# el aviso habría mentido sobre el motivo. Es la trampa de siempre: una
+# heurística de una palabra dentro de un texto que la contiene por otra razón.
+#
+# Lo que queda son figuras que sólo aparecen cuando de verdad se pide más:
+# nadie escribe «nulidad lisa y llana» ni «cosa juzgada» de pasada.
 _MAYOR_BENEFICIO = (
-    "mayor beneficio", "lisa y llana", "nulidad lisa", "de fondo",
+    "mayor beneficio", "lisa y llana", "nulidad lisa",
     "prescripción", "prescripcion", "caducidad", "cosa juzgada",
     "improcedencia del juicio", "sobreseimiento",
 )

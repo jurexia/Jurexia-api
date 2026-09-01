@@ -165,3 +165,58 @@ def medir(texto: str) -> dict:
             "remisiones_rotas": remisiones_rotas(texto),
             "procedencia_contradice": procedencia_contradice(texto),
             "promesa": promesa_rota(texto)}
+
+
+# ── 6. LA CIFRA DEL ACERVO NO SE ESCRIBE ───────────────────────────────────
+# Trampa nueva, de este cambio: la predicción entra al prompt como «EL ACERVO:
+# Conceder (82% de 50 sentencias)» y un modelo que lee una cifra en su contexto
+# tiende a citarla. Una sentencia que dice «el 82% de los tribunales concede»
+# es impublicable: el criterio no se vota.
+# EL `\b` DESPUÉS DEL `%` NO CASA NUNCA: el porcentaje no es carácter de
+# palabra, así que la frontera exige uno detrás y detrás hay un espacio. Se
+# quita, y con él el falso «no lo caza» que me devolvió mi propia prueba.
+_RX_ESTADISTICA = re.compile(
+    r"[^.]{0,90}\b\d{1,3}\s*(?:%|por\s+ciento)[^.]{0,60}"
+    r"(?:tribunal|colegiad|sentencia|acervo|precedent)[^.]{0,60}\.|"
+    r"[^.]{0,90}(?:tribunal|colegiad|acervo|precedent)[^.]{0,50}"
+    r"\b\d{1,3}\s*(?:%|por\s+ciento)[^.]{0,60}\.|"
+    r"[^.]{0,70}\bla\s+mayor[íi]a\s+de\s+los\s+(?:tribunales|colegiados)"
+    r"[^.]{0,80}\.", re.I)
+
+
+def estadistica_en_el_texto(texto: str) -> list:
+    """Las frases que citan la jurimetría como si fuera argumento."""
+    return sorted({" ".join(m.group(0).split())
+                   for m in _RX_ESTADISTICA.finditer(texto or "")})
+
+
+# ── 7. EL MISMO PÁRRAFO DOS VECES ──────────────────────────────────────────
+# Medido en el ADC 642/2024: tres párrafos copiados palabra por palabra dentro
+# del mismo considerando, ochenta líneas después. Cero criterio jurídico, cero
+# coste: n-gramas de quince palabras repetidos dentro del estudio.
+def duplicacion_interna(estudio: str, n: int = 15) -> list:
+    pal = re.findall(r"\w+", (estudio or "").lower())
+    if len(pal) < n * 3:
+        return []
+    vistos: dict = {}
+    # Se separa por n, no por 3n: dos párrafos idénticos consecutivos son el
+    # mismo defecto que dos separados por ochenta líneas, y exigir tres veces
+    # la ventana dejaba fuera justo el caso que motivó la medida.
+    crudos: list = []
+    for i in range(len(pal) - n):
+        g = " ".join(pal[i:i + n])
+        if g in vistos and i - vistos[g] >= n:
+            crudos.append((i, g))
+        else:
+            vistos.setdefault(g, i)
+    # LOS SOLAPADOS CUENTAN UNA VEZ. Un párrafo repetido produce decenas de
+    # n-gramas consecutivos; contarlos todos exagera el defecto. Se agrupan por
+    # su POSICIÓN en el texto —que es lo que los hace el mismo hallazgo— y no
+    # por su índice en la lista, que era el error de la primera versión: con él
+    # dos repeticiones lejanas se fundían en una y una sola se contaba entera.
+    fuera, ultimo = [], -10 ** 9
+    for i, g in crudos:
+        if i - ultimo > n:
+            fuera.append(g)
+            ultimo = i
+    return fuera[:6]
