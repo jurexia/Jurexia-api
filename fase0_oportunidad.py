@@ -351,10 +351,35 @@ class Computo:
     avisos: list[str] = field(default_factory=list)
 
     @property
+    def anticipada(self) -> bool:
+        """Se presentó ANTES de que el plazo arrancara."""
+        return (self.presentacion is not None
+                and self.presentacion < self.inicio)
+
+    @property
     def oportuna(self) -> Optional[bool]:
+        """NADIE LLEGA TARDE POR LLEGAR TEMPRANO.
+
+        Esta comparación decía `self.inicio <= self.presentacion`, y con ello
+        declaraba EXTEMPORÁNEO lo presentado antes de que el plazo arrancara.
+        Es falso, y es de los errores caros: quien se ostenta sabedor del acto
+        y promueve sin esperar a que se lo notifiquen está en tiempo —el plazo
+        marca hasta cuándo, no a partir de cuándo puede acudirse—. Un proyecto
+        que sobresee por extemporáneo un amparo promovido con anticipación no
+        se cae en sesión: se cae en revisión, y con costas de credibilidad.
+
+        Salió comparando un adelanto real: la demanda se presentó el 23 de
+        abril y la tabla la declaró fuera de plazo contra un vencimiento de
+        julio. Lo tarde y lo temprano no son la misma cosa.
+
+        Lo anticipado se marca aparte —`anticipada`— porque la prosa sí debe
+        decirlo: no es lo mismo llegar el último día que llegar antes de que
+        el reloj empiece, y quien firma querrá saber por qué no hay cómputo
+        que cuadre.
+        """
         if self.presentacion is None:
             return None
-        return self.inicio <= self.presentacion <= self.vencimiento
+        return self.presentacion <= self.vencimiento
 
     @property
     def dia_de_presentacion(self) -> Optional[int]:
@@ -577,8 +602,16 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
         # Se desglosa si no está en tiempo, o si el tipo lo acostumbra.
         desglosar = (c.oportuna is False) or _ta.normalizar(tipo) == "revision_fiscal"
     if not desglosar:
-        cierre = ("" if c.presentacion is None
-                  else f", pues se presentó el {fecha_en_letra(c.presentacion)}")
+        # LO ANTICIPADO SE DICE. Quien firma verá una fecha de presentación
+        # anterior al arranque del plazo y, si el papel no lo explica, pensará
+        # que hay un error de captura. Se explica en la misma frase.
+        if c.anticipada:
+            cierre = (f", pues se presentó el {fecha_en_letra(c.presentacion)}, "
+                      f"esto es, con anterioridad al inicio del plazo, lo que "
+                      f"no le resta oportunidad")
+        else:
+            cierre = ("" if c.presentacion is None
+                      else f", pues se presentó el {fecha_en_letra(c.presentacion)}")
         return (f"Igualmente, la presentación {_del(v['escrito'])} resultó "
                 f"oportuna, a la luz del {fundamento}{cierre}.")
     surte = _ORDINAL_SURTE.get(c.regla.dias_habiles, "al día hábil siguiente")
@@ -600,7 +633,9 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
     if c.inhabiles_en_medio:
         p.append(f", así como {lista_en_letra(c.inhabiles_en_medio)} del referido año")
     if c.presentacion is not None:
-        veredicto = ("es claro que fue hecho valer oportunamente" if c.oportuna
+        veredicto = ("fue hecho valer con anterioridad al inicio del plazo, "
+                     "lo que no le resta oportunidad" if c.anticipada
+                     else "es claro que fue hecho valer oportunamente" if c.oportuna
                      else "resulta evidente su EXTEMPORANEIDAD")
         p.append(f", entonces si se presentó el {fecha_en_letra(c.presentacion)}, "
                  f"{veredicto}.")

@@ -490,7 +490,8 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
 # LA TABLA DEL CÓMPUTO
 # ═══════════════════════════════════════════════════════════════════════════
 
-def tabla_computo(doc, computo, fecha_en_letra) -> None:
+def tabla_computo(doc, computo, fecha_en_letra,
+                  tipo_asunto: str = "amparo_directo") -> None:
     """El cómputo del plazo, en negro y gris.
 
     No es adorno: es la parte de la sentencia que más se revisa y la que peor
@@ -498,8 +499,25 @@ def tabla_computo(doc, computo, fecha_en_letra) -> None:
     destacado abajo. Quien la revisa comprueba en diez segundos lo que en un
     párrafo corrido cuesta releer tres veces.
     """
+    # LOS RÓTULOS SON DEL TIPO, NO DEL AMPARO DIRECTO. Una queja mostraba
+    # «Notificación de la sentencia reclamada» y «Presentación de la demanda»
+    # cuando lo que se notificó fue un auto y lo que se presentó, un recurso.
+    # El resto del documento ya hablaba con el vocabulario correcto: sólo la
+    # tabla seguía anclada al tipo con el que nació.
+    import tipos_asunto as _ta
+    _v = _ta.vocabulario_de(tipo_asunto)
+    # El «recurrido» del catálogo trae artículo —«el auto recurrido»— y el
+    # «escrito» no —«recurso de queja»—: cada uno necesita su contracción.
+    from fase0_oportunidad import _del as _del_
+
+    def _complemento(x: str) -> str:
+        return "del " + x[3:] if x.startswith("el ") else "de " + x
+
+    _recurrido = _complemento(_v["recurrido"])
+    _escrito = _del_(_v["escrito"])
+
     filas = [
-        ("Notificación de la sentencia reclamada",
+        (f"Notificación {_recurrido}",
          fecha_en_letra(computo.notificacion)),
         (f"Surtimiento de efectos ({computo.regla.descripcion})",
          fecha_en_letra(computo.surtio)),
@@ -508,7 +526,7 @@ def tabla_computo(doc, computo, fecha_en_letra) -> None:
         ("Vencimiento del plazo", fecha_en_letra(computo.vencimiento)),
     ]
     if computo.presentacion is not None:
-        filas.append(("Presentación de la demanda",
+        filas.append((f"Presentación {_escrito}",
                       fecha_en_letra(computo.presentacion)))
     if computo.inhabiles_en_medio:
         # LA FILA MENTÍA. Decía «Días inhábiles descontados: 1» mientras el
@@ -537,7 +555,9 @@ def tabla_computo(doc, computo, fecha_en_letra) -> None:
 
     if computo.oportuna is not None:
         fila = t.add_row()
-        veredicto = ("PRESENTADA EN TIEMPO" if computo.oportuna
+        veredicto = ("PRESENTADA ANTES DEL INICIO DEL PLAZO"
+                     if computo.anticipada
+                     else "PRESENTADA EN TIEMPO" if computo.oportuna
                      else "PRESENTADA FUERA DE PLAZO")
         _celda(fila.cells[0], "Resultado", negrita=True, color=BLANCO,
                fondo=GRIS_CABECERA)
@@ -1777,9 +1797,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     def _legitimacion(p):
         _texto_en(p, _op)
-        # En la QUEJA el cómputo va en prosa: ni una tabla en 20 documentos.
+        # La tabla va en los cuatro tipos. En el corpus casi no aparece
+        # —el secretario la dibuja a mano y cuesta—, pero eso mide lo que hoy
+        # es caro hacer, no lo que sobra: la máquina tiene el calendario.
         if esq["tabla_computo"]:
-            tabla_computo(doc, computo, fecha_en_letra)
+            tabla_computo(doc, computo, fecha_en_letra, tipo_asunto)
 
     con_apartados.append((_bk.rotulo_de(tipo_asunto, "legitimacion",
                                         esq["legitimacion"]), _legitimacion))
