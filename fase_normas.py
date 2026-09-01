@@ -278,14 +278,22 @@ async def recuperar(qdrant, estudio: str, coleccion_estatal: str = "",
     # acervo —medido: cero trozos en leyes_federales, en el bloque y en las de
     # materia—, así que todas sus citas venían sin texto al pie desde siempre,
     # y en silencio.
+    # EL TOPE NO APLICA A LO QUE NO SE BUSCA. `MAX_ARTICULOS` existe para no
+    # hacer veinte viajes a Qdrant por sentencia; una consulta al diccionario
+    # estático es un acceso a un dict. Aplicándoselo, el proyecto de la cuota
+    # pensionaria se quedó sin el 19 y sin el 217 de la Ley de Amparo sólo por
+    # llegar los trece y catorce de la lista.
     import normas_estaticas as _ne
     estaticos, pendientes = [], []
-    for num, cola in pares[:MAX_ARTICULOS]:
+    for num, cola in pares:
         fijo = _ne.articulo(num, cola)
         if fijo:
             estaticos.append(fijo)
-        else:
-            pendientes.append((num, cola))
+    _fijos = {(d["articulo"], d["citado_como"]) for d in estaticos}
+    for num, cola in pares[:MAX_ARTICULOS]:
+        if (str(num), (cola or "").strip()[:90]) in _fijos:
+            continue
+        pendientes.append((num, cola))
 
     tareas, meta = [], []
     for num, cola in pendientes:
@@ -294,6 +302,14 @@ async def recuperar(qdrant, estudio: str, coleccion_estatal: str = "",
             continue
         tareas.append(_traer(qdrant, col, num, tipo))
         meta.append((num, cola))
+    _vis, _uno = set(), []
+    for d in estaticos:
+        k = (d["articulo"], d["cuerpo_legal"])
+        if k in _vis:
+            continue
+        _vis.add(k); _uno.append(d)
+    estaticos = _uno
+
     if not tareas:
         return estaticos
     res = await asyncio.gather(*tareas)
