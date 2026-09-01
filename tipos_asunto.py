@@ -251,3 +251,80 @@ def vocabulario_de(tipo: str) -> dict:
 def estructura_de(tipo: str) -> dict:
     return dict(ESTRUCTURA.get(normalizar(tipo) or "amparo_directo",
                                ESTRUCTURA["amparo_directo"]))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUÉ VA DENTRO DE CADA RESULTANDO, POR TIPO
+# ═══════════════════════════════════════════════════════════════════════════
+# Los rótulos de arriba dicen CUÁLES son; esto dice QUÉ se escribe en cada uno.
+#
+# Hacía falta porque el prompt de la estructura llevaba los cuatro resultandos
+# del amparo directo escritos a mano, y los emitía igual en los cuatro tipos:
+# una queja abría con «Presentación de la demanda de amparo» y seguía con
+# «Derechos humanos cuya violación se alega» y «Tercero interesado», que en un
+# recurso contra un auto no vienen a cuento. Comparado con los adelantos
+# reales, era el apartado que más se alejaba: los CONSIDERANDOS ya salían bien
+# —de aquí—, y los RESULTANDOS no, porque no salían de aquí.
+#
+# El contenido está tomado de lo que consignan los adelantos del corpus, no de
+# lo que parece razonable: en la queja el turno se rotula «Turno del asunto» y
+# en la revisión, «Turno» a secas.
+RESULTANDOS = {
+    "amparo_directo": [
+        ("Presentación de la demanda de amparo",
+         "fecha, oficialía, promovente y su carácter. Después IDENTIFICA el "
+         "acto reclamado"),
+        ("Derechos humanos cuya violación se alega",
+         "UNA sola frase con la lista de artículos constitucionales. No argumenta"),
+        ("Tercero interesado",
+         "una frase: le resulta tal carácter a X, quien fue emplazado al "
+         "presente juicio, según las constancias"),
+        ("Trámite del juicio de amparo",
+         "auto de Presidencia, registro, admisión, vista del artículo 181 de "
+         "la Ley de Amparo, y que el agente del Ministerio Público adscrito "
+         "omitió formular pedimento"),
+    ],
+    "amparo_revision": [
+        ("Presentación de la demanda de amparo indirecto",
+         "fecha, oficialía y promovente de la DEMANDA DE AMPARO INDIRECTO —no "
+         "del recurso—, y contra qué actos se enderezó"),
+        ("Trámite del juicio de amparo indirecto",
+         "qué juzgado de distrito conoció, con qué número, y en qué paró: "
+         "sentencia, desechamiento o sobreseimiento, con su fecha"),
+        ("Interposición y trámite del recurso de revisión",
+         "fecha y promovente del RECURSO, auto de Presidencia que lo admitió "
+         "con su fecha y número de toca"),
+        ("Turno",
+         "fecha en que se turnó y a qué magistrado, para la elaboración del "
+         "proyecto"),
+    ],
+    "revision_fiscal": [
+        ("Trámite del juicio contencioso administrativo",
+         "fecha y oficialía de la demanda de nulidad, quién la promovió, qué "
+         "resolución impugnó, y la sentencia de la Sala con su fecha y sentido"),
+        ("Interposición del recurso de revisión fiscal",
+         "fecha, oficialía y autoridad que interpuso el recurso"),
+        ("Trámite del recurso de revisión fiscal",
+         "auto de Presidencia que lo admitió, con su fecha y número"),
+        ("Turno",
+         "fecha en que se turnó y a qué magistrado, para la elaboración del "
+         "proyecto"),
+    ],
+    "queja": [
+        ("Interposición del recurso de queja",
+         "fecha, oficialía, promovente y su carácter en el juicio de amparo. "
+         "Después IDENTIFICA el auto recurrido: fecha, juzgado, número de "
+         "juicio y qué proveyó"),
+        ("Trámite del recurso",
+         "auto de Presidencia que lo admitió, con su fecha y número, y el "
+         "informe de la autoridad si consta"),
+        ("Turno del asunto",
+         "fecha en que se turnó y a qué magistrado, para la elaboración del "
+         "proyecto"),
+    ],
+}
+
+
+def resultandos_de(tipo: str) -> list:
+    """[(rótulo, qué va dentro)] del tipo."""
+    return RESULTANDOS.get(normalizar(tipo), RESULTANDOS["amparo_directo"])

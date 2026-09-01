@@ -619,6 +619,20 @@ def prompt_estructura(datos: dict) -> str:
     q = "agravios" if datos.get("es_recurso") else "conceptos de violación"
     _tipo = str(datos.get("tipo_asunto") or "amparo_directo").strip().lower()
     _clase = _NOMBRE_ASUNTO.get(_tipo, "amparo directo")
+    # LOS RESULTANDOS SON DEL TIPO. Estaban escritos a mano aquí —los cuatro
+    # del amparo directo— y salían iguales en una queja y en una revisión
+    # fiscal. Ahora se arman del catálogo, que es donde están medidos.
+    import tipos_asunto as _ta_r
+    _rs = []
+    for _i, (_rot, _que) in enumerate(_ta_r.resultandos_de(_tipo)):
+        _extra = ("" if _i else
+                  " Si alguno de esos datos NO consta, NO lo menciones ni "
+                  "expliques que no consta: se omite y ya. PROHIBIDO resumir "
+                  "aquí su razonamiento: eso va en el estudio.")
+        _rs.append('     {{"titulo": %s, "texto": "<%s>"}}'
+                   % (json.dumps(_rot, ensure_ascii=False), _que + _extra))
+    _resultandos = ",\n".join(_rs)
+
     _identifica = _IDENTIFICA_ACTO.get(_tipo, _IDENTIFICA_ACTO["amparo_directo"])
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito y escribes las
 partes ESTRUCTURALES de una sentencia de {_clase}. No escribes el estudio
@@ -662,11 +676,7 @@ Devuelve SÓLO este JSON:
 {{"apertura": "<ciudad y fórmula de resolución del tribunal; la FECHA DE LA SESIÓN se deja como ___ porque aún no ocurre>",
   "visto": "<la fórmula VISTO, para resolver el juicio de amparo directo…, sin repetir el rótulo>",
   "resultandos": [
-     {{"titulo": "Presentación de la demanda de amparo",
-       "texto": "<fecha, oficialía, promovente y su carácter. Después, IDENTIFICA el acto: {_identifica}. Si alguno de esos datos NO consta, NO lo menciones ni expliques que no consta: se omite y ya. PROHIBIDO resumir aquí su razonamiento: eso va en el estudio>"}},
-     {{"titulo": "Derechos humanos cuya violación se alega", "texto": "<UNA sola frase con la lista de artículos constitucionales. No argumenta>"}},
-     {{"titulo": "Tercero interesado", "texto": "<una frase: le resulta tal carácter a X, quien fue emplazado al presente juicio, según las constancias>"}},
-     {{"titulo": "Trámite del juicio de amparo", "texto": "<auto de Presidencia, registro, admisión, vista del artículo 181 de la Ley de Amparo, y que el agente del Ministerio Público adscrito omitió formular pedimento>"}}
+{_resultandos}
   ],
   "competencia": "<por qué este tribunal es competente, con su fundamento>",
   "existencia": "<la existencia del acto reclamado, acreditada con el informe justificado y los autos>",
@@ -1678,7 +1688,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         res_apartados.append((rot, (lambda c: lambda p: _texto_en(p, c))(cuerpo)))
     # La sesión SIEMPRE cierra el resultando y enlaza con el considerando.
     res_apartados.append((
-        "Verificación de la sesión vía remota.",
+        # «Celebración», no «Verificación»: así lo rotulan los cuatro
+        # adelantos reales y el corpus. La sesión se celebra.
+        "Celebración de la sesión vía remota.",
         lambda p: _texto_en(p, f"El presente asunto se listó para la sesión de "
                                f"{HUECO}, la cual se celebró conforme a las "
                                f"disposiciones aplicables; y,")))
