@@ -456,9 +456,24 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     p.paragraph_format.left_indent = Cm(1.25)
     p.paragraph_format.keep_with_next = True
 
-    # El texto ÍNTEGRO, en cursiva y desde el acervo.
+    # EL TEXTO DE LA TESIS BAJA A LA NOTA AL PIE. Iba íntegro en el cuerpo, y
+    # eso es lo que hace que un estudio con seis criterios invocados quede
+    # sepultado bajo sus propias citas: medido en los engroses de referencia,
+    # las tres transcripciones de tesis del ARA 17/2025 se llevan la mitad del
+    # considerando, y en la queja 233/2025 la transcripción de una ejecutoria
+    # de la Corte ocupa 2,260 de 3,798 palabras.
+    #
+    # El rubro se queda arriba —identifica el criterio y se lee de un vistazo—
+    # y el texto va abajo, donde quien firma lo comprueba si quiere. Es un
+    # cambio sobre el corpus, no una imitación suya, y está pedido: «nuestro
+    # redactor debe ser mejor que el secretario que redactó esos proyectos».
+    #
+    # SE CONSERVA EN EL CUERPO CUANDO ES CORTO. Una tesis de cuatro renglones
+    # leída al pie es una molestia sin ganancia; el problema son las de
+    # trescientas palabras.
     cuerpo = (t.get("texto") or "").strip()
-    if cuerpo:
+    _al_pie = len(cuerpo.split()) > MAX_PALABRAS_TESIS_CUERPO
+    if cuerpo and not _al_pie:
         q = doc.add_paragraph()
         rq = q.add_run(cuerpo)
         rq.italic = True
@@ -484,10 +499,12 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
              interlineado=INTERLINEADO_CITA)
         z.paragraph_format.left_indent = Cm(1.25)
         z.paragraph_format.keep_with_next = False
-        if loc or reg:
+        if loc or reg or _al_pie:
             pie = loc if loc else ""
             if reg and reg not in pie:
                 pie = (pie + ", " if pie else "") + f"registro digital {reg}"
+            if _al_pie:
+                pie = (pie + ". " if pie else "") + f"Texto: {cuerpo}"
             if pie in notas:
                 _run_llamada(z, notas.index(pie) + 1)   # se reusa la existente
             else:
@@ -1239,6 +1256,10 @@ def _norma_del_texto(frag: str, num: str, normas: list):
 # El secretario no hace eso: transcribe «en la parte conducente». Y el corpus lo
 # dice con esas palabras —está en la dispensa de los cinco engroses—.
 MAX_PALABRAS_PRECEPTO = 180
+
+# A partir de aquí, la tesis se lee al pie. Ochenta palabras son unos cinco
+# renglones: lo que cabe sin romper la lectura del razonamiento.
+MAX_PALABRAS_TESIS_CUERPO = 80
 
 
 def _en_lo_conducente(cuerpo: str, fraccion: str = "") -> str:

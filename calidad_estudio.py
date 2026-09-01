@@ -144,11 +144,25 @@ def exhaustividad(estudio: str) -> dict:
 _RX_REMITE = re.compile(
     r"considerando\s+(primer[oa]|segundo|tercer[oa]|cuart[oa]|quint[oa]|"
     r"sext[oa]|s[ée]ptim[oa]|octav[oa]|noven[oa]|d[ée]cim[oa])", re.I)
+# «SU CONSIDERANDO OCTAVO» ES DE LA RECURRIDA, NO DEL NUESTRO. La medida
+# marcaba como remisión rota una frase perfectamente correcta —«porque en su
+# considerando octavo la Sala ordena aplicar…»— porque no miraba el posesivo.
+# Una sentencia habla todo el tiempo de los considerandos de la que revisa, y
+# ésos no tienen por qué existir en la propia.
+_RX_AJENO = re.compile(
+    r"\b(?:su|sus)\s*$|de\s+la\s+(?:sentencia|resoluci[óo]n|ejecutoria)"
+    r"\s+(?:recurrida|impugnada|reclamada)\s*$|del\s+fallo\s+\w*\s*$|"
+    r"(?:recurrida|impugnada|reclamada)[,\s]+en\s+(?:el|su)\s*$", re.I)
+
+
 def remisiones_rotas(texto: str) -> list:
-    """Los «en términos del considerando séptimo» que no existen."""
+    """Los «en términos del considerando séptimo» de ESTA ejecutoria que no existen."""
     hay = {_norm(m.group(1)).rstrip("o") for m in _RX_EXISTE.finditer(texto or "")}
     fuera = []
     for m in _RX_REMITE.finditer(texto or ""):
+        antes = (texto or "")[max(0, m.start() - 60):m.start()]
+        if _RX_AJENO.search(antes):
+            continue
         o = _norm(m.group(1)).rstrip("oa")
         if o not in {x.rstrip("oa") for x in hay}:
             fuera.append(m.group(0))
@@ -260,8 +274,38 @@ def _es_formula(g: str) -> bool:
     return any(f in t for f in _FORMULAS)
 
 
+# EL RUBRO DE UNA TESIS REPITE SU PROPIO TEXTO, y eso no es un párrafo copiado:
+# es como se escribe una tesis. «LA PORCIÓN DEL ARTÍCULO 7o. CONSTITUCIONAL,
+# QUE ESTABLECE LA PROHIBICIÓN DE SECUESTRAR LOS BIENES…» va en versales en el
+# rubro y en minúsculas en el criterio jurídico del mismo párrafo. Contarlo
+# hacía que un estudio con seis tesis bien citadas saliera con seis
+# «duplicaciones», y por la regla de la casa el que está mal entonces es el
+# detector, no el documento.
+#
+# Se quita el texto en VERSALES antes de contar: ahí viven los rubros, y ningún
+# razonamiento propio se escribe así.
+_RX_VERSALES = re.compile(r"[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s,.;:«»\"“”()0-9º°/-]{40,}")
+
+
+# Y TAMPOCO CUENTA LO QUE REPITE LA FUENTE. Una tesis moderna trae «Hechos:»,
+# «Criterio jurídico:» y «Justificación:», y el criterio jurídico reformula el
+# rubro casi palabra por palabra: así se publican. Un artículo transcrito
+# repite las fórmulas de sus fracciones. Nada de eso lo escribió el redactor.
+#
+# Lo que esta medida busca es al redactor repitiéndose A SÍ MISMO —tres
+# párrafos copiados ochenta líneas después, que es lo medido en el ADC
+# 642/2024—, así que se descuenta lo citado: los entrecomillados y los cuerpos
+# de tesis.
+_RX_CITADO = re.compile(
+    r"[«\"“][^»\"”]{60,}[»\"”]|"
+    r"(?:Hechos|Criterio\s+jur[íi]dico|Justificaci[óo]n)\s*:[^\n]{0,2000}",
+    re.I)
+
+
 def duplicacion_interna(estudio: str, n: int = 15) -> list:
-    pal = re.findall(r"\w+", (estudio or "").lower())
+    estudio = _RX_VERSALES.sub(" ", estudio or "")
+    estudio = _RX_CITADO.sub(" ", estudio)
+    pal = re.findall(r"\w+", estudio.lower())
     if len(pal) < n * 3:
         return []
     vistos: dict = {}
