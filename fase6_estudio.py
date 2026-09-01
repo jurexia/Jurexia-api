@@ -832,6 +832,15 @@ abierto por su ordinal en letra.
   —«el precepto transcrito», «la regla ya enunciada»— y no se vuelve a copiar.
   Un pasaje repetido no refuerza: delata que el estudio se escribió por trozos.
 
+- NO REMITAS POR ORDINAL A OTRO CONSIDERANDO. «En términos del considerando
+  séptimo» obliga a que exista un séptimo, y tú no sabes cuántos tendrá el
+  documento —los ordinales los calcula el compositor al final, y en una queja
+  hay tres apartados donde en un amparo directo hay seis—. Medido en el
+  engrose del ARA 17/2025 que sirve de referencia: su resolutivo remite al
+  «considerando séptimo» y ese engrose no tiene séptimo considerando. Remite
+  por su NOMBRE —«en el apartado de antecedentes», «al resolver el primer
+  agravio»— que no se descoloca.
+
 - SI AGRUPAS PLANTEAMIENTOS, DILO Y DI CUÁLES. Estudiar conjuntamente varios
   agravios por su estrecha relación es correcto y a veces es lo mejor —el
   reencuadre que los hace caer todos a la vez ahorra treinta páginas—, pero

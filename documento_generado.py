@@ -1228,7 +1228,52 @@ def _norma_del_texto(frag: str, num: str, normas: list):
     return mejor
 
 
-def escribir_precepto(doc, texto_articulo: str, ley: str, num: str):
+# CUÁNTO SE TRANSCRIBE DE UN ARTÍCULO. Medido en el proyecto de la queja civil
+# 233/2025: el artículo 107 CONSTITUCIONAL salió transcrito ENTERO, 1,924
+# palabras, con sus dieciocho fracciones y sus incisos, cuando lo que se
+# discutía era una garantía de suspensión. Eso solo se llevaba una quinta parte
+# del documento, disparaba la medida de transcripción por encima del engrose y
+# generaba media docena de «pasajes duplicados» que eran trozos del mismo
+# artículo repetidos.
+#
+# El secretario no hace eso: transcribe «en la parte conducente». Y el corpus lo
+# dice con esas palabras —está en la dispensa de los cinco engroses—.
+MAX_PALABRAS_PRECEPTO = 180
+
+
+def _en_lo_conducente(cuerpo: str, fraccion: str = "") -> str:
+    """El artículo, o su parte conducente si es largo.
+
+    Primero se intenta quedarse con la FRACCIÓN que el párrafo citó, que es lo
+    que el secretario haría. Si no consta cuál, se corta en frontera de frase y
+    se dice «en lo conducente», que es como se anuncia una transcripción
+    parcial: fingir que es íntegra cuando no lo es sería peor que cortarla.
+    """
+    pal = cuerpo.split()
+    if len(pal) <= MAX_PALABRAS_PRECEPTO:
+        return cuerpo
+    if fraccion:
+        # «IV.» o «fracción IV» dentro del texto del artículo.
+        m = re.search(rf"(?:^|[;.]\s*){re.escape(fraccion)}\.\s", cuerpo)
+        if m:
+            resto = cuerpo[m.start():]
+            fin = re.search(r"[;.]\s+[IVXLC]+\.\s", resto[3:])
+            trozo = resto[:fin.start() + 3] if fin else resto
+            if 10 <= len(trozo.split()) <= MAX_PALABRAS_PRECEPTO * 2:
+                cab = cuerpo.split(".")[0]
+                trozo = trozo.strip().lstrip(". ")
+                return f"{cab}. […] {trozo}"
+    corte = " ".join(pal[:MAX_PALABRAS_PRECEPTO])
+    ult = max(corte.rfind(". "), corte.rfind("; "))
+    if ult > len(corte) * 0.5:
+        corte = corte[:ult + 1]
+    # UN ROMANO SUELTO AL FINAL no es una fracción: es media fracción cortada.
+    corte = re.sub(r"\s+[IVXLC]{1,6}\.?\s*$", "", corte.rstrip(" ;,."))
+    return corte.rstrip(" ;,.") + " […]"
+
+
+def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
+                      fraccion: str = ""):
     """El artículo transcrito, como lo hace el secretario.
 
     David: «Cuando citamos un artículo hay que hacerlo con interlineado uno y
@@ -1247,6 +1292,7 @@ def escribir_precepto(doc, texto_articulo: str, ley: str, num: str):
     cuerpo = " ".join(str(texto_articulo or "").split())
     if not cuerpo:
         return None
+    cuerpo = _en_lo_conducente(cuerpo, fraccion)
     # EL ACERVO GUARDA UNA MIGAJA DELANTE: «[Ley de Amparo | CAPÍTULO X
     # Sentencias | Disposiciones Fundamentales] Artículo 79. La autoridad…».
     # Es su índice interno, no el precepto, y transcrita queda ridícula en una
@@ -1577,9 +1623,16 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 if num in transcritos:
                     continue
                 transcritos.add(num)
+                # LA FRACCIÓN QUE EL PÁRRAFO CITÓ. Si el texto que anuncia
+                # el precepto dice «artículo 107, fracción X», se transcribe
+                # ESA fracción y no el artículo entero: es lo que el
+                # secretario hace y lo que hace legible el bloque.
+                _fr = re.search(
+                    rf"art[íi]culo\s+{re.escape(str(num))}\s*,?\s*"
+                    rf"fracci[óo]n\s+([IVXLC]+)", t, re.I)
                 escribir_precepto(doc, n_.get("texto"),
                                   n_.get("cuerpo_legal") or n_.get("fuente") or "",
-                                  num)
+                                  num, _fr.group(1) if _fr else "")
     return citadas
 
 
