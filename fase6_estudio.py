@@ -271,14 +271,16 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "") -> str:
                           "señálalo en las advertencias)")
         lineas.append("")
     lineas += [
-        "LA CIFRA DEL ACERVO NO SE ESCRIBE. Es un dato para que TÚ calibres el peso de
-la objeción, no un argumento: una sentencia que dice «el 82% de los tribunales
-concede» es impublicable, porque el criterio no se vota. Lo que sí se escribe
-—cuando el sentido va contra la corriente— es la RAZÓN de quienes resolvieron
-al revés y por qué aquí no aplica. Nunca el porcentaje, nunca el número de
-sentencias, nunca «la mayoría de los tribunales».
-
-SI ENCUENTRAS UN OBSTÁCULO SERIO para ese sentido —una jurisprudencia",
+        "",
+        "LA CIFRA DEL ACERVO NO SE ESCRIBE. Es un dato para que TÚ calibres el",
+        "peso de la objeción, no un argumento: una sentencia que dice «el 82% de",
+        "los tribunales concede» es impublicable, porque el criterio no se vota.",
+        "Lo que sí se escribe —cuando el sentido va contra la corriente— es la",
+        "RAZÓN de quienes resolvieron al revés y por qué aquí no aplica. Nunca el",
+        "porcentaje, nunca el número de sentencias, nunca «la mayoría de los",
+        "tribunales».",
+        "",
+        "SI ENCUENTRAS UN OBSTÁCULO SERIO para ese sentido —una jurisprudencia",
         "obligatoria en contra, una causal de improcedencia—, NO cambies el",
         "sentido: dilo en el apartado ADVERTENCIAS para que él lo valore.",
     ]
