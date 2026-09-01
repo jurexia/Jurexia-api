@@ -684,6 +684,10 @@ def prompt_estructura(datos: dict) -> str:
     _de_escrito = ("DE LA DEMANDA" if _tipo == "amparo_directo"
                    else "DEL " + _vc["escrito"].upper())
 
+    # ERA CÓDIGO MUERTO Y ERA JUSTO LA INSTRUCCIÓN QUE FALTABA: se calculaba y
+    # no se interpolaba en ningún sitio del prompt. Dice cómo se identifica el
+    # acto en cada tipo —«fecha, sala, toca y expediente de origen» en el
+    # amparo directo— y ahora entra donde sirve, junto a la ficha de datos.
     _identifica = _IDENTIFICA_ACTO.get(_tipo, _IDENTIFICA_ACTO["amparo_directo"])
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito y escribes las
 partes ESTRUCTURALES de una sentencia de {_clase}. No escribes el estudio
@@ -694,7 +698,8 @@ EL TRIBUNAL QUE RESUELVE: {datos.get('tribunal','')}
 CIUDAD: {datos.get('ciudad','')}
 EXPEDIENTE: {datos.get('encabezado','')}
 {_ficha_partes}
-{_rotulo_acto}: {datos.get('acto','(consta en los antecedentes)')}
+{_rotulo_acto} —léelo de aquí e IDENTIFÍCALO por {_identifica}—:
+{(datos.get('acto') or '').strip() or '(no se aportó: NO lo describas, omite la mención)'}
 FECHA DE PRESENTACIÓN {_de_escrito}: {datos.get('presentacion','')}
 MAGISTRADO PONENTE: {datos.get('magistrado','')}
 SECRETARIO: {datos.get('secretario','')}
@@ -814,11 +819,19 @@ def revisar_marco(marco_escrito: str, material_marco: str) -> list:
 
 
 async def redactar_marco(cliente, material_marco: str, problemas: list,
-                         es_recurso: bool = False) -> str:
+                         es_recurso: bool = False,
+                         tipo_asunto: str = "") -> str:
     """El marco jurídico, escrito. Devuelve texto vacío si no hay material."""
     if not (material_marco or "").strip():
         return ""
-    q = "agravios" if es_recurso else "conceptos de violación"
+    # La bisagra de cierre —«…dar solución a los planteamientos de la parte
+    # quejosa»— estaba escrita a mano y duplicada literal en el prompt del
+    # estudio: es una fórmula que el modelo copia palabra por palabra, así que
+    # metía «la parte quejosa» en el punto de bisagra de los cuatro tipos.
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    _voc_m = _ta.vocabulario_de(_t)
+    _parte_prosa = _voc_m["parte"]
+    q = _voc_m["combate"]
     lista = "\n".join(
         f"- {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
         for p in (problemas or []))
@@ -858,7 +871,7 @@ CÓMO SE ESCRIBE, medido sobre los engroses de este tribunal:
 - EXTENSIÓN: entre 300 y 600 palabras. Frase de unas 35 palabras, subordinada,
   voz impersonal. Sin Markdown ni viñetas.
 - CIERRA con la bisagra que devuelve al expediente: «Con ese marco jurídico, es
-  posible dar solución a los planteamientos de la parte quejosa.»
+  posible dar solución a los planteamientos de {_parte_prosa}.»
 
 Devuelve SÓLO el texto del apartado, en párrafos separados por una línea en
 blanco. Sin rótulo ni encabezado: el documento se lo pone."""
@@ -1721,6 +1734,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     notas: list = []
     _pagina(doc)
     _encabezado(doc, datos.get("encabezado", ""))
+    # Los avisos deterministas del documento, en un solo sitio y declarados
+    # ANTES del primero que los usa: la lista se llenaba en dos puntos y se
+    # declaraba entre ellos, que en Python es un UnboundLocalError esperando.
+    _avisos_bk: list = []
     avisos_doc = _caratula(doc, datos, tipo_asunto)
 
     if estructura.apertura:
@@ -1810,6 +1827,24 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # ── RESULTANDO ──
     rotulo(doc, "Resultando")
     res_apartados = []
+    # LA PERÍFRASIS EN UN RESULTANDO ES EL APARTADO SIN CUMPLIR. Se avisa —no
+    # se borra: la frase ocupa el sitio de algo que debe escribirse, y quitarla
+    # dejaría el resultando mudo—. Y arrastra un segundo daño que conviene
+    # nombrar en el mismo aviso: el número de expediente del considerando de
+    # existencia se lee de estos resultandos.
+    try:
+        import meta_lenguaje as _ml
+        _ev = _ml.perifrasis(" ".join(str(r.get("texto") or "")
+                                      for r in (estructura.resultandos or [])))
+        for _e in _ev:
+            _avisos_bk.append(
+                f"UN RESULTANDO EVADE EL DATO: «{_e}». Los resultandos existen "
+                f"para individualizar —fecha, órgano, expediente, nombre—, y "
+                f"una perífrasis ahí deja además sin número el expediente de "
+                f"origen del considerando de existencia.")
+    except Exception:
+        pass
+
     for res in (estructura.resultandos or []):
         cuerpo = (res.get("texto") or "").strip()
         if not cuerpo:
@@ -1842,7 +1877,6 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # Medido sobre 363 documentos. El estudio y los antecedentes NO llevan
     # plantilla: ahí no hay fórmula que valga.
     import banco as _bk
-    _avisos_bk: list = []
     _datos_bk = dict(datos)
     _datos_bk.setdefault("q", q)
     # LOS MARCADORES QUE SÍ SE DEDUCEN. Salieron en hueco la primera vez y no
@@ -1875,7 +1909,18 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # solo marcador servía a dos preceptos que se reparten por cosas distintas,
     # y la queja acababa fundando su procedencia en el supuesto equivocado.
     if _ta.normalizar(tipo_asunto) == "queja":
-        _i97 = _ta.inciso_97(_datos_bk.get("descripcion_acto", ""))
+        # DE DÓNDE SE LEE. `descripcion_acto` cae a menudo al genérico «del
+        # auto recurrido», que no dice QUÉ se desechó y deja al inciso sin
+        # materia. Los resultandos sí lo describen —los acaba de escribir el
+        # modelo con el auto delante— y son cuatro párrafos, no el OCR entero:
+        # la heurística de una palabra sólo explota cuando se le da un
+        # expediente pegado, y esto no lo es.
+        _para_inciso = " ".join([
+            str(_datos_bk.get("descripcion_acto") or ""),
+            " ".join(str(r.get("texto") or "")
+                     for r in (estructura.resultandos or []))[:1200],
+        ])
+        _i97 = _ta.inciso_97(_para_inciso)
         _datos_bk["inciso"] = _i97 or HUECO
         if not _i97:
             _avisos_bk.append(
@@ -2018,11 +2063,45 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # (14 de 20) y revisión fiscal (16 de 28)— o en el amparo cuando sustituye
     # a «Existencia del acto reclamado». En revisión civil aparece en 2 de 31:
     # emitirla por defecto ahí corría un ordinal contra la medida.
-    if (estructura.procedencia or "").strip() and (
+    # LA PROCEDENCIA DE LA REVISIÓN FISCAL SE MOTIVA DE OFICIO. Salía «El
+    # juicio es procedente y no se advierte causa de improcedencia» —fórmula
+    # del amparo, y encima llamando JUICIO a un recurso— porque este apartado
+    # tomaba SIEMPRE el texto del modelo y nunca el del banco, aunque el banco
+    # tenga medida la suya. Es la tercera vez que aparece el mismo patrón: una
+    # fórmula del corpus que existe y es inalcanzable.
+    #
+    # Y en revisión fiscal ni siquiera basta la del banco: el 63 de la LFPCA
+    # obliga al Colegiado a decir POR QUÉ procede, y la vía más común es la
+    # cuantía. Eso es aritmética, no criterio, así que se calcula.
+    _proc = estructura.procedencia or ""
+    if _ta.normalizar(tipo_asunto) == "revision_fiscal":
+        try:
+            import fase_procedencia_rf as _pf
+            _fuente = " ".join([
+                str(datos.get("antecedentes") or ""),
+                " ".join(str(r.get("texto") or "")
+                         for r in (estructura.resultandos or [])),
+                str(datos.get("acto") or "")])
+            # El año es el de la resolución recurrida. Se toma el de su
+            # notificación, que es el dato duro que el secretario tecleó: entre
+            # emisión y notificación median días, no años, salvo en el cambio
+            # de ejercicio —y ahí el aviso lo dirá, porque la cifra saldrá.
+            _anio = getattr(computo, "notificacion", None)
+            _anio = _anio.year if _anio else 0
+            _p_rf, _av_rf = _pf.parrafo(_fuente, _anio)
+            _avisos_bk.extend(_av_rf)
+            if _p_rf:
+                _proc = _p_rf
+            else:
+                _del = _bk.texto_de(tipo_asunto, "procedencia", _datos_bk)[0]
+                _proc = _del or _proc
+        except Exception:
+            pass
+    if (_proc or "").strip() and (
             esq.get("procedencia_propia")
             or (esq["existencia"] and not (estructura.existencia or "").strip())):
         con_apartados.append(("Procedencia.",
-                              (lambda c: lambda p: _texto_en(p, c))(estructura.procedencia)))
+                              (lambda c: lambda p: _texto_en(p, c))(_proc)))
 
     if _procedencia_primero:
         con_apartados.append(_legit)

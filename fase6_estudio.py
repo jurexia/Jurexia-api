@@ -130,6 +130,8 @@ class Material:
     # arquitectura equivocada no es un defecto de forma, es mandar escribir al
     # revés —en laboral se pide ciclos cortos y en administrativa lo contrario—.
     materia: str = ""
+    # Para nombrar a las partes con las figuras que existen en este tipo.
+    tipo_asunto: str = "amparo_directo"
     # LA ENTIDAD, por el mismo motivo que la materia: viaja con el material
     # porque el material ya llega a todos los prompts. Sale de la colección
     # estatal que eligió el secretario («leyes_queretaro» → «Querétaro»).
@@ -272,6 +274,15 @@ def _bloque_material(m: Material) -> str:
     return "\n".join(p)
 
 
+def _recorte_limpio(x: str, tope: int) -> str:
+    """El mismo corte por frontera que usan las fases de lectura."""
+    try:
+        from fases123_pipeline import _cortar_bien
+        return _cortar_bien(x or "", tope)
+    except Exception:
+        return (x or "")[:tope]
+
+
 def _bloque_aportado(contexto: str) -> str:
     """El documento que el secretario subió porque el acervo no lo tenía."""
     c = (contexto or "").strip()
@@ -283,7 +294,11 @@ def _bloque_aportado(contexto: str) -> str:
             "Lo trae quien tiene el expediente delante. Cítalo por lo que dice,\n"
             "identificándolo como el documento aportado; NO le inventes un\n"
             "registro ni lo trates como jurisprudencia.\n\n"
-            + c[:20000] + "\n")
+            # POR PÁRRAFO, NO POR CARACTER. Estas constancias las subió el
+            # secretario y alimentan prosa que se firma; cortarlas a mitad de
+            # frase es la misma puerta por la que salió «el texto proporcionado
+            # se interrumpió» dentro del considerando quinto.
+            + _recorte_limpio(c, 20000) + "\n")
 
 
 
@@ -321,7 +336,7 @@ estilo: son las operaciones que separan a unas de otras.
 2. DERIVA LA REGLA EN ABSTRACTO. Tras cada transcripción, una frase puente que
    extraiga la regla: «De dicho numeral se advierte que…», «Del precepto
    transcrito deriva la regla de que…». Esa frase vale para CUALQUIER caso
-   igual: ahí todavía no nombras al quejoso, ni a la responsable, ni el
+   igual: ahí todavía no nombras a quien promueve, ni al órgano, ni el
    expediente. 33% arriba contra 3.3% abajo.
 
 3. DI PARA QUÉ EXISTE LA NORMA. Un párrafo de finalidad: qué problema resuelve
@@ -403,7 +418,7 @@ cierra sin un párrafo inmediato que empiece por «En el caso concreto…» y ap
 esa regla a un hecho nombrado, con su fecha y su foja.
 
 ORDEN. Primer párrafo: declara qué examinas, en qué orden y bajo qué principio
-—mayor beneficio, causa de pedir, suplencia cuando el quejoso es el trabajador—,
+—mayor beneficio, causa de pedir, suplencia cuando quien promueve es el trabajador—,
 con la tesis que autoriza ese orden. 40% arriba contra 12% abajo.
 
 CITAS. Pide primero criterios de la SEGUNDA SALA y de materia laboral: arriba
@@ -438,7 +453,7 @@ BLOQUE CONTINUO Y ABSTRACTO, y el caso entra después, una sola vez, cuando la
 regla ya está completa. Las medias vuelven al caso sin parar porque nunca se
 alejan lo bastante para construir una regla. NO escribas «en el caso concreto»
 ni «en la especie» hasta que el bloque de regla esté cerrado, y escribe ese
-bloque sin nombrar al quejoso, a la autoridad ni al expediente.
+bloque sin nombrar a quien promueve, al órgano ni al expediente.
 
 DECLARA EL RÉGIMEN ANTES DE EMPEZAR. Di cuál de los dos casos es: (a) hay tesis
 exactamente aplicable —aplícala y detente—; o (b) hay que fijar el alcance de
@@ -582,6 +597,29 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    es_recurso: bool = False, partes=None, marco=None,
                    contexto: str = "", materia: str = "") -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
+    # CÓMO SE LA NOMBRA. Estaba escrito «la parte quejosa» dentro de un EJEMPLO
+    # de este prompt, y el modelo lo copiaba: en la revisión fiscal el proyecto
+    # decía «En el primer agravio la quejosa sostiene…» refiriéndose al SAT,
+    # que nunca fue quejoso. Es la CUARTA vez en este proyecto que un ejemplo
+    # del prompt se firma literal.
+    # EL TIPO VIAJA CON EL MATERIAL, no como un parámetro más: hay DOS sitios
+    # que llaman a esta función —el que transmite en vivo y el que no— y un
+    # parámetro nuevo se olvida en uno de los dos. Ha pasado.
+    import tipos_asunto as _ta_e
+    _voc = _ta_e.vocabulario_de(
+        getattr(material, "tipo_asunto", "") or "amparo_directo")
+    parte = _voc["parte"]
+    promovente = _voc["promovente"]
+    # El singular sale del catálogo, no de quitarle la última letra al plural.
+    q1 = _voc["combate_singular"]
+    # LA PRIMERA FRASE DECLARABA EL ASUNTO COMO AMPARO en los cuatro tipos, y
+    # con esa premisa todo el léxico del amparo —quejoso, responsable, demanda—
+    # queda autorizado por implicación aunque los ejemplos se corrijan.
+    _clase = ("una sentencia de amparo directo" if _voc["nombre"] == "amparo directo"
+              else f"la resolución de un {_voc['nombre']}")
+    _sjs = _ta_e.sujetos_de(
+        getattr(material, "tipo_asunto", "") or "amparo_directo")
+    _org = " o ".join(f"«{x}»" for x in _sjs["organo"][:2])
     calif = _calificacion(criterios)
     # EL MARCO SE REPITE AL FINAL. Medido en el proyecto 360/2025: se le
     # entregaron 6,338 caracteres de marco —artículo 4º constitucional y
@@ -599,11 +637,11 @@ constitucional —«el artículo 4º de la Constitución reconoce…»—, TRANS
 comillas el precepto local decisivo, y trae la fuente convencional o a la Corte
 Interamericana SÓLO si el problema las exige. Cierra con la bisagra que devuelve
 al expediente —«Con ese marco jurídico, es posible dar solución a los
-planteamientos de la parte quejosa.»— y entra al caso. Un marco que se recibe y
+planteamientos de {parte}.»— y entra al caso. Un marco que se recibe y
 no se escribe deja el estudio resolviendo sin premisa mayor.
 """
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
-estudio de fondo de una sentencia de amparo. Escribes mejor que la media del
+estudio de fondo de {_clase}. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
 
 FORMA — medida sobre 40 engroses firmados, no inventada:
@@ -619,7 +657,7 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   cinco frases cortas bajo un mismo párrafo, que es como escribe un informe.
 - CONECTORES, por orden de uso real: {', '.join(f'«{c}»' for c in CONECTORES)}.
   No repitas el mismo dos veces seguidas.
-- LA AUTORIDAD es «la responsable» o «la autoridad responsable»; el órgano se
+- EL ÓRGANO RECURRIDO es {_org}; este tribunal se
   nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
   considera»). Nunca primera persona del singular.
 - EXTENSIÓN: alrededor de {PALABRAS_ESTUDIO} palabras. No cortes por brevedad:
@@ -655,8 +693,8 @@ AQUÍ SÍ SE AGRUPA, Y SE ANUNCIA — la regla que él sigue sin excepción:
   prelación lógica, los {q} se analizarán en el orden propuesto».
 
 ARQUITECTURA — para que se vea de un vistazo que no quedó nada sin contestar:
-- UN APARTADO POR CADA {q[:-1]}, en el orden en que se plantearon, cada uno
-  abierto por su ordinal en letra («En el primer {q[:-1]} la parte quejosa
+- UN APARTADO POR CADA {q1}, en el orden en que se plantearon, cada uno
+  abierto por su ordinal en letra («En el primer {q1} {parte}
   sostiene que…»). El discurso corrido impide comprobar la exhaustividad y deja
   al tribunal expuesto al reproche de omisión de estudio.
 - Si lo que se combate es la REDACCIÓN de una parte del acto reclamado,

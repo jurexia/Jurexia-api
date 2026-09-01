@@ -218,22 +218,41 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # La ficha de partes se hace AQUÍ, con los documentos delante, y viaja al
     # estudio. Sin ella el redactor resuelve los sujetos por proximidad, y en un
     # juicio con reconvención y tercero interesado la proximidad miente.
-    # LA ESTRUCTURA ARRANCA A LA VEZ QUE LAS FASES. Medido: 14.6s las fases,
-    # 13.6s la estructura, en serie 28. Pero la competencia, la existencia del
-    # acto y la procedencia sólo necesitan los datos del encargo —quién es el
-    # tribunal, quién promueve, contra qué acto—, no los resúmenes. Corriendo a
-    # la vez, la espera es la del más lento y no la suma. No se pierde nada:
-    # son dos llamadas independientes que ya se hacían por separado.
-    tarea_estructura = None
-    if (e.modo or "").lower() == "generado":
-        import documento_generado as _dg
-        tarea_estructura = asyncio.create_task(
-            _dg.redactar_estructura(cliente, _datos_estructura(e)))
+    # LA ESTRUCTURA ARRANCABA A CIEGAS, Y ESO SÍ SE PERDÍA. El comentario que
+    # había aquí decía que corriéndola en paralelo con las fases «no se pierde
+    # nada, porque la competencia y la existencia sólo necesitan los datos del
+    # encargo». Es cierto de la competencia; no de los RESULTANDOS, que también
+    # los escribe esta llamada y que tienen que individualizar el acto y nombrar
+    # al tercero interesado. Sin el acto ni la ficha de partes delante, el
+    # modelo no podía más que la perífrasis, y salía:
+    #
+    #     «promovió demanda de amparo CONTRA EL ACTO RECLAMADO PRECISADO EN LOS
+    #      ANTECEDENTES»
+    #     «LA PERSONA A QUIEN RESULTA TAL CARÁCTER fue emplazada»
+    #
+    # Y con ella se llevaba el {expediente} del considerando SEGUNDO, que se lee
+    # de los resultandos ya escritos: la evasión y el asterisco eran el mismo
+    # defecto. Lo señaló David como dos hallazgos separados; es uno.
+    #
+    # SE CONSERVA EL PARALELO donde de verdad lo hay: la ficha de partes y la
+    # estructura van encadenadas —la segunda necesita la primera— pero las dos
+    # juntas siguen corriendo a la vez que las fases de lectura, así que la
+    # espera sigue siendo la del más lento y no la suma.
+    async def _partes_y_estructura():
+        _p = await fpartes.fichar(cliente, texto_acto, texto_conceptos,
+                                  e.tipo_asunto)
+        _est = None
+        if (e.modo or "").lower() == "generado":
+            import documento_generado as _dg
+            _est = await _dg.redactar_estructura(
+                cliente, _datos_estructura(e, acto=texto_acto, partes=_p))
+        return _p, _est
 
-    with cronometrar("fases1-3+partes"):
-        f, partes = await asyncio.gather(
-            f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso),
-            fpartes.fichar(cliente, texto_acto, texto_conceptos, e.tipo_asunto))
+    with cronometrar("fases1-3+partes+estructura"):
+        f, (partes, estructura_previa) = await asyncio.gather(
+            f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso,
+                        e.tipo_asunto),
+            _partes_y_estructura())
     avisos.extend(f.avisos)
     avisos.extend(partes.avisos)
 
@@ -254,7 +273,9 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     estructura = None
     if (e.modo or "").lower() == "generado":
         with cronometrar("estructura+docx"):
-            estructura = await tarea_estructura if tarea_estructura else None
+            # YA NO ES UNA TAREA. La estructura se resuelve arriba, encadenada
+            # tras la ficha de partes; aquí llega hecha.
+            estructura = estructura_previa
             ruta, av_gen, estructura = await _componer_generado(
                 cliente, e, relleno, c, ruta_salida,
                 estructura_previa=estructura)
@@ -355,6 +376,9 @@ async def consultar(qdrant, embed_juris, embed_leyes,
         _sondear_precedente(qdrant, embed_leyes, r, problemas))
     material.sondeo = sondeo
     material.materia = fp_materia(r.encargo)
+    # Y EL TIPO, para que la prosa del estudio nombre a las partes con las
+    # figuras de ESTE recurso y no con las del amparo directo.
+    material.tipo_asunto = r.encargo.tipo_asunto
     material.entidad = _entidad_de(coleccion)
     if sondeo is not None:
         for a in (sondeo.avisos or []):
@@ -507,7 +531,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         import documento_generado as _dg2
         tarea_marco = asyncio.create_task(_dg2.redactar_marco(
             cliente, marco,
-            [p for p in (r.fases.problemas or [])], e.es_recurso))
+            [p for p in (r.fases.problemas or [])], e.es_recurso, e.tipo_asunto))
 
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
@@ -529,7 +553,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
         import documento_generado as _dg3
         tarea_marco = asyncio.create_task(_dg3.redactar_marco(
             cliente, marco, [p for p in (r.fases.problemas or [])],
-            e.es_recurso))
+            e.es_recurso, e.tipo_asunto))
 
     estudio = advertencias = ""
     t0 = _time.perf_counter()
@@ -705,11 +729,26 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
 # se queda con el estudio de fondo, donde el trámite ya no está—.
 
 
-def _datos_estructura(e: Encargo, antecedentes: str = "") -> dict:
-    """Lo que la estructura necesita. TODO sale del encargo, y por eso puede
-    escribirse antes de que las fases terminen de leer el expediente."""
+def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
+                     partes=None) -> dict:
+    """Lo que la estructura necesita.
+
+    Decía «TODO sale del encargo» y por eso se lanzaba a ciegas. Del encargo
+    salen la competencia y la existencia; los RESULTANDOS necesitan el acto
+    —para individualizar la sentencia recurrida con su fecha y su expediente—
+    y la ficha de partes —para nombrar al tercero interesado en vez de escribir
+    «la persona a quien resulta tal carácter»—.
+    """
     import fase0_oportunidad as _f0
+    _terceros = ""
+    if partes is not None:
+        _terceros = str(getattr(partes, "tercero_interesado", "") or "")
     return {
+        # LA CABEZA DEL ACTO, que es donde se identifica: fecha, órgano,
+        # expediente y toca. No el documento entero —eso ya lo leen las fases—
+        # sino lo justo para individualizarlo sin adivinar.
+        "acto": (acto or "")[:6000],
+        "tercero": _terceros,
         "tribunal": e.tribunal or "",
         "ciudad": e.ciudad or "",
         "encabezado": e.encabezado,

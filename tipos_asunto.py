@@ -93,6 +93,16 @@ PLAZOS = {
 # violación» en una queja. El vocabulario es del tipo, no del documento.
 VOCABULARIO = {
     "amparo_directo": {
+        # EL SINGULAR NO SE OBTIENE QUITANDO LA ÚLTIMA LETRA. El prompt del
+        # estudio hacía `combate[:-1]` y en el amparo directo salía «En el
+        # primer conceptos de violació…». Con «agravios» colaba; con esto, no.
+        "combate_singular": "concepto de violación",
+        # CÓMO SE LA NOMBRA EN LA PROSA. «la parte quejosa» salía en los cuatro
+        # tipos porque estaba escrita en un EJEMPLO del prompt del estudio —«En
+        # el primer agravio la parte quejosa sostiene que…»— y el modelo la
+        # copiaba. El SAT nunca fue quejoso; y en segunda instancia, aunque lo
+        # haya sido abajo, al sintetizar SUS agravios es la recurrente.
+        "parte": "la parte quejosa",
         "nombre": "amparo directo",
         "promovente": "quejoso",
         "combate": "conceptos de violación",
@@ -105,6 +115,16 @@ VOCABULARIO = {
                       "confirmó, modificó o revocó",
     },
     "amparo_revision": {
+        # EL SINGULAR NO SE OBTIENE QUITANDO LA ÚLTIMA LETRA. El prompt del
+        # estudio hacía `combate[:-1]` y en el amparo directo salía «En el
+        # primer conceptos de violació…». Con «agravios» colaba; con esto, no.
+        "combate_singular": "agravio",
+        # CÓMO SE LA NOMBRA EN LA PROSA. «la parte quejosa» salía en los cuatro
+        # tipos porque estaba escrita en un EJEMPLO del prompt del estudio —«En
+        # el primer agravio la parte quejosa sostiene que…»— y el modelo la
+        # copiaba. El SAT nunca fue quejoso; y en segunda instancia, aunque lo
+        # haya sido abajo, al sintetizar SUS agravios es la recurrente.
+        "parte": "la parte recurrente",
         "nombre": "amparo en revisión",
         "promovente": "recurrente",
         "combate": "agravios",
@@ -116,6 +136,16 @@ VOCABULARIO = {
                       "amparo indirecto en que se dictó",
     },
     "queja": {
+        # EL SINGULAR NO SE OBTIENE QUITANDO LA ÚLTIMA LETRA. El prompt del
+        # estudio hacía `combate[:-1]` y en el amparo directo salía «En el
+        # primer conceptos de violació…». Con «agravios» colaba; con esto, no.
+        "combate_singular": "agravio",
+        # CÓMO SE LA NOMBRA EN LA PROSA. «la parte quejosa» salía en los cuatro
+        # tipos porque estaba escrita en un EJEMPLO del prompt del estudio —«En
+        # el primer agravio la parte quejosa sostiene que…»— y el modelo la
+        # copiaba. El SAT nunca fue quejoso; y en segunda instancia, aunque lo
+        # haya sido abajo, al sintetizar SUS agravios es la recurrente.
+        "parte": "la parte recurrente",
         "nombre": "recurso de queja",
         "promovente": "recurrente",
         "combate": "agravios",
@@ -127,6 +157,16 @@ VOCABULARIO = {
                       "amparo en que se dictó, y qué proveyó",
     },
     "revision_fiscal": {
+        # EL SINGULAR NO SE OBTIENE QUITANDO LA ÚLTIMA LETRA. El prompt del
+        # estudio hacía `combate[:-1]` y en el amparo directo salía «En el
+        # primer conceptos de violació…». Con «agravios» colaba; con esto, no.
+        "combate_singular": "agravio",
+        # CÓMO SE LA NOMBRA EN LA PROSA. «la parte quejosa» salía en los cuatro
+        # tipos porque estaba escrita en un EJEMPLO del prompt del estudio —«En
+        # el primer agravio la parte quejosa sostiene que…»— y el modelo la
+        # copiaba. El SAT nunca fue quejoso; y en segunda instancia, aunque lo
+        # haya sido abajo, al sintetizar SUS agravios es la recurrente.
+        "parte": "la autoridad recurrente",
         "nombre": "revisión fiscal",
         "promovente": "recurrente",
         "combate": "agravios",
@@ -274,13 +314,20 @@ def estructura_de(tipo: str) -> dict:
 RESULTANDOS = {
     "amparo_directo": [
         ("Presentación de la demanda de amparo",
-         "fecha, oficialía, promovente y su carácter. Después IDENTIFICA el "
-         "acto reclamado"),
+         "fecha, oficialía, promovente y su carácter. Después INDIVIDUALIZA la "
+         "sentencia reclamada: su FECHA, el órgano que la dictó, el NÚMERO DE "
+         "EXPEDIENTE o toca de origen, y qué resolvió. PROHIBIDO escribir «el "
+         "acto reclamado precisado en los antecedentes» o cualquier otra "
+         "perífrasis que remita a otro apartado: aquí se nombra"),
         ("Derechos humanos cuya violación se alega",
          "UNA sola frase con la lista de artículos constitucionales. No argumenta"),
         ("Tercero interesado",
-         "una frase: le resulta tal carácter a X, quien fue emplazado al "
-         "presente juicio, según las constancias"),
+         "una frase, CON SU NOMBRE: «Le resulta tal carácter a Fulano de Tal, "
+         "quien fue emplazado al presente juicio». Si son varios, se enumeran "
+         "todos. PROHIBIDO «la persona a quien resulta tal carácter»: si el "
+         "nombre no consta en la ficha de partes ni en el acto, NO ESCRIBAS "
+         "este resultando —se omite entero y ya—, pero no lo sustituyas por "
+         "una perífrasis, que es afirmar sin decir quién"),
         ("Trámite del juicio de amparo",
          "auto de Presidencia, registro, admisión, vista del artículo 181 de "
          "la Ley de Amparo, y que el agente del Ministerio Público adscrito "
@@ -634,11 +681,12 @@ def proemio_de(tipo: str) -> dict:
 # Darle el valor de la materia al segundo es fundar la procedencia del recurso
 # en un supuesto que no es el suyo, y eso se caza en sesión.
 #
-# SÓLO SE MAPEA LO MEDIDO. El corpus dice «Queja de desechamiento (inciso a),
-# 16 de 30» y nada más; el resto de los supuestos no está contado aquí. Lo que
-# no se puede afirmar sale en HUECO VISIBLE con su aviso: un inciso equivocado
-# se firma, un hueco se rellena. No es pereza —es que inventar el inciso de un
-# precepto de procedencia es justo lo que este trabajo existe para evitar.
+# SÓLO SE MAPEA LO QUE ALGUIEN PUEDE RESPALDAR: el corpus —«queja de
+# desechamiento, inciso a), 16 de 30»— o el secretario que firma, y en ese caso
+# se anota que fue él. Lo que no se puede afirmar sale en HUECO VISIBLE con su
+# aviso: un inciso equivocado se firma, un hueco se rellena. No es pereza —es
+# que inventar el inciso de un precepto de procedencia es justo lo que este
+# trabajo existe para evitar.
 _INCISO_97 = [
     (r"desech[óo]?\s+(?:de\s+plano\s+)?(?:total\s+o\s+parcialmente\s+)?la\s+demanda"
      r"|desech[óo]?\s+la\s+demanda|tuvo\s+por\s+no\s+presentada\s+la\s+demanda"
@@ -646,6 +694,19 @@ _INCISO_97 = [
     (r"suspensi[óo]n\s+(?:de\s+plano|provisional)|conced[ií][óo]?\s+la\s+suspensi[óo]n"
      r"|neg[óo]?\s+la\s+suspensi[óo]n", "b"),
     (r"car[áa]cter\s+de\s+tercero\s+interesado", "d"),
+    # EL INCISO e) LO DIO DAVID, y con su razón: «tratándose de un auto que
+    # desecha un incidente de nulidad de notificaciones dictado TRAS la
+    # sentencia de amparo indirecto, el fundamento correcto es el artículo 97,
+    # fracción I, inciso e), de la Ley de Amparo». Es el supuesto de las
+    # resoluciones dictadas después de la sentencia que, por su naturaleza
+    # trascendental y grave, pueden causar un perjuicio no reparable.
+    #
+    # No estaba en el corpus del banco —ahí sólo se contó el desechamiento de
+    # la demanda, inciso a), 16 de 30— y por eso salía en hueco. Lo aporta él,
+    # que es quien firma, y se anota de dónde viene para que se pueda discutir.
+    (r"incidente\s+de\s+nulidad\s+de\s+notificaciones"
+     r"|incidente\s+de\s+reposici[óo]n\s+de\s+autos"
+     r"|dictad[ao]s?\s+despu[ée]s\s+de\s+(?:la\s+)?sentencia", "e"),
 ]
 
 
@@ -657,9 +718,80 @@ def inciso_97(descripcion_acto: str) -> str:
     lo primero de la lista.
     """
     t = " ".join((descripcion_acto or "").split())
-    if not t or len(t) > 400:
+    # El tope sube de 400 a 1,600: ahora se le pasa la descripción MÁS los
+    # resultandos, que son cuatro párrafos. Sigue siendo un texto acotado y
+    # escrito para este asunto, no el expediente pegado —que es donde una
+    # heurística de una palabra casa siempre y con lo primero de la lista—.
+    if not t or len(t) > 1600:
         return ""
     for patron, inciso in _INCISO_97:
         if re.search(patron, t, re.I):
             return inciso
     return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CÓMO SE NOMBRA A LOS SUJETOS EN LA PROSA
+# ═══════════════════════════════════════════════════════════════════════════
+# Las listas de sujetos vivían escritas a mano en `fases123_resumenes.py`,
+# medidas sobre engroses de AMPARO DIRECTO, y se entregaban a los cuatro tipos.
+# Peor: el prompt entregaba `SUJETOS_PARTE[:3]`, que son las tres variantes de
+# «quejoso» y ninguna de «recurrente». De ahí salieron, palabra por palabra:
+#
+#     «En el primer agravio la quejosa aduce…»          (amparo en revisión)
+#     «En el primer agravio la quejosa sostiene…»       (revisión fiscal: el SAT)
+#     «En el único agravio, la quejosa se duele de…»    (queja)
+#     «la responsable recibió…»                          (queja: el Juzgado)
+#
+# EL EJE ERA UN BOOLEANO. Los prompts recibían `es_recurso: bool`, que sólo
+# abre dos caminos donde hacen falta cuatro: los tres recursos entraban por la
+# misma rama y esa rama sólo cambiaba «conceptos de violación» por «agravios».
+#
+# EL MATIZ QUE NO SE PUEDE PERDER: en un amparo EN REVISIÓN, al narrar el juicio
+# de amparo indirecto DE ORIGEN, «la quejosa» sí es correcto —lo fue allí— y el
+# adelanto real de David escribe «promovido por la quejosa Bertha Alicia Luna
+# Flores». Lo que no es correcto es llamarla quejosa al sintetizar SUS AGRAVIOS.
+# Por eso esto gobierna la prosa del RECURSO, y la narración del origen puede
+# seguir usando su vocabulario. En revisión fiscal, en cambio, «quejosa» no es
+# correcto en ningún sitio: nunca hubo amparo.
+SUJETOS = {
+    "amparo_directo": {
+        "parte": ("el quejoso", "la quejosa", "la parte quejosa"),
+        "organo": ("la Sala", "la Sala responsable", "la autoridad responsable",
+                   "la responsable"),
+        "bisagra": ("En contra de esas consideraciones, la parte quejosa "
+                    "plantea los siguientes conceptos de violación:"),
+    },
+    "amparo_revision": {
+        "parte": ("la parte recurrente", "el recurrente", "la recurrente"),
+        # El Juez de Distrito NO es autoridad responsable en el recurso: es el
+        # órgano de control cuya sentencia se revisa. Llamarlo «responsable»
+        # convierte en parte a quien no lo es.
+        "organo": ("el Juzgado de Distrito", "el juez de amparo",
+                   "el órgano de control constitucional", "el a quo"),
+        "bisagra": ("En contra de las anteriores consideraciones, la parte "
+                    "recurrente formula los agravios siguientes:"),
+    },
+    "queja": {
+        "parte": ("la parte recurrente", "el recurrente", "la recurrente"),
+        "organo": ("el Juzgado de Distrito", "el juez de amparo",
+                   "el órgano que dictó el auto recurrido", "el a quo"),
+        "bisagra": ("En contra de las anteriores consideraciones, la parte "
+                    "recurrente formula los agravios siguientes:"),
+    },
+    "revision_fiscal": {
+        # «la autoridad recurrente», no «la quejosa»: el SAT nunca fue quejoso.
+        "parte": ("la autoridad recurrente", "la recurrente",
+                  "la autoridad demandada en el juicio de nulidad"),
+        # Aquí «la Sala responsable» SÍ es correcta: así la nombra el corpus de
+        # revisión fiscal, sobre 28 expedientes.
+        "organo": ("la Sala", "la Sala responsable", "la Sala regional",
+                   "la responsable"),
+        "bisagra": ("En contra de las anteriores consideraciones, la autoridad "
+                    "recurrente formula los agravios siguientes:"),
+    },
+}
+
+
+def sujetos_de(tipo: str) -> dict:
+    return SUJETOS.get(normalizar(tipo), SUJETOS["amparo_directo"])

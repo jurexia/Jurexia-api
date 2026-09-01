@@ -51,6 +51,19 @@ from __future__ import annotations
 
 # ── Vocabulario medido, para que el prompt no lo invente ──────────────────
 
+# ESTAS LISTAS SE QUEDAN COMO RESPALDO, pero el que manda es el catálogo.
+# Estaban medidas sobre engroses de AMPARO DIRECTO y se entregaban a los cuatro
+# tipos; `SUJETOS_PARTE[:3]` son las tres variantes de «quejoso» y ninguna de
+# «recurrente», así que el prompt ORDENABA llamar quejosa a la autoridad
+# hacendaria. Ahora `tipos_asunto.sujetos_de(tipo)` decide, y esto queda para
+# cuando el tipo no consta.
+import tipos_asunto as _ta_r
+
+
+def _sujetos(tipo: str) -> dict:
+    return _ta_r.sujetos_de(tipo or "amparo_directo")
+
+
 SUJETOS_RESPONSABLE = (
     "la Sala", "la Sala responsable", "la autoridad responsable",
     "la responsable", "el tribunal de origen", "el juez de origen",
@@ -75,7 +88,12 @@ PALABRAS_RESUMEN_ACTO = 438
 PALABRAS_RESUMEN_CONCEPTOS = 472
 
 
-def instrucciones_resumen_acto() -> str:
+def instrucciones_resumen_acto(tipo_asunto: str = "") -> str:
+    # NI SIQUIERA RECIBÍA EL BOOLEANO. Es el prompt que fija cómo se llama al
+    # órgano —«la responsable»— y no sabía nada del asunto, así que en una
+    # queja ordenaba llamar «responsable» al Juzgado de Distrito, que es el
+    # órgano de control cuya decisión se recurre, no una parte.
+    _sj = _sujetos(tipo_asunto)["organo"]
     return f"""RESUMEN DEL ACTO RECLAMADO O SENTENCIA RECURRIDA
 
 Abre el estudio con esto. Cuenta qué resolvió la autoridad y con qué razones,
@@ -83,7 +101,7 @@ de modo que quien lea entienda la resolución impugnada sin tenerla enfrente.
 
 - TIEMPO VERBAL: PRETÉRITO, sin excepción. {', '.join(VERBOS_RESPONSABLE[:6])}.
   Lo que la responsable hizo ya ocurrió y consta en autos.
-- SUJETO: {', '.join(SUJETOS_RESPONSABLE[:4])}. Nunca su nombre propio.
+- SUJETO: {', '.join(_sj[:4])}. Nunca su nombre propio.
 - NO LA CALIFIQUES TODAVÍA. Aquí sólo se reconstruye su razonamiento con
   fidelidad; el juicio viene después, en el estudio.
 - CADA AFIRMACIÓN ANCLADA a su origen, para que el secretario coteje sin
@@ -124,10 +142,19 @@ CONECTORES_CONCEPTOS = ("Finalmente", "Asimismo", "Además", "También",
                         "En diverso aspecto")
 
 
-def instrucciones_resumen_conceptos(es_recurso: bool = False) -> str:
-    q = "agravios" if es_recurso else "conceptos de violación"
-    sing = "agravio" if es_recurso else "concepto de violación"
-    bisagra = BISAGRA_AGRAVIOS if es_recurso else BISAGRA_CONCEPTOS
+def instrucciones_resumen_conceptos(es_recurso: bool = False,
+                                    tipo_asunto: str = "") -> str:
+    # EL EJE ES EL TIPO, NO UN BOOLEANO. Un booleano abre dos caminos donde
+    # hacen falta cuatro: los tres recursos entraban por la misma rama y esa
+    # rama sólo cambiaba «conceptos de violación» por «agravios», nunca quién
+    # promueve. `es_recurso` se conserva por si alguien llama sin el tipo.
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    _voc = _ta_r.vocabulario_de(_t)
+    _sj = _sujetos(_t)
+    q = _voc["combate"]
+    sing = _voc["combate_singular"]
+    parte = _voc["parte"]
+    bisagra = _sj["bisagra"]
     return f"""RESUMEN DE LOS {q.upper()}
 
 Va inmediatamente después del resumen del acto reclamado.
@@ -142,16 +169,16 @@ ESTRUCTURA — medida sobre 72 apartados reales de este tribunal:
 - CADA APARTADO, unos {PARRAFOS_POR_CONCEPTO} párrafos. No una línea: un
   {sing} resumido en media frase no se puede contestar después.
 - ENLÁZALOS de una de estas dos formas, sin mezclarlas:
-    · con el ORDINAL: «En el primer {sing} la quejosa aduce que…», «En el
+    · con el ORDINAL: «En el primer {sing} {parte} aduce que…», «En el
       segundo {sing} afirma que…», «En el tercero sostiene que…»
     · o con CONECTORES: {', '.join(f'«{c}»' for c in CONECTORES_CONCEPTOS[:6])}.
 - EL ÚLTIMO SE ABRE CON «Finalmente». Aparece así en 46 de 72 apartados.
-- SI HAY UNO SOLO, se dice: «En el único {sing} formulado, la quejosa se duele
+- SI HAY UNO SOLO, se dice: «En el único {sing} formulado, {parte} se duele
   de…»
 
 Y lo de siempre:
 - TIEMPO VERBAL: PRESENTE, sin excepción. {', '.join(VERBOS_PARTE[:6])}.
-- SUJETO: {', '.join(SUJETOS_PARTE[:3])}.
+- SUJETO: {', '.join(_sj['parte'][:3])}.
 - NO LOS CALIFIQUES. Aquí sólo se expone lo que se alega; el juicio viene en el
   estudio.
 - EXTENSIÓN: alrededor de {PALABRAS_RESUMEN_CONCEPTOS} palabras en total."""

@@ -66,7 +66,63 @@ _MARCAS_CONCEPTOS = re.compile(
     re.I,
 )
 
-TOPE_CARACTERES = 60_000          # ~15k tokens; de sobra para una sentencia larga
+# MEDIDO, NO SUPUESTO. Decía «de sobra para una sentencia larga» y no lo era:
+# la sentencia recurrida del ARC 25/2026 son 90,126 caracteres de texto nativo
+# —37 folios de un PDF digital, sin OCR de por medio— y se cortaba a 60,000 a
+# media frase. El proyecto salió diciendo, DENTRO del considerando quinto:
+#
+#     «El texto proporcionado se interrumpió antes de que la autoridad
+#      responsable desarrollara las razones concretas…»
+#
+# El modelo no alucinó: describió con exactitud lo que le habíamos hecho. Se
+# sube a cubrir lo medido y se corta por párrafo, nunca a mitad de oración.
+TOPE_CARACTERES = 100_000         # ~25k tokens; cubre los 90k del ARC 25/2026
+
+
+# El rótulo del bloque resolutivo, con y sin espaciado judicial.
+_RX_RESUELVE = re.compile(
+    r"\n\s*R\s*E\s*S\s*U\s*E\s*L\s*V\s*E\s*[:.]?\s*\n|"
+    r"\bpor\s+lo\s+(?:expuesto|anteriormente\s+expuesto)[^.]{0,90}se\s+resuelve",
+    re.I)
+
+
+def _cortar_bien(cuerpo: str, tope: int) -> str:
+    """Recorta por párrafo, y si hay que sacrificar, sacrifica el MEDIO.
+
+    UN CORTE A MITAD DE FRASE SE NOTA, y lo que el modelo hace al notarlo es
+    contarlo. Se corta en el último salto de párrafo antes del tope, y si no
+    hay ninguno, en el último punto.
+
+    Y CUANDO NO CABE, NO SE TIRA LA COLA. La versión anterior se quedaba con
+    los primeros N caracteres desde el estudio, de modo que en una sentencia
+    larga los RESOLUTIVOS —que están al final y son lo que se confirma o se
+    revoca— caían fuera. Se conservan las tres cuartas partes de la cabeza y la
+    última cuarta parte del final, que es donde vive el «R E S U E L V E».
+    """
+    if len(cuerpo) <= tope:
+        return cuerpo
+
+    def _hasta(x: str, n: int) -> str:
+        t = x[:n]
+        corte = t.rfind("\n\n")
+        if corte < n * 0.5:
+            corte = t.rfind(". ")
+        return t[:corte + 1] if corte > 0 else t
+
+    # LA COLA DE ESTOS PDF NO SON LOS RESOLUTIVOS: ES EL SELLO. Quedarse con
+    # los últimos N caracteres traía «Identificador de la respuesta TSP:
+    # 85450738 / Datos estampillados: 5soe2uW/axw52+2VvzE…», que es la cadena
+    # de la FIEL. Se BUSCA el bloque resolutivo por su rótulo; si no aparece,
+    # no se inventa una cola: se entrega sólo la cabeza, bien cortada.
+    m = _RX_RESUELVE.search(cuerpo)
+    if m:
+        resolutivos = cuerpo[m.start():][:int(tope * 0.25)]
+        cabeza = _hasta(cuerpo[:m.start()], tope - len(resolutivos))
+        # Sin marca de omisión en medio: un marcador es una invitación a
+        # comentarlo, y comentar el estado del documento DENTRO de la sentencia
+        # es justo lo que no puede pasar. El rótulo del resuelve separa solo.
+        return cabeza + "\n\n" + resolutivos
+    return _hasta(cuerpo, tope)
 
 
 def recortar_acto(texto: str, tope: int = TOPE_CARACTERES) -> str:
@@ -77,14 +133,14 @@ def recortar_acto(texto: str, tope: int = TOPE_CARACTERES) -> str:
     """
     m = _MARCAS_ESTUDIO.search(texto) or _MARCAS_CONSIDERANDO.search(texto)
     cuerpo = texto[m.start():] if m else texto[-tope:]
-    return cuerpo[:tope]
+    return _cortar_bien(cuerpo, tope)
 
 
 def recortar_conceptos(texto: str, tope: int = TOPE_CARACTERES) -> str:
     """Del escrito de la parte, el apartado de conceptos o agravios."""
     m = _MARCAS_CONCEPTOS.search(texto)
     cuerpo = texto[m.start():] if m else texto[-tope:]
-    return cuerpo[:tope]
+    return _cortar_bien(cuerpo, tope)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -100,14 +156,27 @@ REGLAS QUE NO SE NEGOCIAN:
 - No califiques ni resuelvas. Aquí sólo se expone.
 - Prosa corrida, sin viñetas ni esquemas. Frase larga y subordinada: la mediana
   de los engroses reales es de 35 palabras por oración.
-- Sin Markdown."""
+- Sin Markdown.
+- NUNCA ESCRIBAS SOBRE EL ESTADO DEL DOCUMENTO QUE LEES. Ni «el texto
+  proporcionado se interrumpió», ni «no se alcanza a leer», ni «el fragmento
+  disponible», ni «el documento parece incompleto», ni «hasta donde se
+  transcribe». Quien lee esto es un magistrado leyendo una SENTENCIA, no un
+  informe sobre un archivo: una frase así dentro del fallo no se corrige, se
+  borra, y deja al secretario preguntándose qué más se inventó.
+  Si algo no consta, simplemente no lo digas y sigue con lo que sí consta. Lo
+  que falte se avisa por otro camino, fuera del documento."""
 
 
-def prompt_resumen_acto(texto_acto: str, es_recurso: bool = False) -> str:
-    que = "sentencia recurrida" if es_recurso else "sentencia reclamada"
+def prompt_resumen_acto(texto_acto: str, es_recurso: bool = False,
+                        tipo_asunto: str = "") -> str:
+    # «la sentencia reclamada» / «recurrida» / «el auto recurrido» / «la
+    # sentencia impugnada»: cuatro, y el booleano sólo distinguía dos.
+    import tipos_asunto as _tap
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    que = _tap.vocabulario_de(_t)["recurrido"]
     return f"""{_NUCLEO}
 
-{instrucciones_resumen_acto()}
+{instrucciones_resumen_acto(_t)}
 
 LO QUE NO VA EN ESTE RESUMEN, y es donde se equivoca siempre quien lo hace por
 primera vez:
@@ -131,11 +200,14 @@ Se trata de la {que}. Éste es su texto:
 Escribe el resumen. Sólo el resumen, sin preámbulo ni rótulo."""
 
 
-def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False) -> str:
-    q = "agravios" if es_recurso else "conceptos de violación"
+def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False,
+                             tipo_asunto: str = "") -> str:
+    import tipos_asunto as _tap
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    q = _tap.vocabulario_de(_t)["combate"]
     return f"""{_NUCLEO}
 
-{instrucciones_resumen_conceptos(es_recurso)}
+{instrucciones_resumen_conceptos(es_recurso, _t)}
 
 Éste es el escrito de la parte:
 
@@ -160,19 +232,25 @@ def prompt_antecedentes(texto_acto: str) -> str:
 Éste es el documento:
 
 ──────────────────────────────────────────
-{texto_acto[:TOPE_CARACTERES]}
+{_cortar_bien(texto_acto, TOPE_CARACTERES)}
 ──────────────────────────────────────────
 
 Escribe el apartado de antecedentes, un párrafo por línea. Sólo el apartado."""
 
 
 def prompt_problemas(resumen_acto: str, resumen_conceptos: str,
-                     es_recurso: bool = False) -> str:
+                     es_recurso: bool = False, tipo_asunto: str = "") -> str:
+    # EL RÓTULO ENSEÑA EN MAYÚSCULAS cómo llamar al órgano, que es la forma más
+    # imitable que hay. Decía «LO QUE RESOLVIÓ LA RESPONSABLE» en los cuatro, y
+    # en una queja lo que resolvió fue el Juzgado de Distrito.
+    import tipos_asunto as _tap
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    _organo = _tap.sujetos_de(_t)["organo"][0].upper()
     return f"""{_NUCLEO}
 
 {instrucciones_problemas(global_primero=True)}
 
-LO QUE RESOLVIÓ LA RESPONSABLE:
+LO QUE RESOLVIÓ {_organo}:
 {resumen_acto}
 
 LO QUE SE COMBATE:
@@ -315,7 +393,8 @@ async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = F
 
 
 async def correr(cliente, texto_acto: str, texto_conceptos: str,
-                 es_recurso: bool = False) -> "Fases123":
+                 es_recurso: bool = False,
+                 tipo_asunto: str = "") -> "Fases123":
     """Las tres fases, en orden. Los dos resúmenes van EN PARALELO —son
     independientes— y los problemas esperan a los dos, porque salen de su
     contraste."""
@@ -324,12 +403,33 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
 
     an, ra, rc = await asyncio.gather(
         _pedir(cliente, prompt_antecedentes(texto_acto), 3000),
-        _pedir(cliente, prompt_resumen_acto(texto_acto, es_recurso)),
-        _pedir(cliente, prompt_resumen_conceptos(texto_conceptos, es_recurso)),
+        _pedir(cliente, prompt_resumen_acto(texto_acto, es_recurso, tipo_asunto)),
+        _pedir(cliente, prompt_resumen_conceptos(texto_conceptos, es_recurso,
+                                                 tipo_asunto)),
     )
-    f = Fases123(antecedentes=an, resumen_acto=ra, resumen_conceptos=rc)
+    # EL MODELO NO HABLA DEL ARCHIVO DENTRO DE LA SENTENCIA. Aquí, en el
+    # embudo por donde pasan los tres textos antes de existir como resumen: si
+    # se le quita después, en el compositor, ya ha viajado a los problemas
+    # jurídicos y al estudio, que se apoyan en estos resúmenes.
+    _quitadas: list = []
     try:
-        crudo = await _pedir(cliente, prompt_problemas(ra, rc, es_recurso),
+        import meta_lenguaje as _ml
+        an, _q1 = _ml.limpiar(an)
+        ra, _q2 = _ml.limpiar(ra)
+        rc, _q3 = _ml.limpiar(rc)
+        _quitadas = _q1 + _q2 + _q3
+    except Exception:
+        pass
+    f = Fases123(antecedentes=an, resumen_acto=ra, resumen_conceptos=rc)
+    for _f in _quitadas:
+        f.avisos.append(
+            f"SE QUITÓ UNA FRASE QUE HABLABA DEL ARCHIVO, NO DEL ASUNTO: "
+            f"«{_f[:220]}». Va entera aquí por si el filtro se equivocó y hay "
+            f"que devolverla; pero una frase así dentro del fallo deja al que "
+            f"firma preguntándose qué más se inventó.")
+    try:
+        crudo = await _pedir(cliente, prompt_problemas(ra, rc, es_recurso,
+                                                       tipo_asunto),
                              3500, json_estricto=True)
         m = re.search(r"\{.*\}", crudo, re.S)
         j = _json.loads(m.group(0) if m else crudo)

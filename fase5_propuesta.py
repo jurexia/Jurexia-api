@@ -317,7 +317,10 @@ def prompt_propuesta(problemas: list, material, resumen_acto: str,
     tesis = _tesis_del_material(material)
     lista = "\n".join(
         f"{i}. {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
-        + (f"\n   La responsable resolvió: {p.get('resolvio','')}"
+        # «La responsable resolvió» rotulaba cada problema jurídico en los
+        # cuatro tipos, y esta fase es la que fija el SENTIDO: la etiqueta viaja
+        # después a la razón toral y de ahí al estudio.
+        + (f"\n   El órgano recurrido resolvió: {p.get('resolvio','')}"
            if isinstance(p, dict) and p.get("resolvio") else "")
         + (f"\n   Se combate diciendo: {p.get('combate','')}"
            if isinstance(p, dict) and p.get("combate") else "")
