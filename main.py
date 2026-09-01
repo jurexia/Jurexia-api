@@ -26305,9 +26305,28 @@ async def taller_contexto(
 # salidas, porque una de las dos es un error de dato y la otra es una sentencia
 # distinta que este redactor todavía no sabe escribir.
 def _puerta_oportunidad(r) -> None:
+    """YA NO CIERRA LA PUERTA: DEJA QUE EL PROYECTO SE ESCRIBA.
+
+    David: «si oportunidad == Extemporánea, el flujo debe abortar el estudio de
+    fondo y GENERAR AUTOMÁTICAMENTE el sobreseimiento». Esto lanzaba un 409 y
+    terminaba diciendo «ese proyecto todavía hay que escribirlo a mano».
+    Negarse a trabajar es una manera de no equivocarse, no de servir.
+
+    El compositor sabe ahora resolver la improcedencia —sobreseimiento en el
+    amparo, desechamiento en los recursos, cada uno con la fórmula medida de su
+    corpus— y no escribe el estudio de fondo, que es lo que de verdad hacía
+    incongruente el proyecto. Esta función se queda como registro del paso.
+    """
     c = getattr(r, "computo", None)
     if c is None or getattr(c, "oportuna", None) is not False:
         return
+    if getattr(c, "en_cualquier_tiempo", False):
+        return
+    print("   ⚖️ cómputo extemporáneo: el proyecto resolverá la improcedencia")
+    return
+
+
+def _puerta_oportunidad_vieja(r) -> None:
     raise HTTPException(409, (
         "EL CÓMPUTO DA LA DEMANDA EXTEMPORÁNEA y por eso no se escribe el "
         "estudio de fondo: una sentencia que declara la extemporaneidad y "

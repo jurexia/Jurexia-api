@@ -351,6 +351,16 @@ class Computo:
     avisos: list[str] = field(default_factory=list)
 
     @property
+    def en_cualquier_tiempo(self) -> bool:
+        """Los tipos sin plazo —vida, libertad— no pueden ser extemporáneos.
+
+        `computar` con plazo 0 reventaba con un IndexError, así que el caso que
+        la ley protege de manera más terminante era el único que el cómputo no
+        sabía tratar.
+        """
+        return not self.plazo or self.plazo <= 0
+
+    @property
     def anticipada(self) -> bool:
         """Se presentó ANTES de que el plazo arrancara."""
         return (self.presentacion is not None

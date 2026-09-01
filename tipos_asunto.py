@@ -1046,3 +1046,154 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
         return "revoca_sobreseimiento_concede"
     return ("revoca_fondo_niega" if a == "concede"
             else "revoca_fondo_concede")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CUANDO EL CÓMPUTO DA EXTEMPORÁNEA
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «si oportunidad == Extemporánea, el flujo debe abortar el estudio de
+# fondo y generar automáticamente el sobreseimiento». La falla que describe es
+# declarar en el considerando tercero que la demanda es extemporánea y después
+# entrar al fondo y conceder el amparo.
+#
+# Hasta hoy la puerta existía y hacía lo contrario de lo que él pide: lanzaba
+# un 409 diciendo «ese proyecto todavía hay que escribirlo a mano». Negarse a
+# trabajar es una forma de no equivocarse, no de servir.
+#
+# Y EL CORPUS CORRIGE MI SUPUESTO: en los RECURSOS no se sobresee, se DESECHA,
+# y las fórmulas están medidas en el banco del propio tribunal:
+#
+#   revisión  «ÚNICO. Se desecha el recurso de revisión, al resultar
+#              improcedente por extemporáneo, por los motivos y fundamentos
+#              expuestos en el considerando último de la presente ejecutoria.»
+#   queja     «ÚNICO. Se desecha por improcedente el recurso de queja.»
+#
+# El sobreseimiento con los artículos 61, fracción XIV, y 63, fracción V —los
+# que David cita— es del AMPARO, donde sí hay juicio en que sobreseer.
+EXTEMPORANEO = {
+    "amparo_directo": {
+        "rotulo": "Extemporaneidad de la demanda de amparo",
+        "fundamento": "artículos 61, fracción XIV, y 63, fracción V, de la Ley "
+                      "de Amparo",
+        "considerando": (
+            "La demanda de amparo se presentó de manera extemporánea, conforme "
+            "al cómputo que antecede, de modo que se actualiza la causa de "
+            "improcedencia prevista en el artículo 61, fracción XIV, de la Ley "
+            "de Amparo y, en consecuencia, procede sobreseer en el juicio con "
+            "fundamento en el artículo 63, fracción V, del mismo ordenamiento."),
+        "resolutivo": "ÚNICO. Se sobresee en el presente juicio de amparo "
+                      "promovido por {quejoso}.",
+    },
+    "amparo_revision": {
+        "rotulo": "Extemporaneidad del recurso de revisión",
+        "fundamento": "artículo 86 de la Ley de Amparo",
+        "considerando": (
+            "El presente medio de impugnación se interpuso de manera "
+            "extemporánea, conforme al cómputo que antecede, por lo que resulta "
+            "improcedente y debe desecharse."),
+        "resolutivo": "ÚNICO. Se desecha el recurso de revisión, al resultar "
+                      "improcedente por extemporáneo, por los motivos y "
+                      "fundamentos expuestos en el considerando último de la "
+                      "presente ejecutoria.",
+    },
+    "queja": {
+        "rotulo": "Extemporaneidad del recurso de queja",
+        "fundamento": "artículo 98 de la Ley de Amparo",
+        "considerando": (
+            "El recurso de queja se interpuso de manera extemporánea, conforme "
+            "al cómputo que antecede, por lo que resulta improcedente."),
+        "resolutivo": "ÚNICO. Se desecha por improcedente el recurso de queja.",
+    },
+    "revision_fiscal": {
+        "rotulo": "Extemporaneidad de la revisión fiscal",
+        "fundamento": "artículo 63 de la Ley Federal de Procedimiento "
+                      "Contencioso Administrativo",
+        "considerando": (
+            "El recurso de revisión fiscal se interpuso de manera extemporánea, "
+            "conforme al cómputo que antecede, por lo que resulta improcedente "
+            "y debe desecharse."),
+        "resolutivo": "ÚNICO. Se desecha por extemporáneo el recurso de "
+                      "revisión fiscal.",
+    },
+}
+
+
+def extemporaneo_de(tipo: str) -> dict:
+    return EXTEMPORANEO.get(normalizar(tipo), EXTEMPORANEO["amparo_directo"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL ENRUTADOR DE MARCOS NORMATIVOS
+# ═══════════════════════════════════════════════════════════════════════════
+# David enumera tres fallas concretas:
+#
+#   F1. citar el artículo 172 de la Ley de Amparo —catálogo de violaciones
+#       procesales EXCLUSIVO del amparo directo— dentro de un amparo en
+#       revisión indirecto;
+#   F2. fundar la queja en el 97, fracción I, cuando lo impugnado es la
+#       SUSPENSIÓN dictada por la autoridad responsable en un amparo DIRECTO,
+#       que es el 97, fracción II, inciso b);
+#   F3. citar los artículos 74, 81 o 93 de la Ley de Amparo dentro de una
+#       revisión fiscal, que se rige por el 104, fracción III, constitucional y
+#       el 63 de la LFPCA.
+#
+# EL MATIZ QUE HACE PELIGROSA ESTA REGLA, y por el que no se aplica al
+# documento entero: un amparo en revisión cita LEGÍTIMAMENTE preceptos fuera
+# del 81-96 —el 61 y el 63 para las causales, el 74 para los requisitos de la
+# sentencia, el 79 para la suplencia—. Prohibir «todo lo que no esté en el
+# rango» produciría una alarma en cada proyecto, y una alarma que salta siempre
+# deja de leerse.
+#
+# Por eso se prohíben preceptos NOMBRADOS, no rangos: los que sólo pueden
+# aparecer si se coló la plantilla de otra vía. Y en revisión fiscal, donde la
+# Ley de Amparo no gobierna nada, se prohíbe la ley entera pero SÓLO en el
+# considerando de competencia —el párrafo del cómputo cita su artículo 19 para
+# los inhábiles, y eso es otra discusión—.
+PRECEPTOS_AJENOS = {
+    "amparo_revision": [
+        (r"art[íi]culo\s+172\b(?![^.]{0,40}LFPCA)",
+         "el artículo 172 de la Ley de Amparo es el catálogo de violaciones "
+         "procesales del AMPARO DIRECTO: en una revisión de amparo indirecto "
+         "no viene a cuento"),
+        (r"art[íi]culos?\s+1(?:7[0-9]|8[0-9]|90|91)\b",
+         "los artículos 170 a 191 rigen el AMPARO DIRECTO, no la revisión"),
+    ],
+    "amparo_directo": [
+        (r"art[íi]culos?\s+(?:8[1-9]|9[0-6])\s*(?:,|\sy\s|\sde\s+la\s+Ley\s+de\s+Amparo)",
+         "los artículos 81 a 96 rigen el RECURSO DE REVISIÓN, no el amparo directo"),
+    ],
+    "queja": [],
+    "revision_fiscal": [
+        (r"Ley\s+de\s+Amparo",
+         "la revisión fiscal se rige por el artículo 104, fracción III, "
+         "constitucional y por la Ley Federal de Procedimiento Contencioso "
+         "Administrativo: la Ley de Amparo no la gobierna"),
+        (r"art[íi]culos?\s+(?:74|81|93)\b",
+         "74, 81 y 93 son de la Ley de Amparo"),
+    ],
+}
+
+# Dónde se aplica la regla dura. Fuera del marco competencial y de
+# procedencia, una cita de otra ley puede ser legítima —un criterio análogo,
+# una remisión— y prohibirla sería empobrecer el estudio.
+_RX_MARCO = re.compile(
+    r"(?:PRIMERO\.\s*)?Competencia\.(.{0,2500}?)"
+    r"(?=\n\s*(?:SEGUNDO|TERCERO|CUARTO)\.|\Z)|"
+    r"Procedencia\.(.{0,1800}?)(?=\n\s*[A-ZÁÉÍÓÚ]{5,}\.|\Z)", re.S | re.I)
+
+
+def marco_de(texto: str) -> str:
+    """El marco competencial y de procedencia, aislado del resto."""
+    return " ".join(m.group(1) or m.group(2) or ""
+                    for m in _RX_MARCO.finditer(texto or ""))
+
+
+def preceptos_ajenos(tipo: str, texto: str, solo_marco: bool = True) -> list:
+    """Los preceptos de otra vía que se colaron. [(patrón, por qué)]"""
+    reglas = PRECEPTOS_AJENOS.get(normalizar(tipo), [])
+    if not reglas:
+        return []
+    t = marco_de(texto) if solo_marco else (texto or "")
+    if solo_marco and not t.strip():
+        return []
+    return [(p, por) for p, por in reglas if re.search(p, t, re.I)]

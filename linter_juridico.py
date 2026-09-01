@@ -1,0 +1,161 @@
+"""LO QUE SE VE AL LEER: FRASES ROTAS, COMILLAS HUÉRFANAS Y NOMBRES GENÉRICOS.
+
+David enumera los síntomas exactos, tomados de proyectos reales:
+
+    «...cuyo texto. Del precepto...»              frase cortada
+    «...debe contener , así como y.»              puntuación doble, conjunción sola
+    «...consecuencia automática d la jurisprudencia...»  preposición amputada
+    «registro 174962, no resulta aplicable...»    fragmento sin sujeto
+    un « sin su »                                  comilla huérfana
+    «PARTE QUEJOSA», «PARTE PROMOVENTE»            el marcador en vez del nombre
+
+═══════════════════════════════════════════════════════════════════════════
+LO QUE ESTE LINTER TIENE PROHIBIDO CAZAR
+═══════════════════════════════════════════════════════════════════════════
+Este proyecto lleva tres rondas aprendiendo que un detector que acusa a lo
+bueno es peor que no tenerlo, así que la lista de lo que NO debe saltar se
+escribió ANTES que los patrones, sacada de los engroses reales:
+
+  · las abreviaturas: «art.», «fr.», «frs.», «Reg.», «pág.», «núm.», «2a./J.»,
+    «P./J.», «I.4o.A.», que llevan punto y siguen en minúscula;
+  · los incisos «a)», «b)», y los romanos sueltos de una fracción: «IV.»;
+  · las enumeraciones con «y,» y con «, y»: «los artículos 74, 76, y 79»;
+  · el cierre de una transcripción parcial: «[…]» y «(…)»;
+  · «d.» como abreviatura no existe en español jurídico, pero «D.O.F.» sí;
+  · las cifras con punto y coma: «$847,738.77;».
+
+Y una regla de método: cada patrón trae aquí sus casos de control, y si un
+control falla, se quita el patrón. No se afina hasta que pase.
+"""
+
+from __future__ import annotations
+
+import re
+
+# ── 1. PUNTUACIÓN IMPOSIBLE ────────────────────────────────────────────────
+# Dos signos seguidos que no forman ninguna construcción del español: «,,»,
+# «.,», « ,», «;.». Se exige el espacio ANTES de la coma porque «847,738» es
+# una cifra y «74, 76» es una enumeración.
+# «Qro.,» y «6o.,» y «art.,» son ABREVIATURAS seguidas de coma, y en español
+# jurídico se escriben así todo el rato. Cazarlas hacía que el linter acusara a
+# tres de los cinco engroses reales por escribir bien.
+_ABREV_ANTES = (r"(?<!\bQro)(?<!\bMéx)(?<!\bC\.P)(?<!\bD\.F)(?<!\bS\.A)"
+                r"(?<!\bart)(?<!\bfr)(?<!\bp[áa]g)(?<!\bn[úu]m)"
+                r"(?<![0-9][oa])(?<![IVXLC])")
+
+_PUNTUACION = [
+    (_ABREV_ANTES + r"[.,;:]\s*[,;](?!\s*\d)",
+     "dos signos de puntuación seguidos"),
+    (r"\s+[,;](?=\s)", "coma o punto y coma precedidos de espacio"),
+    (r"\(\s*\)|«\s*»|“\s*”", "un paréntesis o unas comillas vacías"),
+]
+
+# ── 2. PREPOSICIÓN AMPUTADA ────────────────────────────────────────────────
+# «d la», «e el», «n el»: una letra suelta que era una preposición. Se exige
+# que vaya seguida de artículo, que es donde se ve; una «y» o una «o» sueltas
+# son conjunciones legítimas.
+_AMPUTADA = re.compile(
+    r"\b([bcdfghjklmnpqrstvwxz])\s+(?:el|la|los|las|un|una)\b", re.I)
+
+# ── 3. COMILLA HUÉRFANA ────────────────────────────────────────────────────
+# Se cuentan, no se buscan: un « sin su » no se ve mirando una ventana.
+
+# ── 4. EL MARCADOR EN VEZ DEL NOMBRE ───────────────────────────────────────
+# «la parte quejosa» en minúsculas, dentro de la prosa, es CORRECTO en amparo
+# directo: lo dice el catálogo. Lo que no puede aparecer es el marcador en
+# VERSALES —que es donde va el nombre— ni en un punto resolutivo.
+_GENERICO = re.compile(
+    r"\b(PARTE\s+QUEJOSA|PARTE\s+PROMOVENTE|PARTE\s+RECURRENTE|"
+    r"NOMBRE\s+DEL\s+QUEJOSO|AUTORIDAD\s+RESPONSABLE\s*:?\s*$)\b")
+# EL RESOLUTIVO EMPIEZA DESPUÉS DEL «R E S U E L V E». Sin ese ancla, el
+# patrón cazaba «TERCERO. Resolución recurrida y agravios de la parte
+# recurrente», que es un RÓTULO de considerando perfectamente correcto —lo dice
+# el catálogo— y acusaba al engrose por escribirlo.
+_RX_RESOLUTIVO = re.compile(
+    r"R\s*E\s*S\s*U\s*E\s*L\s*V\s*E.{0,2500}", re.S | re.I)
+
+# LO QUE ESTE LINTER NO SABE CAZAR, y lo digo en vez de inventar un patrón:
+# «El precepto cuyo texto. Del precepto transcrito deriva la regla.» El punto
+# cae tras un SUSTANTIVO —«texto»—, así que no hay palabra imposible que
+# buscar: hace falta saber que la oración no tiene verbo, y eso pide analizar
+# la frase, no mirar una ventana. Un patrón aproximado acusaría a los títulos y
+# a las enumeraciones, que es peor que no tenerlo.
+#
+# ── 6. LA FRASE QUE SE CORTA A MITAD ───────────────────────────────────────
+# «El precepto cuyo texto. Del precepto transcrito deriva la regla.» El punto
+# cae después de una palabra que EXIGE continuación: un relativo, una
+# preposición, una conjunción. No hace falta gramática fina —basta la lista de
+# palabras que jamás terminan una oración en español.
+_COLGADA = re.compile(
+    r"\b(cuy[oa]s?|del?\s+cual(?:es)?|en\s+(?:el|la|los|las)\s+(?:que|cual)|"
+    r"as[íi]\s+como|mediante|conforme|respecto|acorde|"
+    r"de|en|por|para|con|sin|sobre|entre|hacia|desde|hasta|y|o|e|u|que|"
+    r"porque|pues|aunque|si|cuando|donde|seg[úu]n)\s*\.", re.I)
+
+# ── 5. FRASE SIN VERBO tras un punto ───────────────────────────────────────
+# «registro 174962, no resulta aplicable...» empieza sin sujeto porque el punto
+# anterior cortó la frase. Se busca una oración que ARRANCA en minúscula, que
+# es la marca inequívoca —salvo abreviatura, que se excluye.
+_ABREV = (r"art|arts|fr|frs|reg|p[áa]g|n[úu]m|vol|cfr|op|cit|etc|"
+          r"[a-z]?\d*[ao]|[IVXLC]+|Sr|Sra|Lic|Mtro|Dr|D\.O\.F|inc")
+_MINUSCULA = re.compile(
+    r"(?<![.]\s)(?<!\[…\])\.\s+([a-záéíóúñ]{3,})",
+)
+
+
+def _sin_abreviatura(texto: str, m) -> bool:
+    antes = texto[max(0, m.start() - 18):m.start()]
+    return not re.search(rf"\b(?:{_ABREV})$", antes, re.I)
+
+
+def revisar(texto: str) -> list:
+    """Los defectos de sintaxis del documento. [(qué, dónde)]"""
+    t = texto or ""
+    fuera: list = []
+
+    for patron, que in _PUNTUACION:
+        for m in re.finditer(patron, t):
+            ctx = " ".join(t[max(0, m.start() - 55):m.end() + 45].split())
+            fuera.append((que, ctx))
+
+    for m in _AMPUTADA.finditer(t):
+        ctx = " ".join(t[max(0, m.start() - 45):m.end() + 45].split())
+        fuera.append((f"preposición amputada: «{m.group(0)}»", ctx))
+
+    for a, b, nombre in (("«", "»", "angulares"), ("“", "”", "tipográficas")):
+        if t.count(a) != t.count(b):
+            fuera.append((f"comillas {nombre} sin cerrar: "
+                          f"{t.count(a)} abren y {t.count(b)} cierran", ""))
+
+    # El marcador genérico: en versales, y en los resolutivos.
+    for m in _GENERICO.finditer(t):
+        ctx = " ".join(t[max(0, m.start() - 55):m.end() + 45].split())
+        fuera.append((f"el marcador en vez del nombre: «{m.group(0)}»", ctx))
+    for m in _RX_RESOLUTIVO.finditer(t):
+        if re.search(r"(?:ampara|protege|sobresee|desecha|confirma|revoca|"
+                     r"modifica)[^.]{0,60}\bparte\s+"
+                     r"(?:quejosa|promovente|recurrente)\b", m.group(0), re.I):
+            fuera.append(("el resolutivo nombra a «la parte» en vez de a la "
+                          "persona", " ".join(m.group(0).split())[:150]))
+
+    for m in _COLGADA.finditer(t):
+        ctx = " ".join(t[max(0, m.start() - 55):m.end() + 45].split())
+        fuera.append((f"la frase se corta en «{m.group(1)}», que exige "
+                      f"continuación", ctx))
+
+    for m in _MINUSCULA.finditer(t):
+        if _sin_abreviatura(t, m):
+            ctx = " ".join(t[max(0, m.start() - 60):m.end() + 40].split())
+            fuera.append(("frase que empieza en minúscula: el punto anterior "
+                          "cortó la oración", ctx))
+
+    # Un mismo defecto repetido cansa; se entregan los seis primeros de cada
+    # clase, que es lo que un secretario revisa de una sentada.
+    vistos: dict = {}
+    limpio: list = []
+    for que, ctx in fuera:
+        clave = que.split(":")[0]
+        vistos[clave] = vistos.get(clave, 0) + 1
+        if vistos[clave] <= 6:
+            limpio.append((que, ctx))
+    return limpio

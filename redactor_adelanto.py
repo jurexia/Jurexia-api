@@ -785,6 +785,24 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                 f"{len(_dup)} PASAJE(S) REPETIDO(S) dentro del estudio: «"
                 f"{_dup[0][:90]}…». Un pasaje repetido no refuerza; delata que "
                 f"se escribió por trozos.")
+        # EL MARCO NORMATIVO DE OTRA VÍA. Acotado al considerando de
+        # competencia y al de procedencia: fuera de ahí una cita de otra ley
+        # puede ser legítima —un criterio análogo, una remisión— y prohibirla
+        # empobrecería el estudio.
+        import tipos_asunto as _ta_v
+        for _pat, _porque in _ta_v.preceptos_ajenos(e.tipo_asunto, _txt):
+            avisos.insert(0, f"PRECEPTO DE OTRA VÍA EN EL MARCO: {_porque}.")
+
+        # EL LINTER. Frases cortadas, comillas huérfanas y el marcador genérico
+        # donde debería ir el nombre.
+        try:
+            import linter_juridico as _lj
+            for _que, _donde in _lj.revisar(_txt):
+                avisos.append(f"SINTAXIS — {_que}"
+                              + (f": «…{_donde[:110]}…»" if _donde else ""))
+        except Exception as _el:
+            print(f"   ⚠️ linter no disponible: {_el}")
+
         for _e in _ce.estadistica_en_el_texto(_txt):
             avisos.append(f"LA CIFRA DEL ACERVO SE COLÓ EN LA SENTENCIA: «{_e[:110]}». "
                           f"El criterio no se vota: quítala.")

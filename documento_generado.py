@@ -2354,8 +2354,32 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             parrafo(doc, _ta.parrafo_cierre(tipo_asunto, True,
                                             _calificacion_plural(cs)))
 
-    con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",
-                          _estudio))
+    # ═══════════════════════════════════════════════════════════════════════
+    # SI EL CÓMPUTO DA EXTEMPORÁNEA, NO HAY FONDO
+    # ═══════════════════════════════════════════════════════════════════════
+    # David: «si oportunidad == Extemporánea, el flujo debe abortar el estudio
+    # de fondo y generar automáticamente el sobreseimiento». La falla que
+    # describe —declarar la extemporaneidad y luego conceder— no se corrige
+    # avisando: se corrige no escribiendo el estudio.
+    #
+    # El apartado de fondo se sustituye por el de improcedencia, que es lo que
+    # el corpus escribe: «{ordinal}. Extemporaneidad del recurso de revisión.
+    # El presente medio de impugnación se interpuso de manera extemporánea».
+    _extemp = (getattr(computo, "oportuna", None) is False
+               and not getattr(computo, "en_cualquier_tiempo", False))
+    if _extemp:
+        _ex = _ta.extemporaneo_de(tipo_asunto)
+        _avisos_bk.insert(0, (
+            f"EL CÓMPUTO DA EXTEMPORÁNEA: el proyecto NO entra al fondo y "
+            f"resuelve la improcedencia conforme al {_ex['fundamento']}. Si la "
+            f"fecha de notificación o la de presentación están mal, corrígelas "
+            f"y vuelve a generar: de esas dos fechas depende todo el asunto."))
+        con_apartados.append(
+            (_ex["rotulo"] + ".",
+             (lambda c: lambda p: _texto_en(p, c))(_ex["considerando"])))
+    else:
+        con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",
+                              _estudio))
 
     # EL APARTADO DE EFECTOS ES DEL AMPARO. «Procede conceder el amparo y
     # protección de la Justicia Federal para el efecto de que la responsable
@@ -2364,7 +2388,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # los cuatro tipos, así que era la segunda puerta —la de la rama FUNDADA—
     # por la que la fórmula del amparo entraba en un recurso. Arreglar sólo la
     # otra habría tapado la mitad.
-    if concede and _ta.cierre_de(tipo_asunto)["efectos"]:
+    if _extemp:
+        pass          # no hay efectos de una concesión que no existe
+    elif concede and _ta.cierre_de(tipo_asunto)["efectos"]:
         def _efectos(p):
             if _efectos_escritos:
                 _texto_en(p, _efectos_escritos[0], _efectos_escritos[1:])
@@ -2398,7 +2424,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # lo leyera: el proyecto salía siempre con «ÚNICO. Se confirma la sentencia
     # recurrida», de modo que un amparo en revisión NUNCA amparaba.
     _hecho = False
-    if _ta.normalizar(tipo_asunto) == "amparo_revision":
+    if _extemp:
+        _ex = _ta.extemporaneo_de(tipo_asunto)
+        _t = _ex["resolutivo"].replace("{quejoso}",
+                                       str(datos.get("quejoso") or HUECO))
+        _cab, _resto = _t.split(". ", 1) if ". " in _t else (_t, "")
+        tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})], sangria=False)
+        _hecho = True
+    elif _ta.normalizar(tipo_asunto) == "amparo_revision":
         _fuente_rama = " ".join([
             str(datos.get("antecedentes") or ""),
             " ".join(str(r.get("texto") or "")
