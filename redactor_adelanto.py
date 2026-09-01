@@ -834,15 +834,37 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     # NADA DEL PROYECTO PUEDE SER DE OTRO ASUNTO. Se comprueba sobre el .docx ya
     # escrito, que es lo que el secretario va a leer, y contra los documentos
     # que él subió.
+    # SE COMPRUEBA DOS VECES —el adelanto y la sentencia—, así que hay que
+    # unificar lo que digan las dos. Sin esto el proyecto salía con dos avisos
+    # que NO PUEDEN SER CIERTOS A LA VEZ: uno afirmaba que la cantidad
+    # «no consta en las fuentes» y el otro que las fuentes no se pueden leer.
+    # Quien lee eso no sabe a cuál hacer caso, y con razón.
     r_final = Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e)
     for a in _revisar_contaminacion(r_final, e):
         if a not in avisos:
             avisos.append(a)
 
+    _todos = list(r.avisos) + avisos
+    _vistos, _limpios = set(), []
+    for a in _todos:
+        _k = str(a)[:70]                    # el mismo aviso con un nombre más
+        if _k in _vistos:                   # no es un aviso nuevo
+            continue
+        _vistos.add(_k)
+        _limpios.append(a)
+    # LA AUSENCIA DE PRUEBA NO ES PRUEBA, y tampoco al revés: si una pasada SÍ
+    # pudo comprobar y encontró algo, el «no se pudo comprobar» de la otra
+    # sobra y sólo resta credibilidad a lo que sí se halló.
+    _hallo = any(str(a).startswith(("NOMBRES QUE NO", "EXPEDIENTES QUE NO",
+                                    "CANTIDADES QUE NO")) for a in _limpios)
+    if _hallo:
+        _limpios = [a for a in _limpios
+                    if not str(a).startswith("No se pudo comprobar la contaminación")]
+
     return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
                      partes=r.partes, estudio=estudio, advertencias=advertencias,
                      huecos=ens.huecos_pendientes(ruta),
-                     avisos=list(r.avisos) + avisos)
+                     avisos=_limpios)
 
 
 
