@@ -145,6 +145,24 @@ def revisar(texto: str) -> list:
 
     fuera += [(f"orden contradictoria: {q}", d) for q, d in oximorones(t)]
 
+    # LA VARIABLE QUE NO SE SUSTITUYÓ. El catálogo interpola con `{quejoso}`,
+    # `{responsable}`, `{numero}`. Si una plantilla llega al documento sin
+    # rellenar, la llave se ve —y lo que se ve, alguien lo firma—.
+    for m in _RX_LLAVE.finditer(t):
+        ctx = " ".join(t[max(0, m.start() - 55):m.end() + 45].split())
+        fuera.append((f"variable sin sustituir: «{m.group(0)}»", ctx))
+
+    # EL COMODÍN DE ASTERISCOS. `banco.py` lo usa a propósito —«se ve, y lo que
+    # se ve no se firma sin mirarlo»— y ésa es la intención correcta. Pero
+    # nadie lo estaba CONTANDO al final, así que se veía en el documento sin
+    # aparecer en los avisos: quien recibía el proyecto tenía que tropezárselo.
+    n_hueco = len(_RX_HUECO.findall(t))
+    if n_hueco:
+        m = _RX_HUECO.search(t)
+        fuera.append((f"quedan {n_hueco} comodines sin resolver: son datos que "
+                      f"el expediente tiene y el formulario no pidió",
+                      " ".join(t[max(0, m.start() - 70):m.end() + 60].split())))
+
     for m in _MINUSCULA.finditer(t):
         if _sin_abreviatura(t, m):
             ctx = " ".join(t[max(0, m.start() - 60):m.end() + 40].split())
@@ -161,6 +179,12 @@ def revisar(texto: str) -> list:
         if vistos[clave] <= 6:
             limpio.append((que, ctx))
     return limpio
+
+
+# Sólo las llaves con un nombre de variable dentro: `{quejoso}`, `{numero_2}`.
+# No se caza `{` a secas porque en una transcripción de ley puede aparecer.
+_RX_LLAVE = re.compile(r"\{[a-z_][a-z0-9_]{2,30}\}")
+_RX_HUECO = re.compile(r"\*{4,}")
 
 
 # ── 7. LA FÓRMULA QUE SE CONTRADICE A SÍ MISMA ─────────────────────────────
