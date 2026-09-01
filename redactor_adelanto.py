@@ -53,6 +53,14 @@ class Encargo:
     # trae: un acuerdo de suspensión de labores de su tribunal, una
     # contingencia, un no laborable local.
     dias_inhabiles_extra: list = field(default_factory=list)
+    # LAS DOS FECHAS DE LA SESIÓN, que el secretario sí sabe y el sistema no
+    # puede deducir de ningún documento: el proyecto se escribe ANTES de que la
+    # sesión ocurra. Salían como dos comodines de asteriscos en los cinco
+    # proyectos —el hallazgo más repetido de la última medición—, y era un
+    # hueco honesto pero evitable: basta preguntarlo. Vacías = siguen en hueco,
+    # que es mejor que inventarlas. ISO.
+    fecha_lista: str = ""
+    fecha_sesion: str = ""
     responsable: Optional[str] = None
     es_recurso: bool = False
     # LA HERRAMIENTA NO ES DE UN TRIBUNAL, ES DE TODOS. Estos tres campos son
@@ -932,8 +940,28 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         # el acto por «sala, toca y expediente» aunque fuera una queja.
         "tipo_asunto": getattr(e, "tipo_asunto", "amparo_directo"),
         "es_recurso": e.es_recurso,
+        # Las dos fechas de la sesión, en letra como todo lo demás del cuerpo.
+        # Vacías si el secretario no las declaró: entonces siguen en hueco.
+        "fecha_lista": _f0.fecha_en_letra(
+            _fecha_iso(getattr(e, "fecha_lista", ""))) if getattr(e, "fecha_lista", "") else "",
+        "fecha_sesion": _f0.fecha_en_letra(
+            _fecha_iso(getattr(e, "fecha_sesion", ""))) if getattr(e, "fecha_sesion", "") else "",
         "antecedentes": antecedentes,
     }
+
+
+def _fecha_iso(x):
+    """La fecha ISO del formulario, o None si no se puede leer.
+
+    Se devuelve None —y el hueco se queda— en vez de una fecha aproximada: una
+    fecha de sesión equivocada en el resultando es peor que un asterisco, que
+    al menos se ve.
+    """
+    import datetime as _dt
+    try:
+        return _dt.date.fromisoformat(str(x).strip()[:10])
+    except Exception:
+        return None
 
 
 async def _componer_generado(cliente, e: Encargo, relleno, computo,

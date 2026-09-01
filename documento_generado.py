@@ -2069,16 +2069,23 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         "diecisiete de abril de dos mil veintiséis; y,")
     res_apartados.append((
         _rot_sesion,
-        lambda p: _texto_en(p, f"El presente asunto se listó el {HUECO}, para "
-                               f"verse en sesión ordinaria de {HUECO} "
+        lambda p: _texto_en(p, f"El presente asunto se listó el "
+                               f"{datos.get('fecha_lista') or HUECO}, para "
+                               f"verse en sesión ordinaria de "
+                               f"{datos.get('fecha_sesion') or HUECO} "
                                f"siguiente; {_cola_sesion}")))
+    if not (datos.get("fecha_lista") and datos.get("fecha_sesion")):
+        _avisos_bk.append(
+            "LAS DOS FECHAS DE LA SESIÓN VAN EN HUECO: cuándo se listó el "
+            "asunto y para qué sesión. El sistema no puede saberlas —el "
+            "proyecto se escribe antes de la sesión—, pero el formulario las "
+            "pide: decláralas y el párrafo sale entero.")
     _avisos_bk.append(
-        "LAS DOS FECHAS DE LA SESIÓN VAN EN HUECO: cuándo se listó el asunto y "
-        "para qué sesión. No constan porque el proyecto se escribe antes de la "
-        "sesión. Y comprueba la cola normativa: se escribió la del Acuerdo "
-        "General 6/2026, que rige los asuntos listados desde abril de dos mil "
-        "veintiséis; si éste se listó antes, la cola es la de los Acuerdos "
-        "16/2009 y 12/2020 del otrora Consejo de la Judicatura Federal.")
+        "COMPRUEBA LA COLA NORMATIVA del párrafo de la sesión: se escribió la del "
+        "Acuerdo General 6/2026, que rige los asuntos listados desde abril de "
+        "dos mil veintiséis; si éste se listó antes, la cola es la de los "
+        "Acuerdos 16/2009 y 12/2020 del otrora Consejo de la Judicatura "
+        "Federal.")
     _emitir(res_apartados)
 
     # ── CONSIDERANDO ──

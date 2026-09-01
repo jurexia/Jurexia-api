@@ -25776,6 +25776,12 @@ async def taller_adelanto(
     # de Mérida suspendió labores un martes por un huracán. Eso lo declara quien
     # estuvo ahí. Fechas ISO separadas por coma.
     dias_inhabiles_extra: str = Form(""),
+    # LAS DOS FECHAS DE LA SESIÓN. El párrafo que las lleva está medido en 43
+    # de 44 engroses del tribunal, y son el único dato que el sistema no puede
+    # sacar de ninguna parte: el proyecto se redacta antes de la sesión. Se
+    # preguntan en vez de dejarlas en hueco. Vacías = siguen en hueco. ISO.
+    fecha_lista: str = Form(""),
+    fecha_sesion: str = Form(""),
     # LA MATERIA, DECLARADA POR EL SECRETARIO. Decide dos cosas caras: el silo
     # de leyes que consulta el RAG del fondo —el laboral tiene 3,205 artículos
     # de nueve ordenamientos que no están en ningún estatal— y el filtro del
@@ -25930,6 +25936,8 @@ async def taller_adelanto(
         dias_inhabiles_extra=[
             _dtm.date.fromisoformat(x.strip())
             for x in (dias_inhabiles_extra or "").split(",") if x.strip()],
+        fecha_lista=(fecha_lista or "").strip(),
+        fecha_sesion=(fecha_sesion or "").strip(),
         responsable=responsable, es_recurso=es_recurso,
         tribunal=tribunal, ciudad=ciudad, modo=modo,
         tipo_asunto=tipo_asunto,
@@ -26009,6 +26017,8 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "excepcion_plazo": getattr(e, "excepcion_plazo", ""),
             "dias_inhabiles_extra": [d.isoformat() for d in
                                      getattr(e, "dias_inhabiles_extra", []) or []],
+            "fecha_lista": getattr(e, "fecha_lista", ""),
+            "fecha_sesion": getattr(e, "fecha_sesion", ""),
             "responsable": e.responsable, "es_recurso": e.es_recurso,
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
             # LA MATERIA DECLARADA. Decide el silo del RAG y el filtro del
@@ -26134,6 +26144,8 @@ def _taller_recuperar_sesion(email: str, numero: str):
         excepcion_plazo=e.get("excepcion_plazo", ""),
         dias_inhabiles_extra=[_d.date.fromisoformat(x)
                               for x in (e.get("dias_inhabiles_extra") or [])],
+        fecha_lista=e.get("fecha_lista") or "",
+        fecha_sesion=e.get("fecha_sesion") or "",
         responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
         tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
         modo=e.get("modo", "generado"),
