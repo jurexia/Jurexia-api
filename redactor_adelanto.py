@@ -861,6 +861,18 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         _limpios = [a for a in _limpios
                     if not str(a).startswith("No se pudo comprobar la contaminación")]
 
+    # LA RAMA DE LA REVISIÓN, POR EL MISMO MOTIVO. El adelanto se compone antes
+    # de que exista el estudio, así que no puede saber qué resolvió el a quo y
+    # anota la rama «sin_determinar». Cuando la sentencia sí lo determina, el
+    # proyecto salía con LOS DOS avisos: «el a quo no consta qué resolvió» y,
+    # dos líneas más abajo, «el a quo sobresee». El segundo es el bueno —tiene
+    # el estudio delante— y el primero sólo siembra duda sobre él.
+    if any("RESOLUTIVO DE REVISIÓN, rama" in str(a)
+           and "sin_determinar" not in str(a) for a in _limpios):
+        _limpios = [a for a in _limpios
+                    if "RESOLUTIVO DE REVISIÓN, rama «sin_determinar»" not in str(a)
+                    and not str(a).startswith("NO CONSTA QUÉ RESOLVIÓ EL JUZGADO")]
+
     return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
                      partes=r.partes, estudio=estudio, advertencias=advertencias,
                      huecos=ens.huecos_pendientes(ruta),
