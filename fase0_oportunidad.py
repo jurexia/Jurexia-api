@@ -369,6 +369,7 @@ def computar(
     regla: str = "personal",
     plazo: int = 15,
     responsable: Optional[str] = None,
+    inhabiles_extra: Optional[list] = None,
 ) -> Computo:
     """El cómputo completo, con los dos calendarios.
 
@@ -376,8 +377,31 @@ def computar(
     revisión (art. 86), 5 para la queja urgente.
     `responsable` es la clave en CALENDARIOS_RESPONSABLE; si no está declarada
     se usa el federal y queda constancia en `avisos`.
+
+    `inhabiles_extra` son los días que el SECRETARIO declara inhábiles y que el
+    calendario federal no trae: un acuerdo de suspensión de labores de su
+    tribunal, una contingencia, un día no laborable local. David: «podemos
+    darle al secretario la opción de ingresar días inhábiles adicionales para
+    considerar en el cómputo».
+
+    Es la pieza que faltaba: el sistema sabe los inhábiles del artículo 19 de la
+    Ley de Amparo, los sábados y domingos y los periodos vacacionales del Poder
+    Judicial de la Federación, pero NO puede saber que el tribunal de Mérida
+    suspendió labores un martes por un huracán. Eso lo sabe quien estuvo ahí, y
+    si no se le pregunta el plazo sale corto.
     """
     avisos: list[str] = []
+
+    # LOS INHÁBILES DECLARADOS ENTRAN AL CALENDARIO FEDERAL, que es el que rige
+    # el plazo del recurso. Se copia el calendario para no contaminar el global:
+    # es un objeto de módulo y mutarlo dejaría esos días inhábiles para todos
+    # los asuntos que atendiera este proceso después.
+    _extra = {d for d in (inhabiles_extra or []) if d}
+    cal_amparo = CALENDARIO_AMPARO
+    if _extra:
+        import copy as _copy
+        cal_amparo = _copy.deepcopy(CALENDARIO_AMPARO)
+        cal_amparo.sueltos = set(cal_amparo.sueltos) | _extra
 
     r = REGLAS_SURTE.get(regla)
     if r and str(getattr(r, "clave", "")).endswith("_qro_boletin"):
@@ -411,24 +435,51 @@ def computar(
         if cal_resp.es_habil(surtio):
             contados += 1
 
-    # 2) El plazo — calendario del AMPARO
-    inicio = CALENDARIO_AMPARO.siguiente_habil(surtio + _dt.timedelta(days=1))
-    dias = CALENDARIO_AMPARO.sumar(inicio, plazo)
+    # 2) El plazo — calendario del AMPARO, con los inhábiles que el secretario
+    #    haya declarado ya dentro.
+    inicio = cal_amparo.siguiente_habil(surtio + _dt.timedelta(days=1))
+    dias = cal_amparo.sumar(inicio, plazo)
     vence = dias[-1]
 
     # Los inhábiles entre semana que caen dentro del plazo: son los que el
     # considerando nombra uno a uno («así como el dieciséis de marzo»).
     enmedio, cur = [], inicio
     while cur <= vence:
-        if cur.weekday() < 5 and not CALENDARIO_AMPARO.es_habil(cur):
+        if cur.weekday() < 5 and not cal_amparo.es_habil(cur):
             enmedio.append(cur)
         cur += _dt.timedelta(days=1)
+
+    # QUEDA CONSTANCIA DE LO QUE EL SECRETARIO DECLARÓ y de si sirvió de algo:
+    # un día declarado fuera del plazo no cambia el cómputo, y decírselo evita
+    # que crea que lo tuvo en cuenta.
+    if _extra:
+        dentro = sorted(d for d in _extra if inicio <= d <= vence)
+        if dentro:
+            avisos.append(
+                f"Se contaron como inhábiles los {len(dentro)} día(s) que "
+                f"declaraste dentro del plazo: {lista_en_letra(dentro)}.")
+        # UN DÍA ANTERIOR AL INICIO NO ES UN DÍA IGNORADO. Si el secretario
+        # declara inhábil el día en que el plazo iba a arrancar, el arranque se
+        # corre —y con él el vencimiento—. Decirle «fuera del plazo, no cambia
+        # el cómputo» sería falso: cambió el cómputo entero.
+        antes = sorted(d for d in _extra if surtio < d < inicio)
+        if antes:
+            avisos.append(
+                f"Los {len(antes)} día(s) que declaraste antes del arranque "
+                f"({lista_en_letra(antes)}) corrieron el inicio del plazo al "
+                f"{fecha_en_letra(inicio)}.")
+        sobran = sorted(d for d in _extra if d > vence or d <= surtio)
+        if sobran:
+            avisos.append(
+                f"Declaraste {len(sobran)} día(s) inhábil(es) fuera de la "
+                f"ventana del cómputo ({lista_en_letra(sobran)}): no lo "
+                f"cambian.")
 
     return Computo(
         notificacion=notificacion, regla=r, surtio=surtio, inicio=inicio,
         vencimiento=vence, plazo=plazo, dias=dias, presentacion=presentacion,
         inhabiles_en_medio=enmedio, cal_responsable=cal_resp,
-        cal_amparo=CALENDARIO_AMPARO, avisos=avisos,
+        cal_amparo=cal_amparo, avisos=avisos,
     )
 
 

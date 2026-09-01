@@ -25764,6 +25764,12 @@ async def taller_adelanto(
     # o provisional son DOS días y la omisión de tramitar la demanda no tiene
     # plazo; en el amparo, la norma autoaplicativa son treinta días.
     excepcion_plazo: str = Form(""),
+    # LOS INHÁBILES QUE EL SISTEMA NO PUEDE SABER. Trae los del artículo 19 de
+    # la Ley de Amparo, los sábados y domingos y los periodos vacacionales del
+    # Poder Judicial de la Federación; lo que NO puede saber es que el tribunal
+    # de Mérida suspendió labores un martes por un huracán. Eso lo declara quien
+    # estuvo ahí. Fechas ISO separadas por coma.
+    dias_inhabiles_extra: str = Form(""),
     # LA AUTORIDAD SE LEE DEL ACTO. Exigirla al secretario era la solución
     # equivocada al problema correcto: el dato está en la sentencia reclamada
     # que él ya subió y que ya pasa por OCR. Se acepta si la escribe —manda lo
@@ -25907,6 +25913,9 @@ async def taller_adelanto(
         regla_surtimiento=regla_surtimiento,
         plazo=plazo or _ta.plazo_de(tipo_asunto, excepcion_plazo)["dias"] or 0,
         excepcion_plazo=excepcion_plazo,
+        dias_inhabiles_extra=[
+            _dtm.date.fromisoformat(x.strip())
+            for x in (dias_inhabiles_extra or "").split(",") if x.strip()],
         responsable=responsable, es_recurso=es_recurso,
         tribunal=tribunal, ciudad=ciudad, modo=modo,
         tipo_asunto=tipo_asunto,
@@ -25982,6 +25991,9 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "notificacion": e.notificacion.isoformat(),
             "presentacion": e.presentacion.isoformat(),
             "regla_surtimiento": e.regla_surtimiento, "plazo": e.plazo,
+            "excepcion_plazo": getattr(e, "excepcion_plazo", ""),
+            "dias_inhabiles_extra": [d.isoformat() for d in
+                                     getattr(e, "dias_inhabiles_extra", []) or []],
             "responsable": e.responsable, "es_recurso": e.es_recurso,
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
             # Sin esto, el /taller/resolver que caiga en el otro worker
@@ -26099,6 +26111,9 @@ def _taller_recuperar_sesion(email: str, numero: str):
         notificacion=_d.date.fromisoformat(e["notificacion"]),
         presentacion=_d.date.fromisoformat(e["presentacion"]),
         regla_surtimiento=e["regla_surtimiento"], plazo=e["plazo"],
+        excepcion_plazo=e.get("excepcion_plazo", ""),
+        dias_inhabiles_extra=[_d.date.fromisoformat(x)
+                              for x in (e.get("dias_inhabiles_extra") or [])],
         responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
         tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
         modo=e.get("modo", "generado"),

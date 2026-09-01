@@ -49,6 +49,10 @@ class Encargo:
     # La excepción de plazo que el secretario haya declarado: en la queja,
     # «suspension» (dos días) u «omision_tramite» (en cualquier tiempo).
     excepcion_plazo: str = ""
+    # Los días que el secretario declara inhábiles y el calendario federal no
+    # trae: un acuerdo de suspensión de labores de su tribunal, una
+    # contingencia, un no laborable local.
+    dias_inhabiles_extra: list = field(default_factory=list)
     responsable: Optional[str] = None
     es_recurso: bool = False
     # LA HERRAMIENTA NO ES DE UN TRIBUNAL, ES DE TODOS. Estos tres campos son
@@ -175,7 +179,8 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             "Tribunal de Justicia Administrativa de Querétaro, que es de otra "
             "materia. Confírmalo contra la constancia de notificación.")
     c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
-                    e.plazo or 15, e.responsable)
+                    e.plazo or 15, e.responsable,
+                    getattr(e, "dias_inhabiles_extra", None))
     if _pl["en_cualquier_tiempo"]:
         c.oportuna = True                  # sin plazo no hay extemporaneidad
     avisos.extend(c.avisos)

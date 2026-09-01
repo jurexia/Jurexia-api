@@ -1453,26 +1453,28 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
 #     cuántos apartados le preceden.
 ESQUELETO = {
     # ═══════════════════════════════════════════════════════════════════
-    # LA TABLA DE CÓMPUTO CASI NUNCA SE DIBUJA, Y YO LA DIBUJABA SIEMPRE
+    # LA TABLA VA EN LOS CUATRO, Y ES UNA DECISIÓN DE PRODUCTO
     # ═══════════════════════════════════════════════════════════════════
-    # Contado sobre los adelantos reales del corpus:
+    # Yo la había quitado de tres tipos porque el corpus casi no la usa —tabla
+    # en 1 de 45 amparos directos, 0 de 21 quejas—. David: «cometí un error al
+    # pedirte que coincidieran con mis adelantos. Un plus que tenía el generador
+    # era la tabla. Ésa quiero conservarla para todos».
     #
-    #   amparo directo      tabla en  1 de 45 · «oportuna a la luz del art.» 22
-    #   amparo en revisión  tabla en  1 de 45 · «oportuna a la luz del art.» 29
-    #   revisión fiscal     tabla en 13 de 29
-    #   queja               tabla en  0 de 21 · «oportuna a la luz del art.» 16
+    # Tiene razón y el criterio es distinto del que yo aplicaba: contra el
+    # corpus se mide lo que HAY QUE IMITAR —los rótulos, las fórmulas, el orden,
+    # el vocabulario— porque ahí el corpus es la autoridad. Pero el corpus no
+    # manda sobre lo que el producto puede MEJORAR: si el secretario no dibuja
+    # la tabla es porque hacerla a mano cuesta, no porque sobre. La máquina
+    # tiene el calendario y la aritmética; regalarle el desglose es justamente
+    # lo que ella aporta.
     #
-    # El secretario DECLARA la oportunidad citando el precepto —«la
-    # presentación de la demanda resultó oportuna, a la luz del artículo 17 de
-    # la Ley de Amparo»— y sólo desglosa el cómputo en la revisión fiscal, y ni
-    # siquiera siempre. Yo lo hacía al revés: tabla en tres de los cuatro tipos.
-    #
-    # El cómputo SE SIGUE HACIENDO —es lo que detecta una extemporaneidad y
-    # para el pipeline— pero se ESCRIBE como él lo escribe.
+    # La prosa sí se queda corta —«resultó oportuna, a la luz del artículo 17»—
+    # porque con la tabla debajo, repetir el cómputo en palabras es decir dos
+    # veces lo mismo.
     "amparo_directo": {
         "q": "conceptos de violación",
         "recurrido": "la sentencia reclamada",
-        "tabla_computo": False,
+        "tabla_computo": True,
         "dispensa": "Acto reclamado y {q}.",
         "legitimacion": "Legitimación y oportunidad.",
         "existencia": True,
@@ -1482,7 +1484,7 @@ ESQUELETO = {
     "amparo_revision": {
         "q": "agravios",
         "recurrido": "la resolución recurrida",
-        "tabla_computo": False,
+        "tabla_computo": True,
         "dispensa": "Resolución recurrida y {q} de la parte recurrente.",
         "legitimacion": "Legitimación y oportunidad para interponer el recurso.",
         "existencia": False,
@@ -1492,9 +1494,7 @@ ESQUELETO = {
     "queja": {
         "q": "agravios",
         "recurrido": "el auto recurrido",
-        # EN LA QUEJA EL CÓMPUTO VA EN PROSA. Medido: ni una tabla en 20
-        # documentos. Dibujarla aquí sería inventarle un formato al secretario.
-        "tabla_computo": False,
+        "tabla_computo": True,
         "dispensa": "Trascripción innecesaria del auto recurrido y {q}.",
         "legitimacion": "Legitimación y oportunidad.",
         "existencia": False,
