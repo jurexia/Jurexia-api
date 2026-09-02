@@ -26280,12 +26280,21 @@ def _ponencia_anterior(email: str) -> dict:
     if not (email and supabase_admin):
         return {}
     try:
+        # LA COLUMNA SE LLAMA `estado`, NO `datos`, Y SE ORDENA POR
+        # `creado_en`. Escribí los dos nombres de memoria y el resultado fue
+        # que la consulta no devolvía nada y el endpoint pedía la ponencia a
+        # quien lleva cinco asuntos hechos. Comprobado contra el esquema real.
         r = supabase_admin.table("taller_sesiones") \
-            .select("datos").eq("email", email) \
-            .order("actualizado", desc=True).limit(1).execute()
-        e = ((r.data or [{}])[0].get("datos") or {}).get("encargo") or {}
-        return {k: e.get(k) or "" for k in
-                ("magistrado", "secretario", "tribunal", "ciudad")}
+            .select("estado").eq("email", (email or "").strip().lower()) \
+            .order("creado_en", desc=True).limit(6).execute()
+        # Se recorre hacia atrás hasta encontrar una con ponencia: el asunto
+        # más reciente puede ser justo el que se quedó a medias.
+        for fila in (r.data or []):
+            e = ((fila.get("estado") or {}).get("encargo")) or {}
+            if e.get("magistrado") and e.get("secretario"):
+                return {k: e.get(k) or "" for k in
+                        ("magistrado", "secretario", "tribunal", "ciudad")}
+        return {}
     except Exception as ex:
         print(f"   ⚠️ no se pudo leer la ponencia anterior: {err(ex)}")
         return {}
