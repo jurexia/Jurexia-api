@@ -102,12 +102,62 @@ _MESES = (r"enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|"
 _RX_FECHA = re.compile(
     r"\b(?:auto|acuerdo|sentencia|resoluci[óo]n|prove[íi]do|interlocutoria)\b"
     r"[^.]{0,40}?\bde\s+(" + _DIAS + r"\s+de\s+(?:" + _MESES + r")\s+de\s+"
-    r"(?:dos\s+mil\s+\w+(?:\s+\w+)?|\d{4}))",
+    # EL AÑO NO SE COME LA PALABRA SIGUIENTE. `(?:\s+\w+)?` capturaba
+    # «veinticinco SE» en «…de dos mil veinticinco se registró». El único año
+    # de cuatro palabras es «dos mil treinta y uno», así que la continuación
+    # sólo se admite tras «y».
+    r"(?:dos\s+mil\s+\w+(?:\s+y\s+\w+)?|\d{4}))",
+    re.I)
+
+
+# LA PRIMERA CANDIDATA NO ES LA BUENA, Y ESO PONÍA UNA FECHA FALSA EN EL
+# DOCUMENTO. Medido sobre los cinco engroses reales: acertaba 3 de 5 y en las
+# otras dos devolvía una fecha EQUIVOCADA —nunca vacía—. En el QA 143/2026
+# ponía el auto de Presidencia (31 de marzo) donde va el auto recurrido (6 de
+# marzo); en el ARA 17/2025 ponía «veintidós de junio de dos mil veintidós».
+#
+# El resultando primero nombra varias resoluciones en el mismo párrafo —la
+# recurrida, la de Presidencia que admite, la de turno— y quedarse con la
+# primera que casa es una moneda al aire. Su hermana `numero_de` acierta 5 de 5
+# porque exige que el número vaya pegado a la palabra que lo declara; aquí
+# faltaba la otra mitad de esa disciplina: si hay DOS candidatas, no se sabe.
+#
+# Y un hueco se ve. Una fecha equivocada se firma.
+# LA MARCA DE «ESTO ES LO RECURRIDO». La primera versión sólo miraba los
+# adjetivos —«recurrido», «impugnado»— y se dejaba fuera la forma en que el
+# V I S T O lo dice de verdad, que es la preposición: «contra del auto de seis
+# de marzo…, dictado por la Jueza Tercero de Distrito».
+_RX_RECURRIDO = re.compile(
+    r"\b(?:recurrid[oa]|impugnad[oa]|reclamad[oa]|combatid[oa]|"
+    r"que\s+se\s+revisa|materia\s+del\s+recurso)\b|"
+    r"\bcontra\s+(?:d?el\s+|la\s+)?"
+    r"(?:auto|acuerdo|sentencia|resoluci[óo]n|prove[íi]do|interlocutoria)\b",
     re.I)
 
 
 def fecha_de(resultandos: str) -> str:
-    """La fecha de lo recurrido, en letra, o cadena vacía."""
+    """La fecha de lo recurrido, en letra, o cadena vacía si hay duda."""
     t = " ".join((resultandos or "").split())
-    m = _RX_FECHA.search(t)
-    return m.group(1).strip() if m else ""
+    cand = list(_RX_FECHA.finditer(t))
+    if not cand:
+        return ""
+    if len(cand) == 1:
+        return cand[0].group(1).strip()
+
+    # HAY VARIAS. Sólo vale la que su propia frase declara recurrida; si
+    # ninguna lo dice, o lo dicen dos, se calla.
+    con_marca = []
+    for m in cand:
+        ini = t.rfind(". ", 0, m.start()) + 1
+        fin = t.find(". ", m.end())
+        frase = t[ini:fin if fin > 0 else len(t)]
+        if _RX_RECURRIDO.search(frase):
+            con_marca.append(m.group(1).strip())
+    # QUE COINCIDAN ES MÁS PRUEBA, NO MENOS. La primera versión exigía
+    # EXACTAMENTE una marcada y callaba cuando había dos —y en el engrose real
+    # las dos decían la MISMA fecha, una en el V I S T O y otra en el
+    # resultando primero—. Se agrupan y basta con que no se contradigan.
+    distintas = {" ".join(x.lower().split()) for x in con_marca}
+    if len(distintas) == 1:
+        return con_marca[0]
+    return ""
