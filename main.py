@@ -148,6 +148,31 @@ DEEPSEEK_OFFICIAL_REASONER_MODEL = "deepseek-v4-pro"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich output)
 
+# ── EL MOTOR DEL CHAT POR OMISIÓN, MODO BUSCAR (2-sep-2026) ─────────────
+#
+# Pasa de deepseek-v4-flash a gpt-5.4-nano por VELOCIDAD, no por costo.
+# Medido con entrada idéntica (mismo SYSTEM_PROMPT_CHAT, mismos 40 fragmentos
+# de /search, misma pregunta de amparo directo mercantil), caché caliente:
+#
+#   deepseek-v4-flash   27.6 s · 3,326 tokens de salida · $2.40 / 1,000
+#   gpt-5.4-nano        14.6 s · 2,525 tokens de salida · $3.78 / 1,000
+#
+# La mitad de espera por 58% más de costo. Sobre el volumen actual son unos
+# pocos dólares al mes, y la espera es lo que se ve.
+#
+# LO QUE SE PIERDE, y hay que vigilarlo: en las dos corridas nano dio la
+# conclusión correcta —quince días desde que surte efectos la notificación—
+# pero NO citó el artículo 18 de la Ley de Amparo ni la jurisprudencia
+# 1a./J. 25/2017, que deepseek sí traía. Menos autoridad debajo de la misma
+# respuesta.
+#
+# NI NANO NI DEEPSEEK RAZONAN A ESCONDIDAS, y por eso están aquí: gpt-5-mini
+# quemó 3,904 tokens de razonamiento invisible y gpt-5-nano 9,280, cobrados
+# como salida y nunca vistos por el usuario.
+#
+# REVERSA SIN DESPLIEGUE: BUSCAR_MODEL=deepseek-v4-flash en Render.
+BUSCAR_MODEL = os.getenv("BUSCAR_MODEL", "gpt-5.4-nano")
+
 # ── Ayudantes internos del pipeline (estratega, ruteo, HyDE, conceptos, expansión) ──
 #
 # Todos usan gpt-5-mini con topes chicos (80-400 tokens). gpt-5-mini razona por
@@ -216,6 +241,7 @@ REDACTOR_MODEL_GENERATE = os.getenv("REDACTOR_MODEL_GENERATE", "gemini-2.5-pro")
 # Switch in Render env vars without redeploy needed (restart service only).
 CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek (cost-optimized) - deploy update 2026-05-02
 print(f"   Chat Engine: {'🟢 DeepSeek V4 Flash (cost-optimized)' if CHAT_ENGINE == 'deepseek' else '🔵 GPT-5 Mini (premium)'}")
+print(f"   Motor de Buscar (chat por omisión): ⚡ {BUSCAR_MODEL}")
 
 # Cohere Rerank Configuration (cross-encoder for post-retrieval reranking)
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
@@ -13278,12 +13304,18 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL
                         max_tokens = 8192  # DeepSeek chat hard limit
                 else:
-                    # Chat normal sin genio → DeepSeek V4 Flash vía API directa.
-                    # V4 Flash (284B MoE, 13B active) es significativamente más potente que V3
-                    # y elimina la latencia de OpenRouter como intermediario.
+                    # Chat normal sin genio → el motor de BUSCAR_MODEL, que
+                    # desde el 2-sep-2026 es gpt-5.4-nano por velocidad (14.6 s
+                    # contra 27.6 s medidos con la misma entrada). El cliente se
+                    # deduce del nombre del modelo para que cambiar la variable
+                    # baste: DeepSeek va por api.deepseek.com directo, sin la
+                    # latencia de OpenRouter de intermediario; lo demás por
+                    # OpenAI.
                     _resolved_genio_ids = []
-                    active_client = get_deepseek_official_client()  # api.deepseek.com directo
-                    active_model = DEEPSEEK_OFFICIAL_CHAT_MODEL  # deepseek-v4-flash
+                    active_model = BUSCAR_MODEL
+                    active_client = (get_deepseek_official_client()
+                                     if "deepseek" in active_model.lower()
+                                     else chat_client)
                     # Marca ESTA rama —el chat por defecto, modo Buscar— para
                     # apagarle el razonamiento más abajo. Es una bandera y no
                     # una condición sobre el modelo porque redacción y el
@@ -13918,7 +13950,13 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # mínimo gpt-5-mini da el primer token en <1 s (medido) en
                     # vez de gastar medio minuto pensando en silencio.
                     if is_precedentes_mode and "gpt-5" in active_model:
-                        api_kwargs["reasoning_effort"] = "minimal"
+                        # `minimal` NO es universal: gpt-5.4-nano lo rechaza con
+                        # 400 y sólo admite none/low/medium/high/xhigh (probado
+                        # contra la API el 2-sep-2026). El escalón más bajo que
+                        # sí entiende es `none`, que es lo que este modo quiere:
+                        # síntesis, no razonamiento.
+                        api_kwargs["reasoning_effort"] = (
+                            "minimal" if "mini" in active_model else "none")
 
                     # Redacción Pro/Ultra fijan su nivel de razonamiento: sin
                     # esto los modelos 5.6 razonan a `medium` y el escrito
@@ -13969,7 +14007,12 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     #
                     # Sólo esta rama: redacción y el redactor con documento usan
                     # el mismo modelo y ahí el razonamiento sí aporta.
-                    if _es_chat_busqueda and os.getenv("CHAT_RAZONAMIENTO", "") != "1":
+                    # `thinking` es un parámetro de DeepSeek y SÓLO de DeepSeek.
+                    # Mandárselo a OpenAI devuelve 400 y tumba el chat entero,
+                    # así que desde que BUSCAR_MODEL puede ser un gpt esta
+                    # inyección va condicionada al proveedor, no sólo a la rama.
+                    if (_es_chat_busqueda and "deepseek" in active_model.lower()
+                            and os.getenv("CHAT_RAZONAMIENTO", "") != "1"):
                         api_kwargs.setdefault("extra_body", {})
                         api_kwargs["extra_body"]["thinking"] = {"type": "disabled"}
                         print("   ⚡ CHAT: razonamiento apagado (TTFB ~1s)")
