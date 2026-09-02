@@ -1619,6 +1619,17 @@ def partir_efectos(estudio: list) -> tuple:
     return cuerpo, efectos
 
 
+# LA PREGUNTA QUE FIJA LA CUESTIÓN NO SE DESCARTA POR CORTA. El compositor
+# tira los párrafos de menos de seis palabras —restos de un corte, coletillas
+# sueltas— y «1. ¿Era aplicable ese criterio?» son cinco. Habría pedido la
+# pregunta expresa y la habría borrado acto seguido.
+_RX_ES_PREGUNTA = re.compile(r"^\s*(?:\d{1,2}[.)]\s*)?¿.{10,}\?\s*$", re.S)
+
+
+def _es_pregunta(t: str) -> bool:
+    return bool(_RX_ES_PREGUNTA.match((t or "").strip()))
+
+
 def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
     citadas = 0
@@ -1651,14 +1662,14 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
             citadas += 1
             cola = _sin_eco(cola, hallada.get("texto") or "")
-            if len(cola.split()) > 6:
+            if len(cola.split()) > 6 or _es_pregunta(cola):
                 parrafo_con_citas(doc, cola, notas)
             ultima_tesis = hallada
             continue
         if ultima_tesis is not None:
             t = _sin_eco(t, ultima_tesis.get("texto") or "")
             ultima_tesis = None
-            if len(t.split()) < 6:
+            if len(t.split()) < 6 and not _es_pregunta(t):
                 continue
         # Se decide ANTES de escribir qué artículos van a transcribirse, para
         # poder quitar del párrafo el extracto que quedaría repetido debajo.
@@ -1675,7 +1686,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         # que el detector de duplicación marcaba y la regla del prompt no
         # bastaba para evitar, porque no es del modelo solo: es de los dos.
         t = _sin_extracto_repetido(t, _del_parrafo)
-        if len(t.split()) < 6:
+        if len(t.split()) < 6 and not _es_pregunta(t):
             continue
         p_ = parrafo_con_citas(doc, t, notas)
         # EL PRECEPTO SE TRANSCRIBE, NO SE RESUME. Va en bloque aparte, con

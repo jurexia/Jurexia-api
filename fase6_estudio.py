@@ -883,13 +883,28 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
 - EXTENSIÓN: alrededor de {PALABRAS_ESTUDIO} palabras. No cortes por brevedad:
   si crees que terminas, desarrolla los efectos de la concesión, los argumentos
   reforzadores y las objeciones previsibles con su refutación.
-- Sin Markdown, sin viñetas, sin esquemas.
+- Sin Markdown y sin viñetas. SÍ van numeradas las líneas argumentales: cada
+  problema abre con «1.», «2.»… y su pregunta. No es un esquema, es lo que
+  ordena la lectura y lo que hace que un apartado se entienda a la primera.
 
 NO REPITAS LO QUE YA ESTÁ ESCRITO — esto es lo primero:
 - Los dos resúmenes que vienen abajo —lo que resolvió la responsable y lo que se
   combate— YA OCUPAN SU PROPIO APARTADO en la sentencia, antes del tuyo. Se te
   dan para que sepas de qué va el asunto, NO para que los reproduzcas.
-- TU TEXTO EMPIEZA EN LA SOLUCIÓN. Abre con la calificación y entra a demostrar.
+- TU TEXTO EMPIEZA CON LA CALIFICACIÓN GENERAL —una frase: «los agravios son
+  fundados», «resultan en parte infundados y en parte inoperantes»— y ACTO
+  SEGUIDO abre el primer problema con su pregunta numerada. Nada de recuento.
+  Así:
+
+      Los agravios resultan fundados, por lo siguiente.
+
+      1. ¿La Sala responsable estaba obligada a precisar la unidad de
+      cuantificación aplicable a cada periodo?
+
+      Sí lo estaba. El artículo 50 de la Ley Federal de Procedimiento…
+
+  La pregunta va SOLA en su párrafo y termina en «?». Es el rótulo del
+  apartado, no una frase dentro de otra.
   Puedes referirte a lo que la responsable sostuvo cuando lo estés refutando
   —«la Sala afirmó X; ese razonamiento es incorrecto porque…»—, pero no vuelvas
   a contar la resolución ni a enumerar los agravios: el lector acaba de leerlos
