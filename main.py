@@ -26835,6 +26835,18 @@ async def taller_resolver_stream(
     razonamiento: str = Form(""),
     criterios_json: str = Form(""),
     contexto: str = Form(""),
+    # LOS TRES MODOS DE DECIDIR, QUE SÓLO EXISTÍAN EN EL ENDPOINT PLANO. Y el
+    # plano es justo el que se corta: el pipeline tarda entre 280 y 380
+    # segundos y la pasarela no espera tanto. O sea que los tres modos que
+    # David pidió vivían en el camino que revienta, y el camino que aguanta
+    # —éste— sólo sabía resolver por criterio explícito.
+    #
+    # Se ve en cuanto `proponer` no propone nada: el secretario echa mano del
+    # sentido global, que es el respaldo previsto, y aquí devolvía 422 «Falta
+    # el sentido o la propuesta aceptada».
+    usar_propuesta: bool = Form(False),
+    modo_decision: str = Form(""),           # acervo | global | por_problema
+    sentido_global: str = Form(""),          # el sentido del proyecto entero
 ):
     """La sentencia, viéndose escribir.
 
@@ -26884,9 +26896,40 @@ async def taller_resolver_stream(
                 if str(d.get("sentido", "")).strip()]
         if not crit:
             raise HTTPException(422, "criterios_json no trae ningún sentido.")
+    elif (modo_decision or "").strip().lower() == "global":
+        # EL SENTIDO GLOBAL, con la misma regla que el endpoint plano: el
+        # secretario dicta uno para el proyecto entero y `modos_decision` lo
+        # reparte —si el principal alcanza, los accesorios quedan sin materia—.
+        # Los frenos están en ese módulo, no aquí: son de la regla, no de la
+        # puerta.
+        if not sentido_global.strip():
+            raise HTTPException(422, "El modo global necesita `sentido_global`.")
+        import modos_decision as _md
+        _probs_g = [p if isinstance(p, dict) else {"pregunta": str(p)}
+                    for p in (r.fases.problemas or [])]
+        if not _probs_g and r.fases.problema_global:
+            _probs_g = [{"pregunta": r.fases.problema_global,
+                         "jerarquia": "principal"}]
+        _props_g = [{"problema": p.problema, "sentido": p.sentido,
+                     "razon": getattr(p, "razon", ""),
+                     "alcanza": getattr(p, "alcanza", True)}
+                    for p in (ses.get("propuestas") or [])]
+        _rep, _av_modo = _md.repartir(
+            _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g)
+        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
+                             razonamiento=x.get("razonamiento", ""),
+                             jerarquia=x.get("jerarquia", "accesorio"))
+                for x in _rep if str(x.get("sentido", "")).strip()]
+        if not crit:
+            raise HTTPException(
+                422, "El modo global no pudo repartir el sentido: no hay "
+                     "problemas jurídicos sobre los que aplicarlo.")
     else:
         if not sentido:
-            raise HTTPException(422, "Falta el sentido o la propuesta aceptada.")
+            raise HTTPException(
+                422, "Falta el sentido o la propuesta aceptada. Si el motor no "
+                     "propuso nada, manda `modo_decision=global` con "
+                     "`sentido_global`.")
         crit = [_f6.Criterio(problema=problema or (r.fases.problema_global or ""),
                              sentido=sentido, razonamiento=razonamiento)]
 
