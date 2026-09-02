@@ -198,8 +198,27 @@ _RX_DESVENTAJA = re.compile(
     r"adulto\s+mayor|persona\s+mayor|analfabet|migrante|reclusi[óo]n", re.I)
 
 
+# DÓNDE NO HAY SUPLENCIA, Y ESTO LO ROMPÍ YO. El artículo 79 empieza diciendo
+# «La autoridad que conozca DEL JUICIO DE AMPARO deberá suplir la deficiencia»,
+# y una revisión fiscal no es un juicio de amparo: es el recurso del artículo
+# 63 de la LFPCA, y quien recurre es LA AUTORIDAD. No hay parte débil a la que
+# suplir, y suplir a favor del ISSSTE contra su propio pensionado sería el
+# mundo al revés.
+#
+# El aviso saltó en el proyecto de la cuota pensionaria porque hoy amplié la
+# fracción V a los trabajadores que litigan en la vía administrativa. La
+# ampliación es correcta —el texto oficial dice «con independencia de que la
+# relación esté regulada por el derecho laboral o por el derecho
+# administrativo»— pero se me olvidó mirar la VÍA: eso vale en el AMPARO que
+# venga después contra la sentencia del Tribunal, no en este recurso.
+_SIN_SUPLENCIA = {"revision_fiscal"}
+
+
 def _aviso_de_suplencia(criterios: list, materia: str,
-                       material: str = "") -> list:
+                       material: str = "", tipo_asunto: str = "") -> list:
+    import tipos_asunto as _ta_s
+    if _ta_s.normalizar(tipo_asunto) in _SIN_SUPLENCIA:
+        return []
     m = (materia or "").strip().lower()
     par = _SUPLENCIA_ABSOLUTA.get(m)
     # El trabajador que litiga en la vía administrativa.
@@ -264,7 +283,7 @@ def _misma_direccion(a: str, b: str) -> bool:
 
 
 def _bloque_criterio(criterios: list[Criterio], materia: str = "",
-                     material_texto: str = "") -> str:
+                     material_texto: str = "", tipo_asunto: str = "") -> str:
     if not criterios:
         return ""
     lineas = ["", "═" * 71,
@@ -331,7 +350,7 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         "obligatoria en contra, una causal de improcedencia—, NO cambies el",
         "sentido: dilo en el apartado ADVERTENCIAS para que él lo valore.",
     ]
-    lineas += _aviso_de_suplencia(criterios, materia, material_texto)
+    lineas += _aviso_de_suplencia(criterios, materia, material_texto, tipo_asunto)
     return "\n".join(lineas)
 
 
@@ -706,6 +725,22 @@ def _sentido_del_fallo(criterios: list) -> str:
     return "niega"
 
 
+def _bloque_ley_de_la_via(m: Material) -> str:
+    """Qué ley gobierna esta vía, dicho ANTES de que el modelo razone.
+
+    Detectar la ley equivocada en el documento terminado es la red; esto es la
+    barandilla. En el proyecto de la revisión fiscal salieron CINCO citas de la
+    Ley de Amparo —el 74, el 76 y el 79 aplicados como derecho vigente al fondo
+    de un recurso que no se rige por esa ley— y el secretario las vio de un
+    vistazo: su propio engrose la cita UNA vez, el artículo 92, para el turno.
+    """
+    import tipos_asunto as _ta_v
+    t = _ta_v.ley_de_la_via(getattr(m, "tipo_asunto", ""))
+    if not t:
+        return ""
+    return "\n── LA LEY QUE GOBIERNA ESTA VÍA ──\n" + t + "\n"
+
+
 def _bloque_precedente(m: Material, criterios: list = None) -> str:
     """El sondeo del acervo de colegiados, si lo hubo.
 
@@ -1060,12 +1095,13 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
   ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
   escribe que el punto no está acreditado y sigue.
+{_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
 {_bloque_precedente(material, criterios)}
-{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material))}
+{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""))}
 {_bloque_material(material)}
 
 ═══════════════════════════════════════════════════════════════════════

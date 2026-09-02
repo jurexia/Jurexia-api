@@ -1250,15 +1250,102 @@ PRECEPTOS_AJENOS = {
          "los artículos 81 a 96 rigen el RECURSO DE REVISIÓN, no el amparo directo"),
     ],
     "queja": [],
-    "revision_fiscal": [
-        (r"Ley\s+de\s+Amparo",
-         "la revisión fiscal se rige por el artículo 104, fracción III, "
-         "constitucional y por la Ley Federal de Procedimiento Contencioso "
-         "Administrativo: la Ley de Amparo no la gobierna"),
-        (r"art[íi]culos?\s+(?:74|81|93)\b",
-         "74, 81 y 93 son de la Ley de Amparo"),
-    ],
+    # LA REVISIÓN FISCAL NO ESTÁ VACÍA DE LEY DE AMPARO, Y DECIRLO ASÍ ERA
+    # FALSO. La regla que había aquí prohibía la Ley de Amparo entera, y el
+    # engrose firmado por el secretario la cita: el artículo 92, para el turno.
+    # La frontera la marca la propia ley que sí gobierna la vía, en el último
+    # párrafo de su artículo 63:
+    #
+    #   «Este recurso de revisión deberá tramitarse en los términos previstos
+    #    en la Ley de Amparo EN CUANTO A LA REGULACIÓN DEL RECURSO DE REVISIÓN.»
+    #
+    # Así que no es «sí o no»: es «para qué». La lista está en `_LA_EN_FISCAL`
+    # y la comprueba `_amparo_fuera_de_lugar`, que mira los números uno a uno.
+    "revision_fiscal": [],
 }
+
+# LO QUE LA REMISIÓN DEL 63 SÍ TRAE: los artículos que regulan el recurso de
+# revisión (81 a 96), el cómputo de sus días hábiles (19) y la obligatoriedad
+# de la jurisprudencia (215 a 230), que es regla general de todo órgano
+# jurisdiccional y no del amparo.
+_LA_EN_FISCAL = set(range(81, 97)) | {19} | set(range(215, 231))
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUÉ LEY GOBIERNA CADA VÍA, DICHO ANTES DE ESCRIBIR
+# ═══════════════════════════════════════════════════════════════════════════
+# Detectar la ley equivocada en el documento terminado es la red; esto es la
+# barandilla. Al modelo hay que decirle en qué vía está ANTES de que razone,
+# porque si no razona con la ley que más ha visto —la de Amparo— y luego hay
+# que tacharla.
+LEY_DE_LA_VIA = {
+    "revision_fiscal":
+        "ESTA VÍA NO SE RIGE POR LA LEY DE AMPARO. La revisión fiscal es el "
+        "recurso del artículo 63 de la Ley Federal de Procedimiento "
+        "Contencioso Administrativo, y la sentencia que se revisa es la de un "
+        "Tribunal de Justicia Administrativa, no la de un juez de amparo. "
+        "Por tanto:\n"
+        "  · Los requisitos de la sentencia son los del artículo 50 de la "
+        "LFPCA, NO los del 74 de la Ley de Amparo.\n"
+        "  · NO hay suplencia de la queja: el artículo 79 de la Ley de Amparo "
+        "habla de «la autoridad que conozca del juicio de amparo», y aquí "
+        "quien recurre es la AUTORIDAD. No hay parte débil a la que suplir.\n"
+        "  · NO cabe corregir la cita de preceptos por el artículo 76 de la "
+        "Ley de Amparo.\n"
+        "De la Ley de Amparo sólo puedes invocar lo que su artículo 63 de la "
+        "LFPCA manda aplicar —«en cuanto a la regulación del recurso de "
+        "revisión», o sea los artículos 81 a 96—, el 19 para los días hábiles "
+        "y los de jurisprudencia (215 a 230), que son regla general.",
+    "queja":
+        "ESTA VÍA ES EL RECURSO DE QUEJA del artículo 97 de la Ley de Amparo. "
+        "No resuelves un amparo: resuelves si el auto recurrido estuvo bien "
+        "dictado. No hay acto reclamado ni autoridad responsable, hay un auto "
+        "y el órgano que lo dictó.",
+    "amparo_revision":
+        "ESTA VÍA ES EL RECURSO DE REVISIÓN, artículos 81 a 96 de la Ley de "
+        "Amparo. El artículo 172 y los 170 a 191 son del AMPARO DIRECTO y no "
+        "vienen a cuento aquí.",
+    "amparo_directo":
+        "ESTA VÍA ES EL AMPARO DIRECTO, artículos 170 a 191 de la Ley de "
+        "Amparo. Los artículos 81 a 96 regulan el recurso de revisión y no "
+        "gobiernan este juicio.",
+}
+
+
+def ley_de_la_via(tipo: str) -> str:
+    """El marco normativo de la vía, para decírselo al modelo antes de escribir."""
+    return LEY_DE_LA_VIA.get(normalizar(tipo), "")
+
+_RX_CITA_LA = re.compile(
+    r"art[íi]culos?\s+((?:\d{1,3}(?:\s*(?:,|y|e)\s*)?)+)"
+    r"[^.;]{0,110}?\bLey\s+de\s+Amparo", re.I)
+
+
+def _amparo_fuera_de_lugar(texto: str) -> list:
+    """En la revisión fiscal: los artículos de la Ley de Amparo que no toca.
+
+    MEDIDO CONTRA EL ENGROSE FIRMADO: el secretario cita el 92 y sólo el 92.
+    El proyecto generado citaba cinco —19, 74, 76, 79 y 217— de los cuales el
+    74 (requisitos de la sentencia de AMPARO, cuando aquí rige el 50 de la
+    LFPCA), el 76 (corrección de la cita de preceptos en el amparo) y el 79
+    (suplencia de la queja, que no existe en este recurso porque quien recurre
+    es la autoridad) son la ley equivocada aplicada a un asunto que no es suyo.
+    """
+    fuera, vistos = [], set()
+    for m in _RX_CITA_LA.finditer(texto or ""):
+        for num in re.findall(r"\d{1,3}", m.group(1)):
+            n_ = int(num)
+            if n_ in _LA_EN_FISCAL or n_ in vistos:
+                continue
+            vistos.add(n_)
+            fuera.append((
+                f"artículo {n_} de la Ley de Amparo",
+                f"el artículo {n_} de la Ley de Amparo no gobierna la revisión "
+                f"fiscal. El artículo 63, último párrafo, de la LFPCA remite a "
+                f"esa ley SÓLO «en cuanto a la regulación del recurso de "
+                f"revisión» —los artículos 81 a 96—; fuera de ahí rige la "
+                f"propia LFPCA (el 50 para los requisitos de la sentencia) y "
+                f"la Ley Orgánica del Poder Judicial de la Federación"))
+    return fuera
 
 # Dónde se aplica la regla dura. Fuera del marco competencial y de
 # procedencia, una cita de otra ley puede ser legítima —un criterio análogo,
@@ -1277,6 +1364,16 @@ def marco_de(texto: str) -> str:
 
 def preceptos_ajenos(tipo: str, texto: str, solo_marco: bool = True) -> list:
     """Los preceptos de otra vía que se colaron. [(patrón, por qué)]"""
+    # EN LA REVISIÓN FISCAL SE MIRA EL DOCUMENTO ENTERO, y ésa es la lección de
+    # este caso. La regla estaba acotada al marco competencial porque una cita
+    # de otra ley en el estudio puede ser legítima —un criterio análogo, una
+    # remisión—. Pero aquí no era analogía: eran los requisitos de la sentencia
+    # de AMPARO y la suplencia de la queja aplicados como derecho vigente al
+    # fondo de un recurso que no se rige por esa ley. Acotar la comprobación al
+    # primer considerando dejó pasar las tres.
+    if normalizar(tipo) == "revision_fiscal":
+        return _amparo_fuera_de_lugar(texto)
+
     reglas = PRECEPTOS_AJENOS.get(normalizar(tipo), [])
     if not reglas:
         return []
