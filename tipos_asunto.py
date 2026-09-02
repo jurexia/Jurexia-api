@@ -343,8 +343,14 @@ RESULTANDOS = {
          "fecha, oficialía y promovente de la DEMANDA DE AMPARO INDIRECTO —no "
          "del recurso—, y contra qué actos se enderezó"),
         ("Trámite del juicio de amparo indirecto",
-         "qué juzgado de distrito conoció, con qué número, y en qué paró: "
-         "sentencia, desechamiento o sobreseimiento, con su fecha"),
+         "qué juzgado de distrito conoció, con qué número, y EN QUÉ PARÓ. Esto "
+         "último es OBLIGATORIO y con el verbo: «CONCEDIÓ el amparo», «lo "
+         "NEGÓ», «SOBRESEYÓ». No basta «dictó sentencia» ni «resolvió el "
+         "juicio»: de ese dato depende el punto resolutivo de esta ejecutoria "
+         "—si se confirma, se revoca o se modifica— y si no consta, el "
+         "resolutivo sale con un hueco. Si de verdad no consta en lo que "
+         "tienes, escribe «no consta el sentido de la sentencia recurrida» y "
+         "sigue; lo que no puede es callarse"),
         ("Interposición y trámite del recurso de revisión",
          "fecha y promovente del RECURSO, auto de Presidencia que lo admitió "
          "con su fecha y número de toca"),

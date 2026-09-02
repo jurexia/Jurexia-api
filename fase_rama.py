@@ -40,6 +40,24 @@ _QUE_HIZO = [
 ]
 
 
+# LOS MISMOS SUPUESTOS, PERO SÓLO EN VERBO. Sin el sustantivo
+# «sobreseimiento», que es el que aparece en los rubros de las tesis que el
+# estudio transcribe y el que hacía confirmar sobreseimientos inexistentes.
+_QUE_HIZO_VERBOS = [
+    ("sobresee", r"\bsobresey[óo]\b|decret[óo]\s+el\s+sobreseimiento|"
+                 r"tuvo\s+por\s+no\s+presentada|\bdesech[óo]\s+de\s+plano\b"),
+    ("concede",  r"\bconcedi[óo]\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)\b|"
+                 r"\bampar[óo]\s+y\s+protegi[óo]\b|otorg[óo]\s+el\s+amparo"),
+    ("niega",    r"\bneg[óo]\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)\b|"
+                 r"\bno\s+ampar[óo]\s+ni\s+protegi[óo]\b"),
+]
+
+
+def _algo_dice(t: str) -> bool:
+    """¿Este texto dice, de alguna forma, en qué paró el juicio?"""
+    return any(re.search(rx, t, re.I) for _, rx in _QUE_HIZO)
+
+
 def resolvio_a_quo(texto: str, antecedentes: str = "") -> str:
     """«sobresee» | «concede» | «niega», o cadena vacía si no consta.
 
@@ -56,11 +74,22 @@ def resolvio_a_quo(texto: str, antecedentes: str = "") -> str:
         primer patrón que casa hacía que el orden de `_QUE_HIZO` decidiera el
         resolutivo, que es tanto como echarlo a suertes.
     """
-    fuente = " ".join((antecedentes or "").split()) or " ".join((texto or "").split())
+    ant = " ".join((antecedentes or "").split())
+    todo = " ".join((texto or "").split())
+    fuente = ant or todo
     if not fuente:
         return ""
+    _solo_verbos = False
+    if ant and not _algo_dice(ant):
+        # LOS ANTECEDENTES NO LO DICEN. Pasa cuando el resultando se queda en
+        # «conoció de la demanda y la radicó bajo el expediente 795/2023» sin
+        # llegar a decir en qué paró. Se mira el resto del documento, pero
+        # SÓLO CON LOS VERBOS —«concedió», «negó», «sobreseyó»— y no con el
+        # sustantivo «sobreseimiento», que es justo lo que aparece dentro de
+        # las tesis transcritas y lo que contaminaba la lectura.
+        fuente, _solo_verbos = todo, True
     cuenta = {}
-    for clave, rx in _QUE_HIZO:
+    for clave, rx in (_QUE_HIZO_VERBOS if _solo_verbos else _QUE_HIZO):
         n_ = 0
         for m in re.finditer(rx, fuente, re.I):
             if _afirmado(fuente, m):
