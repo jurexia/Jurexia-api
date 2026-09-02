@@ -361,7 +361,13 @@ RESULTANDOS = {
     "revision_fiscal": [
         ("Trámite del juicio contencioso administrativo",
          "fecha y oficialía de la demanda de nulidad, quién la promovió, qué "
-         "resolución impugnó, y la sentencia de la Sala con su fecha y sentido"),
+         "resolución impugnó, y LA SENTENCIA DE LA SALA CON SU FECHA Y SU "
+         "SENTIDO. El sentido es OBLIGATORIO y con el verbo: «DECLARÓ LA "
+         "NULIDAD», «RECONOCIÓ LA VALIDEZ», «SOBRESEYÓ». Ya lo pedía este "
+         "apartado y aun así el proyecto salió diciendo quién promovió y contra "
+         "qué, sin llegar nunca a decir qué resolvió la Sala —que es el acto "
+         "que se está revisando—. Sin ese dato el considerando de procedencia "
+         "no puede fundarse y quien lee no sabe qué se revisa"),
         ("Interposición del recurso de revisión fiscal",
          "fecha, oficialía y autoridad que interpuso el recurso"),
         ("Trámite del recurso de revisión fiscal",
@@ -619,7 +625,12 @@ _EVASIVAS = [
 _EVASIVAS = [__import__("re").compile(p, __import__("re").I) for p in _EVASIVAS]
 
 # Qué proveyó: los verbos con que un auto o una sentencia deciden algo.
+# LOS VERBOS CON QUE SE DECIDE, POR VÍA. En el contencioso administrativo la
+# Sala no ampara ni desecha: DECLARA LA NULIDAD, RECONOCE LA VALIDEZ o
+# SOBRESEE. Sin esos tres, la comprobación no podía distinguir un resultando
+# completo de uno mudo en la revisión fiscal.
 _QUE_PROVEYO = __import__("re").compile(
+    r"declar[óo]\s+la\s+nulidad|reconoci[óo]\s+la\s+validez|"
     r"desech[óa]|admit[ií][óo]?|previn[oe]|tuvo\s+por|sobresey[óo]|"
     r"conced[ií][óo]|neg[óo]|requiri[óo]|orden[óo]|declar[óo]|resolvi[óo]|"
     r"no\s+admit|ampar[óo]|reserv[óo]|dej[óo]\s+sin\s+efecto", __import__("re").I)
