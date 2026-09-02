@@ -1085,7 +1085,11 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
         # acto reclamado» y la queja hace el cómputo en prosa.
         tipo_asunto=(getattr(e, "tipo_asunto", "") or
                      ("amparo_revision" if e.es_recurso else "amparo_directo")),
-        normas=getattr(relleno, "normas", None))
+        normas=getattr(relleno, "normas", None),
+        # LAS PREGUNTAS, para que el compositor las escriba. El pipeline ya
+        # las tenía y no llegaban al documento; se pasan aquí porque componer
+        # es lo único que garantiza que salgan.
+        criterios=criterios)
     avisos = list(est.avisos)
     if not e.tribunal:
         avisos.append(

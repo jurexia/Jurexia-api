@@ -1889,7 +1889,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
              calificaciones=None, tesis=None, marco_escrito="",
-             tipo_asunto="amparo_directo", normas=None) -> str:
+             tipo_asunto="amparo_directo", normas=None, criterios=None) -> str:
     """Escribe el .docx entero. No hay plantilla de la que partir."""
     doc = docx.Document()
     notas: list = []
@@ -2479,6 +2479,44 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             (_ex["rotulo"] + ".",
              (lambda c: lambda p: _texto_en(p, c))(_ex["considerando"])))
     else:
+        # ── LA CUESTIÓN, FIJADA ANTES DE RESOLVERLA ────────────────────────
+        # Roberto Lara Chagoyán, «Sobre la estructura de las sentencias en
+        # México», § 3.2 y § 4.2: «la desgracia de muchas malas sentencias
+        # comienza con el descuido del deber de fijar cuidadosamente la
+        # cuestión… Una forma de mejorar los planteamientos es utilizar la
+        # PREGUNTA EXPRESA», y su ejemplo de apartado: «TERCERO. Materia de la
+        # revisión. Se constriñe a determinar si la parte quejosa logra, con
+        # sus agravios, desvirtuar las razones por las que el Juez de Distrito
+        # negó el amparo».
+        #
+        # POR QUÉ SE COMPONE Y NO SE PIDE. Se lo pedí al modelo en el prompt y
+        # no lo hizo: medido, 5 de 6 problemas sin pregunta, y después del
+        # arreglo seguían siendo cero. No era desobediencia: la instrucción
+        # cae en el carácter 27.732 de un prompt de 32.076, entre decenas de
+        # reglas, y una regla más en el último tercio se pierde. El pipeline YA
+        # tiene las preguntas —las calcula `proponer`, y las calcula bien—, así
+        # que se escriben. Lo que se puede componer no se pide.
+        _cuestiones = [str(getattr(c, "problema", "") or "").strip()
+                       for c in (criterios or [])
+                       if str(getattr(c, "problema", "") or "").strip()]
+        # El orden es el de prelación lógica, igual que en el estudio: primero
+        # el principal, del que dependen los demás.
+        _cuestiones = [q for c, q in sorted(
+            zip(criterios or [], _cuestiones),
+            key=lambda x: 0 if str(getattr(x[0], "jerarquia", "")).lower()
+            == "principal" else 1)]
+        if _cuestiones:
+            def _materia_del_asunto(p, _qs=_cuestiones):
+                _texto_en(p, _ta.materia_a_resolver(tipo_asunto))
+                for i_, q_ in enumerate(_qs, 1):
+                    q_ = q_.strip()
+                    if not q_.startswith("¿"):
+                        q_ = "¿" + q_.lstrip("¿")
+                    if not q_.rstrip().endswith("?"):
+                        q_ = q_.rstrip(" .;") + "?"
+                    _texto_en(p, f"{i_}. {q_}")
+            con_apartados.append((_ta.rotulo_materia_de(tipo_asunto), _materia_del_asunto))
+
         con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",
                               _estudio))
 

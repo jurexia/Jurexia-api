@@ -1336,6 +1336,42 @@ _MATERIA_ENCABEZADO = {
 }
 
 
+# EL APARTADO QUE FIJA LA CUESTIÓN, con el nombre que le da cada vía. Lara
+# Chagoyán lo llama «Materia de la revisión» en su ejemplo; el corpus del
+# tribunal usa ese mismo rótulo en la revisión y «Materia del recurso» en la
+# queja. En el amparo directo la cuestión son los conceptos de violación.
+_ROTULO_MATERIA = {
+    "amparo_revision": "Materia de la revisión.",
+    "revision_fiscal": "Materia de la revisión.",
+    "queja": "Materia del recurso.",
+    "amparo_directo": "Cuestión a resolver.",
+}
+
+_MATERIA_A_RESOLVER = {
+    "amparo_revision":
+        "La materia de la revisión se constriñe a resolver las cuestiones "
+        "siguientes:",
+    "revision_fiscal":
+        "La materia de la revisión se constriñe a resolver las cuestiones "
+        "siguientes:",
+    "queja":
+        "La materia del recurso se constriñe a resolver las cuestiones "
+        "siguientes:",
+    "amparo_directo":
+        "El estudio de los conceptos de violación se constriñe a resolver las "
+        "cuestiones siguientes:",
+}
+
+
+def rotulo_materia_de(tipo: str) -> str:
+    return _ROTULO_MATERIA.get(normalizar(tipo), "Cuestión a resolver.")
+
+
+def materia_a_resolver(tipo: str) -> str:
+    return _MATERIA_A_RESOLVER.get(
+        normalizar(tipo), _MATERIA_A_RESOLVER["amparo_directo"])
+
+
 def encabezado_de(tipo: str, materia: str = "", numero: str = "") -> str:
     """El encabezado del asunto, compuesto de lo que ya se eligió."""
     t = normalizar(tipo)
