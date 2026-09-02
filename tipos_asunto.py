@@ -1435,13 +1435,26 @@ _RX_CITA_LA = re.compile(
 # que se persigue es APLICAR la ley ajena, no mencionarla para apartarla. Es la
 # octava vez hoy que una comprobación mía acusa al documento correcto, y la
 # regla no cambia: si acusa al que hace bien, la que está mal es la regla.
+# Y LOS GIROS QUE FALTABAN, vistos en el proyecto de hoy. El texto dice, y dice
+# BIEN: «tratándose de una revisión fiscal promovida por una autoridad conforme
+# al artículo 63 de la LFPCA, NO OPERA LA SUPLENCIA de la queja prevista en el
+# artículo 79 de la Ley de Amparo». Es exactamente la regla que se le enseñó,
+# aplicada y explicada, y la comprobación lo acusaba. Décima retirada.
 _RX_DESCARTA = re.compile(
     r"(?:\bno\b\s+(?:con\s+base\s+en|conforme\s+a|en\s+t[ée]rminos\s+de|"
-    r"por|se\s+rige|resulta\s+aplicable|es\s+aplicable|aplica)|"
+    r"por|se\s+rige|resulta\s+aplicable|es\s+aplicable|aplica|"
+    r"opera|cabe|hay|procede|existe|resulta|rige|gobierna|se\s+invoca|"
+    r"se\s+funda|se\s+surte)|"
+    r"sin\s+que\s+(?:sea|resulte)\s+aplicable|tampoco\s+\w+|"
     r"a\s+diferencia\s+de|\bno\s+as[íi]\b|en\s+lugar\s+de|"
     r"y\s+no\b|ni\s+(?:por|conforme|con\s+base)|"
     r"(?:no|nunca)\s+(?:rige|gobierna|se\s+invoca))"
-    r"[^.;]{0,40}$", re.I)
+    # LA COLA ERA CORTA. Entre la negación y la cita cabe una subordinada
+    # entera: «NO OPERA la suplencia de la queja prevista en el ARTÍCULO 79»
+    # son 48 caracteres y el tope estaba en 40, así que el control sintético
+    # pasaba y el documento real no. Se mide sobre la frase de verdad, no sobre
+    # la que uno se inventa para probar.
+    r"[^.;]{0,90}$", re.I)
 
 
 def _amparo_fuera_de_lugar(texto: str) -> list:

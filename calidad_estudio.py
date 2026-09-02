@@ -369,6 +369,12 @@ _REMISIONES_CIEGAS = [
 ]
 _REMISIONES_CIEGAS = [re.compile(p, re.I) for p in _REMISIONES_CIEGAS]
 
+# Lo que convierte una remisión en una explicación: que detrás venga el porqué.
+_RX_EXPLICA = re.compile(
+    r"\b(?:porque|pues|ya\s+que|toda\s+vez\s+que|obedece\s+a|"
+    r"se\s+debe\s+a|en\s+raz[óo]n\s+de\s+que|lo\s+anterior\s+es\s+as[íi]|"
+    r"la\s+concesi[óo]n\s+obedece|el\s+motivo\s+es)\b", re.I)
+
 
 def _clave_pregunta(p: str) -> set:
     """Las palabras con peso de una pregunta, para reconocerla luego."""
@@ -425,6 +431,14 @@ def cierre_ciego(texto: str) -> list:
     fuera = []
     for rx in _REMISIONES_CIEGAS:
         x = rx.search(cola)
+        # REMITIR Y LUEGO EXPLICAR NO ES REMITIR. El amparo directo de hoy
+        # escribe «…deje insubsistente la sentencia reclamada y emita otra EN
+        # LOS TÉRMINOS PRECISADOS. La concesión obedece exclusivamente a que…»
+        # —y ahí viene el porqué, que es justo lo que se le pedía—. La frase
+        # cazada estaba dentro del párrafo de EFECTOS, no en el remate. Si
+        # después de ella el texto explica, no hay remisión ciega.
+        if x and _RX_EXPLICA.search(cola[x.end():]):
+            continue
         if x:
             fuera.append((
                 "el estudio cierra remitiendo en vez de decir: el último "
