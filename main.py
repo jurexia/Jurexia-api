@@ -8870,7 +8870,49 @@ app.add_middleware(
     allow_credentials=False,  # Must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
+    # LAS CABECERAS QUE LA PANTALLA NECESITA LEER. Sin esto el navegador
+    # recibe la respuesta pero no puede mirar sus cabeceras, así que el
+    # proyecto llega y los avisos —que viajan ahí— se pierden por el camino.
+    expose_headers=["X-Borrador", "X-Palabras", "X-Avisos", "X-Avisos-Detalle",
+                    "X-Huecos", "X-Advertencias", "X-Problemas", "X-Oportunidad",
+                    "X-Tiempos", "X-Rama", "Content-Disposition"],
 )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UN ERROR TIENE QUE LLEGAR AL NAVEGADOR, Y HOY NO LLEGABA
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 1-sep-2026, con su propio expediente delante: «recibí FAILD TO FECH…
+# cualquiera que sea la causa no toleramos faild to fetch».
+#
+# Tenía toda la razón y la causa no era la que parecía. El servidor SÍ
+# respondía —un 500 con su traza en el registro— pero esa respuesta la fabrica
+# el middleware de errores de Starlette, que está POR ENCIMA del de CORS: sale
+# sin `Access-Control-Allow-Origin`, el navegador la descarta antes de dejarla
+# leer, y `fetch` rechaza con «Failed to fetch». Para quien está delante de la
+# pantalla, un fallo con explicación y un cable cortado se ven igual.
+#
+# Este manejador devuelve el error COMO RESPUESTA NORMAL, con sus cabeceras, y
+# con un texto que se puede leer sin ser programador. La traza va al registro,
+# no al usuario: ahí dentro viajan rutas y datos del expediente.
+@app.exception_handler(Exception)
+async def _error_legible(request: Request, exc: Exception):
+    import traceback as _tb
+    import uuid as _uuid
+    from fastapi.responses import JSONResponse as _JR
+    huella = _uuid.uuid4().hex[:8]
+    print(f"❌ [{huella}] {request.method} {request.url.path} → "
+          f"{type(exc).__name__}: {exc}")
+    print(_tb.format_exc()[:4000])
+    return _JR(
+        status_code=500,
+        content={"error": "No se pudo completar la operación.",
+                 "detalle": f"{type(exc).__name__}: {str(exc)[:200]}",
+                 "huella": huella,
+                 "que_hacer": "Vuelve a intentarlo. Si se repite, envía esta "
+                              f"huella a soporte: {huella}"},
+        headers={"Access-Control-Allow-Origin": "*",
+                 "Access-Control-Expose-Headers": "*"})
 
 # Rate limiting middleware (sliding window per user/IP)
 try:
@@ -25925,17 +25967,50 @@ async def taller_adelanto(
                 f"sellos de firma. Vuelve a subirlo o pásalo antes por un OCR: "
                 f"NO se genera un proyecto sobre un documento que no se leyó.")
 
+    # LAS FECHAS SE VALIDAN ANTES DE TRABAJAR, y con nombre propio. El 1 de
+    # septiembre de 2026 esto tumbó tres intentos seguidos de David con un
+    # `ValueError: Invalid isoformat string: '52026-02-05'`: el campo de fecha
+    # del navegador manda un AÑO DE CINCO CIFRAS cuando una pulsación cae en el
+    # segmento del año, cosa que el propio HTML permite. El OCR de sus dos
+    # documentos ya había terminado —8,7 segundos— y todo ese trabajo se tiró.
+    #
+    # Se comprueba ANTES de gastar un segundo de OCR, y se dice QUÉ campo y QUÉ
+    # se recibió, para que quien esté delante pueda corregirlo sin adivinar.
+    def _fecha_del_formulario(valor: str, campo: str):
+        t = str(valor or "").strip()
+        # Se admite también «05/02/2026», que es como se teclea una fecha aquí.
+        # El campo del navegador manda ISO, pero quien rellena a mano no tiene
+        # por qué saberlo, y rechazarlo sería fricción sin motivo.
+        f = _ra._fecha_iso(t)
+        if f is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La fecha de {campo} no se entiende: se recibió "
+                       f"«{t[:24]}». Escríbela con el selector de fecha; si la "
+                       f"tecleaste, comprueba que el año tenga cuatro cifras.")
+        if not (2000 <= f.year <= _dtm.date.today().year + 1):
+            raise HTTPException(
+                status_code=400,
+                detail=f"La fecha de {campo} ({f.isoformat()}) está fuera de "
+                       f"lo posible. Comprueba el año.")
+        return f
+
+    _notif = _fecha_del_formulario(notificacion, "notificación")
+    _pres = _fecha_del_formulario(presentacion, "presentación")
+
     encargo = _ra.Encargo(
         numero=numero, encabezado=encabezado, quejoso=quejoso,
         magistrado=magistrado, secretario=secretario,
-        notificacion=_dtm.date.fromisoformat(notificacion),
-        presentacion=_dtm.date.fromisoformat(presentacion),
+        notificacion=_notif,
+        presentacion=_pres,
         regla_surtimiento=regla_surtimiento,
         plazo=plazo or _ta.plazo_de(tipo_asunto, excepcion_plazo)["dias"] or 0,
         excepcion_plazo=excepcion_plazo,
+        # Un inhábil mal escrito no vale un 500: se descarta y se avisa luego.
         dias_inhabiles_extra=[
-            _dtm.date.fromisoformat(x.strip())
-            for x in (dias_inhabiles_extra or "").split(",") if x.strip()],
+            d for d in (_ra._fecha_iso(x)
+                        for x in (dias_inhabiles_extra or "").split(",") if x.strip())
+            if d],
         fecha_lista=(fecha_lista or "").strip(),
         fecha_sesion=(fecha_sesion or "").strip(),
         responsable=responsable, es_recurso=es_recurso,

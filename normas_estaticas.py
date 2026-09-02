@@ -3,19 +3,30 @@
 David: «CPEUM y Ley de Amparo estáticos». Tenía razón por dos motivos
 distintos, y sólo se ven midiendo el acervo.
 
-LA LEY DE AMPARO NO ESTÁ EN QDRANT. Ni en `leyes_federales`, ni en el bloque
-constitucional, ni en las colecciones por materia: cero. Es la ley más citada
-de estos cuatro tipos de asunto —el 61, el 63, el 74, el 79, el 93, el 97— y
-NINGUNA de sus citas ha llevado nunca su texto a la nota al pie. El fallo era
-mudo: `_donde()` la mandaba a `leyes_federales`, allí no había nada, y
-`recuperar()` se saltaba el artículo sin decirlo. Ninguna alarma, ninguna nota,
-sólo un pie de página que no existía.
+LA LEY DE AMPARO SÍ ESTÁ EN QDRANT, y mi primera versión de este texto decía
+lo contrario. Lo escribo aquí porque el error de método importa más que el
+dato: comprobé su ausencia con un filtro `match: {text: …}` sobre un campo sin
+índice de texto, Qdrant devolvió un 400, y mi código leyó `.get("result",{})
+.get("points",[])` sobre la respuesta de error y contó CERO. Convertí un fallo
+de la consulta en un hecho sobre el acervo. Medido después como se debía:
+`leyes_federales` tiene 290 trozos de la Ley de Amparo y 270 artículos, entre
+ellos los diez que estos asuntos citan.
 
-Y menos mal que era mudo. Si `_elegir()` hubiera sido menos estricto, «artículo
-79 de la Ley de Amparo» habría cogido el 79 de la Ley del ISR o el de la Ley
-Federal de Procedimiento Contencioso Administrativo, que sí están. La única
-razón de que no ocurriera es que ninguna de esas leyes comparte la palabra
-«amparo» y el marcador de sobrantes las hundía a todas.
+LO QUE SÍ ERA CIERTO ES EL SÍNTOMA, y su causa resultó peor: `_traer` pedía 40
+trozos A CIEGAS. El artículo 79 tiene 48 trozos con ese número repartidos entre
+muchas leyes federales, y el de la Ley de Amparo no entraba en los primeros 40;
+el 61 y el 93 sí entraban. O sea que el precepto se recuperaba o no según dónde
+hubiera caído en el orden interno de la base, y cuando no, `_elegir` devolvía
+vacío EN SILENCIO. No era una ley ausente: era una ventana ciega, y afectaba a
+todas las leyes por igual. Eso está arreglado en `fase_normas._traer`, que
+ahora pagina hasta agotar.
+
+ENTONCES, ¿PARA QUÉ SIRVE ESTE MÓDULO? Para quitar la lotería del todo en la
+ley que se cita en cada considerando de competencia y de procedencia de los
+cuatro tipos de asunto. Una búsqueda que acierta casi siempre no basta cuando
+el precepto es el que funda la jurisdicción: aquí el texto viene del archivo
+oficial y no depende de cómo esté troceada una colección. Para las demás leyes
+sigue mandando el acervo, que es donde están.
 
 LA CONSTITUCIÓN SÍ ESTÁ, PERO NO SE PODÍA CITAR. Los artículos TRANSITORIOS del
 decreto de 1917 se ingestaron con el mismo `articulo_num` que los permanentes y

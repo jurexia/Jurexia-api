@@ -86,9 +86,18 @@ _RX_AUTORIDAD_FEDERAL = re.compile(
     r"\bSAT\b|servicio\s+de\s+administraci[óo]n\s+tributaria|"
     r"\bIMSS\b|instituto\s+mexicano\s+del\s+seguro\s+social|"
     r"\bISSSTE\b|\bINFONAVIT\b|\bFOVISSSTE\b|\bPROFECO\b|"
+    # ESCRITOS ENTEROS, que es como aparecen en la carátula de un asunto real:
+    # el recurrente de la revisión fiscal de hoy se llama «…del Instituto de
+    # Seguridad y Servicios Sociales de los Trabajadores del Estado», sin sigla
+    # por ninguna parte, y el filtro de fuero no lo reconocía.
+    r"servicios\s+sociales\s+de\s+los\s+trabajadores|"
+    r"fondo\s+nacional\s+de\s+la\s+vivienda|"
     r"junta\s+federal\s+de\s+conciliaci[óo]n|tribunal\s+federal\s+de\s+"
     r"justicia\s+administrativa|administraci[óo]n\s+desconcentrada|"
-    r"secretar[íi]a\s+de\s+hacienda|comisi[óo]n\s+nacional|"
+    # «Secretaría de Hacienda» A SECAS la tienen casi todos los estados. Se
+    # exige el nombre completo de la federal.
+    r"secretar[íi]a\s+de\s+hacienda\s+y\s+cr[ée]dito\s+p[úu]blico|"
+    r"comisi[óo]n\s+nacional|"
     r"instituto\s+nacional\b|procuradur[íi]a\s+federal", re.I)
 
 # «del Estado de Querétaro», «local», «municipal»: si la cita lo dice, va al
@@ -145,6 +154,13 @@ def _donde(cola: str, coleccion_estatal: str,
         return COLECCION_BLOQUE, "constitucion"
     if _RX_CONVENCIONAL.search(cola):
         return COLECCION_BLOQUE, "convencion"
+    # LA LEY LOCAL SE MIRA PRIMERO, y el orden no es un detalle: `_RX_FEDERAL`
+    # incluye «ley orgánica» y «ley general», así que «de la Ley Orgánica del
+    # Poder Judicial DEL ESTADO de Querétaro» se iba al acervo federal, donde
+    # no está, y la cita se quedaba sin texto. Si la cita dice «del Estado»,
+    # «municipal» o «local», ya ha dicho dónde vive.
+    if _RX_LEY_LOCAL.search(cola or "") and coleccion_estatal:
+        return coleccion_estatal, ""
     if _RX_FEDERAL.search(cola):
         return COLECCION_FEDERAL, ""
     # El asunto es federal y la cita no nombra ninguna ley local: el acervo del
@@ -163,16 +179,39 @@ async def _traer(qdrant, coleccion: str, num: str, tipo: str) -> list:
     debe = [FieldCondition(key="articulo_num", match=MatchValue(value=int(num)))]
     if tipo:
         debe.append(FieldCondition(key="tipo", match=MatchValue(value=tipo)))
+    # UNA VENTANA CIEGA DE 40 ERA UNA LOTERÍA, y perdía justo lo que se pedía.
+    # El mismo número de artículo existe en decenas de cuerpos legales de la
+    # misma colección: el 79 tiene 48 trozos en leyes_federales y el de la Ley
+    # de Amparo NO entraba en los primeros 40, mientras que el 61 y el 93 sí.
+    # Es decir, el precepto se recuperaba o no según dónde hubiera caído en el
+    # orden interno de Qdrant. Peor todavía: como `_elegir` no encontraba el
+    # cuerpo legal pedido, devolvía vacío EN SILENCIO, y la cita se quedaba sin
+    # texto al pie sin que nada lo dijera.
+    #
+    # Ahí nació mi diagnóstico falso de esta mañana —«la Ley de Amparo no está
+    # en el acervo»—: está, con 290 trozos y 270 artículos, pero por esta
+    # ventana no se alcanzaba. El diccionario estático sigue siendo la decisión
+    # correcta para esa ley, porque quita la lotería del todo, pero el motivo
+    # que apunté era otro y el fallo era GENERAL, no de una ley.
+    #
+    # Se pagina hasta agotar. Un artículo repartido en cien trozos es raro; el
+    # tope existe sólo para que un `articulo_num` corrupto no traiga la
+    # colección entera.
+    puntos, desde, MAX = [], None, 400
     try:
-        r = qdrant.scroll(collection_name=coleccion,
-                          scroll_filter=Filter(must=debe),
-                          limit=40, with_payload=True)
-        if inspect.isawaitable(r):
-            r = await r
-        puntos = r[0] if isinstance(r, tuple) else r
+        while len(puntos) < MAX:
+            r = qdrant.scroll(collection_name=coleccion,
+                              scroll_filter=Filter(must=debe),
+                              limit=200, offset=desde, with_payload=True)
+            if inspect.isawaitable(r):
+                r = await r
+            lote, desde = (r if isinstance(r, tuple) else (r, None))
+            puntos += list(lote or [])
+            if not desde:
+                break
         return [p.payload for p in puntos]
     except Exception:
-        return []
+        return [p.payload for p in puntos]
 
 
 def _elegir(pl: list, cola: str) -> list:

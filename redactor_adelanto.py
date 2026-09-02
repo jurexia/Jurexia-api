@@ -942,10 +942,15 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         "es_recurso": e.es_recurso,
         # Las dos fechas de la sesión, en letra como todo lo demás del cuerpo.
         # Vacías si el secretario no las declaró: entonces siguen en hueco.
-        "fecha_lista": _f0.fecha_en_letra(
-            _fecha_iso(getattr(e, "fecha_lista", ""))) if getattr(e, "fecha_lista", "") else "",
-        "fecha_sesion": _f0.fecha_en_letra(
-            _fecha_iso(getattr(e, "fecha_sesion", ""))) if getattr(e, "fecha_sesion", "") else "",
+        # SE COMPRUEBA QUE LA FECHA SE PUDO LEER, no que el campo venga lleno.
+        # Escrito como estaba, un «15/03/2026» —que es como se teclea una fecha
+        # en España y en México— pasaba el `if`, `_fecha_iso` devolvía None y
+        # `fecha_en_letra(None)` tumbaba el adelanto con un 500 DESPUÉS de
+        # treinta y cinco segundos de trabajo ya pagado. Lo introduje yo hoy.
+        "fecha_lista": _f0.fecha_en_letra(_fecha_iso(getattr(e, "fecha_lista", "")))
+                       if _fecha_iso(getattr(e, "fecha_lista", "")) else "",
+        "fecha_sesion": _f0.fecha_en_letra(_fecha_iso(getattr(e, "fecha_sesion", "")))
+                        if _fecha_iso(getattr(e, "fecha_sesion", "")) else "",
         "antecedentes": antecedentes,
     }
 
@@ -958,10 +963,22 @@ def _fecha_iso(x):
     al menos se ve.
     """
     import datetime as _dt
-    try:
-        return _dt.date.fromisoformat(str(x).strip()[:10])
-    except Exception:
+    import re as _re
+    t = str(x or "").strip()
+    if not t:
         return None
+    try:
+        return _dt.date.fromisoformat(t[:10])
+    except Exception:
+        pass
+    # «15/03/2026» y «15-03-2026», que es como se teclea una fecha aquí.
+    m = _re.match(r"^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$", t)
+    if m:
+        try:
+            return _dt.date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            return None
+    return None
 
 
 async def _componer_generado(cliente, e: Encargo, relleno, computo,
