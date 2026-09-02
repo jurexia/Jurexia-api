@@ -346,7 +346,19 @@ def duplicacion_interna(estudio: str, n: int = 15) -> list:
 # puntos resolutivos. Es más conveniente especificar el qué, por qué y para qué
 # se decidió que extraviar al lector para que encuentre por él mismo el
 # significado último del resolutivo.»
-_RX_PREGUNTA = re.compile(r"¿[^?¿]{15,300}\?")
+# EL TOPE DE 300 PERDÍA LAS PREGUNTAS REALES. Medidas en el ARA 17/2025: 419,
+# 353, 380 y 406 caracteres. El contador decía «0 preguntas» sobre un documento
+# que llevaba cuatro, y esa cifra falsa me habría hecho perseguir un fallo que
+# no existía. El tope sube; lo que sobra —que la pregunta sea kilométrica— se
+# mide aparte y se avisa, porque es un defecto distinto.
+_RX_PREGUNTA = re.compile(r"¿[^?¿]{15,700}\?")
+
+# UNA PREGUNTA QUE NO CABE EN UNA LÍNEA NO FIJA LA CUESTIÓN, LA REFORMULA.
+# Lara Chagoyán, § 3.2: sus ejemplos son de una línea —«¿el tribunal colegiado
+# realmente omitió el estudio de los conceptos de violación?»—. Una de 400
+# caracteres con una alternativa «o…» dentro es el planteamiento entero
+# disfrazado de pregunta, y quien la lee sigue sin saber qué se decide.
+MAX_PREGUNTA = 220
 
 _REMISIONES_CIEGAS = [
     r"por\s+las\s+razones\s+(?:antes\s+)?expuestas\s*[.,]",
@@ -374,7 +386,8 @@ def preguntas_expresas(texto: str, problemas: list = None) -> dict:
     t = texto or ""
     hay = _RX_PREGUNTA.findall(t)
     fuera = {"preguntas_en_el_documento": len(hay), "problemas": 0,
-             "planteados_como_pregunta": 0, "sin_pregunta": []}
+             "planteados_como_pregunta": 0, "sin_pregunta": [],
+             "kilometricas": [q[:90] for q in hay if len(q) > MAX_PREGUNTA]}
     if not problemas:
         return fuera
     claves_doc = [_clave_pregunta(q) for q in hay]

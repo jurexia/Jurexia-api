@@ -877,6 +877,13 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         # cinco dicen en vez de remitir— y que el pipeline sí hacía.
         try:
             _pe = _ce.preguntas_expresas(_txt, [c for c in (criterios or [])])
+            if _pe.get("kilometricas"):
+                avisos.insert(0,
+                    f"{len(_pe['kilometricas'])} pregunta(s) del apartado de "
+                    f"materia pasan de {_ce.MAX_PREGUNTA} caracteres. Una "
+                    f"pregunta que no cabe en una línea no fija la cuestión: "
+                    f"la reformula entera. Si dentro lleva una «o», son dos "
+                    f"problemas: «{_pe['kilometricas'][0][:100]}…»")
             if _pe.get("sin_pregunta"):
                 avisos.insert(0,
                     f"{len(_pe['sin_pregunta'])} de {_pe['problemas']} problemas "

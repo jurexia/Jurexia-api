@@ -2507,14 +2507,21 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             == "principal" else 1)]
         if _cuestiones:
             def _materia_del_asunto(p, _qs=_cuestiones):
-                _texto_en(p, _ta.materia_a_resolver(tipo_asunto))
+                _lineas = []
                 for i_, q_ in enumerate(_qs, 1):
-                    q_ = q_.strip()
+                    q_ = " ".join((q_ or "").split())
                     if not q_.startswith("¿"):
                         q_ = "¿" + q_.lstrip("¿")
                     if not q_.rstrip().endswith("?"):
                         q_ = q_.rstrip(" .;") + "?"
-                    _texto_en(p, f"{i_}. {q_}")
+                    _lineas.append(f"{i_}. {q_}")
+                # CADA PREGUNTA EN SU PÁRRAFO. Escritas con `_texto_en(p, …)`
+                # una tras otra se pegaban todas al rótulo y salía un bloque de
+                # 1.682 caracteres seguidos —«…cuestiones siguientes:1. ¿La
+                # audiencia…?2. ¿La vista…?»—, que es exactamente lo contrario
+                # de lo que la pregunta expresa viene a resolver: que se vea de
+                # un golpe qué se va a decidir.
+                _texto_en(p, _ta.materia_a_resolver(tipo_asunto), _lineas)
             con_apartados.append((_ta.rotulo_materia_de(tipo_asunto), _materia_del_asunto))
 
         con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",

@@ -196,7 +196,21 @@ def instrucciones_problemas(global_primero: bool = True) -> str:
 Salen del CONTRASTE entre los dos resúmenes: lo que la responsable resolvió
 frente a lo que se combate. No de la demanda sola ni del acto solo.
 
-- Cada uno se redacta COMO PREGUNTA, que es como se resuelve.
+- Cada uno se redacta COMO PREGUNTA, que es como se resuelve. Y LA PREGUNTA
+  CABE EN UNA LÍNEA: máximo 25 palabras, una sola cuestión, sin alternativas
+  «o…» dentro. Medidas en un proyecto real, las cuatro preguntas salieron de
+  353, 380, 406 y 419 caracteres, con la disyuntiva metida dentro:
+
+    MAL: «¿La audiencia se limitó a admitir la reconvención y diferir la
+          diligencia, o durante ella se recibieron y proveyeron diversas
+          actuaciones, se adoptaron determinaciones y se permitió que la
+          quejosa ejerciera su defensa sin asesor jurídico, de modo que deba
+          determinarse el alcance de la afectación procesal alegada?»
+    BIEN: «¿La quejosa compareció a la audiencia sin asesor jurídico?»
+
+  Una pregunta de cuatrocientos caracteres no fija la cuestión: la reformula
+  entera, y quien la lee sigue sin saber qué se va a decidir. Si de verdad hay
+  dos cuestiones, son DOS problemas, no uno con una «o» en medio.
 - SEÑALA LAS DOS COSAS, no sólo una. Este apartado pedía únicamente el
   IMPEDIMENTO que llevaría a inoperancia —que el planteamiento no combata la
   razón toral, que sea novedoso, que verse sobre cuestión firme— y no pedía
