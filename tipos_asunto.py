@@ -371,7 +371,11 @@ RESULTANDOS = {
          "juicio y qué proveyó"),
         ("Trámite del recurso",
          "auto de Presidencia que lo admitió, con su fecha y número, y el "
-         "informe de la autoridad si consta"),
+         "informe de la autoridad si consta. PROHIBIDO «se tramitó conforme a "
+         "las constancias que integran el expediente» y cualquier otra frase "
+         "que diga que hubo trámite sin decir cuál: si no consta la fecha del "
+         "auto de Presidencia, NO ESCRIBAS este resultando —se omite entero—, "
+         "pero no lo sustituyas por una fórmula que no informa de nada"),
         ("Turno del asunto",
          "fecha en que se turnó y a qué magistrado, para la elaboración del "
          "proyecto"),
@@ -577,6 +581,72 @@ _AJENO = {
     "revision_fiscal": [r"negar el amparo", r"conceder el amparo",
                         r"la Justicia de la Uni[óo]n"],
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL RESULTANDO QUE NO DICE QUÉ RESOLVIÓ EL ACTO RECURRIDO
+# ═══════════════════════════════════════════════════════════════════════════
+# El catálogo YA lo pide —«IDENTIFICA el auto recurrido: fecha, juzgado, número
+# de juicio y qué proveyó»— y aun así salió esto:
+#
+#   «SEGUNDO. Trámite del recurso. El recurso se tramitó conforme a las
+#    constancias que integran el expediente.»
+#
+# frente a lo que escribe el secretario:
+#
+#   «…contra el auto de seis de marzo de dos mil veintiséis, dictado por el
+#    Juzgado Tercero de Distrito…, en el juicio de amparo 371/2026, mediante el
+#    cual tuvo por cumplida la prevención y DESECHÓ DE PLANO LA DEMANDA.»
+#
+# Contra un modelo que incumple una instrucción no vale insistir en la
+# instrucción: hace falta mirar el resultado. Y no es cosmética —tres piezas
+# dependen de ese dato—: el inciso del artículo 97 se deduce de QUÉ proveyó el
+# auto, la rama del artículo 93 de QUÉ resolvió el juzgado, y quien lee el
+# proyecto no sabe de qué va el asunto si el resultando no lo dice.
+_EVASIVAS = [
+    r"se\s+tramit[óo]\s+conforme\s+a\s+(?:las\s+)?constancias",
+    r"conforme\s+a\s+(?:las\s+)?constancias\s+que\s+integran",
+    r"se\s+siguieron\s+los\s+tr[áa]mites\s+de\s+ley",
+    r"previos?\s+los\s+tr[áa]mites\s+(?:de\s+ley|correspondientes)",
+    r"en\s+los\s+t[ée]rminos\s+que\s+obran\s+en\s+autos",
+]
+_EVASIVAS = [__import__("re").compile(p, __import__("re").I) for p in _EVASIVAS]
+
+# Qué proveyó: los verbos con que un auto o una sentencia deciden algo.
+_QUE_PROVEYO = __import__("re").compile(
+    r"desech[óa]|admit[ií][óo]?|previn[oe]|tuvo\s+por|sobresey[óo]|"
+    r"conced[ií][óo]|neg[óo]|requiri[óo]|orden[óo]|declar[óo]|resolvi[óo]|"
+    r"no\s+admit|ampar[óo]|reserv[óo]|dej[óo]\s+sin\s+efecto", __import__("re").I)
+
+
+def resultando_evasivo(texto: str, tipo: str = "") -> list:
+    """Los resultandos que dicen que hubo trámite sin decir cuál.
+
+    Devuelve [(qué, la frase)] para los avisos. Sólo mira el bloque de
+    resultandos: en el estudio, «previos los trámites de ley» puede aparecer
+    citando la sentencia de otro, y ahí es una transcripción, no una evasiva.
+    """
+    import re as _re
+    t = texto or ""
+    i = _re.search(r"R\s*E\s*S\s*U\s*L\s*T\s*A\s*N\s*D\s*O", t)
+    j = _re.search(r"C\s*O\s*N\s*S\s*I\s*D\s*E\s*R\s*A\s*N\s*D\s*O", t)
+    if not i:
+        return []
+    bloque = t[i.end():j.start()] if j and j.start() > i.end() else t[i.end():i.end() + 9000]
+    fuera = []
+    for rx in _EVASIVAS:
+        m = rx.search(bloque)
+        if m:
+            fuera.append(("un resultando dice que hubo trámite sin decir cuál",
+                          " ".join(bloque[max(0, m.start() - 90):m.end() + 70].split())))
+    # Y EL DATO QUE MÁS SE ECHA EN FALTA: qué proveyó el acto recurrido.
+    if normalizar(tipo) in ("queja", "amparo_revision", "revision_fiscal"):
+        if not _QUE_PROVEYO.search(bloque):
+            fuera.append(("NINGÚN RESULTANDO DICE QUÉ RESOLVIÓ EL ACTO RECURRIDO. "
+                          "Sin ese dato no se puede fundar la procedencia ni "
+                          "elegir el resolutivo, y quien lea el proyecto no "
+                          "sabe de qué va el asunto", ""))
+    return fuera
 
 
 def cierre_ajeno(tipo: str, texto: str) -> list:

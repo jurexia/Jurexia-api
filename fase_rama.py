@@ -116,3 +116,44 @@ def responsable_originaria(texto: str) -> str:
             continue
         return n
     return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUÉ CONCLUYE EL ESTUDIO CUANDO SE ASUME JURISDICCIÓN
+# ═══════════════════════════════════════════════════════════════════════════
+# Levantado el sobreseimiento, el tribunal estudia los conceptos de violación
+# POR PRIMERA VEZ, y el sentido de ese estudio no lo dice el recurso: que el
+# agravio sea fundado prueba que el juez no debió sobreseer, no que el quejoso
+# tenga razón en el fondo. `tipos_asunto.rama_revision` devolvía siempre
+# «revoca_sobreseimiento_concede», de modo que la rama gemela —revocar y
+# NEGAR— estaba declarada y era inalcanzable: un proyecto que levanta el
+# sobreseimiento y niega el amparo no se podía escribir.
+#
+# Se lee del propio estudio, y sólo cuando lo dice con todas las letras.
+# MEDIDO sobre los engroses reales del corpus (17 con resolutivo legible):
+# acierta 13, se equivoca 0, calla 4. Callar es la respuesta correcta cuando no
+# consta: quien decide el sentido es el secretario, y el aviso se lo recuerda.
+_RX_NIEGA_FONDO = re.compile(
+    r"(?:procede|procedente\s+es|debe|deber[áa]|ha\s+lugar\s+a|se\s+impone)\s+"
+    r"(?:\w+\s+){0,2}?neg(?:ar|arse|ada)\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)|"
+    r"neg(?:ar|arse)\s+(?:el\s+)?amparo\s+(?:y\s+la\s+)?protecci[óo]n", re.I)
+_RX_CONCEDE_FONDO = re.compile(
+    r"(?:procede|procedente\s+es|debe|deber[áa]|ha\s+lugar\s+a|se\s+impone)\s+"
+    r"(?:\w+\s+){0,2}?conced(?:er|erse|ida)\s+(?:el\s+)?(?:amparo|la\s+protecci[óo]n)|"
+    r"conced(?:er|erse)\s+(?:el\s+)?amparo\s+y\s+(?:la\s+)?protecci[óo]n", re.I)
+
+
+def sentido_en_plenitud(texto: str) -> str:
+    """«concede» | «niega», o cadena vacía si el estudio no lo dice.
+
+    Gana la ÚLTIMA mención, que es la conclusión: un estudio menciona la
+    concesión al resumir lo que pide el quejoso y la niega al final.
+    """
+    t = " ".join((texto or "").split())
+    if not t:
+        return ""
+    n = [m.start() for m in _RX_NIEGA_FONDO.finditer(t)]
+    c = [m.start() for m in _RX_CONCEDE_FONDO.finditer(t)]
+    if not n and not c:
+        return ""
+    return "niega" if (n and (not c or n[-1] > c[-1])) else "concede"

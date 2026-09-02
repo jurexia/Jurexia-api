@@ -555,10 +555,19 @@ def tabla_computo(doc, computo, fecha_en_letra,
          fecha_en_letra(computo.notificacion)),
         (f"Surtimiento de efectos ({computo.regla.descripcion})",
          fecha_en_letra(computo.surtio)),
-        ("Inicio del plazo", fecha_en_letra(computo.inicio)),
-        (f"Plazo legal", f"{computo.plazo} días hábiles"),
-        ("Vencimiento del plazo", fecha_en_letra(computo.vencimiento)),
     ]
+    # SIN PLAZO NO HAY VENCIMIENTO QUE ENSEÑAR. Con el cómputo ya blindado
+    # contra el plazo cero, la tabla habría escrito «Plazo legal: 0 días
+    # hábiles» y un vencimiento igual al día de inicio: una fecha inventada
+    # para un asunto en el que la ley dice que no vence nada.
+    if getattr(computo, "en_cualquier_tiempo", False):
+        filas.append(("Plazo legal", "no hay: procede en cualquier tiempo"))
+    else:
+        filas += [
+            ("Inicio del plazo", fecha_en_letra(computo.inicio)),
+            ("Plazo legal", f"{computo.plazo} días hábiles"),
+            ("Vencimiento del plazo", fecha_en_letra(computo.vencimiento)),
+        ]
     if computo.presentacion is not None:
         filas.append((f"Presentación {_escrito}",
                       fecha_en_letra(computo.presentacion)))
@@ -2517,9 +2526,37 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 solo_efectos=_fr.solo_los_efectos(str(estudio or "")),
                 violacion_procesal=_fr.hay_violacion_procesal(str(estudio or "")))
             _rama = _ta.RAMAS_REVISION[_clave]
-            _orig = (_fr.responsable_originaria(_fuente_rama)
-                     or _normalizar_autoridad(str(datos.get("responsable") or ""))
-                     or HUECO)
+            # ═══════════════════════════════════════════════════════════════
+            # EL RESPALDO AMPARABA CONTRA EL ÓRGANO RECURRIDO
+            # ═══════════════════════════════════════════════════════════════
+            # `datos["responsable"]` en un recurso es el ÓRGANO RECURRIDO —la
+            # propia carátula lo rotula así: «ÓRGANO RECURRIDO: EL JUZGADO
+            # SEGUNDO DE DISTRITO»—, no la responsable originaria. Cuando
+            # `responsable_originaria` no lograba leerla del resumen, el
+            # respaldo escribía «La Justicia de la Unión ampara y protege a
+            # Juan Pérez, contra el acto reclamado AL JUZGADO SEGUNDO DE
+            # DISTRITO». Es un disparate: se ampara contra el acto de la
+            # autoridad que emitió el acto reclamado del amparo indirecto, no
+            # contra el juez que resolvió ese amparo.
+            #
+            # Este módulo ya tenía la doctrina escrita en `fase_rama`: «Y
+            # CUANDO NO CONSTA, SE DEJA EL HUECO». Se aplica. El comodín se ve,
+            # el linter lo cuenta y el aviso dice dónde buscarla.
+            #
+            # Y PASA POR `_con_articulo`, que era el otro defecto: el nombre
+            # sale del resumen sin artículo y el punto resolutivo decía «contra
+            # el acto reclamado a Director de Ingresos». El artículo se pone
+            # aquí y `_contraer` hace el resto —«a el» → «al»—.
+            _orig = _con_articulo(_fr.responsable_originaria(_fuente_rama))
+            if not _orig:
+                _orig = HUECO
+                _avisos_bk.append(
+                    "NO SE PUDO LEER LA AUTORIDAD RESPONSABLE ORIGINARIA y el "
+                    "SEGUNDO punto resolutivo va con comodín. NO se puso el "
+                    "órgano recurrido en su lugar: el amparo se concede o se "
+                    "niega contra el acto de la autoridad que lo emitió en el "
+                    "amparo indirecto, no contra el Juzgado de Distrito que lo "
+                    "resolvió. Escríbela tú, está en la sentencia recurrida.")
             if _rama.get("aviso"):
                 _avisos_bk.append(_rama["aviso"])
             for _pt in _rama["puntos"]:

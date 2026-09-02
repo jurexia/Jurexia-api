@@ -189,11 +189,16 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             "Trabajo). Venía declarada la regla del Boletín Jurisdiccional del "
             "Tribunal de Justicia Administrativa de Querétaro, que es de otra "
             "materia. Confírmalo contra la constancia de notificación.")
+    # EL CERO VIAJA HASTA EL CÓMPUTO. `e.plazo or 15` lo convertía en quince
+    # días: el «en cualquier tiempo» que se acababa de declarar se perdía en el
+    # camino, y por eso hacía falta corregirlo después escribiendo sobre
+    # `c.oportuna` —una @property de sólo lectura—, que reventaba con
+    # AttributeError. Se pasa el plazo que es, y el cómputo sabe qué hacer con
+    # el cero: `sin_plazo`, sin vencimiento y sin extemporaneidad posible.
+    _plazo_computo = 0 if _pl["en_cualquier_tiempo"] else (e.plazo or 15)
     c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
-                    e.plazo or 15, e.responsable,
+                    _plazo_computo, e.responsable,
                     getattr(e, "dias_inhabiles_extra", None))
-    if _pl["en_cualquier_tiempo"]:
-        c.oportuna = True                  # sin plazo no hay extemporaneidad
     avisos.extend(c.avisos)
     if c.oportuna is False:
         avisos.append("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "
@@ -815,6 +820,12 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         import tipos_asunto as _ta_v
         for _pat, _porque in _ta_v.preceptos_ajenos(e.tipo_asunto, _txt):
             avisos.insert(0, f"PRECEPTO DE OTRA VÍA EN EL MARCO: {_porque}.")
+
+        # EL RESULTANDO QUE NO INFORMA. Va el primero de la lista porque de ese
+        # dato dependen el inciso del 97, la rama del 93 y que quien lea el
+        # proyecto sepa de qué va el asunto.
+        for _q, _d in _ta_v.resultando_evasivo(_txt, e.tipo_asunto):
+            avisos.insert(0, f"{_q}" + (f": «…{_d[:130]}…»" if _d else "."))
 
         # EL LINTER. Frases cortadas, comillas huérfanas y el marcador genérico
         # donde debería ir el nombre.

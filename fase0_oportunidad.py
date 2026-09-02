@@ -351,16 +351,26 @@ class Computo:
     inhabiles_en_medio: list[Fecha] = field(default_factory=list)
     # Avisos que el secretario TIENE que leer antes de firmar.
     avisos: list[str] = field(default_factory=list)
+    # NO HAY PLAZO QUE CONTAR. Los recursos que proceden en cualquier tiempo
+    # —peligro de privación de la vida o ataques a la libertad (artículo 17,
+    # fracción IV) y omisión de tramitar la demanda de amparo (artículo 98,
+    # fracción II)— no tienen vencimiento, y por tanto no pueden ser
+    # extemporáneos. Es un CAMPO, no una propiedad, porque quien lo sabe es el
+    # catálogo de tipos y tiene que poder decírselo al cómputo.
+    sin_plazo: bool = False
 
     @property
     def en_cualquier_tiempo(self) -> bool:
         """Los tipos sin plazo —vida, libertad— no pueden ser extemporáneos.
 
-        `computar` con plazo 0 reventaba con un IndexError, así que el caso que
-        la ley protege de manera más terminante era el único que el cómputo no
-        sabía tratar.
+        ESTA PROPIEDAD YA EXISTÍA Y SU DOCSTRING MENTÍA EN PASADO. Decía que
+        `computar` con plazo 0 «reventaba» con un IndexError, y el 1-sep-2026 se
+        comprobó que seguía reventando: `sumar(inicio, 0)` devuelve `[]` y la
+        línea siguiente hace `dias[-1]`. La propiedad describía una defensa que
+        nadie había construido. Ahora sí la hay, en `computar`, y esto sólo la
+        lee.
         """
-        return not self.plazo or self.plazo <= 0
+        return bool(self.sin_plazo) or not self.plazo or self.plazo <= 0
 
     @property
     def anticipada(self) -> bool:
@@ -388,7 +398,15 @@ class Computo:
         decirlo: no es lo mismo llegar el último día que llegar antes de que
         el reloj empiece, y quien firma querrá saber por qué no hay cómputo
         que cuadre.
+
+        SIN PLAZO NO HAY EXTEMPORANEIDAD. `redactor_adelanto` intentaba decirlo
+        con `c.oportuna = True` sobre esta propiedad de sólo lectura, y eso
+        reventaba con AttributeError toda queja por omisión de tramitar la
+        demanda y todo amparo contra actos que amenazan la vida o la libertad.
+        Se responde aquí, que es donde se sabe.
         """
+        if self.en_cualquier_tiempo:
+            return True
         if self.presentacion is None:
             return None
         return self.presentacion <= self.vencimiento
@@ -428,6 +446,27 @@ def computar(
     si no se le pregunta el plazo sale corto.
     """
     avisos: list[str] = []
+
+    # ── SIN PLAZO NO SE CUENTA NADA ────────────────────────────────────────
+    # `plazo=0` significa que el recurso procede EN CUALQUIER TIEMPO, y `None`,
+    # que el catálogo no dio ninguno. Los dos entraban derechos a
+    # `sumar(inicio, plazo)`: con 0 devolvía la lista vacía y `dias[-1]` era un
+    # IndexError; con None, el `len(dias) < n` de `sumar` era un TypeError. O
+    # sea que los dos supuestos que la ley protege sin condición —la vida, la
+    # libertad, la omisión de tramitar la demanda— eran los únicos que tumbaban
+    # el cómputo, y lo tumbaban con un 500 sin cabeceras CORS: el «Failed to
+    # fetch» de David.
+    #
+    # No se inventa un plazo por defecto: no hay vencimiento que calcular. Se
+    # deja constancia y `oportuna` responde que sí, que es lo que la ley dice.
+    _sin_plazo = plazo is None or int(plazo) <= 0
+    _plazo = 0 if _sin_plazo else int(plazo)
+    if _sin_plazo:
+        avisos.append(
+            "NO SE COMPUTÓ PLAZO: este asunto no lo tiene —procede en cualquier "
+            "tiempo—, así que no hay vencimiento ni puede declararse "
+            "extemporáneo. Las fechas de notificación y de surtimiento sí se "
+            "calcularon, porque los antecedentes las nombran.")
 
     # ── LAS FECHAS IMPOSIBLES ──────────────────────────────────────────────
     # David: «anacronismos temporales». No es una comprobación de higiene: un
@@ -511,8 +550,11 @@ def computar(
     # 2) El plazo — calendario del AMPARO, con los inhábiles que el secretario
     #    haya declarado ya dentro.
     inicio = cal_amparo.siguiente_habil(surtio + _dt.timedelta(days=1))
-    dias = cal_amparo.sumar(inicio, plazo)
-    vence = dias[-1]
+    dias = cal_amparo.sumar(inicio, _plazo) if _plazo else []
+    # SIN DÍAS NO HAY ÚLTIMO DÍA. El vencimiento se iguala al inicio para que
+    # las ventanas de más abajo sean vacías, no para afirmar que vence ahí:
+    # `en_cualquier_tiempo` es lo que el documento lee, y dice que no vence.
+    vence = dias[-1] if dias else inicio
 
     # Los inhábiles entre semana que caen dentro del plazo: son los que el
     # considerando nombra uno a uno («así como el dieciséis de marzo»).
@@ -550,9 +592,9 @@ def computar(
 
     return Computo(
         notificacion=notificacion, regla=r, surtio=surtio, inicio=inicio,
-        vencimiento=vence, plazo=plazo, dias=dias, presentacion=presentacion,
+        vencimiento=vence, plazo=_plazo, dias=dias, presentacion=presentacion,
         inhabiles_en_medio=enmedio, cal_responsable=cal_resp,
-        cal_amparo=cal_amparo, avisos=avisos,
+        cal_amparo=cal_amparo, avisos=avisos, sin_plazo=_sin_plazo,
     )
 
 
