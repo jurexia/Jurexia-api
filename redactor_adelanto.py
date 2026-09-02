@@ -821,6 +821,22 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         for _pat, _porque in _ta_v.preceptos_ajenos(e.tipo_asunto, _txt):
             avisos.insert(0, f"PRECEPTO DE OTRA VÍA EN EL MARCO: {_porque}.")
 
+        # LO QUE NO SE LEYÓ DEL EXPEDIENTE. Va arriba del todo: si de mil
+        # páginas sólo entraron treinta y tres, eso condiciona TODO lo que
+        # venga debajo, y hasta hoy no se decía en ninguna parte.
+        try:
+            import fases123_pipeline as _f123
+            for _que, _entro, _habia in _f123.descartado():
+                avisos.insert(0,
+                    f"NO SE LEYÓ {_que.upper()} ENTERO: entraron {_entro:,} de "
+                    f"{_habia:,} caracteres ({_entro * 100 // max(_habia, 1)}%, "
+                    f"unas {_entro // 3000} páginas de {_habia // 3000}). Lo que "
+                    f"no entró NO se ha valorado. Si el asunto se juega en esas "
+                    f"páginas, sube sólo la parte que importa."
+                    .replace(",", "."))
+        except Exception:
+            pass
+
         # EL RESULTANDO QUE NO INFORMA. Va el primero de la lista porque de ese
         # dato dependen el inciso del 97, la rama del 93 y que quien lea el
         # proyecto sepa de qué va el asunto.

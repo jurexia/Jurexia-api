@@ -1088,7 +1088,8 @@ RAMAS_REVISION = {
 
 def rama_revision(resolvio_a_quo: str, sentido: str,
                   solo_efectos: bool = False,
-                  violacion_procesal: bool = False) -> str:
+                  violacion_procesal: bool = False,
+                  sentido_amparo: str = "") -> str:
     """La clave de RAMAS_REVISION que corresponde.
 
     `resolvio_a_quo` es lo que hizo el Juzgado de Distrito —«sobresee»,
@@ -1096,6 +1097,13 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
     resolutivo ÚNICO se piden expresamente porque no se pueden deducir del
     fondo: modificar sólo los efectos y ordenar reponer son decisiones del
     secretario, no consecuencias de que el agravio prospere.
+
+    `sentido_amparo` —«concede» | «niega» | «»— es lo que el ESTUDIO concluye
+    cuando, levantado el sobreseimiento, el tribunal asume jurisdicción y mira
+    los conceptos de violación por primera vez. Lo lee
+    `fase_rama.sentido_en_plenitud` del texto del estudio. Sin él,
+    `revoca_sobreseimiento_niega` era inalcanzable: estaba declarada y ninguna
+    combinación de argumentos la devolvía nunca.
     """
     if violacion_procesal:
         return "repone_procedimiento"
@@ -1111,9 +1119,18 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
                 "concede": "confirma_concede"}[a]
     if a == "sobresee":
         # Levantado el sobreseimiento, el sentido del AMPARO no lo dice el
-        # recurso: hay que estudiar los conceptos por primera vez. Se deja en
-        # «concede» sólo si el estudio lo afirma; por omisión, niega.
-        return "revoca_sobreseimiento_concede"
+        # recurso: hay que estudiar los conceptos por primera vez. Este
+        # comentario decía «se deja en concede sólo si el estudio lo afirma;
+        # por omisión, niega» y el código de debajo devolvía «concede» siempre,
+        # sin leer nada y sin recibir nada que leer.
+        #
+        # NO SE INVIERTE EL VALOR POR OMISIÓN. Negar un amparo que el estudio
+        # concedió es tan grave como lo contrario, y ninguno de los dos
+        # sentidos se puede suponer: sólo se aparta de «concede» cuando el
+        # estudio dice con todas sus letras que procede negar.
+        return ("revoca_sobreseimiento_niega"
+                if str(sentido_amparo or "").strip().lower() == "niega"
+                else "revoca_sobreseimiento_concede")
     return ("revoca_fondo_niega" if a == "concede"
             else "revoca_fondo_concede")
 

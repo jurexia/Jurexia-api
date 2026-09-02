@@ -86,7 +86,20 @@ _RX_RESUELVE = re.compile(
     re.I)
 
 
-def _cortar_bien(cuerpo: str, tope: int) -> str:
+# LO QUE SE TIRÓ, CONTADO. El recorte se perdía en silencio: medido sobre mil
+# páginas de OCR —3.082.990 caracteres— llegaban 100.000, o sea el 3,2 % del
+# expediente, y nada lo decía. Ni un aviso, ni una cabecera, ni una línea en el
+# registro. Y el silencio era deliberado por partida doble: el prompt PROHÍBE
+# al modelo mencionar que le falta material, para que no escriba «no cuento con
+# elementos suficientes» en mitad de una sentencia.
+#
+# Esa prohibición se queda: un documento no debe comentarse a sí mismo. Pero el
+# secretario tiene que saberlo, así que el dato viaja POR FUERA, en los avisos.
+# Lo apunta aquí quien corta, que es el único que sabe cuánto.
+DESCARTADO: dict = {}
+
+
+def _cortar_bien(cuerpo: str, tope: int, que: str = "") -> str:
     """Recorta por párrafo, y si hay que sacrificar, sacrifica el MEDIO.
 
     UN CORTE A MITAD DE FRASE SE NOTA, y lo que el modelo hace al notarlo es
@@ -101,6 +114,11 @@ def _cortar_bien(cuerpo: str, tope: int) -> str:
     """
     if len(cuerpo) <= tope:
         return cuerpo
+    if que:
+        _ya = DESCARTADO.get(que)
+        # Se conserva el TOTAL más grande: si la cola ya recortó, el documento
+        # de verdad era el de antes, no la rebanada que llega aquí.
+        DESCARTADO[que] = (max(len(cuerpo), _ya[0] if _ya else 0), tope)
 
     def _hasta(x: str, n: int) -> str:
         t = x[:n]
@@ -132,15 +150,24 @@ def recortar_acto(texto: str, tope: int = TOPE_CARACTERES) -> str:
     considerando, y en último caso a la cola del documento.
     """
     m = _MARCAS_ESTUDIO.search(texto) or _MARCAS_CONSIDERANDO.search(texto)
+    # AQUÍ SE PIERDE LA MAYOR PARTE, no en `_cortar_bien`. Cuando no aparece la
+    # marca del estudio se coge la COLA del documento, y esa rebanada ya viene
+    # del tamaño del tope: `_cortar_bien` la ve y no tiene nada que recortar,
+    # así que la primera versión de este contador no vio nada. Lo que se tiró
+    # se cuenta donde se tira.
     cuerpo = texto[m.start():] if m else texto[-tope:]
-    return _cortar_bien(cuerpo, tope)
+    if len(texto) > len(cuerpo):
+        DESCARTADO["el acto reclamado"] = (len(texto), len(cuerpo))
+    return _cortar_bien(cuerpo, tope, "el acto reclamado")
 
 
 def recortar_conceptos(texto: str, tope: int = TOPE_CARACTERES) -> str:
     """Del escrito de la parte, el apartado de conceptos o agravios."""
     m = _MARCAS_CONCEPTOS.search(texto)
     cuerpo = texto[m.start():] if m else texto[-tope:]
-    return _cortar_bien(cuerpo, tope)
+    if len(texto) > len(cuerpo):
+        DESCARTADO["el escrito de la parte"] = (len(texto), len(cuerpo))
+    return _cortar_bien(cuerpo, tope, "el escrito de la parte")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -581,3 +608,13 @@ def revisar(f: Fases123) -> list[str]:
     if "**" in f.resumen_acto or "**" in f.resumen_conceptos:
         avisos.append("Se coló Markdown.")
     return avisos
+
+
+def descartado() -> list:
+    """[(qué, cuánto entró, cuánto había)] de lo recortado en esta corrida."""
+    return [(q, tope, total) for q, (total, tope) in sorted(DESCARTADO.items())]
+
+
+def olvidar_descartes() -> None:
+    """Se limpia al empezar cada asunto: el diccionario es de módulo."""
+    DESCARTADO.clear()

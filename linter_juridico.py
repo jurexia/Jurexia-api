@@ -54,8 +54,21 @@ _PUNTUACION = [
 # «d la», «e el», «n el»: una letra suelta que era una preposición. Se exige
 # que vaya seguida de artículo, que es donde se ve; una «y» o una «o» sueltas
 # son conjunciones legítimas.
+#
+# EL re.I ACUSABA A LOS DOCUMENTOS BIEN ESCRITOS. Una letra suelta EN VERSALES
+# no es una preposición mutilada: es un apartado, un inciso, un tomo, un número
+# romano o un condominio. «apartado B las reglas», «tomo V las tesis», «el
+# Condominio B el mismo», «los fólios V el número del expediente» —los cuatro
+# son correctos y los cuatro salían acusados—. Medido sobre los 149 documentos
+# reales del cache de OCR: 46 acusaciones con re.I y 18 sin él; las 28 que
+# desaparecen son todas legítimas o ruido de OCR, ninguna era una preposición
+# amputada.
+#
+# El precio es no cazar la amputación en inicio de oración («D la sentencia»).
+# Se acepta: una comprobación que acusa a lo correcto se deja de leer entera, y
+# entonces no caza nada.
 _AMPUTADA = re.compile(
-    r"\b([bcdfghjklmnpqrstvwxz])\s+(?:el|la|los|las|un|una)\b", re.I)
+    r"\b([bcdfghjklmnpqrstvwxz])\s+(?:el|la|los|las|un|una)\b")
 
 # ── 3. COMILLA HUÉRFANA ────────────────────────────────────────────────────
 # Se cuentan, no se buscan: un « sin su » no se ve mirando una ventana.

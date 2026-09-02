@@ -1438,11 +1438,27 @@ def _cuenta_conceptos(texto: str) -> int:
 # donde el documento anuncia que va a resolver: el párrafo de «por lo expuesto»
 # o el «R E S U E L V E». Si ninguno aparece —un adelanto sin resolutivos—, se
 # usa el último tramo, que es lo único que queda.
+#
+# EL `\s*` ENTRE LAS LETRAS, CON re.I, NO ES EL RÓTULO: ES EL VERBO. Admitiendo
+# cero espacios, «R\s*E\s*S…» caza la palabra «resuelve» de cualquier frase, y
+# con re.I también en minúscula. Medido sobre los treinta engroses reales del
+# corpus con texto de oro: en DOS el desenlace arrancaba en un «resuelve» de la
+# prosa del estudio, 1,731 y 9,330 caracteres antes del verdadero —«resuelve de
+# forma terminal la controversia planteada», «resuelve el fondo del asunto y se
+# determina si existe o no el derecho a una pensión»—. Y ensanchar el desenlace
+# hacia atrás mete el cuerpo del estudio en la ventana donde se prohíbe la
+# fórmula de otro tipo de asunto: es exactamente la acusación falsa que el
+# comentario de `revisar_congruencia` dice que hay que evitar, porque castiga
+# al proyecto que razona para descartar una fórmula.
+#
+# Se exige el rótulo ESPACIADO, que es como se escribe en la sentencia y como
+# no se escribe nunca dentro de una frase. El mismo arreglo que ya llevaba
+# `linter_juridico._RX_RESOLUTIVO`, que aquí se había quedado sin hacer.
 _COLA_DESENLACE = 3000
 _RX_DESENLACE = re.compile(
     r"(?:por\s+lo\s+(?:expuesto|antes\s+expuesto)|"
     r"en\s+las\s+relatadas\s+consideraciones|"
-    r"R\s*E\s*S\s*U\s*E\s*L\s*V\s*E)", re.I)
+    r"R\s+E\s+S\s+U\s+E\s+L\s+V\s+E)", re.I)
 
 
 def _cola_de(texto: str) -> str:

@@ -2520,11 +2520,16 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         try:
             import fase_rama as _fr
             _que_hizo = _fr.resolvio_a_quo(_fuente_rama)
+            # EL SENTIDO EN PLENITUD SE LEE DEL ESTUDIO, no del recurso. Que el
+            # agravio sea fundado prueba que el juez no debió sobreseer, no que
+            # el quejoso tenga razón en el fondo.
+            _sent_amparo = _fr.sentido_en_plenitud(str(estudio or ""))
             _clave = _ta.rama_revision(
                 _que_hizo,
                 "fundado" if concede else "infundado",
                 solo_efectos=_fr.solo_los_efectos(str(estudio or "")),
-                violacion_procesal=_fr.hay_violacion_procesal(str(estudio or "")))
+                violacion_procesal=_fr.hay_violacion_procesal(str(estudio or "")),
+                sentido_amparo=_sent_amparo)
             _rama = _ta.RAMAS_REVISION[_clave]
             # ═══════════════════════════════════════════════════════════════
             # EL RESPALDO AMPARABA CONTRA EL ÓRGANO RECURRIDO
@@ -2575,6 +2580,21 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 f"{_que_hizo or 'no consta qué resolvió'}; el recurso resultó "
                 f"{'fundado' if concede else 'infundado'}. Compruébalo: de esto "
                 f"depende que se confirme, se revoque o se modifique.")
+            # EL SEGUNDO PUNTO NO SALE DEL RECURSO. Cuando se levanta el
+            # sobreseimiento y el tribunal asume jurisdicción, el sentido del
+            # amparo lo decide el estudio, y si el estudio no lo dijo, quien
+            # firma tiene que saber que ahí se puso el sentido por omisión.
+            if _rama.get("plenitud") and _que_hizo == "sobresee":
+                _avisos_bk.append(
+                    "SE ASUME JURISDICCIÓN Y EL SEGUNDO RESOLUTIVO "
+                    + (f"NIEGA el amparo porque el estudio concluye que procede "
+                       f"negarlo." if _sent_amparo == "niega" else
+                       f"CONCEDE el amparo, que es el sentido por omisión "
+                       f"porque el estudio no dice cuál es." if not _sent_amparo
+                       else "CONCEDE el amparo, como concluye el estudio.")
+                    + " Que el agravio sea fundado sólo prueba que no debió "
+                      "sobreseerse: el fondo se estudia por primera vez aquí y "
+                      "el sentido es tuyo.")
             _hecho = True
         except Exception as _erm:
             print(f"   ⚠️ rama de revisión no determinada: {_erm}")

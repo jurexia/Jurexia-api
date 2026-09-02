@@ -15363,7 +15363,44 @@ AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY", "")
 AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT", "").rstrip("/")
 
 
-async def _ocr_azure(contenido: bytes) -> str:
+# EL TOPE DE AZURE SON 2.000 PÁGINAS POR PETICIÓN, no por documento. La propia
+# API acepta un parámetro `pages` con el tramo que se quiere, así que lo que
+# falta se pide en otra llamada. Se trocea en mil para no volver a rozar el
+# techo ni el de memoria: la respuesta de mil páginas ya pesa 91 MB.
+_TRAMO_AZURE = 1000
+
+
+async def _ocr_azure_por_tramos(contenido: bytes, total: int, ya: int) -> str:
+    partes = []
+    inicio = int(ya) + 1
+    while inicio <= total:
+        fin = min(inicio + _TRAMO_AZURE - 1, total)
+        print(f"   🔁 Azure, páginas {inicio}-{fin} de {total}")
+        t = await _ocr_azure(contenido, paginas_esperadas=0,
+                             rango=f"{inicio}-{fin}")
+        if not t:
+            break
+        partes.append(t)
+        inicio = fin + 1
+    return "\n\n".join(partes)
+
+
+class _OCRIncompleto(Exception):
+    """Azure leyó el documento a medias y dijo que había terminado.
+
+    Lleva dentro lo que SÍ se leyó, para que quien llama pueda decidir: unir
+    lo que falta pidiéndolo por tramos, o avisar. Lo que no puede es dar por
+    completo un documento que no lo está.
+    """
+
+    def __init__(self, mensaje, leidas=0, texto=""):
+        super().__init__(mensaje)
+        self.leidas = leidas
+        self.texto = texto
+
+
+async def _ocr_azure(contenido: bytes, paginas_esperadas: int = 0,
+                     rango: str = "") -> str:
     """Azure AI Document Intelligence, modelo `prebuilt-read`.
 
     Se eligió midiendo, no por catálogo: 8 segundos para 42 páginas escaneadas
@@ -15374,7 +15411,8 @@ async def _ocr_azure(contenido: bytes) -> str:
     import httpx
 
     url = (f"{AZURE_DOCINT_ENDPOINT}/documentintelligence/documentModels/"
-           f"prebuilt-read:analyze?api-version=2024-11-30")
+           f"prebuilt-read:analyze?api-version=2024-11-30"
+           + (f"&pages={rango}" if rango else ""))
     cab = {"Ocp-Apim-Subscription-Key": AZURE_DOCINT_KEY,
            "Content-Type": "application/pdf"}
     async with httpx.AsyncClient(timeout=120) as cli:
@@ -15383,20 +15421,43 @@ async def _ocr_azure(contenido: bytes) -> str:
         operacion = r.headers.get("Operation-Location")
         if not operacion:
             return ""
-        for _ in range(60):
+        j = {}
+        for _vuelta in range(60):
             await asyncio.sleep(2)
             s = await cli.get(operacion, headers={"Ocp-Apim-Subscription-Key": AZURE_DOCINT_KEY})
-            j = s.json()
+            # EL JSON DE MIL PÁGINAS PESA 91 MB EN CRUDO y `json.loads` lo
+            # expande 7,1 veces: 709 MB de memoria, medido. Se descodifica en un
+            # hilo para no parar el latido mientras tanto.
+            j = await asyncio.to_thread(s.json)
             if j.get("status") in ("succeeded", "failed"):
                 break
+        else:
+            # EL SONDEO AGOTADO NO ES «NO HAY TEXTO». Devolver cadena vacía hacía
+            # que el llamador creyera que Azure no leyó nada y se cayera al
+            # respaldo de Gemini, que es el que mata al trabajador. Una lentitud
+            # pasajera no debe desembocar en eso.
+            raise RuntimeError(
+                "Azure no terminó el análisis en 120 segundos (60 sondeos). "
+                "No es que no haya texto: es que tardó.")
         if j.get("status") != "succeeded":
-            return ""
+            raise RuntimeError(f"Azure devolvió estado «{j.get('status')}»")
     res = j.get("analyzeResult", {})
     partes = []
     for i, pg in enumerate(res.get("pages", []), 1):
         lineas = [l.get("content", "") for l in pg.get("lines", [])]
         if lineas:
             partes.append(f"[[PÁGINA {i}]]\n" + "\n".join(lineas))
+    # AZURE RECORTA EN 2.000 PÁGINAS Y DICE «SUCCEEDED». Medido: un PDF de 2.100
+    # páginas vuelve con 2.000 y sin un solo error. El documento se habría
+    # leído a medias y firmado entero, que es exactamente la trampa que
+    # `_texto_nativo_sirve` existe para impedir. El dato para cazarlo ya estaba
+    # ahí —quien llama conoce el número de páginas— y nadie lo comparaba.
+    _leidas = len(res.get("pages", []))
+    if paginas_esperadas and _leidas < paginas_esperadas:
+        raise _OCRIncompleto(
+            f"Azure leyó {_leidas} de {paginas_esperadas} páginas y no avisó. "
+            f"El documento se leería a medias.", leidas=_leidas,
+            texto="\n\n".join(partes))
     return "\n\n".join(partes)
 
 
@@ -15445,10 +15506,17 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
         # ── 1. Try native text extraction ────────────────────────
         try:
             import fitz
-            doc = fitz.open(stream=content, filetype="pdf")
-            pages = [page.get_text() for page in doc]
-            n_pages = len(doc)
-            doc.close()
+            # EN UN HILO. Es rápido —0,2 s para mil páginas, medido— pero el
+            # coste no es el tiempo sino que se sume al de todo lo demás: el
+            # plazo del latido no distingue entre una llamada larga y veinte
+            # cortas seguidas.
+            def _leer_nativo(_c):
+                d = fitz.open(stream=_c, filetype="pdf")
+                try:
+                    return [p.get_text() for p in d], len(d)
+                finally:
+                    d.close()
+            pages, n_pages = await asyncio.to_thread(_leer_nativo, content)
             text = "\n\n".join(pages).strip()
             if _texto_nativo_sirve(text, n_pages):
                 print(f"   📄 PDF native text: {len(text)} chars, {n_pages} pages")
@@ -15472,12 +15540,31 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
         if AZURE_DOCINT_KEY and AZURE_DOCINT_ENDPOINT:
             try:
                 t0 = time.time()
-                texto_az = await _ocr_azure(content)
+                # SE LE DICE CUÁNTAS PÁGINAS TIENE. PyMuPDF ya lo sabe, y es lo
+                # único que permite cazar el recorte silencioso de Azure.
+                texto_az = await _ocr_azure(content, paginas_esperadas=n_pages)
                 if texto_az and len(texto_az) > 400:
                     print(f"   ⚡ Azure OCR: {len(texto_az)} chars en "
                           f"{time.time()-t0:.0f}s ({n_pages} pág)")
                     return texto_az
                 print("   ⚠️ Azure devolvió poco texto; se prueba con Gemini")
+            except _OCRIncompleto as e:
+                # UN DOCUMENTO LEÍDO A MEDIAS NO SE CALLA. Azure topa en 2.000
+                # páginas y dice «succeeded»; se pide el resto por tramos con el
+                # parámetro `pages`, en vez de tirar lo leído y mandarlo entero
+                # al respaldo, que para ese tamaño es la muerte del trabajador.
+                print(f"   ⚠️ {e}")
+                try:
+                    _resto = await _ocr_azure_por_tramos(content, n_pages, e.leidas)
+                except Exception as e2:
+                    _resto = ""
+                    print(f"   ❌ no se pudo completar por tramos: {err(e2)}")
+                _todo = ((e.texto or "") + ("\n\n" + _resto if _resto else "")).strip()
+                if _todo and len(_todo) > 400:
+                    print(f"   ⚡ Azure OCR por tramos: {len(_todo)} chars "
+                          f"({n_pages} pág)")
+                    return _todo
+                print("   ⚠️ ni por tramos; se prueba con Gemini")
             except Exception as e:
                 print(f"   ⚠️ Azure OCR falló ({err(e)}); se cae a Gemini")
 
@@ -15495,18 +15582,52 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
             
             CHUNK_SIZE = 15  # pages per chunk
             
+            # ═══════════════════════════════════════════════════════════
+            # ESTAS LLAMADAS PARABAN EL SERVIDOR ENTERO
+            # ═══════════════════════════════════════════════════════════
+            # `gemini_cl` es el cliente SÍNCRONO de google-genai, y estas
+            # llamadas viven dentro de un `async def`. Cada segundo que tardan
+            # es un segundo con el bucle de eventos parado, y con él el latido
+            # que uvicorn le manda a gunicorn.
+            #
+            # MEDIDO, con las banderas exactas de producción: una llamada de 20
+            # páginas tarda 202 segundos, un trozo de 15 tarda 151. Gunicorn
+            # mata al trabajador a los 215 con SIGABRT, la conexión se corta sin
+            # respuesta, y el navegador dice «Failed to fetch». Peor: se lleva
+            # por delante la petición del secretario de al lado, que no había
+            # hecho nada —medido: el vecino inocente murió también—.
+            #
+            # Y explica por qué el `asyncio.gather` de más arriba no paralelizaba
+            # nada: lo que había dentro era bloqueante.
+            #
+            # Se pasa al cliente asíncrono, y si no lo hubiera, a un hilo.
+            async def _gemini_ocr(ruta: str, etiqueta: str = "") -> str:
+                _aio = getattr(gemini_cl, "aio", None)
+                if _aio is not None:
+                    upl_ = await _aio.files.upload(file=ruta)
+                    r_ = await _aio.models.generate_content(
+                        model="gemini-3.1-pro-preview",
+                        contents=[upl_, OCR_PROMPT])
+                    return r_.text or ""
+                def _sincrono():
+                    u = gemini_cl.files.upload(file=ruta)
+                    return (gemini_cl.models.generate_content(
+                        model="gemini-3.1-pro-preview",
+                        contents=[u, OCR_PROMPT]).text or "")
+                return await asyncio.to_thread(_sincrono)
+
             if n_pages <= 20:
                 # ── Small PDF: process whole file ────────────────
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                     tmp.write(content)
                     tmp_path = tmp.name
-                upl = gemini_cl.files.upload(file=tmp_path)
-                _os.unlink(tmp_path)
-                resp = gemini_cl.models.generate_content(
-                    model="gemini-3.1-pro-preview",
-                    contents=[upl, OCR_PROMPT],
-                )
-                result = resp.text or ""
+                try:
+                    result = await _gemini_ocr(tmp_path)
+                finally:
+                    try:
+                        _os.unlink(tmp_path)
+                    except Exception:
+                        pass
                 print(f"   ✅ Gemini 3.1 Pro OCR: {len(result)} chars from {n_pages} pages")
                 return result
             else:
@@ -15516,33 +15637,49 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
                 chunks_text = []
                 total_pages = len(src)
                 
+                # LOS TROZOS, A LA VEZ Y SIN BLOQUEAR. El bucle secuencial
+                # sumaba 151 segundos POR TROZO: un expediente de 300 páginas
+                # son veinte trozos, o sea cincuenta minutos de bucle parado.
+                # Ninguna petición sobrevive a eso, ni la suya ni la del vecino.
+                _rutas = []
                 for start in range(0, total_pages, CHUNK_SIZE):
                     end = min(start + CHUNK_SIZE, total_pages)
-                    chunk_label = f"pages {start+1}-{end}/{total_pages}"
-                    print(f"   🔍 OCR chunk: {chunk_label}...")
-                    
-                    # Create a mini-PDF with just these pages
                     chunk_doc = _fitz.open()
                     chunk_doc.insert_pdf(src, from_page=start, to_page=end - 1)
                     chunk_bytes = chunk_doc.tobytes()
                     chunk_doc.close()
-                    
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(chunk_bytes)
-                        tmp_path = tmp.name
-                    
-                    upl = gemini_cl.files.upload(file=tmp_path)
-                    _os.unlink(tmp_path)
-                    
-                    resp = gemini_cl.models.generate_content(
-                        model="gemini-3.1-pro-preview",
-                        contents=[upl, OCR_PROMPT],
-                    )
-                    chunk_text = resp.text or ""
-                    chunks_text.append(chunk_text)
-                    print(f"   ✅ Chunk {chunk_label}: {len(chunk_text)} chars")
-                
+                        _rutas.append((tmp.name, f"pages {start+1}-{end}/{total_pages}"))
                 src.close()
+                print(f"   🔍 OCR de {len(_rutas)} trozos en paralelo…")
+
+                # DE SEIS EN SEIS. Azure y Gemini tienen cuota por segundo, y
+                # cien peticiones a la vez se convierten en cien errores 429 que
+                # acaban en el mismo sitio: sin texto.
+                _sem = asyncio.Semaphore(6)
+
+                async def _uno(ruta, etiqueta):
+                    async with _sem:
+                        try:
+                            t_ = await _gemini_ocr(ruta, etiqueta)
+                            print(f"   ✅ Chunk {etiqueta}: {len(t_)} chars")
+                            return t_
+                        except Exception as e_:
+                            print(f"   ❌ Chunk {etiqueta} falló: {err(e_)}")
+                            return ""
+                        finally:
+                            try:
+                                _os.unlink(ruta)
+                            except Exception:
+                                pass
+
+                chunks_text = list(await asyncio.gather(
+                    *[_uno(r_, e_) for r_, e_ in _rutas]))
+                _vacios = sum(1 for c in chunks_text if not c.strip())
+                if _vacios:
+                    print(f"   ⚠️ {_vacios} de {len(chunks_text)} trozos sin texto: "
+                          f"el documento se leyó a medias")
                 result = "\n\n".join(chunks_text).strip()
                 print(f"   ✅ Gemini 3.1 Pro OCR total: {len(result)} chars from {total_pages} pages ({len(chunks_text)} chunks)")
                 return result
