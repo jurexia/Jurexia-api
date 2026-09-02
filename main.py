@@ -8996,6 +8996,50 @@ _COLECCIONES_CITA = list(dict.fromkeys(
 # Este proxy existe para averiguar si el rango de Render corre mejor suerte
 # que el de Vercel. Si responde, el frontend deja de hablar con la Corte y
 # habla con nosotros, que es además donde vive el corpus.
+# Diagnóstico temporal: qué variante de petición acepta el Semanario desde
+# un servidor. Se prueba una matriz —con y sin Referer, con y sin cookies,
+# siguiendo o no la redirección— porque desde una laptop responde 200 y desde
+# aquí no, y sin datos sólo hay conjeturas.
+@app.get("/semanario/diag/{registro}")
+async def semanario_diag(registro: str):
+    import re as _re
+    if not _re.fullmatch(r"\d{5,8}", registro or ""):
+        raise HTTPException(status_code=400, detail="registro_invalido")
+    base = "https://sjf2.scjn.gob.mx"
+    url = (f"{base}/services/sjftesismicroservice/api/public/tesis/{registro}"
+           f"?isSemanal=false&hostName={base}")
+    ua = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+    ref = f"{base}/detalle/tesis/{registro}"
+
+    pruebas = {
+        "desnuda":            ({}, False),
+        "ua":                 ({"User-Agent": ua}, False),
+        "ua+ref":             ({"User-Agent": ua, "Referer": ref}, False),
+        "ua+ref+accept":      ({"User-Agent": ua, "Referer": ref,
+                                "Accept": "application/json, text/plain, */*"}, False),
+        "ua+ref sigue-302":   ({"User-Agent": ua, "Referer": ref}, True),
+        "ua+ref+accept 302":  ({"User-Agent": ua, "Referer": ref,
+                                "Accept": "application/json, text/plain, */*"}, True),
+    }
+    out = {}
+    for nombre, (cab, seguir) in pruebas.items():
+        try:
+            # `cookies={}` en cada cliente: nada de sesión heredada entre
+            # pruebas, que es justo lo que envenenaba el resultado.
+            async with httpx.AsyncClient(follow_redirects=seguir, timeout=20.0,
+                                         cookies={}) as cli:
+                r = await cli.get(url, headers=cab)
+            out[nombre] = {"status": r.status_code,
+                           "bytes": len(r.content),
+                           "ius": (r.json().get("ius") if r.status_code == 200
+                                   and r.headers.get("content-type", "").startswith("application/json")
+                                   else None)}
+        except Exception as e:
+            out[nombre] = {"error": f"{type(e).__name__}: {e}"}
+    return out
+
+
 @app.get("/semanario/tesis/{registro}")
 async def semanario_tesis(registro: str, pdf: bool = False):
     import re as _re
