@@ -14574,10 +14574,36 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     # dejaba de confiar en todas — incluidas las buenas. Cuatro
                     # certeras valen más que doce de las que sobran ocho. Si sólo
                     # dos superan el corte, salen dos.
-                    _prec_visibles = [
-                        _p for _p in precedentes_results
-                        if getattr(_p, "score", 0) >= _PREC_SCORE_MIN
-                    ][:4]
+                    # MÁS CIRCUITO, SIN VOLVER AL RELLENO (2-sep-2026)
+                    #
+                    # El tope de cuatro se puso por una razón buena: doce por
+                    # ranking dejaban ocho de relleno, el abogado abría la
+                    # séptima, veía que no venía al caso y dejaba de fiarse de
+                    # todas. Esa razón sigue en pie, así que NO se sube el tope
+                    # a secas — se sube el tope Y se reparte.
+                    #
+                    # El problema era el reparto: las sentencias de la Corte
+                    # puntúan sistemáticamente más alto, así que se llevaban las
+                    # cuatro plazas y los Tribunales Colegiados no salían nunca.
+                    # Y son justo los que resuelven el caso concreto del
+                    # litigante y los más difíciles de encontrar por otra vía.
+                    #
+                    # Ahora se intercalan: una de circuito, una de la Corte, y
+                    # así hasta llenar. El filtro por score se conserva intacto,
+                    # de modo que si sólo dos superan el corte salen dos. Nunca
+                    # se completa con lo que no viene al caso.
+                    _aptos = [_p for _p in precedentes_results
+                              if getattr(_p, "score", 0) >= _PREC_SCORE_MIN]
+                    _es_corte = lambda _p: "scjn" in str(getattr(_p, "silo", "")).lower()
+                    _corte = [_p for _p in _aptos if _es_corte(_p)]
+                    _circuito = [_p for _p in _aptos if not _es_corte(_p)]
+                    _tope = int(os.getenv("PRECEDENTES_VISIBLES", "10"))
+                    _prec_visibles = []
+                    while len(_prec_visibles) < _tope and (_corte or _circuito):
+                        if _circuito:
+                            _prec_visibles.append(_circuito.pop(0))
+                        if len(_prec_visibles) < _tope and _corte:
+                            _prec_visibles.append(_corte.pop(0))
                     prec_list = []
                     for _pr in _prec_visibles:
                         prec_list.append({
