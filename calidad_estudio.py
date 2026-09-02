@@ -328,3 +328,94 @@ def duplicacion_interna(estudio: str, n: int = 15) -> list:
             fuera.append(g)
             ultimo = i
     return fuera[:6]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA PREGUNTA EXPRESA, Y EL CIERRE QUE NO REMITE
+# ═══════════════════════════════════════════════════════════════════════════
+# Roberto Lara Chagoyán, «Sobre la estructura de las sentencias en México: una
+# visión crítica y una propuesta factible» (Quid Iuris 12), § 3.2 y § 3.4.
+#
+# LA PREGUNTA. «La desgracia de muchas malas sentencias comienza con el
+# descuido del deber de fijar cuidadosamente la cuestión… Una forma de mejorar
+# los planteamientos es utilizar la pregunta expresa.» El pipeline ya las
+# calcula y las calcula bien; medido sobre el proyecto de la cuota pensionaria:
+# TRES preguntas calculadas, CERO en el documento. Se tiraban por el camino.
+#
+# EL CIERRE. «Los reenvíos… deben quedar claros, especialmente a la hora de los
+# puntos resolutivos. Es más conveniente especificar el qué, por qué y para qué
+# se decidió que extraviar al lector para que encuentre por él mismo el
+# significado último del resolutivo.»
+_RX_PREGUNTA = re.compile(r"¿[^?¿]{15,300}\?")
+
+_REMISIONES_CIEGAS = [
+    r"por\s+las\s+razones\s+(?:antes\s+)?expuestas\s*[.,]",
+    r"en\s+las\s+relatadas\s+consideraciones\s*[.,]",
+    r"por\s+los\s+motivos\s+(?:y\s+fundamentos\s+)?"
+    r"(?:antes\s+)?(?:expuestos|precisados)\s*[.,]",
+    r"en\s+los\s+t[ée]rminos\s+(?:antes\s+)?precisados\s*[.,]",
+]
+_REMISIONES_CIEGAS = [re.compile(p, re.I) for p in _REMISIONES_CIEGAS]
+
+
+def _clave_pregunta(p: str) -> set:
+    """Las palabras con peso de una pregunta, para reconocerla luego."""
+    x = re.sub(r"[¿?.,;:()«»\"']", " ", (p or "").lower())
+    return {w for w in x.split() if len(w) >= 5}
+
+
+def preguntas_expresas(texto: str, problemas: list = None) -> dict:
+    """¿Cada problema abre con su pregunta, como pide el principio de delimitación?
+
+    Se compara por palabras con peso y no literalmente: el modelo puede
+    reformular la pregunta y sigue siendo la misma cuestión. Exigir la copia
+    exacta convertiría una mejora de claridad en una trampa de literalidad.
+    """
+    t = texto or ""
+    hay = _RX_PREGUNTA.findall(t)
+    fuera = {"preguntas_en_el_documento": len(hay), "problemas": 0,
+             "planteados_como_pregunta": 0, "sin_pregunta": []}
+    if not problemas:
+        return fuera
+    claves_doc = [_clave_pregunta(q) for q in hay]
+    for p in problemas:
+        txt = p if isinstance(p, str) else str(getattr(p, "problema", "") or "")
+        if not txt.strip():
+            continue
+        fuera["problemas"] += 1
+        k = _clave_pregunta(txt)
+        if not k:
+            continue
+        # Dos tercios de las palabras con peso: reformular sí, cambiar de
+        # cuestión no.
+        if any(len(k & kd) >= max(2, int(len(k) * 0.4)) for kd in claves_doc):
+            fuera["planteados_como_pregunta"] += 1
+        else:
+            fuera["sin_pregunta"].append(txt[:110])
+    return fuera
+
+
+def cierre_ciego(texto: str) -> list:
+    """Los cierres que mandan al lector a buscar lo que ya se dijo.
+
+    ACOTADO AL DESENLACE. En el cuerpo del estudio, «por las razones expuestas»
+    puede cerrar legítimamente un apartado intermedio y remitir a lo que se
+    acaba de leer tres líneas antes. Donde estorba es en el remate, que es lo
+    último que se lee y lo que tendría que decir qué, por qué y para qué.
+    """
+    t = texto or ""
+    m = re.search(r"R\s*E\s*S\s*U\s*E\s*L\s*V\s*E", t)
+    if not m:
+        return []
+    # Los mil caracteres anteriores al resolutivo: ahí está el remate.
+    cola = t[max(0, m.start() - 1000):m.start()]
+    fuera = []
+    for rx in _REMISIONES_CIEGAS:
+        x = rx.search(cola)
+        if x:
+            fuera.append((
+                "el estudio cierra remitiendo en vez de decir: el último "
+                "párrafo tiene que decir QUÉ se decide, POR QUÉ y PARA QUÉ",
+                " ".join(cola[max(0, x.start() - 90):x.end() + 40].split())))
+            break
+    return fuera

@@ -163,6 +163,7 @@ def revisar(texto: str) -> list:
                       f"continuación", ctx))
 
     fuera += [(f"orden contradictoria: {q}", d) for q, d in oximorones(t)]
+    fuera += barroquismos(t)
 
     # LA VARIABLE QUE NO SE SUSTITUYÓ. El catálogo interpola con `{quejoso}`,
     # `{responsable}`, `{numero}`. Si una plantilla llega al documento sin
@@ -271,4 +272,52 @@ def oximorones(texto: str) -> list:
         m = rx.search(t)
         if m:
             fuera.append((porque, " ".join(m.group(0).split())[:150]))
+    return fuera
+
+
+# ── 8. EL BARROQUISMO ──────────────────────────────────────────────────────
+# Roberto Lara Chagoyán, «Sobre la estructura de las sentencias en México: una
+# visión crítica y una propuesta factible» (Quid Iuris 12), § 3.5, principio de
+# claridad: «Debe utilizarse un lenguaje sencillo, procurando evitar
+# barroquismos… no debemos confundir la profundidad con la oscuridad: hay
+# argumentos sencillos y profundos; lo oscuro regularmente no refleja
+# profundidad en el pensamiento sino desorden y caos».
+#
+# LA LISTA NO ES MÍA: son las expresiones que él documenta de sentencias
+# REALES, más las que la Real Academia da por incorrectas y él cita con su
+# «(sic)». No se trata de empobrecer la prosa —la subordinación larga es marca
+# del registro y está medida en 35 palabras por oración en los engroses del
+# tribunal— sino de quitar la niebla.
+_BARROQUISMOS = [
+    (r"parlamentos?\s+que\s+se\s+erigen?", "parlamentos que se erigen"),
+    (r"\bconceptos?\s+de\s+quimera\b", "conceptos de quimera"),
+    (r"\bla\s+desavenida\b", "la desavenida"),
+    (r"raciocinios?\s+jur[íi]dicos?\s+que\s+cargan?", "raciocinios que cargan"),
+    (r"juicio\s+constitucional\s+incoado", "el juicio constitucional incoado"),
+    (r"\bmotivos?\s+de\s+divergencia\b", "motivo de divergencia"),
+    (r"\blite\s+constitucional\b", "lite constitucional"),
+    (r"considerando\s+\w+\s+venidero", "considerando venidero"),
+    (r"\bincontest\w+\b", "incontestes"),
+    (r"\binaudici[óo]n\b", "inaudición"),
+    (r"\bel\s+ateste\b", "el ateste"),
+    (r"\bdeposad[oa]\b", "deposado"),
+    (r"\btambi[ée]n\s+no\s+es\s+menos\s+cierto\b", "también no es menos cierto"),
+    (r"con\s+la\s+finalidad\s+del\s+logro\s+de", "la finalidad del logro de"),
+    # Y las tres que hacen kilométrica una sentencia sin añadir nada.
+    (r"\bes\s+dable\s+(?:decir|se[ñn]alar|concluir|estimar)\b", "es dable señalar"),
+    (r"\ba\s+mayor\s+abundamiento\s+de\s+raz[óo]n\b", "a mayor abundamiento de razón"),
+    (r"\bocurso\s+(?:de\s+)?constitucional\b", "ocurso constitucional"),
+]
+_BARROQUISMOS = [(re.compile(p, re.I), q) for p, q in _BARROQUISMOS]
+
+
+def barroquismos(texto: str) -> list:
+    """El lenguaje que oscurece sin profundizar. [(qué, dónde)]"""
+    t = texto or ""
+    fuera = []
+    for rx, nombre in _BARROQUISMOS:
+        m = rx.search(t)
+        if m:
+            fuera.append((f"lenguaje que oscurece: «{nombre}»",
+                          " ".join(t[max(0, m.start() - 70):m.end() + 60].split())))
     return fuera

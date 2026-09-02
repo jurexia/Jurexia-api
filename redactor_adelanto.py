@@ -863,6 +863,25 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         except Exception:
             pass
 
+        # ── LA PREGUNTA EXPRESA Y EL CIERRE QUE DICE ──────────────────────
+        # Los dos vienen de Lara Chagoyán, y los dos son medibles: la pregunta
+        # ya se calculaba y se perdía por el camino, y el cierre que remite es
+        # lo único de su § 3.4 que los engroses de David NO hacen mal —los
+        # cinco dicen en vez de remitir— y que el pipeline sí hacía.
+        try:
+            _pe = _ce.preguntas_expresas(_txt, [c for c in (criterios or [])])
+            if _pe.get("sin_pregunta"):
+                avisos.insert(0,
+                    f"{len(_pe['sin_pregunta'])} de {_pe['problemas']} problemas "
+                    f"NO se plantean como pregunta en el estudio. Fijar la "
+                    f"cuestión con la pregunta expresa es lo que separa un "
+                    f"apartado que se entiende de uno que hay que releer: "
+                    f"«{_pe['sin_pregunta'][0]}…»")
+            for _q, _d in _ce.cierre_ciego(_txt):
+                avisos.insert(0, f"{_q}: «…{_d[:120]}…»")
+        except Exception as _ep:
+            print(f"   ⚠️ no se pudo medir la delimitación: {_ep}")
+
         # EL RESULTANDO QUE NO INFORMA. Va el primero de la lista porque de ese
         # dato dependen el inciso del 97, la rama del 93 y que quien lea el
         # proyecto sepa de qué va el asunto.

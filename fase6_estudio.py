@@ -291,7 +291,30 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
               "═" * 71,
               "Tu papel NO es decidir el fallo: es CONSTRUIR la mejor demostración",
               "jurídica posible del sentido que él ya fijó. Elige los argumentos, las",
-              "tesis y el orden de estudio que lo sostengan con el mayor rigor.", ""]
+              "tesis y el orden de estudio que lo sostengan con el mayor rigor.", "",
+              # ── LA PREGUNTA EXPRESA ────────────────────────────────────────
+              # Roberto Lara Chagoyán, «Sobre la estructura de las sentencias en
+              # México», § 3.2, principio de delimitación: «la desgracia de
+              # muchas malas sentencias comienza con el descuido del deber de
+              # fijar cuidadosamente la cuestión… Una forma de mejorar los
+              # planteamientos es utilizar la PREGUNTA EXPRESA».
+              #
+              # El pipeline ya calculaba estas preguntas —bien formuladas— y
+              # las tiraba: medido sobre el proyecto de la cuota pensionaria,
+              # tres preguntas calculadas y CERO en el documento. Lo que se
+              # arregla no es formularlas, es no perderlas.
+              "CADA PROBLEMA ABRE CON SU PREGUNTA, LITERAL Y EN SU PROPIA LÍNEA.",
+              "El problema va escrito abajo como pregunta: cópiala tal cual como",
+              "rótulo del apartado, numerada, y contéstala en el párrafo siguiente.",
+              "Así:",
+              "",
+              "    1. ¿La Sala responsable estaba obligada a…?",
+              "",
+              "    No lo estaba. El artículo 50 de la Ley Federal de…",
+              "",
+              "Y NO ESCRIBAS LA PREGUNTA DOS VECES ni la parafrasees en el cuerpo:",
+              "el apartado ya la lleva, y repetirla es lo que hace kilométricas a",
+              "las sentencias. Cada apartado dice lo suyo y sólo lo suyo.", ""]
     # EL ORDEN DE ESTUDIO ES EL DE PRELACIÓN LÓGICA, no el de llegada: primero
     # el principal, del que dependen los demás. Un engrose que estudia un
     # accesorio antes que el problema del que depende obliga a rehacerlo.
@@ -350,6 +373,30 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         "obligatoria en contra, una causal de improcedencia—, NO cambies el",
         "sentido: dilo en el apartado ADVERTENCIAS para que él lo valore.",
     ]
+    # ── EL CIERRE QUE NO REMITE, SINO QUE DICE ─────────────────────────────
+    # Lara Chagoyán, § 3.4, coherencia interna: «los reenvíos que se hacen de
+    # una a otra parte de la sentencia deben quedar claros, especialmente a la
+    # hora de los puntos resolutivos. Es más conveniente especificar el QUÉ,
+    # POR QUÉ y PARA QUÉ se decidió en un determinado sentido que extraviar al
+    # lector para que encuentre por él mismo el significado último del
+    # resolutivo. A veces no se entiende que después de haber repetido cierta
+    # información varias veces en la sentencia, se termine con un mensaje
+    # lacónico, por no decir críptico a la hora de los puntos resolutivos».
+    #
+    # Nuestro resolutivo dice «por los motivos y fundamentos expuestos en el
+    # último considerando», que es exactamente ese mensaje críptico.
+    lineas += ["",
+               "── CÓMO TERMINA EL ESTUDIO ──",
+               "El último párrafo, antes del resolutivo, dice en TRES frases:",
+               "  · QUÉ se decide —confirmar, revocar, conceder, negar—;",
+               "  · POR QUÉ, en una frase que resuma la razón que lo sostiene, no",
+               "    una remisión a otro apartado;",
+               "  · PARA QUÉ, es decir, qué tiene que hacer ahora la autoridad, si",
+               "    es que tiene que hacer algo.",
+               "Está PROHIBIDO cerrar con «por las razones expuestas», «en las",
+               "relatadas consideraciones» o cualquier fórmula que mande al lector",
+               "a buscar por su cuenta lo que ya se dijo.", ""]
+
     lineas += _aviso_de_suplencia(criterios, materia, material_texto, tipo_asunto)
     return "\n".join(lineas)
 
