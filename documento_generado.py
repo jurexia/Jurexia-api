@@ -2096,11 +2096,15 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                                f"{datos.get('fecha_sesion') or HUECO} "
                                f"siguiente; {_cola_sesion}")))
     if not (datos.get("fecha_lista") and datos.get("fecha_sesion")):
+        # Y NO SE PIDEN. David las retiró del formulario el mismo día que se
+        # añadieron: «no me sirven porque estas, al final, quedarán hasta el
+        # momento en que se revisen por los magistrados». El hueco no es un
+        # fallo del sistema, es el estado real del asunto cuando se redacta.
         _avisos_bk.append(
-            "LAS DOS FECHAS DE LA SESIÓN VAN EN HUECO: cuándo se listó el "
-            "asunto y para qué sesión. El sistema no puede saberlas —el "
-            "proyecto se escribe antes de la sesión—, pero el formulario las "
-            "pide: decláralas y el párrafo sale entero.")
+            "LAS DOS FECHAS DE LA SESIÓN VAN EN HUECO, y así tienen que ir: "
+            "cuándo se listó el asunto y para qué sesión se fijan cuando los "
+            "magistrados lo revisan, después de que esto se escriba. Se "
+            "rellenan al engrosar.")
     _avisos_bk.append(
         "COMPRUEBA LA COLA NORMATIVA del párrafo de la sesión: se escribió la del "
         "Acuerdo General 6/2026, que rige los asuntos listados desde abril de "

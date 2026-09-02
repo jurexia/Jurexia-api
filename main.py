@@ -25926,10 +25926,25 @@ async def admin_uso_colecciones(user_email: str = ""):
 @app.post("/taller/adelanto")
 async def taller_adelanto(
     numero: str = Form(...),
-    encabezado: str = Form(...),
-    quejoso: str = Form(...),
-    magistrado: str = Form(...),
-    secretario: str = Form(...),
+    # CUATRO CAMPOS QUE DEJAN DE SER OBLIGATORIOS. De los diez que se pedían,
+    # sólo cuatro no se pueden sacar de ninguna parte: el número de toca —que
+    # aún no existe cuando se suben los PDF, lo asigna la Presidencia al
+    # turnar—, las dos fechas del cómputo —que están en un sello escaneado que
+    # el OCR rompe: el acuse del 143/2026 sale como «3126 MAR 19»— y el tipo
+    # de asunto. Los demás se componen, se leen o se recuerdan.
+    #
+    # ENCABEZADO: se compone de tipo + materia + número, que ya se están
+    # eligiendo. Medido: esa fórmula reproduce EXACTO los cinco encabezados de
+    # los engroses reales.
+    encabezado: str = Form(""),
+    # QUEJOSO: `fase_partes.fichar` lo lee del documento —3 de 5 exacto, 2
+    # parcial, CERO invenciones— y llega como propuesta con su aviso. Si el
+    # secretario lo escribe, manda lo que él diga.
+    quejoso: str = Form(""),
+    # MAGISTRADO y SECRETARIO: son la ponencia, no el expediente. Se toman del
+    # último asunto suyo. Se piden una vez.
+    magistrado: str = Form(""),
+    secretario: str = Form(""),
     notificacion: str = Form(...),           # ISO: 2026-05-11
     presentacion: str = Form(...),
     user_email: str = Form(...),
@@ -25955,12 +25970,13 @@ async def taller_adelanto(
     # de Mérida suspendió labores un martes por un huracán. Eso lo declara quien
     # estuvo ahí. Fechas ISO separadas por coma.
     dias_inhabiles_extra: str = Form(""),
-    # LAS DOS FECHAS DE LA SESIÓN. El párrafo que las lleva está medido en 43
-    # de 44 engroses del tribunal, y son el único dato que el sistema no puede
-    # sacar de ninguna parte: el proyecto se redacta antes de la sesión. Se
-    # preguntan en vez de dejarlas en hueco. Vacías = siguen en hueco. ISO.
-    fecha_lista: str = Form(""),
-    fecha_sesion: str = Form(""),
+    # LAS FECHAS DE SESIÓN SE FUERON. Las añadí por la mañana y David las
+    # retiró por la tarde, con razón: «no me sirven porque estas, al final,
+    # quedarán hasta el momento en que se revisen por los magistrados. Son
+    # campos innecesarios». El dato no existe cuando se redacta el proyecto y
+    # tampoco cuando se entrega: lo fija la sesión. Un campo que sólo se puede
+    # rellenar mintiendo no es un campo, es una trampa. El párrafo sale con sus
+    # dos huecos y su aviso, que es lo honesto.
     # LA MATERIA, DECLARADA POR EL SECRETARIO. Decide dos cosas caras: el silo
     # de leyes que consulta el RAG del fondo —el laboral tiene 3,205 artículos
     # de nueve ordenamientos que no están en ningún estatal— y el filtro del
@@ -25974,7 +25990,10 @@ async def taller_adelanto(
     # que él ya subió y que ya pasa por OCR. Se acepta si la escribe —manda lo
     # que él diga— y si no, se lee. Sólo cuando no se puede leer se avisa.
     responsable: Optional[str] = Form(None),
-    es_recurso: bool = Form(False),
+    # `es_recurso` SE FUE DEL FORMULARIO. Llevaba tiempo muerto:
+    # `redactor_adelanto` hace `e.es_recurso = tipo != "amparo_directo"` sin
+    # condición y antes de leer nada, así que lo que mandara el formulario se
+    # descartaba siempre. Seguía publicado en el contrato como si sirviera.
     tipo_asunto: str = Form("amparo_directo"),
     # EL TRIBUNAL VIENE DEL SECRETARIO, NO DEL CÓDIGO. Con `modo=generado` el
     # documento se escribe entero con estos datos y no hereda la identidad de
@@ -26135,6 +26154,38 @@ async def taller_adelanto(
     _notif = _fecha_del_formulario(notificacion, "notificación")
     _pres = _fecha_del_formulario(presentacion, "presentación")
 
+    # ── LO QUE NO HAY QUE TECLEAR ──────────────────────────────────────────
+    _pon = {} if (magistrado and secretario and tribunal and ciudad) \
+        else _ponencia_anterior(user_email)
+    _de_antes = []
+    if not magistrado and _pon.get("magistrado"):
+        magistrado = _pon["magistrado"]; _de_antes.append("el magistrado")
+    if not secretario and _pon.get("secretario"):
+        secretario = _pon["secretario"]; _de_antes.append("el secretario")
+    if not tribunal and _pon.get("tribunal"):
+        tribunal = _pon["tribunal"]; _de_antes.append("el tribunal")
+    if not ciudad and _pon.get("ciudad"):
+        ciudad = _pon["ciudad"]; _de_antes.append("la ciudad")
+    if _de_antes:
+        print(f"   👤 de tu último asunto: {', '.join(_de_antes)}")
+
+    if not encabezado.strip():
+        encabezado = _ta.encabezado_de(tipo_asunto, materia, numero)
+        print(f"   🏷️ encabezado compuesto: {encabezado}")
+
+    # SIN PONENCIA NO SE FIRMA. Si es el primer asunto de este secretario y no
+    # los escribió, se le dice qué falta en vez de componer un documento sin
+    # firma —o, peor, con la de otro—.
+    _faltan = [q for q, v_ in (("el magistrado ponente", magistrado),
+                               ("el secretario", secretario),
+                               ("el tribunal", tribunal)) if not str(v_).strip()]
+    if _faltan:
+        raise HTTPException(
+            status_code=400,
+            detail=("Falta " + ", ".join(_faltan) + ". Es la única vez que hay "
+                    "que escribirlos: a partir del siguiente asunto se toman "
+                    "de éste."))
+
     encargo = _ra.Encargo(
         numero=numero, encabezado=encabezado, quejoso=quejoso,
         magistrado=magistrado, secretario=secretario,
@@ -26148,9 +26199,7 @@ async def taller_adelanto(
             d for d in (_ra._fecha_iso(x)
                         for x in (dias_inhabiles_extra or "").split(",") if x.strip())
             if d],
-        fecha_lista=(fecha_lista or "").strip(),
-        fecha_sesion=(fecha_sesion or "").strip(),
-        responsable=responsable, es_recurso=es_recurso,
+        responsable=responsable,
         tribunal=tribunal, ciudad=ciudad, modo=modo,
         tipo_asunto=tipo_asunto,
         materia=(materia or "").strip().lower(),
@@ -26212,6 +26261,36 @@ def _taller_purgar() -> None:
         _TALLER_SESIONES.pop(k, None)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA PONENCIA SE PREGUNTA UNA VEZ, NO EN CADA ASUNTO
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «al secretario le estamos pidiendo que teclee demasiadas cosas en un
+# formulario que, en la mayoría, los datos pueden obtenerse de los documentos
+# escaneados».
+#
+# El magistrado, el secretario, el tribunal y la ciudad NO están en los
+# documentos —medido: 0 de 5, 0 de 5, 1 de 5 y ninguno— y NO deben estarlo:
+# son la identidad de quien redacta, no del expediente. Leerlos del acto sería
+# el mismo agujero de firma ajena que se cerró al retirar las plantillas
+# precargadas. Pero tampoco hay que teclearlos cada vez: son los mismos en
+# todos los asuntos de una ponencia. Se toman del último asunto del propio
+# secretario, y él los cambia el día que cambie de ponencia.
+def _ponencia_anterior(email: str) -> dict:
+    """Magistrado, secretario, tribunal y ciudad del último asunto suyo."""
+    if not (email and supabase_admin):
+        return {}
+    try:
+        r = supabase_admin.table("taller_sesiones") \
+            .select("datos").eq("email", email) \
+            .order("actualizado", desc=True).limit(1).execute()
+        e = ((r.data or [{}])[0].get("datos") or {}).get("encargo") or {}
+        return {k: e.get(k) or "" for k in
+                ("magistrado", "secretario", "tribunal", "ciudad")}
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo leer la ponencia anterior: {err(ex)}")
+        return {}
+
+
 def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
     """Lo serializable del adelanto, para que otro worker pueda continuarlo."""
     _TALLER_SESIONES[_taller_llave(email, numero)] = {
@@ -26229,8 +26308,6 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "excepcion_plazo": getattr(e, "excepcion_plazo", ""),
             "dias_inhabiles_extra": [d.isoformat() for d in
                                      getattr(e, "dias_inhabiles_extra", []) or []],
-            "fecha_lista": getattr(e, "fecha_lista", ""),
-            "fecha_sesion": getattr(e, "fecha_sesion", ""),
             "responsable": e.responsable, "es_recurso": e.es_recurso,
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
             # LA MATERIA DECLARADA. Decide el silo del RAG y el filtro del
@@ -26356,8 +26433,6 @@ def _taller_recuperar_sesion(email: str, numero: str):
         excepcion_plazo=e.get("excepcion_plazo", ""),
         dias_inhabiles_extra=[_d.date.fromisoformat(x)
                               for x in (e.get("dias_inhabiles_extra") or [])],
-        fecha_lista=e.get("fecha_lista") or "",
-        fecha_sesion=e.get("fecha_sesion") or "",
         responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
         tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
         modo=e.get("modo", "generado"),

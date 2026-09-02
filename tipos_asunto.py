@@ -1311,6 +1311,42 @@ LEY_DE_LA_VIA = {
 }
 
 
+# EL ENCABEZADO SE COMPONE, NO SE TECLEA. Medido sobre los cinco engroses
+# reales: NOMBRE DEL TIPO + MATERIA concordada + número reproduce exacto los
+# cinco. «RECURSO DE QUEJA ADMINISTRATIVO: 143/2026», «AMPARO EN REVISIÓN
+# ADMINISTRATIVA: 17/2025», «REVISIÓN FISCAL: 6/2025», «AMPARO DIRECTO CIVIL:
+# 642/2024», «RECURSO DE QUEJA CIVIL: 233/2025».
+_ENCABEZADO = {
+    "amparo_directo": "AMPARO DIRECTO {materia}: {numero}",
+    "amparo_revision": "AMPARO EN REVISIÓN {materia}: {numero}",
+    "queja": "RECURSO DE QUEJA {materia}: {numero}",
+    "revision_fiscal": "REVISIÓN FISCAL: {numero}",
+}
+
+# La materia va concordada con el sustantivo que la precede: «AMPARO DIRECTO
+# CIVIL» pero «AMPARO EN REVISIÓN ADMINISTRATIVA». Escribirla en masculino
+# siempre da «AMPARO EN REVISIÓN ADMINISTRATIVO», que ningún secretario firma.
+_MATERIA_ENCABEZADO = {
+    "amparo_revision": {"administrativa": "ADMINISTRATIVA", "civil": "CIVIL",
+                        "laboral": "LABORAL", "penal": "PENAL"},
+    "queja": {"administrativa": "ADMINISTRATIVO", "civil": "CIVIL",
+              "laboral": "LABORAL", "penal": "PENAL"},
+    "amparo_directo": {"administrativa": "ADMINISTRATIVO", "civil": "CIVIL",
+                       "laboral": "LABORAL", "penal": "PENAL"},
+}
+
+
+def encabezado_de(tipo: str, materia: str = "", numero: str = "") -> str:
+    """El encabezado del asunto, compuesto de lo que ya se eligió."""
+    t = normalizar(tipo)
+    plantilla = _ENCABEZADO.get(t)
+    if not plantilla:
+        return (numero or "").strip()
+    mat = _MATERIA_ENCABEZADO.get(t, {}).get(
+        (materia or "").strip().lower(), (materia or "").strip().upper())
+    return " ".join(plantilla.format(materia=mat, numero=(numero or "").strip()).split())
+
+
 def ley_de_la_via(tipo: str) -> str:
     """El marco normativo de la vía, para decírselo al modelo antes de escribir."""
     return LEY_DE_LA_VIA.get(normalizar(tipo), "")

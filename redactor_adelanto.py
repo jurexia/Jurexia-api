@@ -272,6 +272,32 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     avisos.extend(f.avisos)
     avisos.extend(partes.avisos)
 
+    # ── EL NOMBRE DE QUIEN PROMUEVE, LEÍDO EN VEZ DE TECLEADO ──────────────
+    # David: «muchos de los datos pueden obtenerse de los documentos
+    # escaneados». Éste es uno: `fase_partes.fichar` lo saca del acto y del
+    # escrito —medido sobre los cinco expedientes reales: 3 exactos, 2
+    # parciales, CERO invenciones—.
+    #
+    # LLEGA COMO PROPUESTA, NO COMO HECHO. Va con su aviso para que quien firma
+    # lo confirme, porque las dos discrepancias medidas no eran de lectura sino
+    # de criterio: en la cuota pensionaria el representante frente al
+    # representado, y en el ARA el alias «y/o» perdido. Eso lo resuelve un
+    # vistazo, no un algoritmo. Y si el secretario lo escribió, manda él.
+    if not str(getattr(e, "quejoso", "") or "").strip():
+        _leido = str(getattr(partes, "quejoso", "") or "").strip()
+        if _leido:
+            e.quejoso = _leido
+            avisos.insert(0,
+                f"EL NOMBRE DE QUIEN PROMUEVE SE LEYÓ DE LOS DOCUMENTOS: "
+                f"«{_leido}». No lo tecleaste, así que compruébalo en la "
+                f"carátula: si la parte tiene alias, representante o son "
+                f"varios, corrígelo.")
+        else:
+            avisos.insert(0,
+                "NO SE PUDO LEER EL NOMBRE DE QUIEN PROMUEVE de los "
+                "documentos, y no lo tecleaste: la carátula sale con el hueco "
+                "a la vista. Escríbelo.")
+
     # ── Fase 7 — el documento ────────────────────────────────────────────
     relleno = ens.Relleno(
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
