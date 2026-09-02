@@ -8979,6 +8979,72 @@ _COLECCIONES_CITA = list(dict.fromkeys(
 ))
 
 
+# ── EL SEMANARIO, PEDIDO DESDE AQUÍ Y NO DESDE VERCEL (2-sep-2026) ──────
+#
+# Las tesis verificadas y la descarga del PDF oficial llevaban tiempo rotas.
+# La causa resultó tener dos capas:
+#
+#   1. `Referer` es una cabecera PROHIBIDA en la especificación de Fetch, así
+#      que Node la descartaba en silencio. El cortafuegos de la Corte exige
+#      `Referer` Y `User-Agent` de navegador a la vez —medido: cada una sola
+#      da 403, juntas dan 200—, de modo que la petición salía siempre coja.
+#
+#   2. Corregido eso, desde Vercel seguía fallando: 302 y luego 403. Es un
+#      reto anti-bot que se dispara por reputación de IP de centro de datos.
+#      Desde una laptop responde 200 a la primera.
+#
+# Este proxy existe para averiguar si el rango de Render corre mejor suerte
+# que el de Vercel. Si responde, el frontend deja de hablar con la Corte y
+# habla con nosotros, que es además donde vive el corpus.
+@app.get("/semanario/tesis/{registro}")
+async def semanario_tesis(registro: str, pdf: bool = False):
+    import re as _re
+    if not _re.fullmatch(r"\d{5,8}", registro or ""):
+        raise HTTPException(status_code=400, detail="registro_invalido")
+
+    base = "https://sjf2.scjn.gob.mx"
+    api = f"{base}/services/sjftesismicroservice/api/public/tesis"
+    cabeceras = {
+        "Accept": "*/*" if pdf else "application/json, text/plain, */*",
+        "Accept-Language": "es-MX,es;q=0.9",
+        "Referer": f"{base}/detalle/tesis/{registro}",
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/131.0.0.0 Safari/537.36"),
+    }
+    url = (f"{api}/reporte/{registro}?isSemanal=false&nameDocto=Tesis"
+           f"&hostName={base}&soloParrafos=false") if pdf else \
+          f"{api}/{registro}?isSemanal=false&hostName={base}"
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as cli:
+            r = await cli.get(url, headers=cabeceras)
+    except Exception as e:
+        return {"ok": False, "motivo": f"{type(e).__name__}: {e}"}
+
+    if r.status_code != 200:
+        return {"ok": False, "motivo": f"upstream_{r.status_code}"}
+
+    if pdf:
+        return Response(
+            content=r.content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="tesis-{registro}.pdf"',
+                     "Cache-Control": "public, max-age=86400"},
+        )
+
+    d = r.json()
+    if not d.get("ius"):
+        return {"ok": False, "motivo": "no_encontrada"}
+    return {"ok": True, "registro": str(d["ius"]), "rubro": d.get("rubro"),
+            "texto": d.get("texto"), "localizacion": d.get("localizacion"),
+            "clave": d.get("claveTesis"), "epoca": d.get("epoca"),
+            "instancia": d.get("instancia"), "materias": d.get("materias"),
+            "pagina": d.get("pagina"), "fuente": d.get("fuente"),
+            "precedentes": d.get("precedentes"),
+            "url": f"{base}/detalle/tesis/{d['ius']}"}
+
+
 @app.get("/cita/{doc_id}")
 async def resolver_cita(doc_id: str):
     """
