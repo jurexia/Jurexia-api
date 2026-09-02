@@ -40,15 +40,39 @@ _QUE_HIZO = [
 ]
 
 
-def resolvio_a_quo(texto: str) -> str:
-    """«sobresee» | «concede» | «niega», o cadena vacía si no consta."""
-    t = " ".join((texto or "").split())
-    if not t:
+def resolvio_a_quo(texto: str, antecedentes: str = "") -> str:
+    """«sobresee» | «concede» | «niega», o cadena vacía si no consta.
+
+    DOS CAMBIOS, Y LOS DOS SALIERON DEL MISMO CASO REAL.
+
+    (a) SI HAY ANTECEDENTES, MANDAN ELLOS. La versión anterior recibía el
+        estudio entero —con las tesis TRANSCRITAS dentro— y devolvía
+        «sobresee» en cuanto la palabra «sobreseimiento» aparecía en cualquier
+        sitio. En el ARA 17/2025 aparecía dentro de una tesis citada, y el
+        proyecto confirmaba un sobreseimiento que nadie había decretado.
+        Medido: con el estudio entero da «sobresee»; sin las tesis, «concede».
+
+    (b) GANA EL QUE MÁS VECES SE DICE, no el primero de la lista. Devolver al
+        primer patrón que casa hacía que el orden de `_QUE_HIZO` decidiera el
+        resolutivo, que es tanto como echarlo a suertes.
+    """
+    fuente = " ".join((antecedentes or "").split()) or " ".join((texto or "").split())
+    if not fuente:
         return ""
+    cuenta = {}
     for clave, rx in _QUE_HIZO:
-        if re.search(rx, t, re.I):
-            return clave
-    return ""
+        n_ = 0
+        for m in re.finditer(rx, fuente, re.I):
+            if _afirmado(fuente, m):
+                n_ += 1
+        if n_:
+            cuenta[clave] = n_
+    if not cuenta:
+        return ""
+    # A igualdad, el orden de `_QUE_HIZO`: sobreseer es lo más grave y lo que
+    # se decide primero.
+    orden = {c: i for i, (c, _) in enumerate(_QUE_HIZO)}
+    return max(cuenta, key=lambda c: (cuenta[c], -orden[c]))
 
 
 # LA VIOLACIÓN PROCESAL DEL AMPARO —la que obliga a reponer— no es cualquier
@@ -73,22 +97,60 @@ _RX_PROCESAL = re.compile(
 
 
 def hay_violacion_procesal(texto: str) -> bool:
-    return bool(_RX_PROCESAL.search(" ".join((texto or "").split())))
+    t = " ".join((texto or "").split())
+    return any(_afirmado(t, m) for m in _RX_PROCESAL.finditer(t))
 
 
 # SÓLO LOS EFECTOS. El amparo estuvo bien concedido y lo que falla es la
 # restitución: lineamientos deficientes, incongruentes o excesivos. Es el único
 # supuesto de resolutivo ÚNICO que no revoca nada.
 _RX_EFECTOS = re.compile(
+    # SE PUEDE ENSANCHAR PORQUE AHORA HAY GUARDA. Mientras el patrón cazaba
+    # también las frases negadas, cada palabra nueva era un riesgo; con
+    # `_afirmado` delante, ampliarlo sólo gana cobertura. Faltaban las dos
+    # formas más naturales de decirlo: «incompleta» y «procede modificarlos».
     r"(?:efectos?\s+de\s+la\s+concesi[óo]n|lineamientos?)[^.]{0,140}"
-    r"(?:deficiente|incongruente|excesiv|insuficiente|imprecis|"
-    r"deben?\s+(?:precisarse|modificarse|ajustarse))|"
+    r"(?:deficiente|incongruente|excesiv|insuficiente|imprecis|incomplet|"
+    r"deben?\s+(?:precisarse|modificarse|ajustarse)|"
+    r"procede\s+(?:modificar|precisar|ajustar)|"
+    r"omiti[óo]\s+precisar)|"
     r"(?:modificar|precisar|ajustar)[^.]{0,60}(?:los\s+)?efectos?"
     r"[^.]{0,60}(?:de\s+la\s+)?concesi[óo]n", re.I)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# AFIRMAR NO ES DESCARTAR, Y AQUÍ SE CONFUNDÍAN
+# ═══════════════════════════════════════════════════════════════════════════
+# El engrose del ARA 17/2025 que David firmó ABRE su estudio así:
+#
+#   «los agravios resultan INOPERANTES PARA MODIFICAR LOS EFECTOS de la
+#    concesión»
+#
+# y `solo_los_efectos` casaba «modificar los efectos de la concesión» sin mirar
+# lo que iba delante. Resultado: sobre su propio asunto, el proyecto elegía la
+# rama `modifica_efectos` y salía «ÚNICO. Se modifica la sentencia recurrida,
+# únicamente para los efectos precisados», que es lo contrario de lo que él
+# resolvió. Lo mismo con la reposición: un agravio DESESTIMADO en el que se
+# pedía reponer activaba la rama de reposición.
+#
+# Es la misma lección que ya costó ocho retiradas hoy —«conceder el amparo»
+# citado para descartarlo, el artículo 74 apartado diciéndolo—, sólo que aquí
+# no producía un aviso falso sino un RESOLUTIVO falso.
+_RX_NIEGA_ANTES = re.compile(
+    r"(?:inoperantes?|infundados?|ineficaces?|inatendibles?|"
+    r"insuficientes?|no\s+prosper\w+|se\s+desestim\w+|desestimad\w+|"
+    r"no|sin\s+que|tampoco)\s*(?:\w+\s+){0,4}$", re.I)
+
+
+def _afirmado(texto: str, m) -> bool:
+    """¿La frase que casó AFIRMA el supuesto, o lo descarta?"""
+    antes = (texto or "")[max(0, m.start() - 90):m.start()]
+    return not _RX_NIEGA_ANTES.search(antes)
+
+
 def solo_los_efectos(texto: str) -> bool:
-    return bool(_RX_EFECTOS.search(" ".join((texto or "").split())))
+    t = " ".join((texto or "").split())
+    return any(_afirmado(t, m) for m in _RX_EFECTOS.finditer(t))
 
 
 # LA AUTORIDAD RESPONSABLE ORIGINARIA. La del acto reclamado del amparo
@@ -103,12 +165,33 @@ _RX_ORIGINARIA = re.compile(
     re.I)
 
 # El órgano de control NUNCA es la responsable originaria: es el recurrido.
+# Y EL FORMATO ROTULADO, que es como lo escribe el corpus de verdad:
+#
+#   «en contra de la autoridad y actos que a continuación se señalan:
+#    Autoridad responsable:
+#    Tribunal Unitario Agrario del Distrito 42»
+#
+# `_RX_ORIGINARIA` sólo leía la prosa —«actos atribuidos a X»— y con el
+# resultando real del 17/2025 devolvía cadena vacía. El segundo punto del
+# resolutivo salía entonces con el respaldo, que en un recurso es el ÓRGANO
+# RECURRIDO: se habría amparado contra el acto del Juzgado de Distrito.
+_RX_ORIGINARIA_ROTULO = re.compile(
+    r"autoridad(?:es)?\s+responsable(?:s)?\s*:?\s*\n?\s*"
+    r"((?:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\w\sáéíóúñ,\.]{6,90}?)"
+    r"(?=\n|acto\s+reclamado|[;\.]|$)", re.I)
+
 _RX_NO_ES = re.compile(
     r"ju(?:ez|zgado)\s+.{0,30}de\s+distrito|tribunal\s+colegiado", re.I)
 
 
 def responsable_originaria(texto: str) -> str:
     """La autoridad del acto reclamado, o cadena vacía."""
+    # EL FORMATO ROTULADO PRIMERO, sobre el texto SIN aplanar: la etiqueta y el
+    # nombre van en líneas distintas y aplanar los saltos borra la frontera.
+    for m in _RX_ORIGINARIA_ROTULO.finditer(texto or ""):
+        n_ = " ".join((m.group(1) or "").split()).strip(" ,.")
+        if len(n_) >= 8 and not _RX_NO_ES.search(n_):
+            return n_
     t = " ".join((texto or "").split())
     for m in _RX_ORIGINARIA.finditer(t):
         n = (m.group(1) or m.group(2) or "").strip(" ,.")

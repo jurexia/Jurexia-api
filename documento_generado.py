@@ -2584,7 +2584,18 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             str(estudio or "")])
         try:
             import fase_rama as _fr
-            _que_hizo = _fr.resolvio_a_quo(_fuente_rama)
+            # LOS ANTECEDENTES MANDAN SOBRE EL ESTUDIO. En el estudio la
+            # palabra «sobreseimiento» aparece dentro de las TESIS
+            # TRANSCRITAS, y con eso el proyecto confirmaba un sobreseimiento
+            # que nadie decretó —medido sobre el ARA 17/2025: con el estudio
+            # entero da «sobresee», sin las tesis da «concede»—. Lo que hizo el
+            # juzgado está en los antecedentes y en los resultandos, que es
+            # donde el catálogo manda escribirlo.
+            _antes_rama = " ".join([
+                str(datos.get("antecedentes") or ""),
+                " ".join(str(r.get("texto") or "")
+                         for r in (estructura.resultandos or []))]).strip()
+            _que_hizo = _fr.resolvio_a_quo(_fuente_rama, _antes_rama)
             # EL SENTIDO EN PLENITUD SE LEE DEL ESTUDIO, no del recurso. Que el
             # agravio sea fundado prueba que el juez no debió sobreseer, no que
             # el quejoso tenga razón en el fondo.
@@ -2617,7 +2628,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # sale del resumen sin artículo y el punto resolutivo decía «contra
             # el acto reclamado a Director de Ingresos». El artículo se pone
             # aquí y `_contraer` hace el resto —«a el» → «al»—.
-            _orig = _con_articulo(_fr.responsable_originaria(_fuente_rama))
+            _orig = _con_articulo(_fr.responsable_originaria(_antes_rama)
+                                  or _fr.responsable_originaria(_fuente_rama))
             if not _orig:
                 _orig = HUECO
                 _avisos_bk.append(

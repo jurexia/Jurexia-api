@@ -1105,12 +1105,25 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
     `revoca_sobreseimiento_niega` era inalcanzable: estaba declarada y ninguna
     combinación de argumentos la devolvía nunca.
     """
-    if violacion_procesal:
-        return "repone_procedimiento"
-    if solo_efectos:
-        return "modifica_efectos"
     a = (resolvio_a_quo or "").strip().lower()
     s = (sentido or "").strip().lower()
+    _prospera = s.startswith("fundad")
+
+    # LAS DOS RAMAS DE RESOLUTIVO ÚNICO SE MIRAN DESPUÉS, Y CON CONDICIONES.
+    # Se resolvían ANTES que nada y sin mirar el sentido ni lo que hizo el
+    # juzgado, así que un agravio DESESTIMADO en el que se pedía reponer el
+    # procedimiento producía «se ordena la reposición», y un estudio que
+    # hablaba de efectos sobre una sentencia que NEGÓ el amparo producía «se
+    # modifica la sentencia únicamente para los efectos» —efectos de una
+    # concesión que no existe—.
+    #
+    # REPONER Y MODIFICAR SON DECISIONES QUE SÓLO CABEN SI EL RECURSO PROSPERA:
+    # si el agravio es infundado no hay nada que reponer ni que modificar. Y
+    # modificar los efectos presupone que el amparo se concedió.
+    if violacion_procesal and _prospera:
+        return "repone_procedimiento"
+    if solo_efectos and _prospera and a == "concede":
+        return "modifica_efectos"
     if a not in ("sobresee", "niega", "concede"):
         return "sin_determinar"
     prospera = s in ("fundado", "fundado_suplido", "parcialmente_fundado")
