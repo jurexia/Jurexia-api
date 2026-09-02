@@ -47,7 +47,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 BASE = 'https://sjf2.scjn.gob.mx'
 API = f'{BASE}/services/sjftesismicroservice/api/public/tesis'
-RAIZ = '/Volumes/KINGSTON/iurexia-tesis'
+# Dónde viven los PDF. Se movieron del USB al disco interno el 2-sep-2026:
+# el Kingston se desmontó solo a mitad de la descarga —62,936 archivos
+# dentro— y con él se fueron el proceso y el registro de progreso. Un
+# trabajo de tres horas no puede colgar de un cable.
+RAIZ = os.environ.get(
+    'IUREXIA_TESIS_DIR',
+    os.path.expanduser('~/Documents/KINGSTON/iurexia-tesis'))
 PDFS = os.path.join(RAIZ, 'pdf')
 MANIFIESTO = os.path.join(RAIZ, 'manifiesto.jsonl')
 

@@ -17,7 +17,13 @@ PDF esté en el bucket habrá que poder decir de quién es sin volver a Qdrant.
 import io, os, json, time, urllib.request
 
 REPO = os.path.dirname(os.path.abspath(__file__))
-DESTINO = '/Volumes/KINGSTON/iurexia-tesis'
+# Dónde viven los PDF. Se movieron del USB al disco interno el 2-sep-2026:
+# el Kingston se desmontó solo a mitad de la descarga —62,936 archivos
+# dentro— y con él se fueron el proceso y el registro de progreso. Un
+# trabajo de tres horas no puede colgar de un cable.
+DESTINO = os.environ.get(
+    'IUREXIA_TESIS_DIR',
+    os.path.expanduser('~/Documents/KINGSTON/iurexia-tesis'))
 COLECCION = 'jurisprudencia_nacional_v3'
 
 

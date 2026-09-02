@@ -378,6 +378,7 @@ def _con_rubro(payload: dict) -> str:
     cuerpo = t.lstrip()
     if r and cuerpo.upper().startswith(r[:40].upper()):
         cuerpo = cuerpo[len(r):].lstrip(" .\n")
+
     return "\n".join(x for x in (cab, r, cuerpo) if x)
 
 
@@ -6150,6 +6151,11 @@ async def inject_cross_referenced_articles(
     return results
 
 
+# Los silos cuyo contenido es jurisprudencia y por tanto tiene rubro.
+_JURIS_PARA_RUBRO = (*JURIS_SILOS, "jurisprudencia_tcc", "jurisprudencia",
+                     "sentencias_holdings", "sentencias_scjn_holdings")
+
+
 def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = None, prose_mode: bool = False) -> str:
     """
     Formatea resultados en XML para inyección de contexto.
@@ -6200,6 +6206,37 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         if len(texto) > MAX_DOC_CHARS:
             texto = texto[:MAX_DOC_CHARS] + "... [truncado]"
         
+        # SÓLO EL RUBRO PARA EL MODELO, EL CUERPO ENTERO PARA EL VISOR
+        # (2-sep-2026)
+        #
+        # El rubro es la enunciación canónica del criterio: dice QUÉ resolvió
+        # el tribunal, que es lo que el abogado necesita para saber si esa
+        # tesis le sirve. El cuerpo es varias veces más largo, así que mandarlo
+        # entero significa que en el mismo presupuesto de contexto caben cuatro
+        # tesis donde cabrían treinta.
+        #
+        # EL RECORTE VA AQUÍ Y NO EN `_con_rubro` a propósito. `_con_rubro`
+        # alimenta también el marcador SOURCES, que es de donde el panel de
+        # citas saca su ficha: recortarlo allí le habría quitado el cuerpo al
+        # visor, que es justo lo contrario de lo que se busca. Aquí sólo se
+        # toca lo que viaja al modelo.
+        #
+        # LO QUE SE PIERDE: el modelo deja de leer el razonamiento del
+        # criterio, así que puede citarlo bien y desarrollarlo peor. A cambio
+        # ve muchas más tesis, y el cuerpo completo —y ahora el PDF oficial
+        # desde nuestro bucket— sigue a un clic en el visor.
+        #
+        # Reversa sin despliegue: TESIS_SOLO_RUBRO=0 en Render.
+        if (r.silo in _JURIS_PARA_RUBRO
+                and os.getenv("TESIS_SOLO_RUBRO", "1") == "1"):
+            _lineas = [x for x in texto.split("\n") if x.strip()]
+            # La cabecera «[TIPO: …] [REGISTRO: …]» y el rubro son las dos
+            # primeras líneas que compone `_con_rubro`; el resto es cuerpo.
+            _cab = _lineas[0] if _lineas and _lineas[0].lstrip().startswith("[") else ""
+            _rub = next((x for x in _lineas if not x.lstrip().startswith("[")), "")
+            if _rub:
+                texto = "\n".join(x for x in (_cab, _rub) if x)
+
         escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
         escaped_origen = html.escape(humanize_origen(r.origen) or "Desconocido")
@@ -12584,8 +12621,20 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 _precedentes_task = None
                 if not is_drafting and not is_chat_drafting and not is_precedentes_mode \
                    and not has_document and not is_sentencia:
+                    # MÁS CRITERIOS DE CIRCUITO (2-sep-2026). Los TCC suben de
+                    # 10 a 24: son los que resuelven el caso concreto del
+                    # litigante y los que menos se encuentran por otra vía —el
+                    # Semanario no los indexa cómodamente—, así que es donde
+                    # esta herramienta aporta lo que no aporta ninguna otra.
+                    # La SCJN sube menos, de 8 a 12: su criterio es más fácil
+                    # de hallar y no hace falta inundar con él.
+                    # Ambos ajustables sin despliegue.
                     _precedentes_task = asyncio.create_task(
-                        search_precedentes_unified(query=last_user_message, limit_scjn=8, limit_tcc=10)
+                        search_precedentes_unified(
+                            query=last_user_message,
+                            limit_scjn=int(os.getenv("PRECEDENTES_SCJN", "12")),
+                            limit_tcc=int(os.getenv("PRECEDENTES_TCC", "24")),
+                        )
                     )
 
                 # ── Heartbeat: primer byte inmediato para mantener TCP en móvil ──
