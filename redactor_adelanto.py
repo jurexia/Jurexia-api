@@ -320,7 +320,11 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             estructura = estructura_previa
             ruta, av_gen, estructura = await _componer_generado(
                 cliente, e, relleno, c, ruta_salida,
-                estructura_previa=estructura, acto=texto_acto, partes=partes)
+                estructura_previa=estructura, acto=texto_acto, partes=partes,
+                # EL ADELANTO NO LLEVA PREGUNTAS y no es un olvido: los
+                # problemas se fijan en `/taller/proponer`, que corre después.
+                # Aquí todavía no existen.
+                criterios=None)
         avisos.extend(av_gen)
     else:
         with cronometrar("ensamblado"):
@@ -780,6 +784,9 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                 # Las constancias ya leídas viajan con las fases; si la
                 # estructura hubiera que rehacerla, que no sea a ciegas.
                 acto=(getattr(getattr(r, "fases", None), "fuentes", []) or [""])[0],
+                # AQUÍ SÍ, y es el único sitio donde existen: `_terminar` los
+                # recibe del secretario y son los que fijan el sentido.
+                criterios=criterios,
                 partes=getattr(r, "partes", None),
                 marco_escrito=marco_escrito)
         avisos.extend(av_gen)
@@ -1056,7 +1063,7 @@ def _fecha_iso(x):
 async def _componer_generado(cliente, e: Encargo, relleno, computo,
                              ruta_salida: str, estructura_previa=None,
                              marco_escrito: str = "", acto: str = "",
-                             partes=None):
+                             partes=None, criterios=None):
     """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
     import documento_generado as dg
     import fase0_oportunidad as _f0

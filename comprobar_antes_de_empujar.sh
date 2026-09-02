@@ -63,6 +63,76 @@ if mal:
 print(f"   ✓ {len(t)} rutas del taller, todas bien colgadas")
 PY
 
+# ── 3b. LOS NOMBRES QUE SÓLO EXISTEN A VECES ──────────────────────────────
+# Tres veces en un día: una variable usada en una función que no la recibe.
+# `criterios=criterios` dentro de `_componer_generado`, que no tenía ese
+# parámetro, tumbó el amparo en revisión DESPUÉS de cinco minutos de trabajo y
+# con un mensaje que no dice dónde: «name 'criterios' is not defined». La verja
+# no lo vio porque compone directo, sin pasar por el módulo que lo rompía.
+echo "── 3b. ningún nombre indefinido en los módulos del taller ──"
+.venv/bin/python - <<'PYEOF'
+import ast, builtins, sys, pathlib
+
+# UNA FUNCIÓN ANIDADA VE LO DE LA DE FUERA, y la primera versión de esta
+# comprobación no lo sabía: acusó a `_partes_y_estructura()` por usar
+# `cliente`, que es un parámetro de la función que la contiene. Novena vez hoy
+# que una comprobación mía señala código correcto, y la regla no cambia: se
+# recorre el árbol arrastrando el ámbito, no fichero a fichero.
+MODULOS = ["redactor_adelanto.py", "documento_generado.py", "fase6_estudio.py",
+           "fase_rama.py", "tipos_asunto.py", "ensamblar_adelanto.py",
+           "fase0_oportunidad.py", "fase_origen.py", "calidad_estudio.py",
+           "linter_juridico.py", "normas_estaticas.py", "fase_normas.py"]
+BUILTIN = set(dir(builtins))
+
+
+def liga(nodo, heredado):
+    """Los nombres que existen dentro de `nodo`, con lo que hereda."""
+    n = set(heredado)
+    for x in ast.walk(nodo):
+        if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store):
+            n.add(x.id)
+        elif isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            n.add(x.name)
+        elif isinstance(x, (ast.Import, ast.ImportFrom)):
+            for a in x.names:
+                n.add((a.asname or a.name).split(".")[0])
+        elif isinstance(x, ast.ExceptHandler) and x.name:
+            n.add(x.name)
+        elif isinstance(x, ast.arg):
+            n.add(x.arg)
+        elif isinstance(x, ast.Global) or isinstance(x, ast.Nonlocal):
+            n.update(x.names)
+    return n
+
+
+malos = []
+for f in MODULOS:
+    arbol = ast.parse(pathlib.Path(f).read_text(encoding="utf8"))
+    modulo = liga(arbol, BUILTIN)
+
+    def revisa(fn, visible):
+        dentro = liga(fn, visible)
+        for x in ast.walk(fn):
+            if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load) \
+                    and x.id not in dentro:
+                malos.append(f"{f}:{x.lineno} {fn.name}() usa «{x.id}»")
+        for h in ast.iter_child_nodes(fn):
+            for y in ast.walk(h):
+                if isinstance(y, (ast.FunctionDef, ast.AsyncFunctionDef)) and y is not fn:
+                    pass
+
+    for fn in [x for x in ast.walk(arbol)
+               if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef))]:
+        revisa(fn, modulo)
+
+if malos:
+    print("   ✗ NOMBRES QUE PUEDEN NO EXISTIR:")
+    for m in malos[:12]:
+        print("     ", m)
+    sys.exit(1)
+print(f"   ✓ {len(MODULOS)} módulos sin nombres indefinidos")
+PYEOF
+
 echo "── 4. el documento se compone en los cuatro tipos ──"
 .venv/bin/python - <<'PY'
 import sys, datetime as dt
