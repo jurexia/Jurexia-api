@@ -1315,9 +1315,42 @@ def ley_de_la_via(tipo: str) -> str:
     """El marco normativo de la vía, para decírselo al modelo antes de escribir."""
     return LEY_DE_LA_VIA.get(normalizar(tipo), "")
 
+# LA VENTANA NO PUEDE SALTAR A LA CITA SIGUIENTE. La primera versión permitía
+# 110 caracteres cualesquiera entre el número y «Ley de Amparo», y con eso
+# acusó al proyecto por escribir lo correcto:
+#
+#   «los requisitos de la sentencia se examinan conforme al artículo 50 de la
+#    Ley Federal de Procedimiento Contencioso Administrativo Y NO con base en
+#    el artículo 74 de la Ley de Amparo»
+#
+# El 50 es de la LFPCA y la frase lo dice; la ventana se lo saltó y lo enganchó
+# a la ley de la cita de al lado. Ahora el hueco se corta ante otro «artículo»
+# y ante cualquier otro nombre de ley o código: la ley de una cita es la que
+# viene ANTES de que empiece otra.
 _RX_CITA_LA = re.compile(
     r"art[íi]culos?\s+((?:\d{1,3}(?:\s*(?:,|y|e)\s*)?)+)"
-    r"[^.;]{0,110}?\bLey\s+de\s+Amparo", re.I)
+    r"(?:(?!art[íi]culos?\s+\d|\bLey\s+(?!de\s+Amparo)|\bC[óo]digo\s)[^.;]){0,110}?"
+    r"\bLey\s+de\s+Amparo", re.I)
+
+
+# CITAR PARA DESCARTAR ES RAZONAR BIEN, Y HAY QUE PREMIARLO. El proyecto
+# regenerado escribió esto, que es exactamente lo que se le pidió:
+#
+#   «los requisitos de la sentencia se examinan conforme al artículo 50 de la
+#    Ley Federal de Procedimiento Contencioso Administrativo Y NO CON BASE EN
+#    el artículo 74 de la Ley de Amparo»
+#
+# Acusarlo por nombrar el 74 castiga al que distingue y premia al que calla. Lo
+# que se persigue es APLICAR la ley ajena, no mencionarla para apartarla. Es la
+# octava vez hoy que una comprobación mía acusa al documento correcto, y la
+# regla no cambia: si acusa al que hace bien, la que está mal es la regla.
+_RX_DESCARTA = re.compile(
+    r"(?:\bno\b\s+(?:con\s+base\s+en|conforme\s+a|en\s+t[ée]rminos\s+de|"
+    r"por|se\s+rige|resulta\s+aplicable|es\s+aplicable|aplica)|"
+    r"a\s+diferencia\s+de|\bno\s+as[íi]\b|en\s+lugar\s+de|"
+    r"y\s+no\b|ni\s+(?:por|conforme|con\s+base)|"
+    r"(?:no|nunca)\s+(?:rige|gobierna|se\s+invoca))"
+    r"[^.;]{0,40}$", re.I)
 
 
 def _amparo_fuera_de_lugar(texto: str) -> list:
@@ -1332,6 +1365,10 @@ def _amparo_fuera_de_lugar(texto: str) -> list:
     """
     fuera, vistos = [], set()
     for m in _RX_CITA_LA.finditer(texto or ""):
+        # Lo que va justo ANTES de la cita dice si se aplica o se aparta.
+        antes = (texto or "")[max(0, m.start() - 90):m.start()]
+        if _RX_DESCARTA.search(antes):
+            continue
         for num in re.findall(r"\d{1,3}", m.group(1)):
             n_ = int(num)
             if n_ in _LA_EN_FISCAL or n_ in vistos:
