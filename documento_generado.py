@@ -955,7 +955,19 @@ RESOLUTIVO = {
                   "oportunidad archívese como asunto concluido."),
     },
     "revision_fiscal": {
-        "punto": "Se {calificacion} la sentencia recurrida, dictada por {responsable}.",
+        # LA FÓRMULA MEDIDA, no la mía. `banco_formulas_medidas.json` la cuenta
+        # en 16 de 28 revisiones fiscales del tribunal: «Se confirma la
+        # sentencia DE {fecha}, dictada EN EL EXPEDIENTE {expediente}, por la
+        # Sala…». Aquí se escribía «la sentencia recurrida, dictada por la
+        # Sala», que no dice CUÁL sentencia se revoca —y en un tribunal donde
+        # la misma Sala dicta cientos, identificarla no es un adorno—.
+        #
+        # Los dos datos se leen: el expediente con `fase_origen.numero_de`, que
+        # acierta 5 de 5 sobre los engroses reales, y la fecha con `fecha_de`,
+        # que ahora calla cuando duda. Lo que no se pudo leer sale en hueco, a
+        # la vista, con su aviso.
+        "punto": ("Se {calificacion} la sentencia de {fecha_sentencia}, dictada "
+                  "en el expediente {expediente_origen}, por {responsable}."),
         "calif": ("revoca", "confirma"),
         "notif": ("Notifíquese; publíquese y anótese en el Libro de control de "
                   "este Tribunal, hágase la captura correspondiente en el "
@@ -2605,10 +2617,36 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # Queja y revisión: NO amparan. Se califica el recurso o se resuelve
         # sobre la sentencia recurrida, que es lo que hacen los engroses.
         _cal = _res["calif"][0] if concede else _res["calif"][1]
+        # LOS DOS DATOS QUE IDENTIFICAN LA SENTENCIA. Se leen de los
+        # resultandos, que es donde el propio proyecto acaba de escribirlos, y
+        # si no se pudieron leer salen en hueco con su aviso: un resolutivo que
+        # revoca «la sentencia recurrida» a secas no dice cuál, y quien lo
+        # ejecute tiene que ir a buscarla.
+        _fecha_s = _expte_s = ""
+        if "{fecha_sentencia}" in _res["punto"]:
+            try:
+                import fase_origen as _fo_r
+                _res_txt = " ".join(str(r.get("texto") or "")
+                                    for r in (estructura.resultandos or []))
+                _fuente = f"{datos.get('antecedentes') or ''} {_res_txt}"
+                _fecha_s = _fo_r.fecha_de(_fuente)
+                _expte_s = _fo_r.numero_de(_fuente)
+            except Exception as _eo:
+                print(f"   ⚠️ no se pudo leer fecha/expediente del recurrido: {_eo}")
+            if not _fecha_s or not _expte_s:
+                _avisos_bk.append(
+                    "EL RESOLUTIVO NO IDENTIFICA LA SENTENCIA POR COMPLETO: "
+                    + ("falta su FECHA. " if not _fecha_s else "")
+                    + ("falta el EXPEDIENTE de origen. " if not _expte_s else "")
+                    + "No se pudo leer de los resultandos y sale en hueco. "
+                      "Escríbelo: es lo que distingue esta sentencia de las "
+                      "demás que dictó la misma Sala.")
         _texto = _res["punto"].format(
             calificacion=_cal,
+            fecha_sentencia=_fecha_s or HUECO,
+            expediente_origen=_expte_s or HUECO,
             responsable=_con_articulo(datos.get("responsable", "")) or HUECO)
-        _texto = _texto.replace("por el ", "por el ").replace(" de el ", " del ")
+        _texto = _contraer(_texto)
         tramos(doc, [("ÚNICO. ", {"bold": True}), (_texto, {})], sangria=False)
     else:
         formula = _AMPARA if concede else _NO_AMPARA
