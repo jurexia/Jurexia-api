@@ -9,29 +9,41 @@ El Semanario puso Incapsula delante de su API y ahora reta a las IP de centro
 de datos. Medido: desde una conexión doméstica el mismo registro responde 200;
 desde Vercel, Render y el runtime de borde, un 302 que redirige a sí mismo en
 bucle o acaba en 403. Ningún servidor nuestro va a poder pedirle un PDF nunca
-más.
+más. Lo que sí puede es esta máquina: se bajan una vez desde aquí, se suben a
+nuestro bucket, y el visor deja de depender de un cortafuegos ajeno.
 
-Lo que sí puede es esta máquina. Así que se bajan una vez desde aquí, se
-suben a nuestro bucket, y el visor deja de depender del humor de un
-cortafuegos ajeno — igual que ya se hizo con las sentencias de TCC.
+LA LECCIÓN CARA: NO ERA LA IP, ERA EL CLIENTE
+---------------------------------------------
+La primera versión usaba `httpx` y fracasó: 8 aciertos y 44 rechazos a
+concurrencia 8, y con 2 conexiones fallaba el 90%. La conclusión parecía
+obvia —«Incapsula sólo tolera una conexión por IP»— y era FALSA. Medido en
+serie, en el mismo minuto y con las mismas cabeceras:
 
-LA PRUDENCIA NO ES OPCIONAL
----------------------------
-Esta IP doméstica es la única puerta que queda abierta. Si se la satura y
-Incapsula la marca, no hay plan C. Por eso la concurrencia es ADAPTATIVA y
-asimétrica: sube despacio cuando todo va bien y se desploma al primer indicio
-de rechazo. Y si el rechazo se sostiene, el script para solo en lugar de
-insistir: es preferible terminar mañana que quedarse sin fuente hoy.
+    urllib, 10 peticiones seguidas ....... 10 de 10
+    httpx,  10 peticiones seguidas ....... 1 de 10, nueve 403
+
+El cortafuegos toma la huella del CLIENTE —orden de cabeceras y handshake
+TLS—, no del ritmo. Con `urllib` el paralelismo deja de ser un problema:
+
+    urllib ·  4 hilos ...... 24 de 24 ·  3.9 PDF/s
+    urllib ·  8 hilos ...... 24 de 24 ·  7.9 PDF/s
+    urllib · 16 hilos ...... 40 de 40 · 12.4 PDF/s
+    urllib · 32 hilos ...... 40 de 40 · 15.6 PDF/s · 8.8 MB/s
+
+A 32 hilos las 71,655 tesis son ~77 minutos, no las 17 horas que prometía el
+diagnóstico equivocado. De ahí en adelante el techo ya no es el servidor sino
+el ancho de banda.
 
 TRAMPA DEL ENDPOINT, heredada de la ruta del frontend: **responde 200 aunque
 el registro no exista**, devolviendo un PDF truncado. Por eso cada archivo se
 valida por cabecera `%PDF` y por tamaño mínimo antes de darlo por bueno.
 
-    ./.venv/bin/python3 tesis_pdf_2_descargar.py            # todo
-    ./.venv/bin/python3 tesis_pdf_2_descargar.py --limite 50  # prueba corta
+    ./.venv/bin/python3 tesis_pdf_2_descargar.py
+    ./.venv/bin/python3 tesis_pdf_2_descargar.py --hilos 16 --limite 200
 """
-import asyncio, hashlib, io, json, os, sys, time
-import httpx
+import hashlib, io, json, os, sys, threading, time
+import urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 BASE = 'https://sjf2.scjn.gob.mx'
 API = f'{BASE}/services/sjftesismicroservice/api/public/tesis'
@@ -42,29 +54,19 @@ MANIFIESTO = os.path.join(RAIZ, 'manifiesto.jsonl')
 UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
 
-# Un PDF de tesis real pesa ~570 KB; los truncados que devuelve el endpoint
-# para un registro inexistente rondan los pocos KB.
-MINIMO_BYTES = 20_000
+MINIMO_BYTES = 20_000     # un PDF de tesis real ronda los 568 KB
+HILOS = 32
+REINTENTOS = 4
 
-# UNA CONEXIÓN. NO DOS. Medido contra el Semanario el 2-sep-2026, con la IP
-# limpia y en tandas de 14 a 20 peticiones:
-#
-#     en serie, sin pausa ....... 14 de 14 · 1.18 PDF/s
-#     en serie, pausa 0.15 s .... 14 de 14 · 0.97 PDF/s
-#     concurrencia 2 ............  2 de 20 · el 90% rechazado
-#     concurrencia 8 ............  8 aciertos y 44 rechazos
-#
-# El cortafuegos no mide peticiones por segundo: mide CONEXIONES SIMULTÁNEAS,
-# y tolera exactamente una. Subir a dos no baja el rendimiento, lo destruye —y
-# además deja la IP en penalización un rato, de modo que el intento siguiente
-# arranca peor que el anterior. A 1.18 PDF/s las 71,655 tesis son unas 17
-# horas: es lo que hay, y es una noche.
-CONC_INICIAL, CONC_MAXIMA, CONC_MINIMA = 1, 1, 1
-RECHAZOS_PARA_PARAR = 80      # rechazos seguidos = Incapsula nos marcó
+# Si de las últimas 200 peticiones falla más de este tanto por uno, algo
+# cambió al otro lado y seguir insistiendo sólo empeora las cosas.
+UMBRAL_ABORTO = 0.45
 
-# El viaje de ida y vuelta ya son ~0.85 s, así que no hace falta pausa propia:
-# el intervalo sólo existe para poder frenar cuando el servidor se queja.
-INTERVALO_INICIAL, INTERVALO_MINIMO, INTERVALO_MAXIMO = 0.0, 0.0, 20.0
+_lock = threading.Lock()
+_cuenta = {'ok': 0, 'saltados': 0, 'invalidos': 0, 'rechazos': 0,
+           'errores': 0, 'agotados': 0, 'bytes': 0, 'hechos': 0}
+_ventana: list = []
+_abortar = threading.Event()
 
 
 def ruta_de(registro: str) -> str:
@@ -74,133 +76,98 @@ def ruta_de(registro: str) -> str:
 
 
 def ya_esta(registro: str) -> bool:
-    p = ruta_de(registro)
     try:
-        return os.path.getsize(p) >= MINIMO_BYTES
+        return os.path.getsize(ruta_de(registro)) >= MINIMO_BYTES
     except OSError:
         return False
 
 
-class Ritmo:
-    """El ritmo de las peticiones: sube despacio, baja de golpe.
-
-    La asimetría es deliberada. Recuperar velocidad perdida cuesta minutos;
-    recuperar una IP marcada por Incapsula puede costar el proyecto entero,
-    porque esta conexión doméstica es la única que el Semanario todavía
-    atiende.
-    """
-
-    def __init__(self, conc=CONC_INICIAL, intervalo=INTERVALO_INICIAL):
-        self.n = conc
-        self.sem = asyncio.Semaphore(conc)
-        self.intervalo = intervalo
-        self.siguiente_hueco = 0.0
-        self.buenas_seguidas = 0
-        self.rechazos_seguidos = 0
-        self.parar = False
-
-    async def esperar_turno(self):
-        """Reparte las salidas en el tiempo, que es lo que de verdad mira el
-        cortafuegos: no cuántas conexiones hay abiertas, sino cuántas
-        peticiones llegan por segundo."""
-        ahora = asyncio.get_event_loop().time()
-        salida = max(ahora, self.siguiente_hueco)
-        self.siguiente_hueco = salida + self.intervalo
-        if salida > ahora:
-            await asyncio.sleep(salida - ahora)
-
-    def bien(self):
-        self.rechazos_seguidos = 0
-        self.buenas_seguidas += 1
-        # Con una sola conexión lo único que se relaja es la pausa, y sólo
-        # tras una racha larga: volver al ritmo de antes del rechazo demasiado
-        # pronto es la forma de encadenar penalizaciones.
-        if self.buenas_seguidas >= 40:
-            self.buenas_seguidas = 0
-            self.intervalo = max(INTERVALO_MINIMO, self.intervalo * 0.6)
-
-    def rechazado(self):
-        self.buenas_seguidas = 0
-        self.rechazos_seguidos += 1
-        if self.rechazos_seguidos >= RECHAZOS_PARA_PARAR:
-            self.parar = True
-        self.intervalo = min(INTERVALO_MAXIMO, max(self.intervalo, 0.5) * 2.0)
+def anota(clave: str, bien: bool, octetos: int = 0):
+    with _lock:
+        _cuenta[clave] += 1
+        _cuenta['hechos'] += 1
+        _cuenta['bytes'] += octetos
+        _ventana.append(bien)
+        if len(_ventana) > 200:
+            del _ventana[:-200]
+        if len(_ventana) == 200 and (_ventana.count(False) / 200.0) > UMBRAL_ABORTO:
+            _abortar.set()
 
 
-async def bajar(cli: httpx.AsyncClient, item: dict, ritmo: Ritmo, cuenta: dict):
+def bajar(item: dict):
     reg = item['registro']
+    if _abortar.is_set():
+        return
     if ya_esta(reg):
-        cuenta['saltados'] += 1
+        with _lock:
+            _cuenta['saltados'] += 1
+            _cuenta['hechos'] += 1
         return
 
     url = (f'{API}/reporte/{reg}?isSemanal=false&nameDocto=Tesis'
            f'&hostName={BASE}&soloParrafos=false')
+    # El cortafuegos exige Referer Y User-Agent de navegador A LA VEZ: cada uno
+    # por separado devuelve 403. Medido el 2-sep-2026.
     cab = {'Accept': '*/*', 'Accept-Language': 'es-MX,es;q=0.9',
            'Referer': f'{BASE}/detalle/tesis/{reg}', 'User-Agent': UA}
 
-    for intento in range(4):
-        if ritmo.parar:
+    for intento in range(REINTENTOS):
+        if _abortar.is_set():
             return
-        async with ritmo.sem:
-            await ritmo.esperar_turno()
-            try:
-                r = await cli.get(url, headers=cab)
-            except Exception as e:
-                await asyncio.sleep(1.5 * (intento + 1))
-                cuenta['errores_red'] += 1
-                continue
-
-        if r.status_code in (403, 302, 429, 503):
-            ritmo.rechazado()
-            cuenta['rechazos'] += 1
-            # Espera creciente: 3, 9, 27 segundos.
-            await asyncio.sleep(3 ** (intento + 1))
+        try:
+            peticion = urllib.request.Request(url, headers=cab)
+            with urllib.request.urlopen(peticion, timeout=60) as r:
+                datos, estado = r.read(), r.status
+        except urllib.error.HTTPError as e:
+            estado, datos = e.code, b''
+        except Exception:
+            with _lock:
+                _cuenta['errores'] += 1
+            time.sleep(1.0 * (intento + 1))
             continue
 
-        if r.status_code != 200:
-            cuenta['otros'] += 1
+        if estado in (403, 302, 429, 503):
+            anota('rechazos', False)
+            time.sleep(2 ** (intento + 1))        # 2, 4, 8, 16 s
+            continue
+
+        if estado != 200:
+            anota('errores', False)
             return
 
-        datos = r.content
         if not datos.startswith(b'%PDF') or len(datos) < MINIMO_BYTES:
-            # El endpoint contesta 200 con basura cuando el registro no existe.
-            cuenta['invalidos'] += 1
-            ritmo.bien()
+            # 200 con basura = el registro no existe en el Semanario. No es un
+            # fallo nuestro, así que cuenta como petición sana.
+            anota('invalidos', True)
             return
 
         destino = ruta_de(reg)
         os.makedirs(os.path.dirname(destino), exist_ok=True)
-        tmp = destino + '.parcial'
+        tmp = f'{destino}.parcial'
         with open(tmp, 'wb') as f:
             f.write(datos)
         os.replace(tmp, destino)
 
-        with io.open(MANIFIESTO, 'a', encoding='utf-8') as f:
-            f.write(json.dumps({
-                'registro': reg,
-                'bytes': len(datos),
-                'sha1': hashlib.sha1(datos).hexdigest(),
-                'rubro': item.get('rubro'),
-                'clave_tesis': item.get('clave_tesis'),
-                'instancia': item.get('instancia'),
-                'epoca': item.get('epoca'),
-                'tipo': item.get('tipo'),
-                'materia': item.get('materia'),
-                'localizacion': item.get('localizacion'),
-            }, ensure_ascii=False) + '\n')
-
-        cuenta['ok'] += 1
-        cuenta['bytes'] += len(datos)
-        ritmo.bien()
+        linea = json.dumps({
+            'registro': reg, 'bytes': len(datos),
+            'sha1': hashlib.sha1(datos).hexdigest(),
+            'rubro': item.get('rubro'), 'clave_tesis': item.get('clave_tesis'),
+            'instancia': item.get('instancia'), 'epoca': item.get('epoca'),
+            'tipo': item.get('tipo'), 'materia': item.get('materia'),
+            'localizacion': item.get('localizacion'),
+        }, ensure_ascii=False)
+        with _lock:
+            with io.open(MANIFIESTO, 'a', encoding='utf-8') as f:
+                f.write(linea + '\n')
+        anota('ok', True, len(datos))
         return
 
-    cuenta['agotados'] += 1
+    anota('agotados', False)
 
 
-async def main():
-    limite = None
-    if '--limite' in sys.argv:
-        limite = int(sys.argv[sys.argv.index('--limite') + 1])
+def main():
+    hilos = int(sys.argv[sys.argv.index('--hilos') + 1]) if '--hilos' in sys.argv else HILOS
+    limite = int(sys.argv[sys.argv.index('--limite') + 1]) if '--limite' in sys.argv else None
 
     with io.open(os.path.join(RAIZ, 'registros.json'), encoding='utf-8') as f:
         universo = json.load(f)
@@ -208,59 +175,46 @@ async def main():
         universo = universo[:limite]
 
     pendientes = [x for x in universo if not ya_esta(x['registro'])]
-    print(f'{len(universo):,} en el censo · {len(pendientes):,} por bajar', flush=True)
+    print(f'{len(universo):,} en el censo · {len(pendientes):,} por bajar · '
+          f'{hilos} hilos', flush=True)
     if not pendientes:
         print('Nada que hacer.')
         return
 
-    conc = int(sys.argv[sys.argv.index('--conc') + 1]) if '--conc' in sys.argv else CONC_INICIAL
-    intervalo = (float(sys.argv[sys.argv.index('--intervalo') + 1])
-                 if '--intervalo' in sys.argv else INTERVALO_INICIAL)
-    ritmo = Ritmo(conc, intervalo)
-    print(f'ritmo inicial: concurrencia {conc}, un arranque cada {intervalo:.2f} s', flush=True)
-    cuenta = {'ok': 0, 'saltados': 0, 'invalidos': 0, 'rechazos': 0,
-              'errores_red': 0, 'otros': 0, 'agotados': 0, 'bytes': 0}
     t0 = time.time()
+    parar_reloj = threading.Event()
 
-    limites = httpx.Limits(max_connections=CONC_MAXIMA + 4,
-                           max_keepalive_connections=CONC_MAXIMA)
-    async with httpx.AsyncClient(http2=False, timeout=45.0, limits=limites,
-                                 follow_redirects=False) as cli:
-        tareas = set()
-        for i, item in enumerate(pendientes, 1):
-            if ritmo.parar:
-                break
-            t = asyncio.create_task(bajar(cli, item, ritmo, cuenta))
-            tareas.add(t)
-            t.add_done_callback(tareas.discard)
+    def reloj():
+        while not parar_reloj.wait(20):
+            with _lock:
+                c = dict(_cuenta)
+            seg = max(time.time() - t0, 1)
+            ritmo = c['ok'] / seg
+            faltan = (len(pendientes) - c['hechos']) / max(ritmo, 0.01) / 60
+            print(f'  {c["ok"]:>6,}/{len(pendientes):,} · {c["bytes"]/1e9:>5.2f} GB · '
+                  f'{ritmo:>5.1f}/s · {ritmo*0.568:>4.1f} MB/s · '
+                  f'{c["invalidos"]:>4} inexistentes · {c["rechazos"]:>4} rechazos · '
+                  f'faltan ~{faltan:>4.0f} min', flush=True)
 
-            # No se crean 71,655 tareas de golpe: se mantiene una ventana.
-            while len(tareas) >= ritmo.n * 3:
-                await asyncio.sleep(0.02)
+    threading.Thread(target=reloj, daemon=True).start()
+    try:
+        with ThreadPoolExecutor(max_workers=hilos) as ex:
+            list(ex.map(bajar, pendientes))
+    finally:
+        parar_reloj.set()
 
-            if i % 250 == 0:
-                seg = time.time() - t0
-                print(f'  {cuenta["ok"]:>6,} ok · {cuenta["invalidos"]:>4} inexistentes · '
-                      f'{cuenta["rechazos"]:>4} rechazos · conc {ritmo.n:>2} · '
-                      f'{cuenta["bytes"]/1e9:>5.2f} GB · '
-                      f'{cuenta["ok"]/max(seg,1):>5.1f}/s · int {ritmo.intervalo:.2f}s · '
-                      f'{seg/60:>5.1f} min', flush=True)
-
-        if tareas:
-            await asyncio.gather(*tareas, return_exceptions=True)
-
-    seg = time.time() - t0
-    print('\n' + '─' * 60)
-    if ritmo.parar:
-        print('DETENIDO: demasiados rechazos seguidos. Incapsula nos está frenando.')
-        print('Deja pasar un rato y vuelve a lanzarlo: continúa donde se quedó.')
-    print(f'Descargados : {cuenta["ok"]:,}  ({cuenta["bytes"]/1e9:.2f} GB)')
-    print(f'Ya estaban  : {cuenta["saltados"]:,}')
-    print(f'Inexistentes: {cuenta["invalidos"]:,}  (200 con PDF truncado)')
-    print(f'Rechazos    : {cuenta["rechazos"]:,} · red: {cuenta["errores_red"]:,} · '
-          f'agotados: {cuenta["agotados"]:,}')
-    print(f'Tiempo      : {seg/60:.1f} min · {cuenta["ok"]/max(seg,1):.1f} PDF/s')
+    seg = max(time.time() - t0, 1)
+    print('\n' + '─' * 62)
+    if _abortar.is_set():
+        print('ABORTADO: más del 45% de las últimas 200 peticiones falló.')
+        print('Algo cambió al otro lado. Relánzalo: continúa donde se quedó.')
+    print(f'Descargados : {_cuenta["ok"]:,}  ({_cuenta["bytes"]/1e9:.2f} GB)')
+    print(f'Ya estaban  : {_cuenta["saltados"]:,}')
+    print(f'Inexistentes: {_cuenta["invalidos"]:,}  (200 con PDF truncado)')
+    print(f'Rechazos    : {_cuenta["rechazos"]:,} · errores: {_cuenta["errores"]:,} · '
+          f'agotados: {_cuenta["agotados"]:,}')
+    print(f'Tiempo      : {seg/60:.1f} min · {_cuenta["ok"]/seg:.1f} PDF/s')
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
