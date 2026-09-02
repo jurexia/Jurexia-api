@@ -1431,7 +1431,14 @@ def ley_de_la_via(tipo: str) -> str:
 # viene ANTES de que empiece otra.
 _RX_CITA_LA = re.compile(
     r"art[íi]culos?\s+((?:\d{1,3}(?:\s*(?:,|y|e)\s*)?)+)"
-    r"(?:(?!art[íi]culos?\s+\d|\bLey\s+(?!de\s+Amparo)|\bC[óo]digo\s)[^.;]){0,110}?"
+    # LA CONSTITUCIÓN TAMBIÉN CORTA LA VENTANA, y faltaba. El documento dice
+    # «el artículo 14 de la CONSTITUCIÓN POLÍTICA de los Estados Unidos
+    # Mexicanos» y la ventana saltaba por encima de ese nombre hasta encontrar
+    # «Ley de Amparo» más abajo, acusando de citarla un artículo que es de la
+    # Carta Magna. Duodécima retirada, y la misma causa que las anteriores: la
+    # ley de una cita es la que viene ANTES de que empiece otra.
+    r"(?:(?!art[íi]culos?\s+\d|\bLey\s+(?!de\s+Amparo)|\bC[óo]digo\s|"
+    r"\bConstituci[óo]n\s|\bReglamento\s|\bAcuerdo\s)[^.;]){0,110}?"
     r"\bLey\s+de\s+Amparo", re.I)
 
 

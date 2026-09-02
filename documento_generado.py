@@ -1366,9 +1366,14 @@ def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
     # sentencia. Se quita, y con ella el «Artículo N.» duplicado que viene
     # detrás.
     cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", cuerpo)
+    # Y LA GRAFÍA ABREVIADA, que es la del acervo constitucional. El patrón
+    # exigía la palabra «ARTÍCULO» entera y el corpus escribe «Art. 14.-», así
+    # que el encabezado duplicado sobrevivía y salía «Artículo 14. Art. 14.- A
+    # ninguna ley se dará efecto retroactivo…». Se ve en la nota al pie de cada
+    # precepto constitucional, que es donde quien firma va a comprobar.
     for _ in range(2):
-        cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,14}\.?[-–]?\s*", "",
-                        cuerpo, flags=re.I)
+        cuerpo = re.sub(r"^\s*ART(?:[ÍI]CULO)?\.?\s*\d+[^.]{0,14}\.?\s*[-–]?\s*",
+                        "", cuerpo, flags=re.I)
     q = doc.add_paragraph()
     r = q.add_run(f"«Artículo {num}. {cuerpo}»")
     _fmt(q, sangria=False, tamano=TAMANO_CITA,

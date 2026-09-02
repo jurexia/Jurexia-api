@@ -46,15 +46,25 @@ UA = ('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
 # para un registro inexistente rondan los pocos KB.
 MINIMO_BYTES = 20_000
 
-# Medido el 2-sep-2026: a concurrencia 8 el Semanario devolvió 44 rechazos por
-# 8 aciertos. No estrangula por conexiones simultáneas sino por PETICIONES POR
-# SEGUNDO, así que la palanca de verdad es el intervalo, no la concurrencia.
-CONC_INICIAL, CONC_MAXIMA, CONC_MINIMA = 3, 6, 1
-RECHAZOS_PARA_PARAR = 60      # rechazos seguidos = Incapsula nos marcó
+# UNA CONEXIÓN. NO DOS. Medido contra el Semanario el 2-sep-2026, con la IP
+# limpia y en tandas de 14 a 20 peticiones:
+#
+#     en serie, sin pausa ....... 14 de 14 · 1.18 PDF/s
+#     en serie, pausa 0.15 s .... 14 de 14 · 0.97 PDF/s
+#     concurrencia 2 ............  2 de 20 · el 90% rechazado
+#     concurrencia 8 ............  8 aciertos y 44 rechazos
+#
+# El cortafuegos no mide peticiones por segundo: mide CONEXIONES SIMULTÁNEAS,
+# y tolera exactamente una. Subir a dos no baja el rendimiento, lo destruye —y
+# además deja la IP en penalización un rato, de modo que el intento siguiente
+# arranca peor que el anterior. A 1.18 PDF/s las 71,655 tesis son unas 17
+# horas: es lo que hay, y es una noche.
+CONC_INICIAL, CONC_MAXIMA, CONC_MINIMA = 1, 1, 1
+RECHAZOS_PARA_PARAR = 80      # rechazos seguidos = Incapsula nos marcó
 
-# Segundos entre el arranque de una petición y la siguiente. Se ajusta solo:
-# baja despacio mientras todo va bien y sube de golpe al primer rechazo.
-INTERVALO_INICIAL, INTERVALO_MINIMO, INTERVALO_MAXIMO = 0.45, 0.15, 4.0
+# El viaje de ida y vuelta ya son ~0.85 s, así que no hace falta pausa propia:
+# el intervalo sólo existe para poder frenar cuando el servidor se queja.
+INTERVALO_INICIAL, INTERVALO_MINIMO, INTERVALO_MAXIMO = 0.0, 0.0, 20.0
 
 
 def ruta_de(registro: str) -> str:
@@ -102,23 +112,19 @@ class Ritmo:
     def bien(self):
         self.rechazos_seguidos = 0
         self.buenas_seguidas += 1
-        if self.buenas_seguidas >= 80:
+        # Con una sola conexión lo único que se relaja es la pausa, y sólo
+        # tras una racha larga: volver al ritmo de antes del rechazo demasiado
+        # pronto es la forma de encadenar penalizaciones.
+        if self.buenas_seguidas >= 40:
             self.buenas_seguidas = 0
-            self.intervalo = max(INTERVALO_MINIMO, self.intervalo * 0.85)
-            if self.n < CONC_MAXIMA:
-                self.n += 1
-                self.sem.release()
+            self.intervalo = max(INTERVALO_MINIMO, self.intervalo * 0.6)
 
     def rechazado(self):
         self.buenas_seguidas = 0
         self.rechazos_seguidos += 1
         if self.rechazos_seguidos >= RECHAZOS_PARA_PARAR:
             self.parar = True
-        self.intervalo = min(INTERVALO_MAXIMO, max(self.intervalo, 0.2) * 2.0)
-        objetivo = max(CONC_MINIMA, self.n // 2)
-        while self.n > objetivo:
-            self.n -= 1
-            asyncio.create_task(self.sem.acquire())
+        self.intervalo = min(INTERVALO_MAXIMO, max(self.intervalo, 0.5) * 2.0)
 
 
 async def bajar(cli: httpx.AsyncClient, item: dict, ritmo: Ritmo, cuenta: dict):
