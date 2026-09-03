@@ -27437,3 +27437,43 @@ if __name__ == "__main__":
         reload=True,
         log_level="info",
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Seguimiento de expedientes ante órganos jurisdiccionales
+# ══════════════════════════════════════════════════════════════════════
+# El cron de Vercel abre la corrida y llama aquí; el trabajo lo hace Render,
+# porque un cron de Vercel tiene los minutos contados y barrer una cartera
+# grande dura más. La guardia de huso vive en seg_barrido: si México volviera
+# a cambiar de hora, el barrido se niega en vez de mandar avisos con una hora
+# falsa en el cuerpo.
+
+@app.post("/seguimiento/barrer")
+async def seguimiento_barrer(request: Request):
+    """Un pase del barrido. Lo dispara el cron de Vercel."""
+    if request.headers.get("x-iurexia-cron") != os.getenv("CRON_SECRET", ""):
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    cuerpo = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    pase = int(cuerpo.get("pase", 1))
+    forzar = bool(cuerpo.get("forzar", False))
+
+    import seg_barrido
+    # El barrido es sincrónico y de red lenta: va a un hilo para no bloquear
+    # el bucle de eventos mientras espera al portal del Consejo.
+    if pase >= 4:
+        r = await asyncio.to_thread(seg_barrido.cerrar)
+    else:
+        r = await asyncio.to_thread(seg_barrido.barrer, pase, None, None, True, forzar)
+    return {"ok": True, "pase": pase, **(r or {})}
+
+
+@app.get("/seguimiento/estado")
+async def seguimiento_estado(request: Request):
+    """Cómo fue la corrida de hoy. Para el panel y para saber si el cron corrió."""
+    if request.headers.get("x-iurexia-cron") != os.getenv("CRON_SECRET", ""):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    import seg_almacen, seg_barrido
+    hoy = seg_barrido.hoy_mexico()
+    corridas = seg_almacen._pedir("GET", f"/seg_corridas?fecha_local=eq.{hoy}&order=pase.asc")
+    return {"fecha": hoy, "corridas": corridas or []}
