@@ -13542,6 +13542,46 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # ── Emit RAG source count for frontend (filterable) ──
                 if search_results:
                     yield f"<!--SOURCES:{len(search_results)}-->"
+
+                    # ── LAS FUENTES, ANTES DE ESCRIBIR LA RESPUESTA ──────────
+                    #
+                    # `CITATION_META` viaja al FINAL del stream, así que durante
+                    # los treinta o cuarenta segundos que tarda la respuesta el
+                    # frontend tiene las citas pintadas pero sin nada detrás:
+                    # el abogado pulsaba [4] y se abría un panel vacío. Tenía
+                    # que esperar a que terminara todo para poder cotejar la
+                    # primera línea.
+                    #
+                    # Y no hacía falta esperar: lo que el modelo puede citar es
+                    # exactamente lo que se le acaba de dar, y eso ya está aquí.
+                    # Se manda ahora, con el texto recortado para no cargar el
+                    # arranque; el mapa final sigue llegando al cierre con el
+                    # texto íntegro y los alias de reparación, y el frontend lo
+                    # prefiere en cuanto lo tiene.
+                    try:
+                        _previas = {}
+                        for _d in search_results:
+                            _t = (_d.texto or "")
+                            _previas[str(_d.id)] = {
+                                "origen": humanize_origen(_d.origen) or "Fuente legal",
+                                "ref": _d.ref or "",
+                                "texto": _t[:4000],
+                                "pdf_url": resolver_pdf(_d.pdf_url, _d.origen, _d.silo) or None,
+                                "silo": _d.silo,
+                                "entidad": getattr(_d, "entidad", None) or None,
+                                "registro": getattr(_d, "registro", None) or None,
+                                "tesis_num": getattr(_d, "tesis_num", None) or None,
+                                "tipo_criterio": getattr(_d, "tipo_criterio", None) or None,
+                                "instancia": getattr(_d, "instancia_meta", None) or None,
+                                "materia": getattr(_d, "materia_meta", None) or None,
+                            }
+                        yield ("\n<!-- FUENTES_PREVIAS:"
+                               + json.dumps(_previas, ensure_ascii=False) + " -->\n")
+                    except Exception as _e:
+                        # Que esto falle no puede costar la respuesta: sin el
+                        # mapa previo se sigue como hasta ahora, esperando al
+                        # CITATION_META del final.
+                        print(f"   ⚠️ FUENTES_PREVIAS no se pudo emitir: {_e}")
                     # Última etapa: a partir de aquí ya sólo se genera texto.
                     # La fila se enciende un instante y el primer token la
                     # sustituye por la respuesta — que es exactamente lo que
