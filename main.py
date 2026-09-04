@@ -14111,12 +14111,88 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         else:
                             gemini_config = gtypes.GenerateContentConfig(system_instruction=system_instruction, temperature=0.5, max_output_tokens=max_tokens, **({"thinking_config": gtypes.ThinkingConfig(thinking_budget=THINKING_BUDGET)} if is_sentencia else {}))
 
+                        # ── SI GOOGLE RECHAZA LA PETICIÓN CON CACHÉ, SE VA
+                        #    POR EL CAMINO NORMAL (4-sep-2026) ──────────────
+                        #
+                        # La llamada con `cached_content` devuelve a veces un
+                        # 400 «Request contains an invalid argument», sin campo
+                        # de detalle y sin decir qué argumento es. Una abogada
+                        # Platinum lo recibió SIETE veces seguidas el 3-sep: le
+                        # fallaba la PRIMERA pregunta de cada conversación nueva
+                        # —una de ellas «HOLA PUEDES AYUDARME», veinte letras—
+                        # mientras que las continuaciones del mismo hilo, con la
+                        # misma caché y el mismo modelo, pasaban sin problema.
+                        # Su petición más pesada del día, 1.374.706 caracteres,
+                        # salió bien; la de veinte letras no. Y cada vez que veía
+                        # el error abría otra conversación para reintentar, que
+                        # es justo lo que lo dispara.
+                        #
+                        # Todavía no se sabe QUÉ argumento rechaza Google, y
+                        # hasta saberlo no hay arreglo de raíz. Lo que sí se sabe
+                        # es que el camino SIN caché funciona: es el que corre
+                        # cada vez que la caché no está lista, lleva las mismas
+                        # instrucciones y el mismo contexto RAG dentro de
+                        # `system_instruction`, y no ha fallado ni una vez.
+                        # Así que ante ese 400 se repite por ahí en lugar de
+                        # rendirse.
+                        #
+                        # Se pierde el corpus cacheado en ESA respuesta: el genio
+                        # contesta con el RAG y su conocimiento en vez de con las
+                        # leyes precargadas. Es peor que la respuesta buena y es
+                        # muchísimo mejor que un error. Queda en el log para
+                        # poder contar cuántas veces pasa.
+                        #
+                        # El reintento sólo cabe ANTES del primer carácter: si ya
+                        # salió texto, abrir el stream no falló y aquí no se
+                        # vuelve a entrar, así que no hay riesgo de responder dos
+                        # veces.
+                        async def _abrir_stream(_config, _contents):
+                            """Abre el stream y saca su primer trozo.
+
+                            El 400 puede llegar al abrir o al pedir el primer
+                            trozo, según cuánto difiera la petición el SDK. Hay
+                            que mirarlo en los dos sitios o el reintento no
+                            saltaría nunca.
+                            """
+                            _flujo = await gemini_client.aio.models.generate_content_stream(
+                                model=active_model,
+                                contents=_contents,
+                                config=_config,
+                            )
+                            _it = _flujo.__aiter__()
+                            try:
+                                return _it, await _it.__anext__()
+                            except StopAsyncIteration:
+                                return _it, None
+
+                        try:
+                            _it, _primero = await _abrir_stream(gemini_config, _gemini_contents)
+                        except Exception as _e_gemini:
+                            _rechazo = (getattr(_e_gemini, "code", None) == 400
+                                        or "400" in str(_e_gemini))
+                            if not (_local_cached and _rechazo):
+                                raise
+                            print(f"   ♻️ GENIO {genio_to_run}: Google rechazó la petición con "
+                                  f"caché ({type(_e_gemini).__name__}). Se repite sin caché.")
+                            # Exactamente la rama de siempre, la de cuando no hay
+                            # caché: mismo `system_instruction`, mismos contenidos
+                            # y sin el bloque de instrucciones antepuesto.
+                            gemini_config = gtypes.GenerateContentConfig(
+                                system_instruction=system_instruction,
+                                temperature=0.5,
+                                max_output_tokens=max_tokens,
+                            )
+                            _gemini_contents = gemini_contents.copy()
+                            _it, _primero = await _abrir_stream(gemini_config, _gemini_contents)
+
+                        async def _trozos():
+                            if _primero is not None:
+                                yield _primero
+                            async for _c in _it:
+                                yield _c
+
                         _razonando = False
-                        async for chunk in await gemini_client.aio.models.generate_content_stream(
-                            model=active_model,
-                            contents=_gemini_contents,
-                            config=gemini_config,
-                        ):
+                        async for chunk in _trozos():
                             if chunk.candidates:
                                 for part in chunk.candidates[0].content.parts:
                                     if hasattr(part, 'thought') and part.thought:
