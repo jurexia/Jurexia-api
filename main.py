@@ -1867,6 +1867,86 @@ HISTORIAL_CABEZA_USUARIO = 3000
 _HISTORIAL_MARCA = "\n\n[…recortado del historial para que la conversación siga cabiendo…]"
 _HISTORIAL_OMITIDO = "[…turno anterior omitido por extensión…]"
 
+# ── LOS MARCADORES NO SON CONVERSACIÓN (3-sep-2026) ───────────────────────
+#
+# El backend emite hacia el navegador cosas que no son texto para el modelo:
+# el mapa de fuentes, el contador de documentos, la etapa en curso. Son
+# instrucciones para la pantalla, viajan por el mismo stream, y el frontend
+# las guarda pegadas al mensaje porque persiste lo que recibe.
+#
+# Mientras esos marcadores pesaban unas decenas de caracteres eso daba igual.
+# El 3-sep-2026 se empezó a mandar `FUENTES_PREVIAS` —el texto de cada fuente
+# recuperada, hasta 4,000 caracteres por documento— y el mensaje medio del
+# asistente pasó de 10-70 mil caracteres a 201,655. Ese peso volvía al turno
+# siguiente como historial, y el modelo respondía lo único que podía:
+# 400, 283 a 371 mil tokens contra un límite de 272 mil. Catorce abogados se
+# quedaron sin servicio en un día, cinco de ellos Platinum.
+#
+# Se limpian al ENTRAR, antes de medir nada: lo que el modelo no va a leer no
+# tiene por qué ocupar presupuesto. Y limpiar aquí también cura los mensajes
+# ya guardados sucios, sin tener que tocar la base.
+#
+# NO se tocan `SENTENCIA_*`, `DOCUMENTO_*` ni `THINKING_*`: ésos el backend
+# los vuelve a leer del historial y son parte de la conversación de verdad.
+_MARCADORES_DE_PANTALLA = (
+    "FUENTES_PREVIAS", "CITATION_META", "PRECEDENTES_META", "REGISTROS_FUERA",
+    "SOURCES", "PASO", "MODE", "PING", "CACHE", "SUSCRIPCION_SUSPENDIDA",
+    "ADVERTENCIA",
+)
+_RE_MARCADORES = re.compile(
+    r"\n*<!--\s*(?:" + "|".join(_MARCADORES_DE_PANTALLA) + r")\b[\s\S]*?-->\n*"
+)
+
+
+def _limpiar_marcadores(texto: str) -> str:
+    """Quita del texto los marcadores de pantalla, dejando el resto intacto."""
+    if not texto or "<!--" not in texto:
+        return texto
+    return _RE_MARCADORES.sub("\n\n", texto).strip()
+
+
+_HISTORIAL_SOLO_MARCAS = "[…turno sin texto…]"
+
+
+def _limpiar_historial(mensajes: list) -> list:
+    """Devuelve el historial sin marcadores. Si no había, devuelve la misma
+    lista: el caso limpio no paga copia.
+
+    Nunca deja un turno vacío. Un mensaje que era SÓLO marcadores —un stream
+    cortado antes del primer token— se quedaría en cadena vacía al limpiarlo, y
+    hay proveedores que rechazan el turno vacío: el arreglo se cobraría el
+    fallo que venía a evitar.
+    """
+    limpios, sucios, ahorro = [], 0, 0
+    for m in mensajes:
+        c = m.content or ""
+        n = _limpiar_marcadores(c) or (_HISTORIAL_SOLO_MARCAS if c else c)
+        if n != c:
+            sucios += 1
+            ahorro += len(c) - len(n)
+            limpios.append(m.model_copy(update={"content": n}))
+        else:
+            limpios.append(m)
+    if not sucios:
+        return mensajes
+    print(f"   🧹 MARCADORES FUERA: {sucios} mensajes, -{ahorro:,} chars de historial")
+    return limpios
+
+
+def _cabeza(texto: str, tope: int) -> str:
+    """El texto recortado por la cabeza sin pasarse de `tope`.
+
+    El marcador que avisa del recorte también ocupa. Cortar a `tope` y pegarle
+    el marcador encima deja un texto de `tope + 68`, y por ahí —68 caracteres
+    por turno recortado— se escapaba el presupuesto aunque el reparto cuadrase.
+    """
+    if len(texto) <= tope:
+        return texto
+    sitio = tope - len(_HISTORIAL_MARCA)
+    if sitio > 0:
+        return texto[:sitio].rstrip() + _HISTORIAL_MARCA
+    return texto[:max(tope, 0)]
+
 
 def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: int = 0):
     """Acorta el historial para que quepa en la ventana del modelo.
@@ -1881,6 +1961,10 @@ def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: i
     presupuesto = presupuesto or HISTORIAL_MAX_CHARS
     turnos_intactos = turnos_intactos or HISTORIAL_TURNOS_INTACTOS
 
+    # Primero fuera lo que no es conversación: medir con los marcadores dentro
+    # era medir el envoltorio. Ver `_limpiar_historial`.
+    mensajes = _limpiar_historial(mensajes)
+
     antes = sum(len(m.content or "") for m in mensajes)
     if antes <= presupuesto or not mensajes:
         return mensajes, antes, antes
@@ -1890,16 +1974,60 @@ def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: i
     nuevos: list = [None] * n
     gastado = 0
 
-    # 1. Los últimos turnos, enteros y sin discusión: son la pregunta viva.
-    for i in range(corte, n):
-        nuevos[i] = mensajes[i].content or ""
+    # 1. La ventana viva: los últimos turnos, que son la pregunta en curso.
+    #
+    #    «Sin discusión» estaba tomado al pie de la letra —entraban enteros,
+    #    midieran lo que midieran— y por ahí se escapaba el tope: con mensajes
+    #    de 10 a 70 mil caracteres, seis turnos caben de sobra en 600 mil y no
+    #    se notaba. El 3-sep-2026 los mensajes pasaron a pesar 200 mil y seis
+    #    turnos intactos se plantaron en 1.2 millones: esta función anunciaba
+    #    «tope 600,000» en el log y devolvía 1,145,981. El recorte existía y no
+    #    recortaba.
+    #
+    #    Ahora la ventana viva también tiene techo y se llena del más nuevo al
+    #    más viejo, que es el orden en que importa. El último turno no se omite
+    #    nunca: es la pregunta que el abogado acaba de escribir.
+    #    Dos cuentas que hay que hacer bien o el tope se escapa igual: el
+    #    marcador de recorte OCUPA —truncar a lo que queda y luego pegarle el
+    #    marcador se pasa por el largo del marcador—, y cada turno anterior
+    #    necesitará su suelo, así que se reserva aquí en vez de descubrirlo
+    #    cuando ya no queda sitio.
+    #
+    #    El suelo no es igual para todos: el ancla paga marcador de recorte y
+    #    el resto marcador de omisión, y un turno más corto que su marcador
+    #    paga sólo lo que mide. Se calcula, no se estima: estimarlo de más
+    #    desperdicia sitio y de menos vuelve a pasarse del tope.
+    ancla = 0 if (corte > 0 and mensajes[0].role == "user") else None
+
+    def _suelo(j: int) -> int:
+        largo = len(mensajes[j].content or "")
+        marca = _HISTORIAL_MARCA if j == ancla else _HISTORIAL_OMITIDO
+        return min(largo, len(marca))
+
+    reserva = [0] * (n + 1)
+    for j in range(n):
+        reserva[j + 1] = reserva[j] + _suelo(j)
+
+    for i in range(n - 1, corte - 1, -1):
+        c = mensajes[i].content or ""
+        hueco = presupuesto - gastado - reserva[i]
+        if len(c) <= hueco:
+            nuevos[i] = c
+        else:
+            cabeza = (HISTORIAL_CABEZA_ASISTENTE if mensajes[i].role == "assistant"
+                      else HISTORIAL_CABEZA_USUARIO)
+            # El último turno entra aunque el presupuesto ya esté agotado: es
+            # la pregunta que el abogado acaba de escribir, y una llamada sin
+            # ella no sirve para nada.
+            disponible = max(hueco, cabeza) if i == n - 1 else hueco
+            recorte = _cabeza(c, disponible)
+            nuevos[i] = recorte if recorte else _HISTORIAL_OMITIDO
         gastado += len(nuevos[i])
 
     # 2. El suelo de lo que queda: cada turno deja constancia de que existió,
     #    aunque sea con un marcador. Se reserva ANTES de repartir nada más —
     #    si se dejara para el final, el reparto se pasaría del tope justo por
     #    la suma de los marcadores.
-    ancla = 0 if (corte > 0 and mensajes[0].role == "user") else None
     medio = [i for i in range(corte) if i != ancla]
     for i in medio:
         c = mensajes[i].content or ""
@@ -1911,7 +2039,7 @@ def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: i
     if ancla is not None:
         c = mensajes[ancla].content or ""
         tope = max(0, min(HISTORIAL_ANCLA_MAX, presupuesto - gastado))
-        nuevos[ancla] = c if len(c) <= tope else (c[:tope].rstrip() + _HISTORIAL_MARCA)
+        nuevos[ancla] = _cabeza(c, tope)
         gastado += len(nuevos[ancla])
 
     # 4. Y se sube de categoría lo de en medio, del más nuevo al más viejo,
@@ -1925,7 +2053,7 @@ def _recortar_historial(mensajes: list, presupuesto: int = 0, turnos_intactos: i
             continue
         cabeza = (HISTORIAL_CABEZA_ASISTENTE if mensajes[i].role == "assistant"
                   else HISTORIAL_CABEZA_USUARIO)
-        recorte = c if len(c) <= cabeza else (c[:cabeza].rstrip() + _HISTORIAL_MARCA)
+        recorte = _cabeza(c, cabeza)
         for candidato in (c, recorte):
             if len(candidato) > actual and gastado - actual + len(candidato) <= presupuesto:
                 gastado += len(candidato) - actual
