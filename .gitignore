@@ -94,3 +94,7 @@ test.png
 # El catálogo doctrinal también: es la lista aprobada de obras, no un temporal.
 !_calidad/catalogo_doctrina.json
 _calidad/corridas/
+
+# Cosecha del catálogo del PJF: se regenera con seg_catalogo_pjf.py
+seg_catalogo_pjf.json
+.pjf_dgej/
