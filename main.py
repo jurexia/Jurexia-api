@@ -14172,8 +14172,49 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                         or "400" in str(_e_gemini))
                             if not (_local_cached and _rechazo):
                                 raise
+                            # El nombre de la excepción se copia AQUÍ, no dentro
+                            # de la tarea: Python borra la variable del `except`
+                            # al salir del bloque, y la anotación corre después.
+                            # Leerla desde el cierre daba «free variable
+                            # referenced before assignment», el error se tragaba
+                            # solo y la incidencia no se escribía nunca — un
+                            # medidor muerto es peor que no tener medidor.
+                            _tipo_error = type(_e_gemini).__name__
+                            _cache_corta = str(_local_cached).split('/')[-1]
                             print(f"   ♻️ GENIO {genio_to_run}: Google rechazó la petición con "
-                                  f"caché ({type(_e_gemini).__name__}). Se repite sin caché.")
+                                  f"caché ({_tipo_error}). Se repite sin caché.")
+
+                            # QUEDA CONSTANCIA, PORQUE SI NO NADIE SE ENTERA
+                            #
+                            # El reintento tapa el fallo: la consulta se
+                            # responde, no se escribe ningún error, y la alarma
+                            # —que cuenta consultas SIN respuesta— vería cero
+                            # mientras el genio contesta sin su corpus. Una
+                            # avería ruidosa convertida en degradación
+                            # silenciosa. Esta fila es lo único que la delata.
+                            #
+                            # Va en segundo plano y se traga sus propios
+                            # errores: apuntar una incidencia no puede costar
+                            # la respuesta que se está intentando salvar.
+                            if supabase_admin:
+                                async def _anotar_recuperacion():
+                                    try:
+                                        await asyncio.to_thread(
+                                            lambda: supabase_admin.table('incidencias_modelo').insert({
+                                                'tipo': 'cache_rechazada',
+                                                'genio': genio_to_run,
+                                                'user_id': request.user_id,
+                                                'detalle': {
+                                                    'modelo': active_model,
+                                                    'cache': _cache_corta,
+                                                    'error': _tipo_error,
+                                                    'turnos': len(gemini_contents),
+                                                },
+                                            }).execute()
+                                        )
+                                    except Exception as _e_anota:
+                                        print(f"   ⚠️ no se pudo anotar la recuperación: {_e_anota}")
+                                asyncio.create_task(_anotar_recuperacion())
                             # Exactamente la rama de siempre, la de cuando no hay
                             # caché: mismo `system_instruction`, mismos contenidos
                             # y sin el bloque de instrucciones antepuesto.
