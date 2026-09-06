@@ -201,9 +201,23 @@ ESTRUCTURA = {
                         ("Trámite del juicio de amparo indirecto", 38),
                         ("Interposición y trámite del recurso de revisión", 26),
                         ("Turno", 32)],
+        # EL ORDEN Y LA EXISTENCIA, del adelanto que David ajustó a mano.
+        #
+        # Faltaba «Existencia del acto reclamado», que en la revisión NO es el
+        # acto del amparo indirecto sino la SENTENCIA RECURRIDA: se acredita
+        # con el informe justificado del Juzgado de Distrito y con los autos
+        # que lo acompañan. Sin ese considerando el proyecto revisa una
+        # sentencia sin haber dicho antes que consta.
+        #
+        # Y el orden cambia: la existencia va DESPUÉS de la competencia y ANTES
+        # de la legitimación, porque primero se establece que el acto existe y
+        # sólo entonces tiene sentido preguntar si quien recurre está
+        # legitimado y si lo hizo a tiempo.
         "considerandos": [("Competencia", 50),
+                          ("Existencia del acto reclamado", 0),
                           ("Legitimación y oportunidad", 33),
                           ("Resolución recurrida y agravios", 27),
+                          ("Antecedentes", 0),
                           ("Estudio", 31)],
     },
     "revision_fiscal": {
@@ -339,11 +353,30 @@ RESULTANDOS = {
          "del proyecto, y el artículo 183 de la Ley de Amparo"),
     ],
     "amparo_revision": [
+        # EL RESULTANDO PRIMERO LLEVA DOS SUB-BLOQUES ROTULADOS, no prosa
+        # corrida. Así lo escribió David al ajustar el adelanto, y tiene
+        # sentido: la autoridad responsable y el acto reclamado son los dos
+        # datos que se buscan de un vistazo cuando se toma el asunto.
         ("Presentación de la demanda de amparo indirecto",
          "fecha, oficialía y promovente de la DEMANDA DE AMPARO INDIRECTO —no "
-         "del recurso—, y contra qué actos se enderezó"),
+         "del recurso—, cerrando con «en contra de las autoridades y los actos "
+         "que a continuación se señalan:». Y ACTO SEGUIDO, en párrafos aparte "
+         "y con su rótulo en versales:\n"
+         "    AUTORIDAD RESPONSABLE:\n"
+         "    <quién, en un párrafo>\n"
+         "    ACTOS RECLAMADOS:\n"
+         "    <qué, en un párrafo>\n"
+         "Si son varias autoridades o varios actos, se enumeran dentro de su "
+         "bloque. NO los metas en la prosa del primer párrafo: el rótulo es lo "
+         "que permite encontrarlos sin leer"),
         ("Trámite del juicio de amparo indirecto",
-         "qué juzgado de distrito conoció, con qué número, y EN QUÉ PARÓ. Esto "
+         "auto de radicación con su fecha, qué juzgado conoció, bajo qué "
+         "número lo registró, y que admitió la demanda, pidió los informes "
+         "justificados y dio vista al Ministerio Público. Y CIERRA CON UN "
+         "PÁRRAFO APARTE que diga EN QUÉ PARÓ: «Seguido el juicio por sus "
+         "etapas legales correspondientes, se celebró audiencia constitucional "
+         "el [fecha], en la que se [sobreseyó / concedió el amparo / se negó]». "
+         "Esto "
          "último es OBLIGATORIO y con el verbo: «CONCEDIÓ el amparo», «lo "
          "NEGÓ», «SOBRESEYÓ». No basta «dictó sentencia» ni «resolvió el "
          "juicio»: de ese dato depende el punto resolutivo de esta ejecutoria "
@@ -355,8 +388,9 @@ RESULTANDOS = {
          "fecha y promovente del RECURSO, auto de Presidencia que lo admitió "
          "con su fecha y número de toca"),
         ("Turno",
-         "fecha en que se turnó y a qué magistrado, para la elaboración del "
-         "proyecto"),
+         "LA FECHA en que se turnó y a qué magistrado, para la elaboración del "
+         "proyecto. La fecha es obligatoria: «Consta en autos que el asunto "
+         "fue turnado» no dice cuándo, y ese dato lo tiene el auto de turno"),
     ],
     "revision_fiscal": [
         ("Trámite del juicio contencioso administrativo",
@@ -699,9 +733,22 @@ CARATULA = {
         ("TERCERO INTERESADO", "tercero", False),
         ("AUTORIDAD RESPONSABLE", "responsable", True),
     ],
+    # EL ADELANTO QUE DAVID AJUSTÓ ESCRIBE UNA SOLA FIGURA: «QUEJOSA Y
+    # RECURRENTE». No dos renglones, y sin el del órgano recurrido.
+    #
+    # Y tiene su lógica: en un amparo EN REVISIÓN quien recurre es —casi
+    # siempre— quien fue quejoso en el amparo indirecto, así que separarlo en
+    # dos etiquetas repite a la misma persona; y el Juzgado de Distrito no es
+    # parte del recurso, es el órgano cuya sentencia se revisa, y ya se nombra
+    # en el V I S T O y en la competencia. Ponerlo en el rubro lo asciende a
+    # parte, que es el error que este catálogo existía para evitar… y se corregía
+    # en la dirección contraria.
+    #
+    # LA ETIQUETA CONCUERDA EN GÉNERO con quien promueve, porque «QUEJOSO Y
+    # RECURRENTE» sobre una sociedad rural no lo firma nadie.
     "amparo_revision": [
-        ("RECURRENTE", "quejoso", True),
-        ("ÓRGANO RECURRIDO", "responsable", True),
+        ("{QUEJOSO_A} Y RECURRENTE", "quejoso", True),
+        ("RECURRENTE ADHESIVO", "adherente", False),
     ],
     "queja": [
         ("RECURRENTE", "quejoso", True),
@@ -713,6 +760,44 @@ CARATULA = {
         ("SALA RESPONSABLE", "responsable", True),
     ],
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL GÉNERO DE LA ETIQUETA
+# ═══════════════════════════════════════════════════════════════════════════
+# «QUEJOSA Y RECURRENTE» sobre una sociedad, «QUEJOSO Y RECURRENTE» sobre un
+# hombre. No se adivina del nombre de pila —eso es exactamente lo que este
+# proyecto no hace— sino de la FORMA JURÍDICA cuando consta, y en la duda se
+# usa el neutro, que existe y es correcto: «PARTE QUEJOSA Y RECURRENTE».
+_RX_FEMENINO = re.compile(
+    r"\bsociedad\b|\bS\.?\s*A\.?\b|\bS\.?\s*de\s*R\.?\s*L\.?\b|"
+    r"\basociaci[óo]n\b|\bcooperativa\b|\bempresa\b|\binstituci[óo]n\b|"
+    r"\bcomisi[óo]n\b|\bsecretar[íi]a\b|\bdirecci[óo]n\b|\bsala\b|"
+    r"\bjunta\b|\bunidad\b|\buniversidad\b|\bfundaci[óo]n\b", re.I)
+_RX_MASCULINO = re.compile(
+    r"\binstituto\b|\bayuntamiento\b|\bmunicipio\b|\borganismo\b|"
+    r"\bconsejo\b|\bbanco\b|\btribunal\b|\bjuzgado\b", re.I)
+
+
+def genero_de(nombre: str) -> str:
+    """«a», «o» o «" "» —neutro— para concordar la etiqueta de la carátula."""
+    n = (nombre or "").strip()
+    if not n:
+        return ""
+    if _RX_FEMENINO.search(n):
+        return "a"
+    if _RX_MASCULINO.search(n):
+        return "o"
+    return ""
+
+
+def etiqueta_concordada(etiqueta: str, nombre: str) -> str:
+    """Sustituye {QUEJOSO_A} por la forma que concuerda con quien promueve."""
+    if "{QUEJOSO_A}" not in (etiqueta or ""):
+        return etiqueta
+    g = genero_de(nombre)
+    forma = {"a": "QUEJOSA", "o": "QUEJOSO"}.get(g, "PARTE QUEJOSA")
+    return etiqueta.replace("{QUEJOSO_A}", forma)
 
 
 def caratula_de(tipo: str) -> list:

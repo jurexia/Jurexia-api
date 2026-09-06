@@ -57,11 +57,27 @@ MAX_TOKENS_ESTRUCTURA = int(os.getenv("MAX_TOKENS_ESTRUCTURA", "16000"))
 
 FUENTE = "Arial"
 TAMANO = Pt(14)
-TAMANO_CITA = Pt(12)
+# UN PUNTO MENOS QUE EL CUERPO, no dos. El adelanto ajustado escribe las citas
+# a 13 sobre un cuerpo de 14: se distinguen sin empequeñecerse, que es lo que
+# pasaba con 12 —la tesis quedaba en letra de nota al pie dentro del cuerpo—.
+TAMANO_CITA = Pt(13)
 TAMANO_TABLA = Pt(11)
 SANGRIA = Cm(1.25)
 # La sangría del bloque transcrito —artículo o tesis—, medida en el corpus.
 SANGRIA_CITA = Cm(1.25)
+# La sangría izquierda del rubro, medida en el adelanto que David ajustó.
+SANGRIA_CARATULA = Cm(6.24)
+
+# LA TESIS QUE AUTORIZA NO TRANSCRIBIR. Texto fijo, con su registro, tomado del
+# adelanto que David ajustó a mano. Se escribe, no se pide: una jurisprudencia
+# citada de memoria por un modelo es la alucinación que este proyecto persigue,
+# y ésta es siempre la misma en los cuatro tipos.
+APOYO_DISPENSA = (
+    "Sustenta esa consideración, por analogía, la jurisprudencia 2a./J. "
+    "58/2010 de la Segunda Sala de la Suprema Corte de Justicia de la Nación, "
+    "de rubro: «CONCEPTOS DE VIOLACIÓN O AGRAVIOS. PARA CUMPLIR CON LOS "
+    "PRINCIPIOS DE CONGRUENCIA Y EXHAUSTIVIDAD EN LAS SENTENCIAS DE AMPARO ES "
+    "INNECESARIA SU TRANSCRIPCIÓN.»")
 INTERLINEADO = 1.5
 INTERLINEADO_CITA = 1.0
 
@@ -77,12 +93,34 @@ BLANCO = "FFFFFF"
 # Utillaje de formato
 # ═══════════════════════════════════════════════════════════════════════════
 
+# EL AIRE ENTRE PÁRRAFOS. El adelanto ajustado separa cada párrafo del
+# siguiente con un renglón entero —141 párrafos para 72 con texto—; el
+# generado iba con 6 puntos, que a interlineado 1.5 y cuerpo 14 no se ve. Se
+# hace con `space_after`, no metiendo párrafos vacíos: un vacío entre cada dos
+# párrafos duplica el recuento, descuadra las remisiones «en el párrafo
+# anterior» y le deja al secretario ciento y pico de líneas que borrar si
+# quiere juntar dos ideas.
+#
+# LA EXCEPCIÓN ES LA CARÁTULA, que sí lleva el vacío de verdad: ahí son cuatro
+# renglones y el hueco es parte de la ficha, no separación de prosa.
+# Un renglón entero a interlineado 1.5 sobre Arial 14 mide unos 24 puntos: es
+# lo que ocupa cada uno de los 69 párrafos vacíos del adelanto ajustado. Se
+# reproduce EL ASPECTO, no el mecanismo, y la diferencia importa cuando el
+# secretario edite: con `space_after`, cada párrafo que él añada en Word nace
+# ya con su aire; con párrafos vacíos, tendría que ponerlos a mano uno por uno
+# —y borrarlos uno por uno si junta dos ideas—.
+ESPACIO_ENTRE_PARRAFOS = Pt(24)
+
+
 def _fmt(p, sangria=True, tamano=TAMANO, interlineado=INTERLINEADO,
          alineacion=WD_ALIGN_PARAGRAPH.JUSTIFY):
     pf = p.paragraph_format
-    pf.alignment = alineacion
+    # `None` NO ES «POR OMISIÓN»: es «no la declares». Word entonces hereda la
+    # del estilo, que es lo que hace el resolutivo del adelanto ajustado.
+    if alineacion is not None:
+        pf.alignment = alineacion
     pf.line_spacing = interlineado
-    pf.space_after = Pt(6)
+    pf.space_after = ESPACIO_ENTRE_PARRAFOS
     pf.first_line_indent = SANGRIA if sangria else Cm(0)
     for r in p.runs:
         r.font.name = FUENTE
@@ -1768,7 +1806,11 @@ ESQUELETO = {
         "tabla_computo": True,
         "dispensa": "Resolución recurrida y {q} de la parte recurrente.",
         "legitimacion": "Legitimación y oportunidad para interponer el recurso.",
-        "existencia": False,
+        # LA EXISTENCIA EN LA REVISIÓN NO ES LA DEL ACTO DEL AMPARO: es la de
+        # la SENTENCIA RECURRIDA, y se acredita con el informe justificado del
+        # Juzgado de Distrito y con los autos que lo acompañan. Estaba apagada,
+        # y el proyecto revisaba una sentencia sin haber dicho antes que consta.
+        "existencia": True,
         "sub_recurrido": "Resolución recurrida",
         "adhesivo": "Revisión adhesiva.",
     },
@@ -1828,6 +1870,19 @@ def _encabezado(doc, texto):
             p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
 
+# LOS NOMBRES DE PILA FEMENINOS MÁS COMUNES EN EL PODER JUDICIAL no son una
+# lista que quepa aquí, y adivinar el género de una persona por su nombre es
+# justo lo que este proyecto no hace. Se mira la terminación, que en español
+# acierta en la inmensa mayoría, y en la duda se escribe el masculino
+# genérico, que es lo que hoy sale y nadie ha objetado.
+def _rotulo_secretario(nombre: str) -> str:
+    pila = (nombre or "").strip().split()
+    if pila and pila[0].lower().rstrip(".").endswith(("a", "triz")) \
+            and pila[0].lower() not in ("josé", "jose", "juan", "luca", "elias"):
+        return "SECRETARIA"
+    return "SECRETARIO"
+
+
 def _caratula(doc, datos, tipo_asunto: str = "") -> list:
     """La ficha de identificación. Del asunto, no de ningún otro."""
     # LAS FIGURAS SON DEL TIPO. Esta lista tenía las tres del amparo directo
@@ -1855,26 +1910,50 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
             f"el proemio no puede citar el asunto y la carátula no lo "
             f"identifica.")
     campos = [("", _enc)]
-    campos += [(et, datos.get(clave, "")) for et, clave, _ob
-               in _ta_c.caratula_de(_t)]
+    campos += [(_ta_c.etiqueta_concordada(et, str(datos.get(clave, ""))),
+                datos.get(clave, ""))
+               for et, clave, _ob in _ta_c.caratula_de(_t)]
+    # «SECRETARIO», no «SECRETARIA/O». La barra es de un formulario, no de una
+    # sentencia: el adelanto ajustado firma «SECRETARIO:» y quien firma sabe su
+    # propio género. Se concuerda con el nombre cuando se puede.
     campos += [("MAGISTRADO PONENTE", datos.get("magistrado", "")),
-               ("SECRETARIA/O", datos.get("secretario", ""))]
-    # LOS DATOS DE IDENTIFICACIÓN VAN A LA IZQUIERDA Y EN MAYÚSCULAS, como en
-    # sus proyectos. Justificados y en caja mixta parecían prosa; son una ficha
-    # y se leen de un golpe de vista.
+               (_rotulo_secretario(str(datos.get("secretario", ""))),
+                datos.get("secretario", ""))]
+    # ═══════════════════════════════════════════════════════════════════════
+    # LA CARÁTULA VA AL LADO DERECHO, SANGRADA, Y CON AIRE ENTRE RENGLONES
+    # ═══════════════════════════════════════════════════════════════════════
+    # Medido sobre el adelanto que David ajustó a mano: sangría IZQUIERDA de
+    # 6.24 cm, justificado, un renglón en blanco entre cada línea, y punto
+    # final en cada una. Lo que había —pegado al margen izquierdo, sin aire y
+    # sin punto— parecía el encabezado de un oficio; la ficha del rubro va
+    # arriba a la derecha, que es donde el ojo la busca en un engrose.
+    #
+    # LA SANGRÍA ES ABSOLUTA, NO RELATIVA AL MARGEN. El margen izquierdo de
+    # estos documentos es de 5 cm —el del Poder Judicial, para el cosido— y la
+    # sangría de 6.24 cm se cuenta DESDE ese margen, así que el rubro arranca
+    # a algo más de once centímetros del borde. Es lo que da la impresión de
+    # bloque a la derecha sin tener que alinear a la derecha, que partiría las
+    # palabras de otra manera.
     for etiqueta, valor in campos:
         if not valor:
             continue
         p = doc.add_paragraph()
+        _txt = str(valor).upper().rstrip(" .")
         if etiqueta:
             r1 = p.add_run(f"{etiqueta}: ")
             r1.bold = True
-        r2 = p.add_run(str(valor).upper())
+        r2 = p.add_run(_txt + ".")
         r2.bold = True
-        _fmt(p, sangria=False, interlineado=1.0,
-             alineacion=WD_ALIGN_PARAGRAPH.LEFT)
+        _fmt(p, sangria=False, interlineado=INTERLINEADO,
+             alineacion=WD_ALIGN_PARAGRAPH.JUSTIFY)
+        p.paragraph_format.left_indent = SANGRIA_CARATULA
         p.paragraph_format.space_after = Pt(0)
-    doc.add_paragraph()
+        # EL RENGLÓN EN BLANCO ES UN PÁRRAFO, no un `space_after`: así se
+        # comporta igual cuando el secretario edita el .docx en Word, que es lo
+        # que va a hacer.
+        _b = doc.add_paragraph()
+        _fmt(_b, sangria=False, interlineado=INTERLINEADO)
+        _b.paragraph_format.space_after = Pt(0)
     return _avisos
 
 
@@ -2287,7 +2366,32 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     if (_comp or "").strip():
         con_apartados.append((_bk.rotulo_de(tipo_asunto, "competencia", "Competencia."),
                               (lambda c: lambda p: _texto_en(p, c))(_comp)))
+    # LA FÓRMULA DE LA EXISTENCIA SE COMPONE. Es texto fijo con dos huecos —el
+    # órgano y el número del amparo de origen— y pedírsela al modelo es
+    # arriesgar los artículos: son el 129 y el 202 del Código Federal de
+    # Procedimientos Civiles, de aplicación supletoria, y no cambian nunca.
+    # Tomada literal del adelanto que David ajustó.
     _exi = _del_banco("existencia", estructura.existencia)
+    if _ta.normalizar(tipo_asunto) == "amparo_revision" and not (_exi or "").strip():
+        _org_a_quo = _con_articulo(str(datos.get("responsable") or "")) or HUECO
+        _exp_a_quo = str(_datos_bk.get("expediente") or "") or HUECO
+        _exi = (f"La existencia del acto reclamado está acreditada con el "
+                f"informe justificado rendido por {_org_a_quo}, certeza que se "
+                f"corrobora con los autos del juicio de amparo indirecto "
+                f"{_exp_a_quo} que acompañó al referido informe. Documentales "
+                f"que en términos de los artículos 129 y 202 del Código Federal "
+                f"de Procedimientos Civiles, de aplicación supletoria a la Ley "
+                f"de Amparo, merecen eficacia probatoria plena.")
+        if HUECO in _exi:
+            _avisos_bk.append(
+                "EL CONSIDERANDO DE EXISTENCIA SALE CON HUECO: falta "
+                + ("el órgano que dictó la sentencia recurrida"
+                   if _org_a_quo == HUECO else "")
+                + (" y " if HUECO in (_org_a_quo, _exp_a_quo) and
+                   _org_a_quo == HUECO and _exp_a_quo == HUECO else "")
+                + ("el número del amparo indirecto de origen"
+                   if _exp_a_quo == HUECO else "")
+                + ". Los dos están en el informe justificado.")
     if esq["existencia"] and (_exi or "").strip():
         con_apartados.append((_bk.rotulo_de(tipo_asunto, "existencia",
                                             "Existencia del acto reclamado."),
@@ -2408,6 +2512,15 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             f"exponer los argumentos legales que sustenten esta resolución no "
             f"depende de la reproducción literal de los aspectos que conforman "
             f"la litis, sino de su adecuado análisis.")
+        # LA SALVEDAD Y LA TESIS QUE LO SOSTIENE. La dispensa sin su apoyo es
+        # una afirmación desnuda, y David la escribió a mano al ajustar el
+        # adelanto. Van las dos: la reserva de transcribir cuando el estudio lo
+        # pida —que es lo que la hace honesta— y la jurisprudencia que autoriza
+        # no transcribir.
+        parrafo(doc, "No obstante, en el caso de que el estudio demande la "
+                     "transcripción de algún apartado de " + esq["recurrido"] +
+                     f" o de los {q}, así se reflejará.")
+        parrafo(doc, APOYO_DISPENSA, tamano=TAMANO_CITA)
 
     con_apartados.append((esq["dispensa"].format(q=q), _dispensa))
 
@@ -2416,9 +2529,21 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             _texto_en(p,
                       "Previo al análisis de los planteamientos que se proponen, "
                       "es menester relatar los hechos relevantes del asunto.")
+            # NUMERADOS. Así los ajustó David —1 a 19 en el adelanto del
+            # 410/2026— y no es cosmética: el estudio remite a ellos («como se
+            # dijo en el antecedente 7») y sin número esa remisión obliga a
+            # contar párrafos. El número se pone aquí y no se le pide al
+            # modelo, que ya lleva bastantes reglas.
+            _n = 0
             for x in (antecedentes or []):
-                if x.strip():
-                    parrafo_con_citas(doc, x.strip(), notas)
+                x = x.strip()
+                if not x:
+                    continue
+                _n += 1
+                # Si el modelo ya lo numeró, no se numera dos veces.
+                if not re.match(r"^\d{1,2}[.)]\s", x):
+                    x = f"{_n}. {x}"
+                parrafo_con_citas(doc, x, notas)
         con_apartados.append(("Antecedentes.", _antecedentes))
 
     # EL ESTUDIO. Es el ÚLTIMO considerando salvo que detrás vaya Efectos, y
@@ -2661,8 +2786,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                                     str(_datos_bk.get("expediente") or HUECO)))
                 _txt = _contraer(_txt)
                 _cab, _resto = _txt.split(". ", 1) if ". " in _txt else (_txt, "")
+                # LOS PUNTOS RESOLUTIVOS LLEVAN SANGRÍA Y NO SE JUSTIFICAN.
+                # Medido en el adelanto ajustado: sangría de primera línea y
+                # alineación libre. Justificado, un resolutivo de una línea y
+                # media queda con los huecos abiertos entre palabras que
+                # delatan un documento mal compuesto, y es justo el párrafo que
+                # todo el mundo mira.
                 tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})],
-                       sangria=False)
+                       sangria=True, alineacion=None)
             _avisos_bk.append(
                 f"RESOLUTIVO DE REVISIÓN, rama «{_clave}» "
                 f"({_rama['fundamento']}). El a quo "

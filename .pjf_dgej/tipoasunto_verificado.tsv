@@ -1,0 +1,42 @@
+familia	clave	nombre	exige_tipo_procedimiento	organismo_probado
+juzgado_distrito	1	Amparo Indirecto	no	293
+juzgado_distrito	2	Causa Penal	no	293
+juzgado_distrito	46	Concursos Mercantiles	no	293
+juzgado_distrito	71	Denuncia por Incumplimiento de la Declaratoria General de Inconstitucionalidad	no	293
+juzgado_distrito	67	Ejecución de Penas	no	293
+juzgado_distrito	58	Extinción de Dominio	no	293
+juzgado_distrito	68	Juicio Oral Mercantil	no	293
+juzgado_distrito	18	Medidas Precautorias	no	293
+juzgado_distrito	19	Procedimientos de Extradición	no	293
+juzgado_distrito	4	Procesos Civiles o Administrativos	no	293
+tcc	29	Amparo contra leyes	no	4
+tcc	10	Amparo Directo	no	4
+tcc	11	Amparo en revisión	no	4
+tcc	12	Conflictos Competenciales	no	4
+tcc	17	Conflictos de Acumulación	no	4
+tcc	13	Impedimento	no	4
+tcc	23	Incidentes de Inejecución	no	4
+tcc	25	Inconformidades	no	4
+tcc	15	Queja	no	4
+tcc	20	Reclamaciones	no	4
+tcc	26	Reconocimiento de Inocencia	no	4
+tcc	24	Repetición del Acto Reclamado	no	4
+tcc	14	Revisión Contenciosa Administrativa	no	4
+tcc	16	Revisión Fiscal	no	4
+tca	128	Amp Ind, Proc Fed Penales en 2a Instancia y Proc Fed Adm y Civ en 2a Instancia.	no	4343
+tca	124	Amparo indirecto.	no	4343
+tca	69	Comunicaciones Oficiales Recibidas de las Áreas Administrativas	no	4343
+tca	126	Procedimientos federales administrativos y civiles en segunda instancia.	si	4343
+tca	125	Procedimientos federales penales en segunda instancia.	si	4343
+tca	127	Reconocimiento de Inocencia y Anulación de Sentencia.	no	4343
+tribunal_laboral	115	Conflictos Colectivos de Naturaleza Económica	no	4260
+tribunal_laboral	114	Conflictos Individuales de Seguridad Social	no	4260
+tribunal_laboral	117	Procedimiento de Ejecución	no	4260
+tribunal_laboral	116	Procedimiento de Huelga	no	4260
+tribunal_laboral	113	Procedimiento especial colectivo	no	4260
+tribunal_laboral	112	Procedimiento especial individual	no	4260
+tribunal_laboral	111	Procedimiento ordinario	no	4260
+tribunal_laboral	120	Procedimientos Paraprocesales o Voluntarios	no	4260
+pleno_regional	131	Conflictos Competenciales.	no	4386
+pleno_regional	129	Contradicción de Criterios	no	4386
+pleno_regional	130	Solicitud de Declaratoria General de Inconstitucionalidad	no	4386

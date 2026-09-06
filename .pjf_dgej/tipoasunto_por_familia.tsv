@@ -1,0 +1,45 @@
+familia	tipoasunto_id	etiqueta
+JUZGADO_DISTRITO	1	Amparo Indirecto
+JUZGADO_DISTRITO	2	Causa Penal
+JUZGADO_DISTRITO	46	Concursos Mercantiles
+JUZGADO_DISTRITO	71	Denuncia por Incumplimiento de la Declaratoria General de Inconstitucionalidad
+JUZGADO_DISTRITO	67	Ejecución de Penas
+JUZGADO_DISTRITO	58	Extinción de Dominio
+JUZGADO_DISTRITO	68	Juicio Oral Mercantil
+JUZGADO_DISTRITO	18	Medidas Precautorias
+JUZGADO_DISTRITO	19	Procedimientos de Extradición
+JUZGADO_DISTRITO	4	Procesos Civiles o Administrativos
+TRIB_COLEGIADO_CIRCUITO	29	Amparo contra leyes
+TRIB_COLEGIADO_CIRCUITO	10	Amparo Directo
+TRIB_COLEGIADO_CIRCUITO	11	Amparo en revisión
+TRIB_COLEGIADO_CIRCUITO	12	Conflictos Competenciales
+TRIB_COLEGIADO_CIRCUITO	17	Conflictos de Acumulación
+TRIB_COLEGIADO_CIRCUITO	13	Impedimento
+TRIB_COLEGIADO_CIRCUITO	23	Incidentes de Inejecución
+TRIB_COLEGIADO_CIRCUITO	25	Inconformidades
+TRIB_COLEGIADO_CIRCUITO	15	Queja
+TRIB_COLEGIADO_CIRCUITO	20	Reclamaciones
+TRIB_COLEGIADO_CIRCUITO	26	Reconocimiento de Inocencia
+TRIB_COLEGIADO_CIRCUITO	24	Repetición del Acto Reclamado
+TRIB_COLEGIADO_CIRCUITO	14	Revisión Contenciosa Administrativa
+TRIB_COLEGIADO_CIRCUITO	16	Revisión Fiscal
+TRIB_COLEGIADO_APELACION	128	Amp Ind, Proc Fed Penales en 2a Instancia y Proc Fed Adm y Civ en 2a Instancia.
+TRIB_COLEGIADO_APELACION	124	Amparo indirecto.
+TRIB_COLEGIADO_APELACION	69	Comunicaciones Oficiales Recibidas de las Áreas Administrativas
+TRIB_COLEGIADO_APELACION	126	Procedimientos federales administrativos y civiles en segunda instancia.
+TRIB_COLEGIADO_APELACION	125	Procedimientos federales penales en segunda instancia.
+TRIB_COLEGIADO_APELACION	127	Reconocimiento de Inocencia y Anulación de Sentencia.
+TRIB_LABORAL_FEDERAL	115	Conflictos Colectivos de Naturaleza Económica
+TRIB_LABORAL_FEDERAL	114	Conflictos Individuales de Seguridad Social
+TRIB_LABORAL_FEDERAL	117	Procedimiento de Ejecución
+TRIB_LABORAL_FEDERAL	116	Procedimiento de Huelga
+TRIB_LABORAL_FEDERAL	113	Procedimiento especial colectivo
+TRIB_LABORAL_FEDERAL	112	Procedimiento especial individual
+TRIB_LABORAL_FEDERAL	111	Procedimiento ordinario
+TRIB_LABORAL_FEDERAL	120	Procedimientos Paraprocesales o Voluntarios
+PLENO_REGIONAL	131	Conflictos Competenciales.
+PLENO_REGIONAL	129	Contradicción de Criterios
+PLENO_REGIONAL	130	Solicitud de Declaratoria General de Inconstitucionalidad
+COMISION_CONFLICTOS_LAB	136	Designación Beneficiarios
+COMISION_CONFLICTOS_LAB	135	Procedimiento Especial
+COMISION_CONFLICTOS_LAB	134	Procedimiento Ordinario.
