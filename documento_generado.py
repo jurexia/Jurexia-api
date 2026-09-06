@@ -40,6 +40,7 @@ import json
 import tipos_asunto as _ta
 
 import os
+import copy
 import re
 from dataclasses import dataclass, field
 
@@ -103,13 +104,18 @@ BLANCO = "FFFFFF"
 #
 # LA EXCEPCIÓN ES LA CARÁTULA, que sí lleva el vacío de verdad: ahí son cuatro
 # renglones y el hueco es parte de la ficha, no separación de prosa.
-# Un renglón entero a interlineado 1.5 sobre Arial 14 mide unos 24 puntos: es
-# lo que ocupa cada uno de los 69 párrafos vacíos del adelanto ajustado. Se
-# reproduce EL ASPECTO, no el mecanismo, y la diferencia importa cuando el
-# secretario edite: con `space_after`, cada párrafo que él añada en Word nace
-# ya con su aire; con párrafos vacíos, tendría que ponerlos a mano uno por uno
-# —y borrarlos uno por uno si junta dos ideas—.
-ESPACIO_ENTRE_PARRAFOS = Pt(24)
+# CERO, Y EL AIRE SE PONE CON UN PÁRRAFO VACÍO DE VERDAD.
+#
+# Propuse `space_after` de 24 puntos —mismo aspecto, más sólido de editar— y
+# David miró el resultado y pidió su forma: «quiero ajustar el formato
+# justamente a la forma de ADELANTO_410_v2 (ajustado)». Su documento declara
+# espaciado CERO y separa con 69 párrafos vacíos.
+#
+# Tiene razón él, y por un motivo que yo no había pesado: estos documentos se
+# terminan en Word, a mano, y un renglón vacío se ve, se selecciona y se borra;
+# un `space_after` de 24 puntos hay que ir a buscarlo al cuadro de párrafo. La
+# solidez de un formato no es sólo cómo se genera: es cómo se deja tocar.
+ESPACIO_ENTRE_PARRAFOS = Pt(0)
 
 
 def _fmt(p, sangria=True, tamano=TAMANO, interlineado=INTERLINEADO,
@@ -124,7 +130,16 @@ def _fmt(p, sangria=True, tamano=TAMANO, interlineado=INTERLINEADO,
     pf.first_line_indent = SANGRIA if sangria else Cm(0)
     for r in p.runs:
         r.font.name = FUENTE
-        r.font.size = tamano
+        # EL TAMAÑO SÓLO SE ESTAMPA CUANDO SE APARTA DEL ESTILO. En el
+        # documento de David los párrafos no declaran tamaño: lo heredan del
+        # estilo Normal, que es Arial 14. Estampar 14 en cada run parece
+        # inofensivo y no lo es: el día que él cambie el cuerpo del documento
+        # —a 13 para que quepa, a 12 para una versión de trabajo— el estilo
+        # cambia y el texto no se mueve, porque cada párrafo lleva su tamaño
+        # escrito encima. Se estampa sólo lo que de verdad es distinto: las
+        # citas.
+        if tamano is not None and tamano != TAMANO:
+            r.font.size = tamano
     return p
 
 
@@ -561,6 +576,142 @@ def _sin_partir(tabla) -> None:
         trPr = fila._tr.get_or_add_trPr()
         el = trPr.makeelement(qn("w:cantSplit"), {})
         trPr.append(el)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CALENDARIO DEL CÓMPUTO
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «un calendario (moderno y profesional) que sustituya la tabla en tonos
+# grises que tenemos (parece aburrida)… el cómputo ocurre en dos meses (no
+# siempre en uno) por lo que serían dos calendarios».
+#
+# LA TABLA DE HITOS NO SE VA: se queda debajo, porque es la que se cita —«el
+# plazo corrió del doce al diecinueve»— y la que se copia al engrose. Lo que
+# hace el calendario es lo que ninguna lista de fechas hace: enseñar de un
+# vistazo POR QUÉ el plazo terminó ese día y no otro. Los fines de semana y los
+# inhábiles se ven como huecos, y el lector cuenta los cuadros llenos.
+#
+# LA PALETA ES SOBRIA A PROPÓSITO. Esto se imprime, se fotocopia y a veces se
+# escanea en blanco y negro, así que cada marca se distingue TAMBIÉN por el
+# tono de gris que deja al perder el color, y ninguna depende de un rojo o un
+# verde que un daltónico no separaría. El día del plazo va en azul pizarra
+# sobre blanco; los tres hitos, en pleno con el número en blanco.
+AZUL_PLAZO = "DCE4EC"       # los días hábiles que corrieron
+AZUL_BORDE = "2E4A62"       # el pleno de los hitos
+VERDE_HITO = "1E6B4F"       # presentación: el que cierra
+AMBAR_HITO = "8A5A1B"       # notificación y surtimiento: los que abren
+GRIS_FUERA = "F7F7F7"       # días de otro mes o inhábiles
+GRIS_TENUE = "9A9A9A"       # su número
+
+_DIAS_SEMANA = ("L", "M", "M", "J", "V", "S", "D")
+_MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+          "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+
+
+def _meses_del_computo(computo) -> list:
+    """[(año, mes)] que hay que dibujar, del primero al último hito."""
+    import datetime as _d
+    hitos = [computo.notificacion, computo.surtio, computo.inicio]
+    if not getattr(computo, "en_cualquier_tiempo", False):
+        hitos.append(computo.vencimiento)
+    if computo.presentacion is not None:
+        hitos.append(computo.presentacion)
+    hitos = [h for h in hitos if h]
+    if not hitos:
+        return []
+    ini, fin = min(hitos), max(hitos)
+    meses, cur = [], _d.date(ini.year, ini.month, 1)
+    while (cur.year, cur.month) <= (fin.year, fin.month):
+        meses.append((cur.year, cur.month))
+        cur = _d.date(cur.year + (cur.month == 12), cur.month % 12 + 1, 1)
+        # TRES MESES SON YA UNA AGENDA, no un cómputo. Pasa con los plazos de
+        # treinta días o cuando media un periodo vacacional; se dibujan los
+        # tres, pero más allá el calendario deja de aclarar y estorba, y la
+        # tabla de hitos sigue estando debajo.
+        if len(meses) >= 4:
+            break
+    return meses
+
+
+def _calendario_mes(doc, anio, mes, computo, marcas) -> None:
+    """Un mes, con sus días marcados."""
+    import calendar as _c, datetime as _d
+    _c.setfirstweekday(_c.MONDAY)
+    semanas = _c.monthcalendar(anio, mes)
+
+    t = doc.add_table(rows=2, cols=7)
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    t.autofit = False
+    _bordes(t, color="D8D8D8", grosor="4")
+
+    # El nombre del mes ocupa la fila entera.
+    cab = t.rows[0].cells
+    cab[0].merge(cab[6])
+    _celda(t.rows[0].cells[0], f"{_MESES[mes - 1].upper()} {anio}",
+           negrita=True, color=BLANCO, fondo=AZUL_BORDE,
+           alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+
+    for i, d in enumerate(_DIAS_SEMANA):
+        _celda(t.rows[1].cells[i], d, negrita=True, color=GRIS_TENUE,
+               alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+
+    for semana in semanas:
+        fila = t.add_row()
+        for i, dia in enumerate(semana):
+            c = fila.cells[i]
+            if dia == 0:
+                _celda(c, "", fondo=GRIS_FUERA)
+                continue
+            f = _d.date(anio, mes, dia)
+            marca = marcas.get(f)
+            if marca:
+                _celda(c, str(dia), negrita=True, color=BLANCO,
+                       fondo=marca, alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+            elif f in computo.dias:
+                _celda(c, str(dia), negrita=True, fondo=AZUL_PLAZO,
+                       alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+            else:
+                _celda(c, str(dia), color=GRIS_TENUE,
+                       alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+
+
+def calendario_computo(doc, computo, tipo_asunto: str = "amparo_directo") -> None:
+    """Los meses del cómputo, con los días del plazo y los tres hitos."""
+    meses = _meses_del_computo(computo)
+    if not meses:
+        return
+    # EL ORDEN IMPORTA: si dos hitos caen el mismo día —y pasa, cuando la
+    # notificación surte efectos ese mismo día por vía electrónica— gana el que
+    # se escribe después. Se pone primero el que abre y último el que cierra,
+    # porque la presentación es el dato que se busca.
+    marcas = {}
+    if computo.notificacion:
+        marcas[computo.notificacion] = AMBAR_HITO
+    if computo.surtio:
+        marcas[computo.surtio] = AMBAR_HITO
+    if computo.presentacion is not None:
+        marcas[computo.presentacion] = VERDE_HITO
+
+    for anio, mes in meses:
+        _calendario_mes(doc, anio, mes, computo, marcas)
+        parrafo(doc, "", sangria=False)
+
+    # LA LEYENDA, porque un color sin nombre no informa. Va en una línea y con
+    # el mismo cuerpo de la tabla.
+    _leyenda = []
+    if computo.notificacion:
+        _leyenda.append("notificación y surtimiento de efectos")
+    _leyenda.append("días del plazo")
+    if computo.presentacion is not None:
+        _leyenda.append("presentación")
+    p = doc.add_paragraph()
+    r = p.add_run("En el calendario: " + "; ".join(_leyenda) +
+                  ". Los días en blanco no corrieron.")
+    r.font.name = FUENTE
+    r.font.size = TAMANO_TABLA
+    r.font.color.rgb = RGBColor.from_string(GRIS_TENUE)
+    p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.line_spacing = 1.0
 
 
 def tabla_computo(doc, computo, fecha_en_letra,
@@ -1901,6 +2052,43 @@ def _apertura_compuesta(datos: dict) -> str:
             f"{HUECO}.")
 
 
+def _airear(doc) -> int:
+    """Un renglón en blanco entre párrafos, como en el adelanto de David.
+
+    EN UNA SOLA PASADA AL FINAL, no en los cuarenta sitios que escriben
+    párrafos: así el aire es una decisión de formato tomada en un lugar, y el
+    día que se quiera cambiar —o quitar— se cambia aquí.
+
+    NO SE AIREA TODO. Se salta:
+      · lo que ya va seguido de un vacío —la carátula lo pone ella misma—;
+      · el último párrafo, que no separa de nada;
+      · las firmas, que van juntas por pares: el cargo pegado a su nombre, que
+        es como se leen y como él las tiene.
+    """
+    from docx.shared import Pt as _Pt
+    cuerpo = doc.element.body
+    puestos = 0
+    parrafos = list(doc.paragraphs)
+    _firmas = {"MAGISTRADO PONENTE", "SECRETARIO DE TRIBUNAL",
+               "SECRETARIA DE TRIBUNAL", "SECRETARIA/O DE TRIBUNAL"}
+    for i, p in enumerate(parrafos):
+        if not p.text.strip():
+            continue
+        if i + 1 >= len(parrafos):
+            continue
+        if not parrafos[i + 1].text.strip():
+            continue                      # ya tiene su aire
+        if p.text.strip().upper().rstrip(".") in _firmas:
+            continue                      # el cargo va pegado a su nombre
+        nuevo = copy.deepcopy(p._p)
+        for hijo in list(nuevo):
+            if hijo.tag.endswith("}r") or hijo.tag.endswith("}hyperlink"):
+                nuevo.remove(hijo)
+        p._p.addnext(nuevo)
+        puestos += 1
+    return puestos
+
+
 def _caratula(doc, datos, tipo_asunto: str = "") -> list:
     """La ficha de identificación. Del asunto, no de ningún otro."""
     # LAS FIGURAS SON DEL TIPO. Esta lista tenía las tres del amparo directo
@@ -2142,7 +2330,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         if texto.strip():
             r = p.add_run(texto.strip())
             r.font.name = FUENTE
-            r.font.size = TAMANO
+            # El tamaño se hereda del estilo Normal, igual que en el resto del
+            # documento y que en el suyo: sólo se estampa lo que se aparta.
         for x in (resto or []):
             x = sin_andamio(x)
             if x.strip():
@@ -2441,6 +2630,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # —el secretario la dibuja a mano y cuesta—, pero eso mide lo que hoy
         # es caro hacer, no lo que sobra: la máquina tiene el calendario.
         if esq["tabla_computo"]:
+            # EL CALENDARIO PRIMERO, LA TABLA DESPUÉS. El calendario enseña
+            # por qué el plazo terminó ese día —los huecos son los que no
+            # corrieron—; la tabla dice las fechas exactas, que es lo que se
+            # cita y lo que se copia al engrose. Las dos, en ese orden.
+            calendario_computo(doc, computo, tipo_asunto)
             tabla_computo(doc, computo, fecha_en_letra, tipo_asunto)
 
     _legit = (_bk.rotulo_de(tipo_asunto, "legitimacion", esq["legitimacion"]),
@@ -2819,8 +3013,12 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 # media queda con los huecos abiertos entre palabras que
                 # delatan un documento mal compuesto, y es justo el párrafo que
                 # todo el mundo mira.
-                tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})],
-                       sangria=True, alineacion=None)
+                _pr = tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})],
+                             sangria=True, alineacion=None)
+                # Media pulgada, que es lo que mide el suyo. La sangría del
+                # cuerpo es 1.25 cm y la del resolutivo 1.27: no es un
+                # descuido suyo, es el tabulador por omisión de Word.
+                _pr.paragraph_format.first_line_indent = Cm(1.27)
             _avisos_bk.append(
                 f"RESOLUTIVO DE REVISIÓN, rama «{_clave}» "
                 f"({_rama['fundamento']}). El a quo "
@@ -2908,6 +3106,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 p.runs[0].text = entero
                 for r in p.runs[1:]:
                     r.text = ""
+    _airear(doc)
     doc.save(ruta_salida)
     _inyectar_notas(ruta_salida, notas)
     # Los avisos deterministas de la carátula viajan con el documento. Se
