@@ -655,6 +655,16 @@ _EVASIVAS = [
     r"se\s+siguieron\s+los\s+tr[áa]mites\s+de\s+ley",
     r"previos?\s+los\s+tr[áa]mites\s+(?:de\s+ley|correspondientes)",
     r"en\s+los\s+t[ée]rminos\s+que\s+obran\s+en\s+autos",
+    # LA EVASIVA QUE INVENTÓ HOY, cuando el catálogo le exigió la fecha del
+    # turno: «La fecha del turno CONSTA EN AUTOS; el asunto fue turnado al
+    # magistrado…». Sustituir el dato por la promesa de que el dato existe es
+    # la misma figura de siempre con otra ropa, y así van tres.
+    # «cuya fecha Y NÚMERO DE TOCA constan en autos» —plural, y con dos datos
+    # en medio— se escapaba del patrón en singular. Es la misma evasiva con más
+    # cosas escondidas dentro, así que se admite el plural y una lista.
+    r"(?:cuy[ao]s?\s+)?(?:la\s+)?fecha[^.;]{0,60}const(?:a|an)\s+en\s+autos",
+    r"consta\s+en\s+autos\s+que\s+el\s+asunto\s+fue\s+turnado",
+    r"seg[úu]n\s+consta\s+en\s+(?:autos|el\s+expediente)",
 ]
 _EVASIVAS = [__import__("re").compile(p, __import__("re").I) for p in _EVASIVAS]
 

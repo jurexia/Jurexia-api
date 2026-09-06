@@ -1883,6 +1883,24 @@ def _rotulo_secretario(nombre: str) -> str:
     return "SECRETARIO"
 
 
+# EL PROEMIO ES UNA FÓRMULA, NO UNA REDACCIÓN. Medido en 43 de 44 engroses del
+# tribunal y en el adelanto que David ajustó: «Querétaro, Querétaro. Resolución
+# del [tribunal], correspondiente a la sesión de [fecha].» El modelo escribía
+# «Santiago de Querétaro, Querétaro, a ___, el Tercer Tribunal Colegiado…, en
+# sesión, emite la presente resolución», que dice lo mismo peor y además
+# antepone el «Santiago de» que el corpus no usa en el proemio.
+#
+# LA FECHA VA EN HUECO porque es la de la sesión, y ésa no existe cuando se
+# redacta el proyecto: la fijan los magistrados al revisarlo.
+def _apertura_compuesta(datos: dict) -> str:
+    ciudad = " ".join(str(datos.get("ciudad") or "").split()).rstrip(" .,")
+    trib = " ".join(str(datos.get("tribunal") or "").split()).rstrip(" .,")
+    if not (ciudad and trib):
+        return ""
+    return (f"{ciudad}. Resolución del {trib}, correspondiente a la sesión de "
+            f"{HUECO}.")
+
+
 def _caratula(doc, datos, tipo_asunto: str = "") -> list:
     """La ficha de identificación. Del asunto, no de ningún otro."""
     # LAS FIGURAS SON DEL TIPO. Esta lista tenía las tres del amparo directo
@@ -2043,8 +2061,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     avisos_doc = _caratula(doc, datos, tipo_asunto)
 
-    if estructura.apertura:
-        parrafo(doc, estructura.apertura, sangria=True)
+    # LA FÓRMULA MANDA SOBRE LO QUE ESCRIBA EL MODELO. Si tenemos ciudad y
+    # tribunal —y los tenemos siempre, son del encargo— el proemio se compone.
+    _ap = _apertura_compuesta(datos) or estructura.apertura
+    if _ap:
+        parrafo(doc, _ap, sangria=True)
     if estructura.visto:
         # El rótulo lo pone la composición; el modelo lo repite igual aunque se
         # le pida que no —«V I S T O, VISTO, para resolver…»—. Se le quita.
@@ -2372,7 +2393,13 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # Procedimientos Civiles, de aplicación supletoria, y no cambian nunca.
     # Tomada literal del adelanto que David ajustó.
     _exi = _del_banco("existencia", estructura.existencia)
-    if _ta.normalizar(tipo_asunto) == "amparo_revision" and not (_exi or "").strip():
+    # SE COMPONE AUNQUE EL MODELO HAYA ESCRITO ALGO. Escribió esto: «se acredita
+    # con el informe justificado rendido por LAS AUTORIDADES RESPONSABLES y con
+    # las constancias que integran los autos del juicio de amparo indirecto DE
+    # ORIGEN» —sin decir qué órgano, sin el número, y sin los preceptos que dan
+    # valor probatorio a esas documentales—. La fórmula es fija y los datos los
+    # tiene el compositor: no hay nada que preguntar.
+    if _ta.normalizar(tipo_asunto) == "amparo_revision":
         _org_a_quo = _con_articulo(str(datos.get("responsable") or "")) or HUECO
         _exp_a_quo = str(_datos_bk.get("expediente") or "") or HUECO
         _exi = (f"La existencia del acto reclamado está acreditada con el "
