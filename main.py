@@ -9254,6 +9254,70 @@ async def semanario_tesis(registro: str, pdf: bool = False):
             "url": f"{base}/detalle/tesis/{d['ius']}"}
 
 
+@app.post("/acervo/registros")
+async def acervo_registros(payload: dict):
+    """
+    ¿Están estos registros en NUESTRO acervo, y con qué rubro?
+
+    POR QUÉ ESTE Y NO `/semanario/tesis/{registro}`   (6-sep-2026)
+    -------------------------------------------------------------
+    Aquel consulta al microservicio de la Corte en vivo, y la Corte está
+    detrás de Incapsula: desde Render devuelve 403 SIEMPRE, para un registro
+    real y para uno inventado por igual. Peor todavía, lo envuelve en un
+    HTTP 200 con `ok:false`, así que un cliente que sólo mire el código de
+    estado cree que la consulta salió bien. Un verificador construido sobre
+    eso daría por buena cualquier cita: exactamente al revés de para lo que
+    existe.
+
+    Este endpoint pregunta lo que de verdad importa cuando se investiga una
+    alucinación: **¿tenía el modelo de dónde sacar esta cita?** Si el registro
+    no está en `jurisprudencia_nacional_v2`, no lo leyó: lo inventó. Y si está
+    pero con otro rubro, tenemos el caso grave —registro auténtico al que se
+    le reescribió el rubro—, que comprobar sólo la existencia deja pasar.
+
+    FAIL-CLOSED, igual que el validador del chat: si Qdrant falla, todo sale
+    `valid: false` y NADA sale como verificado. Un verificador que ante la
+    duda dice «está bien» es peor que no tener verificador, porque exonera
+    a la plataforma con datos que no tiene.
+    """
+    registros = payload.get("registros") or []
+    if not isinstance(registros, list) or not registros:
+        raise HTTPException(status_code=400, detail="registros_vacios")
+    registros = [str(r).strip() for r in registros[:100] if str(r).strip().isdigit()]
+    if not registros:
+        raise HTTPException(status_code=400, detail="registros_invalidos")
+
+    # Se arranca con todo en NO verificable y sólo se sobrescribe al confirmar.
+    out = {r: {"valid": False, "rubro_real": None} for r in registros}
+    consultado = False
+
+    try:
+        BATCH = 50
+        for i in range(0, len(registros), BATCH):
+            lote = registros[i:i + BATCH]
+            pts, _ = await qdrant_client.scroll(
+                collection_name="jurisprudencia_nacional_v2",
+                scroll_filter=Filter(must=[FieldCondition(key="registro",
+                                                          match=MatchAny(any=lote))]),
+                limit=BATCH * 2,          # margen por duplicados
+                with_payload=True,
+                with_vectors=False,
+            )
+            for pt in pts:
+                pl = pt.payload or {}
+                reg = str(pl.get("registro", "")).strip()
+                if reg in out:
+                    out[reg] = {"valid": True, "rubro_real": (pl.get("rubro") or "").strip()}
+        consultado = True
+    except Exception as e:
+        print(f"   ⚠️ /acervo/registros error (fail-closed): {err(e)}")
+
+    # `consultado` es el dato que distingue «no está en el acervo» de «no se
+    # pudo mirar el acervo». Sin él, quien llama no puede saber si un
+    # `valid: false` acusa al modelo o acusa a la red.
+    return {"ok": True, "consultado": consultado, "registros": out}
+
+
 @app.get("/cita/{doc_id}")
 async def resolver_cita(doc_id: str):
     """
@@ -11880,7 +11944,20 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         # Sin esto lo que se guarda son 2.500 caracteres de fontanería
                         # en lugar de la prosa que el abogado está corrigiendo.
                         _t = _re_mod.sub(r"<!--.*?-->", "", _t, flags=_re_mod.S).strip()
-                        _previa = _t[:2500]
+                        # 12.000 y no 2.500  (6-sep-2026)
+                        #
+                        # Las nueve correcciones guardadas hasta hoy miden
+                        # EXACTAS 2.500: todas cortadas. Y ninguna conserva un
+                        # solo registro de tesis ni la cita completa que el
+                        # abogado está discutiendo, porque en una respuesta
+                        # jurídica los fundamentos van al final — justo detrás
+                        # del corte.
+                        #
+                        # Eso deja la señal más valiosa que entra convertida en
+                        # una queja que sólo se puede creer, nunca comprobar. El
+                        # circuito de incidencias verifica contra esta columna;
+                        # sin la parte fundada, verifica el aire.
+                        _previa = _t[:12000]
                         break
                 print(f"   🔔 CORRECCIÓN DEL USUARIO detectada ({_senal}): "
                       f"«{(last_user_message or '')[:90]}»")
