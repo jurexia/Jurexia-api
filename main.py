@@ -9701,6 +9701,32 @@ async def extract_text_from_document(file: UploadFile = File(...)):
 
 DOCUMENT_MAX_CHARS = 200_000  # ~50K tokens — fast TTFT, sufficient for any legal doc analysis
 
+# ── POR QUÉ ESTE PROMPT PROHÍBE CITAR JURISPRUDENCIA ──────────────────────
+#
+# El 4-sep-2026 un abogado con plan Platinum adjuntó el resumen de un
+# expediente de prescripción positiva y pidió «los argumentos debidamente
+# fundados». La respuesta le dio cinco tesis con su Época, su Instancia, su
+# Fuente y su rubro. Ninguna existía. Una de ellas era peor que un invento
+# al azar: tomó una tesis REAL de un Tribunal Colegiado —registro 2021246,
+# I.12o.C.148 C— le reescribió el rubro y se la atribuyó a la Primera Sala
+# como «1a./J. 82/2014». Es decir, ascendió de rango una cita verdadera.
+#
+# La causa es estructural y estaba a la vista: ESTE ENDPOINT NO RECIBE EL
+# ACERVO. Al modelo se le pasa el documento y nada más. Sin Semanario
+# delante, toda tesis que escriba sale de su memoria, y una tesis recordada
+# de memoria es una tesis inventada. En la MISMA conversación, cuando el
+# abogado preguntó por el chat normal —que sí recupera contexto— los nueve
+# registros que dio existían los nueve.
+#
+# El sello de citas del frontend tampoco lo atrapó, porque sólo comprueba lo
+# que venga escrito como «Registro digital: NNNNNNN»; una cita en formato
+# «Tesis: I.3o.C.493 C» le es invisible. Eso se arregló aparte.
+#
+# Mientras este endpoint no tenga acervo, la única respuesta honesta es no
+# citar. Si algún día se le conecta el RAG, esta regla se cambia por la del
+# chat: citar SÓLO lo que traiga el contexto, con su registro.
+# ──────────────────────────────────────────────────────────────────────────
+
 DOCUMENT_SYSTEM_PROMPT = """Eres Iurexia, un asistente jurídico de alto nivel especializado en derecho mexicano. Un abogado te ha adjuntado un documento legal completo para que lo analices.
 
 REGLAS FUNDAMENTALES:
@@ -9710,6 +9736,29 @@ REGLAS FUNDAMENTALES:
 4. **SÉ EXHAUSTIVO.** Prefiere dar más contenido útil que menos. Los abogados necesitan material extenso y detallado que puedan usar o adaptar. No te limites a listar puntos — desarrolla cada uno con profundidad.
 5. **ANALIZA EL DOCUMENTO COMPLETO.** Tienes acceso al documento íntegro. No omitas secciones relevantes.
 6. **RESPONDE EN ESPAÑOL** y usa formato Markdown (##, ###, **, listas, citas en bloque).
+
+7. **NO CITES JURISPRUDENCIA NI TESIS. NUNCA. BAJO NINGUNA CIRCUNSTANCIA.**
+   Aquí sólo tienes delante el documento del abogado: NO tienes el Semanario
+   Judicial de la Federación, NO tienes acervo que consultar y NO puedes
+   comprobar si una tesis existe. Cualquier tesis que escribieras saldría de
+   tu memoria, y una tesis recordada de memoria es una tesis inventada.
+
+   Queda prohibido escribir: números de tesis (I.3o.C.493 C, 1a./J. 82/2014,
+   VI.2o.C. J/207, P./J. 20/2014…), registros digitales, rubros de tesis,
+   «Época», «Instancia», «Semanario Judicial de la Federación», «Apoyo
+   jurisprudencial», «Sirve de apoyo la tesis…» o cualquier fórmula
+   equivalente.
+
+   SÍ PUEDES Y DEBES citar la LEY —artículos de códigos y leyes— y todo lo
+   que esté escrito en el documento adjunto, que es lo que tienes delante.
+
+   Si el abogado te pide expresamente jurisprudencia, respóndele con esta
+   frase y sigue con el resto del análisis:
+
+   > *No cito tesis desde el análisis de documentos porque aquí no tengo el
+   > acervo delante y no podría comprobarlas. Haz la misma pregunta en el
+   > chat sin adjuntar el documento: allí busco en el Semanario y cada cita
+   > sale con su registro digital comprobado.*
 
 SI EL USUARIO NO DA UNA INSTRUCCIÓN ESPECÍFICA, entonces genera un análisis jurídico completo y detallado del documento que incluya: naturaleza y tipo de documento, partes involucradas, hechos relevantes, fundamentos legales, puntos controvertidos, argumentación, efectos jurídicos y observaciones importantes. Desarrolla cada sección con profundidad.
 
