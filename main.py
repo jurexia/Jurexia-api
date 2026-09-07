@@ -9318,6 +9318,222 @@ async def acervo_registros(payload: dict):
     return {"ok": True, "consultado": consultado, "registros": out}
 
 
+# ── Piezas del verificador de artículos ──────────────────────────────────────
+#
+# Se define aquí, junto a su endpoint, y no en `_LEY_NAME_MAP`: aquel mapa
+# sirve al cruce de referencias del chat y tiene otro contrato. Mezclarlos haría
+# que tocar uno rompiera el otro.
+
+# Cita con su ley, sin exigir que la ley esté en ningún catálogo previo. La
+# ventana de 60 caracteres entre el número y el nombre absorbe «fracción II»,
+# «párrafo tercero» y demás, que van casi siempre en medio.
+_RE_ART_CON_LEY = re.compile(
+    r'art[íi]culos?\s+'
+    r'(\d{1,4}(?:\s*(?:bis|ter|qu[áa]ter|quinquies))?'
+    r'(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:bis|ter|qu[áa]ter|quinquies))?)*)'
+    r'[^.;\n]{0,60}?'
+    r'\b(?:de\s+la|de\s+el|del|de)\s+'
+    r'((?:Ley|C[óo]digo|Constituci[óo]n|Reglamento|Decreto)'
+    r'[^,;.:()\n]{3,90}?)'
+    # Corte antes del verbo. Sin esto el nombre se come la oración entera y
+    # queda «Código Civil local establece», que no casa con ninguna ley.
+    r'(?=\s*[,;.:()\n]|\s+(?:establece|dispone|se[ñn]ala|prev[ée]|regula|prescribe|'
+    r'consagra|previene|contempla|ordena|determina|indica|refiere|exige|permite|que\s)|$)',
+    re.IGNORECASE)
+
+# Ruido que separa dos nombres que son la misma ley. «Código de Procedimientos
+# Civiles para el Estado de Sonora» y «Código de Procedimientos Civiles del
+# Estado de Sonora» son la misma norma y se escriben de las dos formas —ambas
+# aparecen en la MISMA respuesta guardada—.
+_RE_RUIDO_LEY = re.compile(
+    r'\b(?:para\s+el|para\s+la|del|de\s+la|de\s+los|de\s+las|de|el|la|los|las|'
+    r'vigente|aplicable|local|estado|entidad)\b', re.IGNORECASE)
+
+
+def _clave_ley(nombre: str) -> str:
+    """El nombre de una ley reducido a lo que la distingue de otra."""
+    import unicodedata as _ud
+    sin_tilde = "".join(c for c in _ud.normalize("NFD", nombre or "")
+                        if _ud.category(c) != "Mn")
+    limpio = _RE_RUIDO_LEY.sub(" ", sin_tilde.lower())
+    return " ".join(w for w in re.split(r"[^a-z0-9]+", limpio) if w)
+
+
+def _misma_ley(citada: str, real: str) -> bool:
+    """
+    ¿El nombre que escribió la respuesta y el que está en el acervo son la
+    misma norma?
+
+    Se comparan conjuntos de palabras distintivas, no cadenas: exigir igualdad
+    literal daría negativo entre «Código Civil Federal» y «Codigo Civil
+    Federal», y acusaría a la plataforma de inventar un artículo que sí tenía
+    delante.
+
+    LA REGLA ES SUBCONJUNTO, NO PARECIDO   (corregido antes de desplegar)
+    --------------------------------------------------------------------
+    La primera versión pedía un 70% de palabras comunes. Con eso, «Código de
+    Procedimientos Civiles del Estado de SONORA» y el de JALISCO daban la misma
+    ley: comparten tres de cuatro palabras y sólo difieren en la única que
+    importa. El verificador habría encontrado el artículo en el código de otro
+    estado y habría absuelto a la plataforma — el mismo fallo que ya se corrigió
+    dos veces en este circuito, por tercera puerta.
+    
+    Con subconjunto, un nombre puede ser más corto que el otro («Código Civil
+    local» ⊂ «Código Civil del Estado de Sonora») pero NINGUNO puede aportar una
+    palabra propia que el otro no tenga. Sonora y Jalisco aportan cada uno la
+    suya, así que ya no coinciden.
+    """
+    a, b = set(_clave_ley(citada).split()), set(_clave_ley(real).split())
+    if not a or not b:
+        return False
+    return (a <= b or b <= a) and len(a & b) >= 2
+
+
+@app.post("/acervo/articulos")
+async def acervo_articulos(payload: dict):
+    """
+    Los artículos que una respuesta cita, contrastados con lo que dicen.
+
+    POR QUÉ ESTE ES EL VERIFICADOR QUE HACÍA FALTA   (6-sep-2026)
+    -------------------------------------------------------------
+    El circuito de incidencias se construyó para cazar jurisprudencia
+    inventada. Al mirar las correcciones reales que dejan los abogados, cinco
+    de nueve dicen otra cosa:
+
+        «el artículo 903 que citas es para juicios ante jueces locales»
+        «ese artículo pertenece a otra ley»            (dos veces)
+        «el artículo que citas no regula eso»
+        «el artículo 371 que citas no dice eso»
+
+    Ninguna menciona una tesis. El fallo dominante no es citar una tesis que
+    no existe: es citar un artículo REAL atribuyéndolo a la ley equivocada, o
+    haciéndole decir lo que no dice. Es más difícil de ver que una tesis
+    inventada —el número existe, la ley existe— y por eso llega hasta el
+    abogado.
+
+    QUÉ DEVUELVE Y QUÉ NO
+    ---------------------
+    Devuelve, por cada cita, si ese artículo está en esa ley dentro del
+    acervo, y su TEXTO REAL. No juzga si la respuesta lo interpretó bien: eso
+    exige leer las dos cosas y es trabajo de un modelo, que se hace arriba.
+    Aquí sólo se traen los hechos.
+
+    Distingue tres cosas que no deben confundirse nunca:
+      · `existe: true`    — el artículo está en esa ley. Se adjunta su texto.
+      · `existe: false`   — NO está en esa ley. O el número no existe, o
+                            pertenece a otro ordenamiento: la queja más común.
+      · `consultado:false`— no se pudo mirar el acervo. No acusa a nadie.
+
+    FAIL-CLOSED, igual que /acervo/registros: si Qdrant falla, nada sale como
+    comprobado. Un verificador que ante la duda absuelve es peor que ninguno.
+    """
+    texto = (payload.get("texto") or "").strip()
+    if not texto:
+        raise HTTPException(status_code=400, detail="texto_vacio")
+    estado = payload.get("estado")
+
+    # NO se reutiliza `_extract_cited_articles`   (medido, 6-sep-2026)
+    # ------------------------------------------------------------------
+    # Aquel depende de `_LEY_NAME_MAP`, que tiene 24 leyes FEDERALES porque
+    # nació para cruzar referencias entre precedentes federales. Las nueve
+    # correcciones reales que hay guardadas citan otra cosa: «Código de
+    # Procedimientos Civiles para el Estado de Sonora» (en tres de ellas),
+    # «Código Civil local», «Constitución Política de los Estados Unidos
+    # Mexicanos». Ninguna está en el mapa, así que el extractor devuelve vacío
+    # y el verificador se queda otra vez sin nada que morder.
+    #
+    # Aquí no se canoniza la ley por adelantado: se toma el nombre TAL COMO LO
+    # ESCRIBIÓ la respuesta y se resuelve contra lo que de verdad hay en el
+    # acervo. Es lo que permite responder a la queja de verdad —«ese artículo
+    # pertenece a otra ley»— sin mantener a mano una lista de 34 códigos por
+    # entidad, que envejecería el día que se indexe el estado 35.
+    citas_crudas = _RE_ART_CON_LEY.findall(texto[:60000])
+    if not citas_crudas:
+        return {"ok": True, "consultado": True, "citas": [],
+                "motivo": "la respuesta no cita ningun articulo con su ley"}
+
+    # (ley tal como se escribió → números citados), sin repetir.
+    por_ley: dict = {}
+    for nums_raw, ley_raw in citas_crudas:
+        ley = re.sub(r"\s+", " ", ley_raw).strip(" ,.;:()")
+        for n in re.findall(r"\d+", nums_raw):
+            por_ley.setdefault(ley, set()).add(n)
+
+    # Dónde buscar: siempre lo federal; y el silo del estado si viene, porque
+    # «ese artículo pertenece a otra ley» suele ser federal contra local.
+    colecciones = ["leyes_federales"]
+    silo = _silo_del_estado(estado) if estado else None
+    if silo:
+        colecciones.append(silo)
+
+    # Se busca POR NÚMERO, no por (ley, número).
+    #
+    # Preguntar por el par exige acertar el nombre exacto de la ley, y ahí es
+    # donde se rompía todo. Preguntando sólo por el número, el acervo devuelve
+    # TODAS las leyes que tienen un artículo con ese número — y entonces la
+    # pregunta del abogado se contesta sola: ¿está la ley que citó entre ellas?
+    # Si no está, o el artículo no existe ahí, o pertenece a otra norma, que es
+    # exactamente la queja.
+    hallados: dict = {}      # (ley_citada, num) → {texto, coleccion, ley_real}
+    vecinos: dict = {}       # num → leyes donde SÍ existe ese número
+    consultado = False
+    try:
+        todos_nums = sorted({n for nums in por_ley.values() for n in nums})
+        for coleccion in colecciones:
+            pts, _ = await qdrant_client.scroll(
+                collection_name=coleccion,
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="articulo_num", match=MatchAny(any=todos_nums)),
+                ]),
+                limit=400,          # varias leyes × varios trozos por artículo
+                with_payload=True,
+                with_vectors=False,
+            )
+            for pt in pts:
+                pl = pt.payload or {}
+                num = str(pl.get("articulo_num", "")).strip()
+                ley_real = (pl.get("ley") or "").strip()
+                if not num or not ley_real:
+                    continue
+                vecinos.setdefault(num, set()).add(ley_real)
+                trozo = (pl.get("texto") or pl.get("content") or "").strip()
+                for ley_citada, nums in por_ley.items():
+                    if num not in nums or not _misma_ley(ley_citada, ley_real):
+                        continue
+                    clave = (ley_citada, num)
+                    # Un artículo largo viene en varios trozos. Se concatena en
+                    # vez de quedarse con el primero: el fragmento que contradice
+                    # a la respuesta puede estar en el segundo.
+                    if clave in hallados:
+                        hallados[clave]["texto"] = (hallados[clave]["texto"] + " " + trozo)[:6000]
+                    else:
+                        hallados[clave] = {"texto": trozo[:6000], "coleccion": coleccion,
+                                           "ley_real": ley_real}
+        consultado = True
+    except Exception as e:
+        print(f"   ⚠️ /acervo/articulos error (fail-closed): {err(e)}")
+
+    salida = []
+    for ley, nums in por_ley.items():
+        for num in sorted(nums):
+            f = hallados.get((ley, num))
+            otras = sorted(vecinos.get(num, set()))[:5] if consultado and not f else []
+            salida.append({
+                "ley": ley,
+                "articulo": num,
+                "existe": bool(f) if consultado else False,
+                "texto_real": (f or {}).get("texto"),
+                "coleccion": (f or {}).get("coleccion"),
+                # Si no está en la ley citada, se dice DÓNDE sí está. Es la
+                # diferencia entre «no existe» y «pertenece a otra ley», y es
+                # justo lo que el abogado señaló.
+                "existe_en_otras": otras,
+            })
+
+    return {"ok": True, "consultado": consultado,
+            "buscado_en": colecciones, "citas": salida}
+
+
 @app.get("/cita/{doc_id}")
 async def resolver_cita(doc_id: str):
     """
