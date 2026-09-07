@@ -28084,6 +28084,7 @@ async def taller_resolver_stream(
                     res = paso["resultado"]
                     _taller_registrar_uso(user_email, numero, "proyecto")
                     ses["salida"] = res.ruta
+                    _taller_guardar_docx(user_email, numero, res.ruta)
                     print(f"   ⚖️ TALLER: proyecto EN VIVO {numero} · "
                           f"{len(res.estudio.split())} palabras · "
                           f"{len(res.avisos)} avisos")
@@ -28104,6 +28105,12 @@ async def taller_resolver_stream(
                         "palabras": len(res.estudio.split()),
                         "avisos": res.avisos,
                         "huecos": res.huecos,
+                        # LO QUE LA PANTALLA SACABA DE UNA CABECERA. Por el
+                        # camino bloqueante viajaba en `X-Advertencias`; en el
+                        # flujo no había cabeceras y el aviso se perdía. Es el
+                        # obstáculo al sentido dictado: lo primero que el
+                        # secretario tiene que leer.
+                        "advertencias": bool(getattr(res, "advertencias", "")),
                         "tiempos": _ra.reloj_resumen(),
                     }, ensure_ascii=False) + "\n\n")
         except Exception as ex:
@@ -28117,21 +28124,94 @@ async def taller_resolver_stream(
                                       "X-Accel-Buffering": "no"})
 
 
+_CUBO_TALLER = "expedientes"          # privado, ya existe, sin límite de tamaño
+
+
+def _ruta_taller(user_email: str, numero: str) -> str:
+    """Dónde vive el proyecto de ESE secretario para ESE expediente.
+
+    UNA RUTA POR SECRETARIO Y EXPEDIENTE, y se sobrescribe. Así el número de
+    ficheros lo fija cuántos asuntos hay, no cuántas veces se resolvió: un
+    secretario que reintenta cinco veces deja un fichero, no cinco. El
+    almacenamiento del proyecto ya tiene una alarma a 20 GB y no es sitio para
+    dejar basura creciendo sola.
+
+    El correo va cifrado en la ruta —no en claro— porque una ruta de almacén se
+    ve en los registros y en los mensajes de error.
+    """
+    import hashlib as _h, re as _re
+    quien = _h.sha256((user_email or "").strip().lower().encode()).hexdigest()[:16]
+    exp = _re.sub(r"[^A-Za-z0-9._-]", "_", (numero or "sin-numero").strip())[:60]
+    return f"taller/{quien}/{exp}.docx"
+
+
+def _taller_guardar_docx(user_email: str, numero: str, ruta_local: str) -> None:
+    """El proyecto, en un sitio que sobreviva al proceso que lo hizo.
+
+    POR QUÉ EXISTE. Render corre DOS workers y el .docx quedaba en el disco del
+    que lo generó. Medido el 7-sep-2026 sobre la revisión 410/2026: el servidor
+    terminó el trabajo —«POST /taller/resolver 200 · 4,031 palabras»—, la
+    respuesta no llegó al cliente, y al pedirlo por /taller/descargar contestó
+    «No hay documento generado para ese expediente EN ESTE PROCESO»: el fichero
+    estaba en el otro worker.
+
+    El trabajo se hizo, se pagó, y era inalcanzable. Con el .docx en el almacén
+    el secretario lo recupera en vez de repetir cuatro minutos de estudio.
+
+    No revienta nada si falla: guardar es una mejora, no un requisito. Si el
+    almacén no responde, el proyecto ya va de vuelta en la respuesta.
+    """
+    if not supabase_admin or not ruta_local:
+        return
+    try:
+        import os as _os
+        if not _os.path.exists(ruta_local):
+            return
+        with open(ruta_local, "rb") as f:
+            datos = f.read()
+        supabase_admin.storage.from_(_CUBO_TALLER).upload(
+            _ruta_taller(user_email, numero), datos,
+            {"content-type": "application/vnd.openxmlformats-officedocument."
+                             "wordprocessingml.document",
+             "upsert": "true"})
+    except Exception as e:
+        print(f"   ⚠️ TALLER: no se pudo guardar el proyecto en el almacén: "
+              f"{type(e).__name__}")
+
+
 @app.get("/taller/descargar")
 async def taller_descargar(numero: str, user_email: str = ""):
-    """El .docx que dejó la generación en vivo."""
-    from fastapi.responses import FileResponse
+    """El .docx del proyecto: del disco de este proceso o del almacén."""
+    from fastapi.responses import FileResponse, Response
     import os as _os
     ses = _taller_recuperar_sesion(user_email, numero) if user_email else None
     ruta = (ses or {}).get("salida") or ""
-    if not ruta or not _os.path.exists(ruta):
-        raise HTTPException(404, "No hay documento generado para ese expediente "
-                                 "en este proceso. Vuelve a resolver.")
-    return FileResponse(
-        ruta,
-        media_type="application/vnd.openxmlformats-officedocument."
-                   "wordprocessingml.document",
-        filename=ruta.split("/")[-1])
+    if ruta and _os.path.exists(ruta):
+        return FileResponse(
+            ruta,
+            media_type="application/vnd.openxmlformats-officedocument."
+                       "wordprocessingml.document",
+            filename=ruta.split("/")[-1])
+
+    # NO ESTÁ EN ESTE PROCESO: se busca en el almacén. Éste es el camino que
+    # antes no existía y que devolvía un 404 sobre un trabajo ya hecho.
+    if supabase_admin and user_email:
+        try:
+            datos = supabase_admin.storage.from_(_CUBO_TALLER).download(
+                _ruta_taller(user_email, numero))
+            if datos:
+                _n = (numero or "proyecto").replace("/", "-")
+                return Response(
+                    content=datos,
+                    media_type="application/vnd.openxmlformats-officedocument."
+                               "wordprocessingml.document",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{_n}.docx"'})
+        except Exception:
+            pass                      # no está: se contesta el 404 de siempre
+
+    raise HTTPException(404, "No hay ningún proyecto generado para ese "
+                             "expediente. Vuelve a resolver.")
 
 
 @app.post("/taller/resolver")
@@ -28340,6 +28420,11 @@ async def taller_resolver(
             r2.avisos.insert(0, _a)
     print(f"   ⚖️ TALLER: proyecto {numero} · {len(r2.estudio.split())} palabras "
           f"· {len(r2.avisos)} avisos")
+    # EN EL ALMACÉN ANTES DE DEVOLVERLO. Si la respuesta se pierde por el
+    # camino —ya pasó—, el secretario lo recupera por /taller/descargar en vez
+    # de repetir el estudio entero.
+    ses["salida"] = r2.ruta
+    _taller_guardar_docx(user_email, numero, r2.ruta)
 
     from fastapi.responses import FileResponse
     return FileResponse(
