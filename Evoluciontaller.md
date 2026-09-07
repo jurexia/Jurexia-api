@@ -48,13 +48,27 @@ Devuelve **una propuesta por cada problema**, con `sentido`, `razon`, `apoyos`
 - `criterios_json`: lo que la pantalla devuelve al resolver para aceptar la
   propuesta tal cual. Lleva jerarquía y predicción sembradas antes.
 
-### Paso 3 · Fijar el criterio  → `VentanaCriterio.tsx`
+### Paso 3 · Decidir  → `SolucionDelAsunto.tsx`  *(reestructurado 6-sep)*
 
-El secretario ve la propuesta y decide. Dos modos:
+**Esta es la pantalla donde el secretario se perdía.** Antes se le volcaba el
+acervo entero. Ahora se lee de arriba abajo:
 
-- **Global**: un solo sentido para el asunto. El principal decide; si prospera,
-  los accesorios quedan sin materia.
-- **Por problema**: un sentido para cada uno.
+1. **El asunto en cuatro párrafos** — hechos, qué se resolvió, qué se dice en
+   contra, y el tema del que cuelga todo.
+2. **Las dos vías, lado a lado** — la propuesta y «resolver al revés». La
+   contraria viene ya escrita del motor: marcarla es instantáneo.
+3. **«Por dónde se cae»**, en ámbar, bajo la propuesta.
+4. **La razón, editable**, con «volver a la del motor».
+5. **La lista de comprobación** — cada tema con su suerte en la vía elegida.
+
+El acervo pasa a un pliegue, «En qué se apoya»: sigue siendo lo que impide
+citar de memoria, pero va detrás de la decisión.
+
+Cambiar de vía **sustituye la razón** aunque estuviera editada, y se avisa
+antes: son resoluciones opuestas y quedarse con la razón de la otra es la
+incongruencia que costó el engrose del ADC 380/2025.
+
+El modo «por problema» sigue existiendo para quien lo quiera.
 
 ### Paso 4 · Generar el proyecto  → `POST /taller/resolver` o `/resolver/stream`
 
@@ -125,3 +139,29 @@ aparece, el arreglo es subir ese bloque del prompt más arriba, antes de las
 reglas — no volver a escribirlo.
 
 Anotar aquí el resultado.
+| 8 | 6-sep-2026 | **Reestructura.** El motor devuelve contexto en prosa, la vía contraria ya escrita y la lista de comprobación (`fase5_propuesta.Global`) | **Comprobado en lógica**; pendiente con el modelo real |
+| 9 | 6-sep-2026 | `completar_checklist()`: la exhaustividad se **comprueba** contra los problemas de las fases, no se le pide al modelo | **Comprobado** — con 3 problemas y lista de 2, completa el tercero y avisa por su nombre |
+| 10 | 6-sep-2026 | `SolucionDelAsunto.tsx` sustituye al volcado; el acervo pasa a un pliegue | **Comprobado en navegador** — al marcar la vía contraria cambian a la vez sentido, razón y las 3 líneas de la lista |
+| 11 | 6-sep-2026 | Al llegar la propuesta se entra directo a la pantalla de decisión con el sentido y la razón puestos | **Comprobado** que compila; pendiente verlo con un asunto real |
+
+---
+
+## 5. Lo pendiente, tras la reestructura
+
+Lo mismo que en el punto 4, ampliado: **hay que correr un asunto real**. La
+lógica está probada con datos que fabriqué yo. Lo que no está probado es que
+`gpt-5.6-luna` devuelva, en una sola respuesta y con el prompt entero:
+
+- `contexto` (los cuatro párrafos)
+- `alternativa` con un sentido **distinto** al de la propuesta
+- `checklist` con todos los temas
+
+El prompt creció. Cuanto más se le pide en una respuesta, más fácil es que
+omita lo último. Cada omisión está cubierta con su aviso y su degradación
+—sin contexto se sigue decidiendo; sin alternativa el botón sale apagado; sin
+checklist completo se avisa por nombre— pero **cubierto no es lo mismo que
+funcionando**.
+
+Si en la prueba real falta algo, el arreglo NO es reescribir la instrucción:
+es partir la llamada en dos o subir ese bloque antes de las reglas. Anotarlo
+aquí.
