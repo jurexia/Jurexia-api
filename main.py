@@ -27784,7 +27784,7 @@ async def taller_proponer(
     # secretario, porque son el documento y él es el comentario.
     contexto = _con_autos(r, contexto)
 
-    propuestas, avisos = await _f5.proponer(
+    propuestas, glob, avisos = await _f5.proponer(
         chat_client, problemas, ses["material"],
         "\n".join(r.fases.parrafos_acto() or []),
         "\n".join(r.fases.parrafos_conceptos() or []),
@@ -27805,6 +27805,30 @@ async def taller_proponer(
         str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia")
                                                  or "accesorio")
         for p in (r.fases.problemas or []) if p}
+
+    # SE DEVUELVE ALINEADA CON LOS PROBLEMAS, no en el orden del modelo. La
+    # pantalla hace `propuestas[i]` para el problema i —en dos sitios—, y eso
+    # sólo es cierto si aquí se garantiza. No lo estaba: el orden lo ponía el
+    # modelo y este mismo fichero avisa de que puede devolver MENOS propuestas
+    # que problemas. Con tres problemas y dos propuestas, el secretario veía el
+    # sentido de un problema pegado a otro.
+    #
+    # Se empareja por el TEXTO de la pregunta —que la propuesta trae— y los
+    # problemas sin propuesta quedan como un hueco declarado (`alcanza=False`),
+    # no como el sentido del vecino. Así el índice vuelve a significar lo que
+    # la pantalla cree que significa.
+    _emparejadas = _f5.emparejar(problemas, propuestas)
+    _huerfanas = len([x for x in _emparejadas if x is None])
+    if _huerfanas:
+        avisos.append(
+            f"{_huerfanas} de {len(problemas)} problemas se quedaron sin "
+            f"propuesta que les corresponda. Quedan en blanco: fija tú el "
+            f"sentido.")
+    propuestas = [x if x is not None else _f5.Propuesta(
+        problema=(q.get("pregunta", "") if isinstance(q, dict) else str(q)),
+        alcanza=False,
+        razon="El motor no propuso un sentido para este problema.")
+        for x, q in zip(_emparejadas, problemas)]
 
     ses["propuestas"] = propuestas
     _taller_registrar_uso(user_email, numero, "propuesta")
@@ -27827,6 +27851,16 @@ async def taller_proponer(
              "jerarquia": _jer_por_problema.get(p.problema, "accesorio")}
             for p in propuestas],
         "resumen": _f5.resumen(propuestas),
+        # LA PROPUESTA DEL ASUNTO ENTERO. Es lo que la pantalla enseña como
+        # solución global. Antes no existía: se enseñaba la del problema
+        # principal con esa etiqueta.
+        "global": {
+            "sentido": glob.sentido, "razon": glob.razon,
+            "problema_que_decide": glob.problema_que_decide,
+            "efecto": glob.efecto, "apoyos": glob.apoyos,
+            "confianza": glob.confianza, "en_contra": glob.en_contra,
+            "alcanza": glob.alcanza,
+        },
         "avisos": avisos,
         # Lo que hay que mandar a /taller/resolver para aceptarla tal cual.
         # Esto se manda TAL CUAL a /taller/resolver en el campo `criterios_json`

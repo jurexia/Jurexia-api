@@ -85,6 +85,89 @@ class Propuesta:
                 f"    Se apoya en: {ap}")
 
 
+@dataclass
+class Global:
+    """LA PROPUESTA DEL ASUNTO ENTERO, no la de un problema.
+
+    Faltaba. El motor proponía un sentido por problema y la pantalla enseñaba
+    el del problema principal haciéndolo pasar por la solución global: con tres
+    problemas, el secretario veía el sentido de uno y la etiqueta «global».
+
+    No es lo mismo, y la diferencia es justo lo que él tiene que decidir. La
+    solución global es qué pasa con el ASUNTO —de qué problema cuelga, qué
+    arrastra consigo, y qué queda sin materia si ese prospera—. Eso no se
+    deduce sumando calificaciones: hay que razonarlo con todos los problemas
+    delante, que es lo que se le pide ahora al modelo en la MISMA llamada.
+    """
+    sentido: str = ""                 # fundado | infundado | inoperante | ineficaz
+    razon: str = ""                   # por qué el asunto se resuelve así
+    problema_que_decide: str = ""     # de qué problema cuelga el resultado
+    efecto: str = ""                  # qué les pasa a los demás problemas
+    apoyos: list = field(default_factory=list)
+    confianza: str = ""               # alta | media | baja
+    # LA OBJECIÓN, EN SUS PROPIAS PALABRAS. El secretario no necesita que le
+    # den la razón: necesita ver por dónde se cae la propuesta para poder
+    # razonarla. Una propuesta sin su contra se acepta por inercia, y es él
+    # quien firma.
+    en_contra: str = ""
+    alcanza: bool = True
+
+    def bloque(self) -> str:
+        if not self.alcanza:
+            return ("SIN PROPUESTA GLOBAL — el acervo no alcanza. "
+                    + self.razon)
+        return (f"EL ASUNTO: {self.sentido.upper()} ({self.confianza})\n"
+                f"  Cuelga de: {self.problema_que_decide}\n"
+                f"  {self.razon}\n"
+                f"  Con los demás: {self.efecto}\n"
+                f"  En contra: {self.en_contra}")
+
+
+def _norm_problema(x: str) -> str:
+    """Para emparejar propuesta y problema POR TEXTO, no por posición."""
+    import unicodedata
+    x = unicodedata.normalize("NFKD", str(x or "").lower())
+    x = "".join(c for c in x if not unicodedata.combining(c))
+    return " ".join("".join(c if c.isalnum() else " " for c in x).split())
+
+
+def emparejar(problemas: list, propuestas: list) -> list:
+    """La propuesta de CADA problema, en el orden de los problemas.
+
+    POR QUÉ EXISTE ESTO. La pantalla hacía `propuestas[i]` para el problema i.
+    Pero las dos listas no son la misma lista: el orden lo pone el modelo, y
+    unas líneas más abajo este mismo fichero avisa de que puede devolver MENOS
+    propuestas que problemas —hay un aviso escrito para ese caso—. Con tres
+    problemas y dos propuestas, el secretario veía el sentido del problema B
+    pegado al problema C.
+
+    `Propuesta.problema` trae el texto de la pregunta. Ésa es la clave, y no se
+    estaba usando. Se empareja por texto normalizado; lo que no case queda en
+    None, que es honesto: mejor un hueco que un sentido ajeno.
+    """
+    libres = list(propuestas)
+    fuera = []
+    for p in problemas:
+        preg = p.get("pregunta", "") if isinstance(p, dict) else str(p)
+        clave = _norm_problema(preg)
+        elegida = None
+        if clave:
+            for c in libres:
+                if _norm_problema(c.problema) == clave:
+                    elegida = c
+                    break
+            if elegida is None:                      # el modelo suele recortar
+                for c in libres:                     # o reformular la pregunta
+                    a, b = _norm_problema(c.problema), clave
+                    if a and b and (a.startswith(b[:60]) or b.startswith(a[:60])):
+                        elegida = c
+                        break
+        if elegida is not None:
+            libres.remove(elegida)
+        fuera.append(elegida)
+    return fuera
+
+
 def _recorte_limpio(x: str, tope: int) -> str:
     """El último corte crudo del taller. Mismo criterio que los otros tres:
     por frontera de párrafo, nunca a mitad de frase, porque un corte a media
@@ -392,6 +475,17 @@ REGLAS QUE NO SE ROMPEN:
    decidir: tiene que caber en tres o cuatro renglones y decir la razón toral,
    no el desarrollo.
 
+6. Y ADEMÁS DEL SENTIDO DE CADA PROBLEMA, EL DEL ASUNTO ENTERO. Es una
+   decisión distinta, no la suma de las anteriores: hay que decir de QUÉ
+   problema cuelga el resultado, y qué les pasa a los demás cuando ése se
+   resuelve así —si el principal prospera, los accesorios suelen quedar sin
+   materia; si no prospera, se estudian todos—.
+7. LA PROPUESTA GLOBAL LLEVA SU PROPIA OBJECIÓN. En `en_contra`, di en un
+   renglón por dónde se cae tu propuesta: el mejor argumento de quien
+   resolvería al revés. No es un formalismo. Quien lee esto es quien firma, y
+   una propuesta sin su contra se acepta por inercia. Si de verdad no ves
+   ninguna objeción seria, dilo con esas palabras.
+
 Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
 {{"propuestas": [
   {{"problema": "<la pregunta, tal cual>",
@@ -400,22 +494,37 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
     "apoyos": ["<registro>", "..."],
     "confianza": "alta|media|baja",
     "alcanza": true}}
-]}}"""
+ ],
+ "global": {{"sentido": "fundado|infundado|inoperante|ineficaz",
+   "razon": "<por qué el ASUNTO se resuelve así, {PALABRAS_RAZON} palabras>",
+   "problema_que_decide": "<la pregunta del problema del que cuelga>",
+   "efecto": "<qué les pasa a los demás problemas, un renglón>",
+   "apoyos": ["<registro>", "..."],
+   "confianza": "alta|media|baja",
+   "en_contra": "<el mejor argumento en contra, un renglón>",
+   "alcanza": true}}}}"""
 
 
 _RX_JSON = re.compile(r"\{.*\}", re.S)
 
 
-def _leer(crudo: str) -> list:
-    """El JSON del modelo, tolerante a que lo envuelva en explicaciones."""
+def _leer(crudo: str) -> tuple:
+    """El JSON del modelo, tolerante a que lo envuelva en explicaciones.
+
+    Devuelve (propuestas, global). El global puede venir vacío: los modelos
+    omiten campos, y un asunto sin propuesta global se atiende —el secretario
+    fija el sentido a mano, como siempre—. Lo que NO se hace es fabricarlo
+    tomando el de un problema: eso es exactamente lo que se vino a corregir.
+    """
     m = _RX_JSON.search(crudo or "")
     if not m:
-        return []
+        return [], {}
     try:
         datos = json.loads(m.group(0))
     except Exception:
-        return []
-    return datos.get("propuestas") or []
+        return [], {}
+    g = datos.get("global")
+    return (datos.get("propuestas") or []), (g if isinstance(g, dict) else {})
 
 
 # El modelo escribe el apoyo como lo diría una sentencia —«registro 2007719»,
@@ -453,10 +562,15 @@ def revisar(propuestas: list, material) -> list:
 
 async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                    resumen_conceptos: str = "", es_recurso: bool = False,
-                   contexto: str = "") -> tuple[list, list]:
-    """Devuelve (propuestas, avisos). No decide nada: propone."""
+                   contexto: str = "") -> tuple[list, object, list]:
+    """Devuelve (propuestas, global, avisos). No decide nada: propone.
+
+    El GLOBAL es la propuesta del asunto entero y sale de la MISMA llamada: es
+    una decisión distinta de las de cada problema, pero pedirla aparte sería
+    pagar dos veces por el mismo material.
+    """
     if not problemas:
-        return [], []
+        return [], Global(alcanza=False, razon="No hay problemas que resolver."), []
     # EL SENTIDO NO SE SORTEA. Medido: con material fijo esta llamada ya daba
     # el mismo resultado cinco de cinco veces, así que esto no arregla nada
     # hoy; lo que hace es impedir que mañana empiece a variar por un cambio de
@@ -477,14 +591,15 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # SI NO VUELVE NADA, HAY QUE PODER SABER POR QUÉ. Una lista vacía puede
     # ser «el modelo no respondió» o «respondió algo que no supe leer», y son
     # dos averías distintas. Se distinguen aquí y no adivinando en los logs.
-    leidas = _leer(crudo)
+    leidas, crudo_global = _leer(crudo)
     if not leidas:
         motivo = ("el modelo no devolvió texto —probablemente agotó el "
                   "presupuesto razonando—" if not crudo.strip()
                   else f"la respuesta no traía el JSON esperado: «{crudo[:200]}»")
         print(f"   ⚖️ PROPUESTA sin resultado ({MODELO_PROPUESTA}): {motivo}")
-        return [], [f"El motor no propuso ningún sentido: {motivo}. "
-                    f"Dicta tu criterio con la mecánica de siempre."]
+        return [], Global(alcanza=False, razon=motivo), [
+            f"El motor no propuso ningún sentido: {motivo}. "
+            f"Dicta tu criterio con la mecánica de siempre."]
 
     fuera = []
     for d in leidas:
@@ -496,13 +611,34 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
             confianza=str(d.get("confianza", "")).strip().lower(),
             alcanza=bool(d.get("alcanza", True))))
 
+    # LA PROPUESTA DEL ASUNTO. Si el modelo la omitió, se queda sin ella y se
+    # avisa: NO se rellena con la del problema principal, que es el defecto que
+    # esta ronda vino a corregir. Un hueco declarado es honesto; un sentido
+    # ajeno con etiqueta de global, no.
+    g = crudo_global or {}
+    glob = Global(
+        sentido=str(g.get("sentido", "")).strip().lower(),
+        razon=str(g.get("razon", ""))[:900],
+        problema_que_decide=str(g.get("problema_que_decide", ""))[:400],
+        efecto=str(g.get("efecto", ""))[:400],
+        apoyos=[str(a) for a in (g.get("apoyos") or [])][:6],
+        confianza=str(g.get("confianza", "")).strip().lower(),
+        en_contra=str(g.get("en_contra", ""))[:400],
+        alcanza=bool(g.get("alcanza", True)) and bool(g.get("sentido")))
+
     # Si el modelo devolvió menos propuestas que problemas, faltan: se dice.
     avisos = revisar(fuera, material)
     if len(fuera) < len(problemas):
         avisos.append(
             f"Se propusieron {len(fuera)} sentidos para {len(problemas)} "
             f"problemas. Los que faltan quedan sin propuesta.")
-    return fuera, avisos
+    if not glob.alcanza:
+        avisos.append(
+            "El motor no propuso una solución para el asunto entero: sólo por "
+            "problema. Fija tú el sentido global.")
+    elif glob.sentido not in SENTIDOS:
+        avisos.append(f"Sentido global no reconocido: «{glob.sentido}».")
+    return fuera, glob, avisos
 
 
 def resumen(propuestas: list) -> str:
