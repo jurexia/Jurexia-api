@@ -665,6 +665,14 @@ _EVASIVAS = [
     r"(?:cuy[ao]s?\s+)?(?:la\s+)?fecha[^.;]{0,60}const(?:a|an)\s+en\s+autos",
     r"consta\s+en\s+autos\s+que\s+el\s+asunto\s+fue\s+turnado",
     r"seg[úu]n\s+consta\s+en\s+(?:autos|el\s+expediente)",
+    # LA TERCERA FORMA, inventada en la misma tarde que las dos anteriores:
+    # «Consta en autos que, EN LA FECHA ASENTADA EN EL AUTO RESPECTIVO, el
+    # asunto fue turnado…». Ya no dice «consta en autos» pegado a «fecha»: dice
+    # que la fecha está asentada en un auto, que es la misma promesa con dos
+    # rodeos más. Van seis formas medidas de la misma figura, y todas hacen lo
+    # mismo: ocupar el sitio del dato con la garantía de que el dato existe.
+    r"(?:en\s+)?la\s+fecha\s+asentada\s+en\s+el\s+(?:auto|acuerdo|proveido|prove[íi]do)",
+    r"en\s+la\s+fecha\s+que\s+(?:obra|consta|aparece)\s+en",
 ]
 _EVASIVAS = [__import__("re").compile(p, __import__("re").I) for p in _EVASIVAS]
 
