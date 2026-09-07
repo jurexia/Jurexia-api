@@ -63,7 +63,7 @@ compone el .docx. `GET /taller/descargar` lo entrega.
 
 ---
 
-## 2. Defectos verificados, sin arreglar
+## 2. Defectos verificados
 
 ### D-1 · No existe propuesta de solución GLOBAL  · grave · **ARREGLADO 6-sep**
 
