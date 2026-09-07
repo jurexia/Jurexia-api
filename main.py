@@ -9651,6 +9651,7 @@ async def acervo_articulos(payload: dict):
     via = None               # con qué tipo de dato aceptó Qdrant el filtro
     fallidas: list = []      # colecciones que no se pudieron consultar
     por_coleccion: dict = {} # cuántos puntos devolvió cada una
+    sin_ley: dict = {}       # colección → campos de los puntos que no traen `ley`
     try:
         todos_nums = sorted({n for nums in por_ley.values() for n in nums})
         for coleccion in colecciones:
@@ -9673,6 +9674,21 @@ async def acervo_articulos(payload: dict):
                 num = str(pl.get("articulo_num", "")).strip()
                 ley_real = (pl.get("ley") or "").strip()
                 if not num or not ley_real:
+                    # UN PUNTO SIN `ley` ES INVISIBLE Y NO DEBE SERLO.
+                    #
+                    # `leyes_queretaro` devuelve dos puntos para el artículo 964
+                    # y ninguno llega hasta aquí: se descartan en silencio por
+                    # no traer el campo. `leyes_sonora` sí lo trae. O sea que el
+                    # metadato NO es uniforme entre colecciones estatales.
+                    #
+                    # Importa más allá de este verificador: el cruce de
+                    # referencias del chat filtra por `key="ley"`, así que en
+                    # las colecciones sin ese campo tampoco encuentra nada — y
+                    # falla igual de callado. Se anotan los NOMBRES de los
+                    # campos que sí trae el punto (nunca sus valores) para poder
+                    # arreglar el corpus en vez de seguir adivinando.
+                    if not ley_real:
+                        sin_ley.setdefault(coleccion, set()).update(list(pl.keys())[:25])
                     continue
                 vecinos.setdefault(num, set()).add(ley_real)
                 trozo = (pl.get("texto") or pl.get("content") or "").strip()
@@ -9727,6 +9743,7 @@ async def acervo_articulos(payload: dict):
     return {"ok": True, "consultado": consultado, "fallo": fallo,
             "via": via, "colecciones_caidas": fallidas,
             "puntos_por_coleccion": por_coleccion,
+            "campos_sin_ley": {k: sorted(v) for k, v in sin_ley.items()},
             "buscado_en": colecciones, "citas": salida}
 
 
