@@ -27881,6 +27881,16 @@ async def taller_resolver_stream(
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"))
                 for x in _rep if str(x.get("sentido", "")).strip()]
+        # LA RAZÓN QUE ESCRIBIÓ EL SECRETARIO VA SOBRE EL PRINCIPAL. En el modo
+        # global él dicta el sentido del problema del que cuelgan los demás, y
+        # hasta hoy sólo viajaba el sentido: el estudio recibía un «fundado»
+        # sin una línea que explicara por qué, y se la inventaba. Es el
+        # problema principal el que la lleva, porque es el que decide.
+        if razonamiento.strip() and crit:
+            _pral = next((c for c in crit
+                          if str(getattr(c, "jerarquia", "")).lower() == "principal"),
+                         crit[0])
+            _pral.razonamiento = razonamiento.strip()
         if not crit:
             raise HTTPException(
                 422, "El modo global no pudo repartir el sentido: no hay "
@@ -28065,6 +28075,16 @@ async def taller_resolver(
                              jerarquia=x["jerarquia"],
                              prediccion=_pred.get(x["problema"], {}))
                 for x in _repartido if x["sentido"]]
+        # LA MISMA REGLA QUE EN EL OTRO ENDPOINT, y hay que ponerla en los DOS:
+        # la pantalla llama a éste y el guion de pruebas al de streaming, así
+        # que arreglar uno solo habría dado un pipeline que funciona cuando lo
+        # pruebo yo y no cuando lo usa el secretario. Ya paso con los tres
+        # modos de decidir, que vivian solo en uno.
+        if razonamiento.strip() and crit:
+            _pral2 = next((c for c in crit
+                           if str(getattr(c, "jerarquia", "")).lower() == "principal"),
+                          crit[0])
+            _pral2.razonamiento = razonamiento.strip()
         if not crit:
             raise HTTPException(422, "No hay problemas jurídicos a los que "
                                      "repartir el sentido global.")
