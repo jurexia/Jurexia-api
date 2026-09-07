@@ -58,7 +58,26 @@ def _algo_dice(t: str) -> bool:
     return any(re.search(rx, t, re.I) for _, rx in _QUE_HIZO)
 
 
-def resolvio_a_quo(texto: str, antecedentes: str = "") -> str:
+def _resolvio_de(fuente: str, solo_verbos: bool = False) -> str:
+    """El recuento, aislado para poder correrlo sobre más de una fuente."""
+    cuenta = {}
+    for clave, rx in (_QUE_HIZO_VERBOS if solo_verbos else _QUE_HIZO):
+        n_ = 0
+        for m in re.finditer(rx, fuente, re.I):
+            if _afirmado(fuente, m):
+                n_ += 1
+        if n_:
+            cuenta[clave] = n_
+    if not cuenta:
+        return ""
+    # A igualdad, el orden de `_QUE_HIZO`: sobreseer es lo más grave y lo que
+    # se decide primero.
+    orden = {c: i for i, (c, _) in enumerate(_QUE_HIZO)}
+    return max(cuenta, key=lambda c: (cuenta[c], -orden[c]))
+
+
+def resolvio_a_quo(texto: str, antecedentes: str = "",
+                   declarado: str = "") -> str:
     """«sobresee» | «concede» | «niega», o cadena vacía si no consta.
 
     DOS CAMBIOS, Y LOS DOS SALIERON DEL MISMO CASO REAL.
@@ -74,6 +93,28 @@ def resolvio_a_quo(texto: str, antecedentes: str = "") -> str:
         primer patrón que casa hacía que el orden de `_QUE_HIZO` decidiera el
         resolutivo, que es tanto como echarlo a suertes.
     """
+    # (c) LO DECLARADO MANDA SOBRE EL BARRIDO. `declarado` es la frase con la
+    #     que el motor resumió qué resolvió el órgano al preparar la propuesta
+    #     —«Sobreseyó con fundamento en el artículo 63, fracción IV, de la Ley
+    #     de Amparo»—. No es una fuente más que sumar al recuento: es la
+    #     respuesta a esta misma pregunta, dada por quien leyó el expediente
+    #     entero.
+    #
+    #     Salió de la revisión 410/2026: los antecedentes narraban el juicio de
+    #     nulidad paso a paso y nunca decían en qué paró el amparo, así que el
+    #     resolutivo salió «Se ********* la sentencia recurrida» mientras el
+    #     estudio, tres párrafos antes, decía «se confirma la sentencia
+    #     recurrida» y «debe mantener el sobreseimiento decretado». El dato
+    #     estaba a un cable de distancia.
+    #
+    #     Se pasa por el mismo barrido —no se cree a ciegas—: si la frase no
+    #     dice claramente qué se hizo, se sigue como antes.
+    dec = " ".join((declarado or "").split())
+    if dec:
+        _d = _resolvio_de(dec, solo_verbos=False)
+        if _d:
+            return _d
+
     ant = " ".join((antecedentes or "").split())
     todo = " ".join((texto or "").split())
     fuente = ant or todo
@@ -88,20 +129,7 @@ def resolvio_a_quo(texto: str, antecedentes: str = "") -> str:
         # sustantivo «sobreseimiento», que es justo lo que aparece dentro de
         # las tesis transcritas y lo que contaminaba la lectura.
         fuente, _solo_verbos = todo, True
-    cuenta = {}
-    for clave, rx in (_QUE_HIZO_VERBOS if _solo_verbos else _QUE_HIZO):
-        n_ = 0
-        for m in re.finditer(rx, fuente, re.I):
-            if _afirmado(fuente, m):
-                n_ += 1
-        if n_:
-            cuenta[clave] = n_
-    if not cuenta:
-        return ""
-    # A igualdad, el orden de `_QUE_HIZO`: sobreseer es lo más grave y lo que
-    # se decide primero.
-    orden = {c: i for i, (c, _) in enumerate(_QUE_HIZO)}
-    return max(cuenta, key=lambda c: (cuenta[c], -orden[c]))
+    return _resolvio_de(fuente, solo_verbos=_solo_verbos)
 
 
 # LA VIOLACIÓN PROCESAL DEL AMPARO —la que obliga a reponer— no es cualquier

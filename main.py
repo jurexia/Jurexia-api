@@ -27831,6 +27831,11 @@ async def taller_proponer(
         for x, q in zip(_emparejadas, problemas)]
 
     ses["propuestas"] = propuestas
+    # SE GUARDA EL GLOBAL. Con los dos workers puede no estar en el proceso que
+    # atienda el /taller/resolver siguiente —por eso el cliente lo devuelve—,
+    # pero si cae en el mismo sale gratis y el secretario no tiene que mandar
+    # nada.
+    ses["global"] = glob
     _taller_registrar_uso(user_email, numero, "propuesta")
     print(f"   ⚖️ TALLER: propuesta {numero} · {len(propuestas)} sentidos · "
           f"{len(avisos)} avisos · modelo {_f5.MODELO_PROPUESTA}")
@@ -27916,6 +27921,11 @@ async def taller_resolver_stream(
     usar_propuesta: bool = Form(False),
     modo_decision: str = Form(""),           # acervo | global | por_problema
     sentido_global: str = Form(""),          # el sentido del proyecto entero
+    # QUÉ RESOLVIÓ EL ÓRGANO RECURRIDO. Viaja de vuelta desde /taller/proponer
+    # —igual que `criterios_json`, y por la misma razón: con dos workers, lo
+    # que guarde aquel proceso puede no existir en éste—. Decide el verbo del
+    # resolutivo cuando los antecedentes no llegan a decirlo.
+    resolvio_declarado: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -27949,6 +27959,17 @@ async def taller_resolver_stream(
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
     r = ses["resultado"]
+    # EL DATO SE PONE EN EL ENCARGO, que es lo que llega hasta la composición.
+    # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
+    # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
+    # y ahorra que el secretario tenga que reenviarlo—.
+    _decl = (resolvio_declarado or "").strip()
+    if not _decl:
+        _g_ses = ses.get("global")
+        _decl = str((getattr(_g_ses, "contexto", None) or {}).get("resolvio", "")).strip()
+    if _decl and r.encargo is not None:
+        r.encargo.resolvio_declarado = _decl
+
     _puerta_oportunidad(r)
 
     if criterios_json.strip():
@@ -28113,6 +28134,11 @@ async def taller_resolver(
     # y el proyecto lo DICE en una frase en vez de contestarlos uno por uno.
     modo_decision: str = Form(""),           # acervo | global | por_problema
     sentido_global: str = Form(""),          # el sentido del proyecto entero
+    # QUÉ RESOLVIÓ EL ÓRGANO RECURRIDO. Viaja de vuelta desde /taller/proponer
+    # —igual que `criterios_json`, y por la misma razón: con dos workers, lo
+    # que guarde aquel proceso puede no existir en éste—. Decide el verbo del
+    # resolutivo cuando los antecedentes no llegan a decirlo.
+    resolvio_declarado: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     _taller_puerta(user_email)
@@ -28136,6 +28162,17 @@ async def taller_resolver(
     import redactor_adelanto as _ra
 
     r = ses["resultado"]
+    # EL DATO SE PONE EN EL ENCARGO, que es lo que llega hasta la composición.
+    # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
+    # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
+    # y ahorra que el secretario tenga que reenviarlo—.
+    _decl = (resolvio_declarado or "").strip()
+    if not _decl:
+        _g_ses = ses.get("global")
+        _decl = str((getattr(_g_ses, "contexto", None) or {}).get("resolvio", "")).strip()
+    if _decl and r.encargo is not None:
+        r.encargo.resolvio_declarado = _decl
+
     _puerta_oportunidad(r)
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
     # criterio, o acepta la propuesta del motor. Antes existía un tercero —no

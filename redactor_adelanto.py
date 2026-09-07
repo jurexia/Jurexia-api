@@ -1038,6 +1038,13 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         "fecha_sesion": _f0.fecha_en_letra(_fecha_iso(getattr(e, "fecha_sesion", "")))
                         if _fecha_iso(getattr(e, "fecha_sesion", "")) else "",
         "antecedentes": antecedentes,
+        # QUÉ RESOLVIÓ EL ÓRGANO RECURRIDO, tal como lo resumió el motor al
+        # preparar la propuesta. Decide el verbo del resolutivo cuando los
+        # antecedentes no llegan a decirlo —que es lo que pasó en la revisión
+        # 410/2026: narraban el juicio de nulidad y nunca decían en qué paró el
+        # amparo, así que salió «Se ********* la sentencia recurrida» tres
+        # párrafos después de que el estudio dijera «se confirma»—.
+        "resolvio_declarado": getattr(e, "resolvio_declarado", "") or "",
     }
 
 

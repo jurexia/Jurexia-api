@@ -3080,7 +3080,16 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 str(datos.get("antecedentes") or ""),
                 " ".join(str(r.get("texto") or "")
                          for r in (estructura.resultandos or []))]).strip()
-            _que_hizo = _fr.resolvio_a_quo(_fuente_rama, _antes_rama)
+            # LO QUE EL MOTOR YA DIJO AL PREPARAR LA PROPUESTA. Es su
+            # respuesta a esta misma pregunta —«Sobreseyó con fundamento en el
+            # artículo 63, fracción IV»— dada tras leer el expediente entero.
+            # En la revisión 410/2026 los antecedentes narraban el juicio de
+            # nulidad y nunca decían en qué paró el amparo, así que el
+            # resolutivo salió en hueco mientras el estudio, tres párrafos
+            # antes, decía «se confirma» y «debe mantener el sobreseimiento».
+            _que_hizo = _fr.resolvio_a_quo(
+                _fuente_rama, _antes_rama,
+                declarado=str(datos.get("resolvio_declarado") or ""))
             # EL SENTIDO EN PLENITUD SE LEE DEL ESTUDIO, no del recurso. Que el
             # agravio sea fundado prueba que el juez no debió sobreseer, no que
             # el quejoso tenga razón en el fondo.
