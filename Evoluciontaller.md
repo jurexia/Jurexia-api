@@ -199,3 +199,42 @@ es partir la llamada en dos o subir ese bloque antes de las reglas. Anotarlo
 aquí.
 | 12 | 6-sep-2026 | `_mismo_tema()`: los temas se comparan por contenido, no por prefijo | **Comprobado con el texto real del 410/2026** en los dos sentidos: 3 temas sin duplicar, caza el omitido, no funde los parecidos |
 | 13 | 6-sep-2026 | `revisar_global()`: los apoyos de la propuesta global y de la alternativa se comprueban contra el acervo | **Comprobado** — 0 avisos con los apoyos reales, 2 con registros inventados |
+| 14 | 6-sep-2026 | El verbo del resolutivo se rellena con lo que el motor declaró en el contexto (`resolvio_a_quo(declarado=…)`, campo `resolvio_declarado` de vuelta desde la pantalla) | **Comprobado en el 410/2026 real** — huecos de 4 a 2; salió «Se confirma la sentencia impugnada» y «Se sobresee» |
+
+---
+
+## 7. Proyecto completo del 410/2026 · 6-sep
+
+Generado con sentido global `INFUNDADO` y criterios infundado / infundado /
+inoperante. **3,639 palabras, 0 advertencias, 2 huecos** (sólo las dos fechas
+de sesión, que van así por diseño).
+
+Estructura completa: V I S T O, cinco resultandos, siete considerandos
+—Competencia, Existencia del acto reclamado, Legitimación y oportunidad,
+Resolución recurrida y agravios, Antecedentes, Materia de la revisión con las
+tres preguntas, Estudio— resolutivos y firmas. Los tres temas aparecen
+enumerados en la Materia y contestados en el Estudio.
+
+Congruente: el estudio cierra «se confirma la sentencia recurrida» y los
+resolutivos dicen confirmar y sobreseer.
+
+**Lo que salió mal y se arregló en el acto:** el verbo del resolutivo estaba en
+hueco. No fallaba el detector —los antecedentes narraban el juicio de nulidad y
+nunca decían en qué paró el amparo, así que devolver vacío era honesto—. El
+dato estaba en el contexto que escribe el motor y no llegaba a la composición.
+Ahora llega. Ver cambio 14.
+
+**Pendiente menor, sin arreglar:** el resolutivo dice «sentencia IMPUGNADA» y
+el estudio «sentencia RECURRIDA». Es la misma cosa con dos nombres dentro del
+mismo proyecto.
+
+**Y un hallazgo que no es un defecto sino una propiedad:** en tres corridas del
+mismo asunto con el mismo material, el sentido global cambió. Corridas 1 y 2:
+`infundado`. Corrida 3: `fundado`, y además movió el problema principal del
+primero al tercero. Ocurre con `temperature=0` y semilla fija, así que no es el
+muestreo: la pregunta admite las dos lecturas.
+
+Esto **confirma que el diseño de dos vías es el correcto**: el motor no es una
+autoridad sobre el sentido, es un generador de las dos hipótesis, y quien elige
+es el secretario. Lo reproducible es lo demás —la estructura, la suerte de los
+accesorios, los apoyos comprobados contra el acervo—.
