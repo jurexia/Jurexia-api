@@ -9330,14 +9330,34 @@ async def acervo_registros(payload: dict):
 _RE_ART_CON_LEY = re.compile(
     r'art[íi]culos?\s+'
     r'(\d{1,4}(?:\s*(?:bis|ter|qu[áa]ter|quinquies))?'
-    r'(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:bis|ter|qu[áa]ter|quinquies))?)*)'
+    # `a` y `al` cubren los rangos —«artículos 271 a 281»—, de los que se
+    # toman los extremos: basta para saber de qué ley se habla y evita
+    # expandir cincuenta y cinco artículos por una sola cita.
+    r'(?:\s*(?:,|y|e|al|a)\s*\d{1,4}(?:\s*(?:bis|ter|qu[áa]ter|quinquies))?)*)'
+    # Entre el número y la ley caben «fracción II», «párrafo tercero», etc.
     r'[^.;\n]{0,60}?'
-    r'\b(?:de\s+la|de\s+el|del|de)\s+'
+    # DOS FORMAS DE UNIRLOS, y la segunda es la que usa Iurexia
+    # ------------------------------------------------------------------
+    # El patrón sólo aceptaba «de la / del», que es como se cita en prosa
+    # corrida. Pero las respuestas de la plataforma citan sus fuentes así:
+    #
+    #     *Artículo 271, Código de Procedimientos Civiles para el Estado
+    #      de Sonora* [Doc ID: 11fa6a98-...]
+    #
+    # Artículo, COMA, ley. Medido sobre las respuestas que los abogados
+    # discutieron: es el formato dominante. Sin la coma, el verificador
+    # declaraba «esta respuesta no cita ningún artículo» sobre una respuesta
+    # llena de citas, y se abstenía por falta de datos que sí tenía delante.
+    r'(?:\s*,\s*|\s*\b(?:de\s+la|de\s+el|del|de)\s+)'
     r'((?:Ley|C[óo]digo|Constituci[óo]n|Reglamento|Decreto)'
-    r'[^,;.:()\n]{3,90}?)'
+    # Ni `*` ni `[`: las respuestas marcan la ley en cursiva y le pegan detrás
+    # el identificador de la fuente — «...de Sonora* [Doc ID: 11fa...]».
+    r'[^,;.:()*\[\]\n]{3,90}?)'
     # Corte antes del verbo. Sin esto el nombre se come la oración entera y
     # queda «Código Civil local establece», que no casa con ninguna ley.
-    r'(?=\s*[,;.:()\n]|\s+(?:establece|dispone|se[ñn]ala|prev[ée]|regula|prescribe|'
+    # Los terminadores tienen que incluir lo MISMO que se excluyó de la captura,
+    # o el nombre no cierra nunca: «...de Sonora*» acaba en asterisco.
+    r'(?=\s*[,;.:()*\[\]\n]|\s+(?:establece|dispone|se[ñn]ala|prev[ée]|regula|prescribe|'
     r'consagra|previene|contempla|ordena|determina|indica|refiere|exige|permite|que\s)|$)',
     re.IGNORECASE)
 
@@ -9430,7 +9450,7 @@ def _recortar_ley(nombre: str) -> str:
     palabras = nombre.split()
     salida = []
     for w in palabras:
-        limpia = w.strip(".,;:()«»\"'")
+        limpia = w.strip(".,;:()*[]«»\"'")
         if not limpia:
             continue
         # Minúscula y no conector → aquí empezó la oración.
