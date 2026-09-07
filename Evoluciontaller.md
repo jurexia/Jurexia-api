@@ -65,7 +65,7 @@ compone el .docx. `GET /taller/descargar` lo entrega.
 
 ## 2. Defectos verificados, sin arreglar
 
-### D-1 · No existe propuesta de solución GLOBAL  · grave
+### D-1 · No existe propuesta de solución GLOBAL  · grave · **ARREGLADO 6-sep**
 
 El modelo propone **por problema**. No hay en ninguna parte una propuesta del
 sentido del asunto entero. Lo que hoy se ofrece como «solución global» es la
@@ -75,7 +75,7 @@ propuesta del problema principal reutilizada:
 Si el asunto tiene tres problemas, inserta el sentido de uno solo y lo llama
 global. **Es el hueco que David señaló.**
 
-### D-2 · Las propuestas se emparejan con los problemas por POSICIÓN  · grave
+### D-2 · Las propuestas se emparejan con los problemas por POSICIÓN  · grave · **ARREGLADO 6-sep**
 
 `page.tsx:210` (`p.propuestas[i]`) y `VentanaCriterio.tsx:101`
 (`propuestas[iPrincipal]`).
@@ -101,3 +101,27 @@ Anterior a los cambios de esta semana.
 | 2 | 2-sep-2026 | `BloqueGlobal`: problema principal + predicción del acervo, pastillas de sentido, consecuencia por problema, razón editable | **Comprobado a medias** — se ve, pero se apoya en D-1 y D-2 |
 | 3 | 2-sep-2026 | Botón «Insertar la solución propuesta» | **No cumple lo pedido** — inserta la propuesta del principal, no una global (D-1) |
 | 4 | 6-sep-2026 | Sello de citas: `rubroCorresponde` se importa, no sólo se reexporta (`SelloCitas.tsx`) | **Comprobado** — desplegado `fb66162`; antes lanzaba `ReferenceError` que el `catch` convertía en «sin comprobar» |
+| 5 | 6-sep-2026 | **D-1** · El modelo propone la solución del **asunto entero** en la misma llamada: sentido, razón, de qué problema cuelga, qué les pasa a los demás, apoyos y `en_contra` (`fase5_propuesta.Global`, `main.py` devuelve `global`) | **Comprobado en lógica, PENDIENTE en producción** — ver abajo |
+| 6 | 6-sep-2026 | **D-2** · `emparejar()` casa propuesta y problema por **texto**, y el servidor devuelve la lista ya alineada con huecos declarados | **Comprobado** — prueba determinista: con 3 problemas y 2 propuestas desordenadas, antes 2 de 3 mostraban el sentido de otro problema; ahora ninguno |
+| 7 | 6-sep-2026 | Panel «Lo que propone el motor» con el recuadro ámbar **«Por dónde se cae»** (`VentanaCriterio.tsx`) | **Comprobado** que compila y despliega; **pendiente** verlo con un asunto real |
+
+---
+
+## 4. Lo que falta comprobar
+
+**El campo `global` con el modelo de verdad.** La lógica está probada con un
+JSON fabricado por mí: `_leer` lo lee, `Global` lo arma, la pantalla lo pinta.
+Lo que **no** está probado es que `gpt-5.6-luna` devuelva ese campo cuando se le
+pide de verdad, con un expediente real y el prompt entero.
+
+Puede pasar que lo omita —el prompt ya es largo y esto va al final, que es donde
+se pierden las instrucciones; ya ocurrió con la pregunta expresa del estudio—.
+Si lo omite, no se rompe nada: sale el aviso «El motor no propuso una solución
+para el asunto entero» y el secretario fija el sentido a mano, como hasta ayer.
+
+**Cómo comprobarlo:** correr un asunto real hasta la propuesta y mirar si
+aparece el panel «Lo que propone el motor» con su recuadro ámbar. Si no
+aparece, el arreglo es subir ese bloque del prompt más arriba, antes de las
+reglas — no volver a escribirlo.
+
+Anotar aquí el resultado.
