@@ -202,7 +202,15 @@ def _mismo_tema(a: str, b: str) -> bool:
     if not ha or not hb:
         return False
     comunes = len(ha & hb)
-    return comunes / min(len(ha), len(hb)) >= 0.55
+    # MEDIDO, NO ELEGIDO. En la revisión 410/2026 el mismo tema, titulado por el
+    # modelo frente a la pregunta de la fase, coincidió en 3 de 6 palabras con
+    # carga: exactamente 0.50. Con el umbral en 0.55 se daba por no cubierto y
+    # la lista lo duplicaba. Se baja a lo medido.
+    #
+    # Y no aflojar más: esto es sólo la RESERVA —lo que manda es el `numero` que
+    # ahora se le pide al modelo—, y un umbral bajo aquí da por contestado un
+    # tema que falta, que es el defecto que la lista existe para evitar.
+    return comunes / min(len(ha), len(hb)) >= 0.50
 
 
 def emparejar(problemas: list, propuestas: list) -> list:
@@ -575,6 +583,10 @@ REGLAS QUE NO SE ROMPEN:
    principal y los accesorios, cada uno con su suerte en las dos vías. Existe
    para que no se quede ninguno sin contestar: un tema olvidado es un amparo de
    vuelta. No omitas ninguno de los problemas de arriba.
+11. CADA ENTRADA DE LA LISTA LLEVA EL `numero` DEL PROBLEMA al que corresponde
+   —1, 2, 3… tal como van numerados en LOS PROBLEMAS JURÍDICOS DEL ASUNTO—.
+   Puedes titular el tema como quieras; el número es lo que permite saber a
+   cuál te refieres sin adivinarlo por el texto.
 
 Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
 {{"propuestas": [
@@ -604,7 +616,8 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
      "efecto": "<qué les pasa a los accesorios en ESTA vía>",
      "apoyos": ["<registro>", "..."]}},
    "checklist": [
-     {{"tema": "<el tema, en una línea>",
+     {{"numero": <el numero del problema en la lista de arriba: 1, 2, 3...>,
+       "tema": "<el tema, en una línea>",
        "papel": "principal|accesorio",
        "con_propuesta": "<su suerte si se sigue la propuesta>",
        "con_alternativa": "<su suerte si se sigue la alternativa>",
@@ -680,19 +693,40 @@ def completar_checklist(checklist: list, problemas: list) -> tuple[list, list]:
     oficio, y un tema sin contestar es un amparo de vuelta. Es de los pocos
     defectos que no se ven leyendo el proyecto —lo que falta no se lee—.
     """
+    # EL NÚMERO MANDA, EL TEXTO ES LA RESERVA. Comparar títulos con preguntas
+    # es adivinar: en la revisión 410/2026 el modelo tituló el mismo tema
+    # «Suplencia de la queja y valoración de la sentencia del amparo 323/2023»
+    # frente a la pregunta «¿El Juzgado de Distrito debía suplir la deficiencia
+    # de la queja y valorar la sentencia ofrecida como prueba?», y la
+    # coincidencia se quedó en el 50%, justo debajo del umbral. Subir el umbral
+    # arregla ese caso y rompe el siguiente.
+    #
+    # No hace falta adivinar: los problemas van NUMERADOS en el prompt y el
+    # modelo sólo tiene que devolver el número. Se le pide, y el texto queda
+    # para cuando lo omita.
+    por_numero = set()
+    for c in checklist:
+        try:
+            n_ = int(c.get("numero"))
+        except (TypeError, ValueError):
+            continue
+        if 1 <= n_ <= len(problemas):
+            por_numero.add(n_)
+
     vistos = [str(c.get("tema", "")) for c in checklist if c]
     faltan, fuera = [], list(checklist)
-    for q in problemas:
+    for i, q in enumerate(problemas, 1):
         preg = q.get("pregunta", "") if isinstance(q, dict) else str(q)
         clave = _norm_problema(preg)
         if not clave:
             continue
-        # Se da por cubierto si el modelo habla del mismo tema, lo haya
-        # escrito como pregunta o —lo habitual— como título.
+        if i in por_numero:
+            continue
+        # Sin número, se cae al texto: mismo tema aunque esté escrito distinto.
         if any(_mismo_tema(v, preg) for v in vistos):
             continue
         faltan.append(preg)
-        fuera.append({"tema": preg, "papel": "accesorio",
+        fuera.append({"numero": i, "tema": preg, "papel": "accesorio",
                       "con_propuesta": "SIN DETERMINAR — el motor no lo incluyó.",
                       "con_alternativa": "SIN DETERMINAR — el motor no lo incluyó.",
                       "tema_distinto": False})
