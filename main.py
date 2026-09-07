@@ -9434,6 +9434,13 @@ _CONECTORES_LEY = {
     "nacional", "nacionales", "vigente", "aplicable",
 }
 
+# Los que SÍ se pueden podar del final. Un nombre puede acabar en «local»
+# —«Código Civil local»— pero nunca en «del» ni en «de la».
+_SOLO_GRAMATICALES = {
+    "de", "del", "la", "el", "los", "las", "y", "e", "para", "por", "sobre",
+    "en", "al", "a", "con", "sin", "su", "sus", "un", "una",
+}
+
 
 def _recortar_ley(nombre: str) -> str:
     """
@@ -9458,7 +9465,13 @@ def _recortar_ley(nombre: str) -> str:
             break
         salida.append(w)
     # Un nombre no puede acabar en conector: «Ley Federal del» no es una ley.
-    while salida and salida[-1].strip(".,;:()").lower() in _CONECTORES_LEY:
+    #
+    # PERO SÓLO LOS GRAMATICALES. La versión anterior usaba el conjunto entero,
+    # que incluye «local» y «federal», y entonces «Código Civil local» acababa
+    # en «Código Civil» — justo la palabra que `_ambito` necesita para no
+    # confundirlo con el federal. La regla de ámbito estaba escrita y no servía
+    # de nada porque este bucle borraba su materia prima tres líneas antes.
+    while salida and salida[-1].strip(".,;:()*[]").lower() in _SOLO_GRAMATICALES:
         salida.pop()
     return " ".join(salida).strip(" ,.;:()")
 
@@ -9637,10 +9650,17 @@ async def acervo_articulos(payload: dict):
     fallo = None
     via = None               # con qué tipo de dato aceptó Qdrant el filtro
     fallidas: list = []      # colecciones que no se pudieron consultar
+    por_coleccion: dict = {} # cuántos puntos devolvió cada una
     try:
         todos_nums = sorted({n for nums in por_ley.values() for n in nums})
         for coleccion in colecciones:
             pts, via_col, err_col = await _traer_articulos(coleccion, todos_nums)
+            # Cuántos puntos dio CADA colección. Sin esto, «la colección está
+            # vacía» y «el artículo no está ahí» son indistinguibles desde
+            # fuera, y la primera se reporta como si fuera la segunda: una
+            # acusación de cita inventada contra una plataforma que
+            # sencillamente no tiene ese estado indexado.
+            por_coleccion[coleccion] = len(pts)
             if via_col:
                 via = via_col
             elif err_col:
@@ -9682,7 +9702,12 @@ async def acervo_articulos(payload: dict):
     for ley, nums in por_ley.items():
         for num in sorted(nums):
             f = hallados.get((ley, num))
-            otras = sorted(vecinos.get(num, set()))[:5] if consultado and not f else []
+            # 12 y no 5. Con cinco, y ordenando alfabéticamente, «Código Civil
+            # Federal» tapaba a «Código Civil del Estado de Querétaro» —la
+            # mayúscula ordena antes que la minúscula— y la lista parecía decir
+            # que ninguna ley estatal tiene ese artículo.
+            todas = sorted(vecinos.get(num, set())) if consultado and not f else []
+            otras = todas[:12]
             salida.append({
                 "ley": ley,
                 "articulo": num,
@@ -9696,10 +9721,12 @@ async def acervo_articulos(payload: dict):
                 # diferencia entre «no existe» y «pertenece a otra ley», y es
                 # justo lo que el abogado señaló.
                 "existe_en_otras": otras,
+                "existe_en_otras_total": len(todas),
             })
 
     return {"ok": True, "consultado": consultado, "fallo": fallo,
             "via": via, "colecciones_caidas": fallidas,
+            "puntos_por_coleccion": por_coleccion,
             "buscado_en": colecciones, "citas": salida}
 
 
