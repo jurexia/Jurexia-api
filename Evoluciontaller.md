@@ -238,3 +238,44 @@ Esto **confirma que el diseño de dos vías es el correcto**: el motor no es una
 autoridad sobre el sentido, es un generador de las dos hipótesis, y quien elige
 es el secretario. Lo reproducible es lo demás —la estructura, la suerte de los
 accesorios, los apoyos comprobados contra el acervo—.
+| 15 | 6-sep-2026 | `_bloque_global`: el estudio ve la objeción, el efecto y de qué cuelga el resultado | **Comprobado en el 410/2026** — párrafos que abordan la objeción: 6 → 13, con una refutación real («No obsta a lo anterior que la recurrente afirme que la representación pudo ser fraudulenta…») |
+| 16 | 6-sep-2026 | Cierre duplicado: `_sin_remate_duplicado` + instrucción | **Comprobado** — un solo cierre; la recapitulación con sustancia se conserva |
+| 17 | 6-sep-2026 | Fracciones citadas en los dos órdenes y en plural, abarcando el tramo | **Comprobado en local** (VI y VII → las dos; IV a VII → las cuatro); **NO verificado en producción** |
+| 18 | 6-sep-2026 | La fórmula contradictoria de «prelación lógica» sale del prompt | **Sin verificar** |
+| 19 | 6-sep-2026 | Los dos resolver pasan `jerarquia` y `prediccion` | **Comprobado en código**; sin verificar en salida |
+
+---
+
+## 8. RIESGO ABIERTO · la respuesta se pierde con dos workers · 7-sep
+
+**Medido, no supuesto.** Dos resoluciones seguidas del 410/2026 murieron en el
+cliente con `RemoteDisconnected`, a los **1,449 s** y a los **3,639 s**.
+
+Lo que dicen los registros de Render:
+
+- Arranque real: `gunicorn -w 2 -k uvicorn.workers.UvicornWorker --timeout 240`.
+- **El servidor TERMINÓ el trabajo**: `POST /taller/resolver 200`, 4,031
+  palabras, 14 avisos.
+- **Ni un `WORKER TIMEOUT`, ni una traza, ni un `SIGKILL`.**
+- `GET /taller/descargar` responde **404 «No hay documento generado para ese
+  expediente en este proceso»**: el .docx quedó en el disco de un worker y la
+  petición cayó en el otro.
+
+**Conclusión:** el trabajo se hace, se paga, y no llega. La pantalla le diría al
+secretario que falló mientras el proyecto existe en el servidor y es
+inalcanzable.
+
+**Lo que NO se pudo determinar:** quién corta la conexión. No fue gunicorn —no
+hay `WORKER TIMEOUT`—. Queda por descartar el proxy de Render.
+
+**Dos hipótesis mías que la medición desmintió**, anotadas para no repetirlas:
+que era el tope de 240 s (aguantó 1,449 s y 3,639 s) y que era un retroceso
+catastrófico en mi propia expresión regular (resuelve 32 KB en 1.8 ms). El
+prompt tampoco desborda: 54,774 caracteres, y mi bloque añade 1,100.
+
+**Lo que apunta al arreglo:** `/taller/resolver/stream` existe en el servidor y
+**la pantalla no lo llama nunca** (`api.ts:452` va al bloqueante). Al emitir sin
+parar, un flujo no deja el hueco largo en que se pierde la respuesta. Y
+`/taller/descargar` debería leer del almacén duradero y no del proceso.
+
+**Decisión pendiente de David.**
