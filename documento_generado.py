@@ -2164,8 +2164,12 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
 
 
 def _bloque_firmas(doc, datos):
+    # SIN LA BARRA, igual que en la carátula. Se me escapó aquí al arreglarla
+    # arriba: el mismo documento decía «SECRETARIO:» en el rubro y
+    # «SECRETARIA/O DE TRIBUNAL» al pie.
     for etiqueta, quien in (("MAGISTRADO PONENTE", datos.get("magistrado", "")),
-                            ("SECRETARIA/O DE TRIBUNAL", datos.get("secretario", ""))):
+                            (_rotulo_secretario(str(datos.get("secretario", "")))
+                             + " DE TRIBUNAL", datos.get("secretario", ""))):
         if not quien:
             continue
         parrafo(doc, "", sangria=False)
@@ -2327,11 +2331,32 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         aquí, así que el andamio se quita aquí una vez y no en catorce sitios.
         """
         texto = sin_andamio(texto or "")
-        if texto.strip():
-            r = p.add_run(texto.strip())
+        # ═══════════════════════════════════════════════════════════════════
+        # UN SALTO DE LÍNEA DENTRO DE UN PÁRRAFO JUSTIFICADO ESTIRA EL TEXTO
+        # ═══════════════════════════════════════════════════════════════════
+        # David: «saltos de renglones para que el texto no se estirara
+        # innecesariamente en todo el párrafo en algunas partes (revisa el
+        # adelanto que produjo el pipeline y verás)».
+        #
+        # Y se ve. El modelo escribe el resultando primero con sus sub-bloques
+        # separados por `\n` —«AUTORIDAD RESPONSABLE:», la lista, «ACTOS
+        # RECLAMADOS:»— y esto lo metía TODO en un párrafo, convirtiendo cada
+        # salto en un `<w:br>`. Word, al justificar, reparte la última línea
+        # antes de cada salto de margen a margen: «AUTORIDAD RESPONSABLE:»
+        # queda con dos palabras separadas por diez centímetros de blanco.
+        # Medido: 11 saltos en mi documento, CERO en el suyo.
+        #
+        # La línea corta no es el problema —es el rótulo de un bloque, y está
+        # bien que sea corta—: el problema es pedirle a Word que la justifique.
+        # Cada trozo va a su propio párrafo y termina donde termina.
+        _trozos = [z.strip() for z in re.split(r"\n+", texto) if z.strip()]
+        if _trozos:
+            r = p.add_run(_trozos[0])
             r.font.name = FUENTE
             # El tamaño se hereda del estilo Normal, igual que en el resto del
             # documento y que en el suyo: sólo se estampa lo que se aparta.
+        for x in _trozos[1:]:
+            parrafo(doc, x)
         for x in (resto or []):
             x = sin_andamio(x)
             if x.strip():
@@ -2624,8 +2649,25 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         _ta.plazo_de(tipo_asunto, "").get("fundamento") or "artículo 17 de la Ley de Amparo",
         tipo_asunto)
 
+    # LA LEGITIMACIÓN VA PRIMERO, y sin ella el párrafo del cómputo abre con
+    # «Igualmente,» sin nada a lo que enlazar. Se compone: quién interpuso, en
+    # qué carácter, por qué precepto de SU vía y por qué le perjudica.
+    _leg = _ta.legitimacion_de(
+        tipo_asunto, str(datos.get("quejoso") or ""),
+        str(datos.get("representante") or ""), HUECO)
+
     def _legitimacion(p):
-        _texto_en(p, _op)
+        if _leg:
+            _texto_en(p, _leg)
+            parrafo(doc, _op)
+        else:
+            _texto_en(p, _op)
+            _avisos_bk.append(
+                "EL CONSIDERANDO PROMETE «LEGITIMACIÓN Y OPORTUNIDAD» Y SÓLO "
+                "TRAE LA OPORTUNIDAD: no consta quién interpuso el recurso, "
+                "así que no se puede afirmar que esté legitimado. Escríbelo, o "
+                "el párrafo del cómputo abre con un «Igualmente» que no enlaza "
+                "con nada.")
         # La tabla va en los cuatro tipos. En el corpus casi no aparece
         # —el secretario la dibuja a mano y cuesta—, pero eso mide lo que hoy
         # es caro hacer, no lo que sobra: la máquina tiene el calendario.

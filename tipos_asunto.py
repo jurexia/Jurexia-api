@@ -1488,6 +1488,80 @@ _MATERIA_A_RESOLVER = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA LEGITIMACIÓN: EL APARTADO PROMETÍA DOS COSAS Y DECÍA UNA
+# ═══════════════════════════════════════════════════════════════════════════
+# El considerando se rotula «Legitimación y oportunidad» y sólo se escribía la
+# oportunidad —el cómputo—. Peor: el párrafo del cómputo empieza por
+# «Igualmente,», que es el enlace que sigue a la legitimación, así que el
+# apartado abría con un conector que no se refería a nada.
+#
+# David lo escribió a mano al ajustar el adelanto:
+#
+#   «El presente medio de impugnación fue interpuesto por [quien], a través de
+#    su representante legal [quien], quien se encuentra legitimada para
+#    interponer el recurso de revisión conforme al artículo 6º de la misma ley,
+#    toda vez que la resolución impugnada le resulta desfavorable.»
+#
+# EL FUNDAMENTO ES DE LA VÍA, y ése es el motivo de que esto viva aquí y no en
+# el compositor: en el amparo y su revisión legitima el artículo 6º de la Ley
+# de Amparo; en la queja, el 97; y en la revisión fiscal no es «quien resulta
+# afectado» sino la AUTORIDAD, a través de su unidad de defensa jurídica, por
+# el 63 de la LFPCA. Escribir el mismo precepto en los cuatro es el vicio de
+# plantilla única otra vez.
+LEGITIMACION = {
+    "amparo_directo": {
+        "molde": ("La demanda de amparo fue promovida por {parte}{rep}, quien "
+                  "está legitimad{a} para ello conforme al artículo 5º, "
+                  "fracción I, de la Ley de Amparo, por resentir el perjuicio "
+                  "que le causa la sentencia reclamada."),
+        "fundamento": "artículo 5º, fracción I, de la Ley de Amparo"},
+    "amparo_revision": {
+        "molde": ("El presente medio de impugnación fue interpuesto por "
+                  "{parte}{rep}, quien se encuentra legitimad{a} para "
+                  "interponer el recurso de revisión conforme al artículo 6º "
+                  "de la Ley de Amparo, toda vez que la resolución impugnada "
+                  "le resulta desfavorable."),
+        "fundamento": "artículo 6º de la Ley de Amparo"},
+    "queja": {
+        "molde": ("El recurso fue interpuesto por {parte}{rep}, quien está "
+                  "legitimad{a} para hacerlo conforme al artículo 97 de la Ley "
+                  "de Amparo, por ser parte en el juicio de amparo en que se "
+                  "dictó el auto recurrido y resultarle desfavorable."),
+        "fundamento": "artículo 97 de la Ley de Amparo"},
+    "revision_fiscal": {
+        # AQUÍ NO ES «QUIEN RESIENTE EL PERJUICIO»: es la autoridad, y sólo
+        # por conducto de su unidad de defensa jurídica. Lo dice el propio 63.
+        "molde": ("El recurso fue interpuesto por {parte}{rep}, autoridad "
+                  "facultada para hacerlo por conducto de la unidad "
+                  "administrativa encargada de su defensa jurídica, en "
+                  "términos del artículo 63 de la Ley Federal de Procedimiento "
+                  "Contencioso Administrativo."),
+        "fundamento": ("artículo 63 de la Ley Federal de Procedimiento "
+                       "Contencioso Administrativo")},
+}
+
+
+def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
+                    hueco: str = "*********") -> str:
+    """El párrafo de legitimación de esta vía, o cadena vacía si no hay parte.
+
+    SIN NOMBRE NO SE ESCRIBE. Un párrafo que dice «la parte está legitimada»
+    sin decir quién no acredita nada, y es justo la perífrasis que el catálogo
+    persigue en los resultandos.
+    """
+    m = LEGITIMACION.get(normalizar(tipo))
+    if not m or not (parte or "").strip():
+        return ""
+    rep = ""
+    if (representante or "").strip():
+        rep = f", a través de su representante legal {representante.strip()}"
+    elif normalizar(tipo) == "revision_fiscal":
+        rep = ""
+    return m["molde"].format(parte=parte.strip(), rep=rep,
+                             a="a" if genero_de(parte) == "a" else "o")
+
+
 def rotulo_materia_de(tipo: str) -> str:
     return _ROTULO_MATERIA.get(normalizar(tipo), "Cuestión a resolver.")
 
