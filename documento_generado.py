@@ -2826,10 +2826,24 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     # LA DISPENSA. El rótulo promete el acto reclamado y los conceptos, y el
     # contenido es justamente que NO hace falta transcribirlos: 21 de 26.
+    # LA CITA QUE EL MODELO METE DENTRO DE LA DISPENSA se retira: la escribe el
+    # compositor debajo, con su rubro en negrita y su registro comprobado. Se
+    # corta la frase entera —de «Al respecto/Sirve de apoyo/Sustenta…» hasta el
+    # final de la comilla— y no sólo el número, para no dejar un «es aplicable
+    # la jurisprudencia» colgando sin decir cuál.
+    _RX_CITA_DENTRO = re.compile(
+        r"\s*(?:Al\s+respecto,?\s+)?(?:es\s+aplicable|sirve\s+de\s+apoyo|"
+        r"sustenta\s+esa\s+consideraci[óo]n|resulta\s+aplicable|"
+        r"tiene\s+aplicaci[óo]n)[^.]{0,120}?jurisprudencia[^«“\"]{0,160}"
+        r"[«“\"][^»”\"]{20,}[»”\"]\.?\s*", re.I | re.S)
+
+    def _sin_la_cita(t: str) -> str:
+        return _RX_CITA_DENTRO.sub(" ", t or "").strip()
+
     def _dispensa(p):
         _texto_en(
             p,
-            _del_banco("dispensa", "") or
+            _sin_la_cita(_del_banco("dispensa", "")) or
             f"Es innecesario transcribir el contenido de "
             f"{esq['recurrido']} y los {q} hechos valer, pues el deber formal "
             f"y material de "
@@ -2844,18 +2858,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         parrafo(doc, "No obstante, en el caso de que el estudio demande la "
                      "transcripción de algún apartado de " + esq["recurrido"] +
                      f" o de los {q}, así se reflejará.")
-        # LA TESIS, UNA SOLA VEZ. El modelo ya la cita —«Al respecto, es
-        # aplicable la jurisprudencia 2a./J. 58/2010…»— y yo añadía la mía
-        # detrás, así que el mismo criterio salía dos veces seguidas con dos
-        # redacciones distintas. Añadí un párrafo fijo sin mirar si el de
-        # arriba ya decía lo mismo.
+        # LA TESIS, UNA SOLA VEZ Y LA BUENA. El modelo ya la cita —«Al
+        # respecto, es aplicable la jurisprudencia 2a./J. 58/2010…»— y yo
+        # añadía la mía detrás: el mismo criterio dos veces seguidas con dos
+        # redacciones distintas. Puse un párrafo fijo sin mirar si el de arriba
+        # ya decía lo mismo.
         #
-        # Manda la del compositor, que es la medida y la que lleva su registro,
-        # pero sólo si el texto de encima no la trae ya.
-        _ya_citada = "58/2010" in " ".join(
-            x.text for x in doc.paragraphs[-4:])
-        if not _ya_citada:
-            _cita_con_rubro(doc, APOYO_DISPENSA)
+        # Y NO BASTA CON CALLARME SI ÉL YA LA DIJO, que fue mi primer arreglo:
+        # entonces sobrevivía la suya, que no lleva el rubro en negrita ni
+        # garantiza el registro. Manda la del compositor, y la del modelo se
+        # borra del párrafo de encima.
+        _cita_con_rubro(doc, APOYO_DISPENSA)
 
     con_apartados.append((esq["dispensa"].format(q=q), _dispensa))
 
