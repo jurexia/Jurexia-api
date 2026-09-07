@@ -9350,6 +9350,58 @@ _RE_RUIDO_LEY = re.compile(
     r'vigente|aplicable|local|estado|entidad)\b', re.IGNORECASE)
 
 
+async def _traer_articulos(coleccion: str, nums: list) -> tuple:
+    """
+    Los puntos de una colección de leyes cuyos artículos estén en `nums`.
+
+    DOS INCERTIDUMBRES A LA VEZ, resueltas probando   (6-sep-2026)
+    -------------------------------------------------------------
+    La primera versión pedía `limit=400` con los números como CADENAS y Qdrant
+    devolvía `UnexpectedResponse` — un 400— sin decir por qué. Dos causas
+    encajaban y no había forma de distinguirlas desde fuera:
+
+      · `articulo_num` puede estar indexado como ENTERO, y un `MatchAny` de
+        cadenas contra un índice entero es un 400.
+      · Qdrant Cloud en modo estricto topa el `limit` del scroll, y 400 era el
+        único sitio del código que pasaba de cien.
+
+    Se arreglan las dos: lote de 64 con paginado —así el tope estricto nunca se
+    toca y no se pierden artículos— y los números se prueban primero como
+    enteros y luego como cadenas. Se devuelve cuál funcionó, porque la próxima
+    persona que lea esto merece saberlo sin repetir el experimento.
+    """
+    LOTE = 64
+    MAX_PAGINAS = 12          # 768 puntos por colección: de sobra y acotado
+    ultimo = "SinIntentos"    # inicializado: si ningún intento llega a correr,
+                              # la razón tiene que salir igual
+
+    for etiqueta, valores in (("int", [int(n) for n in nums if str(n).isdigit()]),
+                              ("str", [str(n) for n in nums])):
+        if not valores:
+            continue
+        puntos, cursor, paginas = [], None, 0
+        try:
+            while paginas < MAX_PAGINAS:
+                lote, cursor = await qdrant_client.scroll(
+                    collection_name=coleccion,
+                    scroll_filter=Filter(must=[FieldCondition(
+                        key="articulo_num", match=MatchAny(any=valores))]),
+                    limit=LOTE,
+                    offset=cursor,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                puntos.extend(lote)
+                paginas += 1
+                if cursor is None or not lote:
+                    break
+            return puntos, etiqueta, None
+        except Exception as e:
+            ultimo = type(e).__name__
+            continue
+    return [], None, ultimo
+
+
 # Palabras que SÍ pertenecen al nombre de una ley aunque vayan en minúscula.
 # Todo lo demás en minúscula que aparezca después del nombre es ya la oración.
 _CONECTORES_LEY = {
@@ -9516,18 +9568,19 @@ async def acervo_articulos(payload: dict):
     vecinos: dict = {}       # num → leyes donde SÍ existe ese número
     consultado = False
     fallo = None
+    via = None               # con qué tipo de dato aceptó Qdrant el filtro
+    fallidas: list = []      # colecciones que no se pudieron consultar
     try:
         todos_nums = sorted({n for nums in por_ley.values() for n in nums})
         for coleccion in colecciones:
-            pts, _ = await qdrant_client.scroll(
-                collection_name=coleccion,
-                scroll_filter=Filter(must=[
-                    FieldCondition(key="articulo_num", match=MatchAny(any=todos_nums)),
-                ]),
-                limit=400,          # varias leyes × varios trozos por artículo
-                with_payload=True,
-                with_vectors=False,
-            )
+            pts, via_col, err_col = await _traer_articulos(coleccion, todos_nums)
+            if via_col:
+                via = via_col
+            elif err_col:
+                # Una colección que falla no invalida las otras, pero SÍ se
+                # anota: si falla la del estado, el veredicto sobre un artículo
+                # local no vale y hay que saberlo.
+                fallidas.append(f"{coleccion}:{err_col}")
             for pt in pts:
                 pl = pt.payload or {}
                 num = str(pl.get("articulo_num", "")).strip()
@@ -9548,7 +9601,12 @@ async def acervo_articulos(payload: dict):
                     else:
                         hallados[clave] = {"texto": trozo[:6000], "coleccion": coleccion,
                                            "ley_real": ley_real}
-        consultado = True
+        # `consultado` sólo es cierto si ALGUNA colección respondió de verdad.
+        # Antes bastaba con que el bucle terminara sin excepción, y el bucle
+        # termina igual de bien cuando todas fallan por dentro.
+        consultado = via is not None
+        if not consultado and fallidas:
+            fallo = fallidas[0].split(":")[-1]
     except Exception as e:
         fallo = type(e).__name__
         print(f"   ⚠️ /acervo/articulos error (fail-closed): {err(e)}")
@@ -9574,6 +9632,7 @@ async def acervo_articulos(payload: dict):
             })
 
     return {"ok": True, "consultado": consultado, "fallo": fallo,
+            "via": via, "colecciones_caidas": fallidas,
             "buscado_en": colecciones, "citas": salida}
 
 
