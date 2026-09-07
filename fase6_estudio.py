@@ -742,6 +742,49 @@ del reo (artículo 79, fracción III) es absoluta: opera aun sin conceptos.
 }
 
 
+def _bloque_global(g) -> str:
+    """LO QUE YA SE DECIDIÓ ANTES DE ESCRIBIR, y que el estudio no veía.
+
+    Al preparar la propuesta, el motor calcula tres cosas que el secretario lee
+    en pantalla y sobre las que decide: de qué problema cuelga el resultado,
+    qué les pasa a los demás, y POR DÓNDE SE CAE la solución —el mejor
+    argumento de quien resolvería al revés—.
+
+    Nada de eso llegaba aquí. `Global.bloque()` no lo llamaba nadie: se
+    escribió para la pantalla y se quedó en la pantalla. El estudio redactaba
+    el razonamiento sin saber cuál era la objeción que tenía que vencer ni qué
+    temas quedaban sin materia, y por eso los declaraba inoperantes con una
+    etiqueta en vez de con una razón.
+
+    La objeción es lo que más se nota: un estudio que sabe por dónde le van a
+    atacar contesta a eso; uno que no lo sabe se limita a afirmar.
+    """
+    if not isinstance(g, dict) or not g:
+        return ""
+    partes = []
+    if g.get("problema_que_decide"):
+        partes.append(f"DE ESTE PROBLEMA CUELGA EL RESULTADO:\n{g['problema_que_decide']}")
+    if g.get("efecto"):
+        partes.append(f"QUÉ LES PASA A LOS DEMÁS:\n{g['efecto']}\n"
+                      f"Escríbelo así de explícito en el estudio: un tema que "
+                      f"queda sin materia se DICE que queda sin materia, y se "
+                      f"dice por qué; no se despacha con la palabra "
+                      f"«inoperante» y punto.")
+    if g.get("en_contra"):
+        partes.append(
+            f"LA OBJECIÓN MÁS SERIA A ESTA SOLUCIÓN —el mejor argumento de "
+            f"quien resolvería al revés—:\n{g['en_contra']}\n"
+            f"CONTÉSTALA EN EL ESTUDIO. No la menciones para descartarla de "
+            f"una línea: es lo que el magistrado va a preguntar en la sesión y "
+            f"lo que un amparo posterior va a explotar. Un estudio que no se "
+            f"hace cargo de la mejor objeción está incompleto aunque acierte "
+            f"el sentido.")
+    if not partes:
+        return ""
+    return ("\n\nLO QUE YA SE DECIDIÓ, Y QUE TIENES QUE HONRAR\n"
+            + "\n\n".join(partes) + "\n")
+
+
 def _bloque_arquitectura(materia: str) -> str:
     """Lo común más UNA arquitectura de materia. Nunca dos: son opuestas."""
     m = (materia or "").strip().lower()
@@ -809,7 +852,8 @@ def _bloque_precedente(m: Material, criterios: list = None) -> str:
 def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
                    es_recurso: bool = False, partes=None, marco=None,
-                   contexto: str = "", materia: str = "") -> str:
+                   contexto: str = "", materia: str = "",
+                   propuesta_global=None) -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     # CÓMO SE LA NOMBRA. Estaba escrito «la parte quejosa» dentro de un EJEMPLO
     # de este prompt, y el modelo lo copiaba: en la revisión fiscal el proyecto
@@ -924,8 +968,17 @@ AQUÍ SÍ SE AGRUPA, Y SE ANUNCIA — la regla que él sigue sin excepción:
 - EL CRITERIO PARA AGRUPAR NO ES EL ARTÍCULO CONSTITUCIONAL INVOCADO —casi todos
   repiten el 14, el 16 y el 17— sino EL NUDO DE LA SENTENCIA QUE SE ATACA: el
   presupuesto procesal, el elemento de la acción o la prueba concreta en disputa.
-- Y SI NO REAGRUPAS, DILO IGUAL: «por razón de método y atendiendo a su
-  prelación lógica, los {q} se analizarán en el orden propuesto».
+- Y SI NO REAGRUPAS, ANÚNCIALO SIN MENTIR. La fórmula que se usaba aquí
+  —«atendiendo a su prelación lógica… en el orden propuesto»— se contradice
+  sola: la prelación lógica es el orden que fija el TRIBUNAL según lo que
+  decide primero, y «el orden propuesto» es el que trae el recurrente. Se
+  copiaba literal y el proyecto prometía una cosa y hacía la otra.
+  Escribe lo que de verdad ocurra, con tus palabras:
+  · si sigues el orden del recurrente porque ya es el lógico, dilo así y di
+    por qué lo es;
+  · si lo sigues por comodidad, no invoques prelación lógica: basta con decir
+    que se analizan en el orden en que se plantean.
+  NO copies ninguna de estas dos frases: escribe la tuya.
 
 ARQUITECTURA — CUATRO PASOS POR CADA {q1}, SIEMPRE LOS CUATRO Y EN ESTE ORDEN.
 
@@ -1162,6 +1215,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
+{_bloque_global(propuesta_global)}
 {_bloque_precedente(material, criterios)}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""))}
 {_bloque_material(material)}
@@ -1208,6 +1262,15 @@ aplica a este asunto. Un estudio sin citas es una opinión con formato de
 sentencia, y el material se buscó precisamente para estos problemas.
 
 {cierre_marco}
+NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
+frase de cierre que corresponde al tipo de asunto —«En ese sentido, ante la
+ineficacia de los {q} planteados, lo procedente es…»—. Si tú escribes otra
+igual, el proyecto acaba con dos cierres seguidos diciendo lo mismo, que es lo
+que pasó en la revisión 410/2026.
+Tu último párrafo SÍ recapitula, y con sustancia: qué {q} son infundados y por
+qué, cuáles inoperantes y por qué, y qué queda sin materia. Lo que no hace es
+rematar con la fórmula: de eso se encarga el documento.
+
 Si hay obstáculos al sentido fijado, añade al final un apartado «ADVERTENCIAS»
 —fuera del cuerpo de la sentencia— con lo que el secretario debe valorar.
 Nada más."""
@@ -1958,7 +2021,7 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
 async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                            criterios: list[Criterio], material: Material,
                            es_recurso: bool = False, partes=None, marco=None,
-                           contexto: str = ""):
+                           contexto: str = "", propuesta_global=None):
     """El estudio, trozo a trozo, según lo escribe el modelo.
 
     David: «que el usuario vea el texto escribiéndose sería de ayuda». No
@@ -1972,7 +2035,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000, stream=True,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
-                  es_recurso, partes, marco, contexto)}])
+                  es_recurso, partes, marco, contexto,
+                  propuesta_global=propuesta_global)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     entero = []
@@ -1994,12 +2058,14 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
 async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
                    es_recurso: bool = False, partes=None, marco=None,
-                   contexto: str = "") -> tuple[str, str, list[str]]:
+                   contexto: str = "",
+                   propuesta_global=None) -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos)."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
-                  es_recurso, partes, marco, contexto)}])
+                  es_recurso, partes, marco, contexto,
+                  propuesta_global=propuesta_global)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     import llamada_modelo as _lm

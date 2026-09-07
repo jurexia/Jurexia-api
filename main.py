@@ -27926,6 +27926,11 @@ async def taller_resolver_stream(
     # que guarde aquel proceso puede no existir en éste—. Decide el verbo del
     # resolutivo cuando los antecedentes no llegan a decirlo.
     resolvio_declarado: str = Form(""),
+    # LA PROPUESTA GLOBAL ENTERA, para que el ESTUDIO la vea. Hasta ahora se
+    # calculaba en /taller/proponer, se enseñaba en pantalla y ahí se moría:
+    # `Global.bloque()` no lo llamaba nadie. El estudio escribía el
+    # razonamiento sin saber cuál era la objeción que tenía que vencer.
+    global_json: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -27963,12 +27968,28 @@ async def taller_resolver_stream(
     # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
     # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
     # y ahorra que el secretario tenga que reenviarlo—.
-    _decl = (resolvio_declarado or "").strip()
-    if not _decl:
+    _glob = {}
+    if (global_json or "").strip():
+        try:
+            _g = json.loads(global_json)
+            if isinstance(_g, dict):
+                _glob = _g
+        except Exception:
+            _glob = {}          # un JSON roto no tumba la resolución
+    if not _glob:
         _g_ses = ses.get("global")
-        _decl = str((getattr(_g_ses, "contexto", None) or {}).get("resolvio", "")).strip()
-    if _decl and r.encargo is not None:
-        r.encargo.resolvio_declarado = _decl
+        if _g_ses is not None:
+            _glob = {"problema_que_decide": getattr(_g_ses, "problema_que_decide", ""),
+                     "efecto": getattr(_g_ses, "efecto", ""),
+                     "en_contra": getattr(_g_ses, "en_contra", ""),
+                     "contexto": getattr(_g_ses, "contexto", None) or {}}
+    _decl = (resolvio_declarado or "").strip() or str(
+        (_glob.get("contexto") or {}).get("resolvio", "")).strip()
+    if r.encargo is not None:
+        if _decl:
+            r.encargo.resolvio_declarado = _decl
+        if _glob:
+            r.encargo.propuesta_global = _glob
 
     _puerta_oportunidad(r)
 
@@ -28139,6 +28160,11 @@ async def taller_resolver(
     # que guarde aquel proceso puede no existir en éste—. Decide el verbo del
     # resolutivo cuando los antecedentes no llegan a decirlo.
     resolvio_declarado: str = Form(""),
+    # LA PROPUESTA GLOBAL ENTERA, para que el ESTUDIO la vea. Hasta ahora se
+    # calculaba en /taller/proponer, se enseñaba en pantalla y ahí se moría:
+    # `Global.bloque()` no lo llamaba nadie. El estudio escribía el
+    # razonamiento sin saber cuál era la objeción que tenía que vencer.
+    global_json: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     _taller_puerta(user_email)
@@ -28166,12 +28192,28 @@ async def taller_resolver(
     # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
     # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
     # y ahorra que el secretario tenga que reenviarlo—.
-    _decl = (resolvio_declarado or "").strip()
-    if not _decl:
+    _glob = {}
+    if (global_json or "").strip():
+        try:
+            _g = json.loads(global_json)
+            if isinstance(_g, dict):
+                _glob = _g
+        except Exception:
+            _glob = {}          # un JSON roto no tumba la resolución
+    if not _glob:
         _g_ses = ses.get("global")
-        _decl = str((getattr(_g_ses, "contexto", None) or {}).get("resolvio", "")).strip()
-    if _decl and r.encargo is not None:
-        r.encargo.resolvio_declarado = _decl
+        if _g_ses is not None:
+            _glob = {"problema_que_decide": getattr(_g_ses, "problema_que_decide", ""),
+                     "efecto": getattr(_g_ses, "efecto", ""),
+                     "en_contra": getattr(_g_ses, "en_contra", ""),
+                     "contexto": getattr(_g_ses, "contexto", None) or {}}
+    _decl = (resolvio_declarado or "").strip() or str(
+        (_glob.get("contexto") or {}).get("resolvio", "")).strip()
+    if r.encargo is not None:
+        if _decl:
+            r.encargo.resolvio_declarado = _decl
+        if _glob:
+            r.encargo.propuesta_global = _glob
 
     _puerta_oportunidad(r)
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
@@ -28186,9 +28228,21 @@ async def taller_resolver(
             _datos = json.loads(criterios_json)
         except Exception:
             raise HTTPException(422, "criterios_json no es JSON válido.")
+        # JERARQUÍA Y PREDICCIÓN VIAJAN TAMBIÉN AQUÍ. Su gemela de
+        # /taller/resolver/stream sí las pasaba y ésta no, así que el mismo
+        # `criterios_json` daba un estudio distinto según el endpoint: por esta
+        # ruta se perdían la prelación lógica del estudio y el aviso de ir
+        # contra la corriente del acervo.
+        #
+        # Es la trampa que este proyecto ya tiene con nombre: un arreglo
+        # reconstruye una lista y descarta lo que otro sembró. La escribí en un
+        # comentario de /taller/proponer y volví a caer en ella doce líneas
+        # más abajo.
         crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
                              sentido=str(d.get("sentido", "")).strip().lower(),
-                             razonamiento=str(d.get("razonamiento", "")))
+                             razonamiento=str(d.get("razonamiento", "")),
+                             jerarquia=str(d.get("jerarquia", "accesorio")),
+                             prediccion=d.get("prediccion") or {})
                 for d in (_datos if isinstance(_datos, list) else [])
                 if str(d.get("sentido", "")).strip()]
         if not crit:

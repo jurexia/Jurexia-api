@@ -628,7 +628,12 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
-            criterios, material, e.es_recurso, r.partes, marco, contexto)
+            criterios, material, e.es_recurso, r.partes, marco, contexto,
+            # LO QUE YA SE DECIDIÓ AL PROPONER: de qué problema cuelga el
+            # resultado, qué les pasa a los demás, y la objeción más seria.
+            # Se calculaba, se enseñaba en pantalla y no llegaba hasta aquí:
+            # `Global.bloque()` no lo llamaba nadie.
+            propuesta_global=getattr(e, "propuesta_global", None))
 
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
@@ -651,7 +656,8 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     t0 = _time.perf_counter()
     async for paso in f6.redactar_en_vivo(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
-            criterios, material, e.es_recurso, r.partes, marco, contexto):
+            criterios, material, e.es_recurso, r.partes, marco, contexto,
+            propuesta_global=getattr(e, "propuesta_global", None)):
         if paso.get("tipo") == "texto":
             yield paso
         else:

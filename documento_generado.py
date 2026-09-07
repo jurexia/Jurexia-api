@@ -1481,7 +1481,7 @@ MAX_PALABRAS_PRECEPTO = 180
 MAX_PALABRAS_TESIS_CUERPO = 80
 
 
-def _en_lo_conducente(cuerpo: str, fraccion: str = "") -> str:
+def _en_lo_conducente(cuerpo: str, fraccion="") -> str:
     """El artículo, o su parte conducente si es largo.
 
     Primero se intenta quedarse con la FRACCIÓN que el párrafo citó, que es lo
@@ -1492,6 +1492,25 @@ def _en_lo_conducente(cuerpo: str, fraccion: str = "") -> str:
     pal = cuerpo.split()
     if len(pal) <= MAX_PALABRAS_PRECEPTO:
         return cuerpo
+    # UNA O VARIAS. Cuando el párrafo cita más de una fracción del mismo
+    # artículo hay que llegar a la ÚLTIMA: quedarse en la primera deja sin
+    # respaldo la mitad del razonamiento. Se ordenan por dónde aparecen en el
+    # texto, no por su número romano, porque lo que importa es hasta dónde hay
+    # que leer.
+    fracs = [fraccion] if isinstance(fraccion, str) else list(fraccion or [])
+    fracs = [f for f in fracs if f]
+    if fracs:
+        _pos = {}
+        for f in fracs:
+            _m = re.search(rf"(?:^|[;.]\s*){re.escape(f)}\.\s", cuerpo)
+            if _m:
+                _pos[f] = _m.start()
+        if _pos:
+            fraccion = max(_pos, key=lambda f: _pos[f])
+        else:
+            fraccion = ""
+    else:
+        fraccion = ""
     if fraccion:
         # «IV.» o «fracción IV» dentro del texto del artículo.
         m = re.search(rf"(?:^|[;.]\s*){re.escape(fraccion)}\.\s", cuerpo)
@@ -1528,8 +1547,41 @@ def _en_lo_conducente(cuerpo: str, fraccion: str = "") -> str:
     return corte.rstrip(" ;,.") + " […]"
 
 
+_RX_ROMANOS = r"[IVXLC]{1,6}"
+
+
+def _fracciones_citadas(texto: str, num) -> list:
+    """Las fracciones de ESE artículo que el párrafo cita, en cualquier orden.
+
+    Un secretario escribe las dos formas sin pensarlo —«artículo 79, fracción
+    V» y «la fracción V del artículo 79»— y a veces varias de golpe
+    —«fracciones VI y VII»—. Reconocer sólo la primera forma dejó el artículo
+    79 cortado en la fracción IV en un proyecto cuyo razonamiento giraba
+    alrededor de la V.
+
+    Se devuelven todas: transcribir de más es un párrafo largo; transcribir de
+    menos es dejar sin respaldo la razón que se acaba de dar.
+    """
+    t = " ".join(str(texto or "").split())
+    n = re.escape(str(num))
+    fuera, vistos = [], set()
+    for rx in (
+            # «artículo 79, fracción V» · «artículo 79, fracciones VI y VII»
+            rf"art[íi]culo\s+{n}\s*,?\s*fracci[óo]n(?:es)?\s+"
+            rf"((?:{_RX_ROMANOS}(?:\s*(?:,|y|e)\s*)?)+)",
+            # «la fracción V del artículo 79» · «las fracciones VI y VII del 79»
+            rf"fracci[óo]n(?:es)?\s+((?:{_RX_ROMANOS}(?:\s*(?:,|y|e)\s*)?)+)"
+            rf"\s*(?:de|del)\s+(?:art[íi]culo\s+)?{n}\b"):
+        for m in re.finditer(rx, t, re.I):
+            for r in re.findall(_RX_ROMANOS, m.group(1).upper()):
+                if r not in vistos:
+                    vistos.add(r)
+                    fuera.append(r)
+    return fuera
+
+
 def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
-                      fraccion: str = ""):
+                      fraccion=""):
     """El artículo transcrito, como lo hace el secretario.
 
     David: «Cuando citamos un artículo hay que hacerlo con interlineado uno y
@@ -1722,6 +1774,73 @@ def _sin_eco(texto: str, cuerpo_tesis: str) -> str:
 _RX_ENTRECOMILLADO = re.compile(r"[«\"“]([^»\"”]{40,1800})[»\"”]")
 
 
+# La fórmula de remate, en las formas en que el modelo la escribe. Se exige el
+# verbo de desenlace además del giro inicial: «en consecuencia» abre muchas
+# frases con contenido y no se puede borrar por su primera palabra.
+# La fórmula de remate. Se exige el giro de cierre Y un verbo de desenlace:
+# «en consecuencia» abre muchas frases con contenido y no se puede borrar por su
+# primera palabra.
+_RX_REMATE = re.compile(
+    r"^\s*(?:en\s+ese\s+sentido|en\s+consecuencia|por\s+(?:lo\s+)?"
+    r"(?:tanto|ello|consiguiente)|as[íi]\s+las\s+cosas)\s*,?[^.]{0,200}?"
+    r"\b(?:lo\s+procedente\s+es|procede\s+(?:confirmar|negar|sobreseer|declarar)|"
+    r"debe(?:n)?\s+(?:confirmarse|negarse|sobreseerse|declararse)|"
+    r"se\s+(?:confirma|niega|sobresee|declara))\b[^.]{0,200}\.\s*$",
+    re.I)
+
+# Más allá de esto no es un remate: es un párrafo con razonamiento dentro que
+# empieza con el mismo giro. Medido sobre el cierre real del 410/2026, que son
+# 16 palabras.
+MAX_PALABRAS_REMATE = 45
+
+
+def _sin_remate_duplicado(texto: str) -> str:
+    """Quita la frase de cierre del modelo, no su recapitulación.
+
+    Debajo del estudio el documento añade la fórmula que corresponde al tipo
+    —«En ese sentido, ante la ineficacia de los agravios planteados, lo
+    procedente es confirmar la sentencia recurrida»— y el modelo escribe la
+    suya por iniciativa propia. En la revisión 410/2026 el proyecto acabó con
+    las dos, seguidas, diciendo lo mismo.
+
+    SE QUITA LA FRASE, NO EL PÁRRAFO. La recapitulación del modelo dice qué
+    agravio es infundado y por qué, y eso es sustancia. Sólo se recorta el
+    remate: tiene que empezar con el giro de cierre, llevar un verbo de
+    desenlace, y no pasar de MAX_PALABRAS_REMATE palabras. Un párrafo más largo que eso
+    razona, aunque empiece igual.
+    """
+    # EL CUERPO DEL ESTUDIO ES UNA LISTA DE PÁRRAFOS, no una cadena. Se acepta
+    # cualquiera de las dos: la lista es lo que llega desde `componer`, y la
+    # cadena es cómoda para probar.
+    if isinstance(texto, (list, tuple)):
+        parrafos = [str(x) for x in texto]
+        if not parrafos:
+            return texto
+        recortado = _sin_remate_duplicado(parrafos[-1].rstrip())
+        if recortado == parrafos[-1].rstrip():
+            return texto
+        fuera = parrafos[:-1]
+        if recortado.strip():          # quedaba recapitulación: se conserva
+            fuera.append(recortado)
+        return type(texto)(fuera) if isinstance(texto, tuple) else fuera
+
+    t = (texto or "").rstrip()
+    if not t:
+        return texto
+    # El último párrafo, y dentro de él la última frase: el remate puede venir
+    # solo o pegado al final de la recapitulación.
+    corte = t.rfind("\n")
+    cabeza, ultimo = (t[:corte + 1], t[corte + 1:]) if corte >= 0 else ("", t)
+    frases = re.split(r"(?<=[.])\s+", ultimo.strip())
+    if not frases:
+        return texto
+    if len(frases[-1].split()) <= MAX_PALABRAS_REMATE and _RX_REMATE.match(frases[-1]):
+        quedan = " ".join(frases[:-1]).strip()
+        # Si el remate era TODO el último párrafo, se va el párrafo entero.
+        return (cabeza + quedan).rstrip() if quedan else cabeza.rstrip()
+    return texto
+
+
 def _sin_extracto_repetido(texto: str, preceptos: list) -> str:
     """Quita del párrafo los entrecomillados del artículo que se va a transcribir."""
     if not preceptos or not (texto or "").strip():
@@ -1899,12 +2018,17 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 # el precepto dice «artículo 107, fracción X», se transcribe
                 # ESA fracción y no el artículo entero: es lo que el
                 # secretario hace y lo que hace legible el bloque.
-                _fr = re.search(
-                    rf"art[íi]culo\s+{re.escape(str(num))}\s*,?\s*"
-                    rf"fracci[óo]n\s+([IVXLC]+)", t, re.I)
+                # EN LOS DOS ÓRDENES, Y EN PLURAL. Sólo se reconocía
+                # «artículo 79, fracción V». El estudio de la revisión
+                # 410/2026 escribió «la fracción V del artículo 79» —que es
+                # como se dice más a menudo— y no casó: el artículo se
+                # transcribió recortado a 180 palabras y se cortó en la
+                # fracción IV, JUSTO UNA ANTES de la que el estudio analizaba.
+                # El lector se queda sin ver el precepto en que se apoya el
+                # razonamiento que está leyendo.
                 escribir_precepto(doc, n_.get("texto"),
                                   n_.get("cuerpo_legal") or n_.get("fuente") or "",
-                                  num, _fr.group(1) if _fr else "")
+                                  num, _fracciones_citadas(t, num))
     return citadas
 
 
@@ -2917,7 +3041,23 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 if x.strip():
                     parrafo(doc, x.strip())
         _subtitulo(doc, "Solución")
-        _escribir_estudio(doc, _cuerpo_estudio, tesis, notas, normas)
+        # EL CIERRE, UNA SOLA VEZ. Debajo de esto el documento añade la fórmula
+        # del tipo —«lo procedente es confirmar la sentencia recurrida»—, y el
+        # modelo escribe la suya por iniciativa propia: el proyecto acababa con
+        # dos cierres seguidos diciendo lo mismo.
+        #
+        # Se le dice en el prompt Y se quita aquí, porque una instrucción al
+        # final de un prompt de veintidós mil caracteres se pierde —ya van
+        # varias— y esto tiene que salir bien siempre. Se recorta SÓLO la
+        # frase de remate, no el párrafo: la recapitulación del modelo dice qué
+        # agravio es infundado y por qué, y eso es sustancia que no sobra.
+        # NOMBRE NUEVO, NO REASIGNACIÓN. `_cuerpo_estudio` viene del ámbito de
+        # fuera; asignarlo aquí lo vuelve local de esta función y la lectura de
+        # la derecha revienta con UnboundLocalError. Es el mismo tropiezo de
+        # ámbito que ya costó una ronda en kaisen3-fase1, y esta vez lo cazó el
+        # guardián antes de salir.
+        _cuerpo_sin_remate = _sin_remate_duplicado(_cuerpo_estudio)
+        _escribir_estudio(doc, _cuerpo_sin_remate, tesis, notas, normas)
         # EL CIERRE ES DEL TIPO. Aquí decía «lo procedente es negar el amparo
         # solicitado» en los cuatro, incluida la queja, que además decretaba
         # «Es infundado el recurso de queja» treinta líneas más abajo: el mismo
