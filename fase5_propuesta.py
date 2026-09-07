@@ -112,6 +112,31 @@ class Global:
     en_contra: str = ""
     alcanza: bool = True
 
+    # EL CONTEXTO, EN PROSA. Es lo primero que ve el secretario y sustituye al
+    # volcado del acervo: cuatro párrafos —los hechos, lo que resolvió el
+    # órgano, lo que se dice en contra, y cuál es el tema principal— que se
+    # leen en un minuto y con los que ya se puede formar criterio. Antes se le
+    # enseñaban ocho tesis y treinta preceptos y se perdía ahí.
+    # {hechos, resolvio, combate, tema_principal}
+    contexto: dict = field(default_factory=dict)
+
+    # LA VÍA CONTRARIA, YA ESCRITA. Si el secretario no está de acuerdo con la
+    # propuesta, marca lo contrario y la resolución alternativa aparece en el
+    # acto: no espera a otra llamada. Se pide en la MISMA respuesta porque
+    # cuesta unas decenas de palabras y ahorra una llamada entera con todo el
+    # material otra vez.
+    #
+    # No es la propuesta negada: es cómo se SOSTENDRÍA la solución opuesta, con
+    # su propia razón y su propio efecto sobre los accesorios.
+    # {sentido, razon, efecto, apoyos}
+    alternativa: dict = field(default_factory=dict)
+
+    # LA LISTA DE COMPROBACIÓN. Para que no se quede un tema sin contestar: cada
+    # uno con su suerte en las DOS vías. La exhaustividad es de las cosas que se
+    # revisan de oficio, y un tema olvidado es un amparo de vuelta.
+    # [{tema, papel, con_propuesta, con_alternativa, tema_distinto}]
+    checklist: list = field(default_factory=list)
+
     def bloque(self) -> str:
         if not self.alcanza:
             return ("SIN PROPUESTA GLOBAL — el acervo no alcanza. "
@@ -475,16 +500,33 @@ REGLAS QUE NO SE ROMPEN:
    decidir: tiene que caber en tres o cuatro renglones y decir la razón toral,
    no el desarrollo.
 
-6. Y ADEMÁS DEL SENTIDO DE CADA PROBLEMA, EL DEL ASUNTO ENTERO. Es una
-   decisión distinta, no la suma de las anteriores: hay que decir de QUÉ
-   problema cuelga el resultado, y qué les pasa a los demás cuando ése se
-   resuelve así —si el principal prospera, los accesorios suelen quedar sin
-   materia; si no prospera, se estudian todos—.
-7. LA PROPUESTA GLOBAL LLEVA SU PROPIA OBJECIÓN. En `en_contra`, di en un
-   renglón por dónde se cae tu propuesta: el mejor argumento de quien
-   resolvería al revés. No es un formalismo. Quien lee esto es quien firma, y
-   una propuesta sin su contra se acepta por inercia. Si de verdad no ves
-   ninguna objeción seria, dilo con esas palabras.
+6. EL CONTEXTO, EN PROSA Y EN CUATRO PÁRRAFOS. Es lo PRIMERO que lee el
+   secretario y con eso forma su criterio, sin volver al expediente. Escribe:
+   `hechos` (de qué va el asunto, qué pasó); `resolvio` (qué resolvió {_org5} y
+   con qué razón); `combate` (qué dice en su contra el inconforme); y
+   `tema_principal` (cuál es LA cuestión de la que depende el resultado, y por
+   qué es ésa y no otra). Párrafos de verdad, en prosa llana, sin viñetas y sin
+   tecnicismos de adorno. No repitas el expediente: sintetiza.
+7. EL SENTIDO DEL ASUNTO ENTERO. Es una decisión distinta, no la suma de las
+   anteriores: di de QUÉ problema cuelga el resultado y qué les pasa a los
+   demás. LA REGLA: cuando el tema principal se resuelve, los accesorios
+   SIGUEN SU SUERTE —si el principal prospera, quedan sin materia—, SALVO que
+   sean temas DISTINTOS que exijan estudio propio, o que alguno pueda dar MÁS
+   de lo que da el principal. Esa salvedad la marcas tú, tema por tema.
+8. LA PROPUESTA LLEVA SU PROPIA OBJECIÓN. En `en_contra`, di en un renglón por
+   dónde se cae: el mejor argumento de quien resolvería al revés. No es un
+   formalismo. Quien lee esto es quien firma, y una propuesta sin su contra se
+   acepta por inercia. Si de verdad no ves ninguna objeción seria, dilo así.
+9. Y ESCRIBE TAMBIÉN LA VÍA CONTRARIA, en `alternativa`. Si el secretario no
+   está de acuerdo con tu propuesta, marcará lo contrario y tiene que
+   encontrarla ya escrita. NO es tu propuesta negada ni una advertencia de que
+   te parece peor: es cómo se SOSTENDRÍA de verdad la solución opuesta —con su
+   razón toral, sus apoyos del acervo, y qué les pasa a los accesorios en ESA
+   vía, que casi nunca es lo mismo—. Escríbela como si la defendieras.
+10. LA LISTA DE COMPROBACIÓN, en `checklist`: TODOS los temas del asunto, el
+   principal y los accesorios, cada uno con su suerte en las dos vías. Existe
+   para que no se quede ninguno sin contestar: un tema olvidado es un amparo de
+   vuelta. No omitas ninguno de los problemas de arriba.
 
 Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
 {{"propuestas": [
@@ -502,7 +544,24 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
    "apoyos": ["<registro>", "..."],
    "confianza": "alta|media|baja",
    "en_contra": "<el mejor argumento en contra, un renglón>",
-   "alcanza": true}}}}"""
+   "alcanza": true,
+   "contexto": {{
+     "hechos": "<un párrafo>",
+     "resolvio": "<un párrafo>",
+     "combate": "<un párrafo>",
+     "tema_principal": "<un párrafo: cuál es y por qué ése>"}},
+   "alternativa": {{
+     "sentido": "<el contrario al de arriba>",
+     "razon": "<cómo se sostendría, {PALABRAS_RAZON} palabras>",
+     "efecto": "<qué les pasa a los accesorios en ESTA vía>",
+     "apoyos": ["<registro>", "..."]}},
+   "checklist": [
+     {{"tema": "<el tema, en una línea>",
+       "papel": "principal|accesorio",
+       "con_propuesta": "<su suerte si se sigue la propuesta>",
+       "con_alternativa": "<su suerte si se sigue la alternativa>",
+       "tema_distinto": false}}
+   ]}}}}"""
 
 
 _RX_JSON = re.compile(r"\{.*\}", re.S)
@@ -558,6 +617,45 @@ def revisar(propuestas: list, material) -> list:
                 f"«{p.sentido}» se propone SIN APOYO del acervo. Una propuesta "
                 f"sin fundamento es una opinión: compruébala antes de aceptarla.")
     return avisos
+
+
+def completar_checklist(checklist: list, problemas: list) -> tuple[list, list]:
+    """Que no falte ningún tema. Comprobado, no pedido.
+
+    La lista de comprobación existe para garantizar exhaustividad, y una
+    garantía que depende de que el modelo se acuerde de todos los temas no es
+    una garantía. Aquí se compara contra los problemas que las fases
+    extrajeron del expediente: lo que el modelo omitió se añade con el hueco
+    declarado, y se avisa.
+
+    Vale la pena decir por qué importa tanto: la exhaustividad se revisa de
+    oficio, y un tema sin contestar es un amparo de vuelta. Es de los pocos
+    defectos que no se ven leyendo el proyecto —lo que falta no se lee—.
+    """
+    vistos = {_norm_problema(str(c.get("tema", ""))) for c in checklist if c}
+    faltan, fuera = [], list(checklist)
+    for q in problemas:
+        preg = q.get("pregunta", "") if isinstance(q, dict) else str(q)
+        clave = _norm_problema(preg)
+        if not clave:
+            continue
+        # Se da por cubierto si el modelo lo nombró igual o lo recortó.
+        if any(v == clave or (v and (v.startswith(clave[:60])
+                                     or clave.startswith(v[:60]))) for v in vistos):
+            continue
+        faltan.append(preg)
+        fuera.append({"tema": preg, "papel": "accesorio",
+                      "con_propuesta": "SIN DETERMINAR — el motor no lo incluyó.",
+                      "con_alternativa": "SIN DETERMINAR — el motor no lo incluyó.",
+                      "tema_distinto": False})
+    avisos = []
+    if faltan:
+        avisos.append(
+            f"La lista de comprobación omitía {len(faltan)} tema(s): "
+            f"{'; '.join(t[:80] for t in faltan)}. Se añadieron sin suerte "
+            f"determinada: decídela antes de generar, o el proyecto saldrá sin "
+            f"contestarlos.")
+    return fuera, avisos
 
 
 async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
@@ -624,7 +722,20 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
         apoyos=[str(a) for a in (g.get("apoyos") or [])][:6],
         confianza=str(g.get("confianza", "")).strip().lower(),
         en_contra=str(g.get("en_contra", ""))[:400],
-        alcanza=bool(g.get("alcanza", True)) and bool(g.get("sentido")))
+        alcanza=bool(g.get("alcanza", True)) and bool(g.get("sentido")),
+        contexto={k: str((g.get("contexto") or {}).get(k, ""))[:1800]
+                  for k in ("hechos", "resolvio", "combate", "tema_principal")},
+        alternativa={
+            "sentido": str((g.get("alternativa") or {}).get("sentido", "")).strip().lower(),
+            "razon": str((g.get("alternativa") or {}).get("razon", ""))[:900],
+            "efecto": str((g.get("alternativa") or {}).get("efecto", ""))[:400],
+            "apoyos": [str(a) for a in ((g.get("alternativa") or {}).get("apoyos") or [])][:6],
+        })
+
+    # LA LISTA SE COMPLETA CONTRA LOS PROBLEMAS REALES, no contra la memoria
+    # del modelo. Si omitió un tema, se añade con la suerte sin determinar.
+    glob.checklist, _av_lista = completar_checklist(
+        [c for c in (g.get("checklist") or []) if isinstance(c, dict)], problemas)
 
     # Si el modelo devolvió menos propuestas que problemas, faltan: se dice.
     avisos = revisar(fuera, material)
@@ -632,12 +743,27 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
         avisos.append(
             f"Se propusieron {len(fuera)} sentidos para {len(problemas)} "
             f"problemas. Los que faltan quedan sin propuesta.")
+    avisos.extend(_av_lista)
     if not glob.alcanza:
         avisos.append(
             "El motor no propuso una solución para el asunto entero: sólo por "
             "problema. Fija tú el sentido global.")
-    elif glob.sentido not in SENTIDOS:
-        avisos.append(f"Sentido global no reconocido: «{glob.sentido}».")
+    else:
+        if glob.sentido not in SENTIDOS:
+            avisos.append(f"Sentido global no reconocido: «{glob.sentido}».")
+        if not any((glob.contexto or {}).values()):
+            avisos.append(
+                "El motor no escribió el contexto del asunto. Lo tienes en el "
+                "adelanto que ya generaste.")
+        _alt = glob.alternativa or {}
+        if not _alt.get("razon"):
+            avisos.append(
+                "No hay vía alternativa escrita: si no estás de acuerdo con la "
+                "propuesta, tendrás que razonar el sentido contrario tú.")
+        elif _alt.get("sentido") == glob.sentido:
+            avisos.append(
+                f"La «alternativa» vino con el MISMO sentido que la propuesta "
+                f"(«{glob.sentido}»): no es una vía contraria. Ignórala.")
     return fuera, glob, avisos
 
 

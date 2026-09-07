@@ -27860,6 +27860,16 @@ async def taller_proponer(
             "efecto": glob.efecto, "apoyos": glob.apoyos,
             "confianza": glob.confianza, "en_contra": glob.en_contra,
             "alcanza": glob.alcanza,
+            # EL CONTEXTO SUSTITUYE AL VOLCADO DEL ACERVO. Cuatro párrafos que
+            # el secretario lee en un minuto y con los que ya forma criterio.
+            # Las tesis y los preceptos siguen ahí, pero detrás: son el
+            # fundamento, no la pantalla de decisión.
+            "contexto": glob.contexto,
+            # LA VÍA CONTRARIA, YA ESCRITA. Para que marcar «resolver al revés»
+            # sea instantáneo y no otra espera.
+            "alternativa": glob.alternativa,
+            # LA LISTA DE COMPROBACIÓN, completada contra los problemas reales.
+            "checklist": glob.checklist,
         },
         "avisos": avisos,
         # Lo que hay que mandar a /taller/resolver para aceptarla tal cual.
