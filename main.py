@@ -9407,6 +9407,11 @@ async def _traer_articulos(coleccion: str, nums: list) -> tuple:
 _CONECTORES_LEY = {
     "de", "del", "la", "el", "los", "las", "y", "e", "para", "por", "sobre",
     "en", "al", "a", "con", "sin", "su", "sus", "un", "una",
+    # Éstas van en minúscula pero NO son relleno: dicen de qué ley se habla.
+    # Perderlas convierte «Código Civil local» en «Código Civil», que encaja
+    # con el federal. Se conservan para que `_ambito` pueda verlas.
+    "local", "locales", "estatal", "estatales", "federal", "federales",
+    "nacional", "nacionales", "vigente", "aplicable",
 }
 
 
@@ -9436,6 +9441,42 @@ def _recortar_ley(nombre: str) -> str:
     while salida and salida[-1].strip(".,;:()").lower() in _CONECTORES_LEY:
         salida.pop()
     return " ".join(salida).strip(" ,.;:()")
+
+
+# «federal», «local» y sus hermanas NO son ruido: son lo único que distingue
+# dos leyes que se llaman igual. Hay 33 Códigos Civiles en México.
+_MARCA_FEDERAL = re.compile(r'\b(federal(es)?|nacional(es)?|de\s+la\s+federaci[óo]n|'
+                            r'estados\s+unidos\s+mexicanos)\b', re.I)
+_MARCA_LOCAL = re.compile(r'\b(local(es)?|estatal(es)?|del\s+estado|para\s+el\s+estado|'
+                          r'de\s+la\s+entidad|del\s+distrito\s+federal|de\s+la\s+ciudad\s+de\s+m[ée]xico)\b',
+                          re.I)
+
+
+def _ambito(nombre: str) -> str:
+    """
+    ¿Esta ley es federal o local? «indefinido» si no lo dice.
+
+    POR QUÉ ESTO ES SU PROPIA FUNCIÓN   (6-sep-2026, antes de desplegar)
+    -------------------------------------------------------------------
+    Probando contra una cita real —«los artículos 2292 al 2346 del Código
+    Civil LOCAL»— el verificador resolvió al Código Civil FEDERAL y dio la
+    cita por buena. El recorte tira «local» por ir en minúscula, queda «Código
+    Civil», y por subconjunto encaja con «Código Civil Federal».
+
+    Lo grave es de quién era esa cita: de un abogado cuya queja era, palabra
+    por palabra, «ese artículo pertenece a otra ley». Le habríamos contestado
+    que no, citándole el código equivocado.
+
+    En México hay 33 Códigos Civiles y 33 de Procedimientos. Lo que los
+    distingue es exactamente esta palabra, así que se comprueba ANTES que el
+    parecido de nombres y manda sobre él.
+    """
+    f, l = bool(_MARCA_FEDERAL.search(nombre or "")), bool(_MARCA_LOCAL.search(nombre or ""))
+    if f and not l:
+        return "federal"
+    if l and not f:
+        return "local"
+    return "indefinido"
 
 
 def _clave_ley(nombre: str) -> str:
@@ -9471,6 +9512,12 @@ def _misma_ley(citada: str, real: str) -> bool:
     palabra propia que el otro no tenga. Sonora y Jalisco aportan cada uno la
     suya, así que ya no coinciden.
     """
+    # El ámbito manda sobre el parecido. Un «Código Civil local» y un «Código
+    # Civil Federal» comparten todas sus palabras plenas y son leyes distintas.
+    amb_c, amb_r = _ambito(citada), _ambito(real)
+    if amb_c != "indefinido" and amb_r != "indefinido" and amb_c != amb_r:
+        return False
+
     a, b = set(_clave_ley(citada).split()), set(_clave_ley(real).split())
     if not a or not b:
         return False
