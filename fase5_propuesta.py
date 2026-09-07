@@ -156,6 +156,55 @@ def _norm_problema(x: str) -> str:
     return " ".join("".join(c if c.isalnum() else " " for c in x).split())
 
 
+# Palabras que aparecen en cualquier frase jurídica y no distinguen un tema de
+# otro. Si entran en la comparación, todo se parece a todo.
+_VACIAS = {
+    "para", "por", "que", "los", "las", "del", "con", "una", "uno", "sus", "esta",
+    "este", "como", "sobre", "ante", "pese", "haber", "hacia", "desde", "entre",
+    "cuando", "porque", "sino", "pero", "aunque", "segun", "cual", "cuales",
+    "debia", "debio", "podia", "pudo", "fue", "sido", "ser", "son", "era",
+}
+
+
+def _huella(x: str) -> set:
+    """Las palabras que de verdad identifican un tema, recortadas a su raíz.
+
+    A CINCO LETRAS, y no es capricho: el modelo escribe «suplencia» donde la
+    fase escribió «suplir», «valoración» donde decía «valorar», «promoción»
+    donde decía «promovido». Comparar palabras enteras las da por distintas;
+    cinco letras las junta sin fundir cosas que no lo son —«sentencia» queda en
+    «sente» y «sentido» en «senti»—.
+    """
+    return {w[:5] for w in _norm_problema(x).split()
+            if len(w) >= 4 and w not in _VACIAS}
+
+
+def _mismo_tema(a: str, b: str) -> bool:
+    """¿Hablan del mismo tema, aunque estén escritos distinto?
+
+    POR QUÉ NO BASTA COMPARAR EL PRINCIPIO. Es lo que hacía antes, y en el
+    primer asunto real —la revisión 410/2026— falló en los tres temas. Las
+    fases escriben el problema como PREGUNTA: «¿La quejosa podía reclamar la
+    falta de emplazamiento pese a haber promovido el juicio de nulidad?». El
+    modelo escribe el mismo tema como TÍTULO: «Falta de emplazamiento pese a la
+    promoción del juicio de nulidad». No empiezan igual ni de lejos, y sin
+    embargo son el mismo.
+
+    El resultado fue peor que no comprobar nada: la lista de comprobación
+    duplicó los tres temas y marcó como «SIN DETERMINAR» tres que el modelo sí
+    había resuelto. Una comprobación que acusa a lo que está bien es la que
+    está mal —van trece veces en este proyecto—.
+
+    Se compara el CONTENIDO: qué proporción de las palabras con carga del más
+    corto aparece en el otro.
+    """
+    ha, hb = _huella(a), _huella(b)
+    if not ha or not hb:
+        return False
+    comunes = len(ha & hb)
+    return comunes / min(len(ha), len(hb)) >= 0.55
+
+
 def emparejar(problemas: list, propuestas: list) -> list:
     """La propuesta de CADA problema, en el orden de los problemas.
 
@@ -183,8 +232,7 @@ def emparejar(problemas: list, propuestas: list) -> list:
                     break
             if elegida is None:                      # el modelo suele recortar
                 for c in libres:                     # o reformular la pregunta
-                    a, b = _norm_problema(c.problema), clave
-                    if a and b and (a.startswith(b[:60]) or b.startswith(a[:60])):
+                    if _mismo_tema(c.problema, preg):
                         elegida = c
                         break
         if elegida is not None:
@@ -632,16 +680,16 @@ def completar_checklist(checklist: list, problemas: list) -> tuple[list, list]:
     oficio, y un tema sin contestar es un amparo de vuelta. Es de los pocos
     defectos que no se ven leyendo el proyecto —lo que falta no se lee—.
     """
-    vistos = {_norm_problema(str(c.get("tema", ""))) for c in checklist if c}
+    vistos = [str(c.get("tema", "")) for c in checklist if c]
     faltan, fuera = [], list(checklist)
     for q in problemas:
         preg = q.get("pregunta", "") if isinstance(q, dict) else str(q)
         clave = _norm_problema(preg)
         if not clave:
             continue
-        # Se da por cubierto si el modelo lo nombró igual o lo recortó.
-        if any(v == clave or (v and (v.startswith(clave[:60])
-                                     or clave.startswith(v[:60]))) for v in vistos):
+        # Se da por cubierto si el modelo habla del mismo tema, lo haya
+        # escrito como pregunta o —lo habitual— como título.
+        if any(_mismo_tema(v, preg) for v in vistos):
             continue
         faltan.append(preg)
         fuera.append({"tema": preg, "papel": "accesorio",
@@ -656,6 +704,35 @@ def completar_checklist(checklist: list, problemas: list) -> tuple[list, list]:
             f"determinada: decídela antes de generar, o el proyecto saldrá sin "
             f"contestarlos.")
     return fuera, avisos
+
+
+def revisar_global(glob, material) -> list:
+    """Los apoyos de la propuesta del ASUNTO, comprobados como los demás.
+
+    `revisar()` recorría las propuestas POR PROBLEMA y dejaba fuera la global y
+    su alternativa —eran nuevas y nadie las metió en el recorrido—. Es
+    justamente donde más caro sale: la global es la que el secretario acepta de
+    un botón, y sus registros son los que acaban en el proyecto.
+
+    Medido en la revisión 410/2026: el registro que citó la global (2020441) sí
+    estaba en el acervo. Que saliera bien no significa que estuviera
+    comprobado, y esa distinción es la que este proyecto lleva toda la semana
+    aprendiendo.
+    """
+    validos = {str(t.get("registro", "")) for t in getattr(material, "tesis", []) or []}
+    avisos = []
+    for etiqueta, apoyos in (("La propuesta del asunto", glob.apoyos),
+                             ("La vía alternativa", (glob.alternativa or {}).get("apoyos") or [])):
+        inventados = []
+        for a in apoyos:
+            m = _RX_CIFRA_REGISTRO.search(str(a))
+            if m and m.group(1) not in validos:
+                inventados.append(str(a))
+        if inventados:
+            avisos.append(
+                f"{etiqueta} se apoya en registros que NO están en el acervo: "
+                f"{inventados}. No se citan hasta comprobarlos en el Semanario.")
+    return avisos
 
 
 async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
@@ -744,6 +821,8 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
             f"Se propusieron {len(fuera)} sentidos para {len(problemas)} "
             f"problemas. Los que faltan quedan sin propuesta.")
     avisos.extend(_av_lista)
+    if glob.alcanza:
+        avisos.extend(revisar_global(glob, material))
     if not glob.alcanza:
         avisos.append(
             "El motor no propuso una solución para el asunto entero: sólo por "
