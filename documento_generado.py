@@ -1506,18 +1506,30 @@ def _en_lo_conducente(cuerpo: str, fraccion="") -> str:
             if _m:
                 _pos[f] = _m.start()
         if _pos:
-            fraccion = max(_pos, key=lambda f: _pos[f])
+            # DE LA PRIMERA A LA ÚLTIMA, no sólo la última. Escrito como
+            # estaba, «fracciones VI y VII» saltaba a la VII y se comía la VI
+            # —la que el estudio razonaba primero—. Se abarca el tramo: se
+            # empieza en la primera citada y se termina al acabar la última.
+            fraccion = min(_pos, key=lambda f: _pos[f])
+            _hasta = max(_pos, key=lambda f: _pos[f])
         else:
-            fraccion = ""
+            fraccion = _hasta = ""
     else:
-        fraccion = ""
+        fraccion = _hasta = ""
     if fraccion:
         # «IV.» o «fracción IV» dentro del texto del artículo.
         m = re.search(rf"(?:^|[;.]\s*){re.escape(fraccion)}\.\s", cuerpo)
         if m:
             resto = cuerpo[m.start():]
-            fin = re.search(r"[;.]\s+[IVXLC]+\.\s", resto[3:])
-            trozo = resto[:fin.start() + 3] if fin else resto
+            # El final se busca DESPUÉS de la última fracción citada, para que
+            # el tramo las contenga todas.
+            _desde = 3
+            if _hasta and _hasta != fraccion:
+                _mu = re.search(rf"(?:^|[;.]\s*){re.escape(_hasta)}\.\s", resto)
+                if _mu:
+                    _desde = _mu.start() + 3
+            fin = re.search(r"[;.]\s+[IVXLC]+\.\s", resto[_desde:])
+            trozo = resto[:fin.start() + _desde] if fin else resto
             if 10 <= len(trozo.split()) <= MAX_PALABRAS_PRECEPTO * 2:
                 # EL RÓTULO SE CORTABA EN LA ABREVIATURA. `split(".")[0]`
                 # sobre «Art. 104.- Los Tribunales…» devuelve «Art», y el
