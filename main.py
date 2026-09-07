@@ -9350,6 +9350,42 @@ _RE_RUIDO_LEY = re.compile(
     r'vigente|aplicable|local|estado|entidad)\b', re.IGNORECASE)
 
 
+# Palabras que SÍ pertenecen al nombre de una ley aunque vayan en minúscula.
+# Todo lo demás en minúscula que aparezca después del nombre es ya la oración.
+_CONECTORES_LEY = {
+    "de", "del", "la", "el", "los", "las", "y", "e", "para", "por", "sobre",
+    "en", "al", "a", "con", "sin", "su", "sus", "un", "una",
+}
+
+
+def _recortar_ley(nombre: str) -> str:
+    """
+    Corta el nombre de la ley donde termina y empieza la oración.
+
+    El patrón captura «Ley Federal del Trabajo procede la rescisión» porque
+    tras el nombre viene un verbo, y la lista de verbos siempre se queda corta
+    —«procede» no estaba en ella—. Aquí se corta por estructura y no por
+    vocabulario: los nombres de ley llevan sus palabras plenas en mayúscula
+    inicial, así que la primera palabra en minúscula que no sea un conector
+    marca el final. «Código de Procedimientos Civiles para el Estado de Sonora»
+    sobrevive entero; «...del Trabajo procede...» se corta en «procede».
+    """
+    palabras = nombre.split()
+    salida = []
+    for w in palabras:
+        limpia = w.strip(".,;:()«»\"'")
+        if not limpia:
+            continue
+        # Minúscula y no conector → aquí empezó la oración.
+        if limpia[0].islower() and limpia.lower() not in _CONECTORES_LEY:
+            break
+        salida.append(w)
+    # Un nombre no puede acabar en conector: «Ley Federal del» no es una ley.
+    while salida and salida[-1].strip(".,;:()").lower() in _CONECTORES_LEY:
+        salida.pop()
+    return " ".join(salida).strip(" ,.;:()")
+
+
 def _clave_ley(nombre: str) -> str:
     """El nombre de una ley reducido a lo que la distingue de otra."""
     import unicodedata as _ud
@@ -9455,7 +9491,9 @@ async def acervo_articulos(payload: dict):
     # (ley tal como se escribió → números citados), sin repetir.
     por_ley: dict = {}
     for nums_raw, ley_raw in citas_crudas:
-        ley = re.sub(r"\s+", " ", ley_raw).strip(" ,.;:()")
+        ley = _recortar_ley(re.sub(r"\s+", " ", ley_raw).strip(" ,.;:()"))
+        if not ley:
+            continue
         for n in re.findall(r"\d+", nums_raw):
             por_ley.setdefault(ley, set()).add(n)
 
@@ -9477,6 +9515,7 @@ async def acervo_articulos(payload: dict):
     hallados: dict = {}      # (ley_citada, num) → {texto, coleccion, ley_real}
     vecinos: dict = {}       # num → leyes donde SÍ existe ese número
     consultado = False
+    fallo = None
     try:
         todos_nums = sorted({n for nums in por_ley.values() for n in nums})
         for coleccion in colecciones:
@@ -9511,6 +9550,7 @@ async def acervo_articulos(payload: dict):
                                            "ley_real": ley_real}
         consultado = True
     except Exception as e:
+        fallo = type(e).__name__
         print(f"   ⚠️ /acervo/articulos error (fail-closed): {err(e)}")
 
     salida = []
@@ -9521,7 +9561,10 @@ async def acervo_articulos(payload: dict):
             salida.append({
                 "ley": ley,
                 "articulo": num,
-                "existe": bool(f) if consultado else False,
+                # null, NO false. Sin consulta no hay veredicto, y un `false`
+                # aquí se lee como «el modelo se lo inventó» cuando lo único
+                # que pasó es que no se pudo mirar.
+                "existe": (bool(f) if consultado else None),
                 "texto_real": (f or {}).get("texto"),
                 "coleccion": (f or {}).get("coleccion"),
                 # Si no está en la ley citada, se dice DÓNDE sí está. Es la
@@ -9530,7 +9573,7 @@ async def acervo_articulos(payload: dict):
                 "existe_en_otras": otras,
             })
 
-    return {"ok": True, "consultado": consultado,
+    return {"ok": True, "consultado": consultado, "fallo": fallo,
             "buscado_en": colecciones, "citas": salida}
 
 
