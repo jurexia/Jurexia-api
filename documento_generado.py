@@ -2043,6 +2043,36 @@ def _rotulo_secretario(nombre: str) -> str:
 #
 # LA FECHA VA EN HUECO porque es la de la sesión, y ésa no existe cuando se
 # redacta el proyecto: la fijan los magistrados al revisarlo.
+# Corto, en versales y con dos puntos al final: eso es un rótulo de bloque.
+_ES_ROTULO_BLOQUE = re.compile(r"^[A-ZÁÉÍÓÚÑ0-9 .,()/-]{4,60}:\s*$")
+
+
+def _cita_con_rubro(doc, texto: str):
+    """La cita, con el RUBRO en negrita, como lo marca David.
+
+    El rubro va entre comillas y en versales; es lo que se busca al hojear y lo
+    único que el lector necesita para reconocer el criterio sin leer la frase
+    que lo introduce.
+    """
+    m = re.search(r"[«“\"]([^»”\"]{20,})[»”\"]", texto)
+    p = doc.add_paragraph()
+    if not m:
+        r = p.add_run(texto)
+        r.font.name = FUENTE
+        r.font.size = TAMANO_CITA
+        return _fmt(p, sangria=True, tamano=TAMANO_CITA)
+    for trozo, negrita in ((texto[:m.start(1)], False),
+                           (m.group(1), True),
+                           (texto[m.end(1):], False)):
+        if not trozo:
+            continue
+        r = p.add_run(trozo)
+        r.bold = negrita
+        r.font.name = FUENTE
+        r.font.size = TAMANO_CITA
+    return _fmt(p, sangria=True, tamano=TAMANO_CITA)
+
+
 def _apertura_compuesta(datos: dict) -> str:
     ciudad = " ".join(str(datos.get("ciudad") or "").split()).rstrip(" .,")
     trib = " ".join(str(datos.get("tribunal") or "").split()).rstrip(" .,")
@@ -2144,12 +2174,30 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
         if not valor:
             continue
         p = doc.add_paragraph()
+        # LA NEGRITA ES DE LA ETIQUETA, NO DEL VALOR. Medido run por run en el
+        # suyo: «QUEJOSA Y RECURRENTE:» en negrita y el nombre de la sociedad
+        # en redonda. Poniéndolo todo en negrita —como hacía— la ficha entera
+        # pesa lo mismo y deja de leerse de un golpe: lo que guía el ojo es el
+        # contraste entre el rótulo y el dato, no el grosor de la línea.
+        #
+        # En la primera línea la etiqueta es la CLASE DEL ASUNTO y el valor, el
+        # número, así que se parte por los dos puntos: «AMPARO EN REVISIÓN
+        # ADMINISTRATIVO:» pesa y «410/2026» no.
         _txt = str(valor).upper().rstrip(" .")
         if etiqueta:
             r1 = p.add_run(f"{etiqueta}: ")
             r1.bold = True
-        r2 = p.add_run(_txt + ".")
-        r2.bold = True
+            r2 = p.add_run(_txt + ".")
+            r2.bold = False
+        elif ":" in _txt:
+            _cab, _resto = _txt.split(":", 1)
+            r1 = p.add_run(_cab + ": ")
+            r1.bold = True
+            r2 = p.add_run(_resto.strip() + ".")
+            r2.bold = False
+        else:
+            r2 = p.add_run(_txt + ".")
+            r2.bold = True
         _fmt(p, sangria=False, interlineado=INTERLINEADO,
              alineacion=WD_ALIGN_PARAGRAPH.JUSTIFY)
         p.paragraph_format.left_indent = SANGRIA_CARATULA
@@ -2356,7 +2404,20 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # El tamaño se hereda del estilo Normal, igual que en el resto del
             # documento y que en el suyo: sólo se estampa lo que se aparta.
         for x in _trozos[1:]:
-            parrafo(doc, x)
+            # EL RÓTULO DE UN SUB-BLOQUE VA EN NEGRITA. En el suyo,
+            # «AUTORIDAD RESPONSABLE:» y «ACTOS RECLAMADOS:» pesan y su
+            # contenido no: es lo que permite encontrarlos sin leer, que era
+            # justo la razón de partirlos en bloques.
+            #
+            # SE RECONOCE POR LA FORMA, no por una lista de rótulos: una línea
+            # corta, en versales y terminada en dos puntos es un rótulo en
+            # cualquier tipo de asunto y en cualquier circuito. Una lista de
+            # nombres habría que ampliarla cada vez que un secretario rotule
+            # algo distinto.
+            if _ES_ROTULO_BLOQUE.match(x):
+                parrafo(doc, x, negrita=True)
+            else:
+                parrafo(doc, x)
         for x in (resto or []):
             x = sin_andamio(x)
             if x.strip():
@@ -2783,7 +2844,18 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         parrafo(doc, "No obstante, en el caso de que el estudio demande la "
                      "transcripción de algún apartado de " + esq["recurrido"] +
                      f" o de los {q}, así se reflejará.")
-        parrafo(doc, APOYO_DISPENSA, tamano=TAMANO_CITA)
+        # LA TESIS, UNA SOLA VEZ. El modelo ya la cita —«Al respecto, es
+        # aplicable la jurisprudencia 2a./J. 58/2010…»— y yo añadía la mía
+        # detrás, así que el mismo criterio salía dos veces seguidas con dos
+        # redacciones distintas. Añadí un párrafo fijo sin mirar si el de
+        # arriba ya decía lo mismo.
+        #
+        # Manda la del compositor, que es la medida y la que lleva su registro,
+        # pero sólo si el texto de encima no la trae ya.
+        _ya_citada = "58/2010" in " ".join(
+            x.text for x in doc.paragraphs[-4:])
+        if not _ya_citada:
+            _cita_con_rubro(doc, APOYO_DISPENSA)
 
     con_apartados.append((esq["dispensa"].format(q=q), _dispensa))
 
