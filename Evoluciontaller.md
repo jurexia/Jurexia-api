@@ -146,7 +146,39 @@ Anotar aquí el resultado.
 
 ---
 
-## 5. Lo pendiente, tras la reestructura
+## 5. Primera prueba con un asunto real — revisión 410/2026 · 6-sep
+
+Corrida completa contra producción con los dos PDF: adelanto → consultar (41
+tesis, 37 normas, 3 problemas) → proponer (95 s, `gpt-5.6-luna`).
+
+**Funcionó:**
+
+- El **contexto** salió con sus cuatro párrafos, específicos y legibles.
+- La **vía contraria** salió con sentido DISTINTO —`fundado` frente a
+  `infundado`— y argumentada de verdad (representación fraudulenta, revocar el
+  sobreseimiento), no como negación de la propuesta.
+- Las tres **propuestas por problema** se emparejaron correctamente.
+
+**Falló la lista de comprobación, y era mío.** Devolvió **6 temas para 3
+problemas** y marcó tres como «SIN DETERMINAR» que el modelo sí había resuelto.
+
+Causa: las fases escriben el problema como **pregunta** («¿La quejosa podía
+reclamar la falta de emplazamiento pese a haber promovido el juicio de
+nulidad?») y el modelo escribe el mismo tema como **título** («Falta de
+emplazamiento pese a la promoción del juicio de nulidad»). Yo comparaba los
+primeros 60 caracteres: no coincidió ninguno.
+
+Arreglado comparando **contenido**: palabras con carga, recortadas a cinco
+letras, con umbral del 55%. Calibrado en los dos sentidos contra el texto real.
+
+**Y un hueco que salió al mirar el resultado:** `revisar()` comprobaba los
+registros de las propuestas por problema y dejaba fuera **la global y su
+alternativa** — que es donde más caro sale, porque la global se acepta de un
+botón. `revisar_global()` los comprueba desde ahora.
+
+---
+
+## 6. Lo pendiente
 
 Lo mismo que en el punto 4, ampliado: **hay que correr un asunto real**. La
 lógica está probada con datos que fabriqué yo. Lo que no está probado es que
@@ -165,3 +197,5 @@ funcionando**.
 Si en la prueba real falta algo, el arreglo NO es reescribir la instrucción:
 es partir la llamada en dos o subir ese bloque antes de las reglas. Anotarlo
 aquí.
+| 12 | 6-sep-2026 | `_mismo_tema()`: los temas se comparan por contenido, no por prefijo | **Comprobado con el texto real del 410/2026** en los dos sentidos: 3 temas sin duplicar, caza el omitido, no funde los parecidos |
+| 13 | 6-sep-2026 | `revisar_global()`: los apoyos de la propuesta global y de la alternativa se comprueban contra el acervo | **Comprobado** — 0 avisos con los apoyos reales, 2 con registros inventados |
