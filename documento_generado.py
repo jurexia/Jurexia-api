@@ -3150,7 +3150,20 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     def _estudio(p):
         calif = _calificacion_plural(cs)
-        _texto_en(p, f"Los {q} son {calif}." if calif else "")
+        # «LOS AGRAVIOS SON SIN MATERIA» NO ES ESPAÑOL. Con las cinco
+        # calificaciones que se conjugan con «ser» la fórmula vale; «sin
+        # materia» no se es, se QUEDA. Un secretario escribe «los agravios
+        # quedaron sin materia», y el encabezado del estudio es de las frases
+        # que se leen antes que ninguna otra.
+        if calif and calif.startswith("sin materia"):
+            _texto_en(p, f"Los {q} quedaron sin materia.")
+        elif calif and "sin materia" in calif:
+            # Mezcla: «en parte inoperantes y en parte sin materia» → se
+            # reordena para que el verbo case con las dos.
+            _texto_en(p, f"Los {q} son, en parte, "
+                         f"{calif.replace('en parte ', '').replace(' y en parte ', ' y, en parte, quedaron ')}.")
+        else:
+            _texto_en(p, f"Los {q} son {calif}." if calif else "")
         if resumen_acto:
             _subtitulo(doc, esq["sub_recurrido"])
             for x in resumen_acto:

@@ -1207,6 +1207,30 @@ RAMAS_REVISION = {
             "resolución."],
     },
     # ── El recurso se desecha ────────────────────────────────────────────
+    # ── EL RECURSO SE QUEDÓ SIN OBJETO ───────────────────────────────────
+    #
+    # Medido en el circuito: 644 expedientes se resuelven así —434 quejas y 267
+    # revisiones—, y no estaba en este mapa. El caso arquetípico de la queja es
+    # el de la suspensión: se recurre la negativa de la PROVISIONAL y, antes de
+    # resolver la queja, se dicta la DEFINITIVA; la provisional sólo rige hasta
+    # entonces, así que el recurso se queda sin objeto.
+    #
+    # En revisión: se recurre la interlocutoria que negó la suspensión
+    # definitiva y la sentencia del amparo causa ejecutoria antes de resolver.
+    #
+    # NO ES DESECHAR NI CONFIRMAR. Desechar es rechazar por improcedente desde
+    # el origen; aquí el recurso era procedente y algo posterior le quitó la
+    # materia. Y confirmar exigiría estudiar unos agravios que ya no tienen
+    # objeto.
+    "sin_materia": {
+        "fundamento": "artículo 93 de la Ley de Amparo; cesación de la materia "
+                      "del recurso por hecho superveniente",
+        "puntos": [
+            "ÚNICO. Se declara sin materia el recurso de revisión interpuesto "
+            "por {quejoso}, por las razones expuestas en el último "
+            "considerando de esta resolución."],
+        "frecuencia": "267/5,092 revisiones del circuito · 434/2,955 quejas",
+    },
     "desecha": {
         "fundamento": "artículo 86 de la Ley de Amparo",
         "puntos": [
@@ -1255,13 +1279,29 @@ CALIFICACIONES = {
     "inoperante":              ("inoperantes",          False, 16927),
     "ineficaz":                ("ineficaces",           False,  5965),
     "esencialmente_fundado":   ("esencialmente fundados", True,  2899),
+    # NO PROSPERA NI SE DESESTIMA: se queda sin objeto. Un agravio sin materia
+    # no se contesta en el fondo porque ya no hay nada que contestar —lo que
+    # atacaba dejó de existir—. Medido: 259 agravios, y 186 de ellos en asuntos
+    # cuyo SENTIDO entero es «sin materia».
+    "sin_materia":             ("sin materia",            False,   259),
 }
 
 # Lo que el secretario puede elegir hoy en pantalla. Se separa del diccionario
 # porque añadir una calificación al catálogo y ofrecerla en la interfaz son dos
 # decisiones distintas: la primera es reconocerla, la segunda es pedirla.
 SENTIDOS_OFRECIDOS = ("fundado", "esencialmente_fundado", "infundado",
-                      "inoperante", "ineficaz")
+                      "inoperante", "ineficaz", "sin_materia")
+
+# Cómo se llama cada una en pantalla. Va aquí para que la interfaz no tenga que
+# saber castellano jurídico ni adivinar el plural.
+ETIQUETA_SENTIDO = {
+    "fundado": "Fundado",
+    "esencialmente_fundado": "Esencialmente fundado",
+    "infundado": "Infundado",
+    "inoperante": "Inoperante",
+    "ineficaz": "Ineficaz",
+    "sin_materia": "Sin materia",
+}
 
 
 def prospera(sentido: str) -> bool:
@@ -1381,6 +1421,31 @@ TECNICA_RESOLUCION = {
         ],
     },
 
+    # ── EL RECURSO SE QUEDÓ SIN OBJETO ───────────────────────────────────
+    "recurso_sin_materia": {
+        "cuando": "Un hecho POSTERIOR a la interposición del recurso le quitó "
+                  "su objeto. El caso más frecuente con diferencia: se recurre "
+                  "la negativa de la suspensión PROVISIONAL y, antes de "
+                  "resolver, se dicta la DEFINITIVA.",
+        "fuente": "artículo 93 de la Ley de Amparo; cesación de la materia del "
+                  "recurso",
+        "tecnica": [
+            "SE DECLARA SIN MATERIA, y no se estudian los agravios: no hay nada "
+            "que contestar porque lo que atacaban dejó de existir.",
+            "SE EXPLICA EL HECHO SUPERVENIENTE, con su constancia: qué ocurrió, "
+            "cuándo, y por qué eso deja al recurso sin objeto. Es todo el "
+            "considerando y basta con él.",
+            "NO SE CONFUNDE CON DESECHAR. Desechar es rechazar por improcedente "
+            "desde el origen —extemporáneo, contra resolución irrecurrible—; "
+            "aquí el recurso era procedente y algo posterior le quitó la "
+            "materia. Tampoco se confirma: confirmar exigiría estudiar unos "
+            "agravios que ya no tienen objeto.",
+            "EL PROVISIONAL VIVE HASTA EL DEFINITIVO. Ésa es la razón en el "
+            "caso de la suspensión, y conviene decirla: la provisional surte "
+            "efectos únicamente hasta que se resuelve sobre la definitiva.",
+        ],
+    },
+
     # ── AMPARO DIRECTO: el orden del estudio ──────────────────────────────
     "directo_orden_de_estudio": {
         "cuando": "Amparo directo en que se plantean violaciones procesales "
@@ -1418,8 +1483,13 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
         # el catálogo. Se le dan las dos con su deslinde para que elija.
         fuera.append(TECNICA_RESOLUCION["revision_no_es_materia"])
         fuera.append(TECNICA_RESOLUCION["revision_firmeza"])
+        if rama == "sin_materia":
+            fuera = [TECNICA_RESOLUCION["recurso_sin_materia"]]
         if rama.startswith("revoca_sobreseimiento"):
             fuera.append(TECNICA_RESOLUCION["revision_levanta_sobreseimiento"])
+    # La queja tiene el mismo problema y con mas frecuencia: 434 de 2,955.
+    if t == "queja" and rama == "sin_materia":
+        fuera.append(TECNICA_RESOLUCION["recurso_sin_materia"])
     if t == "amparo_directo" and con_violacion_procesal:
         fuera.append(TECNICA_RESOLUCION["directo_orden_de_estudio"])
     return fuera
@@ -1459,6 +1529,12 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
     # REPONER Y MODIFICAR SON DECISIONES QUE SÓLO CABEN SI EL RECURSO PROSPERA:
     # si el agravio es infundado no hay nada que reponer ni que modificar. Y
     # modificar los efectos presupone que el amparo se concedió.
+    # SIN MATERIA SE MIRA LO PRIMERO, y no depende del sentido ni de lo que
+    # hizo el juzgado: si el recurso perdió su objeto, no hay nada que
+    # confirmar ni que revocar. Lo declara el secretario —es un hecho del
+    # expediente, no una conclusión del estudio— y por eso llega como sentido.
+    if s in ("sin_materia", "sin materia"):
+        return "sin_materia"
     if violacion_procesal and _prospera:
         return "repone_procedimiento"
     if solo_efectos and _prospera and a == "concede":
