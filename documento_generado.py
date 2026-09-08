@@ -1874,53 +1874,20 @@ def _sin_remate_duplicado(texto: str) -> str:
     return texto
 
 
-# «El artículo 14 de la Constitución Política de los Estados Unidos Mexicanos.»
-# —y punto—. Eso queda cuando se le quita al párrafo el trozo entrecomillado
-# del precepto: la frase se queda sin verbo.
-_RX_HUERFANO = re.compile(
-    # El preámbulo opcional («A su vez, ») NO puede empezar por «el artículo»:
-    # sin esta guarda, «El artículo 63, fracción IV, de la Ley…» se partía por
-    # la coma de la fracción y el molde dejaba de casar.
-    r"((?:^|(?<=[.]))\s*)((?:(?![Ee]l\s+art)[A-ZÁÉÍÓÚ][^.]{0,40}?,\s+)?)([Ee]l\s+art[íi]culo\s+\d+"
-    r"[^.]{0,90}?)\.\s+(De\s+(?:ese|dicho|tal)\s+(?:precepto|numeral|dispositivo)|"
-    r"De\s+(?:esa|dicha)\s+(?:disposici[óo]n|norma|fracci[óo]n))\s+"
-    r"(deriva|se\s+advierte|se\s+desprende|se\s+sigue|resulta)\s+que\s+",
-    re.I)
-
-
-def _remendar_articulo_huerfano(texto: str) -> str:
-    """Devuelve el verbo a la frase que quedó colgando del artículo.
-
-    LO ROMPÍ YO. Mientras el precepto se transcribía en un bloque debajo,
-    quitarle al párrafo el trozo entrecomillado que el modelo había copiado era
-    correcto: se leía dos veces lo mismo. Al bajar el precepto a la NOTA AL
-    PIE, ese mismo recorte dejó la frase descabezada:
-
-        «El artículo 76 de la Ley de Amparo. Por ello, se analizarán…»
-
-    EL PRIMER REMIENDO FUE PEOR. Le puse «dispone lo siguiente» y quedó «El
-    artículo 76 de la Ley de Amparo DISPONE LO SIGUIENTE. De ese precepto
-    deriva que…»: una promesa de transcripción que no llega nunca. Medido en
-    tres párrafos del v10.
-
-    Ahora se hace como lo escribió David a mano: se FUNDEN las dos frases.
-    «El artículo 63, fracción IV, de la Ley de Amparo. De esa disposición
-    deriva que X» → «Del artículo 63, fracción IV, de la Ley de Amparo deriva
-    que X».
-
-    Y si la frase siguiente no encaja en ese molde, NO SE TOCA. Un huérfano se
-    ve y se corrige a mano; una frase inventada por mí se firma sin verla.
-    """
-    def _fundir(m):
-        cabeza, previo, art, _puente, verbo = m.groups()
-        # «el artículo 76 …» → «Del artículo 76 …», conservando lo que iba
-        # delante («A su vez, ») y la mayúscula si abría el párrafo.
-        cuerpo = art[0].lower() + art[1:]          # «El artículo» → «el artículo»
-        cuerpo = re.sub(r"^el\s+", "", cuerpo)
-        arranque = f"Del {cuerpo}" if not previo else f"{previo}del {cuerpo}"
-        v = verbo.lower().replace("  ", " ")
-        return f"{cabeza}{arranque} {v} que "
-    return _RX_HUERFANO.sub(_fundir, texto or "")
+# EL REMIENDO DEL ARTÍCULO HUÉRFANO SE RETIRÓ, y conviene decir por qué.
+#
+# El huérfano —«El artículo 14 de la Constitución Política … .» sin verbo— lo
+# producía `_sin_extracto_repetido` al podar el introductor. Ahí se arregló:
+# el verbo se conserva y la nota al pie hace de complemento.
+#
+# El parche que había aquí actuaba DESPUÉS y hacía daño: en el v9 convirtió
+# «el artículo 76 … dispone que el órgano jurisdiccional…» en «…dispone que el
+# órgano jurisdiccional DISPONE LO SIGUIENTE», y su segunda versión habría
+# fundido frases que ya estaban bien, borrando la introducción de la nota.
+#
+# Un remiendo que puede estropear texto correcto es peor que el defecto que
+# arregla: el defecto se ve y se corrige a mano; el destrozo se firma. Van dos
+# veces en este mismo punto.
 
 
 def _sin_extracto_repetido(texto: str, preceptos: list) -> str:
@@ -1945,17 +1912,27 @@ def _sin_extracto_repetido(texto: str, preceptos: list) -> str:
             fuera = fuera.replace(m.group(0), "")
     if fuera == texto:
         return texto
-    # LA FRASE QUE INTRODUCÍA EL EXTRACTO SE QUEDA COJA. Al borrar el
-    # entrecomillado, «…, que dispone: «…».» se convierte en «…, que dispone.»,
-    # que es peor que la repetición: no dice nada y se nota. Se poda el
-    # introductor entero, esté al final o en medio del párrafo, y la frase se
-    # cierra donde acababa el sujeto.
+    # EL VERBO SE QUEDA. AHORA HAY NOTA AL PIE.
+    #
+    # Esto podaba el introductor entero —«…, que dispone: «texto».» quedaba en
+    # «El artículo 14 de la Constitución Política de los Estados Unidos
+    # Mexicanos.»— y tenía razón mientras debajo venía el bloque transcrito: la
+    # frase hacía de rótulo del bloque y se leía bien.
+    #
+    # Al bajar el precepto a la NOTA AL PIE eso dejó de valer, y es la causa de
+    # los «artículos huérfanos» que David ha señalado TRES veces. Con la nota,
+    # el verbo no sobra: es lo que la anuncia. «El artículo 14 … dispone lo
+    # siguiente.¹» se lee exactamente como se cita en una sentencia.
+    #
+    # Así que el introductor no se poda: se NORMALIZA. Lo que fuera —«, que
+    # dispone:», «el cual establece:», «que señala lo siguiente:»— se convierte
+    # en un verbo con su punto, y la nota al pie hace de complemento.
     fuera = re.sub(
         r"[,;]?\s*(?:en\s+la\s+parte\s+conducente[,\s]*)?"
         r"(?:el\s+cual|la\s+cual|que|y\s+que|donde)?\s*"
-        r"(?:dispone|establece|se[ñn]ala|prev[ée]|dice|reza|indica|prescribe)"
+        r"(?P<v>dispone|establece|se[ñn]ala|prev[ée]|dice|reza|indica|prescribe)"
         r"(?:\s+lo\s+siguiente)?\s*:?\s*(?=[.;]|$)",
-        "", fuera, flags=re.I)
+        lambda m: f" {m.group('v').lower()} lo siguiente", fuera, flags=re.I)
     fuera = re.sub(r"\s*[,:;]\s*(?=[.;])", "", fuera)
     fuera = re.sub(r"\s{2,}", " ", fuera).strip()
     fuera = re.sub(r"\s+\.", ".", fuera)
@@ -2094,7 +2071,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         # angulares— y otra en el cuerpo, escrita por el modelo. Es el defecto
         # que el detector de duplicación marcaba y la regla del prompt no
         # bastaba para evitar, porque no es del modelo solo: es de los dos.
-        t = _remendar_articulo_huerfano(_sin_extracto_repetido(t, _del_parrafo))
+        t = _sin_extracto_repetido(t, _del_parrafo)
         if len(t.split()) < 6 and not _es_pregunta(t):
             continue
         p_ = parrafo_con_citas(doc, t, notas)

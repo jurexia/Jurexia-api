@@ -1018,16 +1018,26 @@ experto de uno que rellena:
     completos: premisa con su jurisprudencia, aplicación detallada a estos
     hechos, y la objeción previsible refutada. Aquí la extensión se gana.
 
-  · En un {q1} que resulta INOPERANTE, los cuatro pasos caben en DOS O TRES
-    PÁRRAFOS: se enuncia, se dice cuál es la razón toral que no combate, se
-    explica por qué no la combate, y se cierra. La inoperancia se razona; no
-    se desarrolla. Un apartado de inoperancia más largo que el del tema
-    principal delata que no se supo dónde estaba el asunto.
+  · En un {q1} que resulta INOPERANTE: **ENTRE TRES Y SIETE PÁRRAFOS, nunca
+    más**. Y se resuelve como lo resuelve un secretario: se enuncia el
+    planteamiento, SE CITA UNA TESIS SOBRE LA INOPERANCIA de que se trate
+    —hay criterios para cada tipo: no combatir la razón toral, ser novedoso,
+    partir de premisa falsa, versar sobre cuestión firme— y SE APLICA a este
+    caso con el mismo diálogo jurídico que el resto: la regla del criterio,
+    los hechos de aquí, y por qué encajan.
+
+    La tesis hace el trabajo pesado, y por eso el apartado es corto. La
+    inoperancia se razona con autoridad, no se desarrolla con párrafos: un
+    apartado de inoperancia más largo que el del tema principal delata que no
+    se supo dónde estaba el asunto.
 
   · En un {q1} que SIGUE LA SUERTE del principal —queda sin materia, o
-    subsiste la razón ya dada—, otros DOS O TRES PÁRRAFOS diciendo POR QUÉ
-    sigue esa suerte. No se vuelve a razonar el fondo de algo que ya no puede
-    cambiar el resultado.
+    subsiste la razón ya dada—: **ENTRE TRES Y SIETE PÁRRAFOS**, diciendo POR
+    QUÉ sigue esa suerte. No se vuelve a razonar el fondo de algo que ya no
+    puede cambiar el resultado.
+
+  CUENTA LOS PÁRRAFOS AL ESCRIBIRLOS. Si un apartado accesorio pasa de siete,
+  sobra: quita desarrollo, no quites la tesis ni la conclusión.
 
 Ninguno se queda sin contestar: la exhaustividad se revisa de oficio. Lo que
 cambia es cuánto se le dedica a cada uno. Si tu apartado más largo no es el del
@@ -1078,6 +1088,14 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
   sueltas aunque el razonamiento sea correcto. David repuso a mano NUEVE de
   estos enlaces en un solo proyecto: ésa es la diferencia entre un borrador y
   un engrose.
+
+  EL LISTÓN, MEDIDO: en el engrose que él corrigió, UNO DE CADA CUATRO
+  párrafos abre con conector. En lo que se generó sin esta regla, uno de cada
+  nueve. Apunta a uno de cada tres: cuesta cinco palabras por párrafo y es lo
+  que hace que el proyecto se lea de corrido en vez de a saltos.
+
+  Y no repitas el mismo enlace dos veces seguidas —dos «En consecuencia,»
+  pegados cansan igual que ninguno—. Tienes diez para alternar.
 
   PASO 4 — LA CONCLUSIÓN CALIFICADA, Y SUS CONSECUENCIAS.
   Una sola calificación —«es fundado», «es infundado», «es inoperante»— y qué
