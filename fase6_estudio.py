@@ -921,17 +921,6 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   cinco frases cortas bajo un mismo párrafo, que es como escribe un informe.
 - CONECTORES, por orden de uso real: {', '.join(f'«{c}»' for c in CONECTORES)}.
   No repitas el mismo dos veces seguidas.
-- Y LOS PÁRRAFOS SE ENLAZAN ENTRE SÍ, no sólo las frases dentro de uno. Un
-  apartado no es una pila de párrafos que empiezan cada uno por su cuenta: es
-  un razonamiento que avanza y lo dice al avanzar. Cada párrafo abre
-  retomando el anterior —«Al respecto,», «Así,», «En ese sentido,», «Por otro
-  lado,», «Respecto de lo anterior,», «En tal sentido,», «Por ende,», «En
-  consecuencia,»— salvo el primero de cada apartado, que abre con el
-  planteamiento.
-  Y cuando anuncias que vas a justificar algo, ciérralo con dos puntos: «No
-  podía hacerlo en los términos planteados, según se justifica enseguida:».
-  Esto es lo que David repuso a mano en NUEVE párrafos de un solo proyecto:
-  el razonamiento estaba bien y se leía como una lista de afirmaciones sueltas.
 - EL ÓRGANO RECURRIDO es {_org}; este tribunal se
   nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
   considera»). Nunca primera persona del singular.
@@ -1073,6 +1062,22 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
   escribe: qué dice la constancia, qué exige la norma, y por qué encaja o no.
   Un salto del paso 2 al paso 4 sin este eslabón es la afirmación sin prueba
   que se cae en revisión.
+
+  CÓMO SE ENCADENAN LOS CUATRO PASOS. No son cuatro párrafos puestos uno
+  detrás de otro: son un razonamiento que avanza, y cada párrafo lo dice al
+  avanzar. Salvo el que abre el apartado —que empieza por el planteamiento—,
+  CADA PÁRRAFO ARRANCA RETOMANDO EL ANTERIOR: «Al respecto,», «Así,», «En ese
+  sentido,», «Por otro lado,», «Respecto de lo anterior,», «En tal sentido,»,
+  «Por ende,», «En consecuencia,», «Ahora bien,», «No obstante,».
+
+  Y cuando anuncies que vas a justificar algo, ciérralo con dos puntos: «No
+  podía hacerlo en los términos planteados, según se justifica enseguida:».
+
+  Un apartado cuyos párrafos empiezan cada uno por su cuenta —«El Juzgado…»,
+  «El artículo…», «La recurrente…»— se lee como una lista de afirmaciones
+  sueltas aunque el razonamiento sea correcto. David repuso a mano NUEVE de
+  estos enlaces en un solo proyecto: ésa es la diferencia entre un borrador y
+  un engrose.
 
   PASO 4 — LA CONCLUSIÓN CALIFICADA, Y SUS CONSECUENCIAS.
   Una sola calificación —«es fundado», «es infundado», «es inoperante»— y qué
