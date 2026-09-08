@@ -21381,6 +21381,135 @@ Redacta ahora. Texto directo para la sentencia, sin metadiscurso."""
 # siendo un secretario, así que el conteo va sobre email DISTINTO. Contar filas
 # cerraría el piloto en una tarde con un solo usuario entusiasta.
 TALLER_PILOTO_CUPO = int(os.getenv("TALLER_PILOTO_CUPO", "10"))
+# ── EL TORNIQUETE DEL TALLER ─────────────────────────────────────────────
+#
+# Hasta hoy el taller no cobraba nada. La puerta (`_taller_puerta`) sí existía
+# y sí comprobaba el plan, pero comprobar el plan no es medir el uso: un
+# Platinum podía generar sentencias sin límite y sin que se le descontara una
+# sola consulta. Medido el 7-sep-2026: 854 usos registrados, 183 proyectos
+# generados, y `sentencia_queries_used` en CERO para las 33 cuentas Platinum.
+#
+# Cada proyecto cuesta entre 280 y 380 segundos de pipeline. Era la función
+# más cara del producto y la única gratis.
+#
+#   · 5 sentencias al día por persona
+#   · 10 consultas por sentencia, del mismo saldo que el chat
+#   · sin límite para las dos cuentas de la casa
+#
+# SE COBRA POR «proyecto», que es la etapa donde nace la sentencia — no por
+# adelanto, acervo ni propuesta. Esas tres son la preparación, y cobrarlas
+# penalizaría al secretario que se lo piensa dos veces antes de resolver, que
+# es justo lo que el taller quiere que haga.
+TALLER_SENTENCIAS_DIA = int(os.getenv("TALLER_SENTENCIAS_DIA", "5"))
+TALLER_COSTO_CONSULTAS = int(os.getenv("TALLER_COSTO_CONSULTAS", "10"))
+
+# Las dos cuentas de la casa. Explícitas y no derivadas de `ADMIN_EMAILS`
+# porque ese nombre está ligado DOS VECES en este archivo —línea ~16243 desde
+# la variable de entorno y otra vez más abajo como conjunto fijo— y la segunda
+# pisa a la primera. Colgar el cobro de un nombre ambiguo es pedir que un día
+# deje de cobrar sin que nadie lo note.
+TALLER_SIN_LIMITE = {
+    e.strip().lower()
+    for e in os.getenv("TALLER_SIN_LIMITE",
+                       "jdm.juridico@gmail.com,administracion@iurexia.com").split(",")
+    if e.strip()
+}
+
+
+def _taller_sentencias_hoy(correo: str) -> int:
+    """Cuántas sentencias lleva hoy esta persona, en hora de Ciudad de México.
+
+    México suprimió el horario de verano en 2022, así que el país es UTC−6 todo
+    el año. El día del contador tiene que ser el del secretario y no el del
+    servidor: con UTC, a partir de las 18:00 hora local ya sería «mañana» y el
+    tope de cinco se volvería de diez.
+    """
+    if not supabase_admin:
+        return 0
+    try:
+        from datetime import datetime, timedelta, timezone as _tz
+        cdmx = _tz(timedelta(hours=-6))
+        inicio = datetime.now(cdmx).replace(hour=0, minute=0, second=0, microsecond=0)
+        r = supabase_admin.table("taller_piloto_uso").select("id")             .eq("email", (correo or "").strip().lower())             .eq("etapa", "proyecto")             .gte("creado_en", inicio.astimezone(_tz.utc).isoformat())             .execute()
+        return len(r.data or [])
+    except Exception as e:
+        # FAIL-OPEN, y es deliberado: si no se puede contar, se deja pasar. El
+        # daño de cobrar de menos una vez es un proyecto; el de bloquear a un
+        # secretario con una sentencia a medias por un fallo de red es perderlo.
+        print(f"   ⚠️ No pude contar las sentencias de hoy (se deja pasar): {err(e)}")
+        return 0
+
+
+def _taller_saldo(correo: str) -> tuple:
+    """(consultas_usadas, consultas_limite, id) del perfil. (0, 0, None) si no hay."""
+    if not supabase_admin:
+        return (0, 0, None)
+    try:
+        r = supabase_admin.table("user_profiles")             .select("id, queries_used, queries_limit")             .eq("email", (correo or "").strip().lower()).limit(1).execute()
+        if r.data:
+            f = r.data[0]
+            return (int(f.get("queries_used") or 0),
+                    int(f.get("queries_limit") or 0),
+                    f.get("id"))
+    except Exception as e:
+        print(f"   ⚠️ No pude leer el saldo del taller: {err(e)}")
+    return (0, 0, None)
+
+
+def _taller_saldo_sentencias(correo: str) -> int:
+    """Cuántas sentencias lleva contadas el perfil. 0 si no se puede leer."""
+    if not supabase_admin:
+        return 0
+    try:
+        r = supabase_admin.table("user_profiles").select("sentencia_queries_used") \
+            .eq("email", (correo or "").strip().lower()).limit(1).execute()
+        if r.data:
+            return int(r.data[0].get("sentencia_queries_used") or 0)
+    except Exception:
+        pass
+    return 0
+
+
+def _taller_cobrar(correo: str, expediente: str = "") -> None:
+    """
+    Descuenta una sentencia del saldo de consultas.
+
+    Se llama DESPUÉS de que el proyecto existe, nunca antes. Un pipeline que
+    revienta a los cinco minutos no debe dejar al secretario diez consultas más
+    pobre — la queja «me marcó error y me cobró la consulta» aparece nueve veces
+    en la cola de reportes, de seis personas distintas y desde mayo. No se
+    reproduce aquí.
+    """
+    c = (correo or "").strip().lower()
+    if c in TALLER_SIN_LIMITE or not supabase_admin:
+        return
+    usadas, limite, uid = _taller_saldo(c)
+    if not uid:
+        return
+    try:
+        for _ in range(TALLER_COSTO_CONSULTAS):
+            supabase_admin.rpc("consume_query", {"p_user_id": uid}).execute()
+        # El contador propio del taller, que llevaba en CERO desde siempre en
+        # las 33 cuentas Platinum. Va aparte del saldo de consultas: uno mide
+        # el gasto, el otro cuántas sentencias se han hecho.
+        #
+        # NO se usa el RPC `consume_sentencia_query`, aunque exista y parezca
+        # el sitio. Ese RPC se niega cuando `sentencia_queries_used >= limit`, y
+        # las 33 cuentas Platinum tienen el límite en 0: no incrementaría nunca.
+        # Subir ese límite arreglaría el contador y de paso abriría LA OTRA
+        # PUERTA —`/redactor-sentencia/chat`, en Vercel, que gobierna por esa
+        # columna y no tiene tope diario—. Un torniquete no debe abrir un
+        # portón en la pared de al lado, así que aquí sólo se lleva la cuenta.
+        supabase_admin.table("user_profiles").update({
+            "sentencia_queries_used": (
+                _taller_saldo_sentencias(c) + 1)}).eq("id", uid).execute()
+        print(f"   💰 Taller: {TALLER_COSTO_CONSULTAS} consultas a "
+              f"{correo_opaco(c)} por «{expediente or 'proyecto'}»")
+    except Exception as e:
+        print(f"   ⚠️ No pude cobrar el proyecto del taller: {err(e)}")
+
+
+
 TALLER_PILOTO_ACTIVO = os.getenv("TALLER_PILOTO_ACTIVO", "1") != "0"
 
 # El conteo se cachea: es una consulta por petición sobre un número que cambia
@@ -21458,14 +21587,25 @@ def _cabecera_segura(avisos: list) -> str:
     return " ".join(txt.split())[:900]
 
 
-def _taller_puerta(user_email: str) -> None:
-    """Deja pasar o explica por qué no. Lanza HTTPException si no procede."""
+def _taller_puerta(user_email: str, cobrable: bool = False) -> None:
+    """
+    Deja pasar o explica por qué no. Lanza HTTPException si no procede.
+
+    `cobrable=True` sólo en los dos endpoints que generan la sentencia. Ahí,
+    además del plan, se miran las dos cuotas nuevas: cinco al día y diez
+    consultas por sentencia.
+
+    El orden de las comprobaciones no es casual — va de lo más barato a lo más
+    caro, y la de saldo al final porque es la única que requiere leer el perfil.
+    """
     if not _can_access_redactor_tcc(user_email):
         raise HTTPException(403, "El taller de sentencias es una función Platinum.")
     if not TALLER_PILOTO_ACTIVO:
         raise HTTPException(403, "El piloto del taller ha terminado. La función "
                                  "pasa a estar disponible en el plan Ultra.")
     correo = (user_email or "").strip().lower()
+    if cobrable:
+        _taller_cuota(correo)
     if correo in ADMIN_EMAILS:
         return
     n = _taller_secretarios_distintos()
@@ -21485,6 +21625,35 @@ def _taller_puerta(user_email: str) -> None:
             f"El piloto del taller de sentencias se cerró al completar "
             f"{TALLER_PILOTO_CUPO} secretarios. La función estará disponible en "
             f"el plan Ultra.")
+
+
+def _taller_cuota(correo: str) -> None:
+    """Las dos cuotas del taller. Lanza 429 con lo que hay que saber para actuar.
+
+    Se llama ANTES de arrancar el pipeline, que tarda entre 280 y 380 segundos:
+    decirle a alguien que no le quedan consultas después de seis minutos de
+    espera es peor que no dejarle empezar.
+    """
+    c = (correo or "").strip().lower()
+    if c in TALLER_SIN_LIMITE:
+        return
+
+    hechas = _taller_sentencias_hoy(c)
+    if hechas >= TALLER_SENTENCIAS_DIA:
+        raise HTTPException(429,
+            f"Ha generado {hechas} sentencias hoy, que es el máximo diario "
+            f"({TALLER_SENTENCIAS_DIA}). El contador se reinicia a medianoche, "
+            f"hora de Ciudad de México. Sus consultas del chat no se ven "
+            f"afectadas.")
+
+    usadas, limite, uid = _taller_saldo(c)
+    # Sin perfil legible no se bloquea: la puerta ya comprobó el plan, y negar
+    # el paso por un fallo de lectura castiga al secretario por un fallo nuestro.
+    if uid and limite > 0 and (limite - usadas) < TALLER_COSTO_CONSULTAS:
+        raise HTTPException(429,
+            f"Cada sentencia del taller cuesta {TALLER_COSTO_CONSULTAS} consultas "
+            f"y le quedan {max(0, limite - usadas)} de {limite}. Su plan se "
+            f"renueva al inicio del siguiente periodo.")
 
 
 def _can_access_redactor_tcc(user_email: str) -> bool:
@@ -27947,7 +28116,8 @@ async def taller_resolver_stream(
     """
     from fastapi.responses import StreamingResponse
 
-    _taller_puerta(user_email)
+    # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
+    _taller_puerta(user_email, cobrable=True)
     _taller_purgar()
     ses = _taller_recuperar_sesion(user_email, numero)
     if not ses:
@@ -28083,6 +28253,11 @@ async def taller_resolver_stream(
                 elif tipo == "listo":
                     res = paso["resultado"]
                     _taller_registrar_uso(user_email, numero, "proyecto")
+                    # Pegado al registro y no antes: el proyecto ya existe. Un pipeline
+                    # que revienta a los cinco minutos no deja a nadie diez consultas
+                    # más pobre — «me marcó error y me cobró la consulta» sale nueve
+                    # veces en la cola de reportes, de seis personas y desde mayo.
+                    _taller_cobrar(user_email, numero)
                     ses["salida"] = res.ruta
                     _taller_guardar_docx(user_email, numero, res.ruta)
                     print(f"   ⚖️ TALLER: proyecto EN VIVO {numero} · "
@@ -28247,7 +28422,8 @@ async def taller_resolver(
     global_json: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
-    _taller_puerta(user_email)
+    # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
+    _taller_puerta(user_email, cobrable=True)
     _taller_purgar()
     ses = _taller_recuperar_sesion(user_email, numero)
     if not ses:
@@ -28411,6 +28587,11 @@ async def taller_resolver(
                             _marco, qdrant=qdrant_client,
                             contexto=_con_autos(r, contexto))
     _taller_registrar_uso(user_email, numero, "proyecto")
+    # Pegado al registro y no antes: el proyecto ya existe. Un pipeline
+    # que revienta a los cinco minutos no deja a nadie diez consultas
+    # más pobre — «me marcó error y me cobró la consulta» sale nueve
+    # veces en la cola de reportes, de seis personas y desde mayo.
+    _taller_cobrar(user_email, numero)
 
     # Los avisos del modo —la sustracción de materia aplicada, o por qué NO se
     # aplicó— viajan con los del documento: es lo que el secretario tiene que
