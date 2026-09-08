@@ -375,3 +375,117 @@ insertaba «dispone lo siguiente», que promete una transcripción que no llega.
 Ahora funde las dos frases como las escribió David, y si no encaja en el molde
 NO TOCA NADA: un huérfano se ve y se corrige; una frase inventada se firma sin
 mirarla.
+
+---
+
+## 12. El considerando de los conceptos, la portada y el formato de impresión · 8-sep
+
+Tres encargos de David sobre el proyecto que sale del pipeline. Los tres
+comprobados sobre una generación real, no sobre texto inventado.
+
+### 12.1 El considerando de los conceptos de violación, con su ordinal
+
+El prompt ya pedía «un apartado nuevo» y el modelo lo abría —pero como
+subtítulo en negrita DENTRO del Estudio, porque ahí es donde el compositor
+mete todo lo que devuelve. Un subtítulo no es un considerando: no lleva
+ordinal, y en un engrose el ordinal es lo que dice que ahí empieza otra cosa
+que se resolvió.
+
+`partir_conceptos` corta por donde el propio modelo puso el rótulo y mete el
+resto en la lista de apartados, que es donde se calculan los ordinales. **No se
+le pide al modelo que numere**: esa regla ya estaba y es la buena.
+
+Salvaguardas medidas: no parte si detrás del rótulo hay menos de dos párrafos
+—más vale un subtítulo suelto que un considerando hueco con su ordinal
+gastado—, no parte con menciones en prosa («el juzgado sobreseyó sin estudiar
+los conceptos de violación planteados») y **no partió el proyecto real de 125
+párrafos**, que era la regresión a evitar.
+
+**Un efecto de segundo orden que sí apareció**: el cierre del estudio se
+escribía al final del apartado de los agravios, o sea ANTES de estudiar los
+conceptos de los que depende el desenlace. El documento decía «procede conceder
+el amparo» y acto seguido se ponía a examinar si los conceptos eran fundados.
+Es la incongruencia del resolutivo que negaba lo que el estudio concedía,
+entrando por otra puerta. El cierre se mueve al final del último considerando.
+
+### 12.2 La portada con la síntesis (`fase_sintesis.py`)
+
+**Medido antes de escribir nada: 1,360 documentos de la carpeta del taller.**
+
+Hay DOS formas de síntesis en el corpus, y la primera lectura me dio la
+equivocada:
+
+- «CONTEXTO / PROPUESTA / JUSTIFICACIÓN» — 4 documentos.
+- **«título en versales + Hechos / Criterio jurídico / Justificación» — 81
+  documentos, y 23 de ellos AL FINAL (por encima del 85% de su extensión),
+  siempre con el título delante.** Es la que David describió, nombrando los
+  cuatro campos del Semanario.
+
+Extensiones medianas de esos 23, que son los parámetros del prompt: título 236
+· hechos 815 · criterio 571 · justificación 1,148 caracteres.
+
+**El registro es de proyecto, no de tesis publicada**: en el ADC 821/2025 el
+criterio empieza «Se propone determinar que…», no «Se determina que…». Un
+proyecto propone; lo que se publica ya resolvió. Esa palabra distingue un
+documento que va a sesión de uno que salió de ella, y se corrige en código si
+el modelo la escribe en presente.
+
+Se pide **con el estudio ya redactado**, no con los datos del asunto: una
+síntesis escrita antes resumiría lo que se pensaba resolver. Sustituye a las
+dos firmas del pie —los nombres siguen en la carátula, que es donde se
+buscan—, y si el modelo falla, el documento sale con las firmas de siempre.
+
+### 12.3 El formato de impresión: dónde NO estaba el problema
+
+David: «cuando hay saltos de página, como se imprime por ambas caras, la
+sangría cambia».
+
+**Lo primero que miré fueron los márgenes, y ahí no estaba.** Medidos los 30
+engroses de la carpeta: el generado YA coincidía con el suyo —21.59 × 34.04,
+izquierda 5, derecha 2, superior e inferior 3— y **ninguno de los treinta usa
+márgenes en espejo**. La caja era la misma. Haber «arreglado» los márgenes
+habría estropeado lo único que ya estaba bien.
+
+La diferencia estaba en el encabezado:
+
+    evenAndOddHeaders ....... 29 de 30 engroses (97%)
+    primera página distinta .. 29 de 30 (97%)
+    pie con número de página . 27 de 30 (90%)
+    ese número, centrado ..... 56 de 58 pies
+
+Word alterna el encabezado entre página par e impar, y por eso «la sangría
+cambia» al pasar la hoja. El generado ponía el MISMO encabezado en las tres y
+no numeraba: impreso por ambas caras no cuadraba con nada.
+
+**La alineación del par no la decidió la mayoría.** Emparejando dentro de cada
+documento: 10 veces derecha→izquierda, 10 derecha→centro, 5 derecha→derecha, 4
+centro→centro. Empate. Se eligió derecha→izquierda porque **es la única de las
+cuatro que alterna**, y alternar es lo que él pide.
+
+Detalle que costaría una corrida: el interruptor vive en `settings.xml` y
+python-docx no lo expone. Sin él, Word ignora el encabezado de página par por
+mucho que esté escrito en el fichero.
+
+### 12.4 El predicado que se equivocaba en cuatro de ocho
+
+Al conectar el recuadro de los conceptos apareció un fallo vivo. El aviso de
+«faltan los conceptos de violación» colgaba de
+`str(glob.sentido).startswith("fundad")`, escrito antes de que existieran las
+calificaciones con matiz. Medido sobre las ocho, **se equivoca en cuatro**: no
+reconoce esencialmente / parcialmente / sustancialmente fundado —con
+cualquiera de los tres el aviso no salía— y en cambio cuenta como próspero
+`fundado_insuficiente`, que en el circuito confirma el 88% de las veces.
+
+`prospera()` existe justamente para que añadir una calificación no obligue a
+acordarse de catorce sitios. **Cada vez que se añade una calificación hay que
+buscar los `startswith` que quedaron sueltos.**
+
+### 12.5 Y una lección de método, otra vez
+
+Copié `~/Downloads/*.pdf` al directorio de trabajo para preparar la prueba y
+**sobrescribí los agravios de la 410/2026 con los de otro asunto**. La corrida
+salió con la sentencia recurrida correcta y los agravios de un caso de
+suspensión: sirvió para comprobar el formato y la portada, no el contenido.
+Se detectó porque el contexto propuesto hablaba de un exhorto que no venía a
+cuento. **Un comodín en un `cp` sobre el directorio de trabajo es una carga de
+datos, no una copia de conveniencia.**
