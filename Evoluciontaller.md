@@ -311,3 +311,36 @@ caracteres base64), ninguna respuesta perdida.
 - **El sentido no es reproducible entre corridas.** Tres corridas del mismo
   asunto: dos `infundado`, una `fundado`. No es un defecto que arreglar — es la
   razón de ser de las dos vías.
+| 23 | 7-sep-2026 | El resolutivo decía «impugnada» donde el estudio dice «recurrida» (rama `confirma_sobresee`) | **Comprobado** — unificado; «impugnada» se queda sólo en revisión fiscal |
+| 24 | 7-sep-2026 | Los documentos se piden con el nombre del tipo: «Sentencia recurrida» / «Agravios» | **Comprobado en producción** — visto en el navegador con un amparo en revisión |
+| 25 | 7-sep-2026 | Dos caminos explicados en vez de tres rotulados; advertencia de responsabilidad antes de elegir | **Comprobado en producción** |
+| 26 | 7-sep-2026 | `obtenerTipos` pedía el catálogo con `cache: 'force-cache'` | **Comprobado** — la ficha de una revisión pedía «Quejoso» y «Autoridad responsable» porque servía un catálogo anterior a que existiera `caratula` |
+| 27 | 7-sep-2026 | La ficha pintaba el marcador literal `{QUEJOSO_A} Y RECURRENTE` | **Comprobado en producción** — ahora «PARTE QUEJOSA Y RECURRENTE» |
+
+---
+
+## 10. Recorrido completo por la interfaz · 7-sep
+
+Conducido a mano en producción, con los dos PDF reales del 410/2026.
+
+Ficha → adelanto → «Buscar solución jurídica» (rojo, pulsando) → propuesta →
+decisión global → sentencia. **Funcionó de punta a punta.**
+
+Lo verificado en pantalla, no en el código:
+
+- Los documentos se piden como **Sentencia recurrida** y **Agravios**, y el
+  aviso de faltantes usa esas mismas palabras.
+- La carátula pide **PARTE QUEJOSA Y RECURRENTE** y **RECURRENTE ADHESIVO**.
+- El acervo va plegado en «En qué se apoya» (11 obligatorias · 29 en total).
+- Los **dos caminos** con su explicación, y la advertencia en ámbar antes de
+  elegir.
+- **El contexto en cuatro párrafos**, específico del asunto.
+- **Las dos vías**: propuesta `INFUNDADO` y contraria `FUNDADO`, con «por dónde
+  se cae» y la suerte de los demás temas.
+- **El estudio se ve escribirse**: contador subiendo hasta 3,980 palabras y
+  luego «… componiendo el documento».
+- Cierre: 3,976 palabras · 11 avisos · 3 huecos, con el aviso de borrador.
+
+**Dos defectos encontrados EN LA PRUEBA**, no leyendo código: la caché eterna
+del catálogo y el marcador literal. Los dos arreglados en el momento. Ninguno
+se habría visto sin conducir la interfaz.
