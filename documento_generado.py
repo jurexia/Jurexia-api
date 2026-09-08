@@ -1993,6 +1993,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         str(x) for x in (estudio if isinstance(estudio, (list, tuple)) else [estudio]))
     citadas = 0
     ultima_tesis = None
+    _pies_de_ley = len(notas)          # los que ya había antes de este estudio
     transcritos = set()
     transcritas_tesis = set()
     for t in (estudio or []):
@@ -2048,8 +2049,26 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         if len(t.split()) < 6 and not _es_pregunta(t):
             continue
         p_ = parrafo_con_citas(doc, t, notas)
-        # EL PRECEPTO SE TRANSCRIBE, NO SE RESUME. Va en bloque aparte, con
-        # sangría y a un espacio, detrás del párrafo que lo anuncia.
+        # EL PRECEPTO VA AL PIE, COMO LA TESIS.
+        #
+        # David: «me gusta cómo cita las tesis (con su texto a pie de página),
+        # así me gustaría que citara los artículos para una lectura más fluida
+        # y sólo referir al contenido del artículo y citarlo a pie de página».
+        #
+        # Antes se transcribía en bloque, con sangría, detrás del párrafo que
+        # lo anuncia. Un proyecto empieza citando el artículo 75, luego el 107
+        # constitucional entero, y el lector recorre media página de ley antes
+        # de volver al razonamiento. Medido en el 410/2026: 818 palabras —el
+        # 16,5% del estudio— eran preceptos transcritos.
+        #
+        # El texto no se pierde: baja al pie, donde se comprueba si hace falta
+        # y no interrumpe si no. Es exactamente el trato que ya tenían las
+        # tesis, y por eso se lee bien.
+        #
+        # `notas_de_articulos` hacía esto y NO LA LLAMABA NADIE: el mecanismo
+        # estaba escrito y muerto. Aquí se usa su misma forma de nota, con el
+        # recorte a la fracción que el estudio discute, que en el pie sigue
+        # importando —el 107 constitucional entero no cabe en una nota—.
         if p_ is not None:
             for num, n_ in _preceptos:
                 # UN ARTÍCULO SE TRANSCRIBE UNA VEZ. La clave era (número,
@@ -2078,9 +2097,23 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 # todo el estudio, que es donde se razona.
                 _fr = _fracciones_citadas(t, num) or \
                       _fracciones_citadas(_todo_estudio, num)
-                escribir_precepto(doc, n_.get("texto"),
-                                  n_.get("cuerpo_legal") or n_.get("fuente") or "",
-                                  num, _fr)
+                if len(notas) - _pies_de_ley >= MAX_NOTAS_DE_ARTICULOS:
+                    continue          # ocho preceptos al pie ya son bastantes
+                _cuerpo = " ".join(str(n_.get("texto") or "").split())
+                if not _cuerpo:
+                    continue
+                # El acervo guarda una migaja delante: «[Ley de Amparo |
+                # CAPÍTULO X …] Artículo 79. La autoridad…».
+                _cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", _cuerpo)
+                _cuerpo = _en_lo_conducente(_cuerpo, _fr)
+                _cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "",
+                                 _cuerpo, flags=re.I)
+                _ley = n_.get("cuerpo_legal") or n_.get("fuente") or ""
+                _pie = f"«Artículo {num}. {_cuerpo}» — {_ley}".strip()
+                if _pie in notas:
+                    continue
+                notas.append(_pie)
+                _run_llamada(p_, len(notas))
     return citadas
 
 

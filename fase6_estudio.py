@@ -924,9 +924,32 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
 - EL ÓRGANO RECURRIDO es {_org}; este tribunal se
   nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
   considera»). Nunca primera persona del singular.
-- EXTENSIÓN: alrededor de {PALABRAS_ESTUDIO} palabras. No cortes por brevedad:
-  si crees que terminas, desarrolla los efectos de la concesión, los argumentos
-  reforzadores y las objeciones previsibles con su refutación.
+- LA EXTENSIÓN SE REPARTE, NO SE ESTIRA. Alrededor de {PALABRAS_ESTUDIO}
+  palabras EN TOTAL, y ese total se gasta donde se decide el asunto:
+
+    · EL TEMA PRINCIPAL se estudia a fondo: la premisa normativa, la
+      jurisprudencia que la sostiene, la aplicación a estos hechos, los
+      argumentos reforzadores y la objeción previsible con su refutación. Aquí
+      la extensión está justificada y aquí es donde debe estar.
+
+    · UN TEMA INOPERANTE se resuelve en DOS O TRES PÁRRAFOS: qué se alegó, por
+      qué no combate la razón toral, y ya. La inoperancia se razona, no se
+      desarrolla: alargarla no la hace más firme, la hace más discutible.
+
+    · UN TEMA QUE CAE PORQUE CAYÓ EL PRINCIPAL —queda sin materia, o subsiste
+      la razón que ya se dio— se despacha también en DOS O TRES PÁRRAFOS,
+      diciendo POR QUÉ sigue esa suerte. No se vuelve a razonar el fondo de
+      algo que ya no puede cambiar el resultado.
+
+  ESTO NO ES RECORTAR NI DEJAR TEMAS SIN CONTESTAR. Todos se contestan —la
+  exhaustividad se revisa de oficio y un tema olvidado es un amparo de
+  vuelta—; lo que cambia es cuánto se les dedica. Un proyecto que trata igual
+  lo que decide y lo accesorio es más largo, no más completo, y obliga a quien
+  lo lee a buscar dónde está la razón.
+
+  Y NO RELLENES. Si un apartado queda corto porque el tema es corto, está
+  bien. Repetir la misma razón con otras palabras no añade nada y es lo que un
+  revisor marca primero.
 - Sin Markdown y sin viñetas. SÍ van numeradas las líneas argumentales: cada
   problema abre con «1.», «2.»… y su pregunta. No es un esquema, es lo que
   ordena la lectura y lo que hace que un apartado se entienda a la primera.
