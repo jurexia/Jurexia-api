@@ -742,6 +742,45 @@ del reo (artículo 79, fracción III) es absoluta: opera aun sin conceptos.
 }
 
 
+def _bloque_circuito(tipo_asunto: str, criterios: list) -> str:
+    """Cómo resuelve este circuito, contado sobre su propio acervo.
+
+    No es una instrucción de estilo: es el recuento de 12,272 expedientes del
+    Vigésimo Segundo con 65,282 agravios calificados. Se le enseña al modelo
+    para dos cosas: que sepa qué desenlace corresponde a las calificaciones que
+    ha fijado el secretario, y que note cuándo la combinación es rara.
+    """
+    try:
+        import tabla_circuito as _tc
+        import tipos_asunto as _ta_c
+        t = _tc.TABLA_CIRCUITO.get(_ta_c.normalizar(tipo_asunto))
+    except Exception:
+        return ""
+    if not t or not t.get("sentidos"):
+        return ""
+    lineas = [f"\n\nCÓMO RESUELVE ESTE CIRCUITO, MEDIDO SOBRE {t['expedientes']:,} "
+              f"EXPEDIENTES SUYOS", "",
+              "No es un consejo de estilo: es el recuento de su propio acervo. Cada",
+              "línea dice con qué frecuencia sale ese desenlace y cómo se calificaron",
+              "los agravios en él."]
+    for sent, dat in t["sentidos"].items():
+        cal = " · ".join(f"{k} {v}%" for k, v in dat["calificaciones"].items())
+        lineas.append(f"  · {sent.upper():22s} {dat['frecuencia']:4.1f}% de los asuntos "
+                      f"→ {cal}")
+    # LO RARO SE SEÑALA, no se prohíbe. Confirmar con un agravio fundado ocurre
+    # en el 1% del circuito: es posible —se confirma por razones distintas de
+    # las del juzgado— pero merece que el estudio lo explique.
+    _fund = [c for c in (criterios or [])
+             if str(getattr(c, "sentido", "")).lower().startswith(("fundad", "esencial"))]
+    if _fund:
+        lineas.append("")
+        lineas.append("HAS FIJADO AL MENOS UN PLANTEAMIENTO FUNDADO. Mira arriba qué "
+                      "desenlace corresponde: si el que vas a escribir es de los que "
+                      "casi nunca llevan un fundado, DILO Y EXPLÍCALO en el estudio. "
+                      "No lo escondas: un revisor que conoce el circuito lo va a notar.")
+    return "\n".join(lineas) + "\n"
+
+
 def _bloque_conceptos(rama: str, conceptos: str) -> str:
     """Los conceptos de violación, cuando hay que estudiarlos por primera vez.
 
@@ -1413,6 +1452,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal)}
+{_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion)}
 {_bloque_global(propuesta_global)}
 {_bloque_precedente(material, criterios)}
