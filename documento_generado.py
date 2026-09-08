@@ -2106,8 +2106,14 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 # CAPÍTULO X …] Artículo 79. La autoridad…».
                 _cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", _cuerpo)
                 _cuerpo = _en_lo_conducente(_cuerpo, _fr)
-                _cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "",
-                                 _cuerpo, flags=re.I)
+                # «Art. 107.-» TAMBIÉN ES EL RÓTULO. La nota salió «Artículo
+                # 107. Art. 107.- Las controversias…»: el acervo guarda unos
+                # preceptos con «ARTÍCULO 79.» y otros abreviados con guión,
+                # y el recorte sólo conocía la forma larga. El bloque en
+                # sangría ya sabía de esta abreviatura; la nota, no.
+                _cuerpo = re.sub(
+                    r"^\s*Art[íi]?c?u?l?o?s?\.?\s*\d+[^.]{0,12}[.\-–]{1,2}\s*",
+                    "", _cuerpo, flags=re.I)
                 _ley = n_.get("cuerpo_legal") or n_.get("fuente") or ""
                 _pie = f"«Artículo {num}. {_cuerpo}» — {_ley}".strip()
                 if _pie in notas:

@@ -1010,6 +1010,29 @@ comprobar, leyendo, que no quedó nada sin contestar y que lo contestado se
 sostiene. Un apartado por planteamiento, en el orden en que se plantearon,
 abierto por su ordinal en letra.
 
+LOS CUATRO PASOS SIEMPRE, PERO NO SIEMPRE DEL MISMO TAMAÑO. Esto es lo que
+decide si el proyecto se lee o se sufre, y lo que separa a un secretario
+experto de uno que rellena:
+
+  · En el {q1} PRINCIPAL —el que decide el asunto— los cuatro pasos van
+    completos: premisa con su jurisprudencia, aplicación detallada a estos
+    hechos, y la objeción previsible refutada. Aquí la extensión se gana.
+
+  · En un {q1} que resulta INOPERANTE, los cuatro pasos caben en DOS O TRES
+    PÁRRAFOS: se enuncia, se dice cuál es la razón toral que no combate, se
+    explica por qué no la combate, y se cierra. La inoperancia se razona; no
+    se desarrolla. Un apartado de inoperancia más largo que el del tema
+    principal delata que no se supo dónde estaba el asunto.
+
+  · En un {q1} que SIGUE LA SUERTE del principal —queda sin materia, o
+    subsiste la razón ya dada—, otros DOS O TRES PÁRRAFOS diciendo POR QUÉ
+    sigue esa suerte. No se vuelve a razonar el fondo de algo que ya no puede
+    cambiar el resultado.
+
+Ninguno se queda sin contestar: la exhaustividad se revisa de oficio. Lo que
+cambia es cuánto se le dedica a cada uno. Si tu apartado más largo no es el del
+tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
+
   PASO 1 — EL PLANTEAMIENTO, EN SU VERSIÓN MÁS FUERTE.
   Se enuncia con la voz de quien lo formula, no con la del tribunal, y en su
   mejor versión: «En el primer {q1} {parte} sostiene que…». Prohibido
