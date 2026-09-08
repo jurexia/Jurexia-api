@@ -597,6 +597,28 @@ async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
     # «funcionó». Es el mismo defecto que el aviso que nadie veía. Una línea.
     _pred = [d["prediccion"].get("frase", "—") for d in s.por_problema]
     print(f"   ⚖️ jurimetría por problema: " + " · ".join(_pred[:4]))
+    # LA RAMA, ANTES DE REDACTAR. Se calculaba al COMPONER, cuando el estudio
+    # ya estaba escrito, asi que el modelo nunca supo en que escenario tecnico
+    # estaba: escribia sin saber si iba a levantar un sobreseimiento —y por
+    # tanto tenia que estudiar los conceptos de violacion por primera vez— o si
+    # solo confirmaba.
+    _rama, _vp = "", False
+    try:
+        import tipos_asunto as _ta_r, fase_rama as _fr_r
+        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
+            _que = _fr_r.resolvio_a_quo(
+                "", "\n".join(r.fases.antecedentes or []),
+                declarado=getattr(e, "resolvio_declarado", "") or "")
+            _sent = "fundado" if any(
+                str(getattr(c, "sentido", "")).startswith("fundad")
+                for c in (criterios or [])) else "infundado"
+            _rama = _ta_r.rama_revision(_que, _sent)
+        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
+                  and "procesal" in str(getattr(c, "problema", "")).lower()
+                  for c in (criterios or []))
+    except Exception as _e:
+        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
+
     print(f"   ⚖️ precedente[{materia}]: "
           f"{sum(s.distribucion.values())} sentencias del tema · "
           f"{len(s.moldes)} moldes · {len(s.razonados)} con razón escrita"
@@ -629,6 +651,28 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             cliente, marco,
             [p for p in (r.fases.problemas or [])], e.es_recurso, e.tipo_asunto))
 
+    # LA RAMA, ANTES DE REDACTAR. Se calculaba al COMPONER, cuando el estudio
+    # ya estaba escrito, asi que el modelo nunca supo en que escenario tecnico
+    # estaba: escribia sin saber si iba a levantar un sobreseimiento —y por
+    # tanto tenia que estudiar los conceptos de violacion por primera vez— o si
+    # solo confirmaba.
+    _rama, _vp = "", False
+    try:
+        import tipos_asunto as _ta_r, fase_rama as _fr_r
+        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
+            _que = _fr_r.resolvio_a_quo(
+                "", "\n".join(r.fases.antecedentes or []),
+                declarado=getattr(e, "resolvio_declarado", "") or "")
+            _sent = "fundado" if any(
+                str(getattr(c, "sentido", "")).startswith("fundad")
+                for c in (criterios or [])) else "infundado"
+            _rama = _ta_r.rama_revision(_que, _sent)
+        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
+                  and "procesal" in str(getattr(c, "problema", "")).lower()
+                  for c in (criterios or []))
+    except Exception as _e:
+        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
+
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
@@ -637,7 +681,8 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # resultado, qué les pasa a los demás, y la objeción más seria.
             # Se calculaba, se enseñaba en pantalla y no llegaba hasta aquí:
             # `Global.bloque()` no lo llamaba nadie.
-            propuesta_global=getattr(e, "propuesta_global", None))
+            propuesta_global=getattr(e, "propuesta_global", None),
+            rama=_rama, violacion_procesal=_vp)
 
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
@@ -661,7 +706,8 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     async for paso in f6.redactar_en_vivo(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
             criterios, material, e.es_recurso, r.partes, marco, contexto,
-            propuesta_global=getattr(e, "propuesta_global", None)):
+            propuesta_global=getattr(e, "propuesta_global", None),
+            rama=_rama, violacion_procesal=_vp):
         if paso.get("tipo") == "texto":
             yield paso
         else:

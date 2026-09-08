@@ -1231,6 +1231,109 @@ RAMAS_REVISION = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA TÉCNICA DE RESOLUCIÓN, POR ESCENARIO
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «hay múltiples escenarios técnicos en revisión… dependiendo del asunto
+# y la resolución, la técnica de resolución cambia conforme a las reglas de la
+# ley de amparo. Por eso es importante contar con un cuadro de "if"».
+#
+# QUÉ ES ESTO Y QUÉ NO ES. `RAMAS_REVISION` dice cómo quedan los RESOLUTIVOS.
+# Esto dice qué hay que ESTUDIAR para llegar ahí, que es distinto y hasta ahora
+# no estaba en ninguna parte: el prompt del estudio no mencionaba ni una vez
+# «levantar el sobreseimiento», ni «plenitud de jurisdicción», ni «mayor
+# beneficio».
+#
+# CADA REGLA LLEVA SU FUENTE. Lo que viene de la Ley de Amparo se cita con su
+# artículo; lo que viene de la práctica medida de este tribunal se marca como
+# tal. Ninguna regla se escribe «de memoria»: en esto una imprecisión no es una
+# errata, es un vicio del proyecto.
+TECNICA_RESOLUCION = {
+
+    # ── REVISIÓN: se levanta el sobreseimiento ────────────────────────────
+    "revision_levanta_sobreseimiento": {
+        "cuando": "El recurso es FUNDADO y el Juzgado de Distrito había "
+                  "SOBRESEÍDO.",
+        "fuente": "artículo 93, fracción I, de la Ley de Amparo",
+        "tecnica": [
+            "NO HAY REENVÍO. El tribunal colegiado no devuelve el asunto al "
+            "Juzgado de Distrito: levanta el sobreseimiento y asume "
+            "jurisdicción para resolver lo que aquél no resolvió.",
+            "SE ABRE UN CONSIDERANDO NUEVO para el estudio de los CONCEPTOS DE "
+            "VIOLACIÓN, que hasta ahora nadie había examinado. Es un análisis "
+            "de primera vez, no una revisión de lo que dijo el juzgado.",
+            "Ese estudio tiene su propio desenlace: los conceptos pueden "
+            "resultar fundados, infundados o inoperantes, y de ahí sale si se "
+            "ampara o no se ampara. Que el AGRAVIO sea fundado sólo prueba que "
+            "el juzgado no debió sobreseer; no dice nada sobre el fondo.",
+        ],
+        "necesita": "conceptos_de_violacion",
+        "aviso_si_falta":
+            "Se va a levantar el sobreseimiento, así que hay que estudiar los "
+            "conceptos de violación — y no constan. Sólo aparecen en el "
+            "expediente si la sentencia recurrida los relató. Súbelos o "
+            "escríbelos antes de generar: sin ellos el proyecto levanta el "
+            "sobreseimiento y no resuelve nada.",
+    },
+
+    # ── REVISIÓN: lo que ya no se puede tocar ─────────────────────────────
+    "revision_firmeza": {
+        "cuando": "Siempre, en toda revisión.",
+        "fuente": "principio de estricto derecho del recurso; artículo 93 de "
+                  "la Ley de Amparo",
+        "tecnica": [
+            "LO NO RECURRIDO NO SE TOCA. La materia de la revisión la fijan "
+            "los agravios: lo que resolvió el juzgado y nadie combatió queda "
+            "FIRME y rige el sentido, aunque el tribunal lo crea equivocado.",
+            "Y SE DICE. Cuando una consideración queda firme por no haberse "
+            "combatido, el proyecto lo hace constar y explica que por eso no "
+            "se examina. Callarlo se lee como omisión de estudio.",
+            "LO QUE PERJUDICA A QUIEN NO RECURRIÓ queda igualmente firme "
+            "frente a él: no se puede mejorar la situación de quien se "
+            "conformó con la sentencia.",
+        ],
+    },
+
+    # ── AMPARO DIRECTO: el orden del estudio ──────────────────────────────
+    "directo_orden_de_estudio": {
+        "cuando": "Amparo directo en que se plantean violaciones procesales "
+                  "junto con cuestiones de fondo.",
+        "fuente": "artículos 174 y 189 de la Ley de Amparo",
+        "tecnica": [
+            "LAS VIOLACIONES PROCESALES SON DE ESTUDIO PREFERENTE, porque si "
+            "prosperan obligan a reponer el procedimiento y lo demás quedaría "
+            "sin materia.",
+            "PERO MANDA EL MAYOR BENEFICIO. El artículo 189 obliga a estudiar "
+            "primero aquello que, de resultar fundado, otorgue a la parte "
+            "quejosa un beneficio MAYOR. Si el fondo puede darle más que la "
+            "reposición —una concesión lisa y llana frente a repetir el "
+            "procedimiento—, el fondo va primero y se dice por qué.",
+            "EL ORDEN ELEGIDO SE JUSTIFICA en el proyecto, en una frase. No se "
+            "presenta como método: se presenta como la aplicación del artículo "
+            "189 a este caso concreto.",
+        ],
+    },
+}
+
+
+def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) -> list:
+    """Las reglas de técnica que aplican a ESTE asunto y ESTE desenlace.
+
+    Se devuelven sólo las pertinentes: darle al modelo el cuadro entero es
+    darle instrucciones para escenarios que no son el suyo, y ya sabemos qué
+    pasa con las instrucciones que no vienen a cuento.
+    """
+    t = normalizar(tipo)
+    fuera = []
+    if t == "amparo_revision":
+        fuera.append(TECNICA_RESOLUCION["revision_firmeza"])
+        if rama.startswith("revoca_sobreseimiento"):
+            fuera.append(TECNICA_RESOLUCION["revision_levanta_sobreseimiento"])
+    if t == "amparo_directo" and con_violacion_procesal:
+        fuera.append(TECNICA_RESOLUCION["directo_orden_de_estudio"])
+    return fuera
+
+
 def rama_revision(resolvio_a_quo: str, sentido: str,
                   solo_efectos: bool = False,
                   violacion_procesal: bool = False,

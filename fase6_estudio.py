@@ -742,6 +742,31 @@ del reo (artículo 79, fracción III) es absoluta: opera aun sin conceptos.
 }
 
 
+def _bloque_tecnica(tipo_asunto: str, rama: str = "",
+                    violacion_procesal: bool = False) -> str:
+    """Cómo se resuelve ESTE escenario, según la Ley de Amparo.
+
+    Hasta ahora el prompt no decía ni una vez «levantar el sobreseimiento», ni
+    «plenitud de jurisdicción», ni «mayor beneficio». El catálogo sabía qué
+    resolutivos poner —`RAMAS_REVISION` tiene once ramas medidas— pero nadie le
+    decía al modelo qué hay que ESTUDIAR para llegar a cada una.
+
+    Se le dan SÓLO las reglas de su escenario. Darle el cuadro entero es darle
+    instrucciones para casos que no son el suyo, y este proyecto ya sabe qué
+    pasa con las instrucciones que no vienen a cuento.
+    """
+    import tipos_asunto as _ta_t
+    reglas = _ta_t.tecnica_de(tipo_asunto, rama, violacion_procesal)
+    if not reglas:
+        return ""
+    partes = ["\n\nTÉCNICA DE RESOLUCIÓN DE ESTE ASUNTO — no es método, es la ley"]
+    for r in reglas:
+        partes.append(f"\n· {r['cuando']}\n  Fundamento: {r['fuente']}")
+        for t in r["tecnica"]:
+            partes.append(f"    – {t}")
+    return "\n".join(partes) + "\n"
+
+
 def _bloque_global(g) -> str:
     """LO QUE YA SE DECIDIÓ ANTES DE ESCRIBIR, y que el estudio no veía.
 
@@ -853,7 +878,8 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
                    es_recurso: bool = False, partes=None, marco=None,
                    contexto: str = "", materia: str = "",
-                   propuesta_global=None) -> str:
+                   propuesta_global=None, rama: str = "",
+                   violacion_procesal: bool = False) -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     # CÓMO SE LA NOMBRA. Estaba escrito «la parte quejosa» dentro de un EJEMPLO
     # de este prompt, y el modelo lo copiaba: en la revisión fiscal el proyecto
@@ -1333,6 +1359,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
+{_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal)}
 {_bloque_global(propuesta_global)}
 {_bloque_precedente(material, criterios)}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""))}
@@ -2139,7 +2166,8 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
 async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                            criterios: list[Criterio], material: Material,
                            es_recurso: bool = False, partes=None, marco=None,
-                           contexto: str = "", propuesta_global=None):
+                           contexto: str = "", propuesta_global=None,
+                           rama: str = "", violacion_procesal: bool = False):
     """El estudio, trozo a trozo, según lo escribe el modelo.
 
     David: «que el usuario vea el texto escribiéndose sería de ayuda». No
@@ -2154,7 +2182,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
                   es_recurso, partes, marco, contexto,
-                  propuesta_global=propuesta_global)}])
+                  propuesta_global=propuesta_global, rama=rama,
+                  violacion_procesal=violacion_procesal)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     entero = []
@@ -2176,14 +2205,16 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
 async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
                    es_recurso: bool = False, partes=None, marco=None,
-                   contexto: str = "",
-                   propuesta_global=None) -> tuple[str, str, list[str]]:
+                   contexto: str = "", propuesta_global=None,
+                   rama: str = "",
+                   violacion_procesal: bool = False) -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos)."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
                   es_recurso, partes, marco, contexto,
-                  propuesta_global=propuesta_global)}])
+                  propuesta_global=propuesta_global, rama=rama,
+                  violacion_procesal=violacion_procesal)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     import llamada_modelo as _lm
