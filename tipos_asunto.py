@@ -1113,7 +1113,18 @@ RAMAS_REVISION = {
     "confirma_sobresee": {
         "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
         "puntos": [
-            "PRIMERO. Se confirma la sentencia impugnada.",
+            # «RECURRIDA», COMO SUS DOS HERMANAS. Esta rama decía «impugnada» y
+            # las otras dos del mismo bloque —confirma_niega y confirma_concede,
+            # con el mismo verbo «Se confirma»— dicen «recurrida». El estudio
+            # también escribe «recurrida». Así que el proyecto de la revisión
+            # 410/2026 salió con la misma sentencia llamada de dos maneras: el
+            # estudio cerraba «se confirma la sentencia recurrida» y el
+            # resolutivo decía «Se confirma la sentencia impugnada».
+            #
+            # No es sinónimo inocuo en un resolutivo: es el punto que se
+            # ejecuta, y nombrar dos veces distinto el mismo acto es lo que un
+            # revisor marca a la primera lectura.
+            "PRIMERO. Se confirma la sentencia recurrida.",
             "SEGUNDO. Se sobresee en el presente juicio de amparo, promovido "
             "por {quejoso}, contra los actos que quedaron precisados en el "
             "considerando segundo de la resolución que se revisa y por las "
