@@ -27672,8 +27672,15 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
         except Exception as ex:
             print(f"   ⚠️ TALLER: no se pudo guardar la plantilla: {ex}")
     try:
-        supabase_admin.table("taller_sesiones").upsert(
+        _resp = supabase_admin.table("taller_sesiones").upsert(
             fila, on_conflict="email,expediente").execute()
+        # EL SELLO QUE PUSO LA BASE, guardado junto a la copia en memoria. Es
+        # lo que después permite saber si esta memoria sigue siendo la buena o
+        # si otro worker escribió un adelanto más nuevo. Lo pone el disparador
+        # con el reloj de la base: un mismo reloj para todos los workers.
+        if _resp.data:
+            _TALLER_SESIONES[_taller_llave(email, numero)]["sello"] = \
+                _resp.data[0].get("actualizado_en")
     except Exception as ex:
         print(f"   ⚠️ TALLER: no se pudo guardar la sesión: {ex}")
 
@@ -27704,23 +27711,50 @@ def _taller_recuperar_sesion(email: str, numero: str):
     en el caso dudoso: si la memoria ya dice que sí, no hay nada que confirmar.
     """
     ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
-    if ses:
-        if not ses.get("consultado") and supabase_admin:
-            try:
-                r = supabase_admin.table("taller_sesiones") \
-                    .select("consultado") \
-                    .eq("email", (email or "").strip().lower()) \
-                    .eq("expediente", numero).limit(1).execute()
-                if r.data and r.data[0].get("consultado"):
+    if ses and supabase_admin:
+        # ═══════════════════════════════════════════════════════════════════
+        # LA MEMORIA NO SE CREE SIN COMPROBAR QUE SIGUE SIENDO LA BUENA
+        # ═══════════════════════════════════════════════════════════════════
+        # El arreglo anterior comprobaba UN CAMPO —`consultado`— y dejaba
+        # rancio todo lo demás. El 8 de septiembre eso le costó un proyecto a
+        # una tester: rehízo el adelanto con el plazo corregido, la base guardó
+        # `oportuna=true`, y el proyecto volvió a salir extemporáneo. Los
+        # registros lo enseñan al minuto:
+        #
+        #   18:30 worker prrxc · adelanto con el plazo mal → memoria de prrxc
+        #   18:47 worker fm77h · adelanto CORREGIDO        → memoria de fm77h + base
+        #   18:51 worker prrxc · resolver                  → memoria RANCIA de prrxc
+        #
+        # Con dos workers, que el adelanto y el resolver caigan en el mismo es
+        # una moneda al aire. Y no se arregla campo por campo: cualquier dato
+        # del adelanto puede quedar viejo igual. Se compara el sello de la
+        # base con el que traía esta copia, y si no coinciden se tira.
+        try:
+            _r = supabase_admin.table("taller_sesiones") \
+                .select("actualizado_en, consultado") \
+                .eq("email", (email or "").strip().lower()) \
+                .eq("expediente", numero).limit(1).execute()
+            if _r.data:
+                _sello = _r.data[0].get("actualizado_en")
+                if _sello and _sello != ses.get("sello"):
+                    print(f"   ♻️ TALLER: la sesión en memoria de {numero} está "
+                          f"vieja; se relee de la base")
+                    _TALLER_SESIONES.pop(_taller_llave(email, numero), None)
+                    ses = None
+                elif _r.data[0].get("consultado"):
                     ses["consultado"] = True
-            except Exception as ex:
-                print(f"   ⚠️ No se pudo confirmar la consulta en la base: {ex}")
+        except Exception as ex:
+            # SI LA BASE NO CONTESTA, SE SIGUE CON LA MEMORIA. Peor que un dato
+            # viejo es no poder trabajar: el secretario tiene el adelanto
+            # delante y lo que quiere es su proyecto.
+            print(f"   ⚠️ No se pudo comprobar la frescura de la sesión: {ex}")
+    if ses:
         return ses
     if not supabase_admin:
         return None
     try:
         r = supabase_admin.table("taller_sesiones") \
-            .select("estado, consultado, plantilla") \
+            .select("estado, consultado, plantilla, actualizado_en") \
             .eq("email", (email or "").strip().lower()) \
             .eq("expediente", numero).limit(1).execute()
         if not r.data:
@@ -27787,8 +27821,9 @@ def _taller_recuperar_sesion(email: str, numero: str):
             except Exception as ex:
                 print(f"   ⚠️ No se pudo restaurar la plantilla: {ex}")
 
-    ses = {"resultado": resultado, "tmp": tmp,
-           "ts": time.time(), "consultado": r.data[0].get("consultado", False)}
+    ses = {"resultado": resultado, "tmp": tmp, "ts": time.time(),
+           "consultado": r.data[0].get("consultado", False),
+           "sello": r.data[0].get("actualizado_en")}
     _TALLER_SESIONES[_taller_llave(email, numero)] = ses
     return ses
 
