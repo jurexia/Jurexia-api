@@ -1284,13 +1284,43 @@ CALIFICACIONES = {
     # atacaba dejó de existir—. Medido: 259 agravios, y 186 de ellos en asuntos
     # cuyo SENTIDO entero es «sin materia».
     "sin_materia":             ("sin materia",            False,   259),
+
+    # ── LAS CUATRO QUE FALTABAN. Si prosperan o no NO se decidió de oído: se
+    #    contó en qué sentidos aparece cada una. Las bases, para leerlo:
+    #    «fundado» sale en asuntos a favor el 87% de las veces, «infundado» el
+    #    11% y «inoperante» el 8%.
+    #
+    #    INATENDIBLE (24%). Cerca del grupo que no prospera. Es el
+    #    planteamiento que no puede atenderse —no por lo que dice, sino por
+    #    cómo o cuándo se dice—.
+    "inatendible":             ("inatendibles",           False,   713),
+
+    #    FUNDADO PERO INSUFICIENTE (12%). AQUÍ ME HABRÍA EQUIVOCADO. Lleva
+    #    «fundado» en el nombre y el respaldo del predicado lo daba por bueno,
+    #    pero se comporta EXACTAMENTE como el infundado —12% frente a su 11%—:
+    #    el planteamiento tiene razón y aun así no alcanza para mover el
+    #    sentido, porque subsisten otras consideraciones que lo sostienen.
+    #    Tratarlo como fundado habría revocado sentencias que se confirman.
+    "fundado_insuficiente":    ("fundados pero insuficientes", False, 554),
+
+    #    PARCIALMENTE FUNDADO (80%). Prospera, y de forma característica: 141
+    #    de sus 365 apariciones están en asuntos que conceden PARCIALMENTE.
+    "parcialmente_fundado":    ("parcialmente fundados",  True,    365),
+
+    #    SUSTANCIALMENTE FUNDADO (97%). La que más claramente prospera de
+    #    todas, por encima del propio «fundado».
+    "sustancialmente_fundado": ("sustancialmente fundados", True,   124),
 }
 
 # Lo que el secretario puede elegir hoy en pantalla. Se separa del diccionario
 # porque añadir una calificación al catálogo y ofrecerla en la interfaz son dos
 # decisiones distintas: la primera es reconocerla, la segunda es pedirla.
-SENTIDOS_OFRECIDOS = ("fundado", "esencialmente_fundado", "infundado",
-                      "inoperante", "ineficaz", "sin_materia")
+# LAS NUEVE, POR ORDEN DE LO QUE HACEN: primero las que sacan adelante el
+# recurso, luego las que no, y al final la que lo deja sin objeto.
+SENTIDOS_OFRECIDOS = ("fundado", "esencialmente_fundado",
+                      "sustancialmente_fundado", "parcialmente_fundado",
+                      "fundado_insuficiente", "infundado", "inoperante",
+                      "inatendible", "ineficaz", "sin_materia")
 
 # Cómo se llama cada una en pantalla. Va aquí para que la interfaz no tenga que
 # saber castellano jurídico ni adivinar el plural.
@@ -1301,6 +1331,10 @@ ETIQUETA_SENTIDO = {
     "inoperante": "Inoperante",
     "ineficaz": "Ineficaz",
     "sin_materia": "Sin materia",
+    "sustancialmente_fundado": "Sustancialmente fundado",
+    "parcialmente_fundado": "Parcialmente fundado",
+    "fundado_insuficiente": "Fundado pero insuficiente",
+    "inatendible": "Inatendible",
 }
 
 
@@ -1316,9 +1350,13 @@ def prospera(sentido: str) -> bool:
     s = (sentido or "").strip().lower().replace(" ", "_")
     if s in CALIFICACIONES:
         return CALIFICACIONES[s][1]
-    # Las que el catálogo aún no conoce pero llevan «fundad» dentro —
-    # «parcialmente_fundado», «sustancialmente_fundado», «fundado_suplido»—
-    # prosperan: es más seguro reconocerlas que tratarlas como desestimadas.
+    # EL RESPALDO, PARA LO QUE AÚN NO ESTÁ EN EL CATÁLOGO. Lleva una excepción
+    # que costó medir: «fundado_insuficiente» tiene «fundad» dentro y NO
+    # prospera —12% de apariciones a favor, contra el 11% del infundado—. La
+    # regla ingenua lo habría dado por bueno y habría revocado sentencias que
+    # se confirman.
+    if "insuficien" in s or "inoperan" in s or s.startswith("in"):
+        return False
     return "fundad" in s
 
 

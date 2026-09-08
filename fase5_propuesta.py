@@ -546,6 +546,22 @@ CÓMO SE CALIFICA, y no son sinónimos:
   precepto o en el alcance que pide—. Prospera igual que el fundado: lo que
   cambia es que el proyecto acota en qué medida. Es el 23% de los agravios en
   las revisiones que revocan de este circuito, medido sobre su acervo.
+- SUSTANCIALMENTE FUNDADO: tiene razón en lo esencial de su planteamiento y
+  eso basta. Prospera. Medido: aparece en asuntos favorables el 97% de las
+  veces, más que el propio «fundado».
+- PARCIALMENTE FUNDADO: tiene razón en una parte de lo que plantea y no en
+  otra. Prospera en esa parte, y el proyecto acota cuál. Medido: 141 de sus
+  365 apariciones están en asuntos que conceden PARCIALMENTE.
+- FUNDADO PERO INSUFICIENTE: tiene razón Y AUN ASÍ NO ALCANZA, porque
+  subsisten otras consideraciones que sostienen el sentido. NO PROSPERA: en el
+  acervo aparece en asuntos favorables el 12% de las veces, igual que el
+  infundado. Es la calificación honesta cuando el planteamiento acierta y el
+  resultado no cambia; usarla en lugar de «infundado» reconoce el acierto sin
+  mover el fallo.
+- INATENDIBLE: no puede atenderse por CÓMO o CUÁNDO se plantea —es oscuro, no
+  se entiende qué combate, o llega fuera del momento procesal—, no por lo que
+  dice. Se distingue del inoperante: el inoperante SE ENTIENDE y no combate la
+  razón toral; el inatendible ni siquiera puede examinarse.
 - INOPERANTE: NO combate la razón toral —ataca algo que no sostiene el fallo,
   repite lo dicho en la instancia, o parte de una premisa falsa—. La
   inoperancia se razona: hay que decir POR QUÉ no combate.

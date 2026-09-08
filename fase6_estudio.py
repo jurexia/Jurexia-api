@@ -1221,6 +1221,23 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
   Una sola calificación —«es fundado», «es esencialmente fundado», «es
   infundado», «es inoperante», «es ineficaz»— y qué se sigue de ella.
 
+  · SUSTANCIALMENTE FUNDADO: tiene razón en lo esencial de su planteamiento y
+  eso basta. Prospera. Medido: aparece en asuntos favorables el 97% de las
+  veces, más que el propio «fundado».
+  · PARCIALMENTE FUNDADO: tiene razón en una parte de lo que plantea y no en
+  otra. Prospera en esa parte, y el proyecto acota cuál. Medido: 141 de sus
+  365 apariciones están en asuntos que conceden PARCIALMENTE.
+  · FUNDADO PERO INSUFICIENTE: tiene razón Y AUN ASÍ NO ALCANZA, porque
+  subsisten otras consideraciones que sostienen el sentido. NO PROSPERA: en el
+  acervo aparece en asuntos favorables el 12% de las veces, igual que el
+  infundado. Es la calificación honesta cuando el planteamiento acierta y el
+  resultado no cambia; usarla en lugar de «infundado» reconoce el acierto sin
+  mover el fallo.
+  · INATENDIBLE: no puede atenderse por CÓMO o CUÁNDO se plantea —es oscuro, no
+  se entiende qué combate, o llega fuera del momento procesal—, no por lo que
+  dice. Se distingue del inoperante: el inoperante SE ENTIENDE y no combate la
+  razón toral; el inatendible ni siquiera puede examinarse.
+
   ESENCIALMENTE FUNDADO no es un fundado tibio ni una forma de no mojarse: es
   el planteamiento que combate la razón toral y tiene razón EN LO SUSTANCIAL,
   aunque no en todos sus términos —se equivoca en un dato, en un precepto o en

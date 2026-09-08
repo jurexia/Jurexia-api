@@ -1362,7 +1362,16 @@ def _calificacion_plural(cs: list) -> str:
             unicos.append(c)
     if len(unicos) == 1:
         return _PLURAL[unicos[0]]
+    # «EN PARTE PARCIALMENTE FUNDADOS» NO SE ESCRIBE. Las calificaciones que ya
+    # llevan su propio matiz —«parcialmente fundados», «esencialmente
+    # fundados», «fundados pero insuficientes»— no admiten el «en parte»
+    # delante: se les antepone «unos» y «otros», que es como se dice.
+    _matiz = lambda c: any(x in _PLURAL[c] for x in
+                           ("parcialmente", "esencialmente", "sustancialmente",
+                            "pero insuficientes", "sin materia"))
     if len(unicos) == 2:
+        if _matiz(unicos[0]) or _matiz(unicos[1]):
+            return f"unos {_PLURAL[unicos[0]]} y otros {_PLURAL[unicos[1]]}"
         return f"en parte {_PLURAL[unicos[0]]} y en parte {_PLURAL[unicos[1]]}"
     return ", ".join(_PLURAL[c] for c in unicos[:-1]) + f" y {_PLURAL[unicos[-1]]}"
 
