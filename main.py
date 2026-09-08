@@ -15967,7 +15967,38 @@ async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
     """
     if not request.messages:
         raise HTTPException(status_code=400, detail="Se requiere al menos un mensaje")
-    
+
+    # ── LA PUERTA QUE FALTABA ─────────────────────────────────────────────
+    #
+    # Este endpoint era el ÚNICO de la familia sin comprobación de acceso.
+    # `_can_access_sentencia` se llama en trece endpoints hermanos; aquí no, y
+    # no por decisión de diseño sino por omisión: la interfaz sí comprueba
+    # —admin, Ultra Secretarios o la excepción del perfil— pero lo hace en el
+    # NAVEGADOR, y una comprobación en el navegador es una sugerencia.
+    #
+    # Resultado hasta hoy: cualquier usuario autenticado, de cualquier plan,
+    # podía llamar `/chat-sentencia` a mano y usar el chat de sentencias por
+    # una consulta el mensaje. La página le cerraba la puerta y la API se la
+    # abría.
+    #
+    # Se usa `_can_access_sentencia` y NO `_can_access_redactor_tcc` aunque el
+    # segundo sea el del taller. No son la misma puerta ni deben serlo: el
+    # taller es Platinum, y este chat es Ultra Secretarios. La interfaz ya
+    # dice eso mismo —«admin, Ultra Secretarios o la excepción del perfil»—,
+    # así que el servidor se limita a hacer cumplir lo que ya se promete. Un
+    # Platinum que hoy entrara por aquí saltándose la página deja de poder;
+    # lo que le corresponde es el taller, con sus cinco al día.
+    #
+    # Sin correo no se puede comprobar nada, y entonces NO se pasa. Antes el
+    # campo era opcional y nadie lo miraba; ahora su ausencia es un 403 y no
+    # una puerta franca.
+    if not _can_access_sentencia(request.user_email or ""):
+        raise HTTPException(
+            403,
+            "El chat de redacción de sentencias es una función de Ultra "
+            "Secretarios. Si tiene plan Platinum, su herramienta es el taller "
+            "de sentencias.")
+
     # ── Gemini API key check ──────────────────────────────────────────────
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if not gemini_key:
