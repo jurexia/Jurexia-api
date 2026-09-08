@@ -1957,6 +1957,19 @@ def _es_pregunta(t: str) -> bool:
 
 def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
+    # EL ESTUDIO ENTERO, PARA BUSCAR LAS FRACCIONES. El precepto se transcribe
+    # donde se le menciona por primera vez, y ahí casi nunca se dice qué
+    # fracción interesa: eso se razona páginas después.
+    #
+    # Medido en la revisión 410/2026: el artículo 79 se transcribió detrás de un
+    # párrafo que hablaba de otra cosa —«El asunto se ubica en el segundo
+    # supuesto propio de la materia administrativa…»—, así que no había ninguna
+    # fracción que leer y salió recortado a 180 palabras, cortado en la IV. Las
+    # fracciones VI y VII, que son sobre las que gira el razonamiento, no
+    # llegaron nunca al papel. Buscarlas sólo en el párrafo de al lado era
+    # mirar por la ventana equivocada.
+    _todo_estudio = " ".join(
+        str(x) for x in (estudio if isinstance(estudio, (list, tuple)) else [estudio]))
     citadas = 0
     ultima_tesis = None
     transcritos = set()
@@ -2038,9 +2051,15 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                 # fracción IV, JUSTO UNA ANTES de la que el estudio analizaba.
                 # El lector se queda sin ver el precepto en que se apoya el
                 # razonamiento que está leyendo.
+                # PRIMERO EL PÁRRAFO, LUEGO EL ESTUDIO. Si quien anuncia el
+                # precepto ya dice qué fracción le interesa, ésa manda: es la
+                # más específica. Si no dice nada —lo habitual—, se busca en
+                # todo el estudio, que es donde se razona.
+                _fr = _fracciones_citadas(t, num) or \
+                      _fracciones_citadas(_todo_estudio, num)
                 escribir_precepto(doc, n_.get("texto"),
                                   n_.get("cuerpo_legal") or n_.get("fuente") or "",
-                                  num, _fracciones_citadas(t, num))
+                                  num, _fr)
     return citadas
 
 
