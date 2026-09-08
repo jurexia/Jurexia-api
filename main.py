@@ -27838,7 +27838,8 @@ async def taller_consultar(
             r.encargo.coleccion_estatal = coleccion_estatal
     material = await _ra.consultar(
         qdrant_client, _embedding_juris,
-        lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r)
+        lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
+        chat_client)
     ses["material"] = material
     ses["consultado"] = True
     _taller_marcar_consultado(user_email, numero)
@@ -28007,7 +28008,7 @@ async def taller_proponer(
         ses["material"] = await _ra0.consultar(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            ses["resultado"])
+            ses["resultado"], chat_client)
 
     r = ses["resultado"]
     _puerta_oportunidad(r)
@@ -28200,7 +28201,7 @@ async def taller_resolver_stream(
         ses["material"] = await _ra0.consultar(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            ses["resultado"])
+            ses["resultado"], chat_client)
 
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
@@ -28510,7 +28511,7 @@ async def taller_resolver(
         ses["material"] = await _ra0.consultar(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            ses["resultado"])
+            ses["resultado"], chat_client)
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
 

@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import os
 import logging
 import re
 from typing import Awaitable, Callable, Optional
@@ -378,27 +380,115 @@ async def _sembrar(qdrant, silo: str, vector, materia: str) -> list:
     return fuera
 
 
+MODELO_CONSULTA = os.getenv("MODELO_CONSULTA", "gpt-5.6-luna")
+
+_PROMPT_CONCEPTO = """Eres secretario de un Tribunal Colegiado. Traduce el problema
+jurídico al lenguaje de los RUBROS del Semanario Judicial, que es como se indexa
+la jurisprudencia mexicana: sintagmas nominales en versales, la FIGURA JURÍDICA
+primero y sus notas después, sin verbos conjugados ni pronombres del caso.
+
+NO describas los hechos ni nombres a las partes. Nombra la INSTITUCIÓN que
+gobierna el punto.
+
+  problema:  ¿La responsable valoró indebidamente el dictamen pericial?
+  rubro:     PRUEBA PERICIAL. VALORACIÓN. FACULTADES DEL JUZGADOR
+
+Devuelve SÓLO un JSON, sin texto alrededor:
+{{"precisa": "<el rubro de la figura EXACTA del problema>",
+  "amplia":  "<el rubro del GÉNERO al que esa figura pertenece, para alcanzar
+              por analogía cuando no exista criterio sobre el caso concreto>"}}
+
+MATERIA: {materia}
+PROBLEMA: {problema}"""
+
+_RX_JSON_C = re.compile(r"\{.*\}", re.S)
+
+
+async def consulta_conceptual(cliente, problema: str, materia: str = "") -> dict:
+    """El problema, dicho como lo diría un rubro. Es LA palanca de la búsqueda.
+
+    POR QUÉ EXISTE. La colección v3 y el vector `rubro` son la configuración
+    ganadora medida —50% en primera posición frente al 35% de la v2— PERO sólo
+    con pregunta conceptual: con prosa, ese mismo vector es lo PEOR de todo lo
+    probado. Este fichero lo decía en su cabecera desde el principio y el
+    código mandaba la pregunta entera, con sus signos de interrogación.
+
+    Medido sobre los tres problemas de la revisión 410/2026, puntuación media
+    del top-10 contra el vector `rubro`:
+
+        pregunta tal cual .... 0.612 · 0.596 · 0.623
+        rubro «precisa» ...... 0.729 · 0.776 · 0.736
+        rubro «amplia» ....... 0.674 · 0.725 · 0.820
+
+    Y no es sólo puntuación: con la pregunta cruda, el problema del
+    emplazamiento devolvía seis tesis sobre el JUICIO DE NULIDAD y ninguna
+    sobre TERCERO EXTRAÑO POR EQUIPARACIÓN, que es la figura que lo decide. El
+    problema de la suplencia devolvía «INCONFORMIDAD. LA SUPREMA CORTE DEBE
+    SUPLIR LA QUEJA DEFICIENTE…», que David tachó del proyecto porque no
+    aplicaba: no fue capricho del modelo, se la dio la búsqueda.
+
+    QUITAR EL ANDAMIO NO BASTA —medido: 0.604 frente a 0.612, y cero
+    coincidencias con lo que trae la conceptual—. No es una resta: es una
+    traducción, y hay que formularla.
+
+    LAS DOS CONSULTAS, y la segunda es la que pidió David: «si no la hay,
+    existe una tesis que resuelve por analogía». La «amplia» busca el GÉNERO
+    de la figura, y en el problema 3 puntuó más alto que la precisa (0.820) y
+    trajo obligatorias distintas.
+    """
+    if cliente is None or not (problema or "").strip():
+        return {}
+    kw = dict(model=MODELO_CONSULTA, max_completion_tokens=4000,
+              reasoning_effort="low",
+              messages=[{"role": "user", "content": _PROMPT_CONCEPTO.format(
+                  materia=materia or "no consta", problema=problema)}])
+    try:
+        import llamada_modelo as _lm
+        r = await _lm.crear(cliente, **kw)
+        m = _RX_JSON_C.search((r.choices[0].message.content or "").strip())
+        d = json.loads(m.group(0)) if m else {}
+        return {k: str(d.get(k, ""))[:220] for k in ("precisa", "amplia")
+                if str(d.get(k, "")).strip()}
+    except Exception as e:
+        # SE SIGUE CON LA PREGUNTA CRUDA. Peor búsqueda, pero búsqueda: que se
+        # caiga el traductor no puede dejar al secretario sin acervo.
+        print(f"   ⚠️ RAG: no se pudo formular la consulta conceptual: "
+              f"{type(e).__name__}")
+        return {}
+
+
 async def material_para(qdrant, embed_juris, embed_leyes,
                         problema: str, coleccion_estatal: Optional[str] = None,
-                        materia: str = "") -> f6.Material:
+                        materia: str = "", cliente=None) -> f6.Material:
     """El material verificado para UN problema jurídico.
 
     `embed_juris` vectoriza con el modelo de la v3 (3072 dim) y `embed_leyes`
     con el de las colecciones de leyes: son modelos distintos y cruzarlos
     devuelve ruido con buena puntuación, que es la peor clase de error.
     """
-    v_juris, v_leyes = await asyncio.gather(embed_juris(problema),
-                                            embed_leyes(problema))
+    # LAS TRES ANCLAS. La pregunta cruda se conserva como red —si el traductor
+    # falla, la búsqueda sigue siendo la de siempre— y sobre ella se suman las
+    # dos conceptuales, que son las que de verdad alcanzan el rubro.
+    #
+    # Es el mismo patrón que ya estaba medido en el chat: «con una sola ancla,
+    # 2 de 3; con las dos, 5 de 5».
+    _c = await consulta_conceptual(cliente, problema, materia)
+    anclas = [x for x in (_c.get("precisa"), _c.get("amplia"), problema) if x]
+    _vs = await asyncio.gather(*[embed_juris(a) for a in anclas],
+                               embed_leyes(problema))
+    v_leyes = _vs[-1]
+    v_juris = _vs[0]
 
     # EL SILO SUSTITUYE, NO SE SUMA: si se buscara también en el corpus general
     # volvería a entrar la ley ajena por la puerta de atrás, que es justo lo que
     # el silo existe para cerrar.
     silo = SILO_POR_MATERIA.get((materia or "").strip().lower())
     colecciones = [silo] if silo else [c for c in (coleccion_estatal, COLECCION_FEDERAL) if c]
-    tareas = [_buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v_juris,
-                      TESIS_POR_PROBLEMA * 2)]
+    tareas = [_buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v,
+                      TESIS_POR_PROBLEMA * 2) for v in _vs[:-1]]
     tareas += [_buscar(qdrant, c, "dense", v_leyes, NORMAS_POR_PROBLEMA)
                for c in colecciones]
+    # (res[:n_anclas] son las tesis; res[n_anclas:] son las normas)
     res = await asyncio.gather(*tareas)
 
     # EL ORDEN, CORREGIDO. La primera versión de esto penalizaba la tesis por
@@ -415,7 +505,16 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     #      artículo 217 y la legislación que interpretó es irrelevante.
     #   2. Que sea obligatoria.
     #   3. A igualdad de lo anterior, antes la de Querétaro que la de fuera.
-    tesis = [_tesis_de(p) for p in res[0]]
+    # LAS TRES LISTAS SE FUNDEN, sin repetir registro. El orden de mérito lo
+    # pone el criterio de abajo, no el ancla por la que entró.
+    _crudo, _vistos = [], set()
+    for lista in res[:len(_vs) - 1]:
+        for p in lista:
+            t = _tesis_de(p)
+            if t["registro"] and t["registro"] not in _vistos:
+                _vistos.add(t["registro"])
+                _crudo.append(t)
+    tesis = _crudo
     tesis.sort(key=lambda t: (not _es_scjn(t),
                               not t["obligatoria"],
                               _de_otro_estado(t, coleccion_estatal)))
@@ -432,7 +531,10 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     # rehacer `normas` desde `res`. Dos arreglos míos del mismo día, cada uno
     # correcto por su cuenta, peleándose.
     pares = []
-    for grupo, col in zip(res[1:], colecciones):
+    # LAS NORMAS EMPIEZAN DONDE ACABAN LAS ANCLAS. Esto decía `res[1:]`, que
+    # era correcto con UNA búsqueda de tesis; con tres anclas, `res[1]` y
+    # `res[2]` son tesis y se colaban como si fueran leyes.
+    for grupo, col in zip(res[len(_vs) - 1:], colecciones):
         pares += [(col, _norma_de(p)) for p in grupo]
 
     # LO SEMBRADO VA DELANTE. Son los artículos que los tribunales usaron de
@@ -456,7 +558,7 @@ async def material_para(qdrant, embed_juris, embed_leyes,
 async def material_del_caso(qdrant, embed_juris, embed_leyes,
                             problemas: list[str],
                             coleccion_estatal: Optional[str] = None,
-                            materia: str = "") -> f6.Material:
+                            materia: str = "", cliente=None) -> f6.Material:
     """Un solo Material con lo de TODOS los problemas, sin repetir tesis.
 
     El estudio se escribe de una vez —es una sola pieza de prosa— así que el
@@ -474,7 +576,7 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
 
     partes = await asyncio.gather(*[
         material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal,
-                      materia)
+                      materia, cliente)
         for p in preguntas])
 
     tesis, normas = [], []
