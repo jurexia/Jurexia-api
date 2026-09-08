@@ -1276,21 +1276,52 @@ TECNICA_RESOLUCION = {
             "sobreseimiento y no resuelve nada.",
     },
 
-    # ── REVISIÓN: lo que ya no se puede tocar ─────────────────────────────
+    # ── REVISIÓN: lo que queda fuera, y son DOS figuras distintas ─────────
+    #
+    # Las tenía yo mezcladas en una sola regla. David las deslindó, y la
+    # diferencia está en si la parte perjudicada ACUDIÓ o no al recurso:
+    #
+    #   · no acudió ................ NO ES MATERIA DEL RECURSO
+    #   · acudió y no lo impugnó ... QUEDA FIRME
+    #
+    # No son sinónimos ni se dicen igual en el proyecto, y confundirlas es de
+    # las cosas que un revisor marca a la primera.
+    "revision_no_es_materia": {
+        "cuando": "Hay consideraciones —y el resolutivo ligado a ellas— que "
+                  "perjudican a una parte que NO ACUDIÓ a la revisión. El caso "
+                  "típico: se concedió el amparo a una persona y la autoridad "
+                  "responsable, a quien esa concesión perjudica, no recurre.",
+        "fuente": "artículo 93 de la Ley de Amparo; la materia del recurso la "
+                  "fija quien recurre",
+        "tecnica": [
+            "ESAS CONSIDERACIONES NO SON MATERIA DEL RECURSO, y así se dice, "
+            "con esas palabras. No se estudian, no se confirman y no se "
+            "revocan: quedan fuera porque nadie las trajo.",
+            "SE DICE AUNQUE PERJUDIQUEN A QUIEN NO VINO. Que la concesión "
+            "afecte a la autoridad responsable no autoriza a revisarla si ella "
+            "se conformó: el tribunal no puede empeorar la situación de quien "
+            "ganó, en perjuicio de quien no recurrió.",
+            "Y SE HACE CONSTAR EXPRESAMENTE, señalando qué consideraciones y "
+            "qué resolutivo quedan fuera. Callarlo se lee como omisión de "
+            "estudio.",
+        ],
+    },
     "revision_firmeza": {
-        "cuando": "Siempre, en toda revisión.",
+        "cuando": "La parte recurrente SÍ acudió a la revisión, pero no "
+                  "impugna algunas de las consideraciones que le afectan y "
+                  "sólo combate otras que también le afectan.",
         "fuente": "principio de estricto derecho del recurso; artículo 93 de "
                   "la Ley de Amparo",
         "tecnica": [
-            "LO NO RECURRIDO NO SE TOCA. La materia de la revisión la fijan "
-            "los agravios: lo que resolvió el juzgado y nadie combatió queda "
-            "FIRME y rige el sentido, aunque el tribunal lo crea equivocado.",
-            "Y SE DICE. Cuando una consideración queda firme por no haberse "
-            "combatido, el proyecto lo hace constar y explica que por eso no "
-            "se examina. Callarlo se lee como omisión de estudio.",
-            "LO QUE PERJUDICA A QUIEN NO RECURRIÓ queda igualmente firme "
-            "frente a él: no se puede mejorar la situación de quien se "
-            "conformó con la sentencia.",
+            "LAS CONSIDERACIONES NO IMPUGNADAS QUEDAN FIRMES, y rigen el "
+            "sentido aunque el tribunal las crea equivocadas. Quien pudo "
+            "combatirlas vino al recurso y eligió no hacerlo.",
+            "SE DICE CUÁLES. El proyecto identifica las consideraciones que "
+            "quedan firmes y explica que por eso no se examinan. No basta con "
+            "no mencionarlas: eso se lee como omisión de estudio.",
+            "NO SE CONFUNDE CON LO QUE NO ES MATERIA DEL RECURSO. Aquí la "
+            "parte SÍ acudió; allá no acudió. Son dos figuras y se nombran "
+            "distinto.",
         ],
     },
 
@@ -1326,6 +1357,10 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
     t = normalizar(tipo)
     fuera = []
     if t == "amparo_revision":
+        # LAS DOS SE DAN SIEMPRE en revisión: cuál aplica depende de quién
+        # acudió al recurso, y eso lo sabe el modelo leyendo el expediente, no
+        # el catálogo. Se le dan las dos con su deslinde para que elija.
+        fuera.append(TECNICA_RESOLUCION["revision_no_es_materia"])
         fuera.append(TECNICA_RESOLUCION["revision_firmeza"])
         if rama.startswith("revoca_sobreseimiento"):
             fuera.append(TECNICA_RESOLUCION["revision_levanta_sobreseimiento"])
