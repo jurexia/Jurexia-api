@@ -16271,7 +16271,31 @@ class ReingestRequest(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-ADMIN_EMAILS = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+
+# ── QUIÉN ES DE LA CASA ──────────────────────────────────────────────────
+#
+# UNA SOLA DEFINICIÓN, y hubo que arreglarlo para poder añadir un correo.
+# `ADMIN_EMAILS` estaba ligado DOS VECES: aquí, desde la variable de entorno,
+# y otra vez ~7.800 líneas más abajo como `{"administracion@iurexia.com"}`.
+# La segunda pisaba a la primera, así que la variable de entorno no hacía
+# nada y llevaba tiempo sin hacerlo, en silencio: quien la configurara en
+# Render habría jurado que funcionaba.
+#
+# Esto gobierna ONCE sitios, y no todos son del mismo peso. Entre ellos el
+# PANEL DE ADMINISTRACIÓN (`_verify_admin`) y `/admin/uso-colecciones`.
+# Añadir un correo aquí no es dar acceso a una función: es dar las llaves.
+#
+# La base fija va en el código y no sólo en el entorno a propósito: si un día
+# la variable se borra o llega vacía, la casa no se queda fuera de su propio
+# panel.
+ADMIN_EMAILS = {
+    "administracion@iurexia.com",
+    "jdm.juridico@gmail.com",       # José David — dueño
+} | {
+    e.strip().lower()
+    for e in os.getenv("ADMIN_EMAILS", "").split(",")
+    if e.strip()
+}
 
 # ── Subscription-aware access check for Redactor ─────────────────────────────
 def _can_access_sentencia(user_email: str) -> bool:
@@ -24069,7 +24093,10 @@ async def merge_sentencia_docx(
 
 from fastapi import Header
 
-ADMIN_EMAILS = {"administracion@iurexia.com"}
+# `ADMIN_EMAILS` se define UNA sola vez, junto a GEMINI_API_KEY. Aquí había
+# una segunda ligadura que pisaba a aquélla y dejaba muerta la variable de
+# entorno; se quitó al añadir el correo del dueño, porque con dos definiciones
+# no hay forma de saber cuál manda sin leer las 7.800 líneas de en medio.
 
 async def _verify_admin(authorization: str = Header(...)) -> dict:
     """Verify JWT token and check if email is in admin whitelist."""
@@ -24079,7 +24106,10 @@ async def _verify_admin(authorization: str = Header(...)) -> dict:
         token = authorization.replace("Bearer ", "")
         user_resp = supabase_admin.auth.get_user(token)
         user = user_resp.user
-        if not user or user.email not in ADMIN_EMAILS:
+        # `.lower()`: la lista se guarda en minúsculas y el correo que devuelve
+        # Supabase no tiene por qué venir así. Sin esto, un administrador que
+        # se registró con una mayúscula queda fuera de su propio panel.
+        if not user or (user.email or "").strip().lower() not in ADMIN_EMAILS:
             raise HTTPException(status_code=403, detail="Acceso denegado")
         return {"id": user.id, "email": user.email}
     except HTTPException:
