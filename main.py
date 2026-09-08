@@ -27156,7 +27156,17 @@ async def taller_tipos():
             # responsable» en un recurso donde no hay ninguna. Si el servidor
             # las corrige y la pantalla las sigue pidiendo con el nombre viejo,
             # el secretario teclea una cosa y firma otra.
-            "caratula": [{"etiqueta": et, "clave": cl, "obligatoria": ob}
+            # LA ETIQUETA, YA LEGIBLE. El catálogo guarda «{QUEJOSO_A} Y
+            # RECURRENTE» —un molde que se concuerda con el nombre de quien
+            # promueve al componer el documento— y aquí se mandaba tal cual: la
+            # ficha pintaba el marcador literal «{QUEJOSO_A} Y RECURRENTE» y el
+            # secretario leía una llave y un guión bajo en su formulario.
+            #
+            # En la ficha todavía no se sabe el nombre —es justo lo que se está
+            # pidiendo—, así que va la forma neutra, que es la que el propio
+            # catálogo tiene prevista para cuando no consta.
+            "caratula": [{"etiqueta": _ta.etiqueta_concordada(et, ""),
+                          "clave": cl, "obligatoria": ob}
                          for et, cl, ob in _ta.caratula_de(clave)],
             "excepciones_de_plazo": [
                 {"clave": e["clave"], "cuando": e["cuando"],
