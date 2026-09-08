@@ -2023,6 +2023,47 @@ def partir_efectos(estudio: list) -> tuple:
     return cuerpo, efectos
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# EL ESTUDIO DE LOS CONCEPTOS DE VIOLACIÓN ES UN CONSIDERANDO, NO UN SUBTÍTULO
+# ══════════════════════════════════════════════════════════════════════════
+# David: «implementa el considerando con su ordinal para los conceptos de
+# violación».
+#
+# Cuando la revisión levanta el sobreseimiento, el colegiado asume jurisdicción
+# (artículo 93, fracción I) y resuelve lo que el juzgado no resolvió. El prompt
+# ya le pedía al modelo abrir «un apartado nuevo», y el modelo lo abría —pero
+# como subtítulo en negrita DENTRO del Estudio, porque ahí es donde el
+# compositor mete todo lo que devuelve. Un subtítulo no es un considerando: no
+# lleva ordinal, y en un engrose el ordinal es lo que dice que ahí empieza otra
+# cosa que se resolvió.
+#
+# NO SE LE PIDE AL MODELO QUE NUMERE. Los ordinales se calculan al final sobre
+# la lista de apartados —esa regla ya estaba y es la buena—; lo único que
+# faltaba era que este estudio ENTRARA en la lista en vez de quedarse dentro
+# del apartado anterior. Se corta por donde el propio modelo puso el rótulo.
+_RX_SUB_CONCEPTOS = re.compile(
+    r"^\s*(?:\*\*|__)?\s*(?:[IVXLC]+\.|\d{1,2}[.)])?\s*"
+    r"(?:estudio\s+de\s+los\s+|an[áa]lisis\s+de\s+los\s+|los\s+)?"
+    r"conceptos\s+de\s+violaci[óo]n\s*(?:\*\*|__)?\s*[.:]?\s*$", re.I)
+
+
+def partir_conceptos(cuerpo: list) -> tuple:
+    """(estudio de los agravios, estudio de los conceptos de violación).
+
+    El segundo va vacío salvo que el modelo haya abierto el apartado, que es
+    sólo cuando el recurso levanta el sobreseimiento. Si detrás del rótulo no
+    hay cuerpo de verdad —dos párrafos al menos— no se parte: más vale un
+    subtítulo suelto que un considerando hueco con su ordinal gastado.
+    """
+    for i, t in enumerate(cuerpo or []):
+        if _RX_SUB_CONCEPTOS.match((t or "").strip()):
+            resto = [x for x in cuerpo[i + 1:] if (x or "").strip()]
+            if len(resto) >= 2:
+                return list(cuerpo[:i]), resto
+            break
+    return list(cuerpo or []), []
+
+
 # LA PREGUNTA QUE FIJA LA CUESTIÓN NO SE DESCARTA POR CORTA. El compositor
 # tira los párrafos de menos de seis palabras —restos de un corte, coletillas
 # sueltas— y «1. ¿Era aplicable ese criterio?» son cinco. Habría pedido la
@@ -2276,12 +2317,87 @@ def _pagina(doc):
     normal = doc.styles["Normal"]
     normal.font.name = FUENTE
     normal.font.size = TAMANO
+    # EL INTERRUPTOR DE PAR/IMPAR VIVE EN settings.xml, y python-docx no lo
+    # expone. Sin él, Word ignora el encabezado de página par por mucho que
+    # esté escrito en el fichero: se define y no se usa.
+    _ajustes = doc.settings.element
+    from docx.oxml.ns import qn as _qn
+    if _ajustes.find(_qn("w:evenAndOddHeaders")) is None:
+        _ajustes.append(OxmlElement("w:evenAndOddHeaders"))
     return s
 
 
+def _campo_pagina(p):
+    """El número de página como CAMPO de Word, no como número escrito.
+
+    Un número escrito es correcto sólo hasta que el secretario añade un
+    párrafo. El campo lo recalcula Word.
+    """
+    from docx.oxml.ns import qn
+    for instr, prop in (("begin", None), (None, "PAGE"), ("end", None)):
+        r = p.add_run()._r
+        if prop is None:
+            f = OxmlElement("w:fldChar")
+            f.set(qn("w:fldCharType"), instr)
+            r.append(f)
+        else:
+            t = OxmlElement("w:instrText")
+            t.set(qn("xml:space"), "preserve")
+            t.text = " PAGE "
+            r.append(t)
+
+
 def _encabezado(doc, texto):
+    """El encabezado y el pie, con el formato que se imprime a doble cara.
+
+    ══════════════════════════════════════════════════════════════════════
+    LO QUE PEDÍA DAVID Y LO QUE DE VERDAD FALTABA
+    ══════════════════════════════════════════════════════════════════════
+    David: «me gustaría que el formato, en cuanto a la impresión se refiere,
+    sea exactamente igual al de mi engrose. Porque, como verás, cuando hay
+    saltos de página, como se imprime por ambas caras, la sangría cambia».
+
+    Lo primero que miré fueron los márgenes, y ahí no estaba: medidos los 30
+    engroses de la carpeta, el nuestro ya coincidía con el suyo —21.59 × 34.04,
+    izquierda 5, derecha 2, superior e inferior 3— y NINGUNO de los treinta usa
+    márgenes en espejo. El documento generado y el suyo tenían la misma caja.
+
+    La diferencia estaba en el encabezado, y es exactamente lo que él describe:
+
+        evenAndOddHeaders ....... 29 de 30 engroses (97%)
+        primera página distinta .. 29 de 30 (97%)
+        pie con número de página . 27 de 30 (90%)
+        ese número, centrado ..... 56 de 58 pies
+
+    Word alterna el encabezado entre página par e impar, y por eso «la sangría
+    cambia» al pasar la hoja: el rótulo del expediente se va al canto exterior,
+    que en el anverso está a la derecha y en el reverso a la izquierda. El
+    documento generado ponía el MISMO encabezado en las tres —y sin número de
+    página—, así que impreso por ambas caras no cuadraba con nada y había que
+    copiarlo a una hoja con formato, que es justo el trabajo que sobra.
+
+    LA ALINEACIÓN DEL PAR NO LA DECIDE LA MAYORÍA. Emparejando dentro de cada
+    documento sale 10 veces derecha→izquierda, 10 veces derecha→centro, 5
+    derecha→derecha y 4 centro→centro: empate. Se elige derecha→izquierda
+    porque es la única de las cuatro que ALTERNA, y alternar es lo que él pide.
+    """
     for s in doc.sections:
-        for parte in (s.header, s.first_page_header, s.even_page_header):
+        # LA PRIMERA PÁGINA NO LLEVA ENCABEZADO —22 de los 29 la dejan vacía—:
+        # ahí va la carátula, y un rótulo encima estorba.
+        s.different_first_page_header_footer = True
+        # LA PRIMERA PÁGINA, VACÍA Y DECLARADA. Si no se tocan, python-docx no
+        # escribe esas dos partes y Word decide por su cuenta qué enseñar. Se
+        # crean en blanco, que es como están en el engrose: 22 de los 29 llevan
+        # el encabezado de la primera página vacío, y su pie tampoco numera.
+        for _primera in (s.first_page_header, s.first_page_footer):
+            if _primera is None:
+                continue
+            _pp = (_primera.paragraphs[0] if _primera.paragraphs
+                   else _primera.add_paragraph())
+            _pp.text = ""
+            _pp.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for parte, alineacion in ((s.header, WD_ALIGN_PARAGRAPH.RIGHT),
+                                  (s.even_page_header, WD_ALIGN_PARAGRAPH.LEFT)):
             if parte is None:
                 continue
             p = parte.paragraphs[0] if parte.paragraphs else parte.add_paragraph()
@@ -2291,7 +2407,18 @@ def _encabezado(doc, texto):
             r.font.name = FUENTE
             r.font.size = Pt(11)
             r.font.color.rgb = RGBColor.from_string(GRIS_CABECERA)
-            p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.alignment = alineacion
+        for pie in (s.footer, s.even_page_footer):
+            if pie is None:
+                continue
+            p = pie.paragraphs[0] if pie.paragraphs else pie.add_paragraph()
+            p.text = ""
+            p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _campo_pagina(p)
+            for r in p.runs:
+                r.font.name = FUENTE
+                r.font.size = Pt(11)
+                r.font.color.rgb = RGBColor.from_string(GRIS_CABECERA)
 
 
 # LOS NOMBRES DE PILA FEMENINOS MÁS COMUNES EN EL PODER JUDICIAL no son una
@@ -2484,6 +2611,40 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
     return _avisos
 
 
+def _bloque_sintesis(doc, sintesis: dict) -> bool:
+    """La última página: la síntesis con forma de tesis del Semanario.
+
+    Va en hoja aparte porque es lo que la vuelve una PORTADA —se desprende y
+    encabeza la carpeta que se circula—, y porque en los 23 proyectos del
+    corpus que la llevan está siempre al final, detrás de todo.
+
+    Devuelve False si no hay síntesis: entonces el documento conserva las dos
+    firmas de siempre. La regresión que hay que evitar aquí no es una portada
+    fea, es un proyecto que se queda sin pie.
+    """
+    if not (sintesis or {}).get("titulo"):
+        return False
+    doc.add_page_break()
+    parrafo(doc, "SÍNTESIS", sangria=False, negrita=True,
+            alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+    parrafo(doc, "", sangria=False)
+    # EL TÍTULO EN VERSALES Y JUSTIFICADO, como los 23 medidos.
+    parrafo(doc, sintesis["titulo"].rstrip(".") + ".", sangria=False,
+            negrita=True)
+    for etiqueta, clave in (("Hechos: ", "hechos"),
+                            ("Criterio jurídico: ", "criterio"),
+                            ("Justificación: ", "justificacion")):
+        if not sintesis.get(clave):
+            continue
+        parrafo(doc, "", sangria=False)
+        _p = doc.add_paragraph()
+        _r = _p.add_run(etiqueta)
+        _r.bold = True
+        _p.add_run(sintesis[clave])
+        _fmt(_p, sangria=False)
+    return True
+
+
 def _bloque_firmas(doc, datos):
     # SIN LA BARRA, igual que en la carátula. Se me escapó aquí al arreglarla
     # arriba: el mismo documento decía «SECRETARIO:» en el rubro y
@@ -2504,7 +2665,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
              calificaciones=None, tesis=None, marco_escrito="",
-             tipo_asunto="amparo_directo", normas=None, criterios=None) -> str:
+             tipo_asunto="amparo_directo", normas=None, criterios=None,
+             sintesis=None) -> str:
     """Escribe el .docx entero. No hay plantilla de la que partir."""
     doc = docx.Document()
     notas: list = []
@@ -3174,6 +3336,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # EL ESTUDIO. Es el ÚLTIMO considerando salvo que detrás vaya Efectos, y
     # lleva dentro los subtítulos en negrita, sin ordinal.
     _cuerpo_estudio, _efectos_escritos = partir_efectos(estudio or [])
+    _cuerpo_estudio, _cuerpo_conceptos = partir_conceptos(_cuerpo_estudio)
+
+    def _cierre_del_estudio():
+        if not concede:
+            parrafo(doc, _ta.parrafo_cierre(tipo_asunto, False))
+        elif not _ta.cierre_de(tipo_asunto)["efectos"]:
+            parrafo(doc, _ta.parrafo_cierre(tipo_asunto, True,
+                                            _calificacion_plural(cs)))
 
     def _estudio(p):
         calif = _calificacion_plural(cs)
@@ -3233,11 +3403,15 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # directo, que lleva su apartado de «Efectos». Ponerlo en un apartado
         # propio para los recursos correría el ordinal y dejaría el Estudio
         # donde el corpus no lo tiene.
-        if not concede:
-            parrafo(doc, _ta.parrafo_cierre(tipo_asunto, False))
-        elif not _ta.cierre_de(tipo_asunto)["efectos"]:
-            parrafo(doc, _ta.parrafo_cierre(tipo_asunto, True,
-                                            _calificacion_plural(cs)))
+        # EL CIERRE VA DONDE TERMINA DE RESOLVERSE EL ASUNTO. Si detrás hay
+        # un considerando de conceptos de violación, escribirlo aquí anuncia
+        # el desenlace ANTES de estudiar aquello de lo que depende: el
+        # documento diría «procede conceder el amparo» y acto seguido se
+        # pondría a examinar si los conceptos son fundados. Es la misma
+        # incongruencia del resolutivo que negaba lo que el estudio concedía,
+        # entrando por otra puerta.
+        if not _cuerpo_conceptos:
+            _cierre_del_estudio()
 
     # ═══════════════════════════════════════════════════════════════════════
     # SI EL CÓMPUTO DA EXTEMPORÁNEA, NO HAY FONDO
@@ -3298,6 +3472,22 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
         con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",
                               _estudio))
+
+        # EL CONSIDERANDO DE LOS CONCEPTOS DE VIOLACIÓN, CON SU ORDINAL.
+        if _cuerpo_conceptos:
+            def _conceptos_ap(p):
+                _texto_en(p, _cuerpo_conceptos[0])
+                # EL REMATE DEL MODELO SE PODA AQUÍ TAMBIÉN. El apartado de
+                # los agravios ya pasaba por esta poda; el de los conceptos
+                # nació sin ella y el documento cerraba dos veces —«lo
+                # procedente es conceder el amparo» y, debajo, la fórmula
+                # compuesta diciendo lo mismo—. Es el mismo defecto que se
+                # arregló arriba, entrando por el apartado nuevo.
+                _escribir_estudio(doc, _sin_remate_duplicado(_cuerpo_conceptos[1:]),
+                                  tesis, notas, normas)
+                _cierre_del_estudio()
+            con_apartados.append(("Estudio de los conceptos de violación.",
+                                  _conceptos_ap))
 
     # EL APARTADO DE EFECTOS ES DEL AMPARO. «Procede conceder el amparo y
     # protección de la Justicia Federal para el efecto de que la responsable
@@ -3530,7 +3720,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
 
     parrafo(doc, _res["notif"], sangria=True)
 
-    _bloque_firmas(doc, datos)
+    # DAVID: «en lugar de poner los dos nombres hasta abajo del proyecto del
+    # secretario y del magistrado, eso no sirve, hay que generar esta portada
+    # del proyecto que trae la síntesis».
+    #
+    # No se pierde ningún dato: los dos nombres siguen en la carátula, arriba,
+    # que es donde el lector los busca. Abajo sólo se repetían.
+    if not _bloque_sintesis(doc, sintesis or {}):
+        _bloque_firmas(doc, datos)
     # RED DE SEGURIDAD. Si alguna marca sobrevivió a todo lo anterior —porque el
     # modelo la escribió de una forma que no previmos—, se borra antes de
     # guardar. El andamio no sale al papel, y punto.

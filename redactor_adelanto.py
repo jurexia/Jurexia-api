@@ -1165,6 +1165,24 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.
     est = estructura_previa or await dg.redactar_estructura(cliente, datos)
+
+    # LA SÍNTESIS DE LA PORTADA. Se pide con el estudio YA REDACTADO, no con
+    # los datos del asunto: una síntesis escrita antes del estudio resumiría lo
+    # que se pensaba resolver, no lo que se resolvió, y es justo el desajuste
+    # que hace inservible un resumen. Si falla, el documento sale sin ella.
+    _sint = {}
+    try:
+        import fase_sintesis as _fs
+        _sint = await _fs.sintetizar(
+            cliente,
+            tipo_asunto=(getattr(e, "tipo_asunto", "") or ""),
+            expediente=(getattr(e, "numero", "") or ""),
+            quejoso=(getattr(e, "quejoso", "") or ""),
+            sentido=str(getattr(relleno, "calificaciones", "") or ""),
+            estudio="\n\n".join(relleno.estudio or []))
+    except Exception:
+        _sint = {}
+
     ruta = dg.componer(
         datos, est, computo, _f0.fecha_en_letra, ruta_salida,
         antecedentes=relleno.antecedentes,
@@ -1183,7 +1201,8 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
         # LAS PREGUNTAS, para que el compositor las escriba. El pipeline ya
         # las tenía y no llegaban al documento; se pasan aquí porque componer
         # es lo único que garantiza que salgan.
-        criterios=criterios)
+        criterios=criterios,
+        sintesis=_sint)
     avisos = list(est.avisos)
     if not e.tribunal:
         avisos.append(
