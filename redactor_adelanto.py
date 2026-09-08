@@ -80,6 +80,12 @@ class Encargo:
     # LA MATERIA, DECLARADA. Decide el silo del RAG y el filtro del sondeo de
     # precedentes. Vacía = se deduce del tribunal y del encabezado, como antes.
     materia: str = ""
+    # LOS CONCEPTOS DE VIOLACIÓN, cuando el recurso va a levantar un
+    # sobreseimiento. Entonces el colegiado asume jurisdicción y tiene que
+    # estudiarlos por primera vez —artículo 93, fracción I— y NO CONSTAN en el
+    # expediente del recurso: sólo aparecen si la sentencia recurrida los
+    # relató. Los aporta el secretario.
+    conceptos_violacion: str = ""
 
 
 @dataclass
@@ -682,7 +688,8 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # Se calculaba, se enseñaba en pantalla y no llegaba hasta aquí:
             # `Global.bloque()` no lo llamaba nadie.
             propuesta_global=getattr(e, "propuesta_global", None),
-            rama=_rama, violacion_procesal=_vp)
+            rama=_rama, violacion_procesal=_vp,
+            conceptos_violacion=getattr(e, "conceptos_violacion", "") or "")
 
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
@@ -707,7 +714,8 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
             criterios, material, e.es_recurso, r.partes, marco, contexto,
             propuesta_global=getattr(e, "propuesta_global", None),
-            rama=_rama, violacion_procesal=_vp):
+            rama=_rama, violacion_procesal=_vp,
+            conceptos_violacion=getattr(e, "conceptos_violacion", "") or ""):
         if paso.get("tipo") == "texto":
             yield paso
         else:

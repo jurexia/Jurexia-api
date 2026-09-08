@@ -28076,6 +28076,31 @@ async def taller_proponer(
     # atienda el /taller/resolver siguiente —por eso el cliente lo devuelve—,
     # pero si cae en el mismo sale gratis y el secretario no tiene que mandar
     # nada.
+    # ¿ESTE RECURSO VA A LEVANTAR UN SOBRESEIMIENTO? Entonces el colegiado
+    # asume jurisdicción y tiene que estudiar los CONCEPTOS DE VIOLACIÓN por
+    # primera vez —artículo 93, fracción I—. Y ésos NO constan en el expediente
+    # del recurso: sólo aparecen si la sentencia recurrida los relató.
+    #
+    # Se avisa AQUÍ, cuando el secretario está decidiendo el sentido, y no al
+    # generar: si se entera al final, ya pagó el estudio y el proyecto levanta
+    # el sobreseimiento sin resolver nada.
+    try:
+        import tipos_asunto as _ta_c, fase_rama as _fr_c
+        if _ta_c.normalizar(getattr(r.encargo, "tipo_asunto", "")) == "amparo_revision":
+            _que_hizo_aq = _fr_c.resolvio_a_quo(
+                "", "\n".join(r.fases.antecedentes or []),
+                declarado=str((_glob_ctx := (getattr(glob, "contexto", None) or {})).get("resolvio", "")))
+            _prospera_g = str(glob.sentido or "").startswith("fundad")
+            if _que_hizo_aq == "sobresee" and _prospera_g:
+                _rama_c = _ta_c.rama_revision(_que_hizo_aq, "fundado")
+                _regla = next((x for x in _ta_c.tecnica_de("amparo_revision", _rama_c)
+                               if x.get("necesita") == "conceptos_de_violacion"), None)
+                if _regla and not str(getattr(r.encargo, "conceptos_violacion", "")).strip():
+                    avisos.insert(0, _regla["aviso_si_falta"])
+    except Exception as _e:
+        print(f"   ⚠️ TALLER: no se pudo comprobar la rama de sobreseimiento: "
+              f"{type(_e).__name__}")
+
     ses["global"] = glob
     _taller_registrar_uso(user_email, numero, "propuesta")
     print(f"   ⚖️ TALLER: propuesta {numero} · {len(propuestas)} sentidos · "
@@ -28172,6 +28197,10 @@ async def taller_resolver_stream(
     # `Global.bloque()` no lo llamaba nadie. El estudio escribía el
     # razonamiento sin saber cuál era la objeción que tenía que vencer.
     global_json: str = Form(""),
+    # LOS CONCEPTOS DE VIOLACIÓN, para cuando el recurso levanta un
+    # sobreseimiento y hay que estudiarlos por primera vez. No constan en el
+    # expediente del recurso: los aporta el secretario.
+    conceptos_violacion: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -28232,6 +28261,8 @@ async def taller_resolver_stream(
             r.encargo.resolvio_declarado = _decl
         if _glob:
             r.encargo.propuesta_global = _glob
+        if (conceptos_violacion or "").strip():
+            r.encargo.conceptos_violacion = conceptos_violacion.strip()
 
     _puerta_oportunidad(r)
 
@@ -28492,6 +28523,10 @@ async def taller_resolver(
     # `Global.bloque()` no lo llamaba nadie. El estudio escribía el
     # razonamiento sin saber cuál era la objeción que tenía que vencer.
     global_json: str = Form(""),
+    # LOS CONCEPTOS DE VIOLACIÓN, para cuando el recurso levanta un
+    # sobreseimiento y hay que estudiarlos por primera vez. No constan en el
+    # expediente del recurso: los aporta el secretario.
+    conceptos_violacion: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
@@ -28542,6 +28577,8 @@ async def taller_resolver(
             r.encargo.resolvio_declarado = _decl
         if _glob:
             r.encargo.propuesta_global = _glob
+        if (conceptos_violacion or "").strip():
+            r.encargo.conceptos_violacion = conceptos_violacion.strip()
 
     _puerta_oportunidad(r)
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su

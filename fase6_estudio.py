@@ -742,6 +742,58 @@ del reo (artículo 79, fracción III) es absoluta: opera aun sin conceptos.
 }
 
 
+def _bloque_conceptos(rama: str, conceptos: str) -> str:
+    """Los conceptos de violación, cuando hay que estudiarlos por primera vez.
+
+    Sólo aparece cuando el recurso LEVANTA UN SOBRESEIMIENTO. Entonces el
+    colegiado asume jurisdicción —artículo 93, fracción I— y tiene que resolver
+    lo que el Juzgado de Distrito no resolvió.
+
+    David: «en el proyecto lo que se estila es abrir un nuevo considerando de
+    estudio de los conceptos de violación, y aquí puede ocurrir, tal y como
+    ocurre en amparo directo, que los conceptos resulten fundados, infundados o
+    inoperantes».
+    """
+    if not rama.startswith("revoca_sobreseimiento"):
+        return ""
+    if not (conceptos or "").strip():
+        return ("\n\nFALTAN LOS CONCEPTOS DE VIOLACIÓN. Este recurso levanta el "
+                "sobreseimiento, así que hay que estudiarlos, y no constan. NO "
+                "LOS INVENTES ni los deduzcas de los agravios: son escritos "
+                "distintos. Escribe el apartado del estudio de los agravios, "
+                "cierra diciendo que procede levantar el sobreseimiento, y "
+                "añade en ADVERTENCIAS que el estudio de los conceptos de "
+                "violación queda pendiente porque no obran en el expediente "
+                "del recurso.\n")
+    return f"""
+
+ESTUDIO DE LOS CONCEPTOS DE VIOLACIÓN — UN CONSIDERANDO NUEVO
+
+Este recurso levanta el sobreseimiento, y con eso el tribunal ASUME
+JURISDICCIÓN: no devuelve el asunto al Juzgado de Distrito, lo resuelve él.
+
+Después del apartado en que declares fundado el agravio y levantes el
+sobreseimiento, ABRE UN APARTADO NUEVO —con su propio rótulo, «Estudio de los
+conceptos de violación»— y estúdialos con la MISMA técnica de los cuatro pasos
+que usaste con los agravios.
+
+TRES COSAS QUE NO SE CONFUNDEN:
+- Los conceptos de violación son de la DEMANDA DE AMPARO y van contra el ACTO
+  RECLAMADO. Los agravios son del RECURSO y van contra la sentencia del
+  juzgado. No mezcles unos con otros ni los llames igual.
+- Este estudio es de PRIMERA VEZ: nadie los ha examinado antes. No digas «el
+  juzgado consideró» sobre ellos, porque el juzgado sobreseyó sin entrar.
+- Su desenlace es propio: los conceptos pueden ser FUNDADOS, INFUNDADOS o
+  INOPERANTES, igual que en un amparo directo, y de ahí sale si se ampara o no
+  se ampara. Que el agravio fuera fundado sólo probó que no debió sobreseerse.
+
+LOS CONCEPTOS DE VIOLACIÓN, tal como los aportó el secretario:
+──────────────────────────────────────────
+{conceptos.strip()[:14000]}
+──────────────────────────────────────────
+"""
+
+
 def _bloque_tecnica(tipo_asunto: str, rama: str = "",
                     violacion_procesal: bool = False) -> str:
     """Cómo se resuelve ESTE escenario, según la Ley de Amparo.
@@ -879,7 +931,8 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    es_recurso: bool = False, partes=None, marco=None,
                    contexto: str = "", materia: str = "",
                    propuesta_global=None, rama: str = "",
-                   violacion_procesal: bool = False) -> str:
+                   violacion_procesal: bool = False,
+                   conceptos_violacion: str = "") -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     # CÓMO SE LA NOMBRA. Estaba escrito «la parte quejosa» dentro de un EJEMPLO
     # de este prompt, y el modelo lo copiaba: en la revisión fiscal el proyecto
@@ -1360,6 +1413,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal)}
+{_bloque_conceptos(rama, conceptos_violacion)}
 {_bloque_global(propuesta_global)}
 {_bloque_precedente(material, criterios)}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""))}
@@ -2167,7 +2221,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                            criterios: list[Criterio], material: Material,
                            es_recurso: bool = False, partes=None, marco=None,
                            contexto: str = "", propuesta_global=None,
-                           rama: str = "", violacion_procesal: bool = False):
+                           rama: str = "", violacion_procesal: bool = False,
+                           conceptos_violacion: str = ""):
     """El estudio, trozo a trozo, según lo escribe el modelo.
 
     David: «que el usuario vea el texto escribiéndose sería de ayuda». No
@@ -2183,7 +2238,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                   resumen_acto, resumen_conceptos, criterios, material,
                   es_recurso, partes, marco, contexto,
                   propuesta_global=propuesta_global, rama=rama,
-                  violacion_procesal=violacion_procesal)}])
+                  violacion_procesal=violacion_procesal,
+                  conceptos_violacion=conceptos_violacion)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     entero = []
@@ -2206,15 +2262,16 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    criterios: list[Criterio], material: Material,
                    es_recurso: bool = False, partes=None, marco=None,
                    contexto: str = "", propuesta_global=None,
-                   rama: str = "",
-                   violacion_procesal: bool = False) -> tuple[str, str, list[str]]:
+                   rama: str = "", violacion_procesal: bool = False,
+                   conceptos_violacion: str = "") -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos)."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
                   es_recurso, partes, marco, contexto,
                   propuesta_global=propuesta_global, rama=rama,
-                  violacion_procesal=violacion_procesal)}])
+                  violacion_procesal=violacion_procesal,
+                  conceptos_violacion=conceptos_violacion)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     import llamada_modelo as _lm
