@@ -312,4 +312,15 @@ el trámite, para que quien lea entienda de dónde viene el asunto.
 - CADA FECHA EN LETRA, como en todo documento judicial.
 - Los puntos resolutivos de las sentencias de origen se TRANSCRIBEN entre
   comillas cuando importan al asunto.
+- Y EL ÚLTIMO PÁRRAFO DICE EN QUÉ PARÓ. Si el asunto viene de un juicio ya
+  resuelto —una revisión, una queja contra la sentencia—, los antecedentes se
+  cierran diciendo QUÉ RESOLVIÓ el órgano de origen, con su verbo:
+  «sobreseyó», «negó el amparo», «concedió el amparo», y el precepto en que se
+  apoyó.
+
+  NO ES OPINAR NI ADELANTAR EL ESTUDIO: es el último hecho procesal de la
+  cadena, y sin él los antecedentes cuentan cómo empezó todo y no cómo acabó.
+  Medido: en un proyecto real los antecedentes narraron siete autos del juicio
+  de nulidad y nunca dijeron que el Juzgado había sobreseído, así que el
+  resolutivo del recurso salió con un hueco donde debía ir el verbo.
 - NO opines, NO califiques y NO adelantes el estudio."""

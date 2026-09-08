@@ -582,8 +582,12 @@ REGLAS QUE NO SE ROMPEN:
 
 6. EL CONTEXTO, EN PROSA Y EN CUATRO PÁRRAFOS. Es lo PRIMERO que lee el
    secretario y con eso forma su criterio, sin volver al expediente. Escribe:
-   `hechos` (de qué va el asunto, qué pasó); `resolvio` (qué resolvió {_org5} y
-   con qué razón); `combate` (qué dice en su contra el inconforme); y
+   `hechos` (de qué va el asunto, qué pasó); `resolvio` (ABRE CON EL VERBO DEL
+   DESENLACE —«sobreseyó», «negó el amparo», «concedió el amparo», «desechó»—,
+   que es el dato que decide el resolutivo de este proyecto, y sólo DESPUÉS la
+   razón. Salió esto: «tuvo por acreditado que la moral promovió el juicio
+   mediante representante… concluyó que era parte actora», que cuenta el
+   razonamiento y no dice en qué paró, y el resolutivo quedó en hueco); `combate` (qué dice en su contra el inconforme); y
    `tema_principal` (cuál es LA cuestión de la que depende el resultado, y por
    qué es ésa y no otra). Párrafos de verdad, en prosa llana, sin viñetas y sin
    tecnicismos de adorno. No repitas el expediente: sintetiza.
@@ -631,7 +635,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
    "alcanza": true,
    "contexto": {{
      "hechos": "<un párrafo>",
-     "resolvio": "<un párrafo>",
+     "resolvio": "<empieza por el verbo: sobreseyó | negó el amparo | concedió el amparo | desechó; y luego la razón>",
      "combate": "<un párrafo>",
      "tema_principal": "<un párrafo: cuál es y por qué ése>"}},
    "alternativa": {{
