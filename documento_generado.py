@@ -1877,9 +1877,15 @@ def _sin_remate_duplicado(texto: str) -> str:
 # «El artículo 14 de la Constitución Política de los Estados Unidos Mexicanos.»
 # —y punto—. Eso queda cuando se le quita al párrafo el trozo entrecomillado
 # del precepto: la frase se queda sin verbo.
-_RX_ARTICULO_HUERFANO = re.compile(
-    r"((?:^|(?<=[.]))\s*(?:[A-ZÁÉÍÓÚ][^.]{0,40}?,\s+)?[Ee]l\s+art[íi]culo\s+\d+"
-    r"[^.]{0,90}?)\.\s+(?=[A-ZÁÉÍÓÚ])")
+_RX_HUERFANO = re.compile(
+    # El preámbulo opcional («A su vez, ») NO puede empezar por «el artículo»:
+    # sin esta guarda, «El artículo 63, fracción IV, de la Ley…» se partía por
+    # la coma de la fracción y el molde dejaba de casar.
+    r"((?:^|(?<=[.]))\s*)((?:(?![Ee]l\s+art)[A-ZÁÉÍÓÚ][^.]{0,40}?,\s+)?)([Ee]l\s+art[íi]culo\s+\d+"
+    r"[^.]{0,90}?)\.\s+(De\s+(?:ese|dicho|tal)\s+(?:precepto|numeral|dispositivo)|"
+    r"De\s+(?:esa|dicha)\s+(?:disposici[óo]n|norma|fracci[óo]n))\s+"
+    r"(deriva|se\s+advierte|se\s+desprende|se\s+sigue|resulta)\s+que\s+",
+    re.I)
 
 
 def _remendar_articulo_huerfano(texto: str) -> str:
@@ -1891,17 +1897,30 @@ def _remendar_articulo_huerfano(texto: str) -> str:
     PIE, ese mismo recorte dejó la frase descabezada:
 
         «El artículo 76 de la Ley de Amparo. Por ello, se analizarán…»
-        «El artículo 63, fracción IV, de la Ley de Amparo. De ese precepto…»
 
-    Cuatro veces en un solo proyecto. Lo vio David, que ademas lo corrigió a
-    mano de la forma correcta: «Del artículo 63, fracción IV, de la Ley de
-    Amparo deriva que…», o «el artículo 65 de la Ley de Amparo impone…».
+    EL PRIMER REMIENDO FUE PEOR. Le puse «dispone lo siguiente» y quedó «El
+    artículo 76 de la Ley de Amparo DISPONE LO SIGUIENTE. De ese precepto
+    deriva que…»: una promesa de transcripción que no llega nunca. Medido en
+    tres párrafos del v10.
 
-    Aquí sólo se remienda lo que ya salió mal —se le pone «dispone lo
-    siguiente»—; que no vuelva a salir se le pide al modelo en el prompt, que
-    es donde se arregla de verdad.
+    Ahora se hace como lo escribió David a mano: se FUNDEN las dos frases.
+    «El artículo 63, fracción IV, de la Ley de Amparo. De esa disposición
+    deriva que X» → «Del artículo 63, fracción IV, de la Ley de Amparo deriva
+    que X».
+
+    Y si la frase siguiente no encaja en ese molde, NO SE TOCA. Un huérfano se
+    ve y se corrige a mano; una frase inventada por mí se firma sin verla.
     """
-    return _RX_ARTICULO_HUERFANO.sub(r"\1 dispone lo siguiente. ", texto or "")
+    def _fundir(m):
+        cabeza, previo, art, _puente, verbo = m.groups()
+        # «el artículo 76 …» → «Del artículo 76 …», conservando lo que iba
+        # delante («A su vez, ») y la mayúscula si abría el párrafo.
+        cuerpo = art[0].lower() + art[1:]          # «El artículo» → «el artículo»
+        cuerpo = re.sub(r"^el\s+", "", cuerpo)
+        arranque = f"Del {cuerpo}" if not previo else f"{previo}del {cuerpo}"
+        v = verbo.lower().replace("  ", " ")
+        return f"{cabeza}{arranque} {v} que "
+    return _RX_HUERFANO.sub(_fundir, texto or "")
 
 
 def _sin_extracto_repetido(texto: str, preceptos: list) -> str:
