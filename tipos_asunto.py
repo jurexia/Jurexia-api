@@ -389,8 +389,21 @@ RESULTANDOS = {
          "con su fecha y número de toca"),
         ("Turno",
          "LA FECHA en que se turnó y a qué magistrado, para la elaboración del "
-         "proyecto. La fecha es obligatoria: «Consta en autos que el asunto "
-         "fue turnado» no dice cuándo, y ese dato lo tiene el auto de turno"),
+         "proyecto. La fecha se busca en el auto de turno y se escribe. "
+         # SI NO ESTÁ, SE REMITE AL EXPEDIENTE; NO SE LAMENTA.
+         #
+         # El proyecto salía con «No consta en los datos proporcionados la "
+         # fecha en que el asunto fue turnado», que es lo peor de las tres "
+         # opciones: habla de «los datos proporcionados» —el material del "
+         # prompt— en vez del expediente, y deja un resultando que no dice "
+         # nada. David: «hay que tratar de producir un proyecto completo en la "
+         # medida de lo posible, y si no hay datos, remitirnos al expediente».
+         "SI NO LA ENCUENTRAS, escribe la fórmula que remite a las "
+         "constancias: «el asunto fue turnado al magistrado ponente, en la "
+         "fecha que se advierte de las constancias del expediente». NUNCA "
+         "escribas que el dato no consta, ni menciones «los datos "
+         "proporcionados»: el lector tiene el expediente delante y esa frase "
+         "sólo delata de dónde salió el texto"),
     ],
     "revision_fiscal": [
         ("Trámite del juicio contencioso administrativo",
@@ -702,9 +715,31 @@ def resultando_evasivo(texto: str, tipo: str = "") -> list:
     if not i:
         return []
     bloque = t[i.end():j.start()] if j and j.start() > i.end() else t[i.end():i.end() + 9000]
+    # EL TURNO TIENE PERMISO DE REMITIRSE AL EXPEDIENTE, y el resto no.
+    #
+    # Estos patrones nacieron para cazar al modelo cuando sustituía un dato por
+    # la promesa de que el dato existe. Siguen valiendo para el trámite: decir
+    # «se siguieron los trámites de ley» en vez de contar qué se proveyó es
+    # esconder trabajo sin hacer.
+    #
+    # Pero David acotó la regla: «hay que producir un proyecto completo en la
+    # medida de lo posible, y si no hay datos, remitirnos al expediente». La
+    # fecha del turno es el caso: está en el auto de turno, que no siempre
+    # viaja con lo que se sube, y la alternativa —«no consta»— deja un
+    # resultando mudo. Ahí la remisión es lo correcto y no se acusa.
+    #
+    # Se distingue por dónde aparece: si la frase está en el resultando del
+    # TURNO, pasa; en cualquier otro, se sigue avisando.
+    _rx_turno = _re.compile(r"turn", _re.I)
+    def _es_del_turno(pos: int) -> bool:
+        ini = bloque.rfind(".", 0, max(0, pos - 240))
+        return bool(_rx_turno.search(bloque[max(0, ini):pos + 120]))
+
     fuera = []
     for rx in _EVASIVAS:
         m = rx.search(bloque)
+        if m and _es_del_turno(m.start()):
+            continue
         if m:
             fuera.append(("un resultando dice que hubo trámite sin decir cuál",
                           " ".join(bloque[max(0, m.start() - 90):m.end() + 70].split())))

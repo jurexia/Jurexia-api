@@ -864,10 +864,28 @@ def prompt_estructura(datos: dict) -> str:
     import tipos_asunto as _ta_r
     _rs = []
     for _i, (_rot, _que) in enumerate(_ta_r.resultandos_de(_tipo)):
-        _extra = ("" if _i else
-                  " Si alguno de esos datos NO consta, NO lo menciones ni "
-                  "expliques que no consta: se omite y ya. PROHIBIDO resumir "
-                  "aquí su razonamiento: eso va en el estudio.")
+        # EL DATO QUE FALTA SE REMITE AL EXPEDIENTE; NO SE OMITE NI SE LAMENTA.
+        #
+        # Esto decía «se omite y ya», y por eso el resultando del turno salió
+        # con «No consta en los datos proporcionados la fecha en que el asunto
+        # fue turnado»: el modelo ni lo omitió ni lo remitió, se quejó. Y
+        # «los datos proporcionados» es el material del prompt, no el
+        # expediente que el lector tiene delante.
+        #
+        # David: «hay que tratar de producir un proyecto completo en la medida
+        # de lo posible, y si no hay datos, remitirnos al expediente, salvo en
+        # lo relativo a las fechas de sesión y de lista, que esas
+        # necesariamente serán incorporadas por el secretario».
+        _extra = (" Si algún dato de éstos no lo encuentras, NO digas que no "
+                  "consta ni menciones «los datos proporcionados»: escribe la "
+                  "frase completa remitiendo al expediente —«en la fecha que "
+                  "se advierte de las constancias», «en los términos que obran "
+                  "en autos»—, que es lo que hace un secretario cuando el dato "
+                  "está en el expediente y no a la vista. El resultando tiene "
+                  "que quedar COMPLETO y legible."
+                  + ("" if _i else
+                     " PROHIBIDO resumir aquí su razonamiento: eso va en el "
+                     "estudio."))
         _rs.append('     {{"titulo": %s, "texto": "<%s>"}}'
                    % (json.dumps(_rot, ensure_ascii=False), _que + _extra))
     _resultandos = ",\n".join(_rs)
@@ -3257,38 +3275,26 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         #
         # POR QUÉ SE COMPONE Y NO SE PIDE. Se lo pedí al modelo en el prompt y
         # no lo hizo: medido, 5 de 6 problemas sin pregunta, y después del
-        # arreglo seguían siendo cero. No era desobediencia: la instrucción
-        # cae en el carácter 27.732 de un prompt de 32.076, entre decenas de
-        # reglas, y una regla más en el último tercio se pierde. El pipeline YA
-        # tiene las preguntas —las calcula `proponer`, y las calcula bien—, así
-        # que se escriben. Lo que se puede componer no se pide.
-        _cuestiones = [str(getattr(c, "problema", "") or "").strip()
-                       for c in (criterios or [])
-                       if str(getattr(c, "problema", "") or "").strip()]
-        # El orden es el de prelación lógica, igual que en el estudio: primero
-        # el principal, del que dependen los demás.
-        _cuestiones = [q for c, q in sorted(
-            zip(criterios or [], _cuestiones),
-            key=lambda x: 0 if str(getattr(x[0], "jerarquia", "")).lower()
-            == "principal" else 1)]
-        if _cuestiones:
-            def _materia_del_asunto(p, _qs=_cuestiones):
-                _lineas = []
-                for i_, q_ in enumerate(_qs, 1):
-                    q_ = " ".join((q_ or "").split())
-                    if not q_.startswith("¿"):
-                        q_ = "¿" + q_.lstrip("¿")
-                    if not q_.rstrip().endswith("?"):
-                        q_ = q_.rstrip(" .;") + "?"
-                    _lineas.append(f"{i_}. {q_}")
-                # CADA PREGUNTA EN SU PÁRRAFO. Escritas con `_texto_en(p, …)`
-                # una tras otra se pegaban todas al rótulo y salía un bloque de
-                # 1.682 caracteres seguidos —«…cuestiones siguientes:1. ¿La
-                # audiencia…?2. ¿La vista…?»—, que es exactamente lo contrario
-                # de lo que la pregunta expresa viene a resolver: que se vea de
-                # un golpe qué se va a decidir.
-                _texto_en(p, _ta.materia_a_resolver(tipo_asunto), _lineas)
-            con_apartados.append((_ta.rotulo_materia_de(tipo_asunto), _materia_del_asunto))
+        # EL CONSIDERANDO DE MATERIA SE RETIRA, y con él una idea mía que
+        # resultó equivocada.
+        #
+        # David: «parece innecesario el considerando adicional de materia del
+        # recurso… no es necesario bajar esos problemas jurídicos en un
+        # considerando aparte. Es suficiente con hacer referencia al agravio o
+        # al concepto de violación para enseguida calificarlo. El tema de los
+        # problemas jurídicos sí es útil, pero para GUIAR EL ESTUDIO, no
+        # propiamente para plasmarlo en el proyecto».
+        #
+        # Tiene razón, y la confusión era mía: las preguntas son el andamio con
+        # el que se construye el razonamiento, no parte de lo construido. Un
+        # apartado que las enumera obliga al lector a leerlas dos veces —una en
+        # la lista y otra al contestarlas— y no aporta nada que el estudio no
+        # diga mejor.
+        #
+        # NO SE PIERDE NADA DEL TRABAJO: las preguntas se siguen calculando, se
+        # siguen enseñando en pantalla, y siguen entrando en el prompt del
+        # estudio ordenadas por prelación lógica. Lo único que cambia es que no
+        # se imprimen.
 
         con_apartados.append((_ta.rotulo_estudio_de(tipo_asunto).rstrip(".") + ".",
                               _estudio))
@@ -3437,8 +3443,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 # media queda con los huecos abiertos entre palabras que
                 # delatan un documento mal compuesto, y es justo el párrafo que
                 # todo el mundo mira.
+                # JUSTIFICADO, Y EN LOS CUATRO TIPOS. Iba con `alineacion=None`
+                # —«no la declares, que la herede del estilo»— porque así
+                # estaba en el adelanto que David ajustó a mano. Medido en el
+                # documento generado: los resolutivos salían SIN alineación, o
+                # sea a la izquierda. David: «justifica el texto del
+                # resolutivo, esto en todos los tipos de asuntos».
                 _pr = tramos(doc, [(_cab + ". ", {"bold": True}), (_resto, {})],
-                             sangria=True, alineacion=None)
+                             sangria=True)
                 # Media pulgada, que es lo que mide el suyo. La sangría del
                 # cuerpo es 1.25 cm y la del resolutivo 1.27: no es un
                 # descuido suyo, es el tabulador por omisión de Word.
