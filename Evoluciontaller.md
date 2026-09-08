@@ -246,7 +246,7 @@ accesorios, los apoyos comprobados contra el acervo—.
 
 ---
 
-## 8. RIESGO ABIERTO · la respuesta se pierde con dos workers · 7-sep
+## 8. RESUELTO · la respuesta se perdía con dos workers · 7-sep
 
 **Medido, no supuesto.** Dos resoluciones seguidas del 410/2026 murieron en el
 cliente con `RemoteDisconnected`, a los **1,449 s** y a los **3,639 s**.
@@ -278,4 +278,36 @@ prompt tampoco desborda: 54,774 caracteres, y mi bloque añade 1,100.
 parar, un flujo no deja el hueco largo en que se pierde la respuesta. Y
 `/taller/descargar` debería leer del almacén duradero y no del proceso.
 
-**Decisión pendiente de David.**
+**RESUELTO el 7-sep.** David pidió las dos cosas:
+
+1. **La pantalla resuelve por flujo** (`resolverEnVivo` → `/taller/resolver/stream`),
+   los dos caminos. El documento viaja DENTRO del flujo, así que no depende de
+   que sobreviva una respuesta larga. Y el secretario ve el estudio
+   escribirse: primer texto a los 60-88 s en vez de cuatro minutos de pantalla
+   quieta.
+2. **El .docx se sube al cubo `expedientes`** nada más generarlo, y
+   `/taller/descargar` lo busca ahí cuando no está en el disco de este proceso.
+   Una ruta por secretario y expediente, que se sobrescribe; el correo cifrado
+   en la ruta. Si el almacén falla se avisa y se sigue.
+
+Medido dos veces por el flujo: **153 s y 123 s**, documento entregado (≈80,000
+caracteres base64), ninguna respuesta perdida.
+| 20 | 7-sep-2026 | La pantalla resuelve por `/taller/resolver/stream`, con el estudio a la vista | **Comprobado 2 veces** — 153 s y 123 s, documento entregado en el flujo |
+| 21 | 7-sep-2026 | El proyecto se guarda en el cubo `expedientes`; `/taller/descargar` lo busca ahí | **Comprobado en código y guardián**; el camino de recuperación sin verificar en vivo |
+| 22 | 7-sep-2026 | La fracción se busca en TODO el estudio, no en el párrafo que anuncia el precepto | **Comprobado en producción** — el art. 79 imprime ya las fracciones VI y VII, que son sobre las que gira el razonamiento |
+
+---
+
+## 9. Pendientes menores, medidos y sin arreglar
+
+- **«Medios de Impugnación» pegado al final del artículo 79.** El acervo guarda
+  rótulos de capítulo dentro del texto del precepto —el código ya conoce la
+  migaja *delante* («[Ley de Amparo | CAPÍTULO X …] Artículo 79…») y la limpia,
+  pero no la de detrás—. Es cosmético.
+- **El «sin materia» no se escribe.** Se le pide en el bloque global y no
+  aparece ni una vez en tres corridas.
+- **El resolutivo dice «sentencia impugnada» y el estudio «sentencia
+  recurrida».** La misma cosa con dos nombres en el mismo proyecto.
+- **El sentido no es reproducible entre corridas.** Tres corridas del mismo
+  asunto: dos `infundado`, una `fundado`. No es un defecto que arreglar — es la
+  razón de ser de las dos vías.
