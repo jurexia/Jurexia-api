@@ -921,6 +921,17 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   cinco frases cortas bajo un mismo párrafo, que es como escribe un informe.
 - CONECTORES, por orden de uso real: {', '.join(f'«{c}»' for c in CONECTORES)}.
   No repitas el mismo dos veces seguidas.
+- Y LOS PÁRRAFOS SE ENLAZAN ENTRE SÍ, no sólo las frases dentro de uno. Un
+  apartado no es una pila de párrafos que empiezan cada uno por su cuenta: es
+  un razonamiento que avanza y lo dice al avanzar. Cada párrafo abre
+  retomando el anterior —«Al respecto,», «Así,», «En ese sentido,», «Por otro
+  lado,», «Respecto de lo anterior,», «En tal sentido,», «Por ende,», «En
+  consecuencia,»— salvo el primero de cada apartado, que abre con el
+  planteamiento.
+  Y cuando anuncias que vas a justificar algo, ciérralo con dos puntos: «No
+  podía hacerlo en los términos planteados, según se justifica enseguida:».
+  Esto es lo que David repuso a mano en NUEVE párrafos de un solo proyecto:
+  el razonamiento estaba bien y se leía como una lista de afirmaciones sueltas.
 - EL ÓRGANO RECURRIDO es {_org}; este tribunal se
   nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
   considera»). Nunca primera persona del singular.
@@ -1040,11 +1051,19 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
   dice, y luego se explica por qué no basta. Un planteamiento debilitado al
   enunciarlo produce una respuesta que no responde.
 
+  PERO NO ESCRIBAS QUE LO ESTÁS HACIENDO. «{parte} sostiene, EN SU VERSIÓN MÁS
+  FAVORABLE, que…» delata que sigues una instrucción en vez de redactar una
+  sentencia: en un engrose eso no se dice, se hace. Lo mismo con «la mejor
+  objeción a esta conclusión es…», que anuncia un ejercicio de método donde
+  debe ir un argumento de parte: se escribe «{parte} alega que…» o «no obsta
+  que se afirme que…». David tachó las dos a mano.
+
   PASO 2 — LA PREMISA NORMATIVA, ABSTRACTA Y CON SU FUENTE.
   Qué dice la norma o el criterio que gobierna el punto, enunciado de modo que
-  valga para cualquier caso igual: «Del precepto transcrito deriva la regla de
-  que…», «con arreglo a la jurisprudencia de la Segunda Sala derivada de la
-  contradicción de tesis…». Aquí NO se nombra todavía al promovente, ni al
+  valga para cualquier caso igual: «Del artículo … deriva la regla de que…»,
+  «el artículo … impone que…», «con arreglo a la jurisprudencia de la Segunda
+  Sala derivada de la contradicción de tesis…». Nunca «del precepto
+  transcrito»: no hay transcripción, el texto está en la nota al pie. Aquí NO se nombra todavía al promovente, ni al
   órgano recurrido, ni el expediente: si la frase no vale para otro asunto
   idéntico, no es una premisa, es una conclusión adelantada.
 
@@ -1075,11 +1094,27 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
   propio cabe en seiscientas. En otro, el 48% del considerando es relato de la
   sentencia reclamada, después de haber prometido que era innecesario
   transcribirla. Medido sobre los cinco: el razonamiento propio es el 45%.
-  Aquí ha de ser al revés. Transcribe cuando la letra decide —el precepto
-  discutido, el párrafo cuya redacción se combate— y nunca para llenar. Del
-  criterio que invoques, trae la REGLA en una o dos frases y sigue razonando:
-  el rubro y el registro identifican la tesis; su texto íntegro va en la nota
-  al pie, no en el cuerpo.
+  Aquí ha de ser al revés. Del criterio que invoques, trae la REGLA en una o
+  dos frases y sigue razonando: el rubro y el registro identifican la tesis; su
+  texto íntegro va en la nota al pie, no en el cuerpo.
+
+  Y EL PRECEPTO, IGUAL QUE LA TESIS: NO LO TRANSCRIBAS. Su texto baja solo a
+  la nota al pie —de eso se encarga el documento— y en el cuerpo va lo que
+  dice, dicho por ti y DENTRO de tu frase:
+
+      SÍ:  «Del artículo 63, fracción IV, de la Ley de Amparo deriva que la
+            procedencia del juicio exige la existencia del acto reclamado.»
+      SÍ:  «A su vez, el artículo 65 de la Ley de Amparo impone que el
+            sobreseimiento por inexistencia se apoye en una conclusión
+            objetiva.»
+      NO:  «El artículo 63, fracción IV, de la Ley de Amparo. De ese precepto
+            deriva que…»   ← el artículo suelto, sin verbo, y la regla en otra
+            frase. Así salieron CUATRO párrafos de un mismo proyecto, y David
+            los corrigió a mano uno por uno.
+
+  El artículo es el SUJETO o el COMPLEMENTO de tu oración, nunca un rótulo
+  aparte. Si al quitarle la transcripción tu frase se queda sin verbo, la frase
+  estaba mal construida.
 
 - NO REPITAS EL MISMO PASAJE DOS VECES. Medido en el engrose del ADC 642/2024
   que sirve de referencia: tres párrafos copiados palabra por palabra dentro
@@ -1144,7 +1179,21 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   Y ahí se detiene el párrafo. NO ESCRIBAS TÚ NI EL TIPO NI EL ÓRGANO: no digas
   «la jurisprudencia», no digas «tesis aislada», no digas «de la Primera Sala».
   El documento los pone solo, tomados del acervo, junto con el rubro y el texto
-  íntegro. Antes este ejemplo nombraba una Sala concreta y el modelo lo copiaba
+  íntegro. 
+- NO CITES UN CRITERIO PARA DECIR DESPUÉS QUE NO APLICA. Salió esto en un
+  proyecto: «Sirve de apoyo la jurisprudencia … INCONFORMIDAD. LA SUPREMA
+  CORTE DEBE SUPLIR LA QUEJA DEFICIENTE…» y, tres renglones más abajo, «el
+  criterio citado NO SE APLICA DIRECTAMENTE, porque se refiere al cumplimiento
+  de una sentencia de amparo». David lo tachó entero, y con razón: «Sirve de
+  apoyo» es una afirmación, y lo que no sirve de apoyo no se invoca.
+  Si el criterio aplica, se cita y se dice qué regla aporta. Si no aplica, NO
+  SE CITA: se borra y se sigue razonando. Un acervo que no trae la tesis del
+  punto no se disimula rellenando con la más parecida; se dice que falta, que
+  es información útil, y la afirmación se sostiene con lo que sí haya.
+  ÚNICA EXCEPCIÓN: citarlo para DISTINGUIRLO cuando la contraparte lo invocó o
+  cuando el asunto se parece y hay que explicar por qué no gobierna. Entonces
+  no se abre con «sirve de apoyo» sino con «no resulta aplicable el criterio…,
+  porque…», que es lo contrario y se lee como lo que es.Antes este ejemplo nombraba una Sala concreta y el modelo lo copiaba
   cambiando sólo el número: así una tesis aislada del Pleno salió publicada como
   «jurisprudencia de la Primera Sala», y la nota al pie de la misma página —que
   sí sale del acervo— la desmentía. Tú escribes el verbo que ata la cita a tu

@@ -1874,6 +1874,36 @@ def _sin_remate_duplicado(texto: str) -> str:
     return texto
 
 
+# «El artículo 14 de la Constitución Política de los Estados Unidos Mexicanos.»
+# —y punto—. Eso queda cuando se le quita al párrafo el trozo entrecomillado
+# del precepto: la frase se queda sin verbo.
+_RX_ARTICULO_HUERFANO = re.compile(
+    r"((?:^|(?<=[.]))\s*(?:[A-ZÁÉÍÓÚ][^.]{0,40}?,\s+)?[Ee]l\s+art[íi]culo\s+\d+"
+    r"[^.]{0,90}?)\.\s+(?=[A-ZÁÉÍÓÚ])")
+
+
+def _remendar_articulo_huerfano(texto: str) -> str:
+    """Devuelve el verbo a la frase que quedó colgando del artículo.
+
+    LO ROMPÍ YO. Mientras el precepto se transcribía en un bloque debajo,
+    quitarle al párrafo el trozo entrecomillado que el modelo había copiado era
+    correcto: se leía dos veces lo mismo. Al bajar el precepto a la NOTA AL
+    PIE, ese mismo recorte dejó la frase descabezada:
+
+        «El artículo 76 de la Ley de Amparo. Por ello, se analizarán…»
+        «El artículo 63, fracción IV, de la Ley de Amparo. De ese precepto…»
+
+    Cuatro veces en un solo proyecto. Lo vio David, que ademas lo corrigió a
+    mano de la forma correcta: «Del artículo 63, fracción IV, de la Ley de
+    Amparo deriva que…», o «el artículo 65 de la Ley de Amparo impone…».
+
+    Aquí sólo se remienda lo que ya salió mal —se le pone «dispone lo
+    siguiente»—; que no vuelva a salir se le pide al modelo en el prompt, que
+    es donde se arregla de verdad.
+    """
+    return _RX_ARTICULO_HUERFANO.sub(r"\1 dispone lo siguiente. ", texto or "")
+
+
 def _sin_extracto_repetido(texto: str, preceptos: list) -> str:
     """Quita del párrafo los entrecomillados del artículo que se va a transcribir."""
     if not preceptos or not (texto or "").strip():
@@ -2045,7 +2075,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
         # angulares— y otra en el cuerpo, escrita por el modelo. Es el defecto
         # que el detector de duplicación marcaba y la regla del prompt no
         # bastaba para evitar, porque no es del modelo solo: es de los dos.
-        t = _sin_extracto_repetido(t, _del_parrafo)
+        t = _remendar_articulo_huerfano(_sin_extracto_repetido(t, _del_parrafo))
         if len(t.split()) < 6 and not _es_pregunta(t):
             continue
         p_ = parrafo_con_citas(doc, t, notas)
