@@ -28084,19 +28084,35 @@ async def taller_proponer(
     # Se avisa AQUÍ, cuando el secretario está decidiendo el sentido, y no al
     # generar: si se entera al final, ya pagó el estudio y el proyecto levanta
     # el sobreseimiento sin resolver nada.
+    _necesita_conceptos = False
     try:
         import tipos_asunto as _ta_c, fase_rama as _fr_c
         if _ta_c.normalizar(getattr(r.encargo, "tipo_asunto", "")) == "amparo_revision":
             _que_hizo_aq = _fr_c.resolvio_a_quo(
                 "", "\n".join(r.fases.antecedentes or []),
                 declarado=str((_glob_ctx := (getattr(glob, "contexto", None) or {})).get("resolvio", "")))
-            _prospera_g = str(glob.sentido or "").startswith("fundad")
+            # `startswith("fundad")` NO ES EL PREDICADO. Se quedó escrito
+            # antes de que existieran «esencialmente fundado», «parcialmente
+            # fundado» y «sustancialmente fundado»: con cualquiera de los
+            # tres, esta comprobación decía que el recurso no prospera y el
+            # aviso de los conceptos de violación no salía. El secretario
+            # levantaba el sobreseimiento sin que nadie le dijera que faltaba
+            # lo único que quedaba por resolver.
+            #
+            # `prospera()` es el predicado único, y existe justo para que
+            # añadir una calificación no obligue a acordarse de catorce sitios.
+            _prospera_g = _ta_c.prospera(str(glob.sentido or ""))
             if _que_hizo_aq == "sobresee" and _prospera_g:
                 _rama_c = _ta_c.rama_revision(_que_hizo_aq, "fundado")
                 _regla = next((x for x in _ta_c.tecnica_de("amparo_revision", _rama_c)
                                if x.get("necesita") == "conceptos_de_violacion"), None)
                 if _regla and not str(getattr(r.encargo, "conceptos_violacion", "")).strip():
                     avisos.insert(0, _regla["aviso_si_falta"])
+                    # LA SEÑAL PARA LA PANTALLA. El aviso ya se daba, pero
+                    # decir «faltan los conceptos de violación» sin ofrecer
+                    # dónde pegarlos deja al secretario con el problema y sin
+                    # la herramienta. Con esto la pantalla abre el recuadro.
+                    _necesita_conceptos = True
     except Exception as _e:
         print(f"   ⚠️ TALLER: no se pudo comprobar la rama de sobreseimiento: "
               f"{type(_e).__name__}")
@@ -28109,6 +28125,7 @@ async def taller_proponer(
     return {
         "expediente": numero,
         "modelo": _f5.MODELO_PROPUESTA,
+        "necesita_conceptos": _necesita_conceptos,
         # El secretario decide sobre esto: se le da entero, no resumido.
         "propuestas": [
             {"problema": p.problema, "sentido": p.sentido, "razon": p.razon,
