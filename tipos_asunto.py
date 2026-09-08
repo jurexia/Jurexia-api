@@ -1232,6 +1232,62 @@ RAMAS_REVISION = {
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# LAS CALIFICACIONES, Y UN SOLO SITIO DONDE SE PREGUNTA SI PROSPERAN
+# ═══════════════════════════════════════════════════════════════════════════
+# Medido sobre 65,282 agravios calificados del Vigésimo Segundo Circuito. Las
+# cuatro de siempre cubren el 92%; el 8% restante son estas otras, y la que más
+# pesa —«esencialmente fundado»— es el 23% de los agravios en las revisiones
+# que REVOCAN, o sea justo donde más caro sale equivocarse.
+#
+# POR QUÉ UN PREDICADO Y NO UNA CADENA. Antes, en siete sitios distintos, se
+# preguntaba `sentido.startswith("fundad")`. Con «fundado» funciona; con
+# «esencialmente_fundado» —que empieza por «esencialmente»— devuelve False en
+# todos, y uno de esos sitios es el que decide si el amparo SE CONCEDE. Añadir
+# la calificación sin cambiar esto habría convertido concesiones en negativas
+# sin que nada fallara.
+#
+# Ahora se pregunta aquí y sólo aquí. Añadir la siguiente calificación es
+# tocar una línea.
+CALIFICACIONES = {
+    # clave                    plural                  prospera  medido
+    "fundado":                 ("fundados",             True,   9022),
+    "infundado":               ("infundados",           False, 27839),
+    "inoperante":              ("inoperantes",          False, 16927),
+    "ineficaz":                ("ineficaces",           False,  5965),
+    "esencialmente_fundado":   ("esencialmente fundados", True,  2899),
+}
+
+# Lo que el secretario puede elegir hoy en pantalla. Se separa del diccionario
+# porque añadir una calificación al catálogo y ofrecerla en la interfaz son dos
+# decisiones distintas: la primera es reconocerla, la segunda es pedirla.
+SENTIDOS_OFRECIDOS = ("fundado", "esencialmente_fundado", "infundado",
+                      "inoperante", "ineficaz")
+
+
+def prospera(sentido: str) -> bool:
+    """¿Este planteamiento saca adelante el recurso o el amparo?
+
+    EL ÚNICO SITIO DONDE SE DECIDE. De aquí cuelgan el sentido del fallo, la
+    rama del resolutivo, la suerte de los accesorios y si el amparo se concede.
+    Un `startswith` esparcido por siete ficheros es una bomba de relojería:
+    basta una calificación nueva que no empiece por «fundad» para que todos
+    devuelvan False a la vez y en silencio.
+    """
+    s = (sentido or "").strip().lower().replace(" ", "_")
+    if s in CALIFICACIONES:
+        return CALIFICACIONES[s][1]
+    # Las que el catálogo aún no conoce pero llevan «fundad» dentro —
+    # «parcialmente_fundado», «sustancialmente_fundado», «fundado_suplido»—
+    # prosperan: es más seguro reconocerlas que tratarlas como desestimadas.
+    return "fundad" in s
+
+
+def plural_de(sentido: str) -> str:
+    s = (sentido or "").strip().lower().replace(" ", "_")
+    return CALIFICACIONES.get(s, (s, False, 0))[0]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LA TÉCNICA DE RESOLUCIÓN, POR ESCENARIO
 # ═══════════════════════════════════════════════════════════════════════════
 # David: «hay múltiples escenarios técnicos en revisión… dependiendo del asunto
@@ -1390,7 +1446,7 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
     """
     a = (resolvio_a_quo or "").strip().lower()
     s = (sentido or "").strip().lower()
-    _prospera = s.startswith("fundad")
+    _prospera = prospera(s)
 
     # LAS DOS RAMAS DE RESOLUTIVO ÚNICO SE MIRAN DESPUÉS, Y CON CONDICIONES.
     # Se resolvían ANTES que nada y sin mirar el sentido ni lo que hizo el
@@ -1409,8 +1465,11 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
         return "modifica_efectos"
     if a not in ("sobresee", "niega", "concede"):
         return "sin_determinar"
-    prospera = s in ("fundado", "fundado_suplido", "parcialmente_fundado")
-    if not prospera:
+    # LA LISTA A MANO SE VA. Enumeraba tres calificaciones y dejaba fuera
+    # «esencialmente_fundado», que en este circuito es el 23% de los agravios
+    # de las revisiones que revocan: la rama caía en «confirma» y el
+    # resolutivo confirmaba una sentencia que el estudio revocaba.
+    if not prospera(s):
         return {"sobresee": "confirma_sobresee", "niega": "confirma_niega",
                 "concede": "confirma_concede"}[a]
     if a == "sobresee":

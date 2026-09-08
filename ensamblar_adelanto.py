@@ -733,7 +733,7 @@ def formula_resolutivo(calificaciones: list[str]) -> tuple[str, str]:
     cs = [str(c or "").strip().lower() for c in calificaciones if str(c or "").strip()]
     if not cs:
         return "", ""
-    hay_fundado = any(c.startswith("fundad") for c in cs)
+    hay_fundado = any(__import__("tipos_asunto").prospera(c) for c in cs)
     if not hay_fundado:
         return _NO_AMPARA, ""
     if len(set(cs)) > 1:
@@ -1595,7 +1595,7 @@ def revisar_congruencia(ruta: str, calificaciones=None,
     except Exception:
         _es_recurso = False
     if cs and not _es_recurso:
-        hay_fundado = any(c.startswith("fundad") for c in cs)
+        hay_fundado = any(__import__("tipos_asunto").prospera(c) for c in cs)
         if hay_fundado and niega and not concede:
             fuera.append(f"El secretario calificó «{cs[0]}» y el resolutivo "
                          f"NIEGA el amparo. Basta un concepto fundado para "

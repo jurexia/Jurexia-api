@@ -55,7 +55,10 @@ MAX_TOKENS_PROPUESTA = int(os.getenv("MAX_TOKENS_PROPUESTA", "16000"))
 MAX_TESIS_PROPUESTA = 8
 TESIS_CARACTERES = 1200
 
-SENTIDOS = ("fundado", "infundado", "inoperante", "ineficaz")
+# DEL CATÁLOGO, NO DE UNA TUPLA SUELTA. Añadir una calificación era tocar esta
+# línea, la de la pantalla, dos diccionarios de plural y siete `startswith`.
+import tipos_asunto as _ta_s
+SENTIDOS = _ta_s.SENTIDOS_OFRECIDOS
 
 # Lo que el secretario lee de un vistazo. Medido sobre sus propios estudios: la
 # razón que él escribe para calificar cabe en tres o cuatro renglones antes de
@@ -538,6 +541,11 @@ NORMAS DEL ACERVO
 CÓMO SE CALIFICA, y no son sinónimos:
 - FUNDADO: el planteamiento combate la razón de la responsable y tiene razón.
 - INFUNDADO: la combate y no tiene razón.
+- ESENCIALMENTE FUNDADO: combate la razón toral y tiene razón EN LO
+  SUSTANCIAL, aunque no en todos sus términos —se equivoca en un dato, en un
+  precepto o en el alcance que pide—. Prospera igual que el fundado: lo que
+  cambia es que el proyecto acota en qué medida. Es el 23% de los agravios en
+  las revisiones que revocan de este circuito, medido sobre su acervo.
 - INOPERANTE: NO combate la razón toral —ataca algo que no sostiene el fallo,
   repite lo dicho en la instancia, o parte de una premisa falsa—. La
   inoperancia se razona: hay que decir POR QUÉ no combate.

@@ -1333,7 +1333,12 @@ def _con_articulo(nombre: str) -> str:
 
 HUECO = "*********"
 
-_PLURAL = {"fundado": "fundados", "infundado": "infundados",
+# EL PLURAL SALE DEL CATÁLOGO. Estaba escrito a mano aquí y en fase6_estudio, y
+# `_calificacion_plural` descarta lo que no esté en el diccionario: una
+# calificación nueva desaparecía del encabezado del estudio sin avisar.
+import tipos_asunto as _ta_pl
+_PLURAL = {k: v[0] for k, v in _ta_pl.CALIFICACIONES.items()}
+_PLURAL_VIEJO = {"fundado": "fundados", "infundado": "infundados",
            "inoperante": "inoperantes", "ineficaz": "ineficaces",
            # INNECESARIO NO ES UNA CALIFICACIÓN DEL PLANTEAMIENTO. No se dice
            # que sea infundado —eso sería contestarlo— sino que no hace falta
@@ -2752,7 +2757,11 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # «inoperante», pero significa otra cosa: que no se entra al planteamiento.
     # Lo que decide el sentido del fallo es el PRINCIPAL, y si ése es fundado
     # el asunto se concede aunque los accesorios queden sin materia.
-    concede = any(c.startswith("fundad") for c in cs)
+    # POR EL PREDICADO, NO POR LA CADENA. Aquí se decide si el amparo SE
+    # CONCEDE, y `startswith("fundad")` devolvía False para «esencialmente
+    # fundado» —que es el 23% de los agravios en las revisiones que revocan—.
+    # Una concesión compuesta como negativa no falla: se firma.
+    concede = any(_ta.prospera(c) for c in cs)
     esq = esqueleto_de(tipo_asunto)
     q = esq["q"]
     con_apartados = []

@@ -77,7 +77,9 @@ CONECTORES = ("Lo anterior", "En ese sentido", "Por tanto", "En consecuencia",
 # El sentido se dicta en singular («ineficaz») pero se escribe concordando con
 # «los conceptos»: «son ineficaces». Sin esto sale «son ineficaz» en la primera
 # línea de la sentencia, que es donde más se nota.
-_PLURAL = {"fundado": "fundados", "infundado": "infundados",
+import tipos_asunto as _ta_p
+_PLURAL = {k: v[0] for k, v in _ta_p.CALIFICACIONES.items()}
+_PLURAL_VIEJO = {"fundado": "fundados", "infundado": "infundados",
            "inoperante": "inoperantes", "ineficaz": "ineficaces",
            "fundados": "fundados", "infundados": "infundados",
            "inoperantes": "inoperantes", "ineficaces": "ineficaces"}
@@ -926,7 +928,7 @@ def _sentido_del_fallo(criterios: list) -> str:
         return ""
     for c in criterios:
         s = str(getattr(c, "sentido", "") or "").strip().lower()
-        if s.startswith("fundad"):
+        if _ta_p.prospera(s):
             return "concede"
     return "niega"
 
@@ -1216,8 +1218,17 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
   pegados cansan igual que ninguno—. Tienes diez para alternar.
 
   PASO 4 — LA CONCLUSIÓN CALIFICADA, Y SUS CONSECUENCIAS.
-  Una sola calificación —«es fundado», «es infundado», «es inoperante»— y qué
-  se sigue de ella. Si es inoperante, la razón TÉCNICA de la inoperancia: que
+  Una sola calificación —«es fundado», «es esencialmente fundado», «es
+  infundado», «es inoperante», «es ineficaz»— y qué se sigue de ella.
+
+  ESENCIALMENTE FUNDADO no es un fundado tibio ni una forma de no mojarse: es
+  el planteamiento que combate la razón toral y tiene razón EN LO SUSTANCIAL,
+  aunque no en todos sus términos —se equivoca en un dato, en un precepto o en
+  el alcance que pide—. Prospera igual que el fundado; lo que cambia es que el
+  proyecto ACOTA en qué medida, y esa acotación es la que fija los efectos.
+  Medido en este circuito: es el 23% de los agravios de las revisiones que
+  revocan. Si el secretario la eligió, respétala y di en qué parte se le da la
+  razón y en cuál no. Si es inoperante, la razón TÉCNICA de la inoperancia: que
   no combate la razón toral, que es novedoso, que versa sobre cuestión firme.
 
   · SI EL PLANTEAMIENTO ES INNECESARIO, los cuatro pasos se sustituyen por uno
