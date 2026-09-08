@@ -344,3 +344,34 @@ Lo verificado en pantalla, no en el código:
 **Dos defectos encontrados EN LA PRUEBA**, no leyendo código: la caché eterna
 del catálogo y el marcador literal. Los dos arreglados en el momento. Ninguno
 se habría visto sin conducir la interfaz.
+| 28 | 7-sep-2026 | Los preceptos bajan a nota al pie, como las tesis (`notas_de_articulos`, que estaba escrita y muerta) | **Comprobado** — 3 bloques y 818 palabras en el cuerpo → 0; 7 artículos al pie |
+| 29 | 7-sep-2026 | La extensión se reparte: principal a fondo, inoperante y accesorio en 2-3 párrafos | **Comprobado a medias** — el principal ya es el apartado más largo, pero por poco |
+| 30 | 7-sep-2026 | Cuatro reglas de diálogo jurídico sacadas de la edición a mano de David | **Comprobado** — huérfanos 4→0, frases del prompt 2→0, tesis descartada 1→0; conector 11%→17% frente al 21% suyo |
+
+---
+
+## 11. Lo que enseñó comparar con la edición a mano de David · 7-sep
+
+Comparado el proyecto generado con `410-2026 PROYECTO FINAL (ajustes dialogo
+juridico)`: 13 párrafos tocados, cuatro patrones.
+
+1. **El artículo quedaba sin verbo** —«El artículo 76 de la Ley de Amparo. Por
+   ello…»— cuatro veces. **Regresión mía**: al bajar el precepto al pie, el
+   recorte que quitaba la transcripción dejó la frase descabezada, y el prompt
+   seguía mandando transcribir.
+2. **El prompt se escribía a sí mismo**: «en su versión más favorable», «la
+   mejor objeción a esta conclusión es». Sexta vez medida.
+3. **Los párrafos no se enlazaban**: David repuso nueve conectores.
+4. **Se citaba una tesis para decir que no aplica.**
+
+**LA LECCIÓN QUE MÁS VALE, y ya va dos veces medida:** una regla puesta en la
+lista de estilo (carácter ~1,100 del prompt) NO se obedece; la misma regla
+dentro de la ARQUITECTURA (~7,000) sí. Pasó con la extensión y volvió a pasar
+con los conectores. **Antes de dar una instrucción por escrita, comprobar dónde
+cae.**
+
+**Y un remiendo puede ser peor que el defecto:** mi primer arreglo del huérfano
+insertaba «dispone lo siguiente», que promete una transcripción que no llega.
+Ahora funde las dos frases como las escribió David, y si no encaja en el molde
+NO TOCA NADA: un huérfano se ve y se corrige; una frase inventada se firma sin
+mirarla.
