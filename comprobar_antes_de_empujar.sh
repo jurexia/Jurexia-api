@@ -85,10 +85,41 @@ MODULOS = ["redactor_adelanto.py", "documento_generado.py", "fase6_estudio.py",
 BUILTIN = set(dir(builtins))
 
 
+def propios(nodo):
+    """Los nodos de ESTE ámbito, SIN entrar en funciones ni clases de dentro.
+
+    ÉSTE ERA EL AGUJERO. `liga` usaba `ast.walk`, que desciende en todo, así
+    que las variables locales de CADA función acababan contadas como nombres
+    del MÓDULO y quedaban visibles en todas partes.
+
+    Medido: `_rama` estaba asignado dentro de una función y usado dentro de
+    OTRA, que no lo tenía. El guardián dijo «TODO PASA» y cada generación del
+    taller murió en producción con «name '_rama' is not defined» —el servidor
+    devolvía 200 con su evento de error y la pantalla se quedaba muda—.
+
+    Un guardián que no ve esta clase de fallo es peor que ninguno: da permiso
+    para empujar.
+    """
+    fuera = []
+    pila = list(ast.iter_child_nodes(nodo))
+    while pila:
+        x = pila.pop()
+        fuera.append(x)
+        # No se entra en el cuerpo de funciones ni clases: sus locales son
+        # suyas. Sí se miran sus DECORADORES y sus valores por omisión, que se
+        # evalúan en este ámbito.
+        if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            for d in getattr(x, "decorator_list", []):
+                pila.extend(ast.walk(d))
+            continue
+        pila.extend(ast.iter_child_nodes(x))
+    return fuera
+
+
 def liga(nodo, heredado):
     """Los nombres que existen dentro de `nodo`, con lo que hereda."""
     n = set(heredado)
-    for x in ast.walk(nodo):
+    for x in propios(nodo):
         if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store):
             n.add(x.id)
         elif isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -112,7 +143,10 @@ for f in MODULOS:
 
     def revisa(fn, visible):
         dentro = liga(fn, visible)
-        for x in ast.walk(fn):
+        # Los usos también se miran SÓLO en este ámbito: lo que hace una
+        # función anidada se comprueba cuando le toque su turno, con su propio
+        # ámbito heredado.
+        for x in propios(fn):
             if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load) \
                     and x.id not in dentro:
                 malos.append(f"{f}:{x.lineno} {fn.name}() usa «{x.id}»")
@@ -121,9 +155,20 @@ for f in MODULOS:
                 if isinstance(y, (ast.FunctionDef, ast.AsyncFunctionDef)) and y is not fn:
                     pass
 
-    for fn in [x for x in ast.walk(arbol)
-               if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef))]:
-        revisa(fn, modulo)
+    # CADA FUNCIÓN CON EL ÁMBITO DE SU PADRE, no con el del módulo. Una
+    # anidada ve las locales de quien la contiene; una hermana, no.
+    def recorre(nodo, visible):
+        for h in ast.iter_child_nodes(nodo):
+            if isinstance(h, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                revisa(h, visible)
+                recorre(h, liga(h, visible))
+            elif isinstance(h, ast.ClassDef):
+                recorre(h, visible)
+            else:
+                for y in ast.iter_child_nodes(h):
+                    recorre(h, visible)
+                    break
+    recorre(arbol, modulo)
 
 if malos:
     print("   ✗ NOMBRES QUE PUEDEN NO EXISTIR:")

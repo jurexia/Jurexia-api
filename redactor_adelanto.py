@@ -603,27 +603,6 @@ async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
     # «funcionó». Es el mismo defecto que el aviso que nadie veía. Una línea.
     _pred = [d["prediccion"].get("frase", "—") for d in s.por_problema]
     print(f"   ⚖️ jurimetría por problema: " + " · ".join(_pred[:4]))
-    # LA RAMA, ANTES DE REDACTAR. Se calculaba al COMPONER, cuando el estudio
-    # ya estaba escrito, asi que el modelo nunca supo en que escenario tecnico
-    # estaba: escribia sin saber si iba a levantar un sobreseimiento —y por
-    # tanto tenia que estudiar los conceptos de violacion por primera vez— o si
-    # solo confirmaba.
-    _rama, _vp = "", False
-    try:
-        import tipos_asunto as _ta_r, fase_rama as _fr_r
-        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
-            _que = _fr_r.resolvio_a_quo(
-                "", "\n".join(r.fases.antecedentes or []),
-                declarado=getattr(e, "resolvio_declarado", "") or "")
-            _sent = "fundado" if any(
-                str(getattr(c, "sentido", "")).startswith("fundad")
-                for c in (criterios or [])) else "infundado"
-            _rama = _ta_r.rama_revision(_que, _sent)
-        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
-                  and "procesal" in str(getattr(c, "problema", "")).lower()
-                  for c in (criterios or []))
-    except Exception as _e:
-        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
 
     print(f"   ⚖️ precedente[{materia}]: "
           f"{sum(s.distribucion.values())} sentencias del tema · "
@@ -644,6 +623,31 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     if r.encargo is None:
         raise ValueError("El resultado no trae el encargo: no se puede reensamblar.")
     e = r.encargo
+    # LA RAMA TÉCNICA, ANTES DE REDACTAR. Se calculaba al COMPONER, con el
+    # estudio ya escrito, así que el modelo nunca supo en qué escenario estaba.
+    #
+    # Y LA PRIMERA VEZ QUE LO PUSE SE ME FUE DE ÁMBITO: quedó en la función de
+    # al lado y `resolver_en_vivo` —que es por donde pasa TODA la pantalla— lo
+    # usaba sin tenerlo. Cada generación moría con «name '_rama' is not
+    # defined»; el servidor devolvía 200 con su evento de error y la pantalla
+    # se quedaba muda. Lo vieron los registros de Render, no el guardián.
+    _rama, _vp = "", False
+    try:
+        import tipos_asunto as _ta_r, fase_rama as _fr_r
+        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
+            _que = _fr_r.resolvio_a_quo(
+                "", "\n".join(r.fases.antecedentes or []),
+                declarado=getattr(e, "resolvio_declarado", "") or "")
+            _sent = "fundado" if any(
+                _ta_r.prospera(str(getattr(c, "sentido", "")))
+                for c in (criterios or [])) else "infundado"
+            _rama = _ta_r.rama_revision(_que, _sent)
+        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
+                  and "procesal" in str(getattr(c, "problema", "")).lower()
+                  for c in (criterios or []))
+    except Exception as _e:
+        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
+
 
     # EL MARCO SE ESCRIBE A LA VEZ QUE EL ESTUDIO. Son dos llamadas
     # independientes —la del marco sólo mira el material constitucional, la del
@@ -657,27 +661,6 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             cliente, marco,
             [p for p in (r.fases.problemas or [])], e.es_recurso, e.tipo_asunto))
 
-    # LA RAMA, ANTES DE REDACTAR. Se calculaba al COMPONER, cuando el estudio
-    # ya estaba escrito, asi que el modelo nunca supo en que escenario tecnico
-    # estaba: escribia sin saber si iba a levantar un sobreseimiento —y por
-    # tanto tenia que estudiar los conceptos de violacion por primera vez— o si
-    # solo confirmaba.
-    _rama, _vp = "", False
-    try:
-        import tipos_asunto as _ta_r, fase_rama as _fr_r
-        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
-            _que = _fr_r.resolvio_a_quo(
-                "", "\n".join(r.fases.antecedentes or []),
-                declarado=getattr(e, "resolvio_declarado", "") or "")
-            _sent = "fundado" if any(
-                str(getattr(c, "sentido", "")).startswith("fundad")
-                for c in (criterios or [])) else "infundado"
-            _rama = _ta_r.rama_revision(_que, _sent)
-        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
-                  and "procesal" in str(getattr(c, "problema", "")).lower()
-                  for c in (criterios or []))
-    except Exception as _e:
-        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
 
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
@@ -700,6 +683,31 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                            marco: str = "", qdrant=None, contexto: str = ""):
     """La sentencia, viéndose escribir. Rinde trozos y, al final, el Resultado."""
     e = r.encargo
+    # LA RAMA TÉCNICA, ANTES DE REDACTAR. Se calculaba al COMPONER, con el
+    # estudio ya escrito, así que el modelo nunca supo en qué escenario estaba.
+    #
+    # Y LA PRIMERA VEZ QUE LO PUSE SE ME FUE DE ÁMBITO: quedó en la función de
+    # al lado y `resolver_en_vivo` —que es por donde pasa TODA la pantalla— lo
+    # usaba sin tenerlo. Cada generación moría con «name '_rama' is not
+    # defined»; el servidor devolvía 200 con su evento de error y la pantalla
+    # se quedaba muda. Lo vieron los registros de Render, no el guardián.
+    _rama, _vp = "", False
+    try:
+        import tipos_asunto as _ta_r, fase_rama as _fr_r
+        if _ta_r.normalizar(e.tipo_asunto) == "amparo_revision":
+            _que = _fr_r.resolvio_a_quo(
+                "", "\n".join(r.fases.antecedentes or []),
+                declarado=getattr(e, "resolvio_declarado", "") or "")
+            _sent = "fundado" if any(
+                _ta_r.prospera(str(getattr(c, "sentido", "")))
+                for c in (criterios or [])) else "infundado"
+            _rama = _ta_r.rama_revision(_que, _sent)
+        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
+                  and "procesal" in str(getattr(c, "problema", "")).lower()
+                  for c in (criterios or []))
+    except Exception as _e:
+        print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
+
     avisos: list[str] = []
     tarea_marco = None
     if (e.modo or "").lower() == "generado" and (marco or "").strip():
@@ -732,6 +740,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
 
 def _revisar_contaminacion(r, e) -> list:
     """Que nada del proyecto sea de otro asunto.
+
 
     David: «asegúrate de que los formatos de salida no estén contaminados con
     datos que no correspondan al asunto que proyecta el secretario». Se
