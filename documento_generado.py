@@ -1306,8 +1306,29 @@ def _con_articulo(nombre: str) -> str:
     femeninas = ("sala", "junta", "primera", "segunda", "tercera", "cuarta",
                  "quinta", "sexta", "séptima", "octava", "novena", "décima",
                  "autoridad", "comisión", "procuraduría", "secretaría",
-                 "dirección", "delegación", "subdelegación")
-    return f"{'la' if primera in femeninas else 'el'} {n}"
+                 "dirección", "delegación", "subdelegación",
+                 # LAS PERSONAS JUZGADORAS FALTABAN. El considerando de
+                 # existencia del 410/2026 salió con «el Jueza de Distrito del
+                 # Juzgado Quinto»: la lista sólo traía nombres de órganos y el
+                 # informe justificado lo rinde una persona, con su cargo en
+                 # femenino cuando corresponde. Escribir «el Jueza» en un
+                 # proyecto es de las erratas que se leen a la primera.
+                 "jueza", "magistrada", "presidenta", "titular", "actuaria",
+                 "secretaria", "encargada", "administradora", "recaudadora",
+                 "asamblea", "agencia", "fiscalía", "oficialía", "notaría",
+                 "tesorería", "coordinación", "administración", "unidad")
+    if primera in femeninas:
+        return f"la {n}"
+    # LO QUE NO CABE EN UNA LISTA. En español son femeninos casi sin excepción
+    # los acabados en -ción, -sión, -dad, -tad y -ía, y esos sufijos abundan en
+    # los nombres de órganos —«Recaudación», «Universidad», «Contraloría»—. La
+    # lista nunca los va a agotar; la regla sí los cubre.
+    #
+    # No se usa el simple «acaba en -a», que se lleva por delante «Sistema»,
+    # «Programa» y «Problema», todos masculinos.
+    if re.search(r"(?:ci[óo]n|si[óo]n|dad|tad|[íi]a)$", primera):
+        return f"la {n}"
+    return f"el {n}"
 
 
 HUECO = "*********"

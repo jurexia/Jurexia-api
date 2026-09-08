@@ -767,6 +767,20 @@ CARATULA = {
     "amparo_revision": [
         ("{QUEJOSO_A} Y RECURRENTE", "quejoso", True),
         ("RECURRENTE ADHESIVO", "adherente", False),
+        # EL ÓRGANO RECURRIDO FALTABA, y era el único tipo sin él: el amparo
+        # directo lleva «AUTORIDAD RESPONSABLE», la queja «ÓRGANO QUE DICTÓ EL
+        # AUTO RECURRIDO» y la revisión fiscal «SALA RESPONSABLE». La revisión
+        # se quedó con quejoso y adherente, así que el proyecto salía con una
+        # carátula que no dice contra quién va el asunto.
+        #
+        # Los engroses reales de David SÍ lo llevan: «ÓRGANO RECURRIDO: SALA
+        # REGIONAL EN QUERÉTARO DEL TRIBUNAL FEDERAL DE JUSTICIA ADMINISTRATIVA
+        # Y DE LA DIRECCIÓN LOCAL QUERÉTARO DE LA COMISIÓN NACIONAL DEL AGUA».
+        #
+        # Se rotula «ÓRGANO RECURRIDO» y no «AUTORIDAD RESPONSABLE»: en un
+        # recurso lo que se recurre es la resolución de un órgano, y la
+        # responsable es otra figura del amparo de origen.
+        ("ÓRGANO RECURRIDO", "responsable", True),
     ],
     "queja": [
         ("RECURRENTE", "quejoso", True),

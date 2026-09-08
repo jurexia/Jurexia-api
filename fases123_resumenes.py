@@ -181,6 +181,18 @@ Y lo de siempre:
 - SUJETO: {', '.join(_sj['parte'][:3])}.
 - NO LOS CALIFIQUES. Aquí sólo se expone lo que se alega; el juicio viene en el
   estudio.
+- CADA APARTADO ANCLADO A SU ORIGEN, igual que el resumen del acto reclamado.
+  Se marca con [[p.7 §3]] al final de la frase —página y párrafo del escrito de
+  quien promueve— y NO entre paréntesis: el ensamblador convierte esas marcas
+  en NOTAS AL PIE con la forma «Cfr. página 7, párrafo 3».
+  Es lo que permite al secretario cotejar que la síntesis dice lo que el
+  escrito dice, sin releerlo entero. Un {sing} mal resumido se contesta mal, y
+  eso no se ve en el proyecto: se ve en el amparo que vuelve.
+  UNA MARCA POR APARTADO, al final del primer párrafo de cada uno, que es
+  donde se dice de qué va. No marques cada frase: la nota repetida no aporta y
+  ensucia el pie.
+  Si no puedes ubicar la página, NO INVENTES el número: deja el apartado sin
+  marca. Una nota al pie que manda a la página equivocada es peor que ninguna.
 - EXTENSIÓN: alrededor de {PALABRAS_RESUMEN_CONCEPTOS} palabras en total."""
 
 
