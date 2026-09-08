@@ -489,3 +489,72 @@ suspensión: sirvió para comprobar el formato y la portada, no el contenido.
 Se detectó porque el contexto propuesto hablaba de un exhorto que no venía a
 cuento. **Un comodín en un `cp` sobre el directorio de trabajo es una carga de
 datos, no una copia de conveniencia.**
+
+---
+
+## 13. El proyecto que volvía a salir extemporáneo · 8-sep
+
+**El caso.** Erika, la tester, generó un adelanto con el plazo mal tecleado: el
+proyecto salió extemporáneo, que era lo correcto. Rehízo el adelanto con el
+plazo bueno, el adelanto salió bien —y el proyecto **volvió a salir vacío por
+extemporaneidad**.
+
+**La base tenía razón desde el principio.** La sesión 437/2025 guardaba plazo
+10, notificación 18-jun-2025, presentación 2-jul-2025 y `oportuna=true`.
+
+**Los registros lo enseñan al minuto:**
+
+    18:30  worker prrxc · adelanto con el plazo mal → memoria de prrxc
+    18:47  worker fm77h · adelanto CORREGIDO        → memoria de fm77h + base
+    18:51  worker prrxc · resolver                  → memoria RANCIA de prrxc
+    18:54  worker prrxc · proyecto vacío
+
+`_taller_recuperar_sesion` devolvía la copia en memoria sin comprobar nada. Con
+dos workers, que el adelanto corregido y el resolver caigan en el mismo es una
+moneda al aire.
+
+**Ya había un parche de esta misma familia** —el del «Consulta primero el
+acervo»—, y arreglaba UN campo: releía `consultado` de la base y dejaba rancio
+todo lo demás. Cualquier dato del adelanto podía quedar viejo igual: las
+fechas, las partes, la materia, el tipo de asunto. **Arreglar el síntoma campo
+por campo deja la puerta abierta por los otros catorce.**
+
+### Las dos trampas del arreglo
+
+**1 · `creado_en` no sirve como sello.** Su default `now()` sólo corre en el
+INSERT: un upsert que ACTUALIZA deja la fecha del primer adelanto. Comprobado
+en la fila real: `creado_en` 18:30 con el contenido de las 18:47. Una
+comprobación de frescura basada en ella no habría detectado nada nunca.
+
+**2 · `now()` no se mueve dentro de una transacción.** Es la hora de inicio de
+transacción. Mi primera prueba del disparador —insertar y actualizar en una
+sola sentencia— dio «el sello no cambió», y eso ocurría tanto si el disparador
+funcionaba como si no: **una prueba que no puede distinguir las dos cosas no
+prueba nada.** Con `clock_timestamp()` la diferencia es de 64 ms y la prueba sí
+distingue.
+
+**Y un tercer detalle, de coste:** el disparador NO debe correr al marcar
+`consultado`. Si corriera, el worker que acaba de consultar tiraría su propia
+memoria buena en la llamada siguiente y volvería a recuperar el acervo. Se
+acota con `WHEN (OLD.estado IS DISTINCT FROM NEW.estado …)`: lo que invalida la
+memoria es que cambie el adelanto, no que se marque una casilla. Comprobado por
+separado: marcar consultado deja el sello quieto, un adelanto nuevo lo mueve.
+
+### La prueba
+
+Se reprodujo la avería a propósito: cuatro adelantos con el plazo mal para
+dejar la sesión rancia en los dos workers, uno con el plazo bueno, y luego seis
+consultas y dos propuestas.
+
+    ♻️ memoria rancia detectada y releída ... 2 veces (una por worker)
+    ⚖️ «cómputo extemporáneo» tras corregir . 0
+
+**Las dos cifras importan.** El cero es el arreglo. Y que el reciclaje salte
+exactamente dos veces —una por worker— y no en cada llamada es lo que prueba
+que la comparación del sello funciona: si el formato del sello no coincidiera
+entre el guardado y la lectura, saltaría siempre y el taller estaría releyendo
+la base sin parar.
+
+**Si la base no contesta, se sigue con la memoria.** Peor que un dato viejo es
+no poder trabajar: el secretario tiene el adelanto delante y lo que quiere es
+su proyecto.
