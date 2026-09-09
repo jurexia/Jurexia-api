@@ -869,3 +869,66 @@ copie.
 Queda por vigilar que las tesis citadas no bajen: en esta corrida fueron 5
 frente a 6, y las notas al pie 12 frente a 15. Puede ser variación entre
 corridas; hay que medirlo en varias antes de concluir nada.
+
+---
+
+## 18. En revisión se revoca; sólo en amparo se deja insubsistente · 9-sep
+
+**La regla de David:** «en revisión la sentencia no se deja insubsistente, se
+revoca. Sólo en amparo (cuando se concede) se ordena que se deje insubsistente
+el acto reclamado».
+
+No son dos maneras de decir lo mismo. En un **recurso** el tribunal es órgano
+revisor de esa misma sentencia y la REVOCA: con eso deja de existir, y no hay a
+quién ordenarle que la deje insubsistente. En **amparo** el tribunal NO revoca
+el acto reclamado —no es superior jerárquico de la responsable—: concede la
+protección y le ordena dejarlo insubsistente.
+
+El resolutivo del reenvío fiscal que escribí ayer decía «Se ordena a la Sala
+**dejar insubsistente** la sentencia revocada y dictar otra»: el punto anterior
+ya la había revocado.
+
+La regla va en `_ARQUITECTURA_COMUN` —los cinco prompts— y no en las
+arquitecturas de materia, porque el deslinde es por TIPO DE ASUNTO: la
+arquitectura laboral dice «Deje insubsistente el laudo», que es correcto en
+amparo, y esa misma arquitectura se usa en revisiones laborales.
+
+Y un aviso cuando el estudio de un recurso escribe la fórmula. **No se corrige
+el texto**: la frase puede describir lo que hizo otro órgano, y reescribirla a
+ciegas es el remiendo que ya salió peor que el defecto.
+
+### Las dos corridas de comprobación
+
+                              91/2025 fiscal   650/2025 amparo rev.
+    «transcrito»                    0                 0
+    anuncios colgantes              0                 0
+    «insubsistente»                 0                 0
+    tesis citadas                   6                 5
+    palabras                    6,087             7,038
+
+El arreglo del diálogo **se sostiene en un asunto distinto**, de otro tipo y
+otra materia. Y las tesis citadas volvieron a 6 en la fiscal: las 5 de la
+corrida anterior eran variación, no consecuencia del cambio.
+
+### Un error operativo mío, para no repetirlo
+
+La primera corrida del 650 murió en el paso final con «sin listo». No era un
+fallo del código: **empujé el commit de `taller.md` mientras la corrida estaba
+en vuelo**, y el redespliegue mató la petición en streaming. Es la segunda vez
+que un despliegue tumba una comprobación en curso. **No se empuja nada mientras
+haya una generación corriendo.**
+
+### Dos defectos que aparecieron y quedan abiertos
+
+**1 · La autoridad originaria sale corrupta.** El resolutivo del 650 dice «no
+ampara ni protege a Pamela Mariana Barba Lira, contra el acto reclamado al
+*Adoptara las Medidas Necesarias A Fin de Salvaguardar la Integridad de las
+Niñas*». `responsable_originaria` está tomando un trozo de la descripción del
+acto por el nombre de la autoridad. Ayer salió lo mismo con «al No Ejecutara
+el». Es un defecto visible que impide firmar.
+
+**2 · Y la corrida vuelve a exhibir el problema de «quién recurre».** Global
+fundado, y el documento resuelve «Se revoca la sentencia recurrida» + «La
+Justicia de la Unión NO ampara ni protege» a la quejosa **que había ganado el
+amparo abajo** y recurrió pidiendo más. `revoca_fondo_niega` supone que quien
+recurre es la autoridad. Es exactamente lo que quedó pendiente de decidir.
