@@ -90,11 +90,20 @@
     return fetch(accion, { method: "POST", body: cuerpo, credentials: "include" });
   }
 
+  // EL ERROR TIENE QUE DECIR DÓNDE SE ROMPIÓ. La primera versión decía «sin el
+  // escrito no hay nada que proyectar» y se guardaba el porqué: con eso no se
+  // puede arreglar nada a distancia. Ahora cada paso cuenta qué le devolvió
+  // SISE —el código, el tipo y cómo empieza—, que es lo que distingue una
+  // sesión caducada de un control mal nombrado o de una página de error.
   async function aPDF(r, deQue) {
     const buf = await r.arrayBuffer();
     const cab = String.fromCharCode(...new Uint8Array(buf.slice(0, 5)));
     if (!cab.startsWith("%PDF")) {
-      throw new Error(`SISE no devolvió un PDF de ${deQue} (¿caducó la sesión?)`);
+      const t = new TextDecoder().decode(buf.slice(0, 400))
+        .replace(/\s+/g, " ").trim().slice(0, 160);
+      throw new Error(
+        `${deQue}: SISE devolvió ${r.status} ${r.headers.get("content-type") || "?"}`
+        + ` (${Math.round(buf.byteLength / 1024)} KB), empieza por «${t}»`);
     }
     return new Blob([buf], { type: "application/pdf" });
   }
@@ -125,11 +134,19 @@
     const f = document.forms[0];
     const r1 = await pulsar(f.action, ocultosDe(f), nombreControl);
     const html = await r1.text();
+    if (!/text\/html/i.test(r1.headers.get("content-type") || "")) {
+      throw new Error(`paso 1: esperaba el panel de promociones y vino `
+        + `${r1.headers.get("content-type")} (${r1.status})`);
+    }
     const doc = new DOMParser().parseFromString(html, "text/html");
     const grid = doc.querySelector('[id*="grvPanelCentral"]');
     const archivo = doc.querySelector('input[type=image][name$="imgArchivo"]');
     if (!archivo) {
-      throw new Error("El panel de promociones no trae el escaneo principal.");
+      const botones = [...doc.querySelectorAll("input[type=image]")]
+        .map((b) => (b.getAttribute("name") || "").split("$").pop());
+      throw new Error(`paso 1: llegué a «${(doc.title || "?").trim()}» `
+        + `(${Math.round(html.length / 1024)} KB) pero no trae imgArchivo. `
+        + `Botones: ${botones.join(", ") || "ninguno"}`);
     }
     // La fecha de presentación, de la tabla y no de un PDF.
     let presentacion = "";
@@ -165,7 +182,7 @@
   const barra = document.createElement("div");
   barra.id = "iurexia-barra";
   barra.innerHTML = `
-    <h4>Taller de sentencias · Iurexia <span style="opacity:.45;font-weight:400">v0.2</span></h4>
+    <h4>Taller de sentencias · Iurexia <span style="opacity:.45;font-weight:400">v0.3</span></h4>
     <p>Trae las constancias de este expediente sin que teclees nada.
        Tu contraseña de SISE no sale de aquí.</p>
     <button id="iurexia-ir">${enPromociones
@@ -292,7 +309,9 @@
       di(`<div class="bien">Listo. Abre el taller y el expediente
           ${ficha.numero} estará esperándote con sus constancias.</div>`);
     } catch (e) {
-      di(`<div class="mal">${e.message}</div>`);
+      // SE AÑADE, NO SE SUSTITUYE: lo de arriba es el rastro de qué se
+      // intentó, y borrarlo deja el mensaje sin contexto.
+      di(estado.innerHTML + `<div class="mal">${e.message}</div>`);
     } finally {
       boton.disabled = false;
     }
