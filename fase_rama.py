@@ -397,3 +397,29 @@ _RX_NO_COMBATIDO = re.compile(
 def hay_aspectos_no_combatidos(estudio: str) -> bool:
     """¿El estudio dice que algo de la recurrida quedó fuera de la revisión?"""
     return bool(_RX_NO_COMBATIDO.search(" ".join((estudio or "").split())))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ¿QUEDÓ ALGO SIN ESTUDIAR EN LA SENTENCIA DE LA SALA?
+# ═══════════════════════════════════════════════════════════════════════════
+# Es la condición del reenvío en la revisión fiscal: el colegiado revoca, pero
+# no puede sustituir a la Sala en el estudio de lo que ésta omitió.
+#
+# NO BASTA CON QUE SE REVOQUE. La tesis 185493 marca el límite: si el vicio es
+# de forma y no trasciende al sentido del fallo, el colegiado lo corrige y no
+# devuelve nada. Por eso esto busca la OMISIÓN DE ESTUDIO, no la revocación.
+#
+# Se exige que el verbo de omisión vaya cerca de aquello que se omitió —los
+# conceptos, los agravios, los argumentos, las pruebas—: «omitió» a secas
+# aparece en cualquier estudio hablando de otra cosa.
+_RX_SIN_ESTUDIAR = re.compile(
+    r"\b(?:omiti[óo]|omisi[óo]n\s+de|dej[óo]\s+de|no\s+se\s+ocup[óo]\s+de|"
+    r"no\s+analiz[óo]|no\s+estudi[óo]|se\s+abstuvo\s+de)\s+"
+    r"(?:\w+\s+){0,6}?"
+    r"(?:concepto|agravio|argumento|planteamiento|prueba|cuesti[óo]n|"
+    r"anulaci[óo]n|impugnaci[óo]n)", re.I)
+
+
+def hay_conceptos_sin_estudiar(estudio: str) -> bool:
+    """¿El estudio afirma que la Sala dejó algo sin resolver?"""
+    return bool(_RX_SIN_ESTUDIAR.search(" ".join((estudio or "").split())))

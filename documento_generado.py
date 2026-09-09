@@ -3813,7 +3813,54 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             expediente_origen=_expte_s or HUECO,
             responsable=_con_articulo(datos.get("responsable", "")) or HUECO)
         _texto = _contraer(_texto)
-        tramos(doc, [("ÚNICO. ", {"bold": True}), (_texto, {})], sangria=False)
+        # ═══════════════════════════════════════════════════════════════════
+        # EN LA REVISIÓN FISCAL SÍ HAY REENVÍO
+        # ═══════════════════════════════════════════════════════════════════
+        # David: «a diferencia de la revisión en amparo indirecto, sí hay
+        # reenvío porque la jurisdicción para el análisis del fondo corresponde
+        # a la Sala Regional».
+        #
+        # Cuando el colegiado revoca y la Sala había dejado conceptos de
+        # anulación sin estudiar, no puede sustituirla: se los devuelve. Un
+        # resolutivo de un solo punto revoca y deja el juicio sin resolver y
+        # sin nadie a quien le toque resolverlo.
+        #
+        # LAS DOS CONDICIONES, y las dos hacen falta. Que se REVOQUE, y que el
+        # estudio diga que quedó algo sin estudiar. Revocar por un vicio formal
+        # que no trasciende al sentido NO da lugar al reenvío: ahí el colegiado
+        # corrige él mismo (registro 185493). Por eso no basta con mirar el
+        # sentido del recurso.
+        # SE IMPORTA AQUÍ. `_fr` se importa dentro de la rama del amparo en
+        # revisión, que es OTRA rama de este mismo `if`: usarlo desde aquí es
+        # el `UnboundLocalError` que ya dejó mudo el generador una vez. Lo cazó
+        # el guardián al componer los cuatro tipos, no la lectura del código.
+        import fase_rama as _fr_f
+        _reenvio = concede and _fr_f.hay_conceptos_sin_estudiar(str(estudio or ""))
+        if _reenvio:
+            tramos(doc, [("PRIMERO. ", {"bold": True}), (_texto, {})],
+                   sangria=False)
+            _sala = _con_articulo(datos.get("responsable", "")) or HUECO
+            tramos(doc, [("SEGUNDO. ", {"bold": True}),
+                         (f"Se ordena a {_sala} dejar insubsistente la "
+                          f"sentencia revocada y dictar otra en la que, con "
+                          f"libertad de jurisdicción y siguiendo los "
+                          f"lineamientos de esta ejecutoria, se ocupe de los "
+                          f"conceptos de anulación cuyo estudio omitió.", {})],
+                   sangria=False)
+            _avisos_bk.append(
+                "EL RESOLUTIVO ORDENA EL REENVÍO a la Sala, porque se revoca su "
+                "sentencia y el estudio dice que dejó conceptos de anulación "
+                "sin examinar. Es la diferencia con el amparo en revisión: aquí "
+                "el colegiado NO asume jurisdicción, porque el estudio de esos "
+                "conceptos corresponde en primera instancia a la Sala "
+                "(registros 188742, 193181 y 196875). COMPRUEBA DOS COSAS: que "
+                "el segundo punto ENUMERE qué quedó sin estudiar, y que el "
+                "vicio de verdad trascienda al sentido del fallo —si es un "
+                "error de forma que no trasciende, el colegiado lo corrige y no "
+                "se reenvía (registro 185493)—.")
+        else:
+            tramos(doc, [("ÚNICO. ", {"bold": True}), (_texto, {})],
+                   sangria=False)
     else:
         formula = _AMPARA if concede else _NO_AMPARA
         tramos(doc, [("ÚNICO. ", {"bold": True}),

@@ -1541,6 +1541,79 @@ TECNICA_RESOLUCION = {
 }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EN LA REVISIÓN FISCAL SÍ HAY REENVÍO
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «a diferencia de la revisión en amparo indirecto, sí hay reenvío
+# porque la jurisdicción para el análisis del fondo corresponde a la Sala
+# Regional».
+#
+# Es la simetría contraria de `revision_levanta_sobreseimiento`, y por eso hay
+# que decirlo con todas sus letras: en el amparo en revisión el colegiado
+# ASUME jurisdicción y resuelve lo que el juzgado no resolvió; en la revisión
+# fiscal NO puede, porque el estudio de los conceptos de anulación corresponde
+# en primera instancia a la Sala. Escribir aquí la regla del amparo produce una
+# sentencia que invade la competencia de otro tribunal.
+#
+# ── EL APARATO, VERIFICADO CONTRA EL ACERVO ──
+# La tesis que aportó David está en la colección con registro 188742 (0.977 de
+# coincidencia con su texto). Buscando alrededor aparecieron tres más, y dos de
+# ellas son JURISPRUDENCIA, o sea de mayor fuerza que la suya:
+#
+#   188742  aislada  · Procede el reenvío si la sentencia no examina todos y
+#                      cada uno de los conceptos de nulidad.
+#   193181  JURISPR. · Procede la revocación ante la falta de estudio integral
+#                      de los conceptos de anulación.
+#   196875  JURISPR. · Las sentencias del tribunal fiscal deben analizar todos
+#                      los conceptos de anulación.
+#   2000895 aislada  · El colegiado ordena al órgano emisor que subsane, ante
+#                      la imposibilidad de pronunciarse sobre la legalidad.
+#
+# Y el propio circuito lo practica: en el acervo de sentencias, 39 de las 506
+# revisiones fiscales que revocan llevan lenguaje de reenvío. La R.R.F.
+# 94/2023 lo dice entero: «el tribunal colegiado debe revocar la sentencia y
+# ordenar el reenvío para que se subsane la omisión, SIN QUE PUEDA SUSTITUIR A
+# LA SALA, conforme a la jurisprudencia 2a./J. 6/91, que establece la
+# inaplicabilidad de la regla de sustitución de facultades propia del amparo
+# directo».
+#
+# ── EL DESLINDE, QUE IMPORTA TANTO COMO LA REGLA ──
+# El reenvío NO procede siempre que se revoque. La tesis 185493 marca el
+# límite: cuando el error de la Sala es de forma y NO TRASCIENDE al sentido del
+# fallo, el colegiado lo corrige él mismo. Reenviar entonces devuelve un asunto
+# resuelto y alarga el juicio para nada.
+TECNICA_RESOLUCION["revision_fiscal_reenvio"] = {
+    "cuando": ("La REVISIÓN FISCAL es fundada y se revoca la sentencia de la "
+               "Sala, quedando conceptos de anulación sin estudiar."),
+    "fuente": ("artículos 103, 107 y 104, fracción I-B, de la Constitución, y "
+               "50 de la Ley Federal de Procedimiento Contencioso "
+               "Administrativo (antes 237 del Código Fiscal de la Federación)"),
+    "tecnica": [
+        "SÍ HAY REENVÍO, y ésta es la diferencia con el amparo en revisión. "
+        "Ahí el colegiado asume jurisdicción; aquí NO puede: el estudio de los "
+        "conceptos de anulación corresponde en primera instancia a la Sala "
+        "Regional, y sustituirla dejaría al particular sin el juicio de amparo "
+        "contra ese estudio, porque contra lo que resuelve un tribunal "
+        "colegiado no procede recurso alguno.",
+        "EL RESOLUTIVO LLEVA DOS PUNTOS: uno que revoca la sentencia de la "
+        "Sala, identificándola por su fecha y su expediente, y otro que le "
+        "ordena dejarla insubsistente y dictar otra en la que, siguiendo los "
+        "lineamientos de esta ejecutoria, se ocupe de lo que omitió.",
+        "SE DICE QUÉ QUEDÓ SIN ESTUDIAR. «Que se ocupe de los conceptos de "
+        "anulación» a secas no le dice a la Sala qué tiene que hacer: se "
+        "enumeran los que quedaron pendientes.",
+        "NO SE ANTICIPA EL FONDO. El proyecto no dice si esos conceptos son "
+        "fundados: eso es justamente lo que le toca resolver a la Sala.",
+        "CUÁNDO NO SE REENVÍA: si el vicio de la sentencia es de forma y NO "
+        "TRASCIENDE al sentido del fallo, el colegiado lo corrige él mismo y "
+        "no devuelve nada (registro 185493).",
+    ],
+    "apoyos": ["188742", "193181", "196875", "2000895"],
+    "necesita": "",
+    "aviso_si_falta": "",
+}
+
+
 def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) -> list:
     """Las reglas de técnica que aplican a ESTE asunto y ESTE desenlace.
 
@@ -1561,6 +1634,10 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
         if rama.startswith("revoca_sobreseimiento"):
             fuera.append(TECNICA_RESOLUCION["revision_levanta_sobreseimiento"])
     # La queja tiene el mismo problema y con mas frecuencia: 434 de 2,955.
+    # LA REVISIÓN FISCAL, SIEMPRE: el deslinde con el amparo en revisión hay
+    # que tenerlo delante tanto para reenviar como para no hacerlo.
+    if t == "revision_fiscal":
+        fuera.append(TECNICA_RESOLUCION["revision_fiscal_reenvio"])
     if t == "queja" and rama == "sin_materia":
         fuera.append(TECNICA_RESOLUCION["recurso_sin_materia"])
     if t == "amparo_directo" and con_violacion_procesal:
