@@ -106,3 +106,73 @@ equivocado.
 Con (B) hay que decidir además si la contraseña se guarda —para no pedirla en
 cada asunto— o vive sólo en memoria durante la sesión. Guardarla es cómodo y es
 la que carga con la responsabilidad.
+
+---
+
+# LA PUERTA ANCHA · «Vista Expediente Electrónico» (9-sep, tarde)
+
+David, después de que la extensión le descargara 48 ficheros: «no sé si es la
+ruta correcta la que estés tomando o haya una más sencilla».
+
+**La había, y estaba a un clic.** El icono morado de la barra del Panel Central
+—«Vista Expediente Electrónico»— abre una pestaña en OTRO dominio:
+
+    https://ejusticia.cjf.gob.mx/vistaee/#/ebook/0     «Expediente Electrónico v1.0»
+
+No es el ASP.NET de 2009: es una aplicación web moderna, y trae **el expediente
+completo indexado por actuación**. En el 91/2025:
+
+    Revisión Fiscal  (cuaderno)
+      Acuerdo del 21/11/2025
+        Promoción 1. Revisión Fiscal
+        Notificación por oficio 1. RECURRENTE
+        Notificación por oficio 2. AUTORIDAD EMISORA
+        Notificación por lista 3. OPOSITOR
+      Acuerdo del 16/01/2026
+        Notificación por lista 1. OPOSITOR
+        Notificación por lista 2. AUTORIDAD EMISORA
+        Notificación por lista 3. RECURRENTE
+
+## Y habla con una API REST de verdad
+
+Sacadas de `performance.getEntriesByType("resource")`, que guarda todo lo que la
+página pidió aunque no estuvieras mirando:
+
+    serviciosvistaee.cjf.gob.mx/wsebook/api/Index/GetIndexDetail      ← el índice
+    serviciosvistaee.cjf.gob.mx/wsebook/api/Index/File/{id}           ← un documento
+    serviciosvistaee.cjf.gob.mx/wsebook/api/Index/TypeNotebook/{tipo} ← 16 = Revisión Fiscal
+    serviciosvistaee.cjf.gob.mx/wsFileManager/api/SingleFile/UserInfo/{usuario}/{sistema}/{organo}
+    serviciosinterconexion.pjf.gob.mx/wsDocumentoAPI/api/document/
+
+El `{tipo}` es el MISMO catálogo del desplegable de SISE: 16 = Revisión Fiscal,
+10 = Amparo Directo, 11 = Amparo en revisión, 15 = Queja.
+
+## La autenticación es por token, y vive en el navegador del secretario
+
+En `localStorage` y `sessionStorage` de esa pestaña:
+
+    credentialUser   → {issuerName: "CJF_DGETD_IM_01_PROD", token: "eyJ…"}   (JWT)
+    currentUser      → {userName, name, id: 92005, OrganId: "2422"}
+    EbookParamsData  → {Neun: 40531343, Usuario: 92005, Sistema: 5, Token: "eyJ…"}
+    EbookNeunData    → {asuntoNeunId, catMateriaId, catOrganismoId: 2422, catTipoAsunto…}
+
+**El token es una credencial del secretario y no se copia a ningún sitio.** Se
+lee donde está —su navegador— y se usa desde ahí. No se manda a Iurexia, no se
+guarda, no se registra. Lo que viaja son los PDF, igual que hasta ahora.
+
+## Lo que esto significa para lo construido
+
+Todo el forcejeo con el Panel Central sobra: los paneles de ASP.NET, el
+ViewState de 50 kB, la cadena de dos pasos, el depurador de Chrome y el tope de
+intentos que hubo que poner después de las 48 descargas. Nada de eso hace falta
+si se pide el índice y luego cada fichero por su identificador.
+
+Lo que SÍ se conserva y no fue en balde: el lado de Iurexia —la tabla
+`sise_pendientes`, los dos endpoints, el clasificador de documentos por su
+texto, el aviso de que falta la recurrida— está probado y no depende de por
+dónde lleguen los PDF.
+
+**Diez versiones de extensión para descubrir que había un icono al lado.** La
+lección no es sobre SISE: cuando una vía se resiste una y otra vez por sitios
+distintos, conviene mirar si el sistema ofrece otra puerta, en vez de forzar
+más la que no cede.
