@@ -1,0 +1,20 @@
+/* La barra se pone encima de la tabla, sin tocar el resto de SISE. */
+#iurexia-barra {
+  position: fixed; right: 18px; bottom: 18px; z-index: 2147483000;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #12151c; color: #e7e3da; border: 1px solid #3a3f4b;
+  border-radius: 14px; padding: 14px 16px; width: 330px;
+  box-shadow: 0 10px 34px rgba(0,0,0,.34);
+}
+#iurexia-barra h4 { margin: 0 0 2px; font-size: 13px; letter-spacing: .02em; }
+#iurexia-barra p  { margin: 0 0 10px; font-size: 11.5px; line-height: 1.45; color: #a9a396; }
+#iurexia-barra button {
+  width: 100%; padding: 9px 12px; border-radius: 9px; cursor: pointer;
+  border: 1px solid #b99b55; background: #b99b55; color: #12151c;
+  font-size: 12.5px; font-weight: 600;
+}
+#iurexia-barra button[disabled] { opacity: .55; cursor: default; }
+#iurexia-estado { margin-top: 9px; font-size: 11.5px; line-height: 1.5; color: #cfc9bb; }
+#iurexia-estado .mal { color: #e8a0a0; }
+#iurexia-estado .bien { color: #9fd0a4; }
+#iurexia-barra .doc { display:flex; justify-content:space-between; gap:8px; padding:1px 0; }

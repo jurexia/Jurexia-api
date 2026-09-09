@@ -27888,6 +27888,109 @@ def _taller_marcar_consultado(email: str, numero: str) -> None:
         print(f"   ⚠️ No se pudo marcar la consulta del taller: {ex}")
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LAS CONSTANCIAS, TRAÍDAS DE SISE POR EL PROPIO SECRETARIO
+# ═══════════════════════════════════════════════════════════════════════════
+# David eligió la opción (A): la extensión corre en SU navegador, dentro de la
+# sesión que él abrió en SISE. Iurexia no pide, no guarda y no ve su contraseña
+# del Consejo de la Judicatura. Y no es sólo prudencia: la cookie de sesión de
+# SISE es `HttpOnly`, así que esto NO SE PUEDE hacer desde el servidor aunque
+# se quisiera.
+#
+# Aquí sólo se reciben los PDF y lo que la página decía de sí misma —el número
+# de expediente, el tipo de asunto, las fechas de cada actuación—, que es lo
+# que hace desaparecer el formulario.
+#
+# LAS FECHAS LLEGAN COMO PISTA, NO COMO DATO. La extensión manda las de la
+# tabla; la de notificación y la de presentación se leen del PDF y las confirma
+# el secretario. De esas dos depende el cómputo entero, y una equivocada es
+# exactamente lo que dejó un proyecto en extemporáneo sin que nadie se enterara.
+@app.post("/taller/desde-sise")
+async def taller_desde_sise(
+    user_email: str = Form(...),
+    numero: str = Form(...),
+    expediente_unico: str = Form(""),
+    tipo_sise: str = Form(""),
+    organo: str = Form(""),
+    actuaciones_json: str = Form("[]"),
+    promocion: UploadFile = File(...),
+    determinacion: Optional[UploadFile] = File(None),
+    notificacion: Optional[UploadFile] = File(None),
+):
+    _taller_puerta(user_email)
+    correo = (user_email or "").strip().lower()
+    try:
+        _act = json.loads(actuaciones_json or "[]")
+        if not isinstance(_act, list):
+            _act = []
+    except Exception:
+        _act = []
+
+    async def _bytes(f):
+        if f is None or not getattr(f, "filename", ""):
+            return None
+        b = await f.read()
+        # UN PDF EMPIEZA POR %PDF. Si SISE devolvió su propia página —porque el
+        # ViewState caducó— llega un HTML, y guardarlo como constancia haría
+        # que el taller proyectara sobre una página de error. La extensión ya
+        # lo comprueba; aquí se comprueba otra vez, que es donde importa.
+        if not b[:5].startswith(b"%PDF"):
+            raise HTTPException(400,
+                "Lo que llegó de SISE no es un PDF. Suele significar que la "
+                "sesión de SISE caducó: vuelve a entrar y pulsa otra vez.")
+        return b
+
+    _pro = await _bytes(promocion)
+    _det = await _bytes(determinacion)
+    _not = await _bytes(notificacion)
+
+    fila = {"email": correo, "numero": numero.strip(),
+            "expediente_unico": (expediente_unico or "").strip(),
+            "tipo_sise": (tipo_sise or "").strip(),
+            "organo": (organo or "").strip(),
+            "actuaciones": _act,
+            "promocion": "\\x" + _pro.hex()}
+    if _det:
+        fila["determinacion"] = "\\x" + _det.hex()
+    if _not:
+        fila["notificacion"] = "\\x" + _not.hex()
+    if supabase_admin:
+        try:
+            supabase_admin.table("sise_pendientes").upsert(
+                fila, on_conflict="email,numero").execute()
+        except Exception as ex:
+            print(f"   ⚠️ SISE: no se pudo guardar lo pendiente: {err(ex)}")
+            raise HTTPException(500, "No se pudieron guardar las constancias.")
+    print(f"   📥 SISE: {numero} · {len(_act)} actuaciones · "
+          f"promoción {len(_pro)//1024} KB"
+          + (f" · acuerdo {len(_det)//1024} KB" if _det else "")
+          + (f" · notificación {len(_not)//1024} KB" if _not else ""))
+    return {"ok": True, "numero": numero.strip(),
+            "documentos": [k for k, v in (("promocion", _pro),
+                                          ("determinacion", _det),
+                                          ("notificacion", _not)) if v]}
+
+
+# LO QUE ESPERA AL SECRETARIO cuando abre el taller. Se enseña como un aviso
+# —«tienes el 91/2025 esperando desde SISE»— y con un clic se llena la ficha.
+@app.get("/taller/sise-pendiente")
+async def taller_sise_pendiente(user_email: str, numero: str = ""):
+    correo = (user_email or "").strip().lower()
+    if not (correo and supabase_admin):
+        return {"pendientes": []}
+    try:
+        q = supabase_admin.table("sise_pendientes").select(
+            "numero, expediente_unico, tipo_sise, organo, actuaciones, creado_en"
+        ).eq("email", correo).order("creado_en", desc=True).limit(8)
+        if numero:
+            q = q.eq("numero", numero)
+        r = q.execute()
+    except Exception as ex:
+        print(f"   ⚠️ SISE: no se pudo leer lo pendiente: {err(ex)}")
+        return {"pendientes": []}
+    return {"pendientes": r.data or []}
+
+
 @app.post("/taller/consultar")
 async def taller_consultar(
     numero: str = Form(...),
