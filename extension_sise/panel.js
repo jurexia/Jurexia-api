@@ -250,8 +250,11 @@
       const fila = $('div', 'iux-correo');
       entradaCorreo = document.createElement('input');
       entradaCorreo.type = 'email';
-      entradaCorreo.placeholder = 'tu correo de Iurexia';
-      fila.append($('label', null, 'Correo de Iurexia'), entradaCorreo);
+      entradaCorreo.placeholder = 'nombre@ejemplo.mx';
+      fila.append($('label', null, 'El correo de TU CUENTA de Iurexia'), entradaCorreo);
+      fila.append($('span', 'iux-pista',
+        'Tiene que ser exactamente el mismo con el que entras a Iurexia. Si '
+      + 'cambias una letra, las constancias llegan pero no aparecen en tu taller.'));
       panel.append(fila);
     }
 
@@ -273,6 +276,25 @@
     });
     panel.append(ul);
 
+    // A QUÉ CUENTA VAN. Un correo escrito a mano con una letra cambiada manda
+    // las constancias a un sitio donde nadie las busca, y el envío dice
+    // «Listo» igual: pasó con jmd en vez de jdm, y se perdió media tarde
+    // buscando el fallo en el sitio equivocado. Verlo antes de pulsar cuesta
+    // una línea.
+    if (correoGuardado) {
+      const fila = $('div', 'iux-cuenta');
+      fila.append($('span', null, 'Van a la cuenta '),
+                  $('strong', null, correoGuardado));
+      const cambiar = $('button', 'iux-cambiar', 'cambiar');
+      cambiar.type = 'button';
+      cambiar.addEventListener('click', async () => {
+        await guardarCorreo('');
+        pintar();
+      });
+      fila.append(cambiar);
+      panel.append(fila);
+    }
+
     const estado = nota('');
     const enviar = $('button', 'iux-enviar', 'Enviar a Iurexia');
     enviar.type = 'button';
@@ -284,7 +306,7 @@
                        .trim().toLowerCase();
       if (!correo || correo.indexOf('@') < 0) {
         estado.className = 'iux-nota iux-error';
-        estado.textContent = 'Falta tu correo de Iurexia.';
+        estado.textContent = 'Falta el correo de tu cuenta de Iurexia.';
         return;
       }
       if (!correoGuardado) await guardarCorreo(correo);
@@ -370,8 +392,9 @@
         panel.querySelectorAll('.iux-resultado').forEach(n => n.remove());
         const res = $('div', 'iux-resultado');
         res.append($('p', 'iux-bien',
-          `Listo: ${bajados.length} constancias del ${s.numero}. `
-          + 'Abre el taller y te estarán esperando.'));
+          `Listo: ${bajados.length} constancias del ${s.numero}, enviadas a `
+          + `${correo}. Abre el taller —si ya lo tenías abierto, vuelve a esa `
+          + 'pestaña— y te estarán esperando.'));
         for (const d of (j.inventario || []))
           res.append($('p', 'iux-item',
             `${d.que}: ${d.tipo}${d.caracteres ? ` (${d.caracteres} caracteres)` : ''}`));

@@ -28094,6 +28094,13 @@ async def taller_desde_sise(
     # recurrida», y los agravios —lo que hay que contestar— no llegaban
     # identificados. Depurado sale cada uno por su lado, con su rango de
     # páginas: los agravios en 5-84 y la recurrida en 95-112.
+    # La purga viaja de gorra en cada recepción: no hace falta un cron para
+    # algo que sólo tiene que ocurrir de vez en cuando.
+    try:
+        await _purgar_constancias_viejas()
+    except Exception:
+        pass
+
     _inventario, _segmentos, _falta_recurrida = [], [], True
     try:
         import fase_sise as _fsi
@@ -28228,6 +28235,62 @@ def _con_omisiones(fn, **dados):
         interno = getattr(d, "default", d)
         fin[nombre] = None if interno is Ellipsis else interno
     return fin
+
+
+def _soltar_constancias(correo: str, numero: str) -> None:
+    """Las constancias se usan y se sueltan.
+
+    David, pidiendo el aviso para la pantalla: «Iurexia no almacena contraseñas
+    ni datos privados de las partes… cada dato que ingresa para el taller no se
+    resguarda y los datos son utilizados una sola ocasión».
+
+    Al ir a escribirlo resultó que NO era cierto: `sise_pendientes` guardaba los
+    PDF en columnas `bytea` y no había un solo borrado en todo el código, así
+    que el expediente de un particular se quedaba ahí indefinidamente. Escribir
+    ese aviso sin esto habría sido una promesa falsa en la cara del usuario, y
+    de las peores: sobre datos de terceros que no eligieron estar ahí.
+
+    Así que en cuanto el taller toma las constancias, se sueltan. Se conserva
+    el INVENTARIO —qué páginas eran qué, cuántos caracteres— porque no contiene
+    nada del asunto y es lo que permite enseñar en pantalla qué se recibió y
+    auditar una clasificación equivocada.
+    """
+    if not supabase_admin:
+        return
+    try:
+        supabase_admin.table("sise_pendientes").update({
+            "promocion": None, "acuerdos": None,
+            "determinacion": None, "notificacion": None,
+            # Los textos depurados también: llevan el asunto entero dentro.
+            "segmentos": None,
+        }).eq("email", correo).eq("numero", numero).execute()
+        print(f"   🧹 constancias soltadas · {numero}")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudieron soltar las constancias: {err(ex)}")
+
+
+async def _purgar_constancias_viejas(horas: int = 48) -> int:
+    """Lo que nadie recogió tampoco se queda.
+
+    Un expediente que se mandó y no se llegó a usar no puede quedarse para
+    siempre sólo porque el secretario cambió de idea.
+    """
+    if not supabase_admin:
+        return 0
+    try:
+        from datetime import datetime, timedelta, timezone
+        corte = (datetime.now(timezone.utc) - timedelta(hours=horas)).isoformat()
+        r = supabase_admin.table("sise_pendientes").update({
+            "promocion": None, "acuerdos": None, "determinacion": None,
+            "notificacion": None, "segmentos": None,
+        }).lt("creado_en", corte).not_.is_("promocion", "null").execute()
+        n = len(r.data or [])
+        if n:
+            print(f"   🧹 purga: {n} expedientes de más de {horas} h soltados")
+        return n
+    except Exception as ex:
+        print(f"   ⚠️ purga de constancias: {err(ex)}")
+        return 0
 
 
 @app.post("/taller/desde-expediente")
@@ -28419,6 +28482,11 @@ async def taller_desde_expediente(
                        if k in ("numero", "expediente_origen", "magistrado",
                                 "secretario", "recurrente", "presentacion",
                                 "presentacion_de", "folio"))
+    # YA ESTÁ LEÍDO: SE SUELTA. El adelanto lleva dentro lo que hacía falta y
+    # la sesión del taller guarda el resto; los PDF del expediente de un
+    # particular no tienen por qué seguir en la base.
+    _soltar_constancias(correo, numero.strip())
+
     if hasattr(resultado, "headers"):
         resultado.headers["X-Depuracion"] = _cabecera_segura([_mapa])
         resultado.headers["X-Leido"] = _cabecera_segura([_dice])

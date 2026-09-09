@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Iurexia · Taller desde el Expediente Electrónico",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Trae al taller de sentencias las constancias del expediente que tienes abierto. Ni guarda ni envía tu contraseña ni tu sesión del CJF.",
   "permissions": ["storage"],
   "host_permissions": [

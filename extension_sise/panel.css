@@ -39,3 +39,10 @@
 .iux-aviso { color: #8a5a00; }
 .iux-error { color: #a11; }
 .iux-resultado { margin-top: 10px; border-top: 1px solid #eceff2; padding-top: 9px; }
+
+.iux-cuenta { margin: 10px 0 2px; font-size: 11.5px; color: #667;
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.iux-cuenta strong { color: #1b365d; font-weight: 600; }
+.iux-cambiar { background: none; border: 0; padding: 0; color: #1b365d;
+  font: inherit; text-decoration: underline; cursor: pointer; }
+.iux-pista { display: block; font-size: 11px; color: #889; line-height: 1.45; }
