@@ -27905,6 +27905,32 @@ def _taller_marcar_consultado(email: str, numero: str) -> None:
 # tabla; la de notificación y la de presentación se leen del PDF y las confirma
 # el secretario. De esas dos depende el cómputo entero, y una equivocada es
 # exactamente lo que dejó un proyecto en extemporáneo sin que nadie se enterara.
+class _SubidaDeBytes:
+    """Unos bytes que se comportan como un fichero subido.
+
+    `_extract_text_from_upload` es donde vive el camino bueno —texto nativo si
+    lo hay, Azure si no, Gemini de repliegue— y no se va a duplicar aquí. Esto
+    es el adaptador para poder pasarle unos bytes que ya tenemos en memoria.
+    """
+
+    def __init__(self, contenido: bytes, filename: str):
+        self._c = contenido
+        self.filename = filename
+
+    async def read(self):
+        return self._c
+
+
+async def _texto_de_bytes(contenido: bytes, nombre: str) -> str:
+    if not contenido:
+        return ""
+    try:
+        return await _extract_text_from_upload(_SubidaDeBytes(contenido, nombre))
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo leer {nombre}: {err(ex)}")
+        return ""
+
+
 @app.post("/taller/desde-sise")
 async def taller_desde_sise(
     user_email: str = Form(...),
@@ -27914,6 +27940,10 @@ async def taller_desde_sise(
     organo: str = Form(""),
     actuaciones_json: str = Form("[]"),
     promocion: UploadFile = File(...),
+    # TODOS LOS ACUERDOS DEL CUADERNO. La admisión y el turno son actuaciones
+    # distintas; traer sólo la primera deja fuera la otra, y de ellas salen la
+    # fecha de presentación, los terceros interesados y el magistrado ponente.
+    acuerdos: List[UploadFile] = File(default_factory=list),
     determinacion: Optional[UploadFile] = File(None),
     notificacion: Optional[UploadFile] = File(None),
 ):
@@ -27943,6 +27973,39 @@ async def taller_desde_sise(
     _pro = await _bytes(promocion)
     _det = await _bytes(determinacion)
     _not = await _bytes(notificacion)
+    _acuerdos = []
+    for _a in (acuerdos or []):
+        _b = await _bytes(_a)
+        if _b:
+            _acuerdos.append(_b)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # QUÉ ES CADA PDF, LEYÉNDOLO
+    # ═══════════════════════════════════════════════════════════════════════
+    # No se clasifica por la posición en la tabla de SISE: la admisión y el
+    # turno no van siempre en el mismo orden, y la promoción trae la sentencia
+    # recurrida unas veces sí y otras no. Medido en el 91/2025: sus 78 páginas
+    # de recurso NO la traen.
+    _inventario, _falta_recurrida = [], True
+    try:
+        import fase_sise as _fsi
+        _t_pro = await _texto_de_bytes(_pro, "promocion.pdf")
+        _falta_recurrida = not _fsi.trae_la_recurrida(_t_pro)
+        _inventario.append({"que": "promocion",
+                            "tipo": _fsi.clasificar(_t_pro)[0],
+                            "caracteres": len(_t_pro)})
+        for _i, _b in enumerate(_acuerdos, 1):
+            _t = await _texto_de_bytes(_b, f"acuerdo{_i}.pdf")
+            _tipo, _conf = _fsi.clasificar(_t)
+            _inventario.append({"que": f"acuerdo_{_i}", "tipo": _tipo,
+                                "confianza": _conf, "caracteres": len(_t)})
+        if _not:
+            _t = await _texto_de_bytes(_not, "notificacion.pdf")
+            _inventario.append({"que": "notificacion",
+                                "tipo": _fsi.clasificar(_t)[0],
+                                "caracteres": len(_t)})
+    except Exception as _ex:
+        print(f"   ⚠️ SISE: no se pudieron clasificar los documentos: {err(_ex)}")
 
     fila = {"email": correo, "numero": numero.strip(),
             "expediente_unico": (expediente_unico or "").strip(),
@@ -27954,6 +28017,11 @@ async def taller_desde_sise(
         fila["determinacion"] = "\\x" + _det.hex()
     if _not:
         fila["notificacion"] = "\\x" + _not.hex()
+    if _acuerdos:
+        fila["acuerdos"] = ["\\x" + b.hex() for b in _acuerdos]
+    # EL INVENTARIO SE GUARDA. Sin él, cuando un acuerdo salga mal clasificado
+    # no habrá manera de saber qué leyó el clasificador ni por qué decidió eso.
+    fila["inventario"] = _inventario
     if supabase_admin:
         try:
             supabase_admin.table("sise_pendientes").upsert(
@@ -27965,10 +28033,26 @@ async def taller_desde_sise(
           f"promoción {len(_pro)//1024} KB"
           + (f" · acuerdo {len(_det)//1024} KB" if _det else "")
           + (f" · notificación {len(_not)//1024} KB" if _not else ""))
+    # LO QUE FALTA SE DICE, no se suple. Sin la sentencia recurrida no hay
+    # ratio que combatir, y un proyecto escrito sin ella es plausible y falso.
+    _avisos = []
+    if _falta_recurrida:
+        _avisos.append(
+            "EL ESCRITO QUE ABRE EL ASUNTO NO TRAE LA SENTENCIA RECURRIDA. "
+            "Súbela a mano o tráela de la actuación donde esté: sin ella no se "
+            "puede saber qué se resolvió ni con qué razones.")
+    if not any(d.get("tipo") == "auto_admision" for d in _inventario):
+        _avisos.append("No se reconoció el AUTO DE ADMISIÓN entre los acuerdos: "
+                       "la fecha de presentación habrá que confirmarla.")
+    if not any(d.get("tipo") == "auto_turno" for d in _inventario):
+        _avisos.append("No se reconoció el AUTO DE TURNO entre los acuerdos: "
+                       "el magistrado ponente habrá que confirmarlo.")
     return {"ok": True, "numero": numero.strip(),
+            "inventario": _inventario, "avisos": _avisos,
             "documentos": [k for k, v in (("promocion", _pro),
                                           ("determinacion", _det),
-                                          ("notificacion", _not)) if v]}
+                                          ("notificacion", _not)) if v]
+                          + [f"acuerdo_{i}" for i in range(1, len(_acuerdos) + 1)]}
 
 
 # LO QUE ESPERA AL SECRETARIO cuando abre el taller. Se enseña como un aviso

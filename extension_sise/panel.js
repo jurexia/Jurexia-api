@@ -122,17 +122,42 @@
       }
       di(`<div>Expediente <b>${ficha.numero}</b> · ${filas.length} actuaciones</div>`);
 
-      // QUÉ SE TRAE. La promoción de la PRIMERA fila que la tenga —es el
-      // escrito que abre el asunto y donde viene lo recurrido—, y de esa misma
-      // fila el acuerdo y la notificación. Las demás filas viajan como lista,
-      // sin descargar, para que el secretario elija si hace falta más.
+      // QUÉ SE TRAE, Y POR QUÉ TODOS LOS ACUERDOS.
+      //
+      // David: «también está el auto de admisión y el auto de turno, que son
+      // indispensables para verificar datos como la presentación, los terceros
+      // interesados, el magistrado ponente».
+      //
+      // La admisión y el turno son ACTUACIONES DISTINTAS: traer sólo el
+      // acuerdo de la primera fila deja fuera el otro. Se traen todos los
+      // acuerdos del cuaderno —son pocos, dos o tres al principio del
+      // asunto— y ya los clasifica el pipeline leyéndolos. Adivinar cuál es
+      // cuál por su posición en la tabla es la clase de suposición que aquí
+      // sale cara.
+      //
+      // Y LA PROMOCIÓN de la primera fila que la tenga: es el escrito que abre
+      // el asunto. MEDIDO en la revisión fiscal 91/2025: son 78 páginas y NO
+      // traen la sentencia recurrida —ni su expediente, ni su «VISTOS los
+      // autos», ni su «RESUELVE»—. Así que «el primero trae todo» es
+      // «regularmente», no siempre, y el pipeline tiene que decirlo cuando
+      // falte en vez de proyectar sin ella.
       const conPromocion = filas.find((f) => f.docs.promocion);
       const base = conPromocion || filas[0];
       const aTraer = [
         ["promocion", base.docs.promocion, "el escrito que abre el asunto"],
-        ["determinacion", base.docs.determinacion, "el acuerdo de admisión"],
-        ["notificacion", base.docs.notificacion, "la notificación"],
       ].filter(([, n]) => n);
+      const TOPE_ACUERDOS = 4;
+      filas.slice(0, TOPE_ACUERDOS).forEach((f, i) => {
+        if (f.docs.determinacion) {
+          aTraer.push([`acuerdo_${i + 1}`, f.docs.determinacion,
+                       `acuerdo de ${f.fechaAcuerdo || "fecha desconocida"}`]);
+        }
+      });
+      const conNotificacion = filas.find((f) => f.docs.notificacion);
+      if (conNotificacion) {
+        aTraer.push(["notificacion", conNotificacion.docs.notificacion,
+                     "la notificación"]);
+      }
 
       const archivos = {};
       for (const [clave, control, comoSeLlama] of aTraer) {
@@ -166,7 +191,11 @@
         ctl: f.ctl, acuerdo: f.fechaAcuerdo, publicacion: f.fechaPublicacion,
         promocion: f.contenidoPromocion, determinacion: f.contenidoDeterminacion,
       }))));
-      for (const [k, b] of Object.entries(archivos)) d.append(k, b, `${k}.pdf`);
+      for (const [k, b] of Object.entries(archivos)) {
+        // Los acuerdos viajan todos bajo el mismo campo: el pipeline los
+        // clasifica leyéndolos, no por el nombre que les pongamos aquí.
+        d.append(k.startsWith("acuerdo_") ? "acuerdos" : k, b, `${k}.pdf`);
+      }
 
       di(estado.innerHTML + "<div>Enviando al taller…</div>");
       const r = await fetch(`${API}/taller/desde-sise`, { method: "POST", body: d });
