@@ -28161,17 +28161,49 @@ async def taller_desde_sise(
     # EL INVENTARIO SE GUARDA. Sin él, cuando un acuerdo salga mal clasificado
     # no habrá manera de saber qué leyó el clasificador ni por qué decidió eso.
     fila["inventario"] = _inventario
-    # SE GUARDAN CON SU TEXTO. Volver a pasar 117 páginas por Azure en cada
-    # pantalla del taller es pagar dos veces por lo mismo y sumar catorce
-    # segundos a cada paso.
-    fila["segmentos"] = _segmentos
+    # ── EL TEXTO SÓLO DE LO PEQUEÑO ──────────────────────────────────────
+    # Se guardaban TODOS los textos depurados junto a los PDF, y con un
+    # expediente grande la escritura entera se pasa del tiempo que Supabase le
+    # da: el ADC 536/2025 —8 documentos, 5,3 MB— murió con «canceling statement
+    # due to statement timeout» y el secretario recibió un 500 sin más.
+    #
+    # Y el texto largo no hacía falta. Quien lo lee es `fase_autos`, y lo que
+    # lee son los AUTOS, que son pequeños; el escrito y la sentencia se vuelven
+    # a leer del PDF ya cortado, que es más barato que el tomo entero. Así que
+    # se guarda el texto de lo que cabe y del resto sólo su ficha.
+    _TOPE_TEXTO = 80_000
+    fila["segmentos"] = [
+        (_s if len(_s.get("texto") or "") <= _TOPE_TEXTO
+         else {**_s, "texto": "", "texto_omitido": len(_s.get("texto") or "")})
+        for _s in _segmentos]
+    _pesa = sum(len(_x.get("texto") or "") for _x in fila["segmentos"])
+    print(f"   💾 {numero}: {len(_pro)//1024} KB de promoción, "
+          f"{len(_acuerdos)} acuerdos, {_pesa//1024} KB de texto guardado")
     if supabase_admin:
         try:
             supabase_admin.table("sise_pendientes").upsert(
                 fila, on_conflict="email,numero").execute()
         except Exception as ex:
-            print(f"   ⚠️ SISE: no se pudo guardar lo pendiente: {err(ex)}")
-            raise HTTPException(500, "No se pudieron guardar las constancias.")
+            # SEGUNDO INTENTO SIN LOS TEXTOS. Un expediente muy grande puede
+            # seguir pasándose del tiempo; perder los textos degrada —`fase_autos`
+            # tendrá que releer— pero perder las constancias no es degradar, es
+            # que el secretario se quede sin nada después de esperar un minuto.
+            print(f"   ⚠️ SISE: primer intento falló ({err(ex)}); se reintenta sin textos")
+            try:
+                _fila2 = dict(fila)
+                _fila2["segmentos"] = [
+                    {**_s, "texto": "", "texto_omitido": len(_s.get("texto") or "")}
+                    for _s in fila.get("segmentos") or []]
+                supabase_admin.table("sise_pendientes").upsert(
+                    _fila2, on_conflict="email,numero").execute()
+                print(f"   💾 {numero}: guardado sin textos depurados")
+            except Exception as ex2:
+                print(f"   ‼️ SISE: no se pudo guardar lo pendiente: {err(ex2)}")
+                raise HTTPException(500,
+                    "No se pudieron guardar las constancias: el expediente es "
+                    "demasiado grande para una sola escritura. Manda menos "
+                    "documentos —desmarca las notificaciones— y vuelve a "
+                    "intentarlo.")
     print(f"   📥 SISE: {numero} · {len(_act)} actuaciones · "
           f"promoción {len(_pro)//1024} KB"
           + (f" · acuerdo {len(_det)//1024} KB" if _det else "")
