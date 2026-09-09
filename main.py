@@ -21435,6 +21435,11 @@ Redacta ahora. Texto directo para la sentencia, sin metadiscurso."""
 # Se cuentan PERSONAS, no usos. Un secretario que genera treinta proyectos sigue
 # siendo un secretario, así que el conteo va sobre email DISTINTO. Contar filas
 # cerraría el piloto en una tarde con un solo usuario entusiasta.
+# EL SUELO DE PALABRAS DISTINTAS que separa un documento leído de un PDF que
+# sólo trae sellos de firma. Medido: 70 es el mínimo de los 865 documentos
+# reales del tribunal; 4, lo que dan los PDF de David sin OCR.
+MIN_PALABRAS_DISTINTAS = int(os.getenv("MIN_PALABRAS_DISTINTAS", "60"))
+
 TALLER_PILOTO_CUPO = int(os.getenv("TALLER_PILOTO_CUPO", "10"))
 # ── EL TORNIQUETE DEL TALLER ─────────────────────────────────────────────
 #
@@ -27421,9 +27426,44 @@ async def taller_adelanto(
     # se ve, y ese texto se firma.
     for etiqueta, txt in (("acto reclamado", texto_acto),
                           ("escrito de conceptos", texto_conceptos)):
+        # ═══════════════════════════════════════════════════════════════════
+        # LA PROPORCIÓN DE PALABRAS DISTINTAS NO MIDE SI SE LEYÓ: MIDE EL LARGO
+        # ═══════════════════════════════════════════════════════════════════
+        # Esto exigía que las palabras distintas fueran más del 12% del total, y
+        # el 8 de septiembre rechazó la revisión fiscal 91/2025 de David: 2,810
+        # distintas en 25,894, o sea 10.9%.
+        #
+        # EL DOCUMENTO ESTABA PERFECTAMENTE LEÍDO. Mandado a Azure a mano: 78
+        # páginas, 258,802 caracteres en 13 segundos, y el texto es prosa
+        # jurídica corriente —«Se interpone recurso de revisión fiscal en contra
+        # de la sentencia de fecha 22 de septiembre de 2025…»—. El OCR no falló;
+        # falló esta puerta.
+        #
+        # LA RAZÓN ES CONOCIDA Y MEDIBLE: la proporción de palabras distintas
+        # CAE con la longitud del texto —ley de Heaps—, porque el vocabulario
+        # crece más despacio que el número de palabras. Medido sobre los 865
+        # documentos del tribunal que pasan de 200 palabras:
+        #
+        #     200–2,000 palabras .... 0.382 de media (mínimo 0.092)
+        #     2,000–5,000 ........... 0.312
+        #     5,000–10,000 .......... 0.260
+        #     10,000–20,000 ......... 0.166
+        #
+        # Un umbral fijo penaliza al documento largo por ser largo. Y no vale ni
+        # siquiera donde mejor calibrado está: en la banda corta hay un
+        # documento real por debajo del 0.12.
+        #
+        # ── LO QUE SÍ SEPARA LOS DOS CASOS ──
+        # La avería que esta puerta existe para cazar es el PDF que sólo trae el
+        # sello de firma repetido en cada página. Los dos PDF de David, leídos
+        # sin OCR, dan 4 PALABRAS DISTINTAS. Los 865 documentos reales tienen
+        # como mínimo 70, y de mediana 986. Tres órdenes de magnitud entre lo
+        # roto y lo bueno, sin depender del largo.
+        #
+        # Se pone el suelo en 60, por debajo del mínimo real medido.
         pal = re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñ]{3,}", txt or "")
         unicas = {w.lower() for w in pal}
-        if len(pal) < 200 or (pal and len(unicas) / len(pal) < 0.12):
+        if len(pal) < 200 or len(unicas) < MIN_PALABRAS_DISTINTAS:
             raise HTTPException(400,
                 f"No se pudo leer el {etiqueta}: sólo se obtuvieron "
                 f"{len(unicas)} palabras distintas en {len(pal)}. El PDF puede "
