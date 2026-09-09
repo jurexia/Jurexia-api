@@ -641,3 +641,74 @@ Cuando recurre la QUEJOSA que ya ganó y quiere más —el caso 650/2025—, un
 agravio fundado no puede terminar negándole el amparo. Visto en una corrida: con
 sentido «fundado», el proyecto revocó y negó el amparo a quien lo había
 obtenido. **Falta meter en la ecuación quién recurre.**
+
+---
+
+## 15. La puerta que medía el largo, no la lectura · 8-sep
+
+**El caso.** David no pudo generar la revisión fiscal 91/2025: «sólo se
+obtuvieron 2810 palabras distintas en 25894». Su conclusión, razonable, fue que
+el OCR había fallado.
+
+**El OCR no falló.** Mandado el PDF a Azure a mano: 78 páginas, 258,802
+caracteres en **13 segundos**, y el texto es prosa jurídica corriente. Las
+cifras coinciden con las de su error, así que el OCR corrió y funcionó.
+
+**Falló la puerta.** Exigía que las palabras distintas fueran más del 12% del
+total. Ese cociente **cae con la longitud** —ley de Heaps: el vocabulario crece
+más despacio que el texto—. Medido sobre los 865 documentos del tribunal de más
+de 200 palabras:
+
+    200–2,000 palabras .... 0.382 de media (mínimo 0.092)
+    2,000–5,000 ........... 0.312
+    5,000–10,000 .......... 0.260
+    10,000–20,000 ......... 0.166
+
+Un umbral fijo **penaliza al documento largo por ser largo**. Y no valía ni
+donde mejor calibrado estaba: en la banda corta rechazaba un documento real de
+la propia carpeta.
+
+**Tampoco valía ajustar la curva y extrapolar.** Ajusté Heaps sobre el corpus
+—V = 0.98·N^0.857— y da 5,911 distintas esperadas para 25,816 palabras, contra
+las 2,810 reales. Pero el corpus **casi no tiene documentos de más de 10,000
+palabras** (dos), así que predecir a 25,816 es inventar el criterio con el que
+se rechaza el trabajo de alguien. *Un modelo ajustado fuera del rango de sus
+datos no es una medición: es una opinión con decimales.*
+
+**Lo que sí separa los dos casos.** La avería que la puerta existe para cazar es
+el PDF que sólo trae el sello de firma repetido. Los dos PDF de David, sin OCR,
+dan **4 palabras distintas**. Los 865 documentos reales tienen como mínimo 70 y
+de mediana 986. Tres órdenes de magnitud, sin depender del largo. Suelo en 60.
+
+Regresión: el umbral viejo rechazaba 1 documento real; el nuevo, ninguno. Y los
+dos PDF sin OCR siguen rechazados.
+
+### Lo que apareció al seguir el asunto
+
+Con la puerta abierta, el resolutivo de la revisión fiscal salía con dos huecos.
+La fórmula era correcta —medida en 16 de 28 revisiones fiscales del tribunal—
+pero los dos datos se buscaban en la PROSA DEL PROYECTO, y ahí no están.
+
+Sobre el PDF de la Sala, `fecha_de` y `numero_de` devuelven vacío, y no es
+defecto suyo: el documento fuente escribe esos datos de otra manera —«EXPEDIENTE:
+695/25-09-01-7-OT» con dos puntos, y la fecha en el proemio sin «sentencia de»
+delante—. **No se aflojaron esos dos patrones**: aciertan donde se les midió.
+Se añadió un lector aparte para la fuente, con dos cautelas medidas: el
+expediente tiene que aparecer al menos dos veces (el propio va en cada página;
+uno citado de pasada, una) y la fecha sólo se busca en los primeros 4,000
+caracteres, porque más allá empiezan las de los antecedentes.
+
+Resultado sobre el asunto real, con la forma exacta del corpus:
+
+    ÚNICO. Se revoca la sentencia de veintidós de septiembre de dos mil
+    veinticinco, dictada en el expediente 695/25-09-01-7-OT, por la Sala
+    Regional en Querétaro del Tribunal Federal de Justicia Administrativa.
+
+### Medición pendiente para el siguiente paso
+
+Buscando cómo resolver «quién recurre», medí los resolutivos de **121
+revisiones** de la carpeta: `revoca_fondo_niega` y `revoca_fondo_concede`
+aparecen **cero veces**. Lo que hay es confirmar (60%), sin materia, desechar y
+modificar (4). Antes de meter «quién recurre» en la tabla, hay que entender por
+qué esas dos ramas no existen en el corpus: puede que la revocación de fondo se
+escriba de otra forma, o que casi siempre sea revocación de un sobreseimiento.
