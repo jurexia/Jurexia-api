@@ -28145,19 +28145,34 @@ async def taller_desde_sise(
     except Exception as _ex:
         print(f"   ⚠️ SISE: no se pudieron clasificar los documentos: {err(_ex)}")
 
+    # LOS PDF VAN AL CUBO, no a la fila. Ver `_guardar_constancia`.
+    _rutas = []
+    try:
+        _rutas.append(_guardar_constancia(correo, numero, "promocion", _pro))
+        if _det:
+            _rutas.append(_guardar_constancia(correo, numero, "determinacion", _det))
+        if _not:
+            _rutas.append(_guardar_constancia(correo, numero, "notificacion", _not))
+        for _i, _b in enumerate(_acuerdos, 1):
+            _rutas.append(_guardar_constancia(correo, numero, f"acuerdo_{_i}", _b))
+    except Exception as ex:
+        print(f"   ‼️ no se pudieron guardar las constancias en el cubo: {err(ex)}")
+        _borrar_constancias_del_cubo([r["ruta"] for r in _rutas])
+        raise HTTPException(500,
+            "No se pudieron guardar las constancias. Vuelve a intentarlo; si "
+            "se repite, manda menos documentos.")
+
     fila = {"email": correo, "numero": numero.strip(),
             "expediente_unico": (expediente_unico or "").strip(),
             "tipo_sise": (tipo_sise or "").strip(),
             "organo": (organo or "").strip(),
             "actuaciones": _act,
             "presentacion_sise": (presentacion_sise or "").strip(),
-            "promocion": "\\x" + _pro.hex()}
-    if _det:
-        fila["determinacion"] = "\\x" + _det.hex()
-    if _not:
-        fila["notificacion"] = "\\x" + _not.hex()
-    if _acuerdos:
-        fila["acuerdos"] = ["\\x" + b.hex() for b in _acuerdos]
+            "constancias": _rutas,
+            # Las columnas viejas se limpian: lo que valía antes ya no está
+            # aquí, y dejar un binario huérfano contradice lo que se promete.
+            "promocion": None, "acuerdos": [],
+            "determinacion": None, "notificacion": None}
     # EL INVENTARIO SE GUARDA. Sin él, cuando un acuerdo salga mal clasificado
     # no habrá manera de saber qué leyó el clasificador ni por qué decidió eso.
     fila["inventario"] = _inventario
@@ -28283,6 +28298,58 @@ def _con_omisiones(fn, **dados):
     return fin
 
 
+CUBO_SISE = "sise-constancias"
+
+
+def _llave_sise(correo: str, numero: str, que: str) -> str:
+    """Dónde vive una constancia dentro del cubo.
+
+    El correo va HASHEADO, no en claro: la ruta de un objeto acaba en registros,
+    en mensajes de error y en paneles, y no hay razón para que el correo de un
+    secretario ande por ahí. Con doce caracteres del hash basta para separar
+    cuentas y no identifica a nadie por sí solo.
+    """
+    import hashlib
+    h = hashlib.sha256((correo or "").encode("utf-8")).hexdigest()[:12]
+    n = re.sub(r"[^A-Za-z0-9_-]", "-", (numero or "sin-numero").strip())
+    q = re.sub(r"[^A-Za-z0-9_-]", "-", (que or "doc").strip())
+    return f"{h}/{n}/{q}.pdf"
+
+
+def _guardar_constancia(correo: str, numero: str, que: str, datos: bytes) -> dict:
+    """Sube un PDF al cubo y devuelve su ficha.
+
+    POR QUÉ NO EN LA TABLA. Guardarlos en columnas `bytea` funcionaba con un
+    expediente pequeño y se rompía con uno normal: el ADC 536/2025 —8
+    documentos, 5,3 MB— mataba la escritura con «canceling statement due to
+    statement timeout», porque el binario viaja hexadecimal y ocupa el doble
+    dentro de una sola sentencia. Y fallaba después de un minuto de espera, con
+    un 500 y sin explicación.
+
+    Un objeto de cinco megas no es una fila.
+    """
+    ruta = _llave_sise(correo, numero, que)
+    supabase_admin.storage.from_(CUBO_SISE).upload(
+        ruta, datos,
+        {"content-type": "application/pdf", "upsert": "true"})
+    return {"que": que, "ruta": ruta, "bytes": len(datos)}
+
+
+def _leer_constancia(ruta: str) -> bytes:
+    return supabase_admin.storage.from_(CUBO_SISE).download(ruta)
+
+
+def _borrar_constancias_del_cubo(rutas: list) -> int:
+    if not rutas:
+        return 0
+    try:
+        supabase_admin.storage.from_(CUBO_SISE).remove(rutas)
+        return len(rutas)
+    except Exception as ex:
+        print(f"   ‼️ no se pudieron borrar del cubo {len(rutas)} ficheros: {err(ex)}")
+        return 0
+
+
 async def _correo_de_la_sesion(authorization: str, dicho: str) -> str:
     """Quién manda, según su sesión de Iurexia — no según lo que teclee.
 
@@ -28344,8 +28411,21 @@ def _soltar_constancias(correo: str, numero: str) -> None:
     # imprimía, el borrado habría fallado SIEMPRE y en silencio mientras la
     # pantalla prometía que las constancias se sueltan. Se caza al intentarlo
     # contra la base de verdad, no leyendo el código.
+    # PRIMERO LOS FICHEROS, que es donde está el expediente de verdad.
+    try:
+        _f = supabase_admin.table("sise_pendientes") \
+            .select("constancias").eq("email", correo).eq("numero", numero) \
+            .limit(1).execute()
+        _rs = [c["ruta"] for c in ((_f.data or [{}])[0].get("constancias") or [])
+               if c.get("ruta")]
+        if _rs:
+            print(f"   🧹 {_borrar_constancias_del_cubo(_rs)} constancias borradas del cubo")
+    except Exception as ex:
+        print(f"   ‼️ no se pudo listar lo que hay que borrar de {numero}: {err(ex)}")
+
     try:
         r = supabase_admin.table("sise_pendientes").update({
+            "constancias": None,
             "promocion": None, "acuerdos": [],
             "determinacion": None, "notificacion": None,
             # Los textos depurados también: llevan el asunto entero dentro.
@@ -28409,14 +28489,28 @@ async def taller_sise_descartar(
     _taller_puerta(correo)
     if not supabase_admin:
         raise HTTPException(503, "No se puede borrar ahora mismo.")
+    # LOS FICHEROS PRIMERO. Borrar la fila y dejar los PDF en el cubo sería
+    # justo lo contrario de lo que la pantalla promete: quedaría el expediente
+    # de un particular sin siquiera el rastro que permitiría encontrarlo.
+    _n = (numero or "").strip()
+    try:
+        _f = supabase_admin.table("sise_pendientes").select("constancias") \
+            .eq("email", correo).eq("numero", _n).limit(1).execute()
+        _rs = [c["ruta"] for c in ((_f.data or [{}])[0].get("constancias") or [])
+               if c.get("ruta")]
+        if _rs:
+            print(f"   🗑️  {_borrar_constancias_del_cubo(_rs)} constancias borradas del cubo")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo listar lo del cubo de {_n}: {err(ex)}")
+
     try:
         r = supabase_admin.table("sise_pendientes").delete() \
-            .eq("email", correo).eq("numero", (numero or "").strip()).execute()
+            .eq("email", correo).eq("numero", _n).execute()
     except Exception as ex:
         print(f"   ‼️ no se pudo descartar {numero}: {err(ex)}")
         raise HTTPException(500, "No se pudo borrar el expediente. Vuelve a intentarlo.")
     n = len(r.data or [])
-    print(f"   🗑️  descartado · {numero} · {n} fila(s)")
+    print(f"   🗑️  descartado · {_n} · {n} fila(s)")
     # Que no borre nada no es un error: pudo caducar o borrarse en otra
     # pestaña. Lo que importa es que después NO esté, y no está.
     return {"ok": True, "borradas": n}
@@ -28461,7 +28555,7 @@ async def taller_desde_expediente(
     try:
         r = supabase_admin.table("sise_pendientes").select(
             "numero, tipo_sise, organo, presentacion_sise, segmentos, "
-            "promocion, acuerdos, inventario"
+            "constancias, promocion, acuerdos, inventario"
         ).eq("email", correo).eq("numero", numero.strip()).limit(1).execute()
     except Exception as ex:
         print(f"   ⚠️ SISE: no se pudo leer lo pendiente: {err(ex)}")
@@ -28485,9 +28579,24 @@ async def taller_desde_expediente(
             return bytes.fromhex(v[2:])
         return bytes(v) if v else b""
 
-    _pdfs = {"promocion": _bytes(fila.get("promocion"))}
-    for _i, _a in enumerate(fila.get("acuerdos") or [], 1):
-        _pdfs[f"acuerdo_{_i}"] = _bytes(_a)
+    # DEL CUBO SI ESTÁ AHÍ; de las columnas viejas si el expediente se recibió
+    # antes de la mudanza. Que lo de antes siga funcionando no cuesta nada y
+    # evita que alguien pierda un expediente que ya había mandado.
+    _pdfs = {}
+    for _c in (fila.get("constancias") or []):
+        try:
+            _pdfs[_c.get("que") or "doc"] = _leer_constancia(_c["ruta"])
+        except Exception as ex:
+            print(f"   ⚠️ no se pudo leer {_c.get('ruta')}: {err(ex)}")
+    if not _pdfs:
+        _pdfs = {"promocion": _bytes(fila.get("promocion"))}
+        for _i, _a in enumerate(fila.get("acuerdos") or [], 1):
+            _pdfs[f"acuerdo_{_i}"] = _bytes(_a)
+    if not _pdfs.get("promocion"):
+        raise HTTPException(410,
+            "Las constancias de este expediente ya no están: se borran en "
+            "cuanto el taller las toma, y a las 48 horas si no se usan. "
+            "Vuelve a mandarlas desde el visor.")
 
     # ── QUÉ HACE DE QUÉ ───────────────────────────────────────────────────
     _acto, _conceptos, _resto = _dep.repartir(segmentos)
