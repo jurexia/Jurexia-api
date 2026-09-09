@@ -1832,6 +1832,14 @@ def sin_andamio(texto: str) -> str:
 # CON FRENO: sólo si la cola empieza en minúscula —eso es la marca inequívoca
 # de la frase partida— y no empieza por conjunción, donde anteponer un sujeto
 # produciría «La tesis en cita y confirma que…». Si no encaja, no se toca.
+# Lo que NO es el verbo de una oración continuada: restos de la ficha de la
+# tesis y arranques preposicionales.
+_RX_ARRANQUE_NOMINAL = re.compile(
+    r"^(?:registro|p[áa]gina|tomo|libro|volumen|[ée]poca|tesis|jurisprudencia|"
+    r"n[úu]mero|clave|gaceta|semanario|instancia|materia|localizaci[óo]n|"
+    r"de|del|en|por|con|para|al?|sobre|desde|hasta|entre|sin|seg[úu]n|"
+    r"cuyo|cuya|cuyos|cuyas)\b", re.I)
+
 _RX_ARRANQUE_ATADO = re.compile(
     r"^(?:y|e|o|u|pero|sino|aunque|que|porque|pues|como|cuando|si|ni|as[íi]|"
     r"adem[áa]s|tambi[ée]n|donde|mientras|seg[úu]n|salvo)\b", re.I)
@@ -1841,6 +1849,15 @@ def _con_sujeto_tras_cita(cola: str, tesis: dict) -> str:
     """Le devuelve el sujeto a la media frase que quedó debajo de la cita."""
     c = (cola or "").lstrip()
     if not c or not c[0].islower() or _RX_ARRANQUE_ATADO.match(c):
+        return cola
+    # NO A LOS FRAGMENTOS. Lo que sigue a la cita no siempre es media oración:
+    # a veces es un resto de la ficha —«registro digital 179849.»—, y ponerle
+    # sujeto produce «La jurisprudencia en cita registro digital 179849.», que
+    # es peor que el hueco. Salió en la primera corrida con este arreglo.
+    #
+    # Dos filtros: una oración de verdad tiene más de seis palabras, y empieza
+    # por VERBO, no por un sustantivo de la ficha ni por una preposición.
+    if len(c.split()) <= 6 or _RX_ARRANQUE_NOMINAL.match(c):
         return cola
     nombre = ("La jurisprudencia en cita"
               if "JURISPRUDENCIA" in str(tesis.get("tipo") or "").upper()
