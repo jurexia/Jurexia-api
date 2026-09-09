@@ -604,7 +604,8 @@ async def material_para(qdrant, embed_juris, embed_leyes,
         *[_completar(qdrant, c, n) for c, n in pares])) if pares else []
 
     return f6.Material(tesis=unicas[:TESIS_POR_PROBLEMA],
-                       normas=normas[:NORMAS_POR_PROBLEMA * 2])
+                       normas=normas[:NORMAS_POR_PROBLEMA * 2],
+                         principios=list(getattr(tesis_cocitadas, 'ultimos_principios', []) or []))
 
 
 async def material_del_caso(qdrant, embed_juris, embed_leyes,
@@ -644,9 +645,26 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
                 n_vistos.add(clave)
                 normas.append(n)
 
-    tesis.sort(key=lambda t: (not _es_scjn(t), not t["obligatoria"],
+    # ═══════════════════════════════════════════════════════════════════════
+    # ESTE ES EL ORDEN QUE EL MODELO VE DE VERDAD
+    # ═══════════════════════════════════════════════════════════════════════
+    # `material_para` ordena lo de CADA problema; esto fusiona los problemas y
+    # vuelve a ordenar. Arreglé la jerarquía allí y aquí se quedó la vieja: el
+    # estudio seguía recibiendo la tesis aislada de la Corte por delante de la
+    # jurisprudencia de colegiado. Es el mismo descuido de siempre —dos sitios,
+    # arreglado uno—, y aquí duele más porque éste es el último.
+    tesis.sort(key=lambda t: (not t["obligatoria"],
+                              _rango_instancia(t),
+                              -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
-    return f6.Material(tesis=tesis, normas=normas)
+    # Y LOS PRINCIPIOS DE TODOS LOS PROBLEMAS, sin repetir: se perdían aquí.
+    _pr, _vis = [], set()
+    for m in partes:
+        for x in (getattr(m, "principios", None) or []):
+            if x not in _vis:
+                _vis.add(x)
+                _pr.append(x)
+    return f6.Material(tesis=tesis, normas=normas, principios=_pr[:8])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -817,7 +835,14 @@ async def tesis_cocitadas(qdrant, embed_leyes, problema: str,
         v = await embed_leyes(problema)
         r = qdrant.query_points(
             collection_name=COLECCION_SENTENCIAS, query=v, using="dense",
-            limit=SENTENCIAS_POR_PROBLEMA, with_payload=["tesis_registros"])
+            limit=SENTENCIAS_POR_PROBLEMA,
+            # LOS PRINCIPIOS VIENEN EN EL MISMO VIAJE. Están en el 99.3% de los
+            # holdings y no cuestan una consulta más: son las nociones con las
+            # que el circuito razona esta cuestión —«principio de literalidad
+            # de los títulos de crédito», «interpretación restrictiva de la
+            # prescripción»— y decirle al modelo cuáles usa el tribunal es
+            # decirle por dónde va el razonamiento, no sólo qué citar.
+            with_payload=["tesis_registros", "principios_juridicos"])
         if inspect.isawaitable(r):
             r = await r
         pts = getattr(r, "points", r)
@@ -826,10 +851,19 @@ async def tesis_cocitadas(qdrant, embed_leyes, problema: str,
         return []
     from collections import Counter
     cuenta = Counter()
+    principios = Counter()
     for p in pts:
-        for x in ((p.payload or {}).get("tesis_registros") or []):
+        _pl = p.payload or {}
+        for x in (_pl.get("tesis_registros") or []):
             if str(x).strip():
                 cuenta[str(x).strip()] += 1
+        for x in (_pl.get("principios_juridicos") or []):
+            if str(x).strip():
+                principios[" ".join(str(x).split()).lower()] += 1
+    # Los principios se devuelven aparte, por referencia, para que quien llame
+    # pueda usarlos aunque no haya ninguna tesis que resolver.
+    tesis_cocitadas.ultimos_principios = [
+        p for p, n in principios.most_common(6) if n >= 2]
     if not cuenta:
         return []
     # SÓLO LAS QUE SE REPITEN MANDAN ARRIBA, pero una sola cita también vale:

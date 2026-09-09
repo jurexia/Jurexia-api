@@ -140,6 +140,14 @@ class Material:
     # está apartando de la corriente y de dónde sacar la objeción que hay que
     # responder. Es `fase_precedente.Sondeo`; se guarda suelto para no cruzar
     # los imports.
+    # LOS PRINCIPIOS CON LOS QUE EL CIRCUITO RAZONA ESTA CUESTIÓN. Salen de los
+    # holdings —el 99.3% los trae— y llegan sin coste: viajan en la misma
+    # consulta de la co-citación. Para la suspensión, por ejemplo: apariencia
+    # del buen derecho (16 sentencias), interés social (11), peligro en la
+    # demora, conservación de la materia del amparo. Decirle al modelo con qué
+    # nociones razona el tribunal es decirle por dónde va el razonamiento, no
+    # sólo qué citar.
+    principios: list = field(default_factory=list)
     sondeo: object = None
     # LA MATERIA VIAJA CON EL MATERIAL, no como parámetro. Hay cuatro sitios que
     # arman el prompt y cada parámetro nuevo es un sitio donde olvidarlo; el
@@ -495,6 +503,17 @@ def _bloque_material(m: Material) -> str:
             # 182597 LO CONTRARIO de lo que sostiene, y era el único punto
             # donde la quejosa tenía apoyo. El rubro es un título, no la regla.
             p.append(f"    {(t.get('texto') or '')[:TESIS_CARACTERES]}")
+    # LOS PRINCIPIOS DEL CIRCUITO, antes de los preceptos: son el marco con el
+    # que se razona, y van delante de lo que se cita.
+    if getattr(m, "principios", None):
+        p.append("\n\nCON QUÉ RAZONA ESTE CIRCUITO LA CUESTIÓN.")
+        p.append("  Son las nociones que las sentencias del acervo emplean al")
+        p.append("  resolver este mismo punto. No las cites como si fueran")
+        p.append("  fuente: son el ARMAZÓN del razonamiento, y un estudio que")
+        p.append("  las ignora suena ajeno a como resuelve este tribunal.")
+        for _pr in m.principios[:6]:
+            p.append(f"    · {_pr}")
+
     if normas:
         p.append("\n\nPRECEPTOS:")
         for n in normas:
