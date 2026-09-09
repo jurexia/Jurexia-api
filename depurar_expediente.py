@@ -61,6 +61,11 @@ IDENTIFICADORES = [
 
 ZONA_ENCABEZADO = 380      # caracteres desde el principio de la página
 MIN_PAGINAS_DOC = 3        # menos que esto es portada, sello o acuse
+# CUÁNTO TIENE QUE MANDAR UNA ETIQUETA para que abra documento. Medido: el
+# oficio del SAT encabeza 79 de 117 páginas y la Sala 11; en cambio, en un
+# escrito de amparo de 161 páginas ningún identificador pasa de un puñado.
+MIN_MANDO_PAGINAS = 5
+MIN_MANDO_FRACCION = 0.07
 
 
 def _normalizar(linea: str) -> str:
@@ -124,6 +129,36 @@ def segmentar(paginas):
     # De los identificadores del encabezado, el que más veces sale en TODO el
     # tomo: ése es el del documento. Los que salen una vez son citas.
     etiquetas = [max(s, key=lambda k: cuenta[k]) if s else None for s in cabeceras]
+
+    # ── SÓLO SE CORTA CON PRUEBA ──────────────────────────────────────────
+    # Esto se descubrió rompiéndolo. Sobre la demanda de amparo del ADA
+    # 203-2025 —161 páginas de UN SOLO escrito— la regla de arriba producía
+    # VEINTICUATRO documentos y repartía como «conceptos» las páginas 133-153.
+    # Destrozaba un documento sano, que es peor que no tocarlo.
+    #
+    # La diferencia con el tomo del 91/2025 es medible: allí el oficio del SAT
+    # encabeza 79 páginas seguidas y la Sala otras once; aquí ningún
+    # identificador manda en más de un puñado, porque un escrito de amparo cita
+    # decenas de expedientes y ninguno es el suyo.
+    #
+    # Así que una etiqueta sólo abre documento si MANDA de verdad. Si ninguna
+    # lo hace, el tomo es un documento y se devuelve entero.
+    _minimo = max(MIN_MANDO_PAGINAS, int(n * MIN_MANDO_FRACCION))
+    _mando = {}
+    for e in etiquetas:
+        if e:
+            _mando[e] = _mando.get(e, 0) + 1
+    _fuertes = {e for e, c in _mando.items() if c >= _minimo}
+    if not _fuertes:
+        return [(1, n, etiquetas[0] if etiquetas else None)]
+    etiquetas = [e if e in _fuertes else None for e in etiquetas]
+    # Y lo que no lleva etiqueta fuerte continúa el documento anterior.
+    for i in range(n):
+        if etiquetas[i] is None and i:
+            etiquetas[i] = etiquetas[i - 1]
+    for i in range(n - 1, -1, -1):          # las primeras páginas, hacia atrás
+        if etiquetas[i] is None and i + 1 < n:
+            etiquetas[i] = etiquetas[i + 1]
     # Una cara sin membrete continúa el documento de la anterior. Ésta es la
     # línea que hace funcionar el escaneo a doble cara.
     for i in range(n):
