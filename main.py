@@ -9067,7 +9067,7 @@ app.add_middleware(
     expose_headers=["X-Borrador", "X-Palabras", "X-Avisos", "X-Avisos-Detalle",
                     "X-Huecos", "X-Advertencias", "X-Problemas", "X-Oportunidad",
                     "X-Tiempos", "X-Rama", "X-Depuracion", "X-Leido",
-                    "Content-Disposition"],
+                    "X-Version", "Content-Disposition"],
 )
 
 
@@ -27964,6 +27964,67 @@ async def _texto_de_bytes(contenido: bytes, nombre: str) -> str:
     except Exception as ex:
         print(f"   ⚠️ no se pudo leer {nombre}: {err(ex)}")
         return ""
+
+
+@app.get("/taller/extension")
+async def taller_extension():
+    """EL COMPLEMENTO, EN UN CLIC.
+
+    David: «si voy a instalar el complemento de Chrome dame la opción de
+    descargar o con un click que me lleve a instalarlo en una computadora,
+    sino no servirá».
+
+    Es cierto y era el último eslabón: una extensión que hay que ir a buscar a
+    una carpeta del disco no la instala nadie. Aquí se empaqueta la carpeta al
+    vuelo y se sirve como .zip, así que siempre baja la versión que está
+    desplegada y no una copia que alguien recuerde actualizar.
+
+    LO QUE NO SE PUEDE HACER, Y CONVIENE DECIRLO: Chrome sólo instala de un
+    solo clic lo que viene de su tienda, y publicar ahí exige cuenta de
+    desarrollador y revisión. Hasta entonces son tres pasos —descomprimir,
+    modo desarrollador, cargar descomprimida— y están escritos en el LEEME que
+    va dentro del propio .zip.
+    """
+    import io
+    import zipfile
+
+    carpeta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extension_sise")
+    if not os.path.isdir(carpeta):
+        raise HTTPException(404, "El complemento no está disponible.")
+
+    cubo = io.BytesIO()
+    with zipfile.ZipFile(cubo, "w", zipfile.ZIP_DEFLATED) as z:
+        for raiz, _dirs, ficheros in os.walk(carpeta):
+            for f in sorted(ficheros):
+                if f.startswith(".") or f.endswith((".pyc", ".map")):
+                    continue
+                entero = os.path.join(raiz, f)
+                # DENTRO DEL ZIP VA UNA CARPETA CON NOMBRE. Sin ella, quien lo
+                # descomprima se encuentra los ficheros sueltos en Descargas y
+                # «cargar descomprimida» no tiene qué carpeta señalar.
+                dentro = os.path.join("iurexia-sise",
+                                      os.path.relpath(entero, carpeta))
+                z.write(entero, dentro)
+
+    datos = cubo.getvalue()
+    version = ""
+    try:
+        with open(os.path.join(carpeta, "manifest.json"), encoding="utf-8") as mf:
+            version = json.load(mf).get("version", "")
+    except Exception:
+        pass
+    print(f"   🧩 complemento servido · {len(datos)//1024} KB · v{version or '?'}")
+    return Response(
+        content=datos,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="iurexia-sise.zip"',
+            "X-Version": version,
+            # Que el navegador no sirva una versión vieja después de que se
+            # arregle algo: el complemento cambia con cada despliegue.
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/taller/desde-sise")
