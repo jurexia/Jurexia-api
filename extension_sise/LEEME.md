@@ -6,8 +6,21 @@ Una vez por equipo. No pide, no guarda y no envía tu contraseña de SISE.
 2. Activa **Modo de desarrollador** (arriba a la derecha).
 3. Pulsa **Cargar descomprimida** y elige esta carpeta:
    `IUREXIA-MAC/jurexia-api-git/extension_sise`
-4. En la extensión, entra a **Opciones** y guarda tu correo de Iurexia.
+4. En la extensión, pulsa **Detalles** y activa **«Permitir acceso a URL de
+   archivo»**. Sin esa casilla no puede leer el PDF que SISE descarga, y no
+   hay manera de saltársela: Chrome no deja a una extensión leer el disco por
+   defecto, y hace bien.
+5. En la extensión, entra a **Opciones** y guarda tu correo de Iurexia.
    Es lo único que se le pide: sirve para saber a qué cuenta mandar el asunto.
+
+## Por qué pulsa en vez de pedir los ficheros por detrás
+
+Se intentó cuatro veces imitar la petición que hace el clic, y SISE la rechazó
+—la última con el filtro de IIS: «request filtering is configured to deny
+double escape sequences»—. Una petición hecha por un guion no se parece a una
+navegación por más cabeceras que se le copien. Así que la extensión **pulsa el
+archivero de verdad** y recoge lo que el navegador descarga. Verás los PDF
+aparecer en tu carpeta de descargas: es normal, y es lo que los hace fiables.
 
 ## Cómo se usa
 
