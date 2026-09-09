@@ -790,3 +790,82 @@ planteamientos que la Sala dejó pendientes».
 
 Comprobado además que no se dispara donde no toca: con la omisión sólo alegada
 por la recurrente, y cuando se confirma, el resolutivo sigue siendo de un punto.
+
+---
+
+## 17. La frase que remite a una transcripción que no está · 9-sep
+
+**Lo que vio David** en la revisión fiscal 91/2025:
+
+    El artículo 38 del Código Fiscal de la Federación establece lo siguiente.
+    [y debajo, en vez del texto, otro párrafo]
+    Del precepto transcrito deriva que los requisitos…
+
+«Esos errores no permitirán tener un proyecto firmable». Y pidió arreglarlo
+**sin perder calidad argumentativa, buscando aumentarla**.
+
+### El defecto era mayor de lo que él señaló
+
+Medido sobre los 50 proyectos generados: los anuncios colgantes eran **3**,
+pero las remisiones a una transcripción inexistente —«del precepto transcrito»,
+«del criterio transcrito», «la disposición transcrita», «el artículo 566 antes
+transcrito»— eran **55**, repartidas por TODOS los documentos.
+
+### La causa no era el modelo: era el prompt contradiciéndose
+
+La arquitectura de materia civil ordenaba: «(1) **transcribes el texto literal
+del precepto entre comillas**» y «(3) entra la autoridad **TRANSCRITA**, no
+citada … y sigue el rubro y el texto íntegro». Y más abajo se le sugería
+literalmente la frase «**el precepto transcrito**» para remitir.
+
+Mientras tanto el documento baja precepto y tesis a la nota al pie y el
+compositor borra la transcripción del cuerpo. **El modelo obedecía**, y la frase
+que anunciaba la transcripción se quedaba apuntando a nada.
+
+Ya sabíamos —medido dos veces— que **manda la arquitectura**. Ahí estaba la
+orden equivocada, y por eso todos los intentos anteriores de arreglar esto
+desde otras partes del prompt no sirvieron.
+
+### Lo que se cambió
+
+`_ARQUITECTURA_COMUN`, que va en los cinco prompts, gana el contrato de
+maquetación con su tabla de lo prohibido y su equivalente. La arquitectura
+civil deja de ordenar la transcripción. Y la remisión sugerida pasa de «el
+precepto transcrito» a «el precepto citado».
+
+La red por debajo son dos reparaciones **de distinta naturaleza**, y conviene
+no confundirlas:
+
+- **Quitar «transcrito» es puramente sustractivo**: no puede estropear nada.
+  «Del precepto transcrito deriva que…» → «Del precepto deriva que…».
+- **Fundir el anuncio con su derivación sí reescribe**, y va con freno: sólo
+  cuando el párrafo termina en la fórmula y el siguiente empieza derivando de
+  ella; y no funde si al unirlas el verbo se repite —«dispone que … se
+  dispone»—, que fue mi primer arreglo de esto y era peor que el defecto.
+
+Un detalle que costó una vuelta: el patrón de derivación no aceptaba la
+contracción «**Del** precepto», que es el caso más común. Casaba «De esa
+disposición» y no el ejemplo de David.
+
+### El resultado, medido sobre el mismo asunto
+
+                          antes    ahora
+    «transcrito»              3        0
+    anuncios colgantes        2        0
+    palabras              6,560    7,130
+
+Y el precepto entra ahora así: «El artículo 38 del Código Fiscal de la
+Federación **exige que** los actos administrativos que deban notificarse
+señalen la autoridad que los emite, estén fundados y motivados, expresen su
+objeto y ostenten la firma del funcionario competente».
+
+**La calidad argumentativa subió, no bajó**: 570 palabras más, y el estudio
+desarrolla ahora la distinción que decide el asunto —«no distinguió entre la
+firma que autentica el acto decisorio y el sello que permite verificar el
+registro electrónico de su comunicación»—. Era previsible: pedirle que DIGA lo
+que el precepto establece es más trabajo argumentativo que pedirle que lo
+copie.
+
+Queda por vigilar que las tesis citadas no bajen: en esta corrida fueron 5
+frente a 6, y las notas al pie 12 frente a 15. Puede ser variación entre
+corridas; hay que medirlo en varias antes de concluir nada.
