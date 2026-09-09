@@ -2681,6 +2681,36 @@ def _bloque_firmas(doc, datos):
                 alineacion=WD_ALIGN_PARAGRAPH.CENTER, interlineado=1.0)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# «NO CONSTA EL SENTIDO DE LA SENTENCIA RECURRIDA», CUANDO SÍ CONSTA
+# ═══════════════════════════════════════════════════════════════════════════
+# El prompt le ofrece esa frase al modelo como último recurso —«si de verdad no
+# consta en lo que tienes, escríbela y sigue»— y el modelo la usa aunque el
+# resolutivo del juzgado esté dos páginas antes en el mismo PDF. Salió en la
+# revisión 650/2025 de David y ha vuelto a salir en las TRES comprobaciones
+# posteriores, con propuestas distintas cada vez: es el comportamiento normal
+# del modelo, no un tropiezo suelto.
+#
+# Ahora el dato se lee del papel, así que la frase se cambia por la buena. NO
+# SE INVENTA NADA: si no se pudo leer, la frase se queda como está, que es lo
+# honesto —y el aviso del repliegue ya avisa de que hay que comprobarlo—.
+_RX_NO_CONSTA_SENTIDO = re.compile(
+    r"en\s+la\s+que\s+no\s+consta\s+el\s+sentido\s+de\s+la\s+sentencia\s+recurrida"
+    r"|no\s+consta\s+el\s+sentido\s+de\s+la\s+sentencia\s+recurrida", re.I)
+
+_VERBO_A_QUO = {"concede": "en la que se concedió el amparo",
+                "niega": "en la que se negó el amparo",
+                "sobresee": "en la que se sobreseyó en el juicio"}
+
+
+def _con_el_sentido_del_a_quo(texto: str, resolvio: str) -> str:
+    """La frase evasiva, cambiada por lo que dice el resolutivo del juzgado."""
+    verbo = _VERBO_A_QUO.get((resolvio or "").strip().lower())
+    if not verbo or not _RX_NO_CONSTA_SENTIDO.search(texto or ""):
+        return texto or ""
+    return _RX_NO_CONSTA_SENTIDO.sub(verbo, texto)
+
+
 def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
              ruta_salida: str, antecedentes=None, resumen_acto=None,
              resumen_conceptos=None, problemas=None, estudio=None,
@@ -2903,6 +2933,8 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         cuerpo = (res.get("texto") or "").strip()
         if not cuerpo:
             continue
+        cuerpo = _con_el_sentido_del_a_quo(
+            cuerpo, str(datos.get("resolvio_a_quo") or ""))
         rot = (res.get("titulo") or "").strip().rstrip(".") + "."
         res_apartados.append((rot, (lambda c: lambda p: _texto_en(p, c))(cuerpo)))
     # La sesión SIEMPRE cierra el resultando y enlaza con el considerando.
