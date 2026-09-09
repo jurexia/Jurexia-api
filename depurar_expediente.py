@@ -168,3 +168,54 @@ def depurar(paginas):
             "caracteres": len(texto),
         })
     return salida
+
+
+def cortar(pdf: bytes, desde: int, hasta: int) -> bytes:
+    """Las páginas `desde`-`hasta` del PDF, como PDF aparte.
+
+    Depurar no es sólo etiquetar: es ENTREGAR el documento limpio. El taller
+    espera un PDF por cada cosa —el acto reclamado por un lado, los conceptos
+    por otro— y lo que llega del Expediente Electrónico es un tomo con todo
+    dentro. Aquí se corta.
+
+    Y hay un ahorro que no es menor: la sentencia recurrida son 18 de las 117
+    páginas. Mandar el tomo entero es pasar por Azure 99 páginas que no se van
+    a mirar, en cada paso del taller.
+    """
+    import fitz
+    origen = fitz.open(stream=pdf, filetype="pdf")
+    try:
+        n = origen.page_count
+        a = max(1, min(int(desde), n))
+        b = max(a, min(int(hasta), n))
+        salida = fitz.open()
+        try:
+            salida.insert_pdf(origen, from_page=a - 1, to_page=b - 1)
+            return salida.tobytes()
+        finally:
+            salida.close()
+    finally:
+        origen.close()
+
+
+def repartir(segmentos):
+    """Qué segmento hace de qué en el taller.
+
+    El taller pide dos documentos: el ACTO —la sentencia que se combate— y los
+    CONCEPTOS —lo que se alega contra ella—. La depuración ya sabe cuál es
+    cuál; esto sólo escoge, de entre los candidatos, el más largo, porque el
+    de verdad siempre lo es: los otros son portadas que lo mencionan.
+
+    Devuelve (acto, conceptos, constancias) con los segmentos, o None cuando no
+    hay candidato. Que falte no se suple: se dice.
+    """
+    def mayor(tipos):
+        cand = [s for s in segmentos if s.get("tipo") in tipos]
+        return max(cand, key=lambda s: s["caracteres"]) if cand else None
+
+    acto = mayor({"sentencia_recurrida", "sentencia", "acto_reclamado"})
+    conceptos = mayor({"promocion", "agravios", "conceptos", "demanda"})
+    usados = {id(x) for x in (acto, conceptos) if x}
+    resto = [s for s in segmentos if id(s) not in usados
+             and s["caracteres"] > 800]
+    return acto, conceptos, resto

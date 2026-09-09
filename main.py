@@ -28143,6 +28143,192 @@ async def taller_sise_pendiente(user_email: str, numero: str = ""):
     return {"pendientes": r.data or []}
 
 
+@app.post("/taller/desde-expediente")
+async def taller_desde_expediente(
+    user_email: str = Form(...),
+    numero: str = Form(...),
+    # LOS ÚNICOS CAMPOS QUE SIGUEN SIENDO DEL SECRETARIO. Todo lo demás sale de
+    # los escaneos. Si viene vacío, se intenta leer; si no se lee, se dice.
+    notificacion: str = Form(""),
+    presentacion: str = Form(""),
+    magistrado: str = Form(""),
+    secretario: str = Form(""),
+    tipo_asunto: str = Form(""),
+    materia: str = Form(""),
+    regla_surtimiento: str = Form("personal"),
+    # Para cuando el secretario ya miró la depuración y quiere otro reparto:
+    # llegan los números de página, y mandan sobre lo que decidió el módulo.
+    acto_paginas: str = Form(""),        # «95-112»
+    conceptos_paginas: str = Form(""),   # «5-84»
+):
+    """DEL EXPEDIENTE AL CRITERIO, SIN FORMULARIO.
+
+    El camino largo era: descargar, mirar, teclear diez campos, adelanto,
+    consultar, proponer. Aquí se entra con el expediente que la extensión dejó
+    esperando y se sale con los antecedentes, los problemas jurídicos y la
+    propuesta de sentido, que es donde el secretario tiene algo que decidir.
+
+    LO QUE SE LEE Y LO QUE SE PREGUNTA. De los autos salen el número, el
+    expediente de origen, el magistrado ponente, el secretario de acuerdos y el
+    recurrente —medido sobre los dos autos reales del 91/2025—. La fecha de
+    notificación NO sale de ahí, y es la que decide si el recurso es
+    extemporáneo: ésa se pregunta, y mientras falte no se computa nada. Suponer
+    esa fecha es lo que dejó a Erika con dos proyectos vacíos.
+    """
+    _taller_puerta(user_email)
+    correo = (user_email or "").strip().lower()
+    if not supabase_admin:
+        raise HTTPException(503, "No hay dónde leer el expediente.")
+    try:
+        r = supabase_admin.table("sise_pendientes").select(
+            "numero, tipo_sise, organo, presentacion_sise, segmentos, "
+            "promocion, acuerdos, inventario"
+        ).eq("email", correo).eq("numero", numero.strip()).limit(1).execute()
+    except Exception as ex:
+        print(f"   ⚠️ SISE: no se pudo leer lo pendiente: {err(ex)}")
+        raise HTTPException(500, "No se pudo leer el expediente guardado.")
+    if not (r.data or []):
+        raise HTTPException(404,
+            f"No hay ningún expediente {numero} esperando. Mándalo desde el "
+            f"Expediente Electrónico con la extensión.")
+    fila = r.data[0]
+    segmentos = fila.get("segmentos") or []
+    if not segmentos:
+        raise HTTPException(409,
+            "Ese expediente se recibió antes de que existiera la depuración. "
+            "Vuelve a mandarlo desde el Expediente Electrónico.")
+
+    import depurar_expediente as _dep
+    import fase_autos as _fa
+
+    def _bytes(v):
+        if isinstance(v, str) and v.startswith("\\x"):
+            return bytes.fromhex(v[2:])
+        return bytes(v) if v else b""
+
+    _pdfs = {"promocion": _bytes(fila.get("promocion"))}
+    for _i, _a in enumerate(fila.get("acuerdos") or [], 1):
+        _pdfs[f"acuerdo_{_i}"] = _bytes(_a)
+
+    # ── QUÉ HACE DE QUÉ ───────────────────────────────────────────────────
+    _acto, _conceptos, _resto = _dep.repartir(segmentos)
+
+    def _por_paginas(txt, de="promocion"):
+        m = re.fullmatch(r"\s*(\d+)\s*-\s*(\d+)\s*", txt or "")
+        if not m:
+            return None
+        return {"desde": int(m.group(1)), "hasta": int(m.group(2)), "de": de,
+                "tipo": "elegido por el secretario", "caracteres": 0,
+                "paginas": int(m.group(2)) - int(m.group(1)) + 1}
+
+    _acto = _por_paginas(acto_paginas) or _acto
+    _conceptos = _por_paginas(conceptos_paginas) or _conceptos
+
+    _faltan = []
+    if not _conceptos:
+        _faltan.append("el escrito con los agravios o conceptos")
+    if not _acto:
+        _faltan.append("la sentencia recurrida")
+    if _faltan:
+        raise HTTPException(422,
+            "En lo depurado no aparece " + " ni ".join(_faltan)
+            + ". Mira la lista de documentos y di tú qué páginas son.")
+
+    # ── LO QUE DICEN LOS AUTOS ────────────────────────────────────────────
+    _leido = _fa.juntar([
+        _fa.leer(s.get("texto") or "") for s in segmentos
+        if s.get("tipo") in ("auto_admision", "auto_turno", "acuerdo")
+    ])
+
+    _presentacion = (presentacion or "").strip() or fila.get("presentacion_sise") or ""
+    if _presentacion and "/" in _presentacion:            # dd/mm/aaaa → ISO
+        _p = _presentacion.split("/")
+        if len(_p) == 3:
+            _presentacion = f"{_p[2]}-{_p[1]}-{_p[0]}"
+    _notificacion = (notificacion or "").strip()
+    if not _notificacion:
+        raise HTTPException(422, json.dumps({
+            "falta": "notificacion",
+            "dice": ("Falta la fecha en que se notificó la sentencia "
+                     "recurrida. Es la única que no está en los escaneos, y de "
+                     "ella depende el cómputo del plazo."),
+            "ya_sabemos": {
+                "numero": _leido.get("numero") or fila.get("numero"),
+                "tipo": tipo_asunto or fila.get("tipo_sise") or "",
+                "presentacion": _presentacion,
+                "magistrado": magistrado or _leido.get("magistrado", ""),
+                "secretario": secretario or _leido.get("secretario", ""),
+                "recurrente": _leido.get("recurrente", ""),
+                "expediente_origen": _leido.get("expediente_origen", ""),
+            },
+            "documentos": [
+                {"que": s.get("tipo"), "paginas": f"{s.get('desde')}-{s.get('hasta')}",
+                 "n": s.get("paginas"), "caracteres": s.get("caracteres")}
+                for s in segmentos],
+        }, ensure_ascii=False))
+
+    # ── LOS PDF, CORTADOS ─────────────────────────────────────────────────
+    def _corte(seg, rotulo):
+        base = _pdfs.get(seg.get("de") or "promocion") or _pdfs["promocion"]
+        try:
+            return _SubidaDeBytes(
+                _dep.cortar(base, seg["desde"], seg["hasta"]), f"{rotulo}.pdf")
+        except Exception as ex:
+            print(f"   ⚠️ no se pudo cortar {rotulo}: {err(ex)}")
+            return _SubidaDeBytes(base, f"{rotulo}.pdf")
+
+    _f_acto = _corte(_acto, "acto")
+    _f_conceptos = _corte(_conceptos, "conceptos")
+    _f_constancias = None
+    if _resto:
+        _mayor = max(_resto, key=lambda s: s.get("caracteres", 0))
+        _f_constancias = _corte(_mayor, "constancias")
+
+    print(f"   ✂️  {numero}: acto {_acto['desde']}-{_acto['hasta']} · "
+          f"conceptos {_conceptos['desde']}-{_conceptos['hasta']}")
+
+    # ── Y SE ENTRA POR EL CAMINO DE SIEMPRE ───────────────────────────────
+    # No se duplica el adelanto: se le llama. Todo lo que aprendió —el cómputo,
+    # los inhábiles, la rama, el resolutivo leído del PDF— vale igual aquí.
+    resultado = await taller_adelanto(
+        numero=numero.strip(),
+        encabezado="", quejoso=_leido.get("recurrente", ""),
+        magistrado=magistrado or _leido.get("magistrado", ""),
+        secretario=secretario or _leido.get("secretario", ""),
+        notificacion=_notificacion, presentacion=_presentacion,
+        user_email=correo, regla_surtimiento=regla_surtimiento,
+        plazo=0, excepcion_plazo="", dias_inhabiles_extra="",
+        materia=materia, tipo_asunto=(tipo_asunto or _tipo_desde_sise(fila.get("tipo_sise"))),
+        tribunal=fila.get("organo") or "", ciudad="",
+        modo="generado", plantilla=None,
+        acto=_f_acto, conceptos=_f_conceptos, constancias=_f_constancias)
+
+    if isinstance(resultado, dict):
+        resultado.setdefault("leido_de_los_autos", _leido)
+        resultado["depuracion"] = [
+            {"que": s.get("tipo"), "confianza": s.get("confianza"),
+             "paginas": f"{s.get('desde')}-{s.get('hasta')}",
+             "n": s.get("paginas"), "caracteres": s.get("caracteres"),
+             "usado": ("acto" if s is _acto else
+                       "conceptos" if s is _conceptos else "")}
+            for s in segmentos]
+    return resultado
+
+
+def _tipo_desde_sise(t: str) -> str:
+    """El tipo del taller a partir de como lo llama SISE."""
+    n = (t or "").lower()
+    if "fiscal" in n:
+        return "revision_fiscal"
+    if "queja" in n:
+        return "queja"
+    if "revis" in n:
+        return "revision"
+    if "directo" in n or "amparo" in n:
+        return "amparo_directo"
+    return "amparo_directo"
+
+
 @app.post("/taller/consultar")
 async def taller_consultar(
     numero: str = Form(...),
