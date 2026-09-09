@@ -28372,13 +28372,48 @@ async def taller_resolver_stream(
             _datos = json.loads(criterios_json)
         except Exception:
             raise HTTPException(422, "criterios_json no es JSON válido.")
+        # ═══════════════════════════════════════════════════════════════════
+        # UN PROBLEMA SIN SENTIDO SE CAÍA EN SILENCIO
+        # ═══════════════════════════════════════════════════════════════════
+        # David: «regularmente el último problema jurídico queda sin respuesta
+        # (desconozco por qué)».
+        #
+        # Éste es un camino por el que puede pasar: el filtro descarta el
+        # criterio al que le falta el sentido —y hace bien, porque sin sentido
+        # no hay nada que demostrar— pero lo hacía CALLANDO. El problema
+        # desaparecía del estudio y nadie se enteraba hasta leer el proyecto.
+        # Ahora se cuenta y se avisa.
+        _todos = _datos if isinstance(_datos, list) else []
+        _sin_sentido = [str(d.get("problema", ""))[:120] for d in _todos
+                        if not str(d.get("sentido", "")).strip()]
         crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
                              sentido=str(d.get("sentido", "")).strip().lower(),
                              razonamiento=str(d.get("razonamiento", "")),
                              jerarquia=str(d.get("jerarquia", "accesorio")),
+                             # EL GRUPO: los problemas que el secretario marcó
+                             # para resolverse con una sola línea argumentativa.
+                             grupo=str(d.get("grupo", "") or "").strip(),
                              prediccion=d.get("prediccion") or {})
-                for d in (_datos if isinstance(_datos, list) else [])
+                for d in _todos
                 if str(d.get("sentido", "")).strip()]
+        if _sin_sentido:
+            print(f"   ⚠️ TALLER: {len(_sin_sentido)} problema(s) sin sentido, "
+                  f"fuera del estudio")
+            # SE CUELGA DEL RESULTADO, que es lo que llega al documento. NO de
+            # una variable `avisos` local: en estas dos funciones no existe
+            # —comprobado— y usarla habría reventado la generación entera con
+            # un NameError. Es el mismo error de ámbito del `_rama`, y aquí el
+            # guardián no lo ve porque main.py no está entre los módulos que
+            # revisa.
+            try:
+                r.avisos.append(
+                    f"NO SE ESTUDIARON {len(_sin_sentido)} PLANTEAMIENTO(S) "
+                    f"porque se quedaron sin sentido asignado: "
+                    + " · ".join(f"«{x}»" for x in _sin_sentido[:3])
+                    + ". Vuelve a la pantalla del criterio, decídelos y genera "
+                      "otra vez, o confirma que no había que contestarlos.")
+            except Exception:
+                pass
         if not crit:
             raise HTTPException(422, "criterios_json no trae ningún sentido.")
     elif (modo_decision or "").strip().lower() == "global":
@@ -28704,13 +28739,48 @@ async def taller_resolver(
         # reconstruye una lista y descarta lo que otro sembró. La escribí en un
         # comentario de /taller/proponer y volví a caer en ella doce líneas
         # más abajo.
+        # ═══════════════════════════════════════════════════════════════════
+        # UN PROBLEMA SIN SENTIDO SE CAÍA EN SILENCIO
+        # ═══════════════════════════════════════════════════════════════════
+        # David: «regularmente el último problema jurídico queda sin respuesta
+        # (desconozco por qué)».
+        #
+        # Éste es un camino por el que puede pasar: el filtro descarta el
+        # criterio al que le falta el sentido —y hace bien, porque sin sentido
+        # no hay nada que demostrar— pero lo hacía CALLANDO. El problema
+        # desaparecía del estudio y nadie se enteraba hasta leer el proyecto.
+        # Ahora se cuenta y se avisa.
+        _todos = _datos if isinstance(_datos, list) else []
+        _sin_sentido = [str(d.get("problema", ""))[:120] for d in _todos
+                        if not str(d.get("sentido", "")).strip()]
         crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
                              sentido=str(d.get("sentido", "")).strip().lower(),
                              razonamiento=str(d.get("razonamiento", "")),
                              jerarquia=str(d.get("jerarquia", "accesorio")),
+                             # EL GRUPO: los problemas que el secretario marcó
+                             # para resolverse con una sola línea argumentativa.
+                             grupo=str(d.get("grupo", "") or "").strip(),
                              prediccion=d.get("prediccion") or {})
-                for d in (_datos if isinstance(_datos, list) else [])
+                for d in _todos
                 if str(d.get("sentido", "")).strip()]
+        if _sin_sentido:
+            print(f"   ⚠️ TALLER: {len(_sin_sentido)} problema(s) sin sentido, "
+                  f"fuera del estudio")
+            # SE CUELGA DEL RESULTADO, que es lo que llega al documento. NO de
+            # una variable `avisos` local: en estas dos funciones no existe
+            # —comprobado— y usarla habría reventado la generación entera con
+            # un NameError. Es el mismo error de ámbito del `_rama`, y aquí el
+            # guardián no lo ve porque main.py no está entre los módulos que
+            # revisa.
+            try:
+                r.avisos.append(
+                    f"NO SE ESTUDIARON {len(_sin_sentido)} PLANTEAMIENTO(S) "
+                    f"porque se quedaron sin sentido asignado: "
+                    + " · ".join(f"«{x}»" for x in _sin_sentido[:3])
+                    + ". Vuelve a la pantalla del criterio, decídelos y genera "
+                      "otra vez, o confirma que no había que contestarlos.")
+            except Exception:
+                pass
         if not crit:
             raise HTTPException(422, "criterios_json no trae ningún sentido.")
     elif (modo_decision or "").strip().lower() == "global":

@@ -116,6 +116,10 @@ class Criterio:
     # se puede aplicar la sustracción de materia ni ordenar el estudio por
     # prelación lógica, que es como se ordena un engrose.
     jerarquia: str = "accesorio"
+    # LA LETRA DEL GRUPO, cuando el secretario decidió que dos o más
+    # planteamientos se resuelven con UNA SOLA línea argumentativa. Vacío es lo
+    # normal: cada problema con su apartado.
+    grupo: str = ""
     # La distribución del acervo sobre ESTE problema: {"sentido", "porcentaje",
     # "n", "confianza", "frase"}. No funda nada —un colegiado no obliga a
     # otro— pero dice si el sentido va con la corriente o contra ella, y eso
@@ -324,8 +328,19 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                   key=lambda x: (0 if (x[1].jerarquia or "").lower() == "principal"
                                  else 1, x[0]))
     for i, (_, c) in enumerate(_ord, 1):
-        lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}] {c.problema}")
+        _g = str(getattr(c, "grupo", "") or "").strip()
+        lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}]"
+                      f"{f' [GRUPO {_g}]' if _g else ''} {c.problema}")
         lineas.append(f"   SENTIDO: {c.sentido.upper()}")
+        # EL GRUPO LO DECIDE EL SECRETARIO. La arquitectura ya prohíbe resolver
+        # dos planteamientos con una calificación conjunta «salvo que declares
+        # que se estudian juntos y por qué»; faltaba quién lo declarara.
+        if _g:
+            lineas.append(f"   SE ESTUDIA JUNTO CON LOS DEMÁS DEL GRUPO {_g}: "
+                          f"un solo apartado, una sola línea argumentativa y "
+                          f"una calificación conjunta. ABRE ese apartado "
+                          f"diciendo QUÉ LOS UNE y por qué se resuelven a la "
+                          f"vez; no los contestes por separado dentro de él.")
         if (c.sentido or "").lower() == "innecesario":
             lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
                           "del principal. Se dice en una frase y se pasa; ni "

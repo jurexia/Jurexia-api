@@ -81,8 +81,37 @@ import ast, builtins, sys, pathlib
 MODULOS = ["redactor_adelanto.py", "documento_generado.py", "fase6_estudio.py",
            "fase_rama.py", "tipos_asunto.py", "ensamblar_adelanto.py",
            "fase0_oportunidad.py", "fase_origen.py", "calidad_estudio.py",
-           "linter_juridico.py", "normas_estaticas.py", "fase_normas.py"]
-BUILTIN = set(dir(builtins))
+           "linter_juridico.py", "normas_estaticas.py", "fase_normas.py",
+           # main.py ES DONDE VIVEN LAS RUTAS, y estaba fuera. El 9 de
+           # septiembre metí un `avisos.append(...)` en dos funciones donde
+           # `avisos` no existe: habría reventado la generación entera con un
+           # NameError, y esta comprobación no lo vio porque el fichero no
+           # estaba en la lista. Es el mismo error de ámbito del `_rama`,
+           # entrando por el único módulo que no se miraba.
+           "main.py",
+           "fase6_rag.py", "fase5_propuesta.py", "fase_partes.py",
+           "fases123_pipeline.py", "fase_sintesis.py"]
+BUILTIN = set(dir(builtins)) | {
+    # Globales de módulo que siempre existen y el barrido no conoce.
+    "__file__", "__name__", "__doc__", "__package__", "__spec__",
+}
+
+# HALLAZGOS ANTERIORES A QUE main.py ENTRARA AQUÍ, fuera del taller. Se anotan
+# para que el guardián quede verde con lo nuevo SIN esconderlos: son fallos
+# reales que hay que arreglar, no falsos positivos.
+#
+#   main.py:7539-7540  _fetch_neighbor_chunks() usa «tesis_num» y «registro»,
+#                      que no son parámetros suyos ni se asignan dentro: es un
+#                      NameError en el recuperador de vecinos del chat.
+#   main.py:22207      qdrant_search_for_redactor() usa «generate_embedding»
+#   main.py:25716      phase1_activate() usa «_embed_async»
+viejos = set()
+CONOCIDOS_VIEJOS = {
+    ("main.py", "_fetch_neighbor_chunks", "registro"),
+    ("main.py", "_fetch_neighbor_chunks", "tesis_num"),
+    ("main.py", "qdrant_search_for_redactor", "generate_embedding"),
+    ("main.py", "phase1_activate", "_embed_async"),
+}
 
 
 def propios(nodo):
@@ -149,6 +178,9 @@ for f in MODULOS:
         for x in propios(fn):
             if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load) \
                     and x.id not in dentro:
+                if (f, fn.name, x.id) in CONOCIDOS_VIEJOS:
+                    viejos.add((f, fn.name, x.id))
+                    continue
                 malos.append(f"{f}:{x.lineno} {fn.name}() usa «{x.id}»")
         for h in ast.iter_child_nodes(fn):
             for y in ast.walk(h):
@@ -175,7 +207,12 @@ if malos:
     for m in malos[:12]:
         print("     ", m)
     sys.exit(1)
-print(f"   ✓ {len(MODULOS)} módulos sin nombres indefinidos")
+if viejos:
+    print(f"   ⚠️ {len(viejos)} nombres indefinidos ANTERIORES, fuera del "
+          f"taller, pendientes de arreglar:")
+    for f_, fn_, n_ in sorted(viejos):
+        print(f"      {f_} · {fn_}() usa «{n_}»")
+print(f"   ✓ {len(MODULOS)} módulos sin nombres indefinidos nuevos")
 PYEOF
 
 echo "── 4. el documento se compone en los cuatro tipos ──"
