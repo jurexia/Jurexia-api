@@ -595,3 +595,49 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
     tesis.sort(key=lambda t: (not _es_scjn(t), not t["obligatoria"],
                               _de_otro_estado(t, coleccion_estatal)))
     return f6.Material(tesis=tesis, normas=normas)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LAS TESIS DE LA TÉCNICA, TRAÍDAS POR SU REGISTRO
+# ═══════════════════════════════════════════════════════════════════════════
+# La búsqueda del acervo va detrás de los PROBLEMAS DEL CASO, y hace bien: es
+# lo que el secretario necesita para resolver el fondo. Pero hay cuestiones que
+# no son del caso sino de la TÉCNICA —si procede el reenvío, si el colegiado
+# puede sustituir a la Sala—, y ésas no las va a pedir nadie: no son un
+# problema jurídico del expediente, son la regla con la que se escribe el
+# resolutivo.
+#
+# Medido en la revisión fiscal 91/2025 generada: el estudio argumentó el
+# reenvío con todas las letras —«No corresponde a este Tribunal Colegiado
+# sustituir a la Sala responsable en el estudio de los conceptos de anulación
+# que quedaron pendientes»— y no citó NINGUNA autoridad, porque la búsqueda
+# había ido detrás de la notificación electrónica. Las cuatro tesis que lo
+# sostienen estaban en la colección; nadie las pidió.
+#
+# Se traen por su número de registro, que es lo contrario de adivinar: o esa
+# tesis existe con ese número, o no se trae nada.
+async def tesis_por_registro(qdrant, registros: list) -> list:
+    """Las tesis con esos registros, tal como están en el acervo."""
+    from qdrant_client.models import FieldCondition, Filter, MatchAny
+    regs = [str(r).strip() for r in (registros or []) if str(r).strip()]
+    if not qdrant or not regs:
+        return []
+    try:
+        r = qdrant.scroll(
+            collection_name=COLECCION_JURIS,
+            scroll_filter=Filter(must=[FieldCondition(
+                key="registro", match=MatchAny(any=regs))]),
+            limit=len(regs) * 2, with_payload=True)
+        if inspect.isawaitable(r):
+            r = await r
+        pts = r[0] if isinstance(r, tuple) else r
+    except Exception as e:
+        print(f"   ⚠️ no se pudieron traer las tesis de la técnica: {e}")
+        return []
+    fuera, vistos = [], set()
+    for p in pts:
+        d = _tesis_de(p.payload or {})
+        if d["registro"] and d["registro"] not in vistos and d["rubro"]:
+            vistos.add(d["registro"])
+            fuera.append(d)
+    return fuera

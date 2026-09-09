@@ -471,6 +471,37 @@ async def consultar(qdrant, embed_juris, embed_leyes,
         for a in (sondeo.avisos or []):
             if a not in r.avisos:
                 r.avisos.append(a)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # LAS TESIS DE LA TÉCNICA, QUE NADIE VA A PEDIR
+    # ═══════════════════════════════════════════════════════════════════════
+    # La búsqueda va detrás de los PROBLEMAS DEL CASO. Pero si procede el
+    # reenvío, o si el colegiado puede sustituir a la Sala, no es un problema
+    # del expediente: es la regla con la que se escribe el resolutivo, y nadie
+    # la formula como pregunta.
+    #
+    # Medido en la revisión fiscal 91/2025: el estudio argumentó el reenvío con
+    # todas las letras y no citó NINGUNA autoridad, porque la búsqueda había
+    # ido detrás de la notificación electrónica. Las cuatro tesis que lo
+    # sostienen estaban en la colección; nadie las pidió.
+    #
+    # Se piden por su REGISTRO, que es lo contrario de adivinar: o existen con
+    # ese número, o no viene nada.
+    try:
+        import tipos_asunto as _ta_t
+        _regs = []
+        for _regla in _ta_t.tecnica_de(getattr(r.encargo, "tipo_asunto", "")):
+            _regs += list(_regla.get("apoyos") or [])
+        if _regs:
+            _ya = {str(t.get("registro") or "") for t in (material.tesis or [])}
+            _nuevas = [t for t in await f6rag.tesis_por_registro(qdrant, _regs)
+                       if t["registro"] not in _ya]
+            if _nuevas:
+                material.tesis = list(material.tesis or []) + _nuevas
+                print(f"   ⚖️ tesis de la técnica añadidas: "
+                      f"{', '.join(t['registro'] for t in _nuevas)}")
+    except Exception as _et:
+        print(f"   ⚠️ no se pudieron añadir las tesis de la técnica: {_et}")
     return material
 
 
