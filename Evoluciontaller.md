@@ -1030,3 +1030,55 @@ Al meterlo, destapó **cuatro nombres indefinidos anteriores**, fuera del taller
 No se esconden: el guardián los enumera en cada ejecución como pendientes.
 **Cada vez que se amplía el guardián aparece algo; el coste de no ampliarlo es
 justo lo que no aparece.**
+
+---
+
+## 21. Recuperar por co-citación · 9-sep
+
+**La premisa de David:** «una sentencia se sostiene por su nivel de
+argumentación jurídica y por los criterios VINCULANTES que invoca».
+
+**La búsqueda actual es buena encontrando algo PARECIDO y estructuralmente mala
+encontrando lo OBLIGATORIO.** Medido sobre las 12 preguntas del banco de
+calidad, contando cuántos de los diez criterios recuperados vinculan:
+
+                                semántica   co-citación
+    criterios recuperados             120           115
+    VINCULANTES                        25            90     (21% → 78%)
+    de Sala o Pleno                    37            97
+    que la semántica NO trajo                       104
+
+**Mejora en las doce, sin una sola excepción.** Y no es un ajuste de pesos: son
+criterios que la semántica no devuelve a ninguna profundidad, porque su rubro no
+se parece a la pregunta aunque sean la autoridad que decide el punto.
+
+**El material ya estaba pagado.** El 81% de los 200,650 holdings guarda
+`tesis_registros`: lo que esa sentencia citó de verdad. Contar qué se repite
+entre las sentencias que resolvieron la misma cuestión da, sin modelo y sin
+adivinanza, qué autoridad usa el circuito —y **cuántas veces**, que la semántica
+no puede dar y que sí es argumento: «criterio reiterado de este circuito» pesa
+distinto que «una tesis que encontré».
+
+### Lo que NO puedo afirmar todavía
+
+A nivel de DOCUMENTO, sobre la revisión fiscal 91/2025, el resultado quedó
+**plano**: 6 criterios citados y 6 vinculantes antes; 6 citados y 5 vinculantes
+después. La mejora de recuperación no se tradujo en más autoridad citada,
+porque ese proyecto ya citaba 6 de 6 vinculantes —es el asunto sobre el que
+llevo toda la semana curando tesis a mano—.
+
+Lo que **sí** cambió es cuál: entró la 2012918 —«BUZÓN TRIBUTARIO. EL ARTÍCULO
+17-K»—, que es la jurisprudencia que el circuito cita SEIS veces para esta
+cuestión y que la semántica no devolvía a ninguna profundidad.
+
+**Una sola corrida sobre un asunto ya afinado no mide nada.** Hace falta correr
+varios asuntos distintos —y de materias distintas— antes de afirmar que el
+documento mejora. La ganancia en recuperación está medida; la del documento, no.
+
+### El trabajo pendiente que destapó
+
+`tesis_registros` mezcla dos identificadores: el registro digital («2016701») y
+la clave de la tesis («2a./J. 137/2016 (10a.)»). Se buscan los dos campos, y aun
+así **el 39% de las claves no resuelve** contra la colección: 73 de 188. Son
+citas reales de los jueces que hoy no podemos convertir en autoridad utilizable.
+Normalizarlas es la continuación natural de esto.
