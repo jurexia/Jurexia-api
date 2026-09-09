@@ -27939,6 +27939,11 @@ async def taller_desde_sise(
     tipo_sise: str = Form(""),
     organo: str = Form(""),
     actuaciones_json: str = Form("[]"),
+    # LA FECHA DE PRESENTACIÓN, leída de la tabla del Panel de Promociones. Es
+    # uno de los dos datos que hoy teclea el secretario. Llega tal cual la
+    # escribe SISE (dd/mm/aaaa) y como PISTA: quien decide sigue siendo el
+    # cómputo, que sabe de plazos y de días inhábiles.
+    presentacion_sise: str = Form(""),
     promocion: UploadFile = File(...),
     # TODOS LOS ACUERDOS DEL CUADERNO. La admisión y el turno son actuaciones
     # distintas; traer sólo la primera deja fuera la otra, y de ellas salen la
@@ -28012,6 +28017,7 @@ async def taller_desde_sise(
             "tipo_sise": (tipo_sise or "").strip(),
             "organo": (organo or "").strip(),
             "actuaciones": _act,
+            "presentacion_sise": (presentacion_sise or "").strip(),
             "promocion": "\\x" + _pro.hex()}
     if _det:
         fila["determinacion"] = "\\x" + _det.hex()
@@ -28048,6 +28054,7 @@ async def taller_desde_sise(
         _avisos.append("No se reconoció el AUTO DE TURNO entre los acuerdos: "
                        "el magistrado ponente habrá que confirmarlo.")
     return {"ok": True, "numero": numero.strip(),
+            "presentacion": (presentacion_sise or "").strip(),
             "inventario": _inventario, "avisos": _avisos,
             "documentos": [k for k, v in (("promocion", _pro),
                                           ("determinacion", _det),
@@ -28064,7 +28071,8 @@ async def taller_sise_pendiente(user_email: str, numero: str = ""):
         return {"pendientes": []}
     try:
         q = supabase_admin.table("sise_pendientes").select(
-            "numero, expediente_unico, tipo_sise, organo, actuaciones, creado_en"
+            "numero, expediente_unico, tipo_sise, organo, actuaciones, "
+            "presentacion_sise, inventario, creado_en"
         ).eq("email", correo).order("creado_en", desc=True).limit(8)
         if numero:
             q = q.eq("numero", numero)

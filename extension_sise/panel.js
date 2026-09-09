@@ -72,29 +72,76 @@
     return filas;
   }
 
-  /** Un PDF, pidiéndoselo a SISE como se lo pide un clic. */
-  async function traerPDF(nombreControl) {
-    const f = document.forms[0];
-    const cuerpo = new FormData();
-    for (const el of f.querySelectorAll("input[type=hidden]")) {
-      if (el.name) cuerpo.append(el.name, el.value);
+  /** Los campos ocultos de un formulario, que es lo que SISE exige devolver. */
+  function ocultosDe(raiz) {
+    const c = new FormData();
+    for (const el of raiz.querySelectorAll("input[type=hidden]")) {
+      if (el.name) c.append(el.name, el.value);
     }
+    return c;
+  }
+
+  /** Pulsa un control de SISE y devuelve la respuesta cruda. */
+  async function pulsar(accion, cuerpo, nombreControl) {
     // Un input[type=image] viaja como `nombre.x` / `nombre.y`: sin eso, el
     // servidor no sabe qué botón se pulsó y devuelve la misma página.
     cuerpo.append(nombreControl + ".x", "8");
     cuerpo.append(nombreControl + ".y", "8");
-    const r = await fetch(f.action, {
-      method: "POST", body: cuerpo, credentials: "include",
-    });
+    return fetch(accion, { method: "POST", body: cuerpo, credentials: "include" });
+  }
+
+  async function aPDF(r, deQue) {
     const buf = await r.arrayBuffer();
-    const cabecera = String.fromCharCode(...new Uint8Array(buf.slice(0, 5)));
-    if (!cabecera.startsWith("%PDF")) {
-      // SISE devuelve la página entera cuando el envío no le cuadra —el
-      // ViewState caducó, o la sesión—. Devolver eso como si fuera un PDF
-      // haría que el taller proyectara sobre una página de error.
-      throw new Error("SISE no devolvió un PDF (¿caducó la sesión?)");
+    const cab = String.fromCharCode(...new Uint8Array(buf.slice(0, 5)));
+    if (!cab.startsWith("%PDF")) {
+      throw new Error(`SISE no devolvió un PDF de ${deQue} (¿caducó la sesión?)`);
     }
     return new Blob([buf], { type: "application/pdf" });
+  }
+
+  /** Un documento que se descarga de un solo clic (acuerdos, notificaciones). */
+  async function traerPDF(nombreControl) {
+    const f = document.forms[0];
+    return aPDF(await pulsar(f.action, ocultosDe(f), nombreControl), "esa constancia");
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * LA PROMOCIÓN VA EN DOS PASOS, Y ÉSE ERA EL FALLO
+   * ═══════════════════════════════════════════════════════════════════════
+   * David: «te faltó cliquear el primer botón para que te mandara al panel de
+   * promociones (la principal); allí jalas el escaneo principal que tiene
+   * todas las constancias».
+   *
+   * El icono de «Promoción» del Panel Central NO devuelve un PDF: NAVEGA al
+   * Panel de Promociones. Allí está el escaneo de verdad —`imgArchivo`— y,
+   * de regalo, la FECHA DE PRESENTACIÓN en la propia tabla, que es uno de los
+   * datos que el secretario teclea hoy.
+   *
+   * Mi primera versión pulsaba el primer icono y esperaba un PDF. Recibía el
+   * HTML del panel intermedio, y la comprobación de `%PDF` lo rechazaba: la
+   * salvaguarda funcionó, el camino estaba mal.
+   */
+  async function traerPromocion(nombreControl) {
+    const f = document.forms[0];
+    const r1 = await pulsar(f.action, ocultosDe(f), nombreControl);
+    const html = await r1.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const grid = doc.querySelector('[id*="grvPanelCentral"]');
+    const archivo = doc.querySelector('input[type=image][name$="imgArchivo"]');
+    if (!archivo) {
+      throw new Error("El panel de promociones no trae el escaneo principal.");
+    }
+    // La fecha de presentación, de la tabla y no de un PDF.
+    let presentacion = "";
+    if (grid) {
+      const cabeceras = [...grid.rows[0].cells].map((c) => c.innerText.trim());
+      const iFecha = cabeceras.findIndex((h) => /fecha de presentaci/i.test(h));
+      if (iFecha >= 0 && grid.rows[1]) {
+        presentacion = (grid.rows[1].cells[iFecha] || {}).innerText?.trim() || "";
+      }
+    }
+    const r2 = await pulsar(r1.url, ocultosDe(doc), archivo.getAttribute("name"));
+    return { pdf: await aPDF(r2, "la promoción"), presentacion };
   }
 
   const barra = document.createElement("div");
@@ -160,10 +207,17 @@
       }
 
       const archivos = {};
+      let presentacion = "";
       for (const [clave, control, comoSeLlama] of aTraer) {
         di(estado.innerHTML + `<div class="doc"><span>${comoSeLlama}</span><span>…</span></div>`);
         try {
-          archivos[clave] = await traerPDF(control);
+          if (clave === "promocion") {
+            const r = await traerPromocion(control);
+            archivos[clave] = r.pdf;
+            presentacion = r.presentacion || "";
+          } else {
+            archivos[clave] = await traerPDF(control);
+          }
           estado.lastElementChild.lastElementChild.innerHTML =
             `<span class="bien">${Math.round(archivos[clave].size / 1024)} KB</span>`;
         } catch (e) {
@@ -187,6 +241,9 @@
       d.append("expediente_unico", ficha.unico);
       d.append("tipo_sise", ficha.tipo);
       d.append("organo", ficha.organo);
+      // LA FECHA DE PRESENTACIÓN, leída de la tabla del panel de promociones.
+      // Sigue siendo una PISTA: el pipeline la confirma contra el acuse.
+      if (presentacion) d.append("presentacion_sise", presentacion);
       d.append("actuaciones_json", JSON.stringify(filas.map((f) => ({
         ctl: f.ctl, acuerdo: f.fechaAcuerdo, publicacion: f.fechaPublicacion,
         promocion: f.contenidoPromocion, determinacion: f.contenidoDeterminacion,
