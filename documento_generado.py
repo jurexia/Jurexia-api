@@ -3835,7 +3835,21 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # el `UnboundLocalError` que ya dejó mudo el generador una vez. Lo cazó
         # el guardián al componer los cuatro tipos, no la lectura del código.
         import fase_rama as _fr_f
-        _reenvio = concede and _fr_f.hay_conceptos_sin_estudiar(str(estudio or ""))
+        # DÓNDE SE DICE QUE LA SALA OMITIÓ ALGO. No en el estudio: en el
+        # RESUMEN DE LA SENTENCIA IMPUGNADA, que es donde se narra lo que la
+        # Sala hizo. Medido sobre la revisión fiscal 91/2025: la frase «estudió
+        # el tercer concepto de impugnación… y omitió estudiar los restantes»
+        # está bajo el subtítulo «Sentencia impugnada», y pasándole sólo el
+        # estudio el reenvío no disparaba y el resolutivo salía con un punto.
+        #
+        # NO SE MIRAN LOS AGRAVIOS. Ahí la omisión es lo que ALEGA la
+        # recurrente, no lo que el tribunal encuentra; un agravio que se
+        # declara infundado no da lugar a ningún reenvío.
+        _fuente_omision = " ".join([
+            " ".join(str(x) for x in (resumen_acto or [])),
+            " ".join(str(x) for x in (estudio or []))
+            if isinstance(estudio, (list, tuple)) else str(estudio or "")])
+        _reenvio = concede and _fr_f.hay_conceptos_sin_estudiar(_fuente_omision)
         if _reenvio:
             tramos(doc, [("PRIMERO. ", {"bold": True}), (_texto, {})],
                    sangria=False)
