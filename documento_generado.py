@@ -1811,6 +1811,43 @@ def sin_andamio(texto: str) -> str:
     return re.sub(r"\s+([,.;:])", r"\1", t)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA FRASE QUE SIGUE A UNA CITA SE QUEDA SIN SUJETO
+# ═══════════════════════════════════════════════════════════════════════════
+# David, sobre la revisión fiscal 91/2025: «nuevamente perdiste el diálogo en el
+# tercer problema. El error es la falta de conector lógico… empiezas con
+# minúscula y "confirma que la Sala…", cuando debería ser "La tesis en cita,…"
+# o algo equivalente».
+#
+# Y tiene razón en la causa: el modelo escribe UNA SOLA FRASE —«Sirve de apoyo
+# la jurisprudencia …, de rubro y texto siguientes: «RUBRO» confirma que la
+# Sala debe atender los conceptos…»— y el compositor la parte en tres para
+# meter el bloque de la cita. Lo que queda detrás empieza en minúscula y sin
+# sujeto: es media oración suelta.
+#
+# NO SE PUEDE ARREGLAR EN EL PROMPT SOLO, porque el corte lo hace el documento
+# y el modelo no sabe dónde va a caer. Se repone el sujeto aquí, que es donde
+# se conoce la cita: «La jurisprudencia en cita confirma que…».
+#
+# CON FRENO: sólo si la cola empieza en minúscula —eso es la marca inequívoca
+# de la frase partida— y no empieza por conjunción, donde anteponer un sujeto
+# produciría «La tesis en cita y confirma que…». Si no encaja, no se toca.
+_RX_ARRANQUE_ATADO = re.compile(
+    r"^(?:y|e|o|u|pero|sino|aunque|que|porque|pues|como|cuando|si|ni|as[íi]|"
+    r"adem[áa]s|tambi[ée]n|donde|mientras|seg[úu]n|salvo)\b", re.I)
+
+
+def _con_sujeto_tras_cita(cola: str, tesis: dict) -> str:
+    """Le devuelve el sujeto a la media frase que quedó debajo de la cita."""
+    c = (cola or "").lstrip()
+    if not c or not c[0].islower() or _RX_ARRANQUE_ATADO.match(c):
+        return cola
+    nombre = ("La jurisprudencia en cita"
+              if "JURISPRUDENCIA" in str(tesis.get("tipo") or "").upper()
+              else "La tesis en cita")
+    return f"{nombre} {c}"
+
+
 def _sin_eco(texto: str, cuerpo_tesis: str) -> str:
     """Quita del párrafo las frases que repiten la tesis ya transcrita.
 
@@ -2219,6 +2256,7 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
             citadas += 1
             cola = _sin_eco(cola, hallada.get("texto") or "")
+            cola = _con_sujeto_tras_cita(cola, hallada)
             if len(cola.split()) > 6 or _es_pregunta(cola):
                 parrafo_con_citas(doc, cola, notas)
             ultima_tesis = hallada
@@ -2415,6 +2453,44 @@ def _pagina(doc):
     normal = doc.styles["Normal"]
     normal.font.name = FUENTE
     normal.font.size = TAMANO
+    # ═══════════════════════════════════════════════════════════════════════
+    # EL DOCUMENTO ESTÁ EN ESPAÑOL, Y HAY QUE DECÍRSELO A WORD
+    # ═══════════════════════════════════════════════════════════════════════
+    # David: «establece el lenguaje en español del documento y no marque
+    # errores al modificar el texto en lenguaje inglés».
+    #
+    # python-docx crea el .docx a partir de una plantilla en inglés de Estados
+    # Unidos, y ese idioma viaja en los `docDefaults`. Word subraya entonces
+    # media sentencia en rojo, y el corrector le propone al secretario
+    # correcciones inglesas mientras escribe. Se marca es-MX en el estilo
+    # Normal y en los valores por omisión, que es de donde hereda todo.
+    from docx.oxml.ns import qn as _qn_l
+
+    def _idioma(rpr):
+        for _t in ("w:lang",):
+            _v = rpr.find(_qn_l(_t))
+            if _v is None:
+                _v = OxmlElement(_t)
+                rpr.append(_v)
+            _v.set(_qn_l("w:val"), "es-MX")
+            _v.set(_qn_l("w:eastAsia"), "es-MX")
+            _v.set(_qn_l("w:bidi"), "es-MX")
+
+    _idioma(normal.element.get_or_add_rPr())
+    try:
+        _dd = doc.styles.element.find(_qn_l("w:docDefaults"))
+        if _dd is not None:
+            _rpd = _dd.find(_qn_l("w:rPrDefault"))
+            if _rpd is None:
+                _rpd = OxmlElement("w:rPrDefault")
+                _dd.insert(0, _rpd)
+            _rpr = _rpd.find(_qn_l("w:rPr"))
+            if _rpr is None:
+                _rpr = OxmlElement("w:rPr")
+                _rpd.append(_rpr)
+            _idioma(_rpr)
+    except Exception as _el:
+        print(f"   ⚠️ no se pudo fijar el idioma por omisión: {_el}")
     # EL INTERRUPTOR DE PAR/IMPAR VIVE EN settings.xml, y python-docx no lo
     # expone. Sin él, Word ignora el encabezado de página par por mucho que
     # esté escrito en el fichero: se define y no se usa.

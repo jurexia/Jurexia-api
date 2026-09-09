@@ -1582,6 +1582,47 @@ TECNICA_RESOLUCION = {
 # límite: cuando el error de la Sala es de forma y NO TRASCIENDE al sentido del
 # fallo, el colegiado lo corrige él mismo. Reenviar entonces devuelve un asunto
 # resuelto y alarga el juicio para nada.
+# ═══════════════════════════════════════════════════════════════════════════
+# UN AGRAVIO FUNDADO LLEVA A REVOCAR O A MODIFICAR, Y NO ES LO MISMO
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «cuando en un recurso es fundado el agravio, el resultado es revocar
+# (o modificar) la sentencia recurrida. La revocación es por un vicio absoluto
+# que impide conservar aspectos de la sentencia recurrida; la modificación
+# obedece a una ilegalidad que, a pesar de advertirse, permite que subsistan
+# otras consideraciones».
+#
+# El proyecto venía escogiendo entre las dos sin decir por qué, y ésa es
+# justamente la parte que sostiene el desenlace: la elección NO se sigue de que
+# el agravio sea fundado —eso sólo abre las dos puertas—, sino del ALCANCE del
+# vicio. Decirlo es lo que separa un resolutivo razonado de uno afirmado.
+TECNICA_RESOLUCION["recurso_revoca_o_modifica"] = {
+    "cuando": "El agravio es FUNDADO en un recurso.",
+    "fuente": "el alcance del vicio, no la sola procedencia del agravio",
+    "tecnica": [
+        "UN AGRAVIO FUNDADO NO DICE TODAVÍA QUÉ SE HACE CON LA SENTENCIA. "
+        "Abre dos puertas —revocar o modificar— y hay que ELEGIR, y decir por "
+        "qué. Ésa es la parte que sostiene el resolutivo.",
+        "SE REVOCA cuando el vicio es ABSOLUTO: alcanza a la razón que sostiene "
+        "el fallo y no permite conservar nada de lo resuelto. Si la premisa que "
+        "lo sujetaba se cae, todo lo que colgaba de ella se cae con ella.",
+        "SE MODIFICA cuando la ilegalidad, advertida y todo, DEJA EN PIE otras "
+        "consideraciones: se corrige lo ilegal y subsiste el resto. Aquí hay "
+        "que decir QUÉ SUBSISTE, porque el resolutivo lo conserva.",
+        "ESCRÍBELO EN UNA FRASE, antes de cerrar el estudio: «el vicio alcanza "
+        "a la razón toral del fallo y no permite conservar consideración "
+        "alguna, por lo que procede REVOCAR» o «la ilegalidad se limita a X y "
+        "deja intactas las consideraciones sobre Y, por lo que procede "
+        "MODIFICAR». Sin esa frase, el resolutivo queda afirmado y no razonado.",
+        "Y NO CONFUNDAS REVOCAR CON DEJAR INSUBSISTENTE: revocar es lo que hace "
+        "este tribunal con la sentencia recurrida; dejar insubsistente es lo "
+        "que se le ordena a la responsable en un AMPARO concedido.",
+    ],
+    "apoyos": [],
+    "necesita": "",
+    "aviso_si_falta": "",
+}
+
+
 TECNICA_RESOLUCION["revision_fiscal_reenvio"] = {
     "cuando": ("La REVISIÓN FISCAL es fundada y se revoca la sentencia de la "
                "Sala, quedando conceptos de anulación sin estudiar."),
@@ -1639,6 +1680,9 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
     # La queja tiene el mismo problema y con mas frecuencia: 434 de 2,955.
     # LA REVISIÓN FISCAL, SIEMPRE: el deslinde con el amparo en revisión hay
     # que tenerlo delante tanto para reenviar como para no hacerlo.
+    # EL DESLINDE REVOCAR/MODIFICAR ES DE TODOS LOS RECURSOS, no de un tipo.
+    if t in ("amparo_revision", "revision_fiscal", "queja"):
+        fuera.append(TECNICA_RESOLUCION["recurso_revoca_o_modifica"])
     if t == "revision_fiscal":
         fuera.append(TECNICA_RESOLUCION["revision_fiscal_reenvio"])
     if t == "queja" and rama == "sin_materia":
