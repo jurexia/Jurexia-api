@@ -72,9 +72,24 @@
     return filas;
   }
 
-  /** Los campos ocultos de un formulario, que es lo que SISE exige devolver. */
+  /* ═══════════════════════════════════════════════════════════════════════
+   * EL ENVÍO TIENE QUE SER IGUAL AL DEL NAVEGADOR
+   * ═══════════════════════════════════════════════════════════════════════
+   * La primera versión mandaba `multipart/form-data` —lo que hace `FormData`
+   * en un `fetch`— y SISE respondió con la página de error de IIS:
+   *
+   *   «The request contained a double escape sequence and request filtering
+   *    is configured on the Web server to deny double escape sequences.»
+   *
+   * O sea: lo rechazó el filtro de peticiones ANTES de mirar el contenido.
+   * Un formulario de ASP.NET WebForms se envía SIEMPRE como
+   * `application/x-www-form-urlencoded`, y al no imitarlo exactamente el
+   * servidor ve una petición que no se parece a ninguna suya.
+   *
+   * `URLSearchParams` produce ese formato y `fetch` le pone la cabecera sola.
+   */
   function ocultosDe(raiz) {
-    const c = new FormData();
+    const c = new URLSearchParams();
     for (const el of raiz.querySelectorAll("input[type=hidden]")) {
       if (el.name) c.append(el.name, el.value);
     }
@@ -87,7 +102,12 @@
     // servidor no sabe qué botón se pulsó y devuelve la misma página.
     cuerpo.append(nombreControl + ".x", "8");
     cuerpo.append(nombreControl + ".y", "8");
-    return fetch(accion, { method: "POST", body: cuerpo, credentials: "include" });
+    return fetch(accion, {
+      method: "POST",
+      body: cuerpo,
+      credentials: "include",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
   }
 
   // EL ERROR TIENE QUE DECIR DÓNDE SE ROMPIÓ. La primera versión decía «sin el
@@ -182,7 +202,7 @@
   const barra = document.createElement("div");
   barra.id = "iurexia-barra";
   barra.innerHTML = `
-    <h4>Taller de sentencias · Iurexia <span style="opacity:.45;font-weight:400">v0.3</span></h4>
+    <h4>Taller de sentencias · Iurexia <span style="opacity:.45;font-weight:400">v0.4</span></h4>
     <p>Trae las constancias de este expediente sin que teclees nada.
        Tu contraseña de SISE no sale de aquí.</p>
     <button id="iurexia-ir">${enPromociones
