@@ -558,3 +558,86 @@ la base sin parar.
 **Si la base no contesta, se sigue con la memoria.** Peor que un dato viejo es
 no poder trabajar: el secretario tiene el adelanto delante y lo que quiere es
 su proyecto.
+
+---
+
+## 14. El resolutivo que negaba el amparo que confirmaba · 8-sep
+
+**El caso.** Revisión 650/2025. El proyecto calificó los agravios de
+infundados, confirmó la sentencia recurrida y acto seguido NEGÓ el amparo que
+esa misma sentencia había concedido.
+
+**La causa no era la tabla de ramas.** `confirma_concede` existía y
+`rama_revision` la elegía bien. Lo que fallaba era el dato de entrada: de qué
+resolvió el Juzgado de Distrito depende el resolutivo entero, y se decidía con
+**prosa del modelo** —el resumen de antecedentes o la frase con la que describió
+el asunto al proponer—.
+
+`fase_rama.resolvio_a_quo` sí lee bien el PDF: probado sobre la recurrida
+devuelve «concede» en las tres formas de invocarlo. **El texto crudo no le
+llegaba.** Vive en `fases.fuentes` y `fuentes` NO viaja en el estado de la
+sesión —son 240 kB—, así que el worker que resuelve se queda sin él. Misma
+familia que el apartado 13, y el propio comentario de `Fases123` ya enunciaba
+la regla que se incumplía: «lo que no viaja en ese estado no existe para la
+petición siguiente».
+
+**Se ve en las corridas de comprobación**, y esto es lo que convence: cuatro
+generaciones del mismo asunto, con el mismo PDF, y el modelo dijo del a quo
+«Concedió el amparo», luego «negó el amparo», luego «concedió», luego
+«concedió». La segunda es falsa. **El resolutivo dependía de eso.**
+
+Ahora se lee UNA VEZ, en el adelanto, y viajan dos cadenas cortas:
+`resolvio_a_quo` y `resolutivo_recurrida`.
+
+### El fallo que cometí al arreglarlo, y cómo salió
+
+Leí el dato de `relleno` —el ensamblado de la plantilla— en vez de `fases`.
+`getattr(relleno, "resolvio_a_quo", "")` devuelve cadena vacía **en silencio**,
+así que el arreglo no hacía nada y el resolutivo seguía saliendo de la prosa.
+
+No lo cazó una lectura del código: lo cazó la comprobación de extremo a
+extremo, en la que el modelo declaró «negó el amparo» y su versión ganó igual.
+**Un `getattr` con valor por omisión sobre el objeto equivocado no falla, y no
+avisa.** Por eso ahora, cuando el dato determinista falta, el documento lo dice
+en un aviso: leer el papel y no leerlo producían documentos indistinguibles.
+
+### Lo que pidió David, y lo que dijo el corpus
+
+**Reproducir el resolutivo del juzgado.** «La Justicia de la Unión ampara y
+protege a X en términos del último considerando de la resolución recurrida» no
+dice contra qué acto ni para qué efectos. Se reproduce el del juzgado con la
+cola reescrita para que apunte a la recurrida —«…en el diverso séptimo DE LA
+SENTENCIA RECURRIDA»—. Es el detalle que se pierde al copiar y pegar: **en su
+propio proyecto corregido a mano la cola quedó sin cambiar**, y por eso lo pidió
+por escrito. El precedente del tribunal, ARA 361/2025, hace lo mismo. Si el
+resolutivo del juzgado tiene más de un punto, no se reproduce: se escribe la
+fórmula genérica, que dice menos pero no dice de más.
+
+**«En la materia de la revisión» NO va siempre.** Medido: 0 de los 381
+resolutivos legibles de su carpeta la usan, y el 27% de los engroses habla de
+aspectos no combatidos sin usarla. Se escribe sólo cuando el estudio de ESTE
+proyecto dice que algo quedó fuera. Calibrado: acusa su proyecto corregido —por
+«no fueron combatidos por la parte recurrente»— y no acusa ninguno de los tres
+proyectos normales probados.
+
+### Dos hallazgos de la comparación con su versión corregida
+
+**El órgano emisor iba en un renglón suyo.** Debajo de cada rubro salía
+«SEGUNDA SALA.» y nada más. Él lo borró en las cuatro tesis. De los 1,358
+documentos de la carpeta, **UNO** lo escribe así. Y el anuncio de la cita ya
+nombraba al órgano en prosa: era pura duplicación. Se va a la nota, con la
+localización y el registro.
+
+**El encabezado NO se toca.** Él quitó la materia y los dos puntos —«AMPARO EN
+REVISIÓN 650/2025»—, pero medidos sus 472 encabezados, el **90%** lleva materia
+Y dos puntos, que es lo que ya generamos. Su edición es la variante que no
+aparece ninguna vez. *Una corrección a mano no es siempre una regla: a veces es
+una prisa.*
+
+### Lo que queda abierto
+
+`revoca_fondo_niega if a == "concede"` supone que quien recurre es la autoridad.
+Cuando recurre la QUEJOSA que ya ganó y quiere más —el caso 650/2025—, un
+agravio fundado no puede terminar negándole el amparo. Visto en una corrida: con
+sentido «fundado», el proyecto revocó y negó el amparo a quien lo había
+obtenido. **Falta meter en la ecuación quién recurre.**
