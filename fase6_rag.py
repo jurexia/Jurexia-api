@@ -96,18 +96,35 @@ def _de_otro_estado(t: dict, coleccion: Optional[str]) -> bool:
 #   2º  quién lo dijo, dentro de cada grupo
 #   3º  cuántas veces lo cita el circuito para esta cuestión
 #   4º  si la tesis es de legislación de otra entidad
+# CORREGIDO POR DAVID, y la corrección importa. Yo había puesto lo VINCULANTE
+# primero y la instancia después, con el argumento de que una aislada no obliga
+# y una jurisprudencia de colegiado sí. Él:
+#
+#   «Las de la SCJN son preferentes aunque sean aisladas. En segundo lugar las
+#    de colegiados porque esas son optativas para colegiados de otros
+#    circuitos. Sólo las de plenos regionales irían en segundo lugar.»
+#
+# Tiene razón y mi razonamiento estaba incompleto: la jurisprudencia de un
+# colegiado obliga en SU circuito, pero para cualquier otro es optativa —y el
+# acervo es nacional—, mientras que un criterio de la Corte, aunque sea
+# aislado, orienta a todos y nadie lo discute. En un tribunal colegiado se cita
+# antes una aislada de la Primera Sala que una jurisprudencia de un colegiado
+# de otro circuito.
+#
+# El orden queda: Corte · Plenos Regionales · Colegiados · lo demás; y dentro
+# de cada grupo, primero lo que vincula.
 _RANGO = (("PLENO REGIONAL", 1), ("PLENOS REGIONALES", 1), ("PLENO", 0),
-          ("SUPREMA CORTE", 0), ("PRIMERA SALA", 2), ("SEGUNDA SALA", 2),
-          ("SALA", 2), ("TRIBUNALES COLEGIADOS", 3), ("COLEGIADO", 3))
+          ("SUPREMA CORTE", 0), ("PRIMERA SALA", 0), ("SEGUNDA SALA", 0),
+          ("SALA", 0), ("TRIBUNALES COLEGIADOS", 2), ("COLEGIADO", 2))
 
 
 def _rango_instancia(t: dict) -> int:
-    """0 Pleno · 1 Plenos Regionales · 2 Salas · 3 Colegiados · 4 lo demás."""
+    """0 Suprema Corte · 1 Plenos Regionales · 2 Colegiados · 3 lo demás."""
     inst = _sin_acentos(t.get("instancia", ""))
     for clave, r in _RANGO:
         if clave in inst:
             return r
-    return 4
+    return 3
 
 
 def _es_scjn(t: dict) -> bool:
@@ -566,8 +583,8 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     tesis = _crudo
     # EL ORDEN, con la co-citación dentro: entre dos criterios que pesan igual,
     # manda el que el circuito usa de verdad para esta cuestión.
-    tesis.sort(key=lambda t: (not t["obligatoria"],
-                              _rango_instancia(t),
+    tesis.sort(key=lambda t: (_rango_instancia(t),
+                              not t["obligatoria"],
                               -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
     vistos: set[str] = set()
@@ -653,8 +670,8 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
     # estudio seguía recibiendo la tesis aislada de la Corte por delante de la
     # jurisprudencia de colegiado. Es el mismo descuido de siempre —dos sitios,
     # arreglado uno—, y aquí duele más porque éste es el último.
-    tesis.sort(key=lambda t: (not t["obligatoria"],
-                              _rango_instancia(t),
+    tesis.sort(key=lambda t: (_rango_instancia(t),
+                              not t["obligatoria"],
                               -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
     # Y LOS PRINCIPIOS DE TODOS LOS PROBLEMAS, sin repetir: se perdían aquí.
