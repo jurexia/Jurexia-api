@@ -1,165 +1,360 @@
-/* ═══════════════════════════════════════════════════════════════════════════
- * EL TALLER, DESDE SISE — el guion sólo pulsa; el resto vive en el fondo
- * ═══════════════════════════════════════════════════════════════════════════
- * Pulsar un archivero RECARGA la página, y con ella muere este guion. Por eso
- * aquí no hay promesas que esperen bytes ni estado que sobrevivir: cada vez
- * que la página carga, esto pregunta al trabajador de fondo qué toca, lo pulsa
- * y se deja morir. El fondo lleva la cuenta y manda todo a Iurexia al final.
- *
- * Costó ocho versiones llegar aquí, y todas se estrellaron contra la misma
- * piedra por sitios distintos: nada que dependa de sobrevivir a un clic puede
- * vivir en la página.
- */
-(() => {
-  "use strict";
-  if (document.getElementById("iurexia-barra")) return;
+// ═══════════════════════════════════════════════════════════════════════════
+// EL PANEL, DENTRO DEL EXPEDIENTE ELECTRÓNICO
+//
+// La versión anterior forcejeaba con el Panel Central de SISE: ViewState de
+// 50 kB, iconos que navegan en vez de devolver un PDF, recargas que mataban al
+// script a media captura. Diez versiones, y una de ellas dejó 48 ficheros en
+// las descargas de David.
+//
+// Esta no hace nada de eso. El visor «Vista Expediente Electrónico» habla con
+// una API de verdad, y esta extensión le habla igual:
+//
+//   POST /wsebook/api/Index/GetIndexDetail  → el índice del expediente
+//   POST /wsebook/api/File/Dowload          → un documento, en base64
+//                                             (sí, «Dowload»: así se llama)
+//
+// TRES REGLAS QUE NO SE ROMPEN:
+//
+//  1. NADA SE DESCARGA A LA MÁQUINA. No se usa chrome.downloads. Los PDF van
+//     de la memoria de esta pestaña al servidor de Iurexia y de ahí a nadie
+//     más. La carpeta de descargas del secretario no se toca.
+//
+//  2. EL TOKEN NO SALE DEL NAVEGADOR. La sesión del CJF vive en el
+//     sessionStorage de esta pestaña. Se lee ahí y se usa ahí, en la cabecera
+//     Authorization hacia el propio CJF. No se copia, no se guarda, no se
+//     manda a Iurexia, no se escribe en ningún registro.
+//
+//  3. NADA SE ENVÍA SIN QUE SE VEA ANTES. El índice se enseña con casillas.
+//     El secretario mira, desmarca lo que sobra y pulsa. Sin ese clic no viaja
+//     un solo byte.
+// ═══════════════════════════════════════════════════════════════════════════
 
-  const VERSION = "v1.0.2";
-  const LOG = (...a) => console.log("[iurexia]", ...a);
-  const enPromociones = /PanelPromociones/i.test(location.pathname);
+(function () {
+  'use strict';
 
-  const barra = document.createElement("div");
-  barra.id = "iurexia-barra";
-  barra.innerHTML = `
-    <h4>Taller de sentencias · Iurexia
-        <span style="opacity:.45;font-weight:400">${VERSION}</span></h4>
-    <p>Trae las constancias de este expediente sin que teclees nada.
-       Tu contraseña de SISE no sale de aquí.</p>
-    <button type="button" id="iurexia-ir">Traer las constancias</button>
-    <div id="iurexia-estado"></div>`;
-  document.body.appendChild(barra);
+  if (window.__iurexiaPanel) return;   // no duplicar si se reinyecta
+  window.__iurexiaPanel = true;
 
-  const estado = barra.querySelector("#iurexia-estado");
-  const boton = barra.querySelector("#iurexia-ir");
-  const di = (h) => { estado.innerHTML = h; };
-  const suma = (h) => { estado.innerHTML += h; };
-  const mal = (t) => { LOG("ERROR", t); suma(`<div class="mal">${t}</div>`); };
+  const API = 'https://jurexia-api.onrender.com';
+  const WS  = 'https://serviciosvistaee.cjf.gob.mx/wsebook/api';
 
-  window.addEventListener("error", (ev) => {
-    if (/panel\.js/.test(ev.filename || "")) mal(ev.message);
-  });
-  LOG("guion cargado en", location.pathname);
+  // TOPES DUROS. La versión que descargó 48 ficheros no tenía ninguno. Un
+  // instrumento sin freno no es un instrumento: es un accidente esperando.
+  const TOPE_DOCS = 40;          // documentos por envío
+  const TOPE_BYTES = 80 * 1024 * 1024;
 
-  const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");
-  const pregunta = (m) => chrome.runtime.sendMessage(m);
+  // Qué es cada `tipo` del índice, y si entra por omisión. La regla es la que
+  // dijo David: el escrito que abre el asunto trae casi todo, y los acuerdos
+  // de admisión y turno son indispensables. Las notificaciones no aportan al
+  // proyecto, así que se enseñan pero llegan desmarcadas.
+  const TIPOS = {
+    0: { nombre: 'Carátula',      marcado: false },
+    1: { nombre: 'Acuerdo',       marcado: true  },
+    2: { nombre: 'Promoción',     marcado: true  },
+    3: { nombre: 'Notificación',  marcado: false },
+  };
 
-  function ficha() {
-    const t = document.body.innerText;
-    const uno = (rx) => (t.match(rx) || [, ""])[1].trim();
+  const $ = (t, cls, txt) => {
+    const e = document.createElement(t);
+    if (cls) e.className = cls;
+    if (txt != null) e.textContent = txt;   // textContent SIEMPRE: el índice
+    return e;                               // trae <b> y <em> del servidor
+  };
+
+  const limpio = (s) => String(s || '').replace(/<[^>]*>/g, ' ')
+                                       .replace(/\s+/g, ' ').trim();
+
+  const ddmmaaaa = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    if (!m || m[1] === '0001') return '';
+    return `${m[3]}/${m[2]}/${m[1]}`;
+  };
+
+  // ── LA SESIÓN DEL VISOR ───────────────────────────────────────────────────
+  // Vive en el sessionStorage de esta pestaña. Si no está, es que el visor no
+  // ha abierto ningún expediente todavía, y hay que decirlo con esas palabras
+  // en vez de fallar en silencio.
+  function sesion() {
+    let P = null, N = null;
+    try { P = JSON.parse(sessionStorage.getItem('EbookParamsData') || 'null'); } catch (e) {}
+    try {
+      N = JSON.parse(sessionStorage.getItem('EbookNeunData')
+                     || localStorage.getItem('EbookNeunData') || 'null');
+    } catch (e) {}
+    if (!P || !P.Token || !P.Neun) return null;
     return {
-      unico: uno(/Número de Expediente Único Nacional:\s*(\d+)/i),
-      numero: uno(/Número de Expediente Asignado:\s*([\d]+\/[\d]{4})/i),
-      tipo: uno(/Tipo de asunto:\s*([^\n]+)/i),
-      organo: (t.match(/^(.*Tribunal Colegiado[^\n]*)$/mi) || [, ""])[1].trim(),
+      neun: P.Neun,
+      usuario: P.Usuario,
+      sistema: P.Sistema,
+      token: P.Token,
+      organismo: (N && N.catOrganismoId) || null,
+      numero: (N && N.asuntoAlias) || '',
+      tipoAsunto: (N && N.tipoAsunto) || '',
+      organo: limpio(N && N.organo),
+      ingreso: ddmmaaaa(N && N.fechaIngreso),
     };
   }
 
-  function actuaciones() {
-    const filas = [];
-    for (const tr of document.querySelectorAll("table tr")) {
-      if (!tr.querySelector('input[type=image][name*="grvPanelCentral"]')) continue;
-      const c = [...tr.querySelectorAll("td")].map(txt);
-      filas.push({ acuerdo: c[0] || "", publicacion: c[1] || "",
-                   promocion: c[2] || "", determinacion: c[4] || "" });
-    }
-    return filas;
-  }
-
-  function fechaDePresentacion() {
-    const g = document.querySelector('[id*="grvPanelCentral"]');
-    if (!g || g.rows.length < 2) return "";
-    const cab = [...g.rows[0].cells].map((c) => c.innerText.trim());
-    const i = cab.findIndex((h) => /fecha de presentaci/i.test(h));
-    return i >= 0 ? (g.rows[1].cells[i] || {}).innerText?.trim() || "" : "";
-  }
-
-  /** Pulsa y se deja morir: la página se recarga y el ciclo sigue al cargar. */
-  async function pulsar(b, clave, comoSeLlama) {
-    suma(`<div class="doc"><span>${comoSeLlama}</span><span>…</span></div>`);
-    const r = await pregunta({ que: "voy-a-pulsar", clave,
-                               presentacion: fechaDePresentacion() });
-    if (!r?.ok) {
-      // SI EL FONDO DICE BASTA, SE PARA. No se pulsa «por si acaso»: cada
-      // pulsación deja un fichero en la carpeta del secretario.
-      mal(r?.error || "no se pudo preparar la captura");
-      return false;
-    }
-    LOG("pulsando", clave);
-    b.click();
-    return true;
-  }
-
-  /** En el Panel de Promociones: qué falta por traer. */
-  async function seguir() {
-    const s = await pregunta({ que: "estado" });
-    if (!s?.hay) return false;
-    const ya = s.capturados || [];
-    di(`<div>Expediente <b>${s.ficha?.numero || "?"}</b> · `
-       + `${ya.length} constancia(s) recogida(s)</div>`);
-    for (const e of (s.errores || [])) mal(e);
-
-    const archivo = document.querySelector('input[type=image][name$="imgArchivo"]');
-    const dj = document.querySelector('input[type=image][name$="imgArchivoDJ"]');
-    if (archivo && !ya.includes("promocion")) {
-      if (await pulsar(archivo, "promocion", "el escaneo con las constancias")) return true;
-      return true;   // agotado: el fondo ya lo dijo y no se insiste
-    }
-    if (dj && !ya.includes("acuerdo_asociado")) {
-      if (await pulsar(dj, "acuerdo_asociado", "la determinación asociada")) return true;
-      return true;
-    }
-    suma("<div>Enviando al taller…</div>");
-    const r = await pregunta({ que: "enviar" });
-    if (r?.error) return mal(r.error), true;
-    suma(`<div class="bien">Listo. El expediente ${s.ficha?.numero} está en el
-          taller con ${Object.keys(r.documentos || {}).length || (r.documentos || []).length}
-          constancia(s).</div>`);
-    for (const a of (r.avisos || [])) mal(a);
-    return true;
-  }
-
-  async function arrancar() {
-    boton.disabled = true;
-    try {
-      if (enPromociones) {
-        if (!(await seguir())) {
-          mal("Vengo sin la ficha del expediente. Empieza desde el Panel "
-            + "Central: aquí no consta de qué asunto es esto.");
-        }
-        return;
-      }
-      const f = ficha();
-      if (!f.numero) {
-        return mal("No reconozco esta pantalla. Ábrela desde el Panel Central "
-                 + "de Consultas de un expediente.");
-      }
-      const correo = (await chrome.storage.local.get("correo")).correo || "";
-      if (!correo) {
-        return mal("Falta tu correo de Iurexia: guárdalo en las opciones de la "
-                 + "extensión, una sola vez.");
-      }
-      const promo = document.querySelector('input[type=image][name$="imgPromocion"]');
-      if (!promo) return mal("Este cuaderno no tiene ninguna promoción.");
-      const r = await pregunta({ que: "iniciar", ficha: f,
-                                 actuaciones: actuaciones(), correo });
-      if (!r?.ok) return mal(r?.error || "no se pudo iniciar la captura");
-      di(`<div>Expediente <b>${f.numero}</b> · voy al panel de promociones…</div>`);
-      promo.click();
-    } catch (e) {
-      mal(e.message || String(e));
-    } finally {
-      boton.disabled = false;
-    }
-  }
-
-  boton.addEventListener("click", (ev) => {
-    ev.preventDefault(); ev.stopPropagation();
-    LOG("pulsado"); arrancar();
+  const cabeceras = (s) => ({
+    'Content-Type': 'application/json',
+    'Accept': 'application/json, text/plain, */*',
+    'Authorization': 'Bearer ' + s.token,
   });
 
-  // SIGUE SOLA. Si hay una captura en curso, esta carga es un paso más del
-  // ciclo y no hay que pulsar nada: para el secretario fue un solo clic.
-  if (enPromociones) {
-    pregunta({ que: "estado" }).then((s) => { if (s?.hay) seguir(); }).catch(() => {});
+  async function indice(s) {
+    const r = await fetch(`${WS}/Index/GetIndexDetail`, {
+      method: 'POST', headers: cabeceras(s),
+      body: JSON.stringify({
+        Neun: s.neun, Usuario: s.usuario,
+        sistema: s.sistema, catOrganismoId: s.organismo,
+      }),
+    });
+    if (r.status === 401)
+      throw new Error('El visor no aceptó la sesión (401). Suele significar '
+                    + 'que caducó: recarga esta página y vuelve a entrar.');
+    if (!r.ok) throw new Error(`El índice respondió ${r.status}.`);
+    const j = await r.json();
+    if (!Array.isArray(j)) throw new Error('El índice no vino como lista.');
+    return j.filter(e => e && e.nombreArchivo);   // la carátula no tiene fichero
+  }
+
+  // UN DOCUMENTO. La respuesta trae {base64File: [partes], size, parts}: los
+  // ficheros grandes vienen troceados, y quedarse con la primera parte daría
+  // un PDF truncado que abre y engaña. Se concatenan todas.
+  async function documento(s, e) {
+    const r = await fetch(`${WS}/File/Dowload`, {
+      method: 'POST', headers: cabeceras(s),
+      body: JSON.stringify({
+        sistema: s.sistema, Usuario: s.usuario, Neun: s.neun,
+        TipoArchivo: e.tipo, ID: '', nombre: e.nombreArchivo,
+        catOrganismoId: e.catOrganismoId, extesionId: e.extesionId,
+      }),
+    });
+    if (!r.ok) throw new Error(`el servidor respondió ${r.status}`);
+    const j = await r.json();
+    const partes = Array.isArray(j.base64File) ? j.base64File
+                 : (j.base64File ? [j.base64File] : []);
+    const b64 = partes.join('');
+    if (!b64) throw new Error('vino vacío');
+    // UN PDF EMPIEZA POR %PDF, que en base64 es JVBER. Si el CJF devolvió una
+    // página de error, esto lo caza aquí y no en el taller tres pasos después.
+    if (!b64.startsWith('JVBER'))
+      throw new Error('lo que llegó no es un PDF');
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: 'application/pdf' });
+  }
+
+  // ── EL CORREO ─────────────────────────────────────────────────────────────
+  // Se guarda en chrome.storage.local, que sobrevive a recargas y a reinicios.
+  // La página de opciones sigue existiendo, pero preguntarlo aquí evita el
+  // viaje que la vez pasada acabó en «no deja guardar el correo».
+  const leerCorreo = () => new Promise(res => {
+    try { chrome.storage.local.get(['correo'], d => res((d && d.correo) || '')); }
+    catch (e) { res(''); }
+  });
+  const guardarCorreo = (c) => new Promise(res => {
+    try { chrome.storage.local.set({ correo: c }, () => res(true)); }
+    catch (e) { res(false); }
+  });
+
+  // ── LA PANTALLA ───────────────────────────────────────────────────────────
+  const caja = $('div', 'iux-caja');
+  const boton = $('button', 'iux-boton', 'Iurexia');
+  boton.type = 'button';
+  const panel = $('div', 'iux-panel');
+  panel.hidden = true;
+  caja.append(boton, panel);
+  document.documentElement.appendChild(caja);
+
+  let abierto = false;
+  boton.addEventListener('click', () => {
+    abierto = !abierto;
+    panel.hidden = !abierto;
+    if (abierto) pintar();
+  });
+
+  const nota = (txt, clase) => {
+    const p = $('p', 'iux-nota ' + (clase || ''), txt);
+    return p;
+  };
+
+  async function pintar() {
+    panel.textContent = '';
+    const s = sesion();
+    if (!s) {
+      panel.append(
+        $('h3', 'iux-tit', 'Iurexia'),
+        nota('Abre un expediente en el visor y vuelve a pulsar. Todavía no hay '
+           + 'ninguno cargado en esta pestaña.', 'iux-aviso'));
+      return;
+    }
+
+    panel.append($('h3', 'iux-tit', `${s.numero || 'Expediente'} · ${s.tipoAsunto || ''}`));
+    if (s.organo) panel.append($('p', 'iux-sub', s.organo));
+    if (s.ingreso) panel.append($('p', 'iux-sub', 'Ingreso: ' + s.ingreso));
+
+    const cargando = nota('Leyendo el índice del expediente…');
+    panel.append(cargando);
+
+    let lista;
+    try {
+      lista = await indice(s);
+    } catch (e) {
+      cargando.remove();
+      panel.append(nota(String(e.message || e), 'iux-error'));
+      return;
+    }
+    cargando.remove();
+
+    if (!lista.length) {
+      panel.append(nota('El índice no trae ningún documento descargable.', 'iux-aviso'));
+      return;
+    }
+
+    // El correo: si no está, se pide aquí mismo.
+    const correoGuardado = await leerCorreo();
+    let entradaCorreo = null;
+    if (!correoGuardado) {
+      const fila = $('div', 'iux-correo');
+      entradaCorreo = document.createElement('input');
+      entradaCorreo.type = 'email';
+      entradaCorreo.placeholder = 'tu correo de Iurexia';
+      fila.append($('label', null, 'Correo de Iurexia'), entradaCorreo);
+      panel.append(fila);
+    }
+
+    const ul = $('div', 'iux-lista');
+    const filas = lista.map((e, i) => {
+      const t = TIPOS[e.tipo] || { nombre: 'Documento ' + e.tipo, marcado: false };
+      const fila = $('label', 'iux-fila');
+      const chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.checked = t.marcado;
+      const txt = $('span', 'iux-txt');
+      txt.append($('span', 'iux-tipo', t.nombre));
+      txt.append($('span', 'iux-desc', limpio(e.description) || e.nombreArchivo));
+      const f = ddmmaaaa(e.fechaAuto);
+      if (f) txt.append($('span', 'iux-fecha', f));
+      fila.append(chk, txt);
+      ul.append(fila);
+      return { chk, entrada: e };
+    });
+    panel.append(ul);
+
+    const estado = nota('');
+    const enviar = $('button', 'iux-enviar', 'Enviar a Iurexia');
+    enviar.type = 'button';
+    panel.append(enviar, estado);
+
+    enviar.addEventListener('click', async () => {
+      const correo = (correoGuardado || (entradaCorreo && entradaCorreo.value) || '')
+                       .trim().toLowerCase();
+      if (!correo || correo.indexOf('@') < 0) {
+        estado.className = 'iux-nota iux-error';
+        estado.textContent = 'Falta tu correo de Iurexia.';
+        return;
+      }
+      if (!correoGuardado) await guardarCorreo(correo);
+
+      const elegidos = filas.filter(f => f.chk.checked).map(f => f.entrada);
+      if (!elegidos.length) {
+        estado.className = 'iux-nota iux-error';
+        estado.textContent = 'No has marcado ninguna constancia.';
+        return;
+      }
+      if (elegidos.length > TOPE_DOCS) {
+        estado.className = 'iux-nota iux-error';
+        estado.textContent = `Son ${elegidos.length} documentos y el tope es `
+                           + `${TOPE_DOCS}. Marca menos.`;
+        return;
+      }
+
+      enviar.disabled = true;
+      estado.className = 'iux-nota';
+
+      // UNA PASADA, UN INTENTO POR DOCUMENTO. Sin reintentos y sin bucle: lo
+      // que falle se dice al final por su nombre, y el secretario decide.
+      const bajados = [];
+      const fallos = [];
+      let bytes = 0;
+      for (let i = 0; i < elegidos.length; i++) {
+        const e = elegidos[i];
+        const rotulo = limpio(e.description) || e.nombreArchivo;
+        estado.textContent = `Trayendo ${i + 1} de ${elegidos.length}: ${rotulo}`;
+        try {
+          const blob = await documento(s, e);
+          bytes += blob.size;
+          if (bytes > TOPE_BYTES) {
+            fallos.push(`${rotulo} — se llegó al tope de tamaño del envío`);
+            break;
+          }
+          bajados.push({ entrada: e, blob, rotulo });
+        } catch (err) {
+          fallos.push(`${rotulo} — ${err.message || err}`);
+        }
+      }
+
+      // La promoción es lo que abre el asunto: sin ella el taller no tiene qué
+      // resolver, y el servidor la exige. Si no hay ninguna marcada, se manda
+      // como promoción el primer documento elegido y el servidor —que lee el
+      // texto— dirá qué es en realidad.
+      const iPro = bajados.findIndex(b => b.entrada.tipo === 2);
+      if (!bajados.length) {
+        enviar.disabled = false;
+        estado.className = 'iux-nota iux-error';
+        estado.textContent = 'No se pudo traer ningún documento. '
+                           + fallos.join(' · ');
+        return;
+      }
+      const principal = bajados[iPro >= 0 ? iPro : 0];
+      const resto = bajados.filter(b => b !== principal);
+
+      estado.textContent = `Enviando ${bajados.length} constancias a Iurexia…`;
+
+      const fd = new FormData();
+      fd.append('user_email', correo);
+      fd.append('numero', s.numero || String(s.neun));
+      fd.append('tipo_sise', s.tipoAsunto || '');
+      fd.append('organo', s.organo || '');
+      fd.append('presentacion_sise', s.ingreso || '');
+      fd.append('actuaciones_json', JSON.stringify(lista.map(e => ({
+        tipo: (TIPOS[e.tipo] || {}).nombre || e.tipo,
+        descripcion: limpio(e.description),
+        fecha: ddmmaaaa(e.fechaAuto),
+        parte: limpio(e.nombreParte),
+        archivo: e.nombreArchivo,
+        elegido: elegidos.indexOf(e) >= 0,
+      }))));
+      fd.append('promocion', principal.blob, principal.entrada.nombreArchivo);
+      for (const b of resto) fd.append('acuerdos', b.blob, b.entrada.nombreArchivo);
+
+      try {
+        const r = await fetch(`${API}/taller/desde-sise`, { method: 'POST', body: fd });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.detail || `el servidor respondió ${r.status}`);
+        estado.className = 'iux-nota iux-bien';
+        panel.querySelectorAll('.iux-resultado').forEach(n => n.remove());
+        const res = $('div', 'iux-resultado');
+        res.append($('p', 'iux-bien',
+          `Listo: ${bajados.length} constancias del ${s.numero}. `
+          + 'Abre el taller y te estarán esperando.'));
+        for (const d of (j.inventario || []))
+          res.append($('p', 'iux-item',
+            `${d.que}: ${d.tipo}${d.caracteres ? ` (${d.caracteres} caracteres)` : ''}`));
+        for (const a of (j.avisos || []))
+          res.append($('p', 'iux-aviso', a));
+        for (const f of fallos)
+          res.append($('p', 'iux-error', 'No se pudo traer ' + f));
+        estado.textContent = '';
+        panel.append(res);
+      } catch (err) {
+        estado.className = 'iux-nota iux-error';
+        estado.textContent = 'No se pudo enviar: ' + (err.message || err);
+      } finally {
+        enviar.disabled = false;
+      }
+    });
   }
 })();

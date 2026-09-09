@@ -1,19 +1,22 @@
-/* Las páginas de una extensión NO permiten guiones dentro del HTML: la
- * política de seguridad de Manifest V3 los bloquea, y sin un solo mensaje.
- * Por eso el botón de guardar no hacía nada. Va en su propio fichero. */
-const c = document.getElementById("correo");
-const ok = document.getElementById("ok");
+// EN FICHERO APARTE, no en un <script> dentro del HTML: la política de las
+// extensiones MV3 bloquea el código en línea, y esa fue justo la razón por la
+// que la vez pasada «no dejaba guardar el correo».
+const campo = document.getElementById('correo');
+const dicho = document.getElementById('dicho');
 
-chrome.storage.local.get("correo").then((v) => { c.value = v.correo || ""; });
+chrome.storage.local.get(['correo'], (d) => { campo.value = (d && d.correo) || ''; });
 
-document.getElementById("guardar").addEventListener("click", async () => {
-  const correo = (c.value || "").trim();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) {
-    ok.textContent = "Ese correo no tiene forma de correo.";
-    ok.style.color = "#b3261e";
+document.getElementById('guardar').addEventListener('click', () => {
+  const c = (campo.value || '').trim().toLowerCase();
+  if (!c || c.indexOf('@') < 0) {
+    dicho.style.color = '#a11';
+    dicho.textContent = 'Escribe un correo válido.';
     return;
   }
-  await chrome.storage.local.set({ correo });
-  ok.textContent = "Guardado.";
-  ok.style.color = "#2e7d4f";
+  chrome.storage.local.set({ correo: c }, () => {
+    dicho.style.color = '#1b6b3a';
+    dicho.textContent = chrome.runtime.lastError
+      ? 'No se pudo guardar: ' + chrome.runtime.lastError.message
+      : 'Guardado.';
+  });
 });

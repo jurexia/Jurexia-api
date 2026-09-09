@@ -1,20 +1,41 @@
-/* La barra se pone encima de la tabla, sin tocar el resto de SISE. */
-#iurexia-barra {
-  position: fixed; right: 18px; bottom: 18px; z-index: 2147483000;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: #12151c; color: #e7e3da; border: 1px solid #3a3f4b;
-  border-radius: 14px; padding: 14px 16px; width: 330px;
-  box-shadow: 0 10px 34px rgba(0,0,0,.34);
-}
-#iurexia-barra h4 { margin: 0 0 2px; font-size: 13px; letter-spacing: .02em; }
-#iurexia-barra p  { margin: 0 0 10px; font-size: 11.5px; line-height: 1.45; color: #a9a396; }
-#iurexia-barra button {
-  width: 100%; padding: 9px 12px; border-radius: 9px; cursor: pointer;
-  border: 1px solid #b99b55; background: #b99b55; color: #12151c;
-  font-size: 12.5px; font-weight: 600;
-}
-#iurexia-barra button[disabled] { opacity: .55; cursor: default; }
-#iurexia-estado { margin-top: 9px; font-size: 11.5px; line-height: 1.5; color: #cfc9bb; }
-#iurexia-estado .mal { color: #e8a0a0; }
-#iurexia-estado .bien { color: #9fd0a4; }
-#iurexia-barra .doc { display:flex; justify-content:space-between; gap:8px; padding:1px 0; }
+/* El panel se monta sobre el visor del CJF, así que todo va prefijado con
+   .iux- y con valores explícitos: heredar del anfitrión es cómo se rompen las
+   cosas cuando el anfitrión cambia. */
+.iux-caja { position: fixed; right: 18px; bottom: 18px; z-index: 2147483647;
+  font: 13px/1.45 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+.iux-boton { background: #1b365d; color: #fff; border: 0; border-radius: 8px;
+  padding: 10px 18px; font: 600 13px/1 inherit; cursor: pointer;
+  box-shadow: 0 3px 12px rgba(0,0,0,.28); font-family: Georgia, serif;
+  letter-spacing: .3px; }
+.iux-boton:hover { background: #244a80; }
+.iux-panel { position: absolute; right: 0; bottom: 46px; width: 420px;
+  max-height: 72vh; overflow: auto; background: #fff; color: #1a1a1a;
+  border: 1px solid #d7dbe0; border-radius: 10px; padding: 16px 18px;
+  box-shadow: 0 10px 34px rgba(0,0,0,.22); }
+.iux-tit { margin: 0 0 2px; font: 600 15px/1.3 Georgia, serif; color: #1b365d; }
+.iux-sub { margin: 0 0 2px; font-size: 11.5px; color: #667; }
+.iux-lista { margin: 12px 0; border-top: 1px solid #eceff2; }
+.iux-fila { display: flex; gap: 9px; align-items: flex-start; padding: 7px 2px;
+  border-bottom: 1px solid #eceff2; cursor: pointer; }
+.iux-fila:hover { background: #f7f9fb; }
+.iux-fila input { margin-top: 3px; flex: 0 0 auto; }
+.iux-txt { display: block; }
+.iux-tipo { display: inline-block; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .5px; color: #1b365d; background: #eef2f7; border-radius: 3px;
+  padding: 1px 6px; margin-right: 6px; }
+.iux-desc { color: #222; }
+.iux-fecha { color: #889; font-size: 11.5px; margin-left: 6px; }
+.iux-correo { display: flex; flex-direction: column; gap: 4px; margin: 10px 0 2px; }
+.iux-correo label { font-size: 11.5px; color: #667; }
+.iux-correo input { padding: 7px 9px; border: 1px solid #ccd2d9; border-radius: 6px;
+  font: inherit; }
+.iux-enviar { width: 100%; background: #1b365d; color: #fff; border: 0;
+  border-radius: 7px; padding: 11px; font: 600 13px/1 inherit; cursor: pointer; }
+.iux-enviar:hover { background: #244a80; }
+.iux-enviar:disabled { background: #97a3b2; cursor: default; }
+.iux-nota { margin: 9px 0 0; font-size: 12px; color: #556; }
+.iux-item { margin: 3px 0; font-size: 11.5px; color: #556; }
+.iux-bien { color: #1b6b3a; }
+.iux-aviso { color: #8a5a00; }
+.iux-error { color: #a11; }
+.iux-resultado { margin-top: 10px; border-top: 1px solid #eceff2; padding-top: 9px; }

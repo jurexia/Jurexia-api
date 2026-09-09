@@ -176,3 +176,82 @@ dónde lleguen los PDF.
 lección no es sobre SISE: cuando una vía se resiste una y otra vez por sitios
 distintos, conviene mirar si el sistema ofrece otra puerta, en vez de forzar
 más la que no cede.
+
+---
+
+# EL CONTRATO, MEDIDO CONTRA EL SERVIDOR (9-sep)
+
+No hay nada aquí adivinado. Todo lo de abajo se ejecutó contra el CJF real, con
+el 91/2025 abierto en el navegador de David.
+
+## Quién es quién
+
+`sessionStorage` de la pestaña del visor:
+
+    EbookParamsData  {Neun: 40531343, Usuario: 92005, Sistema: 5, Token: «JWT», Cuaderno}
+    EbookNeunData    {asuntoAlias: "91/2025", tipoAsunto: "Revisión Fiscal",
+                      catOrganismoId: 2422, fechaIngreso: "2025-11-18",
+                      organo: "Tercer Tribunal Colegiado en Materias
+                               Administrativa y Civil del Vigésimo Segundo Circuito",
+                      cuadernos: [...]}
+
+**Ahí está todo lo que el secretario teclea hoy.** El número del expediente, el
+tipo de asunto y la fecha de ingreso vienen dados. Ya no se preguntan.
+
+El token bueno es `EbookParamsData.Token` (1.060 caracteres). OJO: **no** es el
+de `localStorage.credentialUser` (más corto); usar ese devuelve 401. Se perdió
+un rato ahí.
+
+## Las dos llamadas
+
+    POST https://serviciosvistaee.cjf.gob.mx/wsebook/api/Index/GetIndexDetail
+      Authorization: Bearer «EbookParamsData.Token»
+      {Neun, Usuario, sistema, catOrganismoId}
+      → 200, lista de actuaciones
+
+Cada actuación trae `tipo`, `description` (con etiquetas HTML dentro),
+`fechaAuto`, `nombreParte` y `nombreArchivo`:
+
+    tipo 0 = Carátula      (sin fichero)
+    tipo 1 = Acuerdo       ← admisión y turno viven aquí
+    tipo 2 = Promoción     ← el escaneo grande que abre el asunto
+    tipo 3 = Notificación  ← no aporta al proyecto
+
+**Ese `tipo` es la selectividad que pedía David**, y no hay que deducirla de
+nada: la da el propio sistema.
+
+    POST https://serviciosvistaee.cjf.gob.mx/wsebook/api/File/Dowload   ← «Dowload», sí
+      {sistema, Usuario, Neun, TipoArchivo: «tipo», ID: "",
+       nombre: «nombreArchivo», catOrganismoId, extesionId}
+      → 200 {idDocument, path, fileName, base64File: [partes], size, parts}
+
+`base64File` es una LISTA. Los ficheros grandes vienen troceados y quedarse con
+la primera parte daría un PDF truncado —que abre, y engaña—. Hay que
+concatenar. El PDF empieza por `JVBER`, que es `%PDF` en base64: comprobarlo es
+lo que caza una página de error disfrazada de constancia.
+
+## La prueba de extremo a extremo · 91/2025
+
+    índice ..................... 9 documentos
+    marcados por la regla ...... 3  (2 acuerdos + 1 promoción)
+    traídos .................... 3, sin un fallo
+                                 Acuerdo 21/11/2025 ......  684 KB
+                                 Promoción 1 ............ 3.743 KB
+                                 Acuerdo 16/01/2026 .....  582 KB
+    enviados a Iurexia ......... HTTP 200 en 27 s
+    guardados en Supabase ...... fila leída de vuelta por /taller/sise-pendiente
+
+Y lo que el clasificador leyó en ellos, SIN que nadie le dijera qué era cada uno:
+
+    promocion  → sentencia_recurrida   (347.804 caracteres)
+    acuerdo_1  → auto_admision         confianza 3
+    acuerdo_2  → auto_turno            confianza 3
+    avisos     → ninguno
+
+**Eso vale doble.** En `fase_sise` quedó anotado que los patrones de admisión y
+de turno estaban SIN CALIBRAR, porque nunca hubo autos reales para probarlos.
+Éstos son los primeros autos reales que ven, y los reconoció los dos con la
+confianza más alta. Sigue siendo una sola muestra —dos autos de un expediente—,
+no una calibración; pero es evidencia donde antes no había ninguna.
+
+Cero clics en iconos. Cero ficheros en la carpeta de descargas. Cero ViewState.
