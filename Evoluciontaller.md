@@ -932,3 +932,56 @@ fundado, y el documento resuelve «Se revoca la sentencia recurrida» + «La
 Justicia de la Unión NO ampara ni protege» a la quejosa **que había ganado el
 amparo abajo** y recurrió pidiendo más. `revoca_fondo_niega` supone que quien
 recurre es la autoridad. Es exactamente lo que quedó pendiente de decidir.
+
+---
+
+## 19. Revocar o modificar, el sujeto tras la cita, y el idioma · 9-sep
+
+**El deslinde que faltaba.** David: «cuando en un recurso es fundado el agravio,
+el resultado es revocar (o modificar). La revocación es por un vicio absoluto
+que impide conservar aspectos de la sentencia recurrida; la modificación
+obedece a una ilegalidad que, a pesar de advertirse, permite que subsistan
+otras consideraciones».
+
+El proyecto elegía entre las dos sin decir por qué. La elección **no se sigue de
+que el agravio sea fundado** —eso sólo abre las dos puertas—, sino del ALCANCE
+del vicio, y decirlo es lo que separa un resolutivo razonado de uno afirmado.
+
+Salió, y bien, en la primera corrida: «el vicio alcanza la razón toral de la
+sentencia recurrida y **no permite conservar** el sentido de la nulidad
+decretada… Por ello, procede revocar». **En la segunda no apareció.** Una de dos
+no es un arreglo terminado: hay que medirlo en más corridas y, si no se
+sostiene, subirlo de sitio en el prompt.
+
+**El sujeto tras la cita.** El modelo escribe una sola frase —«…de rubro y texto
+siguientes: «RUBRO» confirma que la Sala debe atender…»— y el compositor la
+parte en tres para meter la cita: lo que queda detrás empieza en minúscula y
+sin sujeto. No se arregla en el prompt, porque el corte lo hace el documento.
+
+Y aquí me pasé de listo: la primera versión produjo «**La jurisprudencia en cita
+registro digital 179849.**», porque lo que sigue a una cita no siempre es media
+oración —a veces es un resto de la ficha—. Peor, el orden estaba mal: anteponía
+el sujeto ANTES de la prueba de longitud, así que un fragmento de tres palabras
+superaba el umbral de seis gracias a las palabras que yo le había añadido.
+Ahora exige más de seis palabras y arranque VERBAL.
+
+**El idioma.** python-docx parte de una plantilla en inglés de Estados Unidos y
+ese idioma viaja en los `docDefaults`: Word subrayaba media sentencia y le
+proponía al secretario correcciones inglesas. es-MX en el estilo Normal y en
+los valores por omisión; comprobado que no queda ningún en-US.
+
+### El formato de impresión: tres mediciones y sigo sin encontrarlo
+
+David lo ha pedido dos veces y sigue sin estar. La primera vez medí sólo la
+carpeta de 30 engroses; ahora he medido **907 documentos de CARPETA COMUN** en
+seis dimensiones:
+
+    caja de página ......... (5.0, 2.0, 3.0, 3.0) es la moda (30%) = la nuestra
+    márgenes en espejo ..... 0 de 907
+    margen de encuadernación 0 de 907
+    primera página distinta  64% — la ponemos
+    evenAndOddHeaders ...... 65% — lo ponemos
+    sangría del cuerpo ..... izq 0.0 · 1ª línea 1.25 (46%) = la nuestra
+
+**En todas coincidimos.** No puedo seguir infiriendo: lo que falta es que él
+señale, sobre un documento suyo y uno nuestro, qué se ve distinto al imprimir.
