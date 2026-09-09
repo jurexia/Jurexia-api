@@ -857,6 +857,24 @@ def _bloque_tecnica(tipo_asunto: str, rama: str = "",
         partes.append(f"\n· {r['cuando']}\n  Fundamento: {r['fuente']}")
         for t in r["tecnica"]:
             partes.append(f"    – {t}")
+        # DECIRLE QUE LOS APOYOS ESTÁN AHÍ. Se traen al acervo por su registro
+        # —y llegan: «tesis de la técnica añadidas: 193181, 2000895, 196875,
+        # 188742» en los registros de la revisión fiscal 91/2025— pero el
+        # modelo no los usó, porque nada le decía que respondieran a ESTA
+        # cuestión: los estaba leyendo como material del fondo, y del fondo no
+        # tratan.
+        #
+        # No se le dan los registros a secas —eso invita a citar de memoria—:
+        # se le dice que ya los tiene entre las tesis del material, con su
+        # texto, y que cite desde ahí.
+        if r.get("apoyos"):
+            partes.append(
+                "    – APOYOS PARA ESTA TÉCNICA: entre las tesis del acervo que "
+                "tienes abajo están las de registro "
+                + ", ".join(str(x) for x in r["apoyos"])
+                + ". Tratan exactamente de esta cuestión —no del fondo del "
+                  "asunto— y son las que hay que citar al justificarla. "
+                  "Cítalas como las demás, desde el texto que se te dio.")
     return "\n".join(partes) + "\n"
 
 
