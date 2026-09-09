@@ -723,6 +723,33 @@ def revisar(propuestas: list, material) -> list:
             avisos.append(
                 f"«{p.sentido}» se propone SIN APOYO del acervo. Una propuesta "
                 f"sin fundamento es una opinión: compruébala antes de aceptarla.")
+
+    # ── CUÁNTOS CRITERIOS DISTINTOS SOSTIENEN TODO ESTO ───────────────────
+    # Medido sobre cinco asuntos reales: el 410-2026 sale con cinco criterios
+    # distintos para cuatro problemas, y el 650-2025 con UNO para cinco. Nada
+    # lo advertía.
+    #
+    # Y NO ES UN REPROCHE. En suspensión, los artículos 128 y 147 de la Ley de
+    # Amparo SON el fundamento, y puede que no haya más criterio aplicable.
+    # Por eso esto informa y no acusa: David lo dijo —«una sentencia se sostiene
+    # por su argumentación y por los criterios vinculantes que invoca»—, así
+    # que el dato tiene que estar a la vista de quien firma, sin decirle que
+    # está mal.
+    _vivas = [p for p in propuestas if p.alcanza]
+    if len(_vivas) >= 3:
+        _distintos = set()
+        for p in _vivas:
+            for a in p.apoyos:
+                m = _RX_CIFRA_REGISTRO.search(str(a))
+                if m:
+                    _distintos.add(m.group(1))
+        if len(_distintos) <= 1:
+            avisos.append(
+                f"Los {len(_vivas)} problemas se apoyan en "
+                + (f"UN SOLO criterio ({next(iter(_distintos))})"
+                   if _distintos else "NINGÚN criterio")
+                + ", y el resto es ley. Puede estar bien —hay materias donde la "
+                  "ley es el fundamento— pero conviene mirarlo antes de firmar.")
     return avisos
 
 
