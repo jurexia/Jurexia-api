@@ -155,6 +155,22 @@ def leer(texto: str) -> dict:
         if "," in entero:
             d["recurrente_cargo"] = entero.split(",", 1)[1].strip()[:160]
 
+    # LA PORTADA DE LA OFICINA DE CORRESPONDENCIA COMÚN trae la fecha de
+    # presentación en dígitos, y no es la misma que la de ingreso al tribunal.
+    # Medido en el 91/2025: presentación 13/11/2025, ingreso 18/11/2025. Cinco
+    # días. Computar desde el ingreso corre el plazo hacia adelante y puede
+    # volver extemporáneo un recurso que no lo era: el mismo daño que dejó dos
+    # proyectos vacíos, por otro camino.
+    m = re.search(r"Fecha\s+de\s+presentaci[óo]n[^:]{0,30}:\s*(\d{1,2}/\d{1,2}/20\d{2})",
+                  texto, re.I)
+    if m:
+        d_, m_, a_ = m.group(1).split("/")
+        d["presentacion"] = f"{a_}-{int(m_):02d}-{int(d_):02d}"
+        d["presentacion_de"] = "portada de la Oficina de Correspondencia Común"
+    m = re.search(r"Folio\s+electr[óo]nico:\s*(\d{4,12})", texto, re.I)
+    if m:
+        d["folio"] = m.group(1)
+
     if re.search(r"\bT[UÚ]RNESE\b", texto, re.I):
         d["es_turno"] = True
     if re.search(r"reg[íi]strese y f[óo]rmese el expediente", texto, re.I):

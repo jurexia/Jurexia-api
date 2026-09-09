@@ -28235,12 +28235,24 @@ async def taller_desde_expediente(
             + ". Mira la lista de documentos y di tú qué páginas son.")
 
     # ── LO QUE DICEN LOS AUTOS ────────────────────────────────────────────
-    _leido = _fa.juntar([
-        _fa.leer(s.get("texto") or "") for s in segmentos
-        if s.get("tipo") in ("auto_admision", "auto_turno", "acuerdo")
-    ])
+    # LOS AUTOS PRIMERO, y después todo lo demás. `juntar` se queda con el
+    # primero que traiga cada dato, así que el ponente y el secretario los pone
+    # el auto —que es donde constan— y no una mención de paso dentro de los
+    # agravios. La fecha de presentación, en cambio, sólo está en la portada de
+    # la OCC, y por eso hay que mirar también lo que no es un auto.
+    _es_auto = lambda s: s.get("tipo") in ("auto_admision", "auto_turno", "acuerdo")
+    _leido = _fa.juntar(
+        [_fa.leer(s.get("texto") or "") for s in segmentos if _es_auto(s)]
+        + [_fa.leer(s.get("texto") or "") for s in segmentos if not _es_auto(s)])
 
-    _presentacion = (presentacion or "").strip() or fila.get("presentacion_sise") or ""
+    # EL ORDEN IMPORTA. Manda lo que diga el secretario; luego la portada de la
+    # OCC, que es el sello de presentación; y sólo al final la fecha de ingreso
+    # del visor, que es OTRA COSA —cuándo llegó al tribunal— y en el 91/2025 va
+    # cinco días más tarde. Computar desde el ingreso corre el plazo hacia
+    # adelante y puede volver extemporáneo lo que no lo es.
+    _presentacion = ((presentacion or "").strip()
+                     or _leido.get("presentacion", "")
+                     or fila.get("presentacion_sise") or "")
     if _presentacion and "/" in _presentacion:            # dd/mm/aaaa → ISO
         _p = _presentacion.split("/")
         if len(_p) == 3:
