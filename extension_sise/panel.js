@@ -1,113 +1,22 @@
 /* ═══════════════════════════════════════════════════════════════════════════
- * EL TALLER, DESDE SISE — pulsando, no fabricando peticiones
+ * EL TALLER, DESDE SISE — el guion sólo pulsa; el resto vive en el fondo
  * ═══════════════════════════════════════════════════════════════════════════
- * David: «la manera real y efectiva es que solo hagas click en los archiveros
- * y te devuelven el pdf».
+ * Pulsar un archivero RECARGA la página, y con ella muere este guion. Por eso
+ * aquí no hay promesas que esperen bytes ni estado que sobrevivir: cada vez
+ * que la página carga, esto pregunta al trabajador de fondo qué toca, lo pulsa
+ * y se deja morir. El fondo lleva la cuenta y manda todo a Iurexia al final.
  *
- * Tenía razón desde el principio y yo insistí cuatro veces en imitar la
- * petición por detrás. La última intentona se estrelló contra el filtro de
- * IIS —«request filtering is configured to deny double escape sequences»—:
- * una petición hecha por un guion no se parece a una navegación por más
- * cabeceras que se le copien.
- *
- * Aquí no se fabrica nada. Se PULSA el archivero, el navegador hace lo que
- * haría con el dedo del secretario, y el trabajador de fondo recoge el
- * fichero que cae.
- *
- * DOS FASES, PORQUE EL CLIC NAVEGA:
- *   · en el Panel Central se guarda la ficha del expediente y se pulsa
- *     «Promoción», que lleva al Panel de Promociones;
- *   · allí se pulsan los archiveros, se recogen los PDF y se manda todo.
- * La ficha viaja entre las dos en `chrome.storage.local`, porque el número
- * de expediente NO consta en el segundo panel —comprobado— y sin él no se
- * sabe de qué asunto son las constancias.
+ * Costó ocho versiones llegar aquí, y todas se estrellaron contra la misma
+ * piedra por sitios distintos: nada que dependa de sobrevivir a un clic puede
+ * vivir en la página.
  */
 (() => {
   "use strict";
   if (document.getElementById("iurexia-barra")) return;
 
-  /* ═══════════════════════════════════════════════════════════════════════
-   * QUE NO PUEDA FALLAR EN SILENCIO
-   * ═══════════════════════════════════════════════════════════════════════
-   * Tres vueltas perdidas con el mismo síntoma —«no pasa nada al pulsar»—
-   * porque el guion moría entre dibujar el recuadro y enganchar el botón, y
-   * ahí no había quién lo contara. El recuadro quedaba dibujado y muerto,
-   * indistinguible de uno vivo.
-   *
-   * Ahora: rastro en la consola con prefijo, y cualquier error va a parar al
-   * propio recuadro. Un instrumento que se calla es peor que no tenerlo.
-   */
+  const VERSION = "v1.0";
   const LOG = (...a) => console.log("[iurexia]", ...a);
-  const pintarError = (e) => {
-    const c = document.getElementById("iurexia-estado");
-    const t = (e && e.message) || String(e);
-    LOG("ERROR", t, e);
-    if (c) c.innerHTML += `<div class="mal">${t}</div>`;
-  };
-  window.addEventListener("error", (ev) => {
-    if (/panel\.js/.test(ev.filename || "")) pintarError(ev.error || ev.message);
-  });
-  LOG("guion cargado en", location.pathname);
-
-  const API = "https://jurexia-api.onrender.com";
-  const VERSION = "v0.9";
   const enPromociones = /PanelPromociones/i.test(location.pathname);
-
-  const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");
-
-  function fichaDelExpediente() {
-    const t = document.body.innerText;
-    const uno = (rx) => (t.match(rx) || [, ""])[1].trim();
-    return {
-      unico: uno(/Número de Expediente Único Nacional:\s*(\d+)/i),
-      numero: uno(/Número de Expediente Asignado:\s*([\d]+\/[\d]{4})/i),
-      tipo: uno(/Tipo de asunto:\s*([^\n]+)/i),
-      organo: (t.match(/^(.*Tribunal Colegiado[^\n]*)$/mi) || [, ""])[1].trim(),
-    };
-  }
-
-  function actuaciones() {
-    const filas = [];
-    for (const tr of document.querySelectorAll("table tr")) {
-      const botones = tr.querySelectorAll('input[type=image][name*="grvPanelCentral"]');
-      if (!botones.length) continue;
-      const celdas = [...tr.querySelectorAll("td")].map(txt);
-      filas.push({
-        acuerdo: celdas[0] || "", publicacion: celdas[1] || "",
-        promocion: celdas[2] || "", determinacion: celdas[4] || "",
-      });
-    }
-    return filas;
-  }
-
-  /** Pulsa de verdad y recoge el PDF de la RESPUESTA, con el depurador.
-   *
-   * El clic es real —el que SISE acepta sin rechistar— y lo que se lee es su
-   * respuesta antes de que el navegador la convierta en una descarga. Ni se
-   * fabrica la petición, que es lo que rechazaba el filtro de IIS, ni se toca
-   * el disco, que es lo que Chrome no deja.
-   */
-  function pulsarYRecoger(boton, clave) {
-    return new Promise((resolve, reject) => {
-      const oyente = (msg) => {
-        if (msg?.que !== "capturado" || msg.clave !== clave) return;
-        chrome.runtime.onMessage.removeListener(oyente);
-        if (msg.error) reject(new Error(msg.error));
-        else resolve(new Blob([new Uint8Array(msg.bytes)], { type: "application/pdf" }));
-      };
-      chrome.runtime.onMessage.addListener(oyente);
-      chrome.runtime.sendMessage({ que: "capturar", clave })
-        .then((r) => {
-          if (!r?.ok) throw new Error(r?.error || "no se pudo preparar la captura");
-          LOG("pulsando", clave);
-          boton.click();
-        })
-        .catch((e) => {
-          chrome.runtime.onMessage.removeListener(oyente);
-          reject(e);
-        });
-    });
-  }
 
   const barra = document.createElement("div");
   barra.id = "iurexia-barra";
@@ -122,135 +31,129 @@
 
   const estado = barra.querySelector("#iurexia-estado");
   const boton = barra.querySelector("#iurexia-ir");
-  // SE ENGANCHA AQUÍ, lo primero. Si algo revienta más abajo, el botón ya
-  // responde y puede contar qué pasó, en vez de quedarse mudo.
-  boton.addEventListener("click", (ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    LOG("pulsado");
-    try {
-      arrancar();
-    } catch (e) {
-      pintarError(e);
-    }
-  });
   const di = (h) => { estado.innerHTML = h; };
   const suma = (h) => { estado.innerHTML += h; };
+  const mal = (t) => { LOG("ERROR", t); suma(`<div class="mal">${t}</div>`); };
 
-  /* ── FASE 1 · el Panel Central ─────────────────────────────────────────── */
-  async function faseCentral() {
-    const ficha = fichaDelExpediente();
-    if (!ficha.numero) {
-      throw new Error("No reconozco esta pantalla. Ábrela desde el Panel "
-                    + "Central de Consultas de un expediente.");
-    }
-    const filas = actuaciones();
-    const promo = [...document.querySelectorAll('input[type=image][name$="imgPromocion"]')][0];
-    if (!promo) throw new Error("Este cuaderno no tiene ninguna promoción.");
-    await chrome.storage.local.set({
-      sise_ficha: ficha, sise_actuaciones: filas, sise_en_curso: true,
-    });
-    di(`<div>Expediente <b>${ficha.numero}</b> · voy al panel de promociones…</div>`);
-    // Un clic de verdad: navega, y la fase 2 sigue sola al cargar.
-    promo.click();
+  window.addEventListener("error", (ev) => {
+    if (/panel\.js/.test(ev.filename || "")) mal(ev.message);
+  });
+  LOG("guion cargado en", location.pathname);
+
+  const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");
+  const pregunta = (m) => chrome.runtime.sendMessage(m);
+
+  function ficha() {
+    const t = document.body.innerText;
+    const uno = (rx) => (t.match(rx) || [, ""])[1].trim();
+    return {
+      unico: uno(/Número de Expediente Único Nacional:\s*(\d+)/i),
+      numero: uno(/Número de Expediente Asignado:\s*([\d]+\/[\d]{4})/i),
+      tipo: uno(/Tipo de asunto:\s*([^\n]+)/i),
+      organo: (t.match(/^(.*Tribunal Colegiado[^\n]*)$/mi) || [, ""])[1].trim(),
+    };
   }
 
-  /* ── FASE 2 · el Panel de Promociones ──────────────────────────────────── */
-  async function fasePromociones() {
-    const g = await chrome.storage.local.get(
-      ["sise_ficha", "sise_actuaciones", "sise_en_curso"]);
-    const ficha = g.sise_ficha;
-    if (!ficha?.numero) {
-      throw new Error("Vengo sin la ficha del expediente. Empieza desde el "
-                    + "Panel Central: aquí no consta de qué asunto es esto.");
+  function actuaciones() {
+    const filas = [];
+    for (const tr of document.querySelectorAll("table tr")) {
+      if (!tr.querySelector('input[type=image][name*="grvPanelCentral"]')) continue;
+      const c = [...tr.querySelectorAll("td")].map(txt);
+      filas.push({ acuerdo: c[0] || "", publicacion: c[1] || "",
+                   promocion: c[2] || "", determinacion: c[4] || "" });
     }
-    await chrome.storage.local.set({ sise_en_curso: false });
+    return filas;
+  }
 
-    // La fecha de presentación está en la tabla, no dentro de un PDF.
-    let presentacion = "";
-    const grid = document.querySelector('[id*="grvPanelCentral"]');
-    if (grid && grid.rows.length > 1) {
-      const cab = [...grid.rows[0].cells].map((c) => c.innerText.trim());
-      const i = cab.findIndex((h) => /fecha de presentaci/i.test(h));
-      if (i >= 0) presentacion = (grid.rows[1].cells[i] || {}).innerText?.trim() || "";
-    }
-    di(`<div>Expediente <b>${ficha.numero}</b>`
-       + (presentacion ? ` · presentado el <b>${presentacion}</b>` : "") + "</div>");
+  function fechaDePresentacion() {
+    const g = document.querySelector('[id*="grvPanelCentral"]');
+    if (!g || g.rows.length < 2) return "";
+    const cab = [...g.rows[0].cells].map((c) => c.innerText.trim());
+    const i = cab.findIndex((h) => /fecha de presentaci/i.test(h));
+    return i >= 0 ? (g.rows[1].cells[i] || {}).innerText?.trim() || "" : "";
+  }
 
-    const archivos = {};
-    const aPulsar = [
-      ["promocion", document.querySelector('input[type=image][name$="imgArchivo"]'),
-       "el escaneo con las constancias"],
-      ["acuerdo_asociado", document.querySelector('input[type=image][name$="imgArchivoDJ"]'),
-       "la determinación asociada"],
-    ].filter(([, b]) => b);
+  /** Pulsa y se deja morir: la página se recarga y el ciclo sigue al cargar. */
+  async function pulsar(b, clave, comoSeLlama) {
+    suma(`<div class="doc"><span>${comoSeLlama}</span><span>…</span></div>`);
+    const r = await pregunta({ que: "voy-a-pulsar", clave,
+                               presentacion: fechaDePresentacion() });
+    if (!r?.ok) return mal(r?.error || "no se pudo preparar la captura");
+    LOG("pulsando", clave);
+    b.click();
+  }
 
-    for (const [clave, b, comoSeLlama] of aPulsar) {
-      suma(`<div class="doc"><span>${comoSeLlama}</span><span>…</span></div>`);
-      try {
-        archivos[clave] = await pulsarYRecoger(b, clave);
-        estado.lastElementChild.lastElementChild.innerHTML =
-          `<span class="bien">${Math.round(archivos[clave].size / 1024)} KB</span>`;
-      } catch (e) {
-        estado.lastElementChild.lastElementChild.innerHTML =
-          `<span class="mal">${e.message}</span>`;
-      }
-    }
-    if (!archivos.promocion) {
-      throw new Error("Sin el escaneo no hay nada que proyectar.");
-    }
+  /** En el Panel de Promociones: qué falta por traer. */
+  async function seguir() {
+    const s = await pregunta({ que: "estado" });
+    if (!s?.hay) return false;
+    const ya = s.capturados || [];
+    di(`<div>Expediente <b>${s.ficha?.numero || "?"}</b> · `
+       + `${ya.length} constancia(s) recogida(s)</div>`);
+    for (const e of (s.errores || [])) mal(e);
 
-    const correo = (await chrome.storage.local.get("correo")).correo || "";
-    if (!correo) {
-      throw new Error("Falta tu correo de Iurexia: guárdalo en las opciones "
-                    + "de la extensión, una sola vez.");
+    const archivo = document.querySelector('input[type=image][name$="imgArchivo"]');
+    const dj = document.querySelector('input[type=image][name$="imgArchivoDJ"]');
+    if (archivo && !ya.includes("promocion")) {
+      await pulsar(archivo, "promocion", "el escaneo con las constancias");
+      return true;
     }
-    const d = new FormData();
-    d.append("user_email", correo);
-    d.append("numero", ficha.numero);
-    d.append("expediente_unico", ficha.unico || "");
-    d.append("tipo_sise", ficha.tipo || "");
-    d.append("organo", ficha.organo || "");
-    if (presentacion) d.append("presentacion_sise", presentacion);
-    d.append("actuaciones_json", JSON.stringify(g.sise_actuaciones || []));
-    d.append("promocion", archivos.promocion, "promocion.pdf");
-    if (archivos.acuerdo_asociado) {
-      d.append("acuerdos", archivos.acuerdo_asociado, "acuerdo_asociado.pdf");
+    if (dj && !ya.includes("acuerdo_asociado")) {
+      await pulsar(dj, "acuerdo_asociado", "la determinación asociada");
+      return true;
     }
     suma("<div>Enviando al taller…</div>");
-    const r = await fetch(`${API}/taller/desde-sise`, { method: "POST", body: d });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.detail || `El taller respondió ${r.status}`);
-    // Soltar el depurador en cuanto se acaba: dejar el aviso de «se está
-    // depurando» puesto sin motivo es la clase de detalle que hace que
-    // alguien desinstale la extensión.
-    chrome.runtime.sendMessage({ que: "soltar" }).catch(() => {});
-    suma(`<div class="bien">Listo. El expediente ${ficha.numero} está en el
-          taller con sus constancias.</div>`);
-    if (Array.isArray(j.avisos)) {
-      for (const a of j.avisos) suma(`<div class="mal">${a}</div>`);
-    }
+    const r = await pregunta({ que: "enviar" });
+    if (r?.error) return mal(r.error), true;
+    suma(`<div class="bien">Listo. El expediente ${s.ficha?.numero} está en el
+          taller con ${Object.keys(r.documentos || {}).length || (r.documentos || []).length}
+          constancia(s).</div>`);
+    for (const a of (r.avisos || [])) mal(a);
+    return true;
   }
 
   async function arrancar() {
-    LOG("arrancar · enPromociones =", enPromociones);
     boton.disabled = true;
     try {
-      await (enPromociones ? fasePromociones() : faseCentral());
+      if (enPromociones) {
+        if (!(await seguir())) {
+          mal("Vengo sin la ficha del expediente. Empieza desde el Panel "
+            + "Central: aquí no consta de qué asunto es esto.");
+        }
+        return;
+      }
+      const f = ficha();
+      if (!f.numero) {
+        return mal("No reconozco esta pantalla. Ábrela desde el Panel Central "
+                 + "de Consultas de un expediente.");
+      }
+      const correo = (await chrome.storage.local.get("correo")).correo || "";
+      if (!correo) {
+        return mal("Falta tu correo de Iurexia: guárdalo en las opciones de la "
+                 + "extensión, una sola vez.");
+      }
+      const promo = document.querySelector('input[type=image][name$="imgPromocion"]');
+      if (!promo) return mal("Este cuaderno no tiene ninguna promoción.");
+      const r = await pregunta({ que: "iniciar", ficha: f,
+                                 actuaciones: actuaciones(), correo });
+      if (!r?.ok) return mal(r?.error || "no se pudo iniciar la captura");
+      di(`<div>Expediente <b>${f.numero}</b> · voy al panel de promociones…</div>`);
+      promo.click();
     } catch (e) {
-      pintarError(e);
+      mal(e.message || String(e));
     } finally {
       boton.disabled = false;
     }
   }
 
-  // (el botón se enganchó arriba, antes de que nada pudiera reventar)
+  boton.addEventListener("click", (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    LOG("pulsado"); arrancar();
+  });
 
-  // SIGUE SOLA. Si venimos del Panel Central, la fase 2 arranca al cargar:
-  // para el secretario es un solo clic aunque por dentro sean dos pantallas.
+  // SIGUE SOLA. Si hay una captura en curso, esta carga es un paso más del
+  // ciclo y no hay que pulsar nada: para el secretario fue un solo clic.
   if (enPromociones) {
-    chrome.storage.local.get("sise_en_curso").then((g) => {
-      if (g.sise_en_curso) arrancar();
-    });
+    pregunta({ que: "estado" }).then((s) => { if (s?.hay) seguir(); }).catch(() => {});
   }
 })();
