@@ -28307,16 +28307,27 @@ def _soltar_constancias(correo: str, numero: str) -> None:
     """
     if not supabase_admin:
         return
+    # `acuerdos` e `inventario` son jsonb NOT NULL: ponerlos a None revienta con
+    # una violación de restricción. Lo hacía, y como la excepción sólo se
+    # imprimía, el borrado habría fallado SIEMPRE y en silencio mientras la
+    # pantalla prometía que las constancias se sueltan. Se caza al intentarlo
+    # contra la base de verdad, no leyendo el código.
     try:
-        supabase_admin.table("sise_pendientes").update({
-            "promocion": None, "acuerdos": None,
+        r = supabase_admin.table("sise_pendientes").update({
+            "promocion": None, "acuerdos": [],
             "determinacion": None, "notificacion": None,
             # Los textos depurados también: llevan el asunto entero dentro.
             "segmentos": None,
         }).eq("email", correo).eq("numero", numero).execute()
-        print(f"   🧹 constancias soltadas · {numero}")
+        if r.data:
+            print(f"   🧹 constancias soltadas · {numero}")
+        else:
+            # NO SE CALLA. De esto depende lo que la pantalla promete.
+            print(f"   ‼️ NO se soltaron las constancias de {numero}: la base no "
+                  f"devolvió ninguna fila. Revisar retención.")
     except Exception as ex:
-        print(f"   ⚠️ no se pudieron soltar las constancias: {err(ex)}")
+        print(f"   ‼️ FALLÓ soltar las constancias de {numero}: {err(ex)}. "
+              f"La promesa de privacidad de la pantalla depende de esto.")
 
 
 async def _purgar_constancias_viejas(horas: int = 48) -> int:
@@ -28331,7 +28342,7 @@ async def _purgar_constancias_viejas(horas: int = 48) -> int:
         from datetime import datetime, timedelta, timezone
         corte = (datetime.now(timezone.utc) - timedelta(hours=horas)).isoformat()
         r = supabase_admin.table("sise_pendientes").update({
-            "promocion": None, "acuerdos": None, "determinacion": None,
+            "promocion": None, "acuerdos": [], "determinacion": None,
             "notificacion": None, "segmentos": None,
         }).lt("creado_en", corte).not_.is_("promocion", "null").execute()
         n = len(r.data or [])
