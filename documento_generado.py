@@ -544,25 +544,34 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     inst = (t.get("instancia") or "").strip()
     loc = (t.get("localizacion") or "").strip()
     reg = str(t.get("registro") or "").strip()
-    if inst or loc:
-        z = doc.add_paragraph()
-        rz = z.add_run(inst.upper() + ("." if inst else ""))
-        rz.bold = True
-        _fmt(z, sangria=False, tamano=TAMANO_CITA,
-             interlineado=INTERLINEADO_CITA)
-        z.paragraph_format.left_indent = Cm(1.25)
-        z.paragraph_format.keep_with_next = False
-        if loc or reg or _al_pie:
-            pie = loc if loc else ""
-            if reg and reg not in pie:
-                pie = (pie + ", " if pie else "") + f"registro digital {reg}"
-            if _al_pie:
-                pie = (pie + ". " if pie else "") + f"Texto: {cuerpo}"
-            if pie in notas:
-                _run_llamada(z, notas.index(pie) + 1)   # se reusa la existente
-            else:
-                notas.append(pie)
-                _run_llamada(z, len(notas))
+    # ═══════════════════════════════════════════════════════════════════════
+    # EL ÓRGANO VA EN LA NOTA, NO EN UN RENGLÓN SUYO
+    # ═══════════════════════════════════════════════════════════════════════
+    # Se escribía como párrafo aparte, en negrita y con la llamada de la nota
+    # colgando de él: debajo de cada rubro aparecía un renglón suelto que decía
+    # «SEGUNDA SALA.» y nada más.
+    #
+    # David lo borró a mano en las cuatro tesis de su revisión 650/2025, y el
+    # corpus le da la razón sin margen: de los 1,358 documentos de la carpeta
+    # del tribunal, UNO escribe el órgano en línea aparte. No es el estilo de
+    # la casa; era una invención nuestra.
+    #
+    # EL DATO NO SE PIERDE: se va al principio de la nota, junto a la
+    # localización y el registro, que es donde ya vivía el resto de la ficha.
+    # Y la llamada pasa a colgar del rubro, que es lo que se está citando.
+    if inst or loc or reg or _al_pie:
+        pie = ", ".join(x for x in (inst.strip().rstrip("."), loc) if x)
+        if reg and reg not in pie:
+            pie = (pie + ", " if pie else "") + f"registro digital {reg}"
+        if _al_pie:
+            pie = (pie + ". " if pie else "") + f"Texto: {cuerpo}"
+        # LA LLAMADA CUELGA DEL RUBRO. `p` es el párrafo del rubro, que sigue
+        # existiendo; el que desaparece es el del órgano.
+        if pie in notas:
+            _run_llamada(p, notas.index(pie) + 1)
+        else:
+            notas.append(pie)
+            _run_llamada(p, len(notas))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2629,10 +2638,21 @@ def _bloque_sintesis(doc, sintesis: dict) -> bool:
             alineacion=WD_ALIGN_PARAGRAPH.CENTER)
     parrafo(doc, "", sangria=False)
     # EL TÍTULO EN VERSALES Y JUSTIFICADO, como los 23 medidos.
-    parrafo(doc, sintesis["titulo"].rstrip(".") + ".", sangria=False,
-            negrita=True)
+    # LOS RÓTULOS, COMO LOS DEJÓ DAVID. En la revisión 650/2025 corrigió a mano
+    # la portada que generamos: antepuso «TEMA:» al rubro y cambió «Criterio
+    # jurídico:» por «Propuesta de resolución:». Las dos formas están en su
+    # corpus —«TEMA:» en 100 de 1,360 documentos y «Criterio jurídico:» en
+    # 92—, así que no es que una fuera errónea; es la que él usa. Y
+    # «Propuesta de resolución» dice además lo que la síntesis es: un proyecto
+    # propone.
+    _tp = doc.add_paragraph()
+    _rt = _tp.add_run("TEMA: ")
+    _rt.bold = True
+    _rt2 = _tp.add_run(sintesis["titulo"].rstrip(".") + ".")
+    _rt2.bold = True
+    _fmt(_tp, sangria=False)
     for etiqueta, clave in (("Hechos: ", "hechos"),
-                            ("Criterio jurídico: ", "criterio"),
+                            ("Propuesta de resolución: ", "criterio"),
                             ("Justificación: ", "justificacion")):
         if not sintesis.get(clave):
             continue
@@ -3592,6 +3612,16 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 _que_hizo = _fr.resolvio_a_quo(
                     _fuente_rama, _antes_rama,
                     declarado=str(datos.get("resolvio_declarado") or ""))
+                # QUE EL REPLIEGUE SE VEA. Sin este aviso, leer el papel y NO
+                # leerlo producen documentos indistinguibles, y un `getattr`
+                # con valor por omisión que apunta al objeto equivocado pasa
+                # inadvertido —pasó, y el resolutivo volvió a salir de la
+                # prosa—. Si el dato determinista falta, que conste.
+                _avisos_bk.append(
+                    "EL SENTIDO DE LA SENTENCIA RECURRIDA NO SE PUDO LEER DEL "
+                    "PDF y se dedujo del texto del proyecto. De ese dato "
+                    "depende que se confirme o se revoque: compruébalo contra "
+                    "el resolutivo del juzgado antes de firmar.")
             # EL SENTIDO EN PLENITUD SE LEE DEL ESTUDIO, no del recurso. Que el
             # agravio sea fundado prueba que el juez no debió sobreseer, no que
             # el quejoso tenga razón en el fondo.

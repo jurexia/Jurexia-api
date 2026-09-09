@@ -327,6 +327,7 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             ruta, av_gen, estructura = await _componer_generado(
                 cliente, e, relleno, c, ruta_salida,
                 estructura_previa=estructura, acto=texto_acto, partes=partes,
+                fases=f,
                 # EL ADELANTO NO LLEVA PREGUNTAS y no es un olvido: los
                 # problemas se fijan en `/taller/proponer`, que corre después.
                 # Aquí todavía no existen.
@@ -871,6 +872,7 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                 # Las constancias ya leídas viajan con las fases; si la
                 # estructura hubiera que rehacerla, que no sea a ciegas.
                 acto=(getattr(getattr(r, "fases", None), "fuentes", []) or [""])[0],
+                fases=getattr(r, "fases", None),
                 # AQUÍ SÍ, y es el único sitio donde existen: `_terminar` los
                 # recibe del secretario y son los que fijan el sentido.
                 criterios=criterios,
@@ -1164,7 +1166,7 @@ def _fecha_iso(x):
 async def _componer_generado(cliente, e: Encargo, relleno, computo,
                              ruta_salida: str, estructura_previa=None,
                              marco_escrito: str = "", acto: str = "",
-                             partes=None, criterios=None):
+                             partes=None, criterios=None, fases=None):
     """El documento escrito entero. Devuelve (ruta, avisos, estructura)."""
     import documento_generado as dg
     import fase0_oportunidad as _f0
@@ -1178,8 +1180,15 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     # LO LEÍDO DEL PAPEL VIAJA HASTA EL RESOLUTIVO. Se calculó en el adelanto
     # sobre el PDF de la recurrida y va en el estado de la sesión, así que
     # existe también cuando resuelve el otro worker.
-    datos["resolvio_a_quo"] = getattr(relleno, "resolvio_a_quo", "") or ""
-    datos["resolutivo_recurrida"] = getattr(relleno, "resolutivo_recurrida", "") or ""
+    # DEL OBJETO DE FASES, NO DEL RELLENO. `relleno` es el ensamblado que
+    # alimenta la plantilla —encabezado, resúmenes, estudio— y no lleva estos
+    # dos campos: leerlos de ahí devolvía cadena vacía en silencio, y el
+    # resolutivo seguía saliendo de la prosa del modelo. Se vio en la
+    # comprobación de la 650/2025: el modelo dijo «negó el amparo» —falso, lo
+    # concedió— y su versión ganó igual, que es exactamente el fallo que esto
+    # venía a cerrar. Un getattr con valor por omisión no avisa de nada.
+    datos["resolvio_a_quo"] = getattr(fases, "resolvio_a_quo", "") or ""
+    datos["resolutivo_recurrida"] = getattr(fases, "resolutivo_recurrida", "") or ""
     # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.
