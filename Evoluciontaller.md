@@ -985,3 +985,48 @@ seis dimensiones:
 
 **En todas coincidimos.** No puedo seguir infiriendo: lo que falta es que él
 señale, sobre un documento suyo y uno nuestro, qué se ve distinto al imprimir.
+
+---
+
+## 20. El streaming invisible, el problema que se caía y los grupos · 9-sep
+
+**El streaming existía.** Medido en producción: **4,659 eventos de texto**, y el
+frontend los leía bien. Pero **el primer trozo llega a los 61 segundos** y la
+tarjeta se pintaba con `corriendo && avance`: durante ese minuto la pantalla no
+decía nada del estudio. El desplazamiento automático colgaba también del primer
+trozo, así que el secretario se quedaba mirando la pantalla anterior sin saber
+que ya se estaba trabajando. *Una función que sólo se ve cuando ya no hace
+falta es, para quien la usa, una función que no existe.*
+
+Ahora la tarjeta se abre al arrancar, diciendo qué hace y cuánto suele tardar.
+
+**El problema que queda sin respuesta.** No lo reproduje: en la corrida de
+diagnóstico había dos problemas y los dos quedaron contestados (8/8 palabras
+clave de cada uno en el proyecto). Pero encontré un camino por el que puede
+pasar: **el filtro descarta el criterio al que le falta el sentido, y lo hacía
+callando** —tanto en la pantalla como en el servidor—. Ahora se cuenta y sale
+en los avisos. Falta que David señale un caso concreto para confirmar si es
+ése el camino o hay otro.
+
+**Los grupos.** No hizo falta inventar doctrina: la arquitectura YA prohíbe
+resolver dos planteamientos con una calificación conjunta «salvo que declares
+que se estudian juntos y por qué». Faltaba quién lo declarara. El `Criterio`
+gana `grupo`, la pantalla lo deja marcar, y el prompt lo dice.
+
+### Y un fallo mío que destapó un agujero del guardián
+
+Escribí `avisos.append(...)` en las dos funciones del resolver, y `avisos` **no
+existe en ninguna**: habría reventado la generación entera con un NameError. Es
+el error de ámbito del `_rama` otra vez, y **el guardián no lo vio porque
+main.py no estaba en su lista** —el único módulo con las rutas dentro—.
+
+Al meterlo, destapó **cuatro nombres indefinidos anteriores**, fuera del taller:
+
+    _fetch_neighbor_chunks()   usa «tesis_num» y «registro», que no son
+                               parámetros suyos ni se asignan dentro
+    qdrant_search_for_redactor() usa «generate_embedding»
+    phase1_activate()          usa «_embed_async»
+
+No se esconden: el guardián los enumera en cada ejecución como pendientes.
+**Cada vez que se amplía el guardián aparece algo; el coste de no ampliarlo es
+justo lo que no aparece.**
