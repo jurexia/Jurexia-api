@@ -712,3 +712,81 @@ aparecen **cero veces**. Lo que hay es confirmar (60%), sin materia, desechar y
 modificar (4). Antes de meter «quién recurre» en la tabla, hay que entender por
 qué esas dos ramas no existen en el corpus: puede que la revocación de fondo se
 escriba de otra forma, o que casi siempre sea revocación de un sobreseimiento.
+
+---
+
+## 16. En la revisión fiscal sí hay reenvío · 9-sep
+
+**Lo que pidió David.** «A diferencia de la revisión en amparo indirecto, sí hay
+reenvío porque la jurisdicción para el análisis del fondo corresponde a la Sala
+Regional». Y aportó una tesis.
+
+Es la **simetría contraria** de `revision_levanta_sobreseimiento`: allí el
+colegiado ASUME jurisdicción; aquí no puede, porque el estudio de los conceptos
+de anulación toca en primera instancia a la Sala, y sustituirla dejaría al
+particular sin amparo contra ese estudio.
+
+### El aparato, verificado contra el acervo
+
+La tesis que aportó **está** en la colección, registro **188742**, con 0.977 de
+coincidencia. Buscando alrededor aparecieron tres más, y **dos son
+jurisprudencia**, de mayor fuerza que la suya:
+
+    188742  aislada  · procede el reenvío si no se examinan todos los conceptos
+    193181  JURISPR. · procede la revocación ante la falta de estudio integral
+    196875  JURISPR. · las sentencias del tribunal fiscal deben analizarlos todos
+    2000895 aislada  · el colegiado ordena al órgano emisor que subsane
+
+Y el circuito lo practica: de las **506** revisiones fiscales del acervo que
+revocan, **39** llevan lenguaje de reenvío. La R.R.F. 94/2023 lo dice entero.
+
+**El deslinde importa tanto como la regla:** la tesis 185493 marca el límite —si
+el vicio es de forma y no trasciende al sentido, el colegiado corrige y no
+devuelve—. Por eso la condición no es «se revoca», sino «se revoca Y el estudio
+dice que la Sala dejó algo sin estudiar».
+
+### Tres tropiezos, y los tres los cazó una corrida, no una lectura
+
+**1 · `_fr` fuera de ámbito.** Lo usé desde la rama fiscal y se importa en la
+del amparo en revisión. Es el mismo `UnboundLocalError` que ya dejó mudo el
+generador. Lo cazó la comprobación 4 del guardián.
+
+**2 · El detector miraba donde no era.** La condición del reenvío se buscaba en
+el ESTUDIO, y la frase «estudió el tercer concepto… y omitió estudiar los
+restantes» vive bajo el subtítulo «Sentencia impugnada» —el resumen de lo que
+la Sala hizo—. El resolutivo salía con un punto. Mi calibración no lo vio
+porque medía el considerando entero, que incluye ese resumen: **la regla
+acertaba y lo que estaba mal era lo que se le daba de comer.**
+
+**3 · Y otra vez lo mismo, con las tesis.** El estudio argumentaba el reenvío
+sin citar autoridad. Traje las cuatro tesis por registro —llegan, consta en los
+registros de producción— y seguía sin citarlas. Escribí entonces una
+instrucción diciéndole al modelo que las tenía abajo. Seguía sin citarlas.
+
+La causa: **el prompt admite diez tesis** y el acervo devuelve cuarenta. Las de
+la técnica se añadían al FINAL, y `[:10]` se las llevaba siempre. La
+instrucción que escribí prometía unas tesis que no estaban en el prompt.
+
+**Es la tercera vez en este proyecto que el defecto está en LO QUE SE LE DA al
+modelo y no en lo que se le pide, y las tres veces mi primera reacción fue
+reescribir la instrucción.** Antes de tocar el texto de un prompt, comprobar
+que el material del que habla llega de verdad.
+
+### El resultado, medido
+
+    PRIMERO. Se revoca la sentencia de veintidós de septiembre de dos mil
+    veinticinco, dictada en el expediente 695/25-09-01-7-OT, por la Sala
+    Regional en Querétaro del Tribunal Federal de Justicia Administrativa.
+    SEGUNDO. Se ordena a la Sala […] dejar insubsistente la sentencia revocada
+    y dictar otra en la que, con libertad de jurisdicción y siguiendo los
+    lineamientos de esta ejecutoria, se ocupe de los conceptos de anulación
+    cuyo estudio omitió.
+
+Con la tesis de David citada al pie y el razonamiento: «el reenvío procede
+cuando la Sala Regional omite examinar todos los conceptos de nulidad, porque
+el Tribunal Colegiado debe limitarse a revisar la legalidad de la sentencia
+recurrida y no asumir la función de resolver en primera instancia los
+planteamientos que la Sala dejó pendientes».
+
+Comprobado además que no se dispara donde no toca: con la omisión sólo alegada
+por la recurrente, y cuando se confirma, el resolutivo sigue siendo de un punto.
