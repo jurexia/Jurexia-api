@@ -1082,3 +1082,50 @@ la clave de la tesis («2a./J. 137/2016 (10a.)»). Se buscan los dos campos, y a
 así **el 39% de las claves no resuelve** contra la colección: 73 de 188. Son
 citas reales de los jueces que hoy no podemos convertir en autoridad utilizable.
 Normalizarlas es la continuación natural de esto.
+
+---
+
+## 22. La jerarquía, la cita mal escrita y los principios · 9-sep
+
+Tres cosas después de la co-citación, y **una estimación mía que resultó falsa**.
+
+### La jerarquía estaba invertida
+
+El orden era `(no es SCJN, no es obligatoria, …)`: una **tesis aislada** de la
+Primera Sala le ganaba a una **jurisprudencia** de tribunal colegiado.
+Comprobado ejecutándolo. La aislada no vincula a nadie; la del colegiado obliga
+en su circuito. Ahora: primero si vincula, después quién lo dijo (Pleno ·
+Plenos Regionales · Salas · Colegiados), después cuántas veces lo cita el
+circuito.
+
+**Y estaba en dos sitios.** Lo arreglé en `material_para` —el orden de cada
+problema— y `material_del_caso` seguía con el viejo: fusiona los problemas y
+VUELVE A ORDENAR, así que el prompt recibía otra vez el orden equivocado. El
+descuido de siempre, y aquí duele más porque es el último antes del modelo.
+
+### La estimación que me inventé
+
+Dije que normalizar las claves de cita «recuperaría casi la mitad de la señal».
+**Falso.** Medido sobre 300 claves reales: la búsqueda exacta resuelve 163
+(54%); con todas las variantes de escritura —«2a./J.81/2002» sin espacio,
+«VI.2º.» con ordinal masculino, «2a./3.» con la J que el OCR leyó como un tres,
+«XVII.1o.C.T.30K» sin el espacio final— sube a 181 (**60%**). Seis puntos.
+
+El 40% que queda no es un problema de ortografía: son criterios que **no están
+en la colección** —Séptima y Octava Época, precedentes del propio Tribunal
+Federal de Justicia Administrativa—. Eso no se arregla normalizando, se arregla
+ingiriéndolos, y es un proyecto aparte.
+
+*Antes de vender una mejora conviene medirla, aunque el razonamiento que la
+sugiere parezca impecable.*
+
+### Los principios: lo mejor por lo que menos cuesta
+
+El 99.3% de los holdings guarda `principios_juridicos`, y llegan en la MISMA
+consulta de la co-citación: cero peticiones extra. Para la suspensión
+provisional salen apariencia del buen derecho (16 sentencias), interés social
+(11), conservación de la materia del amparo, peligro en la demora, definitividad.
+
+Es el armazón doctrinal de la cuestión, minado de sentencias reales. Decirle al
+modelo con qué nociones razona el tribunal es decirle por dónde va el
+razonamiento, no sólo qué citar.
