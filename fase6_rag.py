@@ -639,5 +639,9 @@ async def tesis_por_registro(qdrant, registros: list) -> list:
         d = _tesis_de(p.payload or {})
         if d["registro"] and d["registro"] not in vistos and d["rubro"]:
             vistos.add(d["registro"])
+            # MARCADAS. El prompt sólo admite MAX_TESIS_PROMPT tesis y estas
+            # llegaban al final de una lista de cuarenta: el recorte se las
+            # llevaba siempre. La marca las exime del tope.
+            d["tecnica"] = True
             fuera.append(d)
     return fuera

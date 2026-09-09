@@ -420,7 +420,22 @@ def _bloque_material(m: Material) -> str:
     p = ["", "═" * 71, "MATERIAL PARA FUNDAR", "═" * 71]
     # Las obligatorias primero: ya vienen ordenadas, así que el recorte se lleva
     # las orientadoras del final, que es lo que sobra.
-    tesis = (m.tesis or [])[:MAX_TESIS_PROMPT]
+    # ═══════════════════════════════════════════════════════════════════════
+    # LAS TESIS DE LA TÉCNICA NO COMPITEN POR EL CUPO
+    # ═══════════════════════════════════════════════════════════════════════
+    # El tope son diez y el acervo devuelve cuarenta, así que `[:10]` es un
+    # recorte de verdad. Las tesis de la técnica se añadían al FINAL de la
+    # lista y el recorte se las llevaba SIEMPRE: en la revisión fiscal 91/2025
+    # se trajeron las cuatro del reenvío —consta en los registros— y ninguna
+    # llegó al prompt. Dos intentos de arreglarlo tocaron el texto de la
+    # instrucción, que no era el problema: la instrucción prometía unas tesis
+    # que no estaban.
+    #
+    # No se sube el tope: las del fondo siguen siendo diez, y las de la técnica
+    # van aparte porque responden a otra pregunta.
+    _tec = [t for t in (m.tesis or []) if t.get("tecnica")]
+    tesis = [t for t in (m.tesis or [])
+             if not t.get("tecnica")][:MAX_TESIS_PROMPT] + _tec
     normas = (m.normas or [])[:MAX_NORMAS_PROMPT]
     if tesis:
         p.append("\nTESIS Y JURISPRUDENCIA (existen: salen del acervo, no de tu memoria).")
