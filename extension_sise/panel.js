@@ -50,7 +50,7 @@
   LOG("guion cargado en", location.pathname);
 
   const API = "https://jurexia-api.onrender.com";
-  const VERSION = "v0.8";
+  const VERSION = "v0.9";
   const enPromociones = /PanelPromociones/i.test(location.pathname);
 
   const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");
@@ -80,30 +80,32 @@
     return filas;
   }
 
-  /** Pulsa de verdad y espera a que el trabajador de fondo traiga el fichero. */
-  function pulsarYRecoger(boton, clave, segundos = 45) {
+  /** Pulsa de verdad y recoge el PDF de la RESPUESTA, con el depurador.
+   *
+   * El clic es real —el que SISE acepta sin rechistar— y lo que se lee es su
+   * respuesta antes de que el navegador la convierta en una descarga. Ni se
+   * fabrica la petición, que es lo que rechazaba el filtro de IIS, ni se toca
+   * el disco, que es lo que Chrome no deja.
+   */
+  function pulsarYRecoger(boton, clave) {
     return new Promise((resolve, reject) => {
       const oyente = (msg) => {
-        if (msg?.clave !== clave) return;
+        if (msg?.que !== "capturado" || msg.clave !== clave) return;
         chrome.runtime.onMessage.removeListener(oyente);
-        clearTimeout(reloj);
-        if (msg.que === "descarga-lista") {
-          resolve(new Blob([new Uint8Array(msg.bytes)], { type: "application/pdf" }));
-        } else {
-          reject(new Error(msg.error || "la descarga falló"));
-        }
+        if (msg.error) reject(new Error(msg.error));
+        else resolve(new Blob([new Uint8Array(msg.bytes)], { type: "application/pdf" }));
       };
-      const reloj = setTimeout(() => {
-        chrome.runtime.onMessage.removeListener(oyente);
-        // SI NO CAE NADA, casi siempre es que falta la casilla de acceso a
-        // ficheros. Decirlo aquí ahorra media hora de buscar en otro sitio.
-        reject(new Error("no llegó ningún fichero en " + segundos + "s. "
-          + "Comprueba «Permitir acceso a URL de archivo» en chrome://extensions"));
-      }, segundos * 1000);
       chrome.runtime.onMessage.addListener(oyente);
-      chrome.runtime.sendMessage({ que: "esperar-descarga", datos: { clave } })
-        .then(() => boton.click())
-        .catch(reject);
+      chrome.runtime.sendMessage({ que: "capturar", clave })
+        .then((r) => {
+          if (!r?.ok) throw new Error(r?.error || "no se pudo preparar la captura");
+          LOG("pulsando", clave);
+          boton.click();
+        })
+        .catch((e) => {
+          chrome.runtime.onMessage.removeListener(oyente);
+          reject(e);
+        });
     });
   }
 
@@ -219,6 +221,10 @@
     const r = await fetch(`${API}/taller/desde-sise`, { method: "POST", body: d });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.detail || `El taller respondió ${r.status}`);
+    // Soltar el depurador en cuanto se acaba: dejar el aviso de «se está
+    // depurando» puesto sin motivo es la clase de detalle que hace que
+    // alguien desinstale la extensión.
+    chrome.runtime.sendMessage({ que: "soltar" }).catch(() => {});
     suma(`<div class="bien">Listo. El expediente ${ficha.numero} está en el
           taller con sus constancias.</div>`);
     if (Array.isArray(j.avisos)) {

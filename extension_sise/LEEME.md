@@ -6,21 +6,27 @@ Una vez por equipo. No pide, no guarda y no envía tu contraseña de SISE.
 2. Activa **Modo de desarrollador** (arriba a la derecha).
 3. Pulsa **Cargar descomprimida** y elige esta carpeta:
    `IUREXIA-MAC/jurexia-api-git/extension_sise`
-4. En la extensión, pulsa **Detalles** y activa **«Permitir acceso a URL de
-   archivo»**. Sin esa casilla no puede leer el PDF que SISE descarga, y no
-   hay manera de saltársela: Chrome no deja a una extensión leer el disco por
-   defecto, y hace bien.
-5. En la extensión, entra a **Opciones** y guarda tu correo de Iurexia.
+4. En la extensión, entra a **Opciones** y guarda tu correo de Iurexia.
    Es lo único que se le pide: sirve para saber a qué cuenta mandar el asunto.
 
-## Por qué pulsa en vez de pedir los ficheros por detrás
+## Chrome avisará de que «se está depurando este navegador»
 
-Se intentó cuatro veces imitar la petición que hace el clic, y SISE la rechazó
-—la última con el filtro de IIS: «request filtering is configured to deny
-double escape sequences»—. Una petición hecha por un guion no se parece a una
-navegación por más cabeceras que se le copien. Así que la extensión **pulsa el
-archivero de verdad** y recoge lo que el navegador descarga. Verás los PDF
-aparecer en tu carpeta de descargas: es normal, y es lo que los hace fiables.
+Es esperado y dura sólo mientras trae las constancias. La extensión usa el
+depurador de Chrome para leer el PDF de la respuesta del clic, y ése es el
+aviso que Chrome pone —con razón— cuando una extensión mira el tráfico de una
+pestaña. Al terminar lo suelta sola.
+
+## Por qué por ahí y no de otra manera
+
+Se intentó cuatro veces imitar la petición del clic y SISE la rechazó: el
+filtro de IIS responde «request filtering is configured to deny double escape
+sequences», porque una petición de guion no se parece a una navegación. Y
+dejar que el fichero se descargue para leerlo del disco tampoco sirve: Chrome
+protege el disco.
+
+El clic real es el único que SISE acepta, y el depurador es la única forma de
+leer su respuesta. De paso, los PDF ya NO se acumulan en tu carpeta de
+descargas: se capturan antes.
 
 ## Cómo se usa
 
