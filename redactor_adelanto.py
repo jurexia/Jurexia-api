@@ -357,9 +357,16 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             import fase_rama as _fr_a
             f.resolvio_a_quo = _fr_a.resolvio_a_quo(texto_acto or "")
             f.resolutivo_recurrida = _fr_a.resolutivo_recurrida(texto_acto or "")
+            import fase_origen as _fo_a
+            _dd = _fo_a.datos_del_documento(texto_acto or "")
+            f.expediente_origen = _dd.get("expediente", "")
+            f.fecha_origen = _dd.get("fecha", "")
             print(f"   ⚖️ el juzgado {f.resolvio_a_quo or '(no consta)'}"
                   f" · resolutivo reproducible: "
                   f"{'sí' if f.resolutivo_recurrida else 'no'}")
+            print(f"   📑 origen leído del PDF: expediente "
+                  f"{f.expediente_origen or '(no consta)'} · fecha "
+                  f"{f.fecha_origen or '(no consta)'}")
         except Exception as _ex:
             print(f"   ⚠️ no se pudo leer el desenlace del a quo: {type(_ex).__name__}")
     if autos:
@@ -1189,6 +1196,8 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     # venía a cerrar. Un getattr con valor por omisión no avisa de nada.
     datos["resolvio_a_quo"] = getattr(fases, "resolvio_a_quo", "") or ""
     datos["resolutivo_recurrida"] = getattr(fases, "resolutivo_recurrida", "") or ""
+    datos["expediente_origen"] = getattr(fases, "expediente_origen", "") or ""
+    datos["fecha_origen"] = getattr(fases, "fecha_origen", "") or ""
     # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.

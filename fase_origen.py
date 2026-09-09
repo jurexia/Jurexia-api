@@ -161,3 +161,85 @@ def fecha_de(resultandos: str) -> str:
     if len(distintas) == 1:
         return con_marca[0]
     return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LEER EL DOCUMENTO FUENTE, NO LA PROSA QUE ESCRIBIMOS SOBRE ÉL
+# ═══════════════════════════════════════════════════════════════════════════
+# `numero_de` y `fecha_de` leen los RESULTANDOS del proyecto —la prosa que el
+# modelo escribe— y están calibrados para eso. Sobre la sentencia original no
+# aciertan, y no es un defecto suyo: el documento fuente escribe esos datos de
+# otra manera.
+#
+# Medido sobre la sentencia recurrida de la revisión fiscal 91/2025 de David,
+# pasada por Azure —18 páginas, 64,568 caracteres—: los dos devuelven cadena
+# vacía, y el resolutivo sale con dos huecos.
+#
+#   · el expediente viene como «EXPEDIENTE: 695/25-09-01-7-OT», con DOS PUNTOS,
+#     y `numero_de` exige un espacio detrás de la palabra.
+#   · la fecha está en el proemio —«Santiago de Querétaro, …, a veintidós de
+#     septiembre de dos mil veinticinco»— y `fecha_de` exige que delante vaya
+#     «sentencia», «auto» o «resolución».
+#
+# NO SE TOCAN LOS OTROS DOS. Aciertan donde se les midió, y aflojar sus
+# patrones para que además sirvan aquí es la manera de romper lo que funciona.
+# Esto es un lector aparte, para una fuente distinta.
+
+# El expediente del Tribunal Federal de Justicia Administrativa tiene una forma
+# propia y muy poco confundible: 695/25-09-01-7-OT. Cinco grupos separados por
+# guiones detrás de la barra. No hace falta anclarlo a ninguna palabra.
+_RX_EXPTE_TFJA = re.compile(r"\b(\d{1,6}/\d{2}-\d{2}-\d{2}-\d[\w-]*)")
+# Y la forma general, ya con dos puntos admitidos.
+_RX_EXPTE_ROTULO = re.compile(
+    r"\b(?:EXPEDIENTE|EXP)\s*[:.]?\s*([0-9][\w/.-]{4,30})", re.I)
+
+_DIA_MES_ANO = (
+    r"(?:uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|"
+    r"catorce|quince|diecis[éeí]is|diecisiete|dieciocho|diecinueve|veinte|"
+    r"veinti\w+|treinta(?:\s+y\s+uno)?)\s+de\s+(?:enero|febrero|marzo|abril|"
+    r"mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+"
+    r"(?:dos\s+mil\s+\w+(?:\s+y\s+\w+)?|\d{4})")
+# EL PROEMIO: «…Querétaro, a veintidós de septiembre de dos mil veinticinco».
+_RX_FECHA_PROEMIO = re.compile(rf",\s*a\s+(?:los\s+)?({_DIA_MES_ANO})", re.I)
+
+
+def datos_del_documento(texto: str) -> dict:
+    """{'expediente', 'fecha'} leídos de la sentencia original. '' si no consta.
+
+    Se prefiere lo que MÁS SE REPITE, no lo primero: en una sentencia el número
+    de expediente aparece en el encabezado de cada página, y cualquier otro
+    número que se mencione de paso lo hace una vez.
+    """
+    t = " ".join((texto or "").split())
+    if not t:
+        return {"expediente": "", "fecha": ""}
+
+    from collections import Counter
+    cuenta = Counter(m.group(1) for m in _RX_EXPTE_TFJA.finditer(t))
+    if not cuenta:
+        cuenta = Counter(m.group(1).rstrip(".,;")
+                         for m in _RX_EXPTE_ROTULO.finditer(t))
+    expte = ""
+    if cuenta:
+        mejor, n = cuenta.most_common(1)[0]
+        # UNA SOLA APARICIÓN NO IDENTIFICA UNA SENTENCIA. El expediente propio
+        # se repite; un número citado de pasada, no.
+        # DOS APARICIONES, SIEMPRE. Con `or len(cuenta) == 1` bastaba una, y
+        # entonces un número citado de pasada —«el juicio 123/20-09-01-4-OT,
+        # invocado como precedente»— se colaba al resolutivo como si fuera la
+        # sentencia que se revisa. El expediente propio va en el encabezado de
+        # cada página: si sólo aparece una vez, no es el propio. Y quedarse sin
+        # el dato es un hueco visible con su aviso; ponerlo mal es una
+        # sentencia mal identificada que nadie relee.
+        if n >= 2:
+            expte = mejor
+
+    # LA FECHA, DEL PRINCIPIO DEL DOCUMENTO. Más allá del proemio empiezan las
+    # fechas de los antecedentes —la demanda, el emplazamiento, las pruebas— y
+    # cualquiera de ellas leída aquí pondría en el resolutivo una sentencia que
+    # no es la que se revisa.
+    fecha = ""
+    m = _RX_FECHA_PROEMIO.search(t[:4000])
+    if m:
+        fecha = " ".join(m.group(1).split())
+    return {"expediente": expte, "fecha": fecha}

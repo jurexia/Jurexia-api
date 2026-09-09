@@ -537,6 +537,12 @@ class Fases123:
     # El resolutivo del juzgado, listo para reproducirse, con la cola apuntando
     # a la sentencia recurrida. Vacío si no se pudo leer con seguridad.
     resolutivo_recurrida: str = ""
+    # El expediente y la fecha de la sentencia de la Sala, leídos del PDF. El
+    # resolutivo de la revisión fiscal los nombra —«Se confirma la sentencia de
+    # {fecha}, dictada en el expediente {expediente}»— y hasta ahora se
+    # buscaban en la prosa del proyecto, donde a menudo no están.
+    expediente_origen: str = ""
+    fecha_origen: str = ""
 
     def parrafos_antecedentes(self) -> list[str]:
         """Sin el encabezado que el modelo se pone a sí mismo.

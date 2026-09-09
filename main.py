@@ -27696,6 +27696,8 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             # que esa misma sentencia había concedido.
             "resolvio_a_quo": getattr(r.fases, "resolvio_a_quo", "") or "",
             "resolutivo_recurrida": getattr(r.fases, "resolutivo_recurrida", "") or "",
+            "expediente_origen": getattr(r.fases, "expediente_origen", "") or "",
+            "fecha_origen": getattr(r.fases, "fecha_origen", "") or "",
         },
         "partes": (r.partes.__dict__ if r.partes else None),
         "computo": {"oportuna": r.computo.oportuna,

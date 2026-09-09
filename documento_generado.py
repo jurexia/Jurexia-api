@@ -3786,8 +3786,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 _res_txt = " ".join(str(r.get("texto") or "")
                                     for r in (estructura.resultandos or []))
                 _fuente = f"{datos.get('antecedentes') or ''} {_res_txt}"
-                _fecha_s = _fo_r.fecha_de(_fuente)
-                _expte_s = _fo_r.numero_de(_fuente)
+                # PRIMERO LO LEÍDO DEL PDF. `fecha_de` y `numero_de`
+                # leen la prosa del proyecto y están calibrados para eso;
+                # sobre la sentencia de la Sala no aciertan, y su resultado
+                # vacío dejaba el resolutivo con dos huecos. Medido sobre la
+                # revisión fiscal 91/2025: del PDF salen el expediente
+                # 695/25-09-01-7-OT y la fecha «veintidós de septiembre de dos
+                # mil veinticinco»; de la prosa, nada.
+                _fecha_s = (str(datos.get("fecha_origen") or "").strip()
+                            or _fo_r.fecha_de(_fuente))
+                _expte_s = (str(datos.get("expediente_origen") or "").strip()
+                            or _fo_r.numero_de(_fuente))
             except Exception as _eo:
                 print(f"   ⚠️ no se pudo leer fecha/expediente del recurrido: {_eo}")
             if not _fecha_s or not _expte_s:
