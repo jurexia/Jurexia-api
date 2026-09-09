@@ -26,8 +26,31 @@
   "use strict";
   if (document.getElementById("iurexia-barra")) return;
 
+  /* ═══════════════════════════════════════════════════════════════════════
+   * QUE NO PUEDA FALLAR EN SILENCIO
+   * ═══════════════════════════════════════════════════════════════════════
+   * Tres vueltas perdidas con el mismo síntoma —«no pasa nada al pulsar»—
+   * porque el guion moría entre dibujar el recuadro y enganchar el botón, y
+   * ahí no había quién lo contara. El recuadro quedaba dibujado y muerto,
+   * indistinguible de uno vivo.
+   *
+   * Ahora: rastro en la consola con prefijo, y cualquier error va a parar al
+   * propio recuadro. Un instrumento que se calla es peor que no tenerlo.
+   */
+  const LOG = (...a) => console.log("[iurexia]", ...a);
+  const pintarError = (e) => {
+    const c = document.getElementById("iurexia-estado");
+    const t = (e && e.message) || String(e);
+    LOG("ERROR", t, e);
+    if (c) c.innerHTML += `<div class="mal">${t}</div>`;
+  };
+  window.addEventListener("error", (ev) => {
+    if (/panel\.js/.test(ev.filename || "")) pintarError(ev.error || ev.message);
+  });
+  LOG("guion cargado en", location.pathname);
+
   const API = "https://jurexia-api.onrender.com";
-  const VERSION = "v0.7";
+  const VERSION = "v0.8";
   const enPromociones = /PanelPromociones/i.test(location.pathname);
 
   const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");
@@ -97,6 +120,18 @@
 
   const estado = barra.querySelector("#iurexia-estado");
   const boton = barra.querySelector("#iurexia-ir");
+  // SE ENGANCHA AQUÍ, lo primero. Si algo revienta más abajo, el botón ya
+  // responde y puede contar qué pasó, en vez de quedarse mudo.
+  boton.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    LOG("pulsado");
+    try {
+      arrancar();
+    } catch (e) {
+      pintarError(e);
+    }
+  });
   const di = (h) => { estado.innerHTML = h; };
   const suma = (h) => { estado.innerHTML += h; };
 
@@ -192,31 +227,18 @@
   }
 
   async function arrancar() {
+    LOG("arrancar · enPromociones =", enPromociones);
     boton.disabled = true;
     try {
       await (enPromociones ? fasePromociones() : faseCentral());
     } catch (e) {
-      suma(`<div class="mal">${e.message}</div>`);
+      pintarError(e);
     } finally {
       boton.disabled = false;
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // EL BOTÓN TENÍA QUE DECLARAR QUE NO ES DE ENVÍO
-  // ═══════════════════════════════════════════════════════════════════════
-  // Un <button> sin `type` es `submit` por omisión, y en ASP.NET WebForms el
-  // <body> ENTERO va dentro del <form>: pulsar mi botón enviaba el formulario
-  // de SISE en vez de ejecutar esto. La página se recargaba, el recuadro
-  // volvía a dibujarse vacío, y parecía que el clic no hacía nada.
-  //
-  // Costó varias vueltas porque el síntoma —«no pasa nada»— es idéntico al de
-  // un guion que no se cargó.
-  boton.addEventListener("click", (ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    arrancar();
-  });
+  // (el botón se enganchó arriba, antes de que nada pudiera reventar)
 
   // SIGUE SOLA. Si venimos del Panel Central, la fase 2 arranca al cargar:
   // para el secretario es un solo clic aunque por dentro sean dos pantallas.
