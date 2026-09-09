@@ -79,6 +79,37 @@ def _de_otro_estado(t: dict, coleccion: Optional[str]) -> bool:
     return bool(mia) and mia not in suya and suya not in mia
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA JERARQUÍA: PRIMERO SI VINCULA, DESPUÉS QUIÉN LO DIJO
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «no olvides que la jerarquía del orden pese».
+#
+# El orden era `(no es SCJN, no es obligatoria, …)`, y con eso una TESIS
+# AISLADA de la Primera Sala le ganaba a una JURISPRUDENCIA de tribunal
+# colegiado. Comprobado ejecutándolo. Está al revés: la aislada NO vincula a
+# nadie —orienta— y la jurisprudencia del colegiado SÍ obliga en su circuito.
+# El estudio que se apoya en la primera se apoya en algo que la contraparte
+# puede discutir; el que se apoya en la segunda, no.
+#
+# El orden correcto es el de la Ley de Amparo, no el del prestigio del emisor:
+#   1º  si VINCULA
+#   2º  quién lo dijo, dentro de cada grupo
+#   3º  cuántas veces lo cita el circuito para esta cuestión
+#   4º  si la tesis es de legislación de otra entidad
+_RANGO = (("PLENO REGIONAL", 1), ("PLENOS REGIONALES", 1), ("PLENO", 0),
+          ("SUPREMA CORTE", 0), ("PRIMERA SALA", 2), ("SEGUNDA SALA", 2),
+          ("SALA", 2), ("TRIBUNALES COLEGIADOS", 3), ("COLEGIADO", 3))
+
+
+def _rango_instancia(t: dict) -> int:
+    """0 Pleno · 1 Plenos Regionales · 2 Salas · 3 Colegiados · 4 lo demás."""
+    inst = _sin_acentos(t.get("instancia", ""))
+    for clave, r in _RANGO:
+        if clave in inst:
+            return r
+    return 4
+
+
 def _es_scjn(t: dict) -> bool:
     """Pleno o Salas. David: «preferentemente jurisprudencia de la Suprema Corte»."""
     inst = _sin_acentos(t.get("instancia", ""))
@@ -535,8 +566,8 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     tesis = _crudo
     # EL ORDEN, con la co-citación dentro: entre dos criterios que pesan igual,
     # manda el que el circuito usa de verdad para esta cuestión.
-    tesis.sort(key=lambda t: (not _es_scjn(t),
-                              not t["obligatoria"],
+    tesis.sort(key=lambda t: (not t["obligatoria"],
+                              _rango_instancia(t),
                               -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
     vistos: set[str] = set()
@@ -704,23 +735,76 @@ SENTENCIAS_POR_PROBLEMA = 50
 COCITADAS_POR_PROBLEMA = 8
 
 
+# LA MISMA TESIS SE ESCRIBE DE VARIAS MANERAS, y por eso no casa. Medido sobre
+# 300 claves reales: con la búsqueda exacta resuelven 163 (54%). Lo que falla
+# no es que falte corpus —eso creí al principio— sino la ortografía de la cita:
+#
+#     «2a./J.81/2002»      sin el espacio detrás de «J.»
+#     «VI.2º. J/129»       con el ordinal masculino en vez de «2o.»
+#     «2a./3. 115/2005»    con la «J» que el OCR leyó como un tres
+#     «XVII.1o.C.T.30K»    sin el espacio antes de la letra final
+#
+# Probando esas variantes se pasa de 163 a 181 (60%). **Es una ganancia
+# modesta, no la mitad que yo había estimado**: el 40% restante son criterios
+# que de verdad no están en la colección —Séptima y Octava Época, precedentes
+# del propio Tribunal Federal de Justicia Administrativa— y ésos no se
+# resuelven normalizando, sino ingiriéndolos.
+_RX_ORDINAL_MASC = re.compile(r"[º°]")
+
+
+def _variantes_de_clave(k: str) -> list:
+    """Las formas en que la misma clave aparece escrita, la primera la literal."""
+    k = " ".join(str(k or "").split())
+    if not k:
+        return []
+    v = [k]
+    a = _RX_ORDINAL_MASC.sub("o.", k).replace("o..", "o.")
+    if a != k:
+        v.append(a)
+    for x in list(v):
+        for y in (re.sub(r"(J\.)(\d)", r"\1 \2", x),          # J.81 → J. 81
+                  re.sub(r"(J\.)\s+(\d)", r"\1\2", x),         # J. 81 → J.81
+                  re.sub(r"\s*\(\d+a\.\)\s*$", "", x),        # sin la época
+                  re.sub(r"(\d)([A-Z])$", r"\1 \2", x),        # 30K → 30 K
+                  x.replace("/3.", "/J.").replace("/1.", "/J.")):
+            if y and y != x:
+                v.append(y)
+    fuera = []
+    for x in v:
+        x = " ".join(x.split())
+        if x and x not in fuera:
+            fuera.append(x)
+    return fuera[:10]
+
+
 async def _ficha_de_cita(qdrant, clave: str):
-    """La tesis, buscada por registro y, si no, por su clave."""
+    """La tesis, por registro y por su clave, tolerando cómo se escribió."""
     from qdrant_client.models import FieldCondition, Filter, MatchValue
-    for campo in ("registro", "clave_tesis"):
+
+    async def _uno(campo, val):
         try:
             r = qdrant.scroll(
                 collection_name=COLECCION_JURIS,
                 scroll_filter=Filter(must=[FieldCondition(
-                    key=campo, match=MatchValue(value=str(clave)))]),
+                    key=campo, match=MatchValue(value=str(val)))]),
                 limit=1, with_payload=True)
             if inspect.isawaitable(r):
                 r = await r
             pts = r[0] if isinstance(r, tuple) else r
-            if pts:
-                return _tesis_de(pts[0].payload or {})
+            return _tesis_de(pts[0].payload or {}) if pts else None
         except Exception:
-            continue
+            return None
+
+    # El registro, con o sin el «Registro digital» delante.
+    m = re.match(r"^\D*(\d{5,8})\D*$", str(clave))
+    if m:
+        f = await _uno("registro", m.group(1))
+        if f:
+            return f
+    for var in _variantes_de_clave(clave):
+        f = await _uno("clave_tesis", var)
+        if f:
+            return f
     return None
 
 
