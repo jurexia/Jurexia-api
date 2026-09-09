@@ -168,11 +168,31 @@
   caja.append(boton, panel);
   document.documentElement.appendChild(caja);
 
-  let abierto = false;
+  // TRES BANDERAS, Y VIVEN EN EL MÓDULO. Sin ellas el panel es reentrante: la
+  // revisión adversarial reconstruyó la secuencia entera. El secretario pulsa
+  // «Enviar», se impacienta viendo «Trayendo 3 de 12», cierra el panel y lo
+  // reabre. Cerrar no detenía nada, así que la primera pasada seguía bajando a
+  // ciegas; y como al repintar nacía un botón «Enviar» NUEVO —habilitado,
+  // porque el `disabled` se puso en el botón anterior, ya desprendido del
+  // árbol— volvía a pulsar. Dos pasadas, dos POST, y el upsert por
+  // email+numero deja la última: si la segunda traía menos constancias, la
+  // buena se perdía SIN UN SOLO MENSAJE DE ERROR.
+  //
+  // No se aborta el envío en vuelo a propósito. Si el aborto cayera dentro del
+  // POST a Iurexia, el servidor podría haber guardado ya y la pantalla diría
+  // «cancelado» sobre algo que sí quedó: cambiar un fallo mudo por otro peor.
+  // Lo que se impide es EMPEZAR el segundo.
+  let abierto  = false;
+  let pintando = false;
+  let enviando = false;
+
   boton.addEventListener('click', () => {
     abierto = !abierto;
     panel.hidden = !abierto;
-    if (abierto) pintar();
+    // Con un envío vivo, reabrir enseña ESE panel y su progreso. Repintar
+    // borraría el «Trayendo N de M» —y también el acuse de un envío que ya
+    // terminó bien, que es justo lo que empujaba a reenviar.
+    if (abierto && !enviando && !pintando) pintar();
   });
 
   const nota = (txt, clase) => {
@@ -181,6 +201,16 @@
   };
 
   async function pintar() {
+    if (pintando) return;
+    pintando = true;
+    try {
+      await _pintar();
+    } finally {
+      pintando = false;
+    }
+  }
+
+  async function _pintar() {
     panel.textContent = '';
     const s = sesion();
     if (!s) {
@@ -249,6 +279,7 @@
     panel.append(enviar, estado);
 
     enviar.addEventListener('click', async () => {
+      if (enviando) return;
       const correo = (correoGuardado || (entradaCorreo && entradaCorreo.value) || '')
                        .trim().toLowerCase();
       if (!correo || correo.indexOf('@') < 0) {
@@ -271,8 +302,10 @@
         return;
       }
 
+      enviando = true;
       enviar.disabled = true;
       estado.className = 'iux-nota';
+      try {
 
       // UNA PASADA, UN INTENTO POR DOCUMENTO. Sin reintentos y sin bucle: lo
       // que falle se dice al final por su nombre, y el secretario decide.
@@ -302,7 +335,6 @@
       // texto— dirá qué es en realidad.
       const iPro = bajados.findIndex(b => b.entrada.tipo === 2);
       if (!bajados.length) {
-        enviar.disabled = false;
         estado.className = 'iux-nota iux-error';
         estado.textContent = 'No se pudo traer ningún documento. '
                            + fallos.join(' · ');
@@ -352,7 +384,12 @@
       } catch (err) {
         estado.className = 'iux-nota iux-error';
         estado.textContent = 'No se pudo enviar: ' + (err.message || err);
+      }
       } finally {
+        // TODA salida pasa por aquí, incluidos los `return` tempranos de las
+        // ramas de error. Una bandera que se queda colgada deja el panel
+        // inservible hasta recargar, y eso es peor que el fallo que evita.
+        enviando = false;
         enviar.disabled = false;
       }
     });

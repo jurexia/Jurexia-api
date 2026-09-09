@@ -1,66 +1,46 @@
-# Taller desde SISE · cómo instalarla
+# Iurexia · Taller desde el Expediente Electrónico
 
-Una vez por equipo. No pide, no guarda y no envía tu contraseña de SISE.
+Trae al taller las constancias del expediente que tienes abierto, sin que
+teclees el número, ni el tipo de asunto, ni la fecha.
 
-1. Abre Chrome y ve a `chrome://extensions`.
-2. Activa **Modo de desarrollador** (arriba a la derecha).
-3. Pulsa **Cargar descomprimida** y elige esta carpeta:
-   `IUREXIA-MAC/jurexia-api-git/extension_sise`
-4. En la extensión, entra a **Opciones** y guarda tu correo de Iurexia.
-   Es lo único que se le pide: sirve para saber a qué cuenta mandar el asunto.
+## Instalar (una vez)
 
-## Chrome avisará de que «se está depurando este navegador»
+1. Chrome → `chrome://extensions`
+2. Enciende **Modo de desarrollador** (arriba a la derecha).
+3. **Cargar descomprimida** → elige esta carpeta, `extension_sise`.
+4. Pulsa **Detalles → Opciones** y escribe tu correo de Iurexia. (También
+   puedes escribirlo la primera vez desde el propio panel.)
 
-Es esperado y dura sólo mientras trae las constancias. La extensión usa el
-depurador de Chrome para leer el PDF de la respuesta del clic, y ése es el
-aviso que Chrome pone —con razón— cuando una extensión mira el tráfico de una
-pestaña. Al terminar lo suelta sola.
+## Usar
 
-## Por qué por ahí y no de otra manera
+1. Entra en SISE como siempre y abre tu expediente.
+2. Pulsa el icono **Vista Expediente Electrónico**. Se abre el visor.
+3. Abajo a la derecha aparece el botón **Iurexia**. Púlsalo.
+4. Verás la lista de actuaciones. Vienen marcados los **acuerdos** y las
+   **promociones**; las **notificaciones**, no. Desmarca lo que sobre.
+5. **Enviar a Iurexia.** Al terminar te dice qué reconoció en cada documento.
+6. Abre el taller: el expediente está esperando.
 
-Se intentó cuatro veces imitar la petición del clic y SISE la rechazó: el
-filtro de IIS responde «request filtering is configured to deny double escape
-sequences», porque una petición de guion no se parece a una navegación. Y
-dejar que el fichero se descargue para leerlo del disco tampoco sirve: Chrome
-protege el disco.
+## Qué hace con tus datos
 
-El clic real es el único que SISE acepta, y el depurador es la única forma de
-leer su respuesta. De paso, los PDF ya NO se acumulan en tu carpeta de
-descargas: se capturan antes.
+- **No guarda ni envía tu usuario, tu contraseña ni tu sesión del CJF.** Usa la
+  sesión que ya tienes abierta, dentro de tu navegador, y sólo para pedirle al
+  propio CJF los documentos que hayas marcado.
+- **No descarga nada a tu disco.** Los PDF van de la memoria de esa pestaña al
+  servidor de Iurexia. Tu carpeta de descargas no se toca.
+- A Iurexia viajan los PDF que marcaste y el índice del expediente. Nada más.
 
-## Cómo se usa
+## Si algo va mal
 
-1. Entra a SISE como siempre, con tu usuario.
-2. Expediente Electrónico → Consultar expediente electrónico.
-3. Teclea el número, elige el tipo de asunto, Buscar, y entra al cuaderno.
-4. En el **Panel Central de Consultas** aparece abajo a la derecha el recuadro
-   de Iurexia. Pulsa **Traer las constancias**.
-5. Abre el taller: el expediente estará esperando con sus documentos.
+| Dice | Qué pasa |
+|---|---|
+| «Abre un expediente en el visor…» | Estás en el visor pero sin expediente cargado. Ábrelo desde SISE. |
+| «El visor no aceptó la sesión (401)» | Caducó. Recarga la página y vuelve a entrar en SISE. |
+| «Lo que llegó no es un PDF» | El CJF devolvió una página en vez del documento. Reintenta ese documento. |
+| «Falta tu correo de Iurexia» | Escríbelo en el panel, o en Detalles → Opciones. |
 
-## Qué se trae, y qué no
+## Topes
 
-Se trae, de la primera actuación que tenga promoción:
-
-- el **escrito que abre el asunto** (la promoción) — de ahí sale lo recurrido;
-- el **acuerdo** de esa actuación — el auto de admisión, con su fecha;
-- la **notificación** — el documento del que sale la fecha que manda el cómputo.
-
-Las fechas de la tabla viajan como **pista**, no como dato: la de notificación
-y la de presentación se leen del PDF y las confirmas tú. De esas dos depende el
-cómputo entero, y una equivocada deja el proyecto en extemporáneo sin avisar.
-
-## Al actualizar la extensión, RECARGA LA PÁGINA
-
-Chrome no reinyecta el guion en las pestañas que ya estaban abiertas: la barra
-que se ve sigue siendo la vieja y su botón ya no responde. Después de pulsar
-recargar en `chrome://extensions`, **recarga también la pestaña de SISE** (F5).
-La barra dice su versión al lado del título; si no coincide con la que
-instalaste, es la vieja.
-
-## Si algo falla
-
-- **«SISE no devolvió un PDF»** — casi siempre es que caducó la sesión de SISE.
-  Vuelve a entrar y pulsa otra vez.
-- **«Falta tu correo de Iurexia»** — Opciones de la extensión, guárdalo una vez.
-- **No aparece el recuadro** — sólo sale en el Panel Central de Consultas de un
-  expediente, no en el buscador ni en la portada.
+40 documentos y 80 MB por envío, y **un solo intento por documento**. Lo que
+falle se dice por su nombre al final. Sin reintentos automáticos: una versión
+anterior los tenía y dejó 48 ficheros en la carpeta de descargas.
