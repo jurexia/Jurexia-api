@@ -3487,6 +3487,28 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     _cuerpo_conceptos = _sin_anuncio_vacio(_cuerpo_conceptos)
     _efectos_escritos = _sin_anuncio_vacio(_efectos_escritos)
 
+    # EN UN RECURSO NO SE DEJA NADA INSUBSISTENTE. David: «en revisión la
+    # sentencia no se deja insubsistente, se revoca; sólo en amparo (cuando se
+    # concede) se ordena que se deje insubsistente el acto reclamado».
+    #
+    # NO SE CORRIGE EL TEXTO, SE AVISA: la frase puede venir dentro de un
+    # razonamiento largo —o describiendo lo que hizo OTRO órgano, que es
+    # legítimo— y reescribirla a ciegas es la clase de remiendo que ya salió
+    # peor que el defecto. Aquí basta con que quien firma lo vea.
+    if _ta.normalizar(tipo_asunto) in ("amparo_revision", "queja",
+                                       "revision_fiscal"):
+        _txt_rec = " ".join(str(x) for x in
+                            (list(_cuerpo_estudio) + list(_cuerpo_conceptos)))
+        if re.search(r"\bdej(?:e|ar|ará|en)\s+insubsistente", _txt_rec, re.I):
+            _avisos_bk.append(
+                "EL ESTUDIO DICE «DEJE INSUBSISTENTE» Y ESTO ES UN RECURSO. En "
+                "revisión la sentencia no se deja insubsistente: SE REVOCA, y "
+                "con eso deja de existir. Dejar insubsistente es la fórmula del "
+                "amparo, donde el tribunal no revoca el acto reclamado sino que "
+                "ordena a la responsable retirarlo. Compruébalo: si describe lo "
+                "que hizo otro órgano, está bien; si es lo que resuelve este "
+                "tribunal, cámbialo por «se revoca».")
+
     def _cierre_del_estudio():
         if not concede:
             parrafo(doc, _ta.parrafo_cierre(tipo_asunto, False))
@@ -3952,9 +3974,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                    sangria=False)
             _sala = _con_articulo(datos.get("responsable", "")) or HUECO
             tramos(doc, [("SEGUNDO. ", {"bold": True}),
-                         (f"Se ordena a {_sala} dejar insubsistente la "
-                          f"sentencia revocada y dictar otra en la que, con "
-                          f"libertad de jurisdicción y siguiendo los "
+                         # DAVID: «en revisión la sentencia no se deja
+                         # insubsistente, se revoca». El punto anterior ya la
+                         # revocó: no queda nada que dejar insubsistente, y
+                         # ordenarlo describe una potestad —la del amparo, en
+                         # que el tribunal NO revoca el acto sino que manda a
+                         # la responsable retirarlo— que aquí no se ejerce.
+                         (f"Se ordena a {_sala} dictar otra sentencia en la "
+                          f"que, con libertad de jurisdicción y siguiendo los "
                           f"lineamientos de esta ejecutoria, se ocupe de los "
                           f"conceptos de anulación cuyo estudio omitió.", {})],
                    sangria=False)

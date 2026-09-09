@@ -1595,10 +1595,13 @@ TECNICA_RESOLUCION["revision_fiscal_reenvio"] = {
         "Regional, y sustituirla dejaría al particular sin el juicio de amparo "
         "contra ese estudio, porque contra lo que resuelve un tribunal "
         "colegiado no procede recurso alguno.",
-        "EL RESOLUTIVO LLEVA DOS PUNTOS: uno que revoca la sentencia de la "
+        "EL RESOLUTIVO LLEVA DOS PUNTOS: uno que REVOCA la sentencia de la "
         "Sala, identificándola por su fecha y su expediente, y otro que le "
-        "ordena dejarla insubsistente y dictar otra en la que, siguiendo los "
-        "lineamientos de esta ejecutoria, se ocupe de lo que omitió.",
+        "ordena DICTAR OTRA en la que, siguiendo los lineamientos de esta "
+        "ejecutoria, se ocupe de lo que omitió. NO se le ordena dejarla "
+        "insubsistente: revocada, ya no existe. Dejar insubsistente es la "
+        "fórmula del AMPARO, donde el tribunal no revoca el acto reclamado "
+        "sino que ordena a la responsable que lo retire.",
         "SE DICE QUÉ QUEDÓ SIN ESTUDIAR. «Que se ocupe de los conceptos de "
         "anulación» a secas no le dice a la Sala qué tiene que hacer: se "
         "enumeran los que quedaron pendientes.",

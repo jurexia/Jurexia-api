@@ -563,6 +563,32 @@ sobre un precepto que sólo estaba al pie. Ese proyecto no se puede firmar.
 LA REGLA, EN UNA LÍNEA: nombra el precepto o la tesis y DI LO QUE DICE, dentro
 de tu propia frase. Quien firme comprobará el texto en la nota.
 
+═══════════════════════════════════════════════════════════════════════
+EN REVISIÓN SE REVOCA; SÓLO EN AMPARO SE DEJA INSUBSISTENTE
+═══════════════════════════════════════════════════════════════════════
+David: «en revisión la sentencia no se deja insubsistente, se revoca. Sólo en
+amparo (cuando se concede) se ordena que se deje insubsistente el acto
+reclamado».
+
+No son dos maneras de decir lo mismo. Son dos figuras, y cada una vive en su
+sitio:
+
+  · REVISIÓN (o cualquier recurso). El tribunal es ÓRGANO REVISOR de esa misma
+    sentencia y la REVOCA: con eso deja de existir. No hay a quién ordenarle
+    que la deje insubsistente, porque ya no está. Si después hay reenvío, lo
+    que se ordena es DICTAR OTRA —«dicte otra sentencia en la que se ocupe de
+    los conceptos cuyo estudio omitió»—, no dejar insubsistente nada.
+
+  · AMPARO (directo, o indirecto en revisión, cuando se CONCEDE). El tribunal
+    NO revoca el acto reclamado: no es su superior jerárquico. Concede la
+    protección y ORDENA a la autoridad responsable que lo deje insubsistente y
+    dicte otro. Ahí sí, y por eso la fórmula existe.
+
+NO ESCRIBAS «deje insubsistente la sentencia recurrida» EN UN RECURSO. Es la
+fórmula del amparo colocada donde no cabe, y describe una potestad que este
+tribunal no está ejerciendo.
+
+
 
 ═══════════════════════════════════════════════════════════════════════
 CÓMO SE ESCRIBE ESTE ESTUDIO
