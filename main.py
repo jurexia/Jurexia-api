@@ -28354,6 +28354,42 @@ async def _purgar_constancias_viejas(horas: int = 48) -> int:
         return 0
 
 
+@app.post("/taller/sise-descartar")
+async def taller_sise_descartar(
+    authorization: str = Header(default=""),
+    user_email: str = Form(""),
+    numero: str = Form(...),
+):
+    """Borrar lo que esperaba y empezar con otro expediente.
+
+    David: «si ya no quiero trabajar en ese sino en otro, agrega botón borrar y
+    trabajar en otro expediente».
+
+    Se borra la FILA ENTERA, no sólo los PDF. Lo que se suelta al generar el
+    proyecto deja el inventario porque sirve para auditar la clasificación; pero
+    cuando el secretario dice que ese expediente ya no le interesa, no hay nada
+    que auditar: lo que hay es un expediente ajeno del que Iurexia no tiene por
+    qué conservar ni el rastro.
+    """
+    correo = await _correo_de_la_sesion(authorization, user_email)
+    if not correo:
+        raise HTTPException(401, "No se pudo saber de quién es este expediente.")
+    _taller_puerta(correo)
+    if not supabase_admin:
+        raise HTTPException(503, "No se puede borrar ahora mismo.")
+    try:
+        r = supabase_admin.table("sise_pendientes").delete() \
+            .eq("email", correo).eq("numero", (numero or "").strip()).execute()
+    except Exception as ex:
+        print(f"   ‼️ no se pudo descartar {numero}: {err(ex)}")
+        raise HTTPException(500, "No se pudo borrar el expediente. Vuelve a intentarlo.")
+    n = len(r.data or [])
+    print(f"   🗑️  descartado · {numero} · {n} fila(s)")
+    # Que no borre nada no es un error: pudo caducar o borrarse en otra
+    # pestaña. Lo que importa es que después NO esté, y no está.
+    return {"ok": True, "borradas": n}
+
+
 @app.post("/taller/desde-expediente")
 async def taller_desde_expediente(
     user_email: str = Form(...),
