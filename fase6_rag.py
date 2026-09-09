@@ -651,10 +651,25 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
 
     tesis, normas = [], []
     r_vistos, n_vistos = set(), set()
+    # DE QUÉ PROBLEMA VIENE CADA TESIS. La búsqueda ya es por problema, pero al
+    # aplanar se perdía esa procedencia y la fase que propone recibía ocho
+    # tesis sueltas para tres o siete problemas. Medido sobre cinco asuntos
+    # reales: 191 tesis recuperadas y 10 invocadas, el 5,2 %; en el ADA 47/2025,
+    # seis de siete problemas se resolvieron SIN un solo criterio.
+    #
+    # Sigue sin repetirse una tesis —el estudio es una sola pieza de prosa y
+    # citarla tres veces la abarata—: lo que se guarda es a qué problemas
+    # sirve, para poder decirle a quien propone qué tiene disponible para cada
+    # uno. Deduplicar no tenía por qué costar la procedencia.
+    _de_quien = {}
+    for _i, m in enumerate(partes, 1):
+        for t in m.tesis:
+            _de_quien.setdefault(t["registro"], []).append(_i)
     for m in partes:
         for t in m.tesis:
             if t["registro"] not in r_vistos:
                 r_vistos.add(t["registro"])
+                t["para"] = sorted(set(_de_quien.get(t["registro"], [])))
                 tesis.append(t)
         for n in m.normas:
             clave = (n["cuerpo_legal"], str(n["articulo"]))

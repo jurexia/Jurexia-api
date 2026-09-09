@@ -52,7 +52,15 @@ ESFUERZO_PROPUESTA = os.getenv("ESFUERZO_PROPUESTA", "high")
 # son doscientas palabras, pero el sitio para pensarlas hay que dárselo.
 MAX_TOKENS_PROPUESTA = int(os.getenv("MAX_TOKENS_PROPUESTA", "16000"))
 
-MAX_TESIS_PROPUESTA = 8
+# EL TOPE, Y POR QUÉ SUBE. Con ocho, un asunto de siete problemas veía como
+# mucho una tesis por problema, y en la práctica ninguna: se ordenaban las
+# obligatorias delante y las ocho primeras podían ser todas del problema 1.
+# Medido sobre cinco asuntos: 191 recuperadas, 10 invocadas.
+#
+# Sube a veinticuatro, pero lo que arregla el hueco no es el número: es el
+# REPARTO. Se toman por turnos, una de cada problema, para que ninguno se
+# quede sin material que invocar.
+MAX_TESIS_PROPUESTA = 24
 TESIS_CARACTERES = 1200
 
 # DEL CATÁLOGO, NO DE UNA TUPLA SUELTA. Añadir una calificación era tocar esta
@@ -283,10 +291,71 @@ def _recorte_limpio(x: str, tope: int) -> str:
 
 
 def _tesis_del_material(material, limite: int = MAX_TESIS_PROPUESTA) -> list:
-    """Las tesis que se le enseñan, con la obligatoria delante."""
+    """Las tesis que se le enseñan, repartidas entre los problemas.
+
+    Antes se ordenaba por obligatoriedad y se cortaba: las ocho primeras podían
+    ser todas del primer problema, y los demás llegaban a la propuesta sin nada
+    que invocar. De ahí salían los seis problemas sin apoyo del ADA 47/2025.
+
+    Ahora se toman POR TURNOS —una del problema 1, una del 2, una del 3, y otra
+    vuelta— con las obligatorias delante DENTRO de cada problema. Así el corte
+    quita profundidad a todos por igual en vez de dejar a alguno en cero.
+    """
     tesis = list(getattr(material, "tesis", []) or [])
-    tesis.sort(key=lambda t: not t.get("obligatoria"))
-    return tesis[:limite]
+    if not tesis:
+        return []
+
+    grupos: dict = {}
+    for t in tesis:
+        # Sin procedencia —material de una versión anterior, o de un solo
+        # problema— todo cae en el mismo cajón y esto se comporta como antes.
+        for n in (t.get("para") or [0]):
+            grupos.setdefault(n, []).append(t)
+    for g in grupos.values():
+        g.sort(key=lambda t: not t.get("obligatoria"))
+
+    fuera, vistos = [], set()
+    vuelta = 0
+    while len(fuera) < limite:
+        metidas = 0
+        for n in sorted(grupos):
+            g = grupos[n]
+            if vuelta < len(g):
+                t = g[vuelta]
+                if t.get("registro") not in vistos:
+                    vistos.add(t.get("registro"))
+                    fuera.append(t)
+                    if len(fuera) >= limite:
+                        break
+                metidas += 1
+        if not metidas:
+            break
+        vuelta += 1
+    return fuera
+
+
+def _indice_por_problema(tesis: list, cuantos: int) -> str:
+    """Qué registros hay para cada problema, de un vistazo.
+
+    El bloque de tesis va seguido y largo; con siete problemas, saber cuáles le
+    tocan a cada uno exige releerlo entero. Este índice lo pone delante, y hace
+    visible el caso que más importa: el problema que se quedó sin nada.
+    """
+    if not tesis or cuantos <= 1:
+        return ""
+    de: dict = {}
+    for t in tesis:
+        for n in (t.get("para") or []):
+            de.setdefault(n, []).append(str(t.get("registro", "")))
+    if not de:
+        return ""
+    filas = []
+    for n in range(1, cuantos + 1):
+        regs = de.get(n) or []
+        filas.append(f"  Problema {n}: "
+                     + (", ".join(regs) if regs
+                        else "SIN CRITERIO EN EL ACERVO — dilo en su razón"))
+    return "Qué hay para cada problema:\n" + "\n".join(filas) + "\n"
 
 
 def _bloque_tesis(tesis: list) -> str:
@@ -295,7 +364,13 @@ def _bloque_tesis(tesis: list) -> str:
         fuera.append(
             f"[registro {t.get('registro','')}] "
             f"{'OBLIGATORIA' if t.get('obligatoria') else 'orientadora'} · "
-            f"{t.get('instancia','')}\n"
+            f"{t.get('instancia','')}"
+            # PARA QUÉ PROBLEMA SE BUSCÓ. Sin esto el modelo recibe un montón
+            # indistinto y se queda con las dos primeras que le suenan.
+            + (f" · responde al problema "
+               + ", ".join(str(x) for x in t["para"])
+               if t.get("para") else "")
+            + "\n"
             f"  {t.get('rubro','')}\n"
             f"  {(t.get('texto','') or '')[:TESIS_CARACTERES]}")
     return "\n\n".join(fuera)
@@ -548,6 +623,7 @@ LO QUE SE COMBATE
 {resumen_conceptos[:3000]}
 
 JURISPRUDENCIA DEL ACERVO — es TODO lo que puedes invocar
+{_indice_por_problema(tesis, len(problemas))}
 {_bloque_tesis(tesis)}
 
 NORMAS DEL ACERVO
@@ -555,6 +631,19 @@ NORMAS DEL ACERVO
 {_bloque_suplencia(material)}
 {_bloque_acervo_sentidos(material)}
 {_bloque_contexto(contexto)}
+
+CADA PROBLEMA SE RESUELVE CON LO QUE SE BUSCÓ PARA ÉL. Arriba, cada tesis dice
+a qué problema responde, porque se buscó problema por problema. Antes de dar un
+problema por resuelto, mira qué hay listado para él e INVÓCALO en sus «apoyos».
+Medido sobre cinco asuntos reales: se recuperaron 191 tesis y sólo se invocaron
+10, y hubo un asunto donde seis de siete problemas se calificaron sin un solo
+criterio. Un problema resuelto sin apoyo es una opinión.
+
+Y NO SE INVENTA LO QUE NO HAY. Si para un problema no aparece nada útil en la
+lista, dilo en su razón con esas palabras —«el acervo no ofrece criterio para
+esto»— y deja «apoyos» vacío. Eso es información para quien firma; rellenarlo
+con un registro que trata de otra cosa es peor que dejarlo en blanco, porque
+esconde el hueco en vez de enseñarlo.
 
 CÓMO SE CALIFICA, y no son sinónimos:
 - FUNDADO: el planteamiento combate la razón de la responsable y tiene razón.
