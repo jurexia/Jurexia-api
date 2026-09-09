@@ -9066,7 +9066,8 @@ app.add_middleware(
     # proyecto llega y los avisos —que viajan ahí— se pierden por el camino.
     expose_headers=["X-Borrador", "X-Palabras", "X-Avisos", "X-Avisos-Detalle",
                     "X-Huecos", "X-Advertencias", "X-Problemas", "X-Oportunidad",
-                    "X-Tiempos", "X-Rama", "Content-Disposition"],
+                    "X-Tiempos", "X-Rama", "X-Depuracion", "X-Leido",
+                    "Content-Disposition"],
 )
 
 
@@ -28342,7 +28343,25 @@ async def taller_desde_expediente(
         modo="generado", plantilla=None,
         acto=_f_acto, conceptos=_f_conceptos, constancias=_f_constancias))
 
-    if isinstance(resultado, dict):
+    # LO QUE SE LEYÓ Y DE DÓNDE, DE VUELTA AL SECRETARIO.
+    #
+    # El adelanto NO devuelve un diccionario: devuelve el .docx, y todo lo que
+    # la pantalla necesita saber viaja en cabeceras. Se comprobó llamándolo:
+    # 200, «91-2025 ADELANTO.docx», 49 KB, y el `isinstance(resultado, dict)`
+    # que había aquí no se cumplía nunca — así que la depuración y lo leído de
+    # los autos se perdían en el camino sin que nadie se enterara.
+    _mapa = " | ".join(
+        f"{s.get('desde')}-{s.get('hasta')}:{s.get('tipo')}"
+        + ("=acto" if s is _acto else "=conceptos" if s is _conceptos else "")
+        for s in segmentos)
+    _dice = " | ".join(f"{k}={v}" for k, v in _leido.items()
+                       if k in ("numero", "expediente_origen", "magistrado",
+                                "secretario", "recurrente", "presentacion",
+                                "presentacion_de", "folio"))
+    if hasattr(resultado, "headers"):
+        resultado.headers["X-Depuracion"] = _cabecera_segura([_mapa])
+        resultado.headers["X-Leido"] = _cabecera_segura([_dice])
+    elif isinstance(resultado, dict):
         resultado.setdefault("leido_de_los_autos", _leido)
         resultado["depuracion"] = [
             {"que": s.get("tipo"), "confianza": s.get("confianza"),
