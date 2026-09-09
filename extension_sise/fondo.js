@@ -111,7 +111,17 @@ chrome.runtime.onMessage.addListener((msg, remitente, responder) => {
         await enganchar(tabId);
         sesiones.set(tabId, {
           ficha: msg.ficha, actuaciones: msg.actuaciones || [], correo: msg.correo,
-          presentacion: "", pendientes: [], capturados: {}, errores: [], esperando: null,
+          presentacion: "", pendientes: [], capturados: {}, errores: [],
+          esperando: null,
+          // ═══════════════════════════════════════════════════════════════
+          // UN TOPE DURO, PORQUE ESTO DESCARGA EN LA MÁQUINA DE ALGUIEN
+          // ═══════════════════════════════════════════════════════════════
+          // Sin él, un documento que no se captura se reintenta en cada
+          // recarga, y cada intento deja un fichero en la carpeta del
+          // secretario: a David le bajó CUARENTA Y OCHO. Un bucle que
+          // sólo gasta tiempo es un fallo; uno que llena el disco de otro
+          // es una falta de respeto.
+          intentos: {}, pasos: 0,
         });
         responder({ ok: true });
       } else if (msg?.que === "estado") {
@@ -121,6 +131,16 @@ chrome.runtime.onMessage.addListener((msg, remitente, responder) => {
       } else if (msg?.que === "voy-a-pulsar") {
         const s = sesiones.get(tabId);
         if (!s) return responder({ ok: false, error: "no hay captura en curso" });
+        const MAX_POR_DOC = 2, MAX_PASOS = 8;
+        s.intentos[msg.clave] = (s.intentos[msg.clave] || 0) + 1;
+        s.pasos += 1;
+        if (s.intentos[msg.clave] > MAX_POR_DOC || s.pasos > MAX_PASOS) {
+          s.errores.push(`${msg.clave}: no se pudo capturar tras `
+            + `${s.intentos[msg.clave]} intento(s); se deja de insistir`);
+          await soltar(tabId);
+          return responder({ ok: false, agotado: true,
+            error: "Se alcanzó el tope de intentos. Nada más se va a descargar." });
+        }
         await enganchar(tabId);
         if (msg.presentacion) s.presentacion = msg.presentacion;
         s.esperando = msg.clave;

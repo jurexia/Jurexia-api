@@ -14,7 +14,7 @@
   "use strict";
   if (document.getElementById("iurexia-barra")) return;
 
-  const VERSION = "v1.0.1";
+  const VERSION = "v1.0.2";
   const LOG = (...a) => console.log("[iurexia]", ...a);
   const enPromociones = /PanelPromociones/i.test(location.pathname);
 
@@ -78,9 +78,15 @@
     suma(`<div class="doc"><span>${comoSeLlama}</span><span>…</span></div>`);
     const r = await pregunta({ que: "voy-a-pulsar", clave,
                                presentacion: fechaDePresentacion() });
-    if (!r?.ok) return mal(r?.error || "no se pudo preparar la captura");
+    if (!r?.ok) {
+      // SI EL FONDO DICE BASTA, SE PARA. No se pulsa «por si acaso»: cada
+      // pulsación deja un fichero en la carpeta del secretario.
+      mal(r?.error || "no se pudo preparar la captura");
+      return false;
+    }
     LOG("pulsando", clave);
     b.click();
+    return true;
   }
 
   /** En el Panel de Promociones: qué falta por traer. */
@@ -95,11 +101,11 @@
     const archivo = document.querySelector('input[type=image][name$="imgArchivo"]');
     const dj = document.querySelector('input[type=image][name$="imgArchivoDJ"]');
     if (archivo && !ya.includes("promocion")) {
-      await pulsar(archivo, "promocion", "el escaneo con las constancias");
-      return true;
+      if (await pulsar(archivo, "promocion", "el escaneo con las constancias")) return true;
+      return true;   // agotado: el fondo ya lo dijo y no se insiste
     }
     if (dj && !ya.includes("acuerdo_asociado")) {
-      await pulsar(dj, "acuerdo_asociado", "la determinación asociada");
+      if (await pulsar(dj, "acuerdo_asociado", "la determinación asociada")) return true;
       return true;
     }
     suma("<div>Enviando al taller…</div>");
