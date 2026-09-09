@@ -14,7 +14,7 @@
   "use strict";
   if (document.getElementById("iurexia-barra")) return;
 
-  const VERSION = "v1.0";
+  const VERSION = "v1.0.1";
   const LOG = (...a) => console.log("[iurexia]", ...a);
   const enPromociones = /PanelPromociones/i.test(location.pathname);
 
