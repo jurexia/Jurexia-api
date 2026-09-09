@@ -29,9 +29,18 @@ _SENTENCIA = (
 _PROMOCION = (
     (re.compile(r"\bse\s+interpone\s+recurso\b", re.I), 3),
     (re.compile(r"\binterpongo\s+recurso\b", re.I), 3),
+    # AMPARO DIRECTO. Las de arriba son de RECURSO, y con ellas una demanda de
+    # amparo no puntuaba fuerte: la del ADC 536/2025 empataba 6-6 con
+    # «sentencia» y salía «desconocido». Éstas son las fórmulas con que se pide
+    # el amparo, y no aparecen en una sentencia que lo resuelve.
+    (re.compile(r"\bsolicit[oa]\s+el\s+amparo\b", re.I), 3),
+    (re.compile(r"\bdemando\s+el\s+amparo\b", re.I), 3),
+    (re.compile(r"\bbajo\s+protesta\s+de\s+decir\s+verdad\b", re.I), 3),
     (re.compile(r"\bA\s*G\s*R\s*A\s*V\s*I\s*O\s*S\b", re.I), 2),
     (re.compile(r"\bprimer\s+agravio\b", re.I), 2),
     (re.compile(r"\bconceptos?\s+de\s+violaci[óo]n\b", re.I), 2),
+    (re.compile(r"\bdemanda\s+de\s+amparo\b", re.I), 1),
+    (re.compile(r"\bautoridad\s+responsable\b", re.I), 1),
 )
 
 # ── LO QUE TODAVÍA NO SE HA CALIBRADO ─────────────────────────────────────
@@ -75,6 +84,22 @@ def puntuar(texto: str) -> dict:
         fuera[nombre] = sum(peso for rx, peso in marcas if rx.search(t))
     if len(t) < MINIMO_SENTENCIA:
         fuera["sentencia_recurrida"] = max(0, fuera["sentencia_recurrida"] - 3)
+    # CITAR UNA SENTENCIA NO ES SERLO.
+    #
+    # Una demanda de amparo directo TRANSCRIBE la sentencia que combate: es lo
+    # normal, y por eso puntuaba a la vez como escrito y como sentencia. La del
+    # ADC 536/2025 —85 páginas sobre una pericial declarada desierta— empataba
+    # 6 contra 6 y la regla del empate la devolvía como «desconocido»: el
+    # taller se quedaba sin saber cuál era el escrito y avisaba, además, de que
+    # faltaba la recurrida.
+    #
+    # Lo que separa una sentencia de verdad de su transcripción son las marcas
+    # FUERTES —«VISTOS los autos», «RESUELVE»—, no «CONSIDERANDO» ni «sentencia
+    # definitiva», que es lo que se cita. Sin ninguna marca fuerte, lo demás es
+    # cita, y se descuenta. Es el mismo criterio que ya usaba
+    # `trae_la_recurrida`, que exigía las fuertes y sólo ellas.
+    if not any(rx.search(t) for rx, peso in _SENTENCIA if peso >= 3):
+        fuera["sentencia_recurrida"] = max(0, fuera["sentencia_recurrida"] - 4)
     return fuera
 
 
