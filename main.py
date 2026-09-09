@@ -28143,6 +28143,31 @@ async def taller_sise_pendiente(user_email: str, numero: str = ""):
     return {"pendientes": r.data or []}
 
 
+def _con_omisiones(fn, **dados):
+    """Los argumentos de un endpoint llamado como función, con sus omisiones.
+
+    LLAMAR A UN ENDPOINT DE FastAPI COMO FUNCIÓN NO RESUELVE SUS `Form(...)`.
+    Lo que llega a los parámetros que no se pasan no es su valor por omisión:
+    es el objeto `Form` en carne viva, y revienta en el primer `.strip()` con
+    un «'Form' object has no attribute 'strip'» que no dice nada.
+
+    Pasó de verdad, y no lo cazó ni el compilador ni el portón: sólo la llamada
+    real. Faltaba UN parámetro de veintidós —`responsable`—, y enumerarlos a
+    mano habría vuelto a romperse el día que alguien añadiera el veintitrés.
+    Así que se leen de la firma y se rellena lo que falte.
+    """
+    import inspect
+    fin = dict(dados)
+    for nombre, par in inspect.signature(fn).parameters.items():
+        if nombre in fin:
+            continue
+        d = par.default
+        # Form(...) / File(...) guardan lo suyo en `.default`; `...` = obligatorio.
+        interno = getattr(d, "default", d)
+        fin[nombre] = None if interno is Ellipsis else interno
+    return fin
+
+
 @app.post("/taller/desde-expediente")
 async def taller_desde_expediente(
     user_email: str = Form(...),
@@ -28302,7 +28327,8 @@ async def taller_desde_expediente(
     # ── Y SE ENTRA POR EL CAMINO DE SIEMPRE ───────────────────────────────
     # No se duplica el adelanto: se le llama. Todo lo que aprendió —el cómputo,
     # los inhábiles, la rama, el resolutivo leído del PDF— vale igual aquí.
-    resultado = await taller_adelanto(
+    resultado = await taller_adelanto(**_con_omisiones(
+        taller_adelanto,
         numero=numero.strip(),
         encabezado="", quejoso=_leido.get("recurrente", ""),
         magistrado=magistrado or _leido.get("magistrado", ""),
@@ -28310,10 +28336,11 @@ async def taller_desde_expediente(
         notificacion=_notificacion, presentacion=_presentacion,
         user_email=correo, regla_surtimiento=regla_surtimiento,
         plazo=0, excepcion_plazo="", dias_inhabiles_extra="",
-        materia=materia, tipo_asunto=(tipo_asunto or _tipo_desde_sise(fila.get("tipo_sise"))),
+        materia=materia,
+        tipo_asunto=(tipo_asunto or _tipo_desde_sise(fila.get("tipo_sise"))),
         tribunal=fila.get("organo") or "", ciudad="",
         modo="generado", plantilla=None,
-        acto=_f_acto, conceptos=_f_conceptos, constancias=_f_constancias)
+        acto=_f_acto, conceptos=_f_conceptos, constancias=_f_constancias))
 
     if isinstance(resultado, dict):
         resultado.setdefault("leido_de_los_autos", _leido)
