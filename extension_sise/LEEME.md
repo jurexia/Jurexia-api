@@ -30,6 +30,14 @@ Las fechas de la tabla viajan como **pista**, no como dato: la de notificación
 y la de presentación se leen del PDF y las confirmas tú. De esas dos depende el
 cómputo entero, y una equivocada deja el proyecto en extemporáneo sin avisar.
 
+## Al actualizar la extensión, RECARGA LA PÁGINA
+
+Chrome no reinyecta el guion en las pestañas que ya estaban abiertas: la barra
+que se ve sigue siendo la vieja y su botón ya no responde. Después de pulsar
+recargar en `chrome://extensions`, **recarga también la pestaña de SISE** (F5).
+La barra dice su versión al lado del título; si no coincide con la que
+instalaste, es la vieja.
+
 ## Si algo falla
 
 - **«SISE no devolvió un PDF»** — casi siempre es que caducó la sesión de SISE.

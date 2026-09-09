@@ -141,17 +141,40 @@
       }
     }
     const r2 = await pulsar(r1.url, ocultosDe(doc), archivo.getAttribute("name"));
-    return { pdf: await aPDF(r2, "la promoción"), presentacion };
+    const pdf = await aPDF(r2, "la promoción");
+
+    // LA «DETERMINACIÓN JUDICIAL ASOCIADA» de este panel es el acuerdo que
+    // recayó a ESTA promoción: en un recurso, el auto que lo admite. Está aquí
+    // y no en el Panel Central, así que si no se toma ahora hay que volver.
+    let asociada = null;
+    const dj = doc.querySelector('input[type=image][name$="imgArchivoDJ"]');
+    if (dj) {
+      try {
+        const r3 = await pulsar(r1.url, ocultosDe(doc), dj.getAttribute("name"));
+        asociada = await aPDF(r3, "la determinación asociada");
+      } catch (e) { /* si no está, se sigue: los acuerdos del panel la cubren */ }
+    }
+    return { pdf, presentacion, asociada };
   }
+
+  // EN QUÉ PANTALLA ESTAMOS. El Panel de Promociones no lleva el número de
+  // expediente en ninguna parte —comprobado leyendo sus campos ocultos—, así
+  // que desde ahí no se puede saber de qué asunto son las constancias.
+  const enPromociones = /PanelPromociones/i.test(location.pathname);
 
   const barra = document.createElement("div");
   barra.id = "iurexia-barra";
   barra.innerHTML = `
-    <h4>Taller de sentencias · Iurexia</h4>
+    <h4>Taller de sentencias · Iurexia <span style="opacity:.45;font-weight:400">v0.2</span></h4>
     <p>Trae las constancias de este expediente sin que teclees nada.
        Tu contraseña de SISE no sale de aquí.</p>
-    <button id="iurexia-ir">Traer las constancias</button>
-    <div id="iurexia-estado"></div>`;
+    <button id="iurexia-ir">${enPromociones
+        ? "Vuelve al Panel Central" : "Traer las constancias"}</button>
+    <div id="iurexia-estado">${enPromociones
+        ? "Estás en el panel de promociones, y aquí no consta de qué expediente "
+          + "son estas constancias. Pulsa «Regresar» y dale al botón allí: desde "
+          + "el Panel Central se trae todo, este panel incluido."
+        : ""}</div>`;
   document.body.appendChild(barra);
 
   const estado = barra.querySelector("#iurexia-estado");
@@ -159,6 +182,13 @@
   const di = (h) => { estado.innerHTML = h; };
 
   boton.addEventListener("click", async () => {
+    if (enPromociones) {
+      // Volver es un clic y se hace solo: el botón «Regresar» está ahí.
+      const r = [...document.querySelectorAll('input[type=image],input[type=submit],a')]
+        .find((e) => /regresar/i.test(e.value || e.alt || e.textContent || ""));
+      if (r) r.click();
+      return;
+    }
     boton.disabled = true;
     try {
       const ficha = fichaDelExpediente();
@@ -215,6 +245,7 @@
             const r = await traerPromocion(control);
             archivos[clave] = r.pdf;
             presentacion = r.presentacion || "";
+            if (r.asociada) archivos["acuerdo_asociado"] = r.asociada;
           } else {
             archivos[clave] = await traerPDF(control);
           }
