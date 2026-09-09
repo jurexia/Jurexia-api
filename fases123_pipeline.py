@@ -518,6 +518,25 @@ class Fases123:
     autos: str = ""
     # Los textos del acto y del recurso, para el detector de contaminación.
     fuentes: list = field(default_factory=list)
+    # ═══════════════════════════════════════════════════════════════════════
+    # LO QUE RESOLVIÓ EL JUZGADO, LEÍDO DEL PAPEL Y NO PREGUNTADO
+    # ═══════════════════════════════════════════════════════════════════════
+    # De este dato depende el punto resolutivo entero —si se confirma, se
+    # revoca o se modifica—, y se venía decidiendo con la PROSA DEL MODELO: el
+    # resumen de los antecedentes, o la frase con la que describió el asunto al
+    # proponer. Cuando esa prosa no lo decía, el resultando salía con «no
+    # consta el sentido de la sentencia recurrida» —literalmente, en la
+    # revisión 650/2025 de David— aunque el resolutivo del juzgado estuviera a
+    # dos páginas diciendo «La Justicia de la Unión ampara y protege».
+    #
+    # Está en el papel y se lee. Se lee UNA VEZ, en el adelanto, que es donde
+    # el texto crudo existe, y viaja en el estado de la sesión: `fuentes` no
+    # viajaba —los 240 kB no caben— y por eso el worker que resolvía se
+    # quedaba sin el texto y volvía a depender de la prosa.
+    resolvio_a_quo: str = ""
+    # El resolutivo del juzgado, listo para reproducirse, con la cola apuntando
+    # a la sentencia recurrida. Vacío si no se pudo leer con seguridad.
+    resolutivo_recurrida: str = ""
 
     def parrafos_antecedentes(self) -> list[str]:
         """Sin el encabezado que el modelo se pone a sí mismo.

@@ -297,3 +297,103 @@ def sentido_en_plenitud(texto: str) -> str:
     if not n and not c:
         return ""
     return "niega" if (n and (not c or n[-1] > c[-1])) else "concede"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL RESOLUTIVO DEL JUZGADO, REPRODUCIDO
+# ═══════════════════════════════════════════════════════════════════════════
+# David, sobre la revisión 650/2025: «Hay muchas sentencias en las que se
+# concede el amparo y, al calificar como infundados los agravios, el efecto
+# siempre será confirmar la sentencia en sus términos. En este caso basta con
+# reproducir el resolutivo de la sentencia recurrida y en la parte final
+# modificar "para los efectos precisados en la sentencia recurrida" (porque
+# somos órgano revisor cuando se trata de amparo en revisión)».
+#
+# QUÉ SE ESCRIBÍA ANTES: «La Justicia de la Unión ampara y protege a {quejoso},
+# en términos del último considerando de la resolución recurrida». Dice a quién
+# se ampara y nada más: ni contra qué acto, ni con qué alcance, ni para qué
+# efectos. El precedente del propio tribunal —ARA 361/2025, la única revisión
+# de la carpeta que confirma amparando— sí lo dice: «…ampara y protege a María
+# de la Luz Aguilera Vázquez y José Francisco Rubio Bayón, CONTRA LOS ARTÍCULOS
+# 90 Y 99 de la Ley de Hacienda del Estado de Querétaro, por las razones y
+# efectos especificados en el considerando sexto DE LA SENTENCIA QUE SE
+# REVISA».
+#
+# LA COLA HAY QUE REESCRIBIRLA, y es el detalle que se escapa al copiar y
+# pegar: el juzgado escribió «para los efectos precisados en el diverso séptimo
+# DE ESTA SENTENCIA», y en el engrose del tribunal «esta sentencia» ya es otra.
+# En el proyecto que David corrigió a mano la cola quedó sin cambiar —por eso
+# lo pidió explícitamente—.
+_RX_RESUELVE = re.compile(
+    r"R\s*E\s*S\s*U\s*E\s*L\s*V\s*E\s*(?:N)?\s*:?", re.I)
+_RX_FIN_RESOLUTIVO = re.compile(
+    r"\b(?:Notif[íi]quese|As[íi]\s+lo\s+resolvi|As[íi],?\s+(?:por|lo)\s|"
+    r"Publ[íi]quese)", re.I)
+_RX_ORDINAL_PUNTO = re.compile(
+    r"^\s*(?:PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|[ÚU]NICO)\s*\.\s*", re.I)
+# «de esta sentencia», «del presente fallo»… todo lo que en la recurrida
+# apuntaba a sí misma y en el engrose apuntaría al engrose.
+_RX_COLA_PROPIA = re.compile(
+    r"\bde\s+(?:est[ae]|l[ao]\s+presente)\s+"
+    r"(?:sentencia|resoluci[óo]n|fallo|ejecutoria)\b", re.I)
+
+
+def resolutivo_recurrida(texto: str) -> str:
+    """El punto resolutivo del juzgado, listo para reproducirse. '' si no cuadra.
+
+    Devuelve el TEXTO SIN SU ORDINAL —el ordinal lo calcula el compositor, como
+    todos— y con la cola apuntando a la sentencia recurrida.
+
+    NO REPRODUCE SI HAY MÁS DE UN PUNTO. Un resolutivo con «PRIMERO. Se
+    sobresee… SEGUNDO. La Justicia de la Unión ampara…» no cabe en un punto
+    solo, y encajarlo a la fuerza produciría un resolutivo que dice menos que
+    el del juzgado. En ese caso se devuelve vacío y el documento escribe la
+    fórmula genérica de siempre, que es lo que ya hacía.
+    """
+    t = " ".join((texto or "").split())
+    if not t:
+        return ""
+    m = None
+    for m in _RX_RESUELVE.finditer(t):
+        pass                       # el ÚLTIMO: los anteriores son citas
+    if m is None:
+        return ""
+    resto = t[m.end():].lstrip(" :")
+    fin = _RX_FIN_RESOLUTIVO.search(resto)
+    cuerpo = (resto[:fin.start()] if fin else resto[:1500]).strip()
+    if not cuerpo:
+        return ""
+    # ¿UN SOLO PUNTO? Se cuentan los ordinales que abren punto.
+    ordinales = re.findall(
+        r"\b(?:PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|[ÚU]NICO)\s*\.", cuerpo, re.I)
+    if len(ordinales) > 1:
+        return ""
+    cuerpo = _RX_ORDINAL_PUNTO.sub("", cuerpo).strip()
+    # Un resolutivo de dos palabras no es un resolutivo: es un corte mal hecho.
+    if len(cuerpo.split()) < 8 or len(cuerpo) > 1200:
+        return ""
+    cuerpo = _RX_COLA_PROPIA.sub("de la sentencia recurrida", cuerpo)
+    return cuerpo.rstrip(" .") + "."
+
+
+# QUÉ QUEDÓ FUERA DE LA REVISIÓN. David: «en el resolutivo primero puse "En la
+# materia de la revisión, se confirma la sentencia recurrida". Esto porque
+# había aspectos que no fueron combatidos por la recurrente como la concesión
+# del amparo en sus términos, solo se dolió de las convivencias».
+#
+# NO SE PONE SIEMPRE, y esto está medido: la fórmula aparece en 0 de los 381
+# resolutivos legibles de la carpeta del tribunal. No es la fórmula de la casa;
+# es la que corresponde cuando la revisión fue parcial. Por eso sólo se escribe
+# cuando el propio estudio dice que algo quedó fuera.
+_RX_NO_COMBATIDO = re.compile(
+    r"\bno\s+(?:fue(?:ron)?|ha\s+sido|resulta)?\s*"
+    r"(?:combatid|controvertid|impugnad|recurrid)[oa]s?\b"
+    r"|\bno\s+(?:combati[óo]|controvirti[óo]|impugn[óo]|recurri[óo])\b"
+    r"|\bno\s+es\s+materia\s+de(?:l|\s+la)\s+(?:recurso|revisi[óo]n)\b"
+    r"|\bqued[óo]\s+firme\b|\bquedaron\s+firmes\b"
+    r"|\bintangib(?:le|ilidad)\b", re.I)
+
+
+def hay_aspectos_no_combatidos(estudio: str) -> bool:
+    """¿El estudio dice que algo de la recurrida quedó fuera de la revisión?"""
+    return bool(_RX_NO_COMBATIDO.search(" ".join((estudio or "").split())))

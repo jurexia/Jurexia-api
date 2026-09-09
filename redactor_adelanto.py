@@ -347,6 +347,20 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # viene de fuera del asunto. Se guarda un extracto: comprobar la
     # contaminación no justifica duplicar el expediente entero en la sesión.
     f.fuentes = [(texto_acto or "")[:120000], (texto_conceptos or "")[:120000]]
+    # SE LEE AQUÍ, QUE ES DONDE ESTÁ EL PAPEL. Después ya no: `fuentes` no
+    # viaja en el estado de la sesión y el worker que resuelva puede no ser
+    # éste. Las dos lecturas son deterministas —un barrido sobre el texto, sin
+    # modelo— y las dos las necesita el resolutivo.
+    if e.es_recurso:
+        try:
+            import fase_rama as _fr_a
+            f.resolvio_a_quo = _fr_a.resolvio_a_quo(texto_acto or "")
+            f.resolutivo_recurrida = _fr_a.resolutivo_recurrida(texto_acto or "")
+            print(f"   ⚖️ el juzgado {f.resolvio_a_quo or '(no consta)'}"
+                  f" · resolutivo reproducible: "
+                  f"{'sí' if f.resolutivo_recurrida else 'no'}")
+        except Exception as _ex:
+            print(f"   ⚠️ no se pudo leer el desenlace del a quo: {type(_ex).__name__}")
     if autos:
         print(f"   📁 constancias del expediente: {len(autos)} caracteres")
 
@@ -1161,6 +1175,11 @@ async def _componer_generado(cliente, e: Encargo, relleno, computo,
     # estructura volvía a escribirse a ciegas, y con ella la perífrasis.
     datos = _datos_estructura(e, "\n".join(relleno.antecedentes or []),
                               acto=acto, partes=partes)
+    # LO LEÍDO DEL PAPEL VIAJA HASTA EL RESOLUTIVO. Se calculó en el adelanto
+    # sobre el PDF de la recurrida y va en el estado de la sesión, así que
+    # existe también cuando resuelve el otro worker.
+    datos["resolvio_a_quo"] = getattr(relleno, "resolvio_a_quo", "") or ""
+    datos["resolutivo_recurrida"] = getattr(relleno, "resolutivo_recurrida", "") or ""
     # LA ESTRUCTURA SE ESCRIBE UNA VEZ. El resolver recompone el documento
     # entero, y volver a pedirla al modelo son treinta segundos por nada: no
     # depende del estudio ni del criterio, sólo del asunto.

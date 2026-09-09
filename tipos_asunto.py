@@ -2088,3 +2088,53 @@ def preceptos_ajenos(tipo: str, texto: str, solo_marco: bool = True) -> list:
     if solo_marco and not t.strip():
         return []
     return [(p, por) for p, por in reglas if re.search(p, t, re.I)]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONFIRMAR UNA SENTENCIA QUE CONCEDIÓ EL AMPARO
+# ═══════════════════════════════════════════════════════════════════════════
+# David, sobre la revisión 650/2025: «Hay muchas sentencias en las que se
+# concede el amparo y, al calificar como infundados los agravios, el efecto
+# siempre será confirmar la sentencia en sus términos. En este caso basta con
+# reproducir el resolutivo de la sentencia recurrida y en la parte final
+# modificar "para los efectos precisados en la sentencia recurrida" (porque
+# somos órgano revisor cuando se trata de amparo en revisión)».
+#
+# LO QUE SE ESCRIBÍA: «La Justicia de la Unión ampara y protege a {quejoso}, en
+# términos del último considerando de la resolución recurrida». Dice a quién se
+# ampara y se calla contra qué acto, con qué alcance y para qué efectos. El
+# único precedente de la carpeta que confirma amparando —ARA 361/2025— sí lo
+# dice: «…ampara y protege a [los quejosos], CONTRA LOS ARTÍCULOS 90 Y 99 de la
+# Ley de Hacienda del Estado de Querétaro, por las razones y efectos
+# especificados en el considerando sexto DE LA SENTENCIA QUE SE REVISA».
+#
+# ── «EN LA MATERIA DE LA REVISIÓN» NO VA SIEMPRE, Y ESTÁ MEDIDO ──
+# David: «en el resolutivo primero puse "En la materia de la revisión, se
+# confirma la sentencia recurrida". Esto porque había aspectos que no fueron
+# combatidos por la recurrente como la concesión del amparo en sus términos,
+# solo se dolió de las convivencias».
+#
+# La fórmula aparece en 0 de los 381 resolutivos legibles de la carpeta del
+# tribunal: no es la fórmula de la casa. Y el 27% de los engroses SÍ habla de
+# aspectos no combatidos sin usarla. Así que no se pone por costumbre ni por
+# rama: se pone cuando el estudio de este proyecto dice que algo quedó fuera de
+# la revisión, que es la condición que él describe. Si el estudio no lo dice,
+# el punto es el de siempre.
+CONFIRMA_PARCIAL = "PRIMERO. En la materia de la revisión, se confirma la sentencia recurrida."
+CONFIRMA_ENTERA = "PRIMERO. Se confirma la sentencia recurrida."
+
+
+def puntos_confirma_concede(resolutivo_reproducido: str = "",
+                            parcial: bool = False) -> list:
+    """Los dos puntos de una revisión que confirma una sentencia que concedió.
+
+    `resolutivo_reproducido` es el del juzgado, ya sin su ordinal y con la cola
+    apuntando a la sentencia recurrida, tal como lo devuelve
+    `fase_rama.resolutivo_recurrida`. Si viene vacío —porque el resolutivo del
+    juzgado no se pudo leer con seguridad, o porque tenía más de un punto— se
+    escribe la fórmula genérica de siempre, que dice menos pero no dice de más.
+    """
+    primero = CONFIRMA_PARCIAL if parcial else CONFIRMA_ENTERA
+    if (resolutivo_reproducido or "").strip():
+        return [primero, "SEGUNDO. " + resolutivo_reproducido.strip()]
+    return [primero, RAMAS_REVISION["confirma_concede"]["puntos"][1]]

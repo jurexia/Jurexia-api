@@ -3571,9 +3571,27 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # nulidad y nunca decían en qué paró el amparo, así que el
             # resolutivo salió en hueco mientras el estudio, tres párrafos
             # antes, decía «se confirma» y «debe mantener el sobreseimiento».
-            _que_hizo = _fr.resolvio_a_quo(
-                _fuente_rama, _antes_rama,
-                declarado=str(datos.get("resolvio_declarado") or ""))
+            # ═══════════════════════════════════════════════════════════
+            # MANDA EL PAPEL, NO LA PROSA
+            # ═══════════════════════════════════════════════════════════
+            # `resolvio_a_quo` viene leído del PDF de la sentencia recurrida en
+            # el adelanto, con un barrido determinista sobre su propio punto
+            # resolutivo. Lo de abajo —el barrido sobre los resúmenes del
+            # modelo y la frase con la que describió el asunto— sigue como
+            # repliegue para las sesiones viejas y para cuando el papel no se
+            # dejó leer.
+            #
+            # De este dato depende el resolutivo entero, y decidirlo con prosa
+            # es echarlo a suertes: en la revisión 650/2025 el proyecto
+            # confirmó la sentencia y NEGÓ el amparo que esa misma sentencia
+            # había concedido, mientras el resultando decía «no consta el
+            # sentido de la sentencia recurrida» y el PDF decía, dos páginas
+            # antes, «La Justicia de la Unión ampara y protege».
+            _que_hizo = str(datos.get("resolvio_a_quo") or "").strip().lower()
+            if _que_hizo not in ("sobresee", "niega", "concede"):
+                _que_hizo = _fr.resolvio_a_quo(
+                    _fuente_rama, _antes_rama,
+                    declarado=str(datos.get("resolvio_declarado") or ""))
             # EL SENTIDO EN PLENITUD SE LEE DEL ESTUDIO, no del recurso. Que el
             # agravio sea fundado prueba que el juez no debió sobreseer, no que
             # el quejoso tenga razón en el fondo.
@@ -3619,7 +3637,25 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                     "resolvió. Escríbela tú, está en la sentencia recurrida.")
             if _rama.get("aviso"):
                 _avisos_bk.append(_rama["aviso"])
-            for _pt in _rama["puntos"]:
+            # CONFIRMAR UNA CONCESIÓN ES REPRODUCIR SU RESOLUTIVO. La
+            # fórmula genérica —«ampara y protege a X en términos del último
+            # considerando de la resolución recurrida»— no dice contra qué
+            # acto ni para qué efectos. Se reproduce el del juzgado, con la
+            # cola apuntando a la sentencia recurrida, que es lo que pidió
+            # David y lo que hace el precedente ARA 361/2025.
+            _puntos = _rama["puntos"]
+            if _clave == "confirma_concede":
+                _parcial = _fr.hay_aspectos_no_combatidos(str(estudio or ""))
+                _puntos = _ta.puntos_confirma_concede(
+                    str(datos.get("resolutivo_recurrida") or ""),
+                    parcial=_parcial)
+                if _parcial:
+                    _avisos_bk.append(
+                        "EL PRIMER RESOLUTIVO DICE «EN LA MATERIA DE LA "
+                        "REVISIÓN» porque el estudio afirma que algo de la "
+                        "sentencia recurrida no fue combatido. Compruébalo: si "
+                        "la recurrente sí lo impugnó todo, quita esa frase.")
+            for _pt in _puntos:
                 _txt = (_pt.replace("{HUECO}", HUECO)
                            .replace("{quejoso}", str(datos.get("quejoso") or HUECO))
                            .replace("{responsable_originaria}", _orig)

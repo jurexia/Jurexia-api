@@ -27649,6 +27649,13 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             # Las constancias viajan con la sesión: el /taller/proponer que
             # caiga en el otro worker las necesita tanto como éste.
             "autos": getattr(r.fases, "autos", "") or "",
+            # LO QUE RESOLVIÓ EL JUZGADO, LEÍDO DEL PDF EN EL ADELANTO. Sin
+            # esto en el estado, el worker que resuelve vuelve a decidir el
+            # resolutivo con la prosa del modelo, que es de donde salió la
+            # revisión 650/2025 confirmando la sentencia y negando el amparo
+            # que esa misma sentencia había concedido.
+            "resolvio_a_quo": getattr(r.fases, "resolvio_a_quo", "") or "",
+            "resolutivo_recurrida": getattr(r.fases, "resolutivo_recurrida", "") or "",
         },
         "partes": (r.partes.__dict__ if r.partes else None),
         "computo": {"oportuna": r.computo.oportuna,
