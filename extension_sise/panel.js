@@ -27,7 +27,7 @@
   if (document.getElementById("iurexia-barra")) return;
 
   const API = "https://jurexia-api.onrender.com";
-  const VERSION = "v0.6";
+  const VERSION = "v0.7";
   const enPromociones = /PanelPromociones/i.test(location.pathname);
 
   const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");
@@ -91,7 +91,7 @@
         <span style="opacity:.45;font-weight:400">${VERSION}</span></h4>
     <p>Trae las constancias de este expediente sin que teclees nada.
        Tu contraseña de SISE no sale de aquí.</p>
-    <button id="iurexia-ir">Traer las constancias</button>
+    <button type="button" id="iurexia-ir">Traer las constancias</button>
     <div id="iurexia-estado"></div>`;
   document.body.appendChild(barra);
 
@@ -202,7 +202,21 @@
     }
   }
 
-  boton.addEventListener("click", arrancar);
+  // ═══════════════════════════════════════════════════════════════════════
+  // EL BOTÓN TENÍA QUE DECLARAR QUE NO ES DE ENVÍO
+  // ═══════════════════════════════════════════════════════════════════════
+  // Un <button> sin `type` es `submit` por omisión, y en ASP.NET WebForms el
+  // <body> ENTERO va dentro del <form>: pulsar mi botón enviaba el formulario
+  // de SISE en vez de ejecutar esto. La página se recargaba, el recuadro
+  // volvía a dibujarse vacío, y parecía que el clic no hacía nada.
+  //
+  // Costó varias vueltas porque el síntoma —«no pasa nada»— es idéntico al de
+  // un guion que no se cargó.
+  boton.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    arrancar();
+  });
 
   // SIGUE SOLA. Si venimos del Panel Central, la fase 2 arranca al cargar:
   // para el secretario es un solo clic aunque por dentro sean dos pantallas.
