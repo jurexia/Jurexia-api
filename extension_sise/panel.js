@@ -18,7 +18,7 @@
  *   · en el Panel Central se guarda la ficha del expediente y se pulsa
  *     «Promoción», que lleva al Panel de Promociones;
  *   · allí se pulsan los archiveros, se recogen los PDF y se manda todo.
- * La ficha viaja entre las dos en `chrome.storage.session`, porque el número
+ * La ficha viaja entre las dos en `chrome.storage.local`, porque el número
  * de expediente NO consta en el segundo panel —comprobado— y sin él no se
  * sabe de qué asunto son las constancias.
  */
@@ -27,7 +27,7 @@
   if (document.getElementById("iurexia-barra")) return;
 
   const API = "https://jurexia-api.onrender.com";
-  const VERSION = "v0.5.1";
+  const VERSION = "v0.6";
   const enPromociones = /PanelPromociones/i.test(location.pathname);
 
   const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");
@@ -110,7 +110,7 @@
     const filas = actuaciones();
     const promo = [...document.querySelectorAll('input[type=image][name$="imgPromocion"]')][0];
     if (!promo) throw new Error("Este cuaderno no tiene ninguna promoción.");
-    await chrome.storage.session.set({
+    await chrome.storage.local.set({
       sise_ficha: ficha, sise_actuaciones: filas, sise_en_curso: true,
     });
     di(`<div>Expediente <b>${ficha.numero}</b> · voy al panel de promociones…</div>`);
@@ -120,14 +120,14 @@
 
   /* ── FASE 2 · el Panel de Promociones ──────────────────────────────────── */
   async function fasePromociones() {
-    const g = await chrome.storage.session.get(
+    const g = await chrome.storage.local.get(
       ["sise_ficha", "sise_actuaciones", "sise_en_curso"]);
     const ficha = g.sise_ficha;
     if (!ficha?.numero) {
       throw new Error("Vengo sin la ficha del expediente. Empieza desde el "
                     + "Panel Central: aquí no consta de qué asunto es esto.");
     }
-    await chrome.storage.session.set({ sise_en_curso: false });
+    await chrome.storage.local.set({ sise_en_curso: false });
 
     // La fecha de presentación está en la tabla, no dentro de un PDF.
     let presentacion = "";
@@ -207,7 +207,7 @@
   // SIGUE SOLA. Si venimos del Panel Central, la fase 2 arranca al cargar:
   // para el secretario es un solo clic aunque por dentro sean dos pantallas.
   if (enPromociones) {
-    chrome.storage.session.get("sise_en_curso").then((g) => {
+    chrome.storage.local.get("sise_en_curso").then((g) => {
       if (g.sise_en_curso) arrancar();
     });
   }
