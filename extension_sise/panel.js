@@ -27,7 +27,7 @@
   if (document.getElementById("iurexia-barra")) return;
 
   const API = "https://jurexia-api.onrender.com";
-  const VERSION = "v0.5";
+  const VERSION = "v0.5.1";
   const enPromociones = /PanelPromociones/i.test(location.pathname);
 
   const txt = (n) => (n ? n.textContent.replace(/\s+/g, " ").trim() : "");

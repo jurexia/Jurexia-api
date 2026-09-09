@@ -16,9 +16,13 @@
  */
 const enEspera = new Map();   // id de descarga → cómo mandarla
 
-chrome.runtime.onMessage.addListener((msg, _remitente, responder) => {
+chrome.runtime.onMessage.addListener((msg, remitente, responder) => {
   if (msg?.que === "esperar-descarga") {
-    enEspera.set("siguiente", msg.datos);
+    // DE QUÉ PESTAÑA VIENE. Sin esto, `chrome.tabs.sendMessage(undefined, …)`
+    // revienta y el PDF descargado se queda en el disco sin llegar a nadie:
+    // el fichero caía, la barra no decía nada y el taller no recibía. Es el
+    // dato que el propio evento trae y yo no estaba mirando.
+    enEspera.set("siguiente", { ...msg.datos, tabId: remitente?.tab?.id });
     responder({ ok: true });
   }
   return true;
