@@ -1129,3 +1129,95 @@ provisional salen apariencia del buen derecho (16 sentencias), interés social
 Es el armazón doctrinal de la cuestión, minado de sentencias reales. Decirle al
 modelo con qué nociones razona el tribunal es decirle por dónde va el
 razonamiento, no sólo qué citar.
+
+---
+
+## 23 · El tomo se abre solo (9-sep)
+
+David, después de diez versiones de extensión peleándose con el ASP.NET de
+SISE: «no sé si es la ruta correcta la que estés tomando o haya una más
+sencilla». La había, y estaba a un clic: el icono «Vista Expediente
+Electrónico» abre otra aplicación, moderna, con una API REST de verdad. Dos
+llamadas —el índice y el fichero— y el expediente entero, sin ViewState, sin
+depurador y sin dejar un solo fichero en su carpeta de descargas.
+
+Pero traer el expediente sólo destapó el problema de fondo, que es el que él
+señaló enseguida: «Es fundamental que depures los documentos para la correcta
+lectura del pipeline OCR vía Azure. Sin esto, la calidad del proyecto no será
+la misma.»
+
+### Lo que llegaba
+
+Un tomo. La «Promoción 1» del 91/2025 son 117 páginas y 345.944 caracteres, y
+el clasificador lo miraba entero y decía «sentencia recurrida». Los agravios
+—lo que hay que contestar— **nunca llegaban identificados como agravios**.
+
+### La equivocación que casi cuesta el documento
+
+Al medir por primera vez vi que 79 de las 117 páginas empezaban todas por
+«Entrega Personal · Hacienda · SAT» y las di por acuses de entrega. Se lo dije
+a David con esas palabras.
+
+No lo eran. Eso es el MEMBRETE del escrito del SAT, impreso en cada hoja; el
+cuerpo son ochenta páginas de argumentación. Un filtro construido sobre aquella
+lectura habría tirado el documento más importante del expediente.
+
+Por eso el módulo que salió de ahí no borra nada por su pinta: **segmenta y
+etiqueta**, y quien decide qué sobra es el secretario, mirando la lista con los
+rangos de páginas delante.
+
+### Tres señales, y sólo la tercera sirve
+
+1. **Huella del encabezado.** Los agravios salían perfectos; la sentencia se
+   partía en trece trozos. Está escaneada A DOBLE CARA y el membrete sólo va en
+   una de ellas.
+2. **Líneas de membrete repetidas.** Mejor, pero el OCR estropea el escudo de
+   forma distinta en cada hoja —«UNIDOS TEJA», «UNIDOS STAD», «OOVEST TEJA»— y
+   la semejanza se hunde.
+3. **Identificadores**: expediente, oficio, RFC. Éstos el OCR los respeta.
+
+Con la tercera aún faltaba algo. La sentencia cita tantas veces los oficios que
+ANALIZA que ésos ganaban en frecuencia al suyo propio, y volvía a partirse. El
+identificador que nombra a un documento vive en su ENCABEZADO; los del cuerpo
+son citas. Mirando sólo los primeros 380 caracteres, el corte sale limpio:
+
+    págs   5-84   escrito de agravios      80 pág · 234.600 car · promocion 7
+    págs  95-112  sentencia recurrida      18 pág ·  61.485 car · recurrida 10
+
+Y una comprobación que importaba tanto como el corte: en un documento limpio
+**no inventa cortes**. El acto del 410-2026 sale entero como una sola
+`sentencia_recurrida`; el del 650-2025 separa la portada del cuerpo y nada más.
+
+### Depurar es también entregar
+
+No basta con etiquetar. El taller espera un PDF por cada cosa, así que el tomo
+se corta: `acto.pdf` (18 pág, 670 KB) y `conceptos.pdf` (80 pág, 2.765 KB). De
+paso deja de pasar por Azure 99 páginas que nadie va a mirar.
+
+### El formulario se lee solo
+
+David había dicho que la admisión y el turno eran indispensables «para
+verificar datos como la presentación, los terceros interesados, el magistrado
+ponente». Traen más de lo que parecía, y las fechas van en letra, así que hubo
+que escribir un lector de números en palabras:
+
+    numero 91/2025 · expediente_origen 695/25-09-01-7-OT
+    secretario Omar Alejandro Elizalde Herrera
+    recurrente Karen Yadira Meza Ruiz (y su cargo, aparte)
+    magistrado Luis Armando Pérez Topete   ← «TÚRNESE a la ponencia A MI CARGO»
+                                             cruzado con quién firma de Presidente
+
+Dos defectos salieron al medir, no al leer el código: la captura perezosa se
+comía el «Omar», y el recurrente se descartaba por largo porque su cargo sigue
+durante ciento veinte caracteres.
+
+### El dato que no se supone
+
+La fecha de notificación **no está en los autos**, y es la que decide la
+extemporaneidad. No se inventa: el endpoint devuelve qué falta y enseña todo lo
+que ya sabe. Suponerla es lo que dejó a Erika con dos proyectos vacíos.
+
+Y apareció un pariente del mismo fallo: la **fecha de ingreso del visor no es
+la fecha de presentación**. En el 91/2025 van cinco días separadas —13/11 en la
+portada de la OCC, 18/11 en el visor— y computar desde el ingreso corre el
+plazo hacia adelante. Ahora manda la portada, que es donde está el sello.
