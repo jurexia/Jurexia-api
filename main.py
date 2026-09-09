@@ -29233,7 +29233,7 @@ async def taller_resolver_stream(
 
     _puerta_oportunidad(r)
 
-    if criterios_json.strip():
+    if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":
         try:
             _datos = json.loads(criterios_json)
         except Exception:
@@ -29300,8 +29300,23 @@ async def taller_resolver_stream(
                      "razon": getattr(p, "razon", ""),
                      "alcanza": getattr(p, "alcanza", True)}
                     for p in (ses.get("propuestas") or [])]
+        # LO QUE EL SECRETARIO MARCÓ POR PROBLEMA VIAJA TAMBIÉN EN MODO
+        # GLOBAL, y manda sobre el relleno. Antes las dos ramas eran
+        # excluyentes: si llegaba `modo_decision=global`, `criterios_json` se
+        # ignoraba sin decir nada, y con él se iba la instrucción expresa del
+        # secretario sobre un tema concreto.
+        _califs = {}
+        try:
+            for _c in (json.loads(criterios_json or "[]") or []):
+                if isinstance(_c, dict) and str(_c.get("sentido") or "").strip():
+                    _califs[str(_c.get("problema") or "")] = {
+                        "sentido": _c.get("sentido"),
+                        "razonamiento": _c.get("razonamiento") or ""}
+        except Exception:
+            _califs = {}
         _rep, _av_modo = _md.repartir(
-            _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g)
+            _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g,
+            _califs)
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"))
@@ -29316,6 +29331,12 @@ async def taller_resolver_stream(
                           if str(getattr(c, "jerarquia", "")).lower() == "principal"),
                          crit[0])
             _pral.razonamiento = razonamiento.strip()
+        # LOS AVISOS DEL REPARTO SE ENTREGAN. `_av_modo` se calculaba y se
+        # tiraba: el secretario nunca se enteraba de que un planteamiento suyo
+        # había quedado sin materia, ni de que su marca había prevalecido.
+        for _a in (_av_modo or []):
+            if _a not in (r.fases.avisos or []):
+                r.fases.avisos.append(_a)
         if not crit:
             raise HTTPException(
                 422, "El modo global no pudo repartir el sentido: no hay "

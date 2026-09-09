@@ -109,8 +109,28 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             sentido = str(c.get("sentido") or "").strip().lower()
             razon = str(c.get("razonamiento") or "")
         elif modo == GLOBAL:
-            sentido = (sentido_global or "").strip().lower()
-            razon = ""
+            # ── LO QUE EL SECRETARIO TOCÓ, MANDA ──────────────────────────
+            #
+            # El sentido global es un RELLENO, no una orden sobre cada tema.
+            # David pidió que un concepto de violación —el de la pericial
+            # declarada desierta— se calificara INFUNDADO, lo marcó, y el
+            # proyecto salió FUNDADO: la pantalla se había puesto sola en modo
+            # global con el sentido del MODELO y tiraba en silencio lo que él
+            # había marcado.
+            #
+            # Aquí se cierra por el lado del servidor: el global rellena los
+            # problemas que nadie tocó, y donde hay calificación expresa gana
+            # ésa. Sus palabras: «lo que debe dársele mayor peso es a la
+            # palabra del secretario, no a la automatización del sistema».
+            c = califs.get(t) or {}
+            _suyo = str(c.get("sentido") or "").strip().lower()
+            sentido = _suyo or (sentido_global or "").strip().lower()
+            razon = str(c.get("razonamiento") or "")
+            if _suyo and _suyo != (sentido_global or "").strip().lower():
+                avisos.append(
+                    f"«{t[:70]}» se resuelve {_suyo.replace('_', ' ')} porque "
+                    f"así lo marcaste, no {(sentido_global or '').replace('_', ' ')} "
+                    f"como el resto del asunto.")
         else:
             pr = props.get(t) or {}
             sentido = str(pr.get("sentido") or "").strip().lower()
@@ -125,6 +145,12 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
     principal = next((x for x in fuera if x["jerarquia"] == "principal"), fuera[0])
     if principal["sentido"] not in _ALCANZAN:
         return fuera, avisos
+    # NI SIQUIERA LA SUSTRACCIÓN DE MATERIA pisa lo que el secretario marcó. Si
+    # dijo que un planteamiento es infundado, se estudia y se declara infundado,
+    # aunque el principal prospere y el resto quede sin materia: quien decide si
+    # un tema merece respuesta propia es él.
+    _suyos = {str(k) for k, v in (califs or {}).items()
+              if str((v or {}).get("sentido") or "").strip()}
 
     # ¿ALCANZA? La propuesta lo dice cuando el material da para saberlo.
     pr_principal = props.get(principal["problema"]) or {}
@@ -138,6 +164,11 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
     tocados = 0
     for x in fuera:
         if x is principal or x["jerarquia"] == "principal":
+            continue
+        if x["problema"] in _suyos:
+            avisos.append(
+                f"«{x['problema'][:70]}» NO se declaró innecesario: lo "
+                f"calificaste tú, y eso manda sobre la sustracción de materia.")
             continue
         if _pide_mas(x["problema"]):
             avisos.append(
