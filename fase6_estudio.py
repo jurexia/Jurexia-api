@@ -537,6 +537,34 @@ def _bloque_aportado(contexto: str) -> str:
 
 _ARQUITECTURA_COMUN = """
 ═══════════════════════════════════════════════════════════════════════
+EL CUERPO NO TRANSCRIBE: EL TEXTO ÍNTEGRO VA A LA NOTA AL PIE
+═══════════════════════════════════════════════════════════════════════
+Esto no es una preferencia de estilo: es cómo queda maquetado el documento, y
+si escribes contra ello el proyecto sale roto.
+
+El documento baja SOLO a la nota al pie el texto íntegro de cada precepto que
+identificas y de cada tesis larga. Tú no lo copias. Y como no hay transcripción
+en el cuerpo, TODA FRASE QUE LA ANUNCIE O REMITA A ELLA QUEDA APUNTANDO A NADA:
+
+  PROHIBIDO                        LO QUE SE ESCRIBE EN SU LUGAR
+  «…establece lo siguiente.»       «El artículo 38 del Código Fiscal de la
+  «…dispone lo siguiente.»          Federación exige que el acto notificado
+  «…señala lo siguiente:»           conste por escrito y lleve la firma del
+                                    funcionario competente.»
+  «Del precepto transcrito…»       «Del artículo 38…», «De esa disposición…»
+  «El criterio transcrito…»        «El criterio citado…», «Esa tesis…»
+  «la transcripción que antecede»  «lo dispuesto en ese precepto»
+
+Medido en la revisión fiscal 91/2025: el proyecto decía «El artículo 38 del
+Código Fiscal de la Federación establece lo siguiente.» y debajo, en vez del
+texto, empezaba otro párrafo. Y decía «Del precepto transcrito deriva que…»
+sobre un precepto que sólo estaba al pie. Ese proyecto no se puede firmar.
+
+LA REGLA, EN UNA LÍNEA: nombra el precepto o la tesis y DI LO QUE DICE, dentro
+de tu propia frase. Quien firme comprobará el texto en la nota.
+
+
+═══════════════════════════════════════════════════════════════════════
 CÓMO SE ESCRIBE ESTE ESTUDIO
 ═══════════════════════════════════════════════════════════════════════
 Esto está medido sobre 1,946 sentencias del propio acervo, comparando las que
@@ -707,12 +735,13 @@ motivos (6% contra 25%); acumular «en efecto», «ello es así».
 ARQUITECTURA — MATERIA CIVIL
 ═══════════════════════════════════════════════════════════════════════
 LA CADENA DE CUATRO ESLABONES, entera y en este orden, por cada cuestión de
-fondo: (1) transcribes el texto literal del precepto entre comillas; (2) derivas
-la regla con una frase puente —«De dicho numeral es posible advertir que, por
-regla general,…»—; (3) entra la autoridad TRANSCRITA, no citada: «es aplicable
-la jurisprudencia X, sustentada por la Primera Sala…, de rubro y texto
-siguientes:» y sigue el rubro y el texto íntegro; (4) nombras la operación que
-enlaza ese criterio con estos hechos. La cadena completa se cumple en el 53% de
+fondo: (1) NOMBRAS el precepto entero —número y ley— y dices lo que establece,
+con tus palabras y dentro de tu frase; su texto íntegro lo baja el documento a
+la nota al pie y tú no lo copias; (2) derivas la regla con una frase puente
+—«De dicho numeral es posible advertir que, por regla general,…»—; (3) entra la
+autoridad: «es aplicable la jurisprudencia X, sustentada por la Primera Sala…»,
+con su rubro; el texto de la tesis lo pone el documento, no tú; (4) nombras la
+operación que enlaza ese criterio con estos hechos. La cadena completa se cumple en el 53% de
 las de calidad máxima y en el 19% de las medias.
 
 Y ESCRIBE EN CICLOS: no toda la regla al principio y todo el caso al final. Eso
@@ -1321,8 +1350,10 @@ tema principal, has repartido mal el proyecto y hay que rehacer el reparto.
 - NO REPITAS EL MISMO PASAJE DOS VECES. Medido en el engrose del ADC 642/2024
   que sirve de referencia: tres párrafos copiados palabra por palabra dentro
   del mismo considerando, ochenta líneas después. Si el artículo 79 de la Ley
-  de Amparo ya se transcribió al fijar la premisa, más adelante se le NOMBRA
-  —«el precepto transcrito», «la regla ya enunciada»— y no se vuelve a copiar.
+  de Amparo ya se enunció al fijar la premisa, más adelante se le NOMBRA
+  —«el precepto citado», «la regla ya enunciada»— y no se vuelve a explicar.
+  NUNCA «el precepto transcrito»: en el cuerpo no hay transcripción, está en la
+  nota, y esa palabra manda al lector a buscar algo que no existe.
   Un pasaje repetido no refuerza: delata que el estudio se escribió por trozos.
 
 - NO REMITAS POR ORDINAL A OTRO CONSIDERANDO. «En términos del considerando

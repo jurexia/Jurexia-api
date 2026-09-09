@@ -1868,6 +1868,95 @@ _RX_REMATE = re.compile(
 MAX_PALABRAS_REMATE = 45
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# UNA FRASE QUE REMITE A UNA TRANSCRIPCIÓN QUE NO ESTÁ
+# ═══════════════════════════════════════════════════════════════════════════
+# David, sobre la revisión fiscal 91/2025: «El artículo 38 del Código Fiscal de
+# la Federación establece lo siguiente.» —y debajo, en vez del texto, otro
+# párrafo—. Y «Del precepto transcrito deriva que…» sobre un precepto que sólo
+# está al pie. «Esos errores no permitirán tener un proyecto firmable».
+#
+# LA CAUSA ESTÁ ARRIBA, no aquí: la arquitectura del prompt le ordenaba
+# transcribir el precepto entre comillas mientras el documento lo bajaba a la
+# nota. El modelo obedecía. Eso ya se corrigió en `fase6_estudio`.
+#
+# Esto es la red por debajo, y son DOS reparaciones de distinta naturaleza:
+#
+# (1) QUITAR «TRANSCRITO» es puramente sustractivo y no puede estropear nada:
+#     «Del precepto transcrito deriva que…» → «Del precepto deriva que…». La
+#     frase queda igual de correcta y deja de mandar al lector a buscar algo
+#     que no existe. Medido: aparece en LOS 39 proyectos generados.
+#
+# (2) FUNDIR EL ANUNCIO CON SU DERIVACIÓN sí reescribe, y por eso va con freno.
+#     Sólo cuando el párrafo TERMINA en la fórmula que anuncia y el siguiente
+#     EMPIEZA derivando de ella: entonces son una sola frase partida en dos, y
+#     se juntan. Si no encajan en el molde NO SE TOCA NADA: un anuncio suelto
+#     se ve y se corrige; una frase inventada se firma sin mirarla.
+_RX_TRANSCRITO_ADJ = re.compile(
+    r"\s+(?:antes\s+|ya\s+|anteriormente\s+)?transcrit[oa]s?\b", re.I)
+
+# «…establece lo siguiente.» al FINAL del párrafo, con su sujeto delante.
+_RX_ANUNCIO_VACIO = re.compile(
+    r"(?P<sujeto>[^.;]{6,220}?)\s+"
+    r"(?P<verbo>establece|dispone|se[ñn]ala|prev[ée]|indica|refiere|dice|"
+    r"reza|expresa|contempla)\s+lo\s+siguiente\s*[.:]\s*$", re.I)
+
+# «Del precepto transcrito deriva que…», «De esa disposición se desprende que…»
+_RX_DERIVACION = re.compile(
+    r"^(?:del?\s+(?:l[ao]s?\s+|es[ae]\s+|dich[ao]s?\s+|ah[íi]\s+)?"
+    r"(?:precepto|disposici[óo]n|numeral|art[íi]culo|norma|fracci[óo]n|"
+    r"texto|transcripci[óo]n|anterior|lo\s+anterior)[^.]{0,90}?|"
+    r"conforme\s+a\s+(?:ese|dicho|dicha|esa)[^.]{0,60}?)\s+"
+    r"(?:deriva|se\s+desprende|se\s+advierte|se\s+sigue|se\s+obtiene|"
+    r"resulta|se\s+colige|se\s+extrae)\s+(?:la\s+regla\s+de\s+)?que\s+",
+    re.I)
+
+
+def _sin_transcrito(t: str) -> str:
+    """Quita el adjetivo que promete una transcripción que está en la nota."""
+    return _RX_TRANSCRITO_ADJ.sub("", t or "")
+
+
+def _sin_anuncio_vacio(parrafos):
+    """Funde «X establece lo siguiente.» con «Del precepto deriva que Y».
+
+    Devuelve la lista con los dos párrafos convertidos en uno. Si el par no
+    encaja en el molde, la lista vuelve intacta.
+    """
+    if not isinstance(parrafos, (list, tuple)):
+        return parrafos
+    fuera, i = [], 0
+    ps = [str(x) for x in parrafos]
+    while i < len(ps):
+        a = ps[i].strip()
+        b = ps[i + 1].strip() if i + 1 < len(ps) else ""
+        ma = _RX_ANUNCIO_VACIO.search(a)
+        mb = _RX_DERIVACION.match(_sin_transcrito(b)) if b else None
+        if ma and mb:
+            resto = _sin_transcrito(b)[mb.end():].strip()
+            if resto:
+                cabeza = a[:ma.start()].rstrip()
+                sujeto = ma.group("sujeto").strip()
+                verbo = ma.group("verbo").lower()
+                # NO SE FUNDE SI EL VERBO SE REPITE. «dispone que … dispone
+                # lo siguiente» fue mi primer arreglo de este defecto, y era
+                # peor que el defecto. Si al unir las dos frases el verbo
+                # vuelve a aparecer al principio de la derivación, se dejan
+                # separadas y el anuncio se ve —que es lo que se corrige a
+                # mano en diez segundos—.
+                if re.match(rf"\s*(?:se\s+)?{verbo}\b", resto, re.I):
+                    fuera.append(_sin_transcrito(ps[i]))
+                    i += 1
+                    continue
+                unido = f"{sujeto} {verbo} que {resto[0].lower()}{resto[1:]}"
+                fuera.append((cabeza + " " + unido).strip() if cabeza else unido)
+                i += 2
+                continue
+        fuera.append(_sin_transcrito(ps[i]))
+        i += 1
+    return fuera
+
+
 def _sin_remate_duplicado(texto: str) -> str:
     """Quita la frase de cierre del modelo, no su recapitulación.
 
@@ -3389,6 +3478,14 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # lleva dentro los subtítulos en negrita, sin ordinal.
     _cuerpo_estudio, _efectos_escritos = partir_efectos(estudio or [])
     _cuerpo_estudio, _cuerpo_conceptos = partir_conceptos(_cuerpo_estudio)
+    # LA FRASE QUE REMITE A UNA TRANSCRIPCIÓN QUE NO ESTÁ. Se repara aquí, una
+    # vez, sobre los tres cuerpos: el estudio, el de los conceptos y los
+    # efectos. La causa se corrigió en el prompt —la arquitectura ordenaba
+    # transcribir el precepto mientras el documento lo bajaba al pie—; esto es
+    # la red por debajo.
+    _cuerpo_estudio = _sin_anuncio_vacio(_cuerpo_estudio)
+    _cuerpo_conceptos = _sin_anuncio_vacio(_cuerpo_conceptos)
+    _efectos_escritos = _sin_anuncio_vacio(_efectos_escritos)
 
     def _cierre_del_estudio():
         if not concede:
