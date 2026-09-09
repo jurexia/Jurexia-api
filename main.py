@@ -27921,6 +27921,40 @@ class _SubidaDeBytes:
         return self._c
 
 
+async def _paginas_de_bytes(contenido: bytes, nombre: str) -> list:
+    """El documento partido en páginas, que es lo que la depuración necesita.
+
+    No hace falta tocar el OCR: `_ocr_azure` ya rotula cada página con
+    `[[PÁGINA n]]`, así que basta con cortar por ahí. Cuando el PDF traía texto
+    nativo no hay rótulos, y entonces las páginas las da PyMuPDF, que es quien
+    sabe dónde acaba cada una.
+
+    Si nada de eso sale, se devuelve el documento como UNA página. La
+    depuración lo tratará entonces como un solo bloque: exactamente lo que
+    pasaba antes de que existiera, que es la degradación correcta.
+    """
+    texto = await _texto_de_bytes(contenido, nombre)
+    if "[[PÁGINA " in texto:
+        trozos = re.split(r"\[\[PÁGINA \d+\]\]\n?", texto)
+        return [t.strip() for t in trozos if t.strip()]
+    try:
+        import fitz
+
+        def _leer(c):
+            d = fitz.open(stream=c, filetype="pdf")
+            try:
+                return [pg.get_text() for pg in d]
+            finally:
+                d.close()
+
+        pgs = await asyncio.to_thread(_leer, contenido)
+        if pgs and sum(len(x) for x in pgs) > 200:
+            return pgs
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo paginar {nombre}: {err(ex)}")
+    return [texto] if texto else []
+
+
 async def _texto_de_bytes(contenido: bytes, nombre: str) -> str:
     if not contenido:
         return ""
@@ -27991,24 +28025,46 @@ async def taller_desde_sise(
     # turno no van siempre en el mismo orden, y la promoción trae la sentencia
     # recurrida unas veces sí y otras no. Medido en el 91/2025: sus 78 páginas
     # de recurso NO la traen.
-    _inventario, _falta_recurrida = [], True
+    # Y NO SE CLASIFICA EL FICHERO: SE CLASIFICA CADA DOCUMENTO QUE LLEVA
+    # DENTRO. La «Promoción 1» del 91/2025 son 117 páginas con la portada de la
+    # OCC, el escrito de agravios del SAT, la sentencia recurrida y la
+    # evidencia de firma, todo pegado. Mirado entero decía «sentencia
+    # recurrida», y los agravios —lo que hay que contestar— no llegaban
+    # identificados. Depurado sale cada uno por su lado, con su rango de
+    # páginas: los agravios en 5-84 y la recurrida en 95-112.
+    _inventario, _segmentos, _falta_recurrida = [], [], True
     try:
         import fase_sise as _fsi
-        _t_pro = await _texto_de_bytes(_pro, "promocion.pdf")
-        _falta_recurrida = not _fsi.trae_la_recurrida(_t_pro)
-        _inventario.append({"que": "promocion",
-                            "tipo": _fsi.clasificar(_t_pro)[0],
-                            "caracteres": len(_t_pro)})
+        import depurar_expediente as _dep
+
+        async def _desmenuzar(_bytes, _rotulo):
+            _pgs = await _paginas_de_bytes(_bytes, f"{_rotulo}.pdf")
+            _docs = await asyncio.to_thread(_dep.depurar, _pgs)
+            for _d in _docs:
+                _tipo, _conf = _fsi.clasificar(_d["texto"])
+                _d.update({"de": _rotulo, "tipo": _tipo, "confianza": _conf})
+                _segmentos.append(_d)
+                _inventario.append({
+                    "que": _rotulo, "tipo": _tipo, "confianza": _conf,
+                    "caracteres": _d["caracteres"], "paginas": _d["paginas"],
+                    "desde": _d["desde"], "hasta": _d["hasta"]})
+            return "\n\n".join(_d["texto"] for _d in _docs)
+
+        _t_pro = await _desmenuzar(_pro, "promocion")
+        # LA RECURRIDA SE BUSCA EN TODO LO QUE LLEGÓ, no sólo en la promoción:
+        # tras depurar puede estar en un segmento propio, y ahí es donde se ve.
+        _falta_recurrida = not any(
+            _s["tipo"] == "sentencia_recurrida" for _s in _segmentos)
         for _i, _b in enumerate(_acuerdos, 1):
-            _t = await _texto_de_bytes(_b, f"acuerdo{_i}.pdf")
-            _tipo, _conf = _fsi.clasificar(_t)
-            _inventario.append({"que": f"acuerdo_{_i}", "tipo": _tipo,
-                                "confianza": _conf, "caracteres": len(_t)})
+            await _desmenuzar(_b, f"acuerdo_{_i}")
         if _not:
-            _t = await _texto_de_bytes(_not, "notificacion.pdf")
-            _inventario.append({"que": "notificacion",
-                                "tipo": _fsi.clasificar(_t)[0],
-                                "caracteres": len(_t)})
+            await _desmenuzar(_not, "notificacion")
+        if not _falta_recurrida:
+            pass
+        elif _fsi.trae_la_recurrida(_t_pro):
+            # Está dentro del escrito, transcrita, sin llegar a ser un
+            # documento aparte. Sirve, y decirlo evita un aviso que asusta.
+            _falta_recurrida = False
     except Exception as _ex:
         print(f"   ⚠️ SISE: no se pudieron clasificar los documentos: {err(_ex)}")
 
@@ -28028,6 +28084,10 @@ async def taller_desde_sise(
     # EL INVENTARIO SE GUARDA. Sin él, cuando un acuerdo salga mal clasificado
     # no habrá manera de saber qué leyó el clasificador ni por qué decidió eso.
     fila["inventario"] = _inventario
+    # SE GUARDAN CON SU TEXTO. Volver a pasar 117 páginas por Azure en cada
+    # pantalla del taller es pagar dos veces por lo mismo y sumar catorce
+    # segundos a cada paso.
+    fila["segmentos"] = _segmentos
     if supabase_admin:
         try:
             supabase_admin.table("sise_pendientes").upsert(
