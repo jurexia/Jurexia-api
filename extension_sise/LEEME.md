@@ -8,8 +8,8 @@ teclees el número, ni el tipo de asunto, ni la fecha.
 1. Chrome → `chrome://extensions`
 2. Enciende **Modo de desarrollador** (arriba a la derecha).
 3. **Cargar descomprimida** → elige esta carpeta, `extension_sise`.
-4. Pulsa **Detalles → Opciones** y escribe tu correo de Iurexia. (También
-   puedes escribirlo la primera vez desde el propio panel.)
+4. Entra a **iurexia.com** y accede con tu cuenta. El complemento la recoge
+   solo: no hay que escribir ningún correo.
 
 ## Usar
 
@@ -18,7 +18,7 @@ teclees el número, ni el tipo de asunto, ni la fecha.
 3. Abajo a la derecha aparece el botón **Iurexia**. Púlsalo.
 4. Verás la lista de actuaciones. Vienen marcados los **acuerdos** y las
    **promociones**; las **notificaciones**, no. Desmarca lo que sobre.
-5. **Enviar a Iurexia.** Al terminar te dice qué reconoció en cada documento.
+5. **Mandar constancias seleccionadas al taller.** Al terminar te dice qué reconoció en cada documento.
 6. Abre el taller: el expediente está esperando.
 
 ## Qué hace con tus datos
@@ -37,7 +37,7 @@ teclees el número, ni el tipo de asunto, ni la fecha.
 | «Abre un expediente en el visor…» | Estás en el visor pero sin expediente cargado. Ábrelo desde SISE. |
 | «El visor no aceptó la sesión (401)» | Caducó. Recarga la página y vuelve a entrar en SISE. |
 | «Lo que llegó no es un PDF» | El CJF devolvió una página en vez del documento. Reintenta ese documento. |
-| «Falta tu correo de Iurexia» | Escríbelo en el panel, o en Detalles → Opciones. |
+| «Hace falta tu sesión de Iurexia» | Abre iurexia.com, entra, y vuelve a pulsar. |
 
 ## Topes
 

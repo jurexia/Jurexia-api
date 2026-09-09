@@ -1,18 +1,38 @@
 {
   "manifest_version": 3,
   "name": "Iurexia · Taller desde el Expediente Electrónico",
-  "version": "2.1.0",
-  "description": "Trae al taller de sentencias las constancias del expediente que tienes abierto. Ni guarda ni envía tu contraseña ni tu sesión del CJF.",
-  "permissions": ["storage"],
+  "version": "3.0.0",
+  "description": "Trae al taller de sentencias las constancias del expediente que tienes abierto. No pide correo ni contraseña: usa la sesión de Iurexia que ya tienes en el navegador.",
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://serviciosvistaee.cjf.gob.mx/*",
-    "https://jurexia-api.onrender.com/*"
+    "https://jurexia-api.onrender.com/*",
+    "https://www.iurexia.com/*",
+    "https://iurexia.com/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://ejusticia.cjf.gob.mx/vistaee/*"],
-      "js": ["panel.js"],
-      "css": ["panel.css"],
+      "matches": [
+        "https://ejusticia.cjf.gob.mx/vistaee/*"
+      ],
+      "js": [
+        "panel.js"
+      ],
+      "css": [
+        "panel.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.iurexia.com/*",
+        "https://iurexia.com/*"
+      ],
+      "js": [
+        "sesion.js"
+      ],
       "run_at": "document_idle"
     }
   ],

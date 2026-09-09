@@ -28029,7 +28029,11 @@ async def taller_extension():
 
 @app.post("/taller/desde-sise")
 async def taller_desde_sise(
-    user_email: str = Form(...),
+    # EL TOKEN MANDA SOBRE EL CUERPO. `user_email` se queda por compatibilidad
+    # con las extensiones ya instaladas, pero en cuanto llega una sesión de
+    # verdad es ella quien dice de quién son las constancias.
+    authorization: str = Header(default=""),
+    user_email: str = Form(""),
     numero: str = Form(...),
     expediente_unico: str = Form(""),
     tipo_sise: str = Form(""),
@@ -28048,8 +28052,12 @@ async def taller_desde_sise(
     determinacion: Optional[UploadFile] = File(None),
     notificacion: Optional[UploadFile] = File(None),
 ):
-    _taller_puerta(user_email)
-    correo = (user_email or "").strip().lower()
+    correo = await _correo_de_la_sesion(authorization, user_email)
+    if not correo:
+        raise HTTPException(401,
+            "No se pudo saber de quién son estas constancias. Abre iurexia.com "
+            "en una pestaña, entra con tu cuenta, y vuelve a pulsar.")
+    _taller_puerta(correo)
     try:
         _act = json.loads(actuaciones_json or "[]")
         if not isinstance(_act, list):
@@ -28194,8 +28202,14 @@ async def taller_desde_sise(
 # LO QUE ESPERA AL SECRETARIO cuando abre el taller. Se enseña como un aviso
 # —«tienes el 91/2025 esperando desde SISE»— y con un clic se llena la ficha.
 @app.get("/taller/sise-pendiente")
-async def taller_sise_pendiente(user_email: str, numero: str = ""):
-    correo = (user_email or "").strip().lower()
+async def taller_sise_pendiente(user_email: str = "", numero: str = "",
+                                authorization: str = Header(default="")):
+    # Aquí el token es opcional a propósito: la pantalla del taller ya sabe
+    # quién entró y pregunta con su correo. Si viene, manda él.
+    try:
+        correo = await _correo_de_la_sesion(authorization, user_email)
+    except HTTPException:
+        correo = (user_email or "").strip().lower()
     if not (correo and supabase_admin):
         return {"pendientes": []}
     try:
@@ -28235,6 +28249,42 @@ def _con_omisiones(fn, **dados):
         interno = getattr(d, "default", d)
         fin[nombre] = None if interno is Ellipsis else interno
     return fin
+
+
+async def _correo_de_la_sesion(authorization: str, dicho: str) -> str:
+    """Quién manda, según su sesión de Iurexia — no según lo que teclee.
+
+    David: «no sería posible omitir este paso del correo para conectar?
+    bastaría un botón adicional de "Mandar constancias seleccionadas al
+    taller"». Tenía razón, y por dos motivos distintos.
+
+    EL SUYO, que es el bueno: si ya estás dentro de Iurexia en ese navegador,
+    preguntarte quién eres sobra. Y un campo que se teclea es un campo que se
+    teclea mal: dos letras cambiadas —jmd por jdm— mandaron sus constancias a
+    un sitio donde el taller no las busca, y el envío dijo «Listo» igual.
+
+    EL OTRO, que no había visto: aceptar un correo suelto significa que
+    cualquiera podía dejar constancias a nombre de cualquier cuenta. El token
+    lo firma Supabase y no se puede inventar.
+
+    Se conserva el correo del cuerpo como respaldo mientras queden extensiones
+    viejas instaladas, pero cuando hay token, MANDA EL TOKEN.
+    """
+    tok = (authorization or "").replace("Bearer ", "").strip()
+    if not tok:
+        return (dicho or "").strip().lower()
+    if not supabase_admin:
+        raise HTTPException(503, "No se puede comprobar la sesión ahora mismo.")
+    try:
+        r = await asyncio.to_thread(supabase_admin.auth.get_user, tok)
+        u = r.user
+        if u and u.email:
+            return u.email.strip().lower()
+    except Exception:
+        pass
+    raise HTTPException(401,
+        "Tu sesión de Iurexia caducó. Abre iurexia.com en una pestaña, entra, "
+        "y vuelve a pulsar: el complemento la recoge solo.")
 
 
 def _soltar_constancias(correo: str, numero: str) -> None:

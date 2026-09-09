@@ -146,17 +146,13 @@
     return new Blob([u8], { type: 'application/pdf' });
   }
 
-  // ── EL CORREO ─────────────────────────────────────────────────────────────
-  // Se guarda en chrome.storage.local, que sobrevive a recargas y a reinicios.
-  // La página de opciones sigue existiendo, pero preguntarlo aquí evita el
-  // viaje que la vez pasada acabó en «no deja guardar el correo».
-  const leerCorreo = () => new Promise(res => {
-    try { chrome.storage.local.get(['correo'], d => res((d && d.correo) || '')); }
-    catch (e) { res(''); }
-  });
-  const guardarCorreo = (c) => new Promise(res => {
-    try { chrome.storage.local.set({ correo: c }, () => res(true)); }
-    catch (e) { res(false); }
+  // ── QUIÉN ERES ────────────────────────────────────────────────────────────
+  // Ya no se pregunta. `sesion.js` corre en iurexia.com, lee la sesión que la
+  // propia web guardó y la deja aquí. Si no hay, no se inventa: se dice que
+  // abra Iurexia y entre.
+  const leerSesion = () => new Promise(res => {
+    try { chrome.storage.local.get(['sesion'], d => res((d && d.sesion) || null)); }
+    catch (e) { res(null); }
   });
 
   // ── LA PANTALLA ───────────────────────────────────────────────────────────
@@ -243,19 +239,22 @@
       return;
     }
 
-    // El correo: si no está, se pide aquí mismo.
-    const correoGuardado = await leerCorreo();
-    let entradaCorreo = null;
-    if (!correoGuardado) {
-      const fila = $('div', 'iux-correo');
-      entradaCorreo = document.createElement('input');
-      entradaCorreo.type = 'email';
-      entradaCorreo.placeholder = 'nombre@ejemplo.mx';
-      fila.append($('label', null, 'El correo de TU CUENTA de Iurexia'), entradaCorreo);
-      fila.append($('span', 'iux-pista',
-        'Tiene que ser exactamente el mismo con el que entras a Iurexia. Si '
-      + 'cambias una letra, las constancias llegan pero no aparecen en tu taller.'));
-      panel.append(fila);
+    // OJO CON EL NOMBRE: `sesion()` es la del visor del Consejo. Ésta es la
+    // cuenta de Iurexia. Llamarlas igual sombreaba la función en todo el
+    // cuerpo y `sesion()` reventaba en su primera línea con un
+    // ReferenceError que `node --check` no ve.
+    const cuenta = await leerSesion();
+    if (!cuenta) {
+      panel.append(nota(
+        'Para saber en qué taller dejar las constancias hace falta tu sesión de '
+      + 'Iurexia. Abre iurexia.com en otra pestaña, entra con tu cuenta, y '
+      + 'vuelve a pulsar aquí: se recoge sola.', 'iux-aviso'));
+      const ir = $('a', 'iux-enviar', 'Abrir Iurexia');
+      ir.href = 'https://www.iurexia.com/tcc-beta';
+      ir.target = '_blank';
+      ir.rel = 'noopener';
+      panel.append(ir);
+      return;
     }
 
     const ul = $('div', 'iux-lista');
@@ -276,41 +275,23 @@
     });
     panel.append(ul);
 
-    // A QUÉ CUENTA VAN. Un correo escrito a mano con una letra cambiada manda
-    // las constancias a un sitio donde nadie las busca, y el envío dice
-    // «Listo» igual: pasó con jmd en vez de jdm, y se perdió media tarde
-    // buscando el fallo en el sitio equivocado. Verlo antes de pulsar cuesta
-    // una línea.
-    if (correoGuardado) {
-      const fila = $('div', 'iux-cuenta');
-      fila.append($('span', null, 'Van a la cuenta '),
-                  $('strong', null, correoGuardado));
-      const cambiar = $('button', 'iux-cambiar', 'cambiar');
-      cambiar.type = 'button';
-      cambiar.addEventListener('click', async () => {
-        await guardarCorreo('');
-        pintar();
-      });
-      fila.append(cambiar);
-      panel.append(fila);
-    }
+    // A QUÉ CUENTA VAN. Sale de la sesión, así que ya no puede estar mal
+    // escrita; se enseña igual, porque quien firma tiene derecho a ver a dónde
+    // va el expediente antes de mandarlo.
+    const fila = $('div', 'iux-cuenta');
+    fila.append($('span', null, 'Van a tu taller de '),
+                $('strong', null, cuenta.correo));
+    panel.append(fila);
 
     const estado = nota('');
-    const enviar = $('button', 'iux-enviar', 'Enviar a Iurexia');
+    const enviar = $('button', 'iux-enviar',
+                     'Mandar constancias seleccionadas al taller');
     enviar.type = 'button';
     panel.append(enviar, estado);
 
     enviar.addEventListener('click', async () => {
       if (enviando) return;
-      const correo = (correoGuardado || (entradaCorreo && entradaCorreo.value) || '')
-                       .trim().toLowerCase();
-      if (!correo || correo.indexOf('@') < 0) {
-        estado.className = 'iux-nota iux-error';
-        estado.textContent = 'Falta el correo de tu cuenta de Iurexia.';
-        return;
-      }
-      if (!correoGuardado) await guardarCorreo(correo);
-
+      const correo = cuenta.correo;
       const elegidos = filas.filter(f => f.chk.checked).map(f => f.entrada);
       if (!elegidos.length) {
         estado.className = 'iux-nota iux-error';
@@ -368,6 +349,8 @@
       estado.textContent = `Enviando ${bajados.length} constancias a Iurexia…`;
 
       const fd = new FormData();
+      // Se sigue mandando por compatibilidad, pero el servidor hace caso al
+      // token: un correo suelto lo puede escribir cualquiera.
       fd.append('user_email', correo);
       fd.append('numero', s.numero || String(s.neun));
       fd.append('tipo_sise', s.tipoAsunto || '');
@@ -385,7 +368,10 @@
       for (const b of resto) fd.append('acuerdos', b.blob, b.entrada.nombreArchivo);
 
       try {
-        const r = await fetch(`${API}/taller/desde-sise`, { method: 'POST', body: fd });
+        const r = await fetch(`${API}/taller/desde-sise`, {
+          method: 'POST', body: fd,
+          headers: { 'Authorization': 'Bearer ' + cuenta.token },
+        });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.detail || `el servidor respondió ${r.status}`);
         estado.className = 'iux-nota iux-bien';
