@@ -489,7 +489,10 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     tareas += [_buscar(qdrant, c, "dense", v_leyes, NORMAS_POR_PROBLEMA)
                for c in colecciones]
     # (res[:n_anclas] son las tesis; res[n_anclas:] son las normas)
-    res = await asyncio.gather(*tareas)
+    # LA CO-CITACIÓN VA EN PARALELO con las demás búsquedas: no alarga nada.
+    res, _coc = await asyncio.gather(
+        asyncio.gather(*tareas),
+        tesis_cocitadas(qdrant, embed_leyes, problema))
 
     # EL ORDEN, CORREGIDO. La primera versión de esto penalizaba la tesis por
     # venir de otra entidad y la mandaba al fondo. Estaba mal, y el barrido de
@@ -514,9 +517,27 @@ async def material_para(qdrant, embed_juris, embed_leyes,
             if t["registro"] and t["registro"] not in _vistos:
                 _vistos.add(t["registro"])
                 _crudo.append(t)
+    # LOS CO-CITADOS ENTRAN EN LA MISMA LISTA, no detrás. Añadirlos al final
+    # es regalárselos al recorte del prompt: ya pasó con las tesis de la
+    # técnica y no llegó ninguna.
+    for _t in _coc:
+        if _t["registro"] and _t["registro"] not in _vistos:
+            _vistos.add(_t["registro"])
+            _crudo.append(_t)
+        else:
+            # Ya la traía la semántica: se le anota que ADEMÁS la cita el
+            # circuito, que es lo que le da peso en el orden.
+            for _y in _crudo:
+                if _y["registro"] == _t["registro"]:
+                    _y["veces"] = _t.get("veces", 0)
+                    _y["cocitada"] = True
+                    break
     tesis = _crudo
+    # EL ORDEN, con la co-citación dentro: entre dos criterios que pesan igual,
+    # manda el que el circuito usa de verdad para esta cuestión.
     tesis.sort(key=lambda t: (not _es_scjn(t),
                               not t["obligatoria"],
+                              -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
     vistos: set[str] = set()
     unicas: list[dict] = []
@@ -644,4 +665,103 @@ async def tesis_por_registro(qdrant, registros: list) -> list:
             # llevaba siempre. La marca las exime del tope.
             d["tecnica"] = True
             fuera.append(d)
+    return fuera
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LO QUE CITAN LAS SENTENCIAS QUE YA RESOLVIERON ESTA MISMA CUESTIÓN
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «una sentencia se sostiene por su nivel de argumentación jurídica y
+# por los criterios VINCULANTES que invoca».
+#
+# La búsqueda por parecido de rubro es buena encontrando algo PARECIDO y
+# estructuralmente mala encontrando lo OBLIGATORIO. Medido sobre las 12
+# preguntas del banco de calidad, contando cuántos de los diez criterios
+# recuperados vinculan:
+#
+#     semántica ....... 25 de 120  (21%)
+#     co-citación ..... 90 de 115  (78%)
+#     de Sala o Pleno .. 37  →  97
+#     invisibles para la semántica ......... 104 de 115
+#
+# Mejora en LAS DOCE preguntas, sin excepción. Y no es un ajuste de pesos: son
+# criterios que la semántica no devuelve a ninguna profundidad, porque su rubro
+# no se parece a la pregunta aunque sea la autoridad que decide el punto.
+#
+# DE DÓNDE SALE. El 81% de los 200,650 holdings guarda `tesis_registros`: los
+# criterios que esa sentencia citó de verdad. Contando cuáles se repiten en las
+# sentencias que resolvieron la misma cuestión sale, sin modelo y sin
+# adivinanza, qué autoridad usa el circuito para ese punto —y cuántas veces,
+# que es un dato que la semántica no puede dar—.
+#
+# LA TRAMPA: `tesis_registros` mezcla DOS identificadores, el registro digital
+# («2016701») y la clave de la tesis («2a./J. 137/2016 (10a.)»). Por eso se
+# busca por los dos campos. Aun así, el 39% de las claves no resuelve contra la
+# colección: son citas que no podemos convertir en autoridad utilizable, y eso
+# es trabajo pendiente, no un fallo de esto.
+COLECCION_SENTENCIAS = "sentencias_holdings"
+SENTENCIAS_POR_PROBLEMA = 50
+COCITADAS_POR_PROBLEMA = 8
+
+
+async def _ficha_de_cita(qdrant, clave: str):
+    """La tesis, buscada por registro y, si no, por su clave."""
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+    for campo in ("registro", "clave_tesis"):
+        try:
+            r = qdrant.scroll(
+                collection_name=COLECCION_JURIS,
+                scroll_filter=Filter(must=[FieldCondition(
+                    key=campo, match=MatchValue(value=str(clave)))]),
+                limit=1, with_payload=True)
+            if inspect.isawaitable(r):
+                r = await r
+            pts = r[0] if isinstance(r, tuple) else r
+            if pts:
+                return _tesis_de(pts[0].payload or {})
+        except Exception:
+            continue
+    return None
+
+
+async def tesis_cocitadas(qdrant, embed_leyes, problema: str,
+                          tope: int = COCITADAS_POR_PROBLEMA) -> list:
+    """Los criterios que más cita el circuito al resolver esta cuestión."""
+    if not qdrant or not (problema or "").strip():
+        return []
+    try:
+        v = await embed_leyes(problema)
+        r = qdrant.query_points(
+            collection_name=COLECCION_SENTENCIAS, query=v, using="dense",
+            limit=SENTENCIAS_POR_PROBLEMA, with_payload=["tesis_registros"])
+        if inspect.isawaitable(r):
+            r = await r
+        pts = getattr(r, "points", r)
+    except Exception as e:
+        print(f"   ⚠️ co-citación: no se pudo consultar el acervo: {e}")
+        return []
+    from collections import Counter
+    cuenta = Counter()
+    for p in pts:
+        for x in ((p.payload or {}).get("tesis_registros") or []):
+            if str(x).strip():
+                cuenta[str(x).strip()] += 1
+    if not cuenta:
+        return []
+    # SÓLO LAS QUE SE REPITEN MANDAN ARRIBA, pero una sola cita también vale:
+    # en cuestiones poco litigadas puede no haber más. Se piden las 20 más
+    # citadas y se resuelven a la vez; se devuelven las `tope` que existan.
+    claves = [k for k, _ in cuenta.most_common(20)]
+    fichas = await asyncio.gather(*[_ficha_de_cita(qdrant, k) for k in claves])
+    fuera = []
+    for k, f in zip(claves, fichas):
+        if f and f.get("registro") and f.get("rubro"):
+            f["veces"] = cuenta[k]
+            f["cocitada"] = True
+            fuera.append(f)
+        if len(fuera) >= tope:
+            break
+    if fuera:
+        print(f"   ⚖️ co-citación: {len(fuera)} criterios usados por el circuito "
+              f"(el más citado, {fuera[0].get('veces')} veces)")
     return fuera

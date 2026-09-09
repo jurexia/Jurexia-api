@@ -461,6 +461,12 @@ def _bloque_material(m: Material) -> str:
         p.append("  cita el del Pleno o de una Sala antes que el de un Tribunal")
         p.append("  Colegiado: pesa más y evita el reproche de haberse quedado corto.")
         p.append("  Vienen ordenados: los primeros son los que más aplican.")
+        p.append("  SI UN CRITERIO LLEVA «LO CITAN N SENTENCIAS DE ESTE")
+        p.append("  CIRCUITO», ése es el que el tribunal aplica de manera")
+        p.append("  constante para esta cuestión: preferirlo no es una")
+        p.append("  sugerencia de estilo, es escribir la sentencia que este")
+        p.append("  circuito reconoce como suya. Y puedes decirlo —«criterio")
+        p.append("  reiterado de este circuito»— cuando de verdad lo sea.")
         for t in tesis:
             # DOS DATOS DISTINTOS, Y YO LOS TENÍA FUNDIDOS EN UNO. Que un
             # criterio VINCULE y que SEA jurisprudencia no es lo mismo: hay
@@ -470,8 +476,17 @@ def _bloque_material(m: Material) -> str:
             # una tesis aislada —y la llamó jurisprudencia—.
             fuerza = "OBLIGATORIA" if t.get("obligatoria") else "orientadora"
             tipo = str(t.get("tipo") or "").strip() or "tipo no declarado"
+            # CUÁNTAS VECES LO CITA EL CIRCUITO PARA ESTA CUESTIÓN. Es un
+            # dato que la búsqueda por parecido no puede dar: sale de contar
+            # qué invocaron las sentencias que ya resolvieron lo mismo. Y es
+            # argumento, no adorno —«el criterio que este circuito aplica de
+            # manera constante» pesa distinto que «una tesis que encontré»—.
+            _vec = int(t.get("veces") or 0)
+            _uso = (f" — LO CITAN {_vec} SENTENCIAS DE ESTE CIRCUITO al "
+                    f"resolver esta misma cuestión") if _vec >= 2 else (
+                   " — usado por el circuito en esta cuestión" if _vec else "")
             p.append(f"\n  · [{fuerza}] [{tipo}] Registro "
-                     f"{t.get('registro','')} — {t.get('instancia','')}")
+                     f"{t.get('registro','')} — {t.get('instancia','')}{_uso}")
             p.append(f"    {t.get('rubro','')}")
             if t.get("localizacion"):
                 p.append(f"    {t['localizacion']}")
