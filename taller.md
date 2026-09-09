@@ -200,6 +200,37 @@ Medido sobre 33,036 holdings, 12,272 expedientes y 65,282 agravios:
 - **La extensión es proporcional**: los temas accesorios y la inoperancia se
   resuelven en 3 a 7 párrafos.
 
+### Dos deslindes que no se pueden confundir
+
+**En revisión se REVOCA; sólo en amparo se deja INSUBSISTENTE.** No son dos
+maneras de decir lo mismo:
+
+- En un **recurso**, el tribunal es órgano revisor de esa misma sentencia y la
+  revoca: con eso deja de existir, y no hay a quién ordenarle que la deje
+  insubsistente. Si hay reenvío, lo que se ordena es **dictar otra**.
+- En **amparo**, el tribunal no revoca el acto reclamado —no es superior
+  jerárquico de la responsable—: concede la protección y le ordena dejarlo
+  insubsistente. Ahí la fórmula existe, y por eso se confunde.
+
+**En revisión de amparo NO hay reenvío; en revisión fiscal SÍ.** En el amparo en
+revisión el colegiado levanta el sobreseimiento y **asume jurisdicción**
+(artículo 93, fracción I). En la revisión fiscal no puede: el estudio de los
+conceptos de anulación corresponde en primera instancia a la Sala, y sustituirla
+dejaría al particular sin amparo contra ese estudio. Apoyos verificados en el
+acervo: registros 188742, 193181, 196875 y 2000895; el deslinde —cuando el vicio
+formal no trasciende y el colegiado corrige él mismo— en el 185493.
+
+### El cuerpo no transcribe
+
+El texto íntegro de preceptos y tesis largas lo baja el documento a la **nota al
+pie**. Por eso el cuerpo NUNCA anuncia una transcripción —«establece lo
+siguiente»— ni remite a ella —«del precepto transcrito»—: son frases que
+apuntan a algo que el lector no va a encontrar.
+
+Esto estuvo roto mucho tiempo porque **la arquitectura del prompt ordenaba lo
+contrario**, y la arquitectura es lo que se obedece. Medido antes de
+corregirlo: 55 remisiones falsas repartidas por los 50 proyectos generados.
+
 ### El acceso
 
 `_taller_puerta()`: Platinum, o bien el campo **`can_access_sentencia`** en
