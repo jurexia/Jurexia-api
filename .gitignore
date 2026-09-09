@@ -94,3 +94,12 @@ test.png
 # El catálogo doctrinal también: es la lista aprobada de obras, no un temporal.
 !_calidad/catalogo_doctrina.json
 _calidad/corridas/
+
+# EL COMPLEMENTO DE CHROME VA ENTERO AL REPOSITORIO.
+# Las reglas generales «*.json» y «*.html» de arriba se estaban tragando
+# `manifest.json` y `opciones.html`, que son justamente los dos ficheros sin
+# los que Chrome no reconoce una extensión. Nadie lo notó porque siempre se
+# probó desde el disco local; el .zip que sirve /taller/extension habría bajado
+# una carpeta que Chrome rechaza al cargarla.
+!extension_sise/
+!extension_sise/**
