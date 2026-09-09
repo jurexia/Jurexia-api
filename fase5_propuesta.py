@@ -78,14 +78,32 @@ class Propuesta:
 
     def bloque(self) -> str:
         if not self.alcanza:
-            return (f"· {self.problema[:120]}\n"
+            return (f"· {_entero(self.problema)}\n"
                     f"    SIN PROPUESTA — el acervo no alcanza para sostener un "
                     f"sentido. {self.razon}")
         ap = ", ".join(str(a) for a in self.apoyos) or "sin apoyo"
-        return (f"· {self.problema[:120]}\n"
+        return (f"· {_entero(self.problema)}\n"
                 f"    PROPUESTA: {self.sentido.upper()} ({self.confianza})\n"
                 f"    {self.razon}\n"
                 f"    Se apoya en: {ap}")
+
+
+def _entero(pregunta: str, tope: int = 260) -> str:
+    """El problema jurídico, legible.
+
+    Estaba cortado a 120 caracteres a pelo, y una pregunta jurídica rara vez
+    cabe ahí: en el 91/2025 el secretario leía «…del artículo 38, fracción V,
+    del Código Fiscal d» y ahí se acababa. Justo la frase sobre la que tiene
+    que decidir el sentido.
+
+    Se deja entera; y si de verdad se dispara, se corta por la última palabra
+    completa, que al menos no miente sobre dónde acaba.
+    """
+    t = " ".join(str(pregunta or "").split())
+    if len(t) <= tope:
+        return t
+    corte = t[:tope].rsplit(" ", 1)[0]
+    return corte + "…"
 
 
 @dataclass
