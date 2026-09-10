@@ -29012,6 +29012,56 @@ def _con_autos(r, contexto: str) -> str:
             f"{autos}\n\n" + (contexto or ""))
 
 
+@app.post("/taller/razonar")
+async def taller_razonar(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    problema: str = Form(...),
+    sentido: str = Form(...),
+):
+    """La razón de la calificación que el secretario acaba de marcar.
+
+    David: «si resuelve por tema, entonces tener la posibilidad de calificar
+    como le apetezca, pero con cada calificación el LLM debe darle una posible
+    razón».
+
+    El motor sólo razonaba SU propuesta. Si el secretario marcaba lo contrario
+    se quedaba con una pastilla de color y un cuadro en blanco, y si no lo
+    rellenaba, el estudio se inventaba el porqué. Esto no propone ni discute:
+    da la mejor demostración del sentido YA DECIDIDO, con el material del
+    acervo delante.
+    """
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    r = ses["resultado"]
+    # EL MATERIAL VIVE EN LA MEMORIA DEL TRABAJADOR QUE CONSULTÓ, y hay dos.
+    # Si esta petición cae en el otro, no está. Antes eso era un 409 que además
+    # mentía —«todavía no se ha consultado»— cuando sí se había consultado.
+    # Se razona igual, con la ley y los resúmenes: peor que con el acervo
+    # delante, pero infinitamente mejor que dejar al secretario con el cuadro
+    # en blanco que el estudio acabaría rellenando solo.
+    material = ses.get("material")
+    if material is None:
+        import fase6_estudio as _f6m
+        material = _f6m.Material()
+        print(f"   ⚠️ razonar {numero} sin material: se apoya en la ley")
+    import fase5_propuesta as _f5
+    try:
+        razon = await _f5.razonar(
+            chat_client, problema, sentido, material,
+            r.fases.resumen_acto, r.fases.resumen_conceptos,
+            bool(r.encargo and r.encargo.es_recurso),
+            getattr(r.encargo, "tipo_asunto", "") if r.encargo else "")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo razonar «{sentido}»: {err(ex)}")
+        raise HTTPException(502,
+            "No se pudo redactar la razón. Escríbela tú o vuelve a intentarlo.")
+    print(f"   ✍️  razón para «{sentido}» · {len(razon.split())} palabras")
+    return {"razon": razon, "palabras": len(razon.split())}
+
+
 @app.post("/taller/proponer")
 async def taller_proponer(
     numero: str = Form(...),

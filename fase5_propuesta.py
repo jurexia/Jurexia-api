@@ -1060,3 +1060,84 @@ def resumen(propuestas: list) -> str:
 def calificaciones_de(propuestas: list) -> list:
     """Los sentidos, en orden, para el resolutivo. Sólo los que alcanzan."""
     return [p.sentido for p in propuestas if p.alcanza and p.sentido in SENTIDOS]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA RAZÓN DE LA CALIFICACIÓN QUE ELIGE EL SECRETARIO
+#
+# David, describiendo cómo tiene que funcionar el taller: «si resuelve por tema,
+# entonces tener la posibilidad de calificar como le apetezca, pero con cada
+# calificación el LLM debe darle una posible razón».
+#
+# Hasta ahora el motor sólo razonaba SU propia propuesta. Si el secretario
+# marcaba lo contrario, se quedaba con una pastilla de color y un cuadro de
+# texto en blanco que tenía que rellenar a mano —y si no lo rellenaba, el
+# estudio se inventaba el porqué—.
+#
+# Esto no propone ni discute: se le da el sentido YA DECIDIDO y se le pide la
+# mejor demostración posible de ESE sentido, con el material del acervo. Es el
+# mismo papel que tiene el estudio de fondo, en pequeño y por adelantado, para
+# que el secretario lea la razón ANTES de comprometerse.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def prompt_razon(problema: str, sentido: str, material,
+                 resumen_acto: str = "", resumen_conceptos: str = "",
+                 es_recurso: bool = False, tipo_asunto: str = "") -> str:
+    import tipos_asunto as _ta
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    q = _ta.vocabulario_de(_t)["combate"]
+    _org = _ta.sujetos_de(_t)["organo"][0]
+    return f"""Eres el secretario de un Tribunal Colegiado. El sentido YA ESTÁ
+DECIDIDO por quien firma: NO lo discutas, NO propongas otro, NO adviertas que
+podría ser distinto. Tu único trabajo es escribir la mejor razón jurídica que
+sostenga ESA calificación.
+
+EL PLANTEAMIENTO
+{problema}
+
+LA CALIFICACIÓN QUE HAY QUE SOSTENER
+{sentido.replace('_', ' ').upper()}
+
+LO QUE RESOLVIÓ {_org.upper()}
+{resumen_acto[:20000]}
+
+LO QUE SE COMBATE
+{resumen_conceptos[:20000]}
+
+{_bloque_tesis(_tesis_del_material(material))}
+{_bloque_normas(material)}
+
+CÓMO SE ESCRIBE:
+- UN PÁRRAFO, de 60 a 120 palabras, en prosa corrida y registro judicial
+  mexicano. Sin viñetas, sin Markdown, sin rótulos.
+- Empieza por la razón, no por la calificación: quien lee ya sabe cómo se
+  califica, lo que necesita saber es POR QUÉ.
+- Apóyate en el acervo de arriba cuando venga al caso, citando el registro
+  entre paréntesis. Si nada de lo que hay encaja, razona con la ley y NO
+  inventes un registro: una cita falsa es peor que ninguna.
+- No inventes hechos. Si un dato no está arriba, no existe.
+- Es una PROPUESTA de razón para que el secretario la acepte, la corrija o la
+  sustituya. Escríbela como si fuera a firmarse, pero no afirmes que es
+  definitiva.
+
+Escribe sólo el párrafo."""
+
+
+async def razonar(cliente, problema: str, sentido: str, material,
+                  resumen_acto: str = "", resumen_conceptos: str = "",
+                  es_recurso: bool = False, tipo_asunto: str = "") -> str:
+    """Una razón para el sentido que el secretario acaba de marcar."""
+    if not (problema or "").strip() or not (sentido or "").strip():
+        return ""
+    kw = dict(model=MODELO_PROPUESTA,
+              messages=[{"role": "user", "content": prompt_razon(
+                  problema, sentido, material, resumen_acto,
+                  resumen_conceptos, es_recurso, tipo_asunto)}],
+              max_completion_tokens=900,
+              temperature=0, seed=20260831)
+    if ESFUERZO_PROPUESTA:
+        kw["reasoning_effort"] = ESFUERZO_PROPUESTA
+    import llamada_modelo as _lm
+    r = await _lm.crear(cliente, **kw)
+    txt = (r.choices[0].message.content or "").strip()
+    return " ".join(txt.split())
