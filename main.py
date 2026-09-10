@@ -28821,6 +28821,56 @@ def _tipo_desde_sise(t: str) -> str:
     return "amparo_directo"
 
 
+@app.get("/taller/contexto-del-asunto")
+async def taller_contexto_del_asunto(numero: str, user_email: str):
+    """EL ASUNTO, PARA LEERLO ANTES DE DECIDIR NADA.
+
+    David, repetidas veces: «primero debe presentarse todo el contexto
+    jurídico… el resumen del caso, lo que resolvió la responsable y lo que
+    alega quien recurre o reclama… el secretario está sentado frente a la
+    pantalla y primero quiere entender el asunto».
+
+    Todo esto ya se calculaba en el adelanto y sólo existía dentro del .docx:
+    el recorrido marcaba «Ratio del acto reclamado» y «Síntesis de conceptos»
+    en verde y el secretario no podía leer ninguna de las dos. Se le pedía
+    formar criterio sobre un asunto que no había visto.
+    """
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    r = ses["resultado"]
+    f = r.fases
+    e = r.encargo
+    import tipos_asunto as _ta
+    _t = getattr(e, "tipo_asunto", "") if e else ""
+    _voc = _ta.vocabulario_de(_t or "amparo_directo")
+    return {
+        "numero": numero,
+        "tipo_asunto": _t,
+        # Cómo se llaman aquí las cosas: en un recurso son «agravios» y la
+        # «sentencia recurrida»; en un amparo directo, «conceptos de
+        # violación» y la «sentencia reclamada». Rotular mal es la manera más
+        # barata de que el secretario lea otro asunto.
+        "voz": {"combate": _voc.get("combate", ""),
+                "recurrido": _voc.get("recurrido", ""),
+                "promovente": _voc.get("promovente", ""),
+                "organo": _ta.sujetos_de(_t or "amparo_directo")["organo"][0]},
+        "antecedentes": f.antecedentes or "",
+        "resumen_acto": f.resumen_acto or "",
+        "resumen_conceptos": f.resumen_conceptos or "",
+        "problema_global": f.problema_global or "",
+        "problemas": [
+            {"pregunta": (p.get("pregunta") if isinstance(p, dict) else str(p)) or "",
+             "resolvio": (p.get("resolvio") if isinstance(p, dict) else "") or "",
+             "combate": (p.get("combate") if isinstance(p, dict) else "") or "",
+             "jerarquia": (p.get("jerarquia") if isinstance(p, dict) else "") or ""}
+            for p in (f.problemas or [])],
+        "avisos": list(f.avisos or []),
+        "oportunidad": getattr(r, "oportunidad", "") or "",
+    }
+
+
 @app.post("/taller/consultar")
 async def taller_consultar(
     numero: str = Form(...),
