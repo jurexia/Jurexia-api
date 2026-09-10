@@ -28618,9 +28618,20 @@ async def taller_desde_expediente(
     if not _acto:
         _faltan.append("la sentencia recurrida")
     if _faltan:
+        # LO QUE SUELE PASAR DE VERDAD, dicho primero. Un expediente recibido
+        # antes de que se afinara el clasificador conserva su clasificación
+        # vieja para siempre: los PDF siguen enteros en el cubo, pero las
+        # etiquetas guardadas ya no son las que este código produciría. Ocurrió
+        # con el ADC 536/2025, cuyas 85 páginas de demanda quedaron como
+        # «desconocido» porque una demanda de amparo transcribe la sentencia que
+        # combate y eso empataba la puntuación.
+        _etq = ", ".join(sorted({str(x.get("tipo") or "?") for x in segmentos}))
         raise HTTPException(422,
-            "En lo depurado no aparece " + " ni ".join(_faltan)
-            + ". Mira la lista de documentos y di tú qué páginas son.")
+            "En lo depurado no aparece " + " ni ".join(_faltan) + ". "
+            f"Lo que hay etiquetado es: {_etq}. "
+            "Lo más rápido es volver a mandarlo desde el visor —se reconoce con "
+            "las reglas de hoy—; si aun así no sale, dime tú qué páginas son "
+            "con `acto_paginas` y `conceptos_paginas`.")
 
     # ── LO QUE DICEN LOS AUTOS ────────────────────────────────────────────
     # LOS AUTOS PRIMERO, y después todo lo demás. `juntar` se queda con el
