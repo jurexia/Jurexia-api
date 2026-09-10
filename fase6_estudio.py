@@ -997,7 +997,7 @@ def _bloque_tecnica(tipo_asunto: str, rama: str = "",
     return "\n".join(partes) + "\n"
 
 
-def _bloque_global(g) -> str:
+def _bloque_global(g, criterios: list = None) -> str:
     """LO QUE YA SE DECIDIÓ ANTES DE ESCRIBIR, y que el estudio no veía.
 
     Al preparar la propuesta, el motor calcula tres cosas que el secretario lee
@@ -1036,8 +1036,34 @@ def _bloque_global(g) -> str:
             f"el sentido.")
     if not partes:
         return ""
-    return ("\n\nLO QUE YA SE DECIDIÓ, Y QUE TIENES QUE HONRAR\n"
-            + "\n\n".join(partes) + "\n")
+    # ── ESTO NO ES UNA ORDEN, Y SE DICE ──────────────────────────────────
+    #
+    # El rótulo era «LO QUE YA SE DECIDIÓ, Y QUE TIENES QUE HONRAR» y este
+    # bloque iba ANTES del criterio del secretario. Su contenido es la
+    # propuesta DEL MOTOR, así que cuando el secretario decidía lo contrario el
+    # prompt daba dos órdenes y la primera —la enfática— ganaba.
+    #
+    # Medido en el ADC 536/2025: el motor propuso el primer concepto FUNDADO,
+    # el secretario lo marcó INFUNDADO, el reparto lo aplicó bien… y el estudio
+    # escribió «el primer concepto de violación es fundado». La instrucción se
+    # perdía aquí, en el último metro.
+    #
+    # Ahora el criterio va primero y esto va después, rotulado como lo que es:
+    # material de trabajo. Y si el secretario resolvió algún punto al revés, se
+    # dice expresamente, para que la objeción no se lea como un mandato.
+    _suyos = ", ".join(
+        f"«{str(getattr(c, 'problema', ''))[:60]}» → {getattr(c, 'sentido', '')}"
+        for c in (criterios or []) if getattr(c, "sentido", ""))
+    _nota = ""
+    if _suyos:
+        _nota = ("\nOJO: EL SENTIDO YA ESTÁ FIJADO ARRIBA por el criterio del "
+                 "secretario, y es el que manda:\n  " + _suyos
+                 + "\nSi algo de lo de abajo apunta a otro sentido, es la "
+                   "propuesta del motor, que el secretario NO siguió. Úsalo "
+                   "sólo como material —la objeción, los apoyos, el efecto en "
+                   "los demás temas— nunca como la calificación.\n")
+    return ("\n\nLO QUE EL MOTOR HABÍA PROPUESTO (material, no mandato)\n"
+            + _nota + "\n" + "\n\n".join(partes) + "\n")
 
 
 def _bloque_arquitectura(materia: str) -> str:
@@ -1621,9 +1647,9 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal)}
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion)}
-{_bloque_global(propuesta_global)}
-{_bloque_precedente(material, criterios)}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""))}
+{_bloque_global(propuesta_global, criterios)}
+{_bloque_precedente(material, criterios)}
 {_bloque_material(material)}
 
 ═══════════════════════════════════════════════════════════════════════
