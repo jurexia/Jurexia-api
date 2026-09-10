@@ -947,7 +947,7 @@ MAGISTRADO PONENTE: {datos.get('magistrado','')}
 SECRETARIO: {datos.get('secretario','')}
 
 ANTECEDENTES DEL ASUNTO, ya redactados
-{datos.get('antecedentes','')[:4000]}
+{datos.get('antecedentes','')[:40000]}
 
 REGLAS:
 - ESTOS SON LOS ROTULOS MEDIDOS EN 26 ENGROSES DE ESTE TRIBUNAL, no una

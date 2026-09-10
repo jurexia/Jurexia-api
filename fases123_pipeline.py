@@ -76,14 +76,27 @@ _MARCAS_CONCEPTOS = re.compile(
 #
 # El modelo no alucinó: describió con exactitud lo que le habíamos hecho. Se
 # sube a cubrir lo medido y se corta por párrafo, nunca a mitad de oración.
-TOPE_CARACTERES = 100_000         # ~25k tokens; cubre los 90k del ARC 25/2026
+# ── SIN OBSTÁCULOS A LA LECTURA ──────────────────────────────────────────
+# David: «yo jamás puse límites. Al contrario, se trata de una labor seria. La
+# lectura debe ser ilimitada. No pongas obstáculos a esta lectura porque el
+# proyecto será deficiente.»
+#
+# Tiene razón, y los topes que había no venían de una restricción real: venían
+# de haber medido un caso concreto y haber puesto la pared justo detrás. Cada
+# vez que llegó un expediente mayor, la pared amputó.
+#
+# Medido contra el motor de verdad (gpt-5.6-luna): 153.256 caracteres = 38.314
+# tokens, respondió sin despeinarse. Estos valores están un orden de magnitud
+# por encima de cualquier expediente que haya pasado por aquí, y existen sólo
+# como freno contra un fichero corrupto de gigabytes, no como criterio.
+TOPE_CARACTERES = 600_000
 # EL ESCRITO DE LA PARTE VA APARTE, Y MÁS ANCHO. De él dependen la congruencia
 # y la exhaustividad: un concepto que no entra es un concepto que no se
 # contesta, y eso es un vicio de la sentencia. Medido contra el motor real
 # (gpt-5.6-luna) con el escrito entero del ADC 536/2025: 153.256 caracteres,
 # 38.314 tokens, respondió sin despeinarse. El tope de 100.000 no protegía de
 # nada; sólo amputaba.
-TOPE_CONCEPTOS = 400_000
+TOPE_CONCEPTOS = 600_000
 
 
 # El rótulo del bloque resolutivo, con y sin espaciado judicial.

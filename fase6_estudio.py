@@ -436,7 +436,7 @@ def _texto_de(m) -> str:
             partes.append(v)
         elif isinstance(v, (list, tuple)):
             partes += [str(x) for x in v]
-    return " ".join(partes)[:60000]
+    return " ".join(partes)[:400000]
 
 
 def _bloque_material(m: Material) -> str:
@@ -949,7 +949,7 @@ TRES COSAS QUE NO SE CONFUNDEN:
 
 LOS CONCEPTOS DE VIOLACIÓN, tal como los aportó el secretario:
 ──────────────────────────────────────────
-{conceptos.strip()[:14000]}
+{conceptos.strip()[:400000]}
 ──────────────────────────────────────────
 """
 

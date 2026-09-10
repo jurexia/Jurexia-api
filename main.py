@@ -27702,7 +27702,7 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             # sobreviven a la petición: con dos trabajadores, el que resuelve
             # recibía sólo el resumen y no podía contestar contra las palabras
             # de la parte. Es lo que hacía imposible la exhaustividad.
-            "fuentes": [str(x)[:400000] for x in
+            "fuentes": [str(x)[:600000] for x in
                         (getattr(r.fases, "fuentes", []) or [])][:2],
             "expediente_origen": getattr(r.fases, "expediente_origen", "") or "",
             "fecha_origen": getattr(r.fases, "fecha_origen", "") or "",
@@ -28216,7 +28216,9 @@ async def taller_desde_sise(
     #
     # Quedarse con la cabeza cuesta lo mismo que quedarse con nada y conserva
     # todo lo que `fase_autos` necesita leer.
-    _TOPE_TEXTO = 80_000
+    # SIN OBSTÁCULOS A LA LECTURA. Lo que se guarda es lo que después se
+    # relee: recortarlo aquí es amputar el expediente en diferido.
+    _TOPE_TEXTO = 400_000
     fila["segmentos"] = [
         (_s if len(_s.get("texto") or "") <= _TOPE_TEXTO
          else {**_s, "texto": (_s.get("texto") or "")[:_TOPE_TEXTO],

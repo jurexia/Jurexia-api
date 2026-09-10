@@ -623,10 +623,10 @@ LOS PROBLEMAS JURÍDICOS DEL ASUNTO
 {lista}
 
 LO QUE RESOLVIÓ {_org5}
-{resumen_acto[:3000]}
+{resumen_acto[:40000]}
 
 LO QUE SE COMBATE
-{resumen_conceptos[:3000]}
+{resumen_conceptos[:40000]}
 
 JURISPRUDENCIA DEL ACERVO — es TODO lo que puedes invocar
 {_indice_por_problema(tesis, len(problemas))}
@@ -1002,7 +1002,9 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
         confianza=str(g.get("confianza", "")).strip().lower(),
         en_contra=str(g.get("en_contra", ""))[:400],
         alcanza=bool(g.get("alcanza", True)) and bool(g.get("sentido")),
-        contexto={k: str((g.get("contexto") or {}).get(k, ""))[:1800]
+        # ES LO QUE EL SECRETARIO LEE PARA ENTENDER EL ASUNTO: no se recorta
+        # a la mitad de una explicación.
+        contexto={k: str((g.get("contexto") or {}).get(k, ""))[:8000]
                   for k in ("hechos", "resolvio", "combate", "tema_principal")},
         alternativa={
             "sentido": str((g.get("alternativa") or {}).get("sentido", "")).strip().lower(),

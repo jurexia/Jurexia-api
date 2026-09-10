@@ -154,8 +154,8 @@ async def fichar(cliente, texto_acto: str, texto_conceptos: str,
                   figura_promovente=_figura(tipo_asunto, "quejoso"),
                   figura_tercero=_figura(tipo_asunto, "tercero"),
                   figura_organo=_figura(tipo_asunto, "responsable"),
-                  acto=(texto_acto or "")[:22000],
-                  conceptos=(texto_conceptos or "")[:14000])}])
+                  acto=(texto_acto or "")[:200000],
+                  conceptos=(texto_conceptos or "")[:200000])}])
     if ESFUERZO_PARTES:
         kw["reasoning_effort"] = ESFUERZO_PARTES
     import llamada_modelo as _lm
