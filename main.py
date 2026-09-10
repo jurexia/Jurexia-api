@@ -27650,6 +27650,90 @@ def _ponencia_anterior(email: str) -> dict:
         return {}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL ACERVO TAMBIÉN VIAJA CON LA SESIÓN
+# ═══════════════════════════════════════════════════════════════════════════
+# Lo que el RAG encontró vivía SÓLO en la memoria del worker que consultó, y en
+# Render corren dos. Los registros de producción están llenos de la
+# consecuencia: «⚠️ razonar 91/2025 sin material: se apoya en la ley» —el
+# secretario marca una calificativa y la razón se escribe sin las tesis que se
+# acababan de recuperar para ese mismo problema—. Es la tercera vez que este
+# reparto entre workers muerde, y la lección ya está escrita: lo que tiene que
+# sobrevivir a una petición no puede vivir en la memoria de un proceso.
+#
+# No se guarda el Material entero: el sondeo de precedentes trae sentencias
+# completas y no cabe. Se guarda lo que hace falta para RAZONAR —tesis, normas
+# y bloque convencional—, que es lo que el prompt de la razón consume.
+def _material_ligero(m) -> dict:
+    def _lim(xs, n):
+        return [x for x in (xs or []) if isinstance(x, dict)][:n]
+    return {
+        "tesis": _lim(getattr(m, "tesis", []), 80),
+        "normas": _lim(getattr(m, "normas", []), 80),
+        "convencional": _lim(getattr(m, "convencional", []), 24),
+        "materia": str(getattr(m, "materia", "") or ""),
+        "tipo_asunto": str(getattr(m, "tipo_asunto", "") or ""),
+    }
+
+
+def _taller_guardar_material(email: str, numero: str, m) -> None:
+    """Deja el acervo en la fila, para el worker que atienda la siguiente."""
+    if not (supabase_admin and m is not None):
+        return
+    _correo = (email or "").strip().lower()
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", _correo).eq("expediente", numero).limit(1).execute()
+        if not r.data:
+            return
+        est = r.data[0].get("estado") or {}
+        est["material"] = _material_ligero(m)
+        supabase_admin.table("taller_sesiones").update({"estado": est}) \
+            .eq("email", _correo).eq("expediente", numero).execute()
+        print(f"   💾 acervo de {numero} guardado con la sesión: "
+              f"{len(est['material']['tesis'])} tesis · "
+              f"{len(est['material']['normas'])} normas")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo guardar el acervo de {numero}: {err(ex)}")
+
+
+def _material_rehidratado(d: dict):
+    """Un Material con lo guardado. None si no hay nada aprovechable."""
+    if not isinstance(d, dict) or not (d.get("tesis") or d.get("normas")):
+        return None
+    import fase6_estudio as _f6m
+    m = _f6m.Material()
+    m.tesis = list(d.get("tesis") or [])
+    m.normas = list(d.get("normas") or [])
+    m.convencional = list(d.get("convencional") or [])
+    m.materia = str(d.get("materia") or "")
+    m.tipo_asunto = str(d.get("tipo_asunto") or "amparo_directo")
+    return m
+
+
+def _taller_material(ses: dict, email: str, numero: str):
+    """El acervo de la sesión, de la memoria o de la base. None si no hay."""
+    m = (ses or {}).get("material")
+    if m is not None:
+        return m
+    if not supabase_admin:
+        return None
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+        m = _material_rehidratado(((r.data or [{}])[0].get("estado") or {})
+                                  .get("material") or {})
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo releer el acervo de {numero}: {err(ex)}")
+        return None
+    if m is not None:
+        ses["material"] = m
+        print(f"   ♻️ acervo de {numero} releído de la base: "
+              f"{len(m.tesis)} tesis · {len(m.normas)} normas")
+    return m
+
+
 def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
     """Lo serializable del adelanto, para que otro worker pueda continuarlo."""
     _TALLER_SESIONES[_taller_llave(email, numero)] = {
@@ -28925,6 +29009,8 @@ async def taller_consultar(
         chat_client, _ctx)
     ses["material"] = material
     ses["consultado"] = True
+    # Y con la sesión, para el worker que atienda la siguiente petición.
+    _taller_guardar_material(user_email, numero, material)
     _taller_marcar_consultado(user_email, numero)
     _taller_registrar_uso(user_email, numero, "consulta")
 
@@ -29102,7 +29188,7 @@ async def taller_razonar(
     # Se razona igual, con la ley y los resúmenes: peor que con el acervo
     # delante, pero infinitamente mejor que dejar al secretario con el cuadro
     # en blanco que el estudio acabaría rellenando solo.
-    material = ses.get("material")
+    material = _taller_material(ses, user_email, numero)
     if material is None:
         import fase6_estudio as _f6m
         material = _f6m.Material()
@@ -29141,6 +29227,16 @@ async def taller_razonar(
         print(f"   ⚠️ no se pudo razonar «{sentido}»: {err(ex)}")
         raise HTTPException(502,
             "No se pudo redactar la razón. Escríbela tú o vuelve a intentarlo.")
+    # UN RECUADRO EN BLANCO NO ES UN ÉXITO. Producción devolvía 200 con «razón
+    # para «fundado» · 0 palabras»: la pantalla se quedaba muda, el secretario
+    # no escribía nada porque nada parecía haber fallado, y el estudio acababa
+    # inventándose el porqué de una calificación que él sí había marcado.
+    if len(razon.split()) < 12:
+        print(f"   ⚠️ la razón de «{sentido}» salió vacía: {len(razon)} caracteres")
+        raise HTTPException(502,
+            "El motor no devolvió una razón utilizable. Vuelve a marcar la "
+            "calificativa o escribe tú el porqué: si el recuadro se queda en "
+            "blanco, la redacción tendrá que suponerlo.")
     print(f"   ✍️  razón para «{sentido}» · {len(razon.split())} palabras")
     return {"razon": razon, "palabras": len(razon.split())}
 

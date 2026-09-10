@@ -1129,15 +1129,29 @@ async def razonar(cliente, problema: str, sentido: str, material,
     """Una razón para el sentido que el secretario acaba de marcar."""
     if not (problema or "").strip() or not (sentido or "").strip():
         return ""
-    kw = dict(model=MODELO_PROPUESTA,
-              messages=[{"role": "user", "content": prompt_razon(
-                  problema, sentido, material, resumen_acto,
-                  resumen_conceptos, es_recurso, tipo_asunto)}],
-              max_completion_tokens=900,
+    # EL PRESUPUESTO ES COMPARTIDO CON EL RAZONAMIENTO. Con 900 y el esfuerzo
+    # encendido, el modelo gastaba el cupo pensando y devolvía contenido vacío:
+    # los registros de producción enseñan «razón para «fundado» · 0 palabras»
+    # con HTTP 200, y en pantalla un recuadro en blanco que el secretario no
+    # rellenaba —y entonces el estudio se inventaba el porqué—. Un párrafo de
+    # 120 palabras no necesita 900 tokens; el razonamiento, sí.
+    _mensajes = [{"role": "user", "content": prompt_razon(
+        problema, sentido, material, resumen_acto,
+        resumen_conceptos, es_recurso, tipo_asunto)}]
+    kw = dict(model=MODELO_PROPUESTA, messages=_mensajes,
+              max_completion_tokens=2600,
               temperature=0, seed=20260831)
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     import llamada_modelo as _lm
     r = await _lm.crear(cliente, **kw)
     txt = (r.choices[0].message.content or "").strip()
+    if not txt:
+        # SEGUNDA Y ÚLTIMA OPORTUNIDAD, sin razonamiento: todo el cupo para la
+        # prosa. Vale más una razón escrita de un tirón que un cuadro vacío.
+        print("   ↻ la razón salió vacía; se repite sin razonamiento")
+        kw2 = dict(model=MODELO_PROPUESTA, messages=_mensajes,
+                   max_completion_tokens=2600, temperature=0, seed=20260831)
+        r = await _lm.crear(cliente, **kw2)
+        txt = (r.choices[0].message.content or "").strip()
     return " ".join(txt.split())
