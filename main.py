@@ -28789,6 +28789,16 @@ async def taller_consultar(
     # sé», y entonces no se consulta ninguna ley estatal y se avisa, que es
     # honesto; inventar una entidad no lo es.
     coleccion_estatal: str = Form(""),
+    # LO QUE EL SECRETARIO YA SABE, ANTES DE BUSCAR.
+    #
+    # David: «primero debe presentarse todo el contexto jurídico y después
+    # buscar la solución jurídica; así el sistema va a tener mejor capacidad de
+    # buscar jurisprudencia o las normas aplicables al caso».
+    #
+    # Hasta ahora este texto sólo llegaba a los PROMPTS —de la propuesta y del
+    # estudio— y jamás a la búsqueda: `consultar()` ni siquiera tenía un
+    # parámetro donde recibirlo. Se buscaba a ciegas respecto de lo que él sabe.
+    contexto: str = Form(""),
 ):
     """Lo que el acervo dice sobre los problemas de ESTE asunto.
 
