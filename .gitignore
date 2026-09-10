@@ -103,3 +103,8 @@ _calidad/corridas/
 # una carpeta que Chrome rechaza al cargarla.
 !extension_sise/
 !extension_sise/**
+
+# El OCR real del 91/2025 que usa test_autoridad.py: 72.647 caracteres de una
+# sentencia con las partes nombradas. La prueba se salta sola si no está, que
+# es preferible a versionar el expediente de un particular.
+banco_acto91.txt

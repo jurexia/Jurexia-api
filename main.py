@@ -29511,6 +29511,13 @@ async def taller_resolver_stream(
     # sobreseimiento y hay que estudiarlos por primera vez. No constan en el
     # expediente del recurso: los aporta el secretario.
     conceptos_violacion: str = Form(""),
+    # LA AUTORIDAD, CORREGIBLE HASTA EL FINAL. El nombre se lee del acto y a
+    # veces no se deja leer: entonces sale hueco, y un hueco que nadie puede
+    # rellenar no es el mal menor que la doctrina promete, es un camino sin
+    # puerta. El campo del encargo se congelaba al arrancar el adelanto, así
+    # que aquí se admite la corrección: entra al encargo antes de componer, y
+    # de ahí a los doce sitios del documento —cuatro de ellos resolutivos—.
+    responsable: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -29573,6 +29580,10 @@ async def taller_resolver_stream(
             r.encargo.propuesta_global = _glob
         if (conceptos_violacion or "").strip():
             r.encargo.conceptos_violacion = conceptos_violacion.strip()
+        if (responsable or "").strip():
+            r.encargo.responsable = responsable.strip()
+            print(f"   ⚖️ autoridad corregida en pantalla: "
+                  f"«{responsable.strip()[:70]}»")
 
     _puerta_oportunidad(r)
 
@@ -29900,6 +29911,13 @@ async def taller_resolver(
     # sobreseimiento y hay que estudiarlos por primera vez. No constan en el
     # expediente del recurso: los aporta el secretario.
     conceptos_violacion: str = Form(""),
+    # LA AUTORIDAD, CORREGIBLE HASTA EL FINAL. El nombre se lee del acto y a
+    # veces no se deja leer: entonces sale hueco, y un hueco que nadie puede
+    # rellenar no es el mal menor que la doctrina promete, es un camino sin
+    # puerta. El campo del encargo se congelaba al arrancar el adelanto, así
+    # que aquí se admite la corrección: entra al encargo antes de componer, y
+    # de ahí a los doce sitios del documento —cuatro de ellos resolutivos—.
+    responsable: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
@@ -29952,6 +29970,10 @@ async def taller_resolver(
             r.encargo.propuesta_global = _glob
         if (conceptos_violacion or "").strip():
             r.encargo.conceptos_violacion = conceptos_violacion.strip()
+        if (responsable or "").strip():
+            r.encargo.responsable = responsable.strip()
+            print(f"   ⚖️ autoridad corregida en pantalla: "
+                  f"«{responsable.strip()[:70]}»")
 
     _puerta_oportunidad(r)
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su

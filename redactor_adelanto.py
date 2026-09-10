@@ -214,15 +214,41 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # No se le pregunta al secretario lo que está en el documento que ya subió.
     # Cada campo que se le pide y podría deducirse es un minuto suyo y una
     # ocasión de equivocarse: el adelanto vale por lo que le ahorra.
-    if not (e.responsable or "").strip():
-        import fase_autoridad as _fa
+    import fase_autoridad as _fa
+    # ── EL OTRO CAMINO: LO QUE ÉL TECLEA, QUE NO VALIDABA NADIE ───────────
+    # Medido sobre las 89 autoridades del acervo del taller: 37 las tecleó el
+    # secretario sin pasar por el extractor, y entre ellas hay siete sellos que
+    # no nombran a nadie —«JUZGADO» tres veces, «juez», «JUNTA»— y «la Segunda
+    # Sala de la Suprema Corte», que es exactamente lo que el veto existe para
+    # impedir. Ese texto sale tal cual en la carátula y en el resolutivo.
+    #
+    # SE AVISA, NUNCA SE BORRA. Manda lo que él escriba: «Legislatura del
+    # Estado de Querétaro» y «Agencia de Movilidad» son responsables legítimas
+    # en amparo indirecto aunque este módulo no sepa leerlas, y tacharlas sería
+    # la comprobación acusando al trabajo correcto.
+    _tecleada = (e.responsable or "").strip()
+    if _tecleada and _fa.sello_sin_identidad(_tecleada):
+        avisos.append(
+            f"«{_tecleada}» no nombra a un órgano concreto: le falta el número, "
+            f"la materia o el lugar. Ese texto sale tal cual en la carátula y "
+            f"en el resolutivo. Complétalo en el encargo.")
+    if _tecleada and _fa._nunca_responsable(_tecleada):
+        avisos.append(
+            f"«{_tecleada}» no puede ser la autoridad responsable: ningún "
+            f"tribunal colegiado revisa a la Suprema Corte ni a otro colegiado. "
+            f"Compruébalo en el proemio del acto reclamado.")
+    if not _tecleada:
         # EL TIPO FILTRA QUÉ ÓRGANO PUEDE SER. Sin él, en la queja se quedaba
         # con el juez del juicio natural que el auto recurrido nombra por
         # dentro, en vez de con el Juzgado de Distrito que lo dictó.
         leida = _fa.de_texto(texto_acto, e.tipo_asunto)
         if leida:
             e.responsable = leida
-            print(f"   ⚖️ autoridad responsable leída del acto: «{leida[:70]}»")
+            # CON SU RESERVA. El registro era mudo sobre su propia fiabilidad,
+            # y este dato acaba en doce sitios del documento, cuatro de ellos
+            # puntos resolutivos.
+            print(f"   ⚖️ autoridad responsable leída del acto: «{leida[:70]}»"
+                  f" — compruébala en la carátula")
         else:
             avisos.append(
                 "No se pudo leer la autoridad responsable del acto reclamado, y "
