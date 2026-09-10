@@ -3992,6 +3992,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # revoca «la sentencia recurrida» a secas no dice cuál, y quien lo
         # ejecute tiene que ir a buscarla.
         _fecha_s = _expte_s = ""
+        _av_fecha = ""
         if "{fecha_sentencia}" in _res["punto"]:
             try:
                 import fase_origen as _fo_r
@@ -4005,16 +4006,26 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                 # revisión fiscal 91/2025: del PDF salen el expediente
                 # 695/25-09-01-7-OT y la fecha «veintidós de septiembre de dos
                 # mil veinticinco»; de la prosa, nada.
-                _fecha_s = (str(datos.get("fecha_origen") or "").strip()
-                            or _fo_r.fecha_de(_fuente))
+                # LOS DOS LECTORES TIENEN QUE DECIR LO MISMO. Antes se
+                # prefería el del PDF y, si discrepaba del cuerpo del
+                # proyecto, ganaba en silencio: el 91/2025 salió con «Se
+                # confirma la sentencia de TRES DE NOVIEMBRE» mientras sus
+                # resultandos y considerandos la fechaban el VEINTIDÓS DE
+                # SEPTIEMBRE cuatro veces. Ahora la discrepancia va a hueco con
+                # las dos fechas escritas en el aviso.
+                _fecha_s, _av_fecha = _fo_r.fecha_del_recurrido(
+                    str(datos.get("fecha_origen") or ""), _fuente)
+                if _av_fecha:
+                    _avisos_bk.append(_av_fecha)
                 _expte_s = (str(datos.get("expediente_origen") or "").strip()
                             or _fo_r.numero_de(_fuente))
             except Exception as _eo:
                 print(f"   ⚠️ no se pudo leer fecha/expediente del recurrido: {_eo}")
-            if not _fecha_s or not _expte_s:
+            if (not _fecha_s and not _av_fecha) or not _expte_s:
                 _avisos_bk.append(
                     "EL RESOLUTIVO NO IDENTIFICA LA SENTENCIA POR COMPLETO: "
-                    + ("falta su FECHA. " if not _fecha_s else "")
+                    + ("falta su FECHA. " if not _fecha_s and not _av_fecha
+                       else "")
                     + ("falta el EXPEDIENTE de origen. " if not _expte_s else "")
                     + "No se pudo leer de los resultandos y sale en hueco. "
                       "Escríbelo: es lo que distingue esta sentencia de las "

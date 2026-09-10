@@ -203,6 +203,55 @@ _DIA_MES_ANO = (
 _RX_FECHA_PROEMIO = re.compile(rf",\s*a\s+(?:los\s+)?({_DIA_MES_ANO})", re.I)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# DOS LECTORES QUE DISCREPAN NO SE RESUELVEN ELIGIENDO UNO
+# ═══════════════════════════════════════════════════════════════════════════
+# Medido en el 91/2025 del 10 de septiembre: el resolutivo salió diciendo «Se
+# confirma la sentencia de TRES DE NOVIEMBRE de dos mil veinticinco» mientras
+# el cuerpo del mismo proyecto fechaba esa sentencia el VEINTIDÓS DE SEPTIEMBRE
+# cuatro veces —en los resultandos y en los considerandos—. La única línea que
+# resuelve contradecía a su propio documento.
+#
+# La causa no está en el lector: `datos_del_documento` busca el proemio en los
+# primeros 4.000 caracteres, y con la depuración el segmento que llega como
+# «acto reclamado» ya no empieza en el proemio de la sentencia —el OCR de hoy
+# da 33 páginas donde la sentencia de la Sala tiene 18—. El lector leyó bien el
+# proemio que tenía delante; lo que tenía delante era otro documento.
+#
+# Por eso no se arregla eligiendo lector. Se arregla usando la DISCREPANCIA
+# como lo que es: la señal de que uno de los dos está mirando el papel
+# equivocado. Cuando los dos coinciden, la fecha entra con doble apoyo. Cuando
+# discrepan, va a hueco con los dos candidatos escritos, y el secretario tarda
+# cinco segundos en elegir. La doctrina de la casa ya estaba escrita para el
+# nombre de la autoridad y vale igual aquí: en el resolutivo, un dato
+# equivocado es peor que un hueco, porque el hueco se ve.
+def _norm_fecha(x: str) -> str:
+    x = " ".join((x or "").lower().split())
+    # El OCR y la prosa no siempre acentúan igual: «veintidos» y «veintidós»
+    # son la misma fecha y discrepar por una tilde sería un hueco inventado.
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u")):
+        x = x.replace(a, b)
+    return x
+
+
+def fecha_del_recurrido(fecha_pdf: str, prosa: str) -> tuple:
+    """(fecha, aviso). Vacía cuando los dos lectores no dicen lo mismo."""
+    _pdf = (fecha_pdf or "").strip()
+    _prosa = (fecha_de(prosa) or "").strip()
+    if _pdf and _prosa:
+        if _norm_fecha(_pdf) == _norm_fecha(_prosa):
+            return _pdf, ""
+        return "", (
+            f"LA FECHA DE LA SENTENCIA RECURRIDA NO CUADRA y por eso sale en "
+            f"hueco: leída del PDF dice «{_pdf}» y el cuerpo de este proyecto "
+            f"la fecha «{_prosa}». Una de las dos está mirando el documento "
+            f"equivocado —con la depuración, el segmento del acto puede "
+            f"empezar antes del proemio de la sentencia—. Comprueba cuál es la "
+            f"buena en la carátula y escríbela: el resolutivo no puede "
+            f"contradecir a su propio documento.")
+    return (_pdf or _prosa), ""
+
+
 def datos_del_documento(texto: str) -> dict:
     """{'expediente', 'fecha'} leídos de la sentencia original. '' si no consta.
 

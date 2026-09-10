@@ -34,9 +34,18 @@ def ok(cond, que):
 
 
 def resolutivo_de(ruta):
+    """Los puntos resolutivos, sin los párrafos en blanco de por medio.
+
+    LA VENTANA ERA DEMASIADO ESTRECHA Y ACUSABA AL TRABAJO CORRECTO. Leía
+    ps[k+1:k+4] contando párrafos crudos, y entre los puntos hay líneas vacías:
+    el SEGUNDO caía en k+4 y quedaba fuera. Seis comprobaciones llevaban desde
+    entonces diciendo que el amparo en revisión revocaba la sentencia sin
+    pronunciarse sobre el amparo —cuando el punto estaba escrito y bien—.
+    Se filtran los vacíos y se leen los puntos, no las posiciones.
+    """
     ps = [p.text for p in Document(ruta).paragraphs]
     k = [i for i, t in enumerate(ps) if "R E S U E L V E" in t][0]
-    return ps[k + 1:k + 4]
+    return [t for t in ps[k + 1:k + 9] if t.strip()]
 
 
 def componer_revision(estudio, base, calif=("fundado",), ruta="/tmp/_t.docx"):
