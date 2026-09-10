@@ -84,6 +84,62 @@ ok(_d["fecha"].startswith("veintidós de septiembre"),
 ok(_d["expediente"] == "695/25-09-01-7-OT",
    "datos_del_documento sigue leyendo el expediente del TFJA")
 
+
+print("── de la lectura al resolutivo: el tramo completo ──")
+# LO QUE NINGUNA PRUEBA DE MÓDULO CUBRE. `de_texto` puede acertar y el
+# resolutivo salir mal igual, porque entre los dos hay un encargo, dos
+# normalizaciones y un compositor. Aquí se recorre entero: se lee el nombre del
+# OCR real, se compone el documento y se lee el punto resolutivo del .docx.
+# Necesita banco_acto91.txt, que no se versiona; sin él se salta.
+import os
+
+_ruta = os.path.join(os.path.dirname(__file__), "banco_acto91.txt")
+if not os.path.exists(_ruta):
+    print("     (saltada: no está banco_acto91.txt)")
+else:
+    import datetime as _dt
+
+    import documento_generado as _dg
+    import fase0_oportunidad as _f0
+    import fase_autoridad as _fa
+    from docx import Document
+
+    with open(_ruta, encoding="utf-8") as _fh:
+        _nombre = _fa.de_texto(_fh.read(), "revision_fiscal")
+    _est = _dg.Estructura(
+        apertura="V.", visto="para resolver.",
+        resultandos=[{"titulo": "Sentencia recurrida",
+                      "texto": "La Sala dictó sentencia de veintidós de septiembre "
+                               "de dos mil veinticinco en el expediente "
+                               "695/25-09-01-7-OT y declaró la nulidad."}],
+        competencia="", existencia="", procedencia="")
+    _c = _f0.computar(_dt.date(2025, 10, 22), _dt.date(2025, 10, 29), plazo=15)
+    _salida = "/tmp/_congruencia_91.docx"
+    _dg.componer(
+        {"tipo_asunto": "revision_fiscal", "numero": "91/2025",
+         "encabezado": "REVISIÓN FISCAL 91/2025", "quejoso": "Juan Pérez",
+         "responsable": _nombre, "magistrado": "M", "secretario": "S",
+         "tribunal": "Tercer Tribunal Colegiado", "ciudad": "Querétaro",
+         "fecha_origen": "veintidós de septiembre de dos mil veinticinco",
+         "expediente_origen": "695/25-09-01-7-OT"},
+        _est, _c, _f0.fecha_en_letra, _salida,
+        estudio="Los agravios son inoperantes e infundados.",
+        calificaciones=["inoperante"], tipo_asunto="revision_fiscal")
+    _ps = [q.text for q in Document(_salida).paragraphs]
+    _k = [i for i, t in enumerate(_ps) if "R E S U E L V E" in t][0]
+    _puntos = [t for t in _ps[_k + 1:_k + 6] if t.strip()]
+    _punto = _puntos[0] if _puntos else ""
+    _cab = " ".join(_ps[:_k])
+    print("     " + _punto[:150])
+    ok("Justicia Administrativa." in _punto,
+       "el resolutivo nombra a la Sala ENTERA, sin comerse la última letra")
+    ok("Infrazione" not in _punto and "Desconce" not in _punto,
+       "y sin rastro de la basura del OCR que salió el 10-sep")
+    ok("veintidós de septiembre" in _punto,
+       "con la fecha que dice el cuerpo, no la del acuerdo de remisión")
+    ok("Justicia Administrativa" in _cab,
+       "y la carátula nombra a la misma que el resolutivo")
+
 print()
 if FALLOS:
     print(f"FALLOS: {len(FALLOS)}")
