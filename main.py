@@ -28601,6 +28601,16 @@ async def taller_desde_expediente(
     fila = r.data[0]
     segmentos = fila.get("segmentos") or []
     if not segmentos:
+        # DOS CAUSAS DISTINTAS, Y DECIR LA EQUIVOCADA CONFUNDE. Si el
+        # inventario sigue ahí, el expediente SÍ se depuró: lo que pasó es que
+        # sus constancias se soltaron al generar el proyecto, que es lo que la
+        # pantalla promete. Decirle «se recibió antes de que existiera la
+        # depuración» le manda a buscar un problema que no tiene.
+        if fila.get("inventario"):
+            raise HTTPException(409,
+                "Las constancias de este expediente ya se usaron y se "
+                "borraron —es lo que promete la política de privacidad—. "
+                "Vuelve a mandarlo desde el visor y estará listo en un minuto.")
         raise HTTPException(409,
             "Ese expediente se recibió antes de que existiera la depuración. "
             "Vuelve a mandarlo desde el Expediente Electrónico.")
