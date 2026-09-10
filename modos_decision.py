@@ -81,7 +81,8 @@ def _pide_mas(problema: str) -> bool:
 
 
 def repartir(problemas: list, modo: str, sentido_global: str = "",
-             propuestas: list = None, calificaciones: dict = None) -> tuple:
+             propuestas: list = None, calificaciones: dict = None,
+             global_dictado: bool = False) -> tuple:
     """(lista de {problema, sentido, razonamiento, jerarquia}, avisos).
 
     `problemas` son los dicts de la fase 3; `propuestas`, lo que sugirió el
@@ -133,9 +134,32 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             # propuesto infundado— porque el global lo aplastaba con «fundado».
             # Cambiar una cosa no puede rehacer las demás.
             _prop = str((props.get(t) or {}).get("sentido") or "").strip().lower()
-            sentido = _suyo or _prop or (sentido_global or "").strip().lower()
+            _glob = (sentido_global or "").strip().lower()
+            # ── EL ORDEN, Y POR QUÉ IMPORTA CUÁL ─────────────────────────
+            #
+            # Manda siempre lo que él marcó para ESE problema. Después depende
+            # de QUIÉN puso el sentido global:
+            #
+            #  · si lo DICTÓ él —eligió «infundado» y «global» a propósito—,
+            #    es una orden sobre el asunto entero y va por delante de lo que
+            #    el motor propuso para cada problema.
+            #  · si lo puso la pantalla al llegar la propuesta, no es su
+            #    palabra sino un eco del motor, y entonces vale más la
+            #    propuesta concreta de cada problema que ese eco.
+            #
+            # Sin esa distinción, la primera versión de este arreglo dejó el
+            # global por debajo SIEMPRE, y David dictó «infundado global» y
+            # recibió un proyecto que amparaba: cada problema se quedó con lo
+            # que el motor había propuesto y su orden no llegó a ningún sitio.
+            if _suyo:
+                sentido = _suyo
+            elif global_dictado and _glob:
+                sentido = _glob
+            else:
+                sentido = _prop or _glob
             razon = (str(c.get("razonamiento") or "")
-                     or (str((props.get(t) or {}).get("razon") or "") if not _suyo else ""))
+                     or (str((props.get(t) or {}).get("razon") or "")
+                         if not _suyo and not (global_dictado and _glob) else ""))
             if _suyo and _suyo != (sentido_global or "").strip().lower():
                 avisos.append(
                     f"«{t[:70]}» se resuelve {_suyo.replace('_', ' ')} porque "

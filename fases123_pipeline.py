@@ -232,9 +232,18 @@ _ORDINALES = ("PRIMER", "SEGUNDO", "TERCER", "CUARTO", "QUINTO", "SEXTO",
 
 # «PRIMER CONCEPTO DE VIOLACIÓN», «SEGUNDO AGRAVIO», «TERCERO.- …», «5.- …»
 _RX_RUBRICA = re.compile(
-    r"(?:^|\n)\s*(?:"
+    # UN INCISO DELANTE NO ES UNA EXCEPCIÓN, ES LO NORMAL.
+    #
+    # La primera versión exigía el ordinal al principio de línea y devolvía
+    # CERO rúbricas sobre el escrito real del ADC 245/2024, que los rotula
+    # «a) PRIMER CONCEPTO DE VIOLACIÓN:». Un contador ciego al formato del
+    # documento es peor que no tener contador: dice que no falta nada.
+    #
+    # Se admite delante un inciso —a) 1. I) i.— y también que la rúbrica venga
+    # a media línea, porque en un OCR los saltos no son de fiar.
+    r"(?:^|\n|\s)\s*(?:[a-zA-Z0-9]{1,3}\s*[.\-–—)]\s*)?(?:"
     r"(" + "|".join(_ORDINALES) + r")O?\s+(?:CONCEPTO|AGRAVIO)"
-    r"|(" + "|".join(_ORDINALES) + r")O?\s*[.\-–—)]\s"
+    r"|(" + "|".join(_ORDINALES) + r")O?\s*[.\-–—)]\s+(?:CONCEPTO|AGRAVIO)"
     r"|(\d{1,2})\s*[.\-–—)]\s+(?:CONCEPTO|AGRAVIO)"
     r")", re.I)
 
@@ -264,12 +273,21 @@ def conceptos_sin_resumir(texto_fuente: str, resumen: str) -> list[str]:
         return "".join(c for c in x if not unicodedata.combining(c))
 
     _res = _pelado(resumen)
+    # EL ORDINAL, NO LA PRIMERA PALABRA. Con el inciso delante —«a) PRIMER
+    # CONCEPTO»— la primera palabra es «A)», que no aparece nunca en el
+    # resumen: el contador daba por perdidos los seis conceptos que SÍ estaban.
+    # Un contador que se equivoca en los dos sentidos no sirve para nada.
+    _rx_ord = re.compile(r"\b(" + "|".join(
+        _pelado(o).replace("[EE]", "E") for o in _ORDINALES) + r")O?\b", re.I)
     faltan = []
     for r in rubricas_de_conceptos(texto_fuente):
-        # Basta el ordinal: el resumen puede decir «el séptimo concepto» donde
-        # el escrito decía «SÉPTIMO CONCEPTO DE VIOLACIÓN».
-        _ord = _pelado(r).split()[0]
-        if _ord and _ord not in _res:
+        m = _rx_ord.search(_pelado(r))
+        if not m:
+            continue
+        _ord = m.group(1).upper()
+        # El resumen puede decir «el séptimo concepto» donde el escrito decía
+        # «SÉPTIMO CONCEPTO DE VIOLACIÓN»: basta con que el ordinal aparezca.
+        if _ord not in _res:
             faltan.append(r)
     return faltan
 

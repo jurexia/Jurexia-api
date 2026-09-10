@@ -29261,6 +29261,11 @@ async def taller_resolver_stream(
     usar_propuesta: bool = Form(False),
     modo_decision: str = Form(""),           # acervo | global | por_problema
     sentido_global: str = Form(""),          # el sentido del proyecto entero
+    # SI EL SECRETARIO LO ELIGIÓ A PROPÓSITO. La pantalla también fija un
+    # sentido global sola, al llegar la propuesta, y ése es un eco del motor,
+    # no su palabra. Distinguirlos es lo que decide si el global manda sobre
+    # las propuestas por problema.
+    global_dictado: str = Form(""),
     # QUÉ RESOLVIÓ EL ÓRGANO RECURRIDO. Viaja de vuelta desde /taller/proponer
     # —igual que `criterios_json`, y por la misma razón: con dos workers, lo
     # que guarde aquel proceso puede no existir en éste—. Decide el verbo del
@@ -29423,7 +29428,10 @@ async def taller_resolver_stream(
             _califs = {}
         _rep, _av_modo = _md.repartir(
             _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g,
-            _califs)
+            _califs,
+            # ¿LO DICTÓ ÉL, O LO PUSO LA PANTALLA? Si lo eligió a propósito, su
+            # sentido global manda sobre lo que el motor propuso por problema.
+            global_dictado=str(global_dictado).strip().lower() in ("1", "true", "si", "sí"))
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"))

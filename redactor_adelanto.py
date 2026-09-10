@@ -347,7 +347,13 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # LOS TEXTOS DE ORIGEN, para poder comprobar después que nada del proyecto
     # viene de fuera del asunto. Se guarda un extracto: comprobar la
     # contaminación no justifica duplicar el expediente entero en la sesión.
-    f.fuentes = [(texto_acto or "")[:120000], (texto_conceptos or "")[:120000]]
+    # EL TOPE DE 120.000 CORTABA EL ESCRITO ANTES DE QUE NADIE LO LEYERA.
+    # Medido en el ADC 245/2024: el escrito son 187.743 caracteres y aquí se
+    # guardaban 120.000, así que 67.743 —y con ellos los conceptos del final—
+    # no llegaban ni al detector de contaminación ni, ahora, al estudio. Se
+    # sube a cubrir un escrito grande de verdad; el modelo aguanta de sobra
+    # (medido: 153.256 caracteres = 38.314 tokens, sin despeinarse).
+    f.fuentes = [(texto_acto or "")[:400000], (texto_conceptos or "")[:400000]]
     # SE LEE AQUÍ, QUE ES DONDE ESTÁ EL PAPEL. Después ya no: `fuentes` no
     # viaja en el estado de la sesión y el worker que resuelva puede no ser
     # éste. Las dos lecturas son deterministas —un barrido sobre el texto, sin
