@@ -170,6 +170,82 @@ def recortar_conceptos(texto: str, tope: int = TOPE_CARACTERES) -> str:
     return _cortar_bien(cuerpo, tope, "el escrito de la parte")
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NINGÚN CONCEPTO SE QUEDA SIN RESUMIR
+#
+# David, con un proyecto delante: «no me resumió ni me contestó los conceptos
+# de violación posteriores al SEXTO. Había más de 6. Es inaceptable que se
+# limite o fragmente un documento.»
+#
+# Tenía razón y el vicio es de los graves: un proyecto que no contesta todos
+# los conceptos incurre en falta de CONGRUENCIA y EXHAUSTIVIDAD. No es un
+# defecto de calidad, es un vicio de la sentencia.
+#
+# Y el mecanismo tenía DOS filos que se sumaban:
+#   1. `recortar_conceptos` cortaba el escrito a TOPE_CARACTERES, así que los
+#      conceptos del final no llegaban al resumidor.
+#   2. `_NUCLEO` le PROHÍBE al modelo decir que el documento está incompleto
+#      —con razón: un «el texto se interrumpió» dentro de una sentencia es un
+#      desastre—. Sumadas, el modelo resumía lo que veía y callaba lo que
+#      faltaba. Silencio por diseño, encima de una amputación.
+#
+# La solución no es subir el tope: eso sólo mueve la pared, y ya se movió una
+# vez —de 60.000 a 100.000 para cubrir un caso de 90.126—. Se cuentan los
+# conceptos que el escrito TIENE, se comprueban contra los que el resumen
+# TRAJO, y lo que falte se pide en otra pasada. El tope deja de decidir cuántos
+# conceptos existen.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_ORDINALES = ("PRIMER", "SEGUNDO", "TERCER", "CUARTO", "QUINTO", "SEXTO",
+              "S[ÉE]PTIMO", "OCTAVO", "NOVENO", "D[ÉE]CIMO",
+              "UND[ÉE]CIMO", "DUOD[ÉE]CIMO", "[ÚU]NICO")
+
+# «PRIMER CONCEPTO DE VIOLACIÓN», «SEGUNDO AGRAVIO», «TERCERO.- …», «5.- …»
+_RX_RUBRICA = re.compile(
+    r"(?:^|\n)\s*(?:"
+    r"(" + "|".join(_ORDINALES) + r")O?\s+(?:CONCEPTO|AGRAVIO)"
+    r"|(" + "|".join(_ORDINALES) + r")O?\s*[.\-–—)]\s"
+    r"|(\d{1,2})\s*[.\-–—)]\s+(?:CONCEPTO|AGRAVIO)"
+    r")", re.I)
+
+
+def rubricas_de_conceptos(texto: str) -> list[str]:
+    """Los rótulos con que el escrito separa un concepto de otro.
+
+    Se cuenta sobre el texto ENTERO, nunca sobre el recorte: es justamente el
+    número que el recorte falsea.
+    """
+    fuera, vistos = [], set()
+    for m in _RX_RUBRICA.finditer(texto or ""):
+        r = " ".join(m.group(0).split()).strip(" .-–—)").upper()
+        # El mismo rótulo puede aparecer en el índice y en el cuerpo.
+        if r and r not in vistos:
+            vistos.add(r)
+            fuera.append(r)
+    return fuera
+
+
+def conceptos_sin_resumir(texto_fuente: str, resumen: str) -> list[str]:
+    """Los rótulos que el escrito trae y el resumen no menciona."""
+    import unicodedata
+
+    def _pelado(x: str) -> str:
+        x = unicodedata.normalize("NFKD", (x or "").upper())
+        return "".join(c for c in x if not unicodedata.combining(c))
+
+    _res = _pelado(resumen)
+    faltan = []
+    for r in rubricas_de_conceptos(texto_fuente):
+        # Basta el ordinal: el resumen puede decir «el séptimo concepto» donde
+        # el escrito decía «SÉPTIMO CONCEPTO DE VIOLACIÓN».
+        _ord = _pelado(r).split()[0]
+        if _ord and _ord not in _res:
+            faltan.append(r)
+    return faltan
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Los prompts
 # ═══════════════════════════════════════════════════════════════════════════
@@ -251,6 +327,37 @@ def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False,
 ──────────────────────────────────────────
 
 Escribe el resumen de los {q}, un párrafo por cada uno. Sólo el resumen."""
+
+
+def prompt_conceptos_que_faltan(texto_conceptos: str, faltan: list,
+                                es_recurso: bool = False,
+                                tipo_asunto: str = "") -> str:
+    """La segunda pasada: sólo los planteamientos que el resumen dejó fuera.
+
+    Se le da el escrito ENTERO —sin el recorte que causó el problema— y se le
+    nombran uno por uno los que tiene que resumir. Nombrarlos importa: pedirle
+    «los que falten» le deja decidir cuáles, y ya sabemos qué decide.
+    """
+    import tipos_asunto as _tap
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    q = _tap.vocabulario_de(_t)["combate"]
+    _lista = "\n".join(f"  - {x}" for x in faltan)
+    return f"""{_NUCLEO}
+
+{instrucciones_resumen_conceptos(es_recurso, _t)}
+
+Éste es el escrito de la parte, COMPLETO:
+──────────────────────────────────────────
+{texto_conceptos}
+──────────────────────────────────────────
+
+De todos los {q} que contiene, resume ÚNICAMENTE estos, que quedaron fuera de
+un resumen anterior:
+{_lista}
+
+Un párrafo por cada uno, en el mismo registro que el resto del resumen, y en el
+orden en que aparecen en el escrito. No repitas los que no están en esa lista.
+No expliques que se trata de un complemento: escribe los párrafos y nada más."""
 
 
 def prompt_antecedentes(texto_acto: str) -> str:
@@ -463,7 +570,45 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
         _quitadas = _q1 + _q2 + _q3
     except Exception:
         pass
+    # ── LOS QUE FALTEN, SE PIDEN ─────────────────────────────────────────
+    #
+    # Se comprueba contra el escrito ENTERO, no contra el recorte: es
+    # justamente el número que el recorte falsea. Si el resumen dejó fuera el
+    # séptimo concepto, se pide otra pasada SÓLO de los que faltan y se añade.
+    #
+    # Sin esto, un escrito con ocho conceptos producía un resumen de seis y
+    # nadie se enteraba —el prompt le prohíbe al modelo decir que le falta
+    # documento—, y el proyecto salía incongruente e inexhaustivo.
+    try:
+        _faltan = conceptos_sin_resumir(texto_conceptos, rc)
+        _vuelta = 0
+        while _faltan and _vuelta < 3:
+            _vuelta += 1
+            print(f"   🧩 faltan por resumir: {_faltan} (vuelta {_vuelta})")
+            _extra = await _pedir(cliente, prompt_conceptos_que_faltan(
+                texto_conceptos, _faltan, es_recurso, tipo_asunto), 3000)
+            if not _extra.strip():
+                break
+            rc = (rc.rstrip() + "\n\n" + _extra.strip())
+            _nuevos = conceptos_sin_resumir(texto_conceptos, rc)
+            if len(_nuevos) >= len(_faltan):
+                # No avanzó: se para y se dice, en vez de dar vueltas.
+                _faltan = _nuevos
+                break
+            _faltan = _nuevos
+    except Exception as _ex:
+        print(f"   ⚠️ no se pudo comprobar la cobertura de conceptos: {_ex}")
+        _faltan = []
+
     f = Fases123(antecedentes=an, resumen_acto=ra, resumen_conceptos=rc)
+    if _faltan:
+        # NO SE CALLA. Un proyecto al que le falta un concepto es incongruente,
+        # y eso el secretario tiene que saberlo ANTES de firmar.
+        f.avisos.append(
+            "NO SE RESUMIERON TODOS LOS PLANTEAMIENTOS: faltan "
+            + ", ".join(_faltan[:6])
+            + ". Un proyecto que no los contesta todos es incongruente e "
+              "inexhaustivo. Revísalos a mano antes de firmar.")
     for _f in _quitadas:
         f.avisos.append(
             f"SE QUITÓ UNA FRASE QUE HABLABA DEL ARCHIVO, NO DEL ASUNTO: "
