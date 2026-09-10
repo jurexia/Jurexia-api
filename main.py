@@ -28745,10 +28745,19 @@ async def taller_desde_expediente(
                        if k in ("numero", "expediente_origen", "magistrado",
                                 "secretario", "recurrente", "presentacion",
                                 "presentacion_de", "folio"))
-    # YA ESTÁ LEÍDO: SE SUELTA. El adelanto lleva dentro lo que hacía falta y
-    # la sesión del taller guarda el resto; los PDF del expediente de un
-    # particular no tienen por qué seguir en la base.
-    _soltar_constancias(correo, numero.strip())
+    # LAS CONSTANCIAS NO SE SUELTAN TODAVÍA.
+    #
+    # Estaban soltándose aquí, en cuanto el adelanto salía bien, y eso dejaba al
+    # secretario sin poder repetirlo: si se equivocó en la fecha de
+    # notificación, o quiere otro reparto de páginas, ya no hay expediente que
+    # releer. Pasó al probarlo: el segundo intento contestó «ese expediente se
+    # recibió antes de que existiera la depuración» porque el primero se lo
+    # había llevado por delante.
+    #
+    # Se sueltan cuando el trabajo está HECHO —al componer el proyecto— y, si
+    # nadie llega hasta ahí, a las 48 horas. Sigue siendo «se usan y se
+    # borran», que es lo que la pantalla promete; lo que cambia es cuándo se da
+    # por usado, y eso lo marca el proyecto, no el adelanto.
 
     if hasattr(resultado, "headers"):
         resultado.headers["X-Depuracion"] = _cabecera_segura([_mapa])
@@ -29450,6 +29459,10 @@ async def taller_resolver_stream(
                         _doc = _b64d.b64encode(open(res.ruta, "rb").read()).decode()
                     except Exception:
                         _doc = ""
+                    # EL TRABAJO ESTÁ HECHO: SE SUELTAN LAS CONSTANCIAS. Aquí y
+                    # no en el adelanto, para que el secretario pueda repetirlo
+                    # cuantas veces quiera hasta llegar al proyecto.
+                    _soltar_constancias(user_email.strip().lower(), numero.strip())
                     yield ("data: " + json.dumps({
                         "tipo": "listo",
                         "docx_b64": _doc,
@@ -29825,6 +29838,8 @@ async def taller_resolver(
     # de repetir el estudio entero.
     ses["salida"] = r2.ruta
     _taller_guardar_docx(user_email, numero, r2.ruta)
+    # El trabajo está hecho. Ver la nota del endpoint de streaming.
+    _soltar_constancias(user_email.strip().lower(), numero.strip())
 
     from fastapi.responses import FileResponse
     return FileResponse(
