@@ -54,6 +54,7 @@ from qdrant_client.http.models import (
 )
 from fastembed import SparseTextEmbedding
 import time
+import types as _types
 from openai import AsyncOpenAI
 from supabase import create_client as supabase_create_client
 import httpx  # For Cohere Rerank API calls
@@ -27804,7 +27805,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
         return None
     try:
         r = supabase_admin.table("taller_sesiones") \
-            .select("estado, consultado, plantilla, actualizado_en") \
+            .select("estado, consultado, plantilla, actualizado_en, propuestas") \
             .eq("email", (email or "").strip().lower()) \
             .eq("expediente", numero).limit(1).execute()
         if not r.data:
@@ -27873,6 +27874,20 @@ def _taller_recuperar_sesion(email: str, numero: str):
 
     ses = {"resultado": resultado, "tmp": tmp, "ts": time.time(),
            "consultado": r.data[0].get("consultado", False),
+           # LAS PROPUESTAS VUELVEN CON LA SESIÓN. Sin esto, el worker que no
+           # las calculó resuelve sin ellas y el reparto pierde el sentido que
+           # el motor había dado a cada problema.
+           # Vuelven como objetos con atributos, que es como las lee el
+           # reparto: `p.problema`, `p.sentido`. Un SimpleNamespace basta y no
+           # arrastra la clase entera de la fase 5, que no es serializable.
+           "propuestas": [
+               _types.SimpleNamespace(
+                   problema=str(x.get("problema") or ""),
+                   sentido=str(x.get("sentido") or ""),
+                   razon=str(x.get("razon") or ""),
+                   alcanza=bool(x.get("alcanza", True)))
+               for x in (r.data[0].get("propuestas") or [])
+               if isinstance(x, dict)],
            "sello": r.data[0].get("actualizado_en")}
     _TALLER_SESIONES[_taller_llave(email, numero)] = ses
     return ses
@@ -29083,6 +29098,31 @@ async def taller_proponer(
         for x, q in zip(_emparejadas, problemas)]
 
     ses["propuestas"] = propuestas
+    # ── Y SE PERSISTEN, PORQUE HAY DOS TRABAJADORES ──────────────────────
+    #
+    # Vivían SÓLO en la memoria de este worker. Con `-w 2`, si /taller/proponer
+    # cae en uno y /taller/resolver en el otro, el segundo no ve ninguna
+    # propuesta: `ses.get("propuestas")` sale vacío y el reparto se queda sin
+    # el sentido que el motor había calculado para cada problema.
+    #
+    # Se vio en el ADC 536/2025: el secretario marcó el primer concepto y el
+    # segundo perdió su calificación propia —el motor lo había propuesto
+    # infundado— porque el worker que resolvía no tenía las propuestas y cayó
+    # al relleno global.
+    #
+    # Es el mismo fallo que dejó a Erika con dos proyectos vacíos por
+    # extemporaneidad: estado en memoria de un proceso, con dos procesos.
+    if supabase_admin:
+        try:
+            supabase_admin.table("taller_sesiones").update({
+                "propuestas": [
+                    {"problema": _p.problema, "sentido": _p.sentido,
+                     "razon": _p.razon, "alcanza": _p.alcanza}
+                    for _p in propuestas],
+            }).eq("email", (user_email or "").strip().lower()) \
+              .eq("expediente", numero).execute()
+        except Exception as _ex:
+            print(f"   ⚠️ TALLER: no se pudieron guardar las propuestas: {err(_ex)}")
     # SE GUARDA EL GLOBAL. Con los dos workers puede no estar en el proceso que
     # atienda el /taller/resolver siguiente —por eso el cliente lo devuelve—,
     # pero si cae en el mismo sale gratis y el secretario no tiene que mandar
