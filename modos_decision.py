@@ -124,8 +124,18 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             # palabra del secretario, no a la automatización del sistema».
             c = califs.get(t) or {}
             _suyo = str(c.get("sentido") or "").strip().lower()
-            sentido = _suyo or (sentido_global or "").strip().lower()
-            razon = str(c.get("razonamiento") or "")
+            # EL ORDEN DEL RELLENO. Manda lo que él marcó; si no marcó nada,
+            # vale más la propuesta que el motor hizo PARA ESE PROBLEMA que el
+            # sentido global, que es una brocha gorda.
+            #
+            # Se vio probando el ADC 536/2025: el secretario cambió UN concepto
+            # y el otro perdió su calificación propia —el motor lo había
+            # propuesto infundado— porque el global lo aplastaba con «fundado».
+            # Cambiar una cosa no puede rehacer las demás.
+            _prop = str((props.get(t) or {}).get("sentido") or "").strip().lower()
+            sentido = _suyo or _prop or (sentido_global or "").strip().lower()
+            razon = (str(c.get("razonamiento") or "")
+                     or (str((props.get(t) or {}).get("razon") or "") if not _suyo else ""))
             if _suyo and _suyo != (sentido_global or "").strip().lower():
                 avisos.append(
                     f"«{t[:70]}» se resuelve {_suyo.replace('_', ' ')} porque "
