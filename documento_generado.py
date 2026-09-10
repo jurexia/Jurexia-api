@@ -2737,8 +2737,21 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
             f"el proemio no puede citar el asunto y la carátula no lo "
             f"identifica.")
     campos = [("", _enc)]
+
+    # LA CARÁTULA SE SALTABA LAS DOS NORMALIZACIONES DE LA AUTORIDAD. Escribía
+    # `datos["responsable"]` en crudo, y corre aquí —línea 2969— casi
+    # trescientas antes de que la 3261 normalice ese mismo dato para el cuerpo
+    # y el resolutivo. Con un nombre bueno da igual; con uno tecleado a mano o
+    # leído de un encabezado en versales, no: el documento acababa nombrando a
+    # la responsable de dos maneras distintas, una en su portada y otra en el
+    # punto que resuelve. Se le pasa por el mismo tamiz.
+    def _limpia(clave, valor):
+        if clave != "responsable":
+            return valor
+        return _sin_articulo(_normalizar_autoridad(str(valor or ""))) or valor
+
     campos += [(_ta_c.etiqueta_concordada(et, str(datos.get(clave, ""))),
-                datos.get(clave, ""))
+                _limpia(clave, datos.get(clave, "")))
                for et, clave, _ob in _ta_c.caratula_de(_t)]
     # «SECRETARIO», no «SECRETARIA/O». La barra es de un formulario, no de una
     # sentencia: el adelanto ajustado firma «SECRETARIO:» y quien firma sabe su
