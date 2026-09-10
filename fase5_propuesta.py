@@ -596,6 +596,12 @@ def prompt_propuesta(problemas: list, material, resumen_acto: str,
     # fase fija el SENTIDO, así que la etiqueta viaja de aquí a la razón toral
     # y de ahí al estudio: es de los sitios donde más caro sale.
     _org5 = _ta_p.sujetos_de(_t5)["organo"][0].upper()
+    # CON QUÉ VERBOS DECIDIÓ ESE ÓRGANO. El rótulo de arriba ya decía «LO QUE
+    # RESOLVIÓ LA SALA» correctamente, y unas líneas más abajo se le dictaba al
+    # modelo el menú del amparo en revisión. El rótulo correcto y el menú
+    # equivocado iban en el MISMO prompt, y ganaba el menú, que es lo único que
+    # le da palabras concretas.
+    _verbos5 = _ta_p.verbos_del_recurrido(_t5)
     tesis = _tesis_del_material(material)
     lista = "\n".join(
         f"{i}. {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
@@ -690,7 +696,7 @@ REGLAS QUE NO SE ROMPEN:
 6. EL CONTEXTO, EN PROSA Y EN CUATRO PÁRRAFOS. Es lo PRIMERO que lee el
    secretario y con eso forma su criterio, sin volver al expediente. Escribe:
    `hechos` (de qué va el asunto, qué pasó); `resolvio` (ABRE CON EL VERBO DEL
-   DESENLACE —«sobreseyó», «negó el amparo», «concedió el amparo», «desechó»—,
+   DESENLACE de ESTE tipo de asunto —{_verbos5}—,
    que es el dato que decide el resolutivo de este proyecto, y sólo DESPUÉS la
    razón. Salió esto: «tuvo por acreditado que la moral promovió el juicio
    mediante representante… concluyó que era parte actora», que cuenta el
@@ -742,7 +748,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
    "alcanza": true,
    "contexto": {{
      "hechos": "<un párrafo>",
-     "resolvio": "<empieza por el verbo: sobreseyó | negó el amparo | concedió el amparo | desechó; y luego la razón>",
+     "resolvio": "<empieza por el verbo que corresponda a este tipo de asunto ({_verbos5}); y luego la razón>",
      "combate": "<un párrafo>",
      "tema_principal": "<un párrafo: cuál es y por qué ése>"}},
    "alternativa": {{

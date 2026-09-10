@@ -2262,3 +2262,60 @@ def puntos_confirma_concede(resolutivo_reproducido: str = "",
     if (resolutivo_reproducido or "").strip():
         return [primero, "SEGUNDO. " + resolutivo_reproducido.strip()]
     return [primero, RAMAS_REVISION["confirma_concede"]["puntos"][1]]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CON QUÉ VERBOS DECIDE EL ÓRGANO DE ORIGEN
+#
+# David, leyendo el contexto de un amparo directo: «erróneamente dice "la
+# responsable negó el amparo". Eso es un error. La responsable declara
+# procedente o improcedente la acción o la excepción. La responsable, en amparo
+# directo, NO resuelve amparos, por lo que no puede negar o conceder.»
+#
+# Tenía razón, y el hueco era de catálogo. Este módulo tiene vocabulario por
+# tipo para casi todo —CIERRE, SUJETOS, VOCABULARIO, RAMAS_REVISION— pero NO
+# para los verbos con que decide el órgano RECURRIDO o la RESPONSABLE. Ese
+# hueco lo rellenaban dos prompts con lo primero que tenían a mano, que era el
+# vocabulario del amparo en revisión: «sobreseyó, negó el amparo, concedió el
+# amparo». En un amparo directo eso es un disparate, y en uno de los dos sitios
+# —los antecedentes— se firma.
+#
+# Quién decide qué, sin confundirlo:
+#   · amparo DIRECTO      la responsable es una Sala o tribunal ordinario. No
+#                         resuelve amparos: resuelve el juicio de origen.
+#   · amparo en REVISIÓN  el a quo es un juez de distrito, y ése SÍ concedió,
+#                         negó o sobreseyó en un amparo.
+#   · revisión FISCAL     la Sala del Tribunal Federal de Justicia
+#                         Administrativa declara la nulidad o reconoce la
+#                         validez.
+#   · QUEJA               lo recurrido es un auto o una resolución de trámite.
+#
+# ADVERTENCIA HONESTA: esto es doctrina, no medición. Se comprobó que el banco
+# de fórmulas medidas NO contiene «declaró procedente», «absolvió» ni «condenó»,
+# así que estos verbos no salen del acervo de engroses reales como los demás de
+# este módulo. Cuando haya corpus suficiente, hay que medirlos.
+VERBOS_DEL_RECURRIDO = {
+    "amparo_directo": (
+        "confirmó, modificó o revocó la sentencia de primera instancia; "
+        "declaró procedente o improcedente la acción o la excepción; condenó "
+        "o absolvió; declaró la nulidad; decretó la caducidad; dejó a salvo "
+        "los derechos"),
+    "amparo_revision": (
+        "sobreseyó, negó el amparo, concedió el amparo o desechó la demanda"),
+    "revision_fiscal": (
+        "declaró la nulidad de la resolución impugnada, reconoció su validez "
+        "o sobreseyó en el juicio"),
+    "queja": (
+        "admitió, desechó o tuvo por no interpuesta la demanda; concedió o "
+        "negó la suspensión; o proveyó sobre el trámite"),
+}
+
+
+def verbos_del_recurrido(tipo: str) -> str:
+    """Los verbos con que decidió el órgano de origen de ESTE tipo de asunto.
+
+    Nunca los del amparo cuando el asunto no es un amparo en revisión: la
+    autoridad responsable de un amparo directo no concede ni niega amparos.
+    """
+    t = normalizar(tipo) or "amparo_directo"
+    return VERBOS_DEL_RECURRIDO.get(t, VERBOS_DEL_RECURRIDO["amparo_directo"])

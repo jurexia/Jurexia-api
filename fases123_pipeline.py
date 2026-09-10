@@ -388,7 +388,7 @@ orden en que aparecen en el escrito. No repitas los que no están en esa lista.
 No expliques que se trata de un complemento: escribe los párrafos y nada más."""
 
 
-def prompt_antecedentes(texto_acto: str) -> str:
+def prompt_antecedentes(texto_acto: str, tipo_asunto: str = "") -> str:
     """Los antecedentes se leen del documento ENTERO, no del recorte.
 
     El recorte del resumen se queda con el estudio de fondo, y ahí no está el
@@ -397,7 +397,7 @@ def prompt_antecedentes(texto_acto: str) -> str:
     """
     return f"""{_NUCLEO}
 
-{instrucciones_antecedentes()}
+{instrucciones_antecedentes(tipo_asunto)}
 
 Éste es el documento:
 
@@ -580,7 +580,7 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
     import json as _json
 
     an, ra, rc = await asyncio.gather(
-        _pedir(cliente, prompt_antecedentes(texto_acto), 3000),
+        _pedir(cliente, prompt_antecedentes(texto_acto, tipo_asunto), 3000),
         _pedir(cliente, prompt_resumen_acto(texto_acto, es_recurso, tipo_asunto)),
         _pedir(cliente, prompt_resumen_conceptos(texto_conceptos, es_recurso,
                                                  tipo_asunto)),

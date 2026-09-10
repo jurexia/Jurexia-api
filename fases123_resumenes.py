@@ -294,7 +294,12 @@ ARRANQUES_ANTECEDENTES = ("Por auto de", "En proveído de", "En auto de",
                           "Radicada la demanda")
 
 
-def instrucciones_antecedentes() -> str:
+def instrucciones_antecedentes(tipo_asunto: str = "") -> str:
+    # EL ÚNICO DE LOS CUATRO QUE NO RECIBÍA EL TIPO, y el que más caro sale:
+    # los antecedentes se escriben en el apartado «Antecedentes» del .docx, así
+    # que aquí el disparate no se queda en pantalla, se FIRMA.
+    import tipos_asunto as _ta
+    _verbos = _ta.verbos_del_recurrido(tipo_asunto)
     return f"""QUINTO. ANTECEDENTES
 
 Lo que PASÓ en el juicio de origen, en orden cronológico. NO es el resumen de
@@ -315,8 +320,14 @@ el trámite, para que quien lea entienda de dónde viene el asunto.
 - Y EL ÚLTIMO PÁRRAFO DICE EN QUÉ PARÓ. Si el asunto viene de un juicio ya
   resuelto —una revisión, una queja contra la sentencia—, los antecedentes se
   cierran diciendo QUÉ RESOLVIÓ el órgano de origen, con su verbo:
-  «sobreseyó», «negó el amparo», «concedió el amparo», y el precepto en que se
-  apoyó.
+  el verbo que corresponde a ESTE tipo de asunto —{_verbos}— y el precepto en
+  que se apoyó.
+
+  NO LE ATRIBUYAS UN DESENLACE QUE NO ES SUYO. En amparo directo la autoridad
+  responsable es una Sala o un tribunal ordinario: resuelve el juicio de
+  origen, NO resuelve amparos, así que no puede conceder ni negar el amparo.
+  Quien concede o niega es el Tribunal Colegiado, y eso va en el resolutivo de
+  esta sentencia, no en los antecedentes.
 
   NO ES OPINAR NI ADELANTAR EL ESTUDIO: es el último hecho procesal de la
   cadena, y sin él los antecedentes cuentan cómo empezó todo y no cómo acabó.
