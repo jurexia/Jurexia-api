@@ -27698,6 +27698,12 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             # que esa misma sentencia había concedido.
             "resolvio_a_quo": getattr(r.fases, "resolvio_a_quo", "") or "",
             "resolutivo_recurrida": getattr(r.fases, "resolutivo_recurrida", "") or "",
+            # EL ESCRITO Y EL ACTO, TAL COMO SE LEYERON. Sin esto no
+            # sobreviven a la petición: con dos trabajadores, el que resuelve
+            # recibía sólo el resumen y no podía contestar contra las palabras
+            # de la parte. Es lo que hacía imposible la exhaustividad.
+            "fuentes": [str(x)[:400000] for x in
+                        (getattr(r.fases, "fuentes", []) or [])][:2],
             "expediente_origen": getattr(r.fases, "expediente_origen", "") or "",
             "fecha_origen": getattr(r.fases, "fecha_origen", "") or "",
         },

@@ -729,7 +729,12 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # `Global.bloque()` no lo llamaba nadie.
             propuesta_global=getattr(e, "propuesta_global", None),
             rama=_rama, violacion_procesal=_vp,
-            conceptos_violacion=getattr(e, "conceptos_violacion", "") or "")
+            conceptos_violacion=getattr(e, "conceptos_violacion", "") or "",
+            # EL ESCRITO DE LA PARTE, LITERAL. `fuentes[1]` es el texto del
+            # recurso o de la demanda tal como se leyó del PDF. Hasta ahora
+            # moría en el adelanto: la fase que CONTESTA los conceptos recibía
+            # el resumen —unas 472 palabras— y CERO caracteres del escrito.
+            escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1])
 
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
@@ -780,7 +785,12 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             criterios, material, e.es_recurso, r.partes, marco, contexto,
             propuesta_global=getattr(e, "propuesta_global", None),
             rama=_rama, violacion_procesal=_vp,
-            conceptos_violacion=getattr(e, "conceptos_violacion", "") or ""):
+            conceptos_violacion=getattr(e, "conceptos_violacion", "") or "",
+            # EL ESCRITO DE LA PARTE, LITERAL. `fuentes[1]` es el texto del
+            # recurso o de la demanda tal como se leyó del PDF. Hasta ahora
+            # moría en el adelanto: la fase que CONTESTA los conceptos recibía
+            # el resumen —unas 472 palabras— y CERO caracteres del escrito.
+            escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]):
         if paso.get("tipo") == "texto":
             yield paso
         else:

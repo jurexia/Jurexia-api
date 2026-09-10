@@ -77,6 +77,13 @@ _MARCAS_CONCEPTOS = re.compile(
 # El modelo no alucinó: describió con exactitud lo que le habíamos hecho. Se
 # sube a cubrir lo medido y se corta por párrafo, nunca a mitad de oración.
 TOPE_CARACTERES = 100_000         # ~25k tokens; cubre los 90k del ARC 25/2026
+# EL ESCRITO DE LA PARTE VA APARTE, Y MÁS ANCHO. De él dependen la congruencia
+# y la exhaustividad: un concepto que no entra es un concepto que no se
+# contesta, y eso es un vicio de la sentencia. Medido contra el motor real
+# (gpt-5.6-luna) con el escrito entero del ADC 536/2025: 153.256 caracteres,
+# 38.314 tokens, respondió sin despeinarse. El tope de 100.000 no protegía de
+# nada; sólo amputaba.
+TOPE_CONCEPTOS = 400_000
 
 
 # El rótulo del bloque resolutivo, con y sin espaciado judicial.
@@ -99,7 +106,8 @@ _RX_RESUELVE = re.compile(
 DESCARTADO: dict = {}
 
 
-def _cortar_bien(cuerpo: str, tope: int, que: str = "") -> str:
+def _cortar_bien(cuerpo: str, tope: int, que: str = "",
+                 guardar_resolutivos: bool = True) -> str:
     """Recorta por párrafo, y si hay que sacrificar, sacrifica el MEDIO.
 
     UN CORTE A MITAD DE FRASE SE NOTA, y lo que el modelo hace al notarlo es
@@ -132,7 +140,20 @@ def _cortar_bien(cuerpo: str, tope: int, que: str = "") -> str:
     # 85450738 / Datos estampillados: 5soe2uW/axw52+2VvzE…», que es la cadena
     # de la FIEL. Se BUSCA el bloque resolutivo por su rótulo; si no aparece,
     # no se inventa una cola: se entrega sólo la cabeza, bien cortada.
-    m = _RX_RESUELVE.search(cuerpo)
+    # ── LA REGLA DEL RESUELVE ES DE SENTENCIAS, NO DE ESCRITOS ───────────
+    #
+    # Reservar el último cuarto para el bloque resolutivo es correcto cuando lo
+    # que se recorta es una SENTENCIA: ahí, el final es lo que se confirma o se
+    # revoca. Aplicado al escrito de la parte es un desastre, y explica con
+    # aritmética exacta por qué el proyecto contestaba «hasta el sexto»:
+    #
+    # una demanda de amparo directo TRANSCRIBE la sentencia reclamada, así que
+    # el rótulo «R E S U E L V E» aparece EN MEDIO del escrito. Todo lo que va
+    # después —que es justamente el apartado de conceptos de violación— se
+    # quedaba con int(tope*0.25) = 25.000 caracteres, unas catorce páginas. Los
+    # conceptos del final se tiraban por el agujero de en medio, sin marca y
+    # sin aviso.
+    m = _RX_RESUELVE.search(cuerpo) if guardar_resolutivos else None
     if m:
         resolutivos = cuerpo[m.start():][:int(tope * 0.25)]
         cabeza = _hasta(cuerpo[:m.start()], tope - len(resolutivos))
@@ -161,13 +182,20 @@ def recortar_acto(texto: str, tope: int = TOPE_CARACTERES) -> str:
     return _cortar_bien(cuerpo, tope, "el acto reclamado")
 
 
-def recortar_conceptos(texto: str, tope: int = TOPE_CARACTERES) -> str:
-    """Del escrito de la parte, el apartado de conceptos o agravios."""
+def recortar_conceptos(texto: str, tope: int = TOPE_CONCEPTOS) -> str:
+    """Del escrito de la parte, el apartado de conceptos o agravios.
+
+    NO se le aplica la regla del bloque resolutivo. Aquí lo valioso está en la
+    COLA —los conceptos se numeran hasta el final— y reservar un cuarto del
+    presupuesto para un «RESUELVE» que en este documento es una CITA de la
+    sentencia transcrita era lo que amputaba los últimos conceptos.
+    """
     m = _MARCAS_CONCEPTOS.search(texto)
     cuerpo = texto[m.start():] if m else texto[-tope:]
     if len(texto) > len(cuerpo):
         DESCARTADO["el escrito de la parte"] = (len(texto), len(cuerpo))
-    return _cortar_bien(cuerpo, tope, "el escrito de la parte")
+    return _cortar_bien(cuerpo, tope, "el escrito de la parte",
+                        guardar_resolutivos=False)
 
 
 

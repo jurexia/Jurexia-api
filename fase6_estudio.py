@@ -1066,6 +1066,44 @@ def _bloque_global(g, criterios: list = None) -> str:
             + _nota + "\n" + "\n\n".join(partes) + "\n")
 
 
+def _bloque_escrito_literal(escrito: str, resumen: str) -> str:
+    """EL ESCRITO DE LA PARTE, EN SUS PROPIAS PALABRAS.
+
+    Hasta ahora la fase que CONTESTA los conceptos no veía los conceptos: se le
+    entregaba el resumen —unos 472 palabras— y con eso tenía que responder a
+    ocho planteamientos. Del escrito llegaba, al momento de escribir la
+    respuesta, CERO caracteres.
+
+    Es la raíz de las tres quejas a la vez: no se puede contestar un concepto
+    que no está —de ahí la falta de exhaustividad—; sin las palabras de la parte
+    no hay nada concreto que citar y el estudio cae en el molde —de ahí la
+    repetición—; y sin el texto delante el modelo rellena con lo que le suena
+    —de ahí los nombres y las cifras inventados—.
+
+    El resumen se queda: ordena y da el hilo. Pero debajo va el escrito, para
+    que la respuesta se pegue a lo que la parte dijo de verdad.
+    """
+    t = (escrito or "").strip()
+    if len(t) < 400:
+        return ""
+    return f"""
+
+═══════════════════════════════════════════════════════════════════════
+EL ESCRITO DE LA PARTE, LITERAL
+═══════════════════════════════════════════════════════════════════════
+Lo de arriba es el resumen; esto es lo que la parte escribió. CONTESTA CONTRA
+ESTO, no contra el resumen: cita sus palabras cuando importen, y no des por
+planteado nada que no esté aquí.
+
+Y CUÉNTALOS. Si aquí hay ocho conceptos, el estudio contesta ocho. Dejar uno
+sin respuesta no es una omisión menor: hace la sentencia incongruente e
+inexhaustiva, y eso se combate en amparo.
+──────────────────────────────────────────
+{t}
+──────────────────────────────────────────
+"""
+
+
 def _bloque_arquitectura(materia: str) -> str:
     """Lo común más UNA arquitectura de materia. Nunca dos: son opuestas."""
     m = (materia or "").strip().lower()
@@ -1136,7 +1174,9 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    contexto: str = "", materia: str = "",
                    propuesta_global=None, rama: str = "",
                    violacion_procesal: bool = False,
-                   conceptos_violacion: str = "") -> str:
+                   conceptos_violacion: str = "",
+                   # EL ESCRITO DE LA PARTE, LITERAL. Ver `_bloque_escrito_literal`.
+                   escrito_literal: str = "") -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     # CÓMO SE LA NOMBRA. Estaba escrito «la parte quejosa» dentro de un EJEMPLO
     # de este prompt, y el modelo lo copiaba: en la revisión fiscal el proyecto
@@ -1661,6 +1701,7 @@ LO QUE RESOLVIÓ {_org_rotulo}
 LO QUE SE COMBATE
 ═══════════════════════════════════════════════════════════════════════
 {resumen_conceptos}
+{_bloque_escrito_literal(escrito_literal, resumen_conceptos)}
 
 Escribe el estudio de fondo.
 
@@ -2455,7 +2496,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                            es_recurso: bool = False, partes=None, marco=None,
                            contexto: str = "", propuesta_global=None,
                            rama: str = "", violacion_procesal: bool = False,
-                           conceptos_violacion: str = ""):
+                           conceptos_violacion: str = "",
+                          escrito_literal: str = ""):
     """El estudio, trozo a trozo, según lo escribe el modelo.
 
     David: «que el usuario vea el texto escribiéndose sería de ayuda». No
@@ -2472,7 +2514,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                   es_recurso, partes, marco, contexto,
                   propuesta_global=propuesta_global, rama=rama,
                   violacion_procesal=violacion_procesal,
-                  conceptos_violacion=conceptos_violacion)}])
+                  conceptos_violacion=conceptos_violacion,
+        escrito_literal=escrito_literal)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     entero = []
@@ -2496,7 +2539,8 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    es_recurso: bool = False, partes=None, marco=None,
                    contexto: str = "", propuesta_global=None,
                    rama: str = "", violacion_procesal: bool = False,
-                   conceptos_violacion: str = "") -> tuple[str, str, list[str]]:
+                   conceptos_violacion: str = "",
+                   escrito_literal: str = "") -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos)."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
@@ -2504,7 +2548,8 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                   es_recurso, partes, marco, contexto,
                   propuesta_global=propuesta_global, rama=rama,
                   violacion_procesal=violacion_procesal,
-                  conceptos_violacion=conceptos_violacion)}])
+                  conceptos_violacion=conceptos_violacion,
+        escrito_literal=escrito_literal)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     import llamada_modelo as _lm
