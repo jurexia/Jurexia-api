@@ -97,6 +97,22 @@ def fechas(texto: str, limite: int = 6):
     return salida
 
 
+# LO QUE NO ES UN NOMBRE. «Magistrada relatora», «Magistrado Presidente» y
+# demás son CARGOS, y colarlos como ponente pone en la portada del engrose una
+# persona que no existe. Salió en el ADC 536/2025: el ponente se leyó como
+# «Magistrada relatora».
+_CARGOS = re.compile(r"^(?:magistrad|secretari|president|ponent|relator|"
+                     r"licenciad|titular|juez)", re.I)
+
+
+def _es_nombre(n: str) -> bool:
+    """Dos palabras capitalizadas seguidas, y ningún cargo al frente."""
+    n = (n or "").strip()
+    if len(n) < 8 or _CARGOS.match(n):
+        return False
+    return len(re.findall(r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}", n)) >= 2
+
+
 def _limpiar_nombre(n: str) -> str:
     n = re.sub(r"\s+", " ", n or "").strip(" ,.;:")
     # El OCR mete el escudo y el sello donde puede.
@@ -127,12 +143,12 @@ def leer(texto: str) -> dict:
     # magistrado Fulano»— también se contempla.
     m = re.search(r"ponencia\s+(?:del|de la)\s+(?:magistrad[oa]\s+)?([A-ZÁÉÍÓÚÑ][\w áéíóúñÁÉÍÓÚÑ.]{6,70})",
                   texto)
-    if m:
+    if m and _es_nombre(_limpiar_nombre(m.group(1))):
         d["magistrado"] = _limpiar_nombre(m.group(1))
     elif re.search(r"ponencia\s+a\s+mi\s+cargo", texto, re.I):
         f = re.search(r"firma\s+([A-ZÁÉÍÓÚÑ][\w áéíóúñÁÉÍÓÚÑ.]{6,70}?),?\s+"
                       r"Magistrad[oa]\s+Presidente", texto, re.I)
-        if f:
+        if f and _es_nombre(_limpiar_nombre(f.group(1))):
             d["magistrado"] = _limpiar_nombre(f.group(1))
             d["magistrado_de"] = "ponencia a mi cargo · firma el Presidente"
 
@@ -141,7 +157,7 @@ def leer(texto: str) -> dict:
     # capitalizadas contiguas que preceden a la mención del cargo.
     m = re.search(r"((?:[A-ZÁÉÍÓÚÑ][a-záéíóúñ.]+\s+){1,5}[A-ZÁÉÍÓÚÑ][a-záéíóúñ.]+)"
                   r"\s*,\s*Secretari[oa]\s+de\s+Acuerdos", texto)
-    if m:
+    if m and _es_nombre(_limpiar_nombre(m.group(1))):
         d["secretario"] = _limpiar_nombre(m.group(1))
 
     # EL RECURRENTE ES LA PERSONA, no su cargo entero. En el 91/2025 el cargo

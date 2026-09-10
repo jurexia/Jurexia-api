@@ -28186,10 +28186,20 @@ async def taller_desde_sise(
     # lee son los AUTOS, que son pequeños; el escrito y la sentencia se vuelven
     # a leer del PDF ya cortado, que es más barato que el tomo entero. Así que
     # se guarda el texto de lo que cabe y del resto sólo su ficha.
+    # SE RECORTA, NO SE TIRA. La primera versión de esto ponía el texto a ""
+    # cuando pasaba del tope, y con eso se perdía justo lo que hacía falta: los
+    # datos de identidad —número, partes, ponente y la fecha de presentación de
+    # la portada de la OCC— viven al PRINCIPIO del documento. En el ADC
+    # 536/2025 la fecha estaba ahí, legible, y el taller contestó «la fecha de
+    # presentación no se entiende: se recibió «»».
+    #
+    # Quedarse con la cabeza cuesta lo mismo que quedarse con nada y conserva
+    # todo lo que `fase_autos` necesita leer.
     _TOPE_TEXTO = 80_000
     fila["segmentos"] = [
         (_s if len(_s.get("texto") or "") <= _TOPE_TEXTO
-         else {**_s, "texto": "", "texto_omitido": len(_s.get("texto") or "")})
+         else {**_s, "texto": (_s.get("texto") or "")[:_TOPE_TEXTO],
+               "texto_recortado_de": len(_s.get("texto") or "")})
         for _s in _segmentos]
     _pesa = sum(len(_x.get("texto") or "") for _x in fila["segmentos"])
     print(f"   💾 {numero}: {len(_pro)//1024} KB de promoción, "
@@ -28207,7 +28217,8 @@ async def taller_desde_sise(
             try:
                 _fila2 = dict(fila)
                 _fila2["segmentos"] = [
-                    {**_s, "texto": "", "texto_omitido": len(_s.get("texto") or "")}
+                    {**_s, "texto": (_s.get("texto") or "")[:8_000],
+                     "texto_recortado_de": len(_s.get("texto") or "")}
                     for _s in fila.get("segmentos") or []]
                 supabase_admin.table("sise_pendientes").upsert(
                     _fila2, on_conflict="email,numero").execute()
