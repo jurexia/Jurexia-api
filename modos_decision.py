@@ -151,16 +151,47 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             # global por debajo SIEMPRE, y David dictó «infundado global» y
             # recibió un proyecto que amparaba: cada problema se quedó con lo
             # que el motor había propuesto y su orden no llegó a ningún sitio.
-            if _suyo:
-                sentido = _suyo
-            elif global_dictado and _glob:
+            # ── Y CUÁNDO EL GLOBAL DICTADO PASA POR DELANTE ──────────────
+            #
+            # Faltaba un caso, y se vio conduciendo el 91/2025 en pantalla:
+            # el secretario califica los temas uno a uno, cambia de idea, se
+            # pasa a la vía global y dicta INFUNDADO —y la tarjeta seguía
+            # diciendo inoperante, fundado, fundado. Sus marcas por tema le
+            # ganaban al global que acababa de dictar. Es literalmente su queja:
+            # «le indiqué con botones que lo declarara infundado, que el sentido
+            # fuera global, y lo hizo fundado».
+            #
+            # En la vía global la pantalla ya NO muestra las pastillas por tema,
+            # así que una marca por tema presente aquí sólo puede ser un resto
+            # de la otra vía: es lo viejo, y el global dictado es lo último que
+            # él dijo. Manda lo último.
+            #
+            # El eco sigue por debajo: si el sentido global lo puso la pantalla
+            # al llegar la propuesta (global_dictado=False) no es su palabra, y
+            # entonces la marca por tema conserva la preferencia. Ésa es la
+            # lección del ADC 536/2025 y se queda intacta.
+            _pisado = bool(global_dictado and _glob and _suyo and _suyo != _glob)
+            if global_dictado and _glob:
                 sentido = _glob
+            elif _suyo:
+                sentido = _suyo
             else:
                 sentido = _prop or _glob
-            razon = (str(c.get("razonamiento") or "")
-                     or (str((props.get(t) or {}).get("razon") or "")
-                         if not _suyo and not (global_dictado and _glob) else ""))
-            if _suyo and _suyo != (sentido_global or "").strip().lower():
+            # LA RAZÓN NO PUEDE SOBREVIVIR AL SENTIDO QUE LA SOSTENÍA. Si el
+            # global pisa una marca suya, su razón argumentaba lo contrario:
+            # dejarla pegada al sentido nuevo es fabricar una incongruencia.
+            razon = "" if _pisado else (
+                str(c.get("razonamiento") or "")
+                or (str((props.get(t) or {}).get("razon") or "")
+                    if not _suyo and not (global_dictado and _glob) else ""))
+            if _pisado:
+                avisos.append(
+                    f"«{t[:70]}» lo habías marcado {_suyo.replace('_', ' ')} "
+                    f"tema por tema, y se resuelve "
+                    f"{_glob.replace('_', ' ')} porque después dictaste ese "
+                    f"sentido para todo el asunto. Tu razón de aquel momento no "
+                    f"se usa: sostenía lo contrario.")
+            elif _suyo and _suyo != (sentido_global or "").strip().lower():
                 avisos.append(
                     f"«{t[:70]}» se resuelve {_suyo.replace('_', ' ')} porque "
                     f"así lo marcaste, no {(sentido_global or '').replace('_', ' ')} "
@@ -183,8 +214,11 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
     # dijo que un planteamiento es infundado, se estudia y se declara infundado,
     # aunque el principal prospere y el resto quede sin materia: quien decide si
     # un tema merece respuesta propia es él.
-    _suyos = {str(k) for k, v in (califs or {}).items()
-              if str((v or {}).get("sentido") or "").strip()}
+    # Y si el global lo dictó él, no hay marcas por tema que exceptuar: las que
+    # hubiera son de la otra vía y acaban de quedar pisadas arriba.
+    _suyos = set() if global_dictado and (sentido_global or "").strip() else {
+        str(k) for k, v in (califs or {}).items()
+        if str((v or {}).get("sentido") or "").strip()}
 
     # ¿ALCANZA? La propuesta lo dice cuando el material da para saberlo.
     pr_principal = props.get(principal["problema"]) or {}
