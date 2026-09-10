@@ -28786,10 +28786,16 @@ async def taller_consultar(
         # entidad que el secretario hubiera declarado al crear el asunto.
         if coleccion_estatal.strip():
             r.encargo.coleccion_estatal = coleccion_estatal
+    # El de esta llamada manda; si no viene, el que se guardó al aportarlo.
+    _ctx = (contexto or "").strip() or str(ses.get("contexto") or "")
+    if _ctx:
+        ses["contexto"] = _ctx
+        print(f"   🧭 {numero}: se busca con el contexto del secretario "
+              f"({len(_ctx)} caracteres)")
     material = await _ra.consultar(
         qdrant_client, _embedding_juris,
         lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
-        chat_client)
+        chat_client, _ctx)
     ses["material"] = material
     ses["consultado"] = True
     _taller_marcar_consultado(user_email, numero)
@@ -28824,6 +28830,9 @@ async def taller_contexto(
     user_email: str = Form(...),
     texto: str = Form(""),
     documento: Optional[UploadFile] = File(None),
+    # CONTRA QUÉ EXPEDIENTE. Sin esto el endpoint era apátrida: devolvía el
+    # texto al navegador y ahí se quedaba, sin que la búsqueda se enterara.
+    numero: str = Form(""),
 ):
     """Lo que el acervo no tiene y el secretario sí.
 
@@ -28850,6 +28859,14 @@ async def taller_contexto(
     if not junto:
         raise HTTPException(400, "No llegó ni documento ni texto que aportar.")
     print(f"   ⚖️ TALLER: contexto aportado · {len(junto)} caracteres")
+    # SE GUARDA CONTRA EL EXPEDIENTE, para que la BÚSQUEDA lo use. Antes esto
+    # volvía al navegador y de ahí sólo iba a los prompts: el acervo se
+    # consultaba sin saber nada de lo que el secretario acababa de aportar.
+    if numero.strip():
+        _s = _taller_recuperar_sesion(user_email, numero)
+        if _s is not None:
+            _s["contexto"] = junto[:60000]
+            print(f"   🧭 contexto guardado para {numero}: {len(junto)} caracteres")
     return {"texto": junto[:60000], "caracteres": len(junto),
             "recortado": len(junto) > 60000}
 

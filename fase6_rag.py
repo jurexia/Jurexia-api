@@ -507,7 +507,8 @@ async def consulta_conceptual(cliente, problema: str, materia: str = "") -> dict
 
 async def material_para(qdrant, embed_juris, embed_leyes,
                         problema: str, coleccion_estatal: Optional[str] = None,
-                        materia: str = "", cliente=None) -> f6.Material:
+                        materia: str = "", cliente=None,
+                        contexto: str = "") -> f6.Material:
     """El material verificado para UN problema jurídico.
 
     `embed_juris` vectoriza con el modelo de la v3 (3072 dim) y `embed_leyes`
@@ -522,6 +523,25 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     # 2 de 3; con las dos, 5 de 5».
     _c = await consulta_conceptual(cliente, problema, materia)
     anclas = [x for x in (_c.get("precisa"), _c.get("amplia"), problema) if x]
+    # ── LO QUE SABE EL SECRETARIO, COMO ANCLA PROPIA ──────────────────────
+    #
+    # David: «primero debe presentarse todo el contexto jurídico y después
+    # buscar la solución… así el sistema va a tener mejor capacidad de buscar
+    # jurisprudencia o las normas aplicables al caso».
+    #
+    # Va como ANCLA APARTE, no pegado a la pregunta, y ésa es la diferencia que
+    # importa. Está medido en este mismo sistema que el andamio interrogativo
+    # pesa más en el vector que el concepto jurídico: la consulta literal del
+    # derecho del tanto devolvía Ley del Deporte y Código Fiscal, y el concepto
+    # descrito devolvía los artículos exactos. Mezclar el contexto DENTRO de la
+    # pregunta diluiría las tres anclas que hoy funcionan; sumarlo como cuarta
+    # sólo puede añadir.
+    #
+    # Se recorta a 600 caracteres porque lo que se vectoriza es un concepto, no
+    # un expediente: un texto largo se promedia hasta no significar nada.
+    _ctx = " ".join((contexto or "").split())[:600]
+    if len(_ctx) >= 40:
+        anclas.append(_ctx)
     _vs = await asyncio.gather(*[embed_juris(a) for a in anclas],
                                embed_leyes(problema))
     v_leyes = _vs[-1]
@@ -628,7 +648,8 @@ async def material_para(qdrant, embed_juris, embed_leyes,
 async def material_del_caso(qdrant, embed_juris, embed_leyes,
                             problemas: list[str],
                             coleccion_estatal: Optional[str] = None,
-                            materia: str = "", cliente=None) -> f6.Material:
+                            materia: str = "", cliente=None,
+                            contexto: str = "") -> f6.Material:
     """Un solo Material con lo de TODOS los problemas, sin repetir tesis.
 
     El estudio se escribe de una vez —es una sola pieza de prosa— así que el
@@ -646,7 +667,7 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
 
     partes = await asyncio.gather(*[
         material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal,
-                      materia, cliente)
+                      materia, cliente, contexto)
         for p in preguntas])
 
     tesis, normas = [], []

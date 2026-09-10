@@ -402,7 +402,8 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
 
 
 async def consultar(qdrant, embed_juris, embed_leyes,
-                    r: Resultado, cliente=None) -> f6.Material:
+                    r: Resultado, cliente=None,
+                    contexto: str = "") -> f6.Material:
     """Lo que el acervo dice sobre los problemas del caso.
 
     Se le enseña ANTES de pedirle el criterio: decidir el sentido sin ver la
@@ -459,7 +460,10 @@ async def consultar(qdrant, embed_juris, embed_leyes,
                                 # EL TRADUCTOR DE LA CONSULTA. Sin cliente la
                                 # búsqueda sigue funcionando con la pregunta
                                 # cruda; con él, alcanza el rubro.
-                                cliente),
+                                cliente,
+                                # Y LO QUE EL SECRETARIO YA SABE DEL ASUNTO,
+                                # como ancla propia. Ver `material_para`.
+                                contexto),
         _sondear_precedente(qdrant, embed_leyes, r, problemas))
     material.sondeo = sondeo
     material.materia = fp_materia(r.encargo)

@@ -351,3 +351,127 @@ def bloque(m: Marco, es_recurso: bool = False) -> str:
             p.append(f"\n  {ficha} — {x.tema}")
             p.append(f"  {x.texto[:900]}")
     return "\n".join(p)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA FUNCIÓN QUE FALTABA
+#
+# Este módulo estaba entero pensado —el mapa temático, la consulta por
+# conceptos y no por la prosa del caso, la reunión de artículos partidos, la
+# trampa de los DOS artículos 17 de la Constitución— y nunca se escribió la que
+# une todas esas piezas. `main.py` llamaba a `_mj.construir(...)`, que no
+# existía, el AttributeError se tragaba en un `except Exception` y el marco
+# jurídico salía SIEMPRE VACÍO. En los dos endpoints de resolver, desde el
+# primer día, sin que nada avisara.
+#
+# Es el mismo patrón que ya costó meses con HyDE: una capa apagada se ve
+# exactamente igual que una capa que funciona —el proyecto sale igual, sólo que
+# peor— y por eso el aviso de abajo dice cuándo NO encontró nada, en vez de
+# devolver un vacío mudo.
+# ═══════════════════════════════════════════════════════════════════════════
+
+MAX_FRAGMENTOS = 80
+
+
+async def construir(qdrant, embed, problemas: list[str],
+                    coleccion_estatal: Optional[str] = None) -> Marco:
+    """El bloque de constitucionalidad que ESTE asunto toca.
+
+    Se busca con los CONCEPTOS de los artículos que el mapa temático disparó,
+    no con el relato del expediente: está medido en este sistema que la prosa
+    del caso no casa con la doctrina —el Cuadernillo No. 5 de la CoIDH tiene 424
+    fragmentos y no salía ni uno buscándolo con «¿la pensión alimenticia del
+    quince por ciento…?»—.
+    """
+    m = Marco()
+    arts = _articulos_del_problema(problemas)
+    if not arts:
+        m.avisos.append(
+            "El asunto no disparó ningún artículo del mapa constitucional: no "
+            "se trajo bloque de constitucionalidad. Si el proyecto necesita "
+            "uno, cítalo tú.")
+        return m
+
+    consulta = _consulta_convencional(arts, problemas)
+    try:
+        v = await embed(consulta)
+    except Exception as ex:
+        m.avisos.append(f"No se pudo vectorizar la consulta del marco: {ex}")
+        return m
+
+    from qdrant_client.http import models as _qm
+
+    def _filtro(tipos: list[str]):
+        return _qm.Filter(must=[_qm.FieldCondition(
+            key="tipo", match=_qm.MatchAny(any=tipos))])
+
+    consti, conven, coidh = await asyncio.gather(
+        _buscar(qdrant, COLECCION, "dense", v, MAX_FRAGMENTOS,
+                _filtro(["constitucion"])),
+        _buscar(qdrant, COLECCION, "dense", v, MAX_FRAGMENTOS // 2,
+                _filtro(["convencion"])),
+        _buscar(qdrant, COLECCION, "dense", v, MAX_COIDH * 3,
+                _filtro(["cuadernillo", "sentencia_cidh", "opinion_consultiva"])))
+
+    # ── CONSTITUCIONALES ─────────────────────────────────────────────────
+    # El mapa temático manda: sólo entran los artículos que ESTE asunto
+    # disparó. Lo demás que la búsqueda traiga es ruido con buena puntuación,
+    # que es la peor clase de error.
+    por_art: dict = {}
+    for p in consti:
+        if _es_transitorio(p):
+            continue
+        a, _parte = _articulo_de(p)
+        if a and a in arts:
+            por_art.setdefault(a, []).append(p)
+    for a in arts:
+        frags = por_art.get(a) or []
+        if not frags:
+            m.avisos.append(
+                f"El artículo {a} constitucional venía al caso por su tema y "
+                f"NO se encontró en el acervo: no se cita.")
+            continue
+        m.constitucionales.append(Precepto(
+            fuente="Constitución Política de los Estados Unidos Mexicanos",
+            articulo=a, texto=_reunir_articulo(frags),
+            jerarquia=str(frags[0].get("jerarquia") or ""),
+            orden=_orden_titulo(frags[0])))
+        if len(m.constitucionales) >= MAX_CONSTITUCIONALES:
+            break
+    m.constitucionales.sort(key=lambda x: (x.orden, int(x.articulo or 0)))
+
+    # ── CONVENCIONALES, sólo si el asunto llama al bloque ─────────────────
+    if _pide_convencional(problemas):
+        vistos = set()
+        for p in conven:
+            ref = str(p.get("ref") or "").strip()
+            fuente = str(p.get("origen") or "").strip() or ref
+            if not ref or ref in vistos:
+                continue
+            vistos.add(ref)
+            m.convencionales.append(Precepto(
+                fuente=fuente, articulo=ref, texto=str(p.get("texto") or ""),
+                jerarquia=str(p.get("jerarquia") or "")))
+            if len(m.convencionales) >= MAX_CONVENCIONALES:
+                break
+        for p in coidh:
+            if len(m.coidh) >= MAX_COIDH:
+                break
+            m.coidh.append(Precedente(
+                caso=str(p.get("caso") or p.get("vs") or "").strip()
+                     or str(p.get("ref") or "").strip(),
+                cuadernillo=str(p.get("cuadernillo_num")
+                                or p.get("origen") or "").strip(),
+                tema=str(p.get("cuadernillo_tema") or "").strip(),
+                parrafo=str(p.get("parrafo") or "").strip(),
+                texto=str(p.get("texto") or "")))
+        if not m.convencionales and not m.coidh:
+            m.avisos.append(
+                "El asunto llamaba a fuente convencional y el acervo no "
+                "devolvió ninguna: no se cita ningún tratado.")
+
+    if m.vacio():
+        m.avisos.append(
+            "No se pudo construir el marco jurídico: el acervo no devolvió "
+            "ningún precepto para los artículos del asunto.")
+    return m
