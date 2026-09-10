@@ -250,6 +250,23 @@ def repartir(segmentos):
 
     acto = mayor({"sentencia_recurrida", "sentencia", "acto_reclamado"})
     conceptos = mayor({"promocion", "agravios", "conceptos", "demanda"})
+
+    # EN AMPARO DIRECTO NO LLEGA UNA SENTENCIA APARTE.
+    #
+    # La demanda TRANSCRIBE la sentencia reclamada —es como se redactan— y el
+    # expediente electrónico no trae un PDF distinto con ella. Medido en el ADC
+    # 536/2025: 85 páginas de demanda con la sentencia dentro, y ni un solo
+    # documento clasificado como sentencia entre las ocho constancias.
+    #
+    # Exigir dos ficheros distintos dejaba fuera a TODOS los amparos directos.
+    # Cuando no hay acto separado, el acto está dentro del escrito: se entrega
+    # el mismo documento por los dos lados y se dice, porque el taller extrae
+    # cosas distintas de cada uno —de uno la razón de la responsable, del otro
+    # lo que se alega contra ella— y las dos están ahí.
+    if acto is None and conceptos is not None:
+        acto = dict(conceptos)
+        acto["mismo_documento"] = True
+
     usados = {id(x) for x in (acto, conceptos) if x}
     resto = [s for s in segmentos if id(s) not in usados
              and s["caracteres"] > 800]

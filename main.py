@@ -28611,6 +28611,7 @@ async def taller_desde_expediente(
 
     _acto = _por_paginas(acto_paginas) or _acto
     _conceptos = _por_paginas(conceptos_paginas) or _conceptos
+    _mismo = bool(_acto and _acto.get("mismo_documento"))
 
     _faltan = []
     if not _conceptos:
@@ -28696,7 +28697,9 @@ async def taller_desde_expediente(
         _f_constancias = _corte(_mayor, "constancias")
 
     print(f"   ✂️  {numero}: acto {_acto['desde']}-{_acto['hasta']} · "
-          f"conceptos {_conceptos['desde']}-{_conceptos['hasta']}")
+          f"conceptos {_conceptos['desde']}-{_conceptos['hasta']}"
+          + ("  (el mismo documento: la sentencia va transcrita dentro)"
+             if _mismo else ""))
 
     # ── Y SE ENTRA POR EL CAMINO DE SIEMPRE ───────────────────────────────
     # No se duplica el adelanto: se le llama. Todo lo que aprendió —el cómputo,
