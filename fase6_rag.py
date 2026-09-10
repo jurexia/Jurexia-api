@@ -936,3 +936,89 @@ async def tesis_cocitadas(qdrant, embed_leyes, problema: str,
         print(f"   ⚖️ co-citación: {len(fuera)} criterios usados por el circuito "
               f"(el más citado, {fuera[0].get('veces')} veces)")
     return fuera
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LAS TESIS DE LA CALIFICATIVA
+#
+# David: «resulta particularmente importante que el RAG recupere tesis sobre
+# INOPERANCIA (una pequeña llamada adicional) para que, si el secretario se va
+# por inoperancia, el LLM proponga argumentos con respaldo en tesis sobre
+# inoperancia».
+#
+# Tiene razón y el hueco es estructural: la búsqueda del acervo va detrás de
+# los PROBLEMAS DEL CASO —la pericial, la notificación, el despido— y eso está
+# bien para el fondo. Pero declarar un planteamiento INOPERANTE no es una
+# cuestión de fondo: es una cuestión de TÉCNICA, y se funda con tesis sobre la
+# inoperancia misma —que no combate la consideración toral, que parte de una
+# premisa falsa, que es una repetición de la demanda—. Ninguna búsqueda del
+# caso las va a traer.
+#
+# Se vio en los proyectos generados: el estudio declaraba inoperante y no
+# citaba una sola autoridad, o citaba la del fondo, que no viene al caso.
+#
+# Es una llamada pequeña y sólo se hace cuando el secretario elige una de esas
+# calificativas: si resuelve el fondo, no hace falta.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Qué se busca para cada calificativa. No son sinónimos y sus tesis son
+# distintas: la inoperancia mira si el planteamiento SIRVE, la ineficacia si
+# ALCANZA, y lo inatendible si puede siquiera examinarse.
+CONSULTA_POR_CALIFICATIVA = {
+    "inoperante": (
+        "agravios inoperantes conceptos de violación inoperantes porque no "
+        "combaten todas las consideraciones de la sentencia recurrida, se "
+        "sustentan en premisas falsas, repiten los argumentos de la demanda o "
+        "no controvierten la consideración toral que rige el sentido"),
+    "inatendible": (
+        "conceptos de violación inatendibles planteamientos que no pueden "
+        "examinarse por referirse a cuestiones ajenas a la litis o a actos "
+        "consentidos"),
+    "ineficaz": (
+        "agravios ineficaces para revocar la sentencia porque aun siendo "
+        "fundados no trascienden al resultado del fallo ni bastan para variar "
+        "el sentido de lo resuelto"),
+    "innecesario": (
+        "estudio innecesario de los conceptos restantes por haberse alcanzado "
+        "el beneficio máximo con la concesión del amparo, sustracción de la "
+        "materia"),
+    "fundado_insuficiente": (
+        "agravio fundado pero insuficiente para revocar porque subsisten "
+        "consideraciones que rigen el sentido del fallo y no fueron combatidas"),
+}
+
+
+async def tesis_de_la_calificativa(qdrant, embed_juris, sentido: str,
+                                   problema: str = "", limite: int = 4) -> list:
+    """Las tesis que fundan ESA calificativa, no el fondo del asunto.
+
+    Devuelve [] cuando la calificativa resuelve el fondo —fundado, infundado—:
+    para ésas ya sirve el material del caso, y añadir tesis de técnica sólo
+    haría ruido.
+    """
+    clave = (sentido or "").strip().lower()
+    consulta = CONSULTA_POR_CALIFICATIVA.get(clave)
+    if not consulta or not qdrant or not embed_juris:
+        return []
+    # El problema se añade recortado y al final: orienta hacia la materia sin
+    # desplazar el concepto, que es lo que esta búsqueda tiene que encontrar.
+    _p = " ".join((problema or "").split())[:180]
+    try:
+        v = await embed_juris(consulta + (" " + _p if _p else ""))
+        res = await _buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v, limite * 3)
+    except Exception as e:
+        print(f"   ⚠️ no se pudieron traer las tesis de «{clave}»: {e}")
+        return []
+    fuera, vistos = [], set()
+    for p in res:
+        d = _tesis_de(p if isinstance(p, dict) else (p.payload or {}))
+        if d.get("registro") and d["registro"] not in vistos and d.get("rubro"):
+            vistos.add(d["registro"])
+            # Marcadas como técnica: quedan exentas del tope del prompt, igual
+            # que las del reenvío. Son pocas y son las que fundan el fallo.
+            d["tecnica"] = True
+            d["de_la_calificativa"] = clave
+            fuera.append(d)
+        if len(fuera) >= limite:
+            break
+    return fuera

@@ -29107,6 +29107,29 @@ async def taller_razonar(
         import fase6_estudio as _f6m
         material = _f6m.Material()
         print(f"   ⚠️ razonar {numero} sin material: se apoya en la ley")
+    # ── LAS TESIS DE LA CALIFICATIVA, UNA LLAMADA APARTE ─────────────────
+    #
+    # David: «resulta particularmente importante que el RAG recupere tesis
+    # sobre INOPERANCIA para que, si el secretario se va por inoperancia, el
+    # LLM proponga argumentos con respaldo en tesis sobre inoperancia».
+    #
+    # La búsqueda del acervo fue detrás de los problemas DEL CASO. Declarar
+    # inoperante no es una cuestión de fondo sino de TÉCNICA, y se funda con
+    # tesis sobre la inoperancia misma. Ninguna búsqueda del caso las trae.
+    # Sólo se pide cuando la calificativa lo necesita: para «fundado» o
+    # «infundado» devuelve vacío y no se gasta la llamada.
+    try:
+        import fase6_rag as _rag
+        _tec = await _rag.tesis_de_la_calificativa(
+            qdrant_client, _embedding_juris, sentido, problema)
+        if _tec:
+            _vistos = {t.get("registro") for t in (material.tesis or [])}
+            material.tesis = list(material.tesis or []) + [
+                t for t in _tec if t.get("registro") not in _vistos]
+            print(f"   ⚖️  {len(_tec)} tesis de «{sentido}» añadidas para razonar")
+    except Exception as _ex:
+        print(f"   ⚠️ no se pudieron traer tesis de «{sentido}»: {err(_ex)}")
+
     import fase5_propuesta as _f5
     try:
         razon = await _f5.razonar(
