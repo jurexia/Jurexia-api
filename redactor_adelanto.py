@@ -913,7 +913,22 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             # se consulta. Se lee de lo que ya se sabe del asunto —la autoridad
             # responsable y el acto—, no del estudio, que aún puede no
             # nombrarla.
+            # EL CAMPO SE LLAMA `responsable`, NO `autoridad_responsable`.
+            # El getattr con valor por omisión apuntaba a un atributo que el
+            # Encargo no tiene (se llama así en `fase_partes.Partes`, no aquí),
+            # así que devolvía cadena vacía SIEMPRE y este detector llevaba
+            # desde que se escribió sin ver nunca el nombre de la autoridad.
+            # Es la avería silenciosa de manual: nada falla, nada avisa, y la
+            # capa se comporta igual que si no existiera.
+            #
+            # MEDIDO ANTES DE ENCENDERLO, sobre las 89 autoridades del acervo:
+            # sólo 4 pasan a fuero federal, y las cuatro son Salas Regionales
+            # del Tribunal Federal de Justicia Administrativa. Ninguna local se
+            # pierde por el camino: las Salas Civiles, las Juntas, los Jueces
+            # administrativos de Querétaro y el Unitario Agrario siguen
+            # consultando el acervo estatal.
             _quien = " ".join(str(x) for x in (
+                getattr(e, "responsable", "") or "",
                 getattr(e, "autoridad_responsable", ""),
                 getattr(e, "acto_reclamado", ""),
                 getattr(material, "acto_reclamado", ""),
@@ -921,8 +936,13 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             ) if x)
             _fed = _fn.autoridad_es_federal(_quien)
             if _fed:
-                print("   ⚖️ autoridad del fuero FEDERAL: no se consulta el "
-                      "acervo estatal salvo que la cita nombre una ley local")
+                # QUE SE VEA CUÁL LO DECIDIÓ. Una capa que apaga el acervo
+                # estatal no puede hacerlo sin dejar nombre: si algún día
+                # apagara el de un asunto local, el registro lo dice.
+                print(f"   ⚖️ autoridad del fuero FEDERAL "
+                      f"«{(getattr(e, 'responsable', '') or '')[:60]}»: no se "
+                      f"consulta el acervo estatal salvo que la cita nombre "
+                      f"una ley local")
             _extra = await _fn.recuperar(
                 qdrant, estudio,
                 (e.coleccion_estatal or "") if hasattr(e, "coleccion_estatal") else "",
