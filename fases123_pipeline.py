@@ -433,13 +433,60 @@ Escribe el apartado de antecedentes, un párrafo por línea. Sólo el apartado."
 
 
 def prompt_problemas(resumen_acto: str, resumen_conceptos: str,
-                     es_recurso: bool = False, tipo_asunto: str = "") -> str:
+                     es_recurso: bool = False, tipo_asunto: str = "",
+                     n_planteamientos: int = 0, faltan: list = None) -> str:
     # EL RÓTULO ENSEÑA EN MAYÚSCULAS cómo llamar al órgano, que es la forma más
     # imitable que hay. Decía «LO QUE RESOLVIÓ LA RESPONSABLE» en los cuatro, y
     # en una queja lo que resolvió fue el Juzgado de Distrito.
     import tipos_asunto as _tap
     _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
     _organo = _tap.sujetos_de(_t)["organo"][0].upper()
+    # ═══════════════════════════════════════════════════════════════════════
+    # EL REPARTO: NINGÚN PLANTEAMIENTO SE QUEDA FUERA
+    # ═══════════════════════════════════════════════════════════════════════
+    # Medido el 11-sep-2026 sobre el ADC 393/2025: de los MISMOS documentos
+    # salieron 11 problemas por una corrida y 5 por otra. La causa de fondo es
+    # que el motor rechaza `temperature` —«only the default (1) value is
+    # supported»—, así que esta lectura corre con muestreo pese a que el módulo
+    # dice fijarla; sobre un mismo resumen, cuatro tiradas dieron 7, 7, 7 y 8.
+    #
+    # Perseguir el número es perseguir lo que no se puede fijar. Y el número no
+    # es el daño: agrupar dos planteamientos sobre la misma omisión en un
+    # problema es buen criterio. El daño es que UNO se quede fuera de todos,
+    # porque entonces no se decide, no se estudia, y la sentencia sale
+    # incongruente sin que nadie lo note.
+    #
+    # Así que se deja de pedir un número y se pide un REPARTO comprobable: se
+    # le dice cuántos planteamientos hay —el contador los cuenta, 43 de 43 en
+    # el acervo— y cada problema declara cuáles cubre. La unión se comprueba
+    # después con aritmética, no con confianza. Medido: 3 de 3 tiradas cubren
+    # 17 de 17 sin huecos ni repeticiones, con el número variando entre 7 y 8.
+    _reparto = ""
+    if n_planteamientos >= 2:
+        _reparto = (
+            f"""
+CUÁNTOS PLANTEAMIENTOS HAY QUE CUBRIR: el escrito trae {n_planteamientos},
+numerados del 1 al {n_planteamientos} en el orden en que aparecen en el
+resumen de arriba.
+
+NO SE QUEDA NINGUNO FUERA. Agrupa los que compartan la misma cuestión jurídica
+—dos planteamientos sobre la misma omisión son UN problema— pero cada uno de
+los {n_planteamientos} tiene que quedar dentro de algún problema. Añade a cada
+problema el campo "cubre": la lista de números que ese problema responde, por
+ejemplo "cubre": [3, 7, 9]. La unión de todos los "cubre" tiene que dar
+exactamente 1..{n_planteamientos}, sin huecos y sin repetir un número en dos
+problemas.
+
+Un planteamiento que no entra en ningún problema no se estudia y la sentencia
+sale incongruente: por eso este reparto no es un adorno.
+""")
+        if faltan:
+            _reparto += (
+                f"""
+Y ATENCIÓN, PORQUE ES UN SEGUNDO INTENTO: en el anterior se quedaron fuera los
+planteamientos {", ".join(str(x) for x in faltan)}. Esta vez tienen que estar
+dentro de algún problema, cada uno en el que le corresponda por su materia.
+""")
     return f"""{_NUCLEO}
 
 {instrucciones_problemas(global_primero=True)}
@@ -455,6 +502,7 @@ Devuelve JSON y nada más:
   "problema_global": "la cuestión toral EN FORMA DE PREGUNTA, empezando por ¿ y terminando en ?",
   "problemas": [
     {{"pregunta": "...",
+      "cubre": [1, 2],
       "jerarquia": "principal|accesorio",
       "resolvio": "qué resolvió el órgano recurrido sobre este punto",
       "combate": "qué lo combate",
@@ -463,7 +511,7 @@ Devuelve JSON y nada más:
       "apoyo": null}}
   ]
 }}
-Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
+{_reparto}Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
 "impedimento" como {{"motivo": "inoperancia", "explicacion": "..."}}.
 Y si adviertes lo contrario —algo que sostenga el planteamiento— ponlo en
 "apoyo" como {{"motivo": "razón toral|jurisprudencia|constancia",
@@ -784,13 +832,53 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             f"que devolverla; pero una frase así dentro del fallo deja al que "
             f"firma preguntándose qué más se inventó.")
     try:
-        crudo = await _pedir(cliente, prompt_problemas(ra, rc, es_recurso,
-                                                       tipo_asunto),
-                             3500, json_estricto=True)
-        m = re.search(r"\{.*\}", crudo, re.S)
-        j = _json.loads(m.group(0) if m else crudo)
+        # ── EL REPARTO SE COMPRUEBA CON ARITMÉTICA, NO CON CONFIANZA ────
+        # El número de problemas no se puede fijar —el motor rechaza
+        # `temperature` y corre con muestreo—, pero el REPARTO sí se comprueba:
+        # la unión de los «cubre» tiene que dar 1..N. Si falta alguno se pide
+        # otra vez nombrándolo, y si aun así falta, se dice en un aviso con su
+        # número. Un planteamiento huérfano no se decide ni se estudia.
+        _n_plant = int((_conteo or {}).get("n") or 0) \
+            if str((_conteo or {}).get("estado")) == "contado" else 0
+        _faltan_rep, _vuelta_rep = [], 0
+        while True:
+            crudo = await _pedir(cliente, prompt_problemas(
+                ra, rc, es_recurso, tipo_asunto, _n_plant, _faltan_rep),
+                3500 if not _n_plant else 5000, json_estricto=True)
+            m = re.search(r"\{.*\}", crudo, re.S)
+            j = _json.loads(m.group(0) if m else crudo)
+            _probs = _sin_repetidos(j.get("problemas", []) or [])
+            if not _n_plant:
+                break
+            _cub = []
+            for _p in _probs:
+                for _x in (_p.get("cubre") or []):
+                    try:
+                        _cub.append(int(_x))
+                    except Exception:
+                        pass
+            _faltan_rep = sorted(set(range(1, _n_plant + 1)) - set(_cub))
+            print(f"   🧮 reparto: {len(_probs)} problemas cubren "
+                  f"{len(set(_cub))}/{_n_plant}"
+                  + (f" · huérfanos: {_faltan_rep}" if _faltan_rep else ""))
+            if not _faltan_rep or _vuelta_rep >= 1:
+                break
+            _vuelta_rep += 1
         f.problema_global = j.get("problema_global", "")
-        f.problemas = _sin_repetidos(j.get("problemas", []) or [])
+        f.problemas = _probs
+        if _n_plant:
+            _conteo = dict(_conteo or {}, reparto={
+                "planteamientos": _n_plant, "problemas": len(_probs),
+                "huerfanos": _faltan_rep, "vueltas": _vuelta_rep})
+            f.conteo = _conteo
+        if _faltan_rep:
+            f.avisos.insert(0, (
+                f"HAY PLANTEAMIENTOS QUE NINGÚN PROBLEMA JURÍDICO RECOGE: el "
+                f"{', el '.join(str(x) for x in _faltan_rep[:8])} de los "
+                f"{_n_plant} que trae el escrito. Lo que no entra en un problema "
+                f"no se califica ni se estudia, y la sentencia sale "
+                f"incongruente. Míralos en el resumen y, si hacen falta, "
+                f"añádelos a mano al criterio antes de generar."))
     except Exception as e:
         # ESTE AVISO NO BASTABA, Y COSTÓ SEMANAS. Cuando el motor dejó de
         # aceptar `temperature`, esta captura apuntó el aviso y siguió: el
