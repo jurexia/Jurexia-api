@@ -239,70 +239,51 @@ def recortar_conceptos(texto: str, tope: int = TOPE_CONCEPTOS) -> str:
 # conceptos existen.
 # ═══════════════════════════════════════════════════════════════════════════
 
-_ORDINALES = ("PRIMER", "SEGUNDO", "TERCER", "CUARTO", "QUINTO", "SEXTO",
-              "S[ÉE]PTIMO", "OCTAVO", "NOVENO", "D[ÉE]CIMO",
-              "UND[ÉE]CIMO", "DUOD[ÉE]CIMO", "[ÚU]NICO")
+# ═══════════════════════════════════════════════════════════════════════════
+# CONTAR LOS PLANTEAMIENTOS: SE MUDÓ A SU PROPIO MÓDULO
+# ═══════════════════════════════════════════════════════════════════════════
+# Aquí vivían `_ORDINALES`, `_RX_RUBRICA`, `rubricas_de_conceptos` y
+# `conceptos_sin_resumir`. Se retiran enteros, medidos: sobre los SIETE
+# escritos que el taller guarda completos hay 43 conceptos de violación o
+# agravios, y ese contador veía 13 —el 30%—. Cuatro de los siete devolvían
+# CERO, y son justo los que rotulan con una cabecera de sección y debajo
+# ordinales a secas, que es como escribe media judicatura.
+#
+# Dos fallos y el segundo era peor que el primero:
+#   · exigía la palabra CONCEPTO o AGRAVIO pegada al ordinal;
+#   · y sus ordinales acababan en DUODÉCIMO, así que «DÉCIMO SÉPTIMO CONCEPTO»
+#     se leía «SÉPTIMO CONCEPTO», el conjunto de vistos lo tragaba como
+#     repetido, y después la comprobación lo daba por resumido porque
+#     «SÉPTIMO» sí estaba en el resumen. No es que no lo viera: daba un VISTO
+#     BUENO FALSO.
+# Consecuencia medida: el aviso «NO SE RESUMIERON TODOS LOS PLANTEAMIENTOS»
+# no ha saltado ni una vez en 101 sesiones.
+#
+# El contador nuevo no busca un rótulo: busca una CADENA —ordinales 1,2,3…N en
+# orden, dentro de la sección, descartando las enumeraciones transcritas y el
+# petitorio—. 43 de 43 sobre el mismo corpus. Y cuando no puede contar lo dice:
+# «no_contado» no es «no falta nada».
+from contador_planteamientos import (  # noqa: E402
+    aviso as aviso_de_cobertura,
+    planteamientos,
+    sin_resumir,
+    sospecha_de_amputacion,
+)
 
-# «PRIMER CONCEPTO DE VIOLACIÓN», «SEGUNDO AGRAVIO», «TERCERO.- …», «5.- …»
-_RX_RUBRICA = re.compile(
-    # UN INCISO DELANTE NO ES UNA EXCEPCIÓN, ES LO NORMAL.
-    #
-    # La primera versión exigía el ordinal al principio de línea y devolvía
-    # CERO rúbricas sobre el escrito real del ADC 245/2024, que los rotula
-    # «a) PRIMER CONCEPTO DE VIOLACIÓN:». Un contador ciego al formato del
-    # documento es peor que no tener contador: dice que no falta nada.
-    #
-    # Se admite delante un inciso —a) 1. I) i.— y también que la rúbrica venga
-    # a media línea, porque en un OCR los saltos no son de fiar.
-    r"(?:^|\n|\s)\s*(?:[a-zA-Z0-9]{1,3}\s*[.\-–—)]\s*)?(?:"
-    r"(" + "|".join(_ORDINALES) + r")O?\s+(?:CONCEPTO|AGRAVIO)"
-    r"|(" + "|".join(_ORDINALES) + r")O?\s*[.\-–—)]\s+(?:CONCEPTO|AGRAVIO)"
-    r"|(\d{1,2})\s*[.\-–—)]\s+(?:CONCEPTO|AGRAVIO)"
-    r")", re.I)
+
+def rubricas_de_conceptos(texto: str) -> list:
+    """Los rótulos que el escrito usa para separar un planteamiento de otro."""
+    return list(planteamientos(texto).get("rubricas") or [])
 
 
-def rubricas_de_conceptos(texto: str) -> list[str]:
-    """Los rótulos con que el escrito separa un concepto de otro.
+def conceptos_sin_resumir(texto_fuente: str, resumen: str) -> list:
+    """Los que el escrito trae y el resumen no menciona. Sólo los DUROS.
 
-    Se cuenta sobre el texto ENTERO, nunca sobre el recorte: es justamente el
-    número que el recorte falsea.
+    Los «sin_rotular» —que el contador sospecha pero no puede nombrar— salen
+    por el aviso, nunca por el reintento: pedirle al modelo que resuma algo que
+    no se sabe nombrar gasta tres pasadas y no añade nada.
     """
-    fuera, vistos = [], set()
-    for m in _RX_RUBRICA.finditer(texto or ""):
-        r = " ".join(m.group(0).split()).strip(" .-–—)").upper()
-        # El mismo rótulo puede aparecer en el índice y en el cuerpo.
-        if r and r not in vistos:
-            vistos.add(r)
-            fuera.append(r)
-    return fuera
-
-
-def conceptos_sin_resumir(texto_fuente: str, resumen: str) -> list[str]:
-    """Los rótulos que el escrito trae y el resumen no menciona."""
-    import unicodedata
-
-    def _pelado(x: str) -> str:
-        x = unicodedata.normalize("NFKD", (x or "").upper())
-        return "".join(c for c in x if not unicodedata.combining(c))
-
-    _res = _pelado(resumen)
-    # EL ORDINAL, NO LA PRIMERA PALABRA. Con el inciso delante —«a) PRIMER
-    # CONCEPTO»— la primera palabra es «A)», que no aparece nunca en el
-    # resumen: el contador daba por perdidos los seis conceptos que SÍ estaban.
-    # Un contador que se equivoca en los dos sentidos no sirve para nada.
-    _rx_ord = re.compile(r"\b(" + "|".join(
-        _pelado(o).replace("[EE]", "E") for o in _ORDINALES) + r")O?\b", re.I)
-    faltan = []
-    for r in rubricas_de_conceptos(texto_fuente):
-        m = _rx_ord.search(_pelado(r))
-        if not m:
-            continue
-        _ord = m.group(1).upper()
-        # El resumen puede decir «el séptimo concepto» donde el escrito decía
-        # «SÉPTIMO CONCEPTO DE VIOLACIÓN»: basta con que el ordinal aparezca.
-        if _ord not in _res:
-            faltan.append(r)
-    return faltan
+    return list(sin_resumir(texto_fuente, resumen).get("faltan") or [])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -390,7 +371,8 @@ Escribe el resumen de los {q}, un párrafo por cada uno. Sólo el resumen."""
 
 def prompt_conceptos_que_faltan(texto_conceptos: str, faltan: list,
                                 es_recurso: bool = False,
-                                tipo_asunto: str = "") -> str:
+                                tipo_asunto: str = "",
+                                tramos: list = None) -> str:
     """La segunda pasada: sólo los planteamientos que el resumen dejó fuera.
 
     Se le da el escrito ENTERO —sin el recorte que causó el problema— y se le
@@ -401,13 +383,24 @@ def prompt_conceptos_que_faltan(texto_conceptos: str, faltan: list,
     _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
     q = _tap.vocabulario_de(_t)["combate"]
     _lista = "\n".join(f"  - {x}" for x in faltan)
+    # SÓLO LOS TROZOS DONDE VIVEN LOS QUE FALTAN. Mandar el escrito entero en
+    # la segunda pasada cuesta lo mismo que en la primera y no añade nada: el
+    # contador ya sabe dónde empieza y acaba cada planteamiento. Medido en el
+    # 393/2025: 43.796 caracteres en vez de 178.842, el 25%.
+    _cuerpo = texto_conceptos
+    if tramos:
+        try:
+            _cuerpo = "\n\n[…]\n\n".join(
+                texto_conceptos[a:b] for a, b in tramos if b > a)
+        except Exception:
+            _cuerpo = texto_conceptos
     return f"""{_NUCLEO}
 
 {instrucciones_resumen_conceptos(es_recurso, _t)}
 
-Éste es el escrito de la parte, COMPLETO:
+Éste es el escrito de la parte:
 ──────────────────────────────────────────
-{texto_conceptos}
+{_cuerpo}
 ──────────────────────────────────────────
 
 De todos los {q} que contiene, resume ÚNICAMENTE estos, que quedaron fuera de
@@ -547,6 +540,22 @@ def _sin_repetidos(problemas: list) -> list:
 ESFUERZO_FASES = os.getenv("ESFUERZO_FASES", "none")
 
 
+# EL CENTINELA DEL CORTE. Viaja pegado al texto porque `_pedir` devuelve una
+# cadena y media docena de sitios la consumen: cambiar la firma obligaba a
+# tocarlos todos y a que ninguno se olvidara de mirar la bandera. Una marca en
+# el texto no se puede ignorar por descuido —se ve— y las fases la retiran
+# convirtiéndola en aviso antes de que llegue a ningún documento.
+MARCA_CORTE = "\n\u2702 LECTURA INCOMPLETA POR CUPO"
+
+
+def texto_cortado(x: str) -> bool:
+    return MARCA_CORTE.strip() in (x or "")
+
+
+def sin_marca(x: str) -> str:
+    return (x or "").replace(MARCA_CORTE, "").rstrip()
+
+
 async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = False) -> str:
     """Una llamada al motor. `json_estricto` obliga al modelo a devolver JSON.
 
@@ -586,6 +595,14 @@ async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = F
     if json_estricto:
         kw["response_format"] = {"type": "json_object"}
     import llamada_modelo as _lm
+
+    def _cortado(resp) -> bool:
+        """¿El modelo se quedó sin cupo a mitad de frase?"""
+        try:
+            return (resp.choices[0].finish_reason or "").lower() == "length"
+        except Exception:
+            return False
+
     r = await _lm.crear(cliente, **kw)
     txt = (r.choices[0].message.content or "").strip()
     if not txt:
@@ -598,6 +615,43 @@ async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = F
         kw.pop("reasoning_effort", None)
         r = await _lm.crear(cliente, **kw)
         txt = (r.choices[0].message.content or "").strip()
+    # ═══════════════════════════════════════════════════════════════════════
+    # UNA RESPUESTA CORTADA NO ES UNA RESPUESTA
+    # ═══════════════════════════════════════════════════════════════════════
+    # Sólo se reintentaba con la respuesta VACÍA. Una respuesta TRUNCADA —que
+    # llega llena, legible y a media frase— pasaba como buena y nadie se
+    # enteraba: `finish_reason` no se lee en ninguna fase del taller.
+    #
+    # Medido en el amparo directo 393/2025 del 11-sep-2026: la demanda traía
+    # DIECISIETE conceptos de violación, el resumen se pidió con el tope por
+    # omisión de 2.500 tokens y volvió con 2.497 —el 99,88% del cupo, tres
+    # tokens de margen— terminando dentro de una marca de ancla sin cerrar,
+    # «[[». Cada concepto cuesta 191 tokens: (2500-20)/191 = 12,98, y el cupo
+    # predice TRECE. Salieron trece. Los conceptos 14 a 17 no se escribieron
+    # nunca, los problemas jurídicos se derivan del resumen —no de la fuente—,
+    # y la sentencia salió sin ellos. El secretario no pudo subsanarlo porque
+    # el sistema jamás le dijo que faltaban.
+    #
+    # Se reintenta doblando el cupo, hasta tres veces (2.500 → 5.000 → 10.000 →
+    # 20.000), y si aun así vuelve cortada se devuelve lo que haya: media
+    # lectura vale más que ninguna, pero quien llame tiene que poder saberlo.
+    # Por eso el corte se marca en el propio texto con un centinela que las
+    # fases de arriba reconocen y convierten en aviso.
+    _vueltas = 0
+    while _cortado(r) and _vueltas < 3:
+        _vueltas += 1
+        kw["max_completion_tokens"] = tope * (2 ** _vueltas)
+        kw.pop("reasoning_effort", None)
+        print(f"   ✂️ respuesta cortada por cupo ({len(txt)} caracteres); "
+              f"se repite con {kw['max_completion_tokens']} tokens")
+        r = await _lm.crear(cliente, **kw)
+        _n = (r.choices[0].message.content or "").strip()
+        if _n:
+            txt = _n
+    if _cortado(r):
+        print(f"   ⚠️ SIGUE CORTADA tras {_vueltas} intentos: "
+              f"{len(txt)} caracteres con {kw.get('max_completion_tokens')} tokens")
+        txt += MARCA_CORTE
     return txt
 
 
@@ -610,12 +664,43 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
     import asyncio
     import json as _json
 
+    # ── EL CUPO SE MIDE POR LO QUE HAY QUE LEER ──────────────────────────
+    #
+    # Los tres resúmenes salían con el mismo tope por omisión, 2.500 tokens,
+    # tanto si el escrito tenía tres páginas como setenta y tres. En el amparo
+    # directo 393/2025 —174.702 caracteres, diecisiete conceptos— ese tope
+    # alcanzaba para trece y la lectura se cortaba a media frase.
+    #
+    # Un concepto resumido cuesta unos 190 tokens, medido sobre los trece que
+    # sí salieron de ese asunto. No se sabe cuántos conceptos hay antes de
+    # leerlos —contar rótulos es justamente lo que no funciona—, así que el
+    # cupo se estima por el tamaño de lo que entra: un escrito de 175.000
+    # caracteres pide del orden de 3.500 tokens de resumen. Es una cota
+    # holgada y barata: el modelo escribe lo que necesita y no se le cobra por
+    # el cupo que no gasta. Y si aun así se corta, `_pedir` lo detecta por
+    # `finish_reason` y dobla, que es la red de verdad.
+    def _cupo(texto: str, minimo: int = 2500, maximo: int = 12000) -> int:
+        return max(minimo, min(maximo, 900 + len(texto or "") // 50))
+
     an, ra, rc = await asyncio.gather(
         _pedir(cliente, prompt_antecedentes(texto_acto, tipo_asunto), 3000),
-        _pedir(cliente, prompt_resumen_acto(texto_acto, es_recurso, tipo_asunto)),
+        _pedir(cliente, prompt_resumen_acto(texto_acto, es_recurso, tipo_asunto),
+               _cupo(texto_acto)),
         _pedir(cliente, prompt_resumen_conceptos(texto_conceptos, es_recurso,
-                                                 tipo_asunto)),
+                                                 tipo_asunto),
+               _cupo(texto_conceptos)),
     )
+    # ── Y SI AUN ASÍ SE CORTÓ, QUE SE SEPA ───────────────────────────────
+    # El centinela llega pegado al texto. Se retira aquí —para que no viaje a
+    # ningún documento— y se convierte en el aviso que el secretario sí puede
+    # leer: es exactamente lo que faltó en el 393/2025, donde el corte fue
+    # invisible en los tres sitios donde podía verse.
+    _cortes = []
+    for _et, _tx in (("los antecedentes", an), ("lo que resolvió la responsable", ra),
+                     ("el resumen de los planteamientos", rc)):
+        if texto_cortado(_tx):
+            _cortes.append(_et)
+    an, ra, rc = sin_marca(an), sin_marca(ra), sin_marca(rc)
     # EL MODELO NO HABLA DEL ARCHIVO DENTRO DE LA SENTENCIA. Aquí, en el
     # embudo por donde pasan los tres textos antes de existir como resumen: si
     # se le quita después, en el compositor, ya ha viajado a los problemas
@@ -638,36 +723,60 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
     # Sin esto, un escrito con ocho conceptos producía un resumen de seis y
     # nadie se enteraba —el prompt le prohíbe al modelo decir que le falta
     # documento—, y el proyecto salía incongruente e inexhaustivo.
+    _conteo, _avisos_cob = {}, []
     try:
-        _faltan = conceptos_sin_resumir(texto_conceptos, rc)
+        # ANTES QUE NADA, ¿LLEGÓ EL ESCRITO ENTERO? Si vino mutilado, la
+        # cobertura se mide sobre un texto cortado y dirá que no falta ninguno
+        # aunque falten: es una comprobación que miente en la dirección
+        # peligrosa.
+        _amp = sospecha_de_amputacion(texto_acto, texto_conceptos)
+        if _amp:
+            _avisos_cob.append(_amp)
+
+        _conteo = planteamientos(texto_conceptos, es_recurso) or {}
+        _cob = sin_resumir(texto_conceptos, rc, _conteo) or {}
+        _faltan = list(_cob.get("faltan") or [])
+        print(f"   🔢 planteamientos: {_conteo.get('n')} "
+              f"({_conteo.get('estado')}, vía {_conteo.get('via')}) · "
+              f"sin resumir: {_faltan or 'ninguno'}")
         _vuelta = 0
         while _faltan and _vuelta < 3:
             _vuelta += 1
             print(f"   🧩 faltan por resumir: {_faltan} (vuelta {_vuelta})")
             _extra = await _pedir(cliente, prompt_conceptos_que_faltan(
-                texto_conceptos, _faltan, es_recurso, tipo_asunto), 3000)
+                texto_conceptos, _faltan, es_recurso, tipo_asunto,
+                tramos=_cob.get("tramos_que_faltan")), 3000)
             if not _extra.strip():
                 break
             rc = (rc.rstrip() + "\n\n" + _extra.strip())
-            _nuevos = conceptos_sin_resumir(texto_conceptos, rc)
+            _cob = sin_resumir(texto_conceptos, rc, _conteo) or {}
+            _nuevos = list(_cob.get("faltan") or [])
             if len(_nuevos) >= len(_faltan):
                 # No avanzó: se para y se dice, en vez de dar vueltas.
                 _faltan = _nuevos
                 break
             _faltan = _nuevos
+        _conteo = dict(_conteo, faltan=_faltan, vueltas=_vuelta,
+                       apartados_resumen=_cob.get("apartados_resumen"),
+                       sin_rotular=_cob.get("sin_rotular"))
+        _av = aviso_de_cobertura(texto_conceptos, rc, _conteo)
+        if _av:
+            _avisos_cob.append(_av)
     except Exception as _ex:
+        # QUE EL FALLO DEL CONTADOR NO SE PAREZCA A «NO FALTA NADA». Callarse
+        # aquí es reproducir el defecto que esto viene a cerrar.
         print(f"   ⚠️ no se pudo comprobar la cobertura de conceptos: {_ex}")
         _faltan = []
+        _conteo = {"estado": "no_contado", "error": str(_ex)[:200]}
+        _avisos_cob.append(
+            "NO SE PUDO COMPROBAR que estén resumidos todos los "
+            "planteamientos. No es que no falte ninguno: es que no se sabe. "
+            "Cuéntalos tú en el escrito antes de firmar.")
 
-    f = Fases123(antecedentes=an, resumen_acto=ra, resumen_conceptos=rc)
-    if _faltan:
-        # NO SE CALLA. Un proyecto al que le falta un concepto es incongruente,
-        # y eso el secretario tiene que saberlo ANTES de firmar.
-        f.avisos.append(
-            "NO SE RESUMIERON TODOS LOS PLANTEAMIENTOS: faltan "
-            + ", ".join(_faltan[:6])
-            + ". Un proyecto que no los contesta todos es incongruente e "
-              "inexhaustivo. Revísalos a mano antes de firmar.")
+    f = Fases123(antecedentes=an, resumen_acto=ra, resumen_conceptos=rc,
+                 conteo=_conteo)
+    for _a in _avisos_cob:
+        f.avisos.append(_a)
     for _f in _quitadas:
         f.avisos.append(
             f"SE QUITÓ UNA FRASE QUE HABLABA DEL ARCHIVO, NO DEL ASUNTO: "
@@ -699,6 +808,19 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             "SIN ELLOS no hay nada que consultar al acervo, nada que calificar "
             "y nada que ordenar en el estudio: el fondo saldría vacío. "
             f"Causa: {e}"))
+    # ── EL CORTE POR CUPO, LO PRIMERO Y EN MAYÚSCULAS ────────────────────
+    # No es un defecto de estilo: es que el sistema no leyó el documento
+    # entero, y todo lo que venga después —los problemas jurídicos, la
+    # búsqueda del acervo, el estudio— se construye sobre una lectura a medias.
+    # En el 393/2025 se cayeron cuatro conceptos de diecisiete y el secretario
+    # no pudo subsanarlo porque nunca supo que existían.
+    if _cortes:
+        f.avisos.insert(0, (
+            "LA LECTURA SE CORTÓ POR FALTA DE CUPO y no se pudo completar ni "
+            f"repitiéndola: {', '.join(_cortes)}. Lo que no se leyó NO está en "
+            "los problemas jurídicos ni en el estudio, y no se ve que falta. "
+            "Sube el documento por partes o reduce lo que no sea el escrito de "
+            "la parte, y vuelve a generar el adelanto."))
     f.avisos.extend(revisar(f))
     return f
 
@@ -722,6 +844,16 @@ class Fases123:
     autos: str = ""
     # Los textos del acto y del recurso, para el detector de contaminación.
     fuentes: list = field(default_factory=list)
+    # ═══════════════════════════════════════════════════════════════════════
+    # LA CUENTA DE PLANTEAMIENTOS, SIEMPRE, TAMBIÉN CUANDO NO SE PUDO CONTAR
+    # ═══════════════════════════════════════════════════════════════════════
+    # Sin esto no hay manera de distinguir «no faltaba ninguno» de «no se
+    # comprobó», y ésa es exactamente la razón por la que el aviso estuvo
+    # apagado 101 sesiones sin que nadie lo notara. Guardarlo permite la
+    # consulta que prueba que la capa está encendida:
+    #   SELECT estado->'fases'->'conteo'->>'estado', count(*)
+    #     FROM taller_sesiones GROUP BY 1;
+    conteo: dict = field(default_factory=dict)
     # ═══════════════════════════════════════════════════════════════════════
     # LO QUE RESOLVIÓ EL JUZGADO, LEÍDO DEL PAPEL Y NO PREGUNTADO
     # ═══════════════════════════════════════════════════════════════════════
@@ -801,11 +933,28 @@ def revisar(f: Fases123) -> list[str]:
         avisos.append("El resumen de los conceptos no usa presente.")
     if f.resumen_acto and _PRESENTE.search(f.resumen_acto[:400]):
         avisos.append("El resumen del acto arranca en presente; debe ir en pretérito.")
+    # LA BANDA SE ESCALA CON CUÁNTOS PLANTEAMIENTOS HAY QUE RESUMIR.
+    #
+    # La mediana de 472 palabras salió de engroses con cuatro o cinco
+    # conceptos. En el ADC 393/2025, con DIECISIETE, el único aviso que saltó
+    # dijo que el resumen se había pasado de largo —1.818 palabras contra
+    # 472— cuando lo que había ocurrido es justo lo contrario: lo habían
+    # CORTADO en el decimotercero. El aviso mandaba al secretario en dirección
+    # contraria al problema, que es peor que no avisar.
+    #
+    # Con la cuenta delante, el objetivo es por planteamiento: la mediana
+    # dividida entre los cuatro que la produjeron, por los que haya.
+    _n_plant = int((getattr(f, "conteo", {}) or {}).get("n") or 0)
+    _obj_conceptos = (PALABRAS_RESUMEN_CONCEPTOS if _n_plant < 2
+                      else max(PALABRAS_RESUMEN_CONCEPTOS,
+                               (PALABRAS_RESUMEN_CONCEPTOS // 4) * _n_plant))
     for etiqueta, n, objetivo in (("del acto", na, PALABRAS_RESUMEN_ACTO),
-                                  ("de conceptos", nc, PALABRAS_RESUMEN_CONCEPTOS)):
+                                  ("de conceptos", nc, _obj_conceptos)):
         if n and not (0.5 * objetivo <= n <= 1.8 * objetivo):
-            avisos.append(f"El resumen {etiqueta} tiene {n} palabras; la mediana "
-                          f"de los engroses es {objetivo}.")
+            _coletilla = (f" con {_n_plant} planteamientos" if
+                          etiqueta == "de conceptos" and _n_plant >= 2 else "")
+            avisos.append(f"El resumen {etiqueta} tiene {n} palabras; lo "
+                          f"esperable{_coletilla} son unas {objetivo}.")
     # OJO CON ESTA COMPROBACIÓN, que ya dio un falso positivo.
     #
     # «La Sala consideró fundado el agravio» NO es el resumidor calificando:

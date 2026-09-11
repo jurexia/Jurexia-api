@@ -27772,6 +27772,13 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "problema_global": r.fases.problema_global,
             "problemas": r.fases.problemas,
             "avisos": list(r.fases.avisos or []),
+            # LA CUENTA DE PLANTEAMIENTOS. Con -w 2, el worker que resuelve no
+            # es el que leyó: lo que no se serializa aquí no existe para quien
+            # firma. Y guardarla es además la única forma de saber si la capa
+            # está encendida —«no_contado» no es «no falta nada»—:
+            #   SELECT estado->'fases'->'conteo'->>'estado', count(*)
+            #     FROM taller_sesiones GROUP BY 1;
+            "conteo": dict(getattr(r.fases, "conteo", {}) or {}),
             # Las constancias viajan con la sesión: el /taller/proponer que
             # caiga en el otro worker las necesita tanto como éste.
             "autos": getattr(r.fases, "autos", "") or "",
