@@ -27238,6 +27238,48 @@ async def admin_uso_colecciones(user_email: str = ""):
     return _uso.informe()
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA FICHA, LEÍDA DEL AUTO DE ADMISIÓN
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 11-sep-2026: «basta con subir el auto de admisión y de allí derivar
+# qué expediente, qué tribunal resolverá, la autoridad responsable, el o los
+# terceros interesados; lo mismo con la revisión y los demás recursos. Pero
+# sólo déjalo como posibilidad optativa».
+#
+# OPTATIVO DE VERDAD: este endpoint no crea ni toca sesión, no guarda nada y no
+# consume cuota. Devuelve una PROPUESTA de ficha que la pantalla pone en los
+# campos y el secretario corrige. Si no lo usa, el formulario sigue igual.
+#
+# Medido sobre los dos autos reales que guarda el taller —un amparo directo y
+# una revisión fiscal—: salen el número, el tipo, el tribunal, la ciudad, quien
+# promueve, la responsable ORDENADORA separada de la ejecutora, el tercero
+# interesado y el expediente de origen, y no se descartó ni un campo por
+# inventado.
+@app.post("/taller/desde-admision")
+async def taller_desde_admision(
+    user_email: str = Form(...),
+    admision: UploadFile = File(...),
+):
+    _taller_puerta(user_email)
+    try:
+        texto = await _extract_text_from_upload(admision)
+    except Exception as ex:
+        raise HTTPException(422, f"No se pudo leer el PDF: {err(ex)}")
+    if len((texto or "").strip()) < 400:
+        raise HTTPException(422,
+            "De ese PDF no salió texto suficiente para fichar el asunto. Si es "
+            "un escaneo, vuelve a subirlo: el OCR necesita páginas legibles.")
+    import fase_admision as _fa
+    ficha = await _fa.leer(chat_client, texto)
+    _leidos = [k for k in ("numero", "tipo_asunto", "tribunal", "ciudad",
+                           "quejoso", "responsable", "tercero_interesado",
+                           "expediente_origen") if (ficha.get(k) or "").strip()]
+    print(f"   📋 ficha leída del auto de admisión: {', '.join(_leidos) or 'nada'}"
+          f" ({len(texto)} caracteres)")
+    return {"ficha": ficha, "leidos": _leidos,
+            "caracteres": len(texto), "avisos": ficha.get("avisos") or []}
+
+
 @app.post("/taller/adelanto")
 async def taller_adelanto(
     numero: str = Form(...),
