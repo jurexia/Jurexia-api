@@ -140,6 +140,40 @@ else:
     ok("Justicia Administrativa" in _cab,
        "y la carátula nombra a la misma que el resolutivo")
 
+
+print("── los dos endpoints de resolver deciden igual ──")
+# HISTORIA: /taller/resolver y /taller/resolver/stream son gemelos y ya han
+# divergido tres veces. La última costó el ADC 393/2025: el arreglo que hace
+# que el sentido global DICTADO por el secretario mande sobre la propuesta del
+# motor se aplicó sólo al del streaming, y por el plano salió un proyecto
+# fundado y amparando cuando se había dictado infundado.
+#
+# Se comprueba por la FIRMA, leyendo el árbol sintáctico: no hace falta
+# importar main.py —que arrastra medio sistema— y no se puede olvidar.
+import ast
+import os
+
+_main = os.path.join(os.path.dirname(__file__), "main.py")
+if not os.path.exists(_main):
+    print("     (saltada: no está main.py)")
+else:
+    _arbol = ast.parse(open(_main, encoding="utf-8").read())
+    _firmas = {}
+    for _n in ast.walk(_arbol):
+        if isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef)) and \
+                _n.name in ("taller_resolver", "taller_resolver_stream"):
+            _firmas[_n.name] = {a.arg for a in _n.args.args + _n.args.kwonlyargs}
+    ok(len(_firmas) == 2, f"se encuentran los dos endpoints ({sorted(_firmas)})")
+    if len(_firmas) == 2:
+        # Los campos que DECIDEN el sentido. Que falte uno en un gemelo no es
+        # un detalle de estilo: es el mismo formulario dando dos sentencias.
+        for _campo in ("modo_decision", "sentido_global", "global_dictado",
+                       "criterios_json", "usar_propuesta", "responsable"):
+            _falta = [k for k, v in _firmas.items() if _campo not in v]
+            ok(not _falta,
+               f"«{_campo}» está en los dos" +
+               (f" — FALTA en {_falta}" if _falta else ""))
+
 print()
 if FALLOS:
     print(f"FALLOS: {len(FALLOS)}")

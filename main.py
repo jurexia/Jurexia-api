@@ -29904,6 +29904,14 @@ async def taller_resolver(
     # y el proyecto lo DICE en una frase en vez de contestarlos uno por uno.
     modo_decision: str = Form(""),           # acervo | global | por_problema
     sentido_global: str = Form(""),          # el sentido del proyecto entero
+    # ¿LO DICTÓ ÉL, O LO PUSO LA PANTALLA? Estaba sólo en el gemelo
+    # /taller/resolver/stream y aquí no, así que por esta puerta el sentido
+    # global que el secretario eligió a propósito perdía contra lo que el motor
+    # había propuesto por problema. Medido en el ADC 393/2025: se dictó
+    # INFUNDADO global y el proyecto salió fundado y amparando, que es
+    # literalmente la queja de David. Los dos gemelos tienen que decidir igual,
+    # o el mismo formulario da dos sentencias distintas según el endpoint.
+    global_dictado: str = Form(""),
     # QUÉ RESOLVIÓ EL ÓRGANO RECURRIDO. Viaja de vuelta desde /taller/proponer
     # —igual que `criterios_json`, y por la misma razón: con dos workers, lo
     # que guarde aquel proceso puede no existir en éste—. Decide el verbo del
@@ -30066,8 +30074,25 @@ async def taller_resolver(
         _props = [{"problema": p.problema, "sentido": p.sentido,
                    "razon": p.razon, "alcanza": getattr(p, "alcanza", True)}
                   for p in (ses.get("propuestas") or [])]
+        # LO QUE MARCÓ POR PROBLEMA VIAJA TAMBIÉN EN MODO GLOBAL, igual que en
+        # el gemelo: las dos ramas eran excluyentes y con `modo_decision=global`
+        # se tiraba `criterios_json` sin decir nada.
+        _califs = {}
+        try:
+            for _c in (json.loads(criterios_json or "[]") or []):
+                if isinstance(_c, dict) and str(_c.get("sentido") or "").strip():
+                    _califs[str(_c.get("problema") or "")] = {
+                        "sentido": _c.get("sentido"),
+                        "razonamiento": _c.get("razonamiento") or ""}
+        except Exception:
+            _califs = {}
+        _dictado = str(global_dictado).strip().lower() in ("1", "true", "si", "sí")
         _repartido, _av_modo = _md.repartir(
-            _probs, _md.GLOBAL, sentido_global.strip().lower(), _props)
+            _probs, _md.GLOBAL, sentido_global.strip().lower(), _props,
+            _califs, global_dictado=_dictado)
+        print(f"   ⚖️ reparto global «{sentido_global.strip().lower()}» "
+              f"({'dictado por el secretario' if _dictado else 'eco del motor'}): "
+              + ", ".join(sorted({str(x.get('sentido')) for x in _repartido})))
         _pred = {d.get("problema", ""): d.get("prediccion") or {}
                  for d in getattr(getattr(ses.get("material"), "sondeo", None),
                                   "por_problema", []) or []}
