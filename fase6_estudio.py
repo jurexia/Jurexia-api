@@ -149,6 +149,18 @@ class Material:
     # sólo qué citar.
     principios: list = field(default_factory=list)
     sondeo: object = None
+    # ═══ EL ESPEJO DEL PROPIO TRIBUNAL ═══════════════════════════════════
+    # Seis sentencias del tribunal que redacta, sobre este mismo punto, con su
+    # fecha, su sentido literal y su enlace. Ver `fase_espejo.py`.
+    #
+    # NO ENTRA AL PROMPT, Y ESO ES DELIBERADO. `_bloque_precedente` no lo
+    # incluye: un número de expediente dentro del prompt acaba copiado literal
+    # en la prosa firmada —ya ha pasado tres veces con los ejemplos, está
+    # anotado más abajo— y aquí el material son expedientes PROPIOS con enlace,
+    # así que copiarlos sería citar en una sentencia asuntos que nadie eligió
+    # citar. El espejo es para la PANTALLA del secretario, que abre el PDF y
+    # compara; el documento no lo menciona.
+    espejo: list = field(default_factory=list)
     # LA MATERIA VIAJA CON EL MATERIAL, no como parámetro. Hay cuatro sitios que
     # arman el prompt y cada parámetro nuevo es un sitio donde olvidarlo; el
     # Material ya llega a todos. Y aquí importa de veras: entregar la

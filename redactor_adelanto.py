@@ -506,7 +506,7 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # cómo resolvieron otros colegiados este mismo problema. Se le enseña al
     # redactor junto con el material, pero SEPARADO de él, porque un precedente
     # de otro tribunal no funda: orienta.
-    material, sondeo = await asyncio.gather(
+    material, sondeo, espejo = await asyncio.gather(
         f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
                                 problemas, coleccion, fp_materia(r.encargo),
                                 # EL TRADUCTOR DE LA CONSULTA. Sin cliente la
@@ -516,8 +516,12 @@ async def consultar(qdrant, embed_juris, embed_leyes,
                                 # Y LO QUE EL SECRETARIO YA SABE DEL ASUNTO,
                                 # como ancla propia. Ver `material_para`.
                                 contexto),
-        _sondear_precedente(qdrant, embed_leyes, r, problemas))
+        _sondear_precedente(qdrant, embed_leyes, r, problemas),
+        # EL ESPEJO, EN EL MISMO TIRO. Cuesta 0.2 s por planteamiento y corre a
+        # la vez que el material: no se nota en la espera.
+        _espejo_propio(qdrant, embed_leyes, r, problemas))
     material.sondeo = sondeo
+    material.espejo = espejo or []
     material.materia = fp_materia(r.encargo)
     # Y EL TIPO, para que la prosa del estudio nombre a las partes con las
     # figuras de ESTE recurso y no con las del amparo directo.
@@ -649,6 +653,66 @@ def fp_materia(e) -> str:
     return fp.materia_de(getattr(e, "encabezado", ""),
                          getattr(e, "tribunal", ""),
                          getattr(e, "tipo_asunto", ""))
+
+
+async def _espejo_propio(qdrant, embed, r: Resultado, problemas: list):
+    """Las sentencias del PROPIO tribunal sobre estos puntos. Ver fase_espejo.
+
+    Hermana de `_sondear_precedente` y con el MISMO embebedor de 1536: aquí
+    conviven dos modelos y `jurisprudencia_nacional_v3` es de 3072. Pasarle el
+    de jurisprudencia devuelve «expected dim: 3072, got 1536», y como esto
+    captura sus propios errores para no tumbar la sentencia, en producción se
+    vería simplemente como «el tribunal no ha visto esto».
+
+    NO SE CUELGA DE `fp.sondear`. Aquél es nacional a propósito; éste es del
+    tribunal propio y necesita su propio filtro y su propio umbral.
+    """
+    try:
+        import fase_espejo as fe
+        import fase_precedente as fp
+    except Exception:
+        return []
+    if not (qdrant and problemas):
+        return []
+    e = r.encargo
+    _circ = fp.circuito_de(getattr(e, "tribunal", ""))
+    clave, largo = fe.resolver_tribunal(getattr(e, "tribunal", ""), _circ)
+    if not clave:
+        # Fuera del circuito 22 no hay mapa de tribunales y el espejo calla.
+        return []
+    _txt = [p if isinstance(p, str) else str((p or {}).get("pregunta") or p)
+            for p in problemas]
+    try:
+        tiros = await asyncio.gather(*[
+            fe.espejo(qdrant, embed, t, clave, _circ or "22") for t in _txt],
+            return_exceptions=True)
+    except Exception as exc:
+        print(f"   ⚠️ espejo del tribunal omitido: {exc}")
+        return []
+    fuera, vistas = [], set()
+    for t, filas in zip(_txt, tiros):
+        if isinstance(filas, BaseException) or not filas:
+            continue
+        limpias = []
+        for f in filas:
+            # SIN REPETIR ENTRE PROBLEMAS. Dos planteamientos del mismo asunto
+            # recuperan sentencias solapadas; la misma sentencia dos veces en
+            # pantalla parece dos precedentes y es uno.
+            k = (f["tipo_asunto"], f["expediente"], f["fecha"])
+            if k in vistas:
+                continue
+            vistas.add(k)
+            limpias.append(f)
+        if len(limpias) < fe.PISO_FILAS:
+            continue
+        fuera.append({"problema": t, "tribunal": largo, "filas": limpias,
+                      "resumen": fe.resumen(limpias),
+                      "cobertura": fe.NOTA_COBERTURA})
+    if fuera:
+        print(f"   🪞 espejo del propio tribunal ({clave}): "
+              f"{sum(len(x['filas']) for x in fuera)} sentencias propias en "
+              f"{len(fuera)} de {len(_txt)} planteamientos")
+    return fuera
 
 
 async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):

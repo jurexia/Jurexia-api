@@ -80,6 +80,34 @@ GRAFIAS = {
 # Cuántos precedentes se leen. Cuarenta por tiro es lo que midió el análisis;
 # más allá el sondeo tarda más de lo que aporta.
 TOP_SONDEO = 40
+
+# ═══ EL UMBRAL QUE FALTABA ═══════════════════════════════════════════════════
+#
+# `_buscar` pedía `limit=40` SIN `score_threshold`, así que Qdrant devolvía
+# siempre los cuarenta vecinos más cercanos, hubiera o no algo del punto. Y con
+# esos cuarenta se construía `distribucion`, que `bloque()` escribe DENTRO del
+# prompt del estudio: «1. EL SENTIDO DE ORDINARIO (sobre 40 sentencias del
+# tema): confirma 13 (32%)…».
+#
+# Medido con el embebedor real (text-embedding-3-small) contra
+# `sentencias_holdings`: a la pregunta «¿se configura daño moral por
+# publicaciones en redes sociales?» el sondeo devolvía cuarenta resultados
+# —máximo 0.696— y le decía al modelo cómo se resuelve «de ordinario» un tema
+# sobre el que no había recuperado nada. Eso no es una orientación floja: es una
+# estadística inventada entrando al prompt en todos los asuntos.
+#
+# El corte se midió sobre un banco de preguntas redactadas como las escribe un
+# secretario, no con el texto de la etiqueta:
+#
+#     preguntas con acervo real ..... las 40 filas por encima de 0.73
+#     preguntas sin acervo .......... 0 ó 1 fila por encima de 0.73
+#
+# El umbral NO recorta la recuperación —los moldes y las objeciones siguen
+# leyéndose de las cuarenta—: recorta sólo QUÉ SE CUENTA. Y si quedan menos de
+# `MINIMO_DISTRIBUCION` sentencias del punto, no se cuenta nada y el bloque
+# entero desaparece del prompt, que es lo correcto cuando no se sabe.
+UMBRAL_DISTRIBUCION = 0.73
+MINIMO_DISTRIBUCION = 5
 # CUÁNTOS MOLDES SE QUIEREN Y CUÁNTOS SE INTENTAN. No todo estudio bien
 # puntuado sirve de molde: hace falta que tenga una fórmula de derivación
 # —«De dicho numeral se advierte que…»— y que el tramo hasta el primer anclaje
@@ -95,6 +123,7 @@ MAX_OBJECION = 6        # sentencias que resolvieron al revés
 class Sondeo:
     """Cómo resolvió el acervo este mismo problema."""
     distribucion: dict = field(default_factory=dict)   # sentido -> cuántas
+    del_circuito: int = 0      # cuántas de las recuperadas son del circuito propio
     fundamentos: list = field(default_factory=list)    # los recurrentes, por frecuencia
     concordantes: list = field(default_factory=list)   # los holdings más cercanos
     claves: list = field(default_factory=list)         # tesis que ellos citaron
@@ -147,19 +176,52 @@ def _filtro_materia(materia: str) -> list:
     return [FieldCondition(key="materia", match=MatchAny(any=g))]
 
 
+# ═══ EL TRIBUNAL QUE SALÍA «None» ════════════════════════════════════════════
+#
+# Tres sitios leían `tribunal_completo` a pelo y sólo uno tenía respaldo. Ese
+# campo está vacío en 6,379 de 6,379 holdings del 3TCC y en 141,341 de 200,650
+# del acervo entero, así que el sondeo venía escribiendo «None» donde debe ir el
+# nombre del tribunal que resolvió — incluido el bloque que entra al prompt.
+def _nombre_tribunal(pl: dict) -> str:
+    """El nombre para leer. Nunca None y nunca una cadena vacía disfrazada."""
+    largo = str((pl or {}).get("tribunal_completo") or "").strip()
+    if largo and largo.lower() != "none":
+        return largo
+    clave = str((pl or {}).get("tribunal") or "").strip()
+    if not clave:
+        return ""
+    # Los cinco del 22 tienen nombre escrito; los demás se quedan con su clave,
+    # que es fea pero es verdad. Inventar el nombre largo de un tribunal a
+    # partir de su clave es exactamente la clase de dato que no se inventa.
+    if str((pl or {}).get("circuito") or "").strip() == "22":
+        try:
+            from fase_espejo import TRIBUNALES_22
+            if clave in TRIBUNALES_22:
+                return TRIBUNALES_22[clave]
+        except Exception:
+            pass
+    return clave
+
+
 async def _esperar(r):
     return await r if inspect.isawaitable(r) else r
 
 
 async def _buscar(qdrant, vector, debe, top: int) -> list:
-    """[(id-del-punto, payload)]. El id es el `holding_id` del estudio de fondo."""
+    """[(id-del-punto, payload, score)]. El id es el `holding_id` del estudio.
+
+    LA PUNTUACIÓN VIAJA. Se tiraba, y sin ella no había forma de distinguir las
+    sentencias del punto de los vecinos de coseno que Qdrant devuelve para
+    rellenar el `limit`. Ver `UMBRAL_DISTRIBUCION`.
+    """
     from qdrant_client.models import Filter
     try:
         r = await _esperar(qdrant.query_points(
             collection_name=COL_HOLDINGS, query=vector, using="dense",
             query_filter=Filter(must=debe) if debe else None,
             limit=top, with_payload=True))
-        return [(str(p.id), p.payload) for p in (getattr(r, "points", None) or [])]
+        return [(str(p.id), p.payload, float(getattr(p, "score", 0.0) or 0.0))
+                for p in (getattr(r, "points", None) or [])]
     except Exception as e:
         print(f"   ⚠️ sondeo de precedente: {e}")
         return []
@@ -330,20 +392,51 @@ async def sondear(qdrant, embed, problema: str, materia: str,
 
     # LA DISTRIBUCIÓN SE MIDE SOBRE TODAS, no sólo sobre las buenas: la pregunta
     # es cómo se resuelve esto de ordinario, no cómo lo resuelve el 0.06%.
-    pl_todas = [pl for _, pl in todas]
-    pl_buenas = [pl for _, pl in buenas]
+    pl_todas = [pl for _, pl, _ in todas]
+    pl_buenas = [pl for _, pl, _ in buenas]
 
-    for p in pl_todas:
-        v = _norm_sentido(p.get("sentido"))
-        if v:
-            s.distribucion[v] = s.distribucion.get(v, 0) + 1
+    # SÓLO CUENTAN LAS QUE SON DEL PUNTO. Lo demás son vecinos de coseno que
+    # Qdrant devuelve para rellenar el `limit`; contarlos es fabricar la
+    # estadística que luego entra al prompt como «el sentido de ordinario».
+    del_punto = [pl for _, pl, sc in todas if sc >= UMBRAL_DISTRIBUCION]
+    if len(del_punto) >= MINIMO_DISTRIBUCION:
+        for p in del_punto:
+            v = _norm_sentido(p.get("sentido"))
+            if v:
+                s.distribucion[v] = s.distribucion.get(v, 0) + 1
+    elif todas:
+        s.avisos.append(
+            f"NO SE DICE CÓMO SE RESUELVE DE ORDINARIO: de las "
+            f"{len(todas)} sentencias que el acervo devolvió, sólo "
+            f"{len(del_punto)} son del punto (corte {UMBRAL_DISTRIBUCION}). "
+            f"Con menos de {MINIMO_DISTRIBUCION} no hay recuento que valga.")
 
     s.fundamentos = _fundamentos(pl_buenas + pl_todas)
     s.claves = _claves_de(pl_buenas + pl_todas)
+    # ═══ EL PARÁMETRO `circuito` DEJA DE SER MUDO ═══════════════════════════
+    #
+    # Se declaraba en la firma, `redactor_adelanto.py` se lo pasaba creyendo que
+    # filtraba, y el cuerpo no lo usaba en ninguna línea: el sondeo lleva meses
+    # siendo NACIONAL. La corrección NO es ponerle un filtro. Medido: el acervo
+    # del circuito 22 son 6,379 holdings de 200,650 (3%), y este sondeo alimenta
+    # tres cosas —el molde de forma, la mejor objeción y el sentido de ordinario—
+    # de las que las dos primeras viven justo de la amplitud: «otros tribunales
+    # resolvieron esto AL REVÉS» no se puede decir dentro de un solo circuito.
+    # Estrecharlo aquí sería perder recuperación por concepto para arreglar una
+    # firma, que es el cambio que esta casa no hace sin medir antes.
+    #
+    # Así que el parámetro hace lo que sí es verdad y sí sirve: MARCA cuáles de
+    # las sentencias recuperadas son del circuito propio. La búsqueda sigue
+    # siendo nacional, a propósito, y ahora está escrito.
+    _circ = str(circuito or "").strip()
+    if _circ:
+        s.del_circuito = sum(1 for p in pl_todas
+                             if str(p.get("circuito") or "").strip() == _circ)
     s.concordantes = [{
         "tema": p.get("tema_juridico"), "sentido": p.get("sentido"),
         "holding": str(p.get("holding") or "")[:600],
-        "tribunal": p.get("tribunal_completo"), "circuito": p.get("circuito"),
+        "tribunal": _nombre_tribunal(p), "circuito": p.get("circuito"),
+        "propio": bool(_circ) and str(p.get("circuito") or "").strip() == _circ,
         "calidad": p.get("calidad_argumentativa_v2"),
         "pdf_url": p.get("pdf_url"),
     } for p in (pl_buenas or pl_todas)[:5]]
@@ -351,7 +444,7 @@ async def sondear(qdrant, embed, problema: str, materia: str,
     s.moldes = await _moldes(qdrant, buenas, s)
     s.razonados = [{"sentido": _norm_sentido(p.get("sentido")),
                     "razon": str(p.get("holding") or p.get("resumen") or "")[:900],
-                    "tribunal": p.get("tribunal_completo"),
+                    "tribunal": _nombre_tribunal(p),
                     "tema": p.get("tema_juridico")}
                    for p in pl_todas
                    if len(str(p.get("holding") or p.get("resumen") or "")) >= 120]
@@ -374,7 +467,10 @@ async def _moldes(qdrant, buenos: list, s: Sondeo) -> list:
     # Sólo los circuitos cuyo estudio está en Qdrant. Para el 6 y el 16 hay
     # resumen pero no texto: pedirlo devuelve vacío y parecería que no hay
     # precedentes buenos, cuando lo que no hay es de dónde leerlos.
-    con_texto = [(pid, pl) for pid, pl in buenos
+    # `buenos` llega de `_buscar`, que ahora devuelve TRES elementos: la
+    # puntuación no se usa aquí —el molde es de forma y lo elige la calidad
+    # argumentativa, no el parecido— pero hay que desempaquetarla.
+    con_texto = [(pid, pl) for pid, pl, _sc in buenos
                  if str(pl.get("circuito") or "").strip() in
                  {str(c) for c in CIRCUITOS_CON_ESTUDIO}][:CANDIDATOS_MOLDE]
     if not con_texto:
@@ -397,7 +493,7 @@ async def _moldes(qdrant, buenos: list, s: Sondeo) -> list:
             continue
         fuera.append({
             "tramo": tramo,
-            "tribunal": pl.get("tribunal_completo") or pl.get("tribunal"),
+            "tribunal": _nombre_tribunal(pl),
             "expediente": pl.get("expediente"),
             "calidad": pl.get("calidad_argumentativa_v2"),
             "pdf_url": pl.get("pdf_url"),
@@ -474,9 +570,20 @@ def bloque(s: Sondeo, sentido_propuesto: str = "") -> str:
 
     if s.distribucion:
         total = sum(s.distribucion.values())
-        L.append(f"1. EL SENTIDO DE ORDINARIO (sobre {total} sentencias del tema):")
+        # EL NÚMERO QUE VA AQUÍ AHORA ES VERDAD. Antes era el tamaño del
+        # top-40, que venía lleno pasara lo que pasara; ahora son las
+        # sentencias que quedaron por encima de `UMBRAL_DISTRIBUCION`, y si no
+        # llegan a `MINIMO_DISTRIBUCION` este bloque entero no se escribe.
+        L.append(f"1. EL SENTIDO DE ORDINARIO (sobre {total} sentencias del "
+                 f"tema, en todo el país):")
         for k, n in sorted(s.distribucion.items(), key=lambda x: -x[1])[:6]:
             L.append(f"   · {k}: {n}  ({100*n//max(total,1)}%)")
+        # DE DÓNDE SON. El sondeo es nacional a propósito —la objeción y el
+        # molde viven de la amplitud—, así que conviene decir cuántas de las
+        # recuperadas salen del circuito propio, que pesan distinto.
+        if s.del_circuito:
+            L.append(f"   (de las recuperadas, {s.del_circuito} son de tu "
+                     f"propio circuito)")
         if sentido_propuesto:
             va, cuanto = s.concuerda(sentido_propuesto)
             if not va:

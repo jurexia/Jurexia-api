@@ -27788,6 +27788,12 @@ def _material_ligero(m) -> dict:
         "convencional": _lim(getattr(m, "convencional", []), 24),
         "materia": str(getattr(m, "materia", "") or ""),
         "tipo_asunto": str(getattr(m, "tipo_asunto", "") or ""),
+        # EL ESPEJO VIAJA POR LA FILA, NO POR LA MEMORIA. Con gunicorn -w 2 el
+        # worker que compone no es el que consultó, y esto ya mordió tres veces
+        # («⚠️ razonar 91/2025 sin material»). Son seis filas de siete campos
+        # por planteamiento: kilobyte y medio, cabe de sobra en el jsonb.
+        "espejo": [x for x in (getattr(m, "espejo", []) or [])
+                   if isinstance(x, dict)][:8],
     }
 
 
@@ -27823,6 +27829,7 @@ def _material_rehidratado(d: dict):
     m.convencional = list(d.get("convencional") or [])
     m.materia = str(d.get("materia") or "")
     m.tipo_asunto = str(d.get("tipo_asunto") or "amparo_directo")
+    m.espejo = [x for x in (d.get("espejo") or []) if isinstance(x, dict)]
     return m
 
 
@@ -29177,6 +29184,19 @@ async def taller_consultar(
         "normas": [{"cuerpo_legal": n["cuerpo_legal"], "articulo": n["articulo"],
                     "texto": (n.get("texto") or "")[:600]}
                    for n in material.normas],
+        # ═══ EL ESPEJO DEL PROPIO TRIBUNAL ═══════════════════════════════
+        # Va aquí y no en /taller/proponer a propósito: éste es el momento en
+        # que el secretario está formando su criterio, ANTES de pedirle nada al
+        # motor. Enseñarle entonces seis sentencias suyas del mismo punto es
+        # ayudarle a decidir; enseñárselas después de que el motor propuso sería
+        # ayudarle a confirmar.
+        #
+        # Y NO SE INSERTA NADA EN LOS AVISOS DEL PROYECTO. Los avisos viajan al
+        # documento firmado, y meter ahí números de expediente propios acabaría
+        # con el modelo copiándolos en la prosa —ya ha pasado tres veces con los
+        # ejemplos del prompt—. El espejo es pantalla, no sentencia.
+        "espejo": [x for x in (getattr(material, "espejo", []) or [])
+                   if isinstance(x, dict)],
         "avisos": r.avisos,
     }
 
