@@ -10533,17 +10533,29 @@ async def analyze_document(
             # se deja pasar y queda la traza para cuadrarlo después.
             print(f"   ⚠️ No se pudo cobrar la consulta de analyze-document: {_e_cobro}")
 
-    def _devolver_si_no_hubo_nada(hubo_texto: bool):
-        """Devuelve la consulta si el análisis no entregó una sola letra."""
+    def _devolver_si_no_hubo_nada(hubo_texto: bool) -> bool:
+        """Devuelve la consulta si el análisis no entregó una sola letra.
+
+        DEVUELVE SI DEVOLVIÓ, y no es un detalle: quien llama tiene que poder
+        decirle la verdad al abogado. El mensaje de error afirmaba «no se te
+        descontó la consulta» SIEMPRE, también cuando el modelo había escupido
+        medio párrafo antes de caerse —en ese caso `hubo_texto` es cierto, no
+        se devuelve nada, y se le estaba diciendo lo contrario a la cara.
+
+        Reportado dos veces por el mismo abogado Pro, folios 455-01 y 455-02:
+        «me lo contabiliza como consulta cuando no me ha dado respuesta».
+        """
         if not _cobrada or hubo_texto or not user_id or not supabase_admin:
-            return
+            return False
         try:
             _d = supabase_admin.rpc('devolver_consulta', {'p_user_id': user_id}).execute()
             _dd = _d.data if isinstance(_d.data, dict) else {}
             if _dd.get('devuelta'):
                 print(f"   ↩️ Consulta devuelta a {user_id} (quedó en {_dd.get('used')}/{_dd.get('limit')})")
+                return True
         except Exception as _e_dev:
             print(f"   ⚠️ No se pudo devolver la consulta: {_e_dev}")
+        return False
 
     # ── Step 1: Extract text from document ──
     extracted_text = ""
@@ -10755,10 +10767,31 @@ CONTENIDO DEL DOCUMENTO:
             # servicio y la consulta vuelve. Fue por aquí por donde se colaron
             # los 402 de OpenRouter del 15-ago sin devolver nada.
             print(f"   ❌ Error LLM: {type(llm_err).__name__}: {str(llm_err)[:300]}")
-            await asyncio.to_thread(_devolver_si_no_hubo_nada, locals().get('_hubo_texto', False))
-            _msg = ("No pudimos completar el análisis de este documento. "
-                    "No se te descontó la consulta: puedes intentarlo de nuevo. "
-                    "Si el documento es muy extenso, prueba a dividirlo en partes.")
+            _tuvo = bool(locals().get('_hubo_texto', False))
+            _devuelta = await asyncio.to_thread(_devolver_si_no_hubo_nada, _tuvo)
+
+            # SE DICE LO QUE PASÓ, NO LO QUE CONVENDRÍA QUE HUBIERA PASADO.
+            #
+            # Si el análisis se cortó a media respuesta, la consulta SÍ se
+            # cobró: prometer lo contrario convierte un fallo técnico en una
+            # mentira sobre su factura, y eso no se arregla reintentando.
+            if _devuelta or not _cobrada:
+                _cobro = "No se te descontó la consulta: puedes intentarlo de nuevo."
+            elif _tuvo:
+                _cobro = ("El análisis alcanzó a empezar antes de cortarse, así que "
+                          "esta consulta sí quedó descontada. Si necesitas que te la "
+                          "reintegremos, escríbenos a soporte@iurexia.com y lo hacemos.")
+            else:
+                _cobro = ("No pudimos devolverte la consulta automáticamente. "
+                          "Escríbenos a soporte@iurexia.com y la reintegramos.")
+
+            # Y no se culpa al documento por su tamaño si cabía de sobra en el
+            # plan. Sugerir «divídelo» a quien subió 86 páginas teniendo 100 es
+            # mandarlo a resolver un problema que no tiene.
+            _consejo = (" Si el documento es muy extenso, prueba a dividirlo en partes."
+                        if paginas_doc and paginas_doc > tope_paginas * 0.8 else "")
+
+            _msg = f"No pudimos completar el análisis de este documento. {_cobro}{_consejo}"
             yield f"data: {json.dumps({'error': _msg})}\n\n"
 
     return StreamingResponse(
@@ -30343,6 +30376,54 @@ async def taller_resolver(
             "X-Advertencias": "1" if r2.advertencias else "0",
         },
     )
+
+
+# ═══ EL ASUNTO QUE SE QUEDÓ A MEDIAS ════════════════════════════════════════
+#
+# Visto recargando la pantalla en mitad del 93/2026: cuatro minutos de motor
+# —los dos PDF leídos, los resúmenes, los problemas, el acervo y la propuesta—
+# y el taller volvía a la casilla de salida, con el número del expediente en
+# blanco. No era que se hubiera perdido: `taller_sesiones` lo tenía TODO
+# guardado desde el principio, porque con -w 2 el worker que resuelve no es el
+# que leyó y esa serialización ya existía por necesidad. Lo que faltaba era que
+# la pantalla lo preguntara.
+#
+# Se enumera lo reciente y suyo. La lista no rehidrata nada: para volver a un
+# asunto está `/taller/contexto-del-asunto`, que es el mismo camino que usa el
+# cliente al terminar un adelanto.
+@app.get("/taller/en-curso")
+async def taller_en_curso(user_email: str, limite: int = 6):
+    """Los últimos asuntos del secretario, para volver a uno sin rehacerlo."""
+    _taller_puerta(user_email)
+    if not supabase_admin:
+        return {"asuntos": []}
+    try:
+        r = supabase_admin.table("taller_sesiones") \
+            .select("expediente, estado, actualizado_en, creado_en, consultado") \
+            .eq("email", (user_email or "").strip().lower()) \
+            .order("actualizado_en", desc=True) \
+            .limit(max(1, min(int(limite or 6), 20))).execute()
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo listar lo que quedó a medias: {err(ex)}")
+        return {"asuntos": []}
+
+    fuera = []
+    for fila in (r.data or []):
+        est = fila.get("estado") or {}
+        enc = est.get("encargo") or {}
+        fas = est.get("fases") or {}
+        probs = fas.get("problemas") or []
+        fuera.append({
+            "numero": fila.get("expediente") or enc.get("numero") or "",
+            "tipo_asunto": enc.get("tipo_asunto") or "amparo_directo",
+            "quejoso": enc.get("quejoso") or "",
+            # HASTA DÓNDE LLEGÓ, para que la tarjeta diga qué se ahorra al
+            # volver y no sólo que el asunto existe.
+            "problemas": len(probs),
+            "consultado": bool(fila.get("consultado")),
+            "actualizado_en": fila.get("actualizado_en") or fila.get("creado_en") or "",
+        })
+    return {"asuntos": [a for a in fuera if a["numero"]]}
 
 
 @app.get("/taller/estado")
