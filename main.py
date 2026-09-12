@@ -27988,9 +27988,17 @@ def _taller_recuperar_sesion(email: str, numero: str):
         partes = _fp.Partes()
         for k, v in est["partes"].items():
             setattr(partes, k, v)
+    # LOS DÍAS INHÁBILES DECLARADOS TAMBIÉN SE REHIDRATAN. El encargo se
+    # reconstruye CON ellos tres líneas más arriba y aquí se recomputaba SIN
+    # ellos: la llamada pasaba cinco argumentos y se dejaba el sexto. Con
+    # gunicorn -w 2 eso significa que el MISMO asunto sale en tiempo o fuera de
+    # plazo según qué worker atienda la petición —el que lo leyó los tenía en
+    # memoria; el que resuelve, no—, y un plazo mal contado invalida la
+    # sentencia. Es la cuarta vez que este reparto entre workers muerde.
     computo = _f0.computar(encargo.notificacion, encargo.presentacion,
                            encargo.regla_surtimiento, encargo.plazo,
-                           encargo.responsable)
+                           encargo.responsable,
+                           getattr(encargo, "dias_inhabiles_extra", None))
     resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
                               partes=partes, avisos=list(est.get("avisos") or []))
     tmp = est.get("tmp") or ""
