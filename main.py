@@ -29102,6 +29102,13 @@ async def taller_consultar(
                    "localizacion": t.get("localizacion", ""),
                    "texto": (t.get("texto") or "")[:1200]}
                   for t in material.tesis],
+        # EN QUÉ ACERVO SE BUSCÓ, dicho en voz alta. La materia decide con qué
+        # ley se funda el proyecto y hasta hoy se deducía en silencio: en el ADC
+        # 93/2026 el encabezado decía «CIVIL» sobre un asunto regido por la Ley
+        # Federal de Procedimiento Contencioso Administrativo, y el acervo le
+        # entregó el Código Federal de Procedimientos Civiles. Un enrutamiento
+        # que no se ve no se puede corregir.
+        "materia": getattr(material, "materia", "") or "",
         "normas": [{"cuerpo_legal": n["cuerpo_legal"], "articulo": n["articulo"],
                     "texto": (n.get("texto") or "")[:600]}
                    for n in material.normas],
