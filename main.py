@@ -13916,10 +13916,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                           "[nombre] en esta búsqueda»— y ofrece reformular. Está PROHIBIDO citar "
                                           "un artículo de otro ordenamiento en su lugar, aunque el número coincida: "
                                           "el mismo número dice cosas distintas en cada ley.")
-                            dynamic_injections.append(f"{_cabeza}\n{_lista}{_cola}\n\n{_regla}")
+                            # CUÁNTO tenemos de cada uno, no sólo cuáles.
+                            #
+                            # El inventario dice que el Código Civil de Guanajuato
+                            # está en el contexto. Lo que no decía es que tenemos 15
+                            # de sus 2.873 artículos. Un código presente al 1% se
+                            # anunciaba igual que uno completo, y el modelo lo
+                            # trataba igual: rellenando de memoria lo que faltaba.
+                            _cob = _aviso_de_cobertura([n for n, _ in _orden[:_tope]])
+                            dynamic_injections.append(f"{_cabeza}\n{_lista}{_cola}\n\n{_regla}{_cob}")
                             print(f"   📋 INVENTARIO: {min(len(_orden), _tope)} de {len(_orden)} ordenamientos "
                                   f"de {estado_humano} declarados al modelo"
-                                  f"{' (lista recortada: sin regla de exclusividad)' if _sobran > 0 else ''}")
+                                  f"{' (lista recortada: sin regla de exclusividad)' if _sobran > 0 else ''}"
+                                  f"{' · CON AVISO DE COBERTURA' if _cob else ''}")
                     except Exception as _e_inv:
                         print(f"   ⚠️ Inventario de leyes falló (no fatal): {err(_e_inv)}")
 
@@ -21584,6 +21593,89 @@ TALLER_SIN_LIMITE = {
                        "jdm.juridico@gmail.com,administracion@iurexia.com").split(",")
     if e.strip()
 }
+
+
+# ── EL GUARDIA DE COBERTURA ──────────────────────────────────────────────
+#
+# «Cita mal las leyes» es el motivo escrito en las bajas de septiembre, y no
+# era del modelo ni del prompt: **el acervo no tiene esos códigos**. Medido el
+# 12-sep-2026 contra Qdrant, artículos del Código Civil por entidad:
+#
+#   Oaxaca 0 · Michoacán 2 · Estado de México 10 · Guanajuato 15 ·
+#   Nuevo León 21 · Sinaloa 36 · Morelos 151 · Puebla 874 (25%) ·
+#   Jalisco 992 (32%) · Veracruz 1.001 (35%)
+#
+# Las colecciones NO están vacías —Nuevo León tiene 23.530 puntos— pero llenas
+# de leyes de egresos y códigos electorales. Falta justo el código que un
+# litigante usa a diario. Sin nada que recuperar, el modelo responde de
+# memoria, y la memoria da números del Código Civil Federal con etiqueta
+# estatal: folio 1946-02, diez artículos atribuidos al código de Puebla,
+# ninguno en ese código, los diez en el federal.
+#
+# QUÉ HACE. El inventario que va más abajo ya le dice al modelo QUÉ
+# ordenamientos tiene delante. Esto añade CUÁNTO tiene de cada uno. Son cosas
+# distintas y la segunda es la que faltaba: un código presente al 1% aparecía
+# en el inventario igual que uno completo.
+#
+# NO decide por el modelo ni le prohíbe responder. Le da el dato y una regla:
+# si lo que necesita está en la parte que no tenemos, que lo diga. Un abogado
+# prefiere «no tengo tu Código Civil indexado» antes que siete artículos
+# inventados — el primero lo manda a buscar en otro sitio, el segundo lo manda
+# a un juzgado con una cita falsa.
+
+_cobertura_cache: dict = {"datos": None, "ts": 0.0}
+_COBERTURA_TTL = 3600.0          # una hora: esto cambia sólo tras una ingesta
+UMBRAL_COBERTURA = float(os.getenv("UMBRAL_COBERTURA", "60"))
+
+
+def _cobertura_del_acervo() -> dict:
+    """{nombre_de_ley_normalizado: (articulos, ultimo, cobertura)}. {} si falla.
+
+    Fail-open: sin datos no se avisa de nada, que es como funcionaba hasta hoy.
+    Callar de más es peor que callar de menos, pero inventarse una cobertura
+    sería peor que las dos cosas.
+    """
+    import time as _t
+    if _cobertura_cache["datos"] is not None and _t.time() - _cobertura_cache["ts"] < _COBERTURA_TTL:
+        return _cobertura_cache["datos"]
+    datos = {}
+    if supabase_admin:
+        try:
+            r = supabase_admin.table("acervo_cobertura") \
+                .select("ley, articulos, ultimo_articulo, cobertura") \
+                .lt("cobertura", UMBRAL_COBERTURA).execute()
+            for f in (r.data or []):
+                datos[_clave_ley(f.get("ley") or "")] = (
+                    f.get("articulos"), f.get("ultimo_articulo"), f.get("cobertura"))
+        except Exception as e:
+            print(f"   ⚠️ No pude leer la cobertura del acervo: {err(e)}")
+    _cobertura_cache.update(datos=datos, ts=_t.time())
+    return datos
+
+
+def _aviso_de_cobertura(nombres: list) -> str:
+    """La advertencia para los ordenamientos que están a medias. '' si todos van bien."""
+    tabla = _cobertura_del_acervo()
+    if not tabla:
+        return ""
+    flojos = []
+    for n in nombres:
+        d = tabla.get(_clave_ley(n or ""))
+        if d and d[1] and d[0]:
+            flojos.append(f"  · {n}: tenemos {d[0]} de sus ~{d[1]} artículos ({d[2]:.0f}%)")
+    if not flojos:
+        return ""
+    return (
+        "\n\nCOBERTURA REAL DE ESTOS ORDENAMIENTOS EN EL ACERVO:\n"
+        + "\n".join(flojos[:8])
+        + "\n\nREGLA: de esos ordenamientos SÓLO puedes citar los artículos que"
+          " aparezcan literalmente en tu contexto. Si el artículo que hace falta"
+          " no está, DILO —«no tengo indexado ese artículo del [nombre]»— y"
+          " responde con lo que sí tengas, o con el marco federal si aplica."
+          " Está PROHIBIDO completar de memoria lo que falta: la numeración"
+          " cambia entre entidades y un artículo recordado acaba siendo el de"
+          " otro código."
+    )
 
 
 def _taller_sentencias_hoy(correo: str) -> int:
