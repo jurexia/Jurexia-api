@@ -11615,7 +11615,50 @@ async def _direct_article_lookup(
             for collection in article_collections:
                 if len(results) > 50:  # Safety cap on total results
                     break
-                
+
+                # ── PRIMERO POR NÚMERO, NO POR CADENA ────────────────────
+                #
+                # Lo de abajo adivina: seis formas de escribir `ref` («Art. 55»,
+                # «Artículo 55», «ARTÍCULO 55»…) multiplicadas por cuatro formas
+                # de escribir el estado. Cuando una ingesta escribió el campo de
+                # una séptima manera, no encuentra nada y NO se entera — y el
+                # modelo contesta de memoria un artículo que sí teníamos.
+                #
+                # Este mismo fallo ya se corrigió el 7-ago en el cruce de
+                # referencias, y allí está escrito por qué: «`articulo_num`
+                # existe y está indexado en las 34 colecciones de leyes, así que
+                # se pregunta por igualdad exacta». Aquí se quedó sin corregir.
+                #
+                # Medido el 12-sep-2026 auditando siete días de respuestas: de
+                # 5.240 citas a leyes estatales, las de Sonora y Baja California
+                # se comprueban enteras y las de Querétaro, Nuevo León, Jalisco
+                # y Veracruz no se encuentran NINGUNA — y esas colecciones sí
+                # tienen los artículos dentro. La diferencia entre unas y otras
+                # es cómo escribió sus campos cada ingesta.
+                #
+                # No se filtra por `entidad`: la colección ya es la del estado,
+                # así que ese filtro no acota nada y sí añade otra cadena que
+                # puede no casar.
+                _por_numero = []
+                for _valores in ([int(art_num)] if str(art_num).isdigit() else [], [str(art_num)]):
+                    if not _valores:
+                        continue
+                    try:
+                        _pts, _ = await qdrant_client.scroll(
+                            collection_name=collection,
+                            scroll_filter=Filter(must=[FieldCondition(
+                                key="articulo_num", match=MatchAny(any=_valores))]),
+                            limit=8, with_payload=True, with_vectors=False,
+                        )
+                        if _pts:
+                            _por_numero = _pts
+                            break
+                    except Exception:
+                        continue      # índice de otro tipo: se prueba la otra forma
+                if _por_numero:
+                    all_candidate_points.extend([(collection, p) for p in _por_numero])
+                    continue          # encontrado: no hace falta adivinar cadenas
+
                 for ref_val in ref_variants:
                     try:
                         filter_conditions = [
