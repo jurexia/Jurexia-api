@@ -27934,7 +27934,29 @@ def _taller_ficha_proyecto(email: str, numero: str) -> dict:
         if not r.data:
             return None
         pr = (r.data[0].get("estado") or {}).get("proyecto") or {}
-        return pr or None
+        if pr:
+            return pr
+        # ═══ LOS PROYECTOS DE ANTES DE QUE HUBIERA FICHA ═════════════════
+        # La ficha se guarda desde hoy. Los proyectos anteriores existen —su
+        # .docx está en el almacén— pero no se sabe cuántas palabras tuvieron ni
+        # qué avisos dieron, y eso NO se rellena con ceros: un «0 palabras» en
+        # pantalla es peor que no enseñar nada, porque parece un dato.
+        #
+        # Lo que sí consta es CUÁNDO se generaron, en `taller_piloto_uso`. Con
+        # eso el asunto aparece en el historial y su documento se puede
+        # descargar; la pantalla dirá que del resto no hay registro. No se
+        # escribe nada en la base: se deduce al leer.
+        u = supabase_admin.table("taller_piloto_uso") \
+            .select("creado_en").eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).eq("etapa", "proyecto") \
+            .order("creado_en", desc=True).limit(1).execute()
+        if u.data:
+            return {"parcial": True,
+                    "generado_en": u.data[0].get("creado_en") or "",
+                    "palabras": 0, "avisos": [], "huecos": [],
+                    "advertencias": False, "nombre": "", "modo": "",
+                    "sentido_global": "", "criterios": []}
+        return None
     except Exception as ex:
         print(f"   ⚠️ no se pudo leer la ficha del proyecto {numero}: {err(ex)}")
         return None
@@ -30624,6 +30646,22 @@ async def taller_en_curso(user_email: str, limite: int = 6):
         print(f"   ⚠️ no se pudo listar lo que quedó a medias: {err(ex)}")
         return {"asuntos": []}
 
+    # QUÉ EXPEDIENTES YA TUVIERON PROYECTO, incluidos los anteriores a que se
+    # guardara la ficha. Una sola consulta para toda la lista.
+    _con_proyecto = {}
+    try:
+        u = supabase_admin.table("taller_piloto_uso") \
+            .select("expediente, creado_en") \
+            .eq("email", (user_email or "").strip().lower()) \
+            .eq("etapa", "proyecto").order("creado_en", desc=True) \
+            .limit(200).execute()
+        for x in (u.data or []):
+            _e = x.get("expediente")
+            if _e and _e not in _con_proyecto:
+                _con_proyecto[_e] = x.get("creado_en") or ""
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo leer qué asuntos ya tienen proyecto: {err(ex)}")
+
     fuera = []
     for fila in (r.data or []):
         est = fila.get("estado") or {}
@@ -30634,6 +30672,9 @@ async def taller_en_curso(user_email: str, limite: int = 6):
         # a medias y los que ya tienen sentencia escrita y pantalla a la que
         # volver. Sólo el resumen; el detalle se lee al abrirlo.
         pr = est.get("proyecto") or {}
+        if not pr and fila.get("expediente") in _con_proyecto:
+            pr = {"parcial": True, "generado_en": _con_proyecto[fila["expediente"]],
+                  "palabras": 0, "avisos": [], "huecos": []}
         fuera.append({
             "numero": fila.get("expediente") or enc.get("numero") or "",
             "tipo_asunto": enc.get("tipo_asunto") or "amparo_directo",
@@ -30650,6 +30691,7 @@ async def taller_en_curso(user_email: str, limite: int = 6):
                 "huecos": len(pr.get("huecos") or []),
                 "sentido_global": pr.get("sentido_global") or "",
                 "modo": pr.get("modo") or "",
+                "parcial": bool(pr.get("parcial")),
             } if pr else None),
         })
     return {"asuntos": [a for a in fuera if a["numero"]]}
