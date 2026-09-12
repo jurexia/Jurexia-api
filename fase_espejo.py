@@ -66,11 +66,53 @@ import re
 
 COL_HOLDINGS = "sentencias_holdings"
 
-# ── EL UMBRAL Y EL PISO ──────────────────────────────────────────────────────
-# Medidos sobre el banco de 24. Se tocan con la prueba delante, no a ojo.
-UMBRAL = 0.73
+
+def col_estudios(circuito) -> str:
+    """El acervo TROCEADO del circuito. Ver la nota del umbral."""
+    return "sentencias_ef_c%s" % str(circuito or "22").strip()
+
+
+# ── EL UMBRAL Y EL PISO, Y CÓMO SE LLEGÓ A ELLOS ─────────────────────────────
+#
+# LA PRIMERA CALIBRACIÓN ESTABA MAL Y ASÍ SE DESCUBRIÓ. Se midió con un banco de
+# 24 preguntas escritas a mano: 13/13 y 0/11 contra `sentencias_holdings` con
+# umbral 0.73. Parecía limpio. Luego se probó contra los planteamientos REALES
+# que la fase 3 produce —23 de seis asuntos del propio secretario— y el espejo
+# habló en CERO de 23.
+#
+# El motivo: el banco se escribió a partir de los temas mayores del acervo, o
+# sea preguntando lo que el corpus sabía contestar, y en lenguaje de doctrina
+# («¿son inoperantes los conceptos que reiteran los agravios?»). El pipeline
+# entrega preguntas del CASO: «¿La Sala examinó las excepciones conforme a los
+# términos en que fueron planteadas?». Entre las dos formas hay una décima de
+# coseno, y la décima era todo el margen.
+#
+# Se probaron dos rescates y los dos se midieron antes de creerlos:
+#   · reformular a rubro con `fase6_rag.consulta_conceptual` → BAJA la
+#     puntuación (0.698 → 0.656). Ese truco sirve para el vector `rubro` de la
+#     jurisprudencia, no para holdings escritos en prosa de sentencia.
+#   · reformular a holding declarativo → sube (mediana 0.634 → 0.677) pero
+#     sigue sin llegar: 0 de 23 alcanzan 0.73.
+#
+# LO QUE SÍ FUNCIONÓ fue cambiar de acervo. `sentencias_ef_c22` es el estudio de
+# fondo TROCEADO —75,846 puntos, 12,037 del 3TCC— frente a 6,379 holdings: doce
+# veces más texto y a nivel de argumento, que es como está escrita la pregunta.
+# Medido sobre los mismos 23 planteamientos reales y 5 controles:
+#
+#     reales   min 0.561 · mediana 0.664 · max 0.738
+#     controles min 0.439 · mediana 0.583 · max 0.648
+#     con umbral 0.70 → habla en 6 de 23 · ruido 0 de 5
+#
+# SEIS DE VEINTITRÉS ES LA COBERTURA REAL, y se dice en voz alta: el espejo
+# habla en uno de cada cuatro planteamientos. Las distribuciones se SOLAPAN
+# —el peor real (0.561) está por debajo del mejor control (0.648)—, así que no
+# existe umbral que hable en todos sin mentir en alguno. Ante esa disyuntiva se
+# elige callar, porque el fallo de callar es que el secretario no vea una
+# sentencia suya, y el de hablar es meterle en pantalla expedientes que no van
+# del punto.
+UMBRAL = 0.70
 PISO_FILAS = 3          # con menos de tres, la tarjeta no se enseña
-PEDIDAS = 12            # se piden doce y se quedan seis
+PEDIDAS = 24            # se piden veinticuatro trozos y se quedan seis sentencias
 MOSTRADAS = 6
 
 # ── LOS TRIBUNALES DEL CIRCUITO 22 ───────────────────────────────────────────
@@ -184,6 +226,10 @@ def _norma(s: str) -> str:
     return x
 
 
+_RX_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-"
+                      r"[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
 async def _esperar(r):
     return await r if inspect.isawaitable(r) else r
 
@@ -192,15 +238,25 @@ async def espejo(qdrant, embed, problema: str, tribunal_key: str,
                  circuito: str = "22") -> list:
     """Las sentencias del PROPIO tribunal más cercanas a este punto.
 
-    Devuelve hasta seis filas {tipo_asunto, expediente, fecha, sentido,
-    tema, score, pdf_url}. Lista vacía si no hay al menos `PISO_FILAS` por
-    encima del umbral: un espejo que siempre opina no es un espejo.
+    Devuelve hasta seis filas {tipo_asunto, expediente, fecha, sentido, tema,
+    score, pdf_url}. Lista vacía si no hay al menos `PISO_FILAS`: un espejo que
+    siempre opina no es un espejo, y aquí callar es el fallo barato.
 
-    SIN FILTRO DE MATERIA, a propósito. El tribunal ya es un filtro más
-    estrecho que la materia, y `GRAFIAS` de fase_precedente.py no contempla los
-    937 holdings 'mercantil' ni los 150 'fiscal' del 3TCC: filtrar por materia
-    haría que el espejo dijera «su tribunal nunca ha visto esto» sobre un pagaré
-    teniendo 937 asuntos mercantiles propios.
+    DOS PASOS, Y CADA UNO CONTRA LA COLECCIÓN QUE LE TOCA:
+      1. se BUSCA en el estudio de fondo troceado del circuito, que es donde el
+         texto está a nivel de argumento y se parece a como está escrita la
+         pregunta (ver la nota del umbral);
+      2. se CITA desde `sentencias_holdings`, que es donde viven el tipo de
+         asunto y la fecha. Sin esos dos la cita no se puede comprobar: «44/2021»
+         a secas son CUATRO sentencias distintas del 3TCC —Amparo Directo,
+         Queja, Revisión Fiscal y Amparo en Revisión— con cuatro fechas y cuatro
+         PDF.
+
+    SIN FILTRO DE MATERIA, a propósito. El tribunal ya es un filtro más estrecho,
+    y `GRAFIAS` de fase_precedente.py no contempla los 937 holdings 'mercantil'
+    ni los 150 'fiscal' del 3TCC: filtrar por materia haría que el espejo dijera
+    «su tribunal nunca ha visto esto» sobre un pagaré teniendo 937 asuntos
+    mercantiles propios.
     """
     if not (qdrant and tribunal_key and (problema or "").strip()):
         return []
@@ -212,53 +268,72 @@ async def espejo(qdrant, embed, problema: str, tribunal_key: str,
 
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    # `circuito` VIAJA COMO TEXTO. En sentencias_holdings está indexado como
-    # keyword y pasarlo como número devuelve un 400 —«Index required but not
-    # found for "circuito" of one of the following types: [integer]»— que, si
-    # nadie lo mira, se lee como «no hay precedentes».
+    # SÓLO POR TRIBUNAL. La clave «3TCC» a secas existe únicamente en el
+    # circuito 22 —en los demás llevan sufijo de materia, 3TCC_ADM, 3TCC_CIV—,
+    # así que el filtro de circuito sobra aquí; y en esta colección `circuito`
+    # viaja unas veces como número y otras como texto, que es un 400 esperando.
     debe = [FieldCondition(key="tribunal", match=MatchValue(value=tribunal_key))]
-    if str(circuito or "").strip():
-        debe.append(FieldCondition(key="circuito",
-                                   match=MatchValue(value=str(circuito).strip())))
     try:
         r = await _esperar(qdrant.query_points(
-            collection_name=COL_HOLDINGS, query=vector, using="dense",
+            collection_name=col_estudios(circuito), query=vector, using="dense",
             query_filter=Filter(must=debe), limit=PEDIDAS,
             score_threshold=UMBRAL, with_payload=True))
         puntos = getattr(r, "points", None) or []
     except Exception as e:
         print(f"   ⚠️ espejo del tribunal: {e}")
         return []
+    if not puntos:
+        return []
 
-    # LA CLAVE DE UNA SENTENCIA ES (tipo_asunto, expediente, fecha), NO EL
-    # NÚMERO. Comprobado: AD 44/2021, Queja 44/2021, Revisión Fiscal 44/2021 y
-    # AR 44/2021 son CUATRO sentencias distintas, con cuatro fechas y cuatro
-    # PDF. Deduplicar por `expediente` a secas fusionaría asuntos ajenos.
-    vistas, filas = set(), []
+    # UN TROZO NO ES UNA SENTENCIA. El estudio va troceado y varios trozos del
+    # mismo asunto entran juntos; se queda el mejor de cada sentencia.
+    mejor = {}
     for p in puntos:
         pl = p.payload or {}
-        clave = (str(pl.get("tipo_asunto") or ""), str(pl.get("expediente") or ""),
-                 str(pl.get("fecha_sentencia") or ""))
-        if clave in vistas or not clave[1]:
+        hid = str(pl.get("holding_id") or "")
+        exp = str(pl.get("expediente") or "")
+        clave = hid or exp
+        if not clave:
             continue
-        vistas.add(clave)
-        fecha = str(pl.get("fecha_sentencia") or "")
+        sc = float(getattr(p, "score", 0.0) or 0.0)
+        if clave not in mejor or sc > mejor[clave][0]:
+            mejor[clave] = (sc, pl)
+    orden = sorted(mejor.items(), key=lambda kv: -kv[1][0])[:MOSTRADAS]
+    if len(orden) < PISO_FILAS:
+        return []
+
+    # EL TIPO DE ASUNTO Y LA FECHA, DE DONDE ESTÁN. El acervo troceado no los
+    # trae; el holding sí. Si la lectura falla, la fila se queda sin ellos y se
+    # imprime lo que se sabe: nunca se inventan.
+    ids = [k for k, _ in orden if _RX_UUID.match(k or "")]
+    datos = {}
+    if ids:
+        try:
+            recs = await _esperar(qdrant.retrieve(
+                collection_name=COL_HOLDINGS, ids=ids, with_payload=True))
+            for rec in (recs or []):
+                datos[str(rec.id)] = rec.payload or {}
+        except Exception as e:
+            print(f"   ⚠️ espejo: no se pudo leer la cita del holding: {e}")
+
+    filas = []
+    for clave, (sc, pl) in orden:
+        h = datos.get(clave, {})
+        fecha = str(h.get("fecha_sentencia") or "")
         # 5 holdings del 3TCC traen la CADENA "null", que pasa cualquier
         # comprobación de verdad/falsedad y se imprimiría tal cual.
         if fecha.strip().lower() in ("null", "none"):
             fecha = ""
         filas.append({
-            "tipo_asunto": str(pl.get("tipo_asunto") or "").strip(),
-            "expediente": clave[1],
+            "tipo_asunto": str(h.get("tipo_asunto") or "").strip(),
+            "expediente": str(pl.get("expediente") or h.get("expediente") or "").strip(),
             "fecha": fecha,
-            "sentido": str(pl.get("sentido") or "").strip(),
-            "tema": str(pl.get("tema_juridico") or "").strip(),
-            "score": round(float(getattr(p, "score", 0.0) or 0.0), 3),
-            "pdf_url": str(pl.get("pdf_url") or "").strip(),
+            "sentido": str(pl.get("sentido") or h.get("sentido") or "").strip(),
+            "tema": str(pl.get("tema_juridico") or h.get("tema_juridico") or "").strip(),
+            "score": round(sc, 3),
+            "pdf_url": str(pl.get("pdf_url") or h.get("pdf_url") or "").strip(),
         })
-        if len(filas) >= MOSTRADAS:
-            break
-
+    filas = [f for f in filas if f["expediente"]]
     if len(filas) < PISO_FILAS:
         return []
     return filas
