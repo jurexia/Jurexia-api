@@ -80,13 +80,75 @@ def _pide_mas(problema: str) -> bool:
     return any(x in t for x in _MAYOR_BENEFICIO)
 
 
+# ═══ EL TEMA QUE NO SIGUE LA SUERTE DEL PRINCIPAL ═══════════════════════════
+#
+# La fase 5 devuelve, por cada tema, un `tema_distinto`: el propio motor
+# diciendo que ese planteamiento se estudia aparte porque no cuelga de lo que
+# se resuelva en el principal. Ese dato se enseñaba en pantalla y NO entraba a
+# la sustracción de materia, así que las dos cosas se contradecían en el mismo
+# asunto.
+#
+# Medido en el ADR 93/2026: el motor puso el tema 02 —la omisión de estudiar
+# los alegatos— como `tema_distinto`, con su suerte escrita («fundado; deberán
+# analizarse en la nueva sentencia los planteamientos no reiterativos»), y la
+# sustracción lo declaró innecesario. El proyecto habría dicho que no hace
+# falta estudiar lo que el mismo análisis mandaba estudiar.
+#
+# No es un caso más de los escapes que ya había: los otros dos miran al
+# secretario (lo que él calificó) y al petitum (lo que pide más de lo
+# concedido). Éste mira al motor, y es el único de los tres que ya venía
+# calculado y se estaba tirando.
+
+
+def temas_distintos_de(checklist: list, problemas: list) -> set:
+    """Los textos de los problemas que el motor marcó ajenos al principal.
+
+    `checklist` es la lista de la fase 5 —cada entrada con `numero`, `tema` y
+    `tema_distinto`—; `problemas`, los de la fase 3, en su orden. Se empareja
+    por número, que es lo fiable, y se cae al texto del tema cuando no venga.
+    """
+    fuera: set = set()
+    if not checklist:
+        return fuera
+
+    def _texto(p):
+        return p if isinstance(p, str) else str((p or {}).get("pregunta") or p)
+
+    textos = [_texto(p) for p in (problemas or [])]
+    for c in checklist:
+        if not isinstance(c, dict) or not c.get("tema_distinto"):
+            continue
+        n = c.get("numero")
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 0
+        if 1 <= n <= len(textos):
+            fuera.add(textos[n - 1])
+            continue
+        # SIN NÚMERO, POR EL TEXTO. El tema de la lista viene resumido en una
+        # línea, así que se compara por el problema que más se le parezca y
+        # sólo si el parecido es de verdad.
+        tema = str(c.get("tema") or "").strip().lower()
+        if not tema:
+            continue
+        for t in textos:
+            if tema[:60] and tema[:60] in t.lower():
+                fuera.add(t)
+                break
+    return fuera
+
+
 def repartir(problemas: list, modo: str, sentido_global: str = "",
              propuestas: list = None, calificaciones: dict = None,
-             global_dictado: bool = False) -> tuple:
+             global_dictado: bool = False,
+             temas_distintos: set = None) -> tuple:
     """(lista de {problema, sentido, razonamiento, jerarquia}, avisos).
 
     `problemas` son los dicts de la fase 3; `propuestas`, lo que sugirió el
-    motor; `calificaciones`, lo que el secretario marcó por problema.
+    motor; `calificaciones`, lo que el secretario marcó por problema;
+    `temas_distintos`, los que el motor marcó ajenos a la suerte del principal
+    y que por eso no se declaran innecesarios.
     """
     avisos: list = []
     props = {p.get("problema", ""): p for p in (propuestas or [])
@@ -243,6 +305,13 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
                 f"NO SE DECLARÓ INNECESARIO «{x['problema'][:90]}»: pide algo "
                 f"que da MÁS que lo concedido en el principal. Declararlo "
                 f"innecesario sería negarlo sin decirlo. Se estudia.")
+            continue
+        if x["problema"] in (temas_distintos or set()):
+            avisos.append(
+                f"NO SE DECLARÓ INNECESARIO «{x['problema'][:90]}»: el motor lo "
+                f"marcó como TEMA DISTINTO —no cuelga de lo que se resuelva en "
+                f"el principal—, y su suerte ya está escrita en la lista de "
+                f"comprobación. Se estudia.")
             continue
         x["sentido"] = INNECESARIO
         x["razonamiento"] = (

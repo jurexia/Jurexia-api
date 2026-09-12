@@ -29802,12 +29802,18 @@ async def taller_resolver_stream(
                         "razonamiento": _c.get("razonamiento") or ""}
         except Exception:
             _califs = {}
+        # EL TEMA DISTINTO NO SE DECLARA INNECESARIO. Viaja en `global_json`
+        # —la lista de comprobación entera— y no en memoria: con -w 2 el worker
+        # que compone no es el que propuso.
+        _distintos = _md.temas_distintos_de(
+            (_glob or {}).get("checklist") or [], _probs_g)
         _rep, _av_modo = _md.repartir(
             _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g,
             _califs,
             # ¿LO DICTÓ ÉL, O LO PUSO LA PANTALLA? Si lo eligió a propósito, su
             # sentido global manda sobre lo que el motor propuso por problema.
-            global_dictado=str(global_dictado).strip().lower() in ("1", "true", "si", "sí"))
+            global_dictado=str(global_dictado).strip().lower() in ("1", "true", "si", "sí"),
+            temas_distintos=_distintos)
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"))
@@ -30221,9 +30227,11 @@ async def taller_resolver(
         except Exception:
             _califs = {}
         _dictado = str(global_dictado).strip().lower() in ("1", "true", "si", "sí")
+        _distintos = _md.temas_distintos_de(
+            (_glob or {}).get("checklist") or [], _probs)
         _repartido, _av_modo = _md.repartir(
             _probs, _md.GLOBAL, sentido_global.strip().lower(), _props,
-            _califs, global_dictado=_dictado)
+            _califs, global_dictado=_dictado, temas_distintos=_distintos)
         print(f"   ⚖️ reparto global «{sentido_global.strip().lower()}» "
               f"({'dictado por el secretario' if _dictado else 'eco del motor'}): "
               + ", ".join(sorted({str(x.get('sentido')) for x in _repartido})))
