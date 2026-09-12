@@ -3701,15 +3701,56 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # El apartado de fondo se sustituye por el de improcedencia, que es lo que
     # el corpus escribe: «{ordinal}. Extemporaneidad del recurso de revisión.
     # El presente medio de impugnación se interpuso de manera extemporánea».
-    _extemp = (getattr(computo, "oportuna", None) is False
-               and not getattr(computo, "en_cualquier_tiempo", False))
+    # LA CONDICIÓN SE LE PREGUNTA AL CÓMPUTO, NO SE REARMA AQUÍ. Gobierna tres
+    # decisiones de este documento —el apartado de fondo, el de efectos y el
+    # punto resolutivo— y estaba escrita a mano en la primera y copiada en las
+    # otras dos. Con la decisión del secretario de por medio serían tres copias
+    # de una condición de cuatro términos, y basta que una se quede sin
+    # actualizar para que salga un proyecto con estudio de fondo y resolutivo
+    # de sobreseimiento: la misma incongruencia que esto existe para impedir,
+    # entrando por la puerta de enfrente. El `getattr` es para un Computo
+    # viejo que llegue sin las propiedades nuevas.
+    _extemp = (getattr(computo, "cierra_por_extemporaneidad", None)
+               if hasattr(computo, "cierra_por_extemporaneidad")
+               else (getattr(computo, "oportuna", None) is False
+                     and not getattr(computo, "en_cualquier_tiempo", False)))
+    _extemp = bool(_extemp)
+    _reserva = bool(getattr(computo, "fondo_en_reserva", False))
+    _rectif = bool(getattr(computo, "rectificada", False))
+    if _rectif:
+        _avisos_bk.insert(0, (
+            f"EL CÓMPUTO DA EXTEMPORÁNEA Y TÚ DECLARASTE QUE NO. El proyecto "
+            f"entra al fondo, y el considerando de oportunidad lleva el "
+            f"desglose completo del cómputo seguido de tu razón, literal: "
+            f"«{(getattr(computo, 'motivo', '') or '')[:240]}». LÉELA EN EL "
+            f"PAPEL antes de firmar: es lo único que sostiene la competencia "
+            f"para estudiar el fondo, y si no se sostiene el sobreseimiento "
+            f"vuelve en revisión."))
     if _extemp:
         _ex = _ta.extemporaneo_de(tipo_asunto)
-        _avisos_bk.insert(0, (
-            f"EL CÓMPUTO DA EXTEMPORÁNEA: el proyecto NO entra al fondo y "
-            f"resuelve la improcedencia conforme al {_ex['fundamento']}. Si la "
-            f"fecha de notificación o la de presentación están mal, corrígelas "
-            f"y vuelve a generar: de esas dos fechas depende todo el asunto."))
+        import fase0_oportunidad as _f0a
+        _conf_av = _f0a.conforme_a(_ex["fundamento"])
+        if _reserva:
+            _avisos_bk.insert(0, (
+                f"EL CÓMPUTO DA EXTEMPORÁNEA Y PEDISTE EL ESTUDIO EN RESERVA. "
+                f"La ejecutoria resuelve la improcedencia conforme "
+                f"{_conf_av}, con su punto resolutivo. El estudio de "
+                f"fondo va DETRÁS de los resolutivos, en un anexo rotulado que "
+                f"no forma parte de la ejecutoria y que no se notifica. Si el "
+                f"Pleno no comparte la extemporaneidad, ese anexo es el "
+                f"engrose; si la comparte, bórralo antes de listar."))
+        else:
+            _avisos_bk.insert(0, (
+                f"EL CÓMPUTO DA EXTEMPORÁNEA: el proyecto NO entra al fondo y "
+                f"resuelve la improcedencia conforme {_conf_av}. Si "
+                f"la fecha de notificación o la de presentación están mal, "
+                f"corrígelas y vuelve a generar: de esas dos fechas depende "
+                f"todo el asunto. Y SI EL CÓMPUTO ESTÁ INCOMPLETO —porque la "
+                f"autoridad responsable suspendió labores o tuvo periodo "
+                f"vacacional en días que el calendario federal tiene por "
+                f"hábiles— dilo tú: en la pantalla de resolución, «la "
+                f"oportunidad la decido yo», escribiendo la razón. El proyecto "
+                f"entrará al fondo con esa razón en el considerando."))
         con_apartados.append(
             (_ex["rotulo"] + ".",
              (lambda c: lambda p: _texto_en(p, c))(_ex["considerando"])))
@@ -4137,6 +4178,76 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # que es donde el lector los busca. Abajo sólo se repetían.
     if not _bloque_sintesis(doc, sintesis or {}):
         _bloque_firmas(doc, datos)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # EL ESTUDIO EN RESERVA — DETRÁS DE LOS RESOLUTIVOS, FUERA DE LA EJECUTORIA
+    # ═══════════════════════════════════════════════════════════════════════
+    # David: «nunca impedir el estudio de fondo si el secretario decide generar
+    # proyecto de fondo». Cuando él ACEPTA la extemporaneidad y aun así lo
+    # quiere, el estudio no puede ir dentro de la ejecutoria: el análisis de
+    # la improcedencia es oficioso y preferente (artículo 62 de la Ley de
+    # Amparo) y una ejecutoria que sobresee y además estudia el fondo es la
+    # incongruencia que costó el proyecto del comentario de main.py.
+    #
+    # Y NO SE ESCRIBE EN HIPOTÉTICO. Medido sobre los 40 engroses reales del
+    # corpus con texto de oro: CERO usan «en el supuesto de que se considerara
+    # oportuna», «suponiendo sin conceder» ni ninguna de sus variantes. El
+    # tribunal de este corpus no razona en condicional; resuelve. Así que el
+    # estudio se escribe en los mismos términos categóricos de siempre y lo
+    # que cambia es DÓNDE está y qué dice su cabecera.
+    #
+    # No se marca con color ni con cursiva: se marca con un salto de página, un
+    # rótulo y una frase que dice qué es. Se borra seleccionando de aquí al
+    # final.
+    if _reserva:
+        # EL SALTO VA EN EL RÓTULO, NO EN UN PÁRRAFO APARTE. `add_page_break()`
+        # añade un párrafo vacío, y ese párrafo cae DENTRO de la ejecutoria: la
+        # comprobación de que la ejecutoria con anexo es idéntica a la de hoy
+        # fallaba por él. Con `page_break_before` el salto es del rótulo del
+        # anexo y la ejecutoria no se entera.
+        _rot_anexo = rotulo(doc, "Anexo de trabajo")
+        try:
+            _rot_anexo.paragraph_format.page_break_before = True
+        except Exception:
+            pass
+        _ex_r = _ta.extemporaneo_de(tipo_asunto)
+        # «CONFORME AL ARTÍCULOS 61, FRACCIÓN XIV» NO ES ESPAÑOL. El catálogo
+        # trae unas veces «artículo» y otras «artículos», y la preposición
+        # cambia con el número. El aviso de arriba arrastra ese defecto desde
+        # que se escribió; aquí no puede arrastrarse, porque esto sale EN EL
+        # PAPEL.
+        import fase0_oportunidad as _f0c
+        _conf = _f0c.conforme_a(_ex_r["fundamento"])
+        parrafo(doc,
+                f"ESTE APARTADO NO FORMA PARTE DE LA EJECUTORIA. La ejecutoria "
+                f"que antecede propone resolver la improcedencia por "
+                f"extemporaneidad, conforme {_conf}, y ése es "
+                f"su único punto resolutivo. El estudio que sigue se agrega, a "
+                f"petición de quien proyecta, para que el Pleno cuente con él "
+                f"si no comparte esa conclusión sobre la oportunidad. No se "
+                f"somete a votación, no se notifica a las partes y debe "
+                f"suprimirse antes de listar el asunto si la extemporaneidad "
+                f"se confirma.")
+        _mot_r = (getattr(computo, "motivo", "") or "").strip()
+        if _mot_r:
+            parrafo(doc, f"Razón declarada por quien proyecta: «{_mot_r}».")
+        _subtitulo(doc, "Estudio de fondo, en reserva")
+        _cuerpo_anexo = (list(_sin_remate_duplicado(_cuerpo_estudio))
+                         + list(_sin_remate_duplicado(_cuerpo_conceptos)))
+        if _cuerpo_anexo:
+            _escribir_estudio(doc, _cuerpo_anexo, tesis, notas, normas)
+        else:
+            parrafo(doc, "No se escribió estudio de fondo para este asunto.")
+            _avisos_bk.append(
+                "PEDISTE EL ESTUDIO EN RESERVA Y NO HAY ESTUDIO QUE PONER: el "
+                "anexo sale vacío. Comprueba que dictaste el criterio antes de "
+                "resolver.")
+        if _efectos_escritos:
+            _subtitulo(doc, "Efectos, en reserva")
+            for _x in _efectos_escritos:
+                if str(_x).strip():
+                    parrafo(doc, str(_x).strip())
+
     # RED DE SEGURIDAD. Si alguna marca sobrevivió a todo lo anterior —porque el
     # modelo la escribió de una forma que no previmos—, se borra antes de
     # guardar. El andamio no sale al papel, y punto.

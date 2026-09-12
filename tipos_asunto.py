@@ -1798,6 +1798,19 @@ EXTEMPORANEO = {
             "fundamento en el artículo 63, fracción V, del mismo ordenamiento."),
         "resolutivo": "ÚNICO. Se sobresee en el presente juicio de amparo "
                       "promovido por {quejoso}.",
+        # EL REMATE CUANDO EL SECRETARIO DESESTIMA LA EXTEMPORANEIDAD. El
+        # análisis de la improcedencia es OFICIOSO (artículo 62 de la Ley de
+        # Amparo), así que el considerando no puede saltársela: tiene que
+        # decir por qué NO se actualiza. Los dos preceptos están verificados
+        # en el texto vigente — 61, fracción XIV: «Contra normas generales o
+        # actos consentidos tácitamente, entendiéndose por tales aquéllos
+        # contra los que no se promueva el juicio de amparo dentro de los
+        # plazos previstos».
+        "rectificado": (
+            "no se actualiza la causa de improcedencia prevista en el artículo "
+            "61, fracción XIV, de la Ley de Amparo —cuyo análisis es oficioso "
+            "en términos del artículo 62 del mismo ordenamiento—, por lo que "
+            "procede el estudio de los conceptos de violación."),
     },
     "amparo_revision": {
         "rotulo": "Extemporaneidad del recurso de revisión",
@@ -1810,6 +1823,11 @@ EXTEMPORANEO = {
                       "improcedente por extemporáneo, por los motivos y "
                       "fundamentos expuestos en el considerando último de la "
                       "presente ejecutoria.",
+        "rectificado": (
+            "el recurso se interpuso dentro del plazo de diez días que prevé "
+            "el artículo 86 de la Ley de Amparo, por lo que no procede "
+            "desecharlo por extemporáneo y debe estudiarse el fondo de los "
+            "agravios."),
     },
     "queja": {
         "rotulo": "Extemporaneidad del recurso de queja",
@@ -1818,6 +1836,10 @@ EXTEMPORANEO = {
             "El recurso de queja se interpuso de manera extemporánea, conforme "
             "al cómputo que antecede, por lo que resulta improcedente."),
         "resolutivo": "ÚNICO. Se desecha por improcedente el recurso de queja.",
+        "rectificado": (
+            "el recurso se interpuso dentro del plazo que prevé el artículo 98 "
+            "de la Ley de Amparo, por lo que no procede desecharlo por "
+            "extemporáneo y debe estudiarse el fondo de los agravios."),
     },
     "revision_fiscal": {
         "rotulo": "Extemporaneidad de la revisión fiscal",
@@ -1829,6 +1851,11 @@ EXTEMPORANEO = {
             "y debe desecharse."),
         "resolutivo": "ÚNICO. Se desecha por extemporáneo el recurso de "
                       "revisión fiscal.",
+        "rectificado": (
+            "el recurso se interpuso dentro del plazo de quince días que prevé "
+            "el artículo 63 de la Ley Federal de Procedimiento Contencioso "
+            "Administrativo, por lo que no procede desecharlo por extemporáneo "
+            "y debe estudiarse el fondo de los agravios."),
     },
 }
 

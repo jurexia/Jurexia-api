@@ -53,6 +53,22 @@ class Encargo:
     # trae: un acuerdo de suspensión de labores de su tribunal, una
     # contingencia, un no laborable local.
     dias_inhabiles_extra: list = field(default_factory=list)
+    # ═══════════════════════════════════════════════════════════════════════
+    # LOS DÍAS EN QUE LA RESPONSABLE NO LABORÓ
+    # ═══════════════════════════════════════════════════════════════════════
+    # En amparo directo la demanda se presenta ANTE LA RESPONSABLE (artículo
+    # 176 de la Ley de Amparo), y por eso del plazo se excluyen DOS listas que
+    # se suman: los inhábiles del artículo 19 y los días en que esa autoridad
+    # suspendió actividades —P./J. 4/2022 (11a.), registro digital 2024494—.
+    # Lo mismo vale en la revisión fiscal, donde el escrito se presenta ante la
+    # Sala. En el amparo en revisión y en la queja NO, porque ahí se presenta
+    # ante órgano federal.
+    #
+    # Este dato no lo puede saber el sistema: lo declara quien lo sabe. Viaja
+    # como texto de tramos —«2025-12-16..2026-01-05, 2026-02-12»— porque un
+    # periodo vacacional es un tramo y una suspensión suelta es un tramo de un
+    # día, y así una sola línea cubre los dos casos.
+    inhabiles_responsable: str = ""
     # LAS DOS FECHAS DE LA SESIÓN, que el secretario sí sabe y el sistema no
     # puede deducir de ningún documento: el proyecto se escribe ANTES de que la
     # sesión ocurra. Salían como dos comodines de asteriscos en los cinco
@@ -204,7 +220,11 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     _plazo_computo = 0 if _pl["en_cualquier_tiempo"] else (e.plazo or 15)
     c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
                     _plazo_computo, e.responsable,
-                    getattr(e, "dias_inhabiles_extra", None))
+                    getattr(e, "dias_inhabiles_extra", None),
+                    # EL TIPO DECIDE SI EL DESCUENTO DE LA RESPONSABLE APLICA:
+                    # sólo donde el escrito se presenta ante ella.
+                    getattr(e, "tipo_asunto", "") or "amparo_directo",
+                    getattr(e, "inhabiles_responsable", "") or None)
     avisos.extend(c.avisos)
     if c.oportuna is False:
         avisos.append("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "

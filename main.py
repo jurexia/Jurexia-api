@@ -27327,6 +27327,13 @@ async def taller_adelanto(
     # de Mérida suspendió labores un martes por un huracán. Eso lo declara quien
     # estuvo ahí. Fechas ISO separadas por coma.
     dias_inhabiles_extra: str = Form(""),
+    # LOS DÍAS EN QUE LA RESPONSABLE NO LABORÓ, en tramos: «2025-12-16..
+    # 2026-01-05, 2026-02-12». En amparo directo y en revisión fiscal el
+    # escrito se presenta ANTE ELLA (artículos 176 de la Ley de Amparo y 63 de
+    # la LFPCA), y del plazo se excluyen DOS listas que se suman: la del
+    # artículo 19 y la suya —P./J. 4/2022 (11a.), registro 2024494—. El sistema
+    # no puede saberlo: lo declara quien lo sabe.
+    inhabiles_responsable: str = Form(""),
     # LAS FECHAS DE SESIÓN SE FUERON. Las añadí por la mañana y David las
     # retiró por la tarde, con razón: «no me sirven porque estas, al final,
     # quedarán hasta el momento en que se revisen por los magistrados. Son
@@ -27586,6 +27593,7 @@ async def taller_adelanto(
         regla_surtimiento=regla_surtimiento,
         plazo=plazo or _ta.plazo_de(tipo_asunto, excepcion_plazo)["dias"] or 0,
         excepcion_plazo=excepcion_plazo,
+        inhabiles_responsable=(inhabiles_responsable or "").strip(),
         # Un inhábil mal escrito no vale un 500: se descarta y se avisa luego.
         dias_inhabiles_extra=[
             d for d in (_ra._fecha_iso(x)
@@ -27793,6 +27801,9 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "excepcion_plazo": getattr(e, "excepcion_plazo", ""),
             "dias_inhabiles_extra": [d.isoformat() for d in
                                      getattr(e, "dias_inhabiles_extra", []) or []],
+            # Lo declarado sobre la responsable viaja igual: el worker que
+            # compone el .docx no es el que leyó el expediente.
+            "inhabiles_responsable": getattr(e, "inhabiles_responsable", "") or "",
             "responsable": e.responsable, "es_recurso": e.es_recurso,
             "plantilla": e.plantilla, "coleccion_estatal": e.coleccion_estatal,
             # LA MATERIA DECLARADA. Decide el silo del RAG y el filtro del
@@ -27974,6 +27985,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
         excepcion_plazo=e.get("excepcion_plazo", ""),
         dias_inhabiles_extra=[_d.date.fromisoformat(x)
                               for x in (e.get("dias_inhabiles_extra") or [])],
+        inhabiles_responsable=e.get("inhabiles_responsable", "") or "",
         responsable=e.get("responsable"), es_recurso=e.get("es_recurso", False),
         tribunal=e.get("tribunal", ""), ciudad=e.get("ciudad", ""),
         modo=e.get("modo", "generado"),
@@ -27998,7 +28010,9 @@ def _taller_recuperar_sesion(email: str, numero: str):
     computo = _f0.computar(encargo.notificacion, encargo.presentacion,
                            encargo.regla_surtimiento, encargo.plazo,
                            encargo.responsable,
-                           getattr(encargo, "dias_inhabiles_extra", None))
+                           getattr(encargo, "dias_inhabiles_extra", None),
+                           getattr(encargo, "tipo_asunto", "") or "amparo_directo",
+                           getattr(encargo, "inhabiles_responsable", "") or None)
     resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
                               partes=partes, avisos=list(est.get("avisos") or []))
     tmp = est.get("tmp") or ""
@@ -29158,6 +29172,53 @@ async def taller_contexto(
 # No se decide por el secretario. Se para y se le dice cuáles son las dos
 # salidas, porque una de las dos es un error de dato y la otra es una sentencia
 # distinta que este redactor todavía no sabe escribir.
+def _decidir_oportunidad(r, via: str = "", motivo: str = "") -> None:
+    """Lo que el secretario resuelve sobre un cómputo extemporáneo.
+
+    David, 12-sep-2026: «si el cómputo es extemporáneo sólo avisar, pero nunca
+    impedir el estudio de fondo si el secretario decide generar proyecto de
+    fondo. Recuerda que la tarjeta final gobierna el proyecto».
+
+    Tenía razón y el bloqueo no estaba donde parecía. `_puerta_oportunidad` ya
+    se había rendido —sólo imprimía una línea—, pero el compositor seguía
+    cerrando: con el cómputo extemporáneo sustituía el apartado de Estudio por
+    el de improcedencia, suprimía los Efectos y cambiaba el resolutivo. Medido
+    sobre el mismo asunto con los mismos criterios dictados: 160 párrafos con
+    estudio si está en tiempo, 58 y «ÚNICO. Se sobresee» si no. Y el estudio de
+    fondo SÍ se le pedía al modelo y se pagaba: el compositor lo tiraba.
+
+    DOS VÍAS, Y NO CABEN EN UNA CASILLA. Son dos afirmaciones jurídicas
+    distintas y el artículo 74, fracción VI, de la Ley de Amparo exige
+    congruencia entre considerandos y resolutivos:
+
+      · «oportuna»  — él rectifica el cómputo. Su razón va LITERAL al
+                      considerando, se cita el artículo 62 (la improcedencia se
+                      analiza de oficio) y la ejecutoria entra al fondo.
+      · «reserva»   — la ejecutoria se queda como está, resolviendo la
+                      improcedencia, y el estudio va DETRÁS de los resolutivos
+                      en un anexo que dice que no forma parte de ella.
+
+    NO LANZA NUNCA. Para cuando esto corre, el estudio ya se pidió y ya se
+    pagó: un 422 aquí tira la resolución entera. El camino malo es no aplicar
+    la decisión y decirlo a gritos.
+    """
+    c = getattr(r, "computo", None)
+    if c is None:
+        return
+    try:
+        import fase0_oportunidad as _f0d
+        for a in (_f0d.aplicar_decision(c, via, motivo) or []):
+            r.avisos.append(a)
+    except Exception as ex:
+        r.avisos.append(
+            f"NO SE PUDO APLICAR TU DECISIÓN SOBRE LA OPORTUNIDAD ({err(ex)}). "
+            f"El proyecto sale como estaba. Vuelve a intentarlo o corrige las "
+            f"fechas del cómputo.")
+    if getattr(c, "oportuna", None) is False and not getattr(c, "decision", ""):
+        print("   ⚖️ cómputo extemporáneo y sin decisión: se resuelve la "
+              "improcedencia")
+
+
 def _puerta_oportunidad(r) -> None:
     """YA NO CIERRA LA PUERTA: DEJA QUE EL PROYECTO SE ESCRIBA.
 
@@ -29331,7 +29392,9 @@ async def taller_proponer(
             ses["resultado"], chat_client)
 
     r = ses["resultado"]
-    _puerta_oportunidad(r)
+    # EN /taller/proponer NO HAY NADA QUE DECIDIR TODAVÍA: el secretario
+    # aún no ha resuelto. Se pasa sin decisión, que sólo deja el registro.
+    _decidir_oportunidad(r)
     import fase5_propuesta as _f5
     problemas = [p if isinstance(p, dict) else {"pregunta": str(p)}
                  for p in (r.fases.problemas or [])]
@@ -29575,6 +29638,13 @@ async def taller_resolver_stream(
     # que aquí se admite la corrección: entra al encargo antes de componer, y
     # de ahí a los doce sitios del documento —cuatro de ellos resolutivos—.
     responsable: str = Form(""),
+    # ═══ LO QUE EL SECRETARIO RESUELVE SOBRE UN CÓMPUTO EXTEMPORÁNEO ═══
+    # «» = nada que decidir · «oportuna» = él rectifica y se entra al fondo ·
+    # «reserva» = la ejecutoria resuelve la improcedencia y el estudio va
+    # detrás de los resolutivos. Viaja en el FORMULARIO y no en memoria: con
+    # gunicorn -w 2, el worker que compone no es el que leyó.
+    oportunidad_decision: str = Form(""),
+    oportunidad_motivo: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -29642,7 +29712,7 @@ async def taller_resolver_stream(
             print(f"   ⚖️ autoridad corregida en pantalla: "
                   f"«{responsable.strip()[:70]}»")
 
-    _puerta_oportunidad(r)
+    _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo)
 
     if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":
         try:
@@ -29983,6 +30053,13 @@ async def taller_resolver(
     # que aquí se admite la corrección: entra al encargo antes de componer, y
     # de ahí a los doce sitios del documento —cuatro de ellos resolutivos—.
     responsable: str = Form(""),
+    # ═══ LO QUE EL SECRETARIO RESUELVE SOBRE UN CÓMPUTO EXTEMPORÁNEO ═══
+    # «» = nada que decidir · «oportuna» = él rectifica y se entra al fondo ·
+    # «reserva» = la ejecutoria resuelve la improcedencia y el estudio va
+    # detrás de los resolutivos. Viaja en el FORMULARIO y no en memoria: con
+    # gunicorn -w 2, el worker que compone no es el que leyó.
+    oportunidad_decision: str = Form(""),
+    oportunidad_motivo: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
@@ -30040,7 +30117,7 @@ async def taller_resolver(
             print(f"   ⚖️ autoridad corregida en pantalla: "
                   f"«{responsable.strip()[:70]}»")
 
-    _puerta_oportunidad(r)
+    _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo)
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
     # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
     # decidir— y era el que producía sentencias incongruentes: el estudio se
