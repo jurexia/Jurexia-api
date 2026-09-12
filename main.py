@@ -27861,6 +27861,85 @@ def _taller_guardar_material(email: str, numero: str, m) -> None:
         print(f"   ⚠️ no se pudo guardar el acervo de {numero}: {err(ex)}")
 
 
+# ═══ LA FICHA DEL PROYECTO GENERADO ══════════════════════════════════════════
+#
+# David: «hay que tener un historial de proyectos elaborados; cada usuario podrá
+# acceder a su pantalla terminada y, si lo desea, cambiar de sentido el proyecto
+# y volver a generarlo».
+#
+# La mitad ya estaba y no se veía. El .docx se guarda en el almacén desde hace
+# tiempo —`_taller_guardar_docx`, una ruta por secretario y expediente— y
+# `taller_piloto_uso` anota que hubo proyecto. Lo que no se guardaba era QUÉ
+# salió: las palabras, los avisos con su texto, los huecos, y sobre todo CON QUÉ
+# CRITERIO se generó. Sin eso se puede volver a descargar el documento pero no
+# se puede volver a su pantalla, que es lo que se pidió.
+#
+# UNA FICHA POR EXPEDIENTE, y se sobrescribe, igual que el .docx. Un secretario
+# que resuelve cinco veces el mismo asunto deja una ficha, no cinco: es la misma
+# decisión que ya está tomada para el almacén, y el historial que tiene sentido
+# es «mis asuntos», no «mis intentos».
+def _taller_guardar_proyecto(email: str, numero: str, res,
+                             criterios: list = None, modo: str = "",
+                             sentido_global: str = "") -> None:
+    """Lo que hay que saber del proyecto para volver a su pantalla."""
+    if not (supabase_admin and res is not None):
+        return
+    _correo = (email or "").strip().lower()
+    try:
+        import datetime as _dt
+        ficha = {
+            "generado_en": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "palabras": len((getattr(res, "estudio", "") or "").split()),
+            # LOS TEXTOS, NO LOS CONTEOS. Es la lección de `AvisoBorrador`: el
+            # secretario veía «3 avisos» sin manera de saber que entre ellos
+            # venía «el criterio pedía X y esa calificación no aparece».
+            "avisos": [str(a) for a in (getattr(res, "avisos", []) or [])][:40],
+            "huecos": [str(h) for h in (getattr(res, "huecos", []) or [])][:40],
+            "advertencias": bool(getattr(res, "advertencias", "")),
+            "nombre": str(getattr(res, "ruta", "") or "").split("/")[-1],
+            # CON QUÉ CRITERIO SALIÓ. Es lo que permite lo segundo que pidió
+            # David —cambiar el sentido y volver a generar—: sin esto, la
+            # pantalla no puede decir de qué se está cambiando.
+            "modo": str(modo or ""),
+            "sentido_global": str(sentido_global or ""),
+            "criterios": [
+                {"problema": str(getattr(c, "problema", "") or "")[:400],
+                 "sentido": str(getattr(c, "sentido", "") or ""),
+                 "jerarquia": str(getattr(c, "jerarquia", "") or "")}
+                for c in (criterios or [])][:20],
+        }
+        r = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", _correo).eq("expediente", numero).limit(1).execute()
+        if not r.data:
+            return
+        est = r.data[0].get("estado") or {}
+        est["proyecto"] = ficha
+        supabase_admin.table("taller_sesiones").update({"estado": est}) \
+            .eq("email", _correo).eq("expediente", numero).execute()
+        print(f"   🗂️ ficha del proyecto {numero} guardada: "
+              f"{ficha['palabras']} palabras · {len(ficha['avisos'])} avisos "
+              f"· {len(ficha['criterios'])} criterios")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo guardar la ficha del proyecto {numero}: {err(ex)}")
+
+
+def _taller_ficha_proyecto(email: str, numero: str) -> dict:
+    """La ficha del proyecto de ese expediente, o None si no se ha generado."""
+    if not supabase_admin:
+        return None
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+        if not r.data:
+            return None
+        pr = (r.data[0].get("estado") or {}).get("proyecto") or {}
+        return pr or None
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo leer la ficha del proyecto {numero}: {err(ex)}")
+        return None
+
+
 def _material_rehidratado(d: dict):
     """Un Material con lo guardado. None si no hay nada aprovechable."""
     if not isinstance(d, dict) or not (d.get("tesis") or d.get("normas")):
@@ -29138,6 +29217,36 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
             for p in (f.problemas or [])],
         "avisos": list(f.avisos or []),
         "oportunidad": getattr(r, "oportunidad", "") or "",
+        # ═══ LA FICHA, PARA QUE LA PANTALLA NO VUELVA EN BLANCO ═══════════
+        # Al retomar un asunto se restauraba el contexto y NO el encargo: el
+        # secretario veía el quejoso vacío y la responsable vacía sobre un
+        # asunto que sí los tenía. El servidor usaba su propia copia, así que
+        # el documento salía bien, pero la pantalla mentía — y si él tocaba uno
+        # de esos campos vacíos, se mandaba vacío.
+        "encargo": {
+            "numero": getattr(e, "numero", "") or "",
+            "encabezado": getattr(e, "encabezado", "") or "",
+            "quejoso": getattr(e, "quejoso", "") or "",
+            "responsable": getattr(e, "responsable", "") or "",
+            "tribunal": getattr(e, "tribunal", "") or "",
+            "ciudad": getattr(e, "ciudad", "") or "",
+            "magistrado": getattr(e, "magistrado", "") or "",
+            "secretario": getattr(e, "secretario", "") or "",
+            "materia": getattr(e, "materia", "") or "",
+            "regla_surtimiento": getattr(e, "regla_surtimiento", "") or "",
+            "inhabiles_responsable": getattr(e, "inhabiles_responsable", "") or "",
+            "coleccion_estatal": getattr(e, "coleccion_estatal", "") or "",
+            "notificacion": (e.notificacion.isoformat()
+                             if getattr(e, "notificacion", None) else ""),
+            "presentacion": (e.presentacion.isoformat()
+                             if getattr(e, "presentacion", None) else ""),
+        } if e is not None else None,
+        # ═══ EL PROYECTO TERMINADO, SI LO HAY ════════════════════════════
+        # Con esto la pantalla puede volver al estado final —el aviso de
+        # borrador con sus avisos y sus huecos, y la descarga— sin repetir el
+        # estudio. El .docx se sirve por /taller/descargar, que ya lee del
+        # almacén cuando no está en el disco de este proceso.
+        "proyecto": _taller_ficha_proyecto(user_email, numero),
     }
 
 
@@ -30011,6 +30120,14 @@ async def taller_resolver_stream(
                     _taller_cobrar(user_email, numero)
                     ses["salida"] = res.ruta
                     _taller_guardar_docx(user_email, numero, res.ruta)
+                    # LOS DOS CAMINOS O NINGUNO. La pantalla llama a éste y el
+                    # guion de pruebas al otro: arreglar uno solo da un taller
+                    # que funciona cuando lo pruebas tú y no cuando lo usa el
+                    # secretario. Ya pasó con los tres modos de decidir y con
+                    # el sentido global dictado.
+                    _taller_guardar_proyecto(user_email, numero, res, crit,
+                                             modo=(modo_decision or ""),
+                                             sentido_global=(sentido_global or ""))
                     print(f"   ⚖️ TALLER: proyecto EN VIVO {numero} · "
                           f"{len(res.estudio.split())} palabras · "
                           f"{len(res.avisos)} avisos")
@@ -30447,6 +30564,11 @@ async def taller_resolver(
     # de repetir el estudio entero.
     ses["salida"] = r2.ruta
     _taller_guardar_docx(user_email, numero, r2.ruta)
+    # Y LA FICHA, junto al documento. Lo uno sin lo otro deja un .docx que se
+    # puede descargar y una pantalla a la que no se puede volver.
+    _taller_guardar_proyecto(user_email, numero, r2, crit,
+                             modo=(modo_decision or ""),
+                             sentido_global=(sentido_global or ""))
     # El trabajo está hecho. Ver la nota del endpoint de streaming.
     _soltar_constancias(user_email.strip().lower(), numero.strip())
 
@@ -30508,6 +30630,10 @@ async def taller_en_curso(user_email: str, limite: int = 6):
         enc = est.get("encargo") or {}
         fas = est.get("fases") or {}
         probs = fas.get("problemas") or []
+        # ¿HAY PROYECTO TERMINADO? Es lo que parte la lista en dos: los asuntos
+        # a medias y los que ya tienen sentencia escrita y pantalla a la que
+        # volver. Sólo el resumen; el detalle se lee al abrirlo.
+        pr = est.get("proyecto") or {}
         fuera.append({
             "numero": fila.get("expediente") or enc.get("numero") or "",
             "tipo_asunto": enc.get("tipo_asunto") or "amparo_directo",
@@ -30517,6 +30643,14 @@ async def taller_en_curso(user_email: str, limite: int = 6):
             "problemas": len(probs),
             "consultado": bool(fila.get("consultado")),
             "actualizado_en": fila.get("actualizado_en") or fila.get("creado_en") or "",
+            "proyecto": ({
+                "generado_en": pr.get("generado_en") or "",
+                "palabras": int(pr.get("palabras") or 0),
+                "avisos": len(pr.get("avisos") or []),
+                "huecos": len(pr.get("huecos") or []),
+                "sentido_global": pr.get("sentido_global") or "",
+                "modo": pr.get("modo") or "",
+            } if pr else None),
         })
     return {"asuntos": [a for a in fuera if a["numero"]]}
 
