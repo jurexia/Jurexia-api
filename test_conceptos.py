@@ -129,6 +129,67 @@ ok(0.5 * _obj17 <= 1818 <= 1.8 * _obj17,
    f"1.818 palabras con 17 planteamientos entra en la banda ({_obj17})")
 
 print()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL 93/2026: LA CABECERA CON ARTÍCULO Y LA RÚBRICA ABREVIADA
+# ═══════════════════════════════════════════════════════════════════════════
+# Medido sobre el escrito real (63,785 caracteres de OCR). Dos rasgos, los dos
+# corrientes y los dos ciegos para el contador:
+#
+#   · la sección se rotula «IX. Los conceptos de violación:» —con artículo—, y
+#     el detector de cabeceras exigía la frase pegada al ordinal;
+#   · y ya rotulada la sección, las rúbricas se abrevian a «PRIMER CONCEPTO. -»
+#     sin repetir «de violación», así que ni siquiera llegaban a candidatas.
+#
+# Resultado: 26 candidatas en todo el escrito, ninguna un concepto, y un
+# «no_contado» sobre una demanda que rotula sus dos conceptos con claridad.
+print("\n── el 93/2026: cabecera con artículo y rúbrica abreviada ──")
+
+_c93 = ("IX. Los conceptos de violación:\n"
+        "PRIMER CONCEPTO. - La autoridad responsable, en su considerando "
+        "cuarto, violó en perjuicio de esta parte actora lo dispuesto por el "
+        "artículo 17 de la Ley Federal de Procedimiento Contencioso "
+        "Administrativo, al tener por precluido el derecho a ampliar. " +
+        ("Relleno del desarrollo argumentativo del planteamiento. " * 90) +
+        "\nSEGUNDO CONCEPTO. - La sentencia que en esta ocasión se reclama es "
+        "inconstitucional al transgredir lo dispuesto por los artículos 14 y "
+        "16 constitucionales, pues omitió pronunciarse sobre los alegatos. " +
+        ("Relleno del desarrollo argumentativo del planteamiento. " * 90))
+
+_r93 = cp.planteamientos(_c93)
+ok(_r93["estado"] == "contado", "el escrito con artículo en la cabecera se cuenta")
+ok(_r93["n"] == 2, "cuenta DOS conceptos (salió %d)" % _r93["n"])
+ok(_r93["valores"] == [1, 2], "y en orden: %s" % _r93["valores"])
+
+# Con el proemio delante, que es como llega de verdad: la cabecera está a
+# veinte mil caracteres del principio y aun así manda.
+_proemio = ("EXPEDIENTE: 765/25-09-01-8-ST. QUEJOSO: UNA SOCIEDAD. " * 300)
+_r93b = cp.planteamientos(_proemio + "\n" + _c93)
+ok(_r93b["n"] == 2, "con proemio delante sigue contando dos (salió %d)" % _r93b["n"])
+
+# ── CALIBRACIÓN: lo abreviado NO abre la vía explícita ──────────────────
+# «PRIMER CONCEPTO» suelto aparece dentro de las tesis que la propia demanda
+# transcribe. Si esa forma abreviada se autoidentificara, contaría como
+# planteamiento propio sin cabecera que lo respalde — el fallo del 91/2025.
+_transcrito = ("La Segunda Sala ha sostenido lo siguiente. " +
+               ("Texto de la tesis transcrita por la parte. " * 40) +
+               "\nPRIMER CONCEPTO. - dice la ejecutoria que se copia. " +
+               ("Mas texto de la tesis transcrita. " * 40) +
+               "\nSEGUNDO CONCEPTO. - continua la copia de la ejecutoria. " +
+               ("Mas texto de la tesis transcrita. " * 40))
+_rt = cp.planteamientos(_transcrito)
+ok(_rt["estado"] == "no_contado",
+   "sin cabecera, la rúbrica abreviada NO cuenta sola (salió %s, n=%d)"
+   % (_rt["estado"], _rt["n"]))
+
+# ── CALIBRACIÓN: el artículo no convierte una frase corrida en cabecera ──
+_corrido = ("Situación que será corroborada por este H. Tribunal Colegiado de "
+            "la lectura realizada a los conceptos de violación que se "
+            "desahogan enseguida, y por ello procede. " * 3)
+ok(len(cp._RX_CABECERA.findall(cp._pelar(_corrido))) == 0,
+   "«los conceptos de violación» en mitad de un párrafo no es cabecera")
+
+
 if FALLOS:
     print(f"FALLOS: {len(FALLOS)}")
     for f in FALLOS:

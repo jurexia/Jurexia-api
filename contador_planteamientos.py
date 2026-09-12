@@ -95,10 +95,23 @@ _SUSTANTIVO_AJENO = (
 _RX_AJENO = re.compile(r"^\s*(?:%s)\b" % _SUSTANTIVO_AJENO)
 
 # ───────────────────────────── cabeceras de sección ─────────────────────────
+# EL ARTÍCULO. Medido sobre el escrito real del ADR 93/2026: la única línea
+# que rotula la sección es «IX. Los conceptos de violación:» y el detector la
+# rechazaba por las cuatro letras de «LOS». Sin cabecera no hay vía B, y como
+# ese escrito abrevia sus rúbricas a «PRIMER CONCEPTO. -» —sin «de violación»—
+# tampoco había vía A: el contador devolvía «no_contado» sobre una demanda que
+# rotula sus dos conceptos con toda claridad, y el aviso que el secretario leyó
+# fue «la comprobación de que están todos NO se hizo; revísalo a mano».
+#
+# Se admite el artículo y nada más. La línea sigue teniendo que empezar y
+# acabar como cabecera —nada delante salvo el ordinal, nada detrás salvo el
+# signo—, que es lo que impide que «los conceptos de violación que se desahogan
+# enseguida», en mitad de un párrafo, pase por rótulo de sección.
 _RX_CABECERA = re.compile(
     r"(?m)^[^\S\n]{0,10}"
     r"(?:(?:CAPITULO|APARTADO|TITULO)\s+[A-Z0-9]{1,10}[\s.\-–—)]{0,4})?"
     r"(?:[IVXLC]{1,6}|[0-9]{1,2}|[A-Z])?[\s.\-–—)]{0,5}"
+    r"(?:(?:LOS|LAS|EL|LA)\s+)?"
     r"(CONCEPTOS?\s+DE\s+VIOLACION(?:ES)?|AGRAVIOS?|"
     r"MOTIVOS?\s+DE\s+INCONFORMIDAD|CONCEPTOS?\s+DE\s+ANULACION|"
     r"CONCEPTOS?\s+DE\s+IMPUGNACION)"
@@ -113,6 +126,24 @@ _RX_PETICION = re.compile(
 
 # ───────────────────────────── rúbrica explícita ────────────────────────────
 _PALABRA = r"(?:CONCEPTOS?\s+DE\s+VIOLACION|AGRAVIOS?|CONCEPTOS?\s+DE\s+IMPUGNACION)"
+
+# ═══ LA MISMA PALABRA, ABREVIADA ═══
+# Medido sobre el escrito real del ADR 93/2026: una vez rotulada la sección
+# —«IX. Los conceptos de violación:»— la demanda abrevia sus rúbricas a «PRIMER
+# CONCEPTO. -» y «SEGUNDO CONCEPTO. -», sin repetir «de violación». Como el
+# separador exigía la frase entera, esas dos líneas no llegaban ni a CANDIDATAS:
+# el contador veía veintiséis candidatas en todo el escrito y ninguna era un
+# concepto. Devolvía «no_contado» sobre una demanda que rotula sus conceptos con
+# toda claridad, y el secretario leyó «la comprobación de que están todos NO se
+# hizo; revísalo a mano».
+#
+# Se abre SÓLO para reconocer la candidata. La marca de rúbrica EXPLÍCITA —la
+# que se autoidentifica y no necesita cabecera, vía A— sigue exigiendo la frase
+# completa: «PRIMER CONCEPTO» suelto aparece dentro de las tesis que la propia
+# demanda transcribe, y dejarlo abrir la vía A sería volver al fallo del
+# 91/2025, donde un «TERCER CONCEPTO» copiado de una sentencia ajena contaba
+# como planteamiento propio.
+_PALABRA_SUELTA = r"(?:CONCEPTOS?|AGRAVIOS?|MOTIVOS?\s+DE\s+INCONFORMIDAD)"
 
 
 def _pelar(texto):
@@ -136,7 +167,7 @@ _RX_CAND = re.compile(
     r"(?m)^[^\S\n]{0,12}"
     r"(?:(?P<inciso>[a-zA-Z0-9]{1,3}|[ivxIVX]{1,4})[\s]{0,2}[.\-–—)][^\S\n]{0,3})?"
     r"(?P<ord>%s|\d{1,2}|[IVXL]{1,6})"
-    r"(?P<sep>[^\S\n]{0,3}(?:[.:)\-–—]+|\b(?=%s)))" % (_RX_ORD_TXT, _PALABRA))
+    r"(?P<sep>[^\S\n]{0,3}(?:[.:)\-–—]+|\b(?=%s)))" % (_RX_ORD_TXT, _PALABRA_SUELTA))
 
 
 class Rubrica(object):
