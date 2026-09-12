@@ -48,6 +48,14 @@ COLECCION_FEDERAL = "leyes_federales"
 
 TESIS_POR_PROBLEMA = 6          # 6 entran en el prompt sin ahogar el material
 NORMAS_POR_PROBLEMA = 4
+# ═══ EL CUPO DE LA LEY DEL ACTO ══════════════════════════════════════════════
+# SE SUMA, NO COMPITE. Si la ley del estado tuviera que pelear por las mismas
+# cuatro plazas que la federal, perdería siempre: el acervo federal es más
+# grande y su prosa se parece más a la de la pregunta del recurso. Con cupo
+# propio, nada de lo que antes entraba deja de entrar — el arreglo no puede
+# empeorar el resultado por construcción, que es la única forma de cambiar una
+# recuperación sin fiarse de una medición.
+NORMAS_DEL_ACTO = 4
 
 
 # El rubro de una tesis local lo dice sin ambigüedad: «(LEGISLACIÓN DEL ESTADO
@@ -508,7 +516,7 @@ async def consulta_conceptual(cliente, problema: str, materia: str = "") -> dict
 async def material_para(qdrant, embed_juris, embed_leyes,
                         problema: str, coleccion_estatal: Optional[str] = None,
                         materia: str = "", cliente=None,
-                        contexto: str = "") -> f6.Material:
+                        contexto: str = "", hecho: str = "") -> f6.Material:
     """El material verificado para UN problema jurídico.
 
     `embed_juris` vectoriza con el modelo de la v3 (3072 dim) y `embed_leyes`
@@ -552,9 +560,51 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     # el silo existe para cerrar.
     silo = SILO_POR_MATERIA.get((materia or "").strip().lower())
     colecciones = [silo] if silo else [c for c in (coleccion_estatal, COLECCION_FEDERAL) if c]
+
+    # ═══ LA CESTA DEL ACTO, QUE FALTABA ══════════════════════════════════════
+    #
+    # Arriba está escrito desde hace meses que la ley del estado «se apunta
+    # aparte, por el ACTO RECLAMADO … el acto dice cuál rige». Ese «aparte» no
+    # existía: con materia declarada el silo SUSTITUÍA a la colección estatal, y
+    # sin materia ni entidad la lista se quedaba en `leyes_federales` a secas.
+    #
+    # Lo que eso produjo, medido en el amparo en revisión 322/2025 —una medida
+    # provisional de restricción dictada por un juez de San Juan del Río por
+    # violencia familiar—: de las 24 normas que el estudio recibió, TRECE eran
+    # de la Ley de Amparo (entre ellas los artículos 124, 128 y 147, los de la
+    # SUSPENSIÓN DEL JUICIO DE AMPARO) y NINGUNA de Querétaro. El modelo no
+    # confundió nada: citó lo único que se le puso delante. El silo civil
+    # contiene 270 trozos de la Ley de Amparo y cero ley estatal, y el Código de
+    # Procedimientos Civiles del Estado vive en `leyes_queretaro`, que en
+    # materia civil no se abría nunca.
+    #
+    # EL SILO SIGUE SUSTITUYENDO AL CORPUS GENERAL: esa guarda existe para que
+    # no vuelva a entrar la ley AJENA, y no se toca. Lo que se añade es una
+    # búsqueda MÁS, con cupo propio, sobre la ley de la entidad del acto.
+    #
+    # Y SE BUSCA CON EL HECHO, NO CON LA PREGUNTA DEL RECURSO. La pregunta lleva
+    # el andamio del amparo —«¿podía subsistir con la fundamentación y
+    # motivación expresadas?»— y con ella `leyes_queretaro` devuelve la Ley de
+    # Justicia para Adolescentes y la de Protección a Víctimas. Con el hecho que
+    # el propio problema ya trae en `combate` y `resolvio` —el domicilio donde
+    # el recurrente reside con su hijo, la violencia familiar— devuelve PRIMERO
+    # el artículo 202 del Código de Procedimientos Civiles del Estado, que es
+    # literalmente el de la restitución del domicilio y la restricción de
+    # acercamiento. Medido: 0.624 contra no aparecer.
+    _acto = (coleccion_estatal or "").strip()
+    if _acto and _acto not in colecciones:
+        colecciones = colecciones + [_acto]
+        _texto_acto = " ".join((hecho or "").split())[:600] or problema
+        v_acto = (v_leyes if _texto_acto == problema
+                  else await embed_leyes(_texto_acto))
+    else:
+        _acto, v_acto = "", None
+
     tareas = [_buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v,
                       TESIS_POR_PROBLEMA * 2) for v in _vs[:-1]]
-    tareas += [_buscar(qdrant, c, "dense", v_leyes, NORMAS_POR_PROBLEMA)
+    tareas += [_buscar(qdrant, c, "dense",
+                       v_acto if (c == _acto and v_acto is not None) else v_leyes,
+                       NORMAS_DEL_ACTO if c == _acto else NORMAS_POR_PROBLEMA)
                for c in colecciones]
     # (res[:n_anclas] son las tesis; res[n_anclas:] son las normas)
     # LA CO-CITACIÓN VA EN PARALELO con las demás búsquedas: no alarga nada.
@@ -626,14 +676,25 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     for grupo, col in zip(res[len(_vs) - 1:], colecciones):
         pares += [(col, _norma_de(p)) for p in grupo]
 
+    # LA LEY DEL ACTO, LA PRIMERA. Es el suelo del estudio: sin ella, lo demás
+    # es decoración. Va delante incluso de lo sembrado, que es material del
+    # juicio, y el corte final sube en su mismo cupo para que nada de lo que
+    # antes sobrevivía se quede fuera por haberla añadido.
+    if _acto:
+        pares = ([(c, n) for c, n in pares if c == _acto]
+                 + [(c, n) for c, n in pares if c != _acto])
+
     # LO SEMBRADO VA DELANTE. Son los artículos que los tribunales usaron de
     # verdad para esta cuestión; lo semántico cubre la cola.
     if silo:
         sembradas = await _sembrar(qdrant, silo, v_leyes, materia)
         vistos = {(str(n.get("cuerpo_legal")), str(n.get("articulo"))) for n in sembradas}
-        pares = [(silo, n) for n in sembradas] + [
+        # …pero DETRÁS de la ley del acto, por lo dicho arriba.
+        _del_acto = [(c, n) for c, n in pares if c == _acto] if _acto else []
+        pares = _del_acto + [(silo, n) for n in sembradas] + [
             (c, n) for c, n in pares
-            if (str(n.get("cuerpo_legal")), str(n.get("articulo"))) not in vistos]
+            if c != _acto
+            and (str(n.get("cuerpo_legal")), str(n.get("articulo"))) not in vistos]
 
     # Cada norma, completada con el resto de su articulado. Van en paralelo y
     # es un scroll por artículo: el mismo precio que ya paga la nota al pie.
@@ -641,7 +702,8 @@ async def material_para(qdrant, embed_juris, embed_leyes,
         *[_completar(qdrant, c, n) for c, n in pares])) if pares else []
 
     return f6.Material(tesis=unicas[:TESIS_POR_PROBLEMA],
-                       normas=normas[:NORMAS_POR_PROBLEMA * 2],
+                       normas=normas[:NORMAS_POR_PROBLEMA * 2
+                                     + (NORMAS_DEL_ACTO if _acto else 0)],
                          principios=list(getattr(tesis_cocitadas, 'ultimos_principios', []) or []))
 
 
@@ -659,16 +721,28 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
     # Se acepta la pregunta suelta o el problema entero de la Fase 3: que el
     # módulo aguante las dos formas cuesta tres líneas y evita repetir el fallo
     # en cada sitio que lo llame.
-    preguntas = []
+    preguntas, hechos = [], []
     for p in (problemas or []):
         q = p.get("pregunta", "") if isinstance(p, dict) else str(p or "")
-        if q.strip():
-            preguntas.append(q.strip())
+        if not q.strip():
+            continue
+        preguntas.append(q.strip())
+        # EL HECHO, PARA BUSCAR LA LEY DEL ACTO. Ya viaja en el problema: en
+        # `combate` está lo que alega la parte y en `resolvio` lo que hizo la
+        # autoridad, y los dos nombran las cosas del caso —el domicilio, los
+        # menores, la violencia familiar— en vez del andamio del recurso. Si el
+        # problema llega como cadena suelta no hay hecho y se busca con la
+        # pregunta, que es lo que se hacía siempre.
+        if isinstance(p, dict):
+            hechos.append(" ".join(
+                str(p.get(k) or "") for k in ("combate", "resolvio")).strip())
+        else:
+            hechos.append("")
 
     partes = await asyncio.gather(*[
         material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal,
-                      materia, cliente, contexto)
-        for p in preguntas])
+                      materia, cliente, contexto, h)
+        for p, h in zip(preguntas, hechos)])
 
     tesis, normas = [], []
     r_vistos, n_vistos = set(), set()

@@ -1932,6 +1932,48 @@ _LA_EN_FISCAL = set(range(81, 97)) | {19} | set(range(215, 231))
 # barandilla. Al modelo hay que decirle en qué vía está ANTES de que razone,
 # porque si no razona con la ley que más ha visto —la de Amparo— y luego hay
 # que tacharla.
+# ═══ LA REGLA QUE VALE PARA LAS CUATRO VÍAS ══════════════════════════════════
+#
+# David, sobre el amparo en revisión 322/2025 —una medida provisional de
+# restricción dictada por un juez de San Juan del Río por violencia familiar—:
+# «el modelo confunde las disposiciones en materia de amparo relativas a las
+# medidas cautelares con las normas que rigen las medidas provisionales a la luz
+# del Código de Procedimientos Civiles del Estado. Por lógica, LOS ACTOS
+# RECLAMADOS NUNCA SE RIGEN POR LA LEY DE AMPARO, sino por las disposiciones que
+# aplica la autoridad responsable».
+#
+# La causa de fondo era de recuperación y está arreglada en `fase6_rag`: al
+# estudio le llegaban trece artículos de la Ley de Amparo y ninguno de
+# Querétaro, así que citó lo único que se le puso delante. Esto es la
+# barandilla: aunque el material venga bien, el modelo tiene que saber para qué
+# sirve cada ley.
+#
+# NO NOMBRA NINGUNA LEY DEL ACTO NI NINGÚN NÚMERO QUE NO SEA DE LA LEY DE
+# AMPARO, a propósito: un ejemplo escrito dentro de un prompt acaba copiado
+# literal en la sentencia firmada —van cuatro veces medidas—, y aquí un ejemplo
+# sería el nombre de un código que quizá no es el del asunto. Un párrafo que no
+# afirma un dato no puede afirmar un dato falso.
+_ACTO_NO_ES_AMPARO = (
+    "\n\nEL ACTO RECLAMADO NO SE RIGE POR LA LEY DE AMPARO. Esa ley gobierna "
+    "ESTE juicio o ESTE recurso —procedencia, oportunidad, legitimación, "
+    "suplencia, técnica y resolutivo—, nunca el acto de la autoridad "
+    "responsable. El acto se juzga con las disposiciones que ELLA aplicó al "
+    "dictarlo, y son las que tienes en las NORMAS del material.\n"
+    "  · NO HAY FIGURA EQUIVALENTE. Los preceptos de la Ley de Amparo que "
+    "regulan la suspensión del juicio de amparo rigen la suspensión del juicio "
+    "de amparo y nada más: no sirven para juzgar una medida cautelar, "
+    "provisional o precautoria que dictó la responsable con su propia ley, por "
+    "mucho que se llamen parecido.\n"
+    "  · SI EN LAS NORMAS NO HAY NADA del ordenamiento que aplicó la "
+    "responsable, DILO con esas palabras y sigue con lo que sí tengas. "
+    "Escribir el estudio con la ley del juicio en su lugar es peor que decir "
+    "que falta: el hueco se ve y se corrige, la ley equivocada no.\n"
+    "  · LA EXCEPCIÓN, Y ES UNA SOLA: cuando la autoridad responsable es un "
+    "órgano de amparo —el juez de distrito cuyo auto o cuya interlocutoria se "
+    "recurre—, la ley que ella aplicó ES la Ley de Amparo, y entonces sí funda "
+    "el estudio. Mira quién dictó el acto antes de decidirlo."
+)
+
 LEY_DE_LA_VIA = {
     "revision_fiscal":
         "ESTA VÍA NO SE RIGE POR LA LEY DE AMPARO. La revisión fiscal es el "
@@ -2113,8 +2155,14 @@ def encabezado_de(tipo: str, materia: str = "", numero: str = "") -> str:
 
 
 def ley_de_la_via(tipo: str) -> str:
-    """El marco normativo de la vía, para decírselo al modelo antes de escribir."""
-    return LEY_DE_LA_VIA.get(normalizar(tipo), "")
+    """El marco normativo de la vía, para decírselo al modelo antes de escribir.
+
+    La regla de que el acto reclamado no se rige por la Ley de Amparo va en LAS
+    CUATRO vías, no sólo en una: la confusión no es de un tipo de asunto, es de
+    para qué sirve cada ley. Ver `_ACTO_NO_ES_AMPARO`.
+    """
+    t = LEY_DE_LA_VIA.get(normalizar(tipo), "")
+    return (t + _ACTO_NO_ES_AMPARO) if t else ""
 
 # LA VENTANA NO PUEDE SALTAR A LA CITA SIGUIENTE. La primera versión permitía
 # 110 caracteres cualesquiera entre el número y «Ley de Amparo», y con eso

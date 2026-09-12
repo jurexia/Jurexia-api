@@ -28015,6 +28015,29 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
         print(f"   ⚠️ no se pudo guardar la ficha del proyecto {numero}: {err(ex)}")
 
 
+def _taller_fijar_entidad(email: str, numero: str, coleccion: str) -> None:
+    """Deja la entidad en la fila. Ver la nota de /taller/consultar."""
+    if not (supabase_admin and coleccion):
+        return
+    _correo = (email or "").strip().lower()
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", _correo).eq("expediente", numero).limit(1).execute()
+        if not r.data:
+            return
+        est = r.data[0].get("estado") or {}
+        enc = est.get("encargo") or {}
+        if enc.get("coleccion_estatal") == coleccion:
+            return
+        enc["coleccion_estatal"] = coleccion
+        est["encargo"] = enc
+        supabase_admin.table("taller_sesiones").update({"estado": est}) \
+            .eq("email", _correo).eq("expediente", numero).execute()
+        print(f"   🗺️ entidad de {numero} guardada con la sesión: {coleccion}")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo guardar la entidad de {numero}: {err(ex)}")
+
+
 def _taller_ficha_proyecto(email: str, numero: str) -> dict:
     """La ficha del proyecto de ese expediente, o None si no se ha generado."""
     if not supabase_admin:
@@ -29406,6 +29429,23 @@ async def taller_consultar(
         # entidad que el secretario hubiera declarado al crear el asunto.
         if coleccion_estatal.strip():
             r.encargo.coleccion_estatal = coleccion_estatal
+            # ═══ Y SE PERSISTE, QUE ES DONDE SE PERDÍA ═══════════════════
+            #
+            # Esta línea fijaba la entidad SÓLO en el encargo que vive en la
+            # memoria de ESTE proceso. `_taller_guardar_sesion` corre una vez,
+            # en el adelanto, y nunca más. Con gunicorn -w 2, el worker que
+            # resuelve no tiene por qué ser el que consultó: rehidrata el
+            # encargo desde la fila, donde `coleccion_estatal` sigue vacía, y
+            # los dos resolvedores hacen `(r.encargo.coleccion_estatal) or None`
+            # — o sea, el marco jurídico se construye SIN NINGUNA LEY ESTATAL.
+            #
+            # Medido: 108 de 108 sesiones de `taller_sesiones` tienen la
+            # entidad vacía en la fila. Ninguna la tiene. Así que todo proyecto
+            # que cayera en el otro worker se fundó sin la ley del acto.
+            #
+            # Es la CUARTA vez que muerde este mismo patrón. Nada que deba
+            # sobrevivir a una petición puede vivir en memoria de proceso.
+            _taller_fijar_entidad(user_email, numero, coleccion_estatal.strip())
     # El de esta llamada manda; si no viene, el que se guardó al aportarlo.
     _ctx = (contexto or "").strip() or str(ses.get("contexto") or "")
     if _ctx:
