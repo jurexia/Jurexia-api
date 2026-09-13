@@ -81,28 +81,43 @@ PROBLEMA = {
 # ═══════════════════════════════════════════════════════════════════════════
 # 1 · LA BARANDILLA, QUE NO NECESITA RED
 # ═══════════════════════════════════════════════════════════════════════════
-print("── 1 · LA REGLA LLEGA A LAS CUATRO VÍAS ──")
-for tipo in ("amparo_directo", "amparo_revision", "queja", "revision_fiscal"):
-    t = ta.ley_de_la_via(tipo)
-    ok("EL ACTO RECLAMADO NO SE RIGE POR LA LEY DE AMPARO" in t,
-       f"«{tipo}» lleva la regla del acto reclamado")
-    ok("LA EXCEPCIÓN" in t and "órgano de amparo" in t,
-       f"«{tipo}» lleva también la excepción: cuando la responsable ES un "
-       f"órgano de amparo, esa ley SÍ funda")
-
-# NI UN NÚMERO QUE NO SEA DE LA LEY DE AMPARO. Un ejemplo dentro de un prompt
-# acaba copiado literal en la sentencia firmada —van cuatro veces medidas—, y
-# aquí un ejemplo sería el nombre o el artículo de un código que quizá no es el
-# de este asunto.
+print("── 1 · LA REGLA CAMBIA DE FORMA SEGÚN LO QUE EL SISTEMA SEPA ──")
 import re
-_regla = ta._ACTO_NO_ES_AMPARO
-_nums = re.findall(r"\b\d{1,3}\b", _regla)
-ok(not _nums, f"la regla no trae ningún número que se pueda copiar (salió: {_nums})")
-for palabra in ("Querétaro", "Código de Procedimientos", "Código Civil"):
-    ok(palabra.lower() not in _regla.lower(),
-       f"la regla no nombra «{palabra}»: el ejemplo se firmaría literal")
+# LA REGLA EN NEGATIVO PRODUCE LO QUE QUIERE EVITAR, y costó un proyecto verlo.
+# Decía «los preceptos de la Ley de Amparo que regulan la suspensión rigen la
+# suspensión del amparo y nada más», y el estudio del 322/2025 salió con dos
+# párrafos explicando exactamente eso. Correcto como derecho, y no es lo que se
+# quiere: lo que no se nombra no se escribe.
+for tipo in ("amparo_directo", "amparo_revision", "queja", "revision_fiscal"):
+    t = ta.ley_de_la_via(tipo, "ordinaria", "principal")
+    ok(not re.search(r"suspensi", t, re.I),
+       f"«{tipo}» con sede ordinaria: la regla NO nombra la suspensión")
+    ok("LA LEY QUE RIGE EL ACTO RECLAMADO" in t,
+       f"«{tipo}» con sede ordinaria: se dice en POSITIVO cuál es la ley")
 
-# Un tipo desconocido no recibe media regla suelta.
+    t2 = ta.ley_de_la_via(tipo, "amparo", "principal")
+    ok("SÍ RIGE EL ACTO" in t2,
+       f"«{tipo}» con acto de órgano de amparo: esa ley SÍ funda el estudio")
+    t3 = ta.ley_de_la_via(tipo, "", "incidental")
+    ok("SÍ RIGE EL ACTO" in t3,
+       f"«{tipo}» con cuaderno incidental: esa ley SÍ funda el estudio")
+
+    # Sin datos derivados queda la regla general, que sigue siendo necesaria.
+    t4 = ta.ley_de_la_via(tipo, "", "")
+    ok("NO SE RIGE POR LA LEY DE AMPARO" in t4,
+       f"«{tipo}» sin derivar: queda la regla general")
+
+# NI UN NÚMERO QUE NO SEA DE LA LEY DE AMPARO, en ninguna de las variantes. Un
+# ejemplo dentro de un prompt acaba copiado literal en la sentencia firmada.
+for nombre, regla in (("ordinario", ta._ACTO_ORDINARIO),
+                      ("de amparo", ta._ACTO_DE_AMPARO),
+                      ("general", ta._ACTO_NO_ES_AMPARO)):
+    nums = re.findall(r"\b\d{1,3}\b", regla)
+    ok(not nums, f"la regla «{nombre}» no trae números copiables (salió: {nums})")
+    for palabra in ("Querétaro", "Código de Procedimientos", "Código Civil"):
+        ok(palabra.lower() not in regla.lower(),
+           f"la regla «{nombre}» no nombra «{palabra}»")
+
 ok(ta.ley_de_la_via("inventado") == "",
    "un tipo que no existe no recibe la regla a medias")
 

@@ -200,12 +200,42 @@ class Precepto:
 
 @dataclass
 class Precedente:
-    """Un párrafo de la Corte Interamericana, con su caso."""
+    """Un párrafo de la Corte Interamericana, con SU CASO.
+
+    David: «las citas de los cuadernillos deben tener un caso de referencia —así
+    funciona la cita de jurisprudencia de la Corte Interamericana—. Los
+    cuadernillos sólo son eso, cuadernillos; lo que importa es lo que contienen,
+    sus casos y lo que se resolvió».
+
+    Tiene razón y aquí había DOS fallos encadenados. `construir` rellenaba
+    `caso` con el `ref` del fragmento cuando el caso faltaba, y `bloque` escribía
+    «Caso » delante de lo que hubiera: de ahí salió «el Caso CoIDH, Cuadernillo
+    No. 2, párr. 69», que no es una cita de nada.
+
+    Ahora un `Precedente` SIN CASO NO EXISTE. Medido: 2,202 de los 5,518
+    fragmentos de la Corte traen caso (39%), y con ellos la cita se forma
+    entera —«Caso Cantoral Benavides Vs. Perú, párr. 84 (Serie C No. 69110)»—.
+    El 61% restante es prosa del cuadernillo sin caso identificado: material de
+    lectura, no jurisprudencia que se cite.
+    """
     caso: str
+    vs: str
     cuadernillo: str
     tema: str
     parrafo: str
     texto: str
+    serie: str = ""
+
+    def cita(self) -> str:
+        """Como se cita la jurisprudencia de la Corte Interamericana."""
+        c = f"Caso {self.caso}"
+        if self.vs:
+            c += f" Vs. {self.vs}"
+        if self.parrafo:
+            c += f", párr. {self.parrafo}"
+        if self.serie:
+            c += f" (Serie C No. {self.serie})"
+        return c
 
 
 @dataclass
@@ -344,11 +374,11 @@ def bloque(m: Marco, es_recurso: bool = False) -> str:
             p.append(f"  {x.texto[:900]}")
     if m.coidh:
         p.append("\n── CORTE INTERAMERICANA (sólo si el problema la exige) ──")
+        p.append("  CÍTALOS POR SU CASO Y SU PÁRRAFO, tal como van escritos")
+        p.append("  aquí. El cuadernillo es dónde está recogido, no la fuente:")
+        p.append("  la fuente es el caso y lo que en él se resolvió.")
         for x in m.coidh:
-            ficha = f"Caso {x.caso}" if x.caso else f"Cuadernillo {x.cuadernillo}"
-            if x.parrafo:
-                ficha += f", párr. {x.parrafo}"
-            p.append(f"\n  {ficha} — {x.tema}")
+            p.append(f"\n  {x.cita()} — {x.tema}")
             p.append(f"  {x.texto[:900]}")
     return "\n".join(p)
 
@@ -536,7 +566,10 @@ async def construir(qdrant, embed, problemas: list[str],
                 _filtro(["constitucion"])),
         _buscar(qdrant, COLECCION, "dense", v, MAX_FRAGMENTOS // 2,
                 _filtro(["convencion"])),
-        _buscar(qdrant, COLECCION, "dense", v, MAX_COIDH * 3,
+        # ANCHO POR EL 61% QUE SE DESCARTA. Sólo 2,202 de los 5,518 fragmentos
+        # de la Corte traen caso identificado; pidiendo seis para quedarse con
+        # dos, el filtro dejaba el marco sin precedente la mitad de las veces.
+        _buscar(qdrant, COLECCION, "dense", v, MAX_COIDH * 10,
                 _filtro(["cuadernillo", "sentencia_cidh", "opinion_consultiva"])))
 
     # ── CONSTITUCIONALES ─────────────────────────────────────────────────
@@ -580,17 +613,32 @@ async def construir(qdrant, embed, problemas: list[str],
                 jerarquia=str(p.get("jerarquia") or "")))
             if len(m.convencionales) >= MAX_CONVENCIONALES:
                 break
+        _sin_caso = 0
         for p in coidh:
             if len(m.coidh) >= MAX_COIDH:
                 break
+            caso = str(p.get("caso") or "").strip()
+            if not caso:
+                # SIN CASO NO HAY CITA. Antes se rellenaba con el `ref` del
+                # fragmento y salía «el Caso CoIDH, Cuadernillo No. 2», que no
+                # cita nada. Se descarta y se sigue mirando.
+                _sin_caso += 1
+                continue
             m.coidh.append(Precedente(
-                caso=str(p.get("caso") or p.get("vs") or "").strip()
-                     or str(p.get("ref") or "").strip(),
+                caso=caso,
+                vs=str(p.get("vs") or "").strip(),
                 cuadernillo=str(p.get("cuadernillo_num")
                                 or p.get("origen") or "").strip(),
-                tema=str(p.get("cuadernillo_tema") or "").strip(),
+                tema=str(p.get("cuadernillo_tema")
+                         or p.get("tema_articulo") or "").strip(),
                 parrafo=str(p.get("parrafo") or "").strip(),
-                texto=str(p.get("texto") or "")))
+                texto=str(p.get("texto") or ""),
+                serie=str(p.get("serie_c") or "").strip()))
+        if _sin_caso and not m.coidh:
+            m.avisos.append(
+                f"El acervo devolvió {_sin_caso} fragmentos de la Corte "
+                f"Interamericana SIN caso identificado. No se citan: un "
+                f"cuadernillo no es jurisprudencia, lo es el caso que contiene.")
         if not m.convencionales and not m.coidh:
             m.avisos.append(
                 "El asunto llamaba a fuente convencional y el acervo no "

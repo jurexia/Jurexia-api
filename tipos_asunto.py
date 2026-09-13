@@ -1953,17 +1953,15 @@ _LA_EN_FISCAL = set(range(81, 97)) | {19} | set(range(215, 231))
 # literal en la sentencia firmada —van cuatro veces medidas—, y aquí un ejemplo
 # sería el nombre de un código que quizá no es el del asunto. Un párrafo que no
 # afirma un dato no puede afirmar un dato falso.
+# LA REGLA GENERAL, cuando el sistema NO ha podido derivar quién dictó el acto.
+# Va en negativo porque tiene que cubrir los dos casos a la vez, y por eso se usa
+# lo menos posible: ver `_ACTO_ORDINARIO` para cuando sí se sabe.
 _ACTO_NO_ES_AMPARO = (
     "\n\nEL ACTO RECLAMADO NO SE RIGE POR LA LEY DE AMPARO. Esa ley gobierna "
     "ESTE juicio o ESTE recurso —procedencia, oportunidad, legitimación, "
     "suplencia, técnica y resolutivo—, nunca el acto de la autoridad "
     "responsable. El acto se juzga con las disposiciones que ELLA aplicó al "
     "dictarlo, y son las que tienes en las NORMAS del material.\n"
-    "  · NO HAY FIGURA EQUIVALENTE. Los preceptos de la Ley de Amparo que "
-    "regulan la suspensión del juicio de amparo rigen la suspensión del juicio "
-    "de amparo y nada más: no sirven para juzgar una medida cautelar, "
-    "provisional o precautoria que dictó la responsable con su propia ley, por "
-    "mucho que se llamen parecido.\n"
     "  · SI EN LAS NORMAS NO HAY NADA del ordenamiento que aplicó la "
     "responsable, DILO con esas palabras y sigue con lo que sí tengas. "
     "Escribir el estudio con la ley del juicio en su lugar es peor que decir "
@@ -1972,6 +1970,43 @@ _ACTO_NO_ES_AMPARO = (
     "órgano de amparo —el juez de distrito cuyo auto o cuya interlocutoria se "
     "recurre—, la ley que ella aplicó ES la Ley de Amparo, y entonces sí funda "
     "el estudio. Mira quién dictó el acto antes de decidirlo."
+)
+
+# ═══ Y LA QUE SE USA CUANDO EL SISTEMA YA LO SABE, QUE VA EN POSITIVO ════════
+#
+# Lección cara: la versión en negativo PRODUCE lo que quiere evitar. Le decía al
+# modelo «los preceptos de la Ley de Amparo que regulan la suspensión rigen la
+# suspensión del amparo y nada más», y el proyecto del 322/2025 salió con dos
+# párrafos explicando exactamente eso —«los artículos 128 y 147 de la Ley de
+# Amparo regulan la actuación del juez de amparo, no la validez originaria del
+# acto»—. Correcto como derecho, y David no lo quiere: «no es necesario que eso
+# aparezca».
+#
+# Una regla que nombra lo que no debe salir invita a contrastarlo. Cuando el
+# sistema HA DERIVADO quién dictó el acto, no hace falta el contraste: basta
+# decir cuál es la ley y callar la otra. Lo que no se nombra no se escribe.
+_ACTO_ORDINARIO = (
+    "\n\nLA LEY QUE RIGE EL ACTO RECLAMADO es la que aplicó la autoridad "
+    "responsable al dictarlo, y la tienes en las NORMAS del material: con ella "
+    "se juzga si el acto estuvo bien o mal. Transcribe entre comillas el "
+    "precepto decisivo y razona sobre él.\n"
+    "  · SI EN LAS NORMAS NO HAY NADA de ese ordenamiento, DILO con esas "
+    "palabras y sigue con lo que sí tengas. El hueco se ve y se corrige; la ley "
+    "equivocada, no.\n"
+    "  · De la Ley de Amparo, en este asunto, sólo se usan la procedencia, la "
+    "oportunidad, la legitimación, la suplencia y el resolutivo. Para el fondo "
+    "no la necesitas, y no hace falta explicar por qué: escribe el estudio con "
+    "la ley del acto y ya está."
+)
+
+# Y cuando el acto SÍ lo dictó un órgano de amparo —la interlocutoria de
+# suspensión que se recurre, el auto del juez de distrito—, entonces esa ley es
+# la del acto y hay que decirlo igual de claro.
+_ACTO_DE_AMPARO = (
+    "\n\nAQUÍ LA LEY DE AMPARO SÍ RIGE EL ACTO: quien lo dictó es un órgano "
+    "de amparo y aplicó esa ley. Funda el estudio en ella, con el precepto "
+    "concreto, igual que harías con el código que aplica cualquier otra "
+    "responsable."
 )
 
 LEY_DE_LA_VIA = {
@@ -2154,15 +2189,31 @@ def encabezado_de(tipo: str, materia: str = "", numero: str = "") -> str:
     return " ".join(plantilla.format(materia=mat, numero=(numero or "").strip()).split())
 
 
-def ley_de_la_via(tipo: str) -> str:
+def ley_de_la_via(tipo: str, sede_del_acto: str = "",
+                  cuaderno: str = "") -> str:
     """El marco normativo de la vía, para decírselo al modelo antes de escribir.
 
-    La regla de que el acto reclamado no se rige por la Ley de Amparo va en LAS
-    CUATRO vías, no sólo en una: la confusión no es de un tipo de asunto, es de
-    para qué sirve cada ley. Ver `_ACTO_NO_ES_AMPARO`.
+    La regla del acto reclamado va en LAS CUATRO vías —la confusión no es de un
+    tipo de asunto, es de para qué sirve cada ley— pero CAMBIA DE FORMA según lo
+    que el sistema haya podido derivar del expediente:
+
+      · sede ordinaria y cuaderno principal → se dice, en positivo, cuál es la
+        ley del acto y no se nombra la otra. Ver `_ACTO_ORDINARIO`.
+      · el acto lo dictó un órgano de amparo, o se recurre lo resuelto en el
+        incidente de suspensión → esa ley SÍ funda. Ver `_ACTO_DE_AMPARO`.
+      · no se pudo derivar → la regla general, que va en negativo porque tiene
+        que cubrir los dos casos.
     """
     t = LEY_DE_LA_VIA.get(normalizar(tipo), "")
-    return (t + _ACTO_NO_ES_AMPARO) if t else ""
+    if not t:
+        return ""
+    _s = (sede_del_acto or "").strip().lower()
+    _c = (cuaderno or "").strip().lower()
+    if _s == "amparo" or _c == "incidental":
+        return t + _ACTO_DE_AMPARO
+    if _s == "ordinaria" and _c == "principal":
+        return t + _ACTO_ORDINARIO
+    return t + _ACTO_NO_ES_AMPARO
 
 # LA VENTANA NO PUEDE SALTAR A LA CITA SIGUIENTE. La primera versión permitía
 # 110 caracteres cualesquiera entre el número y «Ley de Amparo», y con eso

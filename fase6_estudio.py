@@ -1163,7 +1163,11 @@ def _bloque_ley_de_la_via(m: Material) -> str:
     vistazo: su propio engrose la cita UNA vez, el artículo 92, para el turno.
     """
     import tipos_asunto as _ta_v
-    t = _ta_v.ley_de_la_via(getattr(m, "tipo_asunto", ""))
+    # CON LOS DOS DATOS DERIVADOS: la regla cambia de forma según lo que el
+    # sistema sepa del acto. Ver `tipos_asunto.ley_de_la_via`.
+    t = _ta_v.ley_de_la_via(getattr(m, "tipo_asunto", ""),
+                            getattr(m, "sede_del_acto", ""),
+                            getattr(m, "cuaderno", ""))
     if not t:
         return ""
     return "\n── LA LEY QUE GOBIERNA ESTA VÍA ──\n" + t + "\n"
