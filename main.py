@@ -30297,6 +30297,65 @@ async def taller_resolver_stream(
             raise HTTPException(
                 422, "El modo global no pudo repartir el sentido: no hay "
                      "problemas jurídicos sobre los que aplicarlo.")
+    elif (modo_decision or "").strip().lower() == "acervo" or usar_propuesta:
+        # ═══════════════════════════════════════════════════════════════════
+        # EL ATAJO DE UN SOLO CLIC: QUE DECIDA EL MOTOR
+        # ═══════════════════════════════════════════════════════════════════
+        # David: «una opción con un botón amarillo desde el principio (…) el
+        # proyecto se genera solo conforme lo que considere acertado. (…) Si el
+        # secretario decide arriesgar sus consultas sin supervisión, dejémoslo
+        # (…) pero queda expuesto a que él lo tenga que cambiar».
+        #
+        # AQUÍ NO EXISTÍA, Y DE DOS MANERAS: `modo_decision=acervo` figuraba en
+        # la firma del formulario y en modos_decision, pero ninguna rama lo
+        # pasaba a `repartir`; y `usar_propuesta` se declaraba en esta misma
+        # función —línea de arriba— sin que nadie lo leyera. Las dos palabras
+        # caían en el `else` y devolvían 422 «Falta el sentido», callando que
+        # el parámetro se había tragado. El gemelo sí atendía `usar_propuesta`,
+        # así que el mismo asunto se resolvía o no según qué endpoint tocara.
+        #
+        # La rama que lo atiende en modos_decision es la `else`: toma el
+        # sentido y la razón TAL CUAL de lo que el motor propuso. Y las
+        # propuestas salen de la sesión, no de memoria: con -w 2 el worker que
+        # compone no es el que propuso, y por eso `proponer` las guarda.
+        import modos_decision as _md
+        _probs_a = [p if isinstance(p, dict) else {"pregunta": str(p)}
+                    for p in (r.fases.problemas or [])]
+        if not _probs_a and r.fases.problema_global:
+            _probs_a = [{"pregunta": r.fases.problema_global,
+                         "jerarquia": "principal"}]
+        _props_a = [{"problema": p.problema, "sentido": p.sentido,
+                     "razon": getattr(p, "razon", ""),
+                     "alcanza": getattr(p, "alcanza", True)}
+                    for p in (ses.get("propuestas") or [])]
+        if not _props_a:
+            raise HTTPException(
+                409, "No hay propuesta en este proceso. Pide primero "
+                     "/taller/proponer: sin ella no hay sentido que escribir y "
+                     "nadie lo ha decidido a mano.")
+        _rep_a, _av_a = _md.repartir(_probs_a, _md.ACERVO, "", _props_a, {})
+        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
+                             razonamiento=x.get("razonamiento", ""),
+                             jerarquia=x.get("jerarquia", "accesorio"))
+                for x in _rep_a if str(x.get("sentido", "")).strip()]
+        print(f"   ⚡ TALLER: reparto por jurimetría · {len(crit)} de "
+              f"{len(_probs_a)} planteamiento(s) · sin supervisión")
+        # SE DICE EN EL DOCUMENTO, no sólo en la pantalla. Quien abra este
+        # proyecto dentro de un mes tiene que saber que nadie miró el sentido.
+        try:
+            r.avisos.append(
+                "PROYECTO GENERADO SIN SUPERVISIÓN: el sentido de cada "
+                "planteamiento lo decidió el motor por jurimetría y nadie lo "
+                "revisó antes de escribirlo. Compruébalo tema por tema antes "
+                "de firmar.")
+            for _a in _av_a:
+                r.avisos.append(_a)
+        except Exception:
+            pass
+        if not crit:
+            raise HTTPException(
+                422, "El motor no pudo decidir el sentido de ningún "
+                     "planteamiento. El criterio te toca a ti.")
     else:
         if not sentido:
             raise HTTPException(
@@ -30732,7 +30791,11 @@ async def taller_resolver(
             raise HTTPException(422, "No hay problemas jurídicos a los que "
                                      "repartir el sentido global.")
         avisos_modo = _av_modo
-    elif usar_propuesta:
+    elif usar_propuesta or (modo_decision or "").strip().lower() == "acervo":
+        # LA MISMA PALABRA EN LOS DOS ENDPOINTS. Este gemelo ya atendía la
+        # propuesta del motor, pero sólo con `usar_propuesta=1`; el de streaming
+        # no la atendía en absoluto. Un mismo asunto se resolvía o no según qué
+        # puerta tocaras. Ahora las dos entienden `modo_decision=acervo`.
         props = ses.get("propuestas") or []
         crit = [_f6.Criterio(problema=p.problema, sentido=p.sentido,
                              razonamiento=p.razon)
