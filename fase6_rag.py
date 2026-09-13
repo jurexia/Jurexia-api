@@ -135,6 +135,63 @@ def _rango_instancia(t: dict) -> int:
     return 3
 
 
+# ═══ LA SUSPENSIÓN DEL AMPARO NO ES UNA MEDIDA CAUTELAR DEL FUERO COMÚN ══════
+#
+# David: «las medidas cautelares que dicta la responsable no se rigen por la Ley
+# de Amparo, sino por la ley que rige el acto reclamado… no quiero que le
+# impongas al modelo que invoque esa ley, sino que modifiques la arquitectura
+# para que lo entienda».
+#
+# El canal por el que entraban era la CO-CITACIÓN, no la semántica. Medido sobre
+# el amparo en revisión 322/2025: de las seis tesis que llegaban al prompt, SEIS
+# eran de la suspensión del juicio de amparo —cinco por co-citación pura—,
+# incluida la del rubro «SUSPENSION. PARA RESOLVER SOBRE ELLA ES FACTIBLE… LOS
+# REQUISITOS CONTENIDOS EN EL ARTICULO 124 DE LA LEY DE AMPARO». La búsqueda
+# semántica estaba SANA: de las 36 tesis que traía, UNA era de suspensión, y ese
+# 97% útil no llegaba nunca al prompt.
+#
+# Y el sesgo de la co-citación es estructural: siembra sobre `sentencias_
+# holdings`, que son sentencias de colegiado, o sea sentencias de AMPARO. Lo que
+# esas sentencias citan es derecho de amparo, mande el tema que mande. Como toda
+# co-citada es obligatoria de Sala o Pleno, el orden la pone delante y el corte
+# de seis hace el resto: la primera semántica quedaba en la séptima posición.
+#
+# EL FILTRO VA SOBRE EL RUBRO, NO SOBRE LA MATERIA. Está medido que `materia` no
+# separa: de las 10,667 tesis con materia «Común» sólo el 12% son de suspensión
+# —ahí viven también fundamentación y motivación, inoperancia y congruencia, que
+# son las que el estudio necesita— y además hay 440 tesis de suspensión del
+# amparo etiquetadas Administrativa, Penal, Laboral o Civil.
+_RX_FIGURA_SUSPENSIONAL = re.compile(
+    r"suspensi[óo]n\s+(?:provisional|definitiva|de\s+plano|de\s+oficio|"
+    r"del\s+acto\s+reclamado|en\s+el\s+juicio\s+de\s+amparo)"
+    r"|incidente\s+de\s+suspensi[óo]n|medida\s+suspensional|"
+    r"inter[ée]s\s+suspensional", re.I)
+_RX_CERCA_DE_AMPARO = re.compile(
+    r"amparo|acto\s+reclamado|quejos|jue[zc]\w*\s+de\s+distrito|"
+    r"apariencia\s+del\s+buen\s+derecho", re.I)
+
+
+def es_suspension_amparo(rubro: str, materia: str = "") -> bool:
+    """¿Esta tesis habla de la suspensión del JUICIO DE AMPARO?
+
+    Marca 2,623 de las 71,655 tesis del acervo (3.66%). De las doce auditadas
+    al azar, doce lo eran de verdad.
+    """
+    r = " ".join((rubro or "").split())
+    if _RX_FIGURA_SUSPENSIONAL.search(r):
+        return True
+    # «SUSPENSIÓN.» a secas encabezando el rubro. En el Semanario, la del fuero
+    # común SIEMPRE lleva apellido —«SUSPENSIÓN DEL PROCEDIMIENTO», «SUSPENSIÓN
+    # DE LABORES»—, así que el rubro pelado es del amparo; se pide además que la
+    # materia lo respalde para no acusar de oído.
+    if re.match(r"\s*suspensi[óo]n\s*[.,]", r, re.I):
+        if "com" in _sin_acentos(materia or "").lower():
+            return True
+    if re.search(r"suspensi[óo]n\s*,", r, re.I) and _RX_CERCA_DE_AMPARO.search(r[:400]):
+        return True
+    return False
+
+
 def _es_scjn(t: dict) -> bool:
     """Pleno o Salas. David: «preferentemente jurisprudencia de la Suprema Corte»."""
     inst = _sin_acentos(t.get("instancia", ""))
@@ -149,6 +206,10 @@ def _tesis_de(p: dict) -> dict:
         "rubro": p.get("rubro") or "",
         "texto": p.get("texto") or "",
         "tipo": p.get("tipo") or "",
+        # LA MATERIA NO SE TIRA. Sin ella, `es_suspension_amparo` no puede
+        # aplicar su segunda regla —la del rubro que encabeza «SUSPENSIÓN.» a
+        # secas—, que es la que distingue la del amparo de la del fuero común.
+        "materia": p.get("materia") or "",
         "obligatoria": bool(p.get("vincula")),
         "localizacion": p.get("localizacion") or "",
     }
@@ -516,7 +577,8 @@ async def consulta_conceptual(cliente, problema: str, materia: str = "") -> dict
 async def material_para(qdrant, embed_juris, embed_leyes,
                         problema: str, coleccion_estatal: Optional[str] = None,
                         materia: str = "", cliente=None,
-                        contexto: str = "", hecho: str = "") -> f6.Material:
+                        contexto: str = "", hecho: str = "",
+                        sede_acto: str = "", cuaderno: str = "") -> f6.Material:
     """El material verificado para UN problema jurídico.
 
     `embed_juris` vectoriza con el modelo de la v3 (3072 dim) y `embed_leyes`
@@ -558,6 +620,15 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     # EL SILO SUSTITUYE, NO SE SUMA: si se buscara también en el corpus general
     # volvería a entrar la ley ajena por la puerta de atrás, que es justo lo que
     # el silo existe para cerrar.
+    # ═══ EL DATO DERIVADO, GOBERNANDO ════════════════════════════════════════
+    # No es una orden dentro del prompt: es el sistema sabiendo, del propio
+    # expediente, que el acto reclamado lo dictó una autoridad ordinaria y que
+    # el recurso no va contra el incidente de suspensión. Sólo con las DOS
+    # cosas se enciende el filtro. Hacerlo global está medido que sería un
+    # desastre: en el control de cuaderno incidental tira el 68% de los
+    # candidatos y deja al secretario sin el único material que ahí sirve.
+    _sin_susp = (sede_acto == "ordinaria" and cuaderno == "principal")
+
     silo = SILO_POR_MATERIA.get((materia or "").strip().lower())
     colecciones = [silo] if silo else [c for c in (coleccion_estatal, COLECCION_FEDERAL) if c]
 
@@ -601,7 +672,8 @@ async def material_para(qdrant, embed_juris, embed_leyes,
         _acto, v_acto = "", None
 
     tareas = [_buscar(qdrant, COLECCION_JURIS, VECTOR_RUBRO, v,
-                      TESIS_POR_PROBLEMA * 2) for v in _vs[:-1]]
+                      TESIS_POR_PROBLEMA * (3 if _sin_susp else 2))
+              for v in _vs[:-1]]
     tareas += [_buscar(qdrant, c, "dense",
                        v_acto if (c == _acto and v_acto is not None) else v_leyes,
                        NORMAS_DEL_ACTO if c == _acto else NORMAS_POR_PROBLEMA)
@@ -610,7 +682,8 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     # LA CO-CITACIÓN VA EN PARALELO con las demás búsquedas: no alarga nada.
     res, _coc = await asyncio.gather(
         asyncio.gather(*tareas),
-        tesis_cocitadas(qdrant, embed_leyes, problema))
+        tesis_cocitadas(qdrant, embed_leyes, problema,
+                        sin_suspension=_sin_susp))
 
     # EL ORDEN, CORREGIDO. La primera versión de esto penalizaba la tesis por
     # venir de otra entidad y la mandaba al fondo. Estaba mal, y el barrido de
@@ -650,6 +723,14 @@ async def material_para(qdrant, embed_juris, embed_leyes,
                     _y["veces"] = _t.get("veces", 0)
                     _y["cocitada"] = True
                     break
+    if _sin_susp:
+        _antes = len(_crudo)
+        _crudo = [t for t in _crudo
+                  if not es_suspension_amparo(t.get("rubro", ""),
+                                              t.get("materia", ""))]
+        if _antes != len(_crudo):
+            print(f"   ⚖️ semántica: {_antes - len(_crudo)} tesis de la "
+                  f"suspensión del amparo fuera")
     tesis = _crudo
     # EL ORDEN, con la co-citación dentro: entre dos criterios que pesan igual,
     # manda el que el circuito usa de verdad para esta cuestión.
@@ -711,7 +792,8 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
                             problemas: list[str],
                             coleccion_estatal: Optional[str] = None,
                             materia: str = "", cliente=None,
-                            contexto: str = "") -> f6.Material:
+                            contexto: str = "", sede_acto: str = "",
+                            cuaderno: str = "") -> f6.Material:
     """Un solo Material con lo de TODOS los problemas, sin repetir tesis.
 
     El estudio se escribe de una vez —es una sola pieza de prosa— así que el
@@ -741,7 +823,7 @@ async def material_del_caso(qdrant, embed_juris, embed_leyes,
 
     partes = await asyncio.gather(*[
         material_para(qdrant, embed_juris, embed_leyes, p, coleccion_estatal,
-                      materia, cliente, contexto, h)
+                      materia, cliente, contexto, h, sede_acto, cuaderno)
         for p, h in zip(preguntas, hechos)])
 
     tesis, normas = [], []
@@ -954,7 +1036,8 @@ async def _ficha_de_cita(qdrant, clave: str):
 
 
 async def tesis_cocitadas(qdrant, embed_leyes, problema: str,
-                          tope: int = COCITADAS_POR_PROBLEMA) -> list:
+                          tope: int = COCITADAS_POR_PROBLEMA,
+                          sin_suspension: bool = False) -> list:
     """Los criterios que más cita el circuito al resolver esta cuestión."""
     if not qdrant or not (problema or "").strip():
         return []
@@ -996,16 +1079,31 @@ async def tesis_cocitadas(qdrant, embed_leyes, problema: str,
     # SÓLO LAS QUE SE REPITEN MANDAN ARRIBA, pero una sola cita también vale:
     # en cuestiones poco litigadas puede no haber más. Se piden las 20 más
     # citadas y se resuelven a la vez; se devuelven las `tope` que existan.
-    claves = [k for k, _ in cuenta.most_common(20)]
+    # EL POZO SUBE A TREINTA CUANDO SE VA A FILTRAR, para que el tope se siga
+    # alcanzando. Medido: con el filtro puesto, de un pozo de 30 se resuelven 21
+    # y la co-citación sigue devolviendo 7 de las 8 que pedía.
+    claves = [k for k, _ in cuenta.most_common(30 if sin_suspension else 20)]
     fichas = await asyncio.gather(*[_ficha_de_cita(qdrant, k) for k in claves])
-    fuera = []
+    fuera, fuera_susp = [], 0
     for k, f in zip(claves, fichas):
         if f and f.get("registro") and f.get("rubro"):
+            # AQUÍ ESTABA EL CANAL. La co-citación siembra sobre sentencias de
+            # colegiado —sentencias de AMPARO—, así que lo que citan es derecho
+            # de amparo mande el tema que mande. Cuando el acto reclamado lo
+            # dictó una autoridad ordinaria y el recurso no va contra el
+            # incidente, la suspensión del juicio de amparo no viene a cuento.
+            if sin_suspension and es_suspension_amparo(f.get("rubro", ""),
+                                                       f.get("materia", "")):
+                fuera_susp += 1
+                continue
             f["veces"] = cuenta[k]
             f["cocitada"] = True
             fuera.append(f)
         if len(fuera) >= tope:
             break
+    if fuera_susp:
+        print(f"   ⚖️ co-citación: {fuera_susp} criterios de la SUSPENSIÓN DEL "
+              f"AMPARO descartados (el acto reclamado no se rige por esa ley)")
     if fuera:
         print(f"   ⚖️ co-citación: {len(fuera)} criterios usados por el circuito "
               f"(el más citado, {fuera[0].get('veces')} veces)")

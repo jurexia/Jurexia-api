@@ -506,6 +506,44 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # cómo resolvieron otros colegiados este mismo problema. Se le enseña al
     # redactor junto con el material, pero SEPARADO de él, porque un precedente
     # de otro tribunal no funda: orienta.
+    # ═══ LOS DOS DATOS QUE EL SISTEMA DERIVA DEL EXPEDIENTE ══════════════════
+    #
+    # David: «no quiero que le impongas al modelo que invoque esa ley, sino que
+    # modifiques la ARQUITECTURA para que lo entienda». Esto es esa
+    # arquitectura: quién dictó el acto reclamado y de qué cuaderno viene la
+    # recurrida se LEEN, y de ahí sale si la Ley de Amparo gobierna el acto o no.
+    #
+    # Se lee de los tres sitios y en este orden: el texto crudo cuando está
+    # —sólo se guarda en 14 de 108 sesiones—, y si no, los antecedentes y el
+    # resumen del acto, que están en las 108.
+    _sede, _cuaderno = "", ""
+    if getattr(r.encargo, "es_recurso", False):
+        try:
+            import fase_rama as _fr_s
+            _f = r.fases
+            _base = "\n".join(x for x in (
+                (getattr(_f, "fuentes", None) or [""])[0] if getattr(_f, "fuentes", None) else "",
+                getattr(_f, "antecedentes", "") or "",
+                getattr(_f, "resumen_acto", "") or "") if x)
+            _sede, _quien = _fr_s.sede_del_acto(_base)
+            _cuaderno, _porque = _fr_s.cuaderno_recurrido(_base)
+            print(f"   ⚖️ sede del acto: {_sede or '(no consta)'}"
+                  f" · cuaderno: {_cuaderno or '(no consta)'}"
+                  f" · {(_quien or '')[:60]}")
+            # SE DICE EN VOZ ALTA. Que el sistema lo dedujo bien o mal lo tiene
+            # que poder ver el secretario, no descubrirlo en el documento.
+            if _sede == "ordinaria" and _cuaderno == "principal":
+                r.avisos.append(
+                    f"EL ACTO RECLAMADO NO SE RIGE POR LA LEY DE AMPARO: lo "
+                    f"dictó {(_quien or 'una autoridad ordinaria')[:80]} y el "
+                    f"recurso va contra la sentencia del cuaderno principal, no "
+                    f"contra el incidente de suspensión. El fondo se juzga con "
+                    f"la ley que aplicó esa autoridad, y los criterios sobre la "
+                    f"suspensión del amparo se dejaron fuera de la búsqueda. "
+                    f"Si esto no es así en este asunto, dilo: cambia el material.")
+        except Exception as _ex:
+            print(f"   ⚠️ no se pudo derivar la sede del acto: {_ex}")
+
     material, sondeo, espejo = await asyncio.gather(
         f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
                                 problemas, coleccion, fp_materia(r.encargo),
@@ -515,7 +553,10 @@ async def consultar(qdrant, embed_juris, embed_leyes,
                                 cliente,
                                 # Y LO QUE EL SECRETARIO YA SABE DEL ASUNTO,
                                 # como ancla propia. Ver `material_para`.
-                                contexto),
+                                contexto,
+                                # Y los dos datos derivados, que deciden si la
+                                # suspensión del amparo viene a cuento.
+                                _sede, _cuaderno),
         _sondear_precedente(qdrant, embed_leyes, r, problemas),
         # EL ESPEJO, EN EL MISMO TIRO. Cuesta 0.2 s por planteamiento y corre a
         # la vez que el material: no se nota en la espera.
