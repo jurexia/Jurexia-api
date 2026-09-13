@@ -557,9 +557,18 @@ async def construir(qdrant, embed, problemas: list[str],
 
     from qdrant_client.http import models as _qm
 
-    def _filtro(tipos: list[str]):
-        return _qm.Filter(must=[_qm.FieldCondition(
+    def _filtro(tipos: list[str], con_caso: bool = False):
+        f = _qm.Filter(must=[_qm.FieldCondition(
             key="tipo", match=_qm.MatchAny(any=tipos))])
+        if con_caso:
+            # EL CASO SE EXIGE EN LA CONSULTA, no después. Descartarlo al leer
+            # dejaba el marco sin precedente: medido en el 322/2025, los VEINTE
+            # fragmentos más cercanos de la Corte venían sin caso identificado y
+            # el aviso decía «no se citan» sobre una lista vacía. Pidiéndolo a
+            # Qdrant, los que vuelven ya son citables.
+            f.must_not = [_qm.IsEmptyCondition(
+                is_empty=_qm.PayloadField(key="caso"))]
+        return f
 
     consti, conven, coidh = await asyncio.gather(
         _buscar(qdrant, COLECCION, "dense", v, MAX_FRAGMENTOS,
@@ -569,8 +578,9 @@ async def construir(qdrant, embed, problemas: list[str],
         # ANCHO POR EL 61% QUE SE DESCARTA. Sólo 2,202 de los 5,518 fragmentos
         # de la Corte traen caso identificado; pidiendo seis para quedarse con
         # dos, el filtro dejaba el marco sin precedente la mitad de las veces.
-        _buscar(qdrant, COLECCION, "dense", v, MAX_COIDH * 10,
-                _filtro(["cuadernillo", "sentencia_cidh", "opinion_consultiva"])))
+        _buscar(qdrant, COLECCION, "dense", v, MAX_COIDH * 4,
+                _filtro(["cuadernillo", "sentencia_cidh", "opinion_consultiva"],
+                        con_caso=True)))
 
     # ── CONSTITUCIONALES ─────────────────────────────────────────────────
     # El mapa temático manda: sólo entran los artículos que ESTE asunto

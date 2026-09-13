@@ -1996,7 +1996,12 @@ _ACTO_ORDINARIO = (
     "  · De la Ley de Amparo, en este asunto, sólo se usan la procedencia, la "
     "oportunidad, la legitimación, la suplencia y el resolutivo. Para el fondo "
     "no la necesitas, y no hace falta explicar por qué: escribe el estudio con "
-    "la ley del acto y ya está."
+    "la ley del acto y ya está.\n"
+    "  · NI SIQUIERA POR ANALOGÍA. No tomes de la Ley de Amparo un criterio, un "
+    "estándar ni una pauta «orientadora» para juzgar el acto: en este asunto esa "
+    "ley no rige el fondo, y un estándar prestado de una ley que no rige es una "
+    "motivación equivocada aunque suene razonable. Lo que gobierna está en las "
+    "NORMAS; si no alcanza, dilo."
 )
 
 # Y cuando el acto SÍ lo dictó un órgano de amparo —la interlocutoria de
