@@ -30314,7 +30314,15 @@ async def taller_resolver_stream(
     try:
         _marco = _mj.bloque(await _mj.construir(
             qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None),
+            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None,
+            # EL TEXTO DEL ACTO, para leer con qué ley se dictó. La responsable
+            # cita los preceptos que aplicó; de ahí sale el precepto local que
+            # el marco transcribe. Los dos caminos o ninguno.
+            texto_del_acto="\n".join(x for x in (
+                (getattr(r.fases, "fuentes", None) or [""])[0]
+                if getattr(r.fases, "fuentes", None) else "",
+                getattr(r.fases, "antecedentes", "") or "",
+                getattr(r.fases, "resumen_acto", "") or "") if x)),
             bool(r.encargo and r.encargo.es_recurso))
     except Exception as _e:
         print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
@@ -30754,7 +30762,15 @@ async def taller_resolver(
     try:
         _marco = _mj.bloque(await _mj.construir(
             qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None),
+            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None,
+            # EL TEXTO DEL ACTO, para leer con qué ley se dictó. La responsable
+            # cita los preceptos que aplicó; de ahí sale el precepto local que
+            # el marco transcribe. Los dos caminos o ninguno.
+            texto_del_acto="\n".join(x for x in (
+                (getattr(r.fases, "fuentes", None) or [""])[0]
+                if getattr(r.fases, "fuentes", None) else "",
+                getattr(r.fases, "antecedentes", "") or "",
+                getattr(r.fases, "resumen_acto", "") or "") if x)),
             r.encargo.es_recurso if r.encargo else False)
     except Exception as _e:
         print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")

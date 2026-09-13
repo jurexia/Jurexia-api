@@ -373,8 +373,134 @@ def bloque(m: Marco, es_recurso: bool = False) -> str:
 MAX_FRAGMENTOS = 80
 
 
+# ═══ LOS PRECEPTOS QUE CITA LA PROPIA RESPONSABLE ════════════════════════════
+#
+# David, 13-sep-2026: «el acto reclamado se rige por sus normas —en este caso el
+# Código de Procedimientos Civiles— QUE GENERALMENTE CITA LA PROPIA RESPONSABLE.
+# ¿Cómo podemos darle ese entendimiento al taller? Lo que debería citar son los
+# artículos del código de procedimientos civiles».
+#
+# Es una señal mucho mejor que cualquier parecido de vectores: la autoridad que
+# dictó el acto escribió con qué lo fundó. No hay que adivinarlo, hay que
+# LEERLO. Y es determinista: o está escrito en el documento o no está.
+#
+# Se busca la fórmula con que se funda un acto —«con fundamento en los artículos
+# 199, 202 y 208 del Código de Procedimientos Civiles del Estado»— y se sacan
+# los números Y el ordenamiento. Después esos artículos se traen ENTEROS del
+# acervo estatal, que es lo que permite transcribirlos entre comillas como el
+# propio marco manda.
+# EL SUFIJO «BIS/TER» DENTRO DEL GRUPO DE NÚMEROS SE COMÍA EL ESPACIO y con él
+# la frontera de palabra siguiente: cada pieza casaba por separado y la unión no
+# casaba nunca. Se parte en dos pasos —la lista de artículos por un lado, el
+# ordenamiento por otro, buscado en la cola de la misma oración—, que además se
+# lee mejor.
+# LA FORMA UNIVERSAL DE CITAR: una lista de artículos y, detrás, el
+# ordenamiento. Cubre «con fundamento en los artículos 199 y 202 del Código X» y
+# también «…99, fracción III, 200, 201 … así como 204 del Código X», que es como
+# aparece de verdad en las recurridas. Entre el último número y el ordenamiento
+# caben incisos y fracciones, y por eso el hueco admite hasta 120 caracteres sin
+# punto ni punto y coma — que son las dos cosas que cierran una cita.
+_RX_CITA_DE_LEY = re.compile(
+    r"(?P<form>(?:con\s+)?fundamento\s+en\s+(?:lo\s+dispuesto\s+por\s+)?)?"
+    r"(?:los\s+|el\s+)?art[íi]culos?\s+"
+    r"(?P<nums>\d{1,4}[^.;]{0,120}?)"
+    r"\b(?:del|de\s+l[ao]s?|de|para\s+el)\s+"
+    r"(?P<ley>(?:C[óo]digo|Ley|Reglamento)[^.;,)]{3,80})", re.I)
+
+_RX_LEY_DEL_JUICIO = re.compile(r"ley\s+de\s+amparo", re.I)
+
+_RX_CABEZA_FUND = re.compile(
+    r"(?:con\s+)?fundamento\s+en\s+(?:lo\s+dispuesto\s+por\s+)?"
+    r"(?:el\s+|los\s+)?art[íi]culos?\s+"
+    r"(?P<nums>\d{1,4}(?:\s*[oº°]?)?(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*[oº°]?)?){0,12})",
+    re.I)
+_RX_ORDENAMIENTO = re.compile(
+    r"\b(?:del|de\s+l[ao]s?|de)\s+"
+    r"((?:C[óo]digo|Ley|Reglamento)[^.;,)]{3,80})", re.I)
+
+_RX_FUNDAMENTO = re.compile(
+    r"(?:con\s+)?fundamento\s+en\s+(?:lo\s+dispuesto\s+por\s+)?"
+    r"(?:el\s+|los\s+)?art[íi]culos?\s+"
+    r"(?P<nums>\d{1,4}(?:\s*[oº°]?\s*(?:BIS|TER)?)?"
+    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*[oº°]?\s*(?:BIS|TER)?)?){0,12})"
+    r"[^.;]{0,80}?del?\s+(?P<ley>(?:C[óo]digo|Ley|Reglamento)[^.;,)]{3,80})",
+    re.I)
+
+
+# EL NOMBRE DEL ESTADO, PARA RECONOCER SU LEY. Se saca de la colección estatal
+# que ya viaja en el encargo: «leyes_queretaro» → «queretaro».
+def _estado_de(coleccion: str) -> str:
+    return re.sub(r"^leyes_", "", str(coleccion or "").strip().lower())
+
+
+def _sin_acento(x: str) -> str:
+    import unicodedata as _u
+    return "".join(c for c in _u.normalize("NFD", str(x or ""))
+                   if _u.category(c) != "Mn").lower()
+
+
+def preceptos_de_la_responsable(texto: str, tope: int = 8,
+                                coleccion_estatal: str = "") -> list:
+    """[(artículo, ordenamiento)] con que se fundó el acto reclamado.
+
+    LA FÓRMULA «CON FUNDAMENTO EN» NO BASTA, y lo enseñó la recurrida real del
+    322/2025: sólo sale dos veces y las dos son del juez de distrito citando el
+    artículo 124 de la Ley de Amparo. Los preceptos de la responsable están ahí,
+    pero recitados sin fórmula:
+
+        «…Código Civil del Estado; así como 99, fracción III, 200, 201, párrafo
+         segundo inciso e), así como 204 del Código de Procedimientos Civiles
+         para el Estado de Querétaro, 7, 8, fracción V, 27, 28 y 29…»
+
+    Así que se lee la forma UNIVERSAL de citar —una lista de artículos seguida
+    del ordenamiento— y se manda el ordenamiento MÁS CITADO. Un acto se funda en
+    una ley; las menciones sueltas de otras son la cita de una tesis o una
+    remisión, y quedan por debajo en el recuento.
+
+    LA LEY DE AMPARO NO CUENTA: funda el juicio, no el acto. Ésa es la regla que
+    David pidió que el sistema entendiera, y aquí es una línea.
+    """
+    if not (texto or "").strip():
+        return []
+    t = " ".join(texto.split())
+    por_ley, donde = {}, {}
+    for m in _RX_CITA_DE_LEY.finditer(t):
+        ley = " ".join(m.group("ley").split()).strip(" ,.;")
+        if _RX_LEY_DEL_JUICIO.search(ley):
+            continue
+        nums = re.findall(r"\d{1,4}", m.group("nums"))
+        if not nums:
+            continue
+        por_ley.setdefault(ley, [])
+        # Con fórmula expresa pesa el doble: es el acto fundándose, no una cita.
+        peso = 2 if m.group("form") else 1
+        donde[ley] = donde.get(ley, 0) + peso * len(nums)
+        for n_ in nums:
+            if n_ not in por_ley[ley]:
+                por_ley[ley].append(n_)
+    if not por_ley:
+        return []
+
+    # MANDA LA ENTIDAD, NO LA FRECUENCIA, y lo enseñó la recurrida real: el juez
+    # de distrito cita el Código Federal de Procedimientos Civiles más veces que
+    # ningún otro —los artículos 129 y 202, los de la documental pública— porque
+    # es el supletorio con que él valora las pruebas. Pero la ley del ACTO es la
+    # del estado donde se dictó: si la responsable es un juez de primera
+    # instancia de Querétaro, su ley lleva «del Estado de Querétaro» en el
+    # nombre. Esa es la señal, y es determinista.
+    _edo = _sin_acento(_estado_de(coleccion_estatal)).replace("_", " ")
+    if _edo:
+        del_estado = [k for k in por_ley if _edo in _sin_acento(k)]
+        if del_estado:
+            ley = max(del_estado, key=lambda k: donde.get(k, 0))
+            return [(a, ley) for a in por_ley[ley][:tope]]
+    ley = max(donde, key=lambda k: donde[k])
+    return [(a, ley) for a in por_ley[ley][:tope]]
+
+
 async def construir(qdrant, embed, problemas: list[str],
-                    coleccion_estatal: Optional[str] = None) -> Marco:
+                    coleccion_estatal: Optional[str] = None,
+                    texto_del_acto: str = "") -> Marco:
     """El bloque de constitucionalidad que ESTE asunto toca.
 
     Se busca con los CONCEPTOS de los artículos que el mapa temático disparó,
@@ -469,6 +595,113 @@ async def construir(qdrant, embed, problemas: list[str],
             m.avisos.append(
                 "El asunto llamaba a fuente convencional y el acervo no "
                 "devolvió ninguna: no se cita ningún tratado.")
+
+    # ═══ LA LEY DEL ACTO, QUE ES LA QUE LA RESPONSABLE APLICÓ ════════════════
+    #
+    # David: «el acto reclamado se rige por sus normas —el Código de
+    # Procedimientos Civiles— que GENERALMENTE CITA LA PROPIA RESPONSABLE. ¿Cómo
+    # podemos darle ese entendimiento al taller?».
+    #
+    # Así: la responsable dice QUÉ CÓDIGO —eso se lee, no se adivina— y dentro de
+    # ese código se buscan los artículos del punto. Determinista para la ley,
+    # semántico para el precepto. `Marco.locales` estaba declarado desde el
+    # principio y nunca se llenaba: éste es su contenido.
+    if coleccion_estatal and texto_del_acto:
+        citados = preceptos_de_la_responsable(
+            texto_del_acto, coleccion_estatal=coleccion_estatal)
+        if citados:
+            _ley = citados[0][1]
+            # NO SE FILTRA POR EL NOMBRE EXACTO, y costó descubrirlo: la
+            # recurrida escribe «Código de Procedimientos Civiles PARA el Estado
+            # de Querétaro» y el acervo lo tiene como «DEL Estado de Querétaro».
+            # Un MatchValue con el nombre citado devuelve CERO. El nombre sirve
+            # para PREFERIR, no para filtrar.
+            # CON EL HECHO, NO CON LA CONSULTA CONVENCIONAL. `v` se armó con
+            # los CONCEPTOS de los artículos constitucionales que el mapa
+            # temático disparó —derechos humanos— y con ese vector el acervo
+            # estatal devuelve leyes de derechos: la de Justicia para
+            # Adolescentes, la de servicios. Medido: con el vector del HECHO
+            # —la medida de restricción, el domicilio, la violencia familiar—
+            # devuelve el artículo 202 del Código de Procedimientos Civiles,
+            # «Medidas judiciales de protección en violencia familiar», y el
+            # 256, «providencias precautorias en caso de violencia contra las
+            # mujeres». Es la misma lección que la cesta del acto en fase6_rag.
+            try:
+                v_local = await embed(" ".join(
+                    " ".join(str(x or "").split()) for x in problemas)[:600])
+            except Exception:
+                v_local = v
+            # SE PESCA ANCHO Y SE QUEDA LO DE SU CÓDIGO. Con doce resultados
+            # sólo uno era del código citado y los otros dos del marco salían de
+            # leyes vecinas; el acervo estatal tiene muchas leyes y la del acto
+            # compite con todas. Pescando treinta y dos y quedándose con las del
+            # ordenamiento que la responsable nombró, el marco se llena con su
+            # ley y no con la de al lado.
+            locales = await _buscar(qdrant, coleccion_estatal, "dense", v_local,
+                                    MAX_LOCALES * 11)
+            # SE COMPARA POR LO QUE DISTINGUE, NO POR LO QUE COMPARTEN TODAS.
+            # «Código de Procedimientos Civiles para el Estado de Querétaro» y
+            # «Ley de Justicia para Adolescentes del Estado de Querétaro»
+            # comparten estado, querétaro y para: con esas palabras dentro, el
+            # parecido daba 3 para las dos y el marco se llenó de la ley de
+            # adolescentes. Quitando las genéricas quedan «procedimientos» y
+            # «civiles», que es lo que de verdad la nombra.
+            _GENERICAS = {"estado", "queretaro", "querétaro", "para", "del",
+                          "los", "las", "codigo", "código", "ley", "leyes",
+                          "libre", "soberano", "republica", "república"}
+            _clave = {w for w in re.findall(r"[a-záéíóúñ]{4,}", _ley.lower())
+                      if w not in _GENERICAS}
+
+            def _parecido(pl: dict) -> int:
+                nom = str(pl.get("cuerpo_legal_oficial") or pl.get("ley")
+                          or pl.get("origen") or "").lower()
+                return len(_clave & {w for w in re.findall(r"[a-záéíóúñ]{4,}", nom)
+                                     if w not in _GENERICAS})
+
+            # Dos palabras distintivas coincidiendo ya es el mismo cuerpo legal:
+            # «procedimientos» y «civiles» no las comparte ninguna otra ley del
+            # acervo estatal.
+            _minimo = min(2, len(_clave)) or 1
+            _suyas = [pl for pl in locales if _parecido(pl) >= _minimo]
+            if _suyas:
+                locales = _suyas
+            else:
+                locales.sort(key=lambda pl: -_parecido(pl))
+                m.avisos.append(
+                    f"EL MARCO VA SIN EL PRECEPTO DE «{_ley[:60]}»: el acervo "
+                    f"estatal no devolvió ningún artículo de ese ordenamiento "
+                    f"para este punto, aunque es el que la responsable citó. "
+                    f"Compruébalo: el precepto que se transcribe es el que "
+                    f"funda el acto.")
+            vistos_l = set()
+            for p in locales:
+                art = str(p.get("articulo_num") or "").strip()
+                cuerpo = str(p.get("cuerpo_legal_oficial") or p.get("ley")
+                             or p.get("origen") or "").strip()
+                if not art or (cuerpo, art) in vistos_l:
+                    continue
+                vistos_l.add((cuerpo, art))
+                # LA CITA CON SU FUENTE. `ref` trae «Art. 202» y `capitulo` el
+                # sitio del código donde vive: con los dos, el marco puede
+                # transcribir el precepto diciendo de dónde sale, que es lo que
+                # David echó en falta en los convencionales.
+                m.locales.append(Precepto(
+                    fuente=cuerpo or _ley,
+                    articulo=str(p.get("ref") or f"Art. {art}").strip(),
+                    texto=str(p.get("texto") or ""),
+                    jerarquia=str(p.get("capitulo") or p.get("titulo") or "")))
+                if len(m.locales) >= MAX_LOCALES:
+                    break
+            if m.locales:
+                print(f"   ⚖️ ley del acto: {_ley[:60]} · "
+                      f"{len(m.locales)} preceptos al marco "
+                      f"(la responsable citó {', '.join(a for a, _ in citados[:6])})")
+        else:
+            m.avisos.append(
+                "NO SE PUDO LEER CON QUÉ LEY SE DICTÓ EL ACTO RECLAMADO: el "
+                "documento no cita artículos de ningún código o ley del estado. "
+                "El marco va sin el precepto local, que es el que se transcribe: "
+                "compruébalo antes de firmar.")
 
     if m.vacio():
         m.avisos.append(
