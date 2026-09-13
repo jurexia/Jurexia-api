@@ -232,30 +232,199 @@ _RX_ORIGINARIA = re.compile(
 # resultando real del 17/2025 devolvía cadena vacía. El segundo punto del
 # resolutivo salía entonces con el respaldo, que en un recurso es el ÓRGANO
 # RECURRIDO: se habría amparado contra el acto del Juzgado de Distrito.
+# LOS DOS PUNTOS SON OBLIGATORIOS, y costó un resolutivo descubrirlo. Con
+# `:?` el patrón disparaba sobre la PROSA: en el amparo en revisión 322/2025 la
+# recurrida dice «admitió a trámite la demanda de amparo, solicitó a las
+# autoridades responsables su informe justificado», y `responsable_originaria`
+# devolvía «su informe justificado». Eso viajaba al SEGUNDO punto resolutivo,
+# donde va el nombre de la autoridad contra cuyo acto se ampara.
+#
+# Y EL ANCLA DE MAYÚSCULA NO ANCLABA NADA: `[A-ZÁÉÍÓÚÑ]` bajo `re.I` acepta
+# minúsculas, que es justo lo que esa clase venía a impedir. Quitar la bandera
+# rompería «ACTOS RECLAMADOS» en versales, así que la mayúscula se comprueba
+# aparte, sobre el texto capturado.
 _RX_ORIGINARIA_ROTULO = re.compile(
-    r"autoridad(?:es)?\s+responsable(?:s)?\s*:?\s*\n?\s*"
+    r"autoridad(?:es)?\s+responsable(?:s)?\s*:\s*\n?\s*"
     r"((?:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\w\sáéíóúñ,\.]{6,90}?)"
     r"(?=\n|acto\s+reclamado|[;\.]|$)", re.I)
+
+# «CONTRA ACTOS DEL Juez Primero de Primera Instancia Civil de San Juan del
+# Río». Es como lo escribe el corpus de verdad —lo dice cinco veces en la
+# recurrida del 322/2025— y `_RX_ORIGINARIA` no lo veía: esperaba «a» o «al» y
+# aquí va «del». Sin esta forma, el amparo en revisión cuyo acto viene de un
+# juzgado común se quedaba sin responsable originaria.
+_RX_ORIGINARIA_CONTRA = re.compile(
+    r"(?:contra|combate)\s+(?:los\s+)?actos?\s+(?:reclamados?\s+)?"
+    r"(?:de\s+l[ao]s?|del|de|a\s+l[ao]s?|al|a)\s+"
+    r"((?:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\w\sáéíóúñ,\.]{6,90}?)"
+    r"(?=\s+y\s+del?\s|\s+que\s+hizo|\s+consistente|[;\.]|$)", re.I)
 
 _RX_NO_ES = re.compile(
     r"ju(?:ez|zgado)\s+.{0,30}de\s+distrito|tribunal\s+colegiado", re.I)
 
 
-def responsable_originaria(texto: str) -> str:
-    """La autoridad del acto reclamado, o cadena vacía."""
+# LOS CARGOS QUE TAMBIÉN SON AUTORIDAD. `fase_autoridad` nombra los órganos que
+# juzgan; aquí hace falta además quien ADMINISTRA, porque el acto reclamado de
+# un amparo indirecto lo dicta tan a menudo un director de ingresos como un juez
+# de primera instancia.
+_RX_ROL_DE_AUTORIDAD = re.compile(
+    r"\b(?:ju(?:ez|eza|zgado)|sala|tribunal|magistrad\w*|junta|pleno|"
+    r"direc(?:tor|tora|ci[óo]n)|secretar\w*|presiden\w*|titular|delegad\w*|"
+    r"subdelegad\w*|subdirec\w*|administrador\w*|instituto|comisi[óo]n|"
+    r"consejo|coordinad\w*|jefe|jefa|tesorer\w*|oficial|notari\w*|"
+    r"registrador\w*|fiscal|agente|procurador\w*|ayuntamiento|municipio|"
+    r"encargad\w*|superintenden\w*|contralor\w*|recaudad\w*|"
+    r"comisionad\w*|inspector\w*|auditor\w*)\b", re.I)
+
+
+def _sirve(n: str, excluir_amparo: bool = True) -> bool:
+    """¿Es un nombre de autoridad y no un trozo de prosa?
+
+    LA MAYÚSCULA SE COMPRUEBA AQUÍ porque en el patrón no sirve: `re.I` anula
+    la clase `[A-ZÁÉÍÓÚÑ]` y deja pasar «su informe justificado».
+
+    `excluir_amparo` distingue los dos usos, y son opuestos. Para el RESOLUTIVO
+    hay que descartar a los órganos de amparo: el juzgado de distrito es el
+    recurrido, no la responsable, y ampararse contra su acto sería el error que
+    `_RX_NO_ES` viene a impedir. Para saber la SEDE DEL ACTO hay que admitirlos:
+    cuando lo que se reclamó fue el auto de un juez de distrito, la respuesta
+    correcta es precisamente «un órgano de amparo».
+    """
+    if len(n) < 8 or not n[:1].isupper():
+        return False
+    if excluir_amparo and _RX_NO_ES.search(n):
+        return False
+    # Y QUE SEA UNA AUTORIDAD, NO UNA FRASE QUE EMPIEZA EN MAYÚSCULA. Medido
+    # sobre el corpus: el amparo en revisión 888/2026 devolvía «Usted y otras
+    # autoridades», que pasa el largo y la mayúscula y no nombra a nadie.
+    #
+    # NO BASTA `fase_autoridad.identificable`, y la prueba lo cazó: ese
+    # comprobador tiene vocabulario de órganos JURISDICCIONALES y rechaza
+    # «Director de Ingresos del Municipio de Querétaro», que es una responsable
+    # de las más corrientes en amparo administrativo. Usarlo a secas habría
+    # tirado la materia entera. Vale como señal positiva, y al lado va el
+    # vocabulario de los cargos que también son autoridad.
+    if _RX_ROL_DE_AUTORIDAD.search(n):
+        return True
+    try:
+        import fase_autoridad as _fa
+        return bool(_fa.identificable(n))
+    except Exception:
+        return True
+
+
+def responsable_originaria(texto: str, excluir_amparo: bool = True) -> str:
+    """La autoridad del acto reclamado, o cadena vacía.
+
+    Por omisión descarta a los órganos de amparo, que es lo que necesita el
+    resolutivo. `sede_del_acto` la llama con `excluir_amparo=False`.
+    """
     # EL FORMATO ROTULADO PRIMERO, sobre el texto SIN aplanar: la etiqueta y el
     # nombre van en líneas distintas y aplanar los saltos borra la frontera.
     for m in _RX_ORIGINARIA_ROTULO.finditer(texto or ""):
         n_ = " ".join((m.group(1) or "").split()).strip(" ,.")
-        if len(n_) >= 8 and not _RX_NO_ES.search(n_):
+        if _sirve(n_, excluir_amparo):
             return n_
     t = " ".join((texto or "").split())
+    # «contra actos del …», que es como lo escribe el corpus.
+    for m in _RX_ORIGINARIA_CONTRA.finditer(t):
+        n = " ".join((m.group(1) or "").split()).strip(" ,.")
+        if _sirve(n, excluir_amparo):
+            return n
     for m in _RX_ORIGINARIA.finditer(t):
-        n = (m.group(1) or m.group(2) or "").strip(" ,.")
-        if len(n) < 8 or _RX_NO_ES.search(n):
-            continue
-        return n
+        n = " ".join((m.group(1) or m.group(2) or "").split()).strip(" ,.")
+        if _sirve(n, excluir_amparo):
+            return n
     return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA SEDE DEL ACTO Y EL CUADERNO DEL QUE VIENE LA RECURRIDA
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# David, 13-sep-2026: «cuando se trata de amparo en revisión, si el tema no se
+# refiere a la suspensión definitiva —que sería revisión contra la sentencia
+# dictada en el CUADERNO INCIDENTAL—, las medidas cautelares que dicta la
+# responsable no se rigen por la Ley de Amparo, sino por la ley que rige el acto
+# reclamado. No quiero que le impongas al modelo que invoque esa ley, sino que
+# modifiques la ARQUITECTURA para que lo entienda».
+#
+# Eso son dos datos, y los dos SE LEEN del expediente. Preguntárselos al
+# secretario sería una casilla más; pedírselos al modelo, una ocasión más de
+# inventarlos.
+#
+#   SEDE DEL ACTO — quién dictó el acto reclamado del amparo indirecto:
+#     · «amparo»    un órgano de amparo. Su auto o su interlocutoria SÍ se rigen
+#                   por la Ley de Amparo, porque es la ley que él aplicó.
+#     · «ordinaria» una autoridad del fuero común o administrativo. Entonces
+#                   rige LA LEY QUE ELLA APLICÓ, y los preceptos de la
+#                   suspensión del amparo no vienen a cuento.
+#
+#   CUADERNO — de dónde sale la sentencia recurrida:
+#     · «principal»  de la audiencia constitucional.
+#     · «incidental» del incidente de suspensión. Ahí el objeto del recurso ES
+#                    la suspensión del juicio de amparo, y la Ley de Amparo
+#                    gobierna el fondo con todas las letras.
+#
+# LA ASIMETRÍA ES LO QUE HACE FIABLE ESTO: los órganos de amparo son un conjunto
+# CERRADO Y CORTO —juzgados de distrito, tribunales colegiados, unitarios de
+# circuito, plenos regionales—, mientras que las autoridades ordinarias son
+# incontables. Así que se reconoce lo poco y todo lo demás es lo otro, en vez de
+# intentar enumerar el mundo.
+#
+# OJO CON EL UNITARIO: el «Tribunal Unitario de Circuito» es órgano de amparo;
+# el «Tribunal Unitario Agrario» es autoridad ordinaria y sus sentencias se
+# reclaman en amparo. Por eso se exige «de circuito».
+_ES_ORGANO_DE_AMPARO = re.compile(
+    r"ju(?:ez|eza|zgado)\s+[^,;.]{0,40}\bde\s+distrito\b"
+    r"|tribunal(?:es)?\s+colegiado"
+    r"|tribunal(?:es)?\s+unitario\s+de\s+circuito"
+    r"|pleno\s+regional",
+    re.I)
+
+
+def sede_del_acto(texto: str) -> tuple:
+    """(«amparo»|«ordinaria»|«», por qué). Del acto reclamado del indirecto."""
+    quien = responsable_originaria(texto or "", excluir_amparo=False)
+    if not quien:
+        return "", ("No se pudo leer del expediente qué autoridad dictó el acto "
+                    "reclamado del amparo indirecto.")
+    if _ES_ORGANO_DE_AMPARO.search(quien):
+        return "amparo", quien
+    return "ordinaria", quien
+
+
+# EL CUADERNO. La audiencia constitucional resuelve el juicio; el incidente de
+# suspensión resuelve la suspensión. Los marcadores son de los que no se
+# prestan: una sentencia de amparo dice cuál celebró.
+_RX_INCIDENTAL = re.compile(
+    r"incidente\s+de\s+suspensi[óo]n|cuaderno\s+incidental|"
+    r"audiencia\s+incidental|interlocutori[ao]|"
+    r"suspensi[óo]n\s+definitiva", re.I)
+_RX_PRINCIPAL = re.compile(
+    r"audiencia\s+constitucional|cuaderno\s+principal", re.I)
+
+
+def cuaderno_recurrido(texto: str) -> tuple:
+    """(«principal»|«incidental»|«», por qué) del que viene la recurrida.
+
+    SE CALLA CUANDO LOS DOS APARECEN. Una sentencia del cuaderno principal puede
+    mencionar de pasada el incidente, y al revés; cuando las dos familias de
+    marcadores están presentes, quien decide es el secretario y no una cuenta de
+    palabras. Callar aquí no rompe nada: el resto del sistema trata el «no lo sé»
+    como el caso general.
+    """
+    t = texto or ""
+    inc = len(_RX_INCIDENTAL.findall(t))
+    pri = len(_RX_PRINCIPAL.findall(t))
+    if pri and not inc:
+        return "principal", f"la recurrida nombra la audiencia constitucional ({pri})"
+    if inc and not pri:
+        return "incidental", f"la recurrida nombra el incidente de suspensión ({inc})"
+    if pri or inc:
+        return "", (f"la recurrida nombra las dos cosas —constitucional {pri}, "
+                    f"incidental {inc}—: no se deduce de qué cuaderno viene")
+    return "", "la recurrida no dice de qué cuaderno viene"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

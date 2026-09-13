@@ -108,6 +108,64 @@ ok(ta.ley_de_la_via("inventado") == "",
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 1 bis · LOS DOS DATOS QUE SE DERIVAN DEL EXPEDIENTE
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «no quiero que le impongas al modelo que invoque esa ley, sino que
+# modifiques la ARQUITECTURA para que lo entienda». Eso son dos datos, y los dos
+# SE LEEN: quién dictó el acto reclamado del amparo indirecto, y de qué cuaderno
+# viene la sentencia recurrida.
+print("\n── 1 bis · LA SEDE DEL ACTO Y EL CUADERNO ──")
+import fase_rama as fr
+
+_RECURRIDA_ORDINARIA = (
+    "En la audiencia constitucional celebrada en el juicio de amparo 398/2025, "
+    "promovido por Andrés A. M., por derecho propio y en representación de sus "
+    "hijos menores de edad, contra actos del Juez Primero de Primera Instancia "
+    "Civil de San Juan del Río, Querétaro y del actuario de su adscripción, que "
+    "hizo consistir en la orden de restricción dictada como medida provisional.")
+sede, quien = fr.sede_del_acto(_RECURRIDA_ORDINARIA)
+ok(sede == "ordinaria", f"el acto de un juez de primera instancia es sede ORDINARIA (salió «{sede}»)")
+ok("Primera Instancia" in quien, f"y se nombra a quien lo dictó: {quien[:60]}")
+cuad, _p = fr.cuaderno_recurrido(_RECURRIDA_ORDINARIA)
+ok(cuad == "principal",
+   f"la sentencia de la audiencia constitucional viene del cuaderno PRINCIPAL "
+   f"(salió «{cuad}»)")
+
+_RECURRIDA_AMPARO = (
+    "Interlocutoria dictada en el incidente de suspensión derivado del juicio de "
+    "amparo 512/2025, en la que se concedió la suspensión definitiva contra "
+    "actos del Juez Cuarto de Distrito en el Estado de Querétaro.")
+sede2, _q2 = fr.sede_del_acto(_RECURRIDA_AMPARO)
+ok(sede2 == "amparo",
+   f"el acto de un juez de DISTRITO es sede de amparo: ahí la Ley de Amparo SÍ "
+   f"rige el acto (salió «{sede2}»)")
+cuad2, _p2 = fr.cuaderno_recurrido(_RECURRIDA_AMPARO)
+ok(cuad2 == "incidental",
+   f"la interlocutoria del incidente viene del cuaderno INCIDENTAL (salió «{cuad2}»)")
+
+# ── CALIBRACIÓN: ni se inventa ni se estrecha ─────────────────────────────
+# El fallo que se arregló: `responsable_originaria` devolvía «su informe
+# justificado» porque el patrón del rótulo hacía los dos puntos opcionales y
+# `re.I` anulaba el ancla de mayúscula. Eso viajaba al SEGUNDO punto resolutivo.
+ok(fr.responsable_originaria(
+    "admitió a trámite la demanda de amparo, solicitó a las autoridades "
+    "responsables su informe justificado; dio al Agente del Ministerio "
+    "Público la intervención que le compete.") == "",
+   "la prosa «a las autoridades responsables su informe justificado» ya no "
+   "pasa por nombre de autoridad")
+ok(not fr._sirve("Usted y otras autoridades"),
+   "«Usted y otras autoridades» no es una autoridad")
+# Y NO SE ESTRECHA: un director de ingresos es responsable de las más corrientes
+# en amparo administrativo. Un filtro que sólo admitiera órganos que juzgan
+# habría tirado la materia entera — lo cazó test_taller_hallazgos.
+ok(fr._sirve("Director de Ingresos del Municipio de Querétaro"),
+   "un Director de Ingresos SÍ es autoridad: el filtro no puede exigir que "
+   "quien dictó el acto sea un órgano jurisdiccional")
+ok(fr.sede_del_acto("no dice nada de nadie")[0] == "",
+   "sin autoridad legible se calla, que es el fallo correcto")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 2 · LA RECUPERACIÓN, CONTRA EL ACERVO DE VERDAD
 # ═══════════════════════════════════════════════════════════════════════════
 async def _contra_qdrant():
