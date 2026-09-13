@@ -253,6 +253,21 @@ _RX_ORIGINARIA_ROTULO = re.compile(
 # recurrida del 322/2025— y `_RX_ORIGINARIA` no lo veía: esperaba «a» o «al» y
 # aquí va «del». Sin esta forma, el amparo en revisión cuyo acto viene de un
 # juzgado común se quedaba sin responsable originaria.
+# LAS RANURAS QUE NOMBRAN AL AUTOR DEL ACTO. Medido sobre el corpus: los
+# patrones de arriba viven en el TEXTO CRUDO de la recurrida, que sólo se guarda
+# en 14 de 108 sesiones; lo que hay en las 108 es la narrativa —`antecedentes` y
+# `resumen_acto`—, y ahí el acto se atribuye con otras formas: «dictado por»,
+# «emitido por», «atribuidos a». Sin estas ranuras la sede se quedaba en hueco
+# en 36 de 50 revisiones.
+_RX_ORIGINARIA_AUTOR = re.compile(
+    r"(?:dictad[oa]s?|emitid[oa]s?|pronunciad[oa]s?|practicad[oa]s?|"
+    r"decretad[oa]s?|ordenad[oa]s?)\s+por\s+"
+    r"((?:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\w\sáéíóúñ,\.]{6,90}?)"
+    r"(?=\s+(?:en|dentro|el|la|los|las|al|con|que|y)\s|[;\.]|$)"
+    r"|atribuid[oa]s?\s+a(?:l)?\s+"
+    r"((?:la\s+|el\s+)?[A-ZÁÉÍÓÚÑ][\w\sáéíóúñ,\.]{6,90}?)"
+    r"(?=\s+(?:en|dentro|que|y|consistente)\s|[;\.]|$)", re.I)
+
 _RX_ORIGINARIA_CONTRA = re.compile(
     r"(?:contra|combate)\s+(?:los\s+)?actos?\s+(?:reclamados?\s+)?"
     r"(?:de\s+l[ao]s?|del|de|a\s+l[ao]s?|al|a)\s+"
@@ -331,6 +346,11 @@ def responsable_originaria(texto: str, excluir_amparo: bool = True) -> str:
         n = " ".join((m.group(1) or "").split()).strip(" ,.")
         if _sirve(n, excluir_amparo):
             return n
+    # «dictado por …», «atribuidos a …»: las ranuras de la narrativa.
+    for m in _RX_ORIGINARIA_AUTOR.finditer(t):
+        n = " ".join((m.group(1) or m.group(2) or "").split()).strip(" ,.")
+        if _sirve(n, excluir_amparo):
+            return n
     for m in _RX_ORIGINARIA.finditer(t):
         n = " ".join((m.group(1) or m.group(2) or "").split()).strip(" ,.")
         if _sirve(n, excluir_amparo):
@@ -383,13 +403,46 @@ _ES_ORGANO_DE_AMPARO = re.compile(
     re.I)
 
 
+# ═══ LA SEDE ES EL CARÁCTER, NO LA CLASE DE ÓRGANO ═══════════════════════════
+#
+# La primera versión decía: si quien dictó el acto es un juzgado de distrito, la
+# sede es de amparo. El corpus trae el contraejemplo y lo trae ya cargado: el
+# amparo en revisión 888/2026. Allí el acto reclamado es un auto del JUZGADO
+# QUINTO DE DISTRITO dictado dentro de unas MEDIDAS DE ASEGURAMIENTO en
+# jurisdicción ordinaria concurrente —lo fundó en los artículos 227, 228, 231,
+# 240 y 241 del Código Federal de Procedimientos Civiles, no en la Ley de
+# Amparo—, y el recurrido es otro juzgado de distrito distinto.
+#
+# O sea: un juez federal puede actuar en jurisdicción ordinaria, y entonces su
+# acto se juzga con la ley que ÉL aplicó, que es exactamente la regla de David.
+# Así que primero se mira LA LEY, que es el dato que la regla nombra, y sólo si
+# no consta se cae a la clase de órgano.
+_RX_LEY_DEL_ACTO_AMPARO = re.compile(
+    r"(?:con\s+)?fundamento\s+en[^.;]{0,120}?\bley\s+de\s+amparo\b|"
+    r"art[íi]culos?\s+[\d,\s(?:y)]{1,40}\s+de\s+la\s+ley\s+de\s+amparo", re.I)
+_RX_LEY_DEL_ACTO_OTRA = re.compile(
+    r"(?:con\s+)?fundamento\s+en[^.;]{0,140}?\b"
+    r"(c[óo]digo[^.;,]{0,60}|ley\s+(?!de\s+amparo)[^.;,]{0,60})", re.I)
+
+
 def sede_del_acto(texto: str) -> tuple:
     """(«amparo»|«ordinaria»|«», por qué). Del acto reclamado del indirecto."""
-    quien = responsable_originaria(texto or "", excluir_amparo=False)
+    t = texto or ""
+    quien = responsable_originaria(t, excluir_amparo=False)
+    de_amparo = bool(_ES_ORGANO_DE_AMPARO.search(quien)) if quien else False
+
+    # LA LEY QUE ELLA APLICÓ manda sobre quién es ella. Si el acto se fundó en
+    # un código y no en la Ley de Amparo, la sede es ordinaria aunque lo haya
+    # dictado un juez federal.
+    otra = _RX_LEY_DEL_ACTO_OTRA.search(t)
+    if de_amparo and otra and not _RX_LEY_DEL_ACTO_AMPARO.search(t):
+        return "ordinaria", (
+            f"{quien} — pero el acto se fundó en «{otra.group(1).strip()[:60]}», "
+            f"no en la Ley de Amparo: actuó en jurisdicción ordinaria")
     if not quien:
         return "", ("No se pudo leer del expediente qué autoridad dictó el acto "
                     "reclamado del amparo indirecto.")
-    if _ES_ORGANO_DE_AMPARO.search(quien):
+    if de_amparo:
         return "amparo", quien
     return "ordinaria", quien
 
@@ -397,12 +450,36 @@ def sede_del_acto(texto: str) -> tuple:
 # EL CUADERNO. La audiencia constitucional resuelve el juicio; el incidente de
 # suspensión resuelve la suspensión. Los marcadores son de los que no se
 # prestan: una sentencia de amparo dice cuál celebró.
+# LOS SEIS MARCADORES DE «INCIDENTAL» ERAN FALSOS POSITIVOS. LOS SEIS. Medido
+# sobre las 28 filas de amparo en revisión del corpus:
+#   · «cuaderno incidental» sale 4 veces en 2 filas y las 2 son un cuaderno
+#     incidental DEL JUICIO ORDINARIO —una remoción de albacea, una entrega de
+#     posesión—, no del amparo;
+#   · «incidente de suspensión» y «suspensión definitiva/provisional» salen
+#     narrando el trámite de la suspensión como ANTECEDENTE de una revisión que
+#     es de cuaderno principal;
+#   · «interlocutoria» sale 14 veces y ninguna es interlocutoria de suspensión;
+#   · «cuaderno principal» no aparece NUNCA: 0 de 108 filas.
+#
+# El clasificador ingenuo acertaba 21 de 28 y —esto es lo grave— 6 de sus 7
+# fallos eran FALSO INCIDENTAL: declaraba aplicable la Ley de Amparo justo donde
+# no rige, que es el defecto que todo esto viene a cerrar. Con dos correcciones
+# sube a 27 de 28 y el único fallo que queda es un HUECO, no una respuesta
+# falsa:
+#   (1) «audiencia constitucional» tiene PRIORIDAD ABSOLUTA. Su especificidad es
+#       perfecta: 58 apariciones en 26 de 28 revisiones y cero en los 57 asuntos
+#       de las otras vías.
+#   (2) la suspensión sólo cuenta si va pegada a un VERBO DE RESOLUCIÓN O DE
+#       RECURSO —se recurre, se resuelve, se dicta la interlocutoria—, no a la
+#       mera mención del trámite.
+_RX_PRINCIPAL = re.compile(r"audiencia\s+constitucional", re.I)
 _RX_INCIDENTAL = re.compile(
-    r"incidente\s+de\s+suspensi[óo]n|cuaderno\s+incidental|"
-    r"audiencia\s+incidental|interlocutori[ao]|"
-    r"suspensi[óo]n\s+definitiva", re.I)
-_RX_PRINCIPAL = re.compile(
-    r"audiencia\s+constitucional|cuaderno\s+principal", re.I)
+    r"(?:recurre|recurri[óo]|impugna|impugn[óo]|resuelve|resolvi[óo]|"
+    r"dict[óo]|confirm[óo]|revoc[óo]|modific[óo])"
+    r"[^.;]{0,80}?(?:interlocutori[ao]|incidente\s+de\s+suspensi[óo]n|"
+    r"cuaderno\s+incidental)"
+    r"|(?:interlocutori[ao]|sentencia)[^.;]{0,40}?"
+    r"(?:incidente\s+de\s+suspensi[óo]n|cuaderno\s+incidental)", re.I)
 
 
 def cuaderno_recurrido(texto: str) -> tuple:
@@ -415,16 +492,18 @@ def cuaderno_recurrido(texto: str) -> tuple:
     como el caso general.
     """
     t = texto or ""
-    inc = len(_RX_INCIDENTAL.findall(t))
     pri = len(_RX_PRINCIPAL.findall(t))
-    if pri and not inc:
-        return "principal", f"la recurrida nombra la audiencia constitucional ({pri})"
-    if inc and not pri:
-        return "incidental", f"la recurrida nombra el incidente de suspensión ({inc})"
-    if pri or inc:
-        return "", (f"la recurrida nombra las dos cosas —constitucional {pri}, "
-                    f"incidental {inc}—: no se deduce de qué cuaderno viene")
-    return "", "la recurrida no dice de qué cuaderno viene"
+    # PRIORIDAD ABSOLUTA, no recuento. Si el a quo celebró audiencia
+    # constitucional, la sentencia recurrida es la del cuaderno principal aunque
+    # el expediente narre además el trámite de la suspensión — que es lo
+    # normal, y es lo que hacía fallar al recuento.
+    if pri:
+        return "principal", f"el a quo celebró audiencia constitucional ({pri})"
+    inc = len(_RX_INCIDENTAL.findall(t))
+    if inc:
+        return "incidental", (f"se recurre lo resuelto en el incidente de "
+                              f"suspensión ({inc})")
+    return "", "el expediente no dice de qué cuaderno viene la recurrida"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
