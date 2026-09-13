@@ -491,7 +491,23 @@ def anuncio_de(t: dict, anuncio_del_modelo: str = "") -> str:
         frase += f" {de} {completo}"
     if reg:
         frase += f", de registro digital {reg}"
-    return frase + ", de rubro y texto siguientes:"
+    # ── SE ANUNCIA LO QUE SE VA A ENTREGAR, NI MÁS ─────────────────────────
+    # Decía siempre «de rubro y texto siguientes:» y debajo aparecía sólo el
+    # rubro. No es que el texto se pierda —`escribir_cita` lo baja a la nota al
+    # pie cuando pasa de MAX_PALABRAS_TESIS_CUERPO, que es una decisión tomada
+    # a propósito para que el estudio no quede sepultado bajo sus citas—, pero
+    # el anuncio seguía prometiendo que venía a continuación. En una sentencia
+    # eso es un defecto de forma que el magistrado devuelve.
+    #
+    # Medido en el 650-2025: los CUATRO bloques anunciaban «rubro y texto» y en
+    # los cuatro sólo bajaba el rubro.
+    #
+    # La condición es exactamente la misma que usa `escribir_cita` para decidir
+    # dónde va el texto. Si cambia una, tiene que cambiar la otra.
+    _cuerpo = (t.get("texto") or "").strip()
+    if _cuerpo and len(_cuerpo.split()) <= MAX_PALABRAS_TESIS_CUERPO:
+        return frase + ", de rubro y texto siguientes:"
+    return frase + ", de rubro siguiente:"
 
 
 def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
@@ -1845,11 +1861,66 @@ _RX_ARRANQUE_ATADO = re.compile(
     r"adem[áa]s|tambi[ée]n|donde|mientras|seg[úu]n|salvo)\b", re.I)
 
 
+# ── LA FICHA QUE SE QUEDA AL FRENTE DE LA COLA ──────────────────────────────
+# David, 13-sep-2026, pegando el defecto tal cual salió:
+#
+#     «ALIMENTOS A MENORES DE EDAD. TIENEN UNA TRIPLE DIMENSIÓN, …»
+#     registro 2023835, reconoce que la obligación alimentaria no se reduce a
+#     una relación privada entre progenitor y menor, …
+#
+# El modelo escribe «…, de rubro «RUBRO», registro 2023835, reconoce que…» y el
+# compositor corta por el rubro. La cola arranca con el RESTO DE LA FICHA y a
+# continuación viene el verbo de la oración decapitada.
+#
+# El arreglo de abajo existía y no la cogía: `_RX_ARRANQUE_NOMINAL` incluye la
+# palabra «registro», así que la tomaba por residuo de ficha —«registro digital
+# 179849.»— y la dejaba intacta. La diferencia entre las dos no está en la
+# primera palabra: está en si DETRÁS de la ficha sigue una oración.
+#
+# Se poda la ficha y se decide sobre lo que queda. Podarla no pierde nada: el
+# registro ya se dijo en el párrafo de entrada que escribe `escribir_cita`
+# —«de registro digital 2023835, de rubro…»— y repetirlo dos renglones después
+# era, además de la causa del corte, una redundancia.
+#
+# EL FRENO: exige coma o punto y coma al final. «registro digital 179849.»
+# termina en punto, no se poda, y sigue cayéndose por el filtro de longitud del
+# llamador, que es lo que ya hacía bien.
+_RX_FICHA_AL_FRENTE = re.compile(
+    r"^(?:registro(?:\s+digital)?|p[áa]gina|tomo|libro|volumen|[ée]poca|"
+    r"tesis|n[úu]mero|clave|instancia|materia|localizaci[óo]n|"
+    r"gaceta(?:\s+del\s+semanario\s+judicial(?:\s+de\s+la\s+federaci[óo]n)?)?|"
+    r"semanario(?:\s+judicial(?:\s+de\s+la\s+federaci[óo]n)?)?)"
+    # EL PUNTO DE LA ABREVIATURA SÍ, EL DEL FINAL DE FRASE NO. La ficha real
+    # lleva puntos dentro —«tesis 1a./J. 44/2021»— así que excluirlos dejaba
+    # fuera la forma más común de citar en México. Pero tragarse un punto de
+    # cierre haría que la poda saltara a la oración siguiente y se comiera texto
+    # bueno. Se distingue por lo que viene detrás: un punto seguido de mayúscula
+    # —o del final— cierra frase; «J. 44» no.
+    r"(?:[^,;.]|\.(?!\s*(?:[A-ZÁÉÍÓÚÑ]|$))){0,80}[,;]\s*", re.I)
+
+
+def _sin_ficha_al_frente(c: str) -> str:
+    """Poda los trozos de ficha pegados al principio de la cola."""
+    for _ in range(4):                      # «registro X, página Y, tomo Z,»
+        n = _RX_FICHA_AL_FRENTE.sub("", c, count=1).lstrip(" ,;:")
+        if n == c:
+            break
+        c = n
+    return c
+
+
 def _con_sujeto_tras_cita(cola: str, tesis: dict) -> str:
     """Le devuelve el sujeto a la media frase que quedó debajo de la cita."""
     c = (cola or "").lstrip()
+    podada = _sin_ficha_al_frente(c)
+    if podada != c:
+        # SI AL PODAR NO QUEDA ORACIÓN, era ficha y nada más: se va entera. Con
+        # tres palabras o menos no hay sujeto que reponer ni frase que salvar.
+        if len(podada.split()) <= 3:
+            return ""
+        c = podada
     if not c or not c[0].islower() or _RX_ARRANQUE_ATADO.match(c):
-        return cola
+        return c
     # NO A LOS FRAGMENTOS. Lo que sigue a la cita no siempre es media oración:
     # a veces es un resto de la ficha —«registro digital 179849.»—, y ponerle
     # sujeto produce «La jurisprudencia en cita registro digital 179849.», que
@@ -1858,7 +1929,7 @@ def _con_sujeto_tras_cita(cola: str, tesis: dict) -> str:
     # Dos filtros: una oración de verdad tiene más de seis palabras, y empieza
     # por VERBO, no por un sustantivo de la ficha ni por una preposición.
     if len(c.split()) <= 6 or _RX_ARRANQUE_NOMINAL.match(c):
-        return cola
+        return c
     nombre = ("La jurisprudencia en cita"
               if "JURISPRUDENCIA" in str(tesis.get("tipo") or "").upper()
               else "La tesis en cita")
