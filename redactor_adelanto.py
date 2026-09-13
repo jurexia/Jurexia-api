@@ -563,6 +563,10 @@ async def consultar(qdrant, embed_juris, embed_leyes,
         _espejo_propio(qdrant, embed_leyes, r, problemas))
     material.sondeo = sondeo
     material.espejo = espejo or []
+    # Y LOS DOS DATOS DERIVADOS VIAJAN CON EL MATERIAL, que es lo que llega a
+    # todos los prompts y a todos los verificadores.
+    material.sede_del_acto = _sede
+    material.cuaderno = _cuaderno
     material.materia = fp_materia(r.encargo)
     # Y EL TIPO, para que la prosa del estudio nombre a las partes con las
     # figuras de ESTE recurso y no con las del amparo directo.

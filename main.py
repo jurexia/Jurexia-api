@@ -28048,10 +28048,11 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
 #  · Y se puede BORRAR: `/taller/olvidar` lo destruye todo —documentos, proyecto
 #    y sesión—, que es la única forma de que la promesa sea comprobable.
 #
-# LO QUE NO PUEDO PROMETER, Y SE DICE: el TEXTO del expediente viaja a los
-# proveedores de modelo para escribir el estudio. Eso es inherente a la
-# herramienta, no una decisión de almacenamiento, y el secretario lo tiene que
-# saber. Lo que este código garantiza es lo de arriba.
+# EL «SIN EXCEPCIÓN» ALCANZA TAMBIÉN A LOS MODELOS, y es decisión de David con
+# su razón: los planes de API de pago —OpenAI y los demás que el taller usa— no
+# emplean el contenido de las peticiones para entrenar. El expediente se manda a
+# generar el estudio y ahí acaba su recorrido. Así que la pantalla lo dice sin
+# matices, porque sin matices es como está contratado.
 def _ruta_fuente(user_email: str, numero: str, rol: str) -> str:
     import hashlib as _h, re as _re
     quien = _h.sha256((user_email or "").strip().lower().encode()).hexdigest()[:16]
@@ -30922,9 +30923,12 @@ async def taller_documentos(numero: str, user_email: str):
         proyecto = False
     return {"documentos": fuera, "proyecto": proyecto,
             "aviso": ("Tus documentos se guardan en un almacén privado, con tu "
-                      "correo cifrado en la ruta, y sólo se usan para tu propio "
-                      "proyecto. No se emplean para entrenar modelos ni para "
-                      "estadísticas. Puedes borrarlos cuando quieras.")}
+                      "correo cifrado en la ruta, y sólo se usan para escribir "
+                      "tu propio proyecto. No se emplean para entrenar modelos, "
+                      "ni para estadísticas, ni para ningún otro fin: tampoco "
+                      "los proveedores de los modelos, cuyos planes de pago no "
+                      "usan el contenido de las peticiones para entrenar. "
+                      "Puedes borrarlo todo cuando quieras.")}
 
 
 @app.get("/taller/documento")

@@ -161,6 +161,13 @@ class Material:
     # citar. El espejo es para la PANTALLA del secretario, que abre el PDF y
     # compara; el documento no lo menciona.
     espejo: list = field(default_factory=list)
+    # LOS DOS DATOS DERIVADOS. Quién dictó el acto reclamado del amparo
+    # indirecto —«amparo» u «ordinaria»— y de qué cuaderno viene la recurrida
+    # —«principal» o «incidental»—. Juntos deciden si la Ley de Amparo gobierna
+    # el acto, y de ahí cuelgan el filtro de jurisprudencia y el verificador de
+    # preceptos. Ver `fase_rama.sede_del_acto` y `fase_rama.cuaderno_recurrido`.
+    sede_del_acto: str = ""
+    cuaderno: str = ""
     # LA MATERIA VIAJA CON EL MATERIAL, no como parámetro. Hay cuatro sitios que
     # arman el prompt y cada parámetro nuevo es un sitio donde olvidarlo; el
     # Material ya llega a todos. Y aquí importa de veras: entregar la
@@ -1796,8 +1803,31 @@ _RX_CONDICIONAL = re.compile(
     r"|se\s+afirma\s+que|seg[úu]n\s+lo\s+planteado|de\s+ser\s+cierto"
     r"|en\s+el\s+supuesto\s+de\s+que|de\s+haberse\s+acreditado)\b", re.I)
 
+# LAS LEYES QUE NO HACE FALTA TENER EN EL MATERIAL PARA CITARLAS. Son las que
+# gobiernan el juicio pase lo que pase, y exigirlas en las NORMAS acusaría a todo
+# proyecto correcto.
 _NOTORIAS = ("ley de amparo", "constitución", "constitucion",
              "ley orgánica del poder judicial", "ley organica del poder judicial")
+
+# …PERO LA LEY DE AMPARO DEJA DE SER NOTORIA CUANDO NO RIGE EL ACTO.
+#
+# Medido en el amparo en revisión 322/2025, tras arreglar la recuperación: el
+# material ya no traía NI UNA norma ni UNA tesis de la suspensión del amparo, y
+# el estudio siguió citando los artículos 128 y 147 —de memoria del modelo—
+# para juzgar una medida provisional que dictó un juez de primera instancia. El
+# verificador de preceptos inventados no protestaba porque exime «ley de amparo»
+# por su nombre.
+#
+# Esa exención es correcta casi siempre: la Ley de Amparo rige la procedencia,
+# la oportunidad, la legitimación, la suplencia y el resolutivo de CUALQUIER
+# asunto de colegiado. Deja de serlo justo cuando el sistema ha DERIVADO que el
+# acto reclamado lo dictó una autoridad ordinaria y que el recurso no va contra
+# el incidente de suspensión: ahí, un artículo de la Ley de Amparo que no esté
+# en el material es exactamente lo que hay que denunciar.
+#
+# Y sólo se levanta para el TRAMO DE LA SUSPENSIÓN, los artículos 125 a 169. Los
+# demás —61, 63, 74, 76, 79, 81, 86, 93— siguen exentos, porque siguen rigiendo.
+_SUSPENSION_LA = range(125, 170)
 
 
 # Las comillas de un rubro llegan de tres formas —tipográficas, latinas y
@@ -2415,10 +2445,22 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
         return {w for w in re.findall(r"[\wáéíóúñ]+", x.lower())
                 if w not in _VACIAS and len(w) > 2}
 
+    # ¿EL SISTEMA DERIVÓ QUE LA LEY DE AMPARO NO RIGE ESTE ACTO? Ver arriba.
+    _sin_susp = (str(getattr(material, "sede_del_acto", "")) == "ordinaria"
+                 and str(getattr(material, "cuaderno", "")) == "principal")
     fuera: set[str] = set()
     for art, cola in _RX_ARTICULO.findall(estudio):
         cola_n = " ".join(cola.split()).lower()
         if any(n in cola_n for n in _NOTORIAS):
+            # La excepción de la excepción: el capítulo de la suspensión del
+            # amparo, cuando el acto no se rige por esa ley.
+            if _sin_susp and "amparo" in cola_n:
+                try:
+                    if int(art) in _SUSPENSION_LA and (
+                            "ley de amparo", str(art)) not in en_material:
+                        fuera.add(f"artículo {art} de la Ley de Amparo")
+                except (TypeError, ValueError):
+                    pass
             continue
         vc = _voces(cola_n)
         # La ley se reconoce por sus voces propias, pero hay que quedarse con la
