@@ -21589,8 +21589,15 @@ TALLER_COSTO_CONSULTAS = int(os.getenv("TALLER_COSTO_CONSULTAS", "10"))
 # deje de cobrar sin que nadie lo note.
 TALLER_SIN_LIMITE = {
     e.strip().lower()
+    # eri221185: cuenta de pruebas del piloto. David la puso sin tope el
+    # 13-sep-2026 —«súbela a ilimitada»— porque el máximo de 5 sentencias al día
+    # frenaba las pruebas a media tarde: el 322/2025 se quedó sin poder correr.
+    # Va aquí y no en una variable de Render a propósito: así queda en el
+    # historial de git, se ve quién lo pidió y se quita con un commit. Render
+    # además no reinicia al cambiar una variable, y eso ya costó un diagnóstico.
     for e in os.getenv("TALLER_SIN_LIMITE",
-                       "jdm.juridico@gmail.com,administracion@iurexia.com").split(",")
+                       "jdm.juridico@gmail.com,administracion@iurexia.com,"
+                       "eri221185@gmail.com").split(",")
     if e.strip()
 }
 
