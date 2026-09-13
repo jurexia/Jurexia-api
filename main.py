@@ -30340,8 +30340,13 @@ async def taller_resolver_stream(
                 for x in _rep_a if str(x.get("sentido", "")).strip()]
         print(f"   ⚡ TALLER: reparto por jurimetría · {len(crit)} de "
               f"{len(_probs_a)} planteamiento(s) · sin supervisión")
-        # SE DICE EN EL DOCUMENTO, no sólo en la pantalla. Quien abra este
-        # proyecto dentro de un mes tiene que saber que nadie miró el sentido.
+        # SE DICE, PERO SÓLO EN LA PANTALLA —y conviene no confundirse—.
+        # `r.avisos` es el canal de la pantalla: NINGÚN aviso del taller llega
+        # al .docx, ni éste ni los demás; se comprobó sobre el 650-2025 y no
+        # aparece uno solo en el documento. Así que quien abra este proyecto
+        # dentro de un mes NO puede saber por el archivo que nadie revisó el
+        # sentido. Marcarlo dentro exige tocar el ensamblado del documento, que
+        # es otro trabajo; queda anotado aquí para no darlo por hecho.
         try:
             r.avisos.append(
                 "PROYECTO GENERADO SIN SUPERVISIÓN: el sentido de cada "
