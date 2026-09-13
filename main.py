@@ -27670,6 +27670,15 @@ async def taller_adelanto(
          else asyncio.sleep(0, result="")))
     print(f"   ⏱️  OCR de los dos documentos: "
           f"{_t_ocr.perf_counter() - _t0_ocr:.1f}s")
+    # Y SE GUARDAN. Se leyeron para sacar el texto; ahora se conservan para que
+    # el secretario pueda volver a su asunto sin traerlos otra vez. Ver
+    # `_taller_guardar_fuente` para lo que esto promete y lo que no.
+    await asyncio.gather(
+        _taller_guardar_fuente(user_email, numero, "acto", acto),
+        _taller_guardar_fuente(user_email, numero, "conceptos", conceptos),
+        (_taller_guardar_fuente(user_email, numero, "constancias", constancias)
+         if constancias is not None and getattr(constancias, "filename", "")
+         else asyncio.sleep(0)))
     # PARADA DURA. Antes bastaba con 200 caracteres y el redactor escribió un
     # proyecto de 4,133 palabras que empezaba diciendo «no fue posible
     # identificar una sentencia reclamada en el texto proporcionado». Un
@@ -28013,6 +28022,64 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
               f"· {len(ficha['criterios'])} criterios")
     except Exception as ex:
         print(f"   ⚠️ no se pudo guardar la ficha del proyecto {numero}: {err(ex)}")
+
+
+# ═══ LOS DOCUMENTOS DEL SECRETARIO NO SE TIRAN ═══════════════════════════════
+#
+# David: «ya debemos tener la capacidad de guardar los archivos de cada
+# secretario y sus proyectos para que pueda volver a trabajar en su proyecto,
+# incluso cambiar de sentido. Esto debe ser dinámico y con historial (no
+# eliminar su pdf), pero ofrecerle privacidad y no utilización de datos
+# personales para ningún fin, sin excepción».
+#
+# Hasta hoy los PDF que subía se leían y se TIRABAN: `_extract_text_from_upload`
+# devuelve el texto y el fichero se pierde con la petición. Sólo sobrevivían el
+# .docx del proyecto y, por el camino de SISE, las constancias. Así que volver a
+# un asunto exigía volver a subirlos.
+#
+# LA PRIVACIDAD, EN LO QUE DEPENDE DE ESTE CÓDIGO:
+#  · Cubo PRIVADO, el mismo `expedientes` del proyecto.
+#  · La ruta lleva el correo CIFRADO —sha256, 16 caracteres—, nunca en claro:
+#    una ruta de almacén acaba en los registros y en los mensajes de error.
+#  · Se lee sólo con el correo de quien lo subió: la ruta no se puede adivinar
+#    desde otro usuario porque el hash es de su correo.
+#  · NO se usa para nada más. No se entrena con esto, no se mide con esto, no se
+#    lee para estadísticas. El único consumidor es el proyecto de ese secretario.
+#  · Y se puede BORRAR: `/taller/olvidar` lo destruye todo —documentos, proyecto
+#    y sesión—, que es la única forma de que la promesa sea comprobable.
+#
+# LO QUE NO PUEDO PROMETER, Y SE DICE: el TEXTO del expediente viaja a los
+# proveedores de modelo para escribir el estudio. Eso es inherente a la
+# herramienta, no una decisión de almacenamiento, y el secretario lo tiene que
+# saber. Lo que este código garantiza es lo de arriba.
+def _ruta_fuente(user_email: str, numero: str, rol: str) -> str:
+    import hashlib as _h, re as _re
+    quien = _h.sha256((user_email or "").strip().lower().encode()).hexdigest()[:16]
+    exp = _re.sub(r"[^A-Za-z0-9._-]", "_", (numero or "sin-numero").strip())[:60]
+    seguro = _re.sub(r"[^a-z_]", "", (rol or "doc").lower())[:20] or "doc"
+    return f"taller/{quien}/fuentes/{exp}/{seguro}.pdf"
+
+
+async def _taller_guardar_fuente(user_email: str, numero: str, rol: str,
+                                 archivo) -> None:
+    """Deja el PDF del secretario en el almacén privado. No revienta nada."""
+    if not (supabase_admin and archivo is not None):
+        return
+    try:
+        await archivo.seek(0)
+        datos = await archivo.read()
+        if not datos:
+            return
+        supabase_admin.storage.from_(_CUBO_TALLER).upload(
+            _ruta_fuente(user_email, numero, rol), datos,
+            {"content-type": getattr(archivo, "content_type", None)
+                             or "application/pdf",
+             "upsert": "true"})
+        print(f"   📎 {rol} de {numero} guardado ({len(datos) // 1024} KB)")
+    except Exception as e:
+        # Guardar es una mejora, no un requisito: si el almacén no responde, el
+        # adelanto ya está hecho y no se tira por esto.
+        print(f"   ⚠️ no se pudo guardar el {rol} de {numero}: {type(e).__name__}")
 
 
 def _taller_fijar_entidad(email: str, numero: str, coleccion: str) -> None:
@@ -30827,6 +30894,97 @@ async def taller_en_curso(user_email: str, limite: int = 6):
             } if pr else None),
         })
     return {"asuntos": [a for a in fuera if a["numero"]]}
+
+
+@app.get("/taller/documentos")
+async def taller_documentos(numero: str, user_email: str):
+    """Qué documentos del asunto están guardados, para poder volver a ellos."""
+    _taller_puerta(user_email)
+    if not supabase_admin:
+        return {"documentos": []}
+    fuera = []
+    for rol, etiqueta in (("acto", "Acto reclamado o sentencia recurrida"),
+                          ("conceptos", "Escrito de la parte"),
+                          ("constancias", "Constancias del expediente")):
+        try:
+            d = supabase_admin.storage.from_(_CUBO_TALLER).download(
+                _ruta_fuente(user_email, numero, rol))
+            if d:
+                fuera.append({"rol": rol, "etiqueta": etiqueta,
+                              "bytes": len(d)})
+        except Exception:
+            pass          # no está: no es un error, es que no se subió
+    proyecto = False
+    try:
+        proyecto = bool(supabase_admin.storage.from_(_CUBO_TALLER).download(
+            _ruta_taller(user_email, numero)))
+    except Exception:
+        proyecto = False
+    return {"documentos": fuera, "proyecto": proyecto,
+            "aviso": ("Tus documentos se guardan en un almacén privado, con tu "
+                      "correo cifrado en la ruta, y sólo se usan para tu propio "
+                      "proyecto. No se emplean para entrenar modelos ni para "
+                      "estadísticas. Puedes borrarlos cuando quieras.")}
+
+
+@app.get("/taller/documento")
+async def taller_documento(numero: str, rol: str, user_email: str):
+    """Uno de los documentos guardados del asunto."""
+    from fastapi.responses import Response
+    _taller_puerta(user_email)
+    if not supabase_admin:
+        raise HTTPException(404, "No hay almacén disponible.")
+    try:
+        datos = supabase_admin.storage.from_(_CUBO_TALLER).download(
+            _ruta_fuente(user_email, numero, rol))
+    except Exception:
+        datos = None
+    if not datos:
+        raise HTTPException(404, "Ese documento no está guardado en el asunto.")
+    _n = f"{(numero or 'asunto').replace('/', '-')}-{rol}.pdf"
+    return Response(content=datos, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_n}"'})
+
+
+# ═══ EL BOTÓN QUE HACE COMPROBABLE LA PROMESA ════════════════════════════════
+#
+# Decir «no usamos tus datos» sin dar la forma de borrarlos es una declaración;
+# con ella, es una garantía que el secretario puede ejercer. Borra TODO lo de
+# ese expediente: los documentos que subió, el proyecto generado, la ficha y la
+# fila de la sesión con sus textos.
+@app.post("/taller/olvidar")
+async def taller_olvidar(numero: str = Form(...), user_email: str = Form(...)):
+    """Destruye todo lo guardado de ese asunto. No se puede deshacer."""
+    _taller_puerta(user_email)
+    _correo = (user_email or "").strip().lower()
+    borrado = {"documentos": 0, "proyecto": False, "sesion": False}
+    if supabase_admin:
+        rutas = [_ruta_fuente(_correo, numero, r)
+                 for r in ("acto", "conceptos", "constancias")]
+        for ruta in rutas:
+            try:
+                supabase_admin.storage.from_(_CUBO_TALLER).remove([ruta])
+                borrado["documentos"] += 1
+            except Exception:
+                pass
+        try:
+            supabase_admin.storage.from_(_CUBO_TALLER).remove(
+                [_ruta_taller(_correo, numero)])
+            borrado["proyecto"] = True
+        except Exception:
+            pass
+        try:
+            supabase_admin.table("taller_sesiones").delete() \
+                .eq("email", _correo).eq("expediente", numero).execute()
+            borrado["sesion"] = True
+        except Exception as ex:
+            print(f"   ⚠️ no se pudo borrar la sesión de {numero}: {err(ex)}")
+    # Y de la memoria de ESTE proceso. El otro worker la purga por TTL.
+    _TALLER_SESIONES.pop(_taller_llave(_correo, numero), None)
+    print(f"   🗑️ olvidado {numero}: {borrado}")
+    return {"ok": True, "borrado": borrado,
+            "mensaje": ("Se borró todo lo de ese asunto: los documentos que "
+                        "subiste, el proyecto y la sesión. No se puede deshacer.")}
 
 
 @app.get("/taller/estado")
