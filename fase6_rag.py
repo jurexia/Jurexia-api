@@ -47,6 +47,108 @@ VECTOR_RUBRO = "rubro"          # el ganador medido, con pregunta conceptual
 COLECCION_FEDERAL = "leyes_federales"
 
 TESIS_POR_PROBLEMA = 6          # 6 entran en el prompt sin ahogar el material
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA LISTA Y EL RERANK — lo medido el 14-sep-2026 sobre 404 tesis reales
+# ═══════════════════════════════════════════════════════════════════════════
+# David: «la clave para acertar a los precedentes está en la lectura de Qdrant:
+# hay que buscar con las preguntas correctas».
+#
+# LO QUE DECÍA EL BANCO (redactor-sentencias/rag/medir_v4.py, 404 tesis citadas
+# por engroses reales, consulta formulada SIN ver la tesis):
+#   · el acervo PUEDE dar el 99% en top-10 si se pregunta con el rubro exacto
+#   · producción hoy —precisa → rubro— saca el 19%
+#   · el rerank del modelo sobre la lista de candidatas: 35% (y 16% en 1º)
+#   · el diagnóstico: cuando el objetivo está en la lista, el rerank lo escoge
+#     el 84% de las veces; el 59% de los fallos es que NO LLEGA a la lista
+#   · lo que más llena la lista: la PROSA del caso contra el vector `texto`,
+#     fundida por rango con las consultas de rubro (61% de cobertura en 100)
+#   · lo que NO sirve, medido: vecinos por recomendación, familia por voz,
+#     filtro de materia, candidatos por precepto, más razonamiento al formular
+#
+# De ahí las tres piezas de abajo. Van detrás de una bandera y hablan en el
+# registro cada vez que corren: una capa que se apaga sin ruido se ve igual que
+# una que funciona, y eso ya costó meses con HyDE.
+RAG_RERANK_TESIS = os.getenv("RAG_RERANK_TESIS", "1") != "0"
+RAG_RERANK_CANDIDATOS = int(os.getenv("RAG_RERANK_CANDIDATOS", "60"))
+RAG_PROSA_TESIS = int(os.getenv("RAG_PROSA_TESIS", "60"))     # cuántas trae la prosa→texto
+
+
+def _rrf_registros(listas: list, k0: int = 60) -> list:
+    """Fusión por rango recíproco de varias listas de registros."""
+    puntos: dict = {}
+    for L in listas:
+        for i, reg in enumerate(L):
+            if reg:
+                puntos[reg] = puntos.get(reg, 0.0) + 1.0 / (k0 + i + 1)
+    return [r for r, _ in sorted(puntos.items(), key=lambda t: -t[1])]
+
+
+_PROMPT_RERANK = """Eres secretario de un Tribunal Colegiado. Abajo va el planteamiento que hay
+que resolver —la pregunta y lo que se resolvió y se combate— y una lista
+numerada de rubros de tesis candidatas. Elige cuáles RESUELVEN ese punto —no
+cuáles tratan del mismo tema en general—, y ordénalas de la más pertinente a
+la menos. Devuelve como mucho DIEZ números. Si ninguna resuelve el punto,
+devuelve la lista vacía: no rellenes.
+
+Devuelve SÓLO un JSON: {{"orden": [<número>, <número>, ...]}}
+
+PLANTEAMIENTO: {pregunta}
+{hecho}
+
+CANDIDATAS:
+{candidatas}"""
+
+
+def _prompt_rerank(pregunta: str, hecho: str, rubros: list) -> str:
+    h = " ".join((hecho or "").split())[:900]
+    return _PROMPT_RERANK.format(
+        pregunta=" ".join((pregunta or "").split())[:400],
+        hecho=(f"RESOLVIÓ Y SE COMBATE: {h}" if h else ""),
+        candidatas="\n".join(f"{i + 1}. {r[:200]}" for i, r in enumerate(rubros)))
+
+
+def _leer_orden(texto: str, n: int) -> list:
+    """Los índices (base 0) que el modelo eligió, válidos y sin repetir."""
+    m = re.search(r"\{.*\}", texto or "", re.S)
+    if not m:
+        return []
+    try:
+        orden = json.loads(m.group(0)).get("orden") or []
+    except Exception:
+        return []
+    fuera = []
+    for x in orden:
+        try:
+            i = int(x) - 1
+        except Exception:
+            continue
+        if 0 <= i < n and i not in fuera:
+            fuera.append(i)
+    return fuera[:10]
+
+
+async def rerank_tesis(cliente, pregunta: str, hecho: str, candidatas: list) -> list:
+    """Le pide al modelo que elija, entre las candidatas, las que resuelven el
+    punto. Marca `rerank` (1..k) en las elegidas. Nunca lanza: sin rerank, la
+    lista se queda como venía y se dice en el registro."""
+    if cliente is None or not RAG_RERANK_TESIS or not candidatas:
+        return candidatas
+    try:
+        import llamada_modelo as _lm
+        r = await _lm.crear(cliente, model=MODELO_CONSULTA, temperature=0, seed=20260914,
+                            max_completion_tokens=2000, reasoning_effort="low",
+                            messages=[{"role": "user", "content": _prompt_rerank(
+                                pregunta, hecho, [t.get("rubro", "") for t in candidatas])}])
+        orden = _leer_orden((r.choices[0].message.content or ""), len(candidatas))
+    except Exception as e:
+        print(f"   ⚖️ RAG rerank: falló ({type(e).__name__}); la lista se queda como venía")
+        return candidatas
+    for pos, i in enumerate(orden, 1):
+        candidatas[i]["rerank"] = pos
+    print(f"   ⚖️ RAG rerank: {len(candidatas)} candidatas → {len(orden)} elegidas"
+          + (" · NINGUNA resuelve el punto según el modelo" if not orden else ""))
+    return candidatas
 NORMAS_POR_PROBLEMA = 4
 # ═══ EL CUPO DE LA LEY DEL ACTO ══════════════════════════════════════════════
 # SE SUMA, NO COMPITE. Si la ley del estado tuviera que pelear por las mismas
@@ -701,13 +803,34 @@ async def material_para(qdrant, embed_juris, embed_leyes,
     #   3. A igualdad de lo anterior, antes la de Querétaro que la de fuera.
     # LAS TRES LISTAS SE FUNDEN, sin repetir registro. El orden de mérito lo
     # pone el criterio de abajo, no el ancla por la que entró.
+    # ── LA PROSA DEL CASO CONTRA EL VECTOR DE TEXTO ─────────────────────────
+    # Hasta aquí las anclas iban todas contra el vector del rubro, y la prosa
+    # —lo que resolvió y se combate— sólo servía para la ley estatal. Medido:
+    # es la señal que más llena la lista de candidatas (54% → 61% en 100), y
+    # es DISTINTA de las otras: no es otra formulación, es el texto del caso
+    # contra el texto de la tesis.
+    _prosa = " ".join((hecho or "").split())[:800]
+    _lp = []
+    if len(_prosa) >= 40:
+        try:
+            _lp = await _buscar(qdrant, COLECCION_JURIS, "texto",
+                                await embed_juris(_prosa), RAG_PROSA_TESIS)
+        except Exception as e:
+            print(f"   ⚖️ RAG: la prosa→texto falló ({type(e).__name__})")
     _crudo, _vistos = [], set()
-    for lista in res[:len(_vs) - 1]:
+    for lista in list(res[:len(_vs) - 1]) + [_lp]:
         for p in lista:
             t = _tesis_de(p)
             if t["registro"] and t["registro"] not in _vistos:
                 _vistos.add(t["registro"])
                 _crudo.append(t)
+    # el orden por fusión de rangos: cada lista vota, y la prosa también
+    _orden_rrf = _rrf_registros(
+        [[str(p.get("registro") or "") for p in L] for L in res[:len(_vs) - 1]]
+        + [[str(p.get("registro") or "") for p in _lp]])
+    _pos_rrf = {reg: i for i, reg in enumerate(_orden_rrf)}
+    for t in _crudo:
+        t["rrf"] = _pos_rrf.get(t["registro"], 10 ** 6)
     # LOS CO-CITADOS ENTRAN EN LA MISMA LISTA, no detrás. Añadirlos al final
     # es regalárselos al recorte del prompt: ya pasó con las tesis de la
     # técnica y no llegó ninguna.
@@ -732,9 +855,19 @@ async def material_para(qdrant, embed_juris, embed_leyes,
             print(f"   ⚖️ semántica: {_antes - len(_crudo)} tesis de la "
                   f"suspensión del amparo fuera")
     tesis = _crudo
-    # EL ORDEN, con la co-citación dentro: entre dos criterios que pesan igual,
-    # manda el que el circuito usa de verdad para esta cuestión.
-    tesis.sort(key=lambda t: (_rango_instancia(t),
+    # ── EL RERANK, sobre las mejor situadas en la fusión ────────────────────
+    # Se le enseñan al modelo las RAG_RERANK_CANDIDATOS primeras por rango
+    # fundido y elige cuáles resuelven el punto. Con la lista bien llena, el
+    # modelo acierta el 84% de las veces en que el objetivo está dentro.
+    if cliente is not None and RAG_RERANK_TESIS and tesis:
+        _cand = sorted(tesis, key=lambda t: t.get("rrf", 10 ** 6))[:RAG_RERANK_CANDIDATOS]
+        await rerank_tesis(cliente, problema, hecho, _cand)
+    # EL ORDEN: primero lo que el modelo eligió, en su orden; después, lo de
+    # siempre —instancia, obligatoriedad, co-citación, entidad—, que es lo que
+    # manda cuando el rerank está apagado o no eligió nada. Así apagar la
+    # bandera devuelve exactamente el comportamiento anterior más la prosa.
+    tesis.sort(key=lambda t: (t.get("rerank", 10 ** 6),
+                              _rango_instancia(t),
                               not t["obligatoria"],
                               -int(t.get("veces") or 0),
                               _de_otro_estado(t, coleccion_estatal)))
