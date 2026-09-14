@@ -69,7 +69,14 @@ ok(corre(json.dumps({"contraste": [{"numero": 1, "veredicto_previo": "cualquier 
 b = f5.bloque_contraste(c)
 ok("Problema 1: INOPERANTE" in b, "el bloque marca el inoperante")
 ok("el contraste se equivoca porque" in b, "lleva la cláusula de desmarque, con esas palabras")
-ok("Sólo los problemas A EXAMINAR pueden prosperar" in b, "lleva la regla del global")
+# LA REGLA DEL GLOBAL CAMBIÓ tras medir: la primera versión ataba el asunto al
+# pre-veredicto del contraste y en el ADC 296-2025 el único problema quedó
+# fundado y el global salió infundado — el prompt se contradecía a sí mismo.
+# Ahora el global sale de las calificaciones del propio modelo.
+ok("EL ASUNTO ENTERO prospera si prospera al menos un problema" in b, "lleva la regla del global: sigue a las calificaciones")
+ok("Sólo los problemas A EXAMINAR pueden prosperar" not in b, "y ya NO ata el global al pre-veredicto")
+ok("(a) la resolución enuncia OTRA consideración" in f5.prompt_contraste(PROBLEMAS, "", "", False),
+   "«sobrevive» exige nombrar una consideración independiente")
 ok(f5.bloque_contraste([]) == "", "sin contraste, sin bloque: no bloquea nada")
 
 # ── entra al prompt de la propuesta, antes de las calificaciones ───────────

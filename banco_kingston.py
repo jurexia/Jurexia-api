@@ -109,7 +109,7 @@ def ya_hechos(etapa: str) -> dict:
                     # casos los atendió el worker que aún rodaba el código viejo:
                     # salieron «ok» y sin contraste. Darlos por hechos sería medir
                     # el antes y llamarlo después.
-                    if etapa == "despues" and not r.get("contraste"):
+                    if etapa != "antes" and not r.get("contraste"):
                         continue
                     hechos[r["asunto"]] = r
     return hechos
@@ -204,7 +204,7 @@ def comparar() -> None:
     for f in filas:
         if f.get("error"):
             continue
-        if f["etapa"] == "despues" and not f.get("contraste"):
+        if f["etapa"] != "antes" and not f.get("contraste"):
             continue                                # worker viejo: no es «después»
         por[f["etapa"]][f["asunto"]] = f           # la última de cada asunto manda
     print("\n═══ RESULTADO ═══")
@@ -215,21 +215,23 @@ def comparar() -> None:
               f"(línea base «siempre niega»: {sum(1 for f in d.values() if f['oro']=='niega')}/{n})")
         for (o, p), k in sorted(conf.items()):
             print(f"           oro={o:<8} motor={p:<13} {k}")
-    if "antes" in por and "despues" in por:
-        comunes = set(por["antes"]) & set(por["despues"])
-        mejora = sum(1 for a in comunes if por["despues"][a]["acierta"] and not por["antes"][a]["acierta"])
-        empeora = sum(1 for a in comunes if por["antes"][a]["acierta"] and not por["despues"][a]["acierta"])
-        print(f"\n  sobre los {len(comunes)} comunes: el paso 1 arregla {mejora} y estropea {empeora}")
+    for et in [e for e in por if e != "antes"]:
+        if "antes" not in por:
+            break
+        comunes = set(por["antes"]) & set(por[et])
+        mejora = sum(1 for a in comunes if por[et][a]["acierta"] and not por["antes"][a]["acierta"])
+        empeora = sum(1 for a in comunes if por["antes"][a]["acierta"] and not por[et][a]["acierta"])
+        print(f"\n  «{et}» sobre los {len(comunes)} comunes con «antes»: arregla {mejora} y estropea {empeora}")
         for a in sorted(comunes):
-            x, y = por["antes"][a], por["despues"][a]
+            x, y = por["antes"][a], por[et][a]
             if x["acierta"] != y["acierta"]:
                 print(f"    {'↑' if y['acierta'] else '↓'} {a[:44]:<44} oro={x['oro']:<8} "
-                      f"antes={x['propuesto']:<8} después={y['propuesto']}")
+                      f"antes={x['propuesto']:<8} {et}={y['propuesto']}")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--etapa", choices=["antes", "despues"])
+    ap.add_argument("--etapa")   # antes | despues | despues2 …: lo que no es «antes» sólo propone
     ap.add_argument("--paralelo", type=int, default=3)
     ap.add_argument("--solo", type=int)
     ap.add_argument("--comparar", action="store_true")

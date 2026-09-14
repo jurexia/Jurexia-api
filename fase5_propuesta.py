@@ -669,9 +669,16 @@ PARA CADA UNO, EN ESTE ORDEN:
    Tener razón en lo que dice NO lo vuelve true: la pregunta es si apunta a la
    razón toral, no si acierta.
 
-3. `sobrevive`: sólo si la combate. true si, aun suponiendo que el {escrito}
-   tuviera razón en lo que ataca, el fallo sigue en pie por OTRA consideración
-   que el {escrito} no toca. Di cuál en `por_que`.
+3. `sobrevive`: sólo si la combate. true SÓLO si se cumplen las tres:
+   (a) la resolución enuncia OTRA consideración como base propia y suficiente
+       del punto —no una que dependa de la combatida ni un mero refuerzo—;
+   (b) esa consideración NO depende de la que el {escrito} ataca: si cae la
+       atacada, la otra sigue sosteniendo el punto por sí sola;
+   (c) el {escrito} no la toca ni de forma implícita.
+   Nómbrala en `por_que` con sus palabras. Si no puedes nombrar una que cumpla
+   las tres, `sobrevive` es false. La duda va a false: dar por sobreviviente un
+   fallo que en realidad cae es negar un amparo que procedía, y eso lo paga la
+   parte, no el motor.
 
 4. `veredicto_previo`:
    - "inoperante" si `la_combate` es false.
@@ -686,8 +693,10 @@ REGLAS:
 - NO SUPONGAS LO QUE NO CONSTA. Si el material no permite saber qué resolvió la
   responsable sobre un punto, pon `razon_toral` = "no consta" y
   `veredicto_previo` = "a_examinar": el contraste no cierra lo que no ha visto.
-- Sé conservador con "inoperante": es la calificación más grave para la parte
-  y se razona. Si dudas entre inoperante y a_examinar, a_examinar.
+- Sé conservador con "inoperante" Y con "fundado_pero_insuficiente": las dos
+  cierran el asunto para la parte antes de examinar si tiene razón, y se
+  razonan. Si dudas, a_examinar. Medido: en asuntos de UN solo planteamiento,
+  un veredicto de cierre equivocado es el fallo entero.
 - No cites tesis ni preceptos: aquí no se decide, se contrasta.
 
 Devuelve SÓLO un JSON, sin texto alrededor:
@@ -774,10 +783,13 @@ def bloque_contraste(contraste: list) -> str:
             "infundado, o inoperante; no prospera, porque el fallo queda en pie por "
             "otra consideración. La misma cláusula de desmarque, si de verdad la "
             "otra consideración no sostiene nada.\n"
-            "- Sólo los problemas A EXAMINAR pueden prosperar. Y EL ASUNTO ENTERO "
-            "prospera sólo si prospera al menos uno de ésos: si todos los que "
-            "prosperan son inoperantes o insuficientes según el contraste, el "
-            "global no es fundado.\n"
+            "- EL ASUNTO ENTERO prospera si prospera al menos un problema, sea cual "
+            "sea lo que el contraste dijera de él: si te desmarcaste con la cláusula "
+            "y lo calificaste fundado, el global lo recoge. El contraste condiciona "
+            "cómo calificas cada problema; el global sale de tus calificaciones, no "
+            "del contraste. (Medido en el ADC 296-2025: el único problema quedó "
+            "fundado y el global salió infundado por una regla que lo ataba al "
+            "pre-veredicto. Eso es contradecirse.)\n"
             "- Desmarcarse del contraste no está prohibido; está a la vista. Quien "
             "firma leerá tu razón y la del contraste, una junto a otra.\n")
 
