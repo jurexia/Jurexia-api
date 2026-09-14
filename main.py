@@ -21587,19 +21587,36 @@ TALLER_COSTO_CONSULTAS = int(os.getenv("TALLER_COSTO_CONSULTAS", "10"))
 # la variable de entorno y otra vez más abajo como conjunto fijo— y la segunda
 # pisa a la primera. Colgar el cobro de un nombre ambiguo es pedir que un día
 # deje de cobrar sin que nadie lo note.
+# ── LAS CUENTAS SIN TOPE ───────────────────────────────────────────────────
+# David, 13-sep-2026: «solo las cuentas de jdm.juridico, jmd.juridico,
+# alcantar117 y las de iurexia no tienen límites».
+#
+# SE QUITA eri221185, que llevaba unas horas sin tope para poder probar el
+# 322/2025 cuando el máximo diario frenaba las pruebas. Ya no hace falta: tiene
+# su asiento del piloto con 40 proyectos al mes, como los demás.
+#
+# Va en el código y no en una variable de Render a propósito: queda en el
+# historial de git, se ve quién lo pidió y se quita con un commit. Render además
+# no reinicia al cambiar una variable, y eso ya costó un diagnóstico entero.
 TALLER_SIN_LIMITE = {
     e.strip().lower()
-    # eri221185: cuenta de pruebas del piloto. David la puso sin tope el
-    # 13-sep-2026 —«súbela a ilimitada»— porque el máximo de 5 sentencias al día
-    # frenaba las pruebas a media tarde: el 322/2025 se quedó sin poder correr.
-    # Va aquí y no en una variable de Render a propósito: así queda en el
-    # historial de git, se ve quién lo pidió y se quita con un commit. Render
-    # además no reinicia al cambiar una variable, y eso ya costó un diagnóstico.
     for e in os.getenv("TALLER_SIN_LIMITE",
-                       "jdm.juridico@gmail.com,administracion@iurexia.com,"
-                       "eri221185@gmail.com").split(",")
+                       "jdm.juridico@gmail.com,"
+                       "jmd.juridico@gmail.com,"
+                       "alcantar117@gmail.com").split(",")
     if e.strip()
 }
+
+# EL DOMINIO DE LA CASA, ENTERO. «Las de iurexia» son todas, no una lista que
+# haya que ampliar cada vez que se da de alta un correo interno —olvidarse de
+# hacerlo sería ponerle tope diario a alguien de dentro en mitad de una prueba—.
+TALLER_DOMINIO_INTERNO = "@iurexia.com"
+
+
+def _taller_sin_tope(correo: str) -> bool:
+    """Las cuentas de casa: sin tope diario y sin bolsa que descontar."""
+    c = (correo or "").strip().lower()
+    return bool(c) and (c in TALLER_SIN_LIMITE or c.endswith(TALLER_DOMINIO_INTERNO))
 
 
 # ── EL GUARDIA DE COBERTURA ──────────────────────────────────────────────
@@ -21750,7 +21767,7 @@ def _taller_cobrar(correo: str, expediente: str = "") -> None:
     reproduce aquí.
     """
     c = (correo or "").strip().lower()
-    if c in TALLER_SIN_LIMITE or not supabase_admin:
+    if _taller_sin_tope(c) or not supabase_admin:
         return
     usadas, limite, uid = _taller_saldo(c)
     if not uid:
@@ -21820,7 +21837,7 @@ def _taller_proyectos(correo: str) -> dict:
              "restantes": 0, "sin_limite": False,
              "almacenamiento_bytes": 0, "almacenamiento_limite": 0}
     c = (correo or "").strip().lower()
-    if c in TALLER_SIN_LIMITE:
+    if _taller_sin_tope(c):
         return {**vacio, "sin_limite": True}
     if not supabase_admin:
         return vacio
@@ -21862,7 +21879,7 @@ def _taller_gastar_proyecto(correo: str) -> tuple:
     con `_taller_devolver_proyecto` a la MISMA bolsa de la que salió.
     """
     c = (correo or "").strip().lower()
-    if c in TALLER_SIN_LIMITE:
+    if _taller_sin_tope(c):
         return (True, "", {"sin_limite": True})
     if not supabase_admin:
         return (True, "", {})               # sin base no se cierra la puerta
@@ -21888,7 +21905,7 @@ def _taller_gastar_proyecto(correo: str) -> tuple:
 def _taller_devolver_proyecto(correo: str, de: str) -> None:
     """El pipeline se cayó: se devuelve a la bolsa de la que salió."""
     c = (correo or "").strip().lower()
-    if not de or c in TALLER_SIN_LIMITE or not supabase_admin:
+    if not de or _taller_sin_tope(c) or not supabase_admin:
         return
     _, _, uid = _taller_saldo(c)
     if not uid:
@@ -22023,7 +22040,7 @@ def _taller_cuota(correo: str) -> None:
     espera es peor que no dejarle empezar.
     """
     c = (correo or "").strip().lower()
-    if c in TALLER_SIN_LIMITE:
+    if _taller_sin_tope(c):
         return
 
     # ── LA BOLSA DE PROYECTOS ES LA PUERTA PRINCIPAL ──────────────────────
@@ -31291,7 +31308,7 @@ async def taller_estado(user_email: str):
         # quien los llame a mano. La lista es la misma que ya exime del tope
         # diario —administración y los testers—, así que no hay dos sitios
         # donde acordarse de dar de alta a alguien.
-        "puede_sise": (user_email or "").strip().lower() in TALLER_SIN_LIMITE,
+        "puede_sise": _taller_sin_tope(user_email),
         # LA BOLSA, EN LA PANTALLA. Que el secretario sepa cuántos proyectos le
         # quedan sin tener que dividir un número de consultas entre diez.
         "proyectos": _taller_proyectos(user_email),
