@@ -2434,7 +2434,25 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
 
     # 4-quater. Una sola calificación al cierre.
     cierre = " ".join(estudio.split()[-160:]).lower()
-    califs = {m.group(1)[:7] for m in _RX_CALIF.finditer(cierre)}
+    # «FUNDADO» NO SIEMPRE ES UNA CALIFICACIÓN. «Por lo expuesto y fundado»,
+    # «fundado y motivado» (artículo 16) y «de estimarse fundados» (lo que
+    # PIDE la recurrente) aparecían en el cierre y la alarma sonaba en un
+    # proyecto que calificaba una sola cosa —revisión 322/2025—. Se calibra:
+    # si acusa a un cierre correcto, la que está mal es la comprobación.
+    _rx_no_calif = re.compile(r"(?:expuesto\s+y|de\s+estimarse|estimarse|resultar)\s*$")
+    def _es_calif(m_):
+        antes = cierre[max(0, m_.start() - 24):m_.start()]
+        despues = cierre[m_.end():m_.end() + 14]
+        if _rx_no_calif.search(antes):
+            return False
+        if re.match(r"\s+y\s+motivad", despues):
+            return False
+        return True
+    # Y LO QUE SE VIGILA ES SI PROSPERA O NO. «Inoperantes» e «ineficacia de
+    # los agravios» son la misma suerte para el resolutivo; lo que lo obliga
+    # a rehacer es que el cierre diga a la vez que prospera y que no.
+    califs = {("prospera" if m.group(1).lower().startswith("fundad") else "no_prospera")
+              for m in _RX_CALIF.finditer(cierre) if _es_calif(m)}
     if len(califs) > 1 and len({c.sentido[:7].lower() for c in criterios}) == 1:
         avisos.append(f"El cierre oscila entre calificaciones {sorted(califs)}; "
                       f"el criterio pedía una sola. Obliga a rehacer el resolutivo.")
