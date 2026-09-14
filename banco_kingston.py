@@ -81,7 +81,11 @@ def pdf_de(texto: str, ruta: Path) -> Path:
     txt = ruta.with_suffix(".txt")
     txt.write_text(texto, encoding="utf-8")
     with open(ruta, "wb") as fh:
-        subprocess.run(["cupsfilter", str(txt)], stdout=fh,
+        # `-i text/plain` A LA FUERZA. cupsfilter olfatea el contenido y a la
+        # demanda del ADC 641-2024 la tomó por una imagen —«cgimagetopdf: problem
+        # reading the image file»— por los bytes con que empieza. Con el tipo
+        # dicho no adivina.
+        subprocess.run(["cupsfilter", "-i", "text/plain", str(txt)], stdout=fh,
                        stderr=subprocess.DEVNULL, check=True)
     return ruta
 
