@@ -111,7 +111,7 @@ def resolvio_a_quo(texto: str, antecedentes: str = "",
     #     dice claramente qué se hizo, se sigue como antes.
     dec = " ".join((declarado or "").split())
     if dec:
-        _d = _resolvio_de(dec, solo_verbos=False)
+        _d = _mixto(dec) or _resolvio_de(dec, solo_verbos=False)
         if _d:
             return _d
 
@@ -129,7 +129,33 @@ def resolvio_a_quo(texto: str, antecedentes: str = "",
         # sustantivo «sobreseimiento», que es justo lo que aparece dentro de
         # las tesis transcritas y lo que contaminaba la lectura.
         fuente, _solo_verbos = todo, True
-    return _resolvio_de(fuente, solo_verbos=_solo_verbos)
+    return _mixto(fuente) or _resolvio_de(fuente, solo_verbos=_solo_verbos)
+
+
+def _mixto(fuente: str) -> str:
+    """«sobresee_niega» | «sobresee_concede» | «» — cuando el juzgado hizo LAS
+    DOS COSAS: sobreseyó respecto de un acto y resolvió el fondo por el resto.
+
+    Salió del amparo en revisión 322/2025 (Querétaro): la sentencia «sobreseyó
+    en el juicio respecto de la orden de restitución … y negó el amparo
+    respecto del auto de diecinueve de febrero». El recuento a un solo verbo
+    daba «sobresee» por el orden de la lista, y el proyecto confirmaba un
+    sobreseimiento total y callaba la negativa, que era justo lo recurrido.
+
+    Se exige el VERBO en los dos —«sobreseyó» y «negó»/«concedió»—, no el
+    sustantivo «sobreseimiento», que aparece dentro de las tesis transcritas.
+    """
+    t = " ".join((fuente or "").split())
+    if not t:
+        return ""
+    hay = {}
+    for clave, rx in _QUE_HIZO_VERBOS:
+        hay[clave] = any(_afirmado(t, m) for m in re.finditer(rx, t, re.I))
+    if hay.get("sobresee") and hay.get("niega") and not hay.get("concede"):
+        return "sobresee_niega"
+    if hay.get("sobresee") and hay.get("concede") and not hay.get("niega"):
+        return "sobresee_concede"
+    return ""
 
 
 # LA VIOLACIÓN PROCESAL DEL AMPARO —la que obliga a reponer— no es cualquier

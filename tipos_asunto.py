@@ -1180,6 +1180,42 @@ RAMAS_REVISION = {
             "razones expuestas en el último considerando de la misma."],
         "frecuencia": "10/62 sobresee",
     },
+    # ── EL JUZGADO HIZO LAS DOS COSAS: sobreseyó un acto y resolvió el fondo
+    # por los demás. Amparo en revisión 322/2025: «sobreseyó … respecto de la
+    # orden de restitución … y negó el amparo respecto del auto de diecinueve
+    # de febrero». Con un solo verbo el resolutivo confirmaba un sobreseimiento
+    # total y callaba la negativa, que era lo recurrido. Tres puntos, como los
+    # escribe el circuito cuando confirma una sentencia mixta.
+    "confirma_sobresee_niega": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se confirma la sentencia recurrida.",
+            "SEGUNDO. Se sobresee en el juicio de amparo promovido por "
+            "{quejoso}, respecto del acto precisado en la resolución recurrida "
+            "y por las razones expuestas en la misma.",
+            "TERCERO. La Justicia de la Unión no ampara ni protege a {quejoso}, "
+            "respecto de los demás actos precisados en la resolución recurrida, "
+            "por las razones expuestas en el último considerando de la misma."],
+        "aviso": ("LA SENTENCIA RECURRIDA ES MIXTA: sobreseyó respecto de un "
+                  "acto y negó el amparo por los demás, y el resolutivo lo "
+                  "reproduce en dos puntos. Comprueba contra el resolutivo del "
+                  "juzgado qué acto quedó sobreseído y cuáles negados."),
+    },
+    "confirma_sobresee_concede": {
+        "fundamento": "artículo 93, fracciones V y VI, de la Ley de Amparo",
+        "puntos": [
+            "PRIMERO. Se confirma la sentencia recurrida.",
+            "SEGUNDO. Se sobresee en el juicio de amparo promovido por "
+            "{quejoso}, respecto del acto precisado en la resolución recurrida "
+            "y por las razones expuestas en la misma.",
+            "TERCERO. La Justicia de la Unión ampara y protege a {quejoso}, "
+            "respecto de los demás actos precisados en la resolución recurrida, "
+            "en términos del último considerando de la misma."],
+        "aviso": ("LA SENTENCIA RECURRIDA ES MIXTA: sobreseyó respecto de un "
+                  "acto y concedió el amparo por los demás, y el resolutivo lo "
+                  "reproduce en dos puntos. Comprueba contra el resolutivo del "
+                  "juzgado qué acto quedó sobreseído y cuáles amparados."),
+    },
     # ── RAMA 1: se levanta el sobreseimiento y se asume jurisdicción ──────
     "revoca_sobreseimiento_concede": {
         "fundamento": "artículo 93, fracción I, de la Ley de Amparo",
@@ -1736,6 +1772,15 @@ def rama_revision(resolvio_a_quo: str, sentido: str,
         return "repone_procedimiento"
     if solo_efectos and _prospera and a == "concede":
         return "modifica_efectos"
+    # LA SENTENCIA MIXTA. Si el recurso no prospera, se confirma entera y el
+    # resolutivo dice las dos cosas. Si prospera, lo que se revoca es el FONDO
+    # —los agravios van contra la negativa o la concesión, no contra el
+    # sobreseimiento de un acto que nadie combatió—, y se sigue por la parte
+    # de fondo con la mecánica de siempre.
+    if a in ("sobresee_niega", "sobresee_concede"):
+        if not _prospera:
+            return "confirma_" + a
+        a = a.split("_", 1)[1]
     if a not in ("sobresee", "niega", "concede"):
         return "sin_determinar"
     # LA LISTA A MANO SE VA. Enumeraba tres calificaciones y dejaba fuera

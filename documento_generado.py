@@ -3006,7 +3006,11 @@ _RX_NO_CONSTA_SENTIDO = re.compile(
 
 _VERBO_A_QUO = {"concede": "en la que se concedió el amparo",
                 "niega": "en la que se negó el amparo",
-                "sobresee": "en la que se sobreseyó en el juicio"}
+                "sobresee": "en la que se sobreseyó en el juicio",
+                "sobresee_niega": "en la que se sobreseyó respecto de un acto "
+                                  "y se negó el amparo por los demás",
+                "sobresee_concede": "en la que se sobreseyó respecto de un "
+                                    "acto y se concedió el amparo por los demás"}
 
 
 def _con_el_sentido_del_a_quo(texto: str, resolvio: str) -> str:
@@ -4017,7 +4021,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # sentido de la sentencia recurrida» y el PDF decía, dos páginas
             # antes, «La Justicia de la Unión ampara y protege».
             _que_hizo = str(datos.get("resolvio_a_quo") or "").strip().lower()
-            if _que_hizo not in ("sobresee", "niega", "concede"):
+            # LA SENTENCIA MIXTA, LEÍDA DESPUÉS. Las sesiones de antes de la
+            # lectura mixta guardaron «sobresee» a secas aunque el juzgado
+            # también negara o concediera por los demás actos (revisión
+            # 322/2025). Si los antecedentes o lo declarado dicen las dos
+            # cosas con sus verbos, manda eso: es el mismo dato, mejor leído.
+            if _que_hizo == "sobresee":
+                _que_hizo = (_fr._mixto(_antes_rama)
+                             or _fr._mixto(str(datos.get("resolvio_declarado") or ""))
+                             or _que_hizo)
+            if _que_hizo not in ("sobresee", "niega", "concede",
+                                 "sobresee_niega", "sobresee_concede"):
                 _que_hizo = _fr.resolvio_a_quo(
                     _fuente_rama, _antes_rama,
                     declarado=str(datos.get("resolvio_declarado") or ""))
