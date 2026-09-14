@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import collections
 import re
 from dataclasses import dataclass, field
 
@@ -132,6 +133,10 @@ class Global:
     razon: str = ""                   # por qué el asunto se resuelve así
     problema_que_decide: str = ""     # de qué problema cuelga el resultado
     efecto: str = ""                  # qué les pasa a los demás problemas
+    # EL CONTRASTE, problema por problema: la razón toral, si el concepto la
+    # combate y si el fallo sobrevive. Ver `contrastar`. Viaja aquí para que la
+    # pantalla y el banco lo vean sin cambiar la firma de `proponer`.
+    contraste: list = field(default_factory=list)
     apoyos: list = field(default_factory=list)
     confianza: str = ""               # alta | media | baja
     # LA OBJECIÓN, EN SUS PROPIAS PALABRAS. El secretario no necesita que le
@@ -582,9 +587,204 @@ def _bloque_acervo_sentidos(material) -> str:
     return "\n".join(L)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CONTRASTE — el paso que el secretario hace y el motor no hacía
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 14-sep-2026: «aún no superamos al secretario; para automatizar el
+# sentido correcto, ¿qué implementarías?».
+#
+# LO QUE DECÍAN LOS NÚMEROS. Kingston 5, cuatro corridas sobre cinco asuntos con
+# engrose real: el motor acierta cuando el secretario le da la razón al
+# recurrente (QA 143: 4/4, RQC 233: 3/4) y falla cuando se la niega (RF 6: 0/4,
+# ARA 17: 1/4, ADC 642: 2/4 — siempre revocando o concediendo donde el engrose
+# confirma o niega). No es ruido: es un sesgo con dirección. EL MOTOR
+# SOBRE-CONCEDE, porque lee los agravios con simpatía y toma «el recurrente
+# tiene un punto» por «fundado».
+#
+# El secretario pregunta otra cosa, y en este orden:
+#   1. ¿cuál es la consideración concreta de la responsable que sostiene el
+#      fallo en este punto? (la razón toral)
+#   2. ¿este concepto la COMBATE, o pasa a su lado —ataca otra cosa, repite lo
+#      dicho en la instancia, parte de una premisa falsa—? Si pasa a su lado,
+#      es inoperante y da igual cuánta razón tenga en lo que dice.
+#   3. si la combate, ¿queda el fallo en pie por OTRA consideración que el
+#      concepto no toca? Si queda, es fundado pero insuficiente: se le reconoce
+#      el acierto y no cambia nada.
+#
+# Hasta hoy esas tres preguntas estaban disueltas en la definición de las
+# calificaciones dentro del prompt de la propuesta, que hace veinte cosas en
+# una llamada. Aquí se hacen SOLAS, ANTES, y con salida estructurada: primero
+# se establece qué sostiene el fallo y qué lo ataca, y sólo después se
+# califica. Es lo que convierte «discrepar» en «no fundado».
+#
+# NO SUSTITUYE A LA PROPUESTA: la informa. La propuesta puede desmarcarse del
+# contraste, pero tiene que decir por qué, con esas palabras, y eso queda a la
+# vista de quien firma.
+#
+# A TEMPERATURA 0 Y CON SEMILLA, como la propuesta: un contraste que cambie
+# entre corridas no es un contraste.
+MODELO_CONTRASTE = os.getenv("MODELO_CONTRASTE", "") or None   # vacío = el de la propuesta
+MAX_TOKENS_CONTRASTE = int(os.getenv("MAX_TOKENS_CONTRASTE", "6000"))
+
+_VEREDICTOS_CONTRASTE = ("inoperante", "fundado_pero_insuficiente", "a_examinar")
+
+
+def prompt_contraste(problemas: list, resumen_acto: str, resumen_conceptos: str,
+                     es_recurso: bool = False) -> str:
+    quien = "la recurrente" if es_recurso else "la quejosa"
+    escrito = "agravio" if es_recurso else "concepto de violación"
+    lista = []
+    for i, p in enumerate(problemas, 1):
+        if isinstance(p, dict):
+            lista.append(
+                f"{i}. {p.get('pregunta', '')}\n"
+                f"   Resolvió: {p.get('resolvio', '') or '(no consta)'}\n"
+                f"   Combate: {p.get('combate', '') or '(no consta)'}")
+        else:
+            lista.append(f"{i}. {p}")
+    problemas_txt = "\n".join(lista)
+    return f"""Eres el secretario de un Tribunal Colegiado. Antes de calificar nada, haces
+EL CONTRASTE: para cada planteamiento estableces qué sostiene el fallo y si el
+{escrito} lo combate de verdad. Todavía no decides si tiene razón.
+
+LA RESOLUCIÓN RECURRIDA, resumida:
+{resumen_acto or '(sin resumen)'}
+
+LO QUE PLANTEA {quien.upper()}, resumido:
+{resumen_conceptos or '(sin resumen)'}
+
+LOS PLANTEAMIENTOS:
+{problemas_txt}
+
+PARA CADA UNO, EN ESTE ORDEN:
+
+1. `razon_toral`: la consideración CONCRETA de la responsable que sostiene el
+   fallo en ese punto. No el tema: la razón. Si la resolución no se pronunció
+   sobre el punto, dilo.
+
+2. `la_combate`: true sólo si el {escrito} ataca ESA consideración —dice por qué
+   está mal—. Es false si ataca otra cosa, si repite lo que ya dijo en la
+   instancia sin hacerse cargo de la respuesta, si parte de una premisa que la
+   resolución no contiene, o si sólo expresa desacuerdo con el resultado.
+   Tener razón en lo que dice NO lo vuelve true: la pregunta es si apunta a la
+   razón toral, no si acierta.
+
+3. `sobrevive`: sólo si la combate. true si, aun suponiendo que el {escrito}
+   tuviera razón en lo que ataca, el fallo sigue en pie por OTRA consideración
+   que el {escrito} no toca. Di cuál en `por_que`.
+
+4. `veredicto_previo`:
+   - "inoperante" si `la_combate` es false.
+   - "fundado_pero_insuficiente" si la combate y `sobrevive` es true.
+   - "a_examinar" si la combate y el fallo no sobrevive sin esa consideración:
+     ahí sí hay que decidir si tiene razón, y eso lo hará el paso siguiente.
+
+5. `por_que`: una línea. Qué ataca de verdad el {escrito}, o qué consideración
+   lo deja sin efecto.
+
+REGLAS:
+- NO SUPONGAS LO QUE NO CONSTA. Si el material no permite saber qué resolvió la
+  responsable sobre un punto, pon `razon_toral` = "no consta" y
+  `veredicto_previo` = "a_examinar": el contraste no cierra lo que no ha visto.
+- Sé conservador con "inoperante": es la calificación más grave para la parte
+  y se razona. Si dudas entre inoperante y a_examinar, a_examinar.
+- No cites tesis ni preceptos: aquí no se decide, se contrasta.
+
+Devuelve SÓLO un JSON, sin texto alrededor:
+{{"contraste": [
+  {{"numero": 1,
+    "razon_toral": "<la consideración concreta>",
+    "la_combate": true,
+    "sobrevive": false,
+    "veredicto_previo": "inoperante|fundado_pero_insuficiente|a_examinar",
+    "por_que": "<una línea>"}}
+]}}"""
+
+
+async def contrastar(cliente, problemas: list, resumen_acto: str,
+                     resumen_conceptos: str, es_recurso: bool = False) -> list:
+    """El contraste, problema por problema. Nunca lanza: sin contraste se
+    propone como antes, y se deja constancia en el aviso."""
+    if not problemas:
+        return []
+    kw = dict(model=MODELO_CONTRASTE or MODELO_PROPUESTA,
+              temperature=0, seed=20260914,
+              max_completion_tokens=MAX_TOKENS_CONTRASTE,
+              messages=[{"role": "user", "content": prompt_contraste(
+                  problemas, resumen_acto, resumen_conceptos, es_recurso)}])
+    if ESFUERZO_PROPUESTA:
+        kw["reasoning_effort"] = ESFUERZO_PROPUESTA
+    import llamada_modelo as _lm
+    try:
+        r = await _lm.crear(cliente, **kw)
+        crudo = (r.choices[0].message.content or "").strip()
+    except Exception as e:
+        print(f"   ⚖️ CONTRASTE: la llamada falló ({str(e)[:120]}); se propone sin él")
+        return []
+    m = _RX_JSON.search(crudo or "")
+    if not m:
+        print(f"   ⚖️ CONTRASTE: sin JSON («{crudo[:120]}»); se propone sin él")
+        return []
+    try:
+        datos = json.loads(m.group(0))
+    except Exception:
+        return []
+    fuera = []
+    for d in (datos.get("contraste") or []):
+        if not isinstance(d, dict):
+            continue
+        v = str(d.get("veredicto_previo", "")).strip().lower().replace(" ", "_")
+        if v not in _VEREDICTOS_CONTRASTE:
+            v = "a_examinar"
+        fuera.append({
+            "numero": int(d.get("numero") or len(fuera) + 1),
+            "razon_toral": str(d.get("razon_toral", ""))[:600],
+            "la_combate": bool(d.get("la_combate")),
+            "sobrevive": bool(d.get("sobrevive")),
+            "veredicto_previo": v,
+            "por_que": str(d.get("por_que", ""))[:400],
+        })
+    n = collections.Counter(x["veredicto_previo"] for x in fuera)
+    print(f"   ⚖️ CONTRASTE: {len(fuera)} planteamiento(s) · "
+          + ", ".join(f"{k} {v}" for k, v in n.items()))
+    return fuera
+
+
+def bloque_contraste(contraste: list) -> str:
+    """El contraste, escrito para el prompt de la propuesta, con su regla."""
+    if not contraste:
+        return ""
+    filas = []
+    for c in contraste:
+        filas.append(
+            f"  Problema {c['numero']}: {c['veredicto_previo'].upper().replace('_', ' ')}\n"
+            f"    razón toral: {c['razon_toral']}\n"
+            f"    ¿la combate? {'sí' if c['la_combate'] else 'NO'}"
+            + (f" · ¿sobrevive el fallo? {'sí' if c['sobrevive'] else 'no'}" if c['la_combate'] else "")
+            + f"\n    {c['por_que']}")
+    return ("EL CONTRASTE, HECHO ANTES DE CALIFICAR. Para cada planteamiento ya se "
+            "estableció cuál es la consideración que sostiene el fallo y si el "
+            "planteamiento la combate:\n" + "\n".join(filas) + "\n\n"
+            "REGLA DEL CONTRASTE, y es la que separa discrepar de tener razón:\n"
+            "- Un problema marcado INOPERANTE no se califica fundado en ninguna de "
+            "sus formas —ni esencialmente, ni sustancialmente, ni parcialmente— "
+            "SALVO que en su `razon` digas, con estas palabras, «el contraste se "
+            "equivoca porque…» y expliques qué consideración combate en realidad.\n"
+            "- Un problema marcado FUNDADO PERO INSUFICIENTE se califica así, o "
+            "infundado, o inoperante; no prospera, porque el fallo queda en pie por "
+            "otra consideración. La misma cláusula de desmarque, si de verdad la "
+            "otra consideración no sostiene nada.\n"
+            "- Sólo los problemas A EXAMINAR pueden prosperar. Y EL ASUNTO ENTERO "
+            "prospera sólo si prospera al menos uno de ésos: si todos los que "
+            "prosperan son inoperantes o insuficientes según el contraste, el "
+            "global no es fundado.\n"
+            "- Desmarcarse del contraste no está prohibido; está a la vista. Quien "
+            "firma leerá tu razón y la del contraste, una junto a otra.\n")
+
+
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
                      resumen_conceptos: str, es_recurso: bool = False,
-                     contexto: str = "") -> str:
+                     contexto: str = "", contraste: str = "") -> str:
     # EL TIPO VIAJA CON EL MATERIAL, igual que en el estudio: son dos módulos
     # que reciben el mismo objeto y así no hay un parámetro que se olvide.
     import tipos_asunto as _ta_p
@@ -651,7 +851,7 @@ esto»— y deja «apoyos» vacío. Eso es información para quien firma; rellen
 con un registro que trata de otra cosa es peor que dejarlo en blanco, porque
 esconde el hueco en vez de enseñarlo.
 
-CÓMO SE CALIFICA, y no son sinónimos:
+{contraste}CÓMO SE CALIFICA, y no son sinónimos:
 - FUNDADO: el planteamiento combate la razón de la responsable y tiene razón.
 - INFUNDADO: la combate y no tiene razón.
 - ESENCIALMENTE FUNDADO: combate la razón toral y tiene razón EN LO
@@ -953,12 +1153,15 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # hoy; lo que hace es impedir que mañana empiece a variar por un cambio de
     # modelo o de proveedor. La decisión de un tribunal no puede depender del
     # muestreo.
+    # ── EL CONTRASTE VA PRIMERO, y su resultado entra a la propuesta ──
+    contraste = await contrastar(cliente, problemas, resumen_acto,
+                                 resumen_conceptos, es_recurso)
     kw = dict(model=MODELO_PROPUESTA,
               temperature=0, seed=20260831,
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,
-                  es_recurso, contexto)}])
+                  es_recurso, contexto, bloque_contraste(contraste))}])
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     import llamada_modelo as _lm
@@ -994,6 +1197,7 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # ajeno con etiqueta de global, no.
     g = crudo_global or {}
     glob = Global(
+        contraste=contraste,
         sentido=str(g.get("sentido", "")).strip().lower(),
         razon=str(g.get("razon", ""))[:900],
         problema_que_decide=str(g.get("problema_que_decide", ""))[:400],

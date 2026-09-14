@@ -30226,6 +30226,11 @@ async def taller_proponer(
              "jerarquia": _jer_por_problema.get(p.problema, "accesorio")}
             for p in propuestas],
         "resumen": _f5.resumen(propuestas),
+        # EL CONTRASTE, A LA VISTA. Es la razón toral de cada planteamiento y si
+        # el concepto la combate: lo que el secretario comprueba primero. Se
+        # devuelve para que la pantalla lo enseñe junto a la propuesta y para
+        # que el banco Kingston lo mida.
+        "contraste": list(getattr(glob, "contraste", None) or []),
         # LA PROPUESTA DEL ASUNTO ENTERO. Es lo que la pantalla enseña como
         # solución global. Antes no existía: se enseñaba la del problema
         # principal con esa etiqueta.
