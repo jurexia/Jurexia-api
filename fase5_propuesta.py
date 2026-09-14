@@ -624,7 +624,11 @@ def _bloque_acervo_sentidos(material) -> str:
 # A TEMPERATURA 0 Y CON SEMILLA, como la propuesta: un contraste que cambie
 # entre corridas no es un contraste.
 MODELO_CONTRASTE = os.getenv("MODELO_CONTRASTE", "") or None   # vacío = el de la propuesta
-MAX_TOKENS_CONTRASTE = int(os.getenv("MAX_TOKENS_CONTRASTE", "6000"))
+# 12 000 Y NO 6 000. Medido en el banco Kingston: con 6 000 y esfuerzo alto, 4
+# de 52 llamadas volvieron con el texto VACÍO —el razonamiento se comió el
+# presupuesto y no quedó sitio para la respuesta—, y cada una de ésas es un
+# asunto que se propone sin contraste sin que nadie lo note.
+MAX_TOKENS_CONTRASTE = int(os.getenv("MAX_TOKENS_CONTRASTE", "12000"))
 
 _VEREDICTOS_CONTRASTE = ("inoperante", "fundado_pero_insuficiente", "a_examinar")
 
@@ -727,6 +731,16 @@ async def contrastar(cliente, problemas: list, resumen_acto: str,
     try:
         r = await _lm.crear(cliente, **kw)
         crudo = (r.choices[0].message.content or "").strip()
+        # VACÍO = SE AGOTÓ RAZONANDO. Se reintenta UNA vez con el doble de
+        # sitio y menos esfuerzo: un contraste con razonamiento medio vale más
+        # que ninguno. La respuesta sigue siendo determinista (temp 0, semilla).
+        if not crudo:
+            kw2 = dict(kw, max_completion_tokens=MAX_TOKENS_CONTRASTE * 2)
+            if "reasoning_effort" in kw2:
+                kw2["reasoning_effort"] = "medium"
+            print("   ⚖️ CONTRASTE: volvió vacío; se reintenta con más sitio")
+            r = await _lm.crear(cliente, **kw2)
+            crudo = (r.choices[0].message.content or "").strip()
     except Exception as e:
         print(f"   ⚖️ CONTRASTE: la llamada falló ({str(e)[:120]}); se propone sin él")
         return []
