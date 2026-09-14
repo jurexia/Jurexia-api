@@ -2735,11 +2735,51 @@ def _cita_con_rubro(doc, texto: str):
     return _fmt(p, sangria=True, tamano=TAMANO_CITA)
 
 
+# ── EL NOMBRE DEL TRIBUNAL NO VA EN VERSALES EN LA PROSA ────────────────────
+# David, 13-sep-2026: «el Tribunal va en mayúsculas cuando debe estar con
+# mayúscula en cada palabra (del Tribunal Colegiado de Ciudad de México)».
+#
+# El proemio interpolaba `datos["tribunal"]` tal cual, y ese campo lo teclea el
+# secretario en la ficha —casi siempre TODO EN MAYÚSCULAS, porque así aparece en
+# la carátula—. En la carátula está bien: es un rótulo. En la prosa del proemio
+# no: ahí es el nombre de un órgano y se escribe con inicial en cada palabra.
+#
+# LAS PARTÍCULAS SE QUEDAN EN MINÚSCULA —«Tribunal Colegiado en Materia Civil
+# del Primer Circuito», no «En Materia Civil Del Primer Circuito»—, que es la
+# regla del español y lo que hace cualquier engrose del corpus.
+_PARTICULAS = {"de", "del", "la", "las", "el", "los", "en", "y", "e", "a"}
+
+
+def _nombre_de_organo(t: str) -> str:
+    """El nombre del órgano en prosa: inicial en cada palabra, salvo partículas.
+
+    NO SE TOCA LO QUE YA VIENE BIEN ESCRITO. Si el secretario escribió el nombre
+    con su capitalización, pasarlo por aquí lo estropearía —«CDMX» acabaría como
+    «Cdmx»—. Sólo se rehace lo que llega enteramente en versales, que es la
+    marca inequívoca de que viene del rótulo de la carátula.
+    """
+    t = " ".join(str(t or "").split()).rstrip(" .,")
+    if not t or t != t.upper():
+        return t
+    fuera = []
+    for i, w in enumerate(t.split(" ")):
+        b = w.lower()
+        # Los ordinales romanos y las siglas cortas se quedan como están.
+        if i and b in _PARTICULAS:
+            fuera.append(b)
+        else:
+            fuera.append(b[:1].upper() + b[1:])
+    return " ".join(fuera)
+
+
 def _apertura_compuesta(datos: dict) -> str:
     ciudad = " ".join(str(datos.get("ciudad") or "").split()).rstrip(" .,")
-    trib = " ".join(str(datos.get("tribunal") or "").split()).rstrip(" .,")
+    trib = _nombre_de_organo(datos.get("tribunal"))
     if not (ciudad and trib):
         return ""
+    # LA FECHA SIGUE EN HUECO, y es lo correcto: es la de la SESIÓN, que no
+    # existe cuando se redacta el proyecto —la fijan los magistrados al
+    # revisarlo—. Rellenarla sería inventar un dato de la actuación.
     return (f"{ciudad}. Resolución del {trib}, correspondiente a la sesión de "
             f"{HUECO}.")
 
