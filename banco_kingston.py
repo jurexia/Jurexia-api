@@ -104,6 +104,13 @@ def ya_hechos(etapa: str) -> dict:
             if ln.strip():
                 r = json.loads(ln)
                 if r.get("etapa") == etapa and not r.get("error"):
+                    # EN LA ETAPA «DESPUÉS» SÓLO CUENTA LO QUE LLEVA CONTRASTE. La
+                    # primera corrida arrancó con el despliegue recién vivo y dos
+                    # casos los atendió el worker que aún rodaba el código viejo:
+                    # salieron «ok» y sin contraste. Darlos por hechos sería medir
+                    # el antes y llamarlo después.
+                    if etapa == "despues" and not r.get("contraste"):
+                        continue
                     hechos[r["asunto"]] = r
     return hechos
 
@@ -195,8 +202,11 @@ def comparar() -> None:
     filas = [json.loads(l) for l in RESULTADOS.read_text(encoding="utf-8").splitlines() if l.strip()]
     por = collections.defaultdict(dict)
     for f in filas:
-        if not f.get("error"):
-            por[f["etapa"]][f["asunto"]] = f       # la última de cada asunto manda
+        if f.get("error"):
+            continue
+        if f["etapa"] == "despues" and not f.get("contraste"):
+            continue                                # worker viejo: no es «después»
+        por[f["etapa"]][f["asunto"]] = f           # la última de cada asunto manda
     print("\n═══ RESULTADO ═══")
     for etapa, d in por.items():
         n = len(d); ok = sum(1 for f in d.values() if f.get("acierta"))
