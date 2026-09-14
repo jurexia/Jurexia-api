@@ -21756,8 +21756,25 @@ def _taller_cobrar(correo: str, expediente: str = "") -> None:
     if not uid:
         return
     try:
-        for _ in range(TALLER_COSTO_CONSULTAS):
-            supabase_admin.rpc("consume_query", {"p_user_id": uid}).execute()
+        # ── SE COBRA EN PROYECTOS, NO EN CONSULTAS ────────────────────────
+        # Antes se descontaban 10 consultas del chat por sentencia. Mezclaba dos
+        # cosas que no se parecen y le impedía al secretario saber cuántos
+        # proyectos le quedaban. Ahora sale de su bolsa: primero la cuota del
+        # mes —que caduca— y después las recargas —que no—.
+        #
+        # SE COBRA AQUÍ, DESPUÉS DE QUE EL PROYECTO EXISTE, y por eso no hace
+        # falta devolver nada cuando el pipeline revienta: la queja «me marcó
+        # error y me cobró la consulta» aparece nueve veces en la cola de
+        # reportes, de seis personas distintas. No se reproduce.
+        _ok, _de, _d = _taller_gastar_proyecto(c)
+        if not _ok:
+            # La puerta ya lo había comprobado antes de arrancar; si llega aquí
+            # es que alguien gastó su último proyecto en otra pestaña mientras
+            # éste se redactaba. El proyecto ya está hecho: se le regala y se
+            # deja constancia, que es mejor que quitárselo después de seis
+            # minutos de espera.
+            print(f"   🎁 Taller: {correo_opaco(c)} se quedó sin bolsa mientras "
+                  f"se redactaba «{expediente or 'proyecto'}». Se entrega igual.")
         # El contador propio del taller, que llevaba en CERO desde siempre en
         # las 33 cuentas Platinum. Va aparte del saldo de consultas: uno mide
         # el gasto, el otro cuántas sentencias se han hecho.
@@ -21772,11 +21789,116 @@ def _taller_cobrar(correo: str, expediente: str = "") -> None:
         supabase_admin.table("user_profiles").update({
             "sentencia_queries_used": (
                 _taller_saldo_sentencias(c) + 1)}).eq("id", uid).execute()
-        print(f"   💰 Taller: {TALLER_COSTO_CONSULTAS} consultas a "
+        print(f"   💰 Taller: 1 proyecto de «{_de or 'sin bolsa'}» a "
               f"{correo_opaco(c)} por «{expediente or 'proyecto'}»")
     except Exception as e:
         print(f"   ⚠️ No pude cobrar el proyecto del taller: {err(e)}")
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA BOLSA DE PROYECTOS: LO QUE SUSTITUYE AL COBRO EN CONSULTAS
+# ═══════════════════════════════════════════════════════════════════════════
+# Hasta hoy una sentencia costaba 10 consultas del chat. Eso mezcla dos cosas
+# que no se parecen —una consulta vale céntimos, un proyecto cuesta minutos de
+# motor— y, sobre todo, le impide al secretario saber cuántos proyectos le
+# quedan: tenía que dividir un número de consultas entre diez.
+#
+# David, 13-sep-2026: «cada usuario tendrá su cuota de proyectos mensuales más
+# los que recargue con sus 250 pesos y su almacenamiento de 20 GB», y «habilita
+# a las cuentas gratuitas generar 1 proyecto de prueba».
+#
+# EL REPARTO Y EL COBRO VIVEN EN LA BASE, no aquí, y es deliberado: el API corre
+# con `gunicorn -w 2`, y un «leer saldo, restar uno, guardar» repartido entre
+# dos workers gasta el mismo proyecto dos veces. Ver `consumir_proyecto_taller`.
+TALLER_PROYECTOS_GRATIS = int(os.getenv("TALLER_PROYECTOS_GRATIS", "1"))
+
+
+def _taller_proyectos(correo: str) -> dict:
+    """Lo que le queda a este usuario. Nunca lanza: si no se puede leer, ceros."""
+    vacio = {"mes_usados": 0, "mes_limite": 0, "recargados": 0,
+             "prueba_usados": 0, "prueba_max": TALLER_PROYECTOS_GRATIS,
+             "restantes": 0, "sin_limite": False,
+             "almacenamiento_bytes": 0, "almacenamiento_limite": 0}
+    c = (correo or "").strip().lower()
+    if c in TALLER_SIN_LIMITE:
+        return {**vacio, "sin_limite": True}
+    if not supabase_admin:
+        return vacio
+    try:
+        r = supabase_admin.table("user_profiles").select(
+            "proyectos_mes_usados, proyectos_mes_limite, proyectos_recargados, "
+            "proyectos_prueba_usados, almacenamiento_bytes, almacenamiento_limite"
+        ).eq("email", c).limit(1).execute()
+        if not r.data:
+            return vacio
+        f = r.data[0]
+        mes_u = int(f.get("proyectos_mes_usados") or 0)
+        mes_l = int(f.get("proyectos_mes_limite") or 0)
+        rec = int(f.get("proyectos_recargados") or 0)
+        pru = int(f.get("proyectos_prueba_usados") or 0)
+        return {
+            "mes_usados": mes_u, "mes_limite": mes_l, "recargados": rec,
+            "prueba_usados": pru, "prueba_max": TALLER_PROYECTOS_GRATIS,
+            # LA PRUEBA CUENTA COMO RESTANTE mientras no se haya gastado: si no,
+            # la pantalla le dice «0 proyectos» a quien sí puede hacer uno, y no
+            # lo intenta.
+            "restantes": max(mes_l - mes_u, 0) + rec
+                         + max(TALLER_PROYECTOS_GRATIS - pru, 0),
+            "sin_limite": False,
+            "almacenamiento_bytes": int(f.get("almacenamiento_bytes") or 0),
+            "almacenamiento_limite": int(f.get("almacenamiento_limite") or 0),
+        }
+    except Exception as e:
+        print(f"   ⚠️ No pude leer la bolsa de proyectos: {err(e)}")
+        return vacio
+
+
+def _taller_gastar_proyecto(correo: str) -> tuple:
+    """(ok, de_donde, detalle). `de_donde` es 'mes', 'recarga' o 'prueba'.
+
+    SE LLAMA ANTES DE ARRANCAR EL PIPELINE, que tarda entre dos y seis minutos:
+    decirle a alguien que no le quedan proyectos después de seis minutos de
+    espera es peor que no dejarle empezar. Si el pipeline revienta, se devuelve
+    con `_taller_devolver_proyecto` a la MISMA bolsa de la que salió.
+    """
+    c = (correo or "").strip().lower()
+    if c in TALLER_SIN_LIMITE:
+        return (True, "", {"sin_limite": True})
+    if not supabase_admin:
+        return (True, "", {})               # sin base no se cierra la puerta
+    _, _, uid = _taller_saldo(c)
+    if not uid:
+        return (True, "", {})
+    try:
+        r = supabase_admin.rpc("consumir_proyecto_taller", {
+            "p_user_id": uid, "p_gratuito_max": TALLER_PROYECTOS_GRATIS}).execute()
+        d = r.data if isinstance(r.data, dict) else (r.data or {})
+        if d.get("ok"):
+            print(f"   🎫 Taller: proyecto de la bolsa «{d.get('de')}» · "
+                  f"{correo_opaco(c)} · quedan {d.get('restantes')}")
+            return (True, str(d.get("de") or ""), d)
+        return (False, "", d)
+    except Exception as e:
+        # NO SE CIERRA LA PUERTA POR UN FALLO NUESTRO. Si la base no responde,
+        # el secretario no tiene la culpa y la sentencia corre igual.
+        print(f"   ⚠️ No pude gastar el proyecto: {err(e)}")
+        return (True, "", {})
+
+
+def _taller_devolver_proyecto(correo: str, de: str) -> None:
+    """El pipeline se cayó: se devuelve a la bolsa de la que salió."""
+    c = (correo or "").strip().lower()
+    if not de or c in TALLER_SIN_LIMITE or not supabase_admin:
+        return
+    _, _, uid = _taller_saldo(c)
+    if not uid:
+        return
+    try:
+        supabase_admin.rpc("devolver_proyecto_taller",
+                           {"p_user_id": uid, "p_de": de}).execute()
+        print(f"   ↩️ Taller: proyecto devuelto a «{de}» de {correo_opaco(c)}")
+    except Exception as e:
+        print(f"   ⚠️ No pude devolver el proyecto: {err(e)}")
 
 
 TALLER_PILOTO_ACTIVO = os.getenv("TALLER_PILOTO_ACTIVO", "1") != "0"
@@ -21907,6 +22029,26 @@ def _taller_cuota(correo: str) -> None:
     if c in TALLER_SIN_LIMITE:
         return
 
+    # ── LA BOLSA DE PROYECTOS ES LA PUERTA PRINCIPAL ──────────────────────
+    # Se mira ANTES que el tope diario porque es la que el usuario puede
+    # resolver: si no le quedan proyectos, la salida es recargar, y hay que
+    # decírselo con esas palabras. El tope diario, en cambio, sólo se resuelve
+    # esperando a mañana.
+    _b = _taller_proyectos(c)
+    if not _b.get("sin_limite") and _b.get("restantes", 0) <= 0:
+        _quedan_prueba = max(_b.get("prueba_max", 0) - _b.get("prueba_usados", 0), 0)
+        if _b.get("mes_limite", 0) <= 0 and _quedan_prueba <= 0:
+            raise HTTPException(402,
+                "Ya usaste tu proyecto de prueba. Para seguir generando "
+                "proyectos necesitas el Plan Ultra Secretarios, que incluye 40 "
+                "al mes, o una recarga de 10 proyectos por $250 MXN que no "
+                "caduca.")
+        raise HTTPException(402,
+            f"Se acabaron tus proyectos de este mes "
+            f"({_b.get('mes_usados', 0)} de {_b.get('mes_limite', 0)}) y no "
+            f"tienes recargas. Puedes recargar 10 proyectos por $250 MXN; los "
+            f"recargados no caducan y se guardan para cuando los necesites.")
+
     hechas = _taller_sentencias_hoy(c)
     if hechas >= TALLER_SENTENCIAS_DIA:
         raise HTTPException(429,
@@ -21936,7 +22078,7 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
     if supabase_admin:
         try:
             result = supabase_admin.table('user_profiles') \
-                .select('subscription_type, can_access_sentencia') \
+                .select('subscription_type, can_access_sentencia, proyectos_prueba_usados') \
                 .eq('email', email_lower) \
                 .limit(1) \
                 .execute()
@@ -21946,6 +22088,16 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
                 if sub_type in ('platinum_monthly', 'platinum_annual', 'ultra_secretarios'):
                     return True
                 if row.get('can_access_sentencia', False):
+                    return True
+                # ── LA PRUEBA DE LAS CUENTAS GRATUITAS ────────────────────
+                # David, 13-sep-2026: «vamos a habilitar a las cuentas
+                # gratuitas generar 1 proyecto de prueba en el taller».
+                #
+                # La puerta se abre a quien le quede la prueba y se cierra sola
+                # en cuanto la gasta: `proyectos_prueba_usados` la cuenta DE POR
+                # VIDA, no por mes. Así conoce la herramienta —que es el
+                # objetivo— sin que sea un proyecto gratis cada treinta días.
+                if int(row.get('proyectos_prueba_usados') or 0) < TALLER_PROYECTOS_GRATIS:
                     return True
         except Exception as e:
             print(f"   ⚠️ Error checking redactor TCC access for {correo_opaco(email_lower)}: {err(e)}")
@@ -31091,6 +31243,21 @@ async def taller_estado(user_email: str):
         "secretarios": n,
         "cupo": TALLER_PILOTO_CUPO,
         "tiene_acceso": _can_access_redactor_tcc(user_email),
+        # ── SISE, CERRADO SALVO PARA DENTRO ──────────────────────────────
+        # David, 13-sep-2026: «vamos a inhabilitar la opción de SISE
+        # (bloquéala para cualquier usuario excepto administradores y testers,
+        # deja el mensaje de próximamente) y habilita a los usuarios la única
+        # vía que es "Con mis archivos"».
+        #
+        # LA PUERTA SE CIERRA AQUÍ Y NO SÓLO EN LA PANTALLA. Esconder el botón
+        # es maquillaje: los endpoints del camino de SISE seguirían abiertos a
+        # quien los llame a mano. La lista es la misma que ya exime del tope
+        # diario —administración y los testers—, así que no hay dos sitios
+        # donde acordarse de dar de alta a alguien.
+        "puede_sise": (user_email or "").strip().lower() in TALLER_SIN_LIMITE,
+        # LA BOLSA, EN LA PANTALLA. Que el secretario sepa cuántos proyectos le
+        # quedan sin tener que dividir un número de consultas entre diez.
+        "proyectos": _taller_proyectos(user_email),
         "aviso": ("Borrador asistido. No es un proyecto firmable: verifique las "
                   "partes, las citas y que estén contestados todos los conceptos."),
     }
