@@ -21983,39 +21983,36 @@ def _taller_puerta(user_email: str, cobrable: bool = False) -> None:
     Deja pasar o explica por qué no. Lanza HTTPException si no procede.
 
     `cobrable=True` sólo en los dos endpoints que generan la sentencia. Ahí,
-    además del plan, se miran las dos cuotas nuevas: cinco al día y diez
-    consultas por sentencia.
+    además del plan, se mira la bolsa de proyectos.
 
-    El orden de las comprobaciones no es casual — va de lo más barato a lo más
-    caro, y la de saldo al final porque es la única que requiere leer el perfil.
+    ── QUIÉN ENTRA, DESDE EL 13-SEP-2026 ──────────────────────────────────
+    David: «a esta herramienta ya no acceden Platinum. Deja a quienes ocuparon
+    los 9 de los 10 asientos. Ahora sólo podrán acceder los gratuitos para su
+    prueba y quienes contraten el plan mensual».
+
+    Tres puertas, y las tres las decide `_can_access_redactor_tcc`:
+      · el plan Ultra Secretarios, que es de quien es la herramienta
+      · cualquier cuenta a la que le quede su prueba
+      · los nueve asientos del piloto, por lo que se les prometió
+
+    EL CUPO DE DIEZ DEJA DE SER UNA PUERTA, y quitarlo era urgente: contaba
+    SECRETARIOS DISTINTOS que hubieran generado algo, así que en cuanto un par
+    de cuentas gratuitas hicieran su prueba el contador pasaba de diez y el
+    guardián empezaba a rechazar a todo el que no estuviera ya dentro —incluidas
+    las cuentas gratuitas que acabamos de invitar y, peor, quien acabara de
+    pagar los 999—. El piloto era una fase de admisión; ahora es un hecho
+    histórico anotado en `taller_piloto_uso`, y ahí es donde se consulta.
     """
     if not _can_access_redactor_tcc(user_email):
-        raise HTTPException(403, "El taller de sentencias es una función Platinum.")
+        raise HTTPException(403,
+            "El taller de sentencias es del plan Ultra Secretarios. Si tienes "
+            "una cuenta gratuita puedes generar un proyecto de prueba; si ya la "
+            "usaste, el plan incluye 40 proyectos al mes.")
     if not TALLER_PILOTO_ACTIVO:
-        raise HTTPException(403, "El piloto del taller ha terminado. La función "
-                                 "pasa a estar disponible en el plan Ultra.")
+        raise HTTPException(403, "El taller no está disponible en este momento.")
     correo = (user_email or "").strip().lower()
     if cobrable:
         _taller_cuota(correo)
-    if correo in ADMIN_EMAILS:
-        return
-    n = _taller_secretarios_distintos()
-    if n > TALLER_PILOTO_CUPO:
-        # Quien YA estaba dentro sigue dentro: cerrarle la puerta a alguien que
-        # tiene un proyecto a medias por haberse llenado el cupo es la peor
-        # forma de terminar un piloto.
-        if supabase_admin:
-            try:
-                r = supabase_admin.table("taller_piloto_uso").select("email") \
-                    .eq("email", correo).limit(1).execute()
-                if r.data:
-                    return
-            except Exception:
-                return
-        raise HTTPException(403,
-            f"El piloto del taller de sentencias se cerró al completar "
-            f"{TALLER_PILOTO_CUPO} secretarios. La función estará disponible en "
-            f"el plan Ultra.")
 
 
 def _taller_cuota(correo: str) -> None:
@@ -22067,6 +22064,34 @@ def _taller_cuota(correo: str) -> None:
             f"renueva al inicio del siguiente periodo.")
 
 
+def _es_del_piloto(correo: str) -> bool:
+    """¿Esta cuenta ocupó uno de los asientos del piloto?
+
+    David, 13-sep-2026: «a esta herramienta ya no acceden Platinum. Deja a
+    quienes ocuparon los 9 de los 10 asientos».
+
+    LA PERTENENCIA AL PILOTO NO ES EL PLAN. Se decidía por `subscription_type`
+    —cualquier Platinum entraba—, y eso convirtió un piloto de diez plazas en
+    una puerta abierta a treinta y cinco cuentas. Quien ocupó asiento está
+    anotado en `taller_piloto_uso` desde el día que generó su primer proyecto, y
+    ése es el registro que manda: es un hecho, no un plan que puede cambiar
+    mañana. Si alguien del piloto baja de plan, conserva su asiento; si un
+    Platinum nuevo aparece, no lo hereda.
+    """
+    c = (correo or "").strip().lower()
+    if not c or not supabase_admin:
+        return False
+    try:
+        r = supabase_admin.table("taller_piloto_uso").select("email") \
+            .eq("email", c).limit(1).execute()
+        return bool(r.data)
+    except Exception as e:
+        # NO SE CIERRA LA PUERTA POR UN FALLO NUESTRO a quien lleva semanas
+        # usando esto. Si la consulta falla, se deja pasar.
+        print(f"   ⚠️ No pude comprobar el piloto (se deja pasar): {err(e)}")
+        return True
+
+
 def _can_access_redactor_tcc(user_email: str) -> bool:
     """
     Check if a user can access the Redactor TCC Beta.
@@ -22085,9 +22110,21 @@ def _can_access_redactor_tcc(user_email: str) -> bool:
             if result.data and len(result.data) > 0:
                 row = result.data[0]
                 sub_type = row.get('subscription_type', '')
-                if sub_type in ('platinum_monthly', 'platinum_annual', 'ultra_secretarios'):
+                # ── PLATINUM YA NO ENTRA ────────────────────────────────
+                # David, 13-sep-2026: «a esta herramienta ya no acceden
+                # Platinum. Ahora sólo podrán acceder los gratuitos para su
+                # prueba y quienes contraten el plan mensual».
+                #
+                # El taller se abrió en beta a Platinum mientras era un piloto
+                # de diez plazas; con el plan Ultra en venta, dárselo también a
+                # quien paga 599 vacía el de 999. Los que ya entraron conservan
+                # su asiento —ver `_es_del_piloto`—, que es lo que se les
+                # prometió y lo que se comprueba una línea más abajo.
+                if sub_type == 'ultra_secretarios':
                     return True
                 if row.get('can_access_sentencia', False):
+                    return True
+                if _es_del_piloto(email_lower):
                     return True
                 # ── LA PRUEBA DE LAS CUENTAS GRATUITAS ────────────────────
                 # David, 13-sep-2026: «vamos a habilitar a las cuentas
@@ -31258,6 +31295,9 @@ async def taller_estado(user_email: str):
         # LA BOLSA, EN LA PANTALLA. Que el secretario sepa cuántos proyectos le
         # quedan sin tener que dividir un número de consultas entre diez.
         "proyectos": _taller_proyectos(user_email),
+        # Para que la pantalla pueda decirle al del piloto que conserva su plaza
+        # en vez de enseñarle un cartel de una fase que ya cerró.
+        "del_piloto": _es_del_piloto(user_email),
         "aviso": ("Borrador asistido. No es un proyecto firmable: verifique las "
                   "partes, las citas y que estén contestados todos los conceptos."),
     }
