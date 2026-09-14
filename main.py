@@ -10222,74 +10222,13 @@ DOCUMENT_MAX_CHARS = 200_000  # ~50K tokens — fast TTFT, sufficient for any le
 # chat: citar SÓLO lo que traiga el contexto, con su registro.
 # ──────────────────────────────────────────────────────────────────────────
 
-DOCUMENT_SYSTEM_PROMPT = """Eres Iurexia, un asistente jurídico de alto nivel especializado en derecho mexicano. Un abogado te ha adjuntado un documento legal completo para que lo analices.
+# El prompt del análisis de documentos vive en `documento_acervo.py` desde el
+# 14-sep-2026, cuando esta ruta dejó de trabajar sin acervo. Se conserva el
+# nombre por compatibilidad: `DOCUMENT_SYSTEM_PROMPT` es la variante SIN
+# acervo, la que se usa cuando la búsqueda falla o no devuelve nada.
+from documento_acervo import prompt_documento, consulta_para_acervo
 
-REGLAS FUNDAMENTALES:
-1. **SIGUE LA INSTRUCCIÓN DEL USUARIO AL PIE DE LA LETRA.** Si pide un resumen, genera un resumen. Si pide extraer conceptos de violación, extrae solo eso. Si pide redactar algo basado en el documento, redáctalo. No impongas una estructura que el usuario no pidió.
-2. **ESCRIBE COMO UN ABOGADO DE PRIMER NIVEL.** Tu redacción debe ser profesional, clara, fluida y exhaustiva. El usuario probablemente usará tu texto directamente en una demanda, sentencia, recurso o dictamen. Redacta en consecuencia: con precisión terminológica, párrafos bien construidos y argumentación sólida.
-3. **CITA TEXTUALMENTE del documento lo relevante.** Cuando hagas referencia a contenido del documento, incluye la cita textual entrecomillada para dar sustento.
-4. **SÉ EXHAUSTIVO.** Prefiere dar más contenido útil que menos. Los abogados necesitan material extenso y detallado que puedan usar o adaptar. No te limites a listar puntos — desarrolla cada uno con profundidad.
-5. **ANALIZA EL DOCUMENTO COMPLETO.** Tienes acceso al documento íntegro. No omitas secciones relevantes.
-6. **RESPONDE EN ESPAÑOL** y usa formato Markdown (##, ###, **, listas, citas en bloque).
-
-7. **NO CITES JURISPRUDENCIA NI TESIS. NUNCA. BAJO NINGUNA CIRCUNSTANCIA.**
-   Aquí sólo tienes delante el documento del abogado: NO tienes el Semanario
-   Judicial de la Federación, NO tienes acervo que consultar y NO puedes
-   comprobar si una tesis existe. Cualquier tesis que escribieras saldría de
-   tu memoria, y una tesis recordada de memoria es una tesis inventada.
-
-   Queda prohibido escribir: números de tesis (I.3o.C.493 C, 1a./J. 82/2014,
-   VI.2o.C. J/207, P./J. 20/2014…), registros digitales, rubros de tesis,
-   «Época», «Instancia», «Semanario Judicial de la Federación», «Apoyo
-   jurisprudencial», «Sirve de apoyo la tesis…» o cualquier fórmula
-   equivalente.
-
-8. **NO INVENTES NÚMEROS DE ARTÍCULO.** Un número de artículo que no esté en
-   el documento adjunto sale de tu memoria igual que una tesis, y se aplica la
-   misma regla por la misma razón: aquí no tienes con qué comprobarlo.
-
-   PASÓ, Y ASÍ SE VE (folio 1946-02, 7-sep-2026). Un abogado adjuntó un
-   contrato y pidió ajustarlo «considerando la legislación de Puebla». La
-   respuesta citó diez artículos del Código Civil de Puebla —2289, 2290, 2291,
-   2301, 2334, 2795, 2796, 2799, 2822, 2826—. Comprobados después contra el
-   acervo: NINGUNO está en el código de Puebla, y LOS DIEZ existen en el
-   Código Civil Federal. No fue una alucinación al azar: fueron números
-   federales reales con la etiqueta de otro estado. Suena impecable y es
-   falso, que es lo peor que puede ser una cita.
-
-   REGLA: puedes escribir el número de un artículo SÓLO si ese número aparece
-   en el documento adjunto. En cualquier otro caso, nombra la figura jurídica
-   —«el derecho del tanto», «la tácita reconducción», «la prenda»— sin número,
-   y explica su alcance. El abogado sabe de qué le hablas; lo que no puede
-   saber es que el número que le diste es de otro código.
-
-   Cuando la figura necesite fundamento expreso, añade una sola vez:
-
-   > *No cito números de artículo que no estén en tu documento: aquí no tengo
-   > la legislación delante para comprobarlos, y los códigos estatales varían
-   > en numeración. Hazme la misma pregunta en el chat sin adjuntar el
-   > documento y te doy el artículo exacto de tu entidad, con su texto.*
-
-   Esto vale DOBLE con legislación estatal. Hay 33 códigos civiles y 33 de
-   procedimientos en México, con numeraciones distintas para las mismas
-   figuras, y confundirlos es el error más fácil y el más difícil de detectar:
-   el número existe, el código existe, y sólo está mal la pareja.
-
-   SÍ PUEDES citar sin reservas todo lo que esté escrito en el documento
-   adjunto —incluidos los artículos que el propio documento invoque— porque
-   eso sí lo tienes delante.
-
-   Si el abogado te pide expresamente jurisprudencia, respóndele con esta
-   frase y sigue con el resto del análisis:
-
-   > *No cito tesis desde el análisis de documentos porque aquí no tengo el
-   > acervo delante y no podría comprobarlas. Haz la misma pregunta en el
-   > chat sin adjuntar el documento: allí busco en el Semanario y cada cita
-   > sale con su registro digital comprobado.*
-
-SI EL USUARIO NO DA UNA INSTRUCCIÓN ESPECÍFICA, entonces genera un análisis jurídico completo y detallado del documento que incluya: naturaleza y tipo de documento, partes involucradas, hechos relevantes, fundamentos legales, puntos controvertidos, argumentación, efectos jurídicos y observaciones importantes. Desarrolla cada sección con profundidad.
-
-RECUERDA: tu objetivo es ser la herramienta más útil posible para el abogado. Produce texto de calidad profesional que pueda incorporarse directamente en un trabajo jurídico."""
+DOCUMENT_SYSTEM_PROMPT = prompt_documento(con_acervo=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -10353,6 +10292,83 @@ async def _crear_con_amortiguador(cliente, *, etiqueta: str, **kwargs):
         return await cliente.chat.completions.create(**kwargs)
 
 
+def _marcador_fuentes_previas(results: List["SearchResult"]) -> str:
+    """El mapa de fuentes que el frontend pinta mientras llega el texto.
+
+    Mismo formato que emite /chat, recortado a 4.000 caracteres por fuente
+    por la misma razón que allí: el mensaje guardado vuelve como historial.
+    """
+    _previas = {}
+    for _d in results:
+        try:
+            _previas[str(_d.id)] = {
+                "origen": humanize_origen(_d.origen) or "Fuente legal",
+                "ref": _d.ref or "",
+                "texto": (_d.texto or "")[:4000],
+                "pdf_url": resolver_pdf(_d.pdf_url, _d.origen, _d.silo) or None,
+                "silo": _d.silo,
+                "entidad": getattr(_d, "entidad", None) or None,
+                "registro": getattr(_d, "registro", None) or None,
+                "tesis_num": getattr(_d, "tesis_num", None) or None,
+                "tipo_criterio": getattr(_d, "tipo_criterio", None) or None,
+                "instancia": getattr(_d, "instancia_meta", None) or None,
+                "materia": getattr(_d, "materia_meta", None) or None,
+            }
+        except Exception:
+            continue
+    if not _previas:
+        return ""
+    return "\n<!-- FUENTES_PREVIAS:" + json.dumps(_previas, ensure_ascii=False) + " -->\n"
+
+
+def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
+                          search_results: List["SearchResult"]) -> List[str]:
+    """CITATION_META y REGISTROS_FUERA para una respuesta ya completa.
+
+    Es lo que /chat emite al final de su stream, sin la reparación de UUIDs
+    ni los precedentes, que aquí no intervienen. El frontend no distingue de
+    qué ruta viene el mensaje: lee los marcadores del contenido.
+    """
+    salida: List[str] = []
+    validation = validate_citations(texto, doc_id_map)
+    sources_map = {}
+    for cv in validation.citations:
+        doc = doc_id_map.get(cv.doc_id)
+        if doc:
+            sources_map[cv.doc_id] = {
+                "origen": humanize_origen(doc.origen) or "Fuente legal",
+                "ref": doc.ref or "",
+                "texto": doc.texto or "",
+                "pdf_url": resolver_pdf(doc.pdf_url, doc.origen, doc.silo) or None,
+                "silo": doc.silo,
+                "entidad": getattr(doc, "entidad", None) or None,
+                "registro": getattr(doc, "registro", None) or None,
+                "tesis_num": getattr(doc, "tesis_num", None) or None,
+                "tipo_criterio": getattr(doc, "tipo_criterio", None) or None,
+                "instancia": getattr(doc, "instancia_meta", None) or None,
+                "materia": getattr(doc, "materia_meta", None) or None,
+            }
+        else:
+            sources_map[cv.doc_id] = {"origen": "Fuente no verificada", "ref": "", "texto": ""}
+    if validation.invalid_count > 0:
+        print(f"   ⚠️ Documento: CITAS INVÁLIDAS {validation.invalid_count}/{validation.total_citations}")
+    else:
+        print(f"   ✅ Documento: {validation.valid_count} citas verificadas contra el acervo")
+    _regs_fuera = registros_fuera_del_contexto(texto, search_results)
+    if _regs_fuera:
+        print(f"   🚨 Documento: registros fuera del contexto ({len(_regs_fuera)}): {', '.join(_regs_fuera[:12])}")
+        salida.append(f"<!--REGISTROS_FUERA:{','.join(_regs_fuera)}-->")
+    meta = json.dumps({
+        "valid": validation.valid_count,
+        "invalid": validation.invalid_count,
+        "total": validation.total_citations,
+        "invalid_ids": [c.doc_id for c in validation.citations if c.status == "invalid"],
+        "sources": sources_map,
+    }, ensure_ascii=False)
+    salida.append(f"\n\n<!-- CITATION_META:{meta} -->")
+    return salida
+
+
 @app.post("/analyze-document")
 async def analyze_document(
     file: UploadFile = File(...),
@@ -10360,6 +10376,9 @@ async def analyze_document(
     user_id: str = Form(None),
     fuentes_web: str = Form(None),
     estado: str = Form(None),
+    # "0" apaga el acervo. Lo manda la carpeta de expedientes, que sólo
+    # quiere el extracto del documento y no un análisis fundamentado.
+    usar_acervo: str = Form("1"),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -10392,7 +10411,7 @@ async def analyze_document(
             # Ejecutar consulta de Supabase en un pool de hilos para no bloquear
             def _fetch_profile():
                 return supabase_admin.table('user_profiles') \
-                    .select('subscription_type, email') \
+                    .select('subscription_type, email, estado') \
                     .eq('id', user_id) \
                     .limit(1) \
                     .execute()
@@ -10400,6 +10419,11 @@ async def analyze_document(
             profile_res = await asyncio.to_thread(_fetch_profile)
             if profile_res.data and len(profile_res.data) > 0:
                 row = profile_res.data[0]
+                # La entidad del perfil es el respaldo cuando el formulario
+                # no la manda: sin ella el acervo no abre el silo estatal y
+                # la búsqueda se queda en lo federal.
+                if not estado and row.get('estado'):
+                    estado = str(row.get('estado')).strip() or None
                 sub_type = row.get('subscription_type', 'gratuito')
                 plan_actual = sub_type or "gratuito"
                 user_email = row.get('email', '').strip().lower()
@@ -10703,6 +10727,55 @@ async def analyze_document(
     else:
         truncation_note = ""
 
+    # ── Step 2.5: El acervo entra al análisis (14-sep-2026) ─────────────────
+    # Hasta hoy esta ruta recibía el documento y nada más: 1.441 respuestas en
+    # 25 días, 11 con [Doc ID]. El modelo citaba artículos y tesis de memoria,
+    # con números exactos y falsos —los diez artículos «de Puebla» que eran
+    # federales, el «no está tipificado» del 200 bis de BCS que sí estaba—.
+    # Ahora se busca en el acervo con la instrucción del abogado y el arranque
+    # del documento, filtrado por su entidad, como hace el chat; el prompt
+    # cambia de «no tienes acervo» a «cita sólo del acervo», y la respuesta
+    # sale con el mismo sello que una del chat.
+    #
+    # FAIL-CLOSED: si el acervo no responde o no devuelve nada se sigue con
+    # las reglas de siempre —sin números que no estén en el documento—. Un
+    # acervo caído no puede convertirse en una invitación a inventar.
+    search_results: List[SearchResult] = []
+    doc_id_map: Dict[str, SearchResult] = {}
+    context_xml = ""
+    _acervo_pedido = str(usar_acervo).strip().lower() not in ("0", "false", "no")
+    _entidad_acervo = normalize_estado(estado) if estado else None
+    if _acervo_pedido:
+        try:
+            _t_acervo = _time.time()
+            search_results = await asyncio.wait_for(
+                hybrid_search_all_silos(
+                    query=consulta_para_acervo(prompt, extracted_text, filename),
+                    estado=estado or None,
+                    top_k=30,
+                ),
+                timeout=25.0,
+            ) or []
+            if search_results:
+                doc_id_map = build_doc_id_map(search_results)
+                context_xml = format_results_as_xml(search_results, estado=_entidad_acervo)
+            print(f"   📚 Documento + acervo: {len(search_results)} fuentes "
+                  f"(entidad={_entidad_acervo or '—'}) en {_time.time() - _t_acervo:.1f}s")
+        except asyncio.TimeoutError:
+            print("   📚 Documento + acervo: el acervo no respondió a tiempo → análisis sin acervo")
+            search_results, doc_id_map, context_xml = [], {}, ""
+        except Exception as _acv:
+            print(f"   📚 Documento + acervo: fallo al buscar "
+                  f"({type(_acv).__name__}: {str(_acv)[:160]}) → análisis sin acervo")
+            search_results, doc_id_map, context_xml = [], {}, ""
+    else:
+        print("   📚 Documento sin acervo por petición del llamador (usar_acervo=0)")
+    _con_acervo = bool(search_results)
+    system_documento = prompt_documento(con_acervo=_con_acervo)
+    if _con_acervo:
+        system_documento += "\n\nCONTEXTO JURÍDICO RECUPERADO:\n" + context_xml
+    _marcador_previas = _marcador_fuentes_previas(search_results) if _con_acervo else ""
+
     # ── Step 3: Send to Gemini 3 Flash via OpenRouter (streaming) ──
     full_user_message = f"""DOCUMENTO ADJUNTO: "{filename}" ({original_len:,} caracteres){truncation_note}
 
@@ -10750,7 +10823,7 @@ CONTENIDO DEL DOCUMENTO:
                 etiqueta="analyze-document",
                 model=model_to_use,
                 messages=[
-                    {"role": "system", "content": DOCUMENT_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_documento},
                     {"role": "user", "content": full_user_message}
                 ],
                 stream=True,
@@ -10759,15 +10832,38 @@ CONTENIDO DEL DOCUMENTO:
             )
             first_token = True
             _hubo_texto = False
+            _trozos: List[str] = []
+            _previas_pendiente = _marcador_previas
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     token = chunk.choices[0].delta.content
                     _hubo_texto = True
+                    _trozos.append(token)
                     if first_token:
                         first_token = False
                         t_first_token = _time.time()
                         print(f"   ⚡ TTFT (time-to-first-token): {t_first_token - t_llm_start:.2f}s (total elapsed: {t_first_token - t0:.2f}s)")
                     yield f"data: {json.dumps({'token': token})}\n\n"
+                    if _previas_pendiente:
+                        # El mapa de fuentes viaja DESPUÉS del primer token y no
+                        # antes: el frontend apaga el indicador «analizando» con
+                        # el primer dato que llega, y un comentario HTML solo
+                        # pintaría una burbuja vacía. El marcador es invisible y
+                        # ChatMessage lo lee esté donde esté.
+                        yield f"data: {json.dumps({'token': _previas_pendiente})}\n\n"
+                        _previas_pendiente = ""
+            # ── El sello: qué citas son del acervo y cuáles no ──────────────
+            # Mismo contrato que /chat: CITATION_META y REGISTROS_FUERA viajan
+            # como comentarios dentro del texto; el frontend los recorta y con
+            # ellos pinta el sello. Sin esto, una respuesta con Doc IDs se
+            # vería igual que una sin ellos y el abogado no sabría cuál está
+            # comprobada.
+            if doc_id_map and _trozos:
+                try:
+                    for _linea in _marcadores_del_sello("".join(_trozos), doc_id_map, search_results):
+                        yield f"data: {json.dumps({'token': _linea})}\n\n"
+                except Exception as _sello_err:
+                    print(f"   ⚠️ Sello del documento no emitido: {_sello_err}")
             if _web_tasks_doc:
                 try:
                     from busqueda_web import fusionar as _fusionar_web
