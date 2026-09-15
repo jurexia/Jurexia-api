@@ -10226,7 +10226,8 @@ DOCUMENT_MAX_CHARS = 200_000  # ~50K tokens — fast TTFT, sufficient for any le
 # 14-sep-2026, cuando esta ruta dejó de trabajar sin acervo. Se conserva el
 # nombre por compatibilidad: `DOCUMENT_SYSTEM_PROMPT` es la variante SIN
 # acervo, la que se usa cuando la búsqueda falla o no devuelve nada.
-from documento_acervo import prompt_documento, consulta_para_acervo
+from documento_acervo import (prompt_documento, consulta_para_acervo,
+                              INSTRUCCION_CONTINUAR, NOTA_TRANSCRIPCION_CORTADA)
 
 DOCUMENT_SYSTEM_PROMPT = prompt_documento(con_acervo=False)
 
@@ -10834,7 +10835,17 @@ CONTENIDO DEL DOCUMENTO:
             _hubo_texto = False
             _trozos: List[str] = []
             _previas_pendiente = _marcador_previas
+            # Por qué paró el motor. Gemini se detiene en silencio cuando el
+            # texto le parece «recitación» —y transcribir un artículo es
+            # justo eso—; sin este registro una respuesta cortada a media
+            # frase no deja rastro de por qué.
+            _motivo_fin = None
+            _motivo_nativo = None
             async for chunk in response:
+                if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):
+                    _motivo_fin = chunk.choices[0].finish_reason
+                    _extra = getattr(chunk.choices[0], "model_extra", None) or {}
+                    _motivo_nativo = _extra.get("native_finish_reason") or getattr(chunk.choices[0], "native_finish_reason", None)
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
                     token = chunk.choices[0].delta.content
                     _hubo_texto = True
@@ -10852,6 +10863,47 @@ CONTENIDO DEL DOCUMENTO:
                         # ChatMessage lo lee esté donde esté.
                         yield f"data: {json.dumps({'token': _previas_pendiente})}\n\n"
                         _previas_pendiente = ""
+            print(f"   🏁 Documento: fin del stream · finish_reason={_motivo_fin} · nativo={_motivo_nativo} · {len(_trozos)} trozos · {sum(len(t) for t in _trozos):,} chars")
+            # ── Si el motor paró por recitación, se continúa con Flash ──────
+            # Gemini Pro corta a media frase cuando transcribe un artículo
+            # (filtro RECITATION); ver documento_acervo.py. No se degrada a
+            # Platinum de entrada: se le da su motor, y sólo si éste se calla
+            # se termina la respuesta con el que no recita, desde el último
+            # carácter. Una vez. Si también se corta, se dice.
+            if _hubo_texto and (_motivo_nativo == "RECITATION" or _motivo_fin in ("content_filter", "error")):
+                print(f"   🔁 Documento: el motor paró por {_motivo_nativo or _motivo_fin} → se continúa con {DOCUMENT_MODEL}")
+                _fin2, _nativo2, _n2 = None, None, 0
+                try:
+                    _resp2 = await _crear_con_amortiguador(
+                        deepseek_client,
+                        etiqueta="analyze-document-continuacion",
+                        model=DOCUMENT_MODEL,
+                        messages=[
+                            {"role": "system", "content": system_documento},
+                            {"role": "user", "content": full_user_message},
+                            {"role": "assistant", "content": "".join(_trozos)},
+                            {"role": "user", "content": INSTRUCCION_CONTINUAR},
+                        ],
+                        stream=True,
+                        max_tokens=32768,
+                        temperature=0.3,
+                    )
+                    async for chunk in _resp2:
+                        if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):
+                            _fin2 = chunk.choices[0].finish_reason
+                            _extra2 = getattr(chunk.choices[0], "model_extra", None) or {}
+                            _nativo2 = _extra2.get("native_finish_reason")
+                        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                            token = chunk.choices[0].delta.content
+                            _trozos.append(token)
+                            _n2 += 1
+                            yield f"data: {json.dumps({'token': token})}\n\n"
+                    print(f"   🔁 Documento: continuación de {_n2} trozos · finish_reason={_fin2} · nativo={_nativo2}")
+                except Exception as _cont_err:
+                    print(f"   ⚠️ Documento: la continuación falló ({type(_cont_err).__name__}: {str(_cont_err)[:160]})")
+                if _nativo2 == "RECITATION" or _fin2 in ("content_filter", "error"):
+                    _trozos.append(NOTA_TRANSCRIPCION_CORTADA)
+                    yield f"data: {json.dumps({'token': NOTA_TRANSCRIPCION_CORTADA})}\n\n"
             # ── El sello: qué citas son del acervo y cuáles no ──────────────
             # Mismo contrato que /chat: CITATION_META y REGISTROS_FUERA viajan
             # como comentarios dentro del texto; el frontend los recorta y con

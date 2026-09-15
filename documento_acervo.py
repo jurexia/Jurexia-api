@@ -147,6 +147,29 @@ _CIERRE = """SI EL USUARIO NO DA UNA INSTRUCCIÓN ESPECÍFICA, entonces genera u
 RECUERDA: tu objetivo es ser la herramienta más útil posible para el abogado. Produce texto de calidad profesional que pueda incorporarse directamente en un trabajo jurídico."""
 
 
+# GEMINI PRO CORTA LA TRANSCRIPCIÓN A MEDIA FRASE. Medido el 14-sep-2026 con el
+# motor Platinum (gemini-3.1-pro-preview): `finish_reason=error`,
+# `native_finish_reason=RECITATION`, 2.040 caracteres y ni un Doc ID. El filtro
+# de recitación de Gemini detiene la generación cuando el texto reproduce
+# literalmente algo largo de su entrenamiento, y las leyes lo son. Antes no se
+# veía porque el prompt sin acervo prohibía transcribir leyes; con acervo la
+# transcripción literal es la regla. Flash no recita. Cuando Pro para por eso,
+# la respuesta se continúa con Flash desde el último carácter con esta
+# instrucción, y el registro lo grita.
+INSTRUCCION_CONTINUAR = (
+    "Tu respuesta se interrumpió a mitad de una transcripción por un filtro automático "
+    "del motor. Continúa EXACTAMENTE desde el último carácter escrito, sin repetir nada de "
+    "lo anterior, sin saludar y sin explicar la interrupción. Si estabas transcribiendo un "
+    "artículo, termina la transcripción y sigue con el análisis, respetando todas las "
+    "reglas: cada cita con su [Doc ID: uuid] completo."
+)
+
+NOTA_TRANSCRIPCION_CORTADA = (
+    "\n\n*[La transcripción literal se interrumpió por un filtro automático del motor. "
+    "El texto íntegro del artículo puede consultarse desde la fuente citada.]*"
+)
+
+
 def prompt_documento(con_acervo: bool) -> str:
     """Reglas 1-6 comunes, 7-8 según haya acervo o no, y el cierre."""
     return _BASE + (_CON_ACERVO if con_acervo else _SIN_ACERVO) + _CIERRE
