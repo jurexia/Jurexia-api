@@ -2635,18 +2635,23 @@ Tu capacidad creativa debe ser MÁXIMA. Construye AGRAVIOS devastadores, lógico
   - Se presenta ante el mismo juez que lo dictó
   - Plazo: generalmente 3 días
   - Es recurso horizontal (lo resuelve el mismo juez)
+  - Si la materia es fiscal federal, es recurso ADMINISTRATIVO (arts. 116 y siguientes del Código Fiscal de la Federación): se presenta ante la autoridad competente en razón del domicilio del contribuyente o ante la que emitió o ejecutó el acto, en 30 días (art. 121 CFF). No lo resuelve un juez
 
 ▸ RECURSO DE QUEJA:
   - Contra excesos o defectos en ejecución de sentencias
   - Contra denegación de apelación
   - En amparo: contra actos de autoridad responsable (art. 97 Ley de Amparo)
-  - Plazo variable según la causal
+  - Plazo en amparo: 5 días; 2 días hábiles contra la suspensión de plano o provisional; en cualquier tiempo cuando se omite tramitar la demanda (art. 98 Ley de Amparo)
 
 ▸ RECURSO DE REVISIÓN:
   - En amparo: contra sentencias de Juzgado de Distrito
   - En amparo: contra resoluciones sobre suspensión
-  - Se interpone ante el Tribunal Colegiado o SCJN
+  - Se interpone por conducto del órgano que dictó la resolución recurrida (art. 86 Ley de Amparo); presentarlo directamente ante el Tribunal Colegiado NO interrumpe el plazo. Lo resuelve el Tribunal Colegiado o la SCJN
   - Plazo: 10 días (art. 86 Ley de Amparo)
+
+▸ SI EL TIPO DE RECURSO NO ESTÁ ARRIBA (lo escribe el abogado con sus palabras):
+  - El órgano ante el que se presenta y el plazo se toman de la ley procesal aplicable a ese recurso y a la materia indicados. Si no están en el contexto ni los conoces con certeza, escribe [COMPLETAR: órgano ante el que se interpone] y [COMPLETAR: plazo y artículo] en lugar de suponerlos.
+  - Si el recurso exige razonar su procedencia (por ejemplo, la revisión fiscal del art. 63 de la Ley Federal de Procedimiento Contencioso Administrativo), incluye un apartado PROCEDENCIA DEL RECURSO antes de los agravios.
 
 ▸ CONCEPTO DE VIOLACIÓN / AGRAVIO:
   - Construcción técnica del argumento de impugnación
@@ -2672,7 +2677,7 @@ Antes de redactar, ANALIZA:
 
 **DATOS DE IDENTIFICACIÓN**
 
-C. [JUEZ/MAGISTRADO/TRIBUNAL] EN [MATERIA] EN TURNO
+C. [JUEZ O TRIBUNAL QUE DICTÓ LA RESOLUCIÓN RECURRIDA; si el recurso lo resuelve otro órgano, añade «para que por su conducto se remita al tribunal que deba resolverlo»]
 EN [Ciudad]
 EXPEDIENTE: [Número]
 P R E S E N T E
@@ -2759,7 +2764,7 @@ REGLAS CRÍTICAS:
 3. Diferencia errores de FONDO (indebida aplicación de ley) de FORMA (violaciones procedimentales)
 4. SIEMPRE identifica la CAUSA DE PEDIR con precisión
 5. Cita con [Doc ID: uuid] del contexto recuperado
-6. Si el usuario describe la resolución, ATACA sus puntos más débiles creativamente
+6. Si el usuario describe la resolución, ataca la consideración que sostiene el fallo: un agravio que no combate la razón toral es inoperante
 7. Si faltan datos, indica [COMPLETAR: descripción]
 8. Proporciona un ANÁLISIS DE VIABILIDAD honesto al final
 """
@@ -17398,8 +17403,10 @@ class ToulminRequest(BaseModel):
     # abogado («apelación contra sentencia definitiva») y `resolucion` lo que
     # resolvió la autoridad, que es de donde salen los agravios.
     clase: Optional[str] = Field("demanda", max_length=20)
-    tipo: Optional[str] = Field("demanda", max_length=160)
-    resolucion: Optional[str] = Field("", max_length=15000)
+    tipo: Optional[str] = Field(None, max_length=160)
+    # Tope amplio: una sentencia pegada pasa de 15,000 caracteres y un 422 no
+    # le dice nada al abogado. Al modelo sólo llega principio y final (toulmin._recorte).
+    resolucion: Optional[str] = Field("", max_length=60000)
     estado: Optional[str] = Field(None, max_length=60)
     materia: Optional[str] = Field(None, max_length=40)
 
@@ -17414,8 +17421,8 @@ async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(No
     pretension = (payload.pretension or "").strip()
     clase = (payload.clase or "demanda").strip().lower()
     if clase not in _tl.CLASES:
-        clase = "demanda"
-    tipo_escrito = " ".join((payload.tipo or clase).split())
+        raise HTTPException(status_code=400, detail="Tipo de escrito no reconocido.")
+    tipo_escrito = " ".join((payload.tipo or ("" if clase == "recurso" else "demanda")).split())
     resolucion = (payload.resolucion or "").strip()
     if len(hechos) < 40 or len(pretension) < 10:
         raise HTTPException(status_code=400, detail=(

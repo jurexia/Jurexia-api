@@ -65,6 +65,25 @@ MAX_HECHOS = 12000
 MAX_PRETENSION = 3000
 MAX_RESOLUCION = 12000
 CLASES = ("demanda", "recurso")
+
+
+def _recorte(texto: str, tope: int) -> str:
+    """Principio y final, no sólo principio: en una sentencia pegada, los
+    fundamentos («con apoyo en los artículos…») y los resolutivos van al final,
+    y cortar por delante los tiraba (revisión del 15-sep-2026)."""
+    texto = texto or ""
+    if len(texto) <= tope:
+        return texto
+    cabeza = tope // 3
+    return texto[:cabeza].rstrip() + "\n[…]\n" + texto[-(tope - cabeza):].lstrip()
+
+
+# Leyes que NO son del estado aunque las cite una autoridad local: sus artículos
+# no se buscan en la colección estatal (la revisión probó que el Código Fiscal de
+# la Federación metía como L1-L3 artículos del Código Fiscal del Estado).
+_RX_LEY_FEDERAL = re.compile(
+    r"\b(federal|federaci[oó]n|nacional|ley de amparo|c[oó]digo de comercio|seguro social|"
+    r"infonavit|issste|impuesto sobre la renta|impuesto al valor agregado)\b", re.I)
 MAX_TESIS = 10
 MAX_NORMAS = 10
 PLAZO_MATERIAL_SEG = 110
@@ -134,9 +153,22 @@ Devuelve SOLO un objeto JSON con estas claves:
 - "problemas": lista de 2 a 4 objetos. Cada objeto tiene:
     · "pregunta": una pregunta jurídica CONCEPTUAL sobre una consideración de la resolución que se impugna (si la autoridad aplicó, interpretó o dejó de aplicar correctamente una norma, si valoró bien una prueba, si respetó un presupuesto procesal o la congruencia), cuya respuesta favorable lleva a revocar o modificar lo resuelto. Nombra la figura jurídica en disputa, sin nombres de personas, sin fechas y sin cantidades, en lenguaje de rubro y no de relato.
     · "consideracion": en una o dos líneas, la razón de la resolución que ese problema combate, tomada de la RESOLUCIÓN QUE SE IMPUGNA; no inventes razones que no estén ahí.
-  Prefiere las consideraciones que sostienen el sentido de lo resuelto: un agravio que deja en pie la razón principal no sirve.
-- "convencional": true solo si lo resuelto toca derechos humanos donde la Constitución remite a tratados (igualdad, niñez, debido proceso, acceso a la justicia, salud, vivienda, trabajo digno, libertad, propiedad frente a la autoridad); false en otro caso.
+  Cada consideración que por sí sola sostiene el sentido de lo resuelto debe quedar combatida por algún problema: no gastes un problema en una razón secundaria mientras quede en pie una principal, porque un agravio que deja en pie la razón principal es inoperante.{nota_penal}
+- "torales_sin_combatir": lista (puede estar vacía) de las consideraciones que por sí solas sostienen lo resuelto y que no quedaron cubiertas por ningún problema.
+- "recurrente": "particular" si recurre una persona física o moral; "autoridad" si recurre una autoridad o el Ministerio Público (por ejemplo, la revisión fiscal la interpone la autoridad demandada).
+- "procedencia": objeto con "procede" ("sí", "no" o "duda") y "nota": una línea sobre si el recurso escrito procede contra esa resolución, ante qué órgano se interpone y en qué plazo, o por qué hay duda. No inventes artículos: si no conoces el precepto con certeza, dilo como duda.
+- "convencional": true solo si lo resuelto toca derechos humanos de un particular donde la Constitución remite a tratados (igualdad, niñez, debido proceso, acceso a la justicia, salud, vivienda, trabajo digno, libertad, propiedad frente a la autoridad); false en otro caso, y siempre false si recurre una autoridad, que no es titular de derechos humanos en ese carácter.
 - "faltantes": como máximo 5 datos que hacen falta para recurrir bien (una consideración que no se transcribió, una constancia, la fecha de notificación para el plazo), cada uno en una línea corta (puede estar vacía)."""
+
+_NOTA_PENAL = """
+  MATERIA PENAL: si se impugna la sentencia definitiva del tribunal de enjuiciamiento (proceso acusatorio, Código Nacional de Procedimientos Penales), la apelación sólo procede en consideraciones distintas a la valoración de la prueba que no comprometan la inmediación, o por violación grave del debido proceso. No plantees el peso ni la credibilidad que el tribunal dio a lo que percibió directamente en audiencia; sí puedes plantear que la valoración infringe la lógica, las máximas de la experiencia o los conocimientos científicos, que omitió valorar una prueba, que la motivación es insuficiente o incongruente, o una violación grave del debido proceso."""
+
+
+def _es_penal(materia: str, tipo: str, resolucion: str = "") -> bool:
+    if (materia or "").strip().lower() == "penal":
+        return True
+    return bool(re.search(r"\bpenal\b|procedimientos penales|tribunal de enjuiciamiento|ministerio p[úu]blico",
+                          f"{tipo} {resolucion[:3000]}", re.I))
 
 
 async def problemas_del_caso(cliente, hechos: str, pretension: str, tipo: str,
@@ -146,7 +178,8 @@ async def problemas_del_caso(cliente, hechos: str, pretension: str, tipo: str,
         contenido = _PROMPT_PROBLEMAS_RECURSO.format(
             tipo=tipo or "recurso", entidad=entidad or "no indicada",
             materia=materia or "no indicada", hechos=hechos[:MAX_HECHOS],
-            resolucion=resolucion[:MAX_RESOLUCION], pretension=pretension[:MAX_PRETENSION])
+            resolucion=_recorte(resolucion, MAX_RESOLUCION), pretension=pretension[:MAX_PRETENSION],
+            nota_penal=_NOTA_PENAL if _es_penal(materia, tipo, resolucion) else "")
     else:
         contenido = _PROMPT_PROBLEMAS.format(
             tipo=tipo or "demanda", entidad=entidad or "no indicada",
@@ -181,12 +214,19 @@ async def problemas_del_caso(cliente, hechos: str, pretension: str, tipo: str,
             problemas.append(p)
             consideraciones.append(consid[:600])
     problemas, consideraciones = problemas[:4], consideraciones[:4]
+    recurrente = "autoridad" if str(d.get("recurrente") or "").strip().lower().startswith("autoridad") else "particular"
+    proc = d.get("procedencia") if isinstance(d.get("procedencia"), dict) else {}
     return {
         "materia": str(d.get("materia") or materia or "").strip().lower(),
         "problemas": problemas,
         # En un recurso, la razón de la resolución que combate cada problema.
         "consideraciones": consideraciones,
-        "convencional": bool(d.get("convencional")),
+        "recurrente": recurrente,
+        "procedencia": {"procede": str(proc.get("procede") or "").strip().lower(),
+                        "nota": str(proc.get("nota") or "").strip()[:400]},
+        "torales_sin_combatir": [str(x).strip() for x in _lista(d.get("torales_sin_combatir")) if str(x).strip()][:4],
+        # Una autoridad no es titular de derechos humanos en ese carácter.
+        "convencional": bool(d.get("convencional")) and recurrente != "autoridad",
         "faltantes": [str(x).strip() for x in _lista(d.get("faltantes")) if str(x).strip()][:6],
     }
 
@@ -282,7 +322,11 @@ def catalogo(material, marco) -> tuple[str, dict]:
     vistas = set()
     lista_leyes = []
     for x in locales:
-        lista_leyes.append((x.fuente, str(x.articulo), x.texto))
+        # `ref` del acervo estatal trae «Art. 503» o «Artículo 504.»: sin quitar
+        # el prefijo la cita salía «artículo Art. 503 del Código…» y el mismo
+        # artículo llegado por las normas no se reconocía como repetido.
+        art_local = re.sub(r"^\s*art(?:[íi]culo|\.)?\s*", "", str(x.articulo or ""), flags=re.I).strip().rstrip(".").strip()
+        lista_leyes.append((x.fuente, art_local, x.texto))
     for n in normas:
         lista_leyes.append((str(n.get("cuerpo_legal") or ""), str(n.get("articulo") or ""),
                             str(n.get("texto") or "")))
@@ -480,11 +524,11 @@ PROBLEMAS QUE HAY QUE GANAR, CADA UNO CON LA CONSIDERACIÓN QUE COMBATE:
 
 CÓMO SE CONSTRUYE CADA AGRAVIO (modelo de Toulmin, en el orden en que lo lee el tribunal que resuelve el recurso):
 1. Afirmación: la consideración de la resolución es ilegal y qué debe resolverse en su lugar.
-2. Datos: lo que dijo la resolución en esa consideración, tomado de la RESOLUCIÓN QUE SE IMPUGNA, y las constancias o hechos de los ANTECEDENTES que demuestran el error, sin inventar ninguno. Si falta la transcripción de una consideración o una constancia decisiva, dilo en "faltantes".
-3. Garantía: la norma que la autoridad violó, dejó de aplicar o aplicó indebidamente, o la regla de valoración que desatendió, dicha en abstracto y con su fuente.
+2. Datos: lo que dijo la resolución en esa consideración, tomado de la RESOLUCIÓN QUE SE IMPUGNA, y las constancias o hechos de los ANTECEDENTES que demuestran el error, sin inventar ninguno. Si falta la transcripción de una consideración o una constancia decisiva, dilo en "faltantes". Si la consideración descansa en una calificación procesal (extemporaneidad, preclusión, confesión ficta, falta de legitimación), el agravio combate esa calificación con la norma que fija el momento o el requisito; afirmar solamente que el acto sí se hizo no basta.
+3. Garantía: la norma que la autoridad violó, dejó de aplicar o aplicó indebidamente, o la regla de valoración que desatendió, dicha en abstracto y con su fuente.{nota_penal}
 4. Respaldo: lo que da autoridad a la garantía: Constitución, tratado, Corte Interamericana, jurisprudencia o tesis. Prefiere la Suprema Corte a un colegiado y la jurisprudencia a la tesis aislada; nunca llames jurisprudencia a una tesis aislada.
 5. Calificador: con qué fuerza se sostiene y de qué depende (lo que conste en autos, una interpretación discutida, que la consideración no tenga otra razón que la sostenga).
-6. Refutación: la razón con la que el tribunal podría desestimar el agravio —que es inoperante porque deja en pie otra consideración, que plantea algo que no se hizo valer ante la autoridad, que el error no trasciende al resultado— o la defensa de la contraparte, y la respuesta que la vence, con su fuente si la hay.
+6. Refutación: la razón con la que quien resuelve el recurso podría desestimar el agravio —que es inoperante porque deja en pie otra consideración; porque sólo reitera lo alegado en la instancia o los conceptos de violación sin controvertir lo que se resolvió; porque el error no trasciende al resultado; o, sólo cuando lo resuelve un órgano distinto y la litis quedó fijada en la instancia, porque plantea algo que no se hizo valer ahí— o la defensa de la contraparte, y la respuesta que la vence, con su fuente si la hay.
 
 REGLAS DE CITA, SIN EXCEPCIÓN:
 - Solo puedes citar las FUENTES DISPONIBLES, escribiendo su identificador entre corchetes, por ejemplo [T2] o [C1]. No escribas números de registro, rubros, números de artículo ni nombres de casos por tu cuenta: el sistema los pone a partir del identificador.
@@ -495,13 +539,14 @@ REGLAS DE CITA, SIN EXCEPCIÓN:
 - El identificador entre corchetes va al final de la frase que apoya, nunca como parte de la oración: no escribas «en [T1]», «según [T1]», «la tesis [T1]» ni «el artículo [L2]».
 - Cada agravio combate una consideración que efectivamente está en la RESOLUCIÓN QUE SE IMPUGNA. No atribuyas a la autoridad razones que no aparecen ahí.
 
-"redaccion" es el agravio ya escrito para el escrito del recurso, en prosa jurídica mexicana formal, en primera persona del singular de la parte que recurre (una sola persona salvo que los ANTECEDENTES digan que recurren varias), sin nombrarla, de 200 a 420 palabras, en uno a tres párrafos separados por una línea en blanco. Sigue tres tiempos: primero identifica con precisión lo que resolvió la autoridad en esa consideración; después demuestra por qué es ilegal, con la norma y la jurisprudencia; al final di qué debe resolverse en su lugar. Se combate la resolución, nunca a la persona que la dictó. En la redacción NO aparecen las palabras afirmación, datos, garantía, respaldo, calificador ni refutación, ni el rótulo «primer agravio» (lo pone el sistema). No uses frases hechas de relleno ni transcribas la fuente completa.
+"redaccion" es el agravio ya escrito para el escrito del recurso, en prosa jurídica mexicana formal, {voz}, sin nombrar a quien recurre, de 200 a 420 palabras, en uno a tres párrafos separados por una línea en blanco. Sigue tres tiempos: primero identifica con precisión lo que resolvió la autoridad en esa consideración; después demuestra por qué es ilegal, con la norma y la jurisprudencia; al final di qué debe resolverse en su lugar. Se combate la resolución, nunca a la persona que la dictó. En la redacción NO aparecen las palabras afirmación, datos, garantía, respaldo, calificador ni refutación, ni el rótulo «primer agravio» (lo pone el sistema). No uses frases hechas de relleno ni transcribas la fuente completa.
 
 Devuelve SOLO un objeto JSON:
 {{
   "argumentos": [
     {{
       "titulo": "rótulo temático del agravio, breve, con mayúscula solo en la primera palabra y en los nombres propios",
+      "problema": 1,
       "afirmacion": "…",
       "datos": ["…"],
       "garantia": {{"texto": "…", "fuentes": ["C1"]}},
@@ -513,12 +558,18 @@ Devuelve SOLO un objeto JSON:
   ],
   "faltantes": ["…"]
 }}
-Entre 2 y 4 agravios, uno por problema cuando se pueda, empezando por el que combate la razón principal de lo resuelto."""
+"problema" es el número del PROBLEMA que ese agravio combate. Entre 2 y 4 agravios, uno por problema cuando se pueda, empezando por el que combate la razón principal de lo resuelto."""
+
+_VOZ_PARTICULAR = ("en primera persona del singular de la parte que recurre (una sola persona salvo que los "
+                   "ANTECEDENTES digan que recurren varias; «mi representada» si es persona moral)")
+_VOZ_AUTORIDAD = ("en voz institucional de la autoridad que recurre («esta autoridad», «esta Representación "
+                  "Social»), sin alegar violación de derechos humanos propios, que la autoridad no tiene en ese carácter")
 
 
 async def argumentar(cliente, *, hechos: str, pretension: str, tipo: str, entidad: str,
                      problemas: list[str], bloque: str, clase: str = "demanda",
-                     resolucion: str = "", consideraciones: Optional[list[str]] = None) -> dict:
+                     resolucion: str = "", consideraciones: Optional[list[str]] = None,
+                     recurrente: str = "particular", materia: str = "") -> dict:
     if clase == "recurso":
         consid = list(consideraciones or [])
         lineas = []
@@ -527,9 +578,14 @@ async def argumentar(cliente, *, hechos: str, pretension: str, tipo: str, entida
             lineas.append(f"{i}. {x}" + (f"\n   Consideración que combate: {c}" if c else ""))
         contenido = _PROMPT_AGRAVIOS.format(
             tipo=tipo or "recurso", entidad=entidad or "la entidad indicada",
-            hechos=hechos[:MAX_HECHOS], resolucion=resolucion[:MAX_RESOLUCION],
+            hechos=hechos[:MAX_HECHOS], resolucion=_recorte(resolucion, MAX_RESOLUCION),
             pretension=pretension[:MAX_PRETENSION], problemas="\n".join(lineas),
-            catalogo=bloque)
+            catalogo=bloque,
+            voz=_VOZ_AUTORIDAD if recurrente == "autoridad" else _VOZ_PARTICULAR,
+            nota_penal=(" En la apelación penal contra sentencia definitiva, sólo la regla de lógica, máxima de la "
+                        "experiencia, conocimiento científico o motivación, nunca la apreciación que depende de la "
+                        "inmediación; y entre las razones de desestimación, que pide revalorar esa prueba.")
+            if _es_penal(materia, tipo, resolucion) else "")
     else:
         contenido = _PROMPT_ARGUMENTOS.format(
             tipo=tipo or "demanda", entidad=entidad or "la entidad indicada",
@@ -618,7 +674,7 @@ def _redactar(texto: str, fuentes: dict, citadas: list[str], fuera: set) -> str:
     return t.strip()
 
 
-def resolver(salida: dict, fuentes: dict) -> dict:
+def resolver(salida: dict, fuentes: dict, consideraciones: Optional[list[str]] = None) -> dict:
     fuera: set = set()
     registros_catalogo = {f["registro"] for f in fuentes.values() if f.get("clase") == "tesis"}
     registros_sueltos: set = set()
@@ -653,7 +709,17 @@ def resolver(salida: dict, fuentes: dict) -> dict:
         for m in _RX_REGISTRO.finditer(prosa):
             if m.group(1) not in registros_catalogo:
                 registros_sueltos.add(m.group(1))
+        # «Combate:» por el número de problema que el propio agravio declara, no
+        # por posición: el modelo puede reordenar o fundir agravios.
+        consid = ""
+        try:
+            n_prob = int(str(a.get("problema") or "").strip())
+            if consideraciones and 1 <= n_prob <= len(consideraciones):
+                consid = consideraciones[n_prob - 1]
+        except ValueError:
+            pass
         argumentos.append({
+            "consideracion": consid,
             "titulo": _limpiar(a.get("titulo")),
             "afirmacion": _limpiar(a.get("afirmacion")),
             "datos": [_limpiar(x) for x in _lista(a.get("datos")) if _limpiar(x)],
@@ -706,6 +772,18 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
                                     clase=clase, resolucion=resolucion)
     problemas = prob["problemas"] or [pretension[:300]]
     consideraciones = prob.get("consideraciones") or []
+    recurrente = prob.get("recurrente") or "particular"
+    if recurso:
+        proc = prob.get("procedencia") or {}
+        if proc.get("procede") in ("no", "duda") and proc.get("nota"):
+            avisos.append(("Revisa la procedencia: " if proc["procede"] == "duda" else "Ojo con la procedencia: ")
+                          + proc["nota"])
+        if prob.get("torales_sin_combatir"):
+            avisos.append("Quedan sin combatir estas consideraciones de la resolución: "
+                          + "; ".join(prob["torales_sin_combatir"])
+                          + ". Si alguna basta para sostener lo resuelto, los agravios pueden declararse inoperantes.")
+        if recurrente == "autoridad" and re.search(r"revisi[oó]n fiscal", tipo or "", re.I):
+            prob["faltantes"] = prob["faltantes"] + ["Razonar el supuesto de procedencia de la revisión fiscal (cuantía, importancia y trascendencia u otra fracción)."]
     materia_caso = prob["materia"] or materia
     # La materia del RAG es selectiva sólo para cuatro silos; el resto va sin filtro.
     materia_rag = {"familiar": "civil", "mercantil": "civil", "administrativo": "administrativa"}.get(
@@ -724,6 +802,30 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
     problemas_marco = list(problemas)
     if prob["convencional"]:
         problemas_marco.append("derechos humanos reconocidos en tratados internacionales")
+
+    # LA LEY QUE APLICÓ LA AUTORIDAD, SÓLO SI ES DEL ESTADO. `marco_juridico` la
+    # busca en la colección estatal; con una ley federal o nacional llenaba el
+    # catálogo con artículos de otra ley local. Y como su lectura sólo corre si
+    # algún problema dispara el mapa constitucional, en un recurso se añade el
+    # de legalidad —fundamentación y motivación—, que toca a toda resolución.
+    texto_acto = ""
+    if recurso and coleccion:
+        citados = mj.preceptos_de_la_responsable(resolucion, coleccion_estatal=coleccion)
+        ley_citada = citados[0][1] if citados else ""
+        if ley_citada and _RX_LEY_FEDERAL.search(ley_citada):
+            avisos.append(f"La resolución se funda en «{ley_citada[:80]}», que no es ley de {entidad or 'la entidad'}: "
+                          "sus artículos no se buscaron en la legislación estatal. Si el catálogo no los trae, "
+                          "cítalos tú y verifícalos antes de firmar.")
+        elif ley_citada:
+            texto_acto = resolucion
+            problemas_marco.append("legalidad: debida fundamentación y motivación de la resolución impugnada")
+        elif re.search(r"ley de amparo", resolucion, re.I):
+            avisos.append("La resolución se funda en la Ley de Amparo, que no está en el acervo: los agravios no "
+                          "pueden citar sus artículos. Añádelos tú y verifícalos antes de firmar.")
+        else:
+            avisos.append("No se identificó en la resolución la ley local con los artículos que aplicó (se reconocen "
+                          "citas como «artículos 503 y 504 del Código de Procedimientos Civiles del Estado…»). "
+                          "Los agravios van sin ese precepto: compruébalo antes de firmar.")
     try:
         material, marco = await asyncio.wait_for(asyncio.gather(
             # Como problema COMPLETO y no como cadena: `material_del_caso` saca
@@ -733,17 +835,20 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
             # resolución, si el modelo no la separó) y la resolución entera va
             # como `texto_del_acto`: de ahí se leen los preceptos que aplicó.
             f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
+                                    # En recurso la consideración va sola y primero: el
+                                    # hecho con que se busca se corta a 600 caracteres,
+                                    # y el inicio de una sentencia pegada es su proemio.
                                     [{"pregunta": p,
-                                      "combate": (hechos or "")[:800] if not recurso else (hechos or "")[:400],
+                                      "combate": (hechos or "")[:800] if not recurso else "",
                                       "resolvio": "" if not recurso else (
                                           (consideraciones[i] if i < len(consideraciones) and consideraciones[i]
-                                           else resolucion[:800]))}
+                                           else (hechos or "")[:600]))}
                                      for i, p in enumerate(problemas)],
                                     coleccion, materia_rag, cliente,
                                     contexto=(hechos or "")[:1500] if not recurso
-                                    else (resolucion[:1000] + "\n" + (hechos or "")[:500])),
+                                    else (" ".join(c for c in consideraciones if c)[:600] or (hechos or "")[:600])),
             mj.construir(qdrant, embed_leyes, problemas_marco, coleccion,
-                         texto_del_acto=resolucion[:MAX_RESOLUCION] if recurso else ""),
+                         texto_del_acto=texto_acto),
         ), timeout=PLAZO_MATERIAL_SEG)
     except asyncio.TimeoutError:
         raise RuntimeError("El acervo tardó demasiado en responder.")
@@ -756,13 +861,18 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
         # Los avisos del marco hablan el idioma del taller («acto reclamado»,
         # «la responsable»). Aquí los lee quien recurre: se dicen con sus palabras.
         elif a.startswith("NO SE PUDO LEER CON QUÉ LEY"):
-            a = ("La resolución que escribiste no cita artículos, así que no se pudo buscar la ley "
-                 "local que aplicó la autoridad. Si pegas sus consideraciones con los artículos que "
-                 "invoca, los agravios podrán combatir ese precepto.")
+            continue   # ya se avisó arriba, con lo que de verdad pasó
         elif a.startswith("EL MARCO VA SIN EL PRECEPTO DE"):
+            # Sin artículos de esa ley, `marco_juridico` completaba con los más
+            # parecidos de OTRAS leyes del estado: no entran al catálogo.
+            try:
+                marco.locales = []
+            except Exception:
+                pass
             m_ley = re.search(r"«([^»]+)»", a)
-            a = ((f"La resolución cita «{m_ley.group(1)}», pero " if m_ley else "La resolución cita una ley local, pero ")
-                 + "el acervo no devolvió ese artículo para este punto: compruébalo antes de firmar.")
+            a = ((f"La resolución se funda en «{m_ley.group(1)}», pero " if m_ley else "La resolución se funda en una ley local, pero ")
+                 + "el acervo de la entidad no tiene artículos de esa ley para este punto: no se incluyeron. "
+                   "Cítalos tú y verifícalos antes de firmar.")
         avisos.append(a)
 
     bloque, fuentes = catalogo(material, marco)
@@ -776,10 +886,11 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
     salida = await argumentar(cliente, hechos=hechos, pretension=pretension, tipo=tipo,
                               entidad=entidad, problemas=problemas, bloque=bloque,
                               clase=clase, resolucion=resolucion,
-                              consideraciones=consideraciones)
+                              consideraciones=consideraciones, recurrente=recurrente,
+                              materia=materia_caso)
 
     await paso("verificando", "Verificando cada cita contra el acervo")
-    res = resolver(salida, fuentes)
+    res = resolver(salida, fuentes, consideraciones if recurso else None)
     if not res["argumentos"]:
         raise RuntimeError("No se pudieron construir argumentos con el material encontrado.")
     citadas = []
@@ -789,6 +900,7 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
                 citadas.append(k)
     return {
         "clase": clase,
+        "recurrente": recurrente if recurso else "",
         "problemas": problemas,
         "consideraciones": consideraciones if recurso else [],
         "materia": materia_caso,
