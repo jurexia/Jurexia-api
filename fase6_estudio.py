@@ -2241,9 +2241,37 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
         # artículo correctamente citado del código local. Un aviso falso enseña a
         # ignorar los avisos, que es peor que no tenerlos.
         mejor, puntos = None, 0
+        # POR IDENTIDAD, NO POR PALABRAS COMPARTIDAS. «Ley Federal de
+        # Procedimiento Contencioso Administrativo» compartía cuatro palabras
+        # con la LFPA del material y se daba por ella (61/2025). Si el estudio
+        # nombra la ley, se casa con `misma_ley`; el recuento de voces queda
+        # sólo para cuando no la nombra entera.
+        _mc = re.search(r"(?:de|del)\s+(?:la|el|los|las)?\s*"
+                        r"((?:constituci[óo]n|c[óo]digo|ley|reglamento|convenci[óo]n|pacto|tratado)"
+                        r"[^,;:()]{4,90})", " ".join(cola.split()), re.I)
+        _citado = ""
+        if _mc:
+            _pal = " ".join(_mc.group(1).split()).strip(" .").split()
+            _corte = len(_pal)
+            for _i, _w in enumerate(_pal[1:], 1):
+                if _w[:1].islower() and _w.lower() not in (
+                        "de", "del", "la", "el", "los", "las", "y", "e", "para", "sobre",
+                        "en", "al", "a", "por", "con", "su", "sus", "o", "u"):
+                    _corte = _i
+                    break
+            _citado = " ".join(_pal[:_corte]).lower()
+        try:
+            import fase6_rag as _f6r_id
+            _misma = _f6r_id.misma_ley
+        except Exception:
+            _misma = None
         for cuerpo in leyes_material:
             vl = _voces(cuerpo)
             if not vl:
+                continue
+            if _citado and _misma is not None:
+                if _misma(_citado, cuerpo) and len(vc & vl) > puntos:
+                    mejor, puntos = cuerpo, len(vc & vl)
                 continue
             n_comun = len(vc & vl)
             if n_comun >= max(2, len(vl) // 2) and n_comun > puntos:

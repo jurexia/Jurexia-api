@@ -26,6 +26,14 @@ ok(fr.misma_ley("Código Fiscal de la Federación", "Código Fiscal de la Federa
 ok(fr.misma_ley("Código de Procedimientos Civiles del Estado de Querétaro", "Código de Procedimientos Civiles del Estado de Querétaro"), "CPC Qro = CPC Qro")
 ok(not fr.misma_ley("Código de Procedimientos Civiles del Estado de Querétaro", "Código de Procedimientos Civiles del Estado de Puebla"), "Qro ≠ Puebla")
 ok(fr.misma_ley("Ley de Amparo", "Ley de Amparo, Reglamentaria de los artículos 103 y 107 de la Constitución Política de los Estados Unidos Mexicanos"), "el nombre corto casa con el oficial largo")
+ok(not fr.misma_ley("Ley Federal de Procedimiento Administrativo", "Ley Federal de Procedimiento Contencioso Administrativo"), "LFPA ≠ LFPCA aunque una quepa dentro de la otra")
+ok(not fr.misma_ley("Código Civil Federal", "Código Civil del Estado de Querétaro"), "civil federal ≠ civil de Querétaro")
+mat_lfpa = fe.Material(); mat_lfpa.normas = [{"cuerpo_legal": "Ley Federal de Procedimiento Administrativo", "articulo": "92", "texto": "…"}]
+_, pares_lfpa = fe.preceptos_fuera("El artículo 63 de la Ley Federal de Procedimiento Contencioso Administrativo regula el recurso.", mat_lfpa)
+ok(pares_lfpa == {("ley federal de procedimiento contencioso administrativo", "63")}, f"la LFPCA citada no se da por la LFPA del material: {sorted(pares_lfpa)}")
+mat_cff = fe.Material(); mat_cff.normas = [{"cuerpo_legal": "Código Fiscal de la Federación", "articulo": "137", "texto": "…"}]
+_, pares_cff = fe.preceptos_fuera("Los artículos 134 y 137 del Código Fiscal de la Federación regulan la notificación.", mat_cff)
+ok(pares_cff == {("código fiscal de la federación", "134")}, f"el 137 ya estaba; el 134 se pide con el nombre del material: {sorted(pares_cff)}")
 
 # ── la detección de leyes que el material no trae ──
 mat = fe.Material(); mat.normas = [{"cuerpo_legal": "Ley de Amparo", "articulo": "63", "texto": "…"}]
