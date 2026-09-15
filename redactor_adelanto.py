@@ -500,6 +500,18 @@ async def consultar(qdrant, embed_juris, embed_leyes,
     # o un municipio.
     if fp_materia(r.encargo) == "laboral" and not _burocratico_estatal(r):
         coleccion = None
+    # LA REVISIÓN FISCAL ES FEDERAL. La sentencia que se revisa es de una Sala
+    # del Tribunal Federal de Justicia Administrativa y el fondo se rige por el
+    # Código Fiscal de la Federación y la LFPCA. En la 61/2025 la colección
+    # estatal metió al material la Ley de Procedimientos Administrativos y el
+    # Código Fiscal DE QUERÉTARO, y de ahí salió traído el «artículo 134» del
+    # Código Civil del estado en un asunto de notificaciones fiscales.
+    try:
+        import tipos_asunto as _ta_f
+        if _ta_f.normalizar(getattr(r.encargo, "tipo_asunto", "")) == "revision_fiscal":
+            coleccion = None
+    except Exception:
+        pass
 
     # EL SONDEO DE PRECEDENTE VA EN PARALELO al material. Cuesta menos de dos
     # segundos —se mide— y responde una pregunta que hasta ahora nadie hacía:
@@ -901,10 +913,31 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # traen y se transcriben; el aviso se queda sólo para los que no existen.
     try:
         import fase6_rag as _f6r
+        # LAS TESIS QUE EL ESTUDIO NOMBRA POR REGISTRO Y LAS QUE LA PARTE
+        # INVOCÓ, si no están en el material, se traen del acervo por su
+        # registro o su clave: así el compositor las anuncia con su rubro y
+        # baja su ficha al pie en vez de dejarlas en prosa (61/2025: cuatro
+        # criterios de la Segunda Sala «de rubro «…», registro N» sin ficha).
+        if qdrant is not None:
+            try:
+                import fases123_pipeline as _f123c
+                _esc = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
+                _citas = _f123c.citas_invocadas(_esc) | _f123c.citas_invocadas(str(estudio or ""))
+                _nuevas = await _f6r.completar_tesis_citadas(
+                    qdrant, material, sorted(_citas),
+                    tipo_asunto=getattr(e, "tipo_asunto", "") or "")
+                if _nuevas:
+                    avisos.append(f"{len(_nuevas)} tesis citadas se trajeron del acervo "
+                                  f"para verificarlas y anunciarlas con su ficha: "
+                                  f"{', '.join(_nuevas[:6])}{'…' if len(_nuevas) > 6 else ''}.")
+            except Exception as _ex2:
+                print(f"   ⚠️ no se pudieron completar las tesis citadas: {_ex2}")
         _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
         if _pares and qdrant is not None:
             _traidos = await _f6r.completar_preceptos(
-                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None)
+                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None,
+                materia=str(getattr(e, "materia", "") or ""),
+                tipo_asunto=getattr(e, "tipo_asunto", "") or "")
             if _traidos:
                 _quedan = [x for x in _pares
                            if f"art. {x[1]} — {x[0]}" not in _traidos]
@@ -984,10 +1017,31 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     # traen y se transcriben; el aviso se queda sólo para los que no existen.
     try:
         import fase6_rag as _f6r
+        # LAS TESIS QUE EL ESTUDIO NOMBRA POR REGISTRO Y LAS QUE LA PARTE
+        # INVOCÓ, si no están en el material, se traen del acervo por su
+        # registro o su clave: así el compositor las anuncia con su rubro y
+        # baja su ficha al pie en vez de dejarlas en prosa (61/2025: cuatro
+        # criterios de la Segunda Sala «de rubro «…», registro N» sin ficha).
+        if qdrant is not None:
+            try:
+                import fases123_pipeline as _f123c
+                _esc = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
+                _citas = _f123c.citas_invocadas(_esc) | _f123c.citas_invocadas(str(estudio or ""))
+                _nuevas = await _f6r.completar_tesis_citadas(
+                    qdrant, material, sorted(_citas),
+                    tipo_asunto=getattr(e, "tipo_asunto", "") or "")
+                if _nuevas:
+                    avisos.append(f"{len(_nuevas)} tesis citadas se trajeron del acervo "
+                                  f"para verificarlas y anunciarlas con su ficha: "
+                                  f"{', '.join(_nuevas[:6])}{'…' if len(_nuevas) > 6 else ''}.")
+            except Exception as _ex2:
+                print(f"   ⚠️ no se pudieron completar las tesis citadas: {_ex2}")
         _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
         if _pares and qdrant is not None:
             _traidos = await _f6r.completar_preceptos(
-                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None)
+                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None,
+                materia=str(getattr(e, "materia", "") or ""),
+                tipo_asunto=getattr(e, "tipo_asunto", "") or "")
             if _traidos:
                 _quedan = [x for x in _pares
                            if f"art. {x[1]} — {x[0]}" not in _traidos]

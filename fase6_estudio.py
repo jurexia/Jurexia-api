@@ -2221,6 +2221,28 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
         if mejor and (mejor, art) not in en_material:
             fuera.add(f"art. {art} — {mejor}")
             pares.add((mejor, str(art)))
+        elif not mejor:
+            # LA LEY NO ESTÁ EN EL MATERIAL. Antes esto no se veía: la
+            # detección sólo miraba las leyes ya traídas, así que «artículo
+            # 137 del Código Fiscal de la Federación» en un material sin CFF
+            # no era «fuera» —era nada—. Se lee el nombre de la cola tal como
+            # el estudio lo escribió y se manda a traer.
+            _mn = re.match(r"(?:,\s*)?(?:(?:fracci[óo]n|p[áa]rrafo|inciso)[^,]{0,30},?\s*)?"
+                           r"(?:de|del)\s+(?:la|el|los|las)?\s*"
+                           r"((?:constituci[óo]n|c[óo]digo|ley|reglamento|convenci[óo]n|pacto|tratado)"
+                           r"[^,;:()]{4,90})", cola_n, re.I)
+            if _mn:
+                _nombre = " ".join(_mn.group(1).split()).strip(" .")
+                # EL NOMBRE ACABA DONDE EMPIEZA EL VERBO: «…Contencioso
+                # Administrativo fija los requisitos» no es el nombre de la ley.
+                _nombre = re.sub(r"\s+(?:establece|dispone|prev[eé]|se[ñn]ala|regula|permite|fija|faculta|"
+                                 r"ordena|impone|exige|proh[íi]be|autoriza|contempla|define|determina|"
+                                 r"consagra|reconoce|garantiza|sanciona|obliga|otorga|confiere|prescribe|"
+                                 r"contiene|precisa|indica|refiere|dice|es|son|fue|era|y|que|en|al|con|sin|"
+                                 r"cuyo|cuya|donde|as[íi]|tambi[ée]n)\b.*$", "", _nombre)
+                if len(_nombre) >= 8:
+                    fuera.add(f"art. {art} — {_nombre}")
+                    pares.add((_nombre, str(art)))
     return fuera, pares
 
 

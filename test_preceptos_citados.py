@@ -27,7 +27,7 @@ class _Pt:
     def __init__(s, pl): s.payload = pl
 class QFalso:
     def __init__(s): s.llamadas = []
-    def scroll(s, collection_name, scroll_filter, limit, with_payload):
+    def scroll(s, collection_name, scroll_filter, limit, with_payload=True, **kw):
         s.llamadas.append(collection_name)
         if collection_name == "leyes_queretaro":
             return ([_Pt({"cuerpo_legal_oficial": "Código de Procedimientos Civiles del Estado de Querétaro",

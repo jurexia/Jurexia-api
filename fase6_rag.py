@@ -334,25 +334,102 @@ def _norma_de(p: dict) -> dict:
     }
 
 
-async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=None) -> list:
-    """Los artículos que el estudio citó y el material no traía, traídos del acervo.
+_ESTADOS = ("aguascalientes", "baja california", "campeche", "chiapas", "chihuahua",
+            "coahuila", "colima", "durango", "guanajuato", "guerrero", "hidalgo",
+            "jalisco", "michoacán", "michoacan", "morelos", "nayarit",
+            "nuevo león", "nuevo leon", "oaxaca", "puebla", "querétaro", "queretaro",
+            "quintana roo", "san luis potosí", "san luis potosi", "sinaloa", "sonora",
+            "tabasco", "tamaulipas", "tlaxcala", "veracruz", "yucatán", "yucatan",
+            "zacatecas", "ciudad de méxico", "ciudad de mexico", "distrito federal",
+            "estado de méxico", "estado de mexico")
+_VACIAS_LEY_RAG = {"del", "los", "las", "para", "por", "sobre", "que", "con", "una", "uno",
+                   "estado", "estados", "libre", "soberano", "unidos"}
 
-    Revisión 322/2025: el estudio citó y transcribió el artículo 210 del Código
-    de Procedimientos Civiles de Querétaro —correcto, palabra por palabra— y
-    el proyecto salió con el aviso «precepto que no está en el material»,
-    porque la búsqueda semántica había traído el 211 y no el 210. Un artículo
-    que existe en el acervo se trae y se transcribe; sólo el que no existe
-    merece el aviso. Devuelve las etiquetas de los añadidos.
+
+def fuero_de(nombre: str) -> str:
+    """«federal» | «estatal» | «» — por lo que el propio nombre de la ley dice."""
+    x = " ".join((nombre or "").lower().split())
+    if "de la federación" in x or "de la federacion" in x or re.search(r"\bfederal\b", x):
+        return "federal"
+    if "constitución política de los estados unidos" in x or "constitucion politica de los estados unidos" in x:
+        return "federal"
+    if "del estado" in x or "estatal" in x or any(e in x for e in _ESTADOS):
+        return "estatal"
+    return ""
+
+
+def _voces_ley(x: str) -> set:
+    return {w for w in re.findall(r"[\wáéíóúñ]+", (x or "").lower())
+            if len(w) > 2 and w not in _VACIAS_LEY_RAG}
+
+
+def misma_ley(citada: str, candidata: str) -> bool:
+    """¿El nombre citado y el del acervo son la MISMA ley?
+
+    Lo que falló en la 61/2025: por palabras compartidas, «Código Fiscal de la
+    Federación» casó con «Código Fiscal del Estado de Querétaro» y éste con
+    «Código Civil del Estado de Querétaro». Dos reglas cierran eso: las voces
+    del nombre citado tienen que estar TODAS en el candidato (el citado suele
+    ser más corto que el nombre oficial), y el fuero no se cruza —«de la
+    Federación» / «Federal» nunca es «del Estado»—.
+    """
+    vc, vl = _voces_ley(citada), _voces_ley(candidata)
+    if not vc or not vl:
+        return False
+    fc, fl = fuero_de(citada), fuero_de(candidata)
+    if fc and fl and fc != fl:
+        return False
+    if fc == "estatal" and fl == "estatal":
+        ec = {e for e in _ESTADOS if e in citada.lower()}
+        el = {e for e in _ESTADOS if e in candidata.lower()}
+        if ec and el and not (ec & el):
+            return False
+    return vc <= vl
+
+
+def _nombre_ley_de(pl: dict) -> str:
+    return str(pl.get("cuerpo_legal_oficial") or pl.get("cuerpo_legal")
+               or pl.get("ley") or pl.get("origen") or "")
+
+
+async def _scroll_todo(qdrant, coleccion: str, filtro, tope: int = 1500, payload=True):
+    """Todos los puntos que casan con el filtro, paginando: el artículo 63
+    existe en 53 leyes federales y el 134 en 32, y con `limit=60` la buena
+    puede quedar fuera de la primera página."""
+    fuera, off = [], None
+    while len(fuera) < tope:
+        r = qdrant.scroll(collection_name=coleccion, scroll_filter=filtro,
+                          limit=min(300, tope - len(fuera)), offset=off,
+                          with_payload=payload, with_vectors=False)
+        if inspect.isawaitable(r):
+            r = await r
+        pts, off = (r if isinstance(r, tuple) else (r, None))
+        fuera.extend(pts or [])
+        if off is None or not pts:
+            break
+    return fuera
+
+
+async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=None,
+                              materia: str = "", tipo_asunto: str = "") -> list:
+    """Los artículos que el estudio citó y el material no traía, traídos del
+    acervo CON LA LEY CORRECTA.
+
+    Revisión 322/2025: el artículo 210 del código procesal de Querétaro,
+    citado y transcrito bien, salía con el aviso «no está en el material».
+    Revisión fiscal 61/2025: «artículos 134 y 137 del Código Fiscal de la
+    Federación» se trajeron… del Código Civil de Querétaro, por casar leyes
+    con dos palabras en común. Ahora la identidad la decide `misma_ley` y la
+    colección la decide el FUERO del nombre citado: federal → el silo de la
+    materia y leyes_federales; estatal → la colección del estado.
+    Devuelve las etiquetas de los añadidos.
     """
     if qdrant is None or not pares:
         return []
     from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-    def _voces(x):
-        return {w for w in re.findall(r"[\wáéíóúñ]+", (x or "").lower()) if len(w) > 2
-                and w not in ("del", "los", "las", "para", "estado")}
     en_material = {(str(n.get("cuerpo_legal", "")).lower(), str(n.get("articulo", "")))
                    for n in (material.normas or [])}
+    silo = SILO_POR_MATERIA.get((materia or "").strip().lower())
     anadidos = []
     for cuerpo, art in pares:
         try:
@@ -361,31 +438,32 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
             continue
         if (cuerpo.lower(), str(art)) in en_material:
             continue
-        vc = _voces(cuerpo)
+        fuero = fuero_de(cuerpo)
+        if fuero == "estatal":
+            cols = [c for c in (coleccion_estatal,) if c]
+        elif fuero == "federal":
+            cols = [c for c in (silo, COLECCION_FEDERAL) if c]
+        else:
+            cols = [c for c in (silo, COLECCION_FEDERAL, coleccion_estatal) if c]
+        if tipo_asunto == "revision_fiscal":
+            cols = [c for c in cols if c != coleccion_estatal]
         hallado = None
-        for col in [c for c in (coleccion_estatal, COLECCION_FEDERAL) if c]:
+        for col in cols:
             try:
-                r = qdrant.scroll(collection_name=col,
-                                  scroll_filter=Filter(must=[FieldCondition(
-                                      key="articulo_num", match=MatchValue(value=num))]),
-                                  limit=60, with_payload=True)
-                if inspect.isawaitable(r):
-                    r = await r
-                pts = r[0] if isinstance(r, tuple) else r
+                pts = await _scroll_todo(qdrant, col, Filter(must=[FieldCondition(
+                    key="articulo_num", match=MatchValue(value=num))]))
             except Exception as e:
                 print(f"   ⚖️ RAG: no se pudo traer el artículo {num} de {col} ({type(e).__name__})")
                 continue
-            for x in (pts or []):
+            for x in pts:
                 pl = x.payload or {}
-                ley = str(pl.get("cuerpo_legal_oficial") or pl.get("cuerpo_legal")
-                          or pl.get("ley") or pl.get("origen") or "")
-                vl = _voces(ley)
-                if vl and len(vc & vl) >= max(2, len(vl) // 2):
+                if misma_ley(cuerpo, _nombre_ley_de(pl)):
                     hallado = (col, _norma_de(pl))
                     break
             if hallado:
                 break
         if not hallado:
+            print(f"   ⚖️ RAG: el artículo {num} de «{cuerpo}» no está en {cols or 'ninguna colección'}")
             continue
         col, norma = hallado
         norma = await _completar(qdrant, col, norma)
@@ -394,6 +472,63 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
     if anadidos:
         print(f"   ⚖️ RAG: {len(anadidos)} precepto(s) citados traídos del acervo: {anadidos}")
     return anadidos
+
+
+async def completar_tesis_citadas(qdrant, material, citas: list, tipo_asunto: str = "") -> list:
+    """Las tesis que el estudio o la parte nombran por registro o por clave y
+    el material no trae, traídas del acervo para que el compositor las
+    anuncie con su rubro y baje su ficha al pie. Sólo entra lo que EXISTE en
+    el acervo: lo que no se encuentra se queda como estaba y el sello de
+    citas lo acusa. Devuelve las etiquetas de las añadidas."""
+    if qdrant is None or not citas:
+        return []
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+    tengo = {str(t.get("registro") or "") for t in (material.tesis or [])}
+    claves_tengo = {re.sub(r"\s+", "", str(t.get("clave") or t.get("clave_tesis") or "")).upper()
+                    for t in (material.tesis or [])}
+    anadidas = []
+    for c in citas:
+        c = str(c or "").strip()
+        if not c:
+            continue
+        es_registro = c.isdigit()
+        if es_registro and c in tengo:
+            continue
+        if not es_registro and re.sub(r"\s+", "", c).upper() in claves_tengo:
+            continue
+        try:
+            if es_registro:
+                filtro = Filter(must=[FieldCondition(key="registro", match=MatchValue(value=c))])
+                pts = await _scroll_todo(qdrant, COLECCION_JURIS, filtro, tope=3)
+            else:
+                pts = []
+                # la clave se guarda como «2a./J. 60/2007»: con espacio tras «J.»
+                formas = []
+                for f_ in (c, re.sub(r"\.\s*", ". ", c).replace(". /", "./").strip(),
+                           c.replace("J.", "J. ").replace("  ", " ")):
+                    for g_ in (f_, f_.lower(), f_.upper()):
+                        if g_ not in formas:
+                            formas.append(g_)
+                for forma in formas:
+                    filtro = Filter(must=[FieldCondition(key="clave_tesis", match=MatchValue(value=forma))])
+                    pts = await _scroll_todo(qdrant, COLECCION_JURIS, filtro, tope=3)
+                    if pts:
+                        break
+        except Exception as e:
+            print(f"   ⚖️ RAG: no se pudo traer la tesis {c} ({type(e).__name__})")
+            continue
+        if not pts:
+            continue
+        t = _tesis_de(getattr(pts[0], "payload", None) or {})
+        if not t.get("registro") or t["registro"] in tengo:
+            continue
+        t["citada_por_la_parte"] = True
+        material.tesis.append(t)
+        tengo.add(t["registro"])
+        anadidas.append(f"{t['registro']} · {str(t.get('rubro') or '')[:50]}")
+    if anadidas:
+        print(f"   ⚖️ RAG: {len(anadidas)} tesis citadas traídas del acervo: {[a.split(' · ')[0] for a in anadidas]}")
+    return anadidas
 
 
 async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],

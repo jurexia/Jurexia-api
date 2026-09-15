@@ -349,8 +349,12 @@ def _normaliza_rubro(x: str) -> str:
     return re.sub(r"[^A-Z0-9]+", " ", x).strip()
 
 
+_RX_REGISTRO_EN_PROSA = re.compile(r"registro(?:\s+digital)?\s*:?\s*(\d{6,7})", re.I)
+
+
 def tesis_del_rubro(texto: str, tesis: list):
-    """La tesis del acervo cuyo rubro se cita en este párrafo, si alguna."""
+    """La tesis del acervo que este párrafo cita, si alguna: por su rubro o,
+    si el rubro viene recortado o parafraseado, por su registro."""
     m = _RX_RUBRO.search(texto or "")
     if not m:
         return None, None
@@ -361,6 +365,12 @@ def tesis_del_rubro(texto: str, tesis: list):
         real = _normaliza_rubro(t.get("rubro", ""))
         if real and (real.startswith(citado[:70]) or citado.startswith(real[:70])):
             return t, m
+    # POR REGISTRO. El estudio escribe «de rubro «…», registro 2007413» y el
+    # rubro puede venir con una palabra cambiada: el registro no.
+    for mr in _RX_REGISTRO_EN_PROSA.finditer(texto or ""):
+        for t in (tesis or []):
+            if str(t.get("registro") or "") == mr.group(1):
+                return t, m
     return None, m
 
 
@@ -400,6 +410,13 @@ _RX_VERBO = re.compile(
 # el suyo tal cual mientras no nombre instancia ni tipo; y si no hay nada
 # aprovechable, «Sirve de apoyo», que es la fórmula del oficio.
 _POR_DEFECTO = "Sirve de apoyo"
+_RX_FORMULA_ENLACE = re.compile(
+    r"^(?:sirve[n]?\s+de\s+(?:apoyo|sustento)|es\s+aplicable|son\s+aplicables|"
+    r"resulta[n]?\s+aplicable[s]?|apoya[n]?\s+lo\s+anterior|ilustra[n]?|robustece[n]?|"
+    r"corrobora[n]?|sustenta[n]?|cobra[n]?\s+aplicaci[óo]n|tiene[n]?\s+aplicaci[óo]n|"
+    r"es\s+orientador[a]?|orienta|tambi[ée]n\s+sirve\s+de\s+apoyo|al\s+respecto|"
+    r"en\s+ese\s+sentido|lo\s+anterior\s+encuentra\s+apoyo|encuentra\s+apoyo|"
+    r"as[íi]\s+lo\s+(?:ha\s+)?sostenido|por\s+analog[íi]a)\b", re.I)
 
 
 # Lo que puede quedar colgando al recortar el sintagma: el modelo escribe
@@ -424,6 +441,13 @@ def _verbo_de_enlace(anuncio: str) -> str:
         # «Resulta aplicable, en calidad de» → «Resulta aplicable».
         for _ in range(2):
             v = _RX_COLA_HUERFANA.sub("", v).strip()
+        # SÓLO LAS FÓRMULAS DEL OFICIO. «La misma conclusión se obtiene de la
+        # jurisprudencia…» dejaba «La misma conclusión se obtiene» pegado a
+        # «la jurisprudencia», sin la preposición (61/2025: «se obtiene d la
+        # jurisprudencia»). Un arranque que no sea fórmula de enlace se cambia
+        # por la de siempre.
+        if not _RX_FORMULA_ENLACE.match(v):
+            return _POR_DEFECTO
         return v or _POR_DEFECTO
     # Sin sustantivo reconocible: se conserva sólo si es corto y no nombra
     # órgano ni tipo, que es lo que no puede venir de él.
@@ -2318,7 +2342,10 @@ def _desencadenar(cola: str, tesis: list) -> str:
     resto = c[m.end():]
     h, _ = tesis_del_rubro(resto, tesis or [])
     if not h:
-        return ""
+        # «y la tesis con registro 2020401…» sin rubro: por registro.
+        mr = _RX_REGISTRO_EN_PROSA.search(resto)
+        if not (mr and any(str(t.get("registro") or "") == mr.group(1) for t in (tesis or []))):
+            return ""
     return "También sirve de apoyo " + resto
 
 
@@ -2386,6 +2413,13 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                    r"[^.]{3,60}\.\s*", "", t)
         if not t.strip():
             continue
+        # NINGÚN PÁRRAFO ARRANCA CON «y la tesis…». Es el resto de una cita
+        # encadenada que no se pudo bajar a bloque; se le devuelve el sujeto.
+        _mc = _RX_CITA_ENCADENADA.match(t)
+        if _mc:
+            t = "También sirve de apoyo " + t[_mc.end():]
+        elif re.match(r"^(?:y|e)\s+[a-záéíóúñ]", t):
+            t = "Asimismo, " + t[2:].lstrip()
         hallada, m_r = tesis_del_rubro(t, tesis or [])
         # Y UNA TESIS TAMBIÉN. La 169606 se transcribió dos veces en el mismo
         # considerando —una en el marco y otra al contestar el concepto—: el
