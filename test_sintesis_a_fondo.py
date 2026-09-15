@@ -47,6 +47,16 @@ ok("SE NOMBRAN" in ins and "NO SE RESUME" in ins, "nombrar las tesis; no resumir
 ok("1250 palabras" in ins, "y la extensión viene del escrito")
 ok("472 palabras" in instrucciones_resumen_conceptos(False, "amparo_directo"), "sin medida, la mediana de siempre")
 
+# ── y la sentencia, igual ──
+ok(fp.objetivo_acto("x" * 2000) == 438, "un acto breve pide la mediana del corpus (438)")
+ACTO = "CONSIDERANDO. " + ("La Sala consideró que la notificación fue ilegal con apoyo en la jurisprudencia 2a./J. 13/2015, registro 2008474. " * 400)
+ok(fp.objetivo_acto(ACTO) > 438, f"un acto largo pide más ({fp.objetivo_acto(ACTO)})")
+pa = fp.prompt_acto_a_fondo(ACTO, "La Sala declaró la nulidad.", ["2A./J. 13/2015", "2008474"], 700, es_recurso=True, tipo_asunto="revision_fiscal")
+ok("SE QUEDÓ CORTO" in pa and "2A./J. 13/2015" in pa and "Reescribe el resumen ENTERO" in pa, "la segunda pasada del acto pide el resumen entero con las tesis")
+from fases123_resumenes import instrucciones_resumen_acto
+ia = instrucciones_resumen_acto("revision_fiscal", 700)
+ok("COMPLETO, NO ESCOGIDO" in ia and "SE NOMBRAN" in ia and "700 palabras" in ia, "las instrucciones del acto piden todas las consideraciones y las tesis")
+
 print()
 if fallos: print(f"FALLAN {len(fallos)}: " + " · ".join(fallos)); sys.exit(1)
 print("TODAS LAS COMPROBACIONES PASAN")

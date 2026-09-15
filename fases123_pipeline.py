@@ -310,6 +310,49 @@ REGLAS QUE NO SE NEGOCIAN:
   que falte se avisa por otro camino, fuera del documento."""
 
 
+def objetivo_acto(texto_acto: str) -> int:
+    """Cuántas palabras pide la resolución: la mediana del corpus como suelo,
+    un tope, y entre los dos proporcional a su estudio de fondo."""
+    n = len(" ".join(recortar_acto(texto_acto or "").split()))
+    return max(PALABRAS_RESUMEN_ACTO,
+               min(PALABRAS_CONCEPTOS_TOPE, n // CARACTERES_POR_PALABRA_RESUMEN))
+
+
+def prompt_acto_a_fondo(texto_acto: str, resumen_actual: str, faltan_citas: list,
+                        objetivo: int, es_recurso: bool = False,
+                        tipo_asunto: str = "") -> str:
+    """La segunda pasada del resumen del acto: corto, o sin las tesis en que la
+    responsable se apoyó. Devuelve el resumen ENTERO reescrito."""
+    import tipos_asunto as _tap
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    que = _tap.vocabulario_de(_t)["recurrido"]
+    _citas = ("\n".join(f"  - {c}" for c in faltan_citas)
+              if faltan_citas else "  (ninguna pendiente)")
+    return f"""{_NUCLEO}
+
+{instrucciones_resumen_acto(_t, objetivo)}
+
+Se trata de la {que}. Éste es su texto:
+──────────────────────────────────────────
+{recortar_acto(texto_acto)}
+──────────────────────────────────────────
+
+Y éste es el resumen que se escribió, que SE QUEDÓ CORTO: tiene
+{len((resumen_actual or '').split())} palabras y la resolución pide alrededor de
+{objetivo}; deja fuera consideraciones de fondo, y no nombra estas tesis en
+que la responsable se apoyó:
+{_citas}
+
+──────────────────────────────────────────
+{resumen_actual}
+──────────────────────────────────────────
+
+Reescribe el resumen ENTERO y completo: todas las consideraciones de fondo,
+una decisión por frase, en pretérito, con sus marcas [[p.N §M]] donde puedas
+ubicar la página, y cada tesis en que se apoyó nombrada donde la usó.
+Devuelve sólo el resumen."""
+
+
 def prompt_resumen_acto(texto_acto: str, es_recurso: bool = False,
                         tipo_asunto: str = "") -> str:
     # «la sentencia reclamada» / «recurrida» / «el auto recurrido» / «la
@@ -327,7 +370,7 @@ def prompt_resumen_acto(texto_acto: str, es_recurso: bool = False,
     _ej_org = _ej_org[:1].upper() + _ej_org[1:]
     return f"""{_NUCLEO}
 
-{instrucciones_resumen_acto(_t)}
+{instrucciones_resumen_acto(_t, objetivo_acto(texto_acto))}
 
 LO QUE NO VA EN ESTE RESUMEN, y es donde se equivoca siempre quien lo hace por
 primera vez:
@@ -938,6 +981,30 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             _todas, _sin = citas_sin_nombrar(texto_conceptos, rc)
         _conteo = dict(_conteo, objetivo_palabras=_obj, vueltas_fondo=_vf,
                        citas_invocadas=len(_todas), citas_sin_nombrar=sorted(_sin))
+        # ── Y LA SENTENCIA, IGUAL: corta o sin las tesis en que se apoyó ──
+        # David: «los agravios y la sentencia deben estar resumidos de forma
+        # completa, sobre todo cuando formulan planteamientos de fondo y
+        # citan múltiples tesis». Un resumen del acto que escoge dos de cinco
+        # consideraciones deja sin contestar los agravios contra las otras.
+        _obj_a = objetivo_acto(texto_acto)
+        _todas_a, _sin_a = citas_sin_nombrar(recortar_acto(texto_acto or ""), ra)
+        _vfa = 0
+        while ((len(ra.split()) < 0.6 * _obj_a
+                or (len(_todas_a) >= 2 and len(_sin_a) >= max(2, len(_todas_a) // 2)))
+               and _vfa < 2):
+            _vfa += 1
+            print(f"   🧩 resumen del acto a fondo (vuelta {_vfa}): {len(ra.split())} palabras "
+                  f"de ~{_obj_a} · tesis de la responsable {len(_todas_a)}, sin nombrar {len(_sin_a)}")
+            _ra2 = await _pedir(cliente, prompt_acto_a_fondo(
+                texto_acto, ra, sorted(_sin_a), _obj_a, es_recurso, tipo_asunto),
+                _cupo(texto_acto))
+            _ra2 = sin_marca(_ra2 or "").strip()
+            if len(_ra2.split()) <= len(ra.split()):
+                break
+            ra = _ra2
+            _todas_a, _sin_a = citas_sin_nombrar(recortar_acto(texto_acto or ""), ra)
+        _conteo = dict(_conteo, objetivo_acto=_obj_a, vueltas_fondo_acto=_vfa,
+                       citas_acto=len(_todas_a), citas_acto_sin_nombrar=sorted(_sin_a))
         if _vf:
             print(f"   🧩 síntesis a fondo: quedó en {len(rc.split())} palabras · "
                   f"sin nombrar {sorted(_sin) or 'ninguna'}")
@@ -1181,7 +1248,16 @@ def revisar(f: Fases123) -> list[str]:
                       f"{_n_citas} tesis que invoca la parte: {', '.join(_sin_nombrar[:6])}"
                       f"{'…' if len(_sin_nombrar) > 6 else ''}. El estudio tiene que "
                       f"hacerse cargo de ellas; compruébalo.")
-    for etiqueta, n, objetivo in (("del acto", na, PALABRAS_RESUMEN_ACTO),
+    _obj_acto = max(PALABRAS_RESUMEN_ACTO,
+                    int((getattr(f, "conteo", {}) or {}).get("objetivo_acto") or 0))
+    _sin_acto = list((getattr(f, "conteo", {}) or {}).get("citas_acto_sin_nombrar") or [])
+    if _sin_acto:
+        avisos.append(f"EL RESUMEN DE LA RESOLUCIÓN NO NOMBRA {len(_sin_acto)} de las "
+                      f"{int((getattr(f, 'conteo', {}) or {}).get('citas_acto') or 0)} tesis en que "
+                      f"se apoyó la responsable: {', '.join(_sin_acto[:6])}"
+                      f"{'…' if len(_sin_acto) > 6 else ''}. Los agravios suelen ir contra "
+                      f"ellas; compruébalo.")
+    for etiqueta, n, objetivo in (("del acto", na, _obj_acto),
                                   ("de conceptos", nc, _obj_conceptos)):
         if n and not (0.5 * objetivo <= n <= 1.8 * objetivo):
             _coletilla = (f" con {_n_plant} planteamientos" if
