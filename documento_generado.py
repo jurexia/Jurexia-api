@@ -1741,14 +1741,27 @@ def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
     return q
 
 
+_RX_ARTICULOS_CITADOS_LISTA = re.compile(
+    r"art[íi]culos?\s+(\d{1,4}(?:\s*(?:º|°|o\.|bis|ter|qu[áa]ter))?"
+    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?)*)"
+    r"(?:[^.;]{0,90}?(c[óo]digo|ley|constituci[óo]n|reglamento)[^.;,]{0,60})?", re.I)
+
+
+def _iter_articulos(texto: str):
+    """(número, fragmento) por cada artículo citado; «artículos 134 y 137 del
+    Código Fiscal de la Federación» rinde dos, los dos con la ley."""
+    for m in _RX_ARTICULOS_CITADOS_LISTA.finditer(texto or ""):
+        for num in re.findall(r"\d{1,4}", m.group(1)):
+            yield num, m.group(0)
+
+
 def _preceptos_del_parrafo(texto: str, normas: list) -> list:
     """[(número, norma)] de los artículos que este párrafo cita y tenemos."""
     fuera, vistos = [], set()
-    for m in _RX_ARTICULO_CITADO.finditer(texto or ""):
-        num = m.group(1)
+    for num, frag in _iter_articulos(texto):
         if num in vistos:
             continue
-        n = _norma_del_texto(m.group(0), num, normas)
+        n = _norma_del_texto(frag, num, normas)
         if n and str(n.get("texto") or "").strip():
             vistos.add(num)
             fuera.append((num, n))
@@ -1760,11 +1773,10 @@ def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
     if not normas:
         return 0
     puestos = 0
-    for m in _RX_ARTICULO_CITADO.finditer(texto or ""):
+    for num, frag in _iter_articulos(texto):
         if puestos >= MAX_ARTICULOS_POR_PARRAFO:
             break
-        num = m.group(1)
-        n = _norma_del_texto(m.group(0), num, normas)
+        n = _norma_del_texto(frag, num, normas)
         if not n:
             continue
         cuerpo = " ".join(str(n.get("texto", "")).split())[:900]

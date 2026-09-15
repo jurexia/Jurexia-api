@@ -36,6 +36,16 @@ fuera, pares = fe.preceptos_fuera(est, mat)
 ok(("código fiscal de la federación", "134") in pares, f"detecta el CFF 134 aunque el material no traiga el CFF: {sorted(pares)}")
 ok(("ley federal de procedimiento contencioso administrativo", "50") in pares, f"y la LFPCA 50, con el nombre limpio: {sorted(pares)}")
 ok(not any(a == "63" for c, a in pares), "el 63 de Amparo sí estaba")
+est2 = ("Los artículos 134 y 137 del Código Fiscal de la Federación regulan la notificación; el artículo 6º de la "
+        "Ley Federal de Procedimiento Contencioso Administrativo prevé las costas; y el artículo 68 del Código "
+        "Fiscal de la Federación y 42 de la Ley Federal de Procedimiento Contencioso Administrativo presumen la legalidad.")
+_, pares2 = fe.preceptos_fuera(est2, mat)
+ok({("código fiscal de la federación", "134"), ("código fiscal de la federación", "137")} <= pares2, f"«artículos 134 y 137 del CFF» son dos citas: {sorted(pares2)}")
+ok(("ley federal de procedimiento contencioso administrativo", "6") in pares2, "«artículo 6º» lleva el ordinal pegado y se lee")
+ok(("código fiscal de la federación", "68") in pares2 and ("ley federal de procedimiento contencioso administrativo", "42") in pares2, "«68 del CFF y 42 de la LFPCA» son dos leyes")
+normas_x = [{"cuerpo_legal": "Código Fiscal de la Federación", "articulo": "137", "texto": "Artículo 137. Cuando la notificación…"},
+            {"cuerpo_legal": "Código Fiscal de la Federación", "articulo": "134", "texto": "Artículo 134. Las notificaciones…"}]
+ok([n_ for n_, _ in dg._preceptos_del_parrafo("Los artículos 134 y 137 del Código Fiscal de la Federación regulan…", normas_x)] == ["134", "137"], "el compositor también reparte la lista")
 
 # ── la traída, con la ley correcta y por fuero ──
 class _Pt:

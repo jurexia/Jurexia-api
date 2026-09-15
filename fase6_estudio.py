@@ -1804,6 +1804,36 @@ _RX_CALIF = re.compile(r"\b(fundad|infundad|inoperant|inefica[cz])\w*", re.I)
 # verificador que parecía funcionar porque nunca decía nada.
 _RX_ARTICULO = re.compile(r"art[íi]culos?\s+(\d{1,4})\s*(?:bis|ter)?\.?\s*([^.;:]{0,80})", re.I)
 
+# LAS CITAS DE ARTÍCULOS, UNA POR NÚMERO. «artículos 134 y 137 del Código
+# Fiscal de la Federación» son dos citas; «artículo 6º de la LFPCA» lleva el
+# ordinal pegado; y «artículo 68 del Código Fiscal de la Federación y 42 de la
+# Ley Federal de Procedimiento Contencioso Administrativo» son dos leyes. El
+# regex de arriba veía UNA cita en cada caso (61/2025: el 134, el 6 y el 42
+# se quedaban sin traer ni transcribir).
+_RX_ARTICULOS_LISTA = re.compile(
+    r"art[íi]culos?\s+(?P<lista>\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?"
+    r"(?:\s*(?:,|y|e)\s*\d{1,4}(?:\s*(?:º|°|o\.|bis|ter))?)*)\.?\s*(?P<cola>[^.;:]{0,110})", re.I)
+_RX_Y_OTRO_DE_LEY = re.compile(
+    r"\b(?:y|e)\s+(?:el\s+)?(\d{1,4})(?:\s*(?:º|°|o\.))?\s+((?:de|del)\s+(?:la|el|los|las)?\s*"
+    r"(?:constituci[óo]n|c[óo]digo|ley|reglamento|convenci[óo]n|pacto|tratado)[^,;:()]{4,90})", re.I)
+
+
+def citas_de_articulos(texto: str) -> list:
+    """[(número, cola)] de cada artículo citado, con la cola —lo que sigue— que
+    nombra la ley. Reparte las listas y las continuaciones «y N de la Ley»."""
+    fuera = []
+    for m in _RX_ARTICULOS_LISTA.finditer(texto or ""):
+        nums = re.findall(r"\d{1,4}", m.group("lista"))
+        cola = " ".join(m.group("cola").split())
+        # la primera ley acaba donde empieza «y 42 de la Ley…»
+        cont = _RX_Y_OTRO_DE_LEY.search(cola)
+        cola_1 = cola[:cont.start()] if cont else cola
+        for nu in nums:
+            fuera.append((nu, cola_1))
+        if cont:
+            fuera.append((cont.group(1), cont.group(2)))
+    return fuera
+
 _VACIAS = {"de", "del", "la", "el", "los", "las", "y", "en", "que", "propio",
            "citado", "mencionado", "invocado", "referido", "aludido", "a", "su"}
 
@@ -2190,7 +2220,7 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
                  and str(getattr(material, "cuaderno", "")) == "principal")
     fuera: set[str] = set()
     pares: set = set()
-    for art, cola in _RX_ARTICULO.findall(estudio):
+    for art, cola in citas_de_articulos(estudio):
         cola_n = " ".join(cola.split()).lower()
         if any(n in cola_n for n in _NOTORIAS):
             # La excepción de la excepción: el capítulo de la suspensión del
