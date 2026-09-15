@@ -2260,9 +2260,22 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
             _mn = re.match(r"(?:,\s*)?(?:(?:fracci[óo]n|p[áa]rrafo|inciso)[^,]{0,30},?\s*)?"
                            r"(?:de|del)\s+(?:la|el|los|las)?\s*"
                            r"((?:constituci[óo]n|c[óo]digo|ley|reglamento|convenci[óo]n|pacto|tratado)"
-                           r"[^,;:()]{4,90})", cola_n, re.I)
+                           r"[^,;:()]{4,90})", " ".join(cola.split()), re.I)
             if _mn:
+                # EL NOMBRE SE LEE CON SUS MAYÚSCULAS: «Código Fiscal de la
+                # Federación regulan…» acaba en «Federación», porque «regulan»
+                # va en minúscula y no es conector. La lista de verbos de abajo
+                # queda como red para cuando el nombre viene en minúsculas.
                 _nombre = " ".join(_mn.group(1).split()).strip(" .")
+                _pal = _nombre.split()
+                _corte = len(_pal)
+                for _i, _w in enumerate(_pal[1:], 1):
+                    if _w[:1].islower() and _w.lower() not in (
+                            "de", "del", "la", "el", "los", "las", "y", "e", "para", "sobre",
+                            "en", "al", "a", "por", "con", "su", "sus", "o", "u"):
+                        _corte = _i
+                        break
+                _nombre = " ".join(_pal[:_corte]).lower()
                 # EL NOMBRE ACABA DONDE EMPIEZA EL VERBO: «…Contencioso
                 # Administrativo fija los requisitos» no es el nombre de la ley.
                 _nombre = re.sub(r"\s+(?:establece|dispone|prev[eé]|se[ñn]ala|regula|permite|fija|faculta|"
