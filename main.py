@@ -17394,7 +17394,12 @@ class ToulminRequest(BaseModel):
     # pagaría por una sola consulta (revisión del 15-sep-2026).
     hechos: str = Field(..., max_length=15000)
     pretension: str = Field(..., max_length=4000)
-    tipo: Optional[str] = Field("demanda", max_length=80)
+    # «demanda» o «recurso». En un recurso, `tipo` es el que escribió el
+    # abogado («apelación contra sentencia definitiva») y `resolucion` lo que
+    # resolvió la autoridad, que es de donde salen los agravios.
+    clase: Optional[str] = Field("demanda", max_length=20)
+    tipo: Optional[str] = Field("demanda", max_length=160)
+    resolucion: Optional[str] = Field("", max_length=15000)
     estado: Optional[str] = Field(None, max_length=60)
     materia: Optional[str] = Field(None, max_length=40)
 
@@ -17407,8 +17412,17 @@ async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(No
 
     hechos = (payload.hechos or "").strip()
     pretension = (payload.pretension or "").strip()
+    clase = (payload.clase or "demanda").strip().lower()
+    if clase not in _tl.CLASES:
+        clase = "demanda"
+    tipo_escrito = " ".join((payload.tipo or clase).split())
+    resolucion = (payload.resolucion or "").strip()
     if len(hechos) < 40 or len(pretension) < 10:
-        raise HTTPException(status_code=400, detail="Escribe los hechos y lo que pides con un poco más de detalle.")
+        raise HTTPException(status_code=400, detail=(
+            "Escribe los antecedentes y lo que pides con un poco más de detalle." if clase == "recurso"
+            else "Escribe los hechos y lo que pides con un poco más de detalle."))
+    if clase == "recurso" and (len(tipo_escrito) < 3 or len(resolucion) < 40):
+        raise HTTPException(status_code=400, detail="Indica el tipo de recurso y lo que resolvió la resolución que impugnas.")
     if not authorization:
         raise HTTPException(status_code=401, detail="Autenticacion requerida")
     if not supabase_admin or qdrant_client is None or chat_client is None:
@@ -17464,9 +17478,9 @@ async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(No
         tarea = asyncio.create_task(_tl.construir(
             qdrant_client, _embedding_juris,
             lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), chat_client,
-            hechos=hechos, pretension=pretension, tipo=(payload.tipo or "demanda"),
+            hechos=hechos, pretension=pretension, tipo=tipo_escrito,
             materia=(payload.materia or ""), coleccion_estatal=coleccion,
-            entidad=entidad, aviso=aviso))
+            entidad=entidad, aviso=aviso, clase=clase, resolucion=resolucion))
         try:
             while True:
                 if tarea.done() and cola.empty():

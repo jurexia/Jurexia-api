@@ -1,4 +1,4 @@
-"""Argumentos Toulmin para la parte que demanda.
+"""Argumentos Toulmin para la parte que demanda o que recurre.
 
 David, 15-sep-2026: «una nueva función en botón (Toulmin) que estructure
 argumentos como los que hace el taller de sentencias, es decir, citando la
@@ -25,6 +25,21 @@ QUÉ HACE, EN UNA SOLA PETICIÓN Y SIN ESTADO
    garantía, respaldo, calificador, refutación) para el panel, y además su
    REDACCIÓN en prosa de escrito —sin las etiquetas—, que es lo que va al Word.
 
+DOS CLASES DE ESCRITO (David, 15-sep-2026: «Toulmin es un modelo argumentativo
+que sirve para convencer. Esto es fundamental también en recursos… déjalo
+abierto para que él ingrese el tipo de recurso»)
+-----------------------------------------------------------------------------
+· DEMANDA: los problemas son lo que hay que ganar para obtener la pretensión,
+  y los argumentos van a FUNDAMENTOS DE DERECHO.
+· RECURSO: el tipo lo escribe el abogado (apelación, revocación, queja,
+  revisión…). Aquí manda la RESOLUCIÓN QUE SE IMPUGNA: cada problema nace de
+  una consideración suya, y cada argumento es un AGRAVIO en tres tiempos —qué
+  dijo, por qué es ilegal, qué debe resolverse—. Es exactamente la forma del
+  taller: el problema lleva `combate` (lo que alega la parte) y `resolvio` (lo
+  que hizo la autoridad), y el texto de la resolución va a
+  `marco_juridico.construir` como `texto_del_acto`, que busca en la ley local
+  los preceptos que la propia autoridad aplicó.
+
 LO QUE NO HACE
 --------------
 · No toca la recuperación del chat (`_texto_concepto`, pasada por concepto,
@@ -48,6 +63,8 @@ ESFUERZO_TOULMIN = os.getenv("TOULMIN_ESFUERZO", "medium")
 
 MAX_HECHOS = 12000
 MAX_PRETENSION = 3000
+MAX_RESOLUCION = 12000
+CLASES = ("demanda", "recurso")
 MAX_TESIS = 10
 MAX_NORMAS = 10
 PLAZO_MATERIAL_SEG = 110
@@ -97,15 +114,48 @@ Devuelve SOLO un objeto JSON con estas claves:
 - "faltantes": como máximo 5 datos de hecho que hacen falta para fundar bien, cada uno en una línea corta (puede estar vacía)."""
 
 
+_PROMPT_PROBLEMAS_RECURSO = """Eres abogado litigante en México. Vas a preparar los AGRAVIOS de un recurso para la PARTE que recurre (no del tribunal que lo resuelve).
+
+TIPO DE RECURSO (lo escribió el abogado): {tipo}
+ENTIDAD: {entidad}
+MATERIA INDICADA: {materia}
+
+ANTECEDENTES DEL ASUNTO:
+{hechos}
+
+RESOLUCIÓN QUE SE IMPUGNA (lo que resolvió la autoridad y sus razones):
+{resolucion}
+
+LO QUE SE PIDE AL RESOLVER EL RECURSO:
+{pretension}
+
+Devuelve SOLO un objeto JSON con estas claves:
+- "materia": una de civil, familiar, mercantil, laboral, penal, administrativa, amparo, constitucional.
+- "problemas": lista de 2 a 4 objetos. Cada objeto tiene:
+    · "pregunta": una pregunta jurídica CONCEPTUAL sobre una consideración de la resolución que se impugna (si la autoridad aplicó, interpretó o dejó de aplicar correctamente una norma, si valoró bien una prueba, si respetó un presupuesto procesal o la congruencia), cuya respuesta favorable lleva a revocar o modificar lo resuelto. Nombra la figura jurídica en disputa, sin nombres de personas, sin fechas y sin cantidades, en lenguaje de rubro y no de relato.
+    · "consideracion": en una o dos líneas, la razón de la resolución que ese problema combate, tomada de la RESOLUCIÓN QUE SE IMPUGNA; no inventes razones que no estén ahí.
+  Prefiere las consideraciones que sostienen el sentido de lo resuelto: un agravio que deja en pie la razón principal no sirve.
+- "convencional": true solo si lo resuelto toca derechos humanos donde la Constitución remite a tratados (igualdad, niñez, debido proceso, acceso a la justicia, salud, vivienda, trabajo digno, libertad, propiedad frente a la autoridad); false en otro caso.
+- "faltantes": como máximo 5 datos que hacen falta para recurrir bien (una consideración que no se transcribió, una constancia, la fecha de notificación para el plazo), cada uno en una línea corta (puede estar vacía)."""
+
+
 async def problemas_del_caso(cliente, hechos: str, pretension: str, tipo: str,
-                             materia: str, entidad: str) -> dict:
+                             materia: str, entidad: str, clase: str = "demanda",
+                             resolucion: str = "") -> dict:
+    if clase == "recurso":
+        contenido = _PROMPT_PROBLEMAS_RECURSO.format(
+            tipo=tipo or "recurso", entidad=entidad or "no indicada",
+            materia=materia or "no indicada", hechos=hechos[:MAX_HECHOS],
+            resolucion=resolucion[:MAX_RESOLUCION], pretension=pretension[:MAX_PRETENSION])
+    else:
+        contenido = _PROMPT_PROBLEMAS.format(
+            tipo=tipo or "demanda", entidad=entidad or "no indicada",
+            materia=materia or "no indicada",
+            hechos=hechos[:MAX_HECHOS], pretension=pretension[:MAX_PRETENSION])
     kw = dict(model=MODELO_TOULMIN, max_completion_tokens=8000,
               reasoning_effort="low",
               response_format={"type": "json_object"},
-              messages=[{"role": "user", "content": _PROMPT_PROBLEMAS.format(
-                  tipo=tipo or "demanda", entidad=entidad or "no indicada",
-                  materia=materia or "no indicada",
-                  hechos=hechos[:MAX_HECHOS], pretension=pretension[:MAX_PRETENSION])}])
+              messages=[{"role": "user", "content": contenido}])
     # UNA RESPUESTA CORTADA NO DA ERROR: da un JSON sin cerrar, el regex no lo
     # encuentra y el caso se buscaba con la pretensión cruda. Pasó en la
     # primera prueba de alimentos. Se reintenta una vez antes de rendirse.
@@ -120,17 +170,22 @@ async def problemas_del_caso(cliente, hechos: str, pretension: str, tipo: str,
             d = {}
         if d.get("problemas"):
             break
-    problemas = []
+    problemas, consideraciones = [], []
     for p in _lista(d.get("problemas")):
+        consid = ""
         if isinstance(p, dict):
+            consid = str(p.get("consideracion") or p.get("resolvio") or "").strip()
             p = next((str(p[k]) for k in ("pregunta", "problema", "texto") if str(p.get(k) or "").strip()), "")
         p = str(p or "").strip()
         if p:
             problemas.append(p)
-    problemas = problemas[:4]
+            consideraciones.append(consid[:600])
+    problemas, consideraciones = problemas[:4], consideraciones[:4]
     return {
         "materia": str(d.get("materia") or materia or "").strip().lower(),
         "problemas": problemas,
+        # En un recurso, la razón de la resolución que combate cada problema.
+        "consideraciones": consideraciones,
         "convencional": bool(d.get("convencional")),
         "faltantes": [str(x).strip() for x in _lista(d.get("faltantes")) if str(x).strip()][:6],
     }
@@ -407,16 +462,84 @@ Devuelve SOLO un objeto JSON:
 Entre 2 y 4 argumentos, uno por problema cuando se pueda."""
 
 
+_PROMPT_AGRAVIOS = """Eres abogado litigante mexicano y construyes los AGRAVIOS de un recurso ({tipo}) para la parte que recurre, en {entidad}.
+
+ANTECEDENTES DEL ASUNTO:
+{hechos}
+
+RESOLUCIÓN QUE SE IMPUGNA:
+{resolucion}
+
+LO QUE SE PIDE AL RESOLVER EL RECURSO:
+{pretension}
+
+PROBLEMAS QUE HAY QUE GANAR, CADA UNO CON LA CONSIDERACIÓN QUE COMBATE:
+{problemas}
+
+{catalogo}
+
+CÓMO SE CONSTRUYE CADA AGRAVIO (modelo de Toulmin, en el orden en que lo lee el tribunal que resuelve el recurso):
+1. Afirmación: la consideración de la resolución es ilegal y qué debe resolverse en su lugar.
+2. Datos: lo que dijo la resolución en esa consideración, tomado de la RESOLUCIÓN QUE SE IMPUGNA, y las constancias o hechos de los ANTECEDENTES que demuestran el error, sin inventar ninguno. Si falta la transcripción de una consideración o una constancia decisiva, dilo en "faltantes".
+3. Garantía: la norma que la autoridad violó, dejó de aplicar o aplicó indebidamente, o la regla de valoración que desatendió, dicha en abstracto y con su fuente.
+4. Respaldo: lo que da autoridad a la garantía: Constitución, tratado, Corte Interamericana, jurisprudencia o tesis. Prefiere la Suprema Corte a un colegiado y la jurisprudencia a la tesis aislada; nunca llames jurisprudencia a una tesis aislada.
+5. Calificador: con qué fuerza se sostiene y de qué depende (lo que conste en autos, una interpretación discutida, que la consideración no tenga otra razón que la sostenga).
+6. Refutación: la razón con la que el tribunal podría desestimar el agravio —que es inoperante porque deja en pie otra consideración, que plantea algo que no se hizo valer ante la autoridad, que el error no trasciende al resultado— o la defensa de la contraparte, y la respuesta que la vence, con su fuente si la hay.
+
+REGLAS DE CITA, SIN EXCEPCIÓN:
+- Solo puedes citar las FUENTES DISPONIBLES, escribiendo su identificador entre corchetes, por ejemplo [T2] o [C1]. No escribas números de registro, rubros, números de artículo ni nombres de casos por tu cuenta: el sistema los pone a partir del identificador.
+- Si una idea necesita una fuente que no está en la lista, no la cites: escríbela en "faltantes".
+- La ley de otra entidad federativa nunca funda. La jurisprudencia de la Corte Interamericana se cita por su caso y párrafo, que ya van en su identificador.
+- Si la Constitución o un tratado no vienen al caso, no los fuerces.
+- Cada fuente se cita solo para lo que efectivamente dice su rubro o su texto; si una tesis resuelve otra cosa, no la uses.
+- El identificador entre corchetes va al final de la frase que apoya, nunca como parte de la oración: no escribas «en [T1]», «según [T1]», «la tesis [T1]» ni «el artículo [L2]».
+- Cada agravio combate una consideración que efectivamente está en la RESOLUCIÓN QUE SE IMPUGNA. No atribuyas a la autoridad razones que no aparecen ahí.
+
+"redaccion" es el agravio ya escrito para el escrito del recurso, en prosa jurídica mexicana formal, en primera persona del singular de la parte que recurre (una sola persona salvo que los ANTECEDENTES digan que recurren varias), sin nombrarla, de 200 a 420 palabras, en uno a tres párrafos separados por una línea en blanco. Sigue tres tiempos: primero identifica con precisión lo que resolvió la autoridad en esa consideración; después demuestra por qué es ilegal, con la norma y la jurisprudencia; al final di qué debe resolverse en su lugar. Se combate la resolución, nunca a la persona que la dictó. En la redacción NO aparecen las palabras afirmación, datos, garantía, respaldo, calificador ni refutación, ni el rótulo «primer agravio» (lo pone el sistema). No uses frases hechas de relleno ni transcribas la fuente completa.
+
+Devuelve SOLO un objeto JSON:
+{{
+  "argumentos": [
+    {{
+      "titulo": "rótulo temático del agravio, breve, con mayúscula solo en la primera palabra y en los nombres propios",
+      "afirmacion": "…",
+      "datos": ["…"],
+      "garantia": {{"texto": "…", "fuentes": ["C1"]}},
+      "respaldo": [{{"fuente": "T1", "como_apoya": "…"}}],
+      "calificador": "…",
+      "refutacion": {{"objecion": "…", "respuesta": "…", "fuentes": ["T3"]}},
+      "redaccion": "…"
+    }}
+  ],
+  "faltantes": ["…"]
+}}
+Entre 2 y 4 agravios, uno por problema cuando se pueda, empezando por el que combate la razón principal de lo resuelto."""
+
+
 async def argumentar(cliente, *, hechos: str, pretension: str, tipo: str, entidad: str,
-                     problemas: list[str], bloque: str) -> dict:
+                     problemas: list[str], bloque: str, clase: str = "demanda",
+                     resolucion: str = "", consideraciones: Optional[list[str]] = None) -> dict:
+    if clase == "recurso":
+        consid = list(consideraciones or [])
+        lineas = []
+        for i, x in enumerate(problemas, 1):
+            c = consid[i - 1] if i - 1 < len(consid) else ""
+            lineas.append(f"{i}. {x}" + (f"\n   Consideración que combate: {c}" if c else ""))
+        contenido = _PROMPT_AGRAVIOS.format(
+            tipo=tipo or "recurso", entidad=entidad or "la entidad indicada",
+            hechos=hechos[:MAX_HECHOS], resolucion=resolucion[:MAX_RESOLUCION],
+            pretension=pretension[:MAX_PRETENSION], problemas="\n".join(lineas),
+            catalogo=bloque)
+    else:
+        contenido = _PROMPT_ARGUMENTOS.format(
+            tipo=tipo or "demanda", entidad=entidad or "la entidad indicada",
+            hechos=hechos[:MAX_HECHOS], pretension=pretension[:MAX_PRETENSION],
+            problemas="\n".join(f"{i}. {x}" for i, x in enumerate(problemas, 1)),
+            catalogo=bloque)
     kw = dict(model=MODELO_TOULMIN, max_completion_tokens=24000,
               reasoning_effort=ESFUERZO_TOULMIN,
               response_format={"type": "json_object"},
-              messages=[{"role": "user", "content": _PROMPT_ARGUMENTOS.format(
-                  tipo=tipo or "demanda", entidad=entidad or "la entidad indicada",
-                  hechos=hechos[:MAX_HECHOS], pretension=pretension[:MAX_PRETENSION],
-                  problemas="\n".join(f"{i}. {x}" for i, x in enumerate(problemas, 1)),
-                  catalogo=bloque)}])
+              messages=[{"role": "user", "content": contenido}])
     r = await _lm.crear(cliente, **kw)
     texto = (r.choices[0].message.content or "").strip()
     m = _RX_JSON.search(texto)
@@ -561,7 +684,8 @@ def resolver(salida: dict, fuentes: dict) -> dict:
 async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
                     pretension: str, tipo: str = "demanda", materia: str = "",
                     coleccion_estatal: Optional[str] = None, entidad: str = "",
-                    aviso: Aviso = None) -> dict:
+                    aviso: Aviso = None, clase: str = "demanda",
+                    resolucion: str = "") -> dict:
     import fase6_rag as f6rag
     import marco_juridico as mj
 
@@ -572,10 +696,16 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
             except Exception:
                 pass
 
+    clase = clase if clase in CLASES else "demanda"
+    resolucion = (resolucion or "").strip()
+    recurso = clase == "recurso"
     avisos: list[str] = []
-    await paso("problemas", "Planteando los problemas jurídicos del caso")
-    prob = await problemas_del_caso(cliente, hechos, pretension, tipo, materia, entidad)
+    await paso("problemas", "Identificando lo que hay que combatir de la resolución"
+               if recurso else "Planteando los problemas jurídicos del caso")
+    prob = await problemas_del_caso(cliente, hechos, pretension, tipo, materia, entidad,
+                                    clase=clase, resolucion=resolucion)
     problemas = prob["problemas"] or [pretension[:300]]
+    consideraciones = prob.get("consideraciones") or []
     materia_caso = prob["materia"] or materia
     # La materia del RAG es selectiva sólo para cuatro silos; el resto va sin filtro.
     materia_rag = {"familiar": "civil", "mercantil": "civil", "administrativo": "administrativa"}.get(
@@ -599,13 +729,21 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
             # Como problema COMPLETO y no como cadena: `material_del_caso` saca
             # de `combate` el hecho con el que busca la ley del acto en la
             # colección estatal; con la pregunta sola buscaba por el andamio.
+            # En un recurso, `resolvio` es la consideración que se combate (o la
+            # resolución, si el modelo no la separó) y la resolución entera va
+            # como `texto_del_acto`: de ahí se leen los preceptos que aplicó.
             f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
-                                    [{"pregunta": p, "combate": (hechos or "")[:800], "resolvio": ""}
-                                     for p in problemas],
+                                    [{"pregunta": p,
+                                      "combate": (hechos or "")[:800] if not recurso else (hechos or "")[:400],
+                                      "resolvio": "" if not recurso else (
+                                          (consideraciones[i] if i < len(consideraciones) and consideraciones[i]
+                                           else resolucion[:800]))}
+                                     for i, p in enumerate(problemas)],
                                     coleccion, materia_rag, cliente,
-                                    contexto=(hechos or "")[:1500]),
+                                    contexto=(hechos or "")[:1500] if not recurso
+                                    else (resolucion[:1000] + "\n" + (hechos or "")[:500])),
             mj.construir(qdrant, embed_leyes, problemas_marco, coleccion,
-                         texto_del_acto=""),
+                         texto_del_acto=resolucion[:MAX_RESOLUCION] if recurso else ""),
         ), timeout=PLAZO_MATERIAL_SEG)
     except asyncio.TimeoutError:
         raise RuntimeError("El acervo tardó demasiado en responder.")
@@ -615,6 +753,16 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
         if a.startswith("No se pudo vectorizar"):
             print(f"[toulmin] marco: {a[:200]}")
             a = "No se pudo consultar el bloque constitucional en este intento."
+        # Los avisos del marco hablan el idioma del taller («acto reclamado»,
+        # «la responsable»). Aquí los lee quien recurre: se dicen con sus palabras.
+        elif a.startswith("NO SE PUDO LEER CON QUÉ LEY"):
+            a = ("La resolución que escribiste no cita artículos, así que no se pudo buscar la ley "
+                 "local que aplicó la autoridad. Si pegas sus consideraciones con los artículos que "
+                 "invoca, los agravios podrán combatir ese precepto.")
+        elif a.startswith("EL MARCO VA SIN EL PRECEPTO DE"):
+            m_ley = re.search(r"«([^»]+)»", a)
+            a = ((f"La resolución cita «{m_ley.group(1)}», pero " if m_ley else "La resolución cita una ley local, pero ")
+                 + "el acervo no devolvió ese artículo para este punto: compruébalo antes de firmar.")
         avisos.append(a)
 
     bloque, fuentes = catalogo(material, marco)
@@ -624,9 +772,11 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
               for c in ("constitucion", "tratado", "coidh", "ley", "tesis")}
     await paso("material", json.dumps(conteo))
 
-    await paso("argumentos", "Construyendo los argumentos")
+    await paso("argumentos", "Construyendo los agravios" if recurso else "Construyendo los argumentos")
     salida = await argumentar(cliente, hechos=hechos, pretension=pretension, tipo=tipo,
-                              entidad=entidad, problemas=problemas, bloque=bloque)
+                              entidad=entidad, problemas=problemas, bloque=bloque,
+                              clase=clase, resolucion=resolucion,
+                              consideraciones=consideraciones)
 
     await paso("verificando", "Verificando cada cita contra el acervo")
     res = resolver(salida, fuentes)
@@ -638,7 +788,9 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
             if k not in citadas:
                 citadas.append(k)
     return {
+        "clase": clase,
         "problemas": problemas,
+        "consideraciones": consideraciones if recurso else [],
         "materia": materia_caso,
         "argumentos": res["argumentos"],
         "fuentes": fuentes,
