@@ -17390,11 +17390,13 @@ class JurisconsultoRequest(BaseModel):
 # · COBRA ANTES de gastar y DEVUELVE si no hubo resultado (auditoría de cobro).
 # · El error que llega al cliente es genérico: el detalle va al registro.
 class ToulminRequest(BaseModel):
-    hechos: str
-    pretension: str
-    tipo: Optional[str] = "demanda"
-    estado: Optional[str] = None
-    materia: Optional[str] = None
+    # Topes: un campo de medio megabyte entraría entero en dos prompts y se
+    # pagaría por una sola consulta (revisión del 15-sep-2026).
+    hechos: str = Field(..., max_length=15000)
+    pretension: str = Field(..., max_length=4000)
+    tipo: Optional[str] = Field("demanda", max_length=80)
+    estado: Optional[str] = Field(None, max_length=60)
+    materia: Optional[str] = Field(None, max_length=40)
 
 
 @app.post("/toulmin/stream")
@@ -17424,12 +17426,17 @@ async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(No
     except Exception:
         raise HTTPException(status_code=401, detail="Token invalido o expirado")
 
+    # SÓLO SE DEVUELVE LO QUE SE COBRÓ. Si `consume_query` falla, la petición
+    # sigue (no se deja al abogado sin servicio por un tropiezo de la base),
+    # pero entonces un error no puede «devolver» una consulta que nunca salió.
+    cobrada = False
     try:
         q = await asyncio.to_thread(
             lambda: supabase_admin.rpc("consume_query", {"p_user_id": user_id}).execute()
         )
         if q.data and not q.data.get("allowed", True):
             raise HTTPException(status_code=429, detail="Se te acabaron las consultas de este periodo.")
+        cobrada = True
     except HTTPException:
         raise
     except Exception as e:
@@ -17460,7 +17467,6 @@ async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(No
             hechos=hechos, pretension=pretension, tipo=(payload.tipo or "demanda"),
             materia=(payload.materia or ""), coleccion_estatal=coleccion,
             entidad=entidad, aviso=aviso))
-        ok = False
         try:
             while True:
                 if tarea.done() and cola.empty():
@@ -17473,21 +17479,26 @@ async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(No
                     # modelo piensa y el abogado ve un error a los 60 s.
                     yield await evento({"tipo": "latido"})
             resultado = tarea.result()
-            ok = True
             yield await evento({"tipo": "listo", "resultado": resultado})
         except Exception as e:
+            # Un FALLO nuestro devuelve la consulta, ANTES de decirlo. Si el
+            # abogado cierra el panel (GeneratorExit/CancelledError, que no
+            # entran aquí), el trabajo ya se hizo y no se devuelve.
             print(f"[toulmin] fallo: {err(e)}")
-            yield await evento({"tipo": "error", "mensaje":
-                                "No se pudieron construir los argumentos. No se descontó la consulta; vuelve a intentarlo."})
-        finally:
-            if not tarea.done():
-                tarea.cancel()
-            if not ok:
+            devuelta = False
+            if cobrada:
                 try:
                     await asyncio.to_thread(
                         lambda: supabase_admin.rpc("devolver_consulta", {"p_user_id": user_id}).execute())
+                    devuelta = True
                 except Exception as e2:
                     print(f"[toulmin] no se pudo devolver la consulta: {err(e2)}")
+            yield await evento({"tipo": "error", "mensaje":
+                                "No se pudieron construir los argumentos."
+                                + (" No se descontó la consulta; vuelve a intentarlo." if devuelta or not cobrada else " Vuelve a intentarlo.")})
+        finally:
+            if not tarea.done():
+                tarea.cancel()
 
     return StreamingResponse(generador(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

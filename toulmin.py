@@ -53,10 +53,26 @@ MAX_NORMAS = 10
 PLAZO_MATERIAL_SEG = 110
 
 _RX_JSON = re.compile(r"\{[\s\S]*\}")
-_RX_ID = re.compile(r"\[(T|L|C|V|H)(\d{1,2})\]")
-_RX_REGISTRO = re.compile(r"\b(?:registro(?:\s+digital)?\s*(?:n[úu]m(?:ero)?\.?\s*)?)(\d{6,7})\b", re.I)
+# Un corchete puede traer un identificador o varios: «[T1]», «[T1, T3]»,
+# «[c1; v2]», «[T1 y T3]». Todos se resuelven; lo que quede entre corchetes
+# después de sustituir se retira y se avisa (revisión del 15-sep-2026: «[T1, T3]»
+# llegaba tal cual al Word).
+_RX_GRUPO_ID = re.compile(r"\[\s*((?:[TLCVH]\d{1,2})(?:\s*(?:,|;|y|e|–|-)\s*[TLCVH]\d{1,2})*)\s*\]", re.I)
+_RX_UN_ID = re.compile(r"([TLCVH])(\d{1,2})", re.I)
+_RX_ID = _RX_UN_ID
+_RX_RESTO_CORCHETE = re.compile(r"\[\s*[TLCVH]\s*\d{0,2}[^\]]{0,20}\]", re.I)
+_RX_REGISTRO = re.compile(r"\bregistro(?:\s+digital)?\s*(?:n[úu]m(?:ero)?\.?)?\s*[:.]?\s*(\d{6,7})\b", re.I)
 
 Aviso = Optional[Callable[[str, str], Awaitable[None]]]
+
+
+def _lista(x) -> list:
+    """Una lista aunque el modelo mande una cadena con saltos de línea o nada."""
+    if isinstance(x, list):
+        return x
+    if isinstance(x, str):
+        return [y.strip(" -•·\t") for y in x.splitlines() if y.strip(" -•·\t")]
+    return []
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -76,7 +92,7 @@ LO QUE SE PIDE:
 
 Devuelve SOLO un objeto JSON con estas claves:
 - "materia": una de civil, familiar, mercantil, laboral, penal, administrativa, amparo, constitucional.
-- "problemas": de 2 a 4 preguntas jurídicas CONCEPTUALES cuya respuesta favorable sostiene lo que se pide. Cada una nombra la figura jurídica en disputa (la acción, la prestación, el derecho, el presupuesto procesal), sin nombres de personas, sin fechas y sin cantidades, en lenguaje de rubro y no de relato.
+- "problemas": lista de 2 a 4 cadenas; cada una, una pregunta jurídica CONCEPTUAL cuya respuesta favorable sostiene lo que se pide. Cada una nombra la figura jurídica en disputa (la acción, la prestación, el derecho, el presupuesto procesal), sin nombres de personas, sin fechas y sin cantidades, en lenguaje de rubro y no de relato.
 - "convencional": true solo si los hechos tocan derechos humanos donde la Constitución remite a tratados (igualdad, niñez, debido proceso, acceso a la justicia, salud, vivienda, trabajo digno, libertad, propiedad frente a la autoridad); false en otro caso.
 - "faltantes": como máximo 5 datos de hecho que hacen falta para fundar bien, cada uno en una línea corta (puede estar vacía)."""
 
@@ -104,14 +120,19 @@ async def problemas_del_caso(cliente, hechos: str, pretension: str, tipo: str,
             d = {}
         if d.get("problemas"):
             break
-    problemas = [(p.get("pregunta") if isinstance(p, dict) else str(p)).strip()
-                 for p in (d.get("problemas") or []) if p][:4]
-    problemas = [p for p in problemas if p]
+    problemas = []
+    for p in _lista(d.get("problemas")):
+        if isinstance(p, dict):
+            p = next((str(p[k]) for k in ("pregunta", "problema", "texto") if str(p.get(k) or "").strip()), "")
+        p = str(p or "").strip()
+        if p:
+            problemas.append(p)
+    problemas = problemas[:4]
     return {
         "materia": str(d.get("materia") or materia or "").strip().lower(),
         "problemas": problemas,
         "convencional": bool(d.get("convencional")),
-        "faltantes": [str(x).strip() for x in (d.get("faltantes") or []) if str(x).strip()][:6],
+        "faltantes": [str(x).strip() for x in _lista(d.get("faltantes")) if str(x).strip()][:6],
     }
 
 
@@ -198,7 +219,11 @@ def catalogo(material, marco) -> tuple[str, dict]:
             p.append(f"[{k}] {cita_h} — {x.tema}: {x.texto[:800]}")
 
     locales = list(getattr(marco, "locales", []) or [])
-    normas = list(getattr(material, "normas", []) or [])[:MAX_NORMAS]
+    # SE FILTRA PRIMERO Y SE CORTA DESPUÉS. `material_del_caso` junta las normas
+    # problema por problema; cortar la lista cruda a diez dejaba sólo las del
+    # primer problema y, tras quitar la Constitución y los repetidos, todavía
+    # menos (hallazgo de la revisión, 15-sep-2026).
+    normas = list(getattr(material, "normas", []) or [])
     vistas = set()
     lista_leyes = []
     for x in locales:
@@ -218,6 +243,8 @@ def catalogo(material, marco) -> tuple[str, dict]:
         if "constituci" in ley.lower() and "estados unidos mexicanos" in ley.lower():
             continue
         vistas.add(clave)
+        if i >= MAX_NORMAS:
+            break
         i += 1
         k = f"L{i}"
         if i == 1:
@@ -226,9 +253,9 @@ def catalogo(material, marco) -> tuple[str, dict]:
                       "texto": texto[:2400], "cita": f"artículo {art.strip()} {_de_ley(ley.strip())}"}
         p.append(f"[{k}] {ley.strip()} — Artículo {art.strip()}: {texto[:1000]}")
 
-    tesis = list(getattr(material, "tesis", []) or [])[:MAX_TESIS]
+    tesis = _tesis_repartidas(list(getattr(material, "tesis", []) or []), MAX_TESIS)
     if tesis:
-        p.append("\nTESIS Y JURISPRUDENCIA NACIONAL (vienen ordenadas: las primeras aplican más; la Suprema Corte pesa más que un colegiado; la jurisprudencia obliga y la tesis aislada sólo orienta)")
+        p.append("\nTESIS Y JURISPRUDENCIA NACIONAL (la Suprema Corte pesa más que un colegiado; la jurisprudencia obliga y la tesis aislada sólo orienta; cada una se usa sólo para lo que dice)")
         for i, t in enumerate(tesis, 1):
             k = f"T{i}"
             reg = str(t.get("registro") or "").strip()
@@ -279,6 +306,43 @@ def _de_ley(ley: str) -> str:
     """«de la Ley…», «del Código…»: la contracción que el español exige."""
     c = _con_articulo_ley(ley)
     return "del " + c[3:] if c.startswith("el ") else "de " + c
+
+
+def _tesis_repartidas(tesis: list, tope: int) -> list:
+    """Hasta `tope` tesis, sin que un problema se quede sin ninguna.
+
+    `material_del_caso` marca en `para` a qué problemas sirve cada tesis y las
+    ordena por jerarquía. Se toman por turnos —la mejor de cada problema, luego
+    la segunda…— conservando ese orden dentro de cada uno; las que no traen
+    `para` completan al final.
+    """
+    if len(tesis) <= tope:
+        return tesis
+    por_problema: dict = {}
+    sueltas = []
+    for t in tesis:
+        para = t.get("para") or []
+        if not para:
+            sueltas.append(t)
+            continue
+        for k in para:
+            por_problema.setdefault(k, []).append(t)
+    elegidas, vistos = [], set()
+    while len(elegidas) < tope and any(por_problema.values()):
+        for k in sorted(por_problema):
+            while por_problema[k] and str(por_problema[k][0].get("registro")) in vistos:
+                por_problema[k].pop(0)
+            if por_problema[k] and len(elegidas) < tope:
+                t = por_problema[k].pop(0)
+                vistos.add(str(t.get("registro")))
+                elegidas.append(t)
+    for t in tesis + sueltas:
+        if len(elegidas) >= tope:
+            break
+        if str(t.get("registro")) not in vistos:
+            vistos.add(str(t.get("registro")))
+            elegidas.append(t)
+    return elegidas
 
 
 def _con_articulo_ley(ley: str) -> str:
@@ -366,14 +430,25 @@ async def argumentar(cliente, *, hechos: str, pretension: str, tipo: str, entida
 # ═══════════════════════════════════════════════════════════════════════════
 def _ids_validos(lista, fuentes: dict, fuera: set) -> list[str]:
     out = []
+    if isinstance(lista, str):
+        lista = [lista]
     for x in (lista or []):
-        k = str(x or "").strip().strip("[]").upper()
-        if k in fuentes:
-            if k not in out:
-                out.append(k)
-        elif k:
-            fuera.add(k)
+        encontrados = [f"{u.group(1).upper()}{int(u.group(2))}" for u in _RX_UN_ID.finditer(str(x or ""))]
+        if not encontrados and str(x or "").strip():
+            fuera.add(str(x).strip())
+        for k in encontrados:
+            if k in fuentes:
+                if k not in out:
+                    out.append(k)
+            else:
+                fuera.add(k)
     return out
+
+
+def _limpiar(x) -> str:
+    """Los textos del panel sin corchetes crudos: la cita va en las fichas."""
+    t = _RX_RESTO_CORCHETE.sub("", _RX_GRUPO_ID.sub("", str(x or "")))
+    return re.sub(r"\s{2,}", " ", t).replace(" .", ".").replace(" ,", ",").strip()
 
 
 def _cita_corta(f: dict) -> str:
@@ -392,20 +467,26 @@ def _redactar(texto: str, fuentes: dict, citadas: list[str], fuera: set) -> str:
     ya = set()
     # «en [T1]», «según [T1]», «conforme a [T1]»: la cita como complemento de
     # la oración queda coja al volverse paréntesis. Se quita la preposición.
-    texto = re.sub(r"\b(?:en|seg[úu]n|conforme a|de acuerdo con|lo dispuesto en|lo resuelto en)\s+(?=\[(?:T|L|C|V|H)\d{1,2}\])",
+    texto = re.sub(r"\b(?:en|seg[úu]n|conforme a|de acuerdo con|lo dispuesto en|lo resuelto en)\s+(?=\[\s*[TLCVH]\d{1,2})",
                    "", texto or "", flags=re.I)
     def cambio(m):
-        k = f"{m.group(1)}{int(m.group(2))}"
-        f = fuentes.get(k)
-        if not f:
-            fuera.add(k)
-            return ""
-        if k not in citadas:
-            citadas.append(k)
-        cita = _cita_corta(f) if k in ya else f["cita"]
-        ya.add(k)
-        return f"({cita})"
-    t = _RX_ID.sub(cambio, texto or "")
+        partes = []
+        for u in _RX_UN_ID.finditer(m.group(1)):
+            k = f"{u.group(1).upper()}{int(u.group(2))}"
+            f = fuentes.get(k)
+            if not f:
+                fuera.add(k)
+                continue
+            if k not in citadas:
+                citadas.append(k)
+            partes.append(_cita_corta(f) if k in ya else f["cita"])
+            ya.add(k)
+        return f"({'; '.join(partes)})" if partes else ""
+    t = _RX_GRUPO_ID.sub(cambio, texto or "")
+    def resto(m):
+        fuera.add(m.group(0))
+        return ""
+    t = _RX_RESTO_CORCHETE.sub(resto, t)
     t = re.sub(r"\s+\(", " (", t)
     t = re.sub(r"\)\s*\(", "; ", t)          # dos citas seguidas, un solo paréntesis
     t = re.sub(r"[ \t]+([.,;:])", r"\1", t)
@@ -423,15 +504,15 @@ def resolver(salida: dict, fuentes: dict) -> dict:
         if not isinstance(a, dict):
             continue
         citadas: list[str] = []
-        garantia = a.get("garantia") or {}
-        refut = a.get("refutacion") or {}
+        garantia = a.get("garantia") if isinstance(a.get("garantia"), dict) else {"texto": str(a.get("garantia") or "")}
+        refut = a.get("refutacion") if isinstance(a.get("refutacion"), dict) else {"respuesta": str(a.get("refutacion") or "")}
         respaldo = []
         for r_ in (a.get("respaldo") or []):
             if not isinstance(r_, dict):
                 continue
             k = _ids_validos([r_.get("fuente")], fuentes, fuera)
             if k:
-                respaldo.append({"fuente": k[0], "como_apoya": str(r_.get("como_apoya") or "").strip()})
+                respaldo.append({"fuente": k[0], "como_apoya": _limpiar(r_.get("como_apoya"))})
                 if k[0] not in citadas:
                     citadas.append(k[0])
         g_fuentes = _ids_validos(garantia.get("fuentes"), fuentes, fuera)
@@ -440,20 +521,24 @@ def resolver(salida: dict, fuentes: dict) -> dict:
             if k not in citadas:
                 citadas.append(k)
         redaccion = _redactar(str(a.get("redaccion") or ""), fuentes, citadas, fuera)
+
         # Un número de registro escrito a mano en la prosa, que no está en el
         # catálogo, es exactamente la cita inventada que este módulo evita.
-        for m in _RX_REGISTRO.finditer(str(a.get("redaccion") or "")):
+        prosa = " ".join(str(x or "") for x in (
+            a.get("redaccion"), a.get("afirmacion"), garantia.get("texto"),
+            refut.get("objecion"), refut.get("respuesta"), a.get("calificador")))
+        for m in _RX_REGISTRO.finditer(prosa):
             if m.group(1) not in registros_catalogo:
                 registros_sueltos.add(m.group(1))
         argumentos.append({
-            "titulo": str(a.get("titulo") or "").strip(),
-            "afirmacion": str(a.get("afirmacion") or "").strip(),
-            "datos": [str(x).strip() for x in (a.get("datos") or []) if str(x).strip()],
-            "garantia": {"texto": str(garantia.get("texto") or "").strip(), "fuentes": g_fuentes},
+            "titulo": _limpiar(a.get("titulo")),
+            "afirmacion": _limpiar(a.get("afirmacion")),
+            "datos": [_limpiar(x) for x in _lista(a.get("datos")) if _limpiar(x)],
+            "garantia": {"texto": _limpiar(garantia.get("texto")), "fuentes": g_fuentes},
             "respaldo": respaldo,
-            "calificador": str(a.get("calificador") or "").strip(),
-            "refutacion": {"objecion": str(refut.get("objecion") or "").strip(),
-                           "respuesta": str(refut.get("respuesta") or "").strip(),
+            "calificador": _limpiar(a.get("calificador")),
+            "refutacion": {"objecion": _limpiar(refut.get("objecion")),
+                           "respuesta": _limpiar(refut.get("respuesta")),
                            "fuentes": r_fuentes},
             "redaccion": redaccion,
             "citadas": citadas,
@@ -466,7 +551,7 @@ def resolver(salida: dict, fuentes: dict) -> dict:
         avisos.append("La redacción mencionaba registros que no salieron del acervo ("
                       + ", ".join(sorted(registros_sueltos)) + "). Revísalos antes de firmar.")
     return {"argumentos": argumentos,
-            "faltantes": [str(x).strip() for x in (salida.get("faltantes") or []) if str(x).strip()][:8],
+            "faltantes": [str(x).strip() for x in _lista(salida.get("faltantes")) if str(x).strip()][:8],
             "avisos": avisos}
 
 
@@ -511,7 +596,12 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
         problemas_marco.append("derechos humanos reconocidos en tratados internacionales")
     try:
         material, marco = await asyncio.wait_for(asyncio.gather(
-            f6rag.material_del_caso(qdrant, embed_juris, embed_leyes, problemas,
+            # Como problema COMPLETO y no como cadena: `material_del_caso` saca
+            # de `combate` el hecho con el que busca la ley del acto en la
+            # colección estatal; con la pregunta sola buscaba por el andamio.
+            f6rag.material_del_caso(qdrant, embed_juris, embed_leyes,
+                                    [{"pregunta": p, "combate": (hechos or "")[:800], "resolvio": ""}
+                                     for p in problemas],
                                     coleccion, materia_rag, cliente,
                                     contexto=(hechos or "")[:1500]),
             mj.construir(qdrant, embed_leyes, problemas_marco, coleccion,
@@ -519,8 +609,13 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
         ), timeout=PLAZO_MATERIAL_SEG)
     except asyncio.TimeoutError:
         raise RuntimeError("El acervo tardó demasiado en responder.")
-    avisos += [a for a in (getattr(marco, "avisos", []) or [])
-               if "no disparó ningún artículo" not in a]
+    for a in (getattr(marco, "avisos", []) or []):
+        if "no disparó ningún artículo" in a:
+            continue
+        if a.startswith("No se pudo vectorizar"):
+            print(f"[toulmin] marco: {a[:200]}")
+            a = "No se pudo consultar el bloque constitucional en este intento."
+        avisos.append(a)
 
     bloque, fuentes = catalogo(material, marco)
     if not fuentes:
