@@ -384,7 +384,30 @@ def misma_ley(citada: str, candidata: str) -> bool:
         el = {e for e in _ESTADOS if e in candidata.lower()}
         if ec and el and not (ec & el):
             return False
-    return vc <= vl
+    if not (vc <= vl):
+        return False
+    # UNA PALABRA DISTINTIVA DE MÁS ES OTRA LEY. «Ley Federal de Procedimiento
+    # Administrativo» cabe entera dentro de «Ley Federal de Procedimiento
+    # CONTENCIOSO Administrativo» y no son la misma (61/2025: el 63 de la
+    # LFPCA se fue a buscar como si fuera de la LFPA). El nombre oficial
+    # puede traer cola —«Reglamentaria de los artículos 103 y 107…»— y eso sí
+    # se tolera: lo que no se tolera es una materia o un adjetivo de más.
+    return not (_DISTINTIVAS & (vl - vc))
+
+
+_DISTINTIVAS = {"contencioso", "contenciosa", "penal", "penales", "civil", "civiles", "fiscal",
+                "fiscales", "laboral", "trabajo", "electoral", "agraria", "agrario", "ambiental",
+                "mercantil", "mercantiles", "familiar", "familiares", "administrativa",
+                "administrativo", "administrativos", "aduanera", "aduanero", "orgánica",
+                "organica", "general", "federal", "municipal", "hacendaria", "tributario",
+                "seguridad", "social", "salud", "educación", "educacion", "notarial",
+                "registral", "bancario", "bancaria", "minera", "minero", "energética",
+                "energetica", "eléctrica", "electrica", "aguas", "amparo", "extradición",
+                "extradicion", "migración", "migracion", "adolescentes", "niñas", "niños",
+                "mujeres", "víctimas", "victimas", "transparencia", "responsabilidades",
+                "anticorrupción", "anticorrupcion", "concursos", "quiebras", "navegación",
+                "navegacion", "caminos", "puentes", "telecomunicaciones", "competencia",
+                "procedimientos", "procedimiento", "ejecución", "ejecucion", "sanciones"}
 
 
 def _nombre_ley_de(pl: dict) -> str:
