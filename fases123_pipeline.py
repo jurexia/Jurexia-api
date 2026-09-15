@@ -351,6 +351,68 @@ Se trata de la {que}. Éste es su texto:
 Escribe el resumen. Sólo el resumen, sin preámbulo ni rótulo."""
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA SÍNTESIS A FONDO — revisión fiscal 61/2025 (David, 15-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# El escrito de la autoridad tenía 68.776 caracteres en un agravio ÚNICO y
+# ocho jurisprudencias invocadas. El resumen salió de 147 palabras: tres
+# párrafos sobre la ÚLTIMA página —la petición de revocar, las pruebas
+# ofrecidas y los delegados— y ni una de las ocho tesis. El contador de
+# planteamientos lo daba por bien resumido: había un agravio y había un
+# apartado. Es el hueco del contador —mide que estén, no que estén ENTEROS—.
+#
+# David: «el resumen de los agravios fue excesivamente corto, no se
+# parafraseó ni sintetizó todo el aspecto técnico que hizo valer la
+# autoridad, ni las jurisprudencias que citó».
+#
+# Tres piezas: el objetivo de extensión sale del ESCRITO y no de la mediana
+# del corpus; las tesis que la parte invoca se cuentan y se comprueban en el
+# resumen; y si falta hondura o faltan tesis, una segunda pasada reescribe
+# el resumen entero con el escrito delante.
+PALABRAS_CONCEPTOS_TOPE = 1600
+CARACTERES_POR_PALABRA_RESUMEN = 55     # 68.776 caracteres → ~1.250 palabras
+
+
+def objetivo_conceptos(texto_conceptos: str) -> int:
+    """Cuántas palabras pide el escrito: la mediana del corpus como suelo y
+    un tope, y entre los dos, proporcional a lo que la parte escribió."""
+    n = len(" ".join((texto_conceptos or "").split()))
+    return max(PALABRAS_RESUMEN_CONCEPTOS,
+               min(PALABRAS_CONCEPTOS_TOPE, n // CARACTERES_POR_PALABRA_RESUMEN))
+
+
+_RX_CLAVE_TESIS = re.compile(
+    r"\b(?:[1-2]a\.|P\.|[IVX]+\.\d*[oa]?\.[A-Z]?\.?)\s*/?\s*J\.?\s*\d{1,4}/\d{4}"
+    r"|\b(?:[1-2]a\.|P\.)\s*[A-Z]{1,6}/\d{4}", re.I)
+_RX_REGISTRO_TESIS = re.compile(r"\bregistro\b[^0-9]{0,25}(\d{6,7})", re.I)
+
+
+def citas_invocadas(texto: str) -> set:
+    """Las tesis que un escrito invoca, por clave («2a./J. 60/2007») y por
+    registro («registro 172239»). Es lo que el resumen tiene que nombrar."""
+    t = " ".join((texto or "").split())
+    claves = {" ".join(m.group(0).split()).replace(" /", "/").replace("/ ", "/")
+              for m in _RX_CLAVE_TESIS.finditer(t)}
+    regs = {m.group(1) for m in _RX_REGISTRO_TESIS.finditer(t)}
+    return {c.upper() for c in claves} | regs
+
+
+def citas_sin_nombrar(texto_conceptos: str, resumen: str) -> tuple:
+    """(las del escrito, las que el resumen no nombra)."""
+    todas = citas_invocadas(texto_conceptos)
+    r = " ".join((resumen or "").split()).upper()
+    faltan = set()
+    for c in todas:
+        if c.isdigit():
+            if c not in r:
+                faltan.add(c)
+        else:
+            nucleo = re.sub(r"\s+", "", c)
+            if nucleo not in re.sub(r"\s+", "", r):
+                faltan.add(c)
+    return todas, faltan
+
+
 def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False,
                              tipo_asunto: str = "") -> str:
     import tipos_asunto as _tap
@@ -358,7 +420,7 @@ def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False,
     q = _tap.vocabulario_de(_t)["combate"]
     return f"""{_NUCLEO}
 
-{instrucciones_resumen_conceptos(es_recurso, _t)}
+{instrucciones_resumen_conceptos(es_recurso, _t, objetivo_conceptos(texto_conceptos))}
 
 Éste es el escrito de la parte:
 
@@ -366,7 +428,54 @@ def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False,
 {recortar_conceptos(texto_conceptos)}
 ──────────────────────────────────────────
 
-Escribe el resumen de los {q}, un párrafo por cada uno. Sólo el resumen."""
+Escribe el resumen de los {q}: un apartado por cada uno y, dentro de cada
+apartado, un párrafo por cada argumento distinto. Sólo el resumen."""
+
+
+def prompt_conceptos_a_fondo(texto_conceptos: str, resumen_actual: str,
+                             faltan_citas: list, objetivo: int,
+                             es_recurso: bool = False, tipo_asunto: str = "",
+                             tramos: list = None) -> str:
+    """La segunda pasada por HONDURA: el resumen existe pero es corto o no
+    nombra las tesis invocadas. Se devuelve el resumen ENTERO reescrito, no un
+    apéndice: los argumentos van en el apartado que les toca."""
+    import tipos_asunto as _tap
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    q = _tap.vocabulario_de(_t)["combate"]
+    _cuerpo = texto_conceptos
+    if tramos:
+        try:
+            _cuerpo = "\n\n[…]\n\n".join(
+                texto_conceptos[a:b] for a, b in tramos if b > a)
+        except Exception:
+            _cuerpo = texto_conceptos
+    _citas = ("\n".join(f"  - {c}" for c in faltan_citas)
+              if faltan_citas else "  (ninguna pendiente)")
+    return f"""{_NUCLEO}
+
+{instrucciones_resumen_conceptos(es_recurso, _t, objetivo)}
+
+Éste es el escrito de la parte:
+──────────────────────────────────────────
+{_cortar_bien(_cuerpo, TOPE_CONCEPTOS, "el escrito de la parte", guardar_resolutivos=False)}
+──────────────────────────────────────────
+
+Y éste es el resumen que se escribió, que SE QUEDÓ CORTO: tiene
+{len((resumen_actual or '').split())} palabras y el escrito pide alrededor de
+{objetivo}; deja fuera argumentos técnicos, y no nombra estas tesis que la
+parte invoca:
+{_citas}
+
+──────────────────────────────────────────
+{resumen_actual}
+──────────────────────────────────────────
+
+Reescribe el resumen de los {q} ENTERO, con la misma estructura —la bisagra,
+un apartado por {q[:-1] if q.endswith('s') else q}, en su orden— pero completo:
+cada argumento distinto con su párrafo y su aspecto técnico, y cada tesis
+invocada nombrada en el párrafo del argumento que apoya. Conserva las marcas
+[[p.N §M]] donde ya estaban y añádelas a los apartados nuevos si puedes ubicar
+la página. Devuelve sólo el resumen."""
 
 
 def prompt_conceptos_que_faltan(texto_conceptos: str, faltan: list,
@@ -807,6 +916,31 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
         _conteo = dict(_conteo, faltan=_faltan, vueltas=_vuelta,
                        apartados_resumen=_cob.get("apartados_resumen"),
                        sin_rotular=_cob.get("sin_rotular"))
+        # ── LA HONDURA: corto, o sin las tesis invocadas → se reescribe ──
+        _obj = objetivo_conceptos(texto_conceptos)
+        _todas, _sin = citas_sin_nombrar(texto_conceptos, rc)
+        _vf = 0
+        def _corto(txt):
+            return len(txt.split()) < 0.6 * _obj
+        def _mudo(sin):
+            return len(_todas) >= 2 and len(sin) >= max(2, len(_todas) // 2)
+        while (_corto(rc) or _mudo(_sin)) and _vf < 2:
+            _vf += 1
+            print(f"   🧩 síntesis a fondo (vuelta {_vf}): {len(rc.split())} palabras "
+                  f"de ~{_obj} · tesis invocadas {len(_todas)}, sin nombrar {len(_sin)}")
+            _rc2 = await _pedir(cliente, prompt_conceptos_a_fondo(
+                texto_conceptos, rc, sorted(_sin), _obj, es_recurso, tipo_asunto,
+                tramos=_conteo.get("tramos")), _cupo(texto_conceptos))
+            _rc2 = sin_marca(_rc2 or "").strip()
+            if len(_rc2.split()) <= len(rc.split()):
+                break                      # no mejoró: se queda lo que había
+            rc = _rc2
+            _todas, _sin = citas_sin_nombrar(texto_conceptos, rc)
+        _conteo = dict(_conteo, objetivo_palabras=_obj, vueltas_fondo=_vf,
+                       citas_invocadas=len(_todas), citas_sin_nombrar=sorted(_sin))
+        if _vf:
+            print(f"   🧩 síntesis a fondo: quedó en {len(rc.split())} palabras · "
+                  f"sin nombrar {sorted(_sin) or 'ninguna'}")
         _av = aviso_de_cobertura(texto_conceptos, rc, _conteo)
         if _av:
             _avisos_cob.append(_av)
@@ -1036,6 +1170,17 @@ def revisar(f: Fases123) -> list[str]:
     _obj_conceptos = (PALABRAS_RESUMEN_CONCEPTOS if _n_plant < 2
                       else max(PALABRAS_RESUMEN_CONCEPTOS,
                                (PALABRAS_RESUMEN_CONCEPTOS // 4) * _n_plant))
+    # EL OBJETIVO LO FIJA EL ESCRITO cuando se pudo medir (61/2025: 68 mil
+    # caracteres piden ~1.250 palabras, no 472).
+    _obj_conceptos = max(_obj_conceptos,
+                         int((getattr(f, "conteo", {}) or {}).get("objetivo_palabras") or 0))
+    _sin_nombrar = list((getattr(f, "conteo", {}) or {}).get("citas_sin_nombrar") or [])
+    _n_citas = int((getattr(f, "conteo", {}) or {}).get("citas_invocadas") or 0)
+    if _sin_nombrar:
+        avisos.append(f"EL RESUMEN DE LOS PLANTEAMIENTOS NO NOMBRA {len(_sin_nombrar)} de las "
+                      f"{_n_citas} tesis que invoca la parte: {', '.join(_sin_nombrar[:6])}"
+                      f"{'…' if len(_sin_nombrar) > 6 else ''}. El estudio tiene que "
+                      f"hacerse cargo de ellas; compruébalo.")
     for etiqueta, n, objetivo in (("del acto", na, PALABRAS_RESUMEN_ACTO),
                                   ("de conceptos", nc, _obj_conceptos)):
         if n and not (0.5 * objetivo <= n <= 1.8 * objetivo):

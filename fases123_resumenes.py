@@ -143,7 +143,8 @@ CONECTORES_CONCEPTOS = ("Finalmente", "Asimismo", "Además", "También",
 
 
 def instrucciones_resumen_conceptos(es_recurso: bool = False,
-                                    tipo_asunto: str = "") -> str:
+                                    tipo_asunto: str = "",
+                                    objetivo: int = 0) -> str:
     # EL EJE ES EL TIPO, NO UN BOOLEANO. Un booleano abre dos caminos donde
     # hacen falta cuatro: los tres recursos entraban por la misma rama y esa
     # rama sólo cambiaba «conceptos de violación» por «agravios», nunca quién
@@ -166,8 +167,21 @@ ESTRUCTURA — medida sobre 72 apartados reales de este tribunal:
   reagrupamiento por temas se anuncia DESPUÉS, al abrir el estudio, y con el
   artículo 76 de la Ley de Amparo. Una demanda puede traer siete {q} repetitivos
   y aun así la síntesis los respeta uno por uno.
-- CADA APARTADO, unos {PARRAFOS_POR_CONCEPTO} párrafos. No una línea: un
-  {sing} resumido en media frase no se puede contestar después.
+- CADA APARTADO, unos {PARRAFOS_POR_CONCEPTO} párrafos COMO MÍNIMO, y dentro
+  UN PÁRRAFO POR CADA ARGUMENTO DISTINTO que contenga. Un {sing} «único» de
+  sesenta páginas trae diez razones, y las diez se resumen, cada una con su
+  aspecto técnico: qué precepto se dice violado, por qué, y qué consecuencia
+  se pide. Resumir un {sing} largo en tres párrafos es dejar sin contestar lo
+  que no se resumió. Y NO EMPIECES POR EL FINAL: el cierre del escrito
+  —«por lo expuesto procede revocar»— es la petición, no el argumento.
+- LAS TESIS Y JURISPRUDENCIAS QUE INVOCA {parte} SE NOMBRAN, en el párrafo del
+  argumento que apoyan y con la clave o el registro tal como las cita:
+  «…e invoca la jurisprudencia 2a./J. 60/2007 (registro 172239)». No se
+  transcriben; se nombran, porque el estudio tiene que hacerse cargo de ellas
+  y de lo que se les atribuye.
+- LO QUE NO ES {sing} NO SE RESUME: el ofrecimiento de pruebas, la designación
+  de delegados o autorizados, el domicilio para notificaciones y las
+  peticiones de trámite.
 - ENLÁZALOS de una de estas dos formas, sin mezclarlas:
     · con el ORDINAL: «En el primer {sing} {parte} aduce que…», «En el
       segundo {sing} afirma que…», «En el tercero sostiene que…»
@@ -193,7 +207,9 @@ Y lo de siempre:
   ensucia el pie.
   Si no puedes ubicar la página, NO INVENTES el número: deja el apartado sin
   marca. Una nota al pie que manda a la página equivocada es peor que ninguna.
-- EXTENSIÓN: alrededor de {PALABRAS_RESUMEN_CONCEPTOS} palabras en total."""
+- EXTENSIÓN: alrededor de {objetivo or PALABRAS_RESUMEN_CONCEPTOS} palabras en
+  total. Es una medida del escrito, no un tope: si hacen falta más para que
+  cada argumento tenga su párrafo, se escriben."""
 
 
 def instrucciones_problemas(global_primero: bool = True) -> str:
