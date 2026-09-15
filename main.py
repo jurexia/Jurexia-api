@@ -17378,6 +17378,121 @@ class JurisconsultoRequest(BaseModel):
     stream: bool = False
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# TOULMIN · los argumentos de la parte, citando sólo lo verificado
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 15-sep-2026: un botón bajo el chat que estructure los argumentos de una
+# demanda como los del taller —Constitución, tratados, jurisprudencia nacional
+# e interamericana— para llevarlos al documento. La lógica vive en
+# `toulmin.py`; aquí sólo van la puerta (token), el cobro y el streaming.
+#
+# · UNA SOLA PETICIÓN, SIN ESTADO: varios workers; nada sobrevive en memoria.
+# · COBRA ANTES de gastar y DEVUELVE si no hubo resultado (auditoría de cobro).
+# · El error que llega al cliente es genérico: el detalle va al registro.
+class ToulminRequest(BaseModel):
+    hechos: str
+    pretension: str
+    tipo: Optional[str] = "demanda"
+    estado: Optional[str] = None
+    materia: Optional[str] = None
+
+
+@app.post("/toulmin/stream")
+async def toulmin_stream(payload: ToulminRequest, authorization: str = Header(None)):
+    import asyncio
+    import json as _json
+    import toulmin as _tl
+
+    hechos = (payload.hechos or "").strip()
+    pretension = (payload.pretension or "").strip()
+    if len(hechos) < 40 or len(pretension) < 10:
+        raise HTTPException(status_code=400, detail="Escribe los hechos y lo que pides con un poco más de detalle.")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Autenticacion requerida")
+    if not supabase_admin or qdrant_client is None or chat_client is None:
+        raise HTTPException(status_code=503, detail="Servicio temporalmente no disponible")
+
+    try:
+        token = authorization.replace("Bearer ", "")
+        user_resp = await asyncio.to_thread(supabase_admin.auth.get_user, token)
+        user = user_resp.user
+        if not user:
+            raise HTTPException(status_code=401, detail="Token invalido")
+        user_id = str(user.id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token invalido o expirado")
+
+    try:
+        q = await asyncio.to_thread(
+            lambda: supabase_admin.rpc("consume_query", {"p_user_id": user_id}).execute()
+        )
+        if q.data and not q.data.get("allowed", True):
+            raise HTTPException(status_code=429, detail="Se te acabaron las consultas de este periodo.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[toulmin] cuota fallo: {err(e)}")
+
+    estado_norm = normalize_estado(payload.estado) if payload.estado else None
+    coleccion = _silo_del_estado(estado_norm) if estado_norm else None
+    try:
+        import redactor_adelanto as _ra_t
+        entidad = _ra_t._entidad_de(coleccion) if coleccion else ""
+    except Exception:
+        entidad = ""
+    if not entidad and payload.estado:
+        entidad = str(payload.estado).replace("_", " ").title()
+
+    async def evento(d: dict) -> str:
+        return "data: " + _json.dumps(d, ensure_ascii=False) + "\n\n"
+
+    async def generador():
+        cola: asyncio.Queue = asyncio.Queue()
+
+        async def aviso(clave: str, detalle: str):
+            await cola.put({"tipo": "paso", "clave": clave, "detalle": detalle})
+
+        tarea = asyncio.create_task(_tl.construir(
+            qdrant_client, _embedding_juris,
+            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), chat_client,
+            hechos=hechos, pretension=pretension, tipo=(payload.tipo or "demanda"),
+            materia=(payload.materia or ""), coleccion_estatal=coleccion,
+            entidad=entidad, aviso=aviso))
+        ok = False
+        try:
+            while True:
+                if tarea.done() and cola.empty():
+                    break
+                try:
+                    d = await asyncio.wait_for(cola.get(), timeout=8)
+                    yield await evento(d)
+                except asyncio.TimeoutError:
+                    # Latido: sin él, un proxy corta la conexión mientras el
+                    # modelo piensa y el abogado ve un error a los 60 s.
+                    yield await evento({"tipo": "latido"})
+            resultado = tarea.result()
+            ok = True
+            yield await evento({"tipo": "listo", "resultado": resultado})
+        except Exception as e:
+            print(f"[toulmin] fallo: {err(e)}")
+            yield await evento({"tipo": "error", "mensaje":
+                                "No se pudieron construir los argumentos. No se descontó la consulta; vuelve a intentarlo."})
+        finally:
+            if not tarea.done():
+                tarea.cancel()
+            if not ok:
+                try:
+                    await asyncio.to_thread(
+                        lambda: supabase_admin.rpc("devolver_consulta", {"p_user_id": user_id}).execute())
+                except Exception as e2:
+                    print(f"[toulmin] no se pudo devolver la consulta: {err(e2)}")
+
+    return StreamingResponse(generador(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.post("/api/jurisconsulto")
 async def jurisconsulto(payload: JurisconsultoRequest, authorization: str = Header(None)):
     """
