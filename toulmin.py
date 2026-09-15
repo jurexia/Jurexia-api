@@ -78,12 +78,17 @@ def _recorte(texto: str, tope: int) -> str:
     return texto[:cabeza].rstrip() + "\n[…]\n" + texto[-(tope - cabeza):].lstrip()
 
 
-# Leyes que NO son del estado aunque las cite una autoridad local: sus artículos
-# no se buscan en la colección estatal (la revisión probó que el Código Fiscal de
-# la Federación metía como L1-L3 artículos del Código Fiscal del Estado).
-_RX_LEY_FEDERAL = re.compile(
-    r"\b(federal|federaci[oó]n|nacional|ley de amparo|c[oó]digo de comercio|seguro social|"
-    r"infonavit|issste|impuesto sobre la renta|impuesto al valor agregado)\b", re.I)
+# UNA LEY ES LOCAL SÓLO SI SU NOMBRE LO DICE: «del Estado de…», «para el Distrito
+# Federal», «de la Ciudad de México». Buscar la palabra «federal» fallaba por los
+# dos lados (segunda revisión, 15-sep-2026): tomaba por federales los códigos de
+# la CDMX que se citan «para el Distrito Federal», y dejaba pasar como locales la
+# Ley General de los Derechos de Niñas, Niños y Adolescentes o la Ley Agraria, que
+# `marco_juridico` emparejaba con la ley estatal homónima.
+_RX_LEY_LOCAL = re.compile(r"\b(estado\s+de|estado\s+libre|distrito\s+federal|ciudad\s+de\s+m[eé]xico)\b", re.I)
+
+
+def _es_ley_local(ley: str) -> bool:
+    return bool(_RX_LEY_LOCAL.search(ley or ""))
 MAX_TESIS = 10
 MAX_NORMAS = 10
 PLAZO_MATERIAL_SEG = 110
@@ -155,9 +160,9 @@ Devuelve SOLO un objeto JSON con estas claves:
     · "consideracion": en una o dos líneas, la razón de la resolución que ese problema combate, tomada de la RESOLUCIÓN QUE SE IMPUGNA; no inventes razones que no estén ahí.
   Cada consideración que por sí sola sostiene el sentido de lo resuelto debe quedar combatida por algún problema: no gastes un problema en una razón secundaria mientras quede en pie una principal, porque un agravio que deja en pie la razón principal es inoperante.{nota_penal}
 - "torales_sin_combatir": lista (puede estar vacía) de las consideraciones que por sí solas sostienen lo resuelto y que no quedaron cubiertas por ningún problema.
-- "recurrente": "particular" si recurre una persona física o moral; "autoridad" si recurre una autoridad o el Ministerio Público (por ejemplo, la revisión fiscal la interpone la autoridad demandada).
+- "recurrente": "particular" si recurre una persona física o moral; "ministerio_publico" si recurre el Ministerio Público; "autoridad" si recurre otra autoridad (por ejemplo, la revisión fiscal la interpone la autoridad demandada).
 - "procedencia": objeto con "procede" ("sí", "no" o "duda") y "nota": una línea sobre si el recurso escrito procede contra esa resolución, ante qué órgano se interpone y en qué plazo, o por qué hay duda. No inventes artículos: si no conoces el precepto con certeza, dilo como duda.
-- "convencional": true solo si lo resuelto toca derechos humanos de un particular donde la Constitución remite a tratados (igualdad, niñez, debido proceso, acceso a la justicia, salud, vivienda, trabajo digno, libertad, propiedad frente a la autoridad); false en otro caso, y siempre false si recurre una autoridad, que no es titular de derechos humanos en ese carácter.
+- "convencional": true solo si lo resuelto toca derechos humanos de un particular donde la Constitución remite a tratados (igualdad, niñez, debido proceso, acceso a la justicia, salud, vivienda, trabajo digno, libertad, propiedad frente a la autoridad); false en otro caso, y siempre false si recurre una autoridad distinta del Ministerio Público, que no es titular de derechos humanos en ese carácter (el Ministerio Público sí puede invocar los derechos de la víctima).
 - "faltantes": como máximo 5 datos que hacen falta para recurrir bien (una consideración que no se transcribió, una constancia, la fecha de notificación para el plazo), cada uno en una línea corta (puede estar vacía)."""
 
 _NOTA_PENAL = """
@@ -165,9 +170,12 @@ _NOTA_PENAL = """
 
 
 def _es_penal(materia: str, tipo: str, resolucion: str = "") -> bool:
-    if (materia or "").strip().lower() == "penal":
-        return True
-    return bool(re.search(r"\bpenal\b|procedimientos penales|tribunal de enjuiciamiento|ministerio p[úu]blico",
+    """La materia manda. Sólo sin materia se mira el texto, y sin «Ministerio
+    Público» ni «penal» sueltos: los dos aparecen en sentencias familiares."""
+    m = (materia or "").strip().lower()
+    if m:
+        return m == "penal"
+    return bool(re.search(r"procedimientos penales|tribunal de enjuiciamiento|sentencia (condenatoria|absolutoria)",
                           f"{tipo} {resolucion[:3000]}", re.I))
 
 
@@ -214,7 +222,9 @@ async def problemas_del_caso(cliente, hechos: str, pretension: str, tipo: str,
             problemas.append(p)
             consideraciones.append(consid[:600])
     problemas, consideraciones = problemas[:4], consideraciones[:4]
-    recurrente = "autoridad" if str(d.get("recurrente") or "").strip().lower().startswith("autoridad") else "particular"
+    _rec = str(d.get("recurrente") or "").strip().lower()
+    recurrente = ("ministerio_publico" if "ministerio" in _rec else "autoridad" if _rec.startswith("autoridad")
+                  else "particular")
     proc = d.get("procedencia") if isinstance(d.get("procedencia"), dict) else {}
     return {
         "materia": str(d.get("materia") or materia or "").strip().lower(),
@@ -562,8 +572,10 @@ Devuelve SOLO un objeto JSON:
 
 _VOZ_PARTICULAR = ("en primera persona del singular de la parte que recurre (una sola persona salvo que los "
                    "ANTECEDENTES digan que recurren varias; «mi representada» si es persona moral)")
-_VOZ_AUTORIDAD = ("en voz institucional de la autoridad que recurre («esta autoridad», «esta Representación "
-                  "Social»), sin alegar violación de derechos humanos propios, que la autoridad no tiene en ese carácter")
+_VOZ_AUTORIDAD = ("en voz institucional de la autoridad que recurre («esta autoridad»), sin alegar violación de "
+                  "derechos humanos propios, que la autoridad no tiene en ese carácter")
+_VOZ_MP = ("en voz institucional del Ministerio Público («esta Representación Social»); puede invocar los derechos "
+           "de la víctima, pero no derechos humanos propios")
 
 
 async def argumentar(cliente, *, hechos: str, pretension: str, tipo: str, entidad: str,
@@ -581,7 +593,8 @@ async def argumentar(cliente, *, hechos: str, pretension: str, tipo: str, entida
             hechos=hechos[:MAX_HECHOS], resolucion=_recorte(resolucion, MAX_RESOLUCION),
             pretension=pretension[:MAX_PRETENSION], problemas="\n".join(lineas),
             catalogo=bloque,
-            voz=_VOZ_AUTORIDAD if recurrente == "autoridad" else _VOZ_PARTICULAR,
+            voz=(_VOZ_AUTORIDAD if recurrente == "autoridad" else _VOZ_MP if recurrente == "ministerio_publico"
+                 else _VOZ_PARTICULAR),
             nota_penal=(" En la apelación penal contra sentencia definitiva, sólo la regla de lógica, máxima de la "
                         "experiencia, conocimiento científico o motivación, nunca la apreciación que depende de la "
                         "inmediación; y entre las razones de desestimación, que pide revalorar esa prueba.")
@@ -809,17 +822,27 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
     # algún problema dispara el mapa constitucional, en un recurso se añade el
     # de legalidad —fundamentación y motivación—, que toca a toda resolución.
     texto_acto = ""
+    # La colección estatal para las NORMAS del caso. Si la resolución se funda en
+    # una ley que no es del estado, `material_del_caso` tampoco busca ahí: su
+    # «cesta del acto» ponía primero artículos de la ley local homónima.
+    coleccion_material = coleccion
     if recurso and coleccion:
         citados = mj.preceptos_de_la_responsable(resolucion, coleccion_estatal=coleccion)
         ley_citada = citados[0][1] if citados else ""
-        if ley_citada and _RX_LEY_FEDERAL.search(ley_citada):
+        if ley_citada and not _es_ley_local(ley_citada):
+            coleccion_material = None
             avisos.append(f"La resolución se funda en «{ley_citada[:80]}», que no es ley de {entidad or 'la entidad'}: "
-                          "sus artículos no se buscaron en la legislación estatal. Si el catálogo no los trae, "
+                          "no se buscó en la legislación estatal. Si el catálogo no trae sus artículos, "
                           "cítalos tú y verifícalos antes de firmar.")
         elif ley_citada:
             texto_acto = resolucion
-            problemas_marco.append("legalidad: debida fundamentación y motivación de la resolución impugnada")
+            # La ley del acto sólo se lee si algún problema dispara el mapa
+            # constitucional. Si ninguno lo hace, se añade el de legalidad; si ya
+            # hay artículos, añadirlo le quitaría plaza al que está en disputa.
+            if not mj._articulos_del_problema(problemas_marco):
+                problemas_marco.append("legalidad: debida fundamentación y motivación de la resolución impugnada")
         elif re.search(r"ley de amparo", resolucion, re.I):
+            coleccion_material = None
             avisos.append("La resolución se funda en la Ley de Amparo, que no está en el acervo: los agravios no "
                           "pueden citar sus artículos. Añádelos tú y verifícalos antes de firmar.")
         else:
@@ -844,7 +867,7 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
                                           (consideraciones[i] if i < len(consideraciones) and consideraciones[i]
                                            else (hechos or "")[:600]))}
                                      for i, p in enumerate(problemas)],
-                                    coleccion, materia_rag, cliente,
+                                    coleccion_material, materia_rag, cliente,
                                     contexto=(hechos or "")[:1500] if not recurso
                                     else (" ".join(c for c in consideraciones if c)[:600] or (hechos or "")[:600])),
             mj.construir(qdrant, embed_leyes, problemas_marco, coleccion,
@@ -875,6 +898,17 @@ async def construir(qdrant, embed_juris, embed_leyes, cliente, *, hechos: str,
                    "Cítalos tú y verifícalos antes de firmar.")
         avisos.append(a)
 
+    # Una autoridad (que no sea el Ministerio Público) no alega derechos humanos
+    # propios: `marco_juridico` decide lo convencional por su cuenta con las
+    # palabras de los problemas («debido proceso», «menor»), así que se retira aquí.
+    if recurso and recurrente == "autoridad":
+        try:
+            marco.convencionales = []
+            marco.coidh = []
+            marco.constitucionales = [c for c in marco.constitucionales
+                                      if not re.match(r"\s*(art(?:[íi]culo|\.)?\s*)?1o?\b", str(getattr(c, "articulo", "")), re.I)]
+        except Exception:
+            pass
     bloque, fuentes = catalogo(material, marco)
     if not fuentes:
         raise RuntimeError("No se encontró material verificado para estos hechos.")

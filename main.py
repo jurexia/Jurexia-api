@@ -2635,7 +2635,7 @@ Tu capacidad creativa debe ser MÁXIMA. Construye AGRAVIOS devastadores, lógico
   - Se presenta ante el mismo juez que lo dictó
   - Plazo: generalmente 3 días
   - Es recurso horizontal (lo resuelve el mismo juez)
-  - Si la materia es fiscal federal, es recurso ADMINISTRATIVO (arts. 116 y siguientes del Código Fiscal de la Federación): se presenta ante la autoridad competente en razón del domicilio del contribuyente o ante la que emitió o ejecutó el acto, en 30 días (art. 121 CFF). No lo resuelve un juez
+  - Si la materia es fiscal federal, es recurso ADMINISTRATIVO (arts. 116 y siguientes del Código Fiscal de la Federación): se presenta a través del buzón tributario dentro de los 30 días siguientes a aquel en que surtió efectos la notificación (art. 121 CFF), se dirige a la autoridad administrativa y no lo resuelve un juez; verifica las excepciones del propio código
 
 ▸ RECURSO DE QUEJA:
   - Contra excesos o defectos en ejecución de sentencias
