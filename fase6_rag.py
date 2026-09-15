@@ -334,6 +334,68 @@ def _norma_de(p: dict) -> dict:
     }
 
 
+async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=None) -> list:
+    """Los artículos que el estudio citó y el material no traía, traídos del acervo.
+
+    Revisión 322/2025: el estudio citó y transcribió el artículo 210 del Código
+    de Procedimientos Civiles de Querétaro —correcto, palabra por palabra— y
+    el proyecto salió con el aviso «precepto que no está en el material»,
+    porque la búsqueda semántica había traído el 211 y no el 210. Un artículo
+    que existe en el acervo se trae y se transcribe; sólo el que no existe
+    merece el aviso. Devuelve las etiquetas de los añadidos.
+    """
+    if qdrant is None or not pares:
+        return []
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    def _voces(x):
+        return {w for w in re.findall(r"[\wáéíóúñ]+", (x or "").lower()) if len(w) > 2
+                and w not in ("del", "los", "las", "para", "estado")}
+    en_material = {(str(n.get("cuerpo_legal", "")).lower(), str(n.get("articulo", "")))
+                   for n in (material.normas or [])}
+    anadidos = []
+    for cuerpo, art in pares:
+        try:
+            num = int(art)
+        except (TypeError, ValueError):
+            continue
+        if (cuerpo.lower(), str(art)) in en_material:
+            continue
+        vc = _voces(cuerpo)
+        hallado = None
+        for col in [c for c in (coleccion_estatal, COLECCION_FEDERAL) if c]:
+            try:
+                r = qdrant.scroll(collection_name=col,
+                                  scroll_filter=Filter(must=[FieldCondition(
+                                      key="articulo_num", match=MatchValue(value=num))]),
+                                  limit=60, with_payload=True)
+                if inspect.isawaitable(r):
+                    r = await r
+                pts = r[0] if isinstance(r, tuple) else r
+            except Exception as e:
+                print(f"   ⚖️ RAG: no se pudo traer el artículo {num} de {col} ({type(e).__name__})")
+                continue
+            for x in (pts or []):
+                pl = x.payload or {}
+                ley = str(pl.get("cuerpo_legal_oficial") or pl.get("cuerpo_legal")
+                          or pl.get("ley") or pl.get("origen") or "")
+                vl = _voces(ley)
+                if vl and len(vc & vl) >= max(2, len(vl) // 2):
+                    hallado = (col, _norma_de(pl))
+                    break
+            if hallado:
+                break
+        if not hallado:
+            continue
+        col, norma = hallado
+        norma = await _completar(qdrant, col, norma)
+        material.normas.append(norma)
+        anadidos.append(f"art. {art} — {norma.get('cuerpo_legal')}")
+    if anadidos:
+        print(f"   ⚖️ RAG: {len(anadidos)} precepto(s) citados traídos del acervo: {anadidos}")
+    return anadidos
+
+
 async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],
                   limite: int, filtro=None) -> list[dict]:
     """Una consulta a Qdrant, tolerante con la colección que falta y RUIDOSA con

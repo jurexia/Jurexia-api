@@ -1052,7 +1052,14 @@ def _bloque_global(g, criterios: list = None) -> str:
             f"una línea: es lo que el magistrado va a preguntar en la sesión y "
             f"lo que un amparo posterior va a explotar. Un estudio que no se "
             f"hace cargo de la mejor objeción está incompleto aunque acierte "
-            f"el sentido.")
+            f"el sentido.\n"
+            f"CON EL LENGUAJE DEL OFICIO: en un proyecto NO se escribe «la "
+            f"objeción más seria/fuerte/importante» ni la palabra «objeción». "
+            f"Se escribe «No se pierde de vista que…», «No pasa inadvertido "
+            f"que…», «En diverso aspecto, una de las disidencias más "
+            f"relevantes es…», «No se soslaya la inconformidad de la "
+            f"recurrente en el sentido de que…». Y la contestas a renglón "
+            f"seguido, con la razón del caso.")
     if not partes:
         return ""
     # ── ESTO NO ES UNA ORDEN, Y SE DICE ──────────────────────────────────
@@ -2166,6 +2173,57 @@ def _cierre_operativo(estudio: str, criterios: list) -> str:
     return ""
 
 
+def preceptos_fuera(estudio: str, material: Material) -> tuple:
+    """(etiquetas, pares) de los artículos que el estudio cita y el material no
+    trae. Las etiquetas van al aviso; los pares —(cuerpo legal, artículo)— se
+    los lleva el resolver para traerlos del acervo si existen (322/2025: el
+    artículo 210 del código procesal de Querétaro, citado bien y no traído)."""
+    en_material = {(str(n.get("cuerpo_legal", "")).lower(), str(n.get("articulo", "")))
+                   for n in material.normas}
+    leyes_material = {c for c, _ in en_material}
+    def _voces(x: str) -> set[str]:
+        return {w for w in re.findall(r"[\wáéíóúñ]+", x.lower())
+                if w not in _VACIAS and len(w) > 2}
+
+    # ¿EL SISTEMA DERIVÓ QUE LA LEY DE AMPARO NO RIGE ESTE ACTO? Ver arriba.
+    _sin_susp = (str(getattr(material, "sede_del_acto", "")) == "ordinaria"
+                 and str(getattr(material, "cuaderno", "")) == "principal")
+    fuera: set[str] = set()
+    pares: set = set()
+    for art, cola in _RX_ARTICULO.findall(estudio):
+        cola_n = " ".join(cola.split()).lower()
+        if any(n in cola_n for n in _NOTORIAS):
+            # La excepción de la excepción: el capítulo de la suspensión del
+            # amparo, cuando el acto no se rige por esa ley.
+            if _sin_susp and "amparo" in cola_n:
+                try:
+                    if int(art) in _SUSPENSION_LA and (
+                            "ley de amparo", str(art)) not in en_material:
+                        fuera.add(f"artículo {art} de la Ley de Amparo")
+                except (TypeError, ValueError):
+                    pass
+            continue
+        vc = _voces(cola_n)
+        # La ley se reconoce por sus voces propias, pero hay que quedarse con la
+        # QUE MÁS CASA, no con la primera. «Código Civil del Estado de Querétaro»
+        # y «Código Civil Federal» comparten «código» y «civil»: con el primer
+        # acierto ganaba el federal y el verificador denunciaba como inventado un
+        # artículo correctamente citado del código local. Un aviso falso enseña a
+        # ignorar los avisos, que es peor que no tenerlos.
+        mejor, puntos = None, 0
+        for cuerpo in leyes_material:
+            vl = _voces(cuerpo)
+            if not vl:
+                continue
+            n_comun = len(vc & vl)
+            if n_comun >= max(2, len(vl) // 2) and n_comun > puntos:
+                mejor, puntos = cuerpo, n_comun
+        if mejor and (mejor, art) not in en_material:
+            fuera.add(f"art. {art} — {mejor}")
+            pares.add((mejor, str(art)))
+    return fuera, pares
+
+
 def revisar(estudio: str, criterios: list[Criterio], material: Material,
             resumen_acto: str = "", marco: str = "") -> list[str]:
     """Lo comprobable sin modelo. Ninguna de estas es opinión."""
@@ -2460,47 +2518,7 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     # 5. Preceptos citados que no salieron del acervo. Un artículo inventado de
     #    un código sustantivo es tan grave como un registro inventado, y hasta
     #    ahora sólo se vigilaban los registros.
-    en_material = {(str(n.get("cuerpo_legal", "")).lower(), str(n.get("articulo", "")))
-                   for n in material.normas}
-    leyes_material = {c for c, _ in en_material}
-    def _voces(x: str) -> set[str]:
-        return {w for w in re.findall(r"[\wáéíóúñ]+", x.lower())
-                if w not in _VACIAS and len(w) > 2}
-
-    # ¿EL SISTEMA DERIVÓ QUE LA LEY DE AMPARO NO RIGE ESTE ACTO? Ver arriba.
-    _sin_susp = (str(getattr(material, "sede_del_acto", "")) == "ordinaria"
-                 and str(getattr(material, "cuaderno", "")) == "principal")
-    fuera: set[str] = set()
-    for art, cola in _RX_ARTICULO.findall(estudio):
-        cola_n = " ".join(cola.split()).lower()
-        if any(n in cola_n for n in _NOTORIAS):
-            # La excepción de la excepción: el capítulo de la suspensión del
-            # amparo, cuando el acto no se rige por esa ley.
-            if _sin_susp and "amparo" in cola_n:
-                try:
-                    if int(art) in _SUSPENSION_LA and (
-                            "ley de amparo", str(art)) not in en_material:
-                        fuera.add(f"artículo {art} de la Ley de Amparo")
-                except (TypeError, ValueError):
-                    pass
-            continue
-        vc = _voces(cola_n)
-        # La ley se reconoce por sus voces propias, pero hay que quedarse con la
-        # QUE MÁS CASA, no con la primera. «Código Civil del Estado de Querétaro»
-        # y «Código Civil Federal» comparten «código» y «civil»: con el primer
-        # acierto ganaba el federal y el verificador denunciaba como inventado un
-        # artículo correctamente citado del código local. Un aviso falso enseña a
-        # ignorar los avisos, que es peor que no tenerlos.
-        mejor, puntos = None, 0
-        for cuerpo in leyes_material:
-            vl = _voces(cuerpo)
-            if not vl:
-                continue
-            n_comun = len(vc & vl)
-            if n_comun >= max(2, len(vl) // 2) and n_comun > puntos:
-                mejor, puntos = cuerpo, n_comun
-        if mejor and (mejor, art) not in en_material:
-            fuera.add(f"art. {art} — {mejor}")
+    fuera, _pares = preceptos_fuera(estudio, material)
     if fuera:
         avisos.append(f"PRECEPTOS CITADOS QUE NO ESTÁN EN EL MATERIAL: "
                       f"{sorted(fuera)}. Compruébalos antes de firmar.")

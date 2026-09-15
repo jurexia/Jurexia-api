@@ -897,6 +897,25 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # el resumen —unas 472 palabras— y CERO caracteres del escrito.
             escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1])
 
+    # LOS PRECEPTOS QUE EL ESTUDIO CITÓ SIN TENERLOS. Si están en el acervo se
+    # traen y se transcriben; el aviso se queda sólo para los que no existen.
+    try:
+        import fase6_rag as _f6r
+        _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
+        if _pares and qdrant is not None:
+            _traidos = await _f6r.completar_preceptos(
+                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None)
+            if _traidos:
+                _quedan = [x for x in _pares
+                           if f"art. {x[1]} — {x[0]}" not in _traidos]
+                avisos = [a for a in avisos
+                          if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
+                if _quedan:
+                    avisos.append("PRECEPTOS CITADOS QUE NO ESTÁN EN EL MATERIAL: "
+                                  + str(sorted(f"art. {a} — {c}" for c, a in _quedan))
+                                  + ". Compruébalos antes de firmar.")
+    except Exception as _ex:
+        print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
 
@@ -961,6 +980,25 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     TIEMPOS["estudio de fondo"] = round(_time.perf_counter() - t0, 1)
 
     yield {"tipo": "componiendo"}
+    # LOS PRECEPTOS QUE EL ESTUDIO CITÓ SIN TENERLOS. Si están en el acervo se
+    # traen y se transcriben; el aviso se queda sólo para los que no existen.
+    try:
+        import fase6_rag as _f6r
+        _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
+        if _pares and qdrant is not None:
+            _traidos = await _f6r.completar_preceptos(
+                qdrant, material, _pares, getattr(e, "coleccion_estatal", "") or None)
+            if _traidos:
+                _quedan = [x for x in _pares
+                           if f"art. {x[1]} — {x[0]}" not in _traidos]
+                avisos = [a for a in avisos
+                          if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
+                if _quedan:
+                    avisos.append("PRECEPTOS CITADOS QUE NO ESTÁN EN EL MATERIAL: "
+                                  + str(sorted(f"art. {a} — {c}" for c, a in _quedan))
+                                  + ". Compruébalos antes de firmar.")
+    except Exception as _ex:
+        print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
     res = await _terminar(cliente, r, e, criterios, material, estudio,
                           advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
     yield {"tipo": "listo", "resultado": res}

@@ -46,6 +46,7 @@ _GENERICO = {
     "codigo federal", "ley federal", "consejo de la", "semanario judicial",
     "sistema integral", "diario oficial", "corte interamericana",
     "derechos humanos", "juez de distrito", "sala regional", "junta especial",
+    "administracion judicial", "organo de administracion", "tribunal de disciplina",
     "libro de control", "seguimiento de expedientes", "primera sala",
     "segunda sala", "pleno de circuito", "plenos de circuito", "gaceta del",
     "tesis aislada", "registro digital",
@@ -71,7 +72,11 @@ _RX_NO_ES_EXPEDIENTE = re.compile(
 
 def _norm(x: str) -> str:
     y = unicodedata.normalize("NFKD", (x or "").lower())
-    return "".join(c for c in y if not unicodedata.combining(c))
+    y = "".join(c for c in y if not unicodedata.combining(c))
+    # EL OCR PARTE LOS NOMBRES CON SALTOS DE LÍNEA. «Karla Giselle \nSánchez
+    # Ávila» estaba en la sentencia recurrida y el detector acusaba al proyecto
+    # de inventarla —revisión 322/2025—. Un blanco es un blanco.
+    return " ".join(y.split())
 
 
 def _generico(nombre: str) -> bool:

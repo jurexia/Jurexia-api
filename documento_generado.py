@@ -2298,6 +2298,59 @@ def _es_pregunta(t: str) -> bool:
     return bool(_RX_ES_PREGUNTA.match((t or "").strip()))
 
 
+# LA CITA ENCADENADA. El modelo escribe «Sirve de apoyo la jurisprudencia X, de
+# rubro «A», y la jurisprudencia Y, de rubro «B».» Al bajar «A» a su bloque, la
+# cola «y la jurisprudencia Y, de rubro «B»» quedaba como párrafo suelto debajo
+# de la cita, fuera de toda estructura —David, revisión 322/2025—. Cada tesis
+# se anuncia con su propia frase, y la segunda empieza por «También».
+_RX_CITA_ENCADENADA = re.compile(
+    r"^(?:y|e|as[íi]\s+como|adem[áa]s\s+de)\s+(?=(?:la|el)\s+"
+    r"(?:jurisprudencia|tesis|criterio)\b)", re.I)
+
+
+def _desencadenar(cola: str, tesis: list) -> str:
+    """Si la cola es «y la jurisprudencia …, de rubro «B»», la devuelve como
+    anuncio propio; si no, cadena vacía."""
+    c = (cola or "").lstrip(" ,;")
+    m = _RX_CITA_ENCADENADA.match(c)
+    if not m:
+        return ""
+    resto = c[m.end():]
+    h, _ = tesis_del_rubro(resto, tesis or [])
+    if not h:
+        return ""
+    return "También sirve de apoyo " + resto
+
+
+# EL LENGUAJE DEL PROYECTO. El motor le enseña al estudio «la objeción más
+# seria» y el modelo la copia con ese nombre. David: «así no se redacta un
+# proyecto; se estila "En diverso aspecto, una de las disidencias más
+# relevantes…" o "No se pierde de vista la inconformidad de…"». Se pide en el
+# prompt y, como todo lo que se pide, se garantiza aquí.
+_LENGUAJE_DE_PROYECTO = [
+    (re.compile(r"\b[Ll]a objeci[óo]n m[áa]s (?:fuerte|seria|importante|relevante|"
+                r"s[óo]lida|grave)(?: (?:a|contra) (?:esta|esa|la) "
+                r"(?:soluci[óo]n|conclusi[óo]n|propuesta|determinaci[óo]n))?"
+                r"(?: es| consiste en| radica en| estriba en)(?: la de)? que\b"),
+     "No se pierde de vista que"),
+    (re.compile(r"\b[Ll]a objeci[óo]n m[áa]s (?:fuerte|seria|importante|relevante|"
+                r"s[óo]lida|grave)\b"), "la disidencia más relevante"),
+    (re.compile(r"\bEsa objeci[óo]n\b"), "Ese planteamiento"),
+    (re.compile(r"\besa objeci[óo]n\b"), "ese planteamiento"),
+    (re.compile(r"\bEsta objeci[óo]n\b"), "Este planteamiento"),
+    (re.compile(r"\besta objeci[óo]n\b"), "este planteamiento"),
+    (re.compile(r"\b([Ll]a|[Uu]na|[Dd]icha) objeci[óo]n\b"), r"\1 inconformidad"),
+    (re.compile(r"\b([Ll]as) objeciones\b"), r"\1 inconformidades"),
+]
+
+
+def _lenguaje_de_proyecto(texto: str) -> str:
+    t = texto or ""
+    for rx, rep in _LENGUAJE_DE_PROYECTO:
+        t = rx.sub(rep, t)
+    return t
+
+
 def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     """Los párrafos del estudio, con sus citas rehechas desde el acervo."""
     # EL ESTUDIO ENTERO, PARA BUSCAR LAS FRACCIONES. El precepto se transcribe
@@ -2318,7 +2371,9 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
     _pies_de_ley = len(notas)          # los que ya había antes de este estudio
     transcritos = set()
     transcritas_tesis = set()
-    for t in (estudio or []):
+    _pendientes = list(estudio or [])
+    while _pendientes:
+        t = _pendientes.pop(0)
         t = (t or "").strip()
         if not t:
             continue
@@ -2343,6 +2398,12 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
             cola = t[m_r.end():].lstrip(" ,;:.")
             escribir_cita(doc, hallada, antes.rstrip(" ,;:"), notas)
             citadas += 1
+            # LA SEGUNDA TESIS DE LA MISMA FRASE se anuncia por su cuenta.
+            _otra = _desencadenar(cola, tesis)
+            if _otra:
+                _pendientes.insert(0, _otra)
+                ultima_tesis = hallada
+                continue
             cola = _sin_eco(cola, hallada.get("texto") or "")
             cola = _con_sujeto_tras_cita(cola, hallada)
             if len(cola.split()) > 6 or _es_pregunta(cola):
@@ -3059,6 +3120,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             return t
 
         estudio = _limpio(estudio) if isinstance(estudio, str) else estudio
+        if isinstance(estudio, str):
+            estudio = _lenguaje_de_proyecto(estudio)
+        elif isinstance(estudio, (list, tuple)):
+            estudio = [_lenguaje_de_proyecto(str(x)) for x in estudio]
         marco_escrito = _limpio(marco_escrito)
         if estructura is not None:
             estructura.apertura = _limpio(getattr(estructura, "apertura", ""))
