@@ -225,17 +225,34 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # personal y se avisa, igual que con laboral.
     elif _mat == "administrativa" and e.regla_surtimiento == "tja_qro_boletin":
         _col = (getattr(e, "coleccion_estatal", "") or "").strip().lower()
-        if "queretaro" not in _col.replace("é", "e"):
+        _resp_notif = getattr(e, "responsable", "") or ""
+        # «DE QUERÉTARO» NO ES «CON SEDE EN QUERÉTARO». El Tribunal de Justicia
+        # Administrativa DEL ESTADO de Querétaro (TJA, la regla de este boletín)
+        # y el Tribunal FEDERAL de Justicia Administrativa (TFJA) son dos
+        # instituciones distintas, y el TFJA tiene una Sala Regional QUE SE
+        # LLAMA «en Querétaro» sin ser de Querétaro: es federal, resuelve
+        # materia fiscal de toda su zona, y su notificación no se rige por el
+        # Boletín Jurisdiccional del tribunal estatal. En la revisión fiscal
+        # 8/2026 (responsable «Sala Regional en Querétaro del Tribunal FEDERAL
+        # de Justicia Administrativa»), `coleccion_estatal` decía
+        # «leyes_queretaro» —correcto para el RAG del fondo, que sí puede
+        # necesitar ley local— y el guardián de abajo lo daba por bueno para
+        # la regla de notificación, que es una pregunta distinta.
+        _es_federal = "federal" in _resp_notif.lower()
+        if "queretaro" not in _col.replace("é", "e") or _es_federal:
             e.regla_surtimiento = "personal"
             avisos.append(
                 "El cómputo se hizo con notificación PERSONAL (artículo 31, "
                 "fracción I, de la Ley de Amparo). Venía declarada la regla "
                 "del Boletín Jurisdiccional del Tribunal de Justicia "
-                "Administrativa DE QUERÉTARO, que sólo rige ahí, y este "
-                "asunto no está declarado como de Querétaro. Si SÍ lo es, "
-                "elige la entidad correcta; si no, comprueba en la ley que "
-                "rige el acto cómo surte efectos la notificación —o usa "
-                "«Otra regla» y declara tú las dos fechas.")
+                "Administrativa DEL ESTADO DE QUERÉTARO, que sólo rige ahí"
+                + (f" —y la responsable, «{_resp_notif}», es un órgano FEDERAL, "
+                   "no el tribunal estatal de Querétaro" if _es_federal else
+                   ", y este asunto no está declarado como de Querétaro")
+                + ". Si de verdad se rige por ese boletín, elige la entidad "
+                "correcta; si no, comprueba en la ley que rige el acto cómo "
+                "surte efectos la notificación —o usa «Otra regla» y declara "
+                "tú las dos fechas.")
     # EL CERO VIAJA HASTA EL CÓMPUTO. `e.plazo or 15` lo convertía en quince
     # días: el «en cualquier tiempo» que se acababa de declarar se perdía en el
     # camino, y por eso hacía falta corregirlo después escribiendo sobre

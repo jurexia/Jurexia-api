@@ -88,6 +88,20 @@ _mat2 = ra.fp_materia(e2)
 _col2 = (e2.coleccion_estatal or "").strip().lower()
 ok("queretaro" in _col2.replace("é", "e"), "y si de verdad es de Querétaro, la colección lo dice")
 
+# ── el TFJA con Sala «en Querétaro» no es el TJA del estado (8/2026) ──
+e3 = ra.Encargo(numero="8/2026", encabezado="REVISIÓN FISCAL 8/2026", quejoso="X",
+                magistrado="M", secretario="S", notificacion=dt.date(2025, 12, 4),
+                presentacion=dt.date(2026, 1, 19), regla_surtimiento="tja_qro_boletin",
+                tipo_asunto="revision_fiscal", materia="administrativa",
+                coleccion_estatal="leyes_queretaro",
+                responsable="Sala Regional en Querétaro del Tribunal Federal de Justicia Administrativa")
+try:
+    asyncio.run(ra.generar(None, e3, "CONSIDERANDO. Texto.", "AGRAVIOS. Texto.", "/tmp/y.docx"))
+except Exception:
+    pass
+ok(e3.regla_surtimiento == "personal",
+   f"la Sala Regional EN Querétaro del TFJA (federal) no es el TJA DE Querétaro (estatal): {e3.regla_surtimiento}")
+
 print()
 if fallos: print(f"FALLAN {len(fallos)}: " + " · ".join(fallos)); sys.exit(1)
 print("TODAS LAS COMPROBACIONES PASAN")
