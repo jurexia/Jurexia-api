@@ -789,6 +789,7 @@ def computar(
     inhabiles_extra: Optional[list] = None,
     tipo_asunto: str = "amparo_directo",
     inhabiles_responsable=None,
+    surtio_manual: Optional[Fecha] = None,
 ) -> Computo:
     """El cómputo completo, con los dos calendarios.
 
@@ -811,6 +812,13 @@ def computar(
     «2026-06-29..2026-07-10, 2026-01-02». En amparo directo se descuentan DEL
     PLAZO —no sólo del surtimiento— porque la demanda se presenta por su
     conducto; en amparo en revisión y en queja no se descuentan, y se dice.
+
+    `surtio_manual` es LA REGLA «OTRA»: cuando el secretario declara él mismo
+    la fecha en que la notificación surtió efectos —porque su asunto no
+    encaja en ninguna de las reglas del catálogo y el redactor no le va a
+    aplicar la de un tribunal ajeno— esa fecha se usa TAL CUAL, sin contar
+    ningún día hábil y sin afirmar ningún fundamento que no conste. Sólo
+    tiene efecto cuando `regla == "otra"`.
     """
     avisos: list[str] = []
 
@@ -872,21 +880,30 @@ def computar(
         # los dos conjuntos es exactamente eso.
         cal_amparo.sueltos = set(cal_amparo.sueltos) | _extra | _resp
 
-    r = REGLAS_SURTE.get(regla)
-    if r and str(getattr(r, "clave", "")).endswith("_qro_boletin"):
-        avisos.append(
-            "El cómputo usa la regla del Boletín Jurisdiccional del Tribunal de "
-            "Justicia Administrativa de QUERÉTARO (surte al tercer día hábil). "
-            "Si tu asunto es de otra entidad, comprueba cómo surte efectos la "
-            "notificación en la ley que rige el acto: un plazo mal contado "
-            "invalida la sentencia.")
-    if r is None:
-        r = REGLAS_SURTE["personal"]
-        avisos.append(
-            f"La regla de surtimiento «{regla}» no está declarada. Se contó "
-            "como notificación personal. COMPRUEBA la ley que rige el acto "
-            "antes de firmar."
-        )
+    _manual = regla == "otra" and surtio_manual is not None
+    if _manual:
+        # NO HAY REGLA QUE APLICAR: el secretario dio las dos fechas y el
+        # cómputo no cuenta ningún día hábil ni afirma ningún fundamento. Los
+        # `dias_habiles` quedan en -1 como centinela: `parrafo_oportunidad()`
+        # lo usa para no escribir «al Nth día hábil», que sería inventado.
+        r = ReglaSurte(clave="otra", descripcion="conforme a lo manifestado",
+                       dias_habiles=-1, fundamento="")
+    else:
+        r = REGLAS_SURTE.get(regla)
+        if r and str(getattr(r, "clave", "")).endswith("_qro_boletin"):
+            avisos.append(
+                "El cómputo usa la regla del Boletín Jurisdiccional del Tribunal de "
+                "Justicia Administrativa de QUERÉTARO (surte al tercer día hábil). "
+                "Si tu asunto es de otra entidad, comprueba cómo surte efectos la "
+                "notificación en la ley que rige el acto: un plazo mal contado "
+                "invalida la sentencia.")
+        if r is None:
+            r = REGLAS_SURTE["personal"]
+            avisos.append(
+                f"La regla de surtimiento «{regla}» no está declarada. Se contó "
+                "como notificación personal. COMPRUEBA la ley que rige el acto "
+                "antes de firmar."
+            )
 
     cal_resp = CALENDARIOS_RESPONSABLE.get(responsable or "", CALENDARIO_AMPARO)
     if _resp:
@@ -901,13 +918,23 @@ def computar(
         cal_resp.fundamento = rec.fundamento
         cal_resp.sueltos = set(cal_resp.sueltos) | _resp
 
-    # 1) Surtimiento — calendario de la RESPONSABLE
-    surtio = notificacion
-    contados = 0
-    while contados < r.dias_habiles:
-        surtio += _dt.timedelta(days=1)
-        if cal_resp.es_habil(surtio):
-            contados += 1
+    # 1) Surtimiento — calendario de la RESPONSABLE, salvo que el secretario
+    # ya haya dicho la fecha (regla «otra»).
+    if _manual:
+        surtio = surtio_manual
+        if surtio < notificacion:
+            avisos.append(
+                f"FECHA IMPOSIBLE: dijiste que la notificación surtió efectos "
+                f"el {surtio.isoformat()}, ANTES de que se notificara "
+                f"({notificacion.isoformat()}). Revisa las dos fechas antes "
+                f"de firmar.")
+    else:
+        surtio = notificacion
+        contados = 0
+        while contados < r.dias_habiles:
+            surtio += _dt.timedelta(days=1)
+            if cal_resp.es_habil(surtio):
+                contados += 1
 
     # 2) El plazo — calendario del AMPARO, con los inhábiles declarados dentro
     inicio = cal_amparo.siguiente_habil(surtio + _dt.timedelta(days=1))
@@ -1381,7 +1408,13 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
     if desglosar is None:
         desglosar = ((c.oportuna is False)
                      or _ta.normalizar(tipo) == "revision_fiscal"
-                     or bool(getattr(c, "resp_aplicados", False)))
+                     or bool(getattr(c, "resp_aplicados", False))
+                     # LA REGLA «OTRA» SIEMPRE SE DESGLOSA: no hay regla del
+                     # catálogo que respalde el surtimiento, así que las dos
+                     # fechas —cuándo se notificó y cuándo surtió efectos,
+                     # ambas declaradas por el secretario— tienen que constar
+                     # en el considerando para que se puedan comprobar.
+                     or getattr(c.regla, "clave", "") == "otra")
     if not desglosar:
         if c.anticipada:
             cierre = (f", pues se presentó el {fecha_en_letra(c.presentacion)}, "
@@ -1392,18 +1425,34 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
                       else f", pues se presentó el {fecha_en_letra(c.presentacion)}")
         return (f"Igualmente, la presentación {_del(v['escrito'])} resultó "
                 f"oportuna, a la luz del {fundamento}{cierre}.")
-    surte = _ORDINAL_SURTE.get(c.regla.dias_habiles, "al día hábil siguiente")
-    p = [
-        f"Por cuanto hace a la oportunidad en la presentación "
-        f"{_del(v['escrito'])}, en términos del {fundamento}, "
-        f"{v['recurrido']} se notificó al {v['promovente']} el "
-        f"{fecha_en_letra(c.notificacion)} {c.regla.descripcion} y surtió "
-        f"efectos {surte}, es decir, el {fecha_en_letra(c.surtio)}, por lo que "
-        f"el plazo para la promoción {_del(v['escrito'])} fue del "
-        f"{fecha_en_letra(c.inicio)} al {fecha_en_letra(c.vencimiento)}, sin "
-        f"contar sábados y domingos por ser inhábiles en términos del "
-        f"{c.cal_amparo.fundamento}",
-    ]
+    if getattr(c.regla, "clave", "") == "otra":
+        # LA REGLA «OTRA»: NO SE AFIRMA UN FUNDAMENTO QUE NO CONSTA. El
+        # secretario declaró las dos fechas; el considerando las dice, sin
+        # inventarle un «al Nth día hábil» a una regla que no aplicó.
+        p = [
+            f"Por cuanto hace a la oportunidad en la presentación "
+            f"{_del(v['escrito'])}, en términos del {fundamento}, "
+            f"{v['recurrido']} se notificó al {v['promovente']} el "
+            f"{fecha_en_letra(c.notificacion)}; esa notificación surtió "
+            f"efectos el {fecha_en_letra(c.surtio)}, según lo manifestado por "
+            f"el {v['promovente']}, por lo que el plazo para la promoción "
+            f"{_del(v['escrito'])} fue del {fecha_en_letra(c.inicio)} al "
+            f"{fecha_en_letra(c.vencimiento)}, sin contar sábados y domingos "
+            f"por ser inhábiles en términos del {c.cal_amparo.fundamento}",
+        ]
+    else:
+        surte = _ORDINAL_SURTE.get(c.regla.dias_habiles, "al día hábil siguiente")
+        p = [
+            f"Por cuanto hace a la oportunidad en la presentación "
+            f"{_del(v['escrito'])}, en términos del {fundamento}, "
+            f"{v['recurrido']} se notificó al {v['promovente']} el "
+            f"{fecha_en_letra(c.notificacion)} {c.regla.descripcion} y surtió "
+            f"efectos {surte}, es decir, el {fecha_en_letra(c.surtio)}, por lo que "
+            f"el plazo para la promoción {_del(v['escrito'])} fue del "
+            f"{fecha_en_letra(c.inicio)} al {fecha_en_letra(c.vencimiento)}, sin "
+            f"contar sábados y domingos por ser inhábiles en términos del "
+            f"{c.cal_amparo.fundamento}",
+        ]
     if c.inhabiles_en_medio:
         p.append(f", así como {lista_en_letra_con_anio(c.inhabiles_en_medio)}")
 

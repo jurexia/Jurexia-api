@@ -27831,10 +27831,23 @@ async def taller_desde_admision(
             "De ese PDF no salió texto suficiente para fichar el asunto. Si es "
             "un escaneo, vuelve a subirlo: el OCR necesita páginas legibles.")
     import fase_admision as _fa
+    import fase_autos as _fauto
     ficha = await _fa.leer(chat_client, texto)
+    # LA FECHA DE PRESENTACIÓN, LEÍDA SIN MODELO. `fase_admision` no la pide
+    # —es un dato en dígitos, no un nombre—, pero `fase_autos.leer()` ya la
+    # saca de la portada de la Oficina de Correspondencia Común cuando el
+    # propio auto la transcribe. David, 15-sep-2026: «no me llena el tribunal,
+    # la parte actora ni la fecha de presentación del recurso, que generalmente
+    # vienen en ese auto». El tribunal y la parte sí se leían; la fecha nunca
+    # se intentaba. Sólo se usa si el auto la trae; si no, se queda vacía como
+    # hoy y el secretario la teclea.
+    _auto = _fauto.leer(texto)
+    if _auto.get("presentacion"):
+        ficha["presentacion"] = _auto["presentacion"]
     _leidos = [k for k in ("numero", "tipo_asunto", "tribunal", "ciudad",
                            "quejoso", "responsable", "tercero_interesado",
-                           "expediente_origen") if (ficha.get(k) or "").strip()]
+                           "expediente_origen", "presentacion")
+               if (ficha.get(k) or "").strip()]
     print(f"   📋 ficha leída del auto de admisión: {', '.join(_leidos) or 'nada'}"
           f" ({len(texto)} caracteres)")
     return {"ficha": ficha, "leidos": _leidos,
@@ -27871,6 +27884,11 @@ async def taller_adelanto(
     # del Boletín Jurisdiccional del tribunal administrativo de Querétaro y se
     # aplicaba, en silencio, al cómputo de un secretario de cualquier estado.
     regla_surtimiento: str = Form("personal"),
+    # CUANDO LA REGLA ES «OTRA»: el secretario declara él mismo cuándo surtió
+    # efectos la notificación, sin que el sistema decida por él ni le aplique
+    # la regla de un tribunal ajeno. ISO. Vacío si regla_surtimiento no es
+    # «otra», o si sigue sin declararse.
+    surte_efectos: str = Form(""),
     # EL PLAZO NO SE TECLEA: LO DICE LA LEY Y DEPENDE DEL TIPO. Era 15 por
     # omisión para todo, y una QUEJA tiene CINCO días (artículo 98 de la Ley de
     # Amparo) y una REVISIÓN diez (artículo 86). Se contaba con el triple del
@@ -28174,6 +28192,7 @@ async def taller_adelanto(
         tipo_asunto=tipo_asunto,
         materia=(materia or "").strip().lower(),
         plantilla=ruta_plantilla,
+        surte_efectos=(surte_efectos or "").strip(),
     )
     salida = f"{tmp}/{numero.replace('/', '-')} ADELANTO.docx"
     r = await _ra.generar(chat_client, encargo, texto_acto, texto_conceptos,
@@ -28557,7 +28576,9 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
             "magistrado": e.magistrado, "secretario": e.secretario,
             "notificacion": e.notificacion.isoformat(),
             "presentacion": e.presentacion.isoformat(),
-            "regla_surtimiento": e.regla_surtimiento, "plazo": e.plazo,
+            "regla_surtimiento": e.regla_surtimiento,
+            "surte_efectos": getattr(e, "surte_efectos", "") or "",
+            "plazo": e.plazo,
             "excepcion_plazo": getattr(e, "excepcion_plazo", ""),
             "dias_inhabiles_extra": [d.isoformat() for d in
                                      getattr(e, "dias_inhabiles_extra", []) or []],
@@ -28742,6 +28763,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
         notificacion=_d.date.fromisoformat(e["notificacion"]),
         presentacion=_d.date.fromisoformat(e["presentacion"]),
         regla_surtimiento=e["regla_surtimiento"], plazo=e["plazo"],
+        surte_efectos=e.get("surte_efectos", "") or "",
         excepcion_plazo=e.get("excepcion_plazo", ""),
         dias_inhabiles_extra=[_d.date.fromisoformat(x)
                               for x in (e.get("dias_inhabiles_extra") or [])],
@@ -29800,6 +29822,7 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
             "secretario": getattr(e, "secretario", "") or "",
             "materia": getattr(e, "materia", "") or "",
             "regla_surtimiento": getattr(e, "regla_surtimiento", "") or "",
+            "surte_efectos": getattr(e, "surte_efectos", "") or "",
             "inhabiles_responsable": getattr(e, "inhabiles_responsable", "") or "",
             "coleccion_estatal": getattr(e, "coleccion_estatal", "") or "",
             "notificacion": (e.notificacion.isoformat()

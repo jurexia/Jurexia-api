@@ -43,6 +43,11 @@ class Encargo:
     # LA OMISIÓN ES LA REGLA GENERAL DE LA LEY DE AMPARO, no la de un
     # tribunal concreto: esto lo usan secretarios de toda la república.
     regla_surtimiento: str = "personal"
+    # CUANDO regla_surtimiento ES «otra»: la fecha, ISO, en que el propio
+    # secretario declara que la notificación surtió efectos — sin que el
+    # sistema le aplique la regla de un tribunal que no es el suyo. Vacía en
+    # cualquier otro caso.
+    surte_efectos: str = ""
     # EL PLAZO LO PONE LA LEY SEGÚN EL TIPO. Cero significa «el que
     # corresponda»; se resuelve al computar, con `tipos_asunto`.
     plazo: int = 0
@@ -211,6 +216,26 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
             "Trabajo). Venía declarada la regla del Boletín Jurisdiccional del "
             "Tribunal de Justicia Administrativa de Querétaro, que es de otra "
             "materia. Confírmalo contra la constancia de notificación.")
+    # LA REGLA DE QUERÉTARO SÓLO VALE PARA ASUNTOS DE QUERÉTARO. Es la misma
+    # trampa que la de arriba, por otra puerta: `tja_qro_boletin` es del
+    # Tribunal de Justicia Administrativa DE QUERÉTARO, y nada impedía que se
+    # aplicara a un amparo directo administrativo de cualquier otro estado —el
+    # redactor sirve a toda la república, no a un solo tribunal. Se exige que
+    # la colección estatal declarada sea la de Querétaro; si no, se cuenta
+    # personal y se avisa, igual que con laboral.
+    elif _mat == "administrativa" and e.regla_surtimiento == "tja_qro_boletin":
+        _col = (getattr(e, "coleccion_estatal", "") or "").strip().lower()
+        if "queretaro" not in _col.replace("é", "e"):
+            e.regla_surtimiento = "personal"
+            avisos.append(
+                "El cómputo se hizo con notificación PERSONAL (artículo 31, "
+                "fracción I, de la Ley de Amparo). Venía declarada la regla "
+                "del Boletín Jurisdiccional del Tribunal de Justicia "
+                "Administrativa DE QUERÉTARO, que sólo rige ahí, y este "
+                "asunto no está declarado como de Querétaro. Si SÍ lo es, "
+                "elige la entidad correcta; si no, comprueba en la ley que "
+                "rige el acto cómo surte efectos la notificación —o usa "
+                "«Otra regla» y declara tú las dos fechas.")
     # EL CERO VIAJA HASTA EL CÓMPUTO. `e.plazo or 15` lo convertía en quince
     # días: el «en cualquier tiempo» que se acababa de declarar se perdía en el
     # camino, y por eso hacía falta corregirlo después escribiendo sobre
@@ -218,13 +243,35 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # AttributeError. Se pasa el plazo que es, y el cómputo sabe qué hacer con
     # el cero: `sin_plazo`, sin vencimiento y sin extemporaneidad posible.
     _plazo_computo = 0 if _pl["en_cualquier_tiempo"] else (e.plazo or 15)
+    # LA REGLA «OTRA»: el secretario ya declaró las dos fechas —cuándo se
+    # notificó (e.notificacion, de siempre) y cuándo surtió efectos— y el
+    # cómputo no tiene que adivinar ni aplicar ninguna regla ajena.
+    _surtio_manual = None
+    if e.regla_surtimiento == "otra":
+        _se = (getattr(e, "surte_efectos", "") or "").strip()
+        if _se:
+            try:
+                _surtio_manual = _dt.date.fromisoformat(_se[:10])
+            except ValueError:
+                avisos.append(
+                    f"La fecha «{_se}» en que dijiste que surtió efectos la "
+                    f"notificación no es válida (usa AAAA-MM-DD); el cómputo "
+                    f"siguió con la notificación personal.")
+        else:
+            avisos.append(
+                "Elegiste «otra regla» de notificación pero no diste la "
+                "fecha en que surtió efectos; el cómputo siguió con la "
+                "notificación personal. Declárala para que el considerando "
+                "cuente el plazo con la fecha que tú diste, no con una regla "
+                "que no aplicaste.")
     c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
                     _plazo_computo, e.responsable,
                     getattr(e, "dias_inhabiles_extra", None),
                     # EL TIPO DECIDE SI EL DESCUENTO DE LA RESPONSABLE APLICA:
                     # sólo donde el escrito se presenta ante ella.
                     getattr(e, "tipo_asunto", "") or "amparo_directo",
-                    getattr(e, "inhabiles_responsable", "") or None)
+                    getattr(e, "inhabiles_responsable", "") or None,
+                    surtio_manual=_surtio_manual)
     avisos.extend(c.avisos)
     if c.oportuna is False:
         avisos.append("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "

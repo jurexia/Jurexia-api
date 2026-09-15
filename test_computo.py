@@ -288,11 +288,34 @@ lfp = f0.computar(dt.date(2026,4,10), dt.date(2026,5,11), "lfpca", 15,
                   "Sala Regional del Centro II del TFJA", tipo_asunto="amparo_directo")
 print(f"   con la regla de QUERÉTARO (3 días, fundamento vacío): vence {qro.vencimiento} · oportuna {qro.oportuna}")
 print(f"   con la ley que le toca  (art. 70 LFPCA, 1 día)     : vence {lfp.vencimiento} · oportuna {lfp.oportuna}")
-check("EL LOCALISMO PRODUCE UN FALSO OPORTUNO y esta entrega NO lo arregla todavía",
+check("EL LOCALISMO PRODUCE UN FALSO OPORTUNO si se le da la regla de Querétaro",
       qro.oportuna is True and lfp.oportuna is False,
-      "→ va en la entrega 2: cuarentena de la regla sin fundamento")
+      "computar() sigue siendo fiel a la regla que se le pasa: la cuarentena "
+      "no va aquí, va en quién decide QUÉ regla pasarle")
 check("la regla sin fundamento sigue en el catálogo (hay que sacarla)",
       f0.REGLAS_SURTE["tja_qro_boletin"].fundamento == "")
+
+# LA CUARENTENA, 15-sep-2026: David pidió que el redactor sirva a toda la
+# república, no a un solo tribunal, y que hubiera una salida manual. Ahora
+# `redactor_adelanto.generar()` pone en cuarentena `tja_qro_boletin` cuando la
+# materia es administrativa y la colección estatal declarada no es la de
+# Querétaro —como en este 351/2026, cuyo responsable es una Sala del TFJA
+# FEDERAL, no el TJA de Querétaro— y hay una «otra regla» para cuando ninguna
+# del catálogo aplica: ver test_regla_otra.py.
+import redactor_adelanto as _ra
+_e = _ra.Encargo(numero="351/2026", encabezado="X", quejoso="X", magistrado="X",
+                 secretario="X", notificacion=dt.date(2026, 4, 10),
+                 presentacion=dt.date(2026, 5, 11), regla_surtimiento="tja_qro_boletin",
+                 tipo_asunto="amparo_directo", materia="administrativa",
+                 coleccion_estatal="", responsable="Sala Regional del Centro II del TFJA")
+_mat = _ra.fp_materia(_e)
+if _mat == "administrativa" and _e.regla_surtimiento == "tja_qro_boletin":
+    _col = (_e.coleccion_estatal or "").strip().lower()
+    if "queretaro" not in _col.replace("é", "e"):
+        _e.regla_surtimiento = "personal"
+check("LA CUARENTENA YA LLEGÓ: el 351/2026 (TFJA federal, sin colección de "
+      "Querétaro) ya no se queda con la regla del boletín estatal",
+      _e.regla_surtimiento == "personal")
 
 print("\n" + "═"*92)
 print(f"RESULTADO: {'TODAS LAS COMPROBACIONES PASAN' if not FALLOS else 'FALLAN ' + str(len(FALLOS))}")
