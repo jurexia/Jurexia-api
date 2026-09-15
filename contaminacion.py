@@ -33,9 +33,12 @@ import unicodedata
 
 # Un nombre propio: dos o más palabras capitalizadas seguidas. Se piden dos para
 # no perseguir cada inicio de frase.
+# UN NOMBRE NO CRUZA UN SALTO DE PÁRRAFO. Con `\s+` la expresión juntaba el
+# final de un título con el arranque del párrafo siguiente —«Solución\n\nPor»—
+# y lo acusaba de nombre ajeno (322/2025). Dentro de un nombre sólo hay blancos.
 _RX_NOMBRE = re.compile(
-    r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:\s+(?:de|del|la|las|los|y)\s+)?"
-    r"(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}){1,4})\b")
+    r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:[ \t]+(?:de|del|la|las|los|y)[ \t]+)?"
+    r"(?:[ \t]+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}){1,4})\b")
 _RX_EXPEDIENTE = re.compile(r"\b(\d{1,5}\s*/\s*\d{2,4})\b")
 _RX_CANTIDAD = re.compile(r"\$\s?([\d,]{3,}\.?\d{0,2})")
 
@@ -47,6 +50,9 @@ _GENERICO = {
     "sistema integral", "diario oficial", "corte interamericana",
     "derechos humanos", "juez de distrito", "sala regional", "junta especial",
     "administracion judicial", "organo de administracion", "tribunal de disciplina",
+    # LOS CASOS DE LA CORTE INTERAMERICANA se citan por nombre —«Caso Atala
+    # Riffo», «Caso Gonzales Lluy»— y son doctrina, no personas del asunto.
+    "caso ",
     "libro de control", "seguimiento de expedientes", "primera sala",
     "segunda sala", "pleno de circuito", "plenos de circuito", "gaceta del",
     "tesis aislada", "registro digital",
