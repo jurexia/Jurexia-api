@@ -88,7 +88,7 @@ PALABRAS_RESUMEN_ACTO = 438
 PALABRAS_RESUMEN_CONCEPTOS = 472
 
 
-def instrucciones_resumen_acto(tipo_asunto: str = "") -> str:
+def instrucciones_resumen_acto(tipo_asunto: str = "", objetivo: int = 0) -> str:
     # NI SIQUIERA RECIBÍA EL BOOLEANO. Es el prompt que fija cómo se llama al
     # órgano —«la responsable»— y no sabía nada del asunto, así que en una
     # queja ordenaba llamar «responsable» al Juzgado de Distrito, que es el
@@ -104,13 +104,23 @@ de modo que quien lea entienda la resolución impugnada sin tenerla enfrente.
 - SUJETO: {', '.join(_sj[:4])}. Nunca su nombre propio.
 - NO LA CALIFIQUES TODAVÍA. Aquí sólo se reconstruye su razonamiento con
   fidelidad; el juicio viene después, en el estudio.
+- COMPLETO, NO ESCOGIDO: TODAS las consideraciones de fondo, cada una con su
+  razón —qué decidió, por qué, con qué precepto— y en el orden en que la
+  responsable las expuso. Si resolvió cinco cuestiones, aquí hay cinco. Un
+  resumen que se queda con dos deja al estudio sin poder contestar los
+  agravios contra las otras tres, y eso se llama incongruencia.
+- LAS TESIS Y JURISPRUDENCIAS EN QUE SE APOYÓ SE NOMBRAN, con su clave o su
+  registro tal como las cita: «…con apoyo en la jurisprudencia 2a./J. 13/2015
+  (registro 2008474)». No se transcriben; se nombran, porque los agravios
+  suelen ir contra ellas y el estudio tiene que saber cuáles son.
 - CADA AFIRMACIÓN ANCLADA a su origen, para que el secretario coteje sin
   releer. Se marca con [[p.7 §3]] al final de la frase —página y párrafo— y NO
   entre paréntesis: el ensamblador convierte esas marcas en NOTAS AL PIE con la
   forma «Cfr. página 7, párrafo 3», que es como se cita en una sentencia. Un
   «(p. 7)» en mitad del texto ensucia la prosa y hay que borrarlo a mano.
-- EXTENSIÓN: alrededor de {PALABRAS_RESUMEN_ACTO} palabras, que es la mediana
-  medida en los engroses reales."""
+- EXTENSIÓN: alrededor de {objetivo or PALABRAS_RESUMEN_ACTO} palabras. Es una
+  medida de la resolución, no un tope: si hacen falta más para que cada
+  consideración tenga su frase, se escriben."""
 
 
 # ── Cómo se estructuran los conceptos, medido sobre 72 apartados reales ──────
