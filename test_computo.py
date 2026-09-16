@@ -52,9 +52,10 @@ def titulo(n, t):
     print("\n" + "═"*92); print(f"{n}. {t}"); print("═"*92)
 
 # ══════════════════════════════════════════════════════════════════════════
-titulo(1, "(d) LO QUE NO DEBE CAMBIAR — 103 sesiones reales + el engrose de oro")
+titulo(1, "(d) LO QUE NO DEBE CAMBIAR — las sesiones reales + el engrose de oro")
 # ══════════════════════════════════════════════════════════════════════════
-S = json.load(open("/tmp/audit_f0/sesiones.json"))
+import banco_computo
+S = banco_computo.sesiones()      # del caché, o reconstruido de la base
 ig = di = 0
 for s in S:
     if not (s["notif"] and s["pres"]): continue
@@ -69,7 +70,7 @@ for s in S:
     else:
         di += 1
         print(f"      ✗ {s['exp']:12} viejo {a.vencimiento} {a.oportuna} | nuevo {b.vencimiento} {b.oportuna}")
-check("las 103 sesiones dan EXACTAMENTE lo de hoy sin declarar nada", di == 0, f"idénticas {ig} · distintas {di}")
+check(f"las {ig + di} sesiones dan EXACTAMENTE lo de hoy sin declarar nada", di == 0, f"idénticas {ig} · distintas {di}")
 
 c = f0.computar(dt.date(2026,2,23), None, "tja_qro_boletin", 15, tipo_asunto="amparo_directo")
 check("engrose de oro ADA 240/2026 (surte 26-feb, plazo 27-feb→20-mar, 16-mar nombrado)",
