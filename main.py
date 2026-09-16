@@ -652,11 +652,14 @@ cree que debería tener la norma y no la ve, la reconstruye.
   Coahuila, Colima, Durango, Hidalgo, Nayarit, Quintana Roo, San Luis
   Potosí, Sonora, Tabasco, Tamaulipas, Tlaxcala, Zacatecas.
 
-REGLA: no afirmes tener un ordenamiento estatal que no venga en el
-contexto recuperado, y no lo cites de memoria. Si no está, dilo con
-claridad, nombra la norma federal o supletoria que sí puedes citar, y
-sigue adelante con eso. Decir «no tengo ese ordenamiento» es una
-respuesta correcta; inventarlo no lo es nunca.
+REGLA: no cites de memoria un ordenamiento estatal que no tengas delante,
+ni afirmes lo que dice. Si no lo tienes, NO lo inventes: nombra la norma
+federal o supletoria que sí puedes citar y sigue adelante con esa.
+
+Y dilo en la lengua del abogado, no en la tuya. «No dispongo del texto
+vigente del Código Civil de Tlaxcala; me apoyo en el Código Civil Federal
+como supletorio» es correcto. «No se recuperó» o «no está en el contexto»
+NO lo es: son palabras de máquina y no significan nada para quien lee.
 
 JURISPRUDENCIA:
 - Tesis y Jurisprudencias de la SCJN (1917-2025)
@@ -1122,18 +1125,32 @@ FORMATO DE CITAS:
 NUNCA uses emoticonos, emojis o simbolos decorativos en tus respuestas.
 Manten un tono profesional, formal pero accesible.
 
-PROHIBICIÓN CRÍTICA - NUNCA ADMITAS CARENCIAS:
-NUNCA digas frases como:
-- "no se recuperó el texto"
-- "no logré encontrar"
-- "en esta búsqueda no se encontró"
-- "no tengo cobertura"
-- "mi base no incluye"
-- "el texto no fue recuperado"
-- "el contexto recuperado no contiene el texto literal"
-- "el texto completo del artículo no se encuentra"
-- "Aunque el texto literal del artículo no se encuentra transcrito en el contexto"
-Estas frases DESTRUYEN la confianza del usuario.
+NUNCA LE HABLES AL ABOGADO DE TUS TRIPAS:
+Escribes para un abogado, no para un ingeniero. Él no sabe —ni tiene por qué
+saber— que existe una búsqueda, un contexto, una base o un acervo. Que algo no
+se haya podido corroborar es un dato sobre SU ESCRITO, nunca una confesión
+sobre tu maquinaria.
+
+PROHIBIDO nombrar el sistema interno, con estas palabras o con cualquier otra
+que signifique lo mismo: «el contexto recuperado», «lo recuperado», «no se
+recuperó», «la búsqueda», «mi base», «mi acervo», «no tengo cobertura», «regla
+de precisión del sistema», «no puedo validar con lo recuperado». La lista no es
+cerrada: la prohibición es sobre la IDEA, no sobre las frases. Si al leer una
+oración tuya se entiende que hay un buscador detrás, está mal escrita.
+
+QUÉ SÍ SE DICE, Y SON TRES COSAS DISTINTAS QUE NO SE CONFUNDEN:
+1. La cita es correcta → dilo y transcribe el texto del artículo.
+2. La cita NO corresponde → «el artículo 903 que cita regula la vía ante
+   jueces locales, no la que usted plantea» o «ese precepto pertenece a otro
+   ordenamiento». Esto es un hallazgo sobre el escrito, y es lo más valioso
+   que puedes darle.
+3. No se pudo corroborar → «no me consta el texto vigente de este precepto:
+   verifíquelo antes de presentar». Punto. Sin explicar por qué, sin pedir
+   disculpas y sin sugerir que la culpa es de él.
+
+Y NUNCA rellenes un hueco inventando. Preferir el silencio del punto 3 a una
+cita de otra ley no es una concesión: es la única respuesta honesta. Un artículo
+atribuido a la ley equivocada llega firmado al juzgado y ahí ya no hay arreglo.
 
 REGLA ESPECIAL PARA ARTÍCULOS CPEUM:
 Si el usuario pregunta "qué dice el artículo X de la Constitución" y en el contexto
@@ -9485,10 +9502,17 @@ def _recortar_ley(nombre: str) -> str:
 
 # «federal», «local» y sus hermanas NO son ruido: son lo único que distingue
 # dos leyes que se llaman igual. Hay 33 Códigos Civiles en México.
-_MARCA_FEDERAL = re.compile(r'\b(federal(es)?|nacional(es)?|de\s+la\s+federaci[óo]n|'
+# El lookbehind no es cosmético: sin él, la palabra «Federal» de «Distrito
+# Federal» declaraba FEDERALES a los códigos de la Ciudad de México, y entonces
+# `_misma_ley` daba por la misma norma el Código de Procedimientos Civiles para
+# el Distrito Federal y el Código Federal de Procedimientos Civiles.
+_MARCA_FEDERAL = re.compile(r'\b(?<!distrito\s)(federal(es)?|nacional(es)?|de\s+la\s+federaci[óo]n|'
                             r'estados\s+unidos\s+mexicanos)\b', re.I)
+# Sin preposición fija: las leyes de la capital se llaman «PARA EL Distrito
+# Federal», no «DEL Distrito Federal», y el patrón anterior sólo veía la segunda.
 _MARCA_LOCAL = re.compile(r'\b(local(es)?|estatal(es)?|del\s+estado|para\s+el\s+estado|'
-                          r'de\s+la\s+entidad|del\s+distrito\s+federal|de\s+la\s+ciudad\s+de\s+m[ée]xico)\b',
+                          r'de\s+la\s+entidad|distrito\s+federal|ciudad\s+de\s+m[ée]xico|'
+                          r'cdmx|del\s+fuero\s+com[uú]n)\b',
                           re.I)
 
 
@@ -9519,11 +9543,19 @@ def _ambito(nombre: str) -> str:
     return "indefinido"
 
 
+# La capital ha tenido dos nombres y los dos están en el acervo: las leyes
+# viejas dicen «para el Distrito Federal» y las nuevas «de la Ciudad de México».
+# Es el MISMO fuero; sin esto, el mismo código bajo sus dos nombres no se
+# reconoce y una cita correcta se marca como no comprobada.
+_RE_CAPITAL = re.compile(r'\b(distrito\s+federal|ciudad\s+de\s+mexico|d\.?\s*f\.?)\b', re.I)
+
+
 def _clave_ley(nombre: str) -> str:
     """El nombre de una ley reducido a lo que la distingue de otra."""
     import unicodedata as _ud
     sin_tilde = "".join(c for c in _ud.normalize("NFD", nombre or "")
                         if _ud.category(c) != "Mn")
+    sin_tilde = _RE_CAPITAL.sub(" cdmx ", sin_tilde)
     limpio = _RE_RUIDO_LEY.sub(" ", sin_tilde.lower())
     return " ".join(w for w in re.split(r"[^a-z0-9]+", limpio) if w)
 
@@ -11582,6 +11614,102 @@ def _log_security_alert(user_id: str, user_email: str, query: str, alert_type: s
 
 import re as _dl_re
 
+# ── EL DETECTOR DE PRECEPTOS CITADOS ────────────────────────────────────────
+# La cabeza (artículo + números + fracciones) se consume; el NOMBRE DE LA LEY se
+# busca en una cola mirada por delante. Mirarla y no consumirla importa: si se
+# consumiera, `finditer` se saltaría la cita siguiente.
+_PR_ORD = r'(?:\s*[oº°ª]\.?)?'
+_PR_SUF = r'(?:\s*(?:bis|ter|qu[áa]ter|quinquies|sexies)\b)?'
+_PR_NUM = r'\d{1,4}' + _PR_ORD + _PR_SUF
+# Los romanos se protegen de IGNORECASE con (?-i:…): con la bandera puesta,
+# [IVXLCDM] casa la «d» de «del» y se traga el nombre de la ley entero.
+_PR_TOK = r'(?:(?-i:[IVXLCDM]+)\b|\d{1,3}\b|[a-z]\)|(?-i:[A-Z])\b)'
+_PR_INTER = (r'(?:\s*,?\s*(?:fracci[oó]n(?:es)?|p[áa]rrafos?|incisos?|apartados?|'
+             r'numeral(?:es)?)\s+' + _PR_TOK + r'(?:\s*(?:,|\by\b)\s*' + _PR_TOK + r')*)*')
+_PR_SEP = r'(?:\s*(?:,|;|\by\b|\be\b)\s*|\s+(?:al?|a)\s+)'
+
+_RX_CITA = re.compile(
+    r'\b(?:art[íi]culos?|arts?\.|numeral(?:es)?)\s*'
+    r'(?P<nums>' + _PR_NUM + r'(?:' + _PR_INTER + _PR_SEP + _PR_NUM + r')*)'
+    + _PR_INTER +
+    r'(?=(?P<cola>[^\n]{0,170}))',
+    re.IGNORECASE)
+
+_RX_LEY_COLA = re.compile(
+    r'(?:\bde\s+la\b|\bde\s+los\b|\bdel\b|\bde\b|,)\s*'
+    r'(?:(?:citad[oa]s?|mismo|propio|referid[oa]s?|invocad[oa]s?|multicitad[oa]s?|'
+    r'aludid[oa]s?|antes\s+citad[oa]s?)\s+)?'
+    r'((?:C[óo]digo|Ley|Constituci[óo]n|Reglamento|Decreto|Estatuto)[^,;:()\[\]\n]{0,90}?)'
+    r'(?=\s*[,;:()\[\]\n]|\s*\.(?:\s|$)|\s+(?:establece|dispone|se[ñn]ala|prev[ée]|regula|que\s)|$)',
+    re.IGNORECASE)
+
+# SIGLAS: VOCABULARIO CERRADO. Una sigla que no esté aquí NO produce nombre de
+# ley — nunca se adivina de qué ordenamiento habla el escrito, porque adivinar
+# mal es exactamente el fallo que este detector viene a cerrar.
+_PR_SIGLAS = {
+    'CPEUM': 'Constitución Política de los Estados Unidos Mexicanos',
+    'CPCDF': 'Código de Procedimientos Civiles para el Distrito Federal',
+    'CPCCDMX': 'Código de Procedimientos Civiles para el Distrito Federal',
+    'CCDF': 'Código Civil para el Distrito Federal',
+    'CPDF': 'Código Penal para el Distrito Federal',
+    'LFT': 'Ley Federal del Trabajo',
+    'LA': 'Ley de Amparo',
+    'LGTOC': 'Ley General de Títulos y Operaciones de Crédito',
+    'CFF': 'Código Fiscal de la Federación',
+    'CCF': 'Código Civil Federal',
+    'CFPC': 'Código Federal de Procedimientos Civiles',
+    'CNPP': 'Código Nacional de Procedimientos Penales',
+    'LSS': 'Ley del Seguro Social',
+    'LFTSE': 'Ley Federal de los Trabajadores al Servicio del Estado',
+    'LFPCA': 'Ley Federal de Procedimiento Contencioso Administrativo',
+}
+_RX_SIGLA = re.compile(r'\b(' + '|'.join(sorted(_PR_SIGLAS, key=len, reverse=True)) + r')\b')
+_RX_CONSTITUCIONAL = re.compile(r'\bconstitucional(?:es)?\b', re.I)
+_RX_ANAFORA = re.compile(
+    r'\b(?:mismo|citad[oa]|propio|referid[oa]|invocad[oa]|dicho|aludid[oa]|multicitad[oa])\s+'
+    r'(?:ordenamiento|c[óo]digo|ley|cuerpo\s+legal|legislaci[óo]n)\b', re.I)
+_RX_RANGO_ART = re.compile(r'(\d{1,4})\s+(?:al?|a)\s+(\d{1,4})')
+_RX_LEY_GENERICA = re.compile(r'^(?:c[óo]digo|ley|reglamento|decreto|estatuto)$', re.I)
+
+
+def _ley_de_la_cola(cola: str, ultima_ley: str) -> str:
+    """El nombre de la ley que sigue a una cita, o '' si el escrito no lo dice."""
+    # La cola se corta donde empieza otra cosa: la cita siguiente o la frase.
+    corte = re.search(r'\bart[íi]culos?\b|\barts?\.|;', cola, re.I)
+    if corte:
+        cola = cola[:corte.start()]
+
+    m = _RX_LEY_COLA.search(cola)
+    if m:
+        # El recorte por ESTRUCTURA (`_recortar_ley`): el nombre de una ley lleva
+        # sus palabras plenas en mayúscula, así que la primera en minúscula que
+        # no sea conector marca dónde acabó la ley y empezó la oración. Con eso,
+        # «del citado código lo confirma» se queda en nada y hereda.
+        bruto = _recortar_ley(m.group(1).strip(' .,'))
+        if bruto and not _RX_LEY_GENERICA.match(bruto):
+            return bruto
+        if ultima_ley:
+            return ultima_ley
+    s = _RX_SIGLA.search(cola)
+    if s:
+        return _PR_SIGLAS[s.group(1).upper()]
+    if _RX_CONSTITUCIONAL.search(cola):
+        return _PR_SIGLAS['CPEUM']
+    if _RX_ANAFORA.search(cola) and ultima_ley:
+        return ultima_ley
+    return ''
+
+
+def _numeros_citados(nums_raw: str) -> list:
+    """Los números de «940 y 942» o «14 al 16», con el rango desplegado."""
+    fuera = []
+    for a, b in _RX_RANGO_ART.findall(nums_raw):
+        ia, ib = int(a), int(b)
+        if 0 < ib - ia <= 30:      # un rango absurdo no se despliega
+            fuera.extend(str(n) for n in range(ia, ib + 1))
+    return fuera or re.findall(r'\d{1,4}', nums_raw)
+
+
 def _extract_legal_citations(text: str) -> dict:
     """
     Parse a legal document text to extract specific citations for direct lookup.
@@ -11592,24 +11720,39 @@ def _extract_legal_citations(text: str) -> dict:
     - tesis_nums: list of str (e.g., ["P./J. 15/2025 (11a.)"])
     """
     result = {"articles": [], "registros": [], "tesis_nums": []}
+    # La anáfora del apartado DERECHO —«el artículo 942 del mismo ordenamiento»—
+    # hereda el último nombre de ley que el escrito dijo entero.
+    _ultima_ley = ''
     
     # ── 1. Article citations: "artículo(s) 163, 8 y 2110 del Código Civil..." ──
-    # Pattern: captures article numbers + the law name that follows "del/de la/de"
-    art_pattern = _dl_re.compile(
-        r'(?:art[ií]culos?|arts?\.?)\s+'
-        r'([\d]+(?:\s*(?:,\s*|\s+y\s+|\s+al?\s+)\s*[\d]+)*)'  # article numbers
-        r'(?:\s*(?:,?\s*(?:fracci[oó]n(?:es)?\s+[IVXLCDM]+(?:\s*[,y]\s*[IVXLCDM]+)*))?)?'  # optional fractions
-        r'(?:\s+(?:del?|de\s+la|de\s+los?)\s+'
-        r'((?:C[oó]digo|Ley|Constituci[oó]n|Reglamento)[^.;,\n]{3,80}))?',  # law name
-        _dl_re.IGNORECASE
-    )
-    
-    for match in art_pattern.finditer(text):
-        nums_raw = match.group(1)
-        law_hint = match.group(2)
+    #
+    # POR QUÉ CAMBIÓ ESTE PATRÓN   (16-sep-2026)
+    # -------------------------------------------
+    # El anterior perdía el nombre de la ley SIEMPRE, y en silencio. Iba así:
+    #
+    #     …(?:\s*(?:,?\s*(?:fracci[oó]n…))?)?     ← grupo opcional de fracción
+    #     (?:\s+(?:del?|de\s+la|…)\s+(…))?        ← grupo opcional de la ley
+    #
+    # El `\s*` del primero se come el espacio que el `\s+` del segundo exige, y
+    # como el segundo es opcional no falla: devuelve None. Medido sobre nueve
+    # citas reales, OCHO se quedaban sin ley — la Constitución, la Ley Federal
+    # del Trabajo y el Código de Comercio igual que cualquier código local.
+    #
+    # Sin nombre de ley, la resolución de más abajo puntúa todos los candidatos
+    # igual y se queda con el primero que devuelva la base, por orden de
+    # identificador. Para el artículo 942 en el silo de la Ciudad de México ese
+    # primero es el del CÓDIGO CIVIL, no el de Procedimientos Civiles: al modelo
+    # se le entregaba el artículo de otra ley y después se le preguntaba si la
+    # cita del escrito era correcta. Contestaba que no podía validarla —y tenía
+    # razón—, y eso es lo que un abogado leyó en la pantalla, y en un anuncio.
+    for match in _RX_CITA.finditer(text):
+        nums_raw = match.group('nums')
+        law_hint = _ley_de_la_cola(match.group('cola'), _ultima_ley)
+        if law_hint:
+            _ultima_ley = law_hint
         
         # Parse individual numbers from "163, 8 y 2110" or "14 al 16"
-        nums = _dl_re.findall(r'\d+', nums_raw)
+        nums = _numeros_citados(nums_raw)   # «14 al 16» se despliega artículo a artículo
         if nums:
             # Detect state from nearby context (within 200 chars after the match)
             state_hint = None
@@ -11738,6 +11881,7 @@ async def _direct_article_lookup(
     print(f"   📌 DIRECT LOOKUP: articles={len(citations.get('articles', []))} groups, registros={len(citations.get('registros', []))}, tesis={len(citations.get('tesis_nums', []))}")
     found_refs = []
     not_found_refs = []
+    ambiguos = 0          # citas sin ley que tocaban dos ordenamientos a la vez
     
     # ── 1. Direct Article Lookup ──
     for cite_group in citations.get("articles", []):
@@ -11908,7 +12052,27 @@ async def _direct_article_lookup(
                 # Best match
                 best_score, best_coll, best_point = scored_points[0]
                 pid = str(best_point.id)
-                
+
+                # ── SIN NOMBRE DE LEY Y CON VARIAS CANDIDATAS, NO SE ELIGE ──
+                # Antes, sin pista de ley todos los candidatos empataban a 1.0,
+                # el orden quedaba en manos del `sort` estable y se inyectaba EL
+                # PRIMERO QUE DEVOLVIERA LA BASE. Para el artículo 942 en el silo
+                # de la capital ese primero es el del Código Civil, y así se le
+                # entregó al modelo el artículo de una ley que el escrito no
+                # citaba. Si el escrito no dice de qué ley habla y hay más de un
+                # ordenamiento con ese número, no se inventa cuál: no se inyecta
+                # ninguno. Un hueco declarado es recuperable; una ley cambiada en
+                # silencio llega firmada al juzgado.
+                if not hint_words:
+                    leyes = {_clave_ley((p.payload or {}).get("origen")
+                                        or (p.payload or {}).get("ley") or "")
+                             for _, _, p in scored_points}
+                    leyes.discard("")
+                    if len(leyes) > 1:
+                        print(f"   ⚖️ {ref_val}: {len(leyes)} leyes distintas y el escrito no dice cuál — no se inyecta")
+                        ambiguos += 1
+                        continue
+
                 # Only insert if we either had no hint, or the hint matched at least 1 word (score > 0)
                 if not hint_words or best_score > 0.0:
                     if pid not in seen_ids:
