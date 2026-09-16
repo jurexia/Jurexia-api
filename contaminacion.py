@@ -39,6 +39,12 @@ import unicodedata
 _RX_NOMBRE = re.compile(
     r"\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}(?:[ \t]+(?:de|del|la|las|los|y)[ \t]+)?"
     r"(?:[ \t]+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}){1,4})\b")
+# Los tratamientos que preceden a un nombre en una sentencia. No son parte del
+# nombre y el formulario nunca los guarda.
+_SIN_TRATAMIENTO = re.compile(
+    r"^(?:C\.|Lic\.|Licenciad[oa]|Doctor[a]?|Dr[a]?\.|Magistrad[oa]s?|"
+    r"Ministr[oa]s?|Juez[a]?|Jueces|Secretari[oa]s?(?:\s+de\s+Tribunal)?|"
+    r"President[ea]|Titular|Señor[a]?|Maestr[oa]|Mtr[oa]\.)\s+", re.I)
 _RX_EXPEDIENTE = re.compile(r"\b(\d{1,5}\s*/\s*\d{2,4})\b")
 _RX_CANTIDAD = re.compile(r"\$\s?([\d,]{3,}\.?\d{0,2})")
 
@@ -155,8 +161,16 @@ def revisar(sentencia: str, fuentes: list, encargo: dict) -> list:
         n = m.group(1).strip()
         if _generico(n) or len(n) < 8:
             continue
-        if _norm(n) not in base:
-            ajenos.append(n)
+        # EL CARGO VIAJA PEGADO AL NOMBRE Y EL ENCARGO NO LO TRAE. El patrón
+        # captura «Magistrado Luis Armando Pérez Topete» de una pieza; el
+        # formulario guardó «LUIS ARMANDO PÉREZ TOPETE» a secas, así que la
+        # comparación fallaba y el detector acusaba de dato ajeno al ponente
+        # del propio asunto (revisión fiscal 2/2026, 16-sep-2026). Se compara
+        # también el nombre sin su tratamiento: si cualquiera de las dos
+        # formas está en las fuentes o en el encargo, el nombre es de casa.
+        if _norm(n) in base or _norm(_SIN_TRATAMIENTO.sub("", n)) in base:
+            continue
+        ajenos.append(n)
     # Se cuentan y se reportan los que más se repiten: un nombre ajeno que
     # aparece una vez puede ser una construcción del modelo; uno que aparece
     # cinco veces es un dato de otro asunto instalado en el proyecto.

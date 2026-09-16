@@ -392,7 +392,46 @@ def misma_ley(citada: str, candidata: str) -> bool:
     # LFPCA se fue a buscar como si fuera de la LFPA). El nombre oficial
     # puede traer cola —«Reglamentaria de los artículos 103 y 107…»— y eso sí
     # se tolera: lo que no se tolera es una materia o un adjetivo de más.
+    #
+    # NI UNA CLASE DE NORMA POR OTRA. Medido el 16-sep-2026 en la revisión
+    # fiscal 2/2026: al pedir el artículo 16 de la CONSTITUCIÓN, el acervo
+    # ofreció tres «Ley Reglamentaria de la Fracción … de la Constitución
+    # Política de los Estados Unidos Mexicanos», que contienen el nombre
+    # citado entero y no añaden ninguna voz distintiva. El proyecto salió con
+    # una nota al pie que decía ser el artículo 16 constitucional y transcribía
+    # otra cosa. Una ley reglamentaria DE la Constitución no es la
+    # Constitución, y un reglamento de una ley no es la ley.
+    if not _misma_clase(citada, candidata):
+        return False
     return not (_DISTINTIVAS & (vl - vc))
+
+
+# Qué clase de norma es, por su palabra de cabecera: es lo que la nombra, no lo
+# que la describe. «Ley Reglamentaria … de la Constitución» encabeza con LEY.
+_CLASES = (("constitucion", ("constitucion",)),
+           ("codigo", ("codigo",)),
+           ("reglamento", ("reglamento",)),
+           ("ley", ("ley",)),
+           ("acuerdo", ("acuerdo",)),
+           ("decreto", ("decreto",)),
+           ("tratado", ("tratado", "convencion", "convenio", "pacto")))
+
+
+def _clase_de_norma(nombre: str) -> str:
+    """La clase por la CABECERA del nombre, no por lo que mencione después."""
+    import unicodedata as _u
+    t = _u.normalize("NFKD", str(nombre or "")).encode("ascii", "ignore").decode().lower()
+    for pal in t.split()[:4]:            # la cabecera va al principio
+        pal = pal.strip(".,;:()«»\"'")
+        for clase, voces in _CLASES:
+            if pal in voces:
+                return clase
+    return ""
+
+
+def _misma_clase(citada: str, candidata: str) -> bool:
+    a, b = _clase_de_norma(citada), _clase_de_norma(candidata)
+    return not (a and b and a != b)
 
 
 _DISTINTIVAS = {"contencioso", "contenciosa", "penal", "penales", "civil", "civiles", "fiscal",
@@ -431,6 +470,58 @@ async def _scroll_todo(qdrant, coleccion: str, filtro, tope: int = 1500, payload
         if off is None or not pts:
             break
     return fuera
+
+
+
+# El sufijo puede venir con guion, con espacio o pegado: «50-A», «251 A»,
+# «50 Bis». El guion era el que se escapaba, y con él se colaba el 50-A.
+_RX_ABRE_ART = re.compile(
+    r"^\W{0,4}(?:art[íi]culo|art\.?)\s*(\d{1,4})\s*[-–]?\s*"
+    r"(?:(bis|ter|qu[áa]ter|[A-K])\b)?",
+    re.I)
+
+
+def _abre_el_articulo(texto: str, num: int) -> bool:
+    """¿Este texto es el ARTÍCULO `num`, y no su bis ni el siguiente?
+
+    Devuelve True también cuando el texto no se anuncia: muchos puntos del
+    acervo guardan el cuerpo sin repetir la cabecera, y descartarlos dejaría
+    sin precepto a leyes enteras. Lo que sí se rechaza es el texto que se
+    anuncia como OTRO: «A.- …» (el 50-A) o «Artículo 51.- …».
+    """
+    t = " ".join(str(texto or "").split())
+    # LA MIGA DE PAN VA DELANTE Y TAPABA LA CABECERA. En leyes_federales el
+    # texto empieza con «[Ley … | TÍTULO II …]» y detrás viene «ARTÍCULO
+    # 50-A.-»: sin quitarla, aquí no se veía ninguna cabecera, se aplicaba el
+    # respaldo de «no se anuncia» y el 50-A entraba como si fuera el 50.
+    t = re.sub(r"^\s*\[[^\]]{0,400}\]\s*", "", t)
+    if not t:
+        return False
+    # El bis suelto, sin número, que es como el acervo parte «50-A.-».
+    if re.match(r"^\W{0,4}(?:bis|ter|qu[áa]ter|[A-K])\s*[.\-–)]", t, re.I):
+        return False
+    m = _RX_ABRE_ART.match(t)
+    if not m:
+        return True                       # no se anuncia: no hay nada que desmentir
+    if int(m.group(1)) != int(num):
+        return False
+    return not (m.group(2) or "").strip()
+
+
+def _elegir_precepto(cands: list) -> dict:
+    """De varios puntos del mismo artículo, el que dice lo mismo que la mayoría.
+
+    Dos de los tres puntos del artículo 16 constitucional traen su texto real y
+    el tercero trae el transitorio de 1917. La coincidencia entre puntos es la
+    señal más barata y más fiable que hay aquí: un texto repetido en el acervo
+    es el que de verdad corresponde al artículo; el intruso está una vez sola.
+    A igualdad, el más largo, que es el que llega completo.
+    """
+    def _clave(pl):
+        return " ".join(str(pl.get("texto") or pl.get("content") or "").split())[:400].lower()
+    from collections import Counter
+    cuenta = Counter(_clave(p) for p in cands)
+    return max(cands, key=lambda p: (cuenta[_clave(p)], len(_clave(p))))
 
 
 async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=None,
@@ -486,11 +577,34 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
             except Exception as e:
                 print(f"   ⚖️ RAG: no se pudo traer el artículo {num} de {col} ({type(e).__name__})")
                 continue
+            # NO SE TOMA EL PRIMERO QUE CAIGA: SE ELIGE.
+            # El acervo guarda VARIOS puntos bajo el mismo `articulo_num` —el
+            # artículo, sus bis, y los transitorios que reusan la numeración—
+            # y este bucle se quedaba con el primero. Medido el 16-sep-2026 en
+            # la revisión fiscal 2/2026, y las dos veces quedó firmado:
+            #   · artículo 16 constitucional → tres candidatos, dos con «Nadie
+            #     puede ser molestado en su persona, familia, domicilio…» y uno
+            #     con el 16 TRANSITORIO de 1917 («El Congreso Constitucional en
+            #     el período ordinario de sus sesiones…»). Salió el transitorio.
+            #   · artículo 50 de la LFPCA → un solo candidato, y su texto abre
+            #     «A.- Las sentencias que dicte el Tribunal (…) de
+            #     Responsabilidad Patrimonial del Estado»: es el 50-A, no el 50.
+            _cands = []
             for x in pts:
                 pl = x.payload or {}
-                if misma_ley(cuerpo, _nombre_ley_de(pl)):
-                    hallado = (col, _norma_de(pl))
-                    break
+                if str(pl.get("bis") or "").strip() or pl.get("es_transitorio"):
+                    continue
+                if not misma_ley(cuerpo, _nombre_ley_de(pl)):
+                    continue
+                _t = str(pl.get("texto") or pl.get("content") or "")
+                # QUE EL TEXTO ABRA EL ARTÍCULO QUE SE PIDIÓ. Es la única
+                # comprobación que no depende de cómo esté etiquetado el punto,
+                # y es la que descarta el 50-A: su texto no empieza el 50.
+                if not _abre_el_articulo(_t, num):
+                    continue
+                _cands.append(pl)
+            if _cands:
+                hallado = (col, _norma_de(_elegir_precepto(_cands)))
             if hallado:
                 break
         if not hallado:
@@ -712,13 +826,43 @@ async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
                     or (x.payload or {}).get("ley") or "") == ley]
     if len(suyos) < 2:
         return norma
+    # UN ARTÍCULO NO SE PEGA CON SU VECINO. Estos trozos comparten
+    # `articulo_num` pero no son todos del mismo artículo: el 50-A de la LFPCA
+    # y el 50 van los dos bajo el número 50, y aquí se concatenaban. El
+    # resultado se firmó en la revisión fiscal 2/2026: una nota al pie que
+    # anunciaba el artículo 50 y transcribía primero el 50-A —«las sentencias
+    # (…) de Responsabilidad Patrimonial del Estado»— y detrás el 50 de
+    # verdad. Lo mismo hacía el 16 constitucional con su transitorio de 1917.
+    #
+    # Se lee como se lee una ley: el trozo que ABRE el artículo y los que le
+    # siguen sin abrir ninguno. En cuanto otro trozo anuncia una cabecera, ahí
+    # se acabó este artículo y empieza otro.
+    _ordenados = sorted(suyos, key=lambda z: int(z.get("chunk_index") or 0))
+    _limpios = [re.sub(r"^\s*\[[^\]]{0,250}\]\s*", "",
+                       " ".join(str(pl.get("texto") or "").split()))
+                for pl in _ordenados]
+    _bloques, _actual = [], []
+    for txt in _limpios:
+        if not txt:
+            continue
+        if _RX_ABRE_ART.match(txt):        # este trozo anuncia un artículo
+            if _actual:
+                _bloques.append(_actual)
+            _actual = [txt]
+        elif _actual:
+            _actual.append(txt)            # continuación del que se abrió
+        else:
+            _actual = [txt]                # el acervo no siempre repite cabecera
+    if _actual:
+        _bloques.append(_actual)
+    # El bloque bueno es el que abre EXACTAMENTE este artículo. Si ninguno se
+    # anuncia —hay leyes guardadas sin cabecera— se conserva lo que había.
+    _suyo = next((b for b in _bloques if _abre_el_articulo(b[0], int(num))), None)
+    if _suyo is None:
+        return norma
     partes, visto = [], set()
-    for pl in sorted(suyos, key=lambda z: int(z.get("chunk_index") or 0)):
-        # La migaja de cabecera «[Ley … | CAPITULO IV …]» se repite en cada
-        # trozo; una vez basta y en los demás estorba.
-        txt = re.sub(r"^\s*\[[^\]]{0,250}\]\s*", "",
-                     " ".join(str(pl.get("texto") or "").split()))
-        if txt and txt not in visto:
+    for txt in _suyo:
+        if txt not in visto:
             visto.add(txt)
             partes.append(txt)
     entero = " ".join(partes)

@@ -528,7 +528,7 @@ def anuncio_de(t: dict, anuncio_del_modelo: str = "") -> str:
     #
     # La condición es exactamente la misma que usa `escribir_cita` para decidir
     # dónde va el texto. Si cambia una, tiene que cambiar la otra.
-    _cuerpo = (t.get("texto") or "").strip()
+    _cuerpo = _sin_coletilla_de_organo(t.get("texto") or "")
     if _cuerpo and len(_cuerpo.split()) <= MAX_PALABRAS_TESIS_CUERPO:
         return frase + ", de rubro y texto siguientes:"
     return frase + ", de rubro siguiente:"
@@ -564,7 +564,7 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     # SE CONSERVA EN EL CUERPO CUANDO ES CORTO. Una tesis de cuatro renglones
     # leída al pie es una molestia sin ganancia; el problema son las de
     # trescientas palabras.
-    cuerpo = (t.get("texto") or "").strip()
+    cuerpo = _sin_coletilla_de_organo(t.get("texto") or "")
     _al_pie = len(cuerpo.split()) > MAX_PALABRAS_TESIS_CUERPO
     if cuerpo and not _al_pie:
         q = doc.add_paragraph()
@@ -617,6 +617,31 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 # LA TABLA DEL CÓMPUTO
 # ═══════════════════════════════════════════════════════════════════════════
+
+# EL ÓRGANO EMISOR VIENE PEGADO AL FINAL DEL TEXTO DE LA TESIS. Así lo publica
+# el Semanario y así está guardado en el acervo: «…viola el citado principio.
+# PRIMER TRIBUNAL COLEGIADO DEL OCTAVO CIRCUITO.». Al bajar el texto a la nota
+# al pie, esa coletilla quedaba como un párrafo suelto en mayúsculas detrás de
+# la transcripción —visto en la revisión fiscal 2/2026—, y encima contradice a
+# la instancia que la propia ficha ya declara dos líneas más arriba. El dato no
+# se pierde: la ficha lo dice mejor y en su sitio.
+_RX_ORGANO_AL_FINAL = re.compile(
+    r"\s*\n?\s*((?:PRIMER|SEGUNDO|TERCER|CUARTO|QUINTO|SEXTO|S[ÉE]PTIMO|OCTAVO|"
+    r"NOVENO|D[ÉE]CIMO|[IVXL]+)[^.\n]{0,120}TRIBUNAL[^.\n]{0,120}|"
+    r"(?:PRIMERA|SEGUNDA)\s+SALA[^.\n]{0,60}|PLENO[^.\n]{0,80}|"
+    r"TRIBUNALES\s+COLEGIADOS[^.\n]{0,80})\.\s*$")
+
+
+def _sin_coletilla_de_organo(texto: str) -> str:
+    """El texto de la tesis, sin el órgano emisor pegado al final."""
+    t = (texto or "").rstrip()
+    for _ in range(2):          # algunas traen órgano y «Esta tesis se publicó…»
+        nuevo = _RX_ORGANO_AL_FINAL.sub("", t).rstrip()
+        if nuevo == t:
+            break
+        t = nuevo
+    return t
+
 
 def _sin_partir(tabla) -> None:
     """`cantSplit`: la fila entera va a la página donde quepa."""
@@ -3756,7 +3781,20 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         _del_banco_proc = _bk.texto_de(tipo_asunto, "procedencia", _datos_bk)[0]
         if (_del_banco_proc or "").strip():
             _proc = _del_banco_proc
-    if (_proc or "").strip() and (
+    # NO SE DECLARA PROCEDENTE LO QUE SE VA A DESECHAR. Cuando el cómputo
+    # cierra por extemporaneidad, la ejecutoria tiene un solo resolutivo —«se
+    # desecha por extemporáneo»— y este apartado escribía, dos considerandos
+    # antes, «El recurso es procedente conforme al artículo 63, fracción VI».
+    # Salió firmado así en la revisión fiscal 2/2026: el SEGUNDO concluye la
+    # extemporaneidad, el TERCERO declara procedente el recurso y el SEXTO lo
+    # desecha. La oportunidad es presupuesto de la procedencia, de modo que
+    # pronunciarse sobre ésta después de negar aquélla no es sólo redundante:
+    # es contradictorio, y es lo primero que salta al leer el proyecto.
+    _cierra_extemp = bool(
+        getattr(computo, "cierra_por_extemporaneidad", None)
+        if hasattr(computo, "cierra_por_extemporaneidad")
+        else getattr(computo, "oportuna", None) is False)
+    if (_proc or "").strip() and not _cierra_extemp and (
             esq.get("procedencia_propia")
             or (esq["existencia"] and not (estructura.existencia or "").strip())):
         con_apartados.append(("Procedencia.",

@@ -160,6 +160,18 @@ def reloj_resumen(total: float = 0.0) -> str:
     return f"{partes}" + (f" · TOTAL {total:.1f}s" if total else "")
 
 
+def _registros_ya_estan(aviso: str, material) -> bool:
+    """¿Los registros que denuncia ese aviso están YA en el material?
+
+    El aviso lo escribe `fase6_estudio.revisar`, que corre antes de completar
+    las tesis citadas. Si después se trajeron del acervo, el aviso miente.
+    """
+    _rs = re.findall(r"\d{6,7}", aviso or "")
+    if not _rs:
+        return False
+    _hay = {str(t.get("registro", "")) for t in (getattr(material, "tesis", None) or [])}
+    return all(_r in _hay for _r in _rs)
+
 async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                   ruta_salida: str, texto_autos: str = "") -> Resultado:
     """El circuito entero. `cliente` es el AsyncOpenAI de main.py.
@@ -994,6 +1006,17 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                     avisos.append(f"{len(_nuevas)} tesis citadas se trajeron del acervo "
                                   f"para verificarlas y anunciarlas con su ficha: "
                                   f"{', '.join(_nuevas[:6])}{'…' if len(_nuevas) > 6 else ''}.")
+                    # Y SE RETIRA EL AVISO QUE ACABA DE QUEDAR FALSO. `revisar`
+                    # corrió ANTES que esto y denunció esos registros como «no
+                    # están en el material: no se citan hasta comprobarlos»; y
+                    # aquí se acaban de traer, verificar y fichar. El proyecto
+                    # salía con los dos avisos, uno contra el otro, y el
+                    # secretario no tiene con qué saber cuál vale. Medido en la
+                    # revisión fiscal 2/2026 con el registro 167062, que el
+                    # documento final SÍ cita, con su ficha completa al pie.
+                    avisos[:] = [_a for _a in avisos
+                                 if not (_a.startswith("REGISTROS QUE NO ESTÁN EN EL MATERIAL")
+                                         and _registros_ya_estan(_a, material))]
             except Exception as _ex2:
                 print(f"   ⚠️ no se pudieron completar las tesis citadas: {_ex2}")
         _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
@@ -1121,6 +1144,17 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                     avisos.append(f"{len(_nuevas)} tesis citadas se trajeron del acervo "
                                   f"para verificarlas y anunciarlas con su ficha: "
                                   f"{', '.join(_nuevas[:6])}{'…' if len(_nuevas) > 6 else ''}.")
+                    # Y SE RETIRA EL AVISO QUE ACABA DE QUEDAR FALSO. `revisar`
+                    # corrió ANTES que esto y denunció esos registros como «no
+                    # están en el material: no se citan hasta comprobarlos»; y
+                    # aquí se acaban de traer, verificar y fichar. El proyecto
+                    # salía con los dos avisos, uno contra el otro, y el
+                    # secretario no tiene con qué saber cuál vale. Medido en la
+                    # revisión fiscal 2/2026 con el registro 167062, que el
+                    # documento final SÍ cita, con su ficha completa al pie.
+                    avisos[:] = [_a for _a in avisos
+                                 if not (_a.startswith("REGISTROS QUE NO ESTÁN EN EL MATERIAL")
+                                         and _registros_ya_estan(_a, material))]
             except Exception as _ex2:
                 print(f"   ⚠️ no se pudieron completar las tesis citadas: {_ex2}")
         _pares = sorted(f6.preceptos_fuera(estudio, material)[1])
@@ -1318,7 +1352,11 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         with cronometrar("ensamblado"):
             ruta = ens.ensamblar(e.plantilla, relleno, ruta_salida)
     _, aviso_efectos = ens.formula_resolutivo(relleno.calificaciones)
-    if aviso_efectos:
+    # SALVO QUE LA EJECUTORIA NO CONCEDA NADA. Cuando el cómputo cierra por
+    # extemporaneidad, el único resolutivo desecha el recurso y el estudio se
+    # va al anexo: pedirle al secretario que redacte «los EFECTOS de la
+    # concesión» es mandarlo a corregir algo que su proyecto no tiene.
+    if aviso_efectos and not getattr(r.computo, "cierra_por_extemporaneidad", False):
         avisos.append(aviso_efectos)
     # Deduplicado: el aviso del nombre se dispara una vez por párrafo donde
     # aparece, y el secretario no necesita leer tres veces lo mismo.

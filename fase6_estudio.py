@@ -2198,8 +2198,22 @@ def _convencional_completo(estudio: str) -> str:
 
 
 def _cierre_operativo(estudio: str, criterios: list) -> str:
-    """Si se concede, los efectos van como órdenes numeradas y verificables."""
-    concede = any("fundado" in str(getattr(c, "sentido", "") or c).lower()
+    """Si se concede, los efectos van como órdenes numeradas y verificables.
+
+    EL SUBSTRING QUE DABA POR CONCEDIDO TODO LO NEGADO: «fundado» está dentro
+    de «in-fundado», así que `"fundado" in sentido` era cierto para CADA
+    planteamiento declarado infundado. Medido el 16-sep-2026 en la revisión
+    fiscal 2/2026: el proyecto desecha el recurso por extemporáneo y el aviso
+    le decía al secretario que revisara los EFECTOS DE LA CONCESIÓN. Un aviso
+    falso no es ruido inofensivo: se leen los veinticuatro, y los falsos
+    entierran a los verdaderos.
+
+    `tipos_asunto.prospera` es el único sitio donde se decide esto, y lleva
+    dentro la excepción que cuesta medir —«fundado_insuficiente» tiene
+    «fundad» y NO prospera—.
+    """
+    import tipos_asunto as _ta_ce
+    concede = any(_ta_ce.prospera(str(getattr(c, "sentido", "") or c))
                   for c in (criterios or []))
     if not concede or "efecto" not in (estudio or "").lower():
         return ""
@@ -2508,7 +2522,17 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     _es_laboral = bool(re.search(r"\blaboral\b|junta\s+(?:especial|local|federal)|"
                                  r"ley\s+federal\s+del\s+trabajo|trabajador",
                                  estudio, re.I))
-    if _es_laboral and re.search(r"\binoperant", estudio, re.I):
+    # LA VÍA MANDA SOBRE LA MATERIA. Este aviso invoca la suplencia del
+    # artículo 79, fracción V, de la Ley de Amparo, que rige el AMPARO. En una
+    # revisión fiscal no hay quejoso ni suplencia que aplicar, y el detector
+    # —que busca «trabajador» en el estudio— se dispara con cualquier asunto
+    # del IMSS: la revisión fiscal 2/2026 iba sobre la baja de un asegurado
+    # del régimen obligatorio y salió rotulada como asunto LABORAL. El mismo
+    # deslinde ya existe para el aviso hermano, en `_SIN_SUPLENCIA`.
+    import tipos_asunto as _ta_lab
+    _via_sin_suplencia = _ta_lab.normalizar(
+        getattr(material, "tipo_asunto", "") or "") in _SIN_SUPLENCIA
+    if _es_laboral and not _via_sin_suplencia and re.search(r"\binoperant", estudio, re.I):
         # MENCIONAR LA SUPLENCIA NO ES APLICARLA, y yo estaba dando por buena
         # la mención. El aviso se apagaba en cuanto el estudio escribía la
         # palabra; en el 382/2024 la escribió CINCO veces y no suplió ni una.
