@@ -30188,7 +30188,19 @@ async def taller_contexto(
 # No se decide por el secretario. Se para y se le dice cuáles son las dos
 # salidas, porque una de las dos es un error de dato y la otra es una sentencia
 # distinta que este redactor todavía no sabe escribir.
-def _decidir_oportunidad(r, via: str = "", motivo: str = "") -> None:
+# EL MOTIVO DE LA RESERVA AUTOMÁTICA. Se imprime LITERAL en la cabecera del
+# anexo, así que tiene que leerse como lo que es: un estudio hecho a propósito,
+# no un descuido. Y pasa de los cuarenta caracteres que `aplicar_decision`
+# exige, porque si no la decisión se cae en silencio —que es justo el fallo que
+# esto viene a cerrar—.
+MOTIVO_RESERVA_AUTO = (
+    "Se elabora el estudio de fondo a petición de quien proyecta, no obstante "
+    "el cómputo de extemporaneidad, para el caso de que no se comparta esa "
+    "conclusión al resolver.")
+
+
+def _decidir_oportunidad(r, via: str = "", motivo: str = "",
+                         hay_criterio: bool = False) -> None:
     """Lo que el secretario resuelve sobre un cómputo extemporáneo.
 
     David, 12-sep-2026: «si el cómputo es extemporáneo sólo avisar, pero nunca
@@ -30221,6 +30233,39 @@ def _decidir_oportunidad(r, via: str = "", motivo: str = "") -> None:
     c = getattr(r, "computo", None)
     if c is None:
         return
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # EL TRABAJO DEL SECRETARIO NO SE TIRA. NUNCA.
+    # ═══════════════════════════════════════════════════════════════════════
+    # David, tres veces, la última el 16-sep-2026: «a pesar de la
+    # extemporaneidad, si el secretario sigue trabajando en el proyecto el
+    # pipeline le debe dar el proyecto».
+    #
+    # Hasta hoy, con `decision` vacía el compositor sustituía el apartado de
+    # Estudio por el de improcedencia y TIRABA el fondo —que se le había
+    # pedido al modelo y se había pagado: 160 párrafos escritos, 58
+    # entregados—. El secretario calificaba sus cuatro problemas, pulsaba
+    # Generar, y recibía un sobreseimiento sin una letra de su trabajo.
+    #
+    # Que haya criterio ES la decisión: quien califica el fondo quiere el
+    # fondo. Se aplica la RESERVA —el estudio íntegro detrás de los
+    # resolutivos, en su anexo rotulado— y no la rectificación, porque
+    # rectificar el cómputo es una afirmación jurídica que sólo él puede
+    # firmar y no se le pone en la boca. La ejecutoria sigue siendo
+    # congruente: sobresee, y el estudio va aparte, dicho como lo que es.
+    if (not (via or "").strip() and hay_criterio
+            and getattr(c, "oportuna", None) is False
+            and not getattr(c, "en_cualquier_tiempo", False)):
+        via, motivo = "reserva", MOTIVO_RESERVA_AUTO
+        r.avisos.append(
+            "CALIFICASTE EL FONDO Y EL CÓMPUTO DA EXTEMPORÁNEA: el proyecto "
+            "sale COMPLETO, con tu estudio íntegro en el anexo de trabajo que "
+            "va detrás de los resolutivos. La ejecutoria, en cambio, sigue "
+            "resolviendo la improcedencia, porque cambiar eso exige que TÚ "
+            "declares que la presentación fue oportuna y digas por qué. Si lo "
+            "sostienes, elige «Fue oportuna» y escribe tu razón: el "
+            "considerando la lleva literal y el resolutivo entra al fondo.")
+
     try:
         import fase0_oportunidad as _f0d
         for a in (_f0d.aplicar_decision(c, via, motivo) or []):
@@ -30423,6 +30468,43 @@ async def taller_proponer(
     # asuntos que no se pueden resolver. Van delante de lo que escriba el
     # secretario, porque son el documento y él es el comentario.
     contexto = _con_autos(r, contexto)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # EL MATERIAL SE COMPLETA ANTES DE PROPONER, NO DESPUÉS
+    # ═══════════════════════════════════════════════════════════════════════
+    # Medido en la revisión fiscal 2/2026: el motor propuso a las 04:27 y los
+    # preceptos citados se completaron a las 04:33, durante el resolver. Los
+    # artículos 17 y 251 de la Ley del Seguro Social SÍ estaban en el acervo y
+    # SÍ se trajeron —seis minutos tarde—. Cuando el modelo tuvo que
+    # atreverse con el sentido no los tenía, y su prompt le prohíbe inventar:
+    # se abstuvo, el global salió nulo y la pantalla dijo «el motor no se
+    # atrevió con un sentido para todo el asunto».
+    #
+    # Aquí se le da lo que le falta ANTES de preguntarle: los preceptos que
+    # nombran las preguntas y los dos resúmenes, del acervo si están, y de su
+    # fuente oficial en línea si no. Con el precepto delante el motor propone;
+    # el sentido lo decide quien firma.
+    try:
+        import fase6_estudio as _f6e
+        import fase6_rag as _f6r
+        _texto_citas = "\n".join(
+            [str(p.get("pregunta") or "") for p in problemas]
+            + (r.fases.parrafos_acto() or [])
+            + (r.fases.parrafos_conceptos() or []))
+        _pares_prev = sorted(_f6e.preceptos_fuera(_texto_citas, ses["material"])[1])
+        if _pares_prev:
+            _traidos_prev = await _f6r.completar_preceptos(
+                qdrant_client, ses["material"], _pares_prev,
+                getattr(r.encargo, "coleccion_estatal", "") or None,
+                materia=str(getattr(r.encargo, "materia", "") or ""),
+                tipo_asunto=getattr(r.encargo, "tipo_asunto", "") or "")
+            if _traidos_prev:
+                print(f"   ⚖️ antes de proponer: {len(_traidos_prev)} precepto(s) "
+                      f"al material · {_traidos_prev}")
+                _taller_guardar_material(user_email, numero, ses["material"])
+    except Exception as _exc_prev:
+        print(f"   ⚠️ no se pudo completar el material antes de proponer: "
+              f"{type(_exc_prev).__name__}: {str(_exc_prev)[:120]}")
 
     propuestas, glob, avisos = await _f5.proponer(
         chat_client, problemas, ses["material"],
@@ -30733,7 +30815,10 @@ async def taller_resolver_stream(
             print(f"   ⚖️ autoridad corregida en pantalla: "
                   f"«{responsable.strip()[:70]}»")
 
-    _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo)
+    _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo,
+                         hay_criterio=bool((criterios_json or "").strip()
+                                           or (sentido_global or "").strip()
+                                           or (sentido or "").strip()))
 
     if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":
         try:
@@ -31224,7 +31309,10 @@ async def taller_resolver(
             print(f"   ⚖️ autoridad corregida en pantalla: "
                   f"«{responsable.strip()[:70]}»")
 
-    _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo)
+    _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo,
+                         hay_criterio=bool((criterios_json or "").strip()
+                                           or (sentido_global or "").strip()
+                                           or (sentido or "").strip()))
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
     # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
     # decidir— y era el que producía sentencias incongruentes: el estudio se

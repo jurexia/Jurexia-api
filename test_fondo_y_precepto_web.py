@@ -1,0 +1,129 @@
+# -*- coding: utf-8 -*-
+"""EL FONDO NO SE TIRA, Y EL PRECEPTO QUE FALTA SE BUSCA.
+
+David, 16-sep-2026, sobre la revisión fiscal 2/2026:
+  · «a pesar de la extemporaneidad, si el secretario sigue trabajando en el
+     proyecto el pipeline le debe dar el proyecto» (tercera vez que lo pide);
+  · «salió "el motor no se atrevió con un sentido para todo el asunto" porque
+     tuvo duda en dos por falta de acervo. Que un motor económico de búsqueda
+     en internet traiga el artículo faltante (y así lo diga)».
+"""
+import asyncio
+import datetime as dt
+import sys
+
+import busqueda_web as bw
+import fase0_oportunidad as f0
+import fase6_estudio as fe
+import fase6_rag as fr
+
+fallos = []
+def ok(c, nota):
+    print(f"  {'OK ' if c else 'MAL'} {nota}")
+    if not c: fallos.append(nota)
+
+# ══ A · con criterio y extemporaneidad, el fondo SALE ══
+def _computo_extemporaneo():
+    return f0.computar(dt.date(2025, 12, 4), dt.date(2026, 2, 20), "personal", 15)
+
+c = _computo_extemporaneo()
+ok(c.oportuna is False, "el cómputo de prueba es extemporáneo")
+ok(c.cierra_por_extemporaneidad and not c.fondo_en_reserva,
+   "sin decisión, hoy cerraría por improcedencia y sin fondo")
+
+# LA REGLA NUEVA, tal como la aplica main._decidir_oportunidad: con criterio
+# del secretario y cómputo extemporáneo sin decisión, se estampa «reserva».
+avisos = f0.aplicar_decision(c, "reserva", "Se elabora el estudio de fondo a "
+                             "petición de quien proyecta, no obstante el cómputo "
+                             "de extemporaneidad, para el caso de que no se "
+                             "comparta esa conclusión al resolver.")
+ok(c.decision == "reserva", f"la reserva se estampa: decision={c.decision!r}")
+ok(c.fondo_en_reserva is True, "→ fondo_en_reserva: el estudio SÍ se escribe")
+ok(c.cierra_por_extemporaneidad is True,
+   "y la ejecutoria sigue resolviendo la improcedencia (congruencia del 74-VI)")
+ok(any("anexo" in a.lower() for a in avisos), "y se dice dónde va el estudio")
+
+# el motivo corto se cae en silencio: por eso el automático es largo
+c2 = _computo_extemporaneo()
+f0.aplicar_decision(c2, "reserva", "ok")
+ok(c2.decision == "" and not c2.fondo_en_reserva,
+   "un motivo corto NO aplica la decisión — el automático debe pasar de "
+   f"{f0.MOTIVO_MINIMO} caracteres")
+import main as _m  # el motivo automático de verdad
+ok(len(_m.MOTIVO_RESERVA_AUTO) >= f0.MOTIVO_MINIMO,
+   f"el motivo automático mide {len(_m.MOTIVO_RESERVA_AUTO)} caracteres")
+c3 = _computo_extemporaneo()
+f0.aplicar_decision(c3, "reserva", _m.MOTIVO_RESERVA_AUTO)
+ok(c3.fondo_en_reserva is True, "y con él la reserva SÍ se aplica")
+
+# ══ B · el aviso deja de acusar a los traídos ══
+mat = fe.Material()
+mat.normas = [{"cuerpo_legal": "Ley del Seguro Social", "articulo": "17", "texto": "…"},
+              {"cuerpo_legal": "Ley del Seguro Social", "articulo": "251", "texto": "…"}]
+est = ("El artículo 17 de la Ley del Seguro Social obliga; el artículo 251 de la "
+       "Ley del Seguro Social faculta; y el artículo 150 del Reglamento Interior "
+       "del Instituto Mexicano del Seguro Social confiere competencia.")
+_, quedan = fe.preceptos_fuera(est, mat)
+ok(len(quedan) == 1 and list(quedan)[0][1] == "150",
+   f"tras completar, sólo se acusa el que de verdad falta: {sorted(quedan)}")
+
+# ══ C · el precepto ausente se busca en la web, marcado ══
+class _Q:
+    def scroll(s, collection_name, scroll_filter, limit, offset=None,
+               with_payload=True, with_vectors=False):
+        return ([], None)          # el acervo no lo tiene
+
+async def _falso_texto(cuerpo_legal, numero, estado=None):
+    return {"texto": "Artículo 150. Corresponde a los titulares…",
+            "url": "https://www.diputados.gob.mx/x.pdf",
+            "dominio": "diputados.gob.mx", "titulo": "RIIMSS"}
+
+_orig = bw.texto_de_articulo
+bw.texto_de_articulo = _falso_texto
+try:
+    m2 = fe.Material(); m2.normas = []
+    trajo = asyncio.run(fr.completar_preceptos(
+        _Q(), m2, [("reglamento interior del instituto mexicano del seguro social", "150")],
+        None, materia="administrativa", tipo_asunto="revision_fiscal"))
+finally:
+    bw.texto_de_articulo = _orig
+
+ok(len(m2.normas) == 1, "el precepto que el acervo no tiene entra al material")
+n = m2.normas[0] if m2.normas else {}
+ok(n.get("de_internet") is True, "y viaja MARCADO como traído de internet")
+ok(n.get("dominio") == "diputados.gob.mx", f"con su dominio: {n.get('dominio')}")
+ok("fuente" not in n,
+   "y NO usa la clave «fuente», que el compositor lee como nombre de la ley")
+ok(any("diputados.gob.mx" in x for x in trajo), f"y se reporta como tal: {trajo}")
+
+# la nota al pie lo dice
+import docx, documento_generado as dg
+d = docx.Document(); notas = []
+p_ = d.add_paragraph("Conforme al artículo 150 del Reglamento Interior del "
+                     "Instituto Mexicano del Seguro Social, la autoridad…")
+dg.notas_de_articulos(d, p_, p_.text, m2.normas, notas)
+ok(notas and "no del acervo verificado" in notas[0],
+   f"la nota al pie avisa del origen: …{notas[0][-90:] if notas else '(sin nota)'}")
+
+# ══ D · sin fuente oficial, no hay precepto ══
+async def _sin_fuente(cuerpo_legal, numero, estado=None):
+    return {}
+bw.texto_de_articulo = _sin_fuente
+try:
+    m3 = fe.Material(); m3.normas = []
+    asyncio.run(fr.completar_preceptos(
+        _Q(), m3, [("ley inventada", "9")], None, materia="administrativa"))
+finally:
+    bw.texto_de_articulo = _orig
+ok(not m3.normas, "si la web no da fuente oficial, NO se inventa el precepto")
+
+# ══ E · el filtro de dominios ══
+ok(bw._es_oficial("diputados.gob.mx", bw.AGENTE_ARTICULO["cotos"]), "diputados.gob.mx entra")
+ok(bw._es_oficial("ordenjuridico.gob.mx", bw.AGENTE_ARTICULO["cotos"]), "ordenjuridico.gob.mx entra")
+ok(not bw._es_oficial("leyes-mx.com", bw.AGENTE_ARTICULO["cotos"]), "leyes-mx.com NO entra")
+ok(not bw._es_oficial("justia.com", bw.AGENTE_ARTICULO["cotos"]), "justia.com NO entra")
+
+print()
+if fallos:
+    print(f"FALLAN {len(fallos)}: " + " · ".join(fallos)); sys.exit(1)
+print("TODAS LAS COMPROBACIONES PASAN")

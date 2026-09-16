@@ -1788,6 +1788,16 @@ def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
         cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "", cuerpo,
                         flags=re.I)
         pie = f"«Artículo {num}. {cuerpo}» — {_ley}".strip()
+        # DE DÓNDE SALIÓ ESTE TEXTO. Los preceptos que el acervo no tenía se
+        # traen de su fuente oficial en línea, y eso TIENE que verse en la
+        # nota: quien firma no puede distinguir a ojo un artículo verificado
+        # contra la base de uno transcrito de un sitio, y la diferencia
+        # importa. `fuente` no sirve para marcarlo —arriba se lee como
+        # sinónimo del nombre de la ley—, así que la marca es `de_internet`.
+        if n.get("de_internet"):
+            _dom = str(n.get("dominio") or "").strip()
+            pie += (f" · TEXTO TOMADO DE {_dom or 'una fuente en línea'}, "
+                    f"no del acervo verificado: COTÉJALO antes de firmar")
         if pie in notas:
             continue
         notas.append(pie)

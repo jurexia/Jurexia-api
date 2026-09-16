@@ -1003,8 +1003,17 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                 materia=str(getattr(e, "materia", "") or ""),
                 tipo_asunto=getattr(e, "tipo_asunto", "") or "")
             if _traidos:
-                _quedan = [x for x in _pares
-                           if f"art. {x[1]} — {x[0]}" not in _traidos]
+                # SE LE PREGUNTA OTRA VEZ AL MATERIAL, NO SE COMPARAN CADENAS.
+                # Esto decía `f"art. {x[1]} — {x[0]}" not in _traidos`, y
+                # comparaba el nombre CITADO por el estudio —«ley del seguro
+                # social», en minúsculas— contra el nombre OFICIAL del acervo
+                # —«Ley del Seguro Social»—, que no coinciden nunca. Medido en
+                # la revisión fiscal 2/2026: los artículos 17 y 251 SÍ se
+                # trajeron, y el aviso los siguió acusando como ausentes junto
+                # al que de verdad faltaba. Un aviso que acusa a los inocentes
+                # enseña a no leer los avisos. El material ya completado es la
+                # única fuente de verdad sobre qué sigue faltando.
+                _quedan = sorted(f6.preceptos_fuera(estudio, material)[1])
                 avisos = [a for a in avisos
                           if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
                 if _quedan:
@@ -1107,8 +1116,17 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                 materia=str(getattr(e, "materia", "") or ""),
                 tipo_asunto=getattr(e, "tipo_asunto", "") or "")
             if _traidos:
-                _quedan = [x for x in _pares
-                           if f"art. {x[1]} — {x[0]}" not in _traidos]
+                # SE LE PREGUNTA OTRA VEZ AL MATERIAL, NO SE COMPARAN CADENAS.
+                # Esto decía `f"art. {x[1]} — {x[0]}" not in _traidos`, y
+                # comparaba el nombre CITADO por el estudio —«ley del seguro
+                # social», en minúsculas— contra el nombre OFICIAL del acervo
+                # —«Ley del Seguro Social»—, que no coinciden nunca. Medido en
+                # la revisión fiscal 2/2026: los artículos 17 y 251 SÍ se
+                # trajeron, y el aviso los siguió acusando como ausentes junto
+                # al que de verdad faltaba. Un aviso que acusa a los inocentes
+                # enseña a no leer los avisos. El material ya completado es la
+                # única fuente de verdad sobre qué sigue faltando.
+                _quedan = sorted(f6.preceptos_fuera(estudio, material)[1])
                 avisos = [a for a in avisos
                           if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
                 if _quedan:

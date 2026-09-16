@@ -209,6 +209,117 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
         return vacio
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL TEXTO DE UN ARTÍCULO QUE EL ACERVO NO TIENE
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 16-sep-2026, sobre la revisión fiscal 2/2026: «salió "el motor no se
+# atrevió con un sentido para todo el asunto" porque tuvo duda en dos por
+# falta de acervo. Ésta es una oportunidad única para que un motor económico
+# de búsqueda en internet traiga el artículo faltante (y así lo diga). Con
+# esto el motor siempre propondrá la solución sí o sí».
+#
+# Tenía razón y el caso lo enseña entero: el problema principal de ese asunto
+# era si el artículo 150, fracción XIX, del Reglamento Interior del IMSS
+# faculta a una autoridad, y ese reglamento NO ESTÁ en ninguna colección. Sin
+# el precepto, el modelo hizo lo que su prompt le manda —no inventar— y se
+# abstuvo. Con el precepto delante puede proponer, y el sentido lo decide
+# quien firma.
+#
+# TRES CANDADOS, porque esto entra en un proyecto de sentencia:
+#   1. Sólo dominios OFICIALES: el mismo filtro duro de los demás agentes.
+#      diputados.gob.mx y ordenjuridico.gob.mx publican los textos vigentes;
+#      leyes-mx.com y justia.com no entran jamás.
+#   2. Viaja MARCADO como `de_internet`, con su dominio y su URL, y el
+#      compositor lo dice en la nota al pie. Nunca se confunde con el acervo.
+#   3. Si no sale texto o no sale fuente oficial, no se devuelve nada: el
+#      hueco declarado sigue siendo mejor que un texto de procedencia dudosa.
+AGENTE_ARTICULO = {
+    "id": "articulo",
+    "etiqueta": "Texto del precepto",
+    "cotos": OFICIALES_FEDERALES + OFICIALES_JUDICIALES,
+}
+
+
+async def texto_de_articulo(cuerpo_legal: str, numero: str,
+                            estado: Optional[str] = None) -> Dict[str, Any]:
+    """El texto literal de un artículo, traído de su fuente oficial en línea.
+
+    Devuelve {"texto", "url", "dominio", "titulo"} o {} si no se pudo. Nunca
+    lanza: quien llama sigue su camino con el hueco declarado, que es como
+    estaba antes de esto.
+    """
+    vacio: Dict[str, Any] = {}
+    ley = " ".join((cuerpo_legal or "").split())
+    num = str(numero or "").strip()
+    if not WEB_ACTIVA or not ley or not num:
+        return vacio
+    if not OPENROUTER_API_KEY:
+        print("   🌐 Falta OPENROUTER_API_KEY — no se busca el precepto")
+        return vacio
+    try:
+        import httpx
+
+        donde = f" (ámbito: {estado})" if estado else ""
+        instruccion = (
+            f"Transcribe el TEXTO VIGENTE del artículo {num} de la siguiente "
+            f"norma mexicana: {ley}{donde}.\n\n"
+            "REGLAS:\n"
+            "- Devuelve el texto del artículo TAL CUAL está publicado, con sus "
+            "fracciones si las tiene. Nada de resúmenes ni de explicaciones.\n"
+            "- Búscalo en la fuente oficial: diputados.gob.mx, "
+            "ordenjuridico.gob.mx, dof.gob.mx o el sitio oficial del "
+            "organismo que expide la norma.\n"
+            "- Si el artículo fue derogado o reformado, dilo en una frase al "
+            "final.\n"
+            "- Si NO encuentras ese artículo en una fuente oficial, responde "
+            "exactamente: NO LOCALIZADO. No lo redactes de memoria."
+        )
+
+        async with httpx.AsyncClient(timeout=WEB_TIMEOUT) as cli:
+            r = await cli.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                json={"model": WEB_MODELO,
+                      "messages": [{"role": "user", "content": instruccion}],
+                      "max_tokens": 900},
+            )
+            r.raise_for_status()
+            d = r.json()
+
+        msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
+        texto = (msg.get("content") or "").strip()
+        if not texto or "NO LOCALIZADO" in texto.upper()[:400]:
+            print(f"   🌐 artículo {num} de «{ley[:40]}»: no localizado")
+            return vacio
+
+        crudas = []
+        for a in (msg.get("annotations") or []):
+            uc = a.get("url_citation") or {}
+            if uc.get("url"):
+                crudas.append((uc.get("title") or "", uc["url"]))
+        for u in (d.get("citations") or []):
+            crudas.append(("", u))
+
+        for titulo, url in crudas:
+            dom = _dominio(url)
+            if dom and _es_oficial(dom, AGENTE_ARTICULO["cotos"]):
+                print(f"   🌐 artículo {num} de «{ley[:40]}» traído de {dom}")
+                return {"texto": texto[:4000], "url": url, "dominio": dom,
+                        "titulo": (titulo or dom)[:140]}
+
+        # SIN FUENTE OFICIAL NO HAY PRECEPTO. Sonar contesta igual desde un
+        # blog, y un artículo de ley sacado de un blog en un proyecto de
+        # sentencia es peor que el hueco.
+        print(f"   🌐 artículo {num} de «{ley[:40]}»: "
+              f"{len(crudas)} citas, ninguna oficial — se descarta")
+        return vacio
+
+    except Exception as e:
+        print(f"   🌐 artículo {num} de «{ley[:40]}» falló "
+              f"({type(e).__name__}: {str(e)[:80]})")
+        return vacio
+
+
 def lanzar_agentes(consulta: str, estado: Optional[str] = None) -> List[asyncio.Task]:
     """
     Lanza los agentes y devuelve sus TAREAS, sin esperarlas.

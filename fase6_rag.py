@@ -454,6 +454,9 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
                    for n in (material.normas or [])}
     silo = SILO_POR_MATERIA.get((materia or "").strip().lower())
     anadidos = []
+    # Los que no estaban en ninguna colección y se trajeron de su fuente
+    # oficial en línea. Se llevan aparte para poder decirlo en el registro.
+    de_la_web: list = []
     for cuerpo, art in pares:
         try:
             num = int(art)
@@ -486,7 +489,45 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
             if hallado:
                 break
         if not hallado:
+            # ═══════════════════════════════════════════════════════════════
+            # LO QUE EL ACERVO NO TIENE, SE BUSCA EN SU FUENTE OFICIAL
+            # ═══════════════════════════════════════════════════════════════
+            # Hasta aquí se rendía con un `continue` y el hueco quedaba
+            # declarado. David, 16-sep-2026: «que un motor económico de
+            # búsqueda en internet traiga el artículo faltante (y así lo
+            # diga). Con esto el motor siempre propondrá la solución».
+            #
+            # En la revisión fiscal 2/2026 el hueco era el artículo 150 del
+            # Reglamento Interior del IMSS —que no está en ninguna colección—
+            # y era EL EJE del problema principal: sin él, el modelo hizo lo
+            # que su prompt le manda y se abstuvo de proponer.
+            #
+            # Lo que se trae viaja MARCADO: `de_internet`, con su dominio y su
+            # URL. No es acervo verificado y en ningún sitio se hace pasar por
+            # tal; el compositor lo dice en la nota al pie.
             print(f"   ⚖️ RAG: el artículo {num} de «{cuerpo}» no está en {cols or 'ninguna colección'}")
+            _dela_web = {}
+            try:
+                import busqueda_web as _bw
+                _dela_web = await _bw.texto_de_articulo(cuerpo, str(art))
+            except Exception as _exw:
+                print(f"   🌐 no se pudo buscar el artículo {num} en la web: "
+                      f"{type(_exw).__name__}")
+            if not _dela_web.get("texto"):
+                continue
+            norma_web = {
+                "cuerpo_legal": cuerpo,
+                "articulo": str(art),
+                "texto": _dela_web["texto"],
+                # La marca. `fuente` NO se usa: el compositor la lee como
+                # sinónimo del nombre de la ley y acabaría escribiendo
+                # «— internet» donde va el ordenamiento.
+                "de_internet": True,
+                "url": _dela_web.get("url", ""),
+                "dominio": _dela_web.get("dominio", ""),
+            }
+            material.normas.append(norma_web)
+            de_la_web.append(f"art. {art} — {cuerpo} ({_dela_web.get('dominio','')})")
             continue
         col, norma = hallado
         norma = await _completar(qdrant, col, norma)
@@ -494,7 +535,10 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
         anadidos.append(f"art. {art} — {norma.get('cuerpo_legal')}")
     if anadidos:
         print(f"   ⚖️ RAG: {len(anadidos)} precepto(s) citados traídos del acervo: {anadidos}")
-    return anadidos
+    if de_la_web:
+        print(f"   🌐 RAG: {len(de_la_web)} precepto(s) traídos de INTERNET "
+              f"(no del acervo): {de_la_web}")
+    return anadidos + de_la_web
 
 
 async def completar_tesis_citadas(qdrant, material, citas: list, tipo_asunto: str = "") -> list:
