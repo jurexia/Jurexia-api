@@ -547,7 +547,16 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     r.bold = True
     _fmt(p, sangria=False, tamano=TAMANO_CITA, interlineado=INTERLINEADO_CITA)
     p.paragraph_format.left_indent = Cm(1.25)
-    p.paragraph_format.keep_with_next = True
+    # EL RUBRO SÓLO SE ATA A ALGO SI HAY ALGO DEBAJO.
+    # `keep_with_next` existe para que el rubro no quede huérfano del texto de
+    # su tesis. Cuando ese texto baja a la nota al pie —que es lo normal, son
+    # tesis de trescientas palabras— debajo del rubro no queda nada suyo, y
+    # atarlo al párrafo siguiente hace que Word empuje los dos a la página
+    # próxima en cuanto la nota ocupa el pie. Es el salto en blanco de media
+    # hoja de la revisión fiscal 2/2026: página 28, el anuncio arriba, quince
+    # centímetros vacíos y el rubro solo al principio de la 29.
+    # Se decide abajo, cuando ya se sabe si el texto se queda o baja.
+    _rubro = p
 
     # EL TEXTO DE LA TESIS BAJA A LA NOTA AL PIE. Iba íntegro en el cuerpo, y
     # eso es lo que hace que un estudio con seis criterios invocados quede
@@ -566,6 +575,9 @@ def escribir_cita(doc, t: dict, anuncio: str, notas: list) -> None:
     # trescientas palabras.
     cuerpo = _sin_coletilla_de_organo(t.get("texto") or "")
     _al_pie = len(cuerpo.split()) > MAX_PALABRAS_TESIS_CUERPO
+    # Atado sólo si su texto va debajo; si va al pie, el rubro fluye y el aire
+    # lo pone su espaciado: un renglón, no media página.
+    _rubro.paragraph_format.keep_with_next = bool(cuerpo and not _al_pie)
     if cuerpo and not _al_pie:
         q = doc.add_paragraph()
         rq = q.add_run(cuerpo)
@@ -1809,10 +1821,15 @@ def cuerpo_para_transcribir(texto: str, num, ley: str = "") -> str:
     cuerpo = _RX_MIGAJA.sub("", " ".join(str(texto or "").split()))
     # La cabecera ya hizo su trabajo —probar de quién es el texto— y estorba
     # dentro de la comilla, porque el compositor escribe la suya.
+    # La comilla de apertura va DELANTE de la cabecera cuando el texto viene
+    # transcrito de su fuente oficial: «Artículo 150. “Artículo 150. Son
+    # atribuciones…». El recorte exigía que la cabecera empezara el texto y la
+    # comilla se lo impedía, así que el rótulo salía dos veces.
     for _ in range(2):
-        cuerpo = re.sub(r"^\s*ART(?:[ÍI]CULOS?)?\.?\s*\d+[^.]{0,14}\.?\s*[-–]?\s*",
-                        "", cuerpo, flags=re.I)
-    return cuerpo.strip()
+        cuerpo = re.sub(
+            r"^[\s«»\"'“”]*ART(?:[ÍI]CULOS?)?\.?\s*\d+[^.]{0,14}\.?\s*[-–]?\s*",
+            "", cuerpo, flags=re.I)
+    return cuerpo.strip(" \t«»\"'“”")
 
 
 def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
@@ -3219,22 +3236,6 @@ def _bloque_sintesis(doc, sintesis: dict) -> bool:
     return True
 
 
-def _bloque_firmas(doc, datos):
-    # SIN LA BARRA, igual que en la carátula. Se me escapó aquí al arreglarla
-    # arriba: el mismo documento decía «SECRETARIO:» en el rubro y
-    # «SECRETARIA/O DE TRIBUNAL» al pie.
-    for etiqueta, quien in (("MAGISTRADO PONENTE", datos.get("magistrado", "")),
-                            (_rotulo_secretario(str(datos.get("secretario", "")))
-                             + " DE TRIBUNAL", datos.get("secretario", ""))):
-        if not quien:
-            continue
-        parrafo(doc, "", sangria=False)
-        parrafo(doc, etiqueta, sangria=False, negrita=True,
-                alineacion=WD_ALIGN_PARAGRAPH.CENTER, interlineado=1.0)
-        parrafo(doc, str(quien).upper(), sangria=False, negrita=True,
-                alineacion=WD_ALIGN_PARAGRAPH.CENTER, interlineado=1.0)
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # «NO CONSTA EL SENTIDO DE LA SENTENCIA RECURRIDA», CUANDO SÍ CONSTA
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4584,10 +4585,13 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # Su propia regla de escape —devolver el título vacío si el recurso se
     # desechó— no puede dispararse, porque el estudio de fondo nunca habla de
     # la oportunidad. Así que la guarda va aquí, donde sí se sabe.
-    if _extemp:
-        _bloque_firmas(doc, datos)
-    elif not _bloque_sintesis(doc, sintesis or {}):
-        _bloque_firmas(doc, datos)
+    # SIN FIRMAS AL PIE. David, 16-sep-2026: «los nombres de magistrado y
+    # secretario no tienen que ir hasta abajo, quita esa regla». Ya están en la
+    # carátula, que es donde se leen, y el engrose los firma cuando se firma:
+    # el proyecto que sale del taller es un borrador para trabajar, y un pie de
+    # firmas invita a tratarlo como si ya estuviera.
+    if not _extemp:
+        _bloque_sintesis(doc, sintesis or {})
 
     # ═══════════════════════════════════════════════════════════════════════
     # EL ESTUDIO EN RESERVA — DETRÁS DE LOS RESOLUTIVOS, FUERA DE LA EJECUTORIA

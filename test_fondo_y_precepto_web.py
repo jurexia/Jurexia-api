@@ -173,8 +173,13 @@ ok("Razón declarada por quien proyecta" in _src and "not _auto_r" in _src,
    "y sólo imprime «razón declarada» cuando de verdad la declaró")
 
 # G3 · la hoja que circula no propone el fondo si el resolutivo desecha
-_j = _src.index("if _extemp:\n        _bloque_firmas")
-ok(_j > 0, "con extemporaneidad, la SÍNTESIS no se escribe: sólo las firmas")
+# El pie de firmas se retiró el 16-sep-2026 —David: «los nombres de magistrado
+# y secretario no tienen que ir hasta abajo»—, así que lo que se comprueba es
+# lo que siempre importó: que con un cómputo extemporáneo NO salga la hoja de
+# síntesis proponiendo un fondo que el resolutivo no resuelve.
+ok("if not _extemp:\n        _bloque_sintesis" in _src,
+   "con extemporaneidad, la SÍNTESIS no se escribe")
+ok("_bloque_firmas" not in _src, "y el proyecto ya no lleva firmas al pie")
 
 # G4 · el candado del acervo estatal no se salta por la web
 _srcr = _i2.getsource(fr)
