@@ -12221,11 +12221,20 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             blocked_res, quota_res = await asyncio.gather(blocked_task, quota_task)
             
             # Check blocked
+            #
+            # BLOQUEADO NO ES SUSPENDIDO (15-sep-2026). Hasta hoy este camino
+            # decía «tu cuenta ha sido suspendida», las mismas palabras que se
+            # le dicen a quien no pudimos cobrarle — y a ése se le promete que
+            # se reactiva pagando. Al bloqueado por disputa no: su suscripción
+            # está cancelada y no hay pago que la abra. Darle el mensaje del
+            # moroso lo manda a buscar una caja que no existe.
             if blocked_res.data:
-                print(f"🚫 BLOCKED USER attempted chat: {request.user_id}")
+                print(f"🚫 CUENTA BLOQUEADA intentó consultar: {request.user_id}")
                 return {
-                    "error": "account_suspended",
-                    "message": "Tu cuenta ha sido suspendida. Contacta a soporte para más información.",
+                    "error": "cuenta_bloqueada",
+                    "message": ("Tu cuenta está bloqueada porque se desconoció un cargo ante tu "
+                                "institución bancaria, y tu suscripción fue cancelada. Si fue un "
+                                "error, escríbenos a soporte@iurexia.com y lo revisamos."),
                     "status_code": 403
                 }
                 
@@ -12238,6 +12247,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # enseñarle dónde pagar; si se le contesta que agotó su
                     # límite, se pone a buscar un botón que no existe y acaba
                     # escribiendo a soporte —o cancelando— por un malentendido.
+                    # `consume_query` también mira el bloqueo desde hoy, y lo
+                    # mira ANTES que la cuota: es la puerta.
+                    if q_data.get('error') == 'cuenta_bloqueada':
+                        return {
+                            "error": "cuenta_bloqueada",
+                            "message": ("Tu cuenta está bloqueada porque se desconoció un cargo ante "
+                                        "tu institución bancaria, y tu suscripción fue cancelada. Si "
+                                        "fue un error, escríbenos a soporte@iurexia.com."),
+                            "status_code": 403,
+                        }
                     if q_data.get('error') == 'suscripcion_suspendida':
                         return {
                             "error": "suscripcion_suspendida",
