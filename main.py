@@ -28744,6 +28744,19 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
         # más viejo. Doce caben de sobra en el jsonb y es más de lo que nadie
         # regenera en un asunto.
         _antes = [x for x in (est.get("proyectos") or []) if isinstance(x, dict)]
+        # EL DE ANTES DE LA PILA NO SE TIRA. Medido el 16-sep-2026 sobre el
+        # 61/2025: el asunto tenía un proyecto guardado en `proyecto` y al
+        # generar el segundo la pila nacía con UNO solo —el nuevo—, de modo
+        # que el secretario que probó dos salidas volvía a ver una. Se siembra
+        # como la primera versión, pero diciendo que su .docx no está
+        # archivado aparte: vivía en la ruta sin número y el que acaba de
+        # generarse lo pisa. Su sentido, sus palabras y su fecha —que es lo
+        # que sirve para comparar— sí se conservan.
+        if not _antes and isinstance(est.get("proyecto"), dict):
+            _viejo = dict(est["proyecto"])
+            _viejo["version"] = 1
+            _viejo["sin_copia"] = True
+            _antes = [_viejo]
         ficha["version"] = len(_antes) + 1
         est["proyecto"] = ficha
         est["proyectos"] = ([ficha] + _antes)[:12]
@@ -31422,10 +31435,35 @@ async def taller_descargar(numero: str, user_email: str = "", version: int = 0):
                          f'attachment; filename="{numero.replace("/", "-")}'
                          f'-v{int(version)}.docx"'})
         except Exception:
-            # La versión pedida no está archivada —por ejemplo, las de antes
-            # de que esto existiera—: se cae al último, que sí está.
-            print(f"   ⚠️ TALLER: no hay copia v{version} de {numero}; "
-                  f"se devuelve la última")
+            # NO ESTÁ ARCHIVADA. Caer al último sólo es honrado cuando el que
+            # se pide ES el último: la copia numerada falta, pero el documento
+            # de esa versión es el que vive en la ruta de siempre. Para
+            # cualquier otra, servir el último bajo el nombre «-vN.docx» es
+            # entregar un documento por otro —medido el 16-sep-2026: pedir la
+            # v2 del 61/2025, que no existe, devolvía la v1 con nombre de v2—
+            # y en un proyecto de sentencia eso no es un detalle.
+            # La pila vive en el `estado` de la base, no en la sesión que
+            # guarda el proceso: se lee de donde está.
+            _ult = 0
+            try:
+                _rp = supabase_admin.table("taller_sesiones").select("estado") \
+                    .eq("email", (user_email or "").strip().lower()) \
+                    .eq("expediente", numero).limit(1).execute()
+                _est = (_rp.data or [{}])[0].get("estado") or {}
+                _ult = max([int(x.get("version") or 0)
+                            for x in (_est.get("proyectos") or [])
+                            if isinstance(x, dict)] or [0])
+            except Exception as _exp:
+                print(f"   ⚠️ TALLER: no se pudo leer la pila de {numero}: "
+                      f"{type(_exp).__name__}")
+            if int(version) != _ult:
+                raise HTTPException(
+                    404, f"La versión {int(version)} de ese proyecto no está "
+                         f"archivada. Se guardan las que se generaron desde "
+                         f"que el taller conserva cada una; de las anteriores "
+                         f"queda la constancia, no el documento.")
+            print(f"   ⚠️ TALLER: no hay copia v{version} de {numero}, pero es "
+                  f"la última: se devuelve la de la ruta de siempre")
     ses = _taller_recuperar_sesion(user_email, numero) if user_email else None
     ruta = (ses or {}).get("salida") or ""
     if ruta and _os.path.exists(ruta) and not version:
@@ -31910,7 +31948,11 @@ async def taller_en_curso(user_email: str, limite: int = 6):
                  "avisos": len(x.get("avisos") or []),
                  "sentido_global": x.get("sentido_global") or "",
                  "modo": x.get("modo") or "",
-                 "nombre": x.get("nombre") or ""}
+                 "nombre": x.get("nombre") or "",
+                 # Sin copia propia: consta lo que se resolvió, pero el
+                 # documento de ESA versión ya no existe. La pantalla no debe
+                 # ofrecer un «Abrir» que sirva otro.
+                 "sin_copia": bool(x.get("sin_copia"))}
                 for x in _pila][:12],
         })
     return {"asuntos": [a for a in fuera if a["numero"]]}
