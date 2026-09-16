@@ -31902,7 +31902,9 @@ async def taller_en_curso(user_email: str, limite: int = 6):
             # pestaña de historial». Son las veces que cambió de sentido y
             # volvió a generar; cada uno con su sentido y su documento.
             "proyectos": [
-                {"version": int(x.get("version") or 0),
+                # `or 1` por los de antes de la pila: su ficha no llevaba
+                # número y son, exactamente, la primera versión del asunto.
+                {"version": int(x.get("version") or 1),
                  "generado_en": x.get("generado_en") or "",
                  "palabras": int(x.get("palabras") or 0),
                  "avisos": len(x.get("avisos") or []),
