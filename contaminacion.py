@@ -45,6 +45,10 @@ _SIN_TRATAMIENTO = re.compile(
     r"^(?:C\.|Lic\.|Licenciad[oa]|Doctor[a]?|Dr[a]?\.|Magistrad[oa]s?|"
     r"Ministr[oa]s?|Juez[a]?|Jueces|Secretari[oa]s?(?:\s+de\s+Tribunal)?|"
     r"President[ea]|Titular|Señor[a]?|Maestr[oa]|Mtr[oa]\.)\s+", re.I)
+_RX_DETERMINANTE = re.compile(
+    r"^(?:Una?|Unos?|Unas?|El|La|Los|Las|Est[ae]|Estos|Estas|Es[ae]|Esos|Esas|"
+    r"Dicho|Dicha|Dichos|Dichas|Su|Sus|Cada|Otr[oa]s?|Todo|Toda|Todos|Todas|"
+    r"Mism[oa]s?|Aquell[oa]s?|Ambos|Ambas|Varios|Varias)\s", re.I)
 _RX_EXPEDIENTE = re.compile(r"\b(\d{1,5}\s*/\s*\d{2,4})\b")
 _RX_CANTIDAD = re.compile(r"\$\s?([\d,]{3,}\.?\d{0,2})")
 
@@ -160,6 +164,12 @@ def revisar(sentencia: str, fuentes: list, encargo: dict) -> list:
     for m in _RX_NOMBRE.finditer(limpio):
         n = m.group(1).strip()
         if _generico(n) or len(n) < 8:
+            continue
+        # UN DETERMINANTE NO EMPIEZA UN NOMBRE PROPIO. El patrón captura
+        # «Una Sala», «La Segunda Sala», «El Instituto» y los denunciaba como
+        # datos de otro asunto: son sintagmas comunes de una sentencia, no
+        # personas. Visto en la revisión fiscal 2/2026 con «Una Sala» ×1.
+        if _RX_DETERMINANTE.match(n):
             continue
         # EL CARGO VIAJA PEGADO AL NOMBRE Y EL ENCARGO NO LO TRAE. El patrón
         # captura «Magistrado Luis Armando Pérez Topete» de una pieza; el

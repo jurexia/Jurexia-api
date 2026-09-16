@@ -2226,6 +2226,15 @@ def _cierre_operativo(estudio: str, criterios: list) -> str:
     return ""
 
 
+# Palabras con las que una sentencia se refiere a una ley YA nombrada, en vez
+# de nombrarla. Nunca forman parte del nombre de un ordenamiento.
+_RX_ANAFORICA = re.compile(
+    r"\b(relativ[ao]s?|citad[ao]s?|invocad[ao]s?|mencionad[ao]s?|aludid[ao]s?|"
+    r"referid[ao]s?|indicad[ao]s?|se[ñn]alad[ao]s?|aplicable|aplicables|"
+    r"en\s+cita|en\s+consulta|de\s+la\s+materia|del\s+ramo|en\s+comento|"
+    r"de\s+m[ée]rito|supracitad[ao]s?|antes\s+citad[ao]s?)\b", re.I)
+
+
 def preceptos_fuera(estudio: str, material: Material) -> tuple:
     """(etiquetas, pares) de los artículos que el estudio cita y el material no
     trae. Las etiquetas van al aviso; los pares —(cuerpo legal, artículo)— se
@@ -2283,6 +2292,15 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
                     _corte = _i
                     break
             _citado = " ".join(_pal[:_corte]).lower()
+            # UN NOMBRE ANAFÓRICO NO NOMBRA NINGUNA LEY. «la ley federal
+            # RELATIVA», «el código CITADO», «la ley INVOCADA» apuntan a una
+            # ley nombrada antes; tomarlos por nombre propio produce un
+            # precepto fantasma que el secretario no puede comprobar porque no
+            # existe. Salió en la revisión fiscal 2/2026 —«art. 50 — ley
+            # federal relativa»— leyendo el rubro de una tesis, que va en
+            # mayúsculas y por eso el corte por minúscula no lo vio.
+            if _RX_ANAFORICA.search(_citado):
+                _citado = ""
         try:
             import fase6_rag as _f6r_id
             _misma = _f6r_id.misma_ley
@@ -2341,7 +2359,13 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
                                  r"consagra|reconoce|garantiza|sanciona|obliga|otorga|confiere|prescribe|"
                                  r"contiene|precisa|indica|refiere|dice|es|son|fue|era|y|que|en|al|con|sin|"
                                  r"cuyo|cuya|donde|as[íi]|tambi[ée]n)\b.*$", "", _nombre)
-                if len(_nombre) >= 8:
+                # NI AQUÍ UN NOMBRE ANAFÓRICO. Este camino lee el nombre tal
+                # como está escrito, y en el rubro de una tesis —que va en
+                # mayúsculas— «LA LEY FEDERAL RELATIVA» pasaba entero: se
+                # mandaba a buscar al acervo y a la web una ley que no existe,
+                # y el aviso le pedía al secretario comprobar un precepto
+                # fantasma.
+                if len(_nombre) >= 8 and not _RX_ANAFORICA.search(_nombre):
                     fuera.add(f"art. {art} — {_nombre}")
                     pares.add((_nombre, str(art)))
     return fuera, pares
