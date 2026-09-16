@@ -31871,6 +31871,13 @@ async def taller_en_curso(user_email: str, limite: int = 6):
         if not pr and fila.get("expediente") in _con_proyecto:
             pr = {"parcial": True, "generado_en": _con_proyecto[fila["expediente"]],
                   "palabras": 0, "avisos": [], "huecos": []}
+        # LA PILA DE PROYECTOS. Los asuntos trabajados antes de que existiera
+        # la pila sólo guardaron el último en `proyecto`: ése cuenta como su
+        # primera versión, para que el historial no los enseñe como si no
+        # tuvieran ninguno.
+        _pila = [x for x in (est.get("proyectos") or []) if isinstance(x, dict)]
+        if not _pila and est.get("proyecto"):
+            _pila = [est["proyecto"]]
         fuera.append({
             "numero": fila.get("expediente") or enc.get("numero") or "",
             "tipo_asunto": enc.get("tipo_asunto") or "amparo_directo",
@@ -31902,8 +31909,7 @@ async def taller_en_curso(user_email: str, limite: int = 6):
                  "sentido_global": x.get("sentido_global") or "",
                  "modo": x.get("modo") or "",
                  "nombre": x.get("nombre") or ""}
-                for x in (est.get("proyectos") or [])
-                if isinstance(x, dict)][:12],
+                for x in _pila][:12],
         })
     return {"asuntos": [a for a in fuera if a["numero"]]}
 
