@@ -1719,6 +1719,102 @@ def _fracciones_citadas(texto: str, num) -> list:
     return fuera
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA VERJA: UN TEXTO NO SE TRANSCRIBE COMO EL ARTÍCULO QUE NO ES
+# ═══════════════════════════════════════════════════════════════════════════
+# LA CAUSA DE FONDO, y no estaba en el acervo sino aquí. Las tres puertas por
+# las que el texto de un artículo entra a la sentencia —la transcripción en
+# sangría, la nota al pie de la prosa y la del marco jurídico— hacían todas lo
+# mismo:
+#
+#     cuerpo = re.sub(r"^ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "", cuerpo)
+#     pie    = f"«Artículo {num}. {cuerpo}» — {ley}"
+#
+# Es decir: BORRABAN la cabecera que traía el texto y escribían la del artículo
+# que se había citado. Con eso, cualquier fallo de recuperación —el 50-A por el
+# 50, el 16 transitorio de 1917 por el 16 constitucional— dejaba de ser un
+# fallo visible y se convertía en una afirmación falsa, confiada y firmada: el
+# documento decía «Artículo 50» sobre el texto del 50-A, y la única prueba de
+# que no eran el mismo se había tachado una línea antes.
+#
+# El acervo guarda 50-A, 251 A y los transitorios bajo el mismo `articulo_num`,
+# y eso no se arregla afinando la búsqueda: se arregla no fiándose de ella. La
+# cabecera del texto es una PRUEBA, no ruido. Aquí se coteja en vez de
+# borrarse, y el que no case no se transcribe.
+#
+# Los avisos del cotejo viajan por una lista de módulo, como los de
+# `ensamblar_adelanto`: las tres puertas están demasiado adentro para
+# devolverlos, y el secretario tiene que enterarse de qué precepto se quedó sin
+# transcribir y por qué.
+avisos_cotejo: list[str] = []
+
+_RX_CABECERA_ART = re.compile(
+    r"^\W{0,4}(?:art[íi]culos?|arts?\.?)\s*(\d{1,4})\s*[-–]?\s*"
+    r"(?:(bis|ter|qu[áa]ter|qu[íi]nquies|[A-K])\b)?",
+    re.I)
+_RX_MIGAJA = re.compile(r"^\s*\[[^\]]{0,400}\]\s*")
+# «A.- Las sentencias…»: así parte el acervo el «50-A», sin su número.
+_RX_SUFIJO_SUELTO = re.compile(
+    r"^\W{0,4}(?:bis|ter|qu[áa]ter|qu[íi]nquies|[A-K])\s*[.\-–)]", re.I)
+
+
+def cotejar_articulo(texto: str, num) -> tuple:
+    """¿Este texto ES el artículo `num`? Devuelve (veredicto, lo_que_anuncia).
+
+    · «confirmado»   su cabecera anuncia ese mismo artículo, sin sufijo.
+    · «sin_cabecera» no se anuncia: el acervo guarda muchos preceptos sin
+                     repetir el rótulo y descartarlos dejaría sin transcripción
+                     a leyes enteras. Se transcribe, pero no está probado.
+    · «desmentido»   anuncia OTRO artículo, o el mismo con sufijo. No se
+                     transcribe: es el caso que firmaba una mentira.
+    """
+    t = _RX_MIGAJA.sub("", " ".join(str(texto or "").split()))
+    if not t:
+        return "desmentido", ""
+    if _RX_SUFIJO_SUELTO.match(t):
+        return "desmentido", t[:12].strip()
+    m = _RX_CABECERA_ART.match(t)
+    if not m:
+        return "sin_cabecera", ""
+    dice = m.group(1) + (("-" + m.group(2).upper()) if m.group(2) else "")
+    try:
+        pedido = str(int(str(num).strip()))
+    except (TypeError, ValueError):
+        pedido = str(num).strip()
+    if m.group(2) or m.group(1) != pedido:
+        return "desmentido", dice
+    return "confirmado", dice
+
+
+def cuerpo_para_transcribir(texto: str, num, ley: str = "") -> str:
+    """El texto listo para ir entre comillas, o «» si no es ese artículo.
+
+    Quita la migaja del acervo y la cabecera —que ya se cotejó— para que no
+    salga «Artículo 14. Art. 14.- A ninguna ley…». Cuando el cotejo desmiente,
+    devuelve vacío y deja anotado por qué: la cita del artículo se queda sin
+    transcripción, que es un proyecto incompleto y honrado en vez de uno
+    completo y falso.
+    """
+    veredicto, dice = cotejar_articulo(texto, num)
+    if veredicto == "desmentido":
+        aviso = (f"NO SE TRANSCRIBIÓ EL ARTÍCULO {num}"
+                 + (f" de {ley}" if ley else "")
+                 + ": el texto que el acervo devolvió se anuncia como "
+                 + (f"«{dice}»" if dice else "otro precepto")
+                 + ". El artículo sigue citado, pero sin su transcripción: "
+                 + "búscalo y pégalo tú, o corrige la cita.")
+        if aviso not in avisos_cotejo:
+            avisos_cotejo.append(aviso)
+        return ""
+    cuerpo = _RX_MIGAJA.sub("", " ".join(str(texto or "").split()))
+    # La cabecera ya hizo su trabajo —probar de quién es el texto— y estorba
+    # dentro de la comilla, porque el compositor escribe la suya.
+    for _ in range(2):
+        cuerpo = re.sub(r"^\s*ART(?:[ÍI]CULOS?)?\.?\s*\d+[^.]{0,14}\.?\s*[-–]?\s*",
+                        "", cuerpo, flags=re.I)
+    return cuerpo.strip()
+
+
 def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
                       fraccion=""):
     """El artículo transcrito, como lo hace el secretario.
@@ -1740,20 +1836,13 @@ def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
     if not cuerpo:
         return None
     cuerpo = _en_lo_conducente(cuerpo, fraccion)
-    # EL ACERVO GUARDA UNA MIGAJA DELANTE: «[Ley de Amparo | CAPÍTULO X
-    # Sentencias | Disposiciones Fundamentales] Artículo 79. La autoridad…».
-    # Es su índice interno, no el precepto, y transcrita queda ridícula en una
-    # sentencia. Se quita, y con ella el «Artículo N.» duplicado que viene
-    # detrás.
-    cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", cuerpo)
-    # Y LA GRAFÍA ABREVIADA, que es la del acervo constitucional. El patrón
-    # exigía la palabra «ARTÍCULO» entera y el corpus escribe «Art. 14.-», así
-    # que el encabezado duplicado sobrevivía y salía «Artículo 14. Art. 14.- A
-    # ninguna ley se dará efecto retroactivo…». Se ve en la nota al pie de cada
-    # precepto constitucional, que es donde quien firma va a comprobar.
-    for _ in range(2):
-        cuerpo = re.sub(r"^\s*ART(?:[ÍI]CULO)?\.?\s*\d+[^.]{0,14}\.?\s*[-–]?\s*",
-                        "", cuerpo, flags=re.I)
+    # POR LA VERJA. Quita la migaja del acervo y la cabecera duplicada —que es
+    # lo que antes hacía este bloque— pero sólo DESPUÉS de comprobar que esa
+    # cabecera dice ser el artículo que se está citando. Si dice otra cosa,
+    # devuelve vacío y aquí no se transcribe nada.
+    cuerpo = cuerpo_para_transcribir(cuerpo, num, ley)
+    if not cuerpo:
+        return None
     q = doc.add_paragraph()
     r = q.add_run(f"«Artículo {num}. {limpiar_texto_web(cuerpo)}»")
     _fmt(q, sangria=False, tamano=TAMANO_CITA,
@@ -1808,10 +1897,11 @@ def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
         if not cuerpo:
             continue
         _ley = n.get("cuerpo_legal") or n.get("fuente") or ""
-        # El texto del acervo ya suele venir con «Artículo N.» delante.
-        cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", cuerpo)
-        cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "", cuerpo,
-                        flags=re.I)
+        # POR LA VERJA: se coteja la cabecera antes de quitarla. El que no sea
+        # el artículo citado se queda sin nota, y el aviso lo dice.
+        cuerpo = cuerpo_para_transcribir(cuerpo, num, _ley)
+        if not cuerpo:
+            continue
         pie = (f"«Artículo {num}. {limpiar_texto_web(cuerpo)}» — {_ley}".strip()
                + marca_de_origen(n))
         if pie in notas:
@@ -2587,17 +2677,14 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                     continue
                 # El acervo guarda una migaja delante: «[Ley de Amparo |
                 # CAPÍTULO X …] Artículo 79. La autoridad…».
-                _cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", _cuerpo)
-                _cuerpo = _en_lo_conducente(_cuerpo, _fr)
-                # «Art. 107.-» TAMBIÉN ES EL RÓTULO. La nota salió «Artículo
-                # 107. Art. 107.- Las controversias…»: el acervo guarda unos
-                # preceptos con «ARTÍCULO 79.» y otros abreviados con guión,
-                # y el recorte sólo conocía la forma larga. El bloque en
-                # sangría ya sabía de esta abreviatura; la nota, no.
-                _cuerpo = re.sub(
-                    r"^\s*Art[íi]?c?u?l?o?s?\.?\s*\d+[^.]{0,12}[.\-–]{1,2}\s*",
-                    "", _cuerpo, flags=re.I)
                 _ley = n_.get("cuerpo_legal") or n_.get("fuente") or ""
+                # POR LA VERJA, igual que las otras dos puertas. Esta era la
+                # tercera copia del mismo recorte de cabecera, y por eso el
+                # mismo fallo salía por tres sitios.
+                _cuerpo = cuerpo_para_transcribir(_cuerpo, num, _ley)
+                if not _cuerpo:
+                    continue
+                _cuerpo = _en_lo_conducente(_cuerpo, _fr)
                 _pie = (f"«Artículo {num}. {limpiar_texto_web(_cuerpo)}» — {_ley}".strip()
                         + marca_de_origen(n_))
                 if _pie in notas:
@@ -3259,6 +3346,10 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     except Exception:
         pass
 
+    # LA VERJA EMPIEZA LIMPIA EN CADA PROYECTO. Es una lista de módulo —como
+    # `avisos_ensamblado`— y con dos workers un documento heredaría los avisos
+    # del anterior.
+    avisos_cotejo.clear()
     avisos_doc = _caratula(doc, datos, tipo_asunto)
 
     # LA FÓRMULA MANDA SOBRE LO QUE ESCRIBA EL MODELO. Si tenemos ciudad y
@@ -4599,7 +4690,7 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # Los avisos deterministas de la carátula viajan con el documento. Se
     # cuelgan de la estructura porque es lo que ya recorre el camino de vuelta.
     try:
-        for _a in list(avisos_doc) + list(_avisos_bk):
+        for _a in list(avisos_doc) + list(_avisos_bk) + list(avisos_cotejo):
             if _a not in estructura.avisos:
                 estructura.avisos.append(_a)
     except Exception:
