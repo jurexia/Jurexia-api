@@ -244,11 +244,41 @@ CHAT_ENGINE = os.getenv("CHAT_ENGINE", "deepseek").lower()  # default: deepseek 
 print(f"   Chat Engine: {'🟢 DeepSeek V4 Flash (cost-optimized)' if CHAT_ENGINE == 'deepseek' else '🔵 GPT-5 Mini (premium)'}")
 print(f"   Motor de Buscar (chat por omisión): ⚡ {BUSCAR_MODEL}")
 
-# Cohere Rerank Configuration (cross-encoder for post-retrieval reranking)
+# ── Cohere Rerank — RETIRADO el 16-sep-2026 ─────────────────────────────────
+#
+# Se pagaba por reordenar y no cambiaba lo que lee el modelo. Medido sobre el
+# MISMO grupo de candidatos —interceptando el reordenador dentro de
+# `hybrid_search_all_silos`, así que la única diferencia entre las dos
+# selecciones era Cohere—, con 20 búsquedas: 14 preguntas reales de
+# abogados y 6 con la respuesta correcta conocida.
+#
+#   · Búsqueda principal del chat (65 huecos): en 18 de 20 llegaban
+#     EXACTAMENTE 65 candidatos y se le pedían 65, así que no podía quitar
+#     ninguno; sólo reordenaba. Y ese orden no sobrevive: después todo se
+#     reordena por jerarquía normativa y el modelo lee los 65 enteros, sin
+#     recorte. Documentos idénticos con y sin Cohere: 98.2%.
+#   · Búsquedas de 30 huecos (la secundaria del chat y el documento
+#     adjunto): intercambiaba unos seis documentos del margen por búsqueda,
+#     pero del mismo tipo en las dos direcciones —quitó 33 leyes, 50 tesis y
+#     31 constitucionales; metió 37, 50 y 27—. Ruido, no criterio.
+#   · En TODOS los casos con respuesta conocida el resultado fue idéntico: el
+#     artículo buscado se conservaba igual, y en «jurisprudencia sobre la
+#     suplencia de la queja», el caso donde se decía que ganaba, dio 24 tesis
+#     pertinentes contra 24 y 10 contra 10 en los primeros diez.
+#
+# Costaba ~1,100 llamadas cada cinco días y medio (cada una contaba como más
+# de una unidad, porque los documentos pasan de 500 tokens) y sumaba de 0.2 a
+# 1.9 s por búsqueda, hasta tres búsquedas por pregunta. El reordenador de
+# voz —la única ruta donde una medición antigua le vio ganancia— no tiene uso
+# desde el 30-ago.
+#
+# Se apaga aquí y no borrando la clave, para que el gasto pare al desplegar
+# aunque la variable siga en Render. Volver a encenderlo es cambiar esta línea,
+# pero sólo con una medición que diga lo contrario de la de arriba.
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
-COHERE_RERANK_MODEL = "rerank-v3.5"  # Multilingual, best for Spanish legal text
-COHERE_RERANK_ENABLED = bool(COHERE_API_KEY)
-print(f"   Cohere Rerank: {'✅ ENABLED' if COHERE_RERANK_ENABLED else '⚠️ DISABLED (no API key)'}")
+COHERE_RERANK_MODEL = "rerank-v3.5"
+COHERE_RERANK_ENABLED = False
+print("   Cohere Rerank: retirado (16-sep-2026, sin efecto medible sobre el contexto)")
 
 # HyDE Configuration (Hypothetical Document Embeddings)
 HYDE_ENABLED = True  # Generate hypothetical legal document for dense search
@@ -8879,6 +8909,13 @@ async def hybrid_search_all_silos(
         _t_rerank = time.perf_counter()
         merged = await _cohere_rerank(query, merged, top_n=top_k)
         print(f"   ⏱ Cohere Rerank: {time.perf_counter() - _t_rerank:.2f}s")
+    elif not skip_post_search:
+        # Sin el reordenador hay que recortar a mano a `top_k`, que es lo que él
+        # devolvía. Si no, el modelo recibiría hasta diez documentos más de los
+        # que recibía, y retirar Cohere cambiaría el contexto —justo lo que la
+        # medición descartó—. Las búsquedas con `skip_post_search` nunca pasaban
+        # por el reordenador y conservan sus `top_k + 10`, como antes.
+        merged = merged[:top_k]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # PRIORITY BOOST: Leyes federales más citadas reciben un boost sutil
