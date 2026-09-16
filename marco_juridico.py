@@ -304,9 +304,39 @@ def _reunir_articulo(fragmentos: list) -> str:
     for p in fragmentos:
         clave = (str(p.get("titulo") or ""), str(p.get("capitulo") or ""))
         grupos.setdefault(clave, []).append(p)
-    # El grupo con más fragmentos; a empate, el del título más temprano, que en
-    # la Constitución es el de las garantías.
-    elegidos = max(grupos.values(), key=lambda g: (len(g), -_orden_titulo(g[0])))
+
+    # MANDA LO QUE EL ACERVO REPITE, NO EL GRUPO MÁS GORDO.
+    # «El grupo con más fragmentos» se equivoca cuando el artículo bueno está
+    # partido en varios títulos y el intruso no. Medido el 16-sep-2026: el
+    # artículo 16 constitucional vive DOS veces en el acervo —Título Primero,
+    # capítulos I y IV, con el mismo texto: «Nadie puede ser molestado en su
+    # persona, familia, domicilio…»— y el 16 TRANSITORIO de 1917 vive una,
+    # bajo «TITULO NOVENO.». Tres grupos de un fragmento cada uno: ganaba el
+    # transitorio por el desempate del título, y se firmó en la revisión
+    # fiscal 2/2026 una nota al pie que decía «Artículo 16» y transcribía el
+    # Congreso Constituyente convocando al Congreso de la Unión.
+    #
+    # Dos grupos que empiezan igual son el MISMO artículo contado dos veces, y
+    # eso es corroboración: el acervo repite lo que de verdad es el artículo y
+    # el intruso aparece una sola vez. Se suman los grupos que coinciden y
+    # gana el más corroborado; a empate, el que traiga más fragmentos, y a
+    # empate otra vez, el título más temprano. Es el mismo criterio que usa
+    # `fase6_rag._elegir_precepto` para la otra puerta: conviene que las dos
+    # decidan igual, o el mismo artículo sale de dos maneras según quién lo
+    # pida.
+    def _arranque(g):
+        _o = sorted(g, key=lambda z: int(z.get("chunk_index") or 0))
+        _t = " ".join(str(_o[0].get("texto") or "").split())
+        _t = re.sub(r"^\s*\[[^\]]{0,400}\]\s*", "", _t)
+        return _t[:220].lower()
+
+    _racimos: dict = {}
+    for g in grupos.values():
+        _racimos.setdefault(_arranque(g), []).append(g)
+    _mejor = max(_racimos.values(),
+                 key=lambda r: (len(r), max(len(g) for g in r),
+                                -min(_orden_titulo(g[0]) for g in r)))
+    elegidos = max(_mejor, key=lambda g: (len(g), -_orden_titulo(g[0])))
     elegidos = sorted(elegidos, key=lambda p: int(p.get("chunk_index") or 0))
     partes, visto = [], set()
     for p in elegidos:
