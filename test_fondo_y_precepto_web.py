@@ -123,6 +123,27 @@ ok(bw._es_oficial("ordenjuridico.gob.mx", bw.AGENTE_ARTICULO["cotos"]), "ordenju
 ok(not bw._es_oficial("leyes-mx.com", bw.AGENTE_ARTICULO["cotos"]), "leyes-mx.com NO entra")
 ok(not bw._es_oficial("justia.com", bw.AGENTE_ARTICULO["cotos"]), "justia.com NO entra")
 
+# ══ F2 · LOS TRES CAMINOS del precepto llevan la marca ══
+# El artículo 150 salió al pie SIN marca en la prueba real de la 2/2026: la
+# nota la compuso el marco jurídico, y sólo se había marcado el otro camino.
+_web = {"cuerpo_legal": "Reglamento Interior del IMSS", "articulo": "150",
+        "texto": "Artículo 150. Son atribuciones de las subdelegaciones: [1] I. Vigilar.",
+        "de_internet": True, "dominio": "imss.gob.mx", "url": "https://imss.gob.mx/x"}
+_acervo = {"cuerpo_legal": "Ley de Amparo", "articulo": "76", "texto": "El órgano corregirá."}
+ok(dg.marca_de_origen(_web).strip().startswith("· TEXTO TOMADO DE imss.gob.mx"),
+   "marca_de_origen habla para lo traído de internet")
+ok(dg.marca_de_origen(_acervo) == "", "y calla para lo que sí es del acervo")
+ok("[1]" not in dg.limpiar_texto_web(_web["texto"]),
+   "las referencias [1] del buscador no entran en el precepto")
+ok(dg.limpiar_texto_web("Artículo 5. Nadie [12] podrá.") == "Artículo 5. Nadie podrá.",
+   "y se limpian aunque vengan de dos cifras")
+# el marco jurídico —el camino por el que se coló sin marca— ya la pone
+import inspect as _insp
+_fuente_marco = _insp.getsource(dg)
+_i = _fuente_marco.index('_pie = (f"«Artículo {num}')
+ok("marca_de_origen(n_)" in _fuente_marco[_i:_i + 260],
+   "el marco jurídico compone la nota CON la marca")
+
 # ══ F · los guardianes del texto traído (sin red) ══
 # Lo que de verdad devolvió el buscador con una ley inventada, citando un
 # dominio oficial: una NEGATIVA. Pasaba los filtros de largo y de dos puntos.

@@ -1730,7 +1730,7 @@ def escribir_precepto(doc, texto_articulo: str, ley: str, num: str,
         cuerpo = re.sub(r"^\s*ART(?:[ÍI]CULO)?\.?\s*\d+[^.]{0,14}\.?\s*[-–]?\s*",
                         "", cuerpo, flags=re.I)
     q = doc.add_paragraph()
-    r = q.add_run(f"«Artículo {num}. {cuerpo}»")
+    r = q.add_run(f"«Artículo {num}. {limpiar_texto_web(cuerpo)}»")
     _fmt(q, sangria=False, tamano=TAMANO_CITA,
          interlineado=INTERLINEADO_CITA)
     q.paragraph_format.left_indent = SANGRIA_CITA
@@ -1787,23 +1787,41 @@ def notas_de_articulos(doc, p, texto: str, normas: list, notas: list) -> int:
         cuerpo = re.sub(r"^\s*\[[^\]]{0,200}\]\s*", "", cuerpo)
         cuerpo = re.sub(r"^\s*ART[ÍI]CULO\s+\d+[^.]{0,12}\.?\s*", "", cuerpo,
                         flags=re.I)
-        pie = f"«Artículo {num}. {cuerpo}» — {_ley}".strip()
-        # DE DÓNDE SALIÓ ESTE TEXTO. Los preceptos que el acervo no tenía se
-        # traen de su fuente oficial en línea, y eso TIENE que verse en la
-        # nota: quien firma no puede distinguir a ojo un artículo verificado
-        # contra la base de uno transcrito de un sitio, y la diferencia
-        # importa. `fuente` no sirve para marcarlo —arriba se lee como
-        # sinónimo del nombre de la ley—, así que la marca es `de_internet`.
-        if n.get("de_internet"):
-            _dom = str(n.get("dominio") or "").strip()
-            pie += (f" · TEXTO TOMADO DE {_dom or 'una fuente en línea'}, "
-                    f"no del acervo verificado: COTÉJALO antes de firmar")
+        pie = (f"«Artículo {num}. {limpiar_texto_web(cuerpo)}» — {_ley}".strip()
+               + marca_de_origen(n))
         if pie in notas:
             continue
         notas.append(pie)
         _run_llamada(p, len(notas))
         puestos += 1
     return puestos
+
+
+def marca_de_origen(n: dict) -> str:
+    """La coleta que dice que este texto NO salió del acervo verificado.
+
+    Vive suelta porque el .docx compone notas de artículo en DOS sitios
+    —`notas_de_articulos` y el marco jurídico— y la primera vez sólo se marcó
+    uno: el artículo 150 del Reglamento Interior del IMSS, traído de
+    imss.gob.mx en la revisión fiscal 2/2026, salió al pie sin una palabra
+    sobre su procedencia. Quien firma no puede distinguir a ojo un precepto
+    cotejado contra la base de uno transcrito de un sitio.
+    """
+    if not (isinstance(n, dict) and n.get("de_internet")):
+        return ""
+    dom = str(n.get("dominio") or "").strip()
+    return (f" · TEXTO TOMADO DE {dom or 'una fuente en línea'}, no del acervo "
+            f"verificado: COTÉJALO antes de firmar")
+
+
+# LAS MIGAS DEL BUSCADOR. Sonar devuelve el texto con sus referencias
+# incrustadas —«…circunscripción territorial: [1] I. Vigilar…»— y esas
+# muletillas no pueden acabar dentro de un precepto citado en una sentencia.
+_RX_CITA_WEB = re.compile(r"\s*\[\d{1,2}\]")
+
+
+def limpiar_texto_web(t: str) -> str:
+    return _RX_CITA_WEB.sub("", t or "")
 
 
 MAX_ARTICULOS_POR_PARRAFO = 1
@@ -2555,7 +2573,8 @@ def _escribir_estudio(doc, estudio, tesis, notas, normas=None) -> int:
                     r"^\s*Art[íi]?c?u?l?o?s?\.?\s*\d+[^.]{0,12}[.\-–]{1,2}\s*",
                     "", _cuerpo, flags=re.I)
                 _ley = n_.get("cuerpo_legal") or n_.get("fuente") or ""
-                _pie = f"«Artículo {num}. {_cuerpo}» — {_ley}".strip()
+                _pie = (f"«Artículo {num}. {limpiar_texto_web(_cuerpo)}» — {_ley}".strip()
+                        + marca_de_origen(n_))
                 if _pie in notas:
                     continue
                 notas.append(_pie)
