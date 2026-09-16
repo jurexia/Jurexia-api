@@ -28691,10 +28691,15 @@ def _taller_guardar_material(email: str, numero: str, m) -> None:
 # es «mis asuntos», no «mis intentos».
 def _taller_guardar_proyecto(email: str, numero: str, res,
                              criterios: list = None, modo: str = "",
-                             sentido_global: str = "") -> None:
-    """Lo que hay que saber del proyecto para volver a su pantalla."""
+                             sentido_global: str = "") -> int:
+    """Lo que hay que saber del proyecto para volver a su pantalla.
+
+    Devuelve el número de versión con que quedó guardado —1 el primero, 2 el
+    del cambio de sentido…— para que el .docx se archive con ese mismo número
+    y el historial pueda ofrecer cada uno por separado. Cero si no se guardó.
+    """
     if not (supabase_admin and res is not None):
-        return
+        return 0
     _correo = (email or "").strip().lower()
     try:
         import datetime as _dt
@@ -28724,14 +28729,34 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
         if not r.data:
             return
         est = r.data[0].get("estado") or {}
+        # ═══════════════════════════════════════════════════════════════════
+        # UN EXPEDIENTE PUEDE TENER VARIOS PROYECTOS, Y NO SE PISAN
+        # ═══════════════════════════════════════════════════════════════════
+        # David, 16-sep-2026: «si un expediente tiene más de un proyecto,
+        # guardarlos en la misma pestaña de historial». Hasta hoy esto era
+        # `est["proyecto"] = ficha` a secas: cambiar el sentido y volver a
+        # generar borraba el anterior, y con él la única constancia de qué se
+        # había propuesto antes y con qué criterio. Un secretario que prueba
+        # dos salidas quiere comparar, no elegir a ciegas.
+        #
+        # `proyecto` se conserva —es el último, y es lo que lee la pantalla de
+        # siempre— y ahora además se apila en `proyectos`, del más nuevo al
+        # más viejo. Doce caben de sobra en el jsonb y es más de lo que nadie
+        # regenera en un asunto.
+        _antes = [x for x in (est.get("proyectos") or []) if isinstance(x, dict)]
+        ficha["version"] = len(_antes) + 1
         est["proyecto"] = ficha
+        est["proyectos"] = ([ficha] + _antes)[:12]
         supabase_admin.table("taller_sesiones").update({"estado": est}) \
             .eq("email", _correo).eq("expediente", numero).execute()
-        print(f"   🗂️ ficha del proyecto {numero} guardada: "
+        print(f"   🗂️ ficha del proyecto {numero} guardada (versión "
+              f"{ficha['version']} de {len(est['proyectos'])}): "
               f"{ficha['palabras']} palabras · {len(ficha['avisos'])} avisos "
               f"· {len(ficha['criterios'])} criterios")
+        return int(ficha["version"])
     except Exception as ex:
         print(f"   ⚠️ no se pudo guardar la ficha del proyecto {numero}: {err(ex)}")
+    return 0
 
 
 # ═══ LOS DOCUMENTOS DEL SECRETARIO NO SE TIRAN ═══════════════════════════════
@@ -31247,15 +31272,21 @@ async def taller_resolver_stream(
                     # veces en la cola de reportes, de seis personas y desde mayo.
                     _taller_cobrar(user_email, numero)
                     ses["salida"] = res.ruta
-                    _taller_guardar_docx(user_email, numero, res.ruta)
+                    # LA FICHA PRIMERO, porque es la que reparte el número de
+                    # versión, y con ese número se archiva el .docx: así el
+                    # historial puede ofrecer el proyecto de cada sentido y no
+                    # la última copia dos veces.
+                    #
                     # LOS DOS CAMINOS O NINGUNO. La pantalla llama a éste y el
                     # guion de pruebas al otro: arreglar uno solo da un taller
                     # que funciona cuando lo pruebas tú y no cuando lo usa el
                     # secretario. Ya pasó con los tres modos de decidir y con
                     # el sentido global dictado.
-                    _taller_guardar_proyecto(user_email, numero, res, crit,
-                                             modo=(modo_decision or ""),
-                                             sentido_global=(sentido_global or ""))
+                    _v_proy = _taller_guardar_proyecto(
+                        user_email, numero, res, crit,
+                        modo=(modo_decision or ""),
+                        sentido_global=(sentido_global or ""))
+                    _taller_guardar_docx(user_email, numero, res.ruta, _v_proy)
                     print(f"   ⚖️ TALLER: proyecto EN VIVO {numero} · "
                           f"{len(res.estudio.split())} palabras · "
                           f"{len(res.avisos)} avisos")
@@ -31320,7 +31351,8 @@ def _ruta_taller(user_email: str, numero: str) -> str:
     return f"taller/{quien}/{exp}.docx"
 
 
-def _taller_guardar_docx(user_email: str, numero: str, ruta_local: str) -> None:
+def _taller_guardar_docx(user_email: str, numero: str, ruta_local: str,
+                         version: int = 0) -> None:
     """El proyecto, en un sitio que sobreviva al proceso que lo hizo.
 
     POR QUÉ EXISTE. Render corre DOS workers y el .docx quedaba en el disco del
@@ -31344,24 +31376,59 @@ def _taller_guardar_docx(user_email: str, numero: str, ruta_local: str) -> None:
             return
         with open(ruta_local, "rb") as f:
             datos = f.read()
+        _tipo = {"content-type": "application/vnd.openxmlformats-officedocument."
+                                 "wordprocessingml.document",
+                 "upsert": "true"}
+        # EL ÚLTIMO, DONDE SIEMPRE: /taller/descargar sin más lo encuentra ahí.
         supabase_admin.storage.from_(_CUBO_TALLER).upload(
-            _ruta_taller(user_email, numero), datos,
-            {"content-type": "application/vnd.openxmlformats-officedocument."
-                             "wordprocessingml.document",
-             "upsert": "true"})
+            _ruta_taller(user_email, numero), datos, _tipo)
+        # Y SU PROPIA COPIA, para que el historial pueda ofrecer la versión
+        # anterior cuando el secretario cambió de sentido y quiere comparar.
+        # Sin esto, «guardarlos en la misma pestaña» enseñaría dos fichas y un
+        # solo documento: el último, dos veces.
+        if version:
+            try:
+                supabase_admin.storage.from_(_CUBO_TALLER).upload(
+                    f"{_ruta_taller(user_email, numero)[:-5]}-v{int(version)}.docx",
+                    datos, _tipo)
+            except Exception as _exv:
+                print(f"   ⚠️ TALLER: no se guardó la copia v{version}: "
+                      f"{type(_exv).__name__}")
     except Exception as e:
         print(f"   ⚠️ TALLER: no se pudo guardar el proyecto en el almacén: "
               f"{type(e).__name__}")
 
 
 @app.get("/taller/descargar")
-async def taller_descargar(numero: str, user_email: str = ""):
-    """El .docx del proyecto: del disco de este proceso o del almacén."""
+async def taller_descargar(numero: str, user_email: str = "", version: int = 0):
+    """El .docx del proyecto: del disco de este proceso o del almacén.
+
+    `version` pide una ANTERIOR: el historial guarda un proyecto por cada vez
+    que el secretario cambió de sentido y volvió a generar, y desde ahí se
+    puede abrir cualquiera. Sin `version` sigue viniendo el último, que es lo
+    que hace la pantalla de siempre.
+    """
     from fastapi.responses import FileResponse, Response
     import os as _os
+    if version and supabase_admin and user_email:
+        try:
+            _rv = f"{_ruta_taller(user_email, numero)[:-5]}-v{int(version)}.docx"
+            datos = supabase_admin.storage.from_(_CUBO_TALLER).download(_rv)
+            return Response(
+                content=datos,
+                media_type="application/vnd.openxmlformats-officedocument."
+                           "wordprocessingml.document",
+                headers={"Content-Disposition":
+                         f'attachment; filename="{numero.replace("/", "-")}'
+                         f'-v{int(version)}.docx"'})
+        except Exception:
+            # La versión pedida no está archivada —por ejemplo, las de antes
+            # de que esto existiera—: se cae al último, que sí está.
+            print(f"   ⚠️ TALLER: no hay copia v{version} de {numero}; "
+                  f"se devuelve la última")
     ses = _taller_recuperar_sesion(user_email, numero) if user_email else None
     ruta = (ses or {}).get("salida") or ""
-    if ruta and _os.path.exists(ruta):
+    if ruta and _os.path.exists(ruta) and not version:
         return FileResponse(
             ruta,
             media_type="application/vnd.openxmlformats-officedocument."
@@ -31713,12 +31780,13 @@ async def taller_resolver(
     # camino —ya pasó—, el secretario lo recupera por /taller/descargar en vez
     # de repetir el estudio entero.
     ses["salida"] = r2.ruta
-    _taller_guardar_docx(user_email, numero, r2.ruta)
-    # Y LA FICHA, junto al documento. Lo uno sin lo otro deja un .docx que se
-    # puede descargar y una pantalla a la que no se puede volver.
-    _taller_guardar_proyecto(user_email, numero, r2, crit,
-                             modo=(modo_decision or ""),
-                             sentido_global=(sentido_global or ""))
+    # LA FICHA PRIMERO: reparte la versión con la que se archiva el .docx.
+    # Lo uno sin lo otro deja un .docx que se puede descargar y una pantalla a
+    # la que no se puede volver.
+    _v_proy2 = _taller_guardar_proyecto(user_email, numero, r2, crit,
+                                        modo=(modo_decision or ""),
+                                        sentido_global=(sentido_global or ""))
+    _taller_guardar_docx(user_email, numero, r2.ruta, _v_proy2)
     # El trabajo está hecho. Ver la nota del endpoint de streaming.
     _soltar_constancias(user_email.strip().lower(), numero.strip())
 
@@ -31820,7 +31888,22 @@ async def taller_en_curso(user_email: str, limite: int = 6):
                 "sentido_global": pr.get("sentido_global") or "",
                 "modo": pr.get("modo") or "",
                 "parcial": bool(pr.get("parcial")),
+                "version": int(pr.get("version") or 1),
             } if pr else None),
+            # LOS PROYECTOS ANTERIORES DEL MISMO EXPEDIENTE. David: «si un
+            # expediente tiene más de un proyecto, guardarlos en la misma
+            # pestaña de historial». Son las veces que cambió de sentido y
+            # volvió a generar; cada uno con su sentido y su documento.
+            "proyectos": [
+                {"version": int(x.get("version") or 0),
+                 "generado_en": x.get("generado_en") or "",
+                 "palabras": int(x.get("palabras") or 0),
+                 "avisos": len(x.get("avisos") or []),
+                 "sentido_global": x.get("sentido_global") or "",
+                 "modo": x.get("modo") or "",
+                 "nombre": x.get("nombre") or ""}
+                for x in (est.get("proyectos") or [])
+                if isinstance(x, dict)][:12],
         })
     return {"asuntos": [a for a in fuera if a["numero"]]}
 
