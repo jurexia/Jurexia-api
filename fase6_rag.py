@@ -569,43 +569,16 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
             cols = [c for c in (silo, COLECCION_FEDERAL, coleccion_estatal) if c]
         if tipo_asunto == "revision_fiscal":
             cols = [c for c in cols if c != coleccion_estatal]
+        # POR EL RESOLVEDOR ÚNICO. Antes esta puerta tenía su propio bucle de
+        # elección, el marco jurídico el suyo y el ensamblado otro más. Tres
+        # criterios para la misma pregunta —cuál de estos textos ES el artículo
+        # que se pide— es la razón de que el mismo artículo saliera de dos
+        # maneras según quién lo pidiera.
         hallado = None
         for col in cols:
-            try:
-                pts = await _scroll_todo(qdrant, col, Filter(must=[FieldCondition(
-                    key="articulo_num", match=MatchValue(value=num))]))
-            except Exception as e:
-                print(f"   ⚖️ RAG: no se pudo traer el artículo {num} de {col} ({type(e).__name__})")
-                continue
-            # NO SE TOMA EL PRIMERO QUE CAIGA: SE ELIGE.
-            # El acervo guarda VARIOS puntos bajo el mismo `articulo_num` —el
-            # artículo, sus bis, y los transitorios que reusan la numeración—
-            # y este bucle se quedaba con el primero. Medido el 16-sep-2026 en
-            # la revisión fiscal 2/2026, y las dos veces quedó firmado:
-            #   · artículo 16 constitucional → tres candidatos, dos con «Nadie
-            #     puede ser molestado en su persona, familia, domicilio…» y uno
-            #     con el 16 TRANSITORIO de 1917 («El Congreso Constitucional en
-            #     el período ordinario de sus sesiones…»). Salió el transitorio.
-            #   · artículo 50 de la LFPCA → un solo candidato, y su texto abre
-            #     «A.- Las sentencias que dicte el Tribunal (…) de
-            #     Responsabilidad Patrimonial del Estado»: es el 50-A, no el 50.
-            _cands = []
-            for x in pts:
-                pl = x.payload or {}
-                if str(pl.get("bis") or "").strip() or pl.get("es_transitorio"):
-                    continue
-                if not misma_ley(cuerpo, _nombre_ley_de(pl)):
-                    continue
-                _t = str(pl.get("texto") or pl.get("content") or "")
-                # QUE EL TEXTO ABRA EL ARTÍCULO QUE SE PIDIÓ. Es la única
-                # comprobación que no depende de cómo esté etiquetado el punto,
-                # y es la que descarta el 50-A: su texto no empieza el 50.
-                if not _abre_el_articulo(_t, num):
-                    continue
-                _cands.append(pl)
-            if _cands:
-                hallado = (col, _norma_de(_elegir_precepto(_cands)))
-            if hallado:
+            _n = await resolver_articulo(qdrant, col, cuerpo, num)
+            if _n.get("texto"):
+                hallado = (col, {**_n, "articulo": str(art)})
                 break
         if not hallado:
             # ═══════════════════════════════════════════════════════════════
@@ -796,12 +769,132 @@ async def _buscar(qdrant, coleccion: str, vector: str, v: list[float],
 # troceado y un trozo no es el artículo»— y el material que sostiene el
 # RAZONAMIENTO iba sin ese cuidado, que es donde más falta hace.
 
+COLECCION_CONSTITUCIONAL = "bloque_constitucional"
+
+
+def _colecciones_para(ley: str, coleccion: str) -> list:
+    """Dónde puede estar ese artículo. La suya, y la del bloque si es la Carta.
+
+    LA CONSTITUCIÓN NO ESTÁ EN `leyes_federales`. Medido el 16-sep-2026: pedir
+    ahí el artículo 14 o el 16 no devuelve el articulado —vive en
+    `bloque_constitucional`—, y lo único que contesta son los transitorios de
+    1917 y las leyes reglamentarias. Por eso el resolvedor no puede quedarse
+    con la primera colección que conteste algo: tiene que preguntar a todas las
+    que pueden tenerlo y que vote el acervo entero.
+    """
+    fuera = [c for c in (coleccion,) if c]
+    if _clase_de_norma(ley) == "constitucion" and COLECCION_CONSTITUCIONAL not in fuera:
+        fuera.append(COLECCION_CONSTITUCIONAL)
+    return fuera
+
+
+async def resolver_articulo(qdrant, coleccion, ley: str, num) -> dict:
+    """EL TEXTO QUE EL ACERVO CORROBORA PARA ESE ARTÍCULO. «» si no hay ninguno.
+
+    EL RESOLVEDOR ÚNICO. Hasta hoy, cinco puertas distintas decidían por su
+    cuenta qué texto es el artículo que se pide —la búsqueda por concepto, el
+    completado de preceptos citados, el ensamblado de trozos, el marco jurídico
+    y la transcripción del documento—, cada una con su heurística, y por eso el
+    mismo artículo salía de dos maneras según quién lo pidiera. Medido el
+    16-sep-2026 sobre 320,148 artículos del acervo: 5,622 pueden entregar un
+    texto que no es el suyo. No es un defecto raro, y no se cierra afinando
+    cada puerta.
+
+    La regla, una y en un solo sitio: de todos los puntos con ese
+    `articulo_num` se quedan los de esa misma ley que ABREN ese artículo —no
+    sus bis, no sus transitorios—, se agrupan por cómo empiezan, y gana el
+    texto que el acervo REPITE. Que un texto se repita es la señal: el
+    articulado de verdad está guardado varias veces —el artículo 16
+    constitucional vive en los capítulos I y IV del Título Primero— y el
+    intruso una sola —el 16 transitorio de 1917, bajo el Título Noveno—.
+    """
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+    try:
+        _n = int(str(num).strip())
+    except (TypeError, ValueError):
+        return {}
+    cols = ([coleccion] if isinstance(coleccion, str)
+            else [c for c in (coleccion or []) if c])
+    if len(cols) == 1:
+        cols = _colecciones_para(ley, cols[0])
+    suyos = []
+    for _col in cols:
+        try:
+            pts = await _scroll_todo(qdrant, _col, Filter(must=[FieldCondition(
+                key="articulo_num", match=MatchValue(value=_n))]), tope=300)
+        except Exception:
+            continue
+        for x in (pts or []):
+            pl = x.payload or {}
+            if str(pl.get("bis") or "").strip() or pl.get("es_transitorio"):
+                continue
+            if ley and not misma_ley(ley, _nombre_ley_de(pl)):
+                continue
+            suyos.append(pl)
+    if not suyos:
+        return {}
+    _ord = sorted(suyos, key=lambda z: (str(z.get("titulo") or ""),
+                                        str(z.get("capitulo") or ""),
+                                        str(z.get("jerarquia") or ""),
+                                        int(z.get("chunk_index") or 0)))
+    _limpios = [re.sub(r"^\s*\[[^\]]{0,400}\]\s*", "",
+                       " ".join(str(pl.get("texto") or pl.get("contenido") or "").split()))
+                for pl in _ord]
+    bloques, actual = [], []
+    for t, pl in zip(_limpios, _ord):
+        if not t:
+            continue
+        if _RX_ABRE_ART.match(t):
+            if actual:
+                bloques.append(actual)
+            actual = [(t, pl)]
+        elif actual:
+            actual.append((t, pl))
+        else:
+            actual = [(t, pl)]
+    if actual:
+        bloques.append(actual)
+    abren = [b for b in bloques if _abre_el_articulo(b[0][0], _n)]
+    if not abren:
+        return {}
+    from collections import Counter as _C
+    _ini = lambda b: " ".join(b[0][0].split())[:220].lower()
+    voto = _C(_ini(b) for b in abren)
+    suyo = max(abren, key=lambda b: (voto[_ini(b)], sum(len(x) for x, _ in b)))
+    partes, visto = [], set()
+    for t, _ in suyo:
+        if t not in visto:
+            visto.add(t)
+            partes.append(t)
+    # EL NOMBRE OFICIAL ES EL DEL ACERVO, no el de la cita. La cita lo escribe
+    # como le sale —en minúsculas, abreviado— y ese nombre acaba impreso al pie
+    # de la transcripción.
+    return {"cuerpo_legal": _nombre_ley_de(suyo[0][1]) or ley,
+            "articulo": str(num), "texto": " ".join(partes),
+            "entidad": str(suyo[0][1].get("entidad") or "")}
+
+
 async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
     """Los demás trozos del mismo artículo y la misma ley, en orden."""
     from qdrant_client.models import FieldCondition, Filter, MatchValue
     num, ley = norma.get("articulo"), str(norma.get("cuerpo_legal") or "")
     if not num or not ley:
         return norma
+    # POR EL RESOLVEDOR ÚNICO, SIEMPRE Y ANTES QUE NADA. Esto valía sólo para
+    # ensamblar trozos; ahora también REPARA la semilla. La búsqueda por
+    # concepto entrega el fragmento que más se le parece al problema, y ese
+    # fragmento puede ser el artículo equivocado: así entró el 16 transitorio
+    # de 1917 en la revisión fiscal 2/2026, y ni el atajo del silo ni la
+    # comparación exacta de nombres de abajo lo habrían tocado.
+    _res = await resolver_articulo(qdrant, coleccion, ley, num)
+    if _res.get("texto"):
+        _actual = re.sub(r"^\s*\[[^\]]{0,400}\]\s*", "",
+                         " ".join(str(norma.get("texto") or "").split()))
+        if _res["texto"][:120].lower() != _actual[:120].lower():
+            print(f"   ⚖️ RAG: el artículo {num} de «{ley[:44]}» se corrigió con "
+                  f"lo que el acervo corrobora")
+        return {**norma, "texto": _res["texto"],
+                "cuerpo_legal": _res.get("cuerpo_legal") or norma.get("cuerpo_legal")}
     # EL SILO YA GUARDA EL ARTÍCULO ENTERO —un punto por artículo, que es su
     # primera regla de diseño—, así que aquí no hay nada que completar y el
     # scroll sería un viaje en balde por cada norma.
@@ -855,11 +948,26 @@ async def _completar(qdrant, coleccion: str, norma: dict) -> dict:
             _actual = [txt]                # el acervo no siempre repite cabecera
     if _actual:
         _bloques.append(_actual)
-    # El bloque bueno es el que abre EXACTAMENTE este artículo. Si ninguno se
-    # anuncia —hay leyes guardadas sin cabecera— se conserva lo que había.
-    _suyo = next((b for b in _bloques if _abre_el_articulo(b[0], int(num))), None)
-    if _suyo is None:
+    # EL BLOQUE BUENO ES EL QUE EL ACERVO REPITE, no el primero que abra el
+    # artículo. Dos bloques pueden abrirlo los dos: el artículo 16
+    # constitucional está guardado bajo el Título Primero —capítulos I y IV,
+    # con el mismo texto— y el 16 TRANSITORIO de 1917 bajo el Título Noveno, y
+    # los tres empiezan «Art. 16.-». Quedarse con el primero era una moneda al
+    # aire, y salió cruz: el proyecto de la revisión fiscal 2/2026 transcribió
+    # como artículo 16 al Constituyente convocando al Congreso de la Unión.
+    #
+    # Que un texto se repita es la señal: el articulado de verdad está en el
+    # acervo varias veces y el intruso una. Es el mismo criterio de
+    # `_elegir_precepto` y del marco jurídico; las cinco puertas deciden ya
+    # igual, que es lo que impide que el mismo artículo salga de dos maneras
+    # según quién lo pida.
+    _abren = [b for b in _bloques if _abre_el_articulo(b[0], int(num))]
+    if not _abren:
         return norma
+    from collections import Counter as _C
+    _voto = _C(" ".join(b[0].split())[:220].lower() for b in _abren)
+    _suyo = max(_abren, key=lambda b: (_voto[" ".join(b[0].split())[:220].lower()],
+                                       sum(len(x) for x in b)))
     partes, visto = [], set()
     for txt in _suyo:
         if txt not in visto:
