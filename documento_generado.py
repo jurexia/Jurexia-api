@@ -4441,7 +4441,23 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     #
     # No se pierde ningún dato: los dos nombres siguen en la carátula, arriba,
     # que es donde el lector los busca. Abajo sólo se repetían.
-    if not _bloque_sintesis(doc, sintesis or {}):
+    # ═══════════════════════════════════════════════════════════════════════
+    # LA HOJA QUE CIRCULA NO PUEDE PROPONER LO QUE EL RESOLUTIVO NIEGA
+    # ═══════════════════════════════════════════════════════════════════════
+    # La SÍNTESIS es la hoja que se desprende y encabeza la carpeta que se
+    # circula a los magistrados. Con el estudio en reserva, `fase_sintesis`
+    # sólo ve el estudio de fondo —nunca el cómputo— y escribía «Propuesta de
+    # resolución: se propone determinar que…» encima de una ejecutoria cuyo
+    # único resolutivo desecha por extemporáneo. Lo que circulaba del proyecto
+    # era, literalmente, la propuesta contraria a su resolutivo: la
+    # incongruencia del artículo 74, fracción VI, en la primera página.
+    #
+    # Su propia regla de escape —devolver el título vacío si el recurso se
+    # desechó— no puede dispararse, porque el estudio de fondo nunca habla de
+    # la oportunidad. Así que la guarda va aquí, donde sí se sabe.
+    if _extemp:
+        _bloque_firmas(doc, datos)
+    elif not _bloque_sintesis(doc, sintesis or {}):
         _bloque_firmas(doc, datos)
 
     # ═══════════════════════════════════════════════════════════════════════
@@ -4483,19 +4499,34 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # PAPEL.
         import fase0_oportunidad as _f0c
         _conf = _f0c.conforme_a(_ex_r["fundamento"])
+        # NO SE LE PONE EN LA BOCA LO QUE NO DIJO. La reserva puede venir de
+        # dos sitios: pedida por quien proyecta —con su razón escrita— o
+        # aplicada sola porque calificó el fondo pese al aviso. En el segundo
+        # caso no hubo petición ni razón declarada, y el anexo no puede
+        # afirmar que las hubo: el .docx lo firma una persona.
+        _auto_r = bool(getattr(computo, "decision_automatica", False))
         parrafo(doc,
                 f"ESTE APARTADO NO FORMA PARTE DE LA EJECUTORIA. La ejecutoria "
                 f"que antecede propone resolver la improcedencia por "
                 f"extemporaneidad, conforme {_conf}, y ése es "
-                f"su único punto resolutivo. El estudio que sigue se agrega, a "
-                f"petición de quien proyecta, para que el Pleno cuente con él "
+                f"su único punto resolutivo. El estudio que sigue se agrega "
+                + ("porque se calificó el fondo pese al cómputo de "
+                   "extemporaneidad" if _auto_r else
+                   "a petición de quien proyecta")
+                + f", para que el Pleno cuente con él "
                 f"si no comparte esa conclusión sobre la oportunidad. No se "
                 f"somete a votación, no se notifica a las partes y debe "
                 f"suprimirse antes de listar el asunto si la extemporaneidad "
                 f"se confirma.")
         _mot_r = (getattr(computo, "motivo", "") or "").strip()
-        if _mot_r:
+        if _mot_r and not _auto_r:
             parrafo(doc, f"Razón declarada por quien proyecta: «{_mot_r}».")
+        elif _auto_r:
+            parrafo(doc,
+                    "Quien proyecta no ha declarado razón para apartarse del "
+                    "cómputo. Si sostiene que la presentación fue oportuna, "
+                    "debe decirlo y escribir por qué: entonces el estudio "
+                    "entra en la ejecutoria y este anexo desaparece.")
         _subtitulo(doc, "Estudio de fondo, en reserva")
         _cuerpo_anexo = (list(_sin_remate_duplicado(_cuerpo_estudio))
                          + list(_sin_remate_duplicado(_cuerpo_conceptos)))

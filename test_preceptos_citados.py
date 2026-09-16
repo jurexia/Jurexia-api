@@ -8,6 +8,13 @@ en datos, la traída con un Qdrant fingido, y que el aviso quede sólo para lo
 que no existe.
 """
 import asyncio, sys
+
+# LA SUITE NO SALE A INTERNET. Desde que `completar_preceptos` busca en la
+# web lo que el acervo no tiene, «lo que no existe no se trae» dependía de
+# que el interruptor estuviera apagado en la máquina donde se corriera.
+import busqueda_web as _bw_off
+_bw_off.WEB_ACTIVA = False
+
 import fase6_estudio as fe, fase6_rag as fr
 
 fallos = []

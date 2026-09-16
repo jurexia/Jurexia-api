@@ -129,7 +129,16 @@ class Criterio:
 
 @dataclass
 class Material:
-    """Lo que el RAG encontró para un problema. Sólo entra lo VERIFICADO."""
+    """Lo que el RAG encontró para un problema. Sólo entra lo VERIFICADO.
+
+    LO VERIFICADO Y LO TRANSCRITO NO SON LO MISMO. Desde el
+    16-sep-2026 puede entrar en `normas` un precepto que el acervo no
+    tenía, transcrito de su fuente oficial en línea: viaja con
+    `de_internet=True`, su `dominio` y su `url`, y la lista de los que
+    entraron así se cuelga en `preceptos_de_internet`. Quien escriba
+    la próxima función que lea `normas` tiene que saberlo: la premisa
+    de que todo aquí está cotejado ya no vale para esos.
+    """
     tesis: list[dict] = field(default_factory=list)      # registro, rubro, texto
     normas: list[dict] = field(default_factory=list)     # cuerpo_legal, articulo, texto
     convencional: list[dict] = field(default_factory=list)
@@ -2294,7 +2303,14 @@ def preceptos_fuera(estudio: str, material: Material) -> tuple:
                 # Federación regulan…» acaba en «Federación», porque «regulan»
                 # va en minúscula y no es conector. La lista de verbos de abajo
                 # queda como red para cuando el nombre viene en minúsculas.
-                _nombre = " ".join(_mn.group(1).split()).strip(" .")
+                # UNA PREGUNTA NO ES UNA CITA. Desde que el material se
+                # completa ANTES de proponer, este lector recibe también las
+                # preguntas de los problemas —«¿El artículo 150 … del
+                # Reglamento Interior del IMSS faculta a…?»— y el nombre salía
+                # con la cola de la pregunta pegada: «…seguro social? la». Con
+                # ese nombre se buscaba en el acervo y se preguntaba a la web.
+                _nombre = " ".join(_mn.group(1).split())
+                _nombre = re.split(r"[?¿!¡;:»\"]", _nombre)[0].strip(" .,")
                 _pal = _nombre.split()
                 _corte = len(_pal)
                 for _i, _w in enumerate(_pal[1:], 1):

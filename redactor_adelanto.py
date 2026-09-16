@@ -1014,6 +1014,20 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                 # enseña a no leer los avisos. El material ya completado es la
                 # única fuente de verdad sobre qué sigue faltando.
                 _quedan = sorted(f6.preceptos_fuera(estudio, material)[1])
+                # Y LO QUE VINO DE INTERNET SE DICE APARTE. Al recalcular el
+                # aviso desaparecía el de «preceptos que no están en el
+                # material» —correcto, porque ya están— pero nadie decía que
+                # algunos se habían transcrito de un sitio web. El hueco
+                # tapado en silencio es peor que el hueco declarado.
+                _web_p = list(getattr(material, "preceptos_de_internet", []) or [])
+                if _web_p:
+                    avisos.append(
+                        f"{len(_web_p)} PRECEPTO(S) NO ESTÁN EN EL ACERVO y se "
+                        f"transcribieron de su fuente oficial en línea: "
+                        f"{', '.join(_web_p[:4])}"
+                        f"{'…' if len(_web_p) > 4 else ''}. La nota al pie dice "
+                        f"de dónde salió cada uno. COTÉJALOS antes de firmar: "
+                        f"no pasaron por la verificación del acervo.")
                 avisos = [a for a in avisos
                           if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
                 if _quedan:
@@ -1127,6 +1141,20 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                 # enseña a no leer los avisos. El material ya completado es la
                 # única fuente de verdad sobre qué sigue faltando.
                 _quedan = sorted(f6.preceptos_fuera(estudio, material)[1])
+                # Y LO QUE VINO DE INTERNET SE DICE APARTE. Al recalcular el
+                # aviso desaparecía el de «preceptos que no están en el
+                # material» —correcto, porque ya están— pero nadie decía que
+                # algunos se habían transcrito de un sitio web. El hueco
+                # tapado en silencio es peor que el hueco declarado.
+                _web_p = list(getattr(material, "preceptos_de_internet", []) or [])
+                if _web_p:
+                    avisos.append(
+                        f"{len(_web_p)} PRECEPTO(S) NO ESTÁN EN EL ACERVO y se "
+                        f"transcribieron de su fuente oficial en línea: "
+                        f"{', '.join(_web_p[:4])}"
+                        f"{'…' if len(_web_p) > 4 else ''}. La nota al pie dice "
+                        f"de dónde salió cada uno. COTÉJALOS antes de firmar: "
+                        f"no pasaron por la verificación del acervo.")
                 avisos = [a for a in avisos
                           if not str(a).startswith("PRECEPTOS CITADOS QUE NO ESTÁN")]
                 if _quedan:

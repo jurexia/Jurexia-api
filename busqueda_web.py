@@ -307,8 +307,16 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
                 r.raise_for_status()
                 d = r.json()
 
+            _fin = ((d.get("choices") or [{}])[0].get("finish_reason") or "")
             msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
             texto = (msg.get("content") or "").strip()
+            # UN ARTÍCULO CORTADO A LA MITAD DICE OTRA COSA. Si el modelo se
+            # quedó sin presupuesto, lo que llega es media norma presentada
+            # como norma entera.
+            if _fin == "length":
+                print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i}: "
+                      f"la respuesta se cortó por longitud")
+                continue
 
             # UN ENCABEZADO NO ES UN ARTÍCULO. La primera vuelta devolvió
             # «Artículo 150.- Son atribuciones de las subdelegaciones, dentro
@@ -341,13 +349,27 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
             for u in (d.get("citations") or []):
                 crudas.append(("", u))
 
+            # LA CITA TIENE QUE SER DE ESTA NORMA, no una cualquiera que
+            # resulte oficial. Bastaba con que UNA de las citas viniera de un
+            # dominio de gobierno —aunque fuera de otro asunto— para dar por
+            # buena la transcripción. Se exige además que el título o la URL
+            # nombren el ordenamiento: si ninguna cita lo hace, se prefiere el
+            # hueco declarado.
+            _voces = [w for w in re.findall(r"[\wáéíóúñ]{4,}", ley.lower())
+                      if w not in ("para", "sobre", "ante", "este", "esta")]
             for titulo, url in crudas:
                 dom = _dominio(url)
-                if dom and _es_oficial(dom, AGENTE_ARTICULO["cotos"]):
-                    print(f"   🌐 artículo {num} de «{ley[:40]}» traído de "
-                          f"{dom} (vuelta {i})")
-                    return {"texto": texto[:4000], "url": url, "dominio": dom,
-                            "titulo": (titulo or dom)[:140]}
+                if not (dom and _es_oficial(dom, AGENTE_ARTICULO["cotos"])):
+                    continue
+                _donde = f"{titulo} {url}".lower()
+                _nombra_norma = sum(1 for w in _voces if w in _donde) >= max(
+                    1, min(2, len(_voces)))
+                if not _nombra_norma:
+                    continue
+                print(f"   🌐 artículo {num} de «{ley[:40]}» traído de "
+                      f"{dom} (vuelta {i})")
+                return {"texto": texto[:4000], "url": url, "dominio": dom,
+                        "titulo": (titulo or dom)[:140]}
 
             # SIN FUENTE OFICIAL NO HAY PRECEPTO. Sonar contesta igual desde un
             # blog, y un artículo de ley sacado de un blog en un proyecto de

@@ -30421,6 +30421,10 @@ def _decidir_oportunidad(r, via: str = "", motivo: str = "",
             and getattr(c, "oportuna", None) is False
             and not getattr(c, "en_cualquier_tiempo", False)):
         via, motivo = "reserva", MOTIVO_RESERVA_AUTO
+        try:
+            c.decision_automatica = True
+        except Exception:
+            pass
         r.avisos.append(
             "CALIFICASTE EL FONDO Y EL CÓMPUTO DA EXTEMPORÁNEA: el proyecto "
             "sale COMPLETO, con tu estudio íntegro en el anexo de trabajo que "
@@ -30434,6 +30438,25 @@ def _decidir_oportunidad(r, via: str = "", motivo: str = "",
         import fase0_oportunidad as _f0d
         for a in (_f0d.aplicar_decision(c, via, motivo) or []):
             r.avisos.append(a)
+        # ELEGIR MAL NO PUEDE SALIR PEOR QUE NO ELEGIR. `aplicar_decision` no
+        # aplica la vía si el motivo no llega a los cuarenta caracteres, y
+        # entonces `decision` se quedaba vacía: quien escribía «sí procede» en
+        # la casilla perdía el estudio entero, mientras que quien no tocaba
+        # nada lo conservaba por la reserva automática. Se repliega.
+        if (hay_criterio and not (getattr(c, "decision", "") or "")
+                and getattr(c, "oportuna", None) is False
+                and not getattr(c, "en_cualquier_tiempo", False)):
+            for a in (_f0d.aplicar_decision(c, "reserva", MOTIVO_RESERVA_AUTO) or []):
+                r.avisos.append(a)
+            try:
+                c.decision_automatica = True
+            except Exception:
+                pass
+            r.avisos.append(
+                "TU DECISIÓN SOBRE LA OPORTUNIDAD NO SE PUDO APLICAR, pero el "
+                "estudio NO se pierde: sale en el anexo de trabajo detrás de "
+                "los resolutivos. Corrige lo que falte —normalmente el "
+                "motivo— si quieres que entre en la ejecutoria.")
     except Exception as ex:
         r.avisos.append(
             f"NO SE PUDO APLICAR TU DECISIÓN SOBRE LA OPORTUNIDAD ({err(ex)}). "
@@ -30980,9 +31003,16 @@ async def taller_resolver_stream(
                   f"«{responsable.strip()[:70]}»")
 
     _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo,
+                         # TODAS LAS SEÑALES DE QUE ESTÁ TRABAJANDO EL FONDO,
+                         # no sólo las tres primeras: aceptar la propuesta del
+                         # motor («usar_propuesta») y elegir modo de decisión
+                         # son criterio igual, y por esas ramas el estudio se
+                         # seguía tirando.
                          hay_criterio=bool((criterios_json or "").strip()
                                            or (sentido_global or "").strip()
-                                           or (sentido or "").strip()))
+                                           or (sentido or "").strip()
+                                           or usar_propuesta
+                                           or (modo_decision or "").strip()))
 
     if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":
         try:
@@ -31474,9 +31504,16 @@ async def taller_resolver(
                   f"«{responsable.strip()[:70]}»")
 
     _decidir_oportunidad(r, oportunidad_decision, oportunidad_motivo,
+                         # TODAS LAS SEÑALES DE QUE ESTÁ TRABAJANDO EL FONDO,
+                         # no sólo las tres primeras: aceptar la propuesta del
+                         # motor («usar_propuesta») y elegir modo de decisión
+                         # son criterio igual, y por esas ramas el estudio se
+                         # seguía tirando.
                          hay_criterio=bool((criterios_json or "").strip()
                                            or (sentido_global or "").strip()
-                                           or (sentido or "").strip()))
+                                           or (sentido or "").strip()
+                                           or usar_propuesta
+                                           or (modo_decision or "").strip()))
     # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
     # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
     # decidir— y era el que producía sentencias incongruentes: el estudio se

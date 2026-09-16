@@ -157,6 +157,45 @@ ok(not bw._NEGATIVAS.search(
     "circunscripción territorial: I. Registrar a los patrones y sujetos obligados."),
    "y un artículo de verdad NO se confunde con una negativa")
 
+# ══ G · lo que encontró la auditoría adversarial ══
+import main as _mm
+
+# G1 · la reserva automática se marca como automática
+c4 = _computo_extemporaneo()
+ok(hasattr(c4, "decision_automatica"), "Computo sabe si la decisión se aplicó sola")
+
+# G2 · el anexo no atribuye una petición que nadie hizo
+import inspect as _i2, documento_generado as _dg2
+_src = _i2.getsource(_dg2)
+ok("decision_automatica" in _src and "no ha declarado razón" in _src,
+   "el anexo distingue la reserva pedida de la automática")
+ok("Razón declarada por quien proyecta" in _src and "not _auto_r" in _src,
+   "y sólo imprime «razón declarada» cuando de verdad la declaró")
+
+# G3 · la hoja que circula no propone el fondo si el resolutivo desecha
+_j = _src.index("if _extemp:\n        _bloque_firmas")
+ok(_j > 0, "con extemporaneidad, la SÍNTESIS no se escribe: sólo las firmas")
+
+# G4 · el candado del acervo estatal no se salta por la web
+_srcr = _i2.getsource(fr)
+ok("es ley estatal en una revisión FISCAL" in _srcr,
+   "la web no trae ley estatal en una revisión fiscal (regla de la ley ajena)")
+ok("if not cols:" in _srcr, "ni busca cuando la colección se vació por candado")
+ok("TOPE_WEB" in _srcr, "y hay tope de búsquedas por asunto")
+
+# G5 · el nombre de la ley no arrastra la cola de la pregunta
+_, _pares_q = fe.preceptos_fuera(
+    "¿El artículo 150, fracción XIX, del Reglamento Interior del Instituto "
+    "Mexicano del Seguro Social faculta a la autoridad?", fe.Material())
+_nombres = [c for c, a in _pares_q]
+ok(_nombres and not any("?" in n_ or n_.endswith(" la") for n_ in _nombres),
+   f"el nombre sale limpio de una pregunta: {_nombres}")
+
+# G6 · la cita web tiene que nombrar la norma
+_srcw = _i2.getsource(bw)
+ok("_nombra_norma" in _srcw, "la cita oficial tiene que nombrar el ordenamiento")
+ok('_fin == "length"' in _srcw, "y una respuesta cortada por longitud se descarta")
+
 print()
 if fallos:
     print(f"FALLAN {len(fallos)}: " + " · ".join(fallos)); sys.exit(1)

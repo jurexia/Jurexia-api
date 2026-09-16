@@ -408,6 +408,12 @@ class Computo:
     # clic por inercia — un clic no se puede reproducir en un considerando.
     decision: str = ""              # "" | "oportuna" | "reserva"
     motivo: str = ""
+    # ¿LA RESERVA LA PIDIÓ ÉL O SE APLICÓ SOLA? Cuando el secretario califica
+    # el fondo y el cómputo da extemporánea, la reserva se estampa sin que él
+    # elija nada: el proyecto sale completo, que es lo que pidió David tres
+    # veces. Pero entonces NO hubo petición ni razón declarada, y el anexo no
+    # puede decir que las hubo — lo firma una persona.
+    decision_automatica: bool = False
 
     @property
     def en_cualquier_tiempo(self) -> bool:

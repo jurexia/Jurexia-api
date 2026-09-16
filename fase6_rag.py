@@ -457,6 +457,11 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
     # Los que no estaban en ninguna colección y se trajeron de su fuente
     # oficial en línea. Se llevan aparte para poder decirlo en el registro.
     de_la_web: list = []
+    # UN TOPE, PORQUE ESTO SE PAGA Y SE ESPERA. Cada búsqueda es una llamada
+    # HTTP en serie dentro de la petición del secretario; un estudio que cita
+    # quince preceptos ausentes tardaría minutos y costaría quince veces. Los
+    # que de verdad sostienen un estudio son pocos.
+    TOPE_WEB = 4
     for cuerpo, art in pares:
         try:
             num = int(art)
@@ -506,10 +511,30 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
             # URL. No es acervo verificado y en ningún sitio se hace pasar por
             # tal; el compositor lo dice en la nota al pie.
             print(f"   ⚖️ RAG: el artículo {num} de «{cuerpo}» no está en {cols or 'ninguna colección'}")
+            # LA WEB NO PUEDE SALTARSE EL CANDADO DEL ACERVO. Si la colección
+            # estatal se excluyó a propósito —revisión fiscal, o una ley de
+            # otro estado— el precepto no falta: está PROHIBIDO. Traerlo de
+            # internet metería por la ventana justo lo que la regla de la ley
+            # ajena deja fuera por la puerta.
+            if not cols:
+                continue
+            if len(de_la_web) >= TOPE_WEB:
+                print(f"   🌐 tope de {TOPE_WEB} búsquedas web alcanzado: el "
+                      f"artículo {num} de «{cuerpo}» queda como hueco declarado")
+                continue
+            if fuero == "estatal" and tipo_asunto == "revision_fiscal":
+                print(f"   ⚖️ RAG: no se busca en la web el artículo {num} de "
+                      f"«{cuerpo}»: es ley estatal en una revisión FISCAL")
+                continue
             _dela_web = {}
             try:
                 import busqueda_web as _bw
-                _dela_web = await _bw.texto_de_articulo(cuerpo, str(art))
+                _dela_web = await _bw.texto_de_articulo(
+                    cuerpo, str(art),
+                    # El ámbito, para que la búsqueda no confunda la ley de un
+                    # estado con la de otro que se llama igual.
+                    (coleccion_estatal or "").replace("leyes_", "").replace("_", " ")
+                    if fuero == "estatal" else None)
             except Exception as _exw:
                 print(f"   🌐 no se pudo buscar el artículo {num} en la web: "
                       f"{type(_exw).__name__}")
@@ -538,6 +563,17 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
     if de_la_web:
         print(f"   🌐 RAG: {len(de_la_web)} precepto(s) traídos de INTERNET "
               f"(no del acervo): {de_la_web}")
+    # LOS DE INTERNET VAN APARTE, Y SE PUEDEN PREGUNTAR. Se devolvían
+    # concatenados con los del acervo y quien llamaba ya no podía
+    # distinguirlos: el aviso que protegía al secretario se borraba —porque
+    # «algo se trajo»— y no se sustituía por ninguno que dijera que ese algo
+    # venía de un sitio web. Quien quiera la lista limpia la tiene en
+    # `completar_preceptos.de_la_web`, que se cuelga del propio material.
+    try:
+        material.preceptos_de_internet = list(
+            getattr(material, "preceptos_de_internet", []) or []) + de_la_web
+    except Exception:
+        pass
     return anadidos + de_la_web
 
 
