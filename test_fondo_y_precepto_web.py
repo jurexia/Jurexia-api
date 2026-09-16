@@ -123,6 +123,19 @@ ok(bw._es_oficial("ordenjuridico.gob.mx", bw.AGENTE_ARTICULO["cotos"]), "ordenju
 ok(not bw._es_oficial("leyes-mx.com", bw.AGENTE_ARTICULO["cotos"]), "leyes-mx.com NO entra")
 ok(not bw._es_oficial("justia.com", bw.AGENTE_ARTICULO["cotos"]), "justia.com NO entra")
 
+# ══ F · los guardianes del texto traído (sin red) ══
+# Lo que de verdad devolvió el buscador con una ley inventada, citando un
+# dominio oficial: una NEGATIVA. Pasaba los filtros de largo y de dos puntos.
+_NEG = ("No puedo citar textualmente ni completo el artículo 77 de una ley "
+        "inexistente, porque «Ley Inventada de la Nada Absoluta» no corresponde "
+        "a una norma identificable en el orden jurídico mexicano, y por eso no "
+        "es posible transcribir su contenido literal de fuente oficial alguna.")
+ok(bool(bw._NEGATIVAS.search(_NEG)), "una negativa del buscador se reconoce como tal")
+ok(not bw._NEGATIVAS.search(
+    "ARTÍCULO 150. Son atribuciones de las subdelegaciones, dentro de su "
+    "circunscripción territorial: I. Registrar a los patrones y sujetos obligados."),
+   "y un artículo de verdad NO se confunde con una negativa")
+
 print()
 if fallos:
     print(f"FALLAN {len(fallos)}: " + " · ".join(fallos)); sys.exit(1)

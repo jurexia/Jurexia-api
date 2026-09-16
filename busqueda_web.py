@@ -233,6 +233,18 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
 #      compositor lo dice en la nota al pie. Nunca se confunde con el acervo.
 #   3. Si no sale texto o no sale fuente oficial, no se devuelve nada: el
 #      hueco declarado sigue siendo mejor que un texto de procedencia dudosa.
+# LO QUE NO ES UN ARTÍCULO AUNQUE VENGA DE UN DOMINIO OFICIAL. Medido: con
+# la «Ley Inventada de la Nada Absoluta» el buscador contestó «No puedo citar
+# textualmente el artículo 77 de una ley inexistente…» y citó
+# gaceta.diputados.gob.mx — dominio oficial, texto largo, sin dos puntos al
+# final: pasaba los tres filtros y se habría colado como PRECEPTO en un
+# proyecto de sentencia. Una negativa del buscador no es una norma.
+_NEGATIVAS = re.compile(
+    r"no\s+(?:puedo|pude|es\s+posible|encontr|localic|hay|existe|se\s+encontr|"
+    r"dispongo|tengo\s+acceso)|"
+    r"\bno\s+corresponde\b|\bno\s+identificable\b|\binexistente\b|"
+    r"\bno\s+figura\b|\bsin\s+resultados\b|\blo\s+siento\b", re.I)
+
 AGENTE_ARTICULO = {
     "id": "articulo",
     "etiqueta": "Texto del precepto",
@@ -247,6 +259,14 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
     Devuelve {"texto", "url", "dominio", "titulo"} o {} si no se pudo. Nunca
     lanza: quien llama sigue su camino con el hueco declarado, que es como
     estaba antes de esto.
+
+    DOS FORMULACIONES, Y NO POR ADORNO. Medido contra el artículo 150 del
+    Reglamento Interior del IMSS —el que dejó sin proponer a la revisión
+    fiscal 2/2026—: con la misma pregunta, sonar contestó una vez «NO
+    LOCALIZADO» y otra con el texto correcto citando imss.gob.mx,
+    diputados.gob.mx, dof.gob.mx y ordenjuridico.gob.mx. La abstención no era
+    del buscador: era de la formulación. La segunda vuelta pregunta como
+    preguntaría una persona, que es la que funcionó.
     """
     vacio: Dict[str, Any] = {}
     ley = " ".join((cuerpo_legal or "").split())
@@ -256,68 +276,90 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
     if not OPENROUTER_API_KEY:
         print("   🌐 Falta OPENROUTER_API_KEY — no se busca el precepto")
         return vacio
-    try:
-        import httpx
 
-        donde = f" (ámbito: {estado})" if estado else ""
-        instruccion = (
-            f"Transcribe el TEXTO VIGENTE del artículo {num} de la siguiente "
-            f"norma mexicana: {ley}{donde}.\n\n"
-            "REGLAS:\n"
-            "- Devuelve el texto del artículo TAL CUAL está publicado, con sus "
-            "fracciones si las tiene. Nada de resúmenes ni de explicaciones.\n"
-            "- Búscalo en la fuente oficial: diputados.gob.mx, "
-            "ordenjuridico.gob.mx, dof.gob.mx o el sitio oficial del "
-            "organismo que expide la norma.\n"
-            "- Si el artículo fue derogado o reformado, dilo en una frase al "
-            "final.\n"
-            "- Si NO encuentras ese artículo en una fuente oficial, responde "
-            "exactamente: NO LOCALIZADO. No lo redactes de memoria."
-        )
+    donde = f" (ámbito: {estado})" if estado else ""
+    intentos = (
+        (f"Transcribe el TEXTO VIGENTE del artículo {num} de esta norma "
+         f"mexicana: {ley}{donde}. Cópialo TAL CUAL está publicado, COMPLETO "
+         f"y CON TODAS SUS FRACCIONES si las tiene. Nada de resúmenes. "
+         f"Búscalo en la fuente oficial: diputados.gob.mx, "
+         f"ordenjuridico.gob.mx, dof.gob.mx o el sitio del organismo que "
+         f"expide la norma. Si el artículo está derogado o reformado, dilo al "
+         f"final. Si NO lo encuentras en una fuente oficial, responde "
+         f"exactamente: NO LOCALIZADO."),
+        (f"¿Qué dice el artículo {num} del {ley}{donde}? Cítalo textualmente y "
+         f"completo, con sus fracciones, e indica la fuente oficial de donde "
+         f"lo tomas."),
+    )
 
-        async with httpx.AsyncClient(timeout=WEB_TIMEOUT) as cli:
-            r = await cli.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-                json={"model": WEB_MODELO,
-                      "messages": [{"role": "user", "content": instruccion}],
-                      "max_tokens": 900},
-            )
-            r.raise_for_status()
-            d = r.json()
+    for i, instruccion in enumerate(intentos, 1):
+        try:
+            import httpx
 
-        msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
-        texto = (msg.get("content") or "").strip()
-        if not texto or "NO LOCALIZADO" in texto.upper()[:400]:
-            print(f"   🌐 artículo {num} de «{ley[:40]}»: no localizado")
-            return vacio
+            async with httpx.AsyncClient(timeout=WEB_TIMEOUT) as cli:
+                r = await cli.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                    json={"model": WEB_MODELO,
+                          "messages": [{"role": "user", "content": instruccion}],
+                          "max_tokens": 1200},
+                )
+                r.raise_for_status()
+                d = r.json()
 
-        crudas = []
-        for a in (msg.get("annotations") or []):
-            uc = a.get("url_citation") or {}
-            if uc.get("url"):
-                crudas.append((uc.get("title") or "", uc["url"]))
-        for u in (d.get("citations") or []):
-            crudas.append(("", u))
+            msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
+            texto = (msg.get("content") or "").strip()
 
-        for titulo, url in crudas:
-            dom = _dominio(url)
-            if dom and _es_oficial(dom, AGENTE_ARTICULO["cotos"]):
-                print(f"   🌐 artículo {num} de «{ley[:40]}» traído de {dom}")
-                return {"texto": texto[:4000], "url": url, "dominio": dom,
-                        "titulo": (titulo or dom)[:140]}
+            # UN ENCABEZADO NO ES UN ARTÍCULO. La primera vuelta devolvió
+            # «Artículo 150.- Son atribuciones de las subdelegaciones, dentro
+            # de su circunscripción territorial:» y ahí se acababa: el anuncio
+            # de una lista de fracciones que no venía. Un precepto cortado en
+            # los dos puntos, dentro de una sentencia, dice lo contrario de lo
+            # que dice la norma.
+            _plano = " ".join(texto.split())
+            _corto = len(_plano) < 120
+            _colgado = texto.rstrip().endswith((":", "…", "..."))
+            # Y TIENE QUE SER UNA TRANSCRIPCIÓN, no una respuesta sobre ella:
+            # el artículo se nombra en la cabecera de lo que se transcribe.
+            _nombra = bool(re.search(rf"art[íi]culo\s+0*{re.escape(num)}\b",
+                                     _plano[:220], re.I))
+            _niega = bool(_NEGATIVAS.search(_plano[:400]))
+            if (not texto or "NO LOCALIZADO" in texto.upper()[:400]
+                    or _corto or _colgado or _niega or not _nombra):
+                _porque = ("sin texto" if not texto
+                           else "el buscador dice que no lo tiene" if _niega
+                           else "no transcribe el artículo" if not _nombra
+                           else "texto incompleto")
+                print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i}: {_porque}")
+                continue
 
-        # SIN FUENTE OFICIAL NO HAY PRECEPTO. Sonar contesta igual desde un
-        # blog, y un artículo de ley sacado de un blog en un proyecto de
-        # sentencia es peor que el hueco.
-        print(f"   🌐 artículo {num} de «{ley[:40]}»: "
-              f"{len(crudas)} citas, ninguna oficial — se descarta")
-        return vacio
+            crudas = []
+            for a in (msg.get("annotations") or []):
+                uc = a.get("url_citation") or {}
+                if uc.get("url"):
+                    crudas.append((uc.get("title") or "", uc["url"]))
+            for u in (d.get("citations") or []):
+                crudas.append(("", u))
 
-    except Exception as e:
-        print(f"   🌐 artículo {num} de «{ley[:40]}» falló "
-              f"({type(e).__name__}: {str(e)[:80]})")
-        return vacio
+            for titulo, url in crudas:
+                dom = _dominio(url)
+                if dom and _es_oficial(dom, AGENTE_ARTICULO["cotos"]):
+                    print(f"   🌐 artículo {num} de «{ley[:40]}» traído de "
+                          f"{dom} (vuelta {i})")
+                    return {"texto": texto[:4000], "url": url, "dominio": dom,
+                            "titulo": (titulo or dom)[:140]}
+
+            # SIN FUENTE OFICIAL NO HAY PRECEPTO. Sonar contesta igual desde un
+            # blog, y un artículo de ley sacado de un blog en un proyecto de
+            # sentencia es peor que el hueco.
+            print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i}: "
+                  f"{len(crudas)} citas, ninguna oficial")
+
+        except Exception as e:
+            print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i} falló "
+                  f"({type(e).__name__}: {str(e)[:80]})")
+
+    return vacio
 
 
 def lanzar_agentes(consulta: str, estado: Optional[str] = None) -> List[asyncio.Task]:
