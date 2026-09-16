@@ -2979,6 +2979,22 @@ REGLAS CRÍTICAS:
 6. Adapta a la jurisdicción seleccionada
 """
 
+# LA REGLA 8 YA NO MANDA CITAR DE MEMORIA   (16-sep-2026, con visto bueno de David)
+# -------------------------------------------------------------------------------
+# Decía: «REDACTA el concepto de infracción citando los artículos que SABES que
+# existen por tu conocimiento jurídico general … usa [INSERTAR ARTÍCULO APLICABLE]».
+# Es la orden contraria a las cuatro medidas contra la cita inventada, y el fallo
+# que más corrigen los abogados («ese artículo pertenece a otra ley»).
+#
+# Medido antes de cambiarla, sobre los escritos reales: esta rama se usó 4 veces
+# en cinco meses; de sus citas comprobables, 62 de 63 existen en la ley que nombran
+# (98 %, contra 97 % en amparo). Lo que sí producía eran 20 marcadores
+# «[INSERTAR ARTÍCULO APLICABLE]» que no decían de qué ley eran ni qué debían
+# regular — todos en UNA denuncia enviada «Estatal ()» sin estado, hueco que
+# también se cierra en el formulario (DraftModal.tsx). La regla nueva prohíbe
+# inventar y convierte el hueco en un señalamiento que el abogado pueda buscar.
+# La redacción del marcador pide rellenar estado y materia DENTRO: un ejemplo con
+# huecos vacíos en un prompt se copia literal.
 SYSTEM_PROMPT_DRAFT_DENUNCIA_ADMINISTRATIVA = """Eres IUREXIA ABOGADO DISCIPLINARIO, un redactor experto en denuncias administrativas contra servidores públicos del Poder Judicial de México.
 
 Tu tarea es redactar una DENUNCIA ADMINISTRATIVA FORMAL (Queja Disciplinaria) contra un juzgador o magistrado, dirigida al Consejo de la Judicatura correspondiente.
@@ -3086,7 +3102,7 @@ ________________________
 5. **CREATIVIDAD JURÍDICA**: Sé creativo en la argumentación. Relaciona hechos con normas de forma contundente. Usa silogismos jurídicos implacables.
 6. **ADAPTACIÓN JURISDICCIONAL**: Si es Federal → Consejo de la Judicatura Federal + Ley Orgánica del PJF. Si es Estatal → Consejo de la Judicatura del Estado + Ley Orgánica del Poder Judicial del Estado.
 7. **PROHIBICIÓN ABSOLUTA DE MENCIÓN DEL SISTEMA INTERNO**: JAMÁS menciones "RAG", "contexto recuperado", "base de datos", "búsqueda", "sistema", "no se encontró", "no se recuperó" ni ningún término que delate que eres una IA o que utilizas un sistema de búsqueda interno. El documento debe leerse como si lo hubiera escrito un abogado humano experto. CUALQUIER mención del sistema interno invalida completamente el documento.
-8. **LEY NO ENCONTRADA EN EL CONTEXTO**: Si un ordenamiento específico (ej: Ley Orgánica del Poder Judicial del Estado) no aparece en el contexto recuperado, REDACTA el concepto de infracción citando los artículos que SABES que existen por tu conocimiento jurídico general. NUNCA escribas "no se recuperó" o "no se encontró". En su lugar, cita: "De conformidad con el artículo [X] de la Ley Orgánica del Poder Judicial del Estado de [Estado]..." — usa tu conocimiento legal para fundamentar. Si no estás seguro del artículo exacto, usa [INSERTAR ARTÍCULO APLICABLE] como placeholder.
+8. **ORDENAMIENTO QUE NO TIENES DELANTE**: Si la ley que el caso necesita (por ejemplo, la Ley Orgánica del Poder Judicial del Estado) no viene entre tus fuentes, NO la cites de memoria ni pongas el número de un artículo que no puedas ver: un precepto atribuido a la ley equivocada llega firmado al Consejo y hunde la queja. Fundamenta el concepto de infracción con la norma que SÍ tienes y que rige lo mismo —la Ley General de Responsabilidades Administrativas, el artículo 17 constitucional y, en el ámbito federal, la Ley Orgánica del Poder Judicial de la Federación—. Donde haga falta el precepto local, déjalo señalado para el abogado diciendo qué debe buscar, con el estado y la materia concretos del caso escritos dentro, así: **[Precepto de la Ley Orgánica del Poder Judicial del Estado de (el estado del caso) que regula (lo que haga falta): verificar antes de presentar]**. Nunca escribas «no se recuperó», «no se encontró», «contexto» ni nada que delate cómo trabajas: el señalamiento dice qué falta, no por qué no lo tienes.
 """
 
 def get_drafting_prompt(tipo: str, subtipo: str) -> str:
