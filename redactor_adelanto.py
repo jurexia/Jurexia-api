@@ -1435,9 +1435,26 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         import zipfile as _zf
         with _zf.ZipFile(ruta) as _z:
             _xml = _z.read("word/document.xml").decode("utf-8", "replace")
+            _z_doc_xml = _xml
             if "word/footnotes.xml" in _z.namelist():
                 _xml += _z.read("word/footnotes.xml").decode("utf-8", "replace")
         _plano = re.sub(r"<[^>]+>", "", re.sub(r"</w:p>", "\n", _xml))
+        # EL DESENLACE, DICHO IGUAL EN TODO EL PROYECTO. `revisar_congruencia`
+        # sólo conocía las fórmulas del amparo; en un recurso, «se confirma» en
+        # el estudio contra «Se revoca» en el resolutivo pasaba limpio. Así salió
+        # la revisión fiscal 2/2026: confirmaba en el estudio y en la síntesis,
+        # revocaba en el cierre y en los resolutivos. Los resolutivos mandan
+        # —son los que resuelven—, y cualquier parte que diga lo contrario deja
+        # el proyecto marcado como no firmable, el primero de la lista.
+        try:
+            import desenlace as _dz_f
+            for _a in reversed(_dz_f.contradicciones(
+                    re.sub(r"<[^>]+>", "", re.sub(r"</w:p>", "\n",
+                           _z_doc_xml)), e.tipo_asunto)):
+                print(f"   🚨 DESENLACE: {_a[:220]}")
+                avisos.insert(0, _a)
+        except Exception as _edf:
+            print(f"   ⚠️ DESENLACE: no se pudo revisar el documento final: {type(_edf).__name__}")
         _restan = _ln.inadmisibles(_plano, _litis)
         if _restan:
             _lista = "; ".join(f"art. {', '.join(h['nums'])} de la {h['ley']}"

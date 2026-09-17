@@ -30847,6 +30847,21 @@ async def taller_proponer(
         razon="El motor no propuso un sentido para este problema.")
         for x, q in zip(_emparejadas, problemas)]
 
+    # ═══ LA TARJETA NO PUEDE DECIR «NO PROSPERA» CON UN «FUNDADO» DEBAJO ═══
+    # Revisión fiscal 2/2026: el motor razonó «el recurso no debe prosperar
+    # (…) el tercer planteamiento es fundado (…) pero resulta insuficiente», y
+    # ese tercer planteamiento salió calificado «fundado» a secas. La pantalla
+    # enseñó «No prospera» con un «Fundado» colgando, y el cierre y los
+    # resolutivos —que cuentan fundados— revocaron lo que el estudio
+    # confirmaba. Se reconcilia AQUÍ, antes de guardar y de devolver, para que
+    # lo que el secretario lee sea ya lo que el proyecto va a decir.
+    if glob is not None and getattr(glob, "alcanza", False) and getattr(glob, "sentido", ""):
+        try:
+            import desenlace as _dz
+            avisos.extend(_dz.reconciliar(propuestas, glob.sentido, _jer_por_problema))
+        except Exception as _edz:
+            print(f"   ⚠️ DESENLACE: no se pudo reconciliar la propuesta: {err(_edz)}")
+
     ses["propuestas"] = propuestas
     # ── Y SE PERSISTEN, PORQUE HAY DOS TRABAJADORES ──────────────────────
     #
@@ -31312,6 +31327,29 @@ async def taller_resolver_stream(
         crit = [_f6.Criterio(problema=problema or (r.fases.problema_global or ""),
                              sentido=sentido, razonamiento=razonamiento)]
 
+    # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
+    # Otra vez aquí, para lo que llegue por otro camino que la propuesta recién
+    # reconciliada: una sesión de antes, un criterio editado a mano, el global
+    # dictado por el secretario. Sólo cuando HAY tarjeta global —dictada o del
+    # motor—; en la vía por problema sus marcas son la tarjeta y no se tocan.
+    try:
+        import desenlace as _dz
+        _modo_dz = (modo_decision or "").strip().lower()
+        _tarjeta = ""
+        if _modo_dz == "global":
+            _tarjeta = (sentido_global or "").strip()
+        elif (_modo_dz == "acervo" or usar_propuesta) and not criterios_json.strip():
+            if (_glob or {}).get("alcanza", True):
+                _tarjeta = str((_glob or {}).get("sentido") or "").strip()
+        if _tarjeta and crit:
+            _jer_dz = {str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia") or "")
+                       for p in (r.fases.problemas or []) if p}
+            for _a in _dz.reconciliar(crit, _tarjeta, _jer_dz):
+                print(f"   ⚖️ DESENLACE: {_a[:160]}")
+                if _a not in (r.fases.avisos or []):
+                    r.fases.avisos.append(_a)
+    except Exception as _edz:
+        print(f"   ⚠️ DESENLACE: no se pudo reconciliar con la tarjeta: {err(_edz)}")
     salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
     import marco_juridico as _mj
     _probs = ([r.fases.problema_global] if r.fases.problema_global else [])
@@ -31694,7 +31732,12 @@ async def taller_resolver(
     # decidir— y era el que producía sentencias incongruentes: el estudio se
     # escribía y el resolutivo se quedaba con la calificación de la plantilla.
     avisos_modo: list = []
-    if criterios_json.strip():
+    # LA MISMA CONDICIÓN QUE EL GEMELO DE FLUJO. La pantalla manda
+    # `criterios_json` TAMBIÉN en la vía global —«lo que él marcó por problema
+    # viaja igual»—, y aquí esta rama iba primero sin mirar el modo: con un
+    # sentido global dictado, este endpoint lo ignoraba y resolvía por las
+    # marcas sueltas. El de flujo ya lo excluía. Dos puertas, dos desenlaces.
+    if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":
         # El camino bueno: el secretario devuelve lo que aceptó, con sus
         # ediciones si las hizo. No depende de qué worker atendió la propuesta.
         try:
@@ -31836,6 +31879,29 @@ async def taller_resolver(
         crit = [_f6.Criterio(
             problema=problema or (r.fases.problema_global or ""),
             sentido=sentido, razonamiento=razonamiento)]
+    # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
+    # Otra vez aquí, para lo que llegue por otro camino que la propuesta recién
+    # reconciliada: una sesión de antes, un criterio editado a mano, el global
+    # dictado por el secretario. Sólo cuando HAY tarjeta global —dictada o del
+    # motor—; en la vía por problema sus marcas son la tarjeta y no se tocan.
+    try:
+        import desenlace as _dz
+        _modo_dz = (modo_decision or "").strip().lower()
+        _tarjeta = ""
+        if _modo_dz == "global":
+            _tarjeta = (sentido_global or "").strip()
+        elif (_modo_dz == "acervo" or usar_propuesta) and not criterios_json.strip():
+            if (_glob or {}).get("alcanza", True):
+                _tarjeta = str((_glob or {}).get("sentido") or "").strip()
+        if _tarjeta and crit:
+            _jer_dz = {str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia") or "")
+                       for p in (r.fases.problemas or []) if p}
+            for _a in _dz.reconciliar(crit, _tarjeta, _jer_dz):
+                print(f"   ⚖️ DESENLACE: {_a[:160]}")
+                if _a not in (r.fases.avisos or []):
+                    r.fases.avisos.append(_a)
+    except Exception as _edz:
+        print(f"   ⚠️ DESENLACE: no se pudo reconciliar con la tarjeta: {err(_edz)}")
     salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
     # El marco jurídico de ESTE asunto. Si los problemas no lo piden, sale vacío
     # y no se escribe: pegar derechos humanos en todos los asuntos era el riesgo
