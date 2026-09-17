@@ -173,16 +173,17 @@ def huella_contraste(r) -> str:
 CONTRASTE_ABANDONADO_S = 240.0
 
 
-async def esperar_contraste(huella: str, leer, tope: float = 150.0,
-                            ahora=time.time, dormir=asyncio.sleep,
-                            cada: float = 3.0) -> list | None:
-    """Los planteamientos contrastados que dejó el adelanto, o None si hay que
-    calcularlos aquí.
+async def esperar_marca(huella: str, leer, que: str = "el contraste adelantado",
+                        tope: float = 150.0, abandonado: float = CONTRASTE_ABANDONADO_S,
+                        ahora=time.time, dormir=asyncio.sleep,
+                        cada: float = 3.0) -> dict | None:
+    """La marca que dejó una tarea del adelanto —{huella, estado, desde, …}—
+    cuando está «listo» y es de ESTE adelanto; None si hay que hacer el
+    trabajo aquí.
 
-    `leer()` devuelve el dict guardado —{huella, estado, desde, items}— o None.
-    Se espera sólo mientras la fila dice «en_curso» y el que lo calcula sigue
-    vivo; nunca más de `tope` segundos, que es menos de lo que costaría
-    calcularlo de nuevo.
+    `leer()` devuelve el dict guardado o None. Se espera sólo mientras la fila
+    dice «en_curso» y el que lo calcula sigue vivo; nunca más de `tope`
+    segundos, que es menos de lo que costaría calcularlo de nuevo.
     """
     t0 = ahora()
     avisado = False
@@ -192,23 +193,48 @@ async def esperar_contraste(huella: str, leer, tope: float = 150.0,
             return None
         estado = doc.get("estado")
         if estado == "listo":
-            items = doc.get("items")
-            return list(items) if isinstance(items, list) else None
+            return doc
         if estado != "en_curso":
             return None
         try:
             desde = float(doc.get("desde") or 0)
         except (TypeError, ValueError):
             desde = 0.0
-        if ahora() - desde > CONTRASTE_ABANDONADO_S:
-            print("   ⏳ el contraste adelantado no dio señales en "
-                  f"{CONTRASTE_ABANDONADO_S:.0f} s: se calcula aquí")
+        if ahora() - desde > abandonado:
+            print(f"   ⏳ {que} no dio señales en {abandonado:.0f} s: se hace aquí")
             return None
         if ahora() - t0 >= tope:
-            print(f"   ⏳ el contraste adelantado sigue en curso tras {tope:.0f} s "
-                  f"de espera: se calcula aquí")
+            print(f"   ⏳ {que} sigue en curso tras {tope:.0f} s de espera: se hace aquí")
             return None
         if not avisado:
-            print("   ⏳ el contraste adelantado sigue en curso: la propuesta lo espera")
+            print(f"   ⏳ {que} sigue en curso: se espera")
             avisado = True
         await dormir(cada)
+
+
+async def esperar_contraste(huella: str, leer, tope: float = 150.0,
+                            ahora=time.time, dormir=asyncio.sleep,
+                            cada: float = 3.0) -> list | None:
+    """Los planteamientos contrastados que dejó el adelanto, o None si hay que
+    calcularlos aquí."""
+    doc = await esperar_marca(huella, leer, "el contraste adelantado", tope,
+                              CONTRASTE_ABANDONADO_S, ahora, dormir, cada)
+    if doc is None:
+        return None
+    items = doc.get("items")
+    return list(items) if isinstance(items, list) else None
+
+
+# La consulta del acervo tarda 30-40 s; si no ha escrito nada en tres
+# minutos, el worker que la corría ya no está.
+CONSULTA_ABANDONADA_S = 180.0
+
+
+async def esperar_consulta(huella: str, leer, tope: float = 90.0,
+                           ahora=time.time, dormir=asyncio.sleep,
+                           cada: float = 2.0) -> bool:
+    """¿La consulta automática del acervo de ESTE adelanto está lista? Espera
+    mientras corre; False si hay que consultar aquí."""
+    doc = await esperar_marca(huella, leer, "la consulta automática del acervo",
+                              tope, CONSULTA_ABANDONADA_S, ahora, dormir, cada)
+    return doc is not None
