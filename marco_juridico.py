@@ -697,6 +697,26 @@ async def construir(qdrant, embed, problemas: list[str],
     if coleccion_estatal and texto_del_acto:
         citados = preceptos_de_la_responsable(
             texto_del_acto, coleccion_estatal=coleccion_estatal)
+        # UNA LEY FEDERAL NO SE BUSCA EN EL ACERVO DE UN ESTADO. Cuando la
+        # responsable sólo cita leyes federales —una Sala del Tribunal FEDERAL
+        # de Justicia Administrativa con sede en Querétaro—, el lector de arriba
+        # no encuentra ninguna «del Estado» y devuelve la más citada: la Ley
+        # Federal de Procedimiento Contencioso Administrativo. Buscarla dentro
+        # de `leyes_queretaro` sólo puede devolver OTRA ley, y devolvió su
+        # espejo estatal: la revisión fiscal 2/2026 salió con «En el ámbito
+        # local, el artículo 57 de la Ley de Procedimiento Contencioso
+        # Administrativo del Estado de Querétaro», copia literal del 51 federal.
+        # La ley del acto es federal: el marco no lleva ley local, y lo federal
+        # entra por su propio camino.
+        _acto_federal = False
+        try:
+            import litis_normativa as _ln_m
+            if citados and not _ln_m.es_local(citados[0][1]):
+                print(f"   ⚖️ la ley del acto es federal ({citados[0][1][:60]}): "
+                      f"no se busca en {coleccion_estatal}")
+                citados, _acto_federal = [], True
+        except Exception:
+            pass
         if citados:
             _ley = citados[0][1]
             # NO SE FILTRA POR EL NOMBRE EXACTO, y costó descubrirlo: la
@@ -750,7 +770,22 @@ async def construir(qdrant, embed, problemas: list[str],
             # «procedimientos» y «civiles» no las comparte ninguna otra ley del
             # acervo estatal.
             _minimo = min(2, len(_clave)) or 1
-            _suyas = [pl for pl in locales if _parecido(pl) >= _minimo]
+            # Y EL FUERO NO SE CRUZA aunque dos palabras coincidan. El parecido
+            # por palabras distintivas es bueno para preferir un código dentro
+            # del estado, pero «procedimiento contencioso administrativo» lo
+            # comparten la ley federal y la de cada entidad. `misma_ley` es la
+            # que sabe que «Federal» nunca es «del Estado».
+            try:
+                import fase6_rag as _f6r_m
+                _misma_m = _f6r_m.misma_ley
+            except Exception:
+                _misma_m = None
+            _suyas = [pl for pl in locales if _parecido(pl) >= _minimo
+                      and (_misma_m is None or _misma_m(
+                          _ley, str(pl.get("cuerpo_legal_oficial") or pl.get("ley")
+                                    or pl.get("origen") or ""))
+                           or _misma_m(str(pl.get("cuerpo_legal_oficial") or pl.get("ley")
+                                           or pl.get("origen") or ""), _ley))]
             if _suyas:
                 locales = _suyas
             else:
@@ -784,7 +819,10 @@ async def construir(qdrant, embed, problemas: list[str],
                 print(f"   ⚖️ ley del acto: {_ley[:60]} · "
                       f"{len(m.locales)} preceptos al marco "
                       f"(la responsable citó {', '.join(a for a, _ in citados[:6])})")
-        else:
+        elif not _acto_federal:
+            # Sólo cuando de verdad no se leyó. Si se leyó y es federal, decir
+            # «no se pudo leer» sería un aviso falso: el acto se lee bien, lo
+            # que pasa es que no tiene ley local que transcribir.
             m.avisos.append(
                 "NO SE PUDO LEER CON QUÉ LEY SE DICTÓ EL ACTO RECLAMADO: el "
                 "documento no cita artículos de ningún código o ley del estado. "

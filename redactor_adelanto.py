@@ -917,6 +917,27 @@ async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
     return s
 
 
+
+def _litis_y_material(r, material, avisos: list) -> list:
+    """La litis del asunto, y el material ya sin ley local ajena a ella.
+
+    Lo que no puede citarse no se le enseña al modelo: la guarda del final
+    corrige lo que se escape, pero la mejor cita mala es la que nunca se
+    escribe. Devuelve la litis para que `_terminar` la reutilice.
+    """
+    try:
+        import litis_normativa as _ln
+        litis = _ln.leyes_de_la_litis(getattr(r, "fases", None))
+        buenas, fuera = _ln.filtrar_normas(getattr(material, "normas", None) or [], litis)
+        if fuera:
+            material.normas = buenas
+            print(f"   ⚖️ LITIS: fuera del material {len(fuera)} precepto(s) de ley "
+                  f"local que ni el acto ni el escrito invocan: {fuera[:4]}")
+        return litis
+    except Exception as _el:
+        print(f"   ⚠️ LITIS: no se pudo acotar el material: {type(_el).__name__}")
+        return []
+
 async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                    material: f6.Material, ruta_salida: str,
                    marco: str = "", qdrant=None, contexto: str = "") -> Resultado:
@@ -968,6 +989,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             [p for p in (r.fases.problemas or [])], e.es_recurso, e.tipo_asunto))
 
 
+    _litis_y_material(r, material, [])
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
@@ -1102,6 +1124,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             e.es_recurso, e.tipo_asunto))
 
     estudio = advertencias = ""
+    _litis_y_material(r, material, avisos)
     t0 = _time.perf_counter()
     async for paso in f6.redactar_en_vivo(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
@@ -1246,6 +1269,24 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     mismo cuando el flujo termina, y tener dos copias de esto es tener dos
     sitios donde se rompe la congruencia.
     """
+    # ═══ LA LEY LOCAL SÓLO ENTRA SI ESTÁ EN LA LITIS ═══════════════════════
+    # Aquí convergen los dos redactores del estudio, y el marco llega unas
+    # líneas más abajo: es el único sitio por el que pasa TODO lo que se va a
+    # componer. Se sanea antes de armar el relleno, porque el relleno copia el
+    # estudio y las normas en el momento de construirse.
+    import litis_normativa as _ln
+    try:
+        _litis = _ln.leyes_de_la_litis(getattr(r, "fases", None))
+        _buenas, _fuera = _ln.filtrar_normas(material.normas, _litis)
+        material.normas = _buenas
+        estudio, _av_l = _ln.sanear(estudio, _litis, _buenas, "el estudio de fondo")
+        # LOS AVISOS DE LA LITIS VAN PRIMERO: describen algo que se tocó en el
+        # texto que se va a firmar, no algo mejorable.
+        for _a in reversed(_av_l):
+            avisos.insert(0, _a)
+    except Exception as _el:
+        _litis, _buenas = [], material.normas
+        print(f"   ⚠️ LITIS: no se pudo sanear el estudio: {type(_el).__name__}: {_el}")
     relleno = ens.Relleno(
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
         magistrado=e.magistrado, secretario=e.secretario,
@@ -1329,6 +1370,15 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         with cronometrar("marco escrito"):
             try:
                 marco_escrito = await tarea_marco
+                # El marco es el tercer redactor, y fue EL QUE escribió la ley
+                # de Querétaro en la revisión fiscal 2/2026.
+                try:
+                    marco_escrito, _av_m = _ln.sanear(
+                        marco_escrito, _litis, _buenas, "el marco jurídico")
+                    for _a in reversed(_av_m):
+                        avisos.insert(0, _a)
+                except Exception as _elm:
+                    print(f"   ⚠️ LITIS: no se pudo sanear el marco: {type(_elm).__name__}")
                 import documento_generado as _dg4
                 avisos.extend(_dg4.revisar_marco(marco_escrito, marco or ""))
             except Exception as _em:
@@ -1374,6 +1424,33 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     for a in reversed(incongruente):
         if a not in avisos:
             avisos.insert(0, a)
+
+    # ═══ LA ÚLTIMA PUERTA: EL DOCUMENTO QUE SE ENTREGA ════════════════════
+    # Las tres capas de arriba —material acotado, estudio saneado, marco
+    # saneado— cubren las puertas conocidas. Ésta mira el .docx ya compuesto,
+    # con sus notas al pie, por si una ley local entra por una que no se ha
+    # encontrado. Si aparece algo aquí, el proyecto NO sale en silencio: el
+    # aviso va el primero y dice que no se puede firmar así.
+    try:
+        import zipfile as _zf
+        with _zf.ZipFile(ruta) as _z:
+            _xml = _z.read("word/document.xml").decode("utf-8", "replace")
+            if "word/footnotes.xml" in _z.namelist():
+                _xml += _z.read("word/footnotes.xml").decode("utf-8", "replace")
+        _plano = re.sub(r"<[^>]+>", "", re.sub(r"</w:p>", "\n", _xml))
+        _restan = _ln.inadmisibles(_plano, _litis)
+        if _restan:
+            _lista = "; ".join(f"art. {', '.join(h['nums'])} de la {h['ley']}"
+                               for h in _restan[:4])
+            print(f"   🚨 LITIS: el documento final aún cita ley local ajena: {_lista}")
+            avisos.insert(0,
+                "NO FIRMABLE TAL COMO ESTÁ — LEY LOCAL AJENA A LA LITIS: el "
+                f"proyecto cita {_lista}, y ni la sentencia recurrida o el acto "
+                "reclamado ni el escrito de agravios o conceptos invocan esa ley. "
+                "Retírala o sustitúyela por el precepto que sí rige el asunto "
+                "antes de listarlo.")
+    except Exception as _elf:
+        print(f"   ⚠️ LITIS: no se pudo revisar el documento final: {type(_elf).__name__}")
 
     # LA CALIDAD DEL FONDO, MEDIDA SOBRE EL DOCUMENTO ENTREGADO. No es una
     # opinión: son las cinco medidas que salieron de contar los defectos de los
