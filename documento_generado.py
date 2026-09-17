@@ -1808,6 +1808,25 @@ def cuerpo_para_transcribir(texto: str, num, ley: str = "") -> str:
     completo y falso.
     """
     veredicto, dice = cotejar_articulo(texto, num)
+    # NI UNA RESPUESTA DE CHAT, venga de donde venga. La verja miraba si el
+    # texto decía ser OTRO artículo; no si era un artículo en absoluto. Así
+    # entró al 2/2026 la negativa del buscador web como transcripción del
+    # artículo 150: «El **artículo 150** que corresponde al… no puedo citarlo
+    # textualmente». Aquí se cierra para las tres puertas a la vez.
+    try:
+        import texto_normativo as _tn
+        _norma_ok, _por_que_no = _tn.es_texto_normativo(texto)
+    except Exception:
+        _norma_ok, _por_que_no = True, ""
+    if not _norma_ok:
+        aviso = (f"NO SE TRANSCRIBIÓ EL ARTÍCULO {num}"
+                 + (f" de {ley}" if ley else "")
+                 + f": el texto que llegó no es el de la norma ({_por_que_no}). "
+                 + "El artículo sigue citado, pero sin transcripción: cópialo de "
+                 + "su publicación oficial.")
+        if aviso not in avisos_cotejo:
+            avisos_cotejo.append(aviso)
+        return ""
     if veredicto == "desmentido":
         aviso = (f"NO SE TRANSCRIBIÓ EL ARTÍCULO {num}"
                  + (f" de {ley}" if ley else "")

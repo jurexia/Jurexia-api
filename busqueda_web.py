@@ -332,10 +332,19 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
             _nombra = bool(re.search(rf"art[íi]culo\s+0*{re.escape(num)}\b",
                                      _plano[:220], re.I))
             _niega = bool(_NEGATIVAS.search(_plano[:400]))
+            # Y QUE SEA TEXTO DE NORMA, no una respuesta sobre ella. Por lista
+            # negra y mirando 400 caracteres se coló en la revisión fiscal
+            # 2/2026 una nota al pie que decía «El **artículo 150** que
+            # corresponde al… no puedo citarlo textualmente» —la negativa
+            # estaba en la posición 464, con asteriscos—. La prueba ahora es
+            # positiva: sin Markdown, sin asistente hablando, sin describirse.
+            import texto_normativo as _tn
+            _norma_ok, _por_que_no = _tn.es_texto_normativo(texto)
             if (not texto or "NO LOCALIZADO" in texto.upper()[:400]
-                    or _corto or _colgado or _niega or not _nombra):
+                    or _corto or _colgado or _niega or not _nombra or not _norma_ok):
                 _porque = ("sin texto" if not texto
                            else "el buscador dice que no lo tiene" if _niega
+                           else f"no es texto de norma: {_por_que_no}" if not _norma_ok
                            else "no transcribe el artículo" if not _nombra
                            else "texto incompleto")
                 print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i}: {_porque}")
