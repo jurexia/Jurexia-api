@@ -30003,6 +30003,15 @@ def _soltar_constancias(correo: str, numero: str) -> None:
         _f = supabase_admin.table("sise_pendientes") \
             .select("constancias").eq("email", correo).eq("numero", numero) \
             .limit(1).execute()
+        # SIN FILA NO HAY NADA QUE SOLTAR. El asunto entró por subida directa
+        # —sus PDF viven en el cubo, bajo la ruta del secretario, y se borran
+        # con «olvidar el asunto»— y no por el canal SISE. Antes esto seguía
+        # hasta el `update`, que no tocaba ninguna fila, y se imprimía
+        # «‼️ NO se soltaron las constancias… Revisar retención» sobre un
+        # asunto que nunca tuvo constancias que retener (536/2025, 17-sep).
+        if not (_f.data or []):
+            print(f"   · {numero}: sin constancias SISE que soltar (subida directa)")
+            return
         _rs = [c["ruta"] for c in ((_f.data or [{}])[0].get("constancias") or [])
                if c.get("ruta")]
         if _rs:
