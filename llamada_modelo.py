@@ -108,8 +108,38 @@ async def crear(cliente, **kw):
     raise ultimo_error
 
 
+def _anotar_uso(kw: dict, r, segundos: float) -> None:
+    """Una línea por llamada: cuánto tardó y en qué se fue.
+
+    POR QUÉ. La propuesta de la revisión fiscal 2/2026 tardó 542 s en
+    producción y 206 s en local, con el mismo material, el mismo modelo, el
+    mismo esfuerzo y LA MISMA clave. Sin saber cuántos tokens razonó cada una no
+    hay manera de distinguir «producción piensa más» de «producción tarda más
+    en lo mismo». Sólo números: ni prompt ni respuesta llegan al registro.
+    """
+    try:
+        u = getattr(r, "usage", None)
+        det = getattr(u, "completion_tokens_details", None)
+        sal = int(getattr(u, "completion_tokens", 0) or 0)
+        raz = int(getattr(det, "reasoning_tokens", 0) or 0)
+        print(f"   ⏱️ modelo {kw.get('model')} · {segundos:.1f} s · entrada "
+              f"{getattr(u, 'prompt_tokens', '?')} · razonamiento {raz} · visible "
+              f"{sal - raz} · esfuerzo {kw.get('reasoning_effort') or '—'} · "
+              f"{(sal / segundos) if segundos else 0:.0f} tok/s")
+    except Exception:
+        pass
+
+
 async def _crear_una(cliente, **kw):
     """`chat.completions.create`, quitando lo que el modelo no admita."""
+    import time as _t_uso
+    _t0_uso = _t_uso.perf_counter()
+    r = await _crear_una_sin_anotar(cliente, **kw)
+    _anotar_uso(kw, r, _t_uso.perf_counter() - _t0_uso)
+    return r
+
+
+async def _crear_una_sin_anotar(cliente, **kw):
     quitados = []
     for _ in range(4):
         try:

@@ -134,6 +134,15 @@ ok(ln.admisible("Código de Procedimientos Civiles para el Estado de Querétaro 
                 ["Código de Procedimientos Civiles para el Estado de Querétaro"]),
    "una cola con palabra distintiva («en materia civil») no rompe la identidad")
 
+print("\n5b · «LOCAL» DELANTE DE UNA LEY FEDERAL (V9 del 2/2026)")
+_t9 = ("En el ámbito contencioso administrativo local, el artículo 51 de la Ley Federal de "
+       "Procedimiento Contencioso Administrativo dispone: «Artículo 51. Se declarará…»")
+_r9, _n9 = ln.quitar_local_ante_federal(_t9)
+ok(_n9 == 1 and "administrativo, el artículo 51 de la Ley Federal" in _r9,
+   "se quita «local» ante la LFPCA")
+_tq = "En el ámbito local, el artículo 57 de la Ley de Procedimiento Contencioso Administrativo del Estado de Querétaro."
+ok(ln.quitar_local_ante_federal(_tq) == (_tq, 0), "y se respeta ante una ley que sí es local")
+
 print("\n6 · LAS PUERTAS ESTÁN CONECTADAS")
 import marco_juridico as mj
 import redactor_adelanto as ra

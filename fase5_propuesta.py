@@ -629,6 +629,7 @@ MODELO_CONTRASTE = os.getenv("MODELO_CONTRASTE", "") or None   # vacío = el de 
 # presupuesto y no quedó sitio para la respuesta—, y cada una de ésas es un
 # asunto que se propone sin contraste sin que nadie lo note.
 MAX_TOKENS_CONTRASTE = int(os.getenv("MAX_TOKENS_CONTRASTE", "12000"))
+CONTRASTE_EN_PARALELO = os.getenv("CONTRASTE_EN_PARALELO", "0") == "1"
 
 _VEREDICTOS_CONTRASTE = ("inoperante", "fundado_pero_insuficiente", "a_examinar")
 
@@ -1179,9 +1180,23 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # hoy; lo que hace es impedir que mañana empiece a variar por un cambio de
     # modelo o de proveedor. La decisión de un tribunal no puede depender del
     # muestreo.
-    # ── EL CONTRASTE VA PRIMERO, y su resultado entra a la propuesta ──
-    contraste = await contrastar(cliente, problemas, resumen_acto,
-                                 resumen_conceptos, es_recurso)
+    # ── EL CONTRASTE: primero y dentro de la propuesta, o en paralelo ──
+    # Medido sobre los 24 engroses reales del banco Kingston (14-sep-2026): el
+    # contraste NO movió los aciertos —50 % sin él, 48 % con él— y cuesta una
+    # llamada entera con razonamiento alto que la propuesta espera: 55 s en
+    # local y unos 110 en producción. Con `CONTRASTE_EN_PARALELO=1` se lanza a
+    # la vez que la propuesta, sin entrar en su instrucción, y sigue llegando
+    # a la pantalla en la ficha global. Apagado por omisión: se enciende sólo
+    # si el A/B contra los engroses reales lo sostiene.
+    import asyncio as _asyncio_c
+    _tarea_contraste = None
+    if CONTRASTE_EN_PARALELO:
+        _tarea_contraste = _asyncio_c.ensure_future(contrastar(
+            cliente, problemas, resumen_acto, resumen_conceptos, es_recurso))
+        contraste = []
+    else:
+        contraste = await contrastar(cliente, problemas, resumen_acto,
+                                     resumen_conceptos, es_recurso)
     kw = dict(model=MODELO_PROPUESTA,
               temperature=0, seed=20260831,
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
@@ -1192,6 +1207,11 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     import llamada_modelo as _lm
     r = await _lm.crear(cliente, **kw)
+    if _tarea_contraste is not None:
+        try:
+            contraste = await _tarea_contraste
+        except Exception:
+            contraste = []
     crudo = (r.choices[0].message.content or "").strip()
 
     # SI NO VUELVE NADA, HAY QUE PODER SABER POR QUÉ. Una lista vacía puede

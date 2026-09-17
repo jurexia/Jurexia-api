@@ -426,3 +426,44 @@ def filtrar_normas(normas: list, litis: list) -> tuple:
         else:
             buenas.append(n)
     return buenas, fuera
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# «LOCAL» DELANTE DE UNA LEY QUE NO LO ES
+# ═══════════════════════════════════════════════════════════════════════════
+# Revisión fiscal 2/2026, V9: «En el ámbito contencioso administrativo LOCAL,
+# el artículo 51 de la Ley FEDERAL de Procedimiento Contencioso
+# Administrativo…». La cita era buena; el rótulo, falso. Venía del prompt del
+# marco, que llamaba «LEY LOCAL» a todo su material. Se corrige el prompt y,
+# además, aquí: si lo que precede a la cita de una ley no local la llama local,
+# se quita el adjetivo. «En la legislación local» pasa a «en la legislación
+# aplicable»; «en el ámbito… local» pierde sólo la palabra.
+_RX_AMBITO_LOCAL = re.compile(
+    r"(?P<ante>\b(?:ámbito|ambito|plano|orden|sede|terreno|nivel)"
+    r"(?:\s+[a-záéíóúñ]+){0,3})\s+local(?P<coma>,?)(?P<det>\s*(?:el|los|la|las)?\s*)$", re.I)
+_RX_LEY_LOCAL = re.compile(
+    r"(?P<ante>\b(?:legislaci[óo]n|normativa|ley|regulaci[óo]n))\s+local"
+    r"(?P<coma>,?)(?P<det>\s*(?:el|los|la|las)?\s*)$", re.I)
+
+
+def quitar_local_ante_federal(texto: str) -> tuple:
+    """(texto, cuántos) sin el «local» que antecede a una ley federal o general."""
+    if not (texto or "").strip():
+        return texto, 0
+    n = 0
+    for h in sorted(citas(texto), key=lambda x: -x["inicio"]):
+        if es_local(h["ley"]):
+            continue
+        ini = max(0, h["inicio"] - 90)
+        antes = texto[ini:h["inicio"]]
+        m = _RX_AMBITO_LOCAL.search(antes)
+        if m:
+            nuevo = m.group("ante") + m.group("coma") + m.group("det")
+        else:
+            m = _RX_LEY_LOCAL.search(antes)
+            if not m:
+                continue
+            nuevo = m.group("ante") + " aplicable" + m.group("coma") + m.group("det")
+        texto = texto[:ini + m.start()] + nuevo + texto[ini + m.end():]
+        n += 1
+    return texto, n

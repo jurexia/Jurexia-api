@@ -558,6 +558,20 @@ async def completar_preceptos(qdrant, material, pares: list, coleccion_estatal=N
             num = int(art)
         except (TypeError, ValueError):
             continue
+        # UN NOMBRE SIN IDENTIDAD NO NOMBRA UNA LEY. Revisión fiscal 2/2026,
+        # 17-sep-2026: el lector de citas sacó «reglamento» a secas —de «el
+        # artículo 150 del Reglamento…» cortado— y se trajo de dof.gob.mx el
+        # «artículo 150 del reglamento», que puede ser el de CUALQUIER
+        # reglamento. Hacen falta al menos dos palabras que distingan, además
+        # de la cabecera: «Reglamento Interior del IMSS» sí; «reglamento»,
+        # «ley», «código» o «reglamento interior» a secas, no.
+        if len(_voces_ley(cuerpo)) < 2 or _clase_de_norma(cuerpo) and len(
+                [w for w in re.findall(r"[a-záéíóúñ]{4,}", cuerpo.lower())
+                 if w not in ("reglamento", "interior", "codigo", "código", "ley",
+                              "general", "federal", "orgánica", "organica")]) < 1:
+            print(f"   ⚖️ RAG: «{cuerpo[:40]}» no identifica una ley: el artículo "
+                  f"{art} no se busca")
+            continue
         if (cuerpo.lower(), str(art)) in en_material:
             continue
         fuero = fuero_de(cuerpo)

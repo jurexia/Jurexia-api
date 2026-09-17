@@ -1280,6 +1280,9 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         _buenas, _fuera = _ln.filtrar_normas(material.normas, _litis)
         material.normas = _buenas
         estudio, _av_l = _ln.sanear(estudio, _litis, _buenas, "el estudio de fondo")
+        estudio, _n_loc = _ln.quitar_local_ante_federal(estudio)
+        if _n_loc:
+            print(f"   ⚖️ LITIS: {_n_loc} «local» quitado(s) ante ley federal en el estudio")
         # LOS AVISOS DE LA LITIS VAN PRIMERO: describen algo que se tocó en el
         # texto que se va a firmar, no algo mejorable.
         for _a in reversed(_av_l):
@@ -1375,6 +1378,9 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                 try:
                     marco_escrito, _av_m = _ln.sanear(
                         marco_escrito, _litis, _buenas, "el marco jurídico")
+                    marco_escrito, _n_locm = _ln.quitar_local_ante_federal(marco_escrito)
+                    if _n_locm:
+                        print(f"   ⚖️ LITIS: {_n_locm} «local» quitado(s) ante ley federal en el marco")
                     for _a in reversed(_av_m):
                         avisos.insert(0, _a)
                 except Exception as _elm:

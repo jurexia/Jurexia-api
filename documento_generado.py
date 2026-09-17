@@ -1162,7 +1162,7 @@ después se resolverán los planteamientos.
 LOS PROBLEMAS QUE HAY QUE RESOLVER
 {lista}
 
-MATERIAL RECUPERADO DEL BLOQUE DE CONSTITUCIONALIDAD Y DE LA LEY LOCAL
+MATERIAL RECUPERADO DEL BLOQUE DE CONSTITUCIONALIDAD Y DE LA LEY QUE RIGE EL ACTO
 {material_marco[:12000]}
 
 CÓMO SE ESCRIBE, medido sobre los engroses de este tribunal:
@@ -1175,7 +1175,8 @@ CÓMO SE ESCRIBE, medido sobre los engroses de este tribunal:
   porque el asunto los tocó; el que no escribas queda sin premisa. Si uno de
   verdad no viene al caso, DILO en una frase —«el artículo X no rige aquí
   porque…»— en vez de callarlo: el silencio no se distingue del olvido.
-- EL PRECEPTO LOCAL O SECUNDARIO decisivo SÍ se transcribe, entre comillas y
+- EL PRECEPTO SECUNDARIO decisivo —el de la ley que rige el acto, sea federal o
+  local; dilo según su fuero, nunca «local» si la ley es federal— SÍ se transcribe, entre comillas y
   con su número al frente.
 - LA FUENTE CONVENCIONAL —Convención sobre los Derechos del Niño, Convención
   Americana— y los criterios de la CORTE INTERAMERICANA entran SÓLO si el
