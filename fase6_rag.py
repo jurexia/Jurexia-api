@@ -788,7 +788,40 @@ def _colecciones_para(ley: str, coleccion: str) -> list:
     return fuera
 
 
+# ═══ LA MISMA PREGUNTA NO SE HACE DOS VECES ═══════════════════════════════
+# El resolvedor consulta el acervo por cada norma de cada planteamiento, y un
+# asunto con cinco planteamientos pregunta por el artículo 16 constitucional
+# cinco veces. Medido el 17-sep-2026: el acervo del 2/2026 pasó de 22 a 32 s
+# cuando entró el resolvedor. Se guarda la respuesta media hora y hasta dos mil
+# artículos. No es estado que haga falta conservar —con dos workers cada uno
+# tiene la suya, y sin ella el resultado es el mismo, sólo más lento—, y una
+# consulta que FALLÓ no se guarda: un corte de red no puede dejar un artículo
+# «ausente» durante media hora.
+import time as _time_ra
+from collections import OrderedDict as _OD_ra
+_CACHE_ARTICULOS: "_OD_ra" = _OD_ra()
+_CACHE_TTL_S = 1800
+_CACHE_MAX = 2000
+
+
 async def resolver_articulo(qdrant, coleccion, ley: str, num) -> dict:
+    cols_ = ([coleccion] if isinstance(coleccion, str)
+             else [c for c in (coleccion or []) if c])
+    clave = (tuple(cols_), " ".join(str(ley or "").lower().split()), str(num).strip())
+    hit = _CACHE_ARTICULOS.get(clave)
+    if hit and _time_ra.monotonic() - hit[0] < _CACHE_TTL_S:
+        _CACHE_ARTICULOS.move_to_end(clave)
+        return dict(hit[1])
+    res, fallo = await _resolver_articulo_sin_cache(qdrant, coleccion, ley, num)
+    if not fallo:
+        _CACHE_ARTICULOS[clave] = (_time_ra.monotonic(), dict(res))
+        _CACHE_ARTICULOS.move_to_end(clave)
+        while len(_CACHE_ARTICULOS) > _CACHE_MAX:
+            _CACHE_ARTICULOS.popitem(last=False)
+    return res
+
+
+async def _resolver_articulo_sin_cache(qdrant, coleccion, ley: str, num) -> tuple:
     """EL TEXTO QUE EL ACERVO CORROBORA PARA ESE ARTÍCULO. «» si no hay ninguno.
 
     EL RESOLVEDOR ÚNICO. Hasta hoy, cinco puertas distintas decidían por su
@@ -809,10 +842,11 @@ async def resolver_articulo(qdrant, coleccion, ley: str, num) -> dict:
     intruso una sola —el 16 transitorio de 1917, bajo el Título Noveno—.
     """
     from qdrant_client.models import FieldCondition, Filter, MatchValue
+    _fallo = False
     try:
         _n = int(str(num).strip())
     except (TypeError, ValueError):
-        return {}
+        return {}, False
     cols = ([coleccion] if isinstance(coleccion, str)
             else [c for c in (coleccion or []) if c])
     if len(cols) == 1:
@@ -823,6 +857,7 @@ async def resolver_articulo(qdrant, coleccion, ley: str, num) -> dict:
             pts = await _scroll_todo(qdrant, _col, Filter(must=[FieldCondition(
                 key="articulo_num", match=MatchValue(value=_n))]), tope=300)
         except Exception:
+            _fallo = True
             continue
         for x in (pts or []):
             pl = x.payload or {}
@@ -832,7 +867,7 @@ async def resolver_articulo(qdrant, coleccion, ley: str, num) -> dict:
                 continue
             suyos.append(pl)
     if not suyos:
-        return {}
+        return {}, _fallo
     _ord = sorted(suyos, key=lambda z: (str(z.get("titulo") or ""),
                                         str(z.get("capitulo") or ""),
                                         str(z.get("jerarquia") or ""),
@@ -856,7 +891,7 @@ async def resolver_articulo(qdrant, coleccion, ley: str, num) -> dict:
         bloques.append(actual)
     abren = [b for b in bloques if _abre_el_articulo(b[0][0], _n)]
     if not abren:
-        return {}
+        return {}, _fallo
     from collections import Counter as _C
     _ini = lambda b: " ".join(b[0][0].split())[:220].lower()
     voto = _C(_ini(b) for b in abren)
@@ -869,9 +904,9 @@ async def resolver_articulo(qdrant, coleccion, ley: str, num) -> dict:
     # EL NOMBRE OFICIAL ES EL DEL ACERVO, no el de la cita. La cita lo escribe
     # como le sale —en minúsculas, abreviado— y ese nombre acaba impreso al pie
     # de la transcripción.
-    return {"cuerpo_legal": _nombre_ley_de(suyo[0][1]) or ley,
-            "articulo": str(num), "texto": " ".join(partes),
-            "entidad": str(suyo[0][1].get("entidad") or "")}
+    return ({"cuerpo_legal": _nombre_ley_de(suyo[0][1]) or ley,
+             "articulo": str(num), "texto": " ".join(partes),
+             "entidad": str(suyo[0][1].get("entidad") or "")}, _fallo)
 
 
 async def _completar(qdrant, coleccion: str, norma: dict) -> dict:

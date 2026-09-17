@@ -353,6 +353,29 @@ ubicar la página, y cada tesis en que se apoyó nombrada donde la usó.
 Devuelve sólo el resumen."""
 
 
+
+def _bloque_tesis_a_nombrar(citas, quien: str) -> str:
+    """La lista de tesis que el resumen tiene que nombrar, contada ANTES.
+
+    POR QUÉ EN LA PRIMERA VUELTA. Revisión fiscal 2/2026, 17-sep-2026: el
+    primer resumen de los agravios salió con 1,375 palabras y nombraba una de
+    las seis tesis que invoca la recurrente, así que se reescribió entero —120
+    segundos de los 240 del adelanto— sólo para añadir las cinco que faltaban.
+    Esas tesis se cuentan con un regex, sin modelo: dárselas desde el principio
+    es pedir lo mismo que pide la segunda vuelta, una vuelta antes. La segunda
+    vuelta se queda como red: si aun así faltan, reescribe como siempre.
+
+    Es una LISTA DE COMPROBACIÓN de este asunto, no un ejemplo: no hay texto
+    que copiar, sólo claves que tienen que aparecer.
+    """
+    cs = sorted(citas or [])
+    if not cs:
+        return ""
+    return ("\nLAS TESIS QUE " + quien + " INVOCA —contadas en el documento; cada una "
+            "tiene que quedar NOMBRADA en el párrafo del argumento que apoya, con su "
+            "clave o su registro tal como aparece:\n"
+            + "\n".join(f"  - {c}" for c in cs) + "\n")
+
 def prompt_resumen_acto(texto_acto: str, es_recurso: bool = False,
                         tipo_asunto: str = "") -> str:
     # «la sentencia reclamada» / «recurrida» / «el auto recurrido» / «la
@@ -390,7 +413,7 @@ Se trata de la {que}. Éste es su texto:
 ──────────────────────────────────────────
 {recortar_acto(texto_acto)}
 ──────────────────────────────────────────
-
+{_bloque_tesis_a_nombrar(citas_invocadas(recortar_acto(texto_acto)), "LA AUTORIDAD")}
 Escribe el resumen. Sólo el resumen, sin preámbulo ni rótulo."""
 
 
@@ -470,7 +493,7 @@ def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False,
 ──────────────────────────────────────────
 {recortar_conceptos(texto_conceptos)}
 ──────────────────────────────────────────
-
+{_bloque_tesis_a_nombrar(citas_invocadas(texto_conceptos), "LA PARTE")}
 Escribe el resumen de los {q}: un apartado por cada uno y, dentro de cada
 apartado, un párrafo por cada argumento distinto. Sólo el resumen."""
 
@@ -923,6 +946,40 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
     # Sin esto, un escrito con ocho conceptos producía un resumen de seis y
     # nadie se enteraba —el prompt le prohíbe al modelo decir que le falta
     # documento—, y el proyecto salía incongruente e inexhaustivo.
+    # ═══ EL ACTO A FONDO, EN PARALELO CON TODO LO DE LOS AGRAVIOS ═══════════
+    # Iba DETRÁS de la cobertura y de la reescritura de los agravios, aunque no
+    # depende de ninguna: sólo necesita el texto del acto y su propio primer
+    # resumen, que ya existen aquí. Medido el 17-sep-2026 en la revisión fiscal
+    # 2/2026: una reescritura a fondo tarda unos 120 s, y cuando hacían falta
+    # las dos se pagaban en serie. Mismas instrucciones, mismas comprobaciones,
+    # mismo resultado: sólo cambia cuándo empieza.
+    async def _acto_a_fondo(ra_):
+        try:
+            _obj_a = objetivo_acto(texto_acto)
+            _todas_a, _sin_a = citas_sin_nombrar(recortar_acto(texto_acto or ""), ra_)
+            _vfa = 0
+            while ((len(ra_.split()) < 0.6 * _obj_a
+                    or (len(_todas_a) >= 2 and len(_sin_a) >= max(2, len(_todas_a) // 2)))
+                   and _vfa < 2):
+                _vfa += 1
+                print(f"   🧩 resumen del acto a fondo (vuelta {_vfa}): {len(ra_.split())} palabras "
+                      f"de ~{_obj_a} · tesis de la responsable {len(_todas_a)}, sin nombrar {len(_sin_a)}")
+                _ra2 = await _pedir(cliente, prompt_acto_a_fondo(
+                    texto_acto, ra_, sorted(_sin_a), _obj_a, es_recurso, tipo_asunto),
+                    _cupo(texto_acto))
+                _ra2 = sin_marca(_ra2 or "").strip()
+                if len(_ra2.split()) <= len(ra_.split()):
+                    break
+                ra_ = _ra2
+                _todas_a, _sin_a = citas_sin_nombrar(recortar_acto(texto_acto or ""), ra_)
+            return ra_, dict(objetivo_acto=_obj_a, vueltas_fondo_acto=_vfa,
+                             citas_acto=len(_todas_a),
+                             citas_acto_sin_nombrar=sorted(_sin_a))
+        except Exception as _exa:
+            print(f"   ⚠️ no se pudo profundizar el resumen del acto: {_exa}")
+            return ra_, {}
+
+    _tarea_acto = asyncio.ensure_future(_acto_a_fondo(ra))
     _conteo, _avisos_cob = {}, []
     try:
         # ANTES QUE NADA, ¿LLEGÓ EL ESCRITO ENTERO? Si vino mutilado, la
@@ -986,25 +1043,9 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
         # completa, sobre todo cuando formulan planteamientos de fondo y
         # citan múltiples tesis». Un resumen del acto que escoge dos de cinco
         # consideraciones deja sin contestar los agravios contra las otras.
-        _obj_a = objetivo_acto(texto_acto)
-        _todas_a, _sin_a = citas_sin_nombrar(recortar_acto(texto_acto or ""), ra)
-        _vfa = 0
-        while ((len(ra.split()) < 0.6 * _obj_a
-                or (len(_todas_a) >= 2 and len(_sin_a) >= max(2, len(_todas_a) // 2)))
-               and _vfa < 2):
-            _vfa += 1
-            print(f"   🧩 resumen del acto a fondo (vuelta {_vfa}): {len(ra.split())} palabras "
-                  f"de ~{_obj_a} · tesis de la responsable {len(_todas_a)}, sin nombrar {len(_sin_a)}")
-            _ra2 = await _pedir(cliente, prompt_acto_a_fondo(
-                texto_acto, ra, sorted(_sin_a), _obj_a, es_recurso, tipo_asunto),
-                _cupo(texto_acto))
-            _ra2 = sin_marca(_ra2 or "").strip()
-            if len(_ra2.split()) <= len(ra.split()):
-                break
-            ra = _ra2
-            _todas_a, _sin_a = citas_sin_nombrar(recortar_acto(texto_acto or ""), ra)
-        _conteo = dict(_conteo, objetivo_acto=_obj_a, vueltas_fondo_acto=_vfa,
-                       citas_acto=len(_todas_a), citas_acto_sin_nombrar=sorted(_sin_a))
+        # EL ACTO, YA EN CURSO DESDE ARRIBA: aquí sólo se recoge.
+        ra, _extra_acto = await _tarea_acto
+        _conteo = dict(_conteo, **_extra_acto)
         if _vf:
             print(f"   🧩 síntesis a fondo: quedó en {len(rc.split())} palabras · "
                   f"sin nombrar {sorted(_sin) or 'ninguna'}")
@@ -1012,6 +1053,12 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
         if _av:
             _avisos_cob.append(_av)
     except Exception as _ex:
+        # Si lo de los agravios revienta, el acto se recoge igual: no se pierde
+        # el trabajo que ya estaba haciendo en paralelo.
+        try:
+            ra, _ = await _tarea_acto
+        except Exception:
+            pass
         # QUE EL FALLO DEL CONTADOR NO SE PAREZCA A «NO FALTA NADA». Callarse
         # aquí es reproducir el defecto que esto viene a cerrar.
         print(f"   ⚠️ no se pudo comprobar la cobertura de conceptos: {_ex}")

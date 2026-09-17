@@ -48,7 +48,67 @@ def parametro_rechazado(exc: Exception) -> str:
     return p if p in _PRESCINDIBLES else ""
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA COLA DE LATENCIA: UNA PETICIÓN DE RESPALDO, NO UN CORTE
+# ═══════════════════════════════════════════════════════════════════════════
+# Medido el 17-sep-2026 en la revisión fiscal 2/2026: la propuesta del motor,
+# que tarda unos 150 s, tardó 525. No era el código: era el proveedor, y como el
+# cliente espera hasta 600 s, el secretario también esperaba.
+#
+# Cortar la llamada lenta sería peor —si iba progresando, se tira el trabajo y
+# se empieza de cero—. Lo que se hace es lo estándar para la cola de latencia:
+# si una llamada pasa de lo NORMAL para su tamaño, se lanza OTRA IDÉNTICA en
+# paralelo y se toma la primera que termine; la otra se cancela. Mismo modelo,
+# misma instrucción, mismos parámetros: la calidad no cambia en nada. Sólo
+# cuesta tokens en el caso lento, que es justo donde vale la pena.
+#
+# LO NORMAL depende de cuánto se le pide escribir: 120 s más un segundo por
+# cada 50 tokens de tope, entre 180 y 300. Configurable sin desplegar.
+import asyncio as _asyncio
+import os as _os
+
+RESPALDO_MIN = float(_os.getenv("MODELO_RESPALDO_MIN_S", "180"))
+RESPALDO_MAX = float(_os.getenv("MODELO_RESPALDO_MAX_S", "300"))
+RESPALDO_ACTIVO = _os.getenv("MODELO_RESPALDO", "1") != "0"
+
+
+def espera_normal(kw: dict) -> float:
+    tope = kw.get("max_completion_tokens") or kw.get("max_tokens") or 4000
+    try:
+        tope = float(tope)
+    except (TypeError, ValueError):
+        tope = 4000.0
+    return max(RESPALDO_MIN, min(RESPALDO_MAX, 120.0 + tope / 50.0))
+
+
 async def crear(cliente, **kw):
+    """`chat.completions.create`, con respaldo si el proveedor se atasca."""
+    if not RESPALDO_ACTIVO or kw.get("stream"):
+        return await _crear_una(cliente, **kw)
+    limite = espera_normal(kw)
+    primera = _asyncio.ensure_future(_crear_una(cliente, **dict(kw)))
+    hechas, _ = await _asyncio.wait({primera}, timeout=limite)
+    if hechas:
+        return primera.result()
+    print(f"   ⏳ el modelo lleva {limite:.0f} s sin contestar (lo normal para "
+          f"este tamaño): se lanza una petición de respaldo idéntica")
+    respaldo = _asyncio.ensure_future(_crear_una(cliente, **dict(kw)))
+    pendientes = {primera, respaldo}
+    ultimo_error = None
+    while pendientes:
+        hechas, pendientes = await _asyncio.wait(
+            pendientes, return_when=_asyncio.FIRST_COMPLETED)
+        for t in hechas:
+            if t.exception() is None:
+                for otra in pendientes:
+                    otra.cancel()
+                print(f"   ⏳ contestó {'la de respaldo' if t is respaldo else 'la original'}")
+                return t.result()
+            ultimo_error = t.exception()
+    raise ultimo_error
+
+
+async def _crear_una(cliente, **kw):
     """`chat.completions.create`, quitando lo que el modelo no admita."""
     quitados = []
     for _ in range(4):
