@@ -59,6 +59,7 @@ from openai import AsyncOpenAI
 from supabase import create_client as supabase_create_client
 import httpx  # For Cohere Rerank API calls
 import hashlib  # For semantic cache keys
+import taller_estado as _te
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -28600,6 +28601,14 @@ async def taller_adelanto(
 
     _taller_registrar_uso(user_email, numero, "adelanto")
     _taller_guardar_sesion(user_email, numero, r, tmp)
+    # EL CONTRASTE DE LA PROPUESTA EMPIEZA AQUÍ, no en /taller/proponer. Sólo
+    # lee lo que este adelanto acaba de producir, cuesta una llamada con
+    # razonamiento alto (55 a 125 s medidos) y la propuesta lo esperaba en
+    # serie. Corre suelto y se guarda en la fila; la propuesta lo recoge.
+    try:
+        asyncio.ensure_future(_taller_precontrastar(user_email, numero, r))
+    except Exception as _exc_pc:
+        print(f"   ⚠️ no se pudo adelantar el contraste: {err(_exc_pc)}")
 
     print(f"   ⚖️ TALLER: adelanto {numero} · "
           f"{len(r.fases.problemas)} problemas · {len(r.huecos)} huecos")
@@ -28704,21 +28713,11 @@ def _ponencia_anterior(email: str) -> dict:
 # completas y no cabe. Se guarda lo que hace falta para RAZONAR —tesis, normas
 # y bloque convencional—, que es lo que el prompt de la razón consume.
 def _material_ligero(m) -> dict:
-    def _lim(xs, n):
-        return [x for x in (xs or []) if isinstance(x, dict)][:n]
-    return {
-        "tesis": _lim(getattr(m, "tesis", []), 80),
-        "normas": _lim(getattr(m, "normas", []), 80),
-        "convencional": _lim(getattr(m, "convencional", []), 24),
-        "materia": str(getattr(m, "materia", "") or ""),
-        "tipo_asunto": str(getattr(m, "tipo_asunto", "") or ""),
-        # EL ESPEJO VIAJA POR LA FILA, NO POR LA MEMORIA. Con gunicorn -w 2 el
-        # worker que compone no es el que consultó, y esto ya mordió tres veces
-        # («⚠️ razonar 91/2025 sin material»). Son seis filas de siete campos
-        # por planteamiento: kilobyte y medio, cabe de sobra en el jsonb.
-        "espejo": [x for x in (getattr(m, "espejo", []) or [])
-                   if isinstance(x, dict)][:8],
-    }
+    """El acervo tal como va a la fila. Ver `taller_estado.material_ligero`:
+    desde el 17-sep-2026 va COMPLETO —sondeo, principios, sede, cuaderno,
+    entidad— y por eso el rescate de la sesión puede reponerlo en vez de
+    volver a consultar."""
+    return _te.material_ligero(m)
 
 
 def _taller_guardar_material(email: str, numero: str, m) -> None:
@@ -28740,6 +28739,82 @@ def _taller_guardar_material(email: str, numero: str, m) -> None:
               f"{len(est['material']['normas'])} normas")
     except Exception as ex:
         print(f"   ⚠️ no se pudo guardar el acervo de {numero}: {err(ex)}")
+
+
+def _taller_leer_contraste(email: str, numero: str):
+    """Sólo la rama `contraste` del estado: la fila entera pesa un megabyte y
+    esto se lee cada tres segundos mientras se espera."""
+    if not supabase_admin:
+        return None
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado->contraste") \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+        return (r.data or [{}])[0].get("contraste")
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo leer el contraste de {numero}: {err(ex)}")
+        return None
+
+
+def _taller_guardar_contraste(email: str, numero: str, doc: dict) -> bool:
+    """Deja el contraste en `estado.contraste`, lectura-cambio-escritura como
+    el material. Si choca con otra escritura del estado en la misma décima
+    de segundo, lo peor que pasa es que se pierda y la propuesta lo calcule."""
+    if not supabase_admin:
+        return False
+    _correo = (email or "").strip().lower()
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", _correo).eq("expediente", numero).limit(1).execute()
+        if not r.data:
+            return False
+        est = r.data[0].get("estado") or {}
+        est["contraste"] = doc
+        supabase_admin.table("taller_sesiones").update({"estado": est}) \
+            .eq("email", _correo).eq("expediente", numero).execute()
+        return True
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo guardar el contraste de {numero}: {err(ex)}")
+        return False
+
+
+async def _taller_precontrastar(email: str, numero: str, r) -> None:
+    """El contraste de la propuesta, calculado en cuanto termina el adelanto.
+
+    Corre suelto: la respuesta del adelanto no lo espera. Lee exactamente lo
+    que leería en /taller/proponer —los planteamientos y los dos resúmenes—
+    con el mismo modelo y el mismo esfuerzo, así que la propuesta recibe el
+    mismo contraste; sólo cambia cuándo se calculó. Si este worker muere
+    antes de escribirlo, la propuesta lo calcula como siempre.
+    """
+    huella = ""
+    try:
+        import fase5_propuesta as _f5
+        problemas, acto, conceptos, es_recurso = _te.entradas_contraste(r)
+        if not problemas:
+            return
+        huella = _te.huella_contraste(r)
+        if not _taller_guardar_contraste(email, numero, {
+                "huella": huella, "estado": "en_curso", "desde": time.time()}):
+            return
+        _t0 = time.perf_counter()
+        items = await _f5.contrastar(chat_client, problemas, acto, conceptos, es_recurso)
+        _seg = time.perf_counter() - _t0
+        _taller_guardar_contraste(email, numero, {
+            "huella": huella, "estado": "listo", "items": list(items or []),
+            "segundos": round(_seg, 1)})
+        print(f"   ⚖️ CONTRASTE adelantado de {numero}: {len(items or [])} "
+              f"planteamiento(s) en {_seg:.0f} s, listo para la propuesta")
+    except Exception as ex:
+        print(f"   ⚠️ el contraste adelantado de {numero} falló: {err(ex)}")
+        if huella:
+            _taller_guardar_contraste(email, numero, {"huella": huella, "estado": "fallo"})
+
+
+async def _taller_esperar_contraste(email: str, numero: str, r):
+    """Lo que dejó `_taller_precontrastar`, o None si hay que calcularlo."""
+    return await _te.esperar_contraste(
+        _te.huella_contraste(r), lambda: _taller_leer_contraste(email, numero))
 
 
 # ═══ LA FICHA DEL PROYECTO GENERADO ══════════════════════════════════════════
@@ -28965,17 +29040,7 @@ def _taller_ficha_proyecto(email: str, numero: str) -> dict:
 
 def _material_rehidratado(d: dict):
     """Un Material con lo guardado. None si no hay nada aprovechable."""
-    if not isinstance(d, dict) or not (d.get("tesis") or d.get("normas")):
-        return None
-    import fase6_estudio as _f6m
-    m = _f6m.Material()
-    m.tesis = list(d.get("tesis") or [])
-    m.normas = list(d.get("normas") or [])
-    m.convencional = list(d.get("convencional") or [])
-    m.materia = str(d.get("materia") or "")
-    m.tipo_asunto = str(d.get("tipo_asunto") or "amparo_directo")
-    m.espejo = [x for x in (d.get("espejo") or []) if isinstance(x, dict)]
-    return m
+    return _te.material_rehidratado(d)
 
 
 def _taller_material(ses: dict, email: str, numero: str):
@@ -29270,6 +29335,22 @@ def _taller_recuperar_sesion(email: str, numero: str):
                for x in (r.data[0].get("propuestas") or [])
                if isinstance(x, dict)],
            "sello": r.data[0].get("actualizado_en")}
+    # EL ACERVO VUELVE ENTERO CON LA SESIÓN. Hasta el 17-sep-2026 la fila lo
+    # guardaba y nadie lo reponía: el worker que no había consultado veía
+    # «material no está» y consultaba OTRA VEZ —nueve preguntas al modelo y
+    # ocho reordenaciones, unos 30 s, y un acervo distinto cada vez porque la
+    # reordenación es del modelo—. En la revisión fiscal 2/2026 eso ocurrió en
+    # la propuesta y en el resolver: tres acervos para un proyecto. Sólo se
+    # repone el guardado completo; el de las filas antiguas, sin sondeo ni
+    # principios, se ignora y se consulta como antes.
+    _ml = est.get("material")
+    if _te.esta_completo(_ml):
+        _m = _te.material_rehidratado(_ml)
+        if _m is not None:
+            ses["material"] = _m
+            print(f"   ♻️ acervo de {numero} repuesto de la base: {len(_m.tesis)} "
+                  f"tesis · {len(_m.normas)} normas · "
+                  f"{'con' if _m.sondeo is not None else 'sin'} sondeo")
     _TALLER_SESIONES[_taller_llave(email, numero)] = ses
     return ses
 
@@ -30752,10 +30833,8 @@ async def taller_proponer(
     # aún no ha resuelto. Se pasa sin decisión, que sólo deja el registro.
     _decidir_oportunidad(r)
     import fase5_propuesta as _f5
-    problemas = [p if isinstance(p, dict) else {"pregunta": str(p)}
-                 for p in (r.fases.problemas or [])]
-    if not problemas and r.fases.problema_global:
-        problemas = [{"pregunta": r.fases.problema_global}]
+    # LA MISMA CONSTRUCCIÓN QUE USA LA HUELLA DEL CONTRASTE ADELANTADO.
+    problemas = _te.problemas_de(r)
 
     # LAS CONSTANCIAS SE SUMAN AL CONTEXTO. No son algo que buscar en el
     # acervo: son lo que el acervo no puede tener —el contrato colectivo de ESTE
@@ -30801,12 +30880,22 @@ async def taller_proponer(
         print(f"   ⚠️ no se pudo completar el material antes de proponer: "
               f"{type(_exc_prev).__name__}: {str(_exc_prev)[:120]}")
 
+    # EL CONTRASTE QUE DEJÓ EL ADELANTO, si es de este adelanto. Si no está
+    # —fila antigua, worker caído, planteamiento cambiado—, la propuesta lo
+    # calcula como siempre.
+    _contraste_previo = None
+    try:
+        _contraste_previo = await _taller_esperar_contraste(user_email, numero, r)
+    except Exception as _exc_ec:
+        print(f"   ⚠️ no se pudo recoger el contraste adelantado: {err(_exc_ec)}")
+    if _contraste_previo is not None:
+        print(f"   ⚖️ CONTRASTE adelantado recogido: {len(_contraste_previo)} planteamiento(s)")
     propuestas, glob, avisos = await _f5.proponer(
         chat_client, problemas, ses["material"],
         "\n".join(r.fases.parrafos_acto() or []),
         "\n".join(r.fases.parrafos_conceptos() or []),
         bool(r.encargo and r.encargo.es_recurso),
-        contexto)
+        contexto, contraste_previo=_contraste_previo)
 
     # LA PROPUESTA VIAJA DE VUELTA, no se queda aquí. Render corre gunicorn con
     # DOS workers: lo que guarde este proceso puede no existir en el que atienda

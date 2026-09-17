@@ -1172,7 +1172,8 @@ def revisar_global(glob, material) -> list:
 
 async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                    resumen_conceptos: str = "", es_recurso: bool = False,
-                   contexto: str = "") -> tuple[list, object, list]:
+                   contexto: str = "",
+                   contraste_previo: list | None = None) -> tuple[list, object, list]:
     """Devuelve (propuestas, global, avisos). No decide nada: propone.
 
     El GLOBAL es la propuesta del asunto entero y sale de la MISMA llamada: es
@@ -1196,7 +1197,12 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # si el A/B contra los engroses reales lo sostiene.
     import asyncio as _asyncio_c
     _tarea_contraste = None
-    if CONTRASTE_EN_PARALELO:
+    if contraste_previo is not None:
+        # YA CALCULADO POR EL ADELANTO —`_taller_precontrastar`— con las mismas
+        # entradas, el mismo modelo y el mismo esfuerzo: entra a la instrucción
+        # igual que si se hubiera calculado aquí, sin esperar su minuto.
+        contraste = list(contraste_previo)
+    elif CONTRASTE_EN_PARALELO:
         _tarea_contraste = _asyncio_c.ensure_future(contrastar(
             cliente, problemas, resumen_acto, resumen_conceptos, es_recurso))
         contraste = []
