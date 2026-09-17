@@ -22484,8 +22484,15 @@ def _plantilla_precargada(tipo: str) -> str:
     return ruta if os.path.exists(ruta) else ""
 
 
+# EL PILOTO CERRÓ EL 13-SEP-2026 (fin del día, hora de Ciudad de México), cuando
+# David abrió la prueba a las cuentas gratuitas. Quien esté anotado en
+# `taller_piloto_uso` antes de esta fecha ocupa asiento; lo de después es uso
+# normal del taller y no da asiento a nadie. Ver `_es_del_piloto`.
+TALLER_PILOTO_CIERRE = "2026-09-14T06:00:00+00:00"
+
+
 def _taller_secretarios_distintos() -> int:
-    """Cuántas personas distintas han usado ya el taller."""
+    """Cuántas personas ocuparon asiento en el piloto (anotadas antes del cierre)."""
     ahora = time.time()
     if (_taller_piloto_cache["n"] is not None
             and ahora - _taller_piloto_cache["ts"] < _TALLER_PILOTO_TTL):
@@ -22493,7 +22500,8 @@ def _taller_secretarios_distintos() -> int:
     n = 0
     if supabase_admin:
         try:
-            r = supabase_admin.table("taller_piloto_uso").select("email").execute()
+            r = supabase_admin.table("taller_piloto_uso").select("email") \
+                .lt("creado_en", TALLER_PILOTO_CIERRE).execute()
             n = len({(x.get("email") or "").strip().lower()
                      for x in (r.data or []) if x.get("email")})
         except Exception as e:
@@ -22625,13 +22633,22 @@ def _es_del_piloto(correo: str) -> bool:
     ése es el registro que manda: es un hecho, no un plan que puede cambiar
     mañana. Si alguien del piloto baja de plan, conserva su asiento; si un
     Platinum nuevo aparece, no lo hereda.
+
+    SÓLO CUENTA LO ANOTADO ANTES DEL CIERRE. `_taller_registrar_uso` sigue
+    escribiendo en esa tabla a TODO el que sube un expediente, así que sin la
+    fecha una cuenta gratuita que empezaba su prueba quedaba anotada y, desde
+    ese momento, «del piloto» para siempre: podía seguir subiendo expedientes y
+    consultando el acervo gratis aunque la bolsa ya no le dejara generar. Se
+    vio el 16-sep-2026, antes de que le pasara a nadie: los nueve asientos son
+    los nueve correos anotados antes del cierre, y no hay ninguno más.
     """
     c = (correo or "").strip().lower()
     if not c or not supabase_admin:
         return False
     try:
         r = supabase_admin.table("taller_piloto_uso").select("email") \
-            .eq("email", c).limit(1).execute()
+            .eq("email", c).lt("creado_en", TALLER_PILOTO_CIERRE) \
+            .limit(1).execute()
         return bool(r.data)
     except Exception as e:
         # NO SE CIERRA LA PUERTA POR UN FALLO NUESTRO a quien lleva semanas
