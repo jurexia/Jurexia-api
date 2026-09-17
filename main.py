@@ -28652,6 +28652,13 @@ async def taller_adelanto(
 # expediente que acababa de generarse. Un diccionario de proceso funciona en la
 # máquina de uno y falla en cuanto hay dos workers.
 _TALLER_SESIONES: dict = {}          # caché del proceso, sobre la persistencia
+# LAS GENERACIONES EN MARCHA, con referencia fuerte: el bucle de asyncio
+# sólo guarda referencias débiles a sus tareas y una generación de cinco
+# minutos sin nadie que la sujete puede ser recogida a medias.
+_TALLER_EN_MARCHA: set = set()
+# Cada cuánto se manda un latido por el flujo cuando el modelo calla. La
+# pantalla da la línea por muerta al minuto sin nada.
+_TALLER_LATIDO_S = 15
 _TALLER_SESION_TTL = 3600.0
 
 
@@ -31577,18 +31584,42 @@ async def taller_resolver_stream(
         print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
         _marco = ""
 
-    async def emitir():
+    # ═══════════════════════════════════════════════════════════════════
+    # EL TRABAJO NO CUELGA DE LA CONEXIÓN (17-sep-2026)
+    # ═══════════════════════════════════════════════════════════════════
+    # El 536/2025 de administracion@: el servidor escribió el estudio entero
+    # —2,987 palabras, ficha y .docx guardados a las 18:57 UTC— y la pantalla
+    # se quedó en «Escribiendo el proyecto…» con 141 palabras, cortada a
+    # media frase. La línea se murió a medias sin que ningún extremo lo
+    # supiera: el navegador esperaba bytes que ya no llegaban, y por aquí no
+    # salía nada que no fuera texto del modelo, así que tampoco había forma
+    # de distinguir «el modelo piensa» de «la línea está muerta».
+    #
+    # Dos cosas cambian:
+    #   1. LA GENERACIÓN CORRE EN UNA TAREA APARTE y el flujo sólo la mira.
+    #      Starlette cancela el generador de la respuesta en cuanto detecta
+    #      que el cliente se fue (`listen_for_disconnect`, spec 2.3), y con
+    #      el trabajo dentro del generador esa cancelación tiraba el proyecto
+    #      a medias, sin ficha ni .docx. Ahora se termina, se cobra y se
+    #      archiva aunque la pestaña se cierre; la pantalla lo recupera por
+    #      /taller/proyecto y /taller/descargar.
+    #   2. UN LATIDO CADA 15 SEGUNDOS mientras el modelo calla: un comentario
+    #      SSE (`: latido`), que la pantalla no pinta pero que le dice que la
+    #      línea sigue viva. Un minuto sin nada es una línea muerta, y
+    #      entonces deja de esperarla y va a buscar el proyecto al almacén.
+    _cola: asyncio.Queue = asyncio.Queue()
+    _FIN = None                     # centinela: la tarea acabó, bien o mal
+
+    async def _trabajar():
         try:
             async for paso in _ra.resolver_en_vivo(
                     chat_client, r, crit, ses["material"], salida, _marco,
                     qdrant=qdrant_client, contexto=_con_autos(r, contexto)):
                 tipo = paso.get("tipo")
                 if tipo == "texto":
-                    yield ("data: " + json.dumps(
-                        {"tipo": "texto", "dato": paso["dato"]},
-                        ensure_ascii=False) + "\n\n")
+                    _cola.put_nowait({"tipo": "texto", "dato": paso["dato"]})
                 elif tipo == "componiendo":
-                    yield ('data: {"tipo":"componiendo"}\n\n')
+                    _cola.put_nowait({"tipo": "componiendo"})
                 elif tipo == "listo":
                     res = paso["resultado"]
                     _taller_registrar_uso(user_email, numero, "proyecto")
@@ -31629,7 +31660,7 @@ async def taller_resolver_stream(
                     # no en el adelanto, para que el secretario pueda repetirlo
                     # cuantas veces quiera hasta llegar al proyecto.
                     _soltar_constancias(user_email.strip().lower(), numero.strip())
-                    yield ("data: " + json.dumps({
+                    _cola.put_nowait({
                         "tipo": "listo",
                         "docx_b64": _doc,
                         "nombre": res.ruta.split("/")[-1],
@@ -31643,13 +31674,39 @@ async def taller_resolver_stream(
                         # obstáculo al sentido dictado: lo primero que el
                         # secretario tiene que leer.
                         "advertencias": bool(getattr(res, "advertencias", "")),
+                        "version": int(_v_proy or 0),
                         "tiempos": _ra.reloj_resumen(),
-                    }, ensure_ascii=False) + "\n\n")
+                    })
         except Exception as ex:
             print(f"   ⚠️ TALLER en vivo: {ex}")
-            yield ("data: " + json.dumps(
-                {"tipo": "error", "mensaje": str(ex)[:300]},
-                ensure_ascii=False) + "\n\n")
+            _cola.put_nowait({"tipo": "error", "mensaje": str(ex)[:300]})
+        finally:
+            _cola.put_nowait(_FIN)
+
+    _tarea = asyncio.create_task(_trabajar())
+    _TALLER_EN_MARCHA.add(_tarea)
+    _tarea.add_done_callback(_TALLER_EN_MARCHA.discard)
+
+    async def emitir():
+        try:
+            while True:
+                try:
+                    ev = await asyncio.wait_for(_cola.get(),
+                                                timeout=_TALLER_LATIDO_S)
+                except asyncio.TimeoutError:
+                    yield ": latido\n\n"
+                    continue
+                if ev is _FIN:
+                    break
+                yield "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
+        except (asyncio.CancelledError, GeneratorExit):
+            # EL CLIENTE SE FUE, o la pasarela cerró la línea. La tarea
+            # sigue: el proyecto se termina y se guarda igual, y la pantalla
+            # —si vuelve— lo encuentra en /taller/proyecto.
+            if not _tarea.done():
+                print(f"   ⚠️ TALLER en vivo: se cortó la línea con la pantalla; "
+                      f"el {numero} se sigue escribiendo en segundo plano")
+            raise
 
     return StreamingResponse(emitir(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",
@@ -32205,6 +32262,45 @@ async def taller_resolver(
 # Se enumera lo reciente y suyo. La lista no rehidrata nada: para volver a un
 # asunto está `/taller/contexto-del-asunto`, que es el mismo camino que usa el
 # cliente al terminar un adelanto.
+@app.get("/taller/proyecto")
+async def taller_proyecto(numero: str, user_email: str):
+    """La ficha del último proyecto del asunto: versión, cuándo, palabras y
+    los textos de sus avisos y huecos.
+
+    Es lo que la pantalla consulta cuando la línea del flujo se cortó a
+    medias (el 536/2025, 17-sep-2026): el proyecto se sigue escribiendo en
+    segundo plano y aquí aparece su ficha en cuanto termina, con el número
+    de versión con que se archivó el .docx. La pantalla compara ese número
+    con el que había antes de arrancar y así sabe que es SU proyecto y no el
+    anterior del mismo expediente.
+    """
+    _taller_puerta(user_email)
+    if not supabase_admin:
+        return {"proyecto": None}
+    try:
+        rp = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", (user_email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+    except Exception as ex:
+        print(f"   ⚠️ TALLER: no se pudo leer la ficha de {numero}: {err(ex)}")
+        return {"proyecto": None}
+    est = (rp.data or [{}])[0].get("estado") or {}
+    pr = est.get("proyecto") or {}
+    if not isinstance(pr, dict) or not pr:
+        return {"proyecto": None}
+    return {"proyecto": {
+        "version": int(pr.get("version") or 1),
+        "generado_en": pr.get("generado_en") or "",
+        "palabras": int(pr.get("palabras") or 0),
+        "avisos": [str(a) for a in (pr.get("avisos") or [])],
+        "huecos": [str(h) for h in (pr.get("huecos") or [])],
+        "advertencias": bool(pr.get("advertencias")),
+        "nombre": pr.get("nombre") or "",
+        "sentido_global": pr.get("sentido_global") or "",
+        "modo": pr.get("modo") or "",
+    }}
+
+
 @app.get("/taller/en-curso")
 async def taller_en_curso(user_email: str, limite: int = 6):
     """Los últimos asuntos del secretario, para volver a uno sin rehacerlo."""
