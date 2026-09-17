@@ -395,7 +395,9 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     with cronometrar("fases1-3+partes+estructura"):
         f, (partes, estructura_previa) = await asyncio.gather(
             f123.correr(cliente, texto_acto, texto_conceptos, e.es_recurso,
-                        e.tipo_asunto),
+                        e.tipo_asunto,
+                        quejoso=getattr(e, "quejoso", "") or "",
+                        responsable=getattr(e, "responsable", "") or ""),
             _partes_y_estructura())
     avisos.extend(f.avisos)
     avisos.extend(partes.avisos)

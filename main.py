@@ -29134,6 +29134,7 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
                         (getattr(r.fases, "fuentes", []) or [])][:2],
             "expediente_origen": getattr(r.fases, "expediente_origen", "") or "",
             "fecha_origen": getattr(r.fases, "fecha_origen", "") or "",
+            "relato": getattr(r.fases, "relato", "") or "",
         },
         "partes": (r.partes.__dict__ if r.partes else None),
         "computo": {"oportuna": r.computo.oportuna,
@@ -30316,6 +30317,8 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
         "resumen_acto": f.resumen_acto or "",
         "resumen_conceptos": f.resumen_conceptos or "",
         "problema_global": f.problema_global or "",
+        # DE QUÉ VA EL ASUNTO, contado de corrido. La tarjeta grande del paso 2.
+        "relato": getattr(f, "relato", "") or "",
         "problemas": [
             {"pregunta": (p.get("pregunta") if isinstance(p, dict) else str(p)) or "",
              "resolvio": (p.get("resolvio") if isinstance(p, dict) else "") or "",

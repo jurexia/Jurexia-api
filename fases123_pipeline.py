@@ -607,6 +607,88 @@ def prompt_antecedentes(texto_acto: str, tipo_asunto: str = "") -> str:
 Escribe el apartado de antecedentes, un párrafo por línea. Sólo el apartado."""
 
 
+def prompt_relato(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
+                  es_recurso: bool = False, tipo_asunto: str = "",
+                  quejoso: str = "", responsable: str = "") -> str:
+    """De qué va el asunto, contado al secretario de corrido.
+
+    David (17-sep-2026): «me gustaría una tarjeta más grande en la que al
+    secretario se le explique de qué va el caso (…) mi redacción es más amena
+    y trata de dar a entender el asunto de una forma más sencilla, con una
+    sola tarjeta». Los tres resúmenes ya estaban en pantalla, pero como tres
+    pliegues técnicos: antecedentes, qué resolvió, qué alega. Esto los cuenta
+    como se cuenta un asunto a un compañero: quién hizo qué, quién se quejó,
+    qué le contestaron y por qué, y quién viene ahora y con qué.
+
+    NO INVENTA: todo sale de los resúmenes que recibe, que a su vez salieron
+    de los documentos. Y NO LISTA los problemas jurídicos: la pantalla los
+    pone debajo, numerados, tal como los calculó el reparto, para que la litis
+    que lee el secretario sea exactamente la que se va a estudiar.
+    """
+    import tipos_asunto as _tap
+    _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
+    _v = _tap.vocabulario_de(_t)
+    _organo = _tap.sujetos_de(_t)["organo"][0]
+    _nombre = _v.get("nombre", "amparo directo")
+    _promovente = _v.get("promovente", "quejoso")
+    _combate = _v.get("combate", "conceptos de violación")
+    _ficha = ""
+    if (quejoso or "").strip():
+        _ficha += f"Quien promueve, según la ficha: {quejoso.strip()}.\n"
+    if (responsable or "").strip():
+        _ficha += f"Órgano que dictó lo que se combate, según la ficha: {responsable.strip()}.\n"
+    if es_recurso:
+        _hilo = f"""1. EL ORIGEN. Qué autoridad hizo qué y a quién: el acto de donde arranca todo
+   (una baja, una multa, una determinación, un crédito…), con los nombres.
+2. AQUÍ EMPIEZA EL PROBLEMA. Quién lo combatió en el juicio de origen y qué
+   alegó ahí; destaca lo principal, en una o dos frases.
+3. CÓMO RESOLVIÓ {_organo.upper()}. Qué decidió y, en breve, las razones técnicas
+   por las que lo decidió.
+4. QUIÉN VIENE AHORA. Inconforme, quién interpone la {_nombre} y qué alega
+   en sus {_combate}, entre otras cosas: la cuestión principal."""
+    else:
+        _hilo = f"""1. EL ORIGEN. De qué juicio o procedimiento viene el asunto: quién demandó a
+   quién y qué pedía, con los nombres.
+2. AQUÍ EMPIEZA EL PROBLEMA. Qué se discutió y qué resolvió cada instancia
+   hasta llegar a lo que se reclama; lo principal, en una o dos frases.
+3. CÓMO RESOLVIÓ {_organo.upper()}. Qué decidió en lo que se reclama y, en
+   breve, las razones técnicas por las que lo decidió.
+4. QUIÉN VIENE AHORA. Quién promueve el {_nombre} y qué alega en sus
+   {_combate}, entre otras cosas: la cuestión principal."""
+    return f"""Eres secretario proyectista de un Tribunal Colegiado y le cuentas a un
+compañero de qué va un asunto que le acaban de turnar. Escribe en español,
+en segunda persona («mira», «tendrás»), de corrido y sin tecnicismos de más:
+que se entienda a la primera. Pero todo lo que digas tiene que estar en los
+resúmenes de abajo; si un dato no consta —un nombre, una fecha, un monto—,
+no lo inventes: di que no consta o sáltalo.
+
+EL HILO, en este orden y en cuatro o cinco párrafos cortos (250 a 400
+palabras en total):
+{_hilo}
+
+Cuenta el origen con «Mira: el asunto tuvo su origen en que…»; marca el giro
+con «Aquí empieza el problema, porque…»; abre el tercer párrafo con la
+pregunta «¿Cómo resolvió {_organo} esa demanda?» y contéstala con «Pues…»; y
+el cuarto con «Inconforme con esa determinación, …». Una pregunta y su
+respuesta valen más que un párrafo de considerandos.
+
+LO QUE NO VA: no enumeres los problemas jurídicos ni digas «tendrás que
+resolver» —eso lo pone la pantalla debajo de tu relato, calculado aparte—;
+no pongas títulos, viñetas, negritas ni ningún formato; no cites tesis ni
+transcribas artículos; no adelantes cómo debería resolverse.
+
+{_ficha}ANTECEDENTES:
+{antecedentes}
+
+LO QUE RESOLVIÓ {_organo.upper()}:
+{resumen_acto}
+
+LO QUE SE COMBATE ({_combate.upper()} DE QUIEN PROMUEVE, {_promovente.upper()}):
+{resumen_conceptos}
+
+Devuelve sólo el relato, sin encabezado."""
+
+
 def prompt_problemas(resumen_acto: str, resumen_conceptos: str,
                      es_recurso: bool = False, tipo_asunto: str = "",
                      n_planteamientos: int = 0, faltan: list = None) -> str:
@@ -880,7 +962,8 @@ async def _pedir(cliente, prompt: str, tope: int = 2500, json_estricto: bool = F
 
 async def correr(cliente, texto_acto: str, texto_conceptos: str,
                  es_recurso: bool = False,
-                 tipo_asunto: str = "") -> "Fases123":
+                 tipo_asunto: str = "",
+                 quejoso: str = "", responsable: str = "") -> "Fases123":
     """Las tres fases, en orden. Los dos resúmenes van EN PARALELO —son
     independientes— y los problemas esperan a los dos, porque salen de su
     contraste."""
@@ -1089,6 +1172,26 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             "planteamientos. No es que no falte ninguno: es que no se sabe. "
             "Cuéntalos tú en el escrito antes de firmar.")
 
+    # EL RELATO VA EN PARALELO CON LOS PROBLEMAS. Los dos parten de los mismos
+    # resúmenes ya definitivos y ninguno necesita al otro. Lanzarlo aquí y
+    # recogerlo al final cuesta lo que tarde de más que la fase de problemas,
+    # que suele ser nada: no se le añade un escalón al adelanto.
+    async def _relato():
+        try:
+            _txt = await _pedir(cliente, prompt_relato(
+                an, ra, rc, es_recurso, tipo_asunto, quejoso, responsable), 1800)
+            _txt = sin_marca(_txt or "").strip()
+            try:
+                import meta_lenguaje as _ml_r
+                _txt, _ = _ml_r.limpiar(_txt)
+            except Exception:
+                pass
+            return _txt
+        except Exception as _exr:
+            print(f"   ⚠️ no se pudo contar el asunto: {_exr}")
+            return ""
+    _tarea_relato = asyncio.ensure_future(_relato())
+
     f = Fases123(antecedentes=an, resumen_acto=ra, resumen_conceptos=rc,
                  conteo=_conteo)
     for _a in _avisos_cob:
@@ -1178,6 +1281,12 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             "Sube el documento por partes o reduce lo que no sea el escrito de "
             "la parte, y vuelve a generar el adelanto."))
     f.avisos.extend(revisar(f))
+    try:
+        f.relato = await _tarea_relato
+    except Exception as _exr2:
+        print(f"   ⚠️ el relato no llegó: {_exr2}")
+    if f.relato:
+        print(f"   📖 relato del asunto: {len(f.relato.split())} palabras")
     return f
 
 
@@ -1235,6 +1344,10 @@ class Fases123:
     # buscaban en la prosa del proyecto, donde a menudo no están.
     expediente_origen: str = ""
     fecha_origen: str = ""
+    # EL RELATO: de qué va el asunto, contado al secretario de corrido. Ver
+    # `prompt_relato`. Sale de los tres resúmenes y va a la pantalla, no al
+    # documento.
+    relato: str = ""
 
     def parrafos_antecedentes(self) -> list[str]:
         """Sin el encabezado que el modelo se pone a sí mismo.
