@@ -43,7 +43,11 @@ from dataclasses import dataclass, field
 # equivocar y la más barata de calcular —son unos cientos de palabras—.
 MODELO_PROPUESTA = os.getenv("MODELO_PROPUESTA",
                              os.getenv("MODELO_ESTUDIO", "gpt-5.6-luna"))
-ESFUERZO_PROPUESTA = os.getenv("ESFUERZO_PROPUESTA", "high")
+# MEDIO Y NO ALTO, por velocidad (David, 17-sep-2026: «el tema de momento solo
+# es velocidad»). Medido con el material real de la revisión fiscal 2/2026: la
+# propuesta pasa de 151 a 57 s y el contraste de 55 a 39; el razonamiento baja
+# de 6,655 a 1,208 tokens. Se vuelve al alto con ESFUERZO_PROPUESTA=high.
+ESFUERZO_PROPUESTA = os.getenv("ESFUERZO_PROPUESTA", "medium")
 
 # Cuántas tesis se le enseñan por problema. Más no ayuda: con el acervo entero
 # delante el modelo elige la que suena, no la que aplica.
@@ -629,7 +633,9 @@ MODELO_CONTRASTE = os.getenv("MODELO_CONTRASTE", "") or None   # vacío = el de 
 # presupuesto y no quedó sitio para la respuesta—, y cada una de ésas es un
 # asunto que se propone sin contraste sin que nadie lo note.
 MAX_TOKENS_CONTRASTE = int(os.getenv("MAX_TOKENS_CONTRASTE", "12000"))
-CONTRASTE_EN_PARALELO = os.getenv("CONTRASTE_EN_PARALELO", "0") == "1"
+# ENCENDIDO: la propuesta ya no espera al contraste (125 s en producción). Se
+# apaga con CONTRASTE_EN_PARALELO=0.
+CONTRASTE_EN_PARALELO = os.getenv("CONTRASTE_EN_PARALELO", "1") == "1"
 
 _VEREDICTOS_CONTRASTE = ("inoperante", "fundado_pero_insuficiente", "a_examinar")
 
