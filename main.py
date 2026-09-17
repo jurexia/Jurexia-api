@@ -28609,6 +28609,13 @@ async def taller_adelanto(
         asyncio.ensure_future(_taller_precontrastar(user_email, numero, r))
     except Exception as _exc_pc:
         print(f"   ⚠️ no se pudo adelantar el contraste: {err(_exc_pc)}")
+    # Y LA CONSULTA DEL ACERVO, TAMBIÉN SOLA. El secretario lee de qué va el
+    # asunto mientras el acervo y el contraste se preparan; cuando pulsa
+    # «Buscar solución jurídica», ya está.
+    try:
+        asyncio.ensure_future(_taller_preconsultar(user_email, numero, r))
+    except Exception as _exc_pq:
+        print(f"   ⚠️ no se pudo adelantar la consulta del acervo: {err(_exc_pq)}")
 
     print(f"   ⚖️ TALLER: adelanto {numero} · "
           f"{len(r.fases.problemas)} problemas · {len(r.huecos)} huecos")
@@ -28720,46 +28727,51 @@ def _material_ligero(m) -> dict:
     return _te.material_ligero(m)
 
 
-def _taller_guardar_material(email: str, numero: str, m) -> None:
-    """Deja el acervo en la fila, para el worker que atienda la siguiente."""
+def _taller_guardar_material(email: str, numero: str, m, huella: str = "",
+                             marca: dict | None = None,
+                             avisos: list | None = None) -> bool:
+    """Deja el acervo en la fila, para el worker que atienda la siguiente.
+
+    `huella`: si se da, sólo se escribe cuando la fila sigue siendo de ese
+    adelanto (la consulta automática corre suelta y el secretario puede haber
+    rehecho el adelanto mientras tanto). `marca`: la marca de la consulta
+    automática, que va en la misma escritura que el material para que nadie
+    vea «listo» sin material. `avisos`: los avisos que la consulta añadió al
+    asunto, que hasta hoy se quedaban en la memoria del worker que consultó.
+    """
     if not (supabase_admin and m is not None):
-        return
+        return False
     _correo = (email or "").strip().lower()
     try:
         r = supabase_admin.table("taller_sesiones").select("estado") \
             .eq("email", _correo).eq("expediente", numero).limit(1).execute()
         if not r.data:
-            return
+            return False
         est = r.data[0].get("estado") or {}
+        if huella and est.get("huella") != huella:
+            print(f"   ♻️ el acervo de {numero} es de un adelanto anterior: no se guarda")
+            return False
         est["material"] = _material_ligero(m)
+        if marca is not None:
+            est["consulta"] = marca
+        if avisos is not None:
+            est["avisos"] = list(avisos)
         supabase_admin.table("taller_sesiones").update({"estado": est}) \
             .eq("email", _correo).eq("expediente", numero).execute()
         print(f"   💾 acervo de {numero} guardado con la sesión: "
               f"{len(est['material']['tesis'])} tesis · "
               f"{len(est['material']['normas'])} normas")
+        return True
     except Exception as ex:
         print(f"   ⚠️ no se pudo guardar el acervo de {numero}: {err(ex)}")
+        return False
 
 
-def _taller_leer_contraste(email: str, numero: str):
-    """Sólo la rama `contraste` del estado: la fila entera pesa un megabyte y
-    esto se lee cada tres segundos mientras se espera."""
-    if not supabase_admin:
-        return None
-    try:
-        r = supabase_admin.table("taller_sesiones").select("estado->contraste") \
-            .eq("email", (email or "").strip().lower()) \
-            .eq("expediente", numero).limit(1).execute()
-        return (r.data or [{}])[0].get("contraste")
-    except Exception as ex:
-        print(f"   ⚠️ no se pudo leer el contraste de {numero}: {err(ex)}")
-        return None
-
-
-def _taller_guardar_contraste(email: str, numero: str, doc: dict) -> bool:
-    """Deja el contraste en `estado.contraste`, lectura-cambio-escritura como
-    el material. Si choca con otra escritura del estado en la misma décima
-    de segundo, lo peor que pasa es que se pierda y la propuesta lo calcule."""
+def _taller_guardar_marca(email: str, numero: str, clave: str, doc: dict,
+                          huella: str = "") -> bool:
+    """Una marca en el estado —`consulta`, `contraste`—: {huella, estado,
+    desde…}. Lectura-cambio-escritura; con `huella`, sólo si la fila sigue
+    siendo de ese adelanto."""
     if not supabase_admin:
         return False
     _correo = (email or "").strip().lower()
@@ -28769,13 +28781,84 @@ def _taller_guardar_contraste(email: str, numero: str, doc: dict) -> bool:
         if not r.data:
             return False
         est = r.data[0].get("estado") or {}
-        est["contraste"] = doc
+        if huella and est.get("huella") != huella:
+            return False
+        est[clave] = doc
         supabase_admin.table("taller_sesiones").update({"estado": est}) \
             .eq("email", _correo).eq("expediente", numero).execute()
         return True
     except Exception as ex:
-        print(f"   ⚠️ no se pudo guardar el contraste de {numero}: {err(ex)}")
+        print(f"   ⚠️ no se pudo guardar la marca «{clave}» de {numero}: {err(ex)}")
         return False
+
+
+def _taller_leer_marca(email: str, numero: str, clave: str):
+    """Sólo una rama del estado: la fila entera pesa y esto se lee en bucle."""
+    if not supabase_admin:
+        return None
+    try:
+        r = supabase_admin.table("taller_sesiones").select(f"estado->{clave}") \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+        return (r.data or [{}])[0].get(clave)
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo leer la marca «{clave}» de {numero}: {err(ex)}")
+        return None
+
+
+async def _taller_preconsultar(email: str, numero: str, r) -> None:
+    """La consulta del acervo, sola, en cuanto termina el adelanto.
+
+    David (17-sep-2026): «entre más simplifiquemos el proceso del taller,
+    mejor para el secretario» y «adelante» a que «Buscar solución jurídica»
+    deje de ser un paso que espera. Es la misma consulta que corre el botón,
+    sin contexto del secretario: si él aporta contexto, el botón la repite
+    con él. Corre suelta y escribe en la fila sólo si el adelanto sigue siendo
+    éste; si este worker muere, el botón consulta como siempre.
+    """
+    huella = ""
+    try:
+        import redactor_adelanto as _ra
+        huella = _te.huella_contraste(r)
+        if not _taller_guardar_marca(email, numero, "consulta", {
+                "huella": huella, "estado": "en_curso", "desde": time.time()}, huella):
+            return
+        _t0 = time.perf_counter()
+        material = await _ra.consultar(
+            qdrant_client, _embedding_juris,
+            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
+            chat_client, "")
+        _seg = time.perf_counter() - _t0
+        if _taller_guardar_material(email, numero, material, huella=huella,
+                                    marca={"huella": huella, "estado": "listo",
+                                           "segundos": round(_seg, 1)},
+                                    avisos=list(r.avisos or [])):
+            _taller_marcar_consultado(email, numero)
+            ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
+            if ses is not None and ses.get("resultado") is r:
+                ses["material"] = material
+                ses["consultado"] = True
+            print(f"   ⚖️ ACERVO consultado solo para {numero}: "
+                  f"{len(material.tesis)} tesis · {len(material.normas)} normas "
+                  f"en {_seg:.0f} s, listo para «Buscar solución jurídica»")
+    except Exception as ex:
+        print(f"   ⚠️ la consulta automática de {numero} falló: {err(ex)}")
+        if huella:
+            _taller_guardar_marca(email, numero, "consulta",
+                                  {"huella": huella, "estado": "fallo"}, huella)
+
+
+def _taller_leer_contraste(email: str, numero: str):
+    return _taller_leer_marca(email, numero, "contraste")
+
+
+def _taller_guardar_contraste(email: str, numero: str, doc: dict) -> bool:
+    """Deja el contraste en `estado.contraste`, sólo si la fila sigue siendo
+    del adelanto que lo calculó. Si choca con otra escritura del estado en la
+    misma décima de segundo, lo peor que pasa es que se pierda y la propuesta
+    lo calcule."""
+    return _taller_guardar_marca(email, numero, "contraste", doc,
+                                 str(doc.get("huella") or ""))
 
 
 async def _taller_precontrastar(email: str, numero: str, r) -> None:
@@ -29141,6 +29224,12 @@ def _taller_guardar_sesion(email: str, numero: str, r, tmp: str) -> None:
                     "parrafo": __import__("fase0_oportunidad").parrafo_oportunidad(r.computo)},
         "avisos": list(r.avisos or []),
         "tmp": tmp,
+        # LA HUELLA DE ESTE ADELANTO: los planteamientos y los resúmenes. Las
+        # tareas que corren sueltas al terminar el adelanto —la consulta del
+        # acervo, el contraste— escriben en la fila SÓLO si la huella sigue
+        # siendo la suya: si el secretario rehizo el adelanto mientras
+        # corrían, lo que traen es de otro asunto y se tira.
+        "huella": _te.huella_contraste(r),
     }
     # LA PLANTILLA VIAJA CON LA SESIÓN. Vive en el /tmp del worker que atendió el
     # adelanto y el que resuelve no lo ve: `PackageNotFoundError` al reensamblar.
@@ -30426,14 +30515,38 @@ async def taller_consultar(
         ses["contexto"] = _ctx
         print(f"   🧭 {numero}: se busca con el contexto del secretario "
               f"({len(_ctx)} caracteres)")
-    material = await _ra.consultar(
-        qdrant_client, _embedding_juris,
-        lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
-        chat_client, _ctx)
+    # LA CONSULTA YA CORRIÓ SOLA AL TERMINAR EL ADELANTO —`_taller_preconsultar`—
+    # y vale tal cual si el secretario no aporta contexto: se recoge (o se
+    # espera, si aún corre) en vez de repetirla. Con contexto, se repite con
+    # él, que es lo que el secretario pidió. Sin marca —sesión anterior al
+    # 17-sep-2026, worker caído—, se consulta como siempre.
+    material = None
+    if not _ctx:
+        try:
+            _hu = _te.huella_contraste(r)
+            if await _te.esperar_consulta(
+                    _hu, lambda: _taller_leer_marca(user_email, numero, "consulta")):
+                ses.pop("material", None)
+                material = _taller_material(ses, user_email, numero)
+                if material is not None and not getattr(material, "sondeo", None) \
+                        and not getattr(material, "principios", None):
+                    material = None       # guardado a medias: se consulta
+                if material is not None:
+                    print(f"   ⚖️ acervo de {numero}: se usa la consulta automática "
+                          f"({len(material.tesis)} tesis · {len(material.normas)} normas)")
+        except Exception as _exc_ea:
+            print(f"   ⚠️ no se pudo recoger la consulta automática: {err(_exc_ea)}")
+            material = None
+    if material is None:
+        material = await _ra.consultar(
+            qdrant_client, _embedding_juris,
+            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
+            chat_client, _ctx)
+        # Y con la sesión, para el worker que atienda la siguiente petición.
+        _taller_guardar_material(user_email, numero, material,
+                                 avisos=list(r.avisos or []))
     ses["material"] = material
     ses["consultado"] = True
-    # Y con la sesión, para el worker que atienda la siguiente petición.
-    _taller_guardar_material(user_email, numero, material)
     _taller_marcar_consultado(user_email, numero)
     _taller_registrar_uso(user_email, numero, "consulta")
 

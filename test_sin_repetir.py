@@ -162,7 +162,7 @@ ok("await _taller_esperar_contraste(user_email, numero, r)" in tramo
    "proponer recoge el contraste adelantado y se lo pasa a la propuesta")
 ok(tramo.find("_taller_esperar_contraste(") > tramo.find("completar_preceptos("),
    "y lo espera DESPUÉS de traer los preceptos, para que ambas cosas se solapen")
-ok('select("estado->contraste")' in src, "la espera lee sólo la rama del contraste, no la fila entera")
+ok('select(f"estado->{clave}")' in src, "la espera lee sólo la rama del contraste, no la fila entera")
 import fase5_propuesta as f5
 ok("contraste_previo" in inspect.signature(f5.proponer).parameters, "proponer admite el contraste previo")
 s5 = inspect.getsource(f5.proponer)
