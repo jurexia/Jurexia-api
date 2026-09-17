@@ -902,7 +902,16 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
     # holgada y barata: el modelo escribe lo que necesita y no se le cobra por
     # el cupo que no gasta. Y si aun así se corta, `_pedir` lo detecta por
     # `finish_reason` y dobla, que es la red de verdad.
-    def _cupo(texto: str, minimo: int = 2500, maximo: int = 12000) -> int:
+    # EL CUPO NO PUEDE SER MENOR QUE LO QUE SE PIDE ESCRIBIR. Con un mínimo de
+    # 2,500 tokens, el resumen del acto y el de los agravios —que el propio
+    # prompt pide de 1,000 a 1,600 palabras— se cortaban SIEMPRE: 35 recortes en
+    # los registros de producción del 16 y 17 de septiembre, por pares, uno por
+    # resumen y por adelanto (~10,000 y ~11,000 caracteres). Cada corte tira lo
+    # generado y repite la llamada con 5,000–6,222 tokens, que siempre alcanza.
+    # Medido en local sobre la revisión fiscal 2/2026: 123 s el primer paso, con
+    # los dos resúmenes generados dos veces. Se empieza con lo que alcanza. El
+    # tope no cuesta: se paga lo que se escribe, y ahora no se escribe dos veces.
+    def _cupo(texto: str, minimo: int = 6000, maximo: int = 12000) -> int:
         return max(minimo, min(maximo, 900 + len(texto or "") // 50))
 
     an, ra, rc = await asyncio.gather(
@@ -958,8 +967,9 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             _obj_a = objetivo_acto(texto_acto)
             _todas_a, _sin_a = citas_sin_nombrar(recortar_acto(texto_acto or ""), ra_)
             _vfa = 0
-            while ((len(ra_.split()) < 0.6 * _obj_a
-                    or (len(_todas_a) >= 2 and len(_sin_a) >= max(2, len(_todas_a) // 2)))
+            # La misma red que los agravios: una tesis sin nombrar basta.
+            while ((len(ra_.split()) < 0.75 * _obj_a
+                    or (len(_todas_a) >= 1 and len(_sin_a) >= 1))
                    and _vfa < 2):
                 _vfa += 1
                 print(f"   🧩 resumen del acto a fondo (vuelta {_vfa}): {len(ra_.split())} palabras "
@@ -1020,10 +1030,20 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
         _obj = objetivo_conceptos(texto_conceptos)
         _todas, _sin = citas_sin_nombrar(texto_conceptos, rc)
         _vf = 0
+        # LA RED NO PUEDE TENER AGUJEROS DE MEDIA TESIS. Decía «reescribe si
+        # falta la MITAD de las tesis o si no llega al 60 %». Mientras el primer
+        # resumen nombraba una de seis, saltaba siempre y el final salía
+        # completo. En cuanto la primera vuelta mejoró —se le da la lista de
+        # tesis— nombró cuatro de seis, pasó por debajo de la red y el proyecto
+        # de la revisión fiscal 2/2026 (V8, 17-sep-2026) salió con dos tesis de
+        # la recurrente sin nombrar y 1,116 palabras de las 1,596 que pide el
+        # escrito. David lo había fijado: «los agravios deben estar resumidos
+        # de forma completa, sobre todo cuando citan múltiples tesis».
+        # Ahora: una sola tesis sin nombrar, o menos del 75 %, y se reescribe.
         def _corto(txt):
-            return len(txt.split()) < 0.6 * _obj
+            return len(txt.split()) < 0.75 * _obj
         def _mudo(sin):
-            return len(_todas) >= 2 and len(sin) >= max(2, len(_todas) // 2)
+            return len(_todas) >= 1 and len(sin) >= 1
         while (_corto(rc) or _mudo(_sin)) and _vf < 2:
             _vf += 1
             print(f"   🧩 síntesis a fondo (vuelta {_vf}): {len(rc.split())} palabras "

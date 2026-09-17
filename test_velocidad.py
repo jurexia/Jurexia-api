@@ -30,6 +30,15 @@ ok("LAS TESIS QUE LA AUTORIDAD INVOCA" in pa and "2A./J. 99/2007" in pa, "y el d
 ok(f123._bloque_tesis_a_nombrar(set(), "LA PARTE") == "", "sin tesis, no se añade nada")
 ok("prompt_conceptos_a_fondo(" in inspect.getsource(f123.correr),
    "la reescritura a fondo sigue ahí como red")
+_src_red = inspect.getsource(f123.correr)
+ok("len(_todas) >= 1 and len(sin) >= 1" in _src_red and "< 0.75 * _obj" in _src_red,
+   "y la red salta con UNA tesis sin nombrar o por debajo del 75 % (V8 del 2/2026: "
+   "4 de 6 tesis y 1,116 palabras pasaban por debajo de la red vieja)")
+ok("(len(_todas_a) >= 1 and len(_sin_a) >= 1)" in _src_red, "la misma red para el acto")
+
+ok("minimo: int = 6000" in inspect.getsource(f123.correr),
+   "el cupo del primer resumen alcanza para lo que se pide: sin recorte ni repetición "
+   "(35 recortes en producción el 16 y 17-sep con el mínimo de 2,500)")
 
 print("\n2 · EL ACTO A FONDO CORRE EN PARALELO")
 src = inspect.getsource(f123.correr)
