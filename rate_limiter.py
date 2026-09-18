@@ -29,6 +29,10 @@ DEFAULT_RATE_LIMIT = 10  # Unknown/missing tier
 # Paths that are rate-limited (only expensive endpoints)
 RATE_LIMITED_PATHS = {
     "/chat",
+    # El carril gratuito no pide correo ni tarjeta, así que la única puerta
+    # contra un raspador es ésta. El tope por minuto no estorba a nadie que
+    # esté leyendo lo que pregunta.
+    "/precedentes/gratis",
     "/chat-sentencia",
     "/redactor-sentencia-chat",
     "/draft-sentencia-stream",

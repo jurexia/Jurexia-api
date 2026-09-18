@@ -184,8 +184,16 @@ BUSCAR_MODEL = os.getenv("BUSCAR_MODEL", "gpt-5.4-nano")
 # cuesta 0.00055 USD por búsqueda, un centavo de peso. Mil búsquedas, medio
 # dólar.
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+_GRATIS_SECRETO = os.getenv("SUPABASE_SERVICE_KEY", "") or os.getenv("ADMIN_KEY", "") or "iurexia-gratis"
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
-GRATIS_TOPE_DIARIO = int(os.getenv("GRATIS_TOPE_DIARIO", "5"))
+# EL TOPE NO ES UN FRENO COMERCIAL, ES UN FRENO DE ABUSO (18-sep-2026).
+# David: «no quiero darle cinco consultas diarias gratis: eso quita incentivo
+# de compra. Lo que será gratis es una plataforma sencilla y útil, pero que
+# empuje al usuario a querer exprimir más». Lo que limita al carril gratuito
+# es su CAPACIDAD, no su cantidad: sin redacción, sin genios, sin razonamiento
+# largo y sin PDF de la tesis. Puede preguntar cuando quiera; este número sólo
+# está para que un raspador no se lleve el acervo.
+GRATIS_TOPE_DIARIO = int(os.getenv("GRATIS_TOPE_DIARIO", "60"))
 GRATIS_TESIS = int(os.getenv("GRATIS_TESIS", "5"))
 GRATIS_BLOQUE = int(os.getenv("GRATIS_BLOQUE", "3"))
 
@@ -32854,20 +32862,57 @@ async def taller_olvidar(numero: str = Form(...), user_email: str = Form(...)):
 # EL TIRÓN HACIA EL PLAN DE PAGO es explícito y no engaña: aquí están las
 # tesis; el artículo aplicable de tu estado, el escrito redactado con ellas y
 # el análisis viven del otro lado.
-_GRATIS_SISTEMA = """Eres el buscador de precedentes de Iurexia. Tu ÚNICA tarea es SELECCIONAR y RESUMIR las fuentes que se te entregan.
+_GRATIS_SISTEMA = """Eres Iurexia en su versión básica y gratuita. Contestas consultas jurídicas EXCLUSIVAMENTE con las fuentes que se te entregan.
 
 REGLAS ABSOLUTAS:
 1. NO cites ningún artículo, tesis, registro o criterio que no esté en las FUENTES. Ni uno.
 2. Si las fuentes no responden a lo que se pregunta, dilo en una línea y termina. No estires una tesis parecida.
-3. NO redactes escritos, NO des estrategia procesal y NO opines sobre el caso: esto es búsqueda, no asesoría.
-4. Cita cada afirmación con el número de su fuente entre corchetes.
-5. Máximo cinco párrafos de seis renglones.
-6. Cierra con la lista de las fuentes que usaste, cada una con su registro."""
+3. NO REDACTAS. Si te piden una demanda, un amparo, un recurso, un agravio, una contestación o cualquier escrito, contesta exactamente: «La redacción de escritos es una función de los planes de Iurexia. Aquí puedo darte los criterios aplicables y sus registros.» y después da esos criterios.
+4. No des estrategia procesal ni análisis del caso concreto: orienta con lo que dicen los criterios.
+5. Cita cada afirmación con el número de su fuente entre corchetes.
+6. Máximo cuatro párrafos de seis renglones.
+7. Cierra con la lista de los criterios que usaste, cada uno con su rubro y su registro digital."""
 
 
 class PrecedentesGratisRequest(BaseModel):
     consulta: str = Field(..., min_length=8, max_length=1200)
-    user_email: str = Field(..., max_length=200)
+    # Uno de los dos. El testigo es para quien entra SIN CUENTA por el botón
+    # «Probar Iurexia»: es el cuello de embudo más grande que hay —2,320
+    # cuentas registradas y sólo 438 que llegaron a escribir algo—, y la forma
+    # de romperlo es no pedir nada por delante.
+    user_email: str = Field("", max_length=200)
+    testigo: str = Field("", max_length=200)
+
+
+def _testigo_anonimo() -> str:
+    """Un identificador de visita, sin un solo dato personal.
+
+    Es azar firmado: ni correo, ni IP, ni huella del navegador. Sólo sirve
+    para llevar la cuenta del día y para que el aviso de «prueba la
+    plataforma» sepa a quién le habla.
+    """
+    import hmac as _h, hashlib as _hh, secrets as _sc, base64 as _b64
+    _semilla = _sc.token_bytes(12)
+    _id = _b64.urlsafe_b64encode(_semilla).decode().rstrip("=")
+    _firma = _h.new(_GRATIS_SECRETO.encode(), _id.encode(), _hh.sha256).hexdigest()[:24]
+    return f"{_id}.{_firma}"
+
+
+def _testigo_valido(testigo: str) -> str:
+    """El identificador si la firma cuadra; cadena vacía si no."""
+    import hmac as _h, hashlib as _hh
+    _partes = str(testigo or "").split(".")
+    if len(_partes) != 2:
+        return ""
+    _id, _firma = _partes
+    _esperada = _h.new(_GRATIS_SECRETO.encode(), _id.encode(), _hh.sha256).hexdigest()[:24]
+    return _id if _h.compare_digest(_firma, _esperada) else ""
+
+
+@app.post("/gratis/sesion")
+async def gratis_sesion():
+    """Abre una visita anónima. Sin correo, sin tarjeta, sin nada."""
+    return {"testigo": _testigo_anonimo(), "tope": GRATIS_TOPE_DIARIO}
 
 
 async def _gratis_fuentes(consulta: str) -> tuple:
@@ -32914,7 +32959,14 @@ async def _gratis_fuentes(consulta: str) -> tuple:
             "rubro": (pl.get("rubro") or "")[:300],
             "clave": pl.get("clave_tesis") or "", "instancia": pl.get("instancia") or "",
             "epoca": pl.get("epoca") or "", "materia": pl.get("materia") or "",
-            "pdf_url": pl.get("pdf_url") or None,
+            # EL PDF NO VIAJA (18-sep-2026). El carril gratuito enseña el rubro,
+            # el contenido y el REGISTRO DIGITAL, que es con lo que cualquiera
+            # localiza la tesis en el Semanario Judicial y la descarga de la
+            # fuente oficial. Descargarla desde aquí es de los planes: no por
+            # tacañería, sino porque el expediente completo —con su PDF, su
+            # carpeta y su historial— es exactamente lo que se paga.
+            "semanario": f"https://sjf2.scjn.gob.mx/detalle/tesis/{_reg}" if _reg else None,
+            "texto": (pl.get("texto") or "")[:1200],
         })
     for j, pb in enumerate(_pb, len(partes) + 1):
         pl = pb.payload or {}
@@ -32926,7 +32978,8 @@ async def _gratis_fuentes(consulta: str) -> tuple:
             "rubro": (pl.get("ref") or pl.get("origen") or "")[:300],
             "clave": "", "instancia": pl.get("origen") or "",
             "epoca": "", "materia": pl.get("materia") or "",
-            "pdf_url": pl.get("pdf_url") or None,
+            "semanario": None,
+            "texto": (pl.get("texto_visible") or pl.get("texto") or "")[:1200],
         })
     return "\n\n".join(partes), fuentes
 
@@ -32937,13 +32990,18 @@ async def precedentes_gratis(payload: PrecedentesGratisRequest):
     import time as _t
     t0 = _t.time()
     correo = (payload.user_email or "").strip().lower()
-    if not correo or "@" not in correo:
-        raise HTTPException(400, "Falta el correo de la cuenta.")
+    _anon = _testigo_valido(payload.testigo) if not correo else ""
+    if not correo and not _anon:
+        raise HTTPException(400, "Abre una sesión de prueba antes de consultar.")
+    # Con quién se lleva la cuenta del día: el correo si lo hay, el testigo si no.
+    _quien = correo or f"anon:{_anon}"
     if not MISTRAL_API_KEY:
         raise HTTPException(503, "El buscador gratuito no está disponible ahora mismo.")
 
-    # ── La puerta: cuenta existente y correo verificado ──
-    if supabase_admin:
+    # ── La puerta, sólo para quien entra con cuenta ──
+    # Quien viene por el botón de prueba no tiene perfil que mirar: ése es el
+    # punto. Se le atiende igual y con las mismas limitaciones.
+    if correo and supabase_admin:
         try:
             _perf = await asyncio.to_thread(
                 lambda: supabase_admin.table("user_profiles")
@@ -32963,15 +33021,13 @@ async def precedentes_gratis(payload: PrecedentesGratisRequest):
         try:
             _r = await asyncio.to_thread(
                 lambda: supabase_admin.rpc("consumir_gratis", {
-                    "p_email": correo, "p_tope": GRATIS_TOPE_DIARIO}).execute())
+                    "p_email": _quien, "p_tope": GRATIS_TOPE_DIARIO}).execute())
             _d = _r.data if isinstance(_r.data, dict) else {}
             usadas, tope = int(_d.get("usadas") or 0), int(_d.get("tope") or GRATIS_TOPE_DIARIO)
             if not _d.get("permitido"):
                 raise HTTPException(
-                    429, f"Llegaste a tus {tope} búsquedas gratuitas de hoy. "
-                         f"Mañana se reinician. Con un plan de Iurexia, además de "
-                         f"las tesis recibes el artículo aplicable de tu estado y "
-                         f"el escrito redactado con ellas.")
+                    429, "Hiciste muchísimas consultas hoy desde esta sesión. "
+                         "Vuelve mañana, o entra con tu cuenta de Iurexia.")
         except HTTPException:
             raise
         except Exception as _e:
@@ -33004,15 +33060,24 @@ async def precedentes_gratis(payload: PrecedentesGratisRequest):
     # Precio público de Mistral Small, USD por millón (entrada, salida).
     _costo = _cin * 0.20 / 1e6 + _cout * 0.60 / 1e6
     print(f"   🔎 GRATIS: {len(fuentes)} fuentes · {_cin}+{_cout} tok · "
-          f"{_costo:.6f} USD · {_t.time() - t0:.1f}s · {usadas}/{tope} · {correo[:3]}***")
+          f"{_costo:.6f} USD · {_t.time() - t0:.1f}s · {usadas}/{tope} · "
+          f"{'anónimo' if _anon else correo[:3] + '***'}")
 
     return {
         "texto": (_j.get("choices") or [{}])[0].get("message", {}).get("content", ""),
         "fuentes": fuentes,
         "usadas": usadas,
         "tope": tope,
-        "aviso": ("Esto es una búsqueda de precedentes, no una asesoría. "
-                  "Coteja cada tesis antes de usarla."),
+        "aviso": ("Versión básica: orientación con criterios del Semanario, "
+                  "no asesoría. Coteja cada tesis en la fuente oficial antes de usarla."),
+        # LO QUE NO PUEDE HACER, DICHO POR EL SERVIDOR. La pantalla las pinta
+        # con candado: el abogado tiene que VER lo que se está perdiendo, que
+        # es lo único que convierte una prueba en una suscripción.
+        "bloqueado": ["Redacción de escritos", "Genios", "Toulmin", "Modo consulta",
+                      "Modo redacción", "Jurimetría", "Precedentes", "Legislación de tu estado",
+                      "Seguimiento de expedientes", "Carpetas", "Memoria de consultas",
+                      "Editor Word", "Descarga del PDF de la tesis"],
+        "anonimo": bool(_anon),
     }
 
 
