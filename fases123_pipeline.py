@@ -177,8 +177,28 @@ def _cortar_bien(cuerpo: str, tope: int, que: str = "",
     return _hasta(cuerpo, tope)
 
 
+def texto_entero(texto: str, tope: int, que: str = "") -> str:
+    """EL DOCUMENTO ENTERO, que es lo que lee el modelo desde el 17-sep-2026.
+
+    David: «El modelo debe leer todo, ya hemos establecido que no hay límites
+    en lectura.» Hasta hoy los resúmenes recibían el documento desde su
+    marcador —«ESTUDIO DE FONDO», «CONCEPTOS DE VIOLACIÓN»— y la cabeza se
+    tiraba; en un asunto de un tester entraron 79.953 de 100.220 caracteres
+    del acto y 43.174 de 49.566 del escrito, con el aviso «NO SE LEYÓ …
+    ENTERO» arriba del todo. Medido: 153.256 caracteres son 38.314 tokens y
+    el motor responde sin despeinarse. Sólo queda el freno contra un fichero
+    corrupto (`tope`), que es el único caso en que se avisa.
+    """
+    return _cortar_bien(texto or "", tope, que)
+
+
 def recortar_acto(texto: str, tope: int = TOPE_CARACTERES) -> str:
     """Del acto reclamado, su ESTUDIO DE FONDO y los resolutivos.
+
+    YA NO ES LO QUE LEE EL MODELO —ver `texto_entero`—: es el ENFOQUE que usan
+    las cuentas (cuántas palabras pedir, qué tesis de la responsable hay que
+    nombrar), que sí deben mirar el estudio y no la transcripción de los
+    escritos de las partes en los resultandos.
 
     Se prefiere la marca del estudio; sólo si no aparece se cae al primer
     considerando, y en último caso a la cola del documento.
@@ -190,9 +210,7 @@ def recortar_acto(texto: str, tope: int = TOPE_CARACTERES) -> str:
     # así que la primera versión de este contador no vio nada. Lo que se tiró
     # se cuenta donde se tira.
     cuerpo = texto[m.start():] if m else texto[-tope:]
-    if len(texto) > len(cuerpo):
-        DESCARTADO["el acto reclamado"] = (len(texto), len(cuerpo))
-    return _cortar_bien(cuerpo, tope, "el acto reclamado")
+    return _cortar_bien(cuerpo, tope)
 
 
 def recortar_conceptos(texto: str, tope: int = TOPE_CONCEPTOS) -> str:
@@ -205,10 +223,7 @@ def recortar_conceptos(texto: str, tope: int = TOPE_CONCEPTOS) -> str:
     """
     m = _MARCAS_CONCEPTOS.search(texto)
     cuerpo = texto[m.start():] if m else texto[-tope:]
-    if len(texto) > len(cuerpo):
-        DESCARTADO["el escrito de la parte"] = (len(texto), len(cuerpo))
-    return _cortar_bien(cuerpo, tope, "el escrito de la parte",
-                        guardar_resolutivos=False)
+    return _cortar_bien(cuerpo, tope, guardar_resolutivos=False)
 
 
 
@@ -334,7 +349,7 @@ def prompt_acto_a_fondo(texto_acto: str, resumen_actual: str, faltan_citas: list
 
 Se trata de la {que}. Éste es su texto:
 ──────────────────────────────────────────
-{recortar_acto(texto_acto)}
+{texto_entero(texto_acto, TOPE_CARACTERES, "el acto reclamado")}
 ──────────────────────────────────────────
 
 Y éste es el resumen que se escribió, que SE QUEDÓ CORTO: tiene
@@ -411,7 +426,7 @@ No una sola oración de doscientas palabras encadenando gerundios.
 Se trata de la {que}. Éste es su texto:
 
 ──────────────────────────────────────────
-{recortar_acto(texto_acto)}
+{texto_entero(texto_acto, TOPE_CARACTERES, "el acto reclamado")}
 ──────────────────────────────────────────
 {_bloque_tesis_a_nombrar(citas_invocadas(recortar_acto(texto_acto)), "LA AUTORIDAD")}
 Escribe el resumen. Sólo el resumen, sin preámbulo ni rótulo."""
@@ -491,7 +506,7 @@ def prompt_resumen_conceptos(texto_conceptos: str, es_recurso: bool = False,
 Éste es el escrito de la parte:
 
 ──────────────────────────────────────────
-{recortar_conceptos(texto_conceptos)}
+{texto_entero(texto_conceptos, TOPE_CONCEPTOS, "el escrito de la parte")}
 ──────────────────────────────────────────
 {_bloque_tesis_a_nombrar(citas_invocadas(texto_conceptos), "LA PARTE")}
 Escribe el resumen de los {q}: un apartado por cada uno y, dentro de cada

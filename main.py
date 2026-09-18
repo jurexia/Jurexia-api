@@ -28848,6 +28848,11 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
             print(f"   ⚖️ ACERVO consultado solo para {numero}: "
                   f"{len(material.tesis)} tesis · {len(material.normas)} normas "
                   f"en {_seg:.0f} s, listo para «Buscar solución jurídica»")
+            # Y SEGUIDO, LA PROPUESTA. David (17-sep): «cuando entrega el asunto
+            # en corto debería ya estarse buscando la solución jurídica y contar
+            # con una propuesta global y por puntos que el secretario pueda
+            # cambiar».
+            await _taller_preproponer(email, numero, r)
     except Exception as ex:
         print(f"   ⚠️ la consulta automática de {numero} falló: {err(ex)}")
         if huella:
@@ -28899,6 +28904,61 @@ async def _taller_precontrastar(email: str, numero: str, r) -> None:
         print(f"   ⚠️ el contraste adelantado de {numero} falló: {err(ex)}")
         if huella:
             _taller_guardar_contraste(email, numero, {"huella": huella, "estado": "fallo"})
+
+
+async def _taller_preproponer(email: str, numero: str, r) -> None:
+    """La propuesta de solución, sola, en cuanto la consulta automática deja
+    el acervo. Es el mismo núcleo que corre el botón, sin contexto del
+    secretario; se guarda entera en `estado.propuesta` (marca + respuesta) y
+    /taller/proponer la sirve tal cual. Si este worker muere, el botón la
+    calcula como siempre."""
+    huella = ""
+    try:
+        huella = _te.huella_contraste(r)
+        ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
+        if ses is None or ses.get("resultado") is not r or ses.get("material") is None:
+            return
+        if not _taller_guardar_marca(email, numero, "propuesta", {
+                "huella": huella, "estado": "en_curso", "desde": time.time()}, huella):
+            return
+        _t0 = time.perf_counter()
+        resp = await _taller_proponer_nucleo(email, numero, ses, "")
+        resp = json.loads(json.dumps(resp, ensure_ascii=False, default=str))
+        _seg = time.perf_counter() - _t0
+        if _taller_guardar_marca(email, numero, "propuesta", {
+                "huella": huella, "estado": "listo", "segundos": round(_seg, 1),
+                "respuesta": resp}, huella):
+            print(f"   ⚖️ PROPUESTA calculada sola para {numero}: "
+                  f"{len(resp.get('propuestas') or [])} sentidos en {_seg:.0f} s, "
+                  f"lista para el paso 3")
+    except Exception as ex:
+        print(f"   ⚠️ la propuesta calculada sola de {numero} falló: {err(ex)}")
+        if huella:
+            _taller_guardar_marca(email, numero, "propuesta",
+                                  {"huella": huella, "estado": "fallo"}, huella)
+
+
+def _taller_avance(email: str, numero: str) -> dict:
+    """Dónde va lo que corre solo tras el adelanto —consulta, contraste,
+    propuesta—, para que la pantalla lo enseñe y sepa cuándo pedir."""
+    if not supabase_admin:
+        return {}
+    try:
+        r = supabase_admin.table("taller_sesiones") \
+            .select("estado->consulta, estado->contraste, estado->propuesta") \
+            .eq("email", (email or "").strip().lower()) \
+            .eq("expediente", numero).limit(1).execute()
+        fila = (r.data or [{}])[0]
+        out = {}
+        for k in ("consulta", "contraste", "propuesta"):
+            d = fila.get(k)
+            if isinstance(d, dict):
+                out[k] = {"estado": str(d.get("estado") or ""),
+                          "segundos": d.get("segundos")}
+        return out
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo leer el avance de {numero}: {err(ex)}")
+        return {}
 
 
 async def _taller_esperar_contraste(email: str, numero: str, r):
@@ -30424,6 +30484,9 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
         "problema_global": f.problema_global or "",
         # DE QUÉ VA EL ASUNTO, contado de corrido. La tarjeta grande del paso 2.
         "relato": getattr(f, "relato", "") or "",
+        # Y CÓMO VA LO QUE CORRE SOLO: la pantalla lo pregunta cada pocos
+        # segundos y, cuando la propuesta está lista, la pide y pasa al paso 3.
+        "avance": _taller_avance(user_email, numero),
         "problemas": [
             {"pregunta": (p.get("pregunta") if isinstance(p, dict) else str(p)) or "",
              "resolvio": (p.get("resolvio") if isinstance(p, dict) else "") or "",
@@ -30928,38 +30991,12 @@ async def taller_razonar(
     return {"razon": razon, "palabras": len(razon.split())}
 
 
-@app.post("/taller/proponer")
-async def taller_proponer(
-    numero: str = Form(...),
-    user_email: str = Form(...),
-    contexto: str = Form(""),
-):
-    """LA PROPUESTA DE SOLUCIÓN. Propone, no decide.
-
-    Faltaba este escalón. El secretario veía el acervo y tenía que fijar el
-    sentido con eso delante; si no lo fijaba, el proyecto salía con la
-    calificación que traía la plantilla —así nació la incongruencia del ADC
-    380/2025: efectos de concesión y un resolutivo que negaba—.
-
-    Ahora el motor propone un sentido por problema, con su razón en tres
-    renglones y los registros del acervo en que se apoya. El secretario lo
-    acepta, lo corrige, o dicta el suyo con la mecánica de siempre.
+async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
+                                  contexto: str = "") -> dict:
+    """LA PROPUESTA, sin la puerta ni el registro de uso: lo que corre igual
+    desde el botón (/taller/proponer) y sola al terminar el adelanto
+    (`_taller_preproponer`). Devuelve la respuesta tal como la lee la pantalla.
     """
-    _taller_puerta(user_email)
-    _taller_purgar()
-    ses = _taller_recuperar_sesion(user_email, numero)
-    if not ses:
-        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
-    if not (ses.get("material") or ses.get("consultado")):
-        raise HTTPException(409, "Consulta primero el acervo: una propuesta sin "
-                                 "material es una opinión.")
-    if "material" not in ses:
-        import redactor_adelanto as _ra0
-        ses["material"] = await _ra0.consultar(
-            qdrant_client, _embedding_juris,
-            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            ses["resultado"], chat_client)
-
     r = ses["resultado"]
     # EN /taller/proponer NO HAY NADA QUE DECIDIR TODAVÍA: el secretario
     # aún no ha resuelto. Se pasa sin decisión, que sólo deja el registro.
@@ -31007,7 +31044,8 @@ async def taller_proponer(
             if _traidos_prev:
                 print(f"   ⚖️ antes de proponer: {len(_traidos_prev)} precepto(s) "
                       f"al material · {_traidos_prev}")
-                _taller_guardar_material(user_email, numero, ses["material"])
+                _taller_guardar_material(user_email, numero, ses["material"],
+                                         huella=_te.huella_contraste(r))
     except Exception as _exc_prev:
         print(f"   ⚠️ no se pudo completar el material antes de proponer: "
               f"{type(_exc_prev).__name__}: {str(_exc_prev)[:120]}")
@@ -31155,7 +31193,6 @@ async def taller_proponer(
               f"{type(_e).__name__}")
 
     ses["global"] = glob
-    _taller_registrar_uso(user_email, numero, "propuesta")
     print(f"   ⚖️ TALLER: propuesta {numero} · {len(propuestas)} sentidos · "
           f"{len(avisos)} avisos · modelo {_f5.MODELO_PROPUESTA}")
 
@@ -31223,6 +31260,63 @@ async def taller_proponer(
               "prediccion": _pred_por_problema.get(p.problema, {})}
              for p in propuestas if p.alcanza and p.sentido], ensure_ascii=False),
     }
+
+
+@app.post("/taller/proponer")
+async def taller_proponer(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    contexto: str = Form(""),
+):
+    """LA PROPUESTA DE SOLUCIÓN. Propone, no decide.
+
+    Faltaba este escalón. El secretario veía el acervo y tenía que fijar el
+    sentido con eso delante; si no lo fijaba, el proyecto salía con la
+    calificación que traía la plantilla —así nació la incongruencia del ADC
+    380/2025: efectos de concesión y un resolutivo que negaba—.
+
+    Ahora el motor propone un sentido por problema, con su razón en tres
+    renglones y los registros del acervo en que se apoya. El secretario lo
+    acepta, lo corrige, o dicta el suyo con la mecánica de siempre.
+    """
+    _taller_puerta(user_email)
+    _taller_purgar()
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    if not (ses.get("material") or ses.get("consultado")):
+        raise HTTPException(409, "Consulta primero el acervo: una propuesta sin "
+                                 "material es una opinión.")
+    if "material" not in ses:
+        import redactor_adelanto as _ra0
+        ses["material"] = await _ra0.consultar(
+            qdrant_client, _embedding_juris,
+            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+            ses["resultado"], chat_client)
+
+    # LA PROPUESTA YA CORRIÓ SOLA —`_taller_preproponer`, encadenada a la
+    # consulta automática— y vale tal cual si el secretario no aporta
+    # contexto: se sirve la guardada, o se espera si aún corre. Con contexto,
+    # se calcula con él. Sin marca (sesión anterior, worker caído), se calcula.
+    _previa = None
+    if not (contexto or "").strip():
+        try:
+            _hu = _te.huella_contraste(ses["resultado"])
+            _doc = await _te.esperar_marca(
+                _hu, lambda: _taller_leer_marca(user_email, numero, "propuesta"),
+                "la propuesta calculada sola", tope=240.0, abandonado=600.0)
+            if _doc and isinstance(_doc.get("respuesta"), dict):
+                _previa = _doc["respuesta"]
+        except Exception as _exc_pp:
+            print(f"   ⚠️ no se pudo recoger la propuesta calculada sola: {err(_exc_pp)}")
+    if _previa is not None:
+        _taller_registrar_uso(user_email, numero, "propuesta")
+        print(f"   ⚖️ TALLER: propuesta {numero} servida de la calculada sola · "
+              f"{len(_previa.get('propuestas') or [])} sentidos")
+        return _previa
+    _resp = await _taller_proponer_nucleo(user_email, numero, ses, contexto)
+    _taller_registrar_uso(user_email, numero, "propuesta")
+    return _resp
 
 
 @app.post("/taller/resolver/stream")

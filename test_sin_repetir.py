@@ -153,7 +153,7 @@ i_ade = src.find('@app.post("/taller/adelanto")')
 i_con = src.find('@app.post("/taller/consultar")')
 ok(0 < i_ade < src.find("asyncio.ensure_future(_taller_precontrastar(user_email, numero, r))", i_ade) < i_con,
    "el adelanto lanza el contraste al terminar")
-i_pro = src.find('@app.post("/taller/proponer")')
+i_pro = src.find("async def _taller_proponer_nucleo(")
 i_str = src.find('@app.post("/taller/resolver/stream")')
 tramo = src[i_pro:i_str]
 ok("problemas = _te.problemas_de(r)" in tramo, "proponer construye los planteamientos como la huella")
