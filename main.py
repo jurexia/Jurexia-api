@@ -28841,10 +28841,8 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
                                            "segundos": round(_seg, 1)},
                                     avisos=list(r.avisos or [])):
             _taller_marcar_consultado(email, numero)
-            ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
-            if ses is not None and ses.get("resultado") is r:
-                ses["material"] = material
-                ses["consultado"] = True
+            _taller_sesion_en_memoria(email, numero, huella, material=material,
+                                      consultado=True)
             print(f"   ⚖️ ACERVO consultado solo para {numero}: "
                   f"{len(material.tesis)} tesis · {len(material.normas)} normas "
                   f"en {_seg:.0f} s, listo para «Buscar solución jurídica»")
@@ -28852,7 +28850,7 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
             # en corto debería ya estarse buscando la solución jurídica y contar
             # con una propuesta global y por puntos que el secretario pueda
             # cambiar».
-            await _taller_preproponer(email, numero, r)
+            await _taller_preproponer(email, numero, r, material)
     except Exception as ex:
         print(f"   ⚠️ la consulta automática de {numero} falló: {err(ex)}")
         if huella:
@@ -28906,21 +28904,50 @@ async def _taller_precontrastar(email: str, numero: str, r) -> None:
             _taller_guardar_contraste(email, numero, {"huella": huella, "estado": "fallo"})
 
 
-async def _taller_preproponer(email: str, numero: str, r) -> None:
+def _taller_sesion_en_memoria(email: str, numero: str, huella: str, **campos) -> None:
+    """Pone en la copia en memoria de ESTE worker lo que una tarea suelta acaba
+    de calcular, si la copia sigue siendo de este adelanto.
+
+    POR HUELLA, NO POR IDENTIDAD. La primera versión comparaba
+    `ses["resultado"] is r`, y en producción nunca fue verdad: la pantalla
+    pregunta el avance cada cuatro segundos, cada marca escrita cambia
+    `actualizado_en`, y `_taller_recuperar_sesion` tira la copia en memoria y
+    la rehidrata con OTRO objeto. La tarea veía «no es mi sesión» y se callaba:
+    el acervo llegó a la fila y la propuesta no arrancó nunca.
+    """
+    ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
+    if ses is None:
+        return
+    try:
+        if _te.huella_contraste(ses.get("resultado")) != huella:
+            return
+    except Exception:
+        return
+    ses.update(campos)
+
+
+async def _taller_preproponer(email: str, numero: str, r, material) -> None:
     """La propuesta de solución, sola, en cuanto la consulta automática deja
     el acervo. Es el mismo núcleo que corre el botón, sin contexto del
     secretario; se guarda entera en `estado.propuesta` (marca + respuesta) y
     /taller/proponer la sirve tal cual. Si este worker muere, el botón la
-    calcula como siempre."""
+    calcula como siempre.
+
+    Trabaja sobre una sesión PROPIA —el adelanto y el acervo que acaba de
+    calcular—, no sobre la copia en memoria del worker, que la pantalla puede
+    haber rehidratado mientras tanto. Lo que produce se copia a esa copia por
+    huella (`_taller_sesion_en_memoria`) y, sobre todo, va a la fila.
+    """
     huella = ""
     try:
         huella = _te.huella_contraste(r)
-        ses = _TALLER_SESIONES.get(_taller_llave(email, numero))
-        if ses is None or ses.get("resultado") is not r or ses.get("material") is None:
+        if material is None:
             return
         if not _taller_guardar_marca(email, numero, "propuesta", {
                 "huella": huella, "estado": "en_curso", "desde": time.time()}, huella):
             return
+        ses = {"resultado": r, "material": material, "consultado": True,
+               "tmp": "", "ts": time.time()}
         _t0 = time.perf_counter()
         resp = await _taller_proponer_nucleo(email, numero, ses, "")
         resp = json.loads(json.dumps(resp, ensure_ascii=False, default=str))
@@ -28928,6 +28955,9 @@ async def _taller_preproponer(email: str, numero: str, r) -> None:
         if _taller_guardar_marca(email, numero, "propuesta", {
                 "huella": huella, "estado": "listo", "segundos": round(_seg, 1),
                 "respuesta": resp}, huella):
+            _taller_sesion_en_memoria(email, numero, huella, material=material,
+                                      propuestas=ses.get("propuestas"),
+                                      **({"global": ses["global"]} if ses.get("global") is not None else {}))
             print(f"   ⚖️ PROPUESTA calculada sola para {numero}: "
                   f"{len(resp.get('propuestas') or [])} sentidos en {_seg:.0f} s, "
                   f"lista para el paso 3")

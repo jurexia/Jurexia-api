@@ -67,14 +67,16 @@ ok('_taller_leer_marca(user_email, numero, "propuesta")' in handler
    "sin contexto sirve la propuesta calculada sola; con contexto, calcula")
 i_pre = m.find("async def _taller_preconsultar(")
 i_pp = m.find("async def _taller_preproponer(")
-ok(0 < i_pre < m.find("await _taller_preproponer(email, numero, r)", i_pre) < i_pp,
+ok(0 < i_pre < m.find("await _taller_preproponer(email, numero, r, material)", i_pre) < i_pp,
    "la consulta sola encadena la propuesta sola")
 pp = m[i_pp:m.find("\n\n\ndef _taller_avance(")]
 ok('"estado": "en_curso"' in pp and '"respuesta": resp' in pp and '"estado": "fallo"' in pp
    and "await _taller_proponer_nucleo(email, numero, ses, \"\")" in pp,
    "la propuesta sola marca en curso, guarda la respuesta entera al terminar y marca el fallo")
-ok('ses.get("resultado") is not r or ses.get("material") is None' in pp,
-   "y no corre si la sesión ya no es la de este adelanto o no hay acervo")
+ok('ses = {"resultado": r, "material": material, "consultado": True,' in pp
+   and "_taller_sesion_en_memoria(email, numero, huella, material=material," in pp,
+   "trabaja sobre su propia sesión y copia el resultado a la memoria por huella, no por identidad")
+ok("await _taller_preproponer(email, numero, r, material)" in m, "y recibe el acervo recién consultado")
 i_ctx = m.find('@app.get("/taller/contexto-del-asunto")')
 ok(0 < i_ctx < m.find('"avance": _taller_avance(user_email, numero),', i_ctx) < m.find('@app.post("/taller/consultar")'),
    "/taller/contexto-del-asunto dice cómo va lo que corre solo")
