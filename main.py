@@ -12022,6 +12022,29 @@ async def _direct_article_lookup(
     citations: dict,
     estado: Optional[str] = None,
 ) -> List[SearchResult]:
+    """UN FALLO AQUÍ NO PUEDE COSTAR LA RESPUESTA (18-sep-2026).
+
+    Esto es enriquecimiento: trae los artículos que la consulta cita por su
+    número, además de lo que encuentra la búsqueda semántica. Hasta hoy una
+    excepción suya subía por el `await` y mataba el stream entero: el abogado
+    se quedaba sin respuesta y el documento se abría vacío. Pasó cinco veces
+    —mismo `UnboundLocalError`— antes de que se viera en los registros.
+
+    Un artículo que no se inyecta se nota y se pregunta otra vez; una consulta
+    caída no se recupera. Así que si esto falla, se sigue sin ello y queda
+    dicho en el registro.
+    """
+    try:
+        return await _buscar_articulos_citados(citations, estado)
+    except Exception as e:
+        print(f"   ⚠️ Búsqueda directa de artículos: {err(e)} — se responde sin ella")
+        return []
+
+
+async def _buscar_articulos_citados(
+    citations: dict,
+    estado: Optional[str] = None,
+) -> List[SearchResult]:
     """
     Deterministic lookup: query Qdrant by exact payload filters.
     Returns articles and tesis with score=1.0 (exact match = max confidence).
@@ -12256,7 +12279,15 @@ async def _direct_article_lookup(
                              for _, _, p in scored_points}
                     leyes.discard("")
                     if len(leyes) > 1:
-                        print(f"   ⚖️ {ref_val}: {len(leyes)} leyes distintas y el escrito no dice cuál — no se inyecta")
+                        # OJO CON EL NOMBRE. Aquí NO se puede usar `ref_val`:
+                        # es la variable del bucle de variantes de cadena, y
+                        # cuando el artículo se encontró por NÚMERO ese bucle no
+                        # llegó a correr —hay un `continue` antes—, así que en la
+                        # primera cita de la consulta la variable no existe.
+                        # Costó tres consultas caídas el 18-sep-2026:
+                        # UnboundLocalError dentro del stream, el abogado se
+                        # quedaba sin respuesta y el documento se abría vacío.
+                        print(f"   ⚖️ {ref_variants[0]}: {len(leyes)} leyes distintas y el escrito no dice cuál — no se inyecta")
                         ambiguos += 1
                         continue
 
