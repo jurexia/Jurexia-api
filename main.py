@@ -10999,18 +10999,38 @@ async def analyze_document(
             _web_tasks_doc = _p["_web_tasks_doc"]
 
             t_llm_start = _time.time()
-            response = await _crear_con_amortiguador(
-                deepseek_client,
-                etiqueta="analyze-document",
-                model=model_to_use,
-                messages=[
-                    {"role": "system", "content": system_documento},
-                    {"role": "user", "content": full_user_message}
-                ],
-                stream=True,
-                max_tokens=32768,
-                temperature=0.3,
-            )
+
+            async def _abrir(_modelo: str):
+                return await _crear_con_amortiguador(
+                    deepseek_client,
+                    etiqueta="analyze-document",
+                    model=_modelo,
+                    messages=[
+                        {"role": "system", "content": system_documento},
+                        {"role": "user", "content": full_user_message}
+                    ],
+                    stream=True,
+                    max_tokens=32768,
+                    temperature=0.3,
+                )
+
+            # EL MODELO CARO SE CAE Y EL ANÁLISIS NO (18-sep-2026). Platinum
+            # escribe con gemini-3.1-pro; cuando OpenRouter lo limita río
+            # arriba —«temporarily rate-limited upstream», visto hoy a las
+            # 05:36— el documento moría entero, y para el abogado eso es que
+            # su contestación de demanda no se analiza. Se repliega al modelo
+            # de siempre, que es el que usa todo el mundo, en vez de fallar.
+            # Sólo al ABRIR el flujo: una vez empezado a escribir, reabrir
+            # duplicaría el texto ya entregado.
+            try:
+                response = await _abrir(model_to_use)
+            except Exception as _e_abrir:
+                if model_to_use == DOCUMENT_MODEL:
+                    raise
+                print(f"   ⚠️ {model_to_use} no abrió ({type(_e_abrir).__name__}: "
+                      f"{str(_e_abrir)[:140]}) — se sigue con {DOCUMENT_MODEL}")
+                model_to_use = DOCUMENT_MODEL
+                response = await _abrir(model_to_use)
             first_token = True
             _hubo_texto = False
             _trozos: List[str] = []
