@@ -168,9 +168,26 @@ def huella_contraste(r) -> str:
     return hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
 
 
-# Más de esto sin noticia del contraste y se da por muerto el worker que lo
-# calculaba (un despliegue lo mata con SIGTERM y nadie escribe «fallo»).
-CONTRASTE_ABANDONADO_S = 240.0
+# LAS TAREAS SUELTAS LATEN. Mientras corren, rescriben su marca cada 45 s con
+# `latido`; sin latido en este tiempo, el worker que las corría ya no está —un
+# despliegue lo mata con SIGTERM y nadie escribe «fallo»— y se hace el trabajo
+# aquí. Medido en producción (18-sep-2026): la corrida arrancó en la instancia
+# vieja, murió con ella, y sin latido la pantalla esperó diez minutos.
+LATIDO_ABANDONADO_S = 150.0
+CONTRASTE_ABANDONADO_S = LATIDO_ABANDONADO_S
+CONSULTA_ABANDONADA_S = LATIDO_ABANDONADO_S
+
+
+def abandonada(doc: dict, ahora=time.time,
+               abandonado: float = LATIDO_ABANDONADO_S) -> bool:
+    """¿Una marca «en_curso» sin señales de vida?"""
+    if not isinstance(doc, dict) or doc.get("estado") != "en_curso":
+        return False
+    try:
+        ultimo = float(doc.get("latido") or doc.get("desde") or 0)
+    except (TypeError, ValueError):
+        ultimo = 0.0
+    return ahora() - ultimo > abandonado
 
 
 async def esperar_marca(huella: str, leer, que: str = "el contraste adelantado",
@@ -196,11 +213,7 @@ async def esperar_marca(huella: str, leer, que: str = "el contraste adelantado",
             return doc
         if estado != "en_curso":
             return None
-        try:
-            desde = float(doc.get("desde") or 0)
-        except (TypeError, ValueError):
-            desde = 0.0
-        if ahora() - desde > abandonado:
+        if abandonada(doc, ahora, abandonado):
             print(f"   ⏳ {que} no dio señales en {abandonado:.0f} s: se hace aquí")
             return None
         if ahora() - t0 >= tope:
@@ -223,11 +236,6 @@ async def esperar_contraste(huella: str, leer, tope: float = 150.0,
         return None
     items = doc.get("items")
     return list(items) if isinstance(items, list) else None
-
-
-# La consulta del acervo tarda 30-40 s; si no ha escrito nada en tres
-# minutos, el worker que la corría ya no está.
-CONSULTA_ABANDONADA_S = 180.0
 
 
 async def esperar_consulta(huella: str, leer, tope: float = 90.0,

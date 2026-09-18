@@ -28813,6 +28813,21 @@ def _taller_leer_marca(email: str, numero: str, clave: str):
         return None
 
 
+async def _taller_con_latido(email: str, numero: str, clave: str, huella: str,
+                             desde: float, coro):
+    """Corre una tarea suelta y, mientras dura, rescribe su marca cada 45 s con
+    `latido`. Quien espera sabe así si el worker sigue vivo (ver
+    `taller_estado.abandonada`)."""
+    tarea = asyncio.ensure_future(coro)
+    while True:
+        hechas, _ = await asyncio.wait({tarea}, timeout=45)
+        if hechas:
+            return tarea.result()
+        _taller_guardar_marca(email, numero, clave, {
+            "huella": huella, "estado": "en_curso", "desde": desde,
+            "latido": time.time()}, huella)
+
+
 async def _taller_preconsultar(email: str, numero: str, r) -> None:
     """La consulta del acervo, sola, en cuanto termina el adelanto.
 
@@ -28827,14 +28842,16 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
     try:
         import redactor_adelanto as _ra
         huella = _te.huella_contraste(r)
+        _desde = time.time()
         if not _taller_guardar_marca(email, numero, "consulta", {
-                "huella": huella, "estado": "en_curso", "desde": time.time()}, huella):
+                "huella": huella, "estado": "en_curso", "desde": _desde}, huella):
             return
         _t0 = time.perf_counter()
-        material = await _ra.consultar(
-            qdrant_client, _embedding_juris,
-            lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
-            chat_client, "")
+        material = await _taller_con_latido(email, numero, "consulta", huella, _desde,
+            _ra.consultar(
+                qdrant_client, _embedding_juris,
+                lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
+                chat_client, ""))
         _seg = time.perf_counter() - _t0
         if _taller_guardar_material(email, numero, material, huella=huella,
                                     marca={"huella": huella, "estado": "listo",
@@ -28887,11 +28904,13 @@ async def _taller_precontrastar(email: str, numero: str, r) -> None:
         if not problemas:
             return
         huella = _te.huella_contraste(r)
+        _desde = time.time()
         if not _taller_guardar_contraste(email, numero, {
-                "huella": huella, "estado": "en_curso", "desde": time.time()}):
+                "huella": huella, "estado": "en_curso", "desde": _desde}):
             return
         _t0 = time.perf_counter()
-        items = await _f5.contrastar(chat_client, problemas, acto, conceptos, es_recurso)
+        items = await _taller_con_latido(email, numero, "contraste", huella, _desde,
+            _f5.contrastar(chat_client, problemas, acto, conceptos, es_recurso))
         _seg = time.perf_counter() - _t0
         _taller_guardar_contraste(email, numero, {
             "huella": huella, "estado": "listo", "items": list(items or []),
@@ -28943,13 +28962,15 @@ async def _taller_preproponer(email: str, numero: str, r, material) -> None:
         huella = _te.huella_contraste(r)
         if material is None:
             return
+        _desde = time.time()
         if not _taller_guardar_marca(email, numero, "propuesta", {
-                "huella": huella, "estado": "en_curso", "desde": time.time()}, huella):
+                "huella": huella, "estado": "en_curso", "desde": _desde}, huella):
             return
         ses = {"resultado": r, "material": material, "consultado": True,
                "tmp": "", "ts": time.time()}
         _t0 = time.perf_counter()
-        resp = await _taller_proponer_nucleo(email, numero, ses, "")
+        resp = await _taller_con_latido(email, numero, "propuesta", huella, _desde,
+            _taller_proponer_nucleo(email, numero, ses, ""))
         resp = json.loads(json.dumps(resp, ensure_ascii=False, default=str))
         _seg = time.perf_counter() - _t0
         if _taller_guardar_marca(email, numero, "propuesta", {
@@ -28983,8 +29004,12 @@ def _taller_avance(email: str, numero: str) -> dict:
         for k in ("consulta", "contraste", "propuesta"):
             d = fila.get(k)
             if isinstance(d, dict):
-                out[k] = {"estado": str(d.get("estado") or ""),
-                          "segundos": d.get("segundos")}
+                # SIN LATIDO, ES UN FALLO: el worker murió (despliegue, reinicio)
+                # y la pantalla debe ofrecer el botón, no esperar.
+                _est = str(d.get("estado") or "")
+                if _te.abandonada(d):
+                    _est = "fallo"
+                out[k] = {"estado": _est, "segundos": d.get("segundos")}
         return out
     except Exception as ex:
         print(f"   ⚠️ no se pudo leer el avance de {numero}: {err(ex)}")
@@ -31334,7 +31359,8 @@ async def taller_proponer(
             _hu = _te.huella_contraste(ses["resultado"])
             _doc = await _te.esperar_marca(
                 _hu, lambda: _taller_leer_marca(user_email, numero, "propuesta"),
-                "la propuesta calculada sola", tope=240.0, abandonado=600.0)
+                "la propuesta calculada sola", tope=240.0,
+                abandonado=_te.LATIDO_ABANDONADO_S)
             if _doc and isinstance(_doc.get("respuesta"), dict):
                 _previa = _doc["respuesta"]
         except Exception as _exc_pp:

@@ -71,7 +71,7 @@ ok(0 < i_pre < m.find("await _taller_preproponer(email, numero, r, material)", i
    "la consulta sola encadena la propuesta sola")
 pp = m[i_pp:m.find("\n\n\ndef _taller_avance(")]
 ok('"estado": "en_curso"' in pp and '"respuesta": resp' in pp and '"estado": "fallo"' in pp
-   and "await _taller_proponer_nucleo(email, numero, ses, \"\")" in pp,
+   and '_taller_proponer_nucleo(email, numero, ses, "")' in pp,
    "la propuesta sola marca en curso, guarda la respuesta entera al terminar y marca el fallo")
 ok('ses = {"resultado": r, "material": material, "consultado": True,' in pp
    and "_taller_sesion_en_memoria(email, numero, huella, material=material," in pp,
@@ -82,6 +82,20 @@ ok(0 < i_ctx < m.find('"avance": _taller_avance(user_email, numero),', i_ctx) < 
    "/taller/contexto-del-asunto dice cómo va lo que corre solo")
 ok('.select("estado->consulta, estado->contraste, estado->propuesta")' in m,
    "y lo lee por sus ramas, no la fila entera")
+
+print("\n3 · LAS TAREAS SUELTAS LATEN")
+import taller_estado as te
+ok(m.count("await _taller_con_latido(email, numero, ") == 3,
+   "consulta, contraste y propuesta corren con latido")
+ok('"latido": time.time()}, huella)' in m, "el latido rescribe la marca cada 45 s")
+ok(te.abandonada({"estado": "en_curso", "desde": 1000.0, "latido": 1800.0}, ahora=lambda: 2000.0),
+   "sin latido en 150 s, la tarea está muerta")
+ok(not te.abandonada({"estado": "en_curso", "desde": 1000.0, "latido": 1950.0}, ahora=lambda: 2000.0),
+   "con latido reciente sigue viva aunque lleve mucho")
+ok(not te.abandonada({"estado": "listo"}, ahora=lambda: 2000.0), "una marca lista no se abandona")
+ok('if _te.abandonada(d):' in m and '_est = "fallo"' in m,
+   "el avance enseña «fallo» cuando la tarea murió, para que la pantalla ofrezca el botón")
+ok("abandonado=_te.LATIDO_ABANDONADO_S)" in m, "y el botón de proponer usa el mismo umbral")
 
 print()
 if FALLOS:
