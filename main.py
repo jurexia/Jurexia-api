@@ -175,6 +175,20 @@ CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich outpu
 # REVERSA SIN DESPLIEGUE: BUSCAR_MODEL=deepseek-v4-flash en Render.
 BUSCAR_MODEL = os.getenv("BUSCAR_MODEL", "gpt-5.4-nano")
 
+# ── EL CARRIL GRATUITO ────────────────────────────────────────────────────
+# Un buscador de precedentes, no un opinador: selecciona y resume las tesis
+# que se recuperaron, y nada más. Medido el 18-sep-2026 sobre cinco consultas
+# reales de usuarios, auditando cada número citado contra las fuentes: cero
+# citas inventadas con los tres modelos probados. Mistral Small fue el único
+# consistente en las cinco —los más baratos se contradicen entre párrafos— y
+# cuesta 0.00055 USD por búsqueda, un centavo de peso. Mil búsquedas, medio
+# dólar.
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+GRATIS_TOPE_DIARIO = int(os.getenv("GRATIS_TOPE_DIARIO", "5"))
+GRATIS_TESIS = int(os.getenv("GRATIS_TESIS", "5"))
+GRATIS_BLOQUE = int(os.getenv("GRATIS_BLOQUE", "3"))
+
 # ── Ayudantes internos del pipeline (estratega, ruteo, HyDE, conceptos, expansión) ──
 #
 # Todos usan gpt-5-mini con topes chicos (80-400 tokens). gpt-5-mini razona por
@@ -32814,6 +32828,192 @@ async def taller_olvidar(numero: str = Form(...), user_email: str = Form(...)):
     return {"ok": True, "borrado": borrado,
             "mensaje": ("Se borró todo lo de ese asunto: los documentos que "
                         "subiste, el proyecto y la sesión. No se puede deshacer.")}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CARRIL GRATUITO: BUSCADOR DE PRECEDENTES
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 18-sep-2026: «pasar únicamente por el silo de jurisprudencia v3 con un
+# modelo muy económico, para ofrecerlo gratis con política de uso justo».
+#
+# QUÉ ES Y QUÉ NO ES. Es un BUSCADOR: recupera las tesis pertinentes y las
+# resume. No opina, no razona, no redacta y no da estrategia. Esa disciplina no
+# es un adorno: es lo que permite que un modelo barato sea seguro. Se midió
+# antes de escribir esto —cinco consultas reales, tres modelos, cada artículo,
+# registro y clave de tesis cotejado contra las fuentes entregadas— y no hubo
+# una sola cita inventada. Lo que sí falla en los modelos más baratos es la
+# LECTURA: el 3B se contradice entre párrafos. Por eso corre con Small, que
+# cuesta medio dólar por cada mil búsquedas.
+#
+# Y CUANDO NO SABE, LO DICE. En la prueba, ante una consulta sobre rectificación
+# de acta de matrimonio cuyas tesis recuperadas eran todas de actas de
+# nacimiento, contestó «no se encontraron precedentes que aborden
+# específicamente». Esa respuesta es el producto, no un fallo: es lo que
+# distingue una vitrina honesta de un generador de citas.
+#
+# EL TIRÓN HACIA EL PLAN DE PAGO es explícito y no engaña: aquí están las
+# tesis; el artículo aplicable de tu estado, el escrito redactado con ellas y
+# el análisis viven del otro lado.
+_GRATIS_SISTEMA = """Eres el buscador de precedentes de Iurexia. Tu ÚNICA tarea es SELECCIONAR y RESUMIR las fuentes que se te entregan.
+
+REGLAS ABSOLUTAS:
+1. NO cites ningún artículo, tesis, registro o criterio que no esté en las FUENTES. Ni uno.
+2. Si las fuentes no responden a lo que se pregunta, dilo en una línea y termina. No estires una tesis parecida.
+3. NO redactes escritos, NO des estrategia procesal y NO opines sobre el caso: esto es búsqueda, no asesoría.
+4. Cita cada afirmación con el número de su fuente entre corchetes.
+5. Máximo cinco párrafos de seis renglones.
+6. Cierra con la lista de las fuentes que usaste, cada una con su registro."""
+
+
+class PrecedentesGratisRequest(BaseModel):
+    consulta: str = Field(..., min_length=8, max_length=1200)
+    user_email: str = Field(..., max_length=200)
+
+
+async def _gratis_fuentes(consulta: str) -> tuple:
+    """Las tesis pertinentes y el bloque de constitucionalidad, en paralelo.
+
+    Dos embebidos porque son dos modelos: la jurisprudencia v3 se vectorizó con
+    `text-embedding-3-large` (3072 dimensiones) y el bloque con el pequeño. Un
+    vector de 3072 en una colección de 1536 devuelve 400 y el silo desaparece
+    en silencio; ya pasó una vez.
+    """
+    _v_juris, _v_peq = await asyncio.gather(
+        get_dense_embedding(consulta, modelo=EMBEDDING_MODEL_JURIS),
+        get_dense_embedding(consulta, modelo=EMBEDDING_MODEL),
+    )
+
+    async def _tesis():
+        r = await qdrant_client.query_points(
+            collection_name="jurisprudencia_nacional_v3", query=_v_juris,
+            using="rubro", limit=GRATIS_TESIS, with_payload=True)
+        return r.points
+
+    async def _bloque():
+        if GRATIS_BLOQUE <= 0:
+            return []
+        r = await qdrant_client.query_points(
+            collection_name="bloque_constitucional", query=_v_peq,
+            using="dense", limit=GRATIS_BLOQUE, with_payload=True)
+        return r.points
+
+    _pt, _pb = await asyncio.gather(_tesis(), _bloque(), return_exceptions=True)
+    _pt = [] if isinstance(_pt, Exception) else _pt
+    _pb = [] if isinstance(_pb, Exception) else _pb
+
+    partes, fuentes = [], []
+    for i, pt in enumerate(_pt, 1):
+        pl = pt.payload or {}
+        _reg = str(pl.get("registro") or "")
+        partes.append(
+            f"[{i}] TESIS · registro {_reg} · {pl.get('clave_tesis') or ''} · "
+            f"{pl.get('instancia') or ''} · {pl.get('epoca') or ''}\n"
+            f"{(pl.get('rubro') or '')[:320]}\n{(pl.get('texto') or '')[:900]}")
+        fuentes.append({
+            "n": i, "tipo": "tesis", "registro": _reg,
+            "rubro": (pl.get("rubro") or "")[:300],
+            "clave": pl.get("clave_tesis") or "", "instancia": pl.get("instancia") or "",
+            "epoca": pl.get("epoca") or "", "materia": pl.get("materia") or "",
+            "pdf_url": pl.get("pdf_url") or None,
+        })
+    for j, pb in enumerate(_pb, len(partes) + 1):
+        pl = pb.payload or {}
+        partes.append(
+            f"[{j}] BLOQUE DE CONSTITUCIONALIDAD · {pl.get('ref') or ''}\n"
+            f"{(pl.get('texto_visible') or pl.get('texto') or '')[:900]}")
+        fuentes.append({
+            "n": j, "tipo": "bloque", "registro": "",
+            "rubro": (pl.get("ref") or pl.get("origen") or "")[:300],
+            "clave": "", "instancia": pl.get("origen") or "",
+            "epoca": "", "materia": pl.get("materia") or "",
+            "pdf_url": pl.get("pdf_url") or None,
+        })
+    return "\n\n".join(partes), fuentes
+
+
+@app.post("/precedentes/gratis")
+async def precedentes_gratis(payload: PrecedentesGratisRequest):
+    """Búsqueda de precedentes del carril gratuito, con uso justo diario."""
+    import time as _t
+    t0 = _t.time()
+    correo = (payload.user_email or "").strip().lower()
+    if not correo or "@" not in correo:
+        raise HTTPException(400, "Falta el correo de la cuenta.")
+    if not MISTRAL_API_KEY:
+        raise HTTPException(503, "El buscador gratuito no está disponible ahora mismo.")
+
+    # ── La puerta: cuenta existente y correo verificado ──
+    if supabase_admin:
+        try:
+            _perf = await asyncio.to_thread(
+                lambda: supabase_admin.table("user_profiles")
+                .select("id, email_verificado_at").eq("email", correo).limit(1).execute())
+            _fila = (_perf.data or [None])[0]
+        except Exception as _e:
+            print(f"   ⚠️ gratis: no se pudo leer el perfil: {err(_e)}")
+            _fila = None
+        if not _fila:
+            raise HTTPException(403, "Crea tu cuenta para usar el buscador de precedentes.")
+        if not _fila.get("email_verificado_at"):
+            raise HTTPException(403, "Verifica tu correo para usar el buscador de precedentes.")
+
+    # ── Uso justo: diario, aparte de la cuota de quien paga ──
+    usadas, tope = 0, GRATIS_TOPE_DIARIO
+    if supabase_admin:
+        try:
+            _r = await asyncio.to_thread(
+                lambda: supabase_admin.rpc("consumir_gratis", {
+                    "p_email": correo, "p_tope": GRATIS_TOPE_DIARIO}).execute())
+            _d = _r.data if isinstance(_r.data, dict) else {}
+            usadas, tope = int(_d.get("usadas") or 0), int(_d.get("tope") or GRATIS_TOPE_DIARIO)
+            if not _d.get("permitido"):
+                raise HTTPException(
+                    429, f"Llegaste a tus {tope} búsquedas gratuitas de hoy. "
+                         f"Mañana se reinician. Con un plan de Iurexia, además de "
+                         f"las tesis recibes el artículo aplicable de tu estado y "
+                         f"el escrito redactado con ellas.")
+        except HTTPException:
+            raise
+        except Exception as _e:
+            # Que falle el contador no puede costarle la búsqueda al abogado.
+            print(f"   ⚠️ gratis: no se pudo contar el uso: {err(_e)}")
+
+    contexto, fuentes = await _gratis_fuentes(payload.consulta.strip())
+    if not fuentes:
+        return {"texto": "No pude consultar el acervo en este momento. Inténtalo de nuevo.",
+                "fuentes": [], "usadas": usadas, "tope": tope}
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as _cli:
+            _r = await _cli.post(
+                "https://api.mistral.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {MISTRAL_API_KEY}"},
+                json={"model": MISTRAL_MODEL, "max_tokens": 700, "temperature": 0.2,
+                      "messages": [
+                          {"role": "system", "content": _GRATIS_SISTEMA},
+                          {"role": "user",
+                           "content": f"FUENTES:\n{contexto}\n\nCONSULTA: {payload.consulta.strip()}"}]})
+            _r.raise_for_status()
+            _j = _r.json()
+    except Exception as _e:
+        print(f"   ❌ gratis: {type(_e).__name__}: {str(_e)[:200]}")
+        raise HTTPException(503, "El buscador no pudo responder. Inténtalo de nuevo en un momento.")
+
+    _uso = _j.get("usage") or {}
+    _cin, _cout = _uso.get("prompt_tokens", 0), _uso.get("completion_tokens", 0)
+    # Precio público de Mistral Small, USD por millón (entrada, salida).
+    _costo = _cin * 0.20 / 1e6 + _cout * 0.60 / 1e6
+    print(f"   🔎 GRATIS: {len(fuentes)} fuentes · {_cin}+{_cout} tok · "
+          f"{_costo:.6f} USD · {_t.time() - t0:.1f}s · {usadas}/{tope} · {correo[:3]}***")
+
+    return {
+        "texto": (_j.get("choices") or [{}])[0].get("message", {}).get("content", ""),
+        "fuentes": fuentes,
+        "usadas": usadas,
+        "tope": tope,
+        "aviso": ("Esto es una búsqueda de precedentes, no una asesoría. "
+                  "Coteja cada tesis antes de usarla."),
+    }
 
 
 @app.get("/taller/estado")
