@@ -10461,6 +10461,12 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
     return salida
 
 
+# Las preparaciones en marcha, con referencia fuerte: asyncio sólo guarda
+# referencias débiles a sus tareas y una de tres minutos puede ser recogida a
+# medias si nadie la sujeta.
+_PREPARANDO: set = set()
+
+
 @app.post("/analyze-document")
 async def analyze_document(
     file: UploadFile = File(...),
@@ -10705,210 +10711,293 @@ async def analyze_document(
             print(f"   ⚠️ No se pudo devolver la consulta: {_e_dev}")
         return False
 
-    # ── Step 1: Extract text from document ──
-    extracted_text = ""
-    is_scanned_pdf = False
-
-    try:
-        if extension == "pdf":
-            # Try text extraction first with PyMuPDF (fast, no API cost)
-            try:
-                import fitz  # PyMuPDF
-                pdf_doc = fitz.open(stream=content, filetype="pdf")
-                pages_text = []
-                for page in pdf_doc:
-                    page_text = page.get_text()
-                    pages_text.append(page_text)
-                pdf_doc.close()
-                extracted_text = "\n\n".join(pages_text)
-
-                # Check if PDF is scanned (very little text extracted)
-                total_pages = len(pages_text)
-                text_per_page = len(extracted_text.strip()) / max(total_pages, 1)
-                if text_per_page < 50:  # Less than 50 chars per page = likely scanned
-                    is_scanned_pdf = True
-                    print(f"   📸 PDF escaneado detectado ({total_pages} páginas, {text_per_page:.0f} chars/pág)")
-                else:
-                    t_extract = _time.time()
-                    print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars) — {t_extract - t_read:.2f}s")
-            except ImportError:
-                # PyMuPDF not available, treat as scanned
-                is_scanned_pdf = True
-                print(f"   ⚠️ PyMuPDF no disponible, usando OCR path")
-
-            # If scanned, use Gemini OCR via the existing google-genai client
-            if is_scanned_pdf:
-                try:
-                    import tempfile, os as _os
-                    t_ocr_start = _time.time()
-                    gemini_client = get_gemini_client()
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                        tmp.write(content)
-                        tmp_path = tmp.name
-                    try:
-                        uploaded_file = gemini_client.files.upload(file=tmp_path)
-                        t_upload = _time.time()
-                        print(f"   📤 PDF uploaded to Gemini Files API: {t_upload - t_ocr_start:.2f}s")
-                        # Use gemini-2.5-flash for OCR — fastest modern model with excellent vision
-                        ocr_response = gemini_client.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=[uploaded_file, "Extrae absolutamente TODO el texto de este documento PDF con la máxima precisión. Preserva párrafos, estructura y saltos de línea. No omitas nada."]
-                        )
-                        extracted_text = ocr_response.text
-                        t_ocr_done = _time.time()
-                        try:
-                            gemini_client.files.delete(name=uploaded_file.name)
-                        except:
-                            pass
-                        print(f"   🔍 OCR completado: {len(extracted_text):,} chars — upload: {t_upload - t_ocr_start:.2f}s, OCR: {t_ocr_done - t_upload:.2f}s, total: {t_ocr_done - t_ocr_start:.2f}s")
-                    finally:
-                        if _os.path.exists(tmp_path):
-                            _os.remove(tmp_path)
-                except Exception as ocr_err:
-                    raise HTTPException(status_code=500, detail=f"Error OCR en PDF escaneado: {str(ocr_err)}")
-
-        elif extension == "docx":
-            from docx import Document as DocxDocument
-            doc = DocxDocument(io.BytesIO(content))
-            extracted_text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
-            print(f"   📝 DOCX procesado: {len(extracted_text):,} chars")
-
-        elif extension == "doc":
-            import olefile
-            try:
-                ole = olefile.OleFileIO(io.BytesIO(content))
-                text_parts = []
-                for stream_name in ["1Table", "0Table", "WordDocument"]:
-                    if ole.exists(stream_name):
-                        try:
-                            stream_data = ole.openstream(stream_name).read()
-                            decoded = stream_data.decode('latin-1', errors='ignore')
-                            readable = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded)
-                            readable = re.sub(r'\s+', ' ', readable).strip()
-                            if len(readable) > 100:
-                                text_parts.append(readable)
-                        except:
-                            continue
-                ole.close()
-                extracted_text = "\n\n".join(text_parts) if text_parts else ""
-                print(f"   📝 DOC procesado: {len(extracted_text):,} chars")
-            except Exception as doc_err:
-                raise HTTPException(status_code=400, detail=f"Error al procesar .doc: {str(doc_err)}")
-
-        if not extracted_text or len(extracted_text.strip()) < 20:
-            raise HTTPException(status_code=400, detail="No se pudo extraer texto del documento. El archivo puede estar vacío, corrupto o ser una imagen sin texto reconocible.")
-
-    except HTTPException:
-        raise
-    except Exception as extract_err:
-        raise HTTPException(status_code=500, detail=f"Error al extraer texto: {str(extract_err)}")
-
-    # ── Step 2: Truncate if beyond model capacity ──
-    original_len = len(extracted_text)
-    if original_len > effective_max_chars:
-        extracted_text = extracted_text[:effective_max_chars]
-        truncation_pct = round(effective_max_chars / original_len * 100)
-        print(f"   ✂️ Documento truncado a {effective_max_chars:,} chars ({truncation_pct}% del original)")
-        
-        if is_platinum_or_admin:
-            truncation_note = f"\n\n[NOTA: Documento extremadamente extenso. Analizando el límite premium de {effective_max_chars:,} de {original_len:,} caracteres ({truncation_pct}% del contenido)]"
-        elif is_pro:
-            truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando el límite Pro de {effective_max_chars:,} de {original_len:,} caracteres ({truncation_pct}% del contenido). Los usuarios del plan Platinum pueden analizar documentos completos de hasta 1,000,000 de caracteres (más de 60 hojas).]"
-        else:
-            truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando {truncation_pct}% del contenido ({effective_max_chars:,} de {original_len:,} caracteres). Los usuarios del plan Pro pueden analizar hasta 500,000 caracteres, y los de plan Platinum hasta 1,000,000 de caracteres (más de 60 hojas).]"
-    else:
-        truncation_note = ""
-
-    # ── Step 2.5: El acervo entra al análisis (14-sep-2026) ─────────────────
-    # Hasta hoy esta ruta recibía el documento y nada más: 1.441 respuestas en
-    # 25 días, 11 con [Doc ID]. El modelo citaba artículos y tesis de memoria,
-    # con números exactos y falsos —los diez artículos «de Puebla» que eran
-    # federales, el «no está tipificado» del 200 bis de BCS que sí estaba—.
-    # Ahora se busca en el acervo con la instrucción del abogado y el arranque
-    # del documento, filtrado por su entidad, como hace el chat; el prompt
-    # cambia de «no tienes acervo» a «cita sólo del acervo», y la respuesta
-    # sale con el mismo sello que una del chat.
+    # ═══════════════════════════════════════════════════════════════════
+    # TODO EL TRABAJO PESADO, DENTRO DEL FLUJO (18-sep-2026)
+    # ═══════════════════════════════════════════════════════════════════
+    # Leer el PDF, reconocer su texto y consultar el acervo ocurría AQUÍ,
+    # antes de abrir la respuesta: hasta que terminaba no salía un solo byte
+    # hacia el navegador. Con una contestación de demanda escaneada de 50
+    # páginas eso eran tres minutos de silencio, y la pantalla —que corta a
+    # los 120 segundos— daba «el análisis tardó demasiado» sobre un análisis
+    # que el servidor sí completaba. Cuatro veces el mismo día, a la misma
+    # abogada, con las cuatro consultas cobradas.
     #
-    # FAIL-CLOSED: si el acervo no responde o no devuelve nada se sigue con
-    # las reglas de siempre —sin números que no estén en el documento—. Un
-    # acervo caído no puede convertirse en una invitación a inventar.
-    search_results: List[SearchResult] = []
-    doc_id_map: Dict[str, SearchResult] = {}
-    context_xml = ""
-    _acervo_pedido = str(usar_acervo).strip().lower() not in ("0", "false", "no")
-    _entidad_acervo = normalize_estado(estado) if estado else None
-    if _acervo_pedido:
+    # Ahora vive en `_preparar()`, que corre como tarea mientras el flujo va
+    # contando por dónde va («Leyendo el documento», «Reconociendo el texto
+    # de 50 páginas»…) y late cada pocos segundos. La pantalla recibe algo
+    # desde el primer segundo y ya no tiene que adivinar si sigue viva.
+    #
+    # Las validaciones que devuelven un código HTTP —plan, tope de páginas,
+    # cuota— se quedan ARRIBA a propósito: una vez abierta la respuesta ya no
+    # hay forma de devolver un 413, y un error dentro del flujo se cuenta,
+    # no se codifica.
+    _avisos: asyncio.Queue = asyncio.Queue()
+
+    def _paso(texto: str) -> None:
+        """Una línea de avance para la pantalla. Nunca tumba la preparación."""
         try:
-            _t_acervo = _time.time()
-            search_results = await asyncio.wait_for(
-                hybrid_search_all_silos(
-                    query=consulta_para_acervo(prompt, extracted_text, filename),
-                    estado=estado or None,
-                    top_k=30,
-                ),
-                timeout=25.0,
-            ) or []
-            if search_results:
-                doc_id_map = build_doc_id_map(search_results)
-                context_xml = format_results_as_xml(search_results, estado=_entidad_acervo)
-            print(f"   📚 Documento + acervo: {len(search_results)} fuentes "
-                  f"(entidad={_entidad_acervo or '—'}) en {_time.time() - _t_acervo:.1f}s")
-        except asyncio.TimeoutError:
-            print("   📚 Documento + acervo: el acervo no respondió a tiempo → análisis sin acervo")
-            search_results, doc_id_map, context_xml = [], {}, ""
-        except Exception as _acv:
-            print(f"   📚 Documento + acervo: fallo al buscar "
-                  f"({type(_acv).__name__}: {str(_acv)[:160]}) → análisis sin acervo")
-            search_results, doc_id_map, context_xml = [], {}, ""
-    else:
-        print("   📚 Documento sin acervo por petición del llamador (usar_acervo=0)")
-    _con_acervo = bool(search_results)
-    system_documento = prompt_documento(con_acervo=_con_acervo)
-    if _con_acervo:
-        system_documento += "\n\nCONTEXTO JURÍDICO RECUPERADO:\n" + context_xml
-    _marcador_previas = _marcador_fuentes_previas(search_results) if _con_acervo else ""
+            _avisos.put_nowait(str(texto))
+        except Exception:
+            pass
 
-    # ── Step 3: Send to Gemini 3 Flash via OpenRouter (streaming) ──
-    full_user_message = f"""DOCUMENTO ADJUNTO: "{filename}" ({original_len:,} caracteres){truncation_note}
+    async def _preparar() -> dict:
+        # ── Step 1: Extract text from document ──
+        _paso("Leyendo el documento…")
+        extracted_text = ""
+        is_scanned_pdf = False
+        total_pages = paginas_doc or 0
 
-CONSULTA DEL USUARIO:
-{prompt}
-
-CONTENIDO DEL DOCUMENTO:
-{extracted_text}"""
-
-    t_pre_llm = _time.time()
-    model_to_use = "google/gemini-3.1-pro-preview" if is_platinum_or_admin else DOCUMENT_MODEL
-    print(f"   🚀 Enviando a {model_to_use} vía OpenRouter ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
-
-    # ── Fuentes de internet con documento adjunto ─────────────────────────
-    # Este camino IGNORABA el globo: el frontend retornaba antes de anteponer
-    # el marcador y aquí nadie lo leía — el abogado encendía «Agregar fuentes
-    # de internet», adjuntaba su escrito, y la promesa se perdía en silencio.
-    # Los agentes corren en paralelo con el análisis (el LLM tarda más que
-    # ellos) y sus fuentes se anexan al final, antes del evento done.
-    _web_tasks_doc = []
-    # Mismo freno que en /chat: la capa web sólo corre desde Pro. `sub_type` ya
-    # viene leído arriba para el límite de caracteres, así que no cuesta otra
-    # consulta a Supabase.
-    _web_permitida_doc = (
-        sub_type in ('pro_monthly', 'pro_annual', 'platinum_monthly',
-                     'platinum_annual', 'ultra_secretarios')
-        or (user_email and user_email in ADMIN_EMAILS)
-    )
-    if str(fuentes_web).strip().lower() in ("1", "true", "si", "sí") and not _web_permitida_doc:
-        print("   ⛔ Documento + web sin plan Pro → se ignora la búsqueda web")
-    elif str(fuentes_web).strip().lower() in ("1", "true", "si", "sí"):
         try:
-            from busqueda_web import lanzar_agentes as _lanzar_web
-            _consulta_doc = f"{prompt} — documento: {filename}. {extracted_text[:250]}"
-            _web_tasks_doc = _lanzar_web(_consulta_doc[:400], estado or None)
-            print(f"   🌐 Documento + web: {len(_web_tasks_doc)} agentes lanzados")
-        except Exception as _wdoc:
-            print(f"   🌐 No pude lanzar la web para el documento: {_wdoc}")
+            if extension == "pdf":
+                # Try text extraction first with PyMuPDF (fast, no API cost)
+                try:
+                    import fitz  # PyMuPDF
+                    pdf_doc = fitz.open(stream=content, filetype="pdf")
+                    pages_text = []
+                    for page in pdf_doc:
+                        page_text = page.get_text()
+                        pages_text.append(page_text)
+                    pdf_doc.close()
+                    extracted_text = "\n\n".join(pages_text)
+
+                    # Check if PDF is scanned (very little text extracted)
+                    total_pages = len(pages_text)
+                    text_per_page = len(extracted_text.strip()) / max(total_pages, 1)
+                    if text_per_page < 50:  # Less than 50 chars per page = likely scanned
+                        is_scanned_pdf = True
+                        print(f"   📸 PDF escaneado detectado ({total_pages} páginas, {text_per_page:.0f} chars/pág)")
+                    else:
+                        t_extract = _time.time()
+                        print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars) — {t_extract - t_read:.2f}s")
+                    _paso(f"Documento leído: {total_pages} páginas con texto.")
+                except ImportError:
+                    # PyMuPDF not available, treat as scanned
+                    is_scanned_pdf = True
+                    print(f"   ⚠️ PyMuPDF no disponible, usando OCR path")
+
+                # If scanned, use Gemini OCR via the existing google-genai client
+                if is_scanned_pdf:
+                    # ═══════════════════════════════════════════════════════════
+                    # EL OCR BUENO, EL MISMO DEL TALLER (18-sep-2026)
+                    # ═══════════════════════════════════════════════════════════
+                    # Aquí vivía un camino propio: subir el PDF a la Files API de
+                    # Gemini y pedirle el texto a gemini-2.5-flash. Medido sobre
+                    # los cuatro intentos de una abogada con una contestación de
+                    # demanda escaneada de 50 páginas (18-sep, 04:06 a 04:25 UTC):
+                    # 169, 170, 197 y 170 segundos de OCR. El navegador corta a los
+                    # 120, así que su documento NO PODÍA salir ninguna de las
+                    # cuatro veces, y el servidor terminó el trabajo entero para
+                    # nadie. Azure lee 20 páginas en 6 segundos y 26 en 7.
+                    #
+                    # Y las dos llamadas eran SÍNCRONAS dentro de una ruta async:
+                    # congelaban uno de los dos trabajadores del proceso durante
+                    # esos tres minutos, con las peticiones de los demás haciendo
+                    # cola detrás. `_extract_text_from_upload` ya resuelve las dos
+                    # cosas —texto nativo, Azure, y Gemini por tramos de repliegue,
+                    # todo sin bloquear— y es lo que usa el taller de sentencias.
+                    _paso(f"Reconociendo el texto de {total_pages} páginas escaneadas…"
+                          if total_pages else "Reconociendo el texto del documento…")
+                    t_ocr_start = _time.time()
+                    try:
+                        extracted_text = await _extract_text_from_upload(
+                            _SubidaDeBytes(content, filename))
+                    except Exception as ocr_err:
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Error OCR en PDF escaneado: {str(ocr_err)}")
+                    print(f"   🔍 OCR completado: {len(extracted_text or ''):,} chars "
+                          f"en {_time.time() - t_ocr_start:.1f}s ({total_pages} pág)")
+
+            elif extension == "docx":
+                from docx import Document as DocxDocument
+                doc = DocxDocument(io.BytesIO(content))
+                extracted_text = "\n\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+                print(f"   📝 DOCX procesado: {len(extracted_text):,} chars")
+
+            elif extension == "doc":
+                import olefile
+                try:
+                    ole = olefile.OleFileIO(io.BytesIO(content))
+                    text_parts = []
+                    for stream_name in ["1Table", "0Table", "WordDocument"]:
+                        if ole.exists(stream_name):
+                            try:
+                                stream_data = ole.openstream(stream_name).read()
+                                decoded = stream_data.decode('latin-1', errors='ignore')
+                                readable = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded)
+                                readable = re.sub(r'\s+', ' ', readable).strip()
+                                if len(readable) > 100:
+                                    text_parts.append(readable)
+                            except:
+                                continue
+                    ole.close()
+                    extracted_text = "\n\n".join(text_parts) if text_parts else ""
+                    print(f"   📝 DOC procesado: {len(extracted_text):,} chars")
+                except Exception as doc_err:
+                    raise HTTPException(status_code=400, detail=f"Error al procesar .doc: {str(doc_err)}")
+
+            if not extracted_text or len(extracted_text.strip()) < 20:
+                raise HTTPException(status_code=400, detail="No se pudo extraer texto del documento. El archivo puede estar vacío, corrupto o ser una imagen sin texto reconocible.")
+
+        except HTTPException:
+            raise
+        except Exception as extract_err:
+            raise HTTPException(status_code=500, detail=f"Error al extraer texto: {str(extract_err)}")
+
+        # ── Step 2: Truncate if beyond model capacity ──
+        original_len = len(extracted_text)
+        if original_len > effective_max_chars:
+            extracted_text = extracted_text[:effective_max_chars]
+            truncation_pct = round(effective_max_chars / original_len * 100)
+            print(f"   ✂️ Documento truncado a {effective_max_chars:,} chars ({truncation_pct}% del original)")
+        
+            if is_platinum_or_admin:
+                truncation_note = f"\n\n[NOTA: Documento extremadamente extenso. Analizando el límite premium de {effective_max_chars:,} de {original_len:,} caracteres ({truncation_pct}% del contenido)]"
+            elif is_pro:
+                truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando el límite Pro de {effective_max_chars:,} de {original_len:,} caracteres ({truncation_pct}% del contenido). Los usuarios del plan Platinum pueden analizar documentos completos de hasta 1,000,000 de caracteres (más de 60 hojas).]"
+            else:
+                truncation_note = f"\n\n[NOTA: Documento muy extenso. Analizando {truncation_pct}% del contenido ({effective_max_chars:,} de {original_len:,} caracteres). Los usuarios del plan Pro pueden analizar hasta 500,000 caracteres, y los de plan Platinum hasta 1,000,000 de caracteres (más de 60 hojas).]"
+        else:
+            truncation_note = ""
+
+        # ── Step 2.5: El acervo entra al análisis (14-sep-2026) ─────────────────
+        # Hasta hoy esta ruta recibía el documento y nada más: 1.441 respuestas en
+        # 25 días, 11 con [Doc ID]. El modelo citaba artículos y tesis de memoria,
+        # con números exactos y falsos —los diez artículos «de Puebla» que eran
+        # federales, el «no está tipificado» del 200 bis de BCS que sí estaba—.
+        # Ahora se busca en el acervo con la instrucción del abogado y el arranque
+        # del documento, filtrado por su entidad, como hace el chat; el prompt
+        # cambia de «no tienes acervo» a «cita sólo del acervo», y la respuesta
+        # sale con el mismo sello que una del chat.
+        #
+        # FAIL-CLOSED: si el acervo no responde o no devuelve nada se sigue con
+        # las reglas de siempre —sin números que no estén en el documento—. Un
+        # acervo caído no puede convertirse en una invitación a inventar.
+        search_results: List[SearchResult] = []
+        doc_id_map: Dict[str, SearchResult] = {}
+        context_xml = ""
+        _acervo_pedido = str(usar_acervo).strip().lower() not in ("0", "false", "no")
+        _entidad_acervo = normalize_estado(estado) if estado else None
+        if _acervo_pedido:
+            _paso("Buscando en el acervo las leyes y tesis aplicables…")
+            try:
+                _t_acervo = _time.time()
+                search_results = await asyncio.wait_for(
+                    hybrid_search_all_silos(
+                        query=consulta_para_acervo(prompt, extracted_text, filename),
+                        estado=estado or None,
+                        top_k=30,
+                    ),
+                    timeout=25.0,
+                ) or []
+                if search_results:
+                    doc_id_map = build_doc_id_map(search_results)
+                    context_xml = format_results_as_xml(search_results, estado=_entidad_acervo)
+                print(f"   📚 Documento + acervo: {len(search_results)} fuentes "
+                      f"(entidad={_entidad_acervo or '—'}) en {_time.time() - _t_acervo:.1f}s")
+            except asyncio.TimeoutError:
+                print("   📚 Documento + acervo: el acervo no respondió a tiempo → análisis sin acervo")
+                search_results, doc_id_map, context_xml = [], {}, ""
+            except Exception as _acv:
+                print(f"   📚 Documento + acervo: fallo al buscar "
+                      f"({type(_acv).__name__}: {str(_acv)[:160]}) → análisis sin acervo")
+                search_results, doc_id_map, context_xml = [], {}, ""
+        else:
+            print("   📚 Documento sin acervo por petición del llamador (usar_acervo=0)")
+        _con_acervo = bool(search_results)
+        system_documento = prompt_documento(con_acervo=_con_acervo)
+        if _con_acervo:
+            system_documento += "\n\nCONTEXTO JURÍDICO RECUPERADO:\n" + context_xml
+        _marcador_previas = _marcador_fuentes_previas(search_results) if _con_acervo else ""
+
+        # ── Step 3: Send to Gemini 3 Flash via OpenRouter (streaming) ──
+        full_user_message = f"""DOCUMENTO ADJUNTO: "{filename}" ({original_len:,} caracteres){truncation_note}
+
+    CONSULTA DEL USUARIO:
+    {prompt}
+
+    CONTENIDO DEL DOCUMENTO:
+    {extracted_text}"""
+
+        _paso("Redactando el análisis…")
+        t_pre_llm = _time.time()
+        model_to_use = "google/gemini-3.1-pro-preview" if is_platinum_or_admin else DOCUMENT_MODEL
+        print(f"   🚀 Enviando a {model_to_use} vía OpenRouter ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
+
+        # ── Fuentes de internet con documento adjunto ─────────────────────────
+        # Este camino IGNORABA el globo: el frontend retornaba antes de anteponer
+        # el marcador y aquí nadie lo leía — el abogado encendía «Agregar fuentes
+        # de internet», adjuntaba su escrito, y la promesa se perdía en silencio.
+        # Los agentes corren en paralelo con el análisis (el LLM tarda más que
+        # ellos) y sus fuentes se anexan al final, antes del evento done.
+        _web_tasks_doc = []
+        # Mismo freno que en /chat: la capa web sólo corre desde Pro. `sub_type` ya
+        # viene leído arriba para el límite de caracteres, así que no cuesta otra
+        # consulta a Supabase.
+        _web_permitida_doc = (
+            sub_type in ('pro_monthly', 'pro_annual', 'platinum_monthly',
+                         'platinum_annual', 'ultra_secretarios')
+            or (user_email and user_email in ADMIN_EMAILS)
+        )
+        if str(fuentes_web).strip().lower() in ("1", "true", "si", "sí") and not _web_permitida_doc:
+            print("   ⛔ Documento + web sin plan Pro → se ignora la búsqueda web")
+        elif str(fuentes_web).strip().lower() in ("1", "true", "si", "sí"):
+            try:
+                from busqueda_web import lanzar_agentes as _lanzar_web
+                _consulta_doc = f"{prompt} — documento: {filename}. {extracted_text[:250]}"
+                _web_tasks_doc = _lanzar_web(_consulta_doc[:400], estado or None)
+                print(f"   🌐 Documento + web: {len(_web_tasks_doc)} agentes lanzados")
+            except Exception as _wdoc:
+                print(f"   🌐 No pude lanzar la web para el documento: {_wdoc}")
+
+        return {
+            "original_len": original_len,
+            "search_results": search_results,
+            "doc_id_map": doc_id_map,
+            "system_documento": system_documento,
+            "full_user_message": full_user_message,
+            "model_to_use": model_to_use,
+            "_marcador_previas": _marcador_previas,
+            "_web_tasks_doc": _web_tasks_doc,
+        }
 
     async def stream_analysis():
         try:
+            # LA PREPARACIÓN, CONTADA. Corre aparte y el flujo la mira: cada
+            # aviso sale como `progreso` y, cuando no hay ninguno, un latido
+            # cada cinco segundos. Así la pantalla recibe algo desde el primer
+            # segundo aunque el reconocimiento del texto tarde minutos, y deja
+            # de tener que adivinar si la línea sigue viva.
+            _tarea_prep = asyncio.create_task(_preparar())
+            _PREPARANDO.add(_tarea_prep)
+            _tarea_prep.add_done_callback(_PREPARANDO.discard)
+            while not _tarea_prep.done():
+                try:
+                    _aviso = await asyncio.wait_for(_avisos.get(), timeout=5)
+                    yield f"data: {json.dumps({'progreso': _aviso})}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": latido\n\n"
+            while not _avisos.empty():
+                yield f"data: {json.dumps({'progreso': _avisos.get_nowait()})}\n\n"
+            try:
+                _p = await _tarea_prep
+            except HTTPException as _hp:
+                # Con la respuesta ya abierta no hay forma de devolver un 400:
+                # el motivo se cuenta por el flujo, que es donde la pantalla
+                # sabe leerlo.
+                print(f"   ❌ Preparación del documento: {_hp.detail}")
+                await asyncio.to_thread(_devolver_si_no_hubo_nada, False)
+                yield f"data: {json.dumps({'error': str(_hp.detail)})}\n\n"
+                return
+            original_len = _p["original_len"]
+            search_results = _p["search_results"]
+            doc_id_map = _p["doc_id_map"]
+            system_documento = _p["system_documento"]
+            full_user_message = _p["full_user_message"]
+            model_to_use = _p["model_to_use"]
+            _marcador_previas = _p["_marcador_previas"]
+            _web_tasks_doc = _p["_web_tasks_doc"]
+
             t_llm_start = _time.time()
             response = await _crear_con_amortiguador(
                 deepseek_client,
