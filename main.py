@@ -10387,8 +10387,19 @@ async def _crear_con_amortiguador(cliente, *, etiqueta: str, **kwargs):
 def _marcador_fuentes_previas(results: List["SearchResult"]) -> str:
     """El mapa de fuentes que el frontend pinta mientras llega el texto.
 
-    Mismo formato que emite /chat, recortado a 4.000 caracteres por fuente
-    por la misma razón que allí: el mensaje guardado vuelve como historial.
+    UN ADELANTO, NO EL ACERVO ENTERO (18-sep-2026). Iba con 4.000 caracteres
+    por fuente y eso lo convirtió en un tapón: en la respuesta de una abogada
+    con veinte fuentes el marcador pesó 81.672 caracteres y salió pegado al
+    primer token, o sea A MEDIA FRASE. Como el flujo es una sola línea
+    ordenada, el resto del texto quedó haciendo cola detrás de esos 80 KB, y
+    la pantalla se quedó enseñando «…con base en tu instrucción, he realizado»
+    hasta que el bloque terminaba de viajar. Ella lo leyó como lo que parecía:
+    que Iurexia no le daba la respuesta completa.
+
+    Con 350 caracteres alcanza para lo que este marcador existe: que al pulsar
+    una cita mientras se escribe se vea de qué fuente se trata. El texto
+    íntegro llega igual al final, en `CITATION_META`, y la pantalla prefiere
+    ése —fusiona con las previas y las pisa—, así que no se pierde nada.
     """
     _previas = {}
     for _d in results:
@@ -10396,7 +10407,7 @@ def _marcador_fuentes_previas(results: List["SearchResult"]) -> str:
             _previas[str(_d.id)] = {
                 "origen": humanize_origen(_d.origen) or "Fuente legal",
                 "ref": _d.ref or "",
-                "texto": (_d.texto or "")[:4000],
+                "texto": (_d.texto or "")[:350],
                 "pdf_url": resolver_pdf(_d.pdf_url, _d.origen, _d.silo) or None,
                 "silo": _d.silo,
                 "entidad": getattr(_d, "entidad", None) or None,
@@ -11055,14 +11066,27 @@ async def analyze_document(
                         t_first_token = _time.time()
                         print(f"   ⚡ TTFT (time-to-first-token): {t_first_token - t_llm_start:.2f}s (total elapsed: {t_first_token - t0:.2f}s)")
                     yield f"data: {json.dumps({'token': token})}\n\n"
-                    if _previas_pendiente:
+                    if _previas_pendiente and "\n" in token:
                         # El mapa de fuentes viaja DESPUÉS del primer token y no
                         # antes: el frontend apaga el indicador «analizando» con
                         # el primer dato que llega, y un comentario HTML solo
                         # pintaría una burbuja vacía. El marcador es invisible y
                         # ChatMessage lo lee esté donde esté.
+                        #
+                        # PERO ESPERA AL FIN DE UN PÁRRAFO (18-sep-2026). Salía
+                        # pegado al PRIMER token, o sea a media oración, y la
+                        # pantalla —que sólo enseña hasta el último salto de
+                        # línea— se quedaba en «…con base en tu instrucción, he
+                        # realizado» mientras el bloque viajaba. Una abogada lo
+                        # leyó como que Iurexia no le daba la respuesta
+                        # completa. Entre párrafos no parte ninguna frase.
                         yield f"data: {json.dumps({'token': _previas_pendiente})}\n\n"
                         _previas_pendiente = ""
+            if _previas_pendiente:
+                # Una respuesta de un solo párrafo no trae saltos: el mapa se
+                # suelta al cerrar, que es mejor que perderlo.
+                yield f"data: {json.dumps({'token': _previas_pendiente})}\n\n"
+                _previas_pendiente = ""
             print(f"   🏁 Documento: fin del stream · finish_reason={_motivo_fin} · nativo={_motivo_nativo} · {len(_trozos)} trozos · {sum(len(t) for t in _trozos):,} chars")
             # ── Si el motor paró por recitación, se continúa con Flash ──────
             # Gemini Pro corta a media frase cuando transcribe un artículo
@@ -14866,7 +14890,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             _previas[str(_d.id)] = {
                                 "origen": humanize_origen(_d.origen) or "Fuente legal",
                                 "ref": _d.ref or "",
-                                "texto": _t[:4000],
+                                # 350 y no 4.000: ver `_marcador_fuentes_previas`.
+                                # Con veinte fuentes, 4.000 hacían un bloque de
+                                # 80 KB que tapona el flujo y se guarda en el
+                                # historial. El texto íntegro llega al final.
+                                "texto": _t[:350],
                                 "pdf_url": resolver_pdf(_d.pdf_url, _d.origen, _d.silo) or None,
                                 "silo": _d.silo,
                                 "entidad": getattr(_d, "entidad", None) or None,
