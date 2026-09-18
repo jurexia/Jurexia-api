@@ -10769,7 +10769,7 @@ async def analyze_document(
                     else:
                         t_extract = _time.time()
                         print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars) — {t_extract - t_read:.2f}s")
-                    _paso(f"Documento leído: {total_pages} páginas con texto.")
+                        _paso(f"Documento leído: {total_pages} páginas con texto.")
                 except ImportError:
                     # PyMuPDF not available, treat as scanned
                     is_scanned_pdf = True
