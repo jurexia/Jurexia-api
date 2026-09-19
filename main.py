@@ -5015,6 +5015,83 @@ def is_ddhh_query(query: str) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# LA MATERIA FEDERAL, RECONOCIDA SIN ESPERAR AL ESTRATEGA (19-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# El Estratega sí detecta el fuero, y bien: sobre la consulta de abajo dictaminó
+# «federal». El problema es CUÁNDO lo dice. El chat lanza la búsqueda y al
+# Estratega en el mismo asyncio.gather —a propósito, para no pagar 1.5-2 s de
+# espera—, así que las cuotas se reparten con el plan por defecto
+# (fuero_detectado = lo que trajera el desplegable) y el veredicto del Estratega
+# llega cuando el reparto ya se hizo. En el registro se ve en ese orden:
+# primero «Modo estatal PRIORIZADO», después «Fuero detectado: federal».
+#
+# Medido el 19-sep-2026 con «¿Cómo son elegidos actualmente los ministros,
+# jueces y magistrados del poder judicial de la federación?» y Querétaro en el
+# desplegable: 21 de los 65 documentos del contexto —el 32%— eran ley
+# queretana, en una pregunta que no tiene una sola palabra de derecho local.
+# La cuota estatal se lleva 15 huecos garantizados antes de que nadie mire de
+# qué se está preguntando.
+#
+# No se espera al Estratega: se lee la misma pregunta que él iba a leer, que ya
+# está aquí y es gratis. Igual que is_ddhh_query, y por la misma razón.
+#
+# Se exige una marca INEQUÍVOCA —una institución o un instrumento federal con
+# nombre y apellido—, no la materia a secas: «fiscal» y «laboral» sueltos
+# también son estatales, y el Código Fiscal de Querétaro existe. Si la marca
+# falta, no pasa nada grave: el asunto cae al reparto por pesos y la ley local
+# sigue compitiendo por puntuación, sólo pierde el suelo de 15 huecos.
+_FEDERAL_KEYWORDS = {
+    # Poder Judicial de la Federación y sus órganos
+    "poder judicial de la federacion", "pjf", "suprema corte", "scjn",
+    "consejo de la judicatura federal", "judicatura federal", "cjf",
+    "tribunal electoral del poder judicial", "tepjf",
+    "tribunal colegiado de circuito", "tribunales colegiados de circuito",
+    "tribunal unitario de circuito", "juzgado de distrito", "juzgados de distrito",
+    "ministro de la suprema corte", "ministros de la suprema corte",
+    # Amparo: siempre federal, lo diga quien lo diga
+    "juicio de amparo", "ley de amparo", "amparo directo", "amparo indirecto",
+    "amparo en revision",
+    # Control constitucional concentrado
+    "controversia constitucional", "accion de inconstitucionalidad",
+    # Mercantil: legislación federal por mandato del 73 constitucional
+    "codigo de comercio", "juicio ejecutivo mercantil", "juicio oral mercantil",
+    "titulo de credito", "titulos de credito", "letra de cambio",
+    "concurso mercantil", "ley general de sociedades mercantiles", "lgsm",
+    "materia mercantil",
+    # Fiscal FEDERAL — con apellido, porque el fiscal estatal existe
+    "codigo fiscal de la federacion", "cff", "impuesto sobre la renta", "isr",
+    "impuesto al valor agregado", "iva",
+    "servicio de administracion tributaria", "sat", "fiscal federal",
+    # Laboral FEDERAL — el instrumento, no la materia
+    "ley federal del trabajo", "lft",
+    "tribunal federal de conciliacion",
+    # El fuero, dicho con esas palabras
+    "fuero federal", "competencia federal", "materia federal",
+}
+
+# Marcas de una sola palabra: se exige palabra completa. «amparo» dentro de
+# «desamparo» es derecho familiar, e «iva» dentro de cualquier cosa no es el
+# impuesto.
+_FEDERAL_RE = re.compile(
+    r"\b(" + "|".join(sorted((re.escape(k) for k in _FEDERAL_KEYWORDS),
+                             key=len, reverse=True)) + r")\b"
+)
+
+
+def is_federal_subject_query(query: str) -> bool:
+    """¿La pregunta es de materia federal sin margen de duda?
+
+    Determinista y sin latencia: mira el texto, no llama a ningún modelo. Sirve
+    para repartir las cuotas de contexto antes de que el Agente Estratega
+    termine, porque para entonces el reparto ya está hecho.
+
+    Insensible a tildes: el abogado que motivó esto escribió «federacion» y
+    «judicial» sin acento, y un `in` sobre el texto crudo no lo habría visto.
+    """
+    return bool(_FEDERAL_RE.search(_voz_sin_tildes(query)))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MATERIA-AWARE RETRIEVAL — Capa 1: Detección por Keywords (0 latencia)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -8813,6 +8890,9 @@ async def hybrid_search_all_silos(
     _agent_juris = _agent_pesos.get("jurisprudencia", 0.25)
 
     _manda_el_bloque = bool(is_ddhh_query(query) or legal_plan.get("requiere_ddhh"))
+    # El Estratega dictaminará «federal», pero llegará tarde: su veredicto y
+    # este reparto corren en el mismo gather. La pregunta ya está aquí.
+    _materia_federal = bool(is_federal_subject_query(query))
     if _manda_el_bloque:
         # Modo DDHH: Prioridad máxima a bloque constitucional (override del agente)
         min_constitucional = min(12, len(constitucional))
@@ -8820,6 +8900,25 @@ async def hybrid_search_all_silos(
         min_federales = min(6, len(federales))
         min_estatales = min(3, len(estatales))
         print(f"   🏛️ Modo DDHH: const={min_constitucional} juris={min_jurisprudencia} fed={min_federales} est={min_estatales}")
+    elif _materia_federal:
+        # Modo FEDERAL RECONOCIDO: la pregunta nombra una institución o un
+        # instrumento federal, así que el desplegable de estado no manda sobre
+        # el reparto. Espejo de la rama estatal de abajo, con los papeles
+        # cambiados: la ley local no se borra —en un asunto federal a veces
+        # describe el acto— pero se queda con un cupo de fuente referencial.
+        #
+        # El tope estatal importa aquí y no más abajo: el FRENO RUIDO LOCAL del
+        # flujo del chat sabe recortar lo local a 6 y mandarlo detrás, pero sólo
+        # puede recortar lo que haya sobrevivido a este reparto. Lo que aquí no
+        # entra, no lo recupera nadie después.
+        min_federales = min(15, len(federales))
+        min_jurisprudencia = min(10, len(jurisprudencia))
+        min_constitucional = min(8, len(constitucional))
+        min_estatales = min(4, len(estatales))
+        print(f"   ⚖️ Modo federal RECONOCIDO (sin esperar al Estratega): "
+              f"fed={min_federales} juris={min_jurisprudencia} "
+              f"const={min_constitucional} est={min_estatales}"
+              + (f" · {estado} queda como referencia" if estado else ""))
     elif estado and ("estatal" in fuero_parts or not fuero_parts):
         # Modo con ESTADO seleccionado Y fuero estatal o sin fuero definido:
         # LEYES ESTATALES SON LA PRIORIDAD
@@ -8865,7 +8964,8 @@ async def hybrid_search_all_silos(
     # Cuando la pregunta es de derechos humanos, el estado del desplegable no
     # manda sobre la jerarquía: primero la Constitución y los tratados,
     # después lo demás. Para todo lo estatal, nada cambia.
-    if estado and ("estatal" in fuero_parts or not fuero_parts) and not _manda_el_bloque:
+    if (estado and ("estatal" in fuero_parts or not fuero_parts)
+            and not _manda_el_bloque and not _materia_federal):
         # CUANDO HAY ESTADO y fuero es estatal/auto: leyes estatales VAN PRIMERO
         # El LLM procesa los primeros documentos con mayor atención
         merged.extend(estatales[:min_estatales])
