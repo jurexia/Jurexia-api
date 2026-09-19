@@ -4870,6 +4870,141 @@ DDHH_KEYWORDS = {
     "interés superior", "debida diligencia", "prisión vitalicia",
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# EL PUENTE ENTRE LA FIGURA Y EL DERECHO (19-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Con el reparto por turnos los tratados ya llegaban al prompt. Llegaban los
+# que no eran. A «¿es posible inaplicar el arraigo?» el buscador devolvía el
+# art. 9 CADH (legalidad y retroactividad), el 67 (las sentencias son
+# inapelables) y el 13 PIDCP (expulsión de extranjeros). El artículo que
+# gobierna el arraigo —el 7, libertad personal— no entraba ni entre los ocho
+# primeros.
+#
+# No es un fallo del índice: es que la pregunta y el tratado hablan idiomas
+# distintos. El abogado pregunta por la FIGURA mexicana («arraigo», «prisión
+# preventiva oficiosa»); el tratado sólo conoce el DERECHO («nadie puede ser
+# privado de su libertad salvo por las causas fijadas de antemano por la
+# ley»). Ninguna de las dos frases contiene una palabra de la otra, así que el
+# parecido semántico se queda en 0.51 —ruido— y gana cualquier artículo que
+# repita el vocabulario procesal de la pregunta.
+#
+# Este diccionario es el puente, y se escribe a mano a propósito: la
+# correspondencia entre figura nacional y derecho convencional es doctrina
+# asentada, no algo que convenga adivinar en cada consulta. Medido sobre el
+# arraigo: con el vocabulario añadido, el art. 7 CADH sube de fuera de lista
+# al 0.6072 y el 9 PIDCP al 0.6397; les siguen el 8 CADH (garantías
+# judiciales) y el 5 (integridad). Son exactamente los que se citan en un
+# escrito de control de convencionalidad.
+#
+# Cuesta un embedding y una consulta a Qdrant, las dos en paralelo con las
+# demás: no se nota en el reloj.
+VOCABULARIO_DE_DERECHOS: Dict[str, Tuple[Tuple[str, ...], str]] = {
+    "libertad personal": (
+        ("arraigo", "prisión preventiva", "prision preventiva", "preventiva oficiosa",
+         "detención", "detencion", "privación de la libertad", "privacion de la libertad",
+         "libertad personal", "flagrancia", "arresto", "aprehensión", "aprehension",
+         "incomunicación", "incomunicacion", "retención", "retencion", "cateo"),
+        "libertad y seguridad personales, nadie puede ser privado de su libertad salvo por "
+        "las causas y en las condiciones fijadas de antemano por la ley, detención arbitraria, "
+        "control judicial de la detención, hábeas corpus, plazo razonable de la prisión "
+        "preventiva, excepcionalidad de la privación de la libertad"),
+    "garantías judiciales": (
+        ("debido proceso", "defensa adecuada", "defensa técnica", "presunción de inocencia",
+         "presuncion de inocencia", "no autoincriminación", "no autoincriminacion",
+         "recurso efectivo", "tutela judicial", "acceso a la justicia", "plazo razonable",
+         "juez natural", "tribunal imparcial", "independencia judicial", "prueba ilícita",
+         "prueba ilicita", "doble instancia", "derecho a recurrir", "defensa inadecuada"),
+        "garantías judiciales, derecho a ser oído por un juez o tribunal competente "
+        "independiente e imparcial, presunción de inocencia, derecho de defensa, "
+        "derecho a recurrir el fallo ante juez o tribunal superior, protección judicial, "
+        "recurso sencillo rápido y efectivo"),
+    "integridad personal": (
+        ("tortura", "tratos crueles", "inhumano", "degradante", "integridad personal",
+         "desaparición forzada", "desaparicion forzada", "ejecución extrajudicial",
+         "ejecucion extrajudicial", "incomunicado", "aislamiento"),
+        "derecho a la integridad personal, nadie debe ser sometido a torturas ni a penas o "
+        "tratos crueles inhumanos o degradantes, condiciones de detención, obligación de "
+        "investigar, prohibición absoluta de la tortura"),
+    "vida": (
+        ("derecho a la vida", "pena de muerte", "homicidio por el estado", "uso de la fuerza",
+         "desaparición", "desaparicion"),
+        "derecho a la vida, nadie puede ser privado de la vida arbitrariamente, uso de la "
+        "fuerza letal, obligaciones de respeto y garantía, deber de investigar"),
+    "igualdad y no discriminación": (
+        ("discriminación", "discriminacion", "igualdad", "categoría sospechosa",
+         "categoria sospechosa", "género", "genero", "orientación sexual",
+         "orientacion sexual", "identidad de género", "identidad de genero",
+         "indígena", "indigena", "discapacidad", "ajuste razonable"),
+        "igualdad ante la ley y no discriminación, prohibición de distinciones por motivos "
+        "de raza, color, sexo, idioma, religión, opinión política, origen nacional o social, "
+        "posición económica o cualquier otra condición social, medidas de protección especial"),
+    "libertad de expresión": (
+        ("libertad de expresión", "libertad de expresion", "censura", "prensa",
+         "periodista", "difamación", "difamacion", "acceso a la información",
+         "acceso a la informacion", "protesta"),
+        "libertad de pensamiento y de expresión, prohibición de la censura previa, "
+        "responsabilidades ulteriores, restricciones por vías o medios indirectos, "
+        "derecho a buscar recibir y difundir informaciones e ideas"),
+    "vida privada y familia": (
+        ("vida privada", "intimidad", "datos personales", "honor y reputación",
+         "comunicaciones privadas", "intervención de comunicaciones", "geolocalización",
+         "matrimonio igualitario", "patria potestad", "vida familiar"),
+        "protección de la honra y de la dignidad, injerencias arbitrarias o abusivas en la "
+        "vida privada, en la familia, en el domicilio o en la correspondencia, protección "
+        "a la familia"),
+    "niñez": (
+        ("niño", "niña", "menor de edad", "adolescente", "interés superior",
+         "interes superior", "pensión alimenticia", "pension alimenticia",
+         "guarda y custodia", "adopción", "adopcion", "justicia para adolescentes"),
+        "derechos del niño, medidas de protección que por su condición de menor requiere "
+        "por parte de su familia de la sociedad y del Estado, interés superior de la niñez, "
+        "derecho a ser oído"),
+    "propiedad y trabajo": (
+        ("expropiación", "expropiacion", "indemnización justa", "indemnizacion justa",
+         "despojo", "privación de la propiedad", "privacion de la propiedad",
+         "despido injustificado", "seguridad social", "libertad sindical", "huelga"),
+        "derecho a la propiedad privada, nadie puede ser privado de sus bienes excepto "
+        "mediante el pago de indemnización justa por razones de utilidad pública, derechos "
+        "económicos sociales y culturales, desarrollo progresivo, condiciones justas y "
+        "equitativas de trabajo, seguridad social"),
+    "derechos políticos": (
+        ("derechos políticos", "derechos politicos", "sufragio", "candidatura",
+         "partido político", "partido politico", "elección popular", "eleccion popular",
+         "elección de jueces", "eleccion de jueces", "elección de ministros",
+         "eleccion de ministros", "designación de jueces", "designacion de jueces",
+         "son elegidos", "son electos", "carrera judicial", "inamovilidad",
+         "independencia judicial", "ratificación de jueces", "ratificacion de jueces"),
+        "derechos políticos, derecho de participar en la dirección de los asuntos públicos, "
+        "acceso en condiciones generales de igualdad a las funciones públicas del país, "
+        "garantías de independencia judicial, inamovilidad y estabilidad en el cargo"),
+    "salud y medio ambiente": (
+        ("derecho a la salud", "medicamento", "hospital", "medio ambiente", "ambiental",
+         "agua", "vivienda", "alimentación", "alimentacion", "educación", "educacion"),
+        "derechos económicos sociales y culturales, desarrollo progresivo, derecho a la "
+        "salud, derecho a un medio ambiente sano, derecho a la educación, protección "
+        "del nivel de vida adecuado"),
+    "migración": (
+        ("migrante", "extranjero", "asilo", "refugiado", "expulsión", "expulsion",
+         "deportación", "deportacion", "no devolución", "no devolucion"),
+        "derecho de circulación y de residencia, prohibición de expulsión colectiva de "
+        "extranjeros, derecho de buscar y recibir asilo, principio de no devolución"),
+}
+
+
+def vocabulario_de_derechos(query: str) -> str:
+    """El derecho convencional que hay detrás de la figura por la que se pregunta.
+
+    Devuelve cadena vacía cuando la pregunta no toca ninguna de las familias:
+    sin puente que tender, la búsqueda de tratados va con la pregunta tal cual
+    y el suelo de pertinencia decide si alguno entra.
+    """
+    q = (query or "").lower()
+    piezas = [texto for disparadores, texto in VOCABULARIO_DE_DERECHOS.values()
+              if any(d in q for d in disparadores)]
+    # Dos familias son contexto; cinco son ruido que diluye la pregunta.
+    return " ".join(piezas[:2])
+
+
 def is_ddhh_query(query: str) -> bool:
     """
     Detecta si la consulta está relacionada con derechos humanos.
@@ -6618,13 +6753,43 @@ def extract_doc_ids(text: str) -> List[str]:
     return list(set(matches))  # Únicos
 
 
-def _uuid_edit_distance(a: str, b: str) -> int:
-    """Distancia de edición simplificada (Levenshtein) para UUIDs.
-    Optimizada: solo compara los primeros 36 chars (largo de UUID)."""
+def _uuid_edit_distance(a: str, b: str, tope: int = 4) -> int:
+    """Distancia de Levenshtein entre dos UUIDs, acotada a `tope`.
+
+    LO QUE ESTABA MAL (19-sep-2026). Esto decía ser Levenshtein y era
+    Hamming: comparaba posición contra posición y, si los largos no
+    coincidían, devolvía 36 —irreparable por definición—. O sea que el único
+    fallo que NO sabía arreglar era el más común de todos: que al modelo se le
+    caiga o se le duplique UN carácter.
+
+    El caso medido. A la pregunta de cómo se eligen los ministros, el modelo
+    citó `d2a7b1be-8dd6-448-4962-6e604ac4b207`. El documento real es
+    `d2a7b1be-8dd6-c448-4962-6e604ac4b207`: el artículo 94 de la Constitución,
+    que estaba en el contexto. Le faltaba una «c». Con los largos distintos la
+    distancia salía 36, el arreglo no se intentaba, y la cita entraba en el
+    recuento de inválidas. Resultado: una respuesta correcta, fundada en la
+    Constitución, coronada con un aviso de «no las des por buenas».
+
+    Acusar a la respuesta propia de inventar lo que sí citó bien es peor que
+    no tener sello: enseña al abogado a ignorar el aviso, y el aviso existe
+    para los días en que la cita SÍ está inventada.
+
+    Se corta en `tope` porque sólo interesa distinguir «un dedazo» de «otro
+    documento»: dos UUIDs distintos andan por 25, y seguir contando es gastar
+    tiempo en confirmar lo evidente.
+    """
     a, b = a[:36].lower(), b[:36].lower()
-    if len(a) != len(b):
-        return max(len(a), len(b))
-    return sum(1 for x, y in zip(a, b) if x != y)
+    if abs(len(a) - len(b)) > tope:
+        return tope + 1
+    previa = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        actual = [i]
+        for j, cb in enumerate(b, 1):
+            actual.append(min(previa[j] + 1, actual[j - 1] + 1, previa[j - 1] + (ca != cb)))
+        if min(actual) > tope:
+            return tope + 1          # ya no puede bajar: se abandona la fila
+        previa = actual
+    return previa[-1]
 
 
 def repair_hallucinated_uuids(
@@ -6658,6 +6823,27 @@ def repair_hallucinated_uuids(
         if h in valid_ids_lower:
             return valid_ids_lower[h]
         
+        # Estrategia 0: ANCLA POR EL PRIMER GRUPO (19-sep-2026)
+        # -------------------------------------------------------------
+        # Medido en tres consultas seguidas, el modelo estropeó así los
+        # identificadores: `779835a0…` (lo cortó y puso puntos suspensivos),
+        # `fbc325b1-2bb8-5e28-717e8b1c3276` (se comió un grupo entero) y
+        # `ec1ff775-11f3-fc7b-7beb-ddae-cb40bf6575c2` (metió uno de más).
+        # Ninguno se arregla contando sustituciones: cambia el LARGO, y por
+        # cinco caracteres de diferencia el reparador se rendía y el sello
+        # salía acusando a tres citas buenas.
+        #
+        # Pero los tres conservan intacto el primer grupo, que es lo que el
+        # modelo copia bien: ocho dígitos hexadecimales, cuatro mil millones
+        # de combinaciones contra las ~50 fuentes de una consulta. Si ese
+        # prefijo apunta a UNA sola fuente, es ésa; si apunta a dos, no se
+        # adivina y la cita se queda acusada, que para eso está el sello.
+        _cabeza = "".join(_c for _c in h if _c in "0123456789abcdef")[:8]
+        if len(_cabeza) == 8:
+            _candidatos = [vo for vl, vo in valid_ids_lower.items() if vl.startswith(_cabeza)]
+            if len(_candidatos) == 1:
+                return _candidatos[0]
+
         # Strategy 1: Prefix match (UUID might be truncated or have trailing noise)
         for vid_lower, vid_original in valid_ids_lower.items():
             # Match if first 28+ chars of UUID match (UUID = 36 chars with dashes)
@@ -8328,6 +8514,34 @@ async def hybrid_search_all_silos(
             )
         )
 
+    # ── La misma búsqueda, pero hablando el idioma del tratado ──────────
+    # Ver `VOCABULARIO_DE_DERECHOS`: la pregunta nombra la figura mexicana y
+    # el tratado nombra el derecho. Aquí se tiende el puente y se busca SÓLO
+    # entre tratados y material interamericano, para que el artículo concreto
+    # no tenga que competir con los 98 fragmentos de la Constitución.
+    _extra_tratados_task = None
+    _vocab_derechos = vocabulario_de_derechos(query)
+    if "bloque_constitucional" in silos_to_search and _vocab_derechos:
+        _query_derechos = f"{query} {_vocab_derechos}"
+        try:
+            _dense_derechos = await get_dense_embedding(_query_derechos)
+            _extra_tratados_task = asyncio.create_task(
+                hybrid_search_single_silo(
+                    collection="bloque_constitucional",
+                    query=_query_derechos,
+                    dense_vector=_dense_derechos,
+                    sparse_vector=get_sparse_embedding(_query_derechos),
+                    filter_=Filter(must=[FieldCondition(
+                        key="tipo",
+                        match=MatchAny(any=["convencion", "sentencia_cidh",
+                                            "opinion_consultiva"]))]),
+                    top_k=8,
+                    alpha=alpha,
+                )
+            )
+        except Exception as _evd:
+            print(f"   ⚠️ No se pudo armar la búsqueda por derecho: {err(_evd)}")
+
     _extra_estatal_task = None
     if _selected_state_silo and ("estatal" in fuero_parts or not fuero_parts) and hyde_doc:
         _original_dense = await get_dense_embedding(query)  # query original, no HyDE
@@ -8358,6 +8572,16 @@ async def hybrid_search_all_silos(
                       f"{len(_primarias)} resultados")
         except Exception as _ep:
             print(f"   ⚠️ No se pudo buscar fuente primaria: {err(_ep)}")
+    if _extra_tratados_task:
+        try:
+            _tratados = await _extra_tratados_task
+            if isinstance(_tratados, list) and _tratados:
+                all_results = list(all_results) + [_tratados]
+                print(f"   🌎 Tratados por el derecho en juego: {len(_tratados)} → "
+                      + ", ".join((getattr(_r, "ref", "") or "?")[:22] for _r in _tratados[:4]))
+        except Exception as _et:
+            print(f"   ⚠️ No se pudo buscar por derecho en juego: {err(_et)}")
+
     if _extra_estatal_task:
         extra_estatal = await _extra_estatal_task
         all_results = list(all_results) + [extra_estatal]
@@ -8408,28 +8632,68 @@ async def hybrid_search_all_silos(
     jurisprudencia.sort(key=lambda x: x.score, reverse=True)
     constitucional.sort(key=lambda x: x.score, reverse=True)
 
-    # LA FUENTE PRIMARIA VA PRIMERO DENTRO DEL BLOQUE (19-sep-2026). Ordenar
-    # sólo por puntuación entrega veinte cuadernillos y ni un tratado: son el
-    # 76% de la colección y ganan por masa, no por pertinencia. Se reservan los
-    # primeros puestos a la norma —Constitución y tratados— y a la sentencia de
-    # la Corte IDH; el comentario sigue detrás, entero.
-    def _es_primaria(_r) -> bool:
+    # ═══════════════════════════════════════════════════════════════════
+    # UNA DE CADA CLASE, POR TURNOS (19-sep-2026)
+    # ═══════════════════════════════════════════════════════════════════
+    # Primer intento: poner la fuente primaria delante del comentario. Sirvió a
+    # medias y creó el problema de al lado. Medido sobre «¿es posible inaplicar
+    # el arraigo?»: de los 15 documentos del bloque que llegaron al prompt, los
+    # QUINCE eran artículos de la CPEUM. El tratado ya no perdía contra el
+    # cuadernillo; perdía contra la Constitución, que tiene 98 fragmentos
+    # frente a 282 repartidos entre decenas de tratados, así que cualquier
+    # artículo suyo puntúa por encima del tratado concreto que viene al caso.
+    # Y el Art. 7 CADH —el de la libertad personal, el que gobierna el arraigo—
+    # se quedaba fuera puntuando 0.5442 en una búsqueda directa.
+    #
+    # Ordenar por puntuación siempre premia a la familia más numerosa. Por eso
+    # no se ordena: se reparte POR TURNOS. Primero el mejor artículo
+    # constitucional, luego el mejor tratado, luego la mejor sentencia
+    # interamericana, luego el mejor cuadernillo, y vuelta a empezar. Cada
+    # familia entra con su mejor documento antes de que ninguna repita.
+    #
+    # Con suelo de pertinencia: un tratado que puntúa por los suelos no entra
+    # sólo por ser tratado. David: «no debe citarlo siempre, sólo cuando la
+    # pregunta tenga relación».
+    _SUELO_TURNO = 0.42
+
+    def _clase_bloque(_r) -> str:
         _t = ((_r.origen or "") + " " + (_r.ref or "")).lower()
         if "cuadernillo" in _t:
-            return False
-        return ("cpeum" in _t or "constitución política" in _t
-                or any(k in _t for k in ("convención", "convencion", "pacto", "protocolo",
-                                         "declaración", "declaracion", "tratado",
-                                         "pidcp", "pidesc", "cedaw", "cadh", "dudh"))
-                or "corte interamericana" in _t or "coidh" in _t or "caso " in _t)
+            return "cuadernillo"
+        if "cpeum" in _t or "constitución política" in _t:
+            return "constitucion"
+        if any(k in _t for k in ("convención", "convencion", "pacto", "protocolo",
+                                 "declaración", "declaracion", "tratado",
+                                 "pidcp", "pidesc", "cedaw", "cadh", "dudh")):
+            return "tratado"
+        if "corte interamericana" in _t or "coidh" in _t or "caso " in _t:
+            return "sentencia_coidh"
+        return "otro"
 
-    _prim = [r for r in constitucional if _es_primaria(r)]
-    _coment = [r for r in constitucional if not _es_primaria(r)]
-    if _prim:
-        _cupo = min(len(_prim), max(3, len(constitucional) // 3))
-        constitucional = _prim[:_cupo] + _coment + _prim[_cupo:]
-        print(f"   📜 Bloque: {_cupo} de fuente primaria al frente "
-              f"({len(_prim)} primarias, {len(_coment)} de comentario)")
+    _cajas: Dict[str, List] = {}
+    for _r in constitucional:
+        _cajas.setdefault(_clase_bloque(_r), []).append(_r)
+    # Orden de turno: la norma antes que el criterio, y el comentario al final.
+    _turno = ["constitucion", "tratado", "sentencia_coidh", "otro", "cuadernillo"]
+    if len([c for c in _cajas if c != "otro"]) > 1:
+        _rondas, _puestos = [], 0
+        while any(_cajas.get(c) for c in _turno):
+            for _c in _turno:
+                _caja = _cajas.get(_c) or []
+                if not _caja:
+                    continue
+                _cand = _caja.pop(0)
+                # El suelo sólo se exige a partir de la segunda ronda: la mejor
+                # de cada familia entra siempre, para que el modelo vea que
+                # existe y decida él.
+                if _puestos >= len(_turno) and _cand.score < _SUELO_TURNO:
+                    continue
+                _rondas.append(_cand)
+            _puestos += 1
+        constitucional = _rondas
+        print("   📜 Bloque por turnos: "
+              + " · ".join(f"{c}={len(_cajas.get(c) or []) + sum(1 for r in _rondas if _clase_bloque(r) == c)}"
+                           for c in _turno if _cajas.get(c) or any(_clase_bloque(r) == c for r in _rondas)))
 
     # ═══════════════════════════════════════════════════════════════════════════
     # PASO -1 (CONT.): INYECTAR RESULTADOS DETERMINISTAS CON PRIORIDAD MÁXIMA
@@ -8548,7 +8812,8 @@ async def hybrid_search_all_silos(
     _agent_est   = _agent_pesos.get("estatal", 0.25)
     _agent_juris = _agent_pesos.get("jurisprudencia", 0.25)
 
-    if is_ddhh_query(query) or legal_plan.get("requiere_ddhh"):
+    _manda_el_bloque = bool(is_ddhh_query(query) or legal_plan.get("requiere_ddhh"))
+    if _manda_el_bloque:
         # Modo DDHH: Prioridad máxima a bloque constitucional (override del agente)
         min_constitucional = min(12, len(constitucional))
         min_jurisprudencia = min(6, len(jurisprudencia))
@@ -8581,8 +8846,26 @@ async def hybrid_search_all_silos(
         print(f"   🧠 Agente Estratega pesos → const={min_constitucional} fed={min_federales} est={min_estatales} juris={min_jurisprudencia} (materia={legal_plan.get('materia_principal')}|via={legal_plan.get('via_procesal','?')[:40]})") 
     
     merged = []
-    
-    if estado and ("estatal" in fuero_parts or not fuero_parts):
+
+    # LA CUOTA DECÍA UNA COSA Y EL ORDEN HACÍA LA CONTRARIA (19-sep-2026)
+    # --------------------------------------------------------------------
+    # El modo DDHH le daba al bloque de constitucionalidad 12 de los ~110
+    # documentos, la cuota más alta de los cuatro silos. Y acto seguido este
+    # reparto lo mandaba al FINAL, porque el abogado tenía un estado elegido
+    # en el desplegable.
+    #
+    # Medido sobre «¿es posible inaplicar el arraigo?» con Querétaro puesto:
+    # el artículo 9 de la Convención Americana entró al prompt en la posición
+    # 82 de 110, detrás de ochenta fragmentos de Ley de Amparo y códigos
+    # queretanos. Llegar el último a un prompt largo es no llegar: el modelo
+    # escribió la respuesta con lo de arriba. De ahí el reproche de David —
+    # «nunca he visto citar la convención»—: no es que no se recuperaran,
+    # es que se recuperaban y se enterraban.
+    #
+    # Cuando la pregunta es de derechos humanos, el estado del desplegable no
+    # manda sobre la jerarquía: primero la Constitución y los tratados,
+    # después lo demás. Para todo lo estatal, nada cambia.
+    if estado and ("estatal" in fuero_parts or not fuero_parts) and not _manda_el_bloque:
         # CUANDO HAY ESTADO y fuero es estatal/auto: leyes estatales VAN PRIMERO
         # El LLM procesa los primeros documentos con mayor atención
         merged.extend(estatales[:min_estatales])
@@ -14307,13 +14590,31 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     if _is_federal_or_const and not _has_local_genio:
                         # FUERO FEDERAL/CONSTITUCIONAL detectado → jerarquía federal SIEMPRE
                         # Esto aplica tanto en chat normal como en modo redacción
+                        # NI UNA LÍNEA EXPLICANDO POR QUÉ NO SE USA EL ESTADO (19-sep-2026)
+                        # ------------------------------------------------------------------
+                        # David: «"Aunque seleccionaste Querétaro, tu pregunta es sobre el
+                        # Poder Judicial de la Federación…" eso me parece innecesario, tokens
+                        # inútiles». Y lo es: al abogado no le interesa el razonamiento interno
+                        # del buscador, le interesa la respuesta.
+                        #
+                        # Primer intento: añadir una regla «no lo menciones» al final de las
+                        # cinco que ya había. No bastó, y se ve por qué: el bloque ABRÍA con
+                        # «ESTADO SELECCIONADO POR EL USUARIO: Querétaro» y repetía el nombre
+                        # cuatro veces antes de pedir silencio. Un nombre puesto en cabecera se
+                        # lee como algo que hay que acusar de recibo.
+                        # Así que el nombre aparece UNA vez, y la regla de silencio va primera.
                         _estado_prompt = (
-                            f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n\n"
+                            f"AJUSTE DE BÚSQUEDA (no es una pregunta del usuario): el filtro "
+                            f"territorial está puesto en {estado_humano}.\n"
+                            f"0. NO menciones ese ajuste ni el nombre del estado, no expliques por qué "
+                            f"no aplica y no justifiques de dónde sale tu fundamento. El abogado no "
+                            f"preguntó eso. Responde y ya.\n\n"
                             f"⚠️ INSTRUCCIÓN CRÍTICA — FUERO {_effective_fuero_for_prompt.upper()} DETECTADO:\n"
-                            f"La consulta del usuario es de naturaleza {_effective_fuero_for_prompt.upper()}, "
+                            f"La consulta es de naturaleza {_effective_fuero_for_prompt.upper()}, "
                             f"regulada exclusivamente por legislación federal.\n"
-                            f"1. Tu marco rector es la CONSTITUCIÓN, leyes FEDERALES y JURISPRUDENCIA SCJN/TCC.\n"
-                            f"2. NO uses leyes del estado de {estado_humano} como fundamento principal.\n"
+                            f"1. Tu marco rector es la CONSTITUCIÓN, los TRATADOS de derechos humanos, "
+                            f"las leyes FEDERALES y la JURISPRUDENCIA SCJN/TCC.\n"
+                            f"2. NO uses leyes estatales como fundamento principal.\n"
                             f"3. Si aparecen documentos estatales en el contexto, son meramente REFERENCIALES — "
                             f"NO los cites como fuente primaria ni estructures tu argumentación sobre ellos.\n"
                             f"4. Materias como MERCANTIL (títulos de crédito, pagarés, sociedades), AMPARO, "
@@ -14331,7 +14632,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             f"para identificar el ACTO RECLAMADO o la norma de origen del conflicto.\n"
                             f"3. NO uses leyes estatales como tu fundamento procesal principal.\n"
                             f"4. Prioriza: Ley de Amparo, CPEUM, Jurisprudencia SCJN, Tesis de TCC.\n"
-                            f"5. NUNCA digas 'consulte la ley' — TÚ tienes la jurisprudencia en el contexto, TRANSCRÍBELA."
+                            f"5. NUNCA digas 'consulte la ley' — TÚ tienes la jurisprudencia en el contexto, TRANSCRÍBELA.\n"
+                            f"6. NO menciones el estado seleccionado ni expliques por qué no aplica: "
+                            f"es un ajuste de búsqueda, no una pregunta del abogado."
                         )
                         print(f"   📍 Estado inyectado al LLM (JERARQUÍA FEDERAL para genios {_resolved_genio_ids}): {estado_humano}")
                     elif _is_multi_genio and _has_federal_genio and _has_local_genio:
@@ -14368,9 +14671,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         print(f"   📍 Estado inyectado al LLM (con leyes detectadas): {estado_humano}")
                     else:
                         _estado_prompt = (
-                            f"ESTADO SELECCIONADO POR EL USUARIO: {estado_humano}\n"
-                            f"(Nota de sistema: La consulta y el contexto recuperado resultaron ser de carácter federal o constitucional. "
-                            f"Básate en la Constitución, tratados y leyes federales/jurisprudencia incluidas en el contexto, sin inventar leyes de {estado_humano})."
+                            f"AJUSTE DE BÚSQUEDA (no es una pregunta del usuario): el filtro "
+                            f"territorial está puesto en {estado_humano}, y el contexto recuperado "
+                            f"resultó ser federal o constitucional.\n"
+                            f"Básate en la Constitución, los tratados y las leyes federales y "
+                            f"jurisprudencia del contexto, sin inventar leyes estatales. NO menciones "
+                            f"el ajuste ni el nombre del estado, y no expliques por qué no aplica."
                         )
                         print(f"   📍 Estado inyectado al LLM (sin leyes estatales detectadas, priorizando federal/const): {estado_humano}")
 
