@@ -32,7 +32,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
-from qdrant_client import QdrantClient, AsyncQdrantClient
+from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.models import (
     FieldCondition,
@@ -66,11 +66,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 # SEMÁFOROS DE CONCURRENCIA — Protección contra sobrecarga de APIs externas
 # Limitan peticiones simultáneas por servicio para prevenir 429s y cascadas
 # ══════════════════════════════════════════════════════════════════════════════
-DEEPSEEK_SEM = asyncio.Semaphore(50)    # DeepSeek oficial: ~300 RPM
 OPENAI_SEM   = asyncio.Semaphore(80)    # OpenAI embeddings + HyDE
-GEMINI_SEM   = asyncio.Semaphore(30)    # Solo Genio (Pro users)
 QDRANT_SEM   = asyncio.Semaphore(100)   # Búsquedas vectoriales
-COHERE_SEM   = asyncio.Semaphore(50)    # Reranking
 
 # HTTP Connection Pool — initialized in lifespan (after event loop exists)
 _http_pool: httpx.AsyncClient = None
@@ -106,7 +103,6 @@ deepseek_client = AsyncOpenAI(
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-v4-flash"  # DeepSeek V4 Flash en OpenRouter (284B MoE, 13B active)
 REASONER_MODEL = "deepseek/deepseek-v4-flash"  # V4 Flash en OpenRouter — thinking se controla con API param, no modelo separado
 DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash")  # Gemini 2.5 Flash GA — 1M context, ultra-rápido, $0.30/M input
-NORMAL_CHAT_OR_MODEL = os.getenv("NORMAL_CHAT_OR_MODEL", "google/gemini-3-flash-preview")  # Chat sin genio via OpenRouter — Gemini 3 Flash Preview, baja latencia
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
 
 # Consulta rápida (el rayo). Elegido midiendo seis candidatos sobre contexto
@@ -298,9 +294,6 @@ print(f"   Motor de Buscar (chat por omisión): ⚡ {BUSCAR_MODEL}")
 # Se apaga aquí y no borrando la clave, para que el gasto pare al desplegar
 # aunque la variable siga en Render. Volver a encenderlo es cambiar esta línea,
 # pero sólo con una medición que diga lo contrario de la de arriba.
-COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
-COHERE_RERANK_MODEL = "rerank-v3.5"
-COHERE_RERANK_ENABLED = False
 print("   Cohere Rerank: retirado (16-sep-2026, sin efecto medible sobre el contexto)")
 
 # HyDE Configuration (Hypothetical Document Embeddings)
@@ -332,9 +325,6 @@ def get_gemini_client():
         _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     return _gemini_client
 
-def get_gemini_model_name(base_model: str) -> str:
-    """Returns model name as-is (AI Studio format — no Vertex prefix needed)."""
-    return base_model
 
 # No normalization needed with AI Studio
 SENTENCIA_MODEL = SENTENCIA_MODEL
@@ -632,39 +622,11 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 # para la jurisprudencia. Son ~100 tokens de más por consulta —milésimas de
 # peso— y evitan tener que reingerir 71.655 tesis para igualar dimensiones.
 EMBEDDING_MODEL_JURIS = "text-embedding-3-large"
-EMBEDDING_DIM = 1536
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SYSTEM COVERAGE - INVENTARIO VERIFICADO DE LA BASE DE DATOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-SYSTEM_COVERAGE = {
-    "legislacion_federal": [
-        "Constitución Política de los Estados Unidos Mexicanos (CPEUM)",
-        "Código Penal Federal",
-        "Código Civil Federal",
-        "Código de Comercio",
-        "Código Nacional de Procedimientos Penales",
-        "Código Fiscal de la Federación",
-        "Ley Federal del Trabajo",
-        "Ley de Amparo",
-        "Ley General de Salud",
-        "Ley General de Víctimas",
-    ],
-    "tratados_internacionales": [
-        "Convención Americana sobre Derechos Humanos (Pacto de San José)",
-        "Pacto Internacional de Derechos Civiles y Políticos",
-        "Convención sobre los Derechos del Niño",
-        "Convención contra la Tortura y Otros Tratos Crueles",
-        "Estatuto de Roma de la Corte Penal Internacional",
-    ],
-    "entidades_federativas": ESTADOS_MEXICO,  # 32 estados
-    "jurisprudencia": [
-        "Tesis y Jurisprudencias de la SCJN (1917-2025)",
-        "Tribunales Colegiados de Circuito",
-        "Plenos de Circuito",
-    ],
-}
 
 # Bloque de inventario para inyección dinámica
 INVENTORY_CONTEXT = """
@@ -4190,25 +4152,6 @@ def detect_single_estado_from_query(query: str) -> Optional[str]:
 
 
 
-def build_state_filter(estado: Optional[str]) -> Optional[Filter]:
-    """
-    Construye filtro para leyes estatales SOLO.
-    REGLA: Si hay estado seleccionado, filtra por ese estado específico.
-    Este filtro solo se aplica a la colección leyes_estatales.
-    """
-    if not estado:
-        return None
-    
-    normalized = normalize_estado(estado)
-    if not normalized:
-        return None
-    
-    # Filtro simple: solo documentos del estado seleccionado
-    return Filter(
-        must=[
-            FieldCondition(key="entidad", match=MatchValue(value=normalized)),
-        ]
-    )
 
 
 def get_filter_for_silo(
@@ -6880,24 +6823,6 @@ def validate_citations(
     )
 
 
-def annotate_invalid_citations(response_text: str, invalid_ids: Set[str]) -> str:
-    """
-    Anota las citas inválidas en el texto con una advertencia visual.
-    
-    Ejemplo:
-        [Doc ID: abc123] -> [Doc ID: abc123]  *[Cita no verificada]*
-    """
-    if not invalid_ids:
-        return response_text
-    
-    def replace_invalid(match):
-        doc_id = match.group(1)
-        original = match.group(0)
-        if doc_id.lower() in [i.lower() for i in invalid_ids]:
-            return f"{original}  *[Cita no verificada]*"
-        return original
-    
-    return DOC_ID_PATTERN.sub(replace_invalid, response_text)
 
 
 def get_valid_doc_ids_prompt(retrieved_docs: Dict[str, SearchResult]) -> str:
@@ -8002,78 +7927,6 @@ async def _decompose_query(query: str) -> list[str]:
 # ADVANCED RAG: Cohere Rerank (Cross-Encoder)
 # ══════════════════════════════════════════════════════════════════════════════
 
-async def _cohere_rerank(query: str, results: List[SearchResult], top_n: int = 25) -> List[SearchResult]:
-    """
-    Usa Cohere Rerank V3.5 (cross-encoder) para re-ordenar los resultados.
-    El cross-encoder analiza cada par (query, document) juntos, produciendo
-    scores de relevancia mucho más precisos que los bi-encoders.
-    
-    Mejora típica: 33-40% en retrieval accuracy.
-    """
-    if not COHERE_RERANK_ENABLED or not results:
-        return results
-    
-    try:
-        # Preparar documentos para Cohere
-        documents = []
-        for r in results:
-            doc_text = r.texto[:2000] if r.texto else ""  # Cohere limit
-            if r.origen:
-                doc_text = f"[{r.origen}] {doc_text}"
-            documents.append(doc_text)
-        
-        # Llamar Cohere Rerank API
-        # Retry loop for Cohere (handles 429 rate limits)
-        rerank_response = None
-        for _attempt in range(3):
-            async with COHERE_SEM:
-                response = await _http_pool.post(
-                    "https://api.cohere.com/v2/rerank",
-                    headers={
-                        "Authorization": f"Bearer {COHERE_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": COHERE_RERANK_MODEL,
-                        "query": query,
-                        "documents": documents,
-                        "top_n": min(top_n, len(documents)),
-                    },
-                )
-            if response.status_code == 429:
-                import asyncio
-                wait_secs = min(2 ** _attempt, 8)
-                print(f"   ⏳ Cohere 429 rate limit — retrying in {wait_secs}s (attempt {_attempt+1}/3)")
-                await asyncio.sleep(wait_secs)
-                continue
-            if response.status_code != 200:
-                print(f"   ⚠️ Cohere Rerank HTTP {response.status_code}: {response.text[:200]}")
-                return results
-            rerank_data = response.json()
-            break
-        
-        # Re-ordenar resultados según Cohere scores
-        reranked = []
-        for item in rerank_data.get("results", []):
-            idx = item["index"]
-            relevance = item["relevance_score"]
-            if idx < len(results):
-                r = results[idx]
-                r.score = relevance  # Actualizar score con Cohere relevance
-                reranked.append(r)
-        
-        print(f"   🎯 Cohere Rerank: {len(reranked)} resultados re-ordenados")
-        paso("ordenar", str(len(reranked)))
-        if reranked:
-            print(f"      Top-3 post-rerank:")
-            for r in reranked[:3]:
-                print(f"         {r.score:.4f} | {r.ref} | {r.origen[:50] if r.origen else 'N/A'}")
-        
-        return reranked
-    
-    except Exception as e:
-        print(f"   ⚠️ Cohere Rerank falló (usando orden original): {err(e)}")
-        return results
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -9061,18 +8914,15 @@ async def hybrid_search_all_silos(
     if detected_materias:
         merged = _apply_materia_threshold(merged, detected_materias, strict_mode=(forced_materia is not None), protected_silo=_selected_state_silo)
     
-    # ═══════════════════════════════════════════════════════════════════════════
-    # COHERE RERANK: Cross-encoder final reranking (ÚLTIMA CAPA)
-    # El cross-encoder analiza (query, document) juntos → scores mucho más precisos
-    # ═══════════════════════════════════════════════════════════════════════════
+    # EL REORDENADOR SE FUE CON COHERE (17-sep-2026, limpieza del 19).
+    # Se midió que no cambiaba el contexto —98.2% idéntico con y sin él— y se
+    # canceló el proveedor. Aquí quedaba el andamio: una rama apagada, su
+    # función de setenta líneas y cuatro constantes. Lo que sí hace falta es
+    # el recorte a `top_k`, que el reordenador hacía de paso.
     merged.sort(key=lambda x: x.score, reverse=True)
-    merged = merged[:top_k + 10]  # Pre-filter before expensive rerank
+    merged = merged[:top_k + 10]
 
-    if COHERE_RERANK_ENABLED and not skip_post_search:
-        _t_rerank = time.perf_counter()
-        merged = await _cohere_rerank(query, merged, top_n=top_k)
-        print(f"   ⏱ Cohere Rerank: {time.perf_counter() - _t_rerank:.2f}s")
-    elif not skip_post_search:
+    if not skip_post_search:
         # Sin el reordenador hay que recortar a mano a `top_k`, que es lo que él
         # devolvía. Si no, el modelo recibiría hasta diez documentos más de los
         # que recibía, y retirar Cohere cambiaría el contexto —justo lo que la
@@ -9310,24 +9160,6 @@ app.add_middleware(
 # Este manejador devuelve el error COMO RESPUESTA NORMAL, con sus cabeceras, y
 # con un texto que se puede leer sin ser programador. La traza va al registro,
 # no al usuario: ahí dentro viajan rutas y datos del expediente.
-@app.exception_handler(Exception)
-async def _error_legible(request: Request, exc: Exception):
-    import traceback as _tb
-    import uuid as _uuid
-    from fastapi.responses import JSONResponse as _JR
-    huella = _uuid.uuid4().hex[:8]
-    print(f"❌ [{huella}] {request.method} {request.url.path} → "
-          f"{type(exc).__name__}: {exc}")
-    print(_tb.format_exc()[:4000])
-    return _JR(
-        status_code=500,
-        content={"error": "No se pudo completar la operación.",
-                 "detalle": f"{type(exc).__name__}: {str(exc)[:200]}",
-                 "huella": huella,
-                 "que_hacer": "Vuelve a intentarlo. Si se repite, envía esta "
-                              f"huella a soporte: {huella}"},
-        headers={"Access-Control-Allow-Origin": "*",
-                 "Access-Control-Expose-Headers": "*"})
 
 # Rate limiting middleware (sliding window per user/IP)
 try:
@@ -10165,8 +9997,6 @@ async def health_check():
         "sparse_encoder": "Qdrant/bm25",
         "dense_model": EMBEDDING_MODEL,
         "rag_features": {
-            "cohere_rerank": COHERE_RERANK_ENABLED,
-            "cohere_model": COHERE_RERANK_MODEL if COHERE_RERANK_ENABLED else None,
             "hyde": HYDE_ENABLED,
             "hyde_model": HYDE_MODEL if HYDE_ENABLED else None,
             "query_decomposition": QUERY_DECOMPOSITION_ENABLED,
@@ -10318,7 +10148,6 @@ async def extract_text_from_document(file: UploadFile = File(...)):
         elif extension == "doc":
             # Usar olefile para .doc (formato binario antiguo)
             import olefile
-            import struct
             
             try:
                 ole = olefile.OleFileIO(io.BytesIO(content))
@@ -11518,7 +11347,7 @@ async def get_full_document(
     
     try:
         # ── Buscar TODOS los chunks con este origen ──
-        from qdrant_client.models import FieldCondition, MatchValue, ScrollRequest
+        from qdrant_client.models import FieldCondition, MatchValue
         
         # Try multiple variations of origen (data has inconsistent trailing whitespace)
         origen_variants = list(dict.fromkeys([
@@ -12198,7 +12027,7 @@ async def _buscar_articulos_citados(
     For articles: filters by ref + entidad in leyes collections
     For tesis: filters by registro or tesis in jurisprudencia_nacional
     """
-    from qdrant_client.models import FieldCondition, MatchValue, MatchText
+    from qdrant_client.models import FieldCondition, MatchValue
     
     results = []
     seen_ids = set()
@@ -17680,13 +17509,6 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
     return ""
 
 
-class JurimertriaRequest(BaseModel):
-    user_email: str
-    descripcion: Optional[str] = None
-    circuito: Optional[str] = None      # None = global (todos los circuitos)
-    tribunal: Optional[str] = None
-    acto_tipo: Optional[str] = None
-    materia: Optional[str] = None
 
 
 @app.post("/api/jurimetria")
@@ -18745,41 +18567,6 @@ def _voz_llave(d: dict) -> str:
     return f"{d['coleccion']}|{d['ley']}|{d['ref']}|{d['texto'][:80]}"
 
 
-async def _voz_reordenar(consulta: str, docs: List[dict], top_n: int) -> List[dict]:
-    """El cross-encoder de Cohere, y SÓLO para preguntas de criterio.
-
-    Medido sobre el mismo banco (24-ago-2026): en «qué dice la jurisprudencia
-    sobre la suplencia de la queja» el reordenador sube de UNA tesis pertinente
-    a CINCO. Pero en «qué artículos regulan el derecho del tanto» hace lo
-    contrario: inunda de tesis los diez huecos y deja fuera los artículos del
-    código, porque el rubro de una tesis repite el concepto más veces que el
-    texto del artículo. Por eso se paga sólo donde gana, no siempre —son 400 ms
-    y en audiencia se notan.
-
-    Se reordena por el CONCEPTO, no por la pregunta, por el mismo motivo por el
-    que se busca así.
-    """
-    if not COHERE_RERANK_ENABLED or not docs or _http_pool is None:
-        return docs[:top_n]
-    try:
-        cuerpos = [f"[{d['ley']} {d['ref']}] {d['rubro']} {d['texto']}"[:1500] for d in docs]
-        async with COHERE_SEM:
-            r = await _http_pool.post(
-                "https://api.cohere.com/v2/rerank",
-                headers={"Authorization": f"Bearer {COHERE_API_KEY}"},
-                json={"model": COHERE_RERANK_MODEL, "query": consulta,
-                      "documents": cuerpos, "top_n": min(top_n, len(cuerpos))},
-                timeout=6.0,
-            )
-        if r.status_code != 200:
-            print(f"   ⚠️ VOZ: reordenador HTTP {r.status_code} — se sigue con el orden propio")
-            return docs[:top_n]
-        return [docs[i["index"]] for i in r.json().get("results", []) if i["index"] < len(docs)]
-    except Exception as e:
-        # Nunca tumba un turno: si el reordenador falla, el orden de la fusión
-        # ya es utilizable.
-        print(f"   ⚠️ VOZ: reordenador falló (no fatal): {err(e)}")
-        return docs[:top_n]
 
 
 def _voz_sin_tildes(t: str) -> str:
@@ -18982,7 +18769,9 @@ async def _voz_buscar(pregunta: str, estado: Optional[str]) -> List[dict]:
 
     if criterio:
         print("   ⚖️ VOZ: pregunta de criterio — jurisprudencia con cupo ampliado")
-        elegidos = await _voz_reordenar(concepto or pregunta, ordenados[:40], VOZ_TOPE_DOCS)
+        # El reordenador de Cohere devolvía este mismo recorte desde que se
+        # apagó la bandera; ahora se hace sin el rodeo.
+        elegidos = ordenados[:VOZ_TOPE_DOCS]
     else:
         # Sin reordenador —no lo gana en preguntas de artículo—, pero con techo
         # a la jurisprudencia para que no desplace a la ley, y con sitio
@@ -20261,7 +20050,6 @@ async def admin_toggle_sentencia(user_id: str, authorization: str = Header(...))
 
 
 GEMINI_MODEL = "gemini-2.5-flash"         # Stable, higher quota (4M+ TPM)
-GEMINI_MODEL_FAST = "gemini-2.5-flash"  # Same model for cache efficiency
 
 # ── Document labels per sentence type ────────────────────────────────────────
 SENTENCIA_DOC_LABELS: Dict[str, List[str]] = {
@@ -20425,55 +20213,6 @@ Sentidos posibles del fallo:
 }
 
 # ── Secretary instructions addendum for system prompt ────────────────────────
-INSTRUCCIONES_ADDENDUM = """
-
-INSTRUCCIONES CRÍTICAS DEL SECRETARIO PROYECTISTA:
-El secretario proyectista — experto en la materia — ha indicado el sentido
-en que DEBE resolverse este asunto. DEBES seguir ESTRICTAMENTE sus instrucciones
-respecto a:
-- El sentido del fallo (conceder/negar amparo, confirmar/revocar, fundada/infundada la queja)
-- La calificación de CADA concepto de violación o agravio (fundado, infundado, inoperante)
-- Las razones por las que cada concepto/agravio se califica de esa manera
-
-═══ ESTRATEGIA DE BREVEDAD INTELIGENTE (PUNTO MEDULAR) ═══
-
-LÍMITE MÁXIMO DEL PROYECTO COMPLETO: 15-25 páginas. NUNCA excedas 30 páginas.
-Concentra la capacidad analítica en lo que REALMENTE importa:
-
-1. IDENTIFICA EL PUNTO MEDULAR: El problema jurídico central que define el sentido
-   del fallo. Este es el agravio o grupo de agravios que, si prospera o no,
-   DETERMINA el resultado del asunto. CONCENTRA aquí tu mejor argumentación.
-
-2. AGRAVIOS FUNDADOS (PUNTO MEDULAR): Análisis profundo — 800-1,200 palabras.
-   Usa el modelo argumentativo Toulmin: aserción clara → evidencia normativa →
-   garantía jurisprudencial → conclusión. Fundamentación legal y jurisprudencial
-   completa con citas RAG. Esta sección debe ser IRREFUTABLE.
-
-3. AGRAVIOS FUNDADOS (SECUNDARIOS): Análisis sólido pero conciso — 400-600 palabras.
-   Identifica la violación, cita el fundamento, resuelve. Sin rodeos académicos.
-
-4. AGRAVIOS INFUNDADOS: Respuesta directa — 200-400 palabras.
-   Señala por qué no prospera: la autoridad actuó conforme a derecho, no se
-   acredita la violación alegada, o la norma fue correctamente aplicada.
-   NO escribas un tratado refutando cada punto.
-
-5. AGRAVIOS INOPERANTES: Formato breve y formulaico — 100-250 palabras.
-   Expresiones directas:
-   "Es inoperante al no controvertir los fundamentos y motivos del fallo."
-   "Resulta inoperante por genérico e impreciso."
-   "Se califica de inoperante al no combatir las consideraciones torales."
-
-PRINCIPIO RECTOR: Claridad, precisión y congruencia. NO es necesario redactar
-un tratado sobre cada agravio. La lógica jurídica y la concisión argumentativa
-tienen más peso que la extensión.
-
-El secretario NO necesita proporcionar todas las leyes o jurisprudencia — el sistema
-ha consultado la base de datos legal y te proporciona fundamentación RAG adicional.
-USA esa fundamentación para enriquecer y respaldar el sentido indicado.
-
-Si se proporcionan artículos o tesis de jurisprudencia del RAG, cítalos textualmente
-en los considerandos correspondientes.
-"""
 
 
 def _build_auto_mode_instructions(sentido: str, tipo: str, calificaciones: list) -> str:
@@ -21224,59 +20963,7 @@ async def draft_sentencia_stream(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-REDACTOR_FT_MODEL = os.getenv("REDACTOR_FT_MODEL", "ft:gpt-4o-2024-08-06:personal:iurexia-redactor-v2:DGI4Q6Rx")
 
-REDACTOR_V2_SYSTEM = (
-    "Eres un redactor judicial de élite de un Tribunal Colegiado de Circuito mexicano. "
-    "Tu función es redactar ÚNICAMENTE el estudio de fondo de sentencias — NO la sentencia completa. "
-    "No incluyas consideraciones previas, antecedentes, ni resultandos; solo el análisis de fondo.\n\n"
-
-    "═══ REGLA ABSOLUTA: CERO ALUCINACIONES ═══\n"
-    "• SOLO puedes citar artículos, tesis y jurisprudencias que estén TEXTUALMENTE incluidos en el prompt del usuario.\n"
-    "• JAMÁS inventes, supongas ni reconstruyas de memoria ningún artículo de ley, tesis, jurisprudencia, "
-    "registro, rubro o criterio judicial que NO aparezca expresamente en la sección 'FUNDAMENTACIÓN LEGAL' "
-    "o 'JURISPRUDENCIA Y TESIS APLICABLES' del prompt.\n"
-    "• Si necesitas un fundamento que NO está en el prompt, escribe: "
-    "'[NOTA: Verificar fundamentación adicional sobre (tema) — no incluida en los materiales proporcionados]' "
-    "en lugar de inventar una cita.\n"
-    "• Cada artículo que cites DEBE incluir su número exacto y ley de origen TAL CUAL aparece en el prompt.\n"
-    "• Cada tesis/jurisprudencia que cites DEBE incluir el registro, rubro y sala TAL CUAL aparecen en el prompt.\n"
-    "• Si el prompt indica que el Genio no está activado y no hay fundamentación legal disponible, "
-    "trabaja EXCLUSIVAMENTE con las tesis y jurisprudencias del RAG. NO inventes artículos de ley.\n"
-    "• Ante la duda, NO cites. Es preferible señalar una laguna que fabricar una fuente falsa.\n\n"
-
-    "═══ CALIDAD DE REDACCIÓN ═══\n"
-    "• Redacta con precisión técnica, prosa jurídica de alto nivel, estructura lógica impecable.\n"
-    "• Utiliza lenguaje judicial formal.\n"
-    "• Adapta la estructura del estudio de fondo al tipo de resolución: amparo directo, "
-    "amparo en revisión, recurso de queja, o revisión fiscal.\n"
-    "• El secretario se encargará de integrar tu estudio de fondo con las consideraciones previas "
-    "para formar la sentencia completa.\n\n"
-
-    "═══ ESTRUCTURA ESPERADA ═══\n"
-    "Para cada agravio/problema jurídico:\n"
-    "1. Síntesis del agravio\n"
-    "2. Marco normativo aplicable (SOLO de las fuentes proporcionadas)\n"
-    "3. Criterios jurisprudenciales aplicables (SOLO de las fuentes proporcionadas)\n"
-    "4. Análisis y razonamiento jurídico\n"
-    "5. Conclusión sobre la calificación del agravio\n"
-    "Si hay sentido propuesto, orienta el análisis en esa dirección.\n"
-    "Si no hay sentido propuesto, analiza objetivamente y recomienda uno.\n\n"
-
-    "═══ REGLA ANTI-REPETICIÓN ═══\n"
-    "• JAMÁS repitas el mismo párrafo, cita, jurisprudencia o razonamiento dos veces.\n"
-    "• Si ya citaste una jurisprudencia o artículo, NO lo vuelvas a transcribir.\n"
-    "• Cada sección del estudio de fondo debe avanzar el análisis, no reiterar lo ya dicho.\n"
-    "• Si necesitas referirte a algo ya citado, usa una referencia breve (ej: 'conforme a la "
-    "jurisprudencia antes citada...').\n\n"
-
-    "═══ REGLA DE CIERRE OBLIGATORIO ═══\n"
-    "• TODO estudio de fondo DEBE terminar con una CONCLUSIÓN clara para cada agravio analizado.\n"
-    "• Después de analizar todos los agravios, DEBES incluir una sección de CONCLUSIÓN Y RESOLUTIVOS PROPUESTOS.\n"
-    "• La conclusión debe indicar: (a) si los agravios son fundados, infundados, inoperantes o parcialmente fundados, "
-    "(b) el sentido propuesto de la resolución, y (c) los puntos resolutivos concretos.\n"
-    "• NUNCA dejes un estudio de fondo sin su conclusión final y resolutivos. Es inaceptable."
-)
 
 
 # ── V2 Endpoint 1: Analyze (Extract problemas jurídicos) ─────────────────────
@@ -22820,16 +22507,6 @@ _ALIAS_PLANTILLA = {
 }
 
 
-def _plantilla_precargada(tipo: str) -> str:
-    """La ruta de la plantilla de esa familia, o '' si no hay."""
-    clave = (tipo or "").strip().lower().replace("-", "_").replace(" ", "_")
-    if clave not in PLANTILLAS_PRECARGADAS:
-        clave = _ALIAS_PLANTILLA.get((tipo or "").strip().lower(), "")
-    if not clave:
-        return ""
-    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "plantillas", f"{clave}.docx")
-    return ruta if os.path.exists(ruta) else ""
 
 
 # EL PILOTO CERRÓ EL 13-SEP-2026 (fin del día, hora de Ciudad de México), cuando
@@ -23624,7 +23301,6 @@ async def redactor_tcc_beta_generate(
             try:
                 import io as _io
                 import asyncio as _asyncio_outer
-                from fastapi import UploadFile as _UF
 
                 # Extract text via Mistral OCR plugin on OpenRouter (specialized for scanned PDFs)
                 async def _extract_from_bytes(content: bytes, filename: str) -> str:
@@ -24672,9 +24348,6 @@ async def draft_sentencia(
 
 # ── Pydantic models for sentencia endpoints ──────────────────────────────────
 
-class DraftSentenciaRequest(BaseModel):
-    """Query model used when tipo is passed as JSON (not form)."""
-    tipo: Literal["amparo_directo", "amparo_revision", "revision_fiscal", "recurso_queja"]
 
 class DraftSentenciaResponse(BaseModel):
     sentencia_text: str
@@ -25246,7 +24919,6 @@ async def merge_sentencia_docx(
     from docx import Document as DocxDocument
     from docx.shared import Pt
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from copy import deepcopy
 
     # ── Access validation (admin OR ultra_secretarios) ────────────────────
     if user_email and not _can_access_sentencia(user_email):
@@ -31275,17 +30947,6 @@ def _puerta_oportunidad(r) -> None:
     return
 
 
-def _puerta_oportunidad_vieja(r) -> None:
-    raise HTTPException(409, (
-        "EL CÓMPUTO DA LA DEMANDA EXTEMPORÁNEA y por eso no se escribe el "
-        "estudio de fondo: una sentencia que declara la extemporaneidad y "
-        "luego ampara es incongruente y no se sostiene en revisión. "
-        "Hay dos salidas y las dos son tuyas: (1) si la fecha de presentación "
-        "o la de notificación están mal, corrígelas y vuelve a generar; "
-        "(2) si el cómputo es correcto, el asunto no se resuelve en el fondo "
-        "—procede el SOBRESEIMIENTO conforme a los artículos 61, fracción XIV, "
-        "y 63, fracción V, de la Ley de Amparo— y ese proyecto todavía hay que "
-        "escribirlo a mano."))
 
 
 def _con_autos(r, contexto: str) -> str:
