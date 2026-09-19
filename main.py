@@ -3374,6 +3374,11 @@ class ChatRequest(BaseModel):
     # del request no depende de cómo se construya el texto. El marcador en el
     # texto se sigue aceptando por los bundles viejos aún en caché.
     fuentes_web: bool = Field(False, description="Si True, corre la capa de búsqueda web (equivale al marcador [FUENTES_WEB] en el mensaje).")
+    # Los UUID —nunca el texto— de las fuentes que una respuesta anterior ya
+    # citó y el sello ya firmó. Se rehidratan desde Qdrant y entran al contexto
+    # sin volver a buscarse. Ver `_fuentes_ya_verificadas`.
+    fuentes_previas: Optional[List[str]] = Field(
+        None, description="Doc IDs ya verificados en esta conversación: se dan por buenos y no se vuelven a buscar.")
 
 
 class AuditRequest(BaseModel):
@@ -9483,6 +9488,89 @@ _COLECCIONES_CITA = list(dict.fromkeys(
 ))
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# LO YA VERIFICADO NO SE VUELVE A BUSCAR (19-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# David: «usa gpt low pero con la ventana de contexto previa, si no estaría
+# volviendo a buscar. Sería bueno que solo busque lo que no tiene y lo
+# verificado lo dé por hecho».
+#
+# Lo que pasaba. Cuando el abogado pide «desarrolla un amparo a partir de este
+# fundamento», la consulta arrancaba de cero: estratega, HyDE, descomposición y
+# búsqueda en cuatro silos, para volver a encontrar documentos que hacía un
+# minuto ya se habían encontrado y que el sello ya había firmado. Medido sobre
+# la respuesta del arraigo: de las 18 fuentes de la primera vuelta, la segunda
+# sólo recuperó 3. Las otras 15 estaban verificadas y se tiraron.
+#
+# Aquí se rehidratan por identificador. Importa CÓMO: el navegador manda sólo
+# los UUID, nunca el texto. El texto se vuelve a leer de Qdrant, que es la
+# única fuente que manda. Si el cliente mandara el contenido, cualquiera
+# podría inyectar una ley inventada en el contexto de su propia consulta y el
+# modelo la citaría como verificada — exactamente la puerta que el sello
+# existe para cerrar.
+#
+# Entran con score 2.0, el mismo que los artículos hallados por número exacto:
+# no compiten con la búsqueda, la preceden.
+async def _fuentes_ya_verificadas(ids: List[str]) -> List[SearchResult]:
+    """Los documentos que una respuesta anterior ya citó, leídos por su id."""
+    _limpios = []
+    for _i in (ids or [])[:40]:          # 40 es más de lo que cita cualquier escrito
+        _i = str(_i).strip()
+        if re.fullmatch(r"[a-fA-F0-9-]{32,36}", _i) and _i not in _limpios:
+            _limpios.append(_i)
+    if not _limpios:
+        return []
+
+    async def _de_coleccion(col: str):
+        try:
+            pts = await qdrant_client.retrieve(
+                collection_name=col, ids=_limpios, with_payload=True)
+            return [(col, p) for p in (pts or [])]
+        except Exception:
+            # Colección ausente, o ids con un formato que no es el suyo.
+            return []
+
+    _tandas = await asyncio.gather(*[_de_coleccion(c) for c in _COLECCIONES_CITA])
+    # Ante un id repetido gana la colección más prioritaria, no la más rápida.
+    _por_id: Dict[str, tuple] = {}
+    for _tanda in _tandas:
+        for _col, _p in _tanda:
+            _clave = str(_p.id)
+            _previo = _por_id.get(_clave)
+            if _previo is None or _COLECCIONES_CITA.index(_col) < _COLECCIONES_CITA.index(_previo[0]):
+                _por_id[_clave] = (_col, _p)
+
+    _salida: List[SearchResult] = []
+    for _clave, (_col, _p) in _por_id.items():
+        _pay = _p.payload or {}
+        _registro = _pay.get("registro")
+        _texto = (_pay.get("texto") or _pay.get("text") or _pay.get("holding")
+                  or _pay.get("chunk_text") or "")
+        if not _texto:
+            continue
+        _salida.append(SearchResult(
+            id=_clave,
+            score=2.0,
+            texto=_texto,
+            ref=(_pay.get("ref") or _pay.get("rubro") or _pay.get("clave_tesis")
+                 or _pay.get("numero_tesis") or _pay.get("expediente") or ""),
+            origen=(_pay.get("origen") or _pay.get("ley")
+                    or _pay.get("cuerpo_legal_oficial") or _pay.get("tribunal") or ""),
+            jurisdiccion=_pay.get("jurisdiccion"),
+            entidad=_pay.get("entidad"),
+            silo=_col,
+            pdf_url=(_pay.get("pdf_url") or _pay.get("url_pdf") or _pay.get("pdf")
+                     or _pay.get("url_oficial") or None),
+            registro=str(_registro) if _registro else None,
+            tesis_num=(_pay.get("clave_tesis") or _pay.get("numero_tesis")
+                       or _pay.get("tesis_num")),
+        ))
+    # Se devuelven en el orden en que el abogado las citó, no en el de Qdrant.
+    _orden = {i: n for n, i in enumerate(_limpios)}
+    _salida.sort(key=lambda r: _orden.get(r.id, 999))
+    return _salida
+
+
 # ── EL SEMANARIO, PEDIDO DESDE AQUÍ Y NO DESDE VERCEL (2-sep-2026) ──────
 #
 # Las tesis verificadas y la descarga del PDF oficial llevaban tiempo rotas.
@@ -14216,6 +14304,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 nonlocal _resolved_genio_ids
                 reasoning_buffer = ""
                 content_buffer = ""
+                # Se declara AQUÍ y no donde se llena. Donde se llena está
+                # dentro del bloque del gather, y si aquél revienta el flujo
+                # sigue por otra rama hasta el bloque que la lee: sería un
+                # UnboundLocalError que mata la consulta DESPUÉS de haber
+                # entregado el texto. Ya pasó hoy con la tarjeta de doctrina.
+                _verificadas: List[SearchResult] = []
 
                 _t_llm_start = time.perf_counter()
                 _first_token_logged = False
@@ -14280,6 +14374,35 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     yield f"<!--PASO:{_p}-->"
                 infra_error, (search_results, doc_id_map, context_xml), _cached = _gather_future.result()
                 print(f"   ⏱ TOTAL GATHER (infra+RAG+cache): {time.perf_counter() - _t_gather:.2f}s")
+
+                # ── Lo que ya estaba verificado entra sin buscarse ────────
+                # Ver `_fuentes_ya_verificadas`. Van DELANTE de lo recién
+                # hallado: el escrito nuevo se apoya en lo que el abogado ya
+                # vio firmado, y la búsqueda sólo aporta lo que falta.
+                if getattr(request, "fuentes_previas", None):
+                    try:
+                        _verificadas = await _fuentes_ya_verificadas(request.fuentes_previas)
+                        _ya = {r.id for r in search_results}
+                        _nuevas = [r for r in _verificadas if r.id not in _ya]
+                        if _nuevas:
+                            search_results = _nuevas + search_results
+                            doc_id_map.update(build_doc_id_map(_nuevas))
+                            context_xml = (
+                                "<!-- FUENTES YA VERIFICADAS EN ESTA CONVERSACIÓN: "
+                                "el abogado ya las vio con su sello. Cítalas por su "
+                                "[Doc ID] sin reservas; no hace falta volver a justificarlas. -->\n"
+                                + format_results_as_xml(_nuevas, estado=None, prose_mode=False)
+                                + "\n\n" + context_xml
+                            )
+                        print(f"   ♻️ Fuentes ya verificadas: {len(_nuevas)} reaprovechadas "
+                              f"de {len(request.fuentes_previas)} pedidas "
+                              f"({len(_verificadas) - len(_nuevas)} ya venían en la búsqueda)")
+                        if _nuevas:
+                            yield f"<!--PASO:verificadas|{len(_nuevas)}-->"
+                    except Exception as _erv:
+                        # Que falle el atajo no puede tumbar la consulta: se
+                        # sigue con la búsqueda normal, que es lo de siempre.
+                        print(f"   ⚠️ No pude reaprovechar fuentes verificadas: {err(_erv)}")
 
                 # ── Resolver precedentes (con timeout para no bloquear el stream) ──
                 precedentes_results = []
@@ -15941,6 +16064,19 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                         # dentro, así que asignarlo aquí lo volvería local y toda
                         # otra ruta del chat moriría con UnboundLocalError.
                         api_kwargs["reasoning_effort"] = _profesional_esfuerzo
+
+                    # ESCALÓN BAJO CUANDO EL FUNDAMENTO YA ESTÁ (19-sep-2026)
+                    # David: «usa gpt low pero con la ventana de contexto previa».
+                    # Tiene sentido económico y jurídico: lo caro de una consulta
+                    # es encontrar la ley y comprobar que dice lo que se afirma,
+                    # y eso ya se pagó en la vuelta anterior. Lo que queda es
+                    # redactar sobre material firmado, que no pide razonar hondo.
+                    # Sólo baja si nadie fijó un escalón antes: un abogado que
+                    # eligió Redacción Pro pidió esa profundidad y la paga.
+                    if (_verificadas and "gpt-5" in active_model
+                            and "reasoning_effort" not in api_kwargs):
+                        api_kwargs["reasoning_effort"] = "low"
+                        print("   🪶 Razonamiento bajo: el fundamento ya venía verificado")
 
                     # El chat por defecto (Buscar) responde SIN razonamiento.
                     #
