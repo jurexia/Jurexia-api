@@ -8946,6 +8946,13 @@ async def hybrid_search_all_silos(
     
     merged = []
 
+    # AVISO (19-sep-2026): lo que se reparte aquí abajo son las CUOTAS —quién
+    # entra—, no el orden del prompt. El orden que sale de estos `extend` lo pisa
+    # entero el `merged.sort(...)` por puntuación de más abajo. El orden con que
+    # el modelo LEE el contexto se fija al final, en EL ENCABEZADO DEL CONTEXTO.
+    # Aquí el orden sólo modela la lista intermedia que atraviesan el rerank por
+    # artículo, los rellenos y el umbral de materia.
+
     # LA CUOTA DECÍA UNA COSA Y EL ORDEN HACÍA LA CONTRARIA (19-sep-2026)
     # --------------------------------------------------------------------
     # El modo DDHH le daba al bloque de constitucionalidad 12 de los ~110
@@ -9370,8 +9377,70 @@ async def hybrid_search_all_silos(
 
     # Ordenar el resultado final por score para presentación
     merged.sort(key=lambda x: x.score, reverse=True)
+    merged = merged[:top_k]
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EL ENCABEZADO DEL CONTEXTO (19-sep-2026)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # El reparto por bloques de arriba no llegaba a ninguna parte. Estas dos
+    # líneas —un sort por puntuación y un recorte, sin condición ninguna— venían
+    # después de él y lo borraban. Medido sobre cuatro corridas: la lista que
+    # salía de esta función era puntuación descendente EXACTA en las cuatro.
+    #
+    # Eso explica por qué el arreglo del commit 4bdfff6 se quedó a medias. Su
+    # mitad de cuota (subir el bloque constitucional a 12 huecos) funcionaba; su
+    # mitad de ORDEN —«cuando la pregunta es de derechos humanos, primero la
+    # Constitución y los tratados»— no podía funcionar. El Art. 9 CADH entraba
+    # «en la posición 82 de 110» por su puntuación, no por el reparto, y el
+    # reparto no tenía forma de sacarlo de ahí.
+    #
+    # Se arregla aquí, que es el único sitio donde el orden ya no lo pisa nadie,
+    # y se arregla SIN TOCAR QUIÉN ENTRA: el recorte a `top_k` ya se hizo arriba,
+    # así que esto sólo permuta los documentos que de todos modos iban a viajar.
+    # Ninguna medición de cobertura cambia por esto; cambia el sitio del prompt
+    # donde el modelo los lee, que era el problema («llegar el último a un prompt
+    # largo es no llegar»).
+    #
+    # No se ordena por familias entero: eso mandaría los 27 documentos
+    # constitucionales de una consulta federal por delante del federal que mejor
+    # puntúa. Se sube sólo la CABEZA de la familia que manda, del tamaño de su
+    # propia cuota, y el resto se queda en orden de puntuación. Para la consulta
+    # de derechos humanos la cabeza es el bloque que ya viene repartido POR
+    # TURNOS —Constitución, tratado, sentencia CoIDH, cuadernillo—, así que el
+    # tratado entra entre los primeros del prompt y no en el puesto 82.
+    if not skip_post_search and merged:
+        if estado and ("estatal" in fuero_parts or not fuero_parts) \
+                and not _manda_el_bloque and not _materia_federal:
+            _familia_lider, _cupo_lider, _etq_lider = "estatal", min_estatales, "ley estatal"
+        else:
+            _familia_lider, _cupo_lider, _etq_lider = ("constitucional", min_constitucional,
+                                                       "bloque constitucional")
+
+        # Techo: una cabeza es una cabeza, no media respuesta. La rama de pesos
+        # del Estratega puede pedir 24 huecos constitucionales (65 × 0.25 × 1.5)
+        # y la estatal 15; subir eso al frente no sería encabezar, sería volver a
+        # ordenar por familias con otro nombre. 12 es el número que la rama de
+        # derechos humanos ya eligió a mano para el bloque.
+        _cupo_lider = max(1, min(_cupo_lider, 12))
+
+        def _es_lider(_r) -> bool:
+            _silo = getattr(_r, "silo", "") or ""
+            if _familia_lider == "constitucional":
+                return _silo == "bloque_constitucional"
+            return ((_silo.startswith("leyes_") and _silo != "leyes_federales")
+                    or _silo == LEGACY_ESTATAL_SILO)
+
+        _cabeza, _resto = [], []
+        for _r in merged:
+            (_cabeza if (_es_lider(_r) and len(_cabeza) < _cupo_lider) else _resto).append(_r)
+        if _cabeza and _resto:
+            _antes = next((i for i, _r in enumerate(merged) if _r is _cabeza[0]), 0)
+            merged = _cabeza + _resto
+            print(f"   🔝 Encabeza el contexto {_etq_lider}: {len(_cabeza)} documentos "
+                  f"al frente de {len(merged)} (antes abría en el puesto {_antes + 1})")
+
     print(f"   ⏱ PIPELINE TOTAL: {time.perf_counter() - _t_pipeline:.2f}s")
-    return merged[:top_k]
+    return merged
 
 
 # ══════════════════════════════════════════════════════════════════════════════
