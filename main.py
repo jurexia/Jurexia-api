@@ -3128,6 +3128,10 @@ ________________________
 8. **ORDENAMIENTO QUE NO TIENES DELANTE**: Si la ley que el caso necesita (por ejemplo, la Ley Orgánica del Poder Judicial del Estado) no viene entre tus fuentes, NO la cites de memoria ni pongas el número de un artículo que no puedas ver: un precepto atribuido a la ley equivocada llega firmado al Consejo y hunde la queja. Fundamenta el concepto de infracción con la norma que SÍ tienes y que rige lo mismo —la Ley General de Responsabilidades Administrativas, el artículo 17 constitucional y, en el ámbito federal, la Ley Orgánica del Poder Judicial de la Federación—. Donde haga falta el precepto local, déjalo señalado para el abogado diciendo qué debe buscar, con el estado y la materia concretos del caso escritos dentro, así: **[Precepto de la Ley Orgánica del Poder Judicial del Estado de (el estado del caso) que regula (lo que haga falta): verificar antes de presentar]**. Nunca escribas «no se recuperó», «no se encontró», «contexto» ni nada que delate cómo trabajas: el señalamiento dice qué falta, no por qué no lo tienes.
 """
 
+class _SinDoctrinaCitada(Exception):
+    """La doctrina se recuperó pero la respuesta no la citó: no hay tarjeta."""
+
+
 def get_drafting_prompt(tipo: str, subtipo: str) -> str:
     """Retorna el prompt apropiado según el tipo de documento"""
     if tipo == "contrato":
@@ -4909,6 +4913,18 @@ DDHH_KEYWORDS = {
     # Artículos constitucionales DDHH
     "artículo 1", "art. 1", "artículo primero", "artículo 14", "artículo 16",
     "artículo 17", "artículo 19", "artículo 20", "artículo 21", "artículo 22",
+    # LO QUE FALTABA, Y ERA LO MÁS CONVENCIONAL QUE HAY (19-sep-2026).
+    # «¿Es posible inaplicar la prisión preventiva oficiosa?» no casaba con una
+    # sola de las 46 palabras anteriores, y es la pregunta por la que México
+    # fue condenado en la Corte IDH. Sin la marca, el bloque constitucional
+    # bajaba de 12 a 4 huecos y el tratado no llegaba a la respuesta.
+    "prisión preventiva", "prision preventiva", "preventiva oficiosa",
+    "inaplicar", "inaplicación", "desaplicar", "desaplicación",
+    "arraigo", "libertad personal", "plazo razonable", "recurso efectivo",
+    "tutela judicial efectiva", "bloque de constitucionalidad",
+    "convencional", "convencionalidad", "interamericana", "san josé",
+    "no autoincriminación", "reparación integral", "derecho a la salud",
+    "interés superior", "debida diligencia", "prisión vitalicia",
 }
 
 def is_ddhh_query(query: str) -> bool:
@@ -6411,8 +6427,33 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             'pasaje CARÁCTER POR CARÁCTER del documento, máximo 40 palabras, entre '
             'comillas « », seguido de (autor, obra, página) y su [Doc ID]. PROHIBIDO '
             'poner comillas a una paráfrasis: si no copias exacto, parafrasea SIN '
-            'comillas. La doctrina ilustra; el fundamento son la ley y la '
-            'jurisprudencia. -->'
+            'comillas, y cita igual el [Doc ID]. SI LA RESPUESTA EXPLICA UN '
+            'CONCEPTO y aquí hay un fragmento que lo trata, CÍTALO: se recuperó '
+            'porque viene al caso. Lo que no debes hacer es fundar en doctrina lo '
+            'que se funda en norma. -->'
+        )
+
+    # EL BLOQUE DE CONSTITUCIONALIDAD, DICHO EN VOZ ALTA (19-sep-2026).
+    # David: «no he visto la Convención citada en ninguna consulta, y eso que
+    # está en el acervo». El material llegaba al prompt y el modelo pasaba de
+    # largo, porque nada le decía qué hacer con él. Aquí se le dice.
+    if any(r.silo == "bloque_constitucional" for r in results):
+        xml_parts.append(
+            '<!-- INSTRUCCIÓN BLOQUE DE CONSTITUCIONALIDAD: aquí vienen cuatro '
+            'cosas distintas y NO valen lo mismo.\n'
+            'tipo="CONSTITUCION" y tipo="TRATADO_DDHH" son NORMA SUPREMA (art. 1º y '
+            '133 CPEUM): si el caso toca un derecho humano, el tratado se cita AL '
+            'LADO del artículo constitucional, con su [Doc ID], no en lugar de él.\n'
+            'tipo="SENTENCIA_COIDH" es jurisprudencia interamericana: vincula al '
+            'Estado mexicano cuando es cosa juzgada internacional y orienta en lo '
+            'demás. Cítala por el nombre del caso.\n'
+            'tipo="CRITERIO_COIDH" son CUADERNILLOS: resúmenes temáticos de esa '
+            'jurisprudencia. Sirven para ubicar el criterio, NO son la sentencia ni '
+            'el tratado. No cites un cuadernillo donde puedas citar la norma.\n'
+            'Si la consulta plantea inaplicar, desaplicar o confrontar una norma '
+            'interna con un derecho humano —control de convencionalidad—, la '
+            'respuesta DEBE apoyarse en el tratado y en la sentencia interamericana '
+            'que vengan aquí, además de la Constitución y la ley. -->'
         )
     
     # ── REGLA DE JERARQUÍA: Reordenar para que CPEUM/leyes precedan jurisprudencia ──
@@ -6476,12 +6517,26 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
         elif r.silo in (*JURIS_SILOS, "jurisprudencia_tcc", "jurisprudencia"):
             tipo_tag = ' tipo="JURISPRUDENCIA" prioridad="COMPLEMENTARIA"'
         elif r.silo == "bloque_constitucional":
-            # Distinguish CPEUM from treaties/conventions within bloque_constitucional
-            _o = (r.origen or "").lower()
-            if any(kw in _o for kw in ("convención", "convencion", "pacto", "protocolo", "declaración", "declaracion", "reglas", "principios", "tratado", "pidcp", "pidesc", "cedaw", "cadh", "dudh", "cat")):
-                tipo_tag = ' tipo="TRATADO_DDHH" prioridad="SUPREMA"'
-            else:
+            # QUÉ ES CADA COSA, DE VERDAD (19-sep-2026). Sólo se miraba si el
+            # origen decía «convención»; todo lo demás salía etiquetado
+            # `CONSTITUCION prioridad="SUPREMA"`, incluidos los cuadernillos de
+            # la Corte IDH, que son COMENTARIO de jurisprudencia. El modelo
+            # recibía un resumen doctrinal con el rango de norma suprema y
+            # creía tener la Constitución delante cuando no la tenía: por eso
+            # citaba el cuadernillo y nunca el artículo.
+            _o = ((r.origen or "") + " " + (r.ref or "")).lower()
+            if "cuadernillo" in _o:
+                tipo_tag = ' tipo="CRITERIO_COIDH" prioridad="COMPLEMENTARIA"'
+            elif "cpeum" in _o or "constitución política" in _o or "constitucion politica" in _o:
                 tipo_tag = ' tipo="CONSTITUCION" prioridad="SUPREMA"'
+            elif any(kw in _o for kw in ("convención", "convencion", "pacto", "protocolo",
+                                         "declaración", "declaracion", "tratado", "pidcp",
+                                         "pidesc", "cedaw", "cadh", "dudh")):
+                tipo_tag = ' tipo="TRATADO_DDHH" prioridad="SUPREMA"'
+            elif "corte interamericana" in _o or "coidh" in _o or "caso " in _o:
+                tipo_tag = ' tipo="SENTENCIA_COIDH" prioridad="ALTA"'
+            else:
+                tipo_tag = ' tipo="BLOQUE_CONSTITUCIONAL" prioridad="ALTA"' 
         elif r.silo in ("leyes_federales", "codigo_nacional"):
             tipo_tag = ' tipo="LEY_FEDERAL" prioridad="PRIMARIA"'
         elif r.silo == "doctrina":
@@ -8387,6 +8442,39 @@ async def hybrid_search_all_silos(
     # hacer una búsqueda adicional al silo estatal con el dense embedding de la
     # query ORIGINAL (sin HyDE contaminado por terminología federal).
     # Garantiza recuperar artículos aunque HyDE o expand hayan apuntado a otro silo.
+    # ═══════════════════════════════════════════════════════════════════
+    # LA FUENTE PRIMARIA NO PUEDE PERDER CONTRA EL COMENTARIO (19-sep-2026)
+    # ═══════════════════════════════════════════════════════════════════
+    # David: «la Convención Americana y los tratados casi no se citan, y eso
+    # que están en el acervo». Medido sobre «inaplicar la prisión preventiva
+    # oficiosa»: de los VEINTE primeros del bloque constitucional, DIECINUEVE
+    # eran cuadernillos de la Corte IDH y ninguno era un tratado ni un
+    # artículo constitucional. No es que falten —hay 282 fragmentos de
+    # convenciones, 98 de la Constitución y 91 sentencias de la CoIDH— es que
+    # los cuadernillos son el 76% de la colección y ganan por masa: el Art. 19
+    # CPEUM puntuaba 0.5335 y el Art. 9 PIDCP 0.5333, cinco centésimas por
+    # debajo del primer cuadernillo.
+    #
+    # Una búsqueda aparte, filtrada a fuente primaria, los pone en la mesa sin
+    # quitarle sitio al comentario. Cuesta una consulta más a Qdrant —
+    # milisegundos, en paralelo con las demás— y no toca el modelo.
+    _extra_primarias_task = None
+    if "bloque_constitucional" in silos_to_search:
+        _extra_primarias_task = asyncio.create_task(
+            hybrid_search_single_silo(
+                collection="bloque_constitucional",
+                query=query,
+                dense_vector=dense_vector,
+                sparse_vector=sparse_vector,
+                filter_=Filter(must=[FieldCondition(
+                    key="tipo",
+                    match=MatchAny(any=["convencion", "constitucion",
+                                        "sentencia_cidh", "opinion_consultiva"]))]),
+                top_k=max(6, top_k // 3),
+                alpha=alpha,
+            )
+        )
+
     _extra_estatal_task = None
     if _selected_state_silo and ("estatal" in fuero_parts or not fuero_parts) and hyde_doc:
         _original_dense = await get_dense_embedding(query)  # query original, no HyDE
@@ -8404,6 +8492,19 @@ async def hybrid_search_all_silos(
         )
 
     all_results = await asyncio.gather(*tasks)
+    if _extra_primarias_task:
+        try:
+            _primarias = await _extra_primarias_task
+            if isinstance(_primarias, list) and _primarias:
+                all_results = list(all_results) + [_primarias]
+                _tipos = {}
+                for _r in _primarias:
+                    _t = (getattr(_r, "tipo_criterio", None) or "primaria")
+                    _tipos[_t] = _tipos.get(_t, 0) + 1
+                print(f"   📜 Fuente primaria (tratados, Constitución, CoIDH): "
+                      f"{len(_primarias)} resultados")
+        except Exception as _ep:
+            print(f"   ⚠️ No se pudo buscar fuente primaria: {err(_ep)}")
     if _extra_estatal_task:
         extra_estatal = await _extra_estatal_task
         all_results = list(all_results) + [extra_estatal]
@@ -8453,6 +8554,29 @@ async def hybrid_search_all_silos(
     estatales.sort(key=lambda x: x.score, reverse=True)
     jurisprudencia.sort(key=lambda x: x.score, reverse=True)
     constitucional.sort(key=lambda x: x.score, reverse=True)
+
+    # LA FUENTE PRIMARIA VA PRIMERO DENTRO DEL BLOQUE (19-sep-2026). Ordenar
+    # sólo por puntuación entrega veinte cuadernillos y ni un tratado: son el
+    # 76% de la colección y ganan por masa, no por pertinencia. Se reservan los
+    # primeros puestos a la norma —Constitución y tratados— y a la sentencia de
+    # la Corte IDH; el comentario sigue detrás, entero.
+    def _es_primaria(_r) -> bool:
+        _t = ((_r.origen or "") + " " + (_r.ref or "")).lower()
+        if "cuadernillo" in _t:
+            return False
+        return ("cpeum" in _t or "constitución política" in _t
+                or any(k in _t for k in ("convención", "convencion", "pacto", "protocolo",
+                                         "declaración", "declaracion", "tratado",
+                                         "pidcp", "pidesc", "cedaw", "cadh", "dudh"))
+                or "corte interamericana" in _t or "coidh" in _t or "caso " in _t)
+
+    _prim = [r for r in constitucional if _es_primaria(r)]
+    _coment = [r for r in constitucional if not _es_primaria(r)]
+    if _prim:
+        _cupo = min(len(_prim), max(3, len(constitucional) // 3))
+        constitucional = _prim[:_cupo] + _coment + _prim[_cupo:]
+        print(f"   📜 Bloque: {_cupo} de fuente primaria al frente "
+              f"({len(_prim)} primarias, {len(_coment)} de comentario)")
 
     # ═══════════════════════════════════════════════════════════════════════════
     # PASO -1 (CONT.): INYECTAR RESULTADOS DETERMINISTAS CON PRIORIDAD MÁXIMA
@@ -14177,13 +14301,19 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     if _xml_doc:
                         context_xml = (context_xml or "") + (
                             '\n<doctrina>\n'
-                            '<!-- INSTRUCCIÓN DOCTRINA: obras jurídicas de referencia. Úsalas para '
-                            'enriquecer el concepto citándolas con su [Doc ID: uuid] como cualquier '
-                            'fuente. Si citas TEXTUAL: copia el pasaje CARÁCTER POR CARÁCTER del '
-                            'documento, máximo 40 palabras, entre comillas « », seguido de (autor, '
-                            'obra, página) y su [Doc ID]. PROHIBIDO poner comillas a una paráfrasis: '
-                            'si no copias exacto, parafrasea SIN comillas. La doctrina ilustra; el '
-                            'fundamento son la ley y la jurisprudencia. -->\n'
+                            '<!-- INSTRUCCIÓN DOCTRINA: obras jurídicas de referencia.\n'
+                            'SI LA RESPUESTA EXPLICA UN CONCEPTO (naturaleza jurídica, finalidad, '
+                            'requisitos, distinción entre figuras) Y AQUÍ HAY UN FRAGMENTO QUE LO '
+                            'TRATA, CÍTALO con su [Doc ID: uuid]. No la dejes sin usar: se recuperó '
+                            'porque viene al caso, y una respuesta que explica un concepto sin '
+                            'apoyarlo en la obra que lo define está peor fundada de lo que podría. '
+                            'Lo que NO debes hacer es fundar en doctrina lo que se funda en norma: '
+                            'la obligación nace de la ley y la jurisprudencia; la doctrina explica '
+                            'POR QUÉ la figura es como es.\n'
+                            'Si citas TEXTUAL: copia el pasaje CARÁCTER POR CARÁCTER del documento, '
+                            'máximo 40 palabras, entre comillas « », seguido de (autor, obra, '
+                            'página) y su [Doc ID]. PROHIBIDO poner comillas a una paráfrasis: si no '
+                            'copias exacto, parafrasea SIN comillas y cita igual el [Doc ID]. -->\n'
                             + "\n".join(_xml_doc) + '\n</doctrina>')
                         _autores = ";".join(dict.fromkeys(
                             str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
@@ -15919,12 +16049,39 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 if _doctrina_frags:
                     try:
                         import doctrina as _doctrina_mod
-                        _no_verif = _doctrina_mod.citas_sin_verificar(content_buffer or "", _doctrina_frags)
+                        # SÓLO SE ANUNCIA LA QUE DE VERDAD SE CITÓ (19-sep-2026).
+                        # David: «casi siempre la respuesta dice que consultó
+                        # doctrina pero no trae ninguna cita de eso». Y tenía
+                        # razón: la tarjeta se armaba con lo RECUPERADO, no con
+                        # lo CITADO, así que anunciaba a Ferrer Mac-Gregor al pie
+                        # de una respuesta donde no aparecía ni una vez. Medido
+                        # sobre una consulta real: 3 fragmentos recuperados, 0
+                        # citados, tarjeta puesta igual. Prometer una fuente que
+                        # no se usó es la misma falta que citar una que no
+                        # existe, sólo que al revés.
+                        _usados = [f for f in _doctrina_frags
+                                   if str(f.get("id", "")).lower() in (content_buffer or "").lower()]
+                        if not _usados:
+                            print(f"   📚 Doctrina recuperada ({len(_doctrina_frags)}) pero NO citada: "
+                                  f"no se anexa la tarjeta")
+                            raise _SinDoctrinaCitada
+                        if len(_usados) < len(_doctrina_frags):
+                            print(f"   📚 Tarjeta doctrinal: {len(_usados)} de "
+                                  f"{len(_doctrina_frags)} fragmentos citados")
+                        # NOMBRE NUEVO, NO REASIGNACIÓN. Asignar a
+                        # `_doctrina_frags` aquí lo convierte en local de este
+                        # generador y la LECTURA de dos líneas antes revienta con
+                        # UnboundLocalError: la consulta entera se cae al final,
+                        # con el texto ya entregado. Es el mismo error de ámbito
+                        # que el código ya advertía con `_rama`, y lo cometí igual.
+                        _no_verif = _doctrina_mod.citas_sin_verificar(content_buffer or "", _usados)
                         if _no_verif:
                             print(f"   📚 ⚠️ {_no_verif} cita(s) doctrinal(es) sin verificar contra la obra")
                         else:
                             print(f"   📚 Citas doctrinales verificadas contra los fragmentos")
-                        yield "\n\n" + _doctrina_mod.bloque_doctrina_html(_doctrina_frags, _no_verif) + "\n\n"
+                        yield "\n\n" + _doctrina_mod.bloque_doctrina_html(_usados, _no_verif) + "\n\n"
+                    except _SinDoctrinaCitada:
+                        pass
                     except Exception as _dhe:
                         print(f"   📚 No pude anexar la tarjeta doctrinal: {_dhe}")
 
