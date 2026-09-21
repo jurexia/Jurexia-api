@@ -85,8 +85,8 @@ ok('.select("estado->consulta, estado->contraste, estado->propuesta")' in m,
 
 print("\n3 · LAS TAREAS SUELTAS LATEN")
 import taller_estado as te
-ok(m.count("await _taller_con_latido(email, numero, ") == 3,
-   "consulta, contraste y propuesta corren con latido")
+ok(m.count("await _taller_con_latido(email, numero, ") == 4,
+   "consulta, refuerzo del acervo, contraste y propuesta corren con latido")
 ok('"latido": time.time()}, huella)' in m, "el latido rescribe la marca cada 45 s")
 ok(te.abandonada({"estado": "en_curso", "desde": 1000.0, "latido": 1800.0}, ahora=lambda: 2000.0),
    "sin latido en 150 s, la tarea está muerta")
