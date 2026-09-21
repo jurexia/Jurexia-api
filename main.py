@@ -11198,12 +11198,38 @@ async def analyze_document(
                     pdf_doc.close()
                     extracted_text = "\n\n".join(pages_text)
 
-                    # Check if PDF is scanned (very little text extracted)
+                    # ¿ES ESTO UN DOCUMENTO, O SON LOS SELLOS? (21-sep-2026)
+                    # -----------------------------------------------------
+                    # Aquí había un portero propio —«menos de 50 caracteres por
+                    # página es un escaneo»— y se le colaba justo lo que tenía
+                    # que parar. Medido con el 563-2025-conceptos.pdf que subió
+                    # David: 22 páginas, UNA IMAGEN por página y una capa de
+                    # texto de 2.065 caracteres que son siempre los mismos 93:
+                    #
+                    #     MARIA DE LA LUZ RAMIREZ MARTINEZ
+                    #     706a6620636a663200000000000000000001d0ad
+                    #     15/05/26 18:00:00
+                    #
+                    # el sello de la FIREL, repetido veintidós veces. 93 por
+                    # página es más de 50, así que el portero dijo «tiene texto»,
+                    # el OCR no llegó a correr y el modelo recibió el sello por
+                    # todo documento. Respondió lo único honrado que podía
+                    # responder: que el archivo no contiene conceptos de
+                    # violación. El abogado creyó que fallaba el análisis.
+                    #
+                    # El portero BUENO ya existía. `_texto_nativo_sirve` mide la
+                    # RIQUEZA y no la longitud, y nació de este mismo engaño en
+                    # otro expediente —«costó un proyecto entero descubrirlo»—.
+                    # Sobre este PDF: 88 palabras de tres letras o más (pide 120)
+                    # y 0.045 de únicas (pide 0.12). Lo caza por dos sitios.
+                    # El arreglo existía y vivía en el otro camino; esto es
+                    # ponerlos a los dos a juzgar con la misma vara.
                     total_pages = len(pages_text)
                     text_per_page = len(extracted_text.strip()) / max(total_pages, 1)
-                    if text_per_page < 50:  # Less than 50 chars per page = likely scanned
+                    if not _texto_nativo_sirve(extracted_text, total_pages):
                         is_scanned_pdf = True
-                        print(f"   📸 PDF escaneado detectado ({total_pages} páginas, {text_per_page:.0f} chars/pág)")
+                        print(f"   📸 PDF sin texto aprovechable ({total_pages} páginas, "
+                              f"{text_per_page:.0f} chars/pág) — se manda al OCR")
                     else:
                         t_extract = _time.time()
                         print(f"   📝 PDF con texto seleccionable ({total_pages} páginas, {len(extracted_text):,} chars) — {t_extract - t_read:.2f}s")
