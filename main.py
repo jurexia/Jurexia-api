@@ -29314,6 +29314,25 @@ async def _taller_preconsultar(email: str, numero: str, r) -> None:
                 lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL), r,
                 chat_client, ""))
         _seg = time.perf_counter() - _t0
+        # ── EL REFUERZO, ANTES DE GUARDAR ──
+        # La consulta formula UNA vez por problema y a ciegas; medido contra el
+        # banco de 404 tesis reales, así se queda fuera la mayoría de lo que el
+        # engrose de verdad citó. Aquí el modelo ve lo que ya hay, busca lo que
+        # falta y lo suma AL MISMO objeto `material`, de modo que entra en la
+        # fila con el resto: si se guardara antes, lo hallado viviría sólo en
+        # este worker y se perdería —el quinto caso de [[estado-entre-workers]]
+        # empezó exactamente así—. Interruptor: REFUERZO_ACERVO=0.
+        if os.getenv("REFUERZO_ACERVO", "1") != "0":
+            try:
+                import busqueda_dirigida as _bd
+                await _taller_con_latido(email, numero, "consulta", huella, _desde,
+                    _bd.reforzar(
+                        chat_client, qdrant_client, _embedding_juris,
+                        _te.problemas_de(r), material,
+                        materia=str(getattr(r.encargo, "materia", "") or ""),
+                        coleccion_estatal=getattr(r.encargo, "coleccion_estatal", "") or ""))
+            except Exception as _exr:
+                print(f"   ⚠️ el refuerzo del acervo falló: {err(_exr)}")
         if _taller_guardar_material(email, numero, material, huella=huella,
                                     marca={"huella": huella, "estado": "listo",
                                            "segundos": round(_seg, 1)},
