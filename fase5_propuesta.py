@@ -638,8 +638,21 @@ _VEREDICTOS_CONTRASTE = ("inoperante", "fundado_pero_insuficiente", "a_examinar"
 
 
 def prompt_contraste(problemas: list, resumen_acto: str, resumen_conceptos: str,
-                     es_recurso: bool = False) -> str:
+                     es_recurso: bool = False, contexto: str = "") -> str:
     quien = "la recurrente" if es_recurso else "la quejosa"
+    # LA RESOLUCIÓN DEL INCIDENTE, si el secretario la aportó: para el
+    # planteamiento procesal, la razón toral es la de ESA resolución, no la
+    # de la sentencia. ADC 93/2026: la tarjeta decía «razón toral: la actora
+    # no ejerció su derecho» con la interlocutoria de la reclamación delante.
+    _bloque_vp = ""
+    if (contexto or "").strip():
+        import violacion_procesal as _vp
+        if _vp.clasificar(contexto)[0] == _vp.RESOLUCION_PROCESAL:
+            _bloque_vp = _vp.bloque(contexto, para="propuesta", tope=12000,
+                                    recortar=_recorte_limpio) + (
+                "\nPara el planteamiento que combate esa actuación, `razon_toral` "
+                "es lo que ESTA resolución sostuvo —sus razones concretas—, y "
+                "`la_combate` se mide contra ellas.\n")
     escrito = "agravio" if es_recurso else "concepto de violación"
     lista = []
     for i, p in enumerate(problemas, 1):
@@ -663,7 +676,7 @@ LO QUE PLANTEA {quien.upper()}, resumido:
 
 LOS PLANTEAMIENTOS:
 {problemas_txt}
-
+{_bloque_vp}
 PARA CADA UNO, EN ESTE ORDEN:
 
 1. `razon_toral`: la consideración CONCRETA de la responsable que sostiene el
@@ -719,7 +732,8 @@ Devuelve SÓLO un JSON, sin texto alrededor:
 
 
 async def contrastar(cliente, problemas: list, resumen_acto: str,
-                     resumen_conceptos: str, es_recurso: bool = False) -> list:
+                     resumen_conceptos: str, es_recurso: bool = False,
+                     contexto: str = "") -> list:
     """El contraste, problema por problema. Nunca lanza: sin contraste se
     propone como antes, y se deja constancia en el aviso."""
     if not problemas:
@@ -728,7 +742,7 @@ async def contrastar(cliente, problemas: list, resumen_acto: str,
               temperature=0, seed=20260914,
               max_completion_tokens=MAX_TOKENS_CONTRASTE,
               messages=[{"role": "user", "content": prompt_contraste(
-                  problemas, resumen_acto, resumen_conceptos, es_recurso)}])
+                  problemas, resumen_acto, resumen_conceptos, es_recurso, contexto)}])
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     import llamada_modelo as _lm
@@ -1217,18 +1231,33 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # si el A/B contra los engroses reales lo sostiene.
     import asyncio as _asyncio_c
     _tarea_contraste = None
-    if contraste_previo is not None:
+    # EL CONTRASTE ADELANTADO NO VALE si lo aportado es la resolución del
+    # incidente procesal: se calculó sin ella, con la razón toral de la
+    # sentencia, y para ese planteamiento la razón toral es otra. Se rehace
+    # con la interlocutoria delante; es una llamada más sólo en ese caso.
+    _con_resolucion = False
+    if (contexto or "").strip():
+        try:
+            import violacion_procesal as _vp_c
+            _con_resolucion = _vp_c.clasificar(contexto)[0] == _vp_c.RESOLUCION_PROCESAL
+        except Exception:
+            _con_resolucion = False
+    if contraste_previo is not None and not _con_resolucion:
         # YA CALCULADO POR EL ADELANTO —`_taller_precontrastar`— con las mismas
         # entradas, el mismo modelo y el mismo esfuerzo: entra a la instrucción
         # igual que si se hubiera calculado aquí, sin esperar su minuto.
         contraste = list(contraste_previo)
     elif CONTRASTE_EN_PARALELO:
         _tarea_contraste = _asyncio_c.ensure_future(contrastar(
-            cliente, problemas, resumen_acto, resumen_conceptos, es_recurso))
+            cliente, problemas, resumen_acto, resumen_conceptos, es_recurso,
+            contexto if _con_resolucion else ""))
         contraste = []
     else:
+        if _con_resolucion:
+            print("   ⚖️ CONTRASTE: se rehace con la resolución del incidente aportada")
         contraste = await contrastar(cliente, problemas, resumen_acto,
-                                     resumen_conceptos, es_recurso)
+                                     resumen_conceptos, es_recurso,
+                                     contexto if _con_resolucion else "")
     kw = dict(model=MODELO_PROPUESTA,
               temperature=0, seed=20260831,
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
