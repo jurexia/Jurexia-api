@@ -1088,7 +1088,8 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     except Exception as _ex:
         print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
     return await _terminar(cliente, r, e, criterios, material, estudio,
-                           advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
+                           advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco,
+                           contexto)
 
 
 async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
@@ -1231,7 +1232,8 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     except Exception as _ex:
         print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
     res = await _terminar(cliente, r, e, criterios, material, estudio,
-                          advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco)
+                          advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco,
+                          contexto)
     yield {"tipo": "listo", "resultado": res}
 
 
@@ -1272,7 +1274,7 @@ def _revisar_contaminacion(r, e) -> list:
 
 async def _terminar(cliente, r, e, criterios, material, estudio,
                     advertencias, avisos, tarea_marco, ruta_salida, qdrant=None,
-                    marco: str = ""):
+                    marco: str = "", contexto: str = ""):
     """De la salida del modelo al documento entregado.
 
     Vive fuera de `resolver()` porque la versión en vivo hace exactamente lo
@@ -1455,6 +1457,25 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
             if "word/footnotes.xml" in _z.namelist():
                 _xml += _z.read("word/footnotes.xml").decode("utf-8", "replace")
         _plano = re.sub(r"<[^>]+>", "", re.sub(r"</w:p>", "\n", _xml))
+        # UNA FECHA QUE NO CONSTA EN AUTOS NO SE AFIRMA. Toda fecha completa del
+        # estudio tiene que estar en alguna fuente del asunto —los documentos
+        # leídos, los resúmenes, lo aportado—. Calibrado sobre las tres
+        # versiones del 93/2026 (0 acusaciones falsas: la que parecía inventada,
+        # «cuatro de agosto», estaba en la demanda).
+        try:
+            import fechas_en_autos as _fe
+            _fuentes_fe = list(getattr(r.fases, "fuentes", None) or []) + [
+                str(getattr(r.fases, "resumen_acto", "") or ""),
+                str(getattr(r.fases, "resumen_conceptos", "") or ""),
+                "\n".join(getattr(r.fases, "antecedentes", None) or []),
+                str(getattr(r.fases, "autos", "") or ""),
+                str(contexto or "")]
+            _av_fe = _fe.aviso(str(estudio or ""), _fuentes_fe)
+            if _av_fe:
+                print(f"   📅 {_av_fe[:200]}")
+                avisos.append(_av_fe)
+        except Exception as _exfe:
+            print(f"   ⚠️ no se pudieron comprobar las fechas: {_exfe}")
         # EL DESENLACE, DICHO IGUAL EN TODO EL PROYECTO. `revisar_congruencia`
         # sólo conocía las fórmulas del amparo; en un recurso, «se confirma» en
         # el estudio contra «Se revoca» en el resolutivo pasaba limpio. Así salió

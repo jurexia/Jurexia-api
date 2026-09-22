@@ -388,12 +388,15 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         # propuesto para el sentido contrario.
         elif str(getattr(c, "razonamiento", "") or "").startswith(
                 "Descansa en la premisa que se desestimó"):
-            lineas.append("   CAE CON EL PRINCIPAL: se declara en UN párrafo, "
-                          "diciendo qué premisa se desestimó y por qué su "
+            lineas.append("   CAE CON EL PRINCIPAL: se declara en UN párrafo que "
+                          "ABRE CON LA RESPUESTA («No. …», «Es inoperante, "
+                          "porque…»), dice qué premisa se desestimó y por qué su "
                           "estudio no produciría ningún fin práctico. NO se "
-                          "estudia de fondo, NO se ordena nada a la responsable "
-                          "sobre él, y NO se le aplica ninguna suerte que el "
-                          "motor hubiera escrito para el sentido contrario.")
+                          "estudia de fondo, NO se citan tesis de apoyo —para "
+                          "decir que una premisa cayó no hace falta ninguna—, NO "
+                          "se ordena nada a la responsable sobre él, y NO se le "
+                          "aplica ninguna suerte que el motor hubiera escrito "
+                          "para el sentido contrario.")
         # LA CORRIENTE DEL ACERVO. Si el sentido va CONTRA lo que hicieron los
         # demás tribunales sobre el mismo tema, el estudio tiene que hacerse
         # cargo de la objeción: apartarse del criterio mayoritario se puede
@@ -2690,6 +2693,25 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
                    for r in rubros_material if r):
             avisos.append(f"RUBRO CITADO QUE NO CASA CON EL ACERVO: "
                           f"«{m_.group(1)[:70]}…». Compruébalo.")
+            break
+
+    # 4-bis-2. CADA APARTADO ABRE CON SU RESPUESTA. ADC 93/2026 v3: el
+    #          apartado 2 pasaba de la pregunta a «Sirve de apoyo la
+    #          jurisprudencia…» sin contestar; la calificación llegaba cuatro
+    #          párrafos después. La regla del prompt lo pide; esto lo comprueba.
+    _lineas = [x.strip() for x in estudio.split("\n") if x.strip()]
+    for _i, _l in enumerate(_lineas[:-1]):
+        if not re.match(r"^\d{1,2}\.\s*¿", _l):
+            continue
+        _sig = _lineas[_i + 1]
+        if re.match(r"^(?:sirve[n]?\s+de\s+apoyo|resulta[n]?\s+aplicable|es\s+aplicable|"
+                    r"al\s+respecto,?\s+(?:la|el)\s+(?:jurisprudencia|tesis|criterio)|"
+                    r"[«“\"])", _sig, re.I):
+            avisos.append(
+                f"EL APARTADO «{_l[:60]}…» NO ABRE CON LA RESPUESTA: pasa de la "
+                f"pregunta a una tesis («{_sig[:50]}…»). El párrafo que sigue a "
+                f"la pregunta contesta —«No. …», «Sí, porque…»— y la tesis viene "
+                f"después.")
             break
 
     # 4-ter. El condicional sobre autos. Determinista y barato, y cierra el

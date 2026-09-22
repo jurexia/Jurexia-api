@@ -166,7 +166,7 @@ ok('select(f"estado->{clave}")' in src, "la espera lee sólo la rama del contras
 import fase5_propuesta as f5
 ok("contraste_previo" in inspect.signature(f5.proponer).parameters, "proponer admite el contraste previo")
 s5 = inspect.getsource(f5.proponer)
-ok(0 < s5.find("if contraste_previo is not None:") < s5.find("elif CONTRASTE_EN_PARALELO:"),
+ok(0 < s5.find("if contraste_previo is not None") < s5.find("elif CONTRASTE_EN_PARALELO:"),
    "y lo usa antes de decidir si calcularlo en serie o en paralelo")
 ok(f5.ESFUERZO_PROPUESTA == "high" and not f5.CONTRASTE_EN_PARALELO,
    "el esfuerzo sigue alto y el contraste entra a la instrucción, como pidió David")
