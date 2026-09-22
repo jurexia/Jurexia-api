@@ -971,9 +971,13 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
                 _ta_r.prospera(str(getattr(c, "sentido", "")))
                 for c in (criterios or [])) else "infundado"
             _rama = _ta_r.rama_revision(_que, _sent)
-        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
-                  and "procesal" in str(getattr(c, "problema", "")).lower()
-                  for c in (criterios or []))
+        # LA VIOLACIÓN PROCESAL SE RECONOCE POR LO QUE SE COMBATE, no por que
+        # la pregunta diga «violación procesal»: la del 93/2026 decía «¿debió
+        # admitir la ampliación de demanda…?» y esta marca no la veía, así que
+        # el estudio no recibió la técnica de los artículos 171 y 172.
+        import violacion_procesal as _vpm
+        _vp = _vpm.hay(list(getattr(r.fases, "problemas", None) or []),
+                       criterios, contexto)
     except Exception as _e:
         print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
 
@@ -1111,9 +1115,13 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
                 _ta_r.prospera(str(getattr(c, "sentido", "")))
                 for c in (criterios or [])) else "infundado"
             _rama = _ta_r.rama_revision(_que, _sent)
-        _vp = any("violaci" in str(getattr(c, "problema", "")).lower()
-                  and "procesal" in str(getattr(c, "problema", "")).lower()
-                  for c in (criterios or []))
+        # LA VIOLACIÓN PROCESAL SE RECONOCE POR LO QUE SE COMBATE, no por que
+        # la pregunta diga «violación procesal»: la del 93/2026 decía «¿debió
+        # admitir la ampliación de demanda…?» y esta marca no la veía, así que
+        # el estudio no recibió la técnica de los artículos 171 y 172.
+        import violacion_procesal as _vpm
+        _vp = _vpm.hay(list(getattr(r.fases, "problemas", None) or []),
+                       criterios, contexto)
     except Exception as _e:
         print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
 

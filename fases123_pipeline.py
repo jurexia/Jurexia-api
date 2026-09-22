@@ -776,6 +776,7 @@ Devuelve JSON y nada más:
     {{"pregunta": "...",
       "cubre": [1, 2],
       "jerarquia": "principal|accesorio",
+      "clase": "fondo|procesal|procedencia",
       "resolvio": "qué resolvió el órgano recurrido sobre este punto",
       "combate": "qué lo combate",
       "depende_de": "el número del problema del que depende, o null",
@@ -783,6 +784,13 @@ Devuelve JSON y nada más:
       "apoyo": null}}
   ]
 }}
+"clase": "procesal" cuando lo que se combate es una actuación del
+procedimiento —una ampliación de demanda desechada o precluida, una prueba no
+admitida o no desahogada, un emplazamiento, un recurso ordinario resuelto—;
+"procedencia" cuando es una causa de improcedencia o sobreseimiento; "fondo"
+en lo demás. En la violación procesal, `resolvio` es lo que decidió la
+actuación combatida y, si la hubo, la resolución del recurso ordinario que la
+confirmó; no lo que la sentencia definitiva dijo de pasada.
 {_reparto}Si adviertes un impedimento técnico que llevaría a inoperancia, ponlo en
 "impedimento" como {{"motivo": "inoperancia", "explicacion": "..."}}.
 Y si adviertes lo contrario —algo que sostenga el planteamiento— ponlo en

@@ -29714,6 +29714,34 @@ async def _taller_esperar_contraste(email: str, numero: str, r):
 # que resuelve cinco veces el mismo asunto deja una ficha, no cinco: es la misma
 # decisión que ya está tomada para el almacén, y el historial que tiene sentido
 # es «mis asuntos», no «mis intentos».
+def _taller_tocados(criterios_json: str, crit: list, modo_decision: str = "",
+                    usar_propuesta: bool = False, sentido: str = "") -> set:
+    """Los problemas cuya calificación puso EL SECRETARIO a mano.
+
+    Es lo que el árbol de decisión no toca. La pantalla lo dice en cada
+    criterio con `tocado`; si ningún criterio trae la marca —un cliente
+    anterior a hoy—, se tiene por tocado todo lo que llegó, que es
+    exactamente lo que pasaba antes: nada cambia para quien no manda la marca.
+    En modo global `criterios_json` sólo trae lo que él marcó; en modo acervo
+    no trae nada; y el criterio único de `sentido` es suyo por definición.
+    """
+    try:
+        _lista = json.loads(criterios_json or "[]") or []
+    except Exception:
+        _lista = []
+    _lista = [d for d in _lista if isinstance(d, dict)]
+    if not _lista:
+        if (sentido or "").strip() and not usar_propuesta \
+                and (modo_decision or "").strip().lower() not in ("acervo", "global"):
+            return {str(getattr(c, "problema", "")) for c in (crit or [])}
+        return set()
+    if any("tocado" in d for d in _lista):
+        return {str(d.get("problema") or "") for d in _lista
+                if d.get("tocado") in (True, 1, "1", "true", "si", "sí")}
+    return {str(d.get("problema") or "") for d in _lista
+            if str(d.get("sentido") or "").strip()}
+
+
 def _taller_guardar_proyecto(email: str, numero: str, res,
                              criterios: list = None, modo: str = "",
                              sentido_global: str = "") -> int:
@@ -31436,7 +31464,13 @@ async def taller_contexto(
     junto = "\n\n".join(partes)
     if not junto:
         raise HTTPException(400, "No llegó ni documento ni texto que aportar.")
-    print(f"   ⚖️ TALLER: contexto aportado · {len(junto)} caracteres")
+    # QUÉ ES LO QUE LLEGÓ. Si es la resolución del incidente procesal —la
+    # interlocutoria de la reclamación—, la pantalla lo dice y el motor la
+    # tratará como la razón toral de la violación, no como un papel más.
+    import violacion_procesal as _vpc
+    _clase_ctx, _senales_ctx = _vpc.clasificar(junto)
+    print(f"   ⚖️ TALLER: contexto aportado · {len(junto)} caracteres · "
+          f"{_clase_ctx} {_senales_ctx}")
     # SE GUARDA CONTRA EL EXPEDIENTE, para que la BÚSQUEDA lo use. Antes esto
     # volvía al navegador y de ahí sólo iba a los prompts: el acervo se
     # consultaba sin saber nada de lo que el secretario acababa de aportar.
@@ -31446,7 +31480,147 @@ async def taller_contexto(
             _s["contexto"] = junto[:60000]
             print(f"   🧭 contexto guardado para {numero}: {len(junto)} caracteres")
     return {"texto": junto[:60000], "caracteres": len(junto),
-            "recortado": len(junto) > 60000}
+            "recortado": len(junto) > 60000,
+            "clase": _clase_ctx,
+            "rotulo": _vpc.rotulo(_clase_ctx)}
+
+
+@app.post("/taller/reparto")
+async def taller_reparto(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    criterios_json: str = Form(...),
+    global_json: str = Form(""),
+):
+    """La suerte de los accesorios cuando el secretario cambia el principal.
+
+    David (22-sep-2026): «que el redactor sea inteligente en la plataforma del
+    taller para advertir que si cambio de sentido o el sentido de la resolución
+    principal es uno, los accesorios caen por su propio peso cuando tienen
+    estrecha relación o cuando a ningún fin práctico produce su análisis».
+
+    No llama a ningún modelo: aplica `arbol_decision` —la MISMA regla que el
+    resolver aplicará al generar— sobre lo que la pantalla tiene, y devuelve
+    cada criterio con su sentido, de quién es («principal», «tuya»,
+    «distinto», «propio») y por qué. La pantalla lo pinta; el secretario puede
+    pisar cualquiera marcándolo a mano.
+    """
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    r = ses["resultado"]
+    try:
+        _lista = json.loads(criterios_json or "[]") or []
+    except Exception:
+        raise HTTPException(422, "criterios_json no es JSON válido.")
+    _glob = {}
+    if (global_json or "").strip():
+        try:
+            _g = json.loads(global_json)
+            _glob = _g if isinstance(_g, dict) else {}
+        except Exception:
+            _glob = {}
+    import arbol_decision as _ad
+    return _ad.reparto_para_pantalla(
+        list(r.fases.problemas or []),
+        [d for d in _lista if isinstance(d, dict)],
+        (_glob or {}).get("checklist") or [],
+        [{"problema": _p.problema, "sentido": _p.sentido,
+          "alcanza": getattr(_p, "alcanza", True)}
+         for _p in (ses.get("propuestas") or [])],
+        sentido_motor=str((_glob or {}).get("sentido") or ""))
+
+
+@app.post("/taller/problema")
+async def taller_problema(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    indice: int = Form(...),
+    pregunta: str = Form(""),
+    jerarquia: str = Form(""),
+):
+    """El problema jurídico se corrige antes de decidirlo.
+
+    David (22-sep-2026): «Desde fijar si el problema jurídico es el correcto y
+    dar la opción de modificarlo». La fase 3 lo redacta y hasta hoy era de
+    sólo lectura: todo lo que sigue —contraste, propuesta, estudio— se
+    emparejaba por el texto literal de la pregunta, así que corregirla en
+    pantalla habría dejado huérfanos la jerarquía, la predicción y la
+    propuesta.
+
+    Aquí se corrige EN LA FUENTE —`fases.problemas[indice]`— y se persiste
+    en la base: los dos workers la releen por el sello, la huella del
+    contraste cambia sola (se calcula sobre los problemas) y la propuesta
+    siguiente se hace sobre la pregunta corregida. El texto anterior se
+    conserva en `pregunta_original` para que conste quién la cambió.
+    """
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    r = ses["resultado"]
+    probs = list(r.fases.problemas or [])
+    if not (0 <= int(indice) < len(probs)):
+        raise HTTPException(422, f"No hay problema {indice}: hay {len(probs)}.")
+    p = probs[int(indice)] if isinstance(probs[int(indice)], dict) \
+        else {"pregunta": str(probs[int(indice)])}
+    _preg = " ".join((pregunta or "").split())
+    _jer = (jerarquia or "").strip().lower()
+    if not _preg and _jer not in ("principal", "accesorio"):
+        raise HTTPException(422, "No llegó ni pregunta ni jerarquía que corregir.")
+    if _preg:
+        if len(_preg) < 15 or not _preg.endswith("?"):
+            raise HTTPException(
+                422, "El problema jurídico se escribe como pregunta: empieza "
+                     "por «¿» y termina en «?».")
+        if _preg != str(p.get("pregunta") or ""):
+            p.setdefault("pregunta_original", str(p.get("pregunta") or ""))
+            p["pregunta"] = _preg
+            p["editado_por_secretario"] = True
+    if _jer in ("principal", "accesorio"):
+        p["jerarquia"] = _jer
+        if _jer == "principal":
+            # UN SOLO PRINCIPAL. Si él nombra otro, el que lo era pasa a
+            # accesorio: dos principales no ordenan nada.
+            for i, q in enumerate(probs):
+                if i != int(indice) and isinstance(q, dict) \
+                        and str(q.get("jerarquia") or "").lower() == "principal":
+                    q["jerarquia"] = "accesorio"
+    probs[int(indice)] = p
+    r.fases.problemas = probs
+    # PERSISTE, PORQUE HAY DOS WORKERS: se reescribe `estado.fases.problemas`
+    # y con ello cambia `actualizado_en`, que es el sello por el que el otro
+    # worker sabe que su copia está vieja.
+    if supabase_admin:
+        try:
+            _q = supabase_admin.table("taller_sesiones").select("estado") \
+                .eq("email", (user_email or "").strip().lower()) \
+                .eq("expediente", numero).limit(1).execute()
+            if _q.data:
+                _est = _q.data[0].get("estado") or {}
+                _est.setdefault("fases", {})["problemas"] = probs
+                _est["huella"] = _te.huella_contraste(r)
+                _resp = supabase_admin.table("taller_sesiones") \
+                    .update({"estado": _est, "propuestas": []}) \
+                    .eq("email", (user_email or "").strip().lower()) \
+                    .eq("expediente", numero).execute()
+                if _resp.data:
+                    ses["sello"] = _resp.data[0].get("actualizado_en")
+        except Exception as _ex:
+            print(f"   ⚠️ TALLER: no se pudo persistir el problema corregido: {err(_ex)}")
+    # LA PROPUESTA ANTERIOR YA NO VALE: era sobre otra pregunta.
+    ses.pop("propuestas", None)
+    ses.pop("global", None)
+    print(f"   ✏️  problema {indice} de {numero} corregido por el secretario: "
+          f"«{_preg[:80]}» · {_jer or 'misma jerarquía'}")
+    return {"problemas": [{"pregunta": q.get("pregunta", ""),
+                           "jerarquia": q.get("jerarquia", "accesorio"),
+                           "editado": bool(q.get("editado_por_secretario"))}
+                          for q in probs if isinstance(q, dict)],
+            "huella": _te.huella_contraste(r),
+            "aviso": "La propuesta anterior se descarta: vuelve a pedirla sobre "
+                     "el problema corregido."}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -31840,6 +32014,34 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         except Exception as _edz:
             print(f"   ⚠️ DESENLACE: no se pudo reconciliar la propuesta: {err(_edz)}")
 
+    # ═══ LA SUERTE DE LOS ACCESORIOS, YA EN LA PROPUESTA ═══════════════════
+    # El motor propone un sentido por problema y otro para el asunto, y los
+    # dos pueden no casar: en el 93/2026 propuso el accesorio «fundado» y en
+    # su propia lista escribió que, en la vía contraria, «no podían». Se pasa
+    # por el árbol con el principal tal como lo propuso, para que lo que el
+    # secretario lea sea ya coherente consigo mismo. Nada suyo se toca aquí:
+    # todavía no ha marcado nada.
+    try:
+        import arbol_decision as _ad
+        _crit_ad = [{"problema": _p.problema, "sentido": _p.sentido,
+                     "razonamiento": _p.razon,
+                     "jerarquia": _jer_por_problema.get(_p.problema, "accesorio")}
+                    for _p in propuestas]
+        _av_ad, _ = _ad.aplicar(
+            problemas, _crit_ad, list(getattr(glob, "checklist", None) or []),
+            [{"problema": _p.problema, "sentido": _p.sentido, "alcanza": _p.alcanza}
+             for _p in propuestas],
+            sentido_motor=str(getattr(glob, "sentido", "") or ""))
+        for _c, _p in zip(_crit_ad, propuestas):
+            if _p.alcanza and _p.sentido and _c["sentido"] != _p.sentido:
+                print(f"   🌳 ÁRBOL en la propuesta: «{_p.problema[:60]}» "
+                      f"{_p.sentido} → {_c['sentido']}")
+                _p.sentido = _c["sentido"]
+                _p.razon = _c.get("razonamiento") or _p.razon
+        avisos.extend(_av_ad)
+    except Exception as _ead:
+        print(f"   ⚠️ ÁRBOL: no se pudo aplicar en la propuesta: {err(_ead)}")
+
     ses["propuestas"] = propuestas
     # ── Y SE PERSISTEN, PORQUE HAY DOS TRABAJADORES ──────────────────────
     #
@@ -32145,7 +32347,14 @@ async def taller_resolver_stream(
             _glob = {"problema_que_decide": getattr(_g_ses, "problema_que_decide", ""),
                      "efecto": getattr(_g_ses, "efecto", ""),
                      "en_contra": getattr(_g_ses, "en_contra", ""),
-                     "contexto": getattr(_g_ses, "contexto", None) or {}}
+                     "contexto": getattr(_g_ses, "contexto", None) or {},
+                     # LO QUE EL ÁRBOL DE DECISIÓN LEE: el sentido del motor
+                     # y la lista con la suerte condicional de cada tema.
+                     "sentido": getattr(_g_ses, "sentido", "") or "",
+                     "razon": getattr(_g_ses, "razon", "") or "",
+                     "alcanza": bool(getattr(_g_ses, "alcanza", True)),
+                     "alternativa": getattr(_g_ses, "alternativa", None) or {},
+                     "checklist": list(getattr(_g_ses, "checklist", None) or [])}
     _decl = (resolvio_declarado or "").strip() or str(
         (_glob.get("contexto") or {}).get("resolvio", "")).strip()
     if r.encargo is not None:
@@ -32362,6 +32571,30 @@ async def taller_resolver_stream(
         crit = [_f6.Criterio(problema=problema or (r.fases.problema_global or ""),
                              sentido=sentido, razonamiento=razonamiento)]
 
+    # ═══ LA SUERTE DE LOS ACCESORIOS LA DICTA EL PRINCIPAL ═══════════════
+    # En los TRES modos, no sólo en el global. ADC 93/2026: en la vía por
+    # problema cada tema era una isla y el accesorio conservó el tratamiento
+    # que el motor había escrito para el sentido contrario del principal.
+    # `arbol_decision` es el único sitio donde se decide; aquí sólo se le dan
+    # los problemas de la fase 3, la lista de la fase 5 y qué marcó el
+    # secretario a mano —eso no se toca—.
+    try:
+        import arbol_decision as _ad
+        _toc_ad = _taller_tocados(criterios_json, crit, modo_decision,
+                                  usar_propuesta, sentido)
+        _av_ad, _ = _ad.aplicar(
+            list(r.fases.problemas or []), crit,
+            (_glob or {}).get("checklist") or [],
+            [{"problema": _p.problema, "sentido": _p.sentido,
+              "alcanza": getattr(_p, "alcanza", True)}
+             for _p in (ses.get("propuestas") or [])],
+            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""))
+        for _a in _av_ad:
+            print(f"   🌳 ÁRBOL: {_a[:160]}")
+            if _a not in (r.fases.avisos or []):
+                r.fases.avisos.append(_a)
+    except Exception as _ead:
+        print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
     # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
     # Otra vez aquí, para lo que llegue por otro camino que la propuesta recién
     # reconciliada: una sesión de antes, un criterio editado a mano, el global
@@ -32786,7 +33019,14 @@ async def taller_resolver(
             _glob = {"problema_que_decide": getattr(_g_ses, "problema_que_decide", ""),
                      "efecto": getattr(_g_ses, "efecto", ""),
                      "en_contra": getattr(_g_ses, "en_contra", ""),
-                     "contexto": getattr(_g_ses, "contexto", None) or {}}
+                     "contexto": getattr(_g_ses, "contexto", None) or {},
+                     # LO QUE EL ÁRBOL DE DECISIÓN LEE: el sentido del motor
+                     # y la lista con la suerte condicional de cada tema.
+                     "sentido": getattr(_g_ses, "sentido", "") or "",
+                     "razon": getattr(_g_ses, "razon", "") or "",
+                     "alcanza": bool(getattr(_g_ses, "alcanza", True)),
+                     "alternativa": getattr(_g_ses, "alternativa", None) or {},
+                     "checklist": list(getattr(_g_ses, "checklist", None) or [])}
     _decl = (resolvio_declarado or "").strip() or str(
         (_glob.get("contexto") or {}).get("resolvio", "")).strip()
     if r.encargo is not None:
@@ -32964,6 +33204,30 @@ async def taller_resolver(
         crit = [_f6.Criterio(
             problema=problema or (r.fases.problema_global or ""),
             sentido=sentido, razonamiento=razonamiento)]
+    # ═══ LA SUERTE DE LOS ACCESORIOS LA DICTA EL PRINCIPAL ═══════════════
+    # En los TRES modos, no sólo en el global. ADC 93/2026: en la vía por
+    # problema cada tema era una isla y el accesorio conservó el tratamiento
+    # que el motor había escrito para el sentido contrario del principal.
+    # `arbol_decision` es el único sitio donde se decide; aquí sólo se le dan
+    # los problemas de la fase 3, la lista de la fase 5 y qué marcó el
+    # secretario a mano —eso no se toca—.
+    try:
+        import arbol_decision as _ad
+        _toc_ad = _taller_tocados(criterios_json, crit, modo_decision,
+                                  usar_propuesta, sentido)
+        _av_ad, _ = _ad.aplicar(
+            list(r.fases.problemas or []), crit,
+            (_glob or {}).get("checklist") or [],
+            [{"problema": _p.problema, "sentido": _p.sentido,
+              "alcanza": getattr(_p, "alcanza", True)}
+             for _p in (ses.get("propuestas") or [])],
+            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""))
+        for _a in _av_ad:
+            print(f"   🌳 ÁRBOL: {_a[:160]}")
+            if _a not in (r.fases.avisos or []):
+                r.fases.avisos.append(_a)
+    except Exception as _ead:
+        print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
     # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
     # Otra vez aquí, para lo que llegue por otro camino que la propuesta recién
     # reconciliada: una sesión de antes, un criterio editado a mano, el global

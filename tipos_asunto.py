@@ -1556,6 +1556,43 @@ TECNICA_RESOLUCION = {
     },
 
     # ── AMPARO DIRECTO: el orden del estudio ──────────────────────────────
+    # ═══ LA VIOLACIÓN PROCESAL SE EXAMINA SOBRE LA RESOLUCIÓN QUE LA DECIDIÓ ═══
+    # ADC 93/2026 (22-sep-2026): el estudio citó la jurisprudencia correcta
+    # y razonó sobre la regla general; la interlocutoria de la reclamación
+    # —que decidió la violación— se despachó en un párrafo. La técnica no es
+    # de método: los artículos 171 y 172 dicen sobre qué se examina.
+    "directo_violacion_procesal": {
+        "cuando": "Amparo directo en que se reclama una violación procesal: "
+                  "una actuación del procedimiento (ampliación desechada o "
+                  "precluida, prueba no admitida, emplazamiento…) que, si la "
+                  "hubo, un recurso ordinario confirmó.",
+        "fuente": "artículos 171, 172 y 174 de la Ley de Amparo",
+        "tecnica": [
+            "EL OBJETO DEL EXAMEN ES LA ACTUACIÓN PROCESAL Y LA RESOLUCIÓN DEL "
+            "RECURSO ORDINARIO QUE LA CONFIRMÓ, no la sentencia definitiva. La "
+            "razón toral del planteamiento son las razones de ESA resolución; "
+            "lo que la sentencia dijo de pasada («la actora no ejerció su "
+            "derecho») sólo recoge el resultado.",
+            "PRIMERO LA PREPARACIÓN (artículo 171): si la ley ordinaria daba "
+            "recurso contra la actuación, se dice que se agotó —y con qué "
+            "resultado— o que no era exigible. Sin eso, el planteamiento es "
+            "inoperante y se dice por qué.",
+            "LUEGO LA CONFRONTACIÓN: se enuncian, una por una, las razones de "
+            "la resolución que decidió la violación (qué plazo aplicó, desde "
+            "cuándo lo contó, con qué fundamento, por qué tuvo por no exigible "
+            "lo reclamado) y cada una se contrasta con la ley de la vía y con "
+            "la jurisprudencia obligatoria. Se dice cuál resiste y cuál cae. "
+            "Está PROHIBIDO despacharla en un párrafo o razonar sólo sobre la "
+            "regla general sin bajar a lo que esa resolución sostuvo.",
+            "DESPUÉS LA TRASCENDENCIA (artículo 172): la violación sólo "
+            "concede si privó a la parte de una defensa que podía cambiar el "
+            "resultado del juicio. Se dice qué defensa y por qué podía cambiarlo.",
+            "SI PROSPERA, EL EFECTO ES LA REPOSICIÓN desde la actuación viciada, "
+            "y los accesorios que dependían de la litis reintegrada quedan sin "
+            "materia: se dice. SI NO PROSPERA, los accesorios que presuponían "
+            "la reposición caen con él: se declaran inoperantes con esa razón.",
+        ],
+    },
     "directo_orden_de_estudio": {
         "cuando": "Amparo directo en que se plantean violaciones procesales "
                   "junto con cuestiones de fondo.",
@@ -1724,6 +1761,7 @@ def tecnica_de(tipo: str, rama: str = "", con_violacion_procesal: bool = False) 
     if t == "queja" and rama == "sin_materia":
         fuera.append(TECNICA_RESOLUCION["recurso_sin_materia"])
     if t == "amparo_directo" and con_violacion_procesal:
+        fuera.append(TECNICA_RESOLUCION["directo_violacion_procesal"])
         fuera.append(TECNICA_RESOLUCION["directo_orden_de_estudio"])
     return fuera
 

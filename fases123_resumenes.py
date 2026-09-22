@@ -268,6 +268,13 @@ frente a lo que se combate. No de la demanda sola ni del acto solo.
   «accesorio». Si de verdad son independientes entre sí —cada uno se sostiene
   y se resuelve solo— marca «principal» sólo el primero y di en «depende_de»
   null en todos: la independencia se declara, no se supone.
+- «depende_de» NO ES DE ORDEN, ES DE PREMISA. Un problema depende de otro
+  cuando su respuesta PRESUPONE la de aquél: si el principal cae, éste cae
+  con él, y si prospera, éste queda sin materia. «¿Debía la Sala estudiar
+  los alegatos contra el crédito?» depende de «¿debió admitirse la ampliación
+  que metía el crédito en la litis?»: sin ampliación no hay crédito en la
+  litis ni alegatos que estudiar. Que dos temas se parezcan no los hace
+  dependientes; que uno viva de la premisa del otro, sí.
 
 - LA PREGUNTA NO PUEDE SER TENDENCIOSA. Una pregunta que ya lleva dentro la
   respuesta no es un problema jurídico, es una conclusión disfrazada. «¿Fue

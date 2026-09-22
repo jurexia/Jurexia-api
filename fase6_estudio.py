@@ -381,6 +381,19 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
             lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
                           "del principal. Se dice en una frase y se pasa; ni "
                           "lo califiques ni lo contestes.")
+        # CAE CON EL PRINCIPAL. El árbol de decisión lo marcó inoperante
+        # porque descansa en la premisa que el principal desestimó: se dice
+        # eso, con la premisa, y no se entra al fondo. ADC 93/2026: el estudio
+        # escribía «inoperante» y debajo ordenaba lo que el motor había
+        # propuesto para el sentido contrario.
+        elif str(getattr(c, "razonamiento", "") or "").startswith(
+                "Descansa en la premisa que se desestimó"):
+            lineas.append("   CAE CON EL PRINCIPAL: se declara en UN párrafo, "
+                          "diciendo qué premisa se desestimó y por qué su "
+                          "estudio no produciría ningún fin práctico. NO se "
+                          "estudia de fondo, NO se ordena nada a la responsable "
+                          "sobre él, y NO se le aplica ninguna suerte que el "
+                          "motor hubiera escrito para el sentido contrario.")
         # LA CORRIENTE DEL ACERVO. Si el sentido va CONTRA lo que hicieron los
         # demás tribunales sobre el mismo tema, el estudio tiene que hacerse
         # cargo de la objeción: apartarse del criterio mayoritario se puede
@@ -576,21 +589,25 @@ def _recorte_limpio(x: str, tope: int) -> str:
 
 
 def _bloque_aportado(contexto: str) -> str:
-    """El documento que el secretario subió porque el acervo no lo tenía."""
+    """Lo que el secretario subió porque el acervo no lo tenía, rotulado por
+    lo que ES.
+
+    ADC 93/2026 (22-sep-2026): la interlocutoria de la reclamación —la
+    resolución que decidió la violación procesal— entraba aquí como
+    «documento aportado», y el estudio la despachó en un párrafo tras razonar
+    sobre la regla abstracta. Ahora `violacion_procesal.clasificar` dice qué
+    llegó, y si es la resolución del incidente el bloque trae la técnica: sus
+    razones son la razón toral, se enuncian y se confrontan una por una.
+    """
     c = (contexto or "").strip()
     if not c:
         return ""
-    return ("\n═══════════════════════════════════════════════════════════════\n"
-            "DOCUMENTO APORTADO POR EL SECRETARIO — no estaba en el acervo\n"
-            "═══════════════════════════════════════════════════════════════\n"
-            "Lo trae quien tiene el expediente delante. Cítalo por lo que dice,\n"
-            "identificándolo como el documento aportado; NO le inventes un\n"
-            "registro ni lo trates como jurisprudencia.\n\n"
-            # POR PÁRRAFO, NO POR CARACTER. Estas constancias las subió el
-            # secretario y alimentan prosa que se firma; cortarlas a mitad de
-            # frase es la misma puerta por la que salió «el texto proporcionado
-            # se interrumpió» dentro del considerando quinto.
-            + _recorte_limpio(c, 20000) + "\n")
+    import violacion_procesal as _vp
+    # POR PÁRRAFO, NO POR CARACTER. Estas constancias las subió el secretario
+    # y alimentan prosa que se firma; cortarlas a mitad de frase es la misma
+    # puerta por la que salió «el texto proporcionado se interrumpió» dentro
+    # del considerando quinto.
+    return _vp.bloque(c, para="estudio", tope=20000, recortar=_recorte_limpio)
 
 
 
@@ -1045,15 +1062,51 @@ def _bloque_global(g, criterios: list = None) -> str:
     if not isinstance(g, dict) or not g:
         return ""
     partes = []
-    if g.get("problema_que_decide"):
+    # ¿EL SECRETARIO SIGUIÓ AL MOTOR O RESOLVIÓ AL REVÉS? Si el principal va
+    # en la dirección contraria a la propuesta del motor, el `efecto` del
+    # motor —«se pronuncie sobre los alegatos relevantes»— describe la vía
+    # que NO se tomó, y con «escríbelo así de explícito» delante acababa en el
+    # proyecto. ADC 93/2026: el accesorio salió «inoperante» con los efectos
+    # del «fundado» del motor debajo. Lo que les pasa a los demás lo dice
+    # ahora el árbol de decisión, en la razón de cada criterio.
+    _pral = next((c for c in (criterios or [])
+                  if str(getattr(c, "jerarquia", "")).lower() == "principal"),
+                 (criterios or [None])[0])
+    _al_reves = bool(_pral is not None and g.get("sentido")
+                     and not _misma_direccion(str(g.get("sentido") or ""),
+                                              str(getattr(_pral, "sentido", "") or "")))
+    if g.get("problema_que_decide") and not _al_reves:
         partes.append(f"DE ESTE PROBLEMA CUELGA EL RESULTADO:\n{g['problema_que_decide']}")
-    if g.get("efecto"):
+    if g.get("efecto") and not _al_reves:
         partes.append(f"QUÉ LES PASA A LOS DEMÁS:\n{g['efecto']}\n"
                       f"Escríbelo así de explícito en el estudio: un tema que "
                       f"queda sin materia se DICE que queda sin materia, y se "
                       f"dice por qué; no se despacha con la palabra "
                       f"«inoperante» y punto.")
-    if g.get("en_contra"):
+    if _al_reves and g.get("razon"):
+        # LA RAZÓN DEL MOTOR ES AHORA LA OBJECIÓN. Quien resolvería al revés
+        # es el propio motor, y su razón es lo que el estudio tiene que vencer.
+        partes.append(
+            f"LA OBJECIÓN MÁS SERIA A ESTA SOLUCIÓN —el motor habría resuelto "
+            f"{str(g.get('sentido') or '').replace('_', ' ')}, por esto—:\n{g['razon']}\n"
+            f"CONTÉSTALA EN EL ESTUDIO, con el lenguaje del oficio («No se "
+            f"pierde de vista que…», «No pasa inadvertido que…»), y a renglón "
+            f"seguido la razón del caso. Lo que el motor escribió como "
+            f"«efecto» o como suerte de los demás temas en SU vía NO se usa: "
+            f"es de la vía que no se tomó.")
+    _alt = g.get("alternativa") if isinstance(g.get("alternativa"), dict) else {}
+    if _al_reves and str(_alt.get("razon") or "").strip():
+        # LA VÍA QUE SE TOMÓ, ya escrita por el motor como alternativa: su
+        # razón toral, sus apoyos y lo que les pasa a los accesorios EN ESTA
+        # vía. Es material de trabajo, no mandato; la calificación ya está
+        # fijada arriba.
+        _ap = ", ".join(str(a) for a in (_alt.get("apoyos") or [])[:6])
+        partes.append(
+            f"CÓMO SE SOSTIENE LA VÍA QUE SE TOMÓ (material del motor):\n"
+            f"{_alt['razon']}"
+            + (f"\nApoyos del acervo para esta vía: {_ap} (cítalos desde su texto, abajo)." if _ap else "")
+            + (f"\nEn esta vía, los accesorios: {_alt['efecto']}" if str(_alt.get("efecto") or "").strip() else ""))
+    if g.get("en_contra") and not _al_reves:
         partes.append(
             f"LA OBJECIÓN MÁS SERIA A ESTA SOLUCIÓN —el mejor argumento de "
             f"quien resolvería al revés—:\n{g['en_contra']}\n"

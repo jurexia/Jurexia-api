@@ -428,18 +428,15 @@ def _bloque_contexto(contexto: str) -> str:
     c = (contexto or "").strip()
     if not c:
         return ""
-    return f"""
-
-═══════════════════════════════════════════════════════════════════════
-DOCUMENTO APORTADO POR EL SECRETARIO
-═══════════════════════════════════════════════════════════════════════
-Esto NO estaba en el acervo: lo aporta quien tiene el expediente delante
-porque tú dijiste que te faltaba. Vale como material: cítalo por lo que dice,
-identificándolo como el documento aportado, y NO lo confundas con
-jurisprudencia ni le inventes un registro.
-
-{_recorte_limpio(c, 20000)}
-"""
+    # QUÉ ES LO QUE LLEGÓ. ADC 93/2026: el secretario pegó la interlocutoria
+    # de la reclamación —la resolución que decidió la violación procesal— y
+    # este bloque la presentaba como «documento aportado»: el motor propuso
+    # con la razón toral de la sentencia definitiva y la despachó de paso. La
+    # clasificación dice si es una constancia o la resolución de un incidente,
+    # y con ella cambia el rótulo y la técnica.
+    import violacion_procesal as _vp
+    return "\n" + _vp.bloque(c, para="propuesta", tope=20000,
+                              recortar=_recorte_limpio)
 
 
 
@@ -961,6 +958,24 @@ REGLAS QUE NO SE ROMPEN:
    —1, 2, 3… tal como van numerados en LOS PROBLEMAS JURÍDICOS DEL ASUNTO—.
    Puedes titular el tema como quieras; el número es lo que permite saber a
    cuál te refieres sin adivinarlo por el texto.
+12. LA SUERTE CONDICIONAL DE CADA ACCESORIO, en dos campos estructurados que
+   el taller aplica SOLO cuando el secretario fija el principal:
+   · `relacion`: "depende" si su respuesta presupone la del principal —si el
+     principal cae, éste cae; si prospera, éste queda sin materia o lo
+     absorbe—; "distinto" si se sostiene y se resuelve solo, pase lo que pase
+     con el principal.
+   · `si_prospera`: {{"sentido", "razon"}} = qué le pasa si el principal
+     PROSPERA. Casi siempre "innecesario" (queda sin materia: la reposición o
+     la nueva sentencia lo atenderá) o, si es distinto, su propia
+     calificación.
+   · `si_no_prospera`: {{"sentido", "razon"}} = qué le pasa si el principal
+     NO prospera. Si descansaba en la premisa del principal —«debía estudiar
+     los alegatos contra el crédito» presupone que el crédito estaba en la
+     litis— es "inoperante", y la razón dice qué premisa se desestimó. Si es
+     distinto, su propia calificación con su razón.
+   La `razon` es UNA frase que el proyecto podrá escribir tal cual. No
+   contradigas la `relacion` con la suerte: si escribes que en una vía «al
+   no formar parte de la litis… no podía», ese tema DEPENDE.
 
 Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
 {{"propuestas": [
@@ -995,7 +1010,12 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
        "papel": "principal|accesorio",
        "con_propuesta": "<su suerte si se sigue la propuesta>",
        "con_alternativa": "<su suerte si se sigue la alternativa>",
-       "tema_distinto": false}}
+       "tema_distinto": false,
+       "relacion": "depende|distinto",
+       "si_prospera": {{"sentido": "innecesario|fundado|infundado|inoperante|ineficaz",
+                        "razon": "<una frase>"}},
+       "si_no_prospera": {{"sentido": "inoperante|infundado|fundado|ineficaz",
+                           "razon": "<una frase: qué premisa cae con el principal>"}}}}
    ]}}}}"""
 
 
