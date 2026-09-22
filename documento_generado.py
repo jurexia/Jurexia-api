@@ -2072,9 +2072,13 @@ _RX_ARRANQUE_NOMINAL = re.compile(
     r"de|del|en|por|con|para|al?|sobre|desde|hasta|entre|sin|seg[úu]n|"
     r"cuyo|cuya|cuyos|cuyas)\b", re.I)
 
+# «también» NO ATA: es un adverbio, y la media frase que arranca con él sigue
+# necesitando sujeto. ADC 93/2026 v4: tras la cita de la 2010224 quedó
+# «también confirma que la ampliación no es una actuación accesoria…», en
+# minúscula y sin sujeto, porque «también» estaba en esta lista.
 _RX_ARRANQUE_ATADO = re.compile(
     r"^(?:y|e|o|u|pero|sino|aunque|que|porque|pues|como|cuando|si|ni|as[íi]|"
-    r"adem[áa]s|tambi[ée]n|donde|mientras|seg[úu]n|salvo)\b", re.I)
+    r"adem[áa]s|donde|mientras|seg[úu]n|salvo)\b", re.I)
 
 
 # ── LA FICHA QUE SE QUEDA AL FRENTE DE LA COLA ──────────────────────────────

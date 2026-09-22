@@ -1904,8 +1904,10 @@ _VACIAS = {"de", "del", "la", "el", "los", "las", "y", "en", "que", "propio",
 
 # «si la copropiedad fue efectivamente reconocida», «se afirma que», «de ser
 # cierto»: un tribunal con los autos delante no supone lo que consta.
+# «COMO SI … HUBIERA» NO SUPONE NADA: es una comparación retórica («como si
+# en ella se hubiera producido la preclusión»). ADC 93/2026 v4 acusó dos así.
 _RX_CONDICIONAL = re.compile(
-    r"\b(si\s+(?:\w+\s+){0,3}(?:fue|fuera|hubiera|resultara|efectivamente)"
+    r"\b(?<!como\s)(si\s+(?:\w+\s+){0,3}(?:fue|fuera|hubiera|resultara|efectivamente)"
     r"|se\s+afirma\s+que|seg[úu]n\s+lo\s+planteado|de\s+ser\s+cierto"
     r"|en\s+el\s+supuesto\s+de\s+que|de\s+haberse\s+acreditado)\b", re.I)
 
@@ -2686,6 +2688,14 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     for m_ in re.finditer(r"[“«\"]([A-ZÁÉÍÓÚÑ][^”»\"]{25,}?)[”»\"]", estudio):
         if _rx_precepto.match(m_.group(1)):
             continue                      # es la ley transcrita, no un rubro
+        # UN RUBRO VA EN MAYÚSCULAS. Lo que va entre comillas en minúsculas es
+        # una transcripción —del acuerdo, de la sentencia, de un escrito— y
+        # no tiene que casar con ningún rubro. ADC 93/2026 v4: se acusó como
+        # «rubro que no casa» la transcripción literal del acuerdo de primero
+        # de julio («Ahora bien, en atención a la jurisprudencia número…»).
+        _letras = [ch for ch in m_.group(1) if ch.isalpha()]
+        if _letras and sum(ch.isupper() for ch in _letras) < 0.8 * len(_letras):
+            continue
         cit = _n(m_.group(1))
         if len(cit) < 30:
             continue
