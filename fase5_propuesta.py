@@ -1425,11 +1425,40 @@ def calificaciones_de(propuestas: list) -> list:
 
 def prompt_razon(problema: str, sentido: str, material,
                  resumen_acto: str = "", resumen_conceptos: str = "",
-                 es_recurso: bool = False, tipo_asunto: str = "") -> str:
+                 es_recurso: bool = False, tipo_asunto: str = "",
+                 directriz: str = "") -> str:
     import tipos_asunto as _ta
     _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
     q = _ta.vocabulario_de(_t)["combate"]
     _org = _ta.sujetos_de(_t)["organo"][0]
+    # ═══ LA DIRECTRIZ DEL SECRETARIO ES LA BASE, NO UN DATO MÁS (23-sep-2026) ═══
+    # David, revisión 711/2025: «si yo le di un criterio y una directriz, el
+    # motor debe ser capaz de generar el razonamiento para validar por qué
+    # resolverá así». En ese asunto bastaba lo dicho por el juez de distrito
+    # —el oficio de bloqueo alcanzaba a quienes figuraban como apoderados o
+    # autorizados— y el motor, en vez de construir sobre eso, escribió que sin
+    # ciertas constancias no podía validarse el bloqueo. Con «fundado» al pie.
+    #
+    # Aquí la directriz va ANTES que el material y con la orden de
+    # desarrollarla. Lo que consta y le sirve, se usa; lo que el motor creía
+    # necesario para SU vía no se echa en falta: el secretario eligió otra.
+    _bloque_directriz = ""
+    if (directriz or "").strip():
+        _bloque_directriz = (
+            "\nLA BASE QUE DA EL SECRETARIO — desarróllala, no la discutas\n"
+            + directriz.strip() + "\n\n"
+            "Sobre esa base se construye la razón. Reglas:\n"
+            "- Parte de ella y llévala hasta la calificación con lo que SÍ consta en el\n"
+            "  material de abajo. Si el secretario señala un hecho que obra en autos —lo\n"
+            "  que dijo el a quo, lo que dice el oficio, lo que reconoce la propia\n"
+            "  recurrente—, ese hecho es prueba bastante para su vía.\n"
+            "- NO escribas que falta una constancia para llegar a esta calificación. Si\n"
+            "  el camino del secretario no la necesita, no se echa en falta; y si de\n"
+            "  verdad algo le fuera indispensable, dilo en una sola línea al final, sin\n"
+            "  convertirlo en la conclusión.\n"
+            "- No sustituyas su razón por otra que te parezca mejor: es su criterio y\n"
+            "  él firma. Puedes reforzarla con acervo; no reemplazarla.\n")
+
     return f"""Eres el secretario de un Tribunal Colegiado. El sentido YA ESTÁ
 DECIDIDO por quien firma: NO lo discutas, NO propongas otro, NO adviertas que
 podría ser distinto. Tu único trabajo es escribir la mejor razón jurídica que
@@ -1440,7 +1469,7 @@ EL PLANTEAMIENTO
 
 LA CALIFICACIÓN QUE HAY QUE SOSTENER
 {sentido.replace('_', ' ').upper()}
-
+{_bloque_directriz}
 LO QUE RESOLVIÓ {_org.upper()}
 {resumen_acto[:20000]}
 
@@ -1468,7 +1497,8 @@ Escribe sólo el párrafo."""
 
 async def razonar(cliente, problema: str, sentido: str, material,
                   resumen_acto: str = "", resumen_conceptos: str = "",
-                  es_recurso: bool = False, tipo_asunto: str = "") -> str:
+                  es_recurso: bool = False, tipo_asunto: str = "",
+                  directriz: str = "") -> str:
     """Una razón para el sentido que el secretario acaba de marcar."""
     if not (problema or "").strip() or not (sentido or "").strip():
         return ""
@@ -1480,7 +1510,7 @@ async def razonar(cliente, problema: str, sentido: str, material,
     # 120 palabras no necesita 900 tokens; el razonamiento, sí.
     _mensajes = [{"role": "user", "content": prompt_razon(
         problema, sentido, material, resumen_acto,
-        resumen_conceptos, es_recurso, tipo_asunto)}]
+        resumen_conceptos, es_recurso, tipo_asunto, directriz)}]
     kw = dict(model=MODELO_PROPUESTA, messages=_mensajes,
               max_completion_tokens=2600,
               temperature=0, seed=20260831)

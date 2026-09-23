@@ -142,13 +142,27 @@ def bloque_para_estudio(pedidas: list, contexto: str) -> str:
     return "\n".join(partes) + "\n"
 
 
-def aviso_faltantes(pedidas: list, contexto: str) -> str:
+def aviso_faltantes(pedidas: list, contexto: str, al_reves: bool = False) -> str:
+    """El aviso de las indispensables que no llegaron.
+
+    `al_reves` = el secretario resolvió en dirección contraria a la propuesta
+    del motor (23-sep-2026, revisión 711/2025). Entonces estas constancias las
+    pedía el razonamiento DEL MOTOR, y decir «lo que dependía de ellas va como
+    no acreditado» y «la solución puede cambiar» es socavar una decisión que
+    ya está tomada por quien firma. Se avisa de otra manera: que el motor las
+    quería para su vía, por si el secretario quiere tenerlas a la vista."""
     falt = [c for c in faltantes(pedidas, contexto) if c["indispensable"]]
     if not falt:
         return ""
+    lista = "; ".join(f"«{c['que']}»" + (f" ({c['para_que']})" if c["para_que"] else "")
+                      for c in falt)
+    if al_reves:
+        return ("CONSTANCIAS QUE EL MOTOR HABRÍA QUERIDO VER para la vía que él "
+                "proponía y que no se tomó: " + lista + ". El proyecto se resolvió "
+                "por el criterio del secretario y no depende de ellas; se listan "
+                "por si quien firma quiere tenerlas a la vista en el expediente.")
     return ("FALTAN CONSTANCIAS INDISPENSABLES: el proyecto se escribió sin ver "
-            + "; ".join(f"«{c['que']}»" + (f" ({c['para_que']})" if c["para_que"] else "")
-                        for c in falt)
+            + lista
             + ". Lo que dependía de ellas va como no acreditado. Apórtalas en la "
               "pantalla de decisión —texto o documento— y vuelve a generar: la "
               "solución puede cambiar.")

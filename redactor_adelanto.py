@@ -1024,8 +1024,16 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # todo: el proyecto se escribió sin verlas.
     try:
         import constancias as _cn_a
+        _pg_cn = getattr(e, "propuesta_global", None) or {}
+        _pral_cn = next((c for c in (criterios or [])
+                         if str(getattr(c, "jerarquia", "")).lower() == "principal"),
+                        (criterios or [None])[0])
+        _al_reves_cn = bool(_pral_cn is not None and _pg_cn.get("sentido")
+                            and not f6._misma_direccion(
+                                str(_pg_cn.get("sentido") or ""),
+                                str(getattr(_pral_cn, "sentido", "") or "")))
         _av_cn = _cn_a.aviso_faltantes(
-            (getattr(e, "propuesta_global", None) or {}).get("constancias") or [], contexto)
+            _pg_cn.get("constancias") or [], contexto, al_reves=_al_reves_cn)
         if _av_cn:
             avisos.insert(0, _av_cn)
     except Exception as _exc_cn:
@@ -1180,8 +1188,16 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     # todo: el proyecto se escribió sin verlas.
     try:
         import constancias as _cn_a
+        _pg_cn = getattr(e, "propuesta_global", None) or {}
+        _pral_cn = next((c for c in (criterios or [])
+                         if str(getattr(c, "jerarquia", "")).lower() == "principal"),
+                        (criterios or [None])[0])
+        _al_reves_cn = bool(_pral_cn is not None and _pg_cn.get("sentido")
+                            and not f6._misma_direccion(
+                                str(_pg_cn.get("sentido") or ""),
+                                str(getattr(_pral_cn, "sentido", "") or "")))
         _av_cn = _cn_a.aviso_faltantes(
-            (getattr(e, "propuesta_global", None) or {}).get("constancias") or [], contexto)
+            _pg_cn.get("constancias") or [], contexto, al_reves=_al_reves_cn)
         if _av_cn:
             avisos.insert(0, _av_cn)
     except Exception as _exc_cn:

@@ -31857,6 +31857,11 @@ async def taller_razonar(
     user_email: str = Form(...),
     problema: str = Form(...),
     sentido: str = Form(...),
+    # LA DIRECTRIZ DEL SECRETARIO (23-sep-2026). David, revisión 711/2025: «si
+    # yo le di un criterio y una directriz, el motor debe ser capaz de generar
+    # el razonamiento para validar por qué resolverá así». Es lo que él
+    # escribió en el cuadro —dos líneas con la base— y sobre eso se construye.
+    directriz: str = Form(""),
 ):
     """La razón de la calificación que el secretario acaba de marcar.
 
@@ -31915,7 +31920,8 @@ async def taller_razonar(
             chat_client, problema, sentido, material,
             r.fases.resumen_acto, r.fases.resumen_conceptos,
             bool(r.encargo and r.encargo.es_recurso),
-            getattr(r.encargo, "tipo_asunto", "") if r.encargo else "")
+            getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
+            directriz=(directriz or "").strip())
     except Exception as ex:
         print(f"   ⚠️ no se pudo razonar «{sentido}»: {err(ex)}")
         raise HTTPException(502,

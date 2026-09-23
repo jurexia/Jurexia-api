@@ -95,7 +95,7 @@ ok('"constancias": [' in inspect.getsource(f5.prompt_propuesta) and "13. LAS CON
 ok("glob.constancias = _cn.normalizar" in inspect.getsource(f5.proponer), "y se leen al parsear")
 ok('"constancias": list(getattr(glob, "constancias"' in src, "/taller/proponer las devuelve")
 ok('etiqueta: str = Form("")' in src and "_cn_r.rotular(etiqueta, junto)" in src, "/taller/contexto rotula el aporte")
-ok("_bloque_constancias(propuesta_global, contexto)" in inspect.getsource(f6.prompt_estudio), "el estudio recibe el bloque")
+ok("_bloque_constancias(propuesta_global, contexto, criterios)" in inspect.getsource(f6.prompt_estudio), "el estudio recibe el bloque, y con él los criterios para saber si se resolvió al revés")
 ok(inspect.getsource(ra).count("_cn_a.aviso_faltantes(") == 2, "los dos redactores avisan de las que faltan")
 ok(inspect.getsource(ra).count("f6._efectos_de_reposicion(estudio, criterios, _vp)") == 2, "y comprueban los efectos")
 ok('"representante": _pv.separar(e.quejoso)["representante"]' in inspect.getsource(ra), "el compositor recibe parte y representante")

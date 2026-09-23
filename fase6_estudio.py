@@ -625,17 +625,69 @@ def _recorte_limpio(x: str, tope: int) -> str:
         return (x or "")[:tope]
 
 
-def _bloque_constancias(propuesta_global, contexto: str) -> str:
+def _bloque_constancias(propuesta_global, contexto: str,
+                        criterios: list | None = None) -> str:
     """Las constancias que la propuesta pidió ver: cuáles llegaron y cuáles
-    no, con la orden de no suponer las que faltan."""
+    no, con la orden de no suponer las que faltan.
+
+    ═══ CUANDO EL SECRETARIO RESOLVIÓ AL REVÉS, ESAS CONSTANCIAS NO MANDAN ═══
+    (23-sep-2026, revisión 711/2025). El motor propuso INFUNDADO y, para su
+    vía, listó tres constancias «indispensables». David resolvió FUNDADO con
+    su propio criterio: bastaba lo dicho por el juez de distrito sobre el
+    alcance del oficio de bloqueo. Este bloque siguió entrando tal cual, con
+    la orden «lo que dependa de ellas se dice como NO ACREDITADO», y el
+    estudio obedeció a las dos órdenes a la vez: escribió que sin esas
+    constancias no podía validarse el bloqueo… y al pie declaró fundado el
+    recurso y negó el amparo. David: «una terrible falta de congruencia
+    interna».
+
+    Las constancias que el motor echa en falta son las que NECESITARÍA SU
+    razonamiento. Cuando el secretario elige otro camino, pueden no hacer
+    falta en absoluto. Aquí se distingue: si resolvió al revés, se le dice al
+    estudio qué pidió el motor y por qué ya no gobierna, y se le prohíbe
+    convertir esa ausencia en la conclusión."""
     if not isinstance(propuesta_global, dict):
         return ""
     pedidas = propuesta_global.get("constancias") or []
     if not pedidas:
         return ""
+    _pral = next((c for c in (criterios or [])
+                  if str(getattr(c, "jerarquia", "")).lower() == "principal"),
+                 (criterios or [None])[0])
+    _al_reves = bool(_pral is not None and propuesta_global.get("sentido")
+                     and not _misma_direccion(str(propuesta_global.get("sentido") or ""),
+                                              str(getattr(_pral, "sentido", "") or "")))
     try:
         import constancias as _cn
-        return _cn.bloque_para_estudio(pedidas, contexto or "")
+        if not _al_reves:
+            return _cn.bloque_para_estudio(pedidas, contexto or "")
+        falt = _cn.faltantes(pedidas, contexto or "")
+        if not falt:
+            return _cn.bloque_para_estudio(pedidas, contexto or "")
+        lineas = ["", "═" * 71,
+                  "CONSTANCIAS QUE EL MOTOR PIDIÓ PARA UNA VÍA QUE NO SE TOMÓ",
+                  "═" * 71,
+                  "El motor habría resuelto "
+                  + str(propuesta_global.get("sentido") or "").replace("_", " ")
+                  + " y, para ESE razonamiento, quería ver:"]
+        for c in falt:
+            lineas.append(f"  · {c['que']}")
+        lineas.append(
+            "El secretario resolvió por otra vía, con su propio criterio —lo tienes "
+            "arriba como RAZÓN DEL SECRETARIO—. Esas constancias servían al camino "
+            "del motor, no al suyo. POR TANTO:\n"
+            "- NO escribas que el bloqueo, el acto o el planteamiento «no puede "
+            "validarse» ni que algo «no está acreditado» POR FALTAR ESTAS "
+            "constancias. Eso sería resolver por la vía del motor y firmar por la "
+            "del secretario: una sentencia que se contradice a sí misma.\n"
+            "- Construye el estudio sobre la base del secretario y sobre lo que SÍ "
+            "consta: lo que dijo el a quo, lo que dice el oficio, lo que reconoce la "
+            "recurrente. Un hecho que obra en autos es prueba bastante para su vía.\n"
+            "- Si, aun en la vía del secretario, un dato concreto te resultara de "
+            "verdad necesario y no constara, NO lo conviertas en la conclusión: "
+            "dilo en el apartado ADVERTENCIAS, con su nombre, para que quien firma "
+            "lo busque en el expediente antes de listar.")
+        return "\n".join(lineas) + "\n"
     except Exception:
         return ""
 
@@ -1825,7 +1877,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   escribe que el punto no está acreditado y sigue.
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
-{_bloque_constancias(propuesta_global, contexto)}
+{_bloque_constancias(propuesta_global, contexto, criterios)}
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
