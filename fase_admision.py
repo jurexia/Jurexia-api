@@ -84,6 +84,36 @@ _POR_ROTULO = {"adc": "amparo_directo", "ad": "amparo_directo",
                "rf": "revision_fiscal", "ar": "amparo_revision",
                "rq": "queja", "qa": "queja"}
 
+# ── EL TIPO ESCRITO CON TODAS SUS LETRAS (23-sep-2026) ────────────────────
+# David: «estoy subiendo el documento en digital de una revisión y no arroja
+# resultados. No es la primera vez que pasa».
+#
+# Medido en los cuatro intentos que hizo esa tarde: el auto se leía bien —de
+# 35,812 caracteres salían número, tribunal, ciudad, quejoso y expediente de
+# origen— y `tipo_asunto` salía vacío las cuatro veces. La razón es que el
+# tipo NO se leía: se deducía de un diccionario de seis abreviaturas sobre los
+# primeros 400 caracteres, y un auto cuya cabecera no trae la abreviatura
+# —o la trae de otra forma— no tenía ninguna otra manera de decir qué era.
+#
+# Y el vacío no se quedaba quieto. `prompt()` cae a «amparo_directo» cuando no
+# hay tipo, así que al modelo se le pedían las figuras del amparo directo para
+# leer un recurso de revisión: por eso la autoridad responsable también salía
+# vacía en tres de los cuatro intentos. Un solo campo sin leer arrastraba a
+# los demás, al encabezado y a las reglas de notificación.
+#
+# Los autos escriben el tipo con todas sus letras en el cuerpo aunque la
+# cabecera no lo abrevie. Buscarlo ahí no cuesta nada y no depende de cómo
+# rotule cada tribunal.
+_POR_PALABRA = (
+    (re.compile(r"amparo\s+directo\s+en\s+revisi[óo]n", re.I), "amparo_revision"),
+    (re.compile(r"amparo\s+en\s+revisi[óo]n", re.I), "amparo_revision"),
+    (re.compile(r"recurso\s+de\s+revisi[óo]n\s+fiscal", re.I), "revision_fiscal"),
+    (re.compile(r"revisi[óo]n\s+fiscal", re.I), "revision_fiscal"),
+    (re.compile(r"recurso\s+de\s+queja", re.I), "queja"),
+    (re.compile(r"amparo\s+directo", re.I), "amparo_directo"),
+    (re.compile(r"recurso\s+de\s+revisi[óo]n", re.I), "amparo_revision"),
+)
+
 
 def _norm_num(x: str) -> str:
     return re.sub(r"\s+", "", x or "")
@@ -101,7 +131,9 @@ def deterministas(texto: str) -> dict:
     r = _RX_ROTULO.search(plano[:400])
     if r:
         _rot = re.sub(r"[.\s]", "", r.group(1)).lower()
-        fuera["tipo_asunto"] = _POR_ROTULO.get(_rot, "")
+        _t = _POR_ROTULO.get(_rot, "")
+        if _t:
+            fuera["tipo_asunto"] = _t
         # EL RÓTULO CONFIRMA EL NÚMERO, no lo sustituye: «fórmese el expediente
         # número» es la orden; el rótulo es cómo se archiva. Si discrepan, no
         # se elige: se dice. Un expediente equivocado en la carátula manda el
@@ -113,6 +145,15 @@ def deterministas(texto: str) -> dict:
                 f"Comprueba cuál es antes de seguir.")
         elif not fuera.get("numero"):
             fuera["numero"] = _norm_num(r.group(2))
+
+    # Si la abreviatura no dijo nada, el tipo escrito con letras. El orden de
+    # `_POR_PALABRA` importa: «amparo directo en revisión» tiene que probarse
+    # antes que «amparo directo», o todo recurso acabaría fichado como directo.
+    if not fuera.get("tipo_asunto"):
+        for _rx, _clave in _POR_PALABRA:
+            if _rx.search(plano):
+                fuera["tipo_asunto"] = _clave
+                break
 
     m = _RX_TRIBUNAL.search(plano)
     if m:
@@ -126,12 +167,29 @@ def deterministas(texto: str) -> dict:
 # ── y lo que sí necesita leerse ───────────────────────────────────────────
 def prompt(texto: str, tipo: str = "") -> str:
     import tipos_asunto as _ta
-    _t = tipo or "amparo_directo"
-    try:
-        _q = _ta.caratula_de(_t)
-        _figuras = ", ".join(f"«{e.lower()}»" for e, _c, _o in _q)
-    except Exception:
-        _figuras = "«quejoso», «autoridad responsable», «tercero interesado»"
+
+    # SIN TIPO NO SE INVENTA UNO. Antes caía a «amparo_directo», y con él al
+    # modelo se le pedían las figuras del amparo directo para leer un recurso
+    # de revisión: de ahí que la autoridad responsable saliera vacía en tres
+    # de los cuatro intentos de David. Cuando no se sabe, se enseñan las
+    # figuras de los cuatro tipos y se le pide que diga cuál es — el auto lo
+    # dice en su cuerpo aunque la cabecera no traiga la abreviatura.
+    def _figuras_de(_k: str) -> str:
+        try:
+            return ", ".join(f"«{e.lower()}»" for e, _c, _o in _ta.caratula_de(_k))
+        except Exception:
+            return "«quejoso», «autoridad responsable», «tercero interesado»"
+
+    if tipo:
+        _bloque_tipo = (f"El tipo de asunto ya está determinado: {tipo}.\n"
+                        f"Las figuras de este tipo de asunto son: {_figuras_de(tipo)}.")
+    else:
+        _lineas = "\n".join(f"  · {_k} — figuras: {_figuras_de(_k)}" for _k in _ta.TIPOS)
+        _bloque_tipo = (
+            "NO SE PUDO DETERMINAR EL TIPO DE ASUNTO por la cabecera. Dilo tú "
+            "leyendo el cuerpo del auto, y usa las figuras del que elijas:\n"
+            f"{_lineas}\n"
+            "Si el auto no permite decidirlo, deja `tipo_asunto` vacío.")
     return f"""Eres el secretario de un Tribunal Colegiado fichando un asunto que
 acaba de llegar. Tienes delante el AUTO DE ADMISIÓN y sólo eso.
 
@@ -148,7 +206,7 @@ Extrae los nombres de las partes. Reglas que no se negocian:
   carátula es la ORDENADORA. Ponlas en campos distintos y no las mezcles.
 - VARIOS TERCEROS. Si hay más de un tercero interesado, sepáralos con « y ».
 
-Las figuras de este tipo de asunto son: {_figuras}.
+{_bloque_tipo}
 
 EL AUTO:
 ──────────────────────────────────────────
@@ -156,7 +214,8 @@ EL AUTO:
 ──────────────────────────────────────────
 
 Devuelve JSON y nada más:
-{{"quejoso": "quien promueve el amparo o el recurso, literal",
+{{"tipo_asunto": "exactamente una de estas cuatro claves, o vacío: amparo_directo, amparo_revision, queja, revision_fiscal",
+ "quejoso": "quien promueve el amparo o el recurso, literal",
  "responsable_ordenadora": "la que dictó el acto reclamado, literal",
  "responsable_ejecutora": "la que lo ejecuta, literal, o vacío",
  "tercero_interesado": "literal, o vacío",
@@ -200,6 +259,22 @@ async def leer(cliente, texto: str, tipo: str = "") -> dict:
             m = re.search(r"\{.*\}", crudo, re.S)
             d = json.loads(m.group(0) if m else crudo)
             plano = _plano(texto)
+            # EL TIPO NO SE COMPRUEBA CONTRA EL PAPEL, se comprueba contra el
+            # catálogo. `_esta_en_el_papel` existe para los NOMBRES: un nombre
+            # que no está escrito en el auto es un nombre inventado. Pero el
+            # tipo es una clasificación —«amparo_revision» no aparece nunca
+            # con esas letras en ningún auto—, así que pasarlo por ese filtro
+            # lo tiraría siempre. Lo que sí se exige es que sea una de las
+            # cuatro claves que el sistema sabe manejar.
+            if not base.get("tipo_asunto"):
+                import tipos_asunto as _ta_v
+                _tm = " ".join(str(d.get("tipo_asunto") or "").split()).lower()
+                if _tm in _ta_v.TIPOS:
+                    ficha["tipo_asunto"] = _tm
+                elif _tm:
+                    avisos.append(
+                        f"EL MODELO PROPUSO «{_tm}» COMO TIPO DE ASUNTO y no es "
+                        f"uno de los que se manejan. Elígelo tú en la ficha.")
             for k in _CAMPOS:
                 v = " ".join(str(d.get(k) or "").split())
                 if not v:
@@ -219,6 +294,15 @@ async def leer(cliente, texto: str, tipo: str = "") -> dict:
                           f"{type(ex).__name__}. La ficha sale sólo con lo que "
                           f"se lee sin modelo; complétala a mano.")
     ficha.update({k: v for k, v in base.items() if v})
+    # SI EL TIPO SIGUE VACÍO SE DICE. Sin él no se compone el encabezado ni se
+    # proponen las reglas de notificación, así que la pantalla sale en blanco
+    # y parece que el auto no se leyó. Un campo que falta y lo avisa es otra
+    # cosa que un campo que falta en silencio.
+    if not (ficha.get("tipo_asunto") or "").strip():
+        avisos.append(
+            "NO SE PUDO DETERMINAR EL TIPO DE ASUNTO. El auto se leyó, pero ni "
+            "la cabecera ni el cuerpo lo dijeron de una forma reconocible. "
+            "Elígelo en la ficha y el resto se completa solo.")
     ficha["avisos"] = avisos
     # La ordenadora es la que va a la carátula; el campo del formulario se
     # llama `responsable` y es el que el resto del sistema consume.
