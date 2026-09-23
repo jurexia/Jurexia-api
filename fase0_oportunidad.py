@@ -81,6 +81,8 @@ añada debe comprobarse contra un engrose firmado, como estos dos.
 
 from __future__ import annotations
 
+import re
+
 from datetime import date as _date
 
 import datetime as _dt
@@ -318,19 +320,163 @@ REGLAS_SURTE: dict[str, ReglaSurte] = {
         descripcion="por lista",
         dias_habiles=1,
     ),
-    # Contencioso administrativo federal. Leída de la nota al pie de
-    # «Notificación en Revisión Fiscal.docx» del propio corpus:
-    #     «ARTÍCULO 70. Las notificaciones surtirán sus efectos, el día hábil
-    #      siguiente a aquél en que fueren hechas.»
-    # Comprobada con su ejemplo trabajado: notificación del 2 de septiembre de
-    # 2024, surtió el 3, plazo de 15 días vencido el 25. Reproduce al día.
+    # ═══════════════════════════════════════════════════════════════════
+    # CONTENCIOSO ADMINISTRATIVO FEDERAL: EL BOLETÍN SURTE AL TERCER DÍA
+    # ═══════════════════════════════════════════════════════════════════
+    # David, 22-sep-2026, sobre el ADC 93/2026: «en materia federal no hay
+    # duda. La Ley Federal de Procedimiento Contencioso Administrativo
+    # establece que la notificación por boletín surte efectos a los tres días
+    # siguientes. Esa es la opción que debe desplegarse».
+    #
+    # Consultado en el acervo (leyes_federales), artículo 65, último párrafo:
+    #     «La notificación surtirá sus efectos al tercer día hábil siguiente
+    #      a aquél en que se haya realizado la publicación en el Boletín
+    #      Jurisdiccional o al día hábil siguiente a aquél en que las partes
+    #      sean notificadas personalmente en las instalaciones designadas
+    #      por el Tribunal».
+    # Comprobado con el 93/2026: publicación en boletín el 5 de diciembre de
+    # 2025 (viernes) → 8, 9, 10 → surtió el 10, que es la fecha que David
+    # había tenido que declarar a mano con «otra regla».
+    "lfpca_boletin": ReglaSurte(
+        clave="lfpca_boletin",
+        descripcion="mediante Boletín Jurisdiccional",
+        dias_habiles=3,
+        fundamento="artículo 65 de la Ley Federal de Procedimiento Contencioso Administrativo",
+    ),
+    # Y LA PERSONAL ante el propio Tribunal Federal: al día hábil siguiente
+    # (artículo 65, mismo párrafo; el 70 lo repite en general). La clave
+    # `lfpca` se conserva por los encargos guardados que la traen.
     "lfpca": ReglaSurte(
         clave="lfpca",
-        descripcion="conforme a la Ley Federal de Procedimiento Contencioso Administrativo",
+        descripcion="de manera personal",
         dias_habiles=1,
-        fundamento="artículo 70 de la Ley Federal de Procedimiento Contencioso Administrativo",
+        fundamento="artículos 65 y 70 de la Ley Federal de Procedimiento Contencioso Administrativo",
     ),
 }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUÉ REGLAS SE OFRECEN — según la ley que rige el acto, no según Querétaro
+# ═══════════════════════════════════════════════════════════════════════════
+# El desplegable de la pantalla ofrecía siempre las mismas cinco, con la del
+# Boletín de Querétaro entre ellas para todos. David: «este redactor no es
+# exclusivamente para Querétaro. Si se deja abierta la posibilidad de un
+# plazo diverso (…) es porque la ley que rige el acto así lo prevea (según la
+# entidad federativa) pero en materia federal no hay duda».
+#
+# Aquí vive la única lista: la pantalla la pide (/taller/reglas-surtimiento)
+# con el tipo de asunto y la responsable, y pinta lo que vuelve.
+
+_RX_TFJA = re.compile(
+    r"tribunal\s+federal\s+de\s+justicia\s+(?:fiscal\s+y\s+)?administrativa|TFJA|"
+    r"sala\s+(?:regional|superior|especializada)", re.I)
+_RX_TJA_QRO = re.compile(
+    r"tribunal\s+de\s+justicia\s+administrativa\s+del\s+estado\s+de\s+quer[ée]taro|"
+    r"TJA[^.]{0,40}quer[ée]taro", re.I)
+_RX_TJA_ESTATAL = re.compile(
+    r"tribunal\s+de\s+justicia\s+administrativa\s+(?:del\s+estado|de\s+la\s+ciudad|de\s+\w+)|"
+    r"tribunal\s+(?:estatal\s+)?de\s+lo\s+contencioso\s+administrativo", re.I)
+
+
+_RX_TFJA_NOMBRE = re.compile(
+    r"tribunal\s+federal\s+de\s+justicia\s+(?:fiscal\s+y\s+)?administrativa|\bTFJA\b|\bTFJFA\b", re.I)
+_RX_ESTATAL = re.compile(r"del\s+estado\b|estatal|de\s+la\s+ciudad\s+de\s+m[ée]xico|"
+                         r"del\s+distrito\s+federal|\bTJA\b", re.I)
+
+
+def fuero_de(tipo_asunto: str = "", responsable: str = "") -> str:
+    """'tfja' | 'tja_qro' | 'tja_estatal' | 'federal' | 'local' | ''."""
+    r = " ".join((responsable or "").split())
+    if _RX_TJA_QRO.search(r):
+        return "tja_qro"
+    if _RX_TJA_ESTATAL.search(r):
+        return "tja_estatal"
+    # EL TFJA, por su nombre o por sus siglas; y una «Sala Regional» o «Sala
+    # Superior» que no diga «del Estado» es la del federal —los tribunales
+    # estatales se nombran por su entidad—.
+    if _RX_TFJA_NOMBRE.search(r) or (_RX_TFJA.search(r) and not _RX_ESTATAL.search(r)):
+        return "tfja"
+    if (tipo_asunto or "").strip().lower() == "revision_fiscal":
+        return "tfja"
+    try:
+        from fase_normas import autoridad_es_federal
+        if autoridad_es_federal(r):
+            return "federal"
+    except Exception:
+        pass
+    if re.search(r"del\s+estado|estatal|de\s+la\s+ciudad\s+de\s+m[ée]xico", r, re.I):
+        return "local"
+    return ""
+
+
+def reglas_para(tipo_asunto: str = "", responsable: str = "") -> dict:
+    """{fuero, por_omision, reglas: [{clave, etiqueta, dias_habiles, fundamento}]}
+
+    Lo que el desplegable enseña para ESTE asunto. «Otra regla» va siempre:
+    es la salida cuando la ley del acto prevé algo que el catálogo no trae.
+    """
+    f = fuero_de(tipo_asunto, responsable)
+
+    def _r(clave, etiqueta):
+        x = REGLAS_SURTE[clave]
+        return {"clave": clave, "etiqueta": etiqueta,
+                "dias_habiles": x.dias_habiles, "fundamento": x.fundamento}
+
+    otra = {"clave": "otra", "etiqueta": "Otra regla — yo declaro cuándo surtió efectos",
+            "dias_habiles": -1, "fundamento": ""}
+    if f == "tfja":
+        return {"fuero": f, "por_omision": "lfpca_boletin", "reglas": [
+            _r("lfpca_boletin", "Boletín Jurisdiccional del TFJA — surte al tercer día hábil (art. 65 LFPCA)"),
+            _r("lfpca", "Personal ante el TFJA — surte al día hábil siguiente (arts. 65 y 70 LFPCA)"),
+            otra]}
+    if f == "tja_qro":
+        return {"fuero": f, "por_omision": "tja_qro_boletin", "reglas": [
+            _r("tja_qro_boletin", "Boletín del TJA de Querétaro — surte al tercer día hábil"),
+            _r("personal", "Personal — surte al día hábil siguiente"),
+            otra]}
+    if f == "tja_estatal":
+        # LA LEY DE ESA ENTIDAD DICE CÓMO SURTE; el catálogo aún no la trae.
+        return {"fuero": f, "por_omision": "otra", "reglas": [
+            otra,
+            _r("personal", "Personal — surte al día hábil siguiente (art. 31, fr. I, Ley de Amparo)")]}
+    base = [_r("personal", "Personal — surte al día hábil siguiente"),
+            _r("lista", "Por lista — surte al día hábil siguiente")]
+    if f in ("federal", ""):
+        # Sin saber la responsable, se ofrece todo lo federal y la salida.
+        return {"fuero": f, "por_omision": "personal", "reglas": base + [
+            _r("lfpca_boletin", "Boletín Jurisdiccional del TFJA — surte al tercer día hábil (art. 65 LFPCA)"),
+            otra]}
+    return {"fuero": f, "por_omision": "personal", "reglas": base + [
+        _r("tja_qro_boletin", "Boletín del TJA de Querétaro — surte al tercer día hábil (sólo asuntos de Querétaro)"),
+        otra]}
+
+
+def surtio_manual_de(encargo) -> tuple:
+    """(fecha | None, aviso) — la fecha en que el secretario declaró que
+    surtió efectos, cuando eligió «otra regla».
+
+    UNA SOLA PUERTA. La leía el adelanto y NO la leía la reconstrucción de la
+    sesión desde la base, así que el worker que resolvía rehacía el cómputo
+    sin ella: el 93/2026 salía «personal · surtió el 8 · vence el 15 de enero
+    · EXTEMPORÁNEA» con la fecha del 10 declarada a mano, que da el 19 y en
+    tiempo. Cuarta vez que el reparto entre workers muerde en el cómputo.
+    """
+    if str(getattr(encargo, "regla_surtimiento", "") or "").strip().lower() != "otra":
+        return None, ""
+    se = str(getattr(encargo, "surte_efectos", "") or "").strip()
+    if not se:
+        return None, ("Elegiste «otra regla» de notificación pero no diste la "
+                      "fecha en que surtió efectos; el cómputo siguió con la "
+                      "notificación personal. Declárala para que el considerando "
+                      "cuente el plazo con la fecha que tú diste, no con una regla "
+                      "que no aplicaste.")
+    try:
+        import datetime as _dt
+        return _dt.date.fromisoformat(se[:10]), ""
+    except ValueError:
+        return None, (f"La fecha «{se}» en que dijiste que surtió efectos la "
+                      f"notificación no es válida (usa AAAA-MM-DD); el cómputo "
+                      f"siguió con la notificación personal.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1411,6 +1557,16 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
     """
     import tipos_asunto as _ta
     v = _ta.vocabulario_de(tipo)
+    # EL FUNDAMENTO ENTERO, no «el 17». Tres de los cuatro que llaman aquí
+    # pasaban el valor por omisión y el párrafo decía «en términos del 17»
+    # —así quedó guardado en el estado del 93/2026—. El catálogo sabe cuál es
+    # el precepto de cada vía; se le pregunta cuando no se dijo.
+    if not fundamento or fundamento.strip() == "17":
+        try:
+            fundamento = (_ta.plazo_de(tipo, "").get("fundamento")
+                          or "artículo 17 de la Ley de Amparo")
+        except Exception:
+            fundamento = "artículo 17 de la Ley de Amparo"
     if desglosar is None:
         desglosar = ((c.oportuna is False)
                      or _ta.normalizar(tipo) == "revision_fiscal"
@@ -1448,12 +1604,19 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
         ]
     else:
         surte = _ORDINAL_SURTE.get(c.regla.dias_habiles, "al día hábil siguiente")
+        # EL FUNDAMENTO DE LA REGLA SE ESCRIBE cuando la regla lo trae: «al
+        # tercer día hábil siguiente, conforme al artículo 65 de la Ley
+        # Federal de Procedimiento Contencioso Administrativo». Un plazo que
+        # arranca tres días después de la publicación no se afirma sin decir
+        # de dónde sale.
+        _fund_regla = (f", conforme al {c.regla.fundamento}"
+                       if str(getattr(c.regla, "fundamento", "") or "").strip() else "")
         p = [
             f"Por cuanto hace a la oportunidad en la presentación "
             f"{_del(v['escrito'])}, en términos del {fundamento}, "
             f"{v['recurrido']} se notificó al {v['promovente']} el "
             f"{fecha_en_letra(c.notificacion)} {c.regla.descripcion} y surtió "
-            f"efectos {surte}, es decir, el {fecha_en_letra(c.surtio)}, por lo que "
+            f"efectos {surte}{_fund_regla}, es decir, el {fecha_en_letra(c.surtio)}, por lo que "
             f"el plazo para la promoción {_del(v['escrito'])} fue del "
             f"{fecha_en_letra(c.inicio)} al {fecha_en_letra(c.vencimiento)}, sin "
             f"contar sábados y domingos por ser inhábiles en términos del "

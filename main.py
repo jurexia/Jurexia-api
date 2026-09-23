@@ -28907,8 +28907,45 @@ async def taller_desde_admision(
                if (ficha.get(k) or "").strip()]
     print(f"   📋 ficha leída del auto de admisión: {', '.join(_leidos) or 'nada'}"
           f" ({len(texto)} caracteres)")
+    # LA REGLA DE NOTIFICACIÓN SE PROPONE DESDE AQUÍ. El auto dice quién es
+    # la responsable, y de la responsable se sigue la ley que rige cómo surte
+    # efectos su notificación: para el TFJA, el Boletín Jurisdiccional al
+    # tercer día hábil (art. 65 LFPCA). David, 22-sep-2026: «en materia
+    # federal no hay duda (…) esa es la opción que debe desplegarse».
+    import fase0_oportunidad as _f0r
+    _reglas = _f0r.reglas_para(str(ficha.get("tipo_asunto") or ""),
+                               str(ficha.get("responsable") or ""))
+    # Y EL ENCABEZADO SE COMPONE, no se pide: tipo + materia + número.
+    _encab = ""
+    try:
+        import tipos_asunto as _ta_e
+        if (ficha.get("tipo_asunto") or "") and (ficha.get("numero") or ""):
+            _encab = _ta_e.encabezado_de(str(ficha.get("tipo_asunto") or ""),
+                                         str(ficha.get("materia") or ""),
+                                         str(ficha.get("numero") or ""))
+    except Exception:
+        _encab = ""
+    if _encab:
+        ficha["encabezado"] = _encab
     return {"ficha": ficha, "leidos": _leidos,
-            "caracteres": len(texto), "avisos": ficha.get("avisos") or []}
+            "caracteres": len(texto), "avisos": ficha.get("avisos") or [],
+            "reglas_surtimiento": _reglas}
+
+
+@app.get("/taller/reglas-surtimiento")
+async def taller_reglas_surtimiento(tipo_asunto: str = "", responsable: str = ""):
+    """Qué reglas de notificación se ofrecen para ESTE asunto.
+
+    El desplegable de la pantalla ofrecía siempre las mismas cinco —con la del
+    boletín de Querétaro para todos—. La lista vive en `fase0_oportunidad`
+    (una sola) y depende de la ley que rige el acto: para el TFJA, el Boletín
+    Jurisdiccional al tercer día hábil (art. 65 LFPCA) y la personal; para el
+    TJA de Querétaro, su boletín; para otro tribunal estatal, «otra regla»
+    con la fecha declarada, porque su ley dice cómo surte y el catálogo no la
+    trae. Sin costo: no toca modelo ni base.
+    """
+    import fase0_oportunidad as _f0r
+    return _f0r.reglas_para(tipo_asunto or "", responsable or "")
 
 
 @app.post("/taller/adelanto")
@@ -30207,12 +30244,18 @@ def _taller_recuperar_sesion(email: str, numero: str):
     # plazo según qué worker atienda la petición —el que lo leyó los tenía en
     # memoria; el que resuelve, no—, y un plazo mal contado invalida la
     # sentencia. Es la cuarta vez que este reparto entre workers muerde.
+    # CON LA FECHA QUE EL SECRETARIO DECLARÓ, si eligió «otra regla». Esta
+    # reconstrucción la perdía: el worker que resolvía el 93/2026 rehacía el
+    # cómputo como notificación personal —surtió el 8, venció el 15 de
+    # enero, EXTEMPORÁNEA— con el 10 de diciembre declarado a mano, que da el
+    # 19 de enero y en tiempo. La misma puerta que el adelanto.
     computo = _f0.computar(encargo.notificacion, encargo.presentacion,
                            encargo.regla_surtimiento, encargo.plazo,
                            encargo.responsable,
                            getattr(encargo, "dias_inhabiles_extra", None),
                            getattr(encargo, "tipo_asunto", "") or "amparo_directo",
-                           getattr(encargo, "inhabiles_responsable", "") or None)
+                           getattr(encargo, "inhabiles_responsable", "") or None,
+                           surtio_manual=_f0.surtio_manual_de(encargo)[0])
     resultado = _ra.Resultado(ruta="", computo=computo, fases=f, encargo=encargo,
                               partes=partes, avisos=list(est.get("avisos") or []))
     tmp = est.get("tmp") or ""

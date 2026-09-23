@@ -283,40 +283,33 @@ titulo(9, "EL LOCALISMO QUE SIGUE VIVO — 351/2026 (medición del encargo 3)")
 # ══════════════════════════════════════════════════════════════════════════
 # Sesión real: amparo directo 351/2026, responsable Sala Regional del TFJA,
 # regla guardada `tja_qro_boletin` (Boletín del TJA del ESTADO de Querétaro).
+#
+# CORREGIDO EL 22-sep-2026 (David, sobre el 93/2026): para el TFJA la ley que
+# rige el acto es la LFPCA, y su artículo 65 —consultado en el acervo— dice
+# que la notificación por Boletín Jurisdiccional surte al TERCER día hábil;
+# el artículo 70 (día hábil siguiente) es la personal. Esta sección afirmaba
+# que «la ley que le toca» era un día, y con eso volvía extemporáneos escritos
+# en tiempo. La regla correcta es `lfpca_boletin`, y `reglas_para` la propone.
 qro = f0.computar(dt.date(2026,4,10), dt.date(2026,5,11), "tja_qro_boletin", 15,
                   "Sala Regional del Centro II del TFJA", tipo_asunto="amparo_directo")
-lfp = f0.computar(dt.date(2026,4,10), dt.date(2026,5,11), "lfpca", 15,
+bol = f0.computar(dt.date(2026,4,10), dt.date(2026,5,11), "lfpca_boletin", 15,
                   "Sala Regional del Centro II del TFJA", tipo_asunto="amparo_directo")
-print(f"   con la regla de QUERÉTARO (3 días, fundamento vacío): vence {qro.vencimiento} · oportuna {qro.oportuna}")
-print(f"   con la ley que le toca  (art. 70 LFPCA, 1 día)     : vence {lfp.vencimiento} · oportuna {lfp.oportuna}")
-check("EL LOCALISMO PRODUCE UN FALSO OPORTUNO si se le da la regla de Querétaro",
-      qro.oportuna is True and lfp.oportuna is False,
-      "computar() sigue siendo fiel a la regla que se le pasa: la cuarentena "
-      "no va aquí, va en quién decide QUÉ regla pasarle")
+per = f0.computar(dt.date(2026,4,10), dt.date(2026,5,11), "lfpca", 15,
+                  "Sala Regional del Centro II del TFJA", tipo_asunto="amparo_directo")
+print(f"   boletín de QUERÉTARO (3 días, fundamento vacío): vence {qro.vencimiento} · oportuna {qro.oportuna}")
+print(f"   boletín del TFJA (art. 65 LFPCA, 3 días)         : vence {bol.vencimiento} · oportuna {bol.oportuna}")
+print(f"   personal ante el TFJA (arts. 65 y 70, 1 día)     : vence {per.vencimiento} · oportuna {per.oportuna}")
+check("el boletín del TFJA cuenta igual que el de Querétaro pero CON fundamento",
+      bol.vencimiento == qro.vencimiento and "65" in f0.REGLAS_SURTE["lfpca_boletin"].fundamento)
+check("la personal ante el TFJA sigue siendo un día",
+      per.vencimiento < bol.vencimiento and f0.REGLAS_SURTE["lfpca"].dias_habiles == 1)
 check("la regla sin fundamento sigue en el catálogo (hay que sacarla)",
       f0.REGLAS_SURTE["tja_qro_boletin"].fundamento == "")
-
-# LA CUARENTENA, 15-sep-2026: David pidió que el redactor sirva a toda la
-# república, no a un solo tribunal, y que hubiera una salida manual. Ahora
-# `redactor_adelanto.generar()` pone en cuarentena `tja_qro_boletin` cuando la
-# materia es administrativa y la colección estatal declarada no es la de
-# Querétaro —como en este 351/2026, cuyo responsable es una Sala del TFJA
-# FEDERAL, no el TJA de Querétaro— y hay una «otra regla» para cuando ninguna
-# del catálogo aplica: ver test_regla_otra.py.
-import redactor_adelanto as _ra
-_e = _ra.Encargo(numero="351/2026", encabezado="X", quejoso="X", magistrado="X",
-                 secretario="X", notificacion=dt.date(2026, 4, 10),
-                 presentacion=dt.date(2026, 5, 11), regla_surtimiento="tja_qro_boletin",
-                 tipo_asunto="amparo_directo", materia="administrativa",
-                 coleccion_estatal="", responsable="Sala Regional del Centro II del TFJA")
-_mat = _ra.fp_materia(_e)
-if _mat == "administrativa" and _e.regla_surtimiento == "tja_qro_boletin":
-    _col = (_e.coleccion_estatal or "").strip().lower()
-    if "queretaro" not in _col.replace("é", "e"):
-        _e.regla_surtimiento = "personal"
-check("LA CUARENTENA YA LLEGÓ: el 351/2026 (TFJA federal, sin colección de "
-      "Querétaro) ya no se queda con la regla del boletín estatal",
-      _e.regla_surtimiento == "personal")
+_ofr = f0.reglas_para("amparo_directo", "Sala Regional del Centro II del TFJA")
+check("LA CUARENTENA, HOY: para el TFJA se ofrece el boletín de la LFPCA por omisión, "
+      "y el de Querétaro no aparece",
+      _ofr["por_omision"] == "lfpca_boletin"
+      and "tja_qro_boletin" not in [r["clave"] for r in _ofr["reglas"]])
 
 print("\n" + "═"*92)
 print(f"RESULTADO: {'TODAS LAS COMPROBACIONES PASAN' if not FALLOS else 'FALLAN ' + str(len(FALLOS))}")

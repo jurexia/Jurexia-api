@@ -99,7 +99,11 @@ try:
     asyncio.run(ra.generar(None, e3, "CONSIDERANDO. Texto.", "AGRAVIOS. Texto.", "/tmp/y.docx"))
 except Exception:
     pass
-ok(e3.regla_surtimiento == "personal",
+# CORREGIDO 22-sep-2026 (David, 93/2026): la regla correcta del TFJA es la de
+# la LFPCA —boletín al tercer día hábil, artículo 65—, no la personal. Contar
+# personal adelantaba el surtimiento dos días y volvía extemporáneos escritos
+# en tiempo. Ver test_reglas_surtimiento.py.
+ok(e3.regla_surtimiento == "lfpca_boletin",
    f"la Sala Regional EN Querétaro del TFJA (federal) no es el TJA DE Querétaro (estatal): {e3.regla_surtimiento}")
 
 print()

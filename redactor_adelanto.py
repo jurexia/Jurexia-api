@@ -251,7 +251,21 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         # necesitar ley local— y el guardián de abajo lo daba por bueno para
         # la regla de notificación, que es una pregunta distinta.
         _es_federal = "federal" in _resp_notif.lower()
-        if "queretaro" not in _col.replace("é", "e") or _es_federal:
+        if _es_federal and f0.fuero_de(getattr(e, "tipo_asunto", ""), _resp_notif) == "tfja":
+            # ES EL TFJA: su boletín también surte al tercer día hábil, pero
+            # por el artículo 65 de la LFPCA. Se cambia a ESA regla, no a la
+            # personal: contar personal aquí adelanta el surtimiento dos
+            # días y puede volver extemporáneo un escrito en tiempo.
+            e.regla_surtimiento = "lfpca_boletin"
+            avisos.append(
+                "El cómputo se hizo con el BOLETÍN JURISDICCIONAL DEL TFJA "
+                "(artículo 65 de la Ley Federal de Procedimiento Contencioso "
+                "Administrativo: surte al tercer día hábil). Venía declarada la "
+                "regla del boletín del Tribunal de Justicia Administrativa DEL "
+                f"ESTADO DE QUERÉTARO, y la responsable, «{_resp_notif}», es el "
+                "tribunal FEDERAL. Si la notificación fue personal, elige esa "
+                "regla.")
+        elif "queretaro" not in _col.replace("é", "e") or _es_federal:
             e.regla_surtimiento = "personal"
             avisos.append(
                 "El cómputo se hizo con notificación PERSONAL (artículo 31, "
@@ -275,24 +289,11 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # LA REGLA «OTRA»: el secretario ya declaró las dos fechas —cuándo se
     # notificó (e.notificacion, de siempre) y cuándo surtió efectos— y el
     # cómputo no tiene que adivinar ni aplicar ninguna regla ajena.
-    _surtio_manual = None
-    if e.regla_surtimiento == "otra":
-        _se = (getattr(e, "surte_efectos", "") or "").strip()
-        if _se:
-            try:
-                _surtio_manual = _dt.date.fromisoformat(_se[:10])
-            except ValueError:
-                avisos.append(
-                    f"La fecha «{_se}» en que dijiste que surtió efectos la "
-                    f"notificación no es válida (usa AAAA-MM-DD); el cómputo "
-                    f"siguió con la notificación personal.")
-        else:
-            avisos.append(
-                "Elegiste «otra regla» de notificación pero no diste la "
-                "fecha en que surtió efectos; el cómputo siguió con la "
-                "notificación personal. Declárala para que el considerando "
-                "cuente el plazo con la fecha que tú diste, no con una regla "
-                "que no aplicaste.")
+    # UNA SOLA PUERTA para leerla: la misma que usa la reconstrucción de la
+    # sesión desde la base. Hasta hoy ésta la leía y aquélla no.
+    _surtio_manual, _av_surtio = f0.surtio_manual_de(e)
+    if _av_surtio:
+        avisos.append(_av_surtio)
     c = f0.computar(e.notificacion, e.presentacion, e.regla_surtimiento,
                     _plazo_computo, e.responsable,
                     getattr(e, "dias_inhabiles_extra", None),
