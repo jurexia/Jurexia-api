@@ -292,3 +292,85 @@ def datos_del_documento(texto: str) -> dict:
     if m:
         fecha = " ".join(m.group(1).split())
     return {"expediente": expte, "fecha": fecha}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUÉ RESOLVIÓ LA RESPONSABLE: EL RECURSO, O EL JUICIO
+# ═══════════════════════════════════════════════════════════════════════════
+# David (23-sep-2026): «en amparo directo, cuando nos referimos a la
+# responsable, decimos "cómo resolvió la responsable esa demanda", cuando
+# sería "cómo resolvió la responsable ese recurso de apelación" (si sólo es
+# uno) o "cómo resolvió la responsable el juicio" (si no hubo apelación, como
+# en los orales mercantiles)».
+#
+# El relato abría su tercer párrafo con «¿Cómo resolvió {órgano} esa demanda?»
+# escrito a mano en el prompt. Una Sala de apelación no resuelve una demanda:
+# resuelve el RECURSO. Y una sentencia de juicio oral mercantil no viene de
+# ningún recurso: es terminal por la cuantía.
+#
+# Se lee del expediente, no se supone, y ante la duda se devuelve vacío: el
+# prompt tiene entonces una fórmula neutra que no afirma nada.
+
+# La apelación deja huella: el toca, la segunda instancia, el recurso
+# interpuesto contra la sentencia. Una mención suelta de «apelación» NO basta
+# —la demanda de amparo puede nombrarla al contar el trámite—, por eso se
+# exige una de las formas en que el propio fallo se identifica.
+_RX_HAY_APELACION = re.compile(
+    r"\btoca\b[^.]{0,60}\bapelaci[óo]n|\bapelaci[óo]n\b[^.]{0,40}\btoca\b|"
+    r"recurso\s+de\s+apelaci[óo]n\s+(?:interpuesto|promovido|hecho\s+valer|"
+    r"que\s+se\s+resuelve|planteado)|"
+    r"sentencia\s+de\s+segunda\s+instancia|en\s+segunda\s+instancia\s+se\s+"
+    r"(?:confirm|revoc|modific)|"
+    r"(?:confirm|revoc|modific)\w*\s+la\s+sentencia\s+(?:de\s+)?(?:primera\s+"
+    r"instancia|apelada|del\s+juez)|"
+    r"resolver\s+el\s+recurso\s+de\s+apelaci[óo]n", re.I)
+
+# Cómo se llama el juicio de origen cuando NO hubo apelación. El orden manda:
+# lo más específico primero, porque «juicio ordinario mercantil» contiene
+# «mercantil» y «juicio oral familiar» contiene «familiar».
+_VIAS = (
+    (r"juicio\s+oral\s+mercantil", "ese juicio oral mercantil"),
+    (r"juicio\s+ejecutivo\s+mercantil", "ese juicio ejecutivo mercantil"),
+    (r"juicio\s+ordinario\s+mercantil", "ese juicio ordinario mercantil"),
+    (r"juicio\s+oral\s+(?:civil|sumario)", "ese juicio oral civil"),
+    (r"juicio\s+ordinario\s+civil", "ese juicio ordinario civil"),
+    (r"juicio\s+(?:especial\s+)?hipotecario", "ese juicio hipotecario"),
+    (r"juicio\s+sucesorio", "ese juicio sucesorio"),
+    (r"juicio\s+oral\s+familiar|controversia\s+(?:del\s+orden\s+)?familiar",
+     "esa controversia familiar"),
+    (r"juicio\s+contencioso\s+administrativo|juicio\s+de\s+nulidad",
+     "ese juicio de nulidad"),
+    (r"juicio\s+laboral|juicio\s+ordinario\s+laboral|\blaudo\b",
+     "ese juicio laboral"),
+    (r"juicio\s+agrario", "ese juicio agrario"),
+    (r"juicio\s+de\s+amparo\s+indirecto", "ese juicio de amparo"),
+    (r"procedimiento\s+administrativo\s+(?:de\s+responsabilidades|sancionador)",
+     "ese procedimiento de responsabilidades"),
+)
+_VIAS_RX = tuple((re.compile(p, re.I), n) for p, n in _VIAS)
+
+
+def lo_resuelto(texto: str, tipo_asunto: str = "") -> str:
+    """«ese recurso de apelación» · «ese juicio oral mercantil» · «» si hay duda.
+
+    `texto` son los antecedentes y el resumen del acto, juntos: es donde el
+    expediente dice de dónde viene la sentencia reclamada.
+    """
+    import tipos_asunto as _ta
+    t = _ta.normalizar(tipo_asunto or "")
+    # En los recursos no hay nada que adivinar: lo dice el tipo de asunto.
+    #   · amparo en revisión → el Juzgado de Distrito resolvió el amparo.
+    #   · revisión fiscal    → la Sala resolvió el juicio de nulidad.
+    fijo = {"amparo_revision": "ese juicio de amparo",
+            "revision_fiscal": "ese juicio de nulidad"}.get(t, "")
+    if fijo:
+        return fijo
+    s = " ".join(str(texto or "").split())
+    if not s:
+        return ""
+    if _RX_HAY_APELACION.search(s):
+        return "ese recurso de apelación"
+    for rx, nombre in _VIAS_RX:
+        if rx.search(s):
+            return nombre
+    return ""

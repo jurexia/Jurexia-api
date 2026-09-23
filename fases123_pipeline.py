@@ -624,7 +624,8 @@ Escribe el apartado de antecedentes, un párrafo por línea. Sólo el apartado."
 
 def prompt_relato(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
                   es_recurso: bool = False, tipo_asunto: str = "",
-                  quejoso: str = "", responsable: str = "") -> str:
+                  quejoso: str = "", responsable: str = "",
+                  lo_resuelto: str = "") -> str:
     """De qué va el asunto, contado al secretario de corrido.
 
     David (17-sep-2026): «me gustaría una tarjeta más grande en la que al
@@ -647,6 +648,13 @@ def prompt_relato(antecedentes: str, resumen_acto: str, resumen_conceptos: str,
     _nombre = _v.get("nombre", "amparo directo")
     _promovente = _v.get("promovente", "quejoso")
     _combate = _v.get("combate", "conceptos de violación")
+    # QUÉ RESOLVIÓ LA RESPONSABLE, con su nombre. Iba escrito a mano —«esa
+    # demanda»— y una Sala de apelación no resuelve una demanda: resuelve el
+    # recurso. Lo lee `fase_origen.lo_resuelto`; si hay duda, devuelve vacío
+    # y aquí se usa una fórmula que no afirma de dónde viene.
+    _resuelto = " ".join(str(lo_resuelto or "").split())
+    _pregunta = (f"¿Cómo resolvió {_organo} {_resuelto}?" if _resuelto
+                 else f"¿Qué resolvió {_organo}?")
     _ficha = ""
     if (quejoso or "").strip():
         _ficha += f"Quien promueve, según la ficha: {quejoso.strip()}.\n"
@@ -677,15 +685,38 @@ que se entienda a la primera. Pero todo lo que digas tiene que estar en los
 resúmenes de abajo; si un dato no consta —un nombre, una fecha, un monto—,
 no lo inventes: di que no consta o sáltalo.
 
-EL HILO, en este orden y en cuatro o cinco párrafos cortos (250 a 400
-palabras en total):
+EL HILO, en este orden y en cinco párrafos cortos (320 a 480 palabras en
+total):
 {_hilo}
+5. DE QUÉ PENDE. Cierra diciendo cuál es la cuestión técnica de la que
+   depende el resultado y por qué: la figura jurídica que está en juego —la
+   preclusión, la caducidad, la competencia, la firma autógrafa, la
+   litisconsorcio, la valoración de una prueba—, el precepto o el plazo del
+   que cuelga, y qué pasaría si se resuelve de un lado o del otro. Sin
+   proponer el sentido: se dice qué se decide, no cómo debería decidirse.
 
 Cuenta el origen con «Mira: el asunto tuvo su origen en que…»; marca el giro
 con «Aquí empieza el problema, porque…»; abre el tercer párrafo con la
-pregunta «¿Cómo resolvió {_organo} esa demanda?» y contéstala con «Pues…»; y
+pregunta «{_pregunta}» —tal cual, sin cambiarla— y contéstala con «Pues…»; y
 el cuarto con «Inconforme con esa determinación, …». Una pregunta y su
 respuesta valen más que un párrafo de considerandos.
+
+LLANO, PERO SIN PERDER LO TÉCNICO. Son las dos cosas a la vez y no se
+negocia ninguna:
+  · LLANO es el REGISTRO: frases cortas, orden natural, voz activa, sin
+    latinajos («a quo», «sub júdice», «ad causam»), sin fórmulas de sentencia
+    («en las relatadas consideraciones», «resulta dable estimar»), sin
+    gerundios encadenados y sin perífrasis —«no valoró la prueba», no «omitió
+    realizar la debida valoración probatoria»—. Se lee en voz alta y se
+    entiende a la primera.
+  · TÉCNICO es el CONTENIDO: la figura jurídica que decide el asunto se
+    NOMBRA por su nombre —ampliación de demanda, preclusión, litis,
+    violación procesal, competencia, caducidad— y se explica en la misma
+    frase con seis o siete palabras llanas: «la preclusión, que es cuando se
+    pierde el derecho a hacer algo por dejar pasar el plazo». Los datos que
+    deciden —el plazo, la fecha, el precepto, el monto, la vía— van con su
+    número. Simplificar hasta borrar la cuestión jurídica es peor que el
+    tecnicismo: quien lee esto tiene que poder formar criterio.
 
 LO QUE NO VA: no enumeres los problemas jurídicos ni digas «tendrás que
 resolver» —eso lo pone la pantalla debajo de tu relato, calculado aparte—;
@@ -1201,8 +1232,12 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
     # que suele ser nada: no se le añade un escalón al adelanto.
     async def _relato():
         try:
+            import fase_origen as _fo_r
             _txt = await _pedir(cliente, prompt_relato(
-                an, ra, rc, es_recurso, tipo_asunto, quejoso, responsable), 1800)
+                an, ra, rc, es_recurso, tipo_asunto, quejoso, responsable,
+                # De dónde viene la sentencia reclamada: el recurso de
+                # apelación, el juicio oral mercantil, el juicio de nulidad…
+                lo_resuelto=_fo_r.lo_resuelto(f"{an}\n{ra}", tipo_asunto)), 2200)
             _txt = sin_marca(_txt or "").strip()
             try:
                 import meta_lenguaje as _ml_r

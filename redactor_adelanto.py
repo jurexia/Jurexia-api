@@ -1507,6 +1507,19 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                 avisos.append(_av_fe)
         except Exception as _exfe:
             print(f"   ⚠️ no se pudieron comprobar las fechas: {_exfe}")
+        # EL BARRIDO FINAL CONTRA LA CITA INVENTADA. Sobre el documento
+        # ENTERO y ya compuesto, que es donde están todas las citas: las del
+        # estudio, las del marco y las de los resultandos. Pregunta una sola
+        # cosa —¿existe este artículo?— a la fuente oficial en línea, en
+        # lotes y en paralelo. Medido el 23-sep-2026 sobre la v6 del ADC
+        # 93/2026: 6-14 s, cero acusaciones falsas en seis corridas.
+        try:
+            import barrido_preceptos as _bp
+            _r_bar = await _bp.barrer(_plano, material)
+            for _a in (_r_bar.get("avisos") or []):
+                avisos.insert(0, _a)
+        except Exception as _exbar:
+            print(f"   ⚠️ BARRIDO: no se pudo comprobar las citas: {type(_exbar).__name__}")
         # EL DESENLACE, DICHO IGUAL EN TODO EL PROYECTO. `revisar_congruencia`
         # sólo conocía las fórmulas del amparo; en un recurso, «se confirma» en
         # el estudio contra «Se revoca» en el resolutivo pasaba limpio. Así salió
