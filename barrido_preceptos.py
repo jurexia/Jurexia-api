@@ -35,10 +35,30 @@ import os
 import re
 from typing import Optional
 
-# El motor. `perplexity/sonar` es el mismo de `busqueda_web`: busca siempre
-# —es su única función—, devuelve las citas y está medido en 4.9 s. Se deja en
-# una variable de entorno para poder probar otro sin desplegar.
-BARRIDO_MODELO = os.getenv("BARRIDO_PRECEPTOS_MODELO", "perplexity/sonar")
+# ── EL MOTOR, ELEGIDO MIDIENDO ──────────────────────────────────────────────
+# Arrancó con `perplexity/sonar`, que es el de `busqueda_web`. David preguntó
+# el 23-sep-2026 si se podía conseguir mejor precio, y la respuesta fue mejor
+# que eso: medido sobre el MISMO barrido —las 43 citas de la v6 del ADC
+# 93/2026, tres lotes— y con la misma auditoría determinista (dos artículos
+# inventados metidos a mano, el resto reales):
+#
+#   modelo            coste/barrido   tiempo   inventados   acusaciones falsas
+#   perplexity/sonar     $0.0181       10 s      4 de 6            0
+#   x-ai/grok-4.3        $0.0106       13 s      4 de 4            0
+#
+# Grok sale un 41% MÁS BARATO y además no falla la detección: sonar la acierta
+# una de cada dos veces —por eso existe la segunda pregunta— y deja entre 1 y
+# 12 citas «sin comprobar» de 43, contra 1 a 3 de grok. Los tres segundos de
+# más no se notan dentro de una generación de dos minutos.
+#
+# El precio por búsqueda es el mismo ($0.005); lo que cambia es que grok gasta
+# menos tokens en contestar. Se deja en variable de entorno: volver a sonar
+# —o probar otro— es cambiarla en Render, sin desplegar.
+#
+# MEDIDO SOBRE UN SOLO PROYECTO. Son 43 citas reales y dos controles, no un
+# banco: si algún día acusa en falso, la regla de la casa manda revisar la
+# verificación antes que el proyecto.
+BARRIDO_MODELO = os.getenv("BARRIDO_PRECEPTOS_MODELO", "x-ai/grok-4.3")
 # CUÁNTOS SE PREGUNTAN Y CÓMO. Medido el 23-sep-2026 sobre la v6 del ADC
 # 93/2026: el documento cita 56 artículos distintos. Con un tope de 12 y una
 # sola llamada, una cita inventada metida al final NO se cazaba —el tope la

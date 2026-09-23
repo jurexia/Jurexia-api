@@ -98,8 +98,8 @@ print("\n7 · LA PUERTA ESTÁ CONECTADA")
 import redactor_adelanto as ra
 ok("_bp.barrer(_plano, material)" in inspect.getsource(ra._terminar),
    "_terminar barre el documento compuesto entero")
-ok(bp.BARRIDO_MODELO and "sonar" in bp.BARRIDO_MODELO,
-   f"el motor por omisión es sonar ({bp.BARRIDO_MODELO})")
+ok(bp.BARRIDO_MODELO == "x-ai/grok-4.3",
+   f"el motor por omisión es el que ganó la medición ({bp.BARRIDO_MODELO})")
 ok("BARRIDO_PRECEPTOS" in open("barrido_preceptos.py", encoding="utf-8").read(),
    "y tiene interruptor para apagarlo desde Render")
 
