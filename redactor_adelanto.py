@@ -24,6 +24,29 @@ import ensamblar_adelanto as ens
 import fase0_oportunidad as f0
 import promovente as _pv
 import fase_partes as fpartes
+
+
+def _parece_autoridad(nombre: str) -> bool:
+    """¿Este nombre es un órgano del Estado y no un particular? Se mira el
+    vocabulario del cargo, no la forma jurídica: una sociedad anónima nunca
+    se llama «Titular de…» ni «Director General de…»."""
+    n = (nombre or "").lower()
+    return any(k in n for k in (
+        "titular", "director", "directora", "unidad de", "secretaría", "secretaria de",
+        "juzgado", "tribunal", "sala ", "magistrad", "juez", "ayuntamiento", "instituto",
+        "comisión", "comision", "fiscal", "procurad", "presidente municipal", "gobernador",
+        "congreso", "servicio de administración", "delegación", "subsecretar", "jefe de",
+        "coordinador", "administrador", "autoridad", "consejo de la judicatura"))
+
+
+def _mismo_nombre(a: str, b: str) -> bool:
+    import unicodedata as _u
+    def _n(x):
+        x = _u.normalize("NFD", (x or "").lower())
+        x = "".join(c for c in x if _u.category(c) != "Mn")
+        return " ".join(x.replace(",", " ").split())
+    _a, _b = _n(a), _n(b)
+    return bool(_a and _b) and (_a == _b or _a in _b or _b in _a)
 import fase6_estudio as f6
 import fase6_rag as f6rag
 import marco_juridico as mjur
@@ -85,6 +108,18 @@ class Encargo:
     fecha_sesion: str = ""
     responsable: Optional[str] = None
     es_recurso: bool = False
+    # ═══ QUIÉN RECURRE NO ES QUIÉN PIDIÓ EL AMPARO (23-sep-2026) ═══════════
+    # Amparo en revisión 711/2025: el amparo lo promovió Interamericana de
+    # Aceites y Lubricantes y lo GANÓ; quien recurrió fue la Unidad de
+    # Inteligencia Financiera. El formulario de admisión guardó a la UIF en
+    # `quejoso` —porque es «quien promueve el recurso»— y el resolutivo salió
+    # «La Justicia de la Unión no ampara ni protege a [la UIF]». David: «es
+    # absurdo e incongruente. Se niega el amparo a la persona moral».
+    #
+    # El amparo se concede o se niega a quien lo PIDIÓ; el recurso se declara
+    # fundado o infundado a quien lo INTERPUSO. Son dos papeles, y coinciden
+    # sólo cuando recurre el propio quejoso. Vacío = coinciden.
+    recurrente: str = ""
     # LA HERRAMIENTA NO ES DE UN TRIBUNAL, ES DE TODOS. Estos tres campos son
     # lo que impide que un secretario de otro circuito firme «Resolución del
     # Tercer Tribunal Colegiado… del Vigésimo Segundo Circuito» sin verlo: en
@@ -415,6 +450,27 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
     # de criterio: en la cuota pensionaria el representante frente al
     # representado, y en el ARA el alias «y/o» perdido. Eso lo resuelve un
     # vistazo, no un algoritmo. Y si el secretario lo escribió, manda él.
+    # ═══ EN UN RECURSO, EL QUEJOSO SE LEE DE LA SENTENCIA RECURRIDA ═══════
+    # No del formulario, que pide «quien promueve» y en un recurso eso es el
+    # RECURRENTE. `fase_partes` lee de la propia sentencia quién promovió el
+    # amparo; cuando lo que tecleó el secretario es OTRA persona y esa persona
+    # es una autoridad —que es el caso de siempre: el amparo lo gana el
+    # particular y recurre la responsable—, se separan los dos papeles: la
+    # autoridad pasa a `recurrente` y el quejoso leído ocupa su sitio. Así el
+    # resolutivo niega o concede el amparo a quien lo pidió.
+    if getattr(e, "es_recurso", False):
+        _q_leido = str(getattr(partes, "quejoso", "") or "").strip()
+        _q_tecleado = str(getattr(e, "quejoso", "") or "").strip()
+        if (_q_leido and _q_tecleado and not _mismo_nombre(_q_leido, _q_tecleado)
+                and _parece_autoridad(_q_tecleado)
+                and not str(getattr(e, "recurrente", "") or "").strip()):
+            e.recurrente = _q_tecleado
+            e.quejoso = _q_leido
+            avisos.insert(0,
+                f"SE SEPARARON LOS PAPELES: quien pidió el amparo es «{_q_leido}» "
+                f"(leído de la sentencia recurrida) y quien recurre es la autoridad "
+                f"«{_q_tecleado[:90]}». El amparo se concede o se niega a la primera; "
+                f"el recurso se califica a la segunda. Compruébalo en la carátula.")
     if not str(getattr(e, "quejoso", "") or "").strip():
         _leido = str(getattr(partes, "quejoso", "") or "").strip()
         if _leido:
@@ -1742,6 +1798,33 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
 # se queda con el estudio de fondo, donde el trámite ya no está—.
 
 
+def _quejoso_del_amparo(e: Encargo, partes=None) -> str:
+    """A quién se concede o niega el amparo.
+
+    En un recurso el formulario guarda a «quien promueve» y eso es el
+    RECURRENTE; quien pidió el amparo está en la ficha de partes, leída de la
+    sentencia recurrida. Si lo tecleado es una autoridad y la ficha dice otro
+    nombre, manda la ficha. Se resuelve AQUÍ, al armar los datos, y no sólo al
+    fichar: la regeneración desde una sesión guardada no vuelve a fichar y el
+    711/2025 tenía a la UIF de quejosa en el encargo ya persistido."""
+    _tecleado = str(getattr(e, "quejoso", "") or "").strip()
+    _leido = str(getattr(partes, "quejoso", "") or "").strip()
+    if (getattr(e, "es_recurso", False) and _leido and _tecleado
+            and not _mismo_nombre(_leido, _tecleado) and _parece_autoridad(_tecleado)):
+        return _leido
+    return _tecleado
+
+
+def _recurrente_de(e: Encargo, partes=None) -> str:
+    _propio = str(getattr(e, "recurrente", "") or "").strip()
+    if _propio:
+        return _propio
+    _tecleado = str(getattr(e, "quejoso", "") or "").strip()
+    if _quejoso_del_amparo(e, partes) != _tecleado:
+        return _tecleado
+    return ""
+
+
 def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
                      partes=None) -> dict:
     """Lo que la estructura necesita.
@@ -1775,7 +1858,9 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         # en la legitimación y en el resolutivo (v5 del ADC 93/2026: «ampara
         # y protege a Alondra…»). La parte es la representada; la persona
         # física sólo tiene la personería (arts. 6 y 11 de la Ley de Amparo).
-        "quejoso": _pv.separar(e.quejoso)["parte"] or e.quejoso,
+        "quejoso": _pv.separar(_quejoso_del_amparo(e, partes))["parte"] or _quejoso_del_amparo(e, partes),
+        # Quien recurrió, cuando no es el quejoso. Vacío = es el mismo.
+        "recurrente": _recurrente_de(e, partes),
         "representante": _pv.separar(e.quejoso)["representante"],
         "figura_representante": _pv.separar(e.quejoso)["figura"],
         "quejoso_moral": _pv.separar(e.quejoso)["moral"],

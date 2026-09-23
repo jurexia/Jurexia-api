@@ -3179,9 +3179,26 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
             return valor
         return _sin_articulo(_normalizar_autoridad(str(valor or ""))) or valor
 
-    campos += [(_ta_c.etiqueta_concordada(et, str(datos.get(clave, ""))),
-                _limpia(clave, datos.get(clave, "")))
-               for et, clave, _ob in _ta_c.caratula_de(_t)]
+    # ═══ CUANDO RECURRE OTRO QUE EL QUEJOSO, SON DOS RENGLONES ══════════════
+    # La plantilla dice «{QUEJOSO_A} Y RECURRENTE» porque casi siempre recurre
+    # quien perdió el amparo. En el 711/2025 lo ganó la sociedad y recurrió la
+    # UIF: con un solo renglón la carátula decía «QUEJOSA Y RECURRENTE: la
+    # UIF», que es falso por partida doble. Si `recurrente` viene aparte, la
+    # etiqueta se parte: QUEJOSA con la parte, RECURRENTE con la autoridad.
+    _recurrente = str(datos.get("recurrente") or "").strip()
+    _filas_caratula = []
+    for et, clave, _ob in _ta_c.caratula_de(_t):
+        if _recurrente and clave == "quejoso" and "Y RECURRENTE" in et:
+            _filas_caratula.append(
+                (_ta_c.etiqueta_concordada(et.replace(" Y RECURRENTE", ""),
+                                           str(datos.get("quejoso", ""))),
+                 datos.get("quejoso", "")))
+            _filas_caratula.append(("RECURRENTE", _recurrente))
+            continue
+        _filas_caratula.append(
+            (_ta_c.etiqueta_concordada(et, str(datos.get(clave, ""))),
+             _limpia(clave, datos.get(clave, ""))))
+    campos += _filas_caratula
     # «SECRETARIO», no «SECRETARIA/O». La barra es de un formulario, no de una
     # sentencia: el adelanto ajustado firma «SECRETARIO:» y quien firma sabe su
     # propio género. Se concuerda con el nombre cuando se puede.

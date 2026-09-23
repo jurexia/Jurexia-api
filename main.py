@@ -28902,7 +28902,7 @@ async def taller_desde_admision(
     if _auto.get("presentacion"):
         ficha["presentacion"] = _auto["presentacion"]
     _leidos = [k for k in ("numero", "tipo_asunto", "tribunal", "ciudad",
-                           "quejoso", "responsable", "tercero_interesado",
+                           "quejoso", "recurrente", "responsable", "tercero_interesado",
                            "expediente_origen", "presentacion")
                if (ficha.get(k) or "").strip()]
     print(f"   📋 ficha leída del auto de admisión: {', '.join(_leidos) or 'nada'}"
@@ -28966,6 +28966,10 @@ async def taller_adelanto(
     # parcial, CERO invenciones— y llega como propuesta con su aviso. Si el
     # secretario lo escribe, manda lo que él diga.
     quejoso: str = Form(""),
+    # RECURRENTE, cuando no es el quejoso (23-sep-2026). En el 711/2025 recurrió
+    # la UIF contra la concesión: el amparo se niega a la sociedad, no a la
+    # autoridad. Vacío = recurre el propio quejoso.
+    recurrente: str = Form(""),
     # MAGISTRADO y SECRETARIO: son la ponencia, no el expediente. Se toman del
     # último asunto suyo. Se piden una vez.
     magistrado: str = Form(""),
@@ -29269,6 +29273,7 @@ async def taller_adelanto(
 
     encargo = _ra.Encargo(
         numero=numero, encabezado=encabezado, quejoso=quejoso,
+        recurrente=(recurrente or "").strip(),
         magistrado=magistrado, secretario=secretario,
         notificacion=_notif,
         presentacion=_pres,
@@ -30214,6 +30219,7 @@ def _taller_recuperar_sesion(email: str, numero: str):
     e = est["encargo"]
     encargo = _ra.Encargo(
         numero=e["numero"], encabezado=e["encabezado"], quejoso=e["quejoso"],
+        recurrente=str(e.get("recurrente", "") or ""),
         magistrado=e["magistrado"], secretario=e["secretario"],
         notificacion=_d.date.fromisoformat(e["notificacion"]),
         presentacion=_d.date.fromisoformat(e["presentacion"]),
@@ -31998,6 +32004,69 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     except Exception as _exc_prev:
         print(f"   ⚠️ no se pudo completar el material antes de proponer: "
               f"{type(_exc_prev).__name__}: {str(_exc_prev)[:120]}")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # LA LÍNEA DE LA CORTE, BUSCADA EN INTERNET (23-sep-2026)
+    # ═══════════════════════════════════════════════════════════════════════
+    # David, 711/2025: «hay una extensa línea jurisprudencial de la SCJN que
+    # evolucionó el tratamiento a los bloqueos de cuentas… precedentes
+    # sumamente relevantes que no se toman en cuenta. Ya teníamos la capacidad
+    # de buscar en internet, pero en este caso no se hizo».
+    #
+    # Se busca sobre el problema principal, antes de proponer, para que el
+    # motor proponga CON la línea delante y no la descubra el secretario en
+    # el proyecto. Lo que internet dice y el acervo confirma —por registro Y
+    # por rubro, ver `fase_internet`— entra al material como una tesis más,
+    # marcada; lo que no se confirma queda como pista en el aviso y no se
+    # cita. Se guarda en la sesión: el estudio, que corre en otro worker,
+    # tiene que verlo igual.
+    try:
+        import fase_internet as _fi
+        _pral_txt = ""
+        for _pp in problemas:
+            if isinstance(_pp, dict) and str(_pp.get("jerarquia") or "") == "principal":
+                _pral_txt = str(_pp.get("pregunta") or ""); break
+        if not _pral_txt and problemas:
+            _pp0 = problemas[0]
+            _pral_txt = str(_pp0.get("pregunta") if isinstance(_pp0, dict) else _pp0)
+        if not _pral_txt:
+            _pral_txt = str(r.fases.problema_global or "")
+        if _pral_txt.strip():
+            _hechos_txt = " ".join((r.fases.parrafos_acto() or [])[:3])[:1500]
+            _web = await asyncio.wait_for(
+                _fi.precedentes_verificados(
+                    qdrant_client, _pral_txt, _hechos_txt,
+                    getattr(r.encargo, "tipo_asunto", "") or "",
+                    embed_juris=_embedding_juris),
+                timeout=40.0)
+            if _web.get("buscado"):
+                ses["internet"] = {k: _web[k] for k in ("pistas", "resumen", "fuentes", "buscado")}
+                ses["internet"]["registros"] = [t.get("registro") for t in _web["tesis"]]
+                _nuevas = []
+                _ya_reg = {t.get("registro") for t in (ses["material"].tesis or [])}
+                for _t in _web["tesis"]:
+                    if _t.get("registro") in _ya_reg:
+                        # Ya estaba: se marca igual, para que el estudio sepa
+                        # que ES de la línea y no un parecido de rubro.
+                        for _m in ses["material"].tesis:
+                            if _m.get("registro") == _t.get("registro"):
+                                _m["de_internet"] = True; _m["tecnica"] = True
+                        continue
+                    _nuevas.append(_t)
+                if _nuevas:
+                    ses["material"].tesis = _nuevas + list(ses["material"].tesis or [])
+                    _taller_guardar_material(user_email, numero, ses["material"],
+                                             huella=_te.huella_contraste(r))
+                _av_web = _fi.aviso(_web)
+                if _av_web and _av_web not in (r.fases.avisos or []):
+                    r.fases.avisos.append(_av_web)
+                print(f"   🌐 línea de la Corte al material: {len(_nuevas)} nuevas, "
+                      f"{len(_web['tesis']) - len(_nuevas)} ya estaban, "
+                      f"{len(_web.get('pistas') or [])} sin confirmar")
+    except asyncio.TimeoutError:
+        print("   🌐 la búsqueda de la línea de la Corte tardó más de 40 s: se sigue sin ella")
+    except Exception as _exc_web:
+        print(f"   ⚠️ búsqueda de la línea de la Corte: {type(_exc_web).__name__}: {str(_exc_web)[:120]}")
 
     # EL CONTRASTE QUE DEJÓ EL ADELANTO, si es de este adelanto. Si no está
     # —fila antigua, worker caído, planteamiento cambiado—, la propuesta lo

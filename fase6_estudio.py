@@ -571,8 +571,15 @@ def _bloque_material(m: Material) -> str:
             _uso = (f" — LO CITAN {_vec} SENTENCIAS DE ESTE CIRCUITO al "
                     f"resolver esta misma cuestión") if _vec >= 2 else (
                    " — usado por el circuito en esta cuestión" if _vec else "")
+            # DE LA LÍNEA DE LA CORTE, buscada en internet y confirmada en el
+            # acervo por registro y por rubro (ver `fase_internet`). Se dice:
+            # es la evolución del criterio, y un estudio que resuelve con la
+            # tesis de 2018 ignorando la de 2024 sale desactualizado aunque
+            # cite bien.
+            _linea = (" — DE LA LÍNEA DE LA SUPREMA CORTE SOBRE ESTE PROBLEMA: "
+                      "úsala, es la evolución del criterio") if t.get("de_internet") else ""
             p.append(f"\n  · [{fuerza}] [{tipo}] Registro "
-                     f"{t.get('registro','')} — {t.get('instancia','')}{_uso}")
+                     f"{t.get('registro','')} — {t.get('instancia','')}{_uso}{_linea}")
             p.append(f"    {t.get('rubro','')}")
             if t.get("localizacion"):
                 p.append(f"    {t['localizacion']}")

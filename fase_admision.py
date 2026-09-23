@@ -215,7 +215,8 @@ EL AUTO:
 
 Devuelve JSON y nada más:
 {{"tipo_asunto": "exactamente una de estas cuatro claves, o vacío: amparo_directo, amparo_revision, queja, revision_fiscal",
- "quejoso": "quien promueve el amparo o el recurso, literal",
+ "quejoso": "QUIEN PROMOVIÓ EL AMPARO —a quien se concede o niega—, literal. En un recurso NO es quien recurre, salvo que sea la misma persona",
+ "recurrente": "quien interpone el recurso, literal, SÓLO si es distinto del quejoso (por ejemplo la autoridad responsable o el tercero); si es el mismo, vacío",
  "responsable_ordenadora": "la que dictó el acto reclamado, literal",
  "responsable_ejecutora": "la que lo ejecuta, literal, o vacío",
  "tercero_interesado": "literal, o vacío",
@@ -223,7 +224,7 @@ Devuelve JSON y nada más:
  "magistrado": "el ponente, SÓLO si el auto lo dice, o vacío"}}"""
 
 
-_CAMPOS = ("quejoso", "responsable_ordenadora", "responsable_ejecutora",
+_CAMPOS = ("quejoso", "recurrente", "responsable_ordenadora", "responsable_ejecutora",
            "tercero_interesado", "expediente_origen", "magistrado")
 
 
