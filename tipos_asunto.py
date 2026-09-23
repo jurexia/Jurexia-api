@@ -1591,6 +1591,18 @@ TECNICA_RESOLUCION = {
             "y los accesorios que dependían de la litis reintegrada quedan sin "
             "materia: se dice. SI NO PROSPERA, los accesorios que presuponían "
             "la reposición caen con él: se declaran inoperantes con esa razón.",
+            "LOS EFECTOS DE LA REPOSICIÓN SE ORDENAN PASO A PASO, porque la "
+            "responsable NO puede dictar otra sentencia de inmediato: 1. deje "
+            "insubsistente la sentencia reclamada; 2. deje sin efectos la "
+            "resolución del recurso ordinario y la actuación viciada (el "
+            "acuerdo que desechó, tuvo por precluido o no admitió); 3. reponga "
+            "el procedimiento desde esa actuación —admita la ampliación, la "
+            "prueba o el escrito de que se trate—; 4. corra traslado a la "
+            "contraparte y desahogue lo que proceda, con alegatos; 5. cerrada "
+            "de nuevo la instrucción, dicte la sentencia de fondo con plenitud "
+            "de jurisdicción. Un «dicte otra en la que atienda los "
+            "lineamientos» provoca requerimientos de cumplimiento defectuoso "
+            "(artículos 192 a 196 de la Ley de Amparo).",
         ],
     },
     "directo_orden_de_estudio": {
@@ -2238,23 +2250,53 @@ LEGITIMACION = {
 
 
 def legitimacion_de(tipo: str, parte: str = "", representante: str = "",
-                    hueco: str = "*********") -> str:
+                    hueco: str = "*********", figura: str = "",
+                    moral=None) -> str:
     """El párrafo de legitimación de esta vía, o cadena vacía si no hay parte.
 
     SIN NOMBRE NO SE ESCRIBE. Un párrafo que dice «la parte está legitimada»
     sin decir quién no acredita nada, y es justo la perífrasis que el catálogo
     persigue en los resultandos.
+
+    DOS COSAS DISTINTAS, DICHAS APARTE. David (22-sep-2026, ADC 93/2026): la
+    persona física que comparece por la moral «no resiente el perjuicio ni
+    tiene legitimación activa ad causam (…) únicamente ostenta la
+    legitimación procesal activa (representación o personería) en términos
+    de los artículos 6 y 11 de la Ley de Amparo». Así que la legitimación se
+    predica de LA PARTE y la personería del representante, cada una con su
+    fundamento; antes el molde pegaba «a través de su representante legal»
+    y seguía diciendo «quien está legitimada… por resentir el perjuicio»
+    de la persona física.
     """
     m = LEGITIMACION.get(normalizar(tipo))
     if not m or not (parte or "").strip():
         return ""
+    t = normalizar(tipo)
+    if moral is None:
+        try:
+            import promovente as _pv
+            moral = _pv.es_moral(parte)
+        except Exception:
+            moral = False
     rep = ""
     if (representante or "").strip():
-        rep = f", a través de su representante legal {representante.strip()}"
-    elif normalizar(tipo) == "revision_fiscal":
-        rep = ""
-    return m["molde"].format(parte=parte.strip(), rep=rep,
-                             a="a" if genero_de(parte) == "a" else "o")
+        fig = (figura or "representante legal").strip().lower()
+        if t == "revision_fiscal":
+            rep = f", por conducto de su {fig} {representante.strip()}"
+        else:
+            rep = (f", por conducto de su {fig} {representante.strip()}, en "
+                   f"términos de los artículos 6º y 11 de la Ley de Amparo")
+    a = "a" if (moral or genero_de(parte) == "a") else "o"
+    texto = m["molde"].format(parte=parte.strip(), rep=rep, a=a)
+    if rep and t != "revision_fiscal":
+        # «…, quien está legitimada» ya no puede referirse al representante: se
+        # nombra a la parte por su figura.
+        quien = "la persona moral quejosa" if moral else "la parte quejosa"
+        if t in ("amparo_revision", "queja"):
+            quien = "la persona moral recurrente" if moral else "la parte recurrente"
+        texto = texto.replace(", quien está legitimad", f"; {quien} está legitimad", 1)
+        texto = texto.replace(", quien se encuentra legitimad", f"; {quien} se encuentra legitimad", 1)
+    return texto
 
 
 def rotulo_materia_de(tipo: str) -> str:

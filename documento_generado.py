@@ -2436,10 +2436,27 @@ def _norm_palabras(t: str) -> list:
 # el corpus prohíbe. La responsable recibe la ejecutoria y no sabe qué hacer.
 # Se usan los del modelo; la fórmula de plantilla queda de respaldo para cuando
 # no los haya escrito.
+# MÁS APERTURAS, Y EL RÓTULO FIJO. La v5 del ADC 93/2026 escribió «La
+# concesión del amparo exige que la Sala responsable: a) deje insubsistente…»
+# y este patrón sólo conocía «debe producir los efectos»: los efectos se
+# quedaron dentro del estudio y el considerando de Efectos salió con la
+# fórmula genérica. Desde hoy el prompt pide el rótulo «EFECTOS DE LA
+# CONCESIÓN» en su propia línea, y aquí se reconoce junto con las formas en
+# que el modelo los venía abriendo.
+_RX_ROTULO_EFECTOS = re.compile(
+    r"^\s*(?:\*\*|__)?\s*efectos(?:\s+de\s+la\s+(?:concesi[óo]n|protecci[óo]n\s+constitucional))?"
+    r"\s*(?:\*\*|__)?\s*[.:]?\s*$", re.I)
 _RX_INICIO_EFECTOS = re.compile(
-    r"(?:^|\s)(?:por\s+tanto,?\s+)?la\s+concesi[óo]n\s+del\s+amparo\s+debe\s+"
-    r"producir\s+los\s+efectos|^\s*los\s+efectos\s+de\s+la\s+concesi[óo]n|"
-    r"^\s*el\s+primer\s+efecto\s+consiste", re.I)
+    r"^\s*(?:\*\*|__)?\s*efectos(?:\s+de\s+la\s+(?:concesi[óo]n|protecci[óo]n\s+constitucional))?"
+    r"\s*(?:\*\*|__)?\s*[.:]?\s*$|"
+    r"(?:^|\s)(?:por\s+tanto,?\s+|en\s+consecuencia,?\s+)?la\s+concesi[óo]n\s+del\s+amparo\s+"
+    r"(?:debe\s+producir\s+los\s+efectos|exige\s+que|implica\s+que|obliga\s+a|"
+    r"tendr[áa]\s+(?:por|como)\s+efecto|se\s+traduce\s+en)|"
+    r"^\s*los\s+efectos\s+de\s+la\s+(?:concesi[óo]n|protecci[óo]n)|"
+    r"^\s*el\s+primer\s+efecto\s+consiste|"
+    r"^\s*(?:en\s+consecuencia,?\s+|por\s+tanto,?\s+)?(?:el\s+amparo\s+se\s+concede|"
+    r"procede\s+conceder\s+el\s+amparo|la\s+protecci[óo]n\s+constitucional\s+(?:deber[áa]|se\s+concede))"
+    r"[^.]{0,80}para\s+(?:el\s+)?efecto\s+de\s+que", re.I)
 _RX_UN_EFECTO = re.compile(
     r"^\s*(?:el\s+)?(?:primer|segundo|tercer|cuarto|quinto|sexto|s[ée]ptimo|"
     r"octavo)\s+efecto\b", re.I)
@@ -2458,6 +2475,9 @@ def partir_efectos(estudio: list) -> tuple:
         return list(estudio), []
     cuerpo = list(estudio[:corte])
     efectos = [x for x in estudio[corte:] if (x or "").strip()]
+    # EL RÓTULO NO ES UN EFECTO: el considerando ya lleva el suyo («Efectos.»).
+    if efectos and _RX_ROTULO_EFECTOS.match(efectos[0]):
+        efectos = efectos[1:]
     # El párrafo final de cierre —«por lo que procede conceder el amparo…»— no
     # es un efecto: cierra el estudio y ya lo pone el resolutivo.
     while efectos and re.search(r"procede\s+conceder\s+el\s+amparo",
@@ -3797,7 +3817,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     # qué carácter, por qué precepto de SU vía y por qué le perjudica.
     _leg = _ta.legitimacion_de(
         tipo_asunto, str(datos.get("quejoso") or ""),
-        str(datos.get("representante") or ""), HUECO)
+        str(datos.get("representante") or ""), HUECO,
+        figura=str(datos.get("figura_representante") or ""),
+        moral=datos.get("quejoso_moral"))
 
     def _legitimacion(p):
         if _leg:
@@ -4578,10 +4600,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
                    sangria=False)
     else:
         formula = _AMPARA if concede else _NO_AMPARA
+        # SE AMPARA A LA PARTE, y si compareció por representante se dice
+        # «por conducto de su representante legal…»: la persona moral es la
+        # que resiente el perjuicio; la física sólo la representa.
+        import promovente as _pvr
+        _a_quien = _pvr.por_conducto(str(datos.get("quejoso") or ""),
+                                     str(datos.get("representante") or ""),
+                                     str(datos.get("figura_representante") or ""))
         tramos(doc, [("ÚNICO. ", {"bold": True}),
                      ("La Justicia de la Unión ", {}),
                      (formula, {"bold": True}),
-                     (f" a {datos.get('quejoso','') or HUECO}, en contra de "
+                     (f" a {_a_quien or HUECO}, en contra de "
                       f"{esq.get('recurrido','la sentencia reclamada')}, dictada "
                       f"por {_con_articulo(datos.get('responsable','')) or HUECO}, "
                       f"precisada en el primer resultando de esta ejecutoria.", {})],

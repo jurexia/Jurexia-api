@@ -22,6 +22,7 @@ from typing import Optional
 
 import ensamblar_adelanto as ens
 import fase0_oportunidad as f0
+import promovente as _pv
 import fase_partes as fpartes
 import fase6_estudio as f6
 import fase6_rag as f6rag
@@ -1013,6 +1014,22 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # moría en el adelanto: la fase que CONTESTA los conceptos recibía
             # el resumen —unas 472 palabras— y CERO caracteres del escrito.
             escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1])
+    # LOS EFECTOS DE UNA VIOLACIÓN PROCESAL SE ORDENAN PASO A PASO (v5 del
+    # 93/2026: «dicte otra» sobre una reposición). Se comprueba aquí porque
+    # aquí se sabe si la hay.
+    _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
+    if _av_ef:
+        avisos.insert(0, _av_ef)
+    # LAS CONSTANCIAS INDISPENSABLES QUE NO SE APORTARON, dichas arriba del
+    # todo: el proyecto se escribió sin verlas.
+    try:
+        import constancias as _cn_a
+        _av_cn = _cn_a.aviso_faltantes(
+            (getattr(e, "propuesta_global", None) or {}).get("constancias") or [], contexto)
+        if _av_cn:
+            avisos.insert(0, _av_cn)
+    except Exception as _exc_cn:
+        print(f"   ⚠️ constancias: {type(_exc_cn).__name__}")
 
     # LOS PRECEPTOS QUE EL ESTUDIO CITÓ SIN TENERLOS. Si están en el acervo se
     # traen y se transcriben; el aviso se queda sólo para los que no existen.
@@ -1156,6 +1173,19 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             advertencias = paso.get("advertencias", "")
             avisos.extend(paso.get("avisos", []))
     TIEMPOS["estudio de fondo"] = round(_time.perf_counter() - t0, 1)
+    _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
+    if _av_ef:
+        avisos.insert(0, _av_ef)
+    # LAS CONSTANCIAS INDISPENSABLES QUE NO SE APORTARON, dichas arriba del
+    # todo: el proyecto se escribió sin verlas.
+    try:
+        import constancias as _cn_a
+        _av_cn = _cn_a.aviso_faltantes(
+            (getattr(e, "propuesta_global", None) or {}).get("constancias") or [], contexto)
+        if _av_cn:
+            avisos.insert(0, _av_cn)
+    except Exception as _exc_cn:
+        print(f"   ⚠️ constancias: {type(_exc_cn).__name__}")
 
     yield {"tipo": "componiendo"}
     # LOS PRECEPTOS QUE EL ESTUDIO CITÓ SIN TENERLOS. Si están en el acervo se
@@ -1710,7 +1740,16 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         "tribunal": e.tribunal or "",
         "ciudad": e.ciudad or "",
         "encabezado": e.encabezado,
-        "quejoso": e.quejoso,
+        # LA PARTE Y QUIEN LA REPRESENTA, SEPARADAS EN LA FUENTE. «Alondra
+        # Zúñiga Gutiérrez, representante legal de GDE Trading Company, S.A.
+        # de C.V.» llegaba entero como `quejoso` y así salía en la carátula,
+        # en la legitimación y en el resolutivo (v5 del ADC 93/2026: «ampara
+        # y protege a Alondra…»). La parte es la representada; la persona
+        # física sólo tiene la personería (arts. 6 y 11 de la Ley de Amparo).
+        "quejoso": _pv.separar(e.quejoso)["parte"] or e.quejoso,
+        "representante": _pv.separar(e.quejoso)["representante"],
+        "figura_representante": _pv.separar(e.quejoso)["figura"],
+        "quejoso_moral": _pv.separar(e.quejoso)["moral"],
         "responsable": e.responsable or "",
         "magistrado": e.magistrado,
         "secretario": e.secretario,

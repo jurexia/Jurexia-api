@@ -31482,6 +31482,10 @@ async def taller_contexto(
     # CONTRA QUÉ EXPEDIENTE. Sin esto el endpoint era apátrida: devolvía el
     # texto al navegador y ahí se quedaba, sin que la búsqueda se enterara.
     numero: str = Form(""),
+    # A QUÉ CONSTANCIA RESPONDE, cuando el motor la pidió por su nombre. El
+    # aporte viaja rotulado «[CONSTANCIA · …]» para que el estudio sepa cuál
+    # se contestó y cuál sigue faltando.
+    etiqueta: str = Form(""),
 ):
     """Lo que el acervo no tiene y el secretario sí.
 
@@ -31507,6 +31511,9 @@ async def taller_contexto(
     junto = "\n\n".join(partes)
     if not junto:
         raise HTTPException(400, "No llegó ni documento ni texto que aportar.")
+    if (etiqueta or "").strip():
+        import constancias as _cn_r
+        junto = _cn_r.rotular(etiqueta, junto)
     # QUÉ ES LO QUE LLEGÓ. Si es la resolución del incidente procesal —la
     # interlocutoria de la reclamación—, la pantalla lo dice y el motor la
     # tratará como la razón toral de la violación, no como un papel más.
@@ -32201,6 +32208,8 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             "alternativa": glob.alternativa,
             # LA LISTA DE COMPROBACIÓN, completada contra los problemas reales.
             "checklist": glob.checklist,
+            # LAS CONSTANCIAS QUE HARÍA FALTA VER, para que la pantalla las pida.
+            "constancias": list(getattr(glob, "constancias", None) or []),
         },
         "avisos": avisos,
         # Lo que hay que mandar a /taller/resolver para aceptarla tal cual.

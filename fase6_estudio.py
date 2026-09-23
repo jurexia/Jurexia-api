@@ -465,6 +465,40 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                "Está PROHIBIDO cerrar con «por las razones expuestas», «en las",
                "relatadas consideraciones» o cualquier fórmula que mande al lector",
                "a buscar por su cuenta lo que ya se dijo.", ""]
+    # ── LOS EFECTOS, CON RÓTULO FIJO Y COMO ÓRDENES ──────────────────────
+    # ADC 93/2026 v5: el estudio escribió los efectos completos —«La concesión
+    # del amparo exige que la Sala: a) deje insubsistente…; b) deje sin
+    # efectos la preclusión…; c) admita la ampliación…»— y el compositor no
+    # los reconoció (esperaba «debe producir los efectos»), así que los dejó
+    # dentro del estudio y en el considerando de EFECTOS puso la fórmula
+    # genérica «dicte otra en la que atienda los lineamientos». David: «al
+    # tratarse de una concesión por violación al procedimiento, la Sala no
+    # puede dictar otra sentencia de inmediato». Un rótulo fijo es lo que
+    # permite recogerlos sin adivinar.
+    import tipos_asunto as _ta_ef
+    if any(_ta_ef.prospera(str(getattr(c, "sentido", "") or "")) for c in criterios):
+        lineas += ["",
+                   "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──",
+                   "Después del último párrafo del estudio escribe, en su propia línea",
+                   "y sin nada más, el rótulo:",
+                   "",
+                   "    EFECTOS DE LA CONCESIÓN",
+                   "",
+                   "y debajo las órdenes a la responsable como LISTA NUMERADA, una por",
+                   "párrafo, en imperativo y cada una verificable en la ejecución:",
+                   "«1. Deje insubsistente…»; «2. Deje sin efectos…»; «3. Admita…»;",
+                   "«4. Corra traslado…»; «5. Cerrada la instrucción, dicte…». Sin",
+                   "prosa entre ellas y sin la fórmula «dicte otra en la que atienda los",
+                   "lineamientos de esta ejecutoria», que no se puede ejecutar sin",
+                   "interpretarla.",
+                   "SI LA CONCESIÓN ES POR UNA VIOLACIÓN PROCESAL, la responsable NO",
+                   "puede dictar otra sentencia de inmediato: los efectos ordenan la",
+                   "REPOSICIÓN paso a paso —dejar insubsistente la sentencia; dejar sin",
+                   "efectos la resolución del recurso ordinario y la actuación viciada;",
+                   "admitir la ampliación / la prueba / emplazar, según sea el caso;",
+                   "correr traslado a la contraparte; desahogar lo que proceda y abrir",
+                   "alegatos; y, cerrada de nuevo la instrucción, dictar la sentencia de",
+                   "fondo con plenitud de jurisdicción—.", ""]
 
     lineas += _aviso_de_suplencia(criterios, materia, material_texto, tipo_asunto)
     return "\n".join(lineas)
@@ -589,6 +623,21 @@ def _recorte_limpio(x: str, tope: int) -> str:
         return _cortar_bien(x or "", tope)
     except Exception:
         return (x or "")[:tope]
+
+
+def _bloque_constancias(propuesta_global, contexto: str) -> str:
+    """Las constancias que la propuesta pidió ver: cuáles llegaron y cuáles
+    no, con la orden de no suponer las que faltan."""
+    if not isinstance(propuesta_global, dict):
+        return ""
+    pedidas = propuesta_global.get("constancias") or []
+    if not pedidas:
+        return ""
+    try:
+        import constancias as _cn
+        return _cn.bloque_para_estudio(pedidas, contexto or "")
+    except Exception:
+        return ""
 
 
 def _bloque_aportado(contexto: str) -> str:
@@ -1776,6 +1825,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
   escribe que el punto no está acreditado y sigue.
 {_bloque_ley_de_la_via(material)}
 {_bloque_aportado(contexto)}
+{_bloque_constancias(propuesta_global, contexto)}
 {partes.bloque() if partes is not None else ""}
 {marco if isinstance(marco, str) else ""}
 {_bloque_arquitectura(materia or getattr(material, "materia", ""))}
@@ -2253,6 +2303,39 @@ def _convencional_completo(estudio: str) -> str:
                 "Interamericana sin nombrar instrumento ni caso. Una invocación "
                 "que no se apoya en nada aparenta altura y no sostiene el fallo.")
     return ""
+
+
+_RX_REPOSICION = re.compile(
+    r"insubsistente|sin\s+efectos|reponga|reposici[óo]n|admita|admitir|emplace|"
+    r"corra\s+traslado|traslado|desahog", re.I)
+_RX_NUEVA_SENTENCIA = re.compile(
+    r"nueva\s+(?:sentencia|resoluci[óo]n)|dicte\s+otra|otra\s+(?:sentencia|resoluci[óo]n)|"
+    r"plenitud\s+de\s+jurisdicci[óo]n", re.I)
+
+
+def _efectos_de_reposicion(estudio: str, criterios: list, violacion_procesal: bool) -> str:
+    """Si se concede por violación procesal, los efectos tienen que ordenar la
+    reposición paso a paso, no «dicte otra». ADC 93/2026 v5."""
+    if not violacion_procesal:
+        return ""
+    import tipos_asunto as _ta_er
+    if not any(_ta_er.prospera(str(getattr(c, "sentido", "") or c)) for c in (criterios or [])):
+        return ""
+    t = str(estudio or "")
+    i = t.upper().rfind("EFECTOS DE LA CONCESIÓN")
+    bloque = t[i:] if i >= 0 else t[-2500:]
+    pasos = len(set(m.group(0).lower() for m in _RX_REPOSICION.finditer(bloque)))
+    if pasos >= 3 and _RX_NUEVA_SENTENCIA.search(bloque):
+        return ""
+    return ("EFECTOS INCOMPLETOS PARA UNA VIOLACIÓN PROCESAL: se concede por una "
+            "irregularidad del procedimiento y la responsable no puede dictar otra "
+            "sentencia de inmediato. Los efectos tienen que ordenar la reposición "
+            "paso a paso —dejar insubsistente la sentencia, dejar sin efectos la "
+            "actuación viciada y la resolución del recurso que la confirmó, admitir "
+            "lo que se desechó, correr traslado, desahogar y abrir alegatos, y sólo "
+            "entonces dictar la nueva sentencia—. Un «dicte otra» aquí produce "
+            "requerimientos de cumplimiento defectuoso (artículos 192 a 196 de la "
+            "Ley de Amparo).")
 
 
 def _cierre_operativo(estudio: str, criterios: list) -> str:

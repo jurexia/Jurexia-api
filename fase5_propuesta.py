@@ -175,6 +175,11 @@ class Global:
     # [{tema, papel, con_propuesta, con_alternativa, tema_distinto}]
     checklist: list = field(default_factory=list)
 
+    # LAS CONSTANCIAS QUE HARÍA FALTA VER: [{que, para_que, indispensable,
+    # problema}]. La pantalla las pide una por una; el estudio recibe las que
+    # no llegaron con la orden de no suponerlas. Ver `constancias.py`.
+    constancias: list = field(default_factory=list)
+
     def bloque(self) -> str:
         if not self.alcanza:
             return ("SIN PROPUESTA GLOBAL — el acervo no alcanza. "
@@ -990,6 +995,18 @@ REGLAS QUE NO SE ROMPEN:
    La `razon` es UNA frase que el proyecto podrá escribir tal cual. No
    contradigas la `relacion` con la suerte: si escribes que en una vía «al
    no formar parte de la litis… no podía», ese tema DEPENDE.
+13. LAS CONSTANCIAS QUE HARÍA FALTA VER, en `constancias`. Un tribunal
+   terminal no resuelve confrontando sólo la sentencia y el escrito: hay
+   hechos que sólo una constancia del juicio de origen puede acreditar —el
+   acuerdo recurrido y la interlocutoria que lo confirmó, la prueba que se
+   desechó, el contrato, la constancia de notificación, el poder—. Declara
+   cuáles harían falta ver PARA DECIDIR, y para qué: `que` (el documento,
+   nombrado como consta: «acuerdo de 13 de agosto de 2025», «interlocutoria
+   del recurso de reclamación»), `para_que` (qué hecho decide), `indispensable`
+   (true sólo si sin ella el sentido no se puede afirmar; false si sólo
+   afinaría), `problema` (el número). Como mucho seis. NO pidas lo que ya
+   está en el material o entre lo aportado; no pidas por pedir. Si no hace
+   falta ninguna, lista vacía.
 
 Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
 {{"propuestas": [
@@ -1018,6 +1035,12 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
      "razon": "<cómo se sostendría, {PALABRAS_RAZON} palabras>",
      "efecto": "<qué les pasa a los accesorios en ESTA vía>",
      "apoyos": ["<registro>", "..."]}},
+   "constancias": [
+     {{"que": "<el documento, nombrado como consta>",
+       "para_que": "<qué hecho decide>",
+       "indispensable": true,
+       "problema": 1}}
+   ],
    "checklist": [
      {{"numero": <el numero del problema en la lista de arriba: 1, 2, 3...>,
        "tema": "<el tema, en una línea>",
@@ -1328,6 +1351,15 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
     # del modelo. Si omitió un tema, se añade con la suerte sin determinar.
     glob.checklist, _av_lista = completar_checklist(
         [c for c in (g.get("checklist") or []) if isinstance(c, dict)], problemas)
+    # LAS CONSTANCIAS: lo que declaró el motor más lo que la fase 3 ya
+    # marcaba como apoyo en una constancia, sin repetir.
+    try:
+        import constancias as _cn
+        glob.constancias = _cn.normalizar(
+            list(g.get("constancias") or []) + _cn.de_fase3(problemas), problemas)
+    except Exception as _exc:
+        print(f"   ⚠️ constancias: no se pudieron leer: {type(_exc).__name__}")
+        glob.constancias = []
 
     # Si el modelo devolvió menos propuestas que problemas, faltan: se dice.
     avisos = revisar(fuera, material)
