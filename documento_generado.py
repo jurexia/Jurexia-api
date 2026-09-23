@@ -1423,6 +1423,15 @@ def _contraer(t: str) -> str:
     return re.sub(r"\bde\s+el\b(?!\s+que\b)", "del", t)
 
 
+def _rec_es_autoridad(nombre: str) -> bool:
+    n = (nombre or "").lower()
+    return any(k in n for k in (
+        "titular", "director", "directora", "unidad de", "secretaría", "secretaria de",
+        "juzgado", "tribunal", "sala ", "ayuntamiento", "instituto", "comisión", "comision",
+        "fiscal", "procurad", "presidente municipal", "gobernador", "congreso",
+        "servicio de administración", "subsecretar", "jefe de", "administrador", "autoridad"))
+
+
 def _con_articulo(nombre: str) -> str:
     """«Primera Sala Civil…» → «la Primera Sala Civil…».
 
@@ -4446,6 +4455,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
             # aquí y `_contraer` hace el resto —«a el» → «al»—.
             _orig = _con_articulo(_fr.responsable_originaria(_antes_rama)
                                   or _fr.responsable_originaria(_fuente_rama))
+            # CUANDO RECURRE LA AUTORIDAD, EL ACTO ES EL SUYO (23-sep-2026).
+            # En el 711/2025 el amparo señalaba a varias responsables y el
+            # juzgado sobreseyó respecto de casi todas; la lectura del texto
+            # tomó la primera —«la Titular de la Secretaría de Hacienda»— y el
+            # resolutivo negó el amparo contra el acto de quien no dictó nada.
+            # Si quien recurre es una autoridad, recurre porque el acto
+            # reclamado es suyo y se lo concedieron en contra: ésa es la
+            # responsable originaria, sin leer nada.
+            _recurrente_res = str(datos.get("recurrente") or "").strip()
+            if _recurrente_res and _rec_es_autoridad(_recurrente_res):
+                _orig = _con_articulo(_recurrente_res)
             if not _orig:
                 _orig = HUECO
                 _avisos_bk.append(
