@@ -1003,10 +1003,29 @@ def prompt_estructura(datos: dict) -> str:
         _fem = bool(datos.get("quejoso_moral")) or \
             _ta_r.genero_de(str(datos.get("quejoso") or "")) == "a"
         return _et.replace("QUEJOSO", "QUEJOSA", 1) if _fem else _et
-    _ficha_partes = "\n".join(
-        f"{_etiqueta_parte(_et, _cl)}: {datos.get(_cl, '')}"
-        for _et, _cl, _ob in _ta_r.caratula_de(_tipo)
-        if datos.get(_cl) or _ob)
+    # ═══ QUIÉN RECURRE, DICHO APARTE (23-sep-2026) ═══════════════════════
+    # 711/2025: la hoja de datos decía «QUEJOSA Y RECURRENTE: [la sociedad]» y
+    # el VISTO salió «recurso de revisión interpuesto por Interamericana…»
+    # cuando lo interpuso la UIF. Con `recurrente` aparte, la hoja lo dice en
+    # su renglón y el molde del VISTO recibe al que de verdad recurrió.
+    _recurrente_hoja = str(datos.get("recurrente") or "").strip()
+    _filas_hoja = []
+    for _et, _cl, _ob in _ta_r.caratula_de(_tipo):
+        if not (datos.get(_cl) or _ob):
+            continue
+        if _recurrente_hoja and _cl == "quejoso" and "Y RECURRENTE" in _et:
+            _filas_hoja.append(f"{_etiqueta_parte(_et.replace(' Y RECURRENTE', ''), _cl)}: {datos.get(_cl, '')}")
+            _filas_hoja.append(f"RECURRENTE (quien interpuso el recurso): {_recurrente_hoja}")
+            continue
+        if _cl == "responsable" and str(datos.get("organo_recurrido") or "").strip():
+            _filas_hoja.append(f"{_et}: {datos.get('organo_recurrido')}")
+            _filas_hoja.append(f"AUTORIDAD RESPONSABLE DEL ACTO RECLAMADO EN EL AMPARO: {datos.get(_cl, '')}")
+            continue
+        _filas_hoja.append(f"{_etiqueta_parte(_et, _cl)}: {datos.get(_cl, '')}")
+    _ficha_partes = "\n".join(_filas_hoja)
+    if _recurrente_hoja:
+        _ficha_partes += ("\nOJO: el recurso lo interpuso el RECURRENTE, no la quejosa. En el "
+                          "VISTO y en los resultandos, «interpuesto por» lleva al recurrente.")
     _rotulo_acto = {"amparo_directo": "ACTO RECLAMADO"}.get(
         _tipo, _vc["sub_recurrido"].upper())
     _de_escrito = ("DE LA DEMANDA" if _tipo == "amparo_directo"
@@ -3194,6 +3213,12 @@ def _caratula(doc, datos, tipo_asunto: str = "") -> list:
                                            str(datos.get("quejoso", ""))),
                  datos.get("quejoso", "")))
             _filas_caratula.append(("RECURRENTE", _recurrente))
+            continue
+        if clave == "responsable" and str(datos.get("organo_recurrido") or "").strip():
+            # Ver `_organo_recurrido` en redactor_adelanto: en la revisión, el
+            # renglón «ÓRGANO RECURRIDO» lleva al juzgado, no a la UIF.
+            _filas_caratula.append((_ta_c.etiqueta_concordada(et, ""),
+                                    _limpia(clave, datos.get("organo_recurrido"))))
             continue
         _filas_caratula.append(
             (_ta_c.etiqueta_concordada(et, str(datos.get(clave, ""))),

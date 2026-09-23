@@ -1815,6 +1815,17 @@ def _quejoso_del_amparo(e: Encargo, partes=None) -> str:
     return _tecleado
 
 
+def _organo_recurrido(e: Encargo, partes=None) -> str:
+    if not getattr(e, "es_recurso", False):
+        return ""
+    _leido = str(getattr(partes, "autoridad_responsable", "") or "").strip()
+    _tecleado = str(getattr(e, "responsable", "") or "").strip()
+    if _leido and re.search(r"juzgad|tribunal|sala\b|juez", _leido, re.I) \
+            and not _mismo_nombre(_leido, _tecleado):
+        return _leido
+    return ""
+
+
 def _recurrente_de(e: Encargo, partes=None) -> str:
     _propio = str(getattr(e, "recurrente", "") or "").strip()
     if _propio:
@@ -1861,6 +1872,13 @@ def _datos_estructura(e: Encargo, antecedentes: str = "", acto: str = "",
         "quejoso": _pv.separar(_quejoso_del_amparo(e, partes))["parte"] or _quejoso_del_amparo(e, partes),
         # Quien recurrió, cuando no es el quejoso. Vacío = es el mismo.
         "recurrente": _recurrente_de(e, partes),
+        # EL ÓRGANO RECURRIDO ES EL JUZGADO, no la responsable del amparo. El
+        # formulario guarda en `responsable` a la autoridad del acto reclamado
+        # —en el 711/2025, la UIF— y la carátula de la revisión rotulaba ese
+        # dato como «ÓRGANO RECURRIDO». Lo recurrido es la sentencia del juez
+        # de distrito; la ficha de partes lo lee de ella. Sólo para la carátula:
+        # `responsable` sigue siendo la del acto en los otros doce sitios.
+        "organo_recurrido": _organo_recurrido(e, partes),
         "representante": _pv.separar(e.quejoso)["representante"],
         "figura_representante": _pv.separar(e.quejoso)["figura"],
         "quejoso_moral": _pv.separar(e.quejoso)["moral"],
