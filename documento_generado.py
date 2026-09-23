@@ -994,8 +994,17 @@ def prompt_estructura(datos: dict) -> str:
     # queja. Era el canal por el que la plantilla única volvía a entrar después
     # de haberla quitado de la estructura.
     _vc = _ta_r.vocabulario_de(_tipo)
+    # «QUEJOSA» PARA LA PERSONA MORAL. La etiqueta del catálogo va en
+    # masculino; con la parte separada de su representante ya se sabe si es
+    # una sociedad (o el nombre es femenino) y la carátula lo dice bien.
+    def _etiqueta_parte(_et: str, _cl: str) -> str:
+        if _cl != "quejoso" or not _et.upper().startswith("QUEJOSO"):
+            return _et
+        _fem = bool(datos.get("quejoso_moral")) or \
+            _ta_r.genero_de(str(datos.get("quejoso") or "")) == "a"
+        return _et.replace("QUEJOSO", "QUEJOSA", 1) if _fem else _et
     _ficha_partes = "\n".join(
-        f"{_et}: {datos.get(_cl, '')}"
+        f"{_etiqueta_parte(_et, _cl)}: {datos.get(_cl, '')}"
         for _et, _cl, _ob in _ta_r.caratula_de(_tipo)
         if datos.get(_cl) or _ob)
     _rotulo_acto = {"amparo_directo": "ACTO RECLAMADO"}.get(
