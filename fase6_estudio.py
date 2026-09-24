@@ -578,6 +578,11 @@ def _bloque_material(m: Material) -> str:
             # cite bien.
             _linea = (" — DE LA LÍNEA DE LA SUPREMA CORTE SOBRE ESTE PROBLEMA: "
                       "úsala, es la evolución del criterio") if t.get("de_internet") else ""
+            # DEL MÉTODO (24-sep-2026): dice CÓMO se interpreta, no QUÉ se
+            # resuelve. Sin la marca el redactor la contaba entre las del caso.
+            if t.get("metodo"):
+                _linea = (" — CRITERIO DE MÉTODO: dice CÓMO interpretar; se cita "
+                          "sólo en el peldaño del diálogo constitucional")
             p.append(f"\n  · [{fuerza}] [{tipo}] Registro "
                      f"{t.get('registro','')} — {t.get('instancia','')}{_uso}{_linea}")
             p.append(f"    {t.get('rubro','')}")
@@ -1390,6 +1395,7 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     # que llaman a esta función —el que transmite en vivo y el que no— y un
     # parámetro nuevo se olvida en uno de los dos. Ha pasado.
     import tipos_asunto as _ta_e
+    import dialogo_constitucional as _dc_e
     _voc = _ta_e.vocabulario_de(
         getattr(material, "tipo_asunto", "") or "amparo_directo")
     parte = _voc["parte"]
@@ -1939,6 +1945,7 @@ aplica a este asunto. Un estudio sin citas es una opinión con formato de
 sentencia, y el material se buscó precisamente para estos problemas.
 
 {cierre_marco}
+{_dc_e.cierre_estudio(material)}
 NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
 frase de cierre que corresponde al tipo de asunto —«En ese sentido, ante la
 ineficacia de los {q} planteados, lo procedente es…»—. Si tú escribes otra

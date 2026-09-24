@@ -315,7 +315,10 @@ def _tesis_del_material(material, limite: int = MAX_TESIS_PROPUESTA) -> list:
     vuelta— con las obligatorias delante DENTRO de cada problema. Así el corte
     quita profundidad a todos por igual en vez de dejar a alguno en cero.
     """
-    tesis = list(getattr(material, "tesis", []) or [])
+    # LAS DEL MÉTODO VAN APARTE (24-sep-2026). No responden a ningún problema
+    # sino a CÓMO se interpreta, y sin «para» caían todas en el cajón 0 y le
+    # quitaban turnos a las del caso. Las pinta `dialogo_constitucional`.
+    tesis = [t for t in (getattr(material, "tesis", []) or []) if not t.get("metodo")]
     if not tesis:
         return []
 
@@ -833,7 +836,8 @@ def bloque_contraste(contraste: list) -> str:
 
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
                      resumen_conceptos: str, es_recurso: bool = False,
-                     contexto: str = "", contraste: str = "") -> str:
+                     contexto: str = "", contraste: str = "",
+                     marco: str = "") -> str:
     # EL TIPO VIAJA CON EL MATERIAL, igual que en el estudio: son dos módulos
     # que reciben el mismo objeto y así no hay un parámetro que se olvide.
     import tipos_asunto as _ta_p
@@ -851,6 +855,7 @@ def prompt_propuesta(problemas: list, material, resumen_acto: str,
     # equivocado iban en el MISMO prompt, y ganaba el menú, que es lo único que
     # le da palabras concretas.
     _verbos5 = _ta_p.verbos_del_recurrido(_t5)
+    import dialogo_constitucional as _dc
     tesis = _tesis_del_material(material)
     lista = "\n".join(
         f"{i}. {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
@@ -883,6 +888,8 @@ JURISPRUDENCIA DEL ACERVO — es TODO lo que puedes invocar
 
 NORMAS DEL ACERVO
 {_bloque_normas(material)}
+{marco}
+{_dc.bloque_metodo(material, "propuesta")}
 {_bloque_suplencia(material)}
 {_bloque_acervo_sentidos(material)}
 {_bloque_contexto(contexto)}
@@ -1230,7 +1237,8 @@ def revisar_global(glob, material) -> list:
 async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                    resumen_conceptos: str = "", es_recurso: bool = False,
                    contexto: str = "",
-                   contraste_previo: list | None = None) -> tuple[list, object, list]:
+                   contraste_previo: list | None = None,
+                   marco: str = "") -> tuple[list, object, list]:
     """Devuelve (propuestas, global, avisos). No decide nada: propone.
 
     El GLOBAL es la propuesta del asunto entero y sale de la MISMA llamada: es
@@ -1286,7 +1294,8 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
               max_completion_tokens=MAX_TOKENS_PROPUESTA,
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,
-                  es_recurso, contexto, bloque_contraste(contraste))}])
+                  es_recurso, contexto, bloque_contraste(contraste),
+                  marco=marco)}])
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     import llamada_modelo as _lm
@@ -1426,8 +1435,18 @@ def calificaciones_de(propuestas: list) -> list:
 def prompt_razon(problema: str, sentido: str, material,
                  resumen_acto: str = "", resumen_conceptos: str = "",
                  es_recurso: bool = False, tipo_asunto: str = "",
-                 directriz: str = "") -> str:
+                 directriz: str = "", marco: str = "") -> str:
     import tipos_asunto as _ta
+    import dialogo_constitucional as _dc
+    # EL MÉTODO Y EL PARÁMETRO, DONDE SE DECIDE EL PORQUÉ (24-sep-2026). Hasta
+    # hoy la razón se escribía sin el marco jurídico —sólo lo veía el estudio—
+    # y el diálogo constitucional entraba después, como capa. Con la escalera
+    # la razón necesita algo más de espacio: los dos o tres peldaños que
+    # deciden no caben en sesenta palabras.
+    _metodo = _dc.bloque_metodo(material, "razon")
+    _extension = ("UN PÁRRAFO, de 60 a 160 palabras si recorres la escalera del diálogo\n"
+                  "  constitucional; si no, de 60 a 120"
+                  if _metodo else "UN PÁRRAFO, de 60 a 120 palabras")
     _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
     q = _ta.vocabulario_de(_t)["combate"]
     _org = _ta.sujetos_de(_t)["organo"][0]
@@ -1478,9 +1497,10 @@ LO QUE SE COMBATE
 
 {_bloque_tesis(_tesis_del_material(material))}
 {_bloque_normas(material)}
-
+{marco}
+{_metodo}
 CÓMO SE ESCRIBE:
-- UN PÁRRAFO, de 60 a 120 palabras, en prosa corrida y registro judicial
+- {_extension}, en prosa corrida y registro judicial
   mexicano. Sin viñetas, sin Markdown, sin rótulos.
 - Empieza por la razón, no por la calificación: quien lee ya sabe cómo se
   califica, lo que necesita saber es POR QUÉ.
@@ -1498,7 +1518,7 @@ Escribe sólo el párrafo."""
 async def razonar(cliente, problema: str, sentido: str, material,
                   resumen_acto: str = "", resumen_conceptos: str = "",
                   es_recurso: bool = False, tipo_asunto: str = "",
-                  directriz: str = "") -> str:
+                  directriz: str = "", marco: str = "") -> str:
     """Una razón para el sentido que el secretario acaba de marcar."""
     if not (problema or "").strip() or not (sentido or "").strip():
         return ""
@@ -1510,7 +1530,7 @@ async def razonar(cliente, problema: str, sentido: str, material,
     # 120 palabras no necesita 900 tokens; el razonamiento, sí.
     _mensajes = [{"role": "user", "content": prompt_razon(
         problema, sentido, material, resumen_acto,
-        resumen_conceptos, es_recurso, tipo_asunto, directriz)}]
+        resumen_conceptos, es_recurso, tipo_asunto, directriz, marco)}]
     kw = dict(model=MODELO_PROPUESTA, messages=_mensajes,
               max_completion_tokens=2600,
               temperature=0, seed=20260831)

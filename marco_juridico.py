@@ -169,8 +169,15 @@ CONSULTA_POR_ARTICULO = {
     "14": "debido proceso, formalidades esenciales del procedimiento, derecho "
           "de audiencia y defensa",
     "16": "fundamentación y motivación de los actos de autoridad",
+    # CON LOS ARTÍCULOS 8.1 Y 25 NOMBRADOS. Son las garantías judiciales y la
+    # protección judicial de la Convención Americana, y sin nombrarlos la
+    # consulta devolvía doctrina de plazo razonable en materia penal. Y el
+    # tercer párrafo del 17 —privilegiar la solución sobre los formalismos—,
+    # que es el que decide las puertas procesales (24-sep-2026).
     "17": "acceso a la justicia, tutela judicial efectiva, recurso sencillo y "
-          "efectivo, plazo razonable",
+          "efectivo, plazo razonable, garantías judiciales y protección judicial "
+          "de los artículos 8.1 y 25 de la Convención Americana, privilegiar la "
+          "solución del conflicto sobre los formalismos procedimentales",
     "123": "derechos laborales, condiciones equitativas y satisfactorias de "
            "trabajo",
 }
@@ -413,6 +420,34 @@ def bloque(m: Marco, es_recurso: bool = False) -> str:
     return "\n".join(p)
 
 
+def bloque_para_razonar(m: Marco, tope: int = 7000) -> str:
+    """El parámetro del asunto para PROPONER y RAZONAR, sin reglas de redacción.
+
+    `bloque` es para el redactor: dice cuántas palabras lleva el marco y dónde
+    va. Quien decide la calificación no escribe marco, lo USA: necesita el
+    texto de los preceptos y nada más. Hasta el 24-sep-2026 la propuesta y la
+    razón decidían sin ver ninguno.
+    """
+    if m is None or m.vacio():
+        return ""
+    p = ["", "═" * 71,
+         "EL PARÁMETRO DE ESTE ASUNTO — los preceptos que el acervo encontró",
+         "═" * 71,
+         "Son la premisa mayor: la ley local o secundaria que se aplica y el",
+         "parámetro constitucional y convencional con el que se lee. Úsalos",
+         "sólo si deciden algo; si no vienen al caso, no los nombres."]
+    for x in m.locales:
+        p.append(f"\n  {x.fuente} — Artículo {x.articulo}\n  «{x.texto[:1100]}»")
+    for x in m.constitucionales:
+        p.append(f"\n  Artículo {x.articulo} de la Constitución\n  {x.texto[:900]}")
+    for x in m.convencionales:
+        p.append(f"\n  {x.fuente} · {x.articulo}\n  {x.texto[:600]}")
+    for x in m.coidh:
+        p.append(f"\n  Corte Interamericana: {x.cita()} — {x.tema}\n  {x.texto[:500]}")
+    t = "\n".join(p)
+    return t[:tope]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # LA FUNCIÓN QUE FALTABA
 #
@@ -560,7 +595,7 @@ def preceptos_de_la_responsable(texto: str, tope: int = 8,
 
 async def construir(qdrant, embed, problemas: list[str],
                     coleccion_estatal: Optional[str] = None,
-                    texto_del_acto: str = "") -> Marco:
+                    texto_del_acto: str = "", puerta: bool = False) -> Marco:
     """El bloque de constitucionalidad que ESTE asunto toca.
 
     Se busca con los CONCEPTOS de los artículos que el mapa temático disparó,
@@ -571,6 +606,14 @@ async def construir(qdrant, embed, problemas: list[str],
     """
     m = Marco()
     arts = _articulos_del_problema(problemas)
+    # LA PUERTA PROCESAL ABRE EL 17, Y DELANTE (24-sep-2026). Medido sobre 151
+    # asuntos: 104 giran sobre una puerta procesal y en 84 el 17 no entraba,
+    # porque el mapa temático lo enciende con «acceso a la justicia» y el
+    # problema dice «extemporaneidad». La clase del problema lo sabe sin
+    # palabras. Va DELANTE, con el 1º, porque el cupo es de tres y se llena en
+    # el orden de esta lista: al final, el recorte se lo llevaba.
+    if puerta:
+        arts = ["1", "17"] + [a for a in arts if a not in ("1", "17")]
     if not arts:
         m.avisos.append(
             "El asunto no disparó ningún artículo del mapa constitucional: no "
@@ -640,7 +683,9 @@ async def construir(qdrant, embed, problemas: list[str],
     m.constitucionales.sort(key=lambda x: (x.orden, int(x.articulo or 0)))
 
     # ── CONVENCIONALES, sólo si el asunto llama al bloque ─────────────────
-    if _pide_convencional(problemas):
+    # La puerta procesal lo llama siempre: los artículos 8.1 y 25 de la
+    # Convención son la otra mitad del parámetro del acceso a la justicia.
+    if _pide_convencional(problemas) or puerta:
         vistos = set()
         for p in conven:
             ref = str(p.get("ref") or "").strip()

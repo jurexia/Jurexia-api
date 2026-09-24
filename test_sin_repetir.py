@@ -157,8 +157,10 @@ i_pro = src.find("async def _taller_proponer_nucleo(")
 i_str = src.find('@app.post("/taller/resolver/stream")')
 tramo = src[i_pro:i_str]
 ok("problemas = _te.problemas_de(r)" in tramo, "proponer construye los planteamientos como la huella")
+# Desde el 24-sep-2026 la llamada sigue con el parámetro (`marco=`), así que
+# se comprueba el argumento y no el paréntesis que cerraba la llamada.
 ok("await _taller_esperar_contraste(user_email, numero, r)" in tramo
-   and "contraste_previo=_contraste_previo)" in tramo,
+   and "contraste_previo=_contraste_previo" in tramo,
    "proponer recoge el contraste adelantado y se lo pasa a la propuesta")
 ok(tramo.find("_taller_esperar_contraste(") > tramo.find("completar_preceptos("),
    "y lo espera DESPUÉS de traer los preceptos, para que ambas cosas se solapen")

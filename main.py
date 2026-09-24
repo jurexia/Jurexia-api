@@ -32425,13 +32425,14 @@ async def taller_razonar(
         print(f"   ⚠️ no se pudieron traer tesis de «{sentido}»: {err(_ex)}")
 
     import fase5_propuesta as _f5
+    _, _param_r = await _taller_parametro(r, ses, material)
     try:
         razon = await _f5.razonar(
             chat_client, problema, sentido, material,
             r.fases.resumen_acto, r.fases.resumen_conceptos,
             bool(r.encargo and r.encargo.es_recurso),
             getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
-            directriz=(directriz or "").strip())
+            directriz=(directriz or "").strip(), marco=_param_r)
     except Exception as ex:
         print(f"   ⚠️ no se pudo razonar «{sentido}»: {err(ex)}")
         raise HTTPException(502,
@@ -32448,6 +32449,70 @@ async def taller_razonar(
             "blanco, la redacción tendrá que suponerlo.")
     print(f"   ✍️  razón para «{sentido}» · {len(razon.split())} palabras")
     return {"razon": razon, "palabras": len(razon.split())}
+
+
+async def _taller_parametro(r, ses, material=None) -> tuple:
+    """(marco para el estudio, parámetro para razonar) — y el método al material.
+
+    EL PARÁMETRO SE ARMA ANTES DE DECIDIR (24-sep-2026). David: «en muchos
+    razonamientos puede partirse de una interpretación más favorable a la luz
+    del principio pro persona, o de la interpretación conforme… ¿cómo
+    ampliamos esta calidad de diálogo constitucional al interpretar las leyes
+    locales?». Medido antes de tocar nada: el marco jurídico sólo se armaba al
+    redactar, así que la propuesta y la razón decidían el porqué sin ver un solo
+    precepto constitucional; y en 84 de los 104 asuntos con puerta procesal el
+    artículo 17 no entraba nunca. Ver `dialogo_constitucional`.
+
+    Se arma UNA vez por sesión —la huella son los problemas, la colección y la
+    puerta— y sirve a la propuesta, a la razón y al estudio: es el mismo
+    parámetro en las tres, que es lo que hace que el porqué y el texto digan lo
+    mismo. Nunca lanza: sin parámetro se sigue como antes.
+    """
+    import hashlib as _hl_p
+    import marco_juridico as _mj
+    import dialogo_constitucional as _dc
+    problemas = _te.problemas_de(r)
+    puerta = _dc.hay_puerta(problemas)
+    _probs = ([r.fases.problema_global] if r.fases.problema_global else [])
+    _probs += [p.get("pregunta", "") for p in problemas if p.get("pregunta")]
+    _col = (r.encargo.coleccion_estatal if r.encargo else "") or None
+    _rec = bool(r.encargo and r.encargo.es_recurso)
+    huella = _hl_p.sha1("|".join(_probs + [str(_col), str(puerta), str(_rec)])
+                        .encode("utf8")).hexdigest()[:16]
+    guardado = ses.get("parametro") if isinstance(ses, dict) else None
+    if isinstance(guardado, dict) and guardado.get("huella") == huella:
+        estudio_txt, razon_txt = guardado.get("estudio", ""), guardado.get("razon", "")
+    else:
+        estudio_txt = razon_txt = ""
+        _t0 = time.time()
+        try:
+            m = await _mj.construir(
+                qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+                _probs, _col,
+                # EL TEXTO DEL ACTO, para leer con qué ley se dictó. La responsable
+                # cita los preceptos que aplicó; de ahí sale el precepto local que
+                # el marco transcribe. Los dos caminos o ninguno.
+                texto_del_acto="\n".join(x for x in (
+                    (getattr(r.fases, "fuentes", None) or [""])[0]
+                    if getattr(r.fases, "fuentes", None) else "",
+                    getattr(r.fases, "antecedentes", "") or "",
+                    getattr(r.fases, "resumen_acto", "") or "") if x),
+                puerta=puerta)
+            estudio_txt = _mj.bloque(m, _rec)
+            razon_txt = _mj.bloque_para_razonar(m)
+            print(f"   ⚖️ TALLER: parámetro de {len(estudio_txt)} caracteres"
+                  f"{' · con puerta procesal (art. 17)' if puerta else ''}"
+                  f" · {time.time() - _t0:.1f}s")
+            if isinstance(ses, dict):
+                ses["parametro"] = {"huella": huella, "estudio": estudio_txt, "razon": razon_txt}
+        except Exception as _e:
+            print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
+    if material is not None:
+        try:
+            await _dc.inyectar(qdrant_client, material, problemas)
+        except Exception as _e:
+            print(f"   ⚠️ No se pudo poner el método de interpretación: {_e}")
+    return estudio_txt, razon_txt
 
 
 async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
@@ -32571,7 +32636,7 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                       f"{len(_web['tesis']) - len(_nuevas)} ya estaban, "
                       f"{len(_web.get('pistas') or [])} sin confirmar")
     except asyncio.TimeoutError:
-        print("   🌐 la búsqueda de la línea de la Corte tardó más de 40 s: se sigue sin ella")
+        print("   🌐 la búsqueda de la línea de la Corte tardó más de 75 s: se sigue sin ella")
     except Exception as _exc_web:
         print(f"   ⚠️ búsqueda de la línea de la Corte: {type(_exc_web).__name__}: {str(_exc_web)[:120]}")
 
@@ -32585,12 +32650,13 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
         print(f"   ⚠️ no se pudo recoger el contraste adelantado: {err(_exc_ec)}")
     if _contraste_previo is not None:
         print(f"   ⚖️ CONTRASTE adelantado recogido: {len(_contraste_previo)} planteamiento(s)")
+    _, _param_p = await _taller_parametro(r, ses, ses["material"])
     propuestas, glob, avisos = await _f5.proponer(
         chat_client, problemas, ses["material"],
         "\n".join(r.fases.parrafos_acto() or []),
         "\n".join(r.fases.parrafos_conceptos() or []),
         bool(r.encargo and r.encargo.es_recurso),
-        contexto, contraste_previo=_contraste_previo)
+        contexto, contraste_previo=_contraste_previo, marco=_param_p)
 
     # LA PROPUESTA VIAJA DE VUELTA, no se queda aquí. Render corre gunicorn con
     # DOS workers: lo que guarde este proceso puede no existir en el que atienda
@@ -33253,26 +33319,10 @@ async def taller_resolver_stream(
     except Exception as _edz:
         print(f"   ⚠️ DESENLACE: no se pudo reconciliar con la tarjeta: {err(_edz)}")
     salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
-    import marco_juridico as _mj
-    _probs = ([r.fases.problema_global] if r.fases.problema_global else [])
-    _probs += [p.get("pregunta", "") if isinstance(p, dict) else str(p)
-               for p in (r.fases.problemas or [])]
-    try:
-        _marco = _mj.bloque(await _mj.construir(
-            qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None,
-            # EL TEXTO DEL ACTO, para leer con qué ley se dictó. La responsable
-            # cita los preceptos que aplicó; de ahí sale el precepto local que
-            # el marco transcribe. Los dos caminos o ninguno.
-            texto_del_acto="\n".join(x for x in (
-                (getattr(r.fases, "fuentes", None) or [""])[0]
-                if getattr(r.fases, "fuentes", None) else "",
-                getattr(r.fases, "antecedentes", "") or "",
-                getattr(r.fases, "resumen_acto", "") or "") if x)),
-            bool(r.encargo and r.encargo.es_recurso))
-    except Exception as _e:
-        print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
-        _marco = ""
+    # EL MISMO PARÁMETRO QUE VIERON LA PROPUESTA Y LA RAZÓN (24-sep-2026), y el
+    # método de interpretación en el material. Ver `_taller_parametro`.
+    _t0_marco = time.time()
+    _marco, _ = await _taller_parametro(r, ses, ses.get("material"))
 
     # ═══════════════════════════════════════════════════════════════════
     # EL TRABAJO NO CUELGA DE LA CONEXIÓN (17-sep-2026)
@@ -33890,27 +33940,10 @@ async def taller_resolver(
     # y no se escribe: pegar derechos humanos en todos los asuntos era el riesgo
     # que David mismo descartó —«no fijar un marco constitucional para todos los
     # casos, sino sobre la solución en función del problema jurídico»—.
-    import marco_juridico as _mj
+    # EL MISMO PARÁMETRO QUE VIERON LA PROPUESTA Y LA RAZÓN (24-sep-2026), y el
+    # método de interpretación en el material. Ver `_taller_parametro`.
     _t0_marco = time.time()
-    _probs = ([r.fases.problema_global] if r.fases.problema_global else [])
-    _probs += [p.get("pregunta", "") if isinstance(p, dict) else str(p)
-               for p in (r.fases.problemas or [])]
-    try:
-        _marco = _mj.bloque(await _mj.construir(
-            qdrant_client, lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
-            _probs, (r.encargo.coleccion_estatal if r.encargo else "") or None,
-            # EL TEXTO DEL ACTO, para leer con qué ley se dictó. La responsable
-            # cita los preceptos que aplicó; de ahí sale el precepto local que
-            # el marco transcribe. Los dos caminos o ninguno.
-            texto_del_acto="\n".join(x for x in (
-                (getattr(r.fases, "fuentes", None) or [""])[0]
-                if getattr(r.fases, "fuentes", None) else "",
-                getattr(r.fases, "antecedentes", "") or "",
-                getattr(r.fases, "resumen_acto", "") or "") if x)),
-            r.encargo.es_recurso if r.encargo else False)
-    except Exception as _e:
-        print(f"   ⚠️ No se pudo construir el marco jurídico: {_e}")
-        _marco = ""
+    _marco, _ = await _taller_parametro(r, ses, ses.get("material"))
     if _marco:
         print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres "
               f"· {time.time() - _t0_marco:.1f}s")
