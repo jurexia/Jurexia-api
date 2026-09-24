@@ -72,8 +72,15 @@ TEMAS_CONSTITUCIONALES = {
           "custodia", "guarda", "convivencia", "patria potestad", "filiación",
           "igualdad entre el hombre y la mujer", "salud", "vivienda digna"),
     "14": ("retroactividad", "formalidades esenciales", "debido proceso",
-           "privación", "audiencia", "exacta aplicación"),
-    "16": ("fundamentación", "motivación", "acto de molestia", "mandamiento escrito"),
+           "privación", "audiencia", "exacta aplicación",
+           # «LEGALIDAD Y SEGURIDAD JURÍDICA» es la fórmula con que el amparo
+           # nombra los artículos 14 y 16, y el mapa no la conocía. Medido el
+           # 24-sep-2026: el juzgado del 711/2025 resolvió que el bloqueo
+           # «vulneró los derechos de legalidad y seguridad jurídica… sin
+           # determinación fundada y motivada», y el marco salió VACÍO.
+           "seguridad jurídica"),
+    "16": ("fundamentación", "motivación", "acto de molestia", "mandamiento escrito",
+           "legalidad", "seguridad jurídica", "motivad", "fundar y motivar"),
     "17": ("acceso a la justicia", "tutela judicial", "justicia pronta",
            "recurso efectivo", "gratuidad"),
     "27": ("propiedad de tierras y aguas", "expropiación", "dominio de la nación"),
@@ -140,9 +147,18 @@ def _arts_base(problemas: list[str]) -> list[str]:
             if any(c in texto for c in claves)]
 
 
+# LO GENÉRICO, DETRÁS. «Legalidad y seguridad jurídica» aparece en casi todo
+# amparo, y el cupo es de tres: si el 14 y el 16 van delante, se comen el
+# artículo que de verdad es del asunto —el 4º en familia, el 123 en trabajo,
+# el 31 en lo fiscal—. Se ordenan después de los específicos.
+_ARTS_GENERICOS = ("14", "16")
+
+
 def _articulos_del_problema(problemas: list[str]) -> list[str]:
     """Los artículos constitucionales que ESTE asunto toca, por su tema."""
-    fuera = list(_arts_base(problemas))
+    base = list(_arts_base(problemas))
+    fuera = ([a for a in base if a not in _ARTS_GENERICOS]
+             + [a for a in base if a in _ARTS_GENERICOS])
     # EL 1º ES LA PUERTA DEL BLOQUE. Si el asunto llama a fuente convencional o
     # a la Corte Interamericana, el artículo que permite aplicarlas en México
     # es el 1º: sin él la cita de un tratado queda sin anclaje constitucional.
@@ -595,7 +611,8 @@ def preceptos_de_la_responsable(texto: str, tope: int = 8,
 
 async def construir(qdrant, embed, problemas: list[str],
                     coleccion_estatal: Optional[str] = None,
-                    texto_del_acto: str = "", puerta: bool = False) -> Marco:
+                    texto_del_acto: str = "", puerta: bool = False,
+                    temas_extra: Optional[list[str]] = None) -> Marco:
     """El bloque de constitucionalidad que ESTE asunto toca.
 
     Se busca con los CONCEPTOS de los artículos que el mapa temático disparó,
@@ -605,7 +622,15 @@ async def construir(qdrant, embed, problemas: list[str],
     quince por ciento…?»—.
     """
     m = Marco()
-    arts = _articulos_del_problema(problemas)
+    # EL TEMA TAMBIÉN VIVE EN LO QUE SE RESOLVIÓ Y EN LO QUE SE COMBATE, no sólo
+    # en la pregunta (24-sep-2026). La pregunta del 711/2025 —«¿el bloqueo de
+    # las cuentas de la persona moral podía extenderse…?»— no nombra ningún
+    # derecho; lo nombra lo que resolvió el juzgado. Medido sobre 151 asuntos:
+    # leyendo sólo las preguntas el mapa no disparaba NADA en 67 (44%); con
+    # `resolvio` y `combate`, en 24. Sólo decide qué artículos entran: la
+    # búsqueda se sigue haciendo con los conceptos y con las preguntas.
+    _temas = list(problemas or []) + [t for t in (temas_extra or []) if t]
+    arts = _articulos_del_problema(_temas)
     # LA PUERTA PROCESAL ABRE EL 17, Y DELANTE (24-sep-2026). Medido sobre 151
     # asuntos: 104 giran sobre una puerta procesal y en 84 el 17 no entraba,
     # porque el mapa temático lo enciende con «acceso a la justicia» y el
@@ -685,7 +710,7 @@ async def construir(qdrant, embed, problemas: list[str],
     # ── CONVENCIONALES, sólo si el asunto llama al bloque ─────────────────
     # La puerta procesal lo llama siempre: los artículos 8.1 y 25 de la
     # Convención son la otra mitad del parámetro del acceso a la justicia.
-    if _pide_convencional(problemas) or puerta:
+    if _pide_convencional(_temas) or puerta:
         vistos = set()
         for p in conven:
             ref = str(p.get("ref") or "").strip()

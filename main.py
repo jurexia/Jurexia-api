@@ -32497,7 +32497,9 @@ async def _taller_parametro(r, ses, material=None) -> tuple:
                     if getattr(r.fases, "fuentes", None) else "",
                     getattr(r.fases, "antecedentes", "") or "",
                     getattr(r.fases, "resumen_acto", "") or "") if x),
-                puerta=puerta)
+                puerta=puerta,
+                temas_extra=[str(p.get(k) or "") for p in problemas
+                             for k in ("resolvio", "combate")])
             estudio_txt = _mj.bloque(m, _rec)
             razon_txt = _mj.bloque_para_razonar(m)
             print(f"   ⚖️ TALLER: parámetro de {len(estudio_txt)} caracteres"

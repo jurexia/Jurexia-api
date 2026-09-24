@@ -125,5 +125,23 @@ try:
 finally:
     mj._buscar = _ob
 
+print("\n7 · EL MAPA LEE LO QUE SE RESOLVIÓ, Y LO GENÉRICO VA DETRÁS")
+p711 = ["¿El bloqueo de las cuentas de la persona moral podía extenderse por la inclusión de sus "
+        "apoderados o autorizada en la Lista de Personas Bloqueadas?"]
+r711 = ["El Juzgado de Distrito consideró que el bloqueo vulneró los derechos de legalidad y seguridad "
+        "jurídica, porque no existía una determinación fundada y motivada"]
+ok(mj._articulos_del_problema(p711) == [], "la pregunta del 711 sola no dispara nada (el marco salía vacío)")
+ok(mj._articulos_del_problema(p711 + r711) == ["1", "14", "16"], "con lo que resolvió el juzgado: 1º, 14 y 16")
+lab = mj._articulos_del_problema(["¿El despido del trabajador fue justificado?", "violó la legalidad"])
+ok(lab.index("123") < lab.index("16"), f"el 123 va antes que la legalidad genérica ({lab})")
+_ob = mj._buscar
+mj._buscar = _buscar_falso
+try:
+    solo = asyncio.run(mj.construir(None, _embed, p711))
+    con = asyncio.run(mj.construir(None, _embed, p711, temas_extra=r711))
+    ok(solo.vacio() and not con.vacio(), "construir: sin «resolvió» vacío, con «resolvió» con parámetro")
+finally:
+    mj._buscar = _ob
+
 print("\n" + ("TODAS LAS COMPROBACIONES PASAN" if not FALLOS else f"{len(FALLOS)} FALLAN: {FALLOS}"))
 raise SystemExit(1 if FALLOS else 0)
