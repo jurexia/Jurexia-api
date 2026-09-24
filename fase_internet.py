@@ -20,8 +20,9 @@ búsqueda semántica del problema.
 ═══ LA REGLA QUE NO SE NEGOCIA ════════════════════════════════════════════
 Lo que internet dice NO se cita. Lo que internet dice y EL ACERVO CONFIRMA, sí.
 
-  1. Se pregunta a sonar, restringido a dominios oficiales (Semanario, SCJN,
-     Buscador Jurídico), por la línea de precedentes sobre el problema.
+  1. Se pregunta al buscador —gpt-6-luna con la búsqueda web de OpenAI desde
+     el 23-sep-2026; sonar si BUSQUEDA_WEB_MOTOR=openrouter— por la línea de
+     precedentes sobre el problema (ver web_openai.py: por qué y cuánto).
   2. De la respuesta se extraen los REGISTROS DIGITALES —siete dígitos— y las
      claves de tesis.
   3. Cada registro se busca en `jurisprudencia_nacional_v3`. El que está,
@@ -35,9 +36,9 @@ Un registro que sonar escribió mal —le pasa— no puede acabar en una
 sentencia. Con este orden, no puede: el acervo es la única puerta.
 
 ═══ QUÉ CUESTA ═════════════════════════════════════════════════════════════
-Una llamada a sonar (~5 s) y un scroll a Qdrant por registro, en paralelo con
-lo que ya corre antes de proponer. Se apaga con BUSQUEDA_WEB_ACTIVA=false
-como el resto de la capa web.
+Tres llamadas en paralelo a gpt-6-luna (medido: 21 s de mediana por ángulo,
+42 s la peor; 0,14 USD el problema) y un scroll a Qdrant por registro. Se
+apaga con BUSQUEDA_WEB_ACTIVA=false como el resto de la capa web.
 """
 from __future__ import annotations
 
@@ -60,6 +61,9 @@ RX_CLAVE = re.compile(
 
 TOPE_REGISTROS = 12
 TIMEOUT_S = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "18"))
+# gpt-6-luna tarda más que sonar y trae más: 21 s de mediana por ángulo y 42 s
+# el peor de 36 medidos. Con los 18 s de sonar se cortaría a media búsqueda.
+TIMEOUT_OPENAI_S = float(os.getenv("BUSQUEDA_WEB_OPENAI_TIMEOUT", "60"))
 
 
 def _dominio(url: str) -> str:
@@ -118,8 +122,9 @@ async def buscar_linea(problema: str, hechos: str = "", tipo_asunto: str = "") -
     """Pregunta a internet por la línea de la Corte, desde tres ángulos a la
     vez, y fusiona. Nunca lanza."""
     vacio = {"texto": "", "registros": [], "claves": [], "fuentes": []}
+    import web_openai
     activa = os.getenv("BUSQUEDA_WEB_ACTIVA", "false").lower() in ("1", "true", "si", "sí")
-    if not activa or not os.getenv("OPENROUTER_API_KEY", "") or not (problema or "").strip():
+    if not activa or not web_openai.hay_motor() or not (problema or "").strip():
         return vacio
     partes = await asyncio.gather(*[_un_angulo(problema, hechos, tipo_asunto, a) for a in ANGULOS])
     texto = "\n\n".join(p["texto"] for p in partes if p["texto"])
@@ -137,6 +142,9 @@ async def buscar_linea(problema: str, hechos: str = "", tipo_asunto: str = "") -
 
 
 async def _un_angulo(problema: str, hechos: str, tipo_asunto: str, angulo: str) -> Dict[str, Any]:
+    import web_openai
+    if web_openai.usar_openai():
+        return await _un_angulo_openai(problema, hechos, tipo_asunto, angulo)
     vacio = {"texto": "", "registros": [], "claves": [], "fuentes": []}
     clave = os.getenv("OPENROUTER_API_KEY", "")
     try:
@@ -180,6 +188,39 @@ async def _un_angulo(problema: str, hechos: str, tipo_asunto: str, angulo: str) 
     except Exception as e:
         print(f"   🌐 un ángulo de la línea falló ({type(e).__name__}: {str(e)[:80]})")
         return vacio
+
+
+def _registros_del_texto(texto: str) -> List[str]:
+    registros = []
+    for m in RX_REGISTRO.finditer(texto):
+        reg = m.group(1)
+        if len(reg) >= 6 and reg not in registros:
+            registros.append(reg)
+    return registros
+
+
+async def _un_angulo_openai(problema: str, hechos: str, tipo_asunto: str, angulo: str) -> Dict[str, Any]:
+    """El mismo ángulo con gpt-6-luna. Con la configuración que se midió:
+    búsqueda abierta —el cotejo contra el acervo filtra después—, página
+    completa (contexto high) y razonamiento bajo."""
+    import web_openai
+    vacio = {"texto": "", "registros": [], "claves": [], "fuentes": []}
+    r = await web_openai.buscar(prompt_busqueda(problema, hechos, tipo_asunto, angulo),
+                                contexto="high", esfuerzo="low", timeout=TIMEOUT_OPENAI_S)
+    if r["error"] or not r["texto"]:
+        print(f"   🌐 un ángulo de la línea falló ({r['error'] or 'sin texto'}, {r['segundos']} s)")
+        return vacio
+    # Sin enlaces ANTES de buscar números: el nombre de un PDF no es un registro.
+    texto = web_openai.sin_enlaces(r["texto"])
+    fuentes, vistos = [], set()
+    for titulo, url in r["citas"] + [("", u) for u in r["consultadas"]]:
+        if url in vistos or not _es_de_la_corte(url):
+            continue
+        vistos.add(url)
+        fuentes.append({"titulo": (titulo or _dominio(url))[:140], "url": url})
+    claves = list(dict.fromkeys(" ".join(c.split()) for c in RX_CLAVE.findall(texto)))
+    return {"texto": texto, "registros": _registros_del_texto(texto), "claves": claves,
+            "fuentes": fuentes[:6]}
 
 
 # ═══ EL NÚMERO NO BASTA: SE COTEJA EL RUBRO ════════════════════════════════

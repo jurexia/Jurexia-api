@@ -199,7 +199,10 @@ ok(_nombres and not any("?" in n_ or n_.endswith(" la") for n_ in _nombres),
 # G6 · la cita web tiene que nombrar la norma
 _srcw = _i2.getsource(bw)
 ok("_nombra_norma" in _srcw, "la cita oficial tiene que nombrar el ordenamiento")
-ok('_fin == "length"' in _srcw, "y una respuesta cortada por longitud se descarta")
+# Desde el 23-sep-2026 el corte llega por `cortada`, que vale para los dos
+# motores: finish_reason «length» en sonar, max_output_tokens en OpenAI.
+ok('if c["cortada"]:' in _srcw and '== "length"' in _srcw,
+   "y una respuesta cortada por longitud se descarta")
 
 print()
 if fallos:

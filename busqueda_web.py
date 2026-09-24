@@ -60,6 +60,70 @@ WEB_MODELO = os.getenv("BUSQUEDA_WEB_MODELO", "perplexity/sonar")
 WEB_TIMEOUT = float(os.getenv("BUSQUEDA_WEB_TIMEOUT", "14"))
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
+# ── DESDE EL 23-SEP-2026 EL MOTOR ES gpt-6-luna CON LA BÚSQUEDA DE OPENAI ──
+# El paso uno de dejar OpenRouter (decisión de David). Lo medido y el porqué
+# están en web_openai.py. Sonar sigue aquí, entero, para volver sin desplegar
+# con BUSQUEDA_WEB_MOTOR=openrouter.
+#
+# gpt-6-luna tarda más que sonar. Cada agente pide poco —contexto «low», dos o
+# tres frases— y su plazo es propio: los 14 s de sonar lo cortarían.
+WEB_TIMEOUT_OPENAI = float(os.getenv("BUSQUEDA_WEB_OPENAI_TIMEOUT_CHAT", "25"))
+
+
+def espera_en_vivo() -> float:
+    """Cuánto espera el chat a los agentes DESPUÉS del RAG (arrancaron antes).
+    Con sonar bastaban 10 s. Con gpt-6-luna se da más, porque la capa sólo
+    corre cuando el abogado encendió el globo: pidió fuentes de internet."""
+    import web_openai
+    return float(os.getenv("BUSQUEDA_WEB_ESPERA_CHAT", "18" if web_openai.usar_openai() else "10"))
+
+
+async def _consultar(instruccion: str, max_tokens: int, dominios: tuple = (),
+                     contexto: str = "low") -> Dict[str, Any]:
+    """Una pregunta al motor activo. Devuelve {texto, crudas, cortada, error}.
+
+    Las «crudas» son (título, url) con lo que el motor dice haber consultado;
+    el filtro duro de dominios oficiales se aplica DESPUÉS, igual para los dos
+    motores."""
+    import web_openai
+    if web_openai.usar_openai():
+        r = await web_openai.buscar(
+            instruccion + "\n\nResponde en texto plano: sin Markdown y sin enlaces "
+            "(las fuentes ya viajan aparte).",
+            contexto=contexto, esfuerzo="low", dominios=list(dominios) or None,
+            max_salida=max_tokens + 2500,       # el razonamiento cuenta dentro
+            timeout=WEB_TIMEOUT_OPENAI)
+        return {"texto": web_openai.sin_enlaces(r["texto"]),
+                "crudas": r["citas"] + [("", u) for u in r["consultadas"]],
+                "cortada": r["cortada"], "error": r["error"]}
+    if not OPENROUTER_API_KEY:
+        return {"texto": "", "crudas": [], "cortada": False, "error": "falta OPENROUTER_API_KEY"}
+    import httpx
+    async with httpx.AsyncClient(timeout=WEB_TIMEOUT) as cli:
+        r = await cli.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            json={"model": WEB_MODELO,
+                  "messages": [{"role": "user", "content": instruccion}],
+                  "max_tokens": max_tokens},
+        )
+        r.raise_for_status()
+        d = r.json()
+    msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
+    # Las citas de sonar viajan en dos sitios según la versión de la API:
+    # message.annotations (url_citation, con título) y el campo raíz
+    # `citations` (lista de URLs). Se leen ambos.
+    crudas = []
+    for a in (msg.get("annotations") or []):
+        uc = a.get("url_citation") or {}
+        if uc.get("url"):
+            crudas.append((uc.get("title") or "", uc["url"]))
+    for u in (d.get("citations") or []):
+        crudas.append(("", u))
+    return {"texto": (msg.get("content") or "").strip(), "crudas": crudas,
+            "cortada": ((d.get("choices") or [{}])[0].get("finish_reason") or "") == "length",
+            "error": None}
+
 # Marca que viaja en el marcador cuando se consultó y no había nada nuevo.
 SIN_NOVEDADES = "__sin_novedades__"
 
@@ -139,17 +203,12 @@ def _es_oficial(dominio: str, cotos: tuple) -> bool:
 
 
 async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict[str, Any]:
-    """Un agente = una llamada a perplexity/sonar con su misión. Nunca lanza."""
+    """Un agente = una llamada al buscador con su misión. Nunca lanza."""
     vacio = {"id": agente["id"], "resumen": "", "fuentes": []}
     try:
-        import httpx
-
         donde = f" en el estado de {estado}" if estado else ""
         if agente["id"] == "local" and not estado:
             return vacio      # sin entidad, este agente no tiene qué buscar
-        if not OPENROUTER_API_KEY:
-            print("   🌐 Falta OPENROUTER_API_KEY — capa web sin motor")
-            return vacio
 
         instruccion = (
             f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
@@ -159,30 +218,16 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
             "(.gob.mx, poderes judiciales, congresos)."
         )
 
-        async with httpx.AsyncClient(timeout=WEB_TIMEOUT) as cli:
-            r = await cli.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-                json={"model": WEB_MODELO,
-                      "messages": [{"role": "user", "content": instruccion}],
-                      "max_tokens": 400},
-            )
-            r.raise_for_status()
-            d = r.json()
-
-        msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
-        texto = (msg.get("content") or "").strip()
-
-        # Las citas de sonar viajan en dos sitios según la versión de la API:
-        # message.annotations (url_citation, con título) y el campo raíz
-        # `citations` (lista de URLs). Se leen ambos.
-        crudas = []
-        for a in (msg.get("annotations") or []):
-            uc = a.get("url_citation") or {}
-            if uc.get("url"):
-                crudas.append((uc.get("title") or "", uc["url"]))
-        for u in (d.get("citations") or []):
-            crudas.append(("", u))
+        # Con OpenAI el coto se pide DESDE la búsqueda (allowed_domains): así
+        # no se gastan las fuentes en blogs que el filtro duro tiraría. El
+        # agente local no tiene coto fijo —su patrón es estatal— y busca
+        # abierto; el filtro de abajo decide igual para todos.
+        _dominios = (tuple(agente["cotos"]) + OFICIALES_AUTONOMOS) if agente["cotos"] else ()
+        c = await _consultar(instruccion, 400, _dominios)
+        if c["error"]:
+            print(f"   🌐 [{agente['id']}] sin motor o sin respuesta ({c['error'][:90]})")
+            return vacio
+        texto, crudas = c["texto"], c["crudas"]
 
         fuentes, vistos = [], set()
         for titulo, url in crudas:
@@ -271,10 +316,11 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
     vacio: Dict[str, Any] = {}
     ley = " ".join((cuerpo_legal or "").split())
     num = str(numero or "").strip()
+    import web_openai
     if not WEB_ACTIVA or not ley or not num:
         return vacio
-    if not OPENROUTER_API_KEY:
-        print("   🌐 Falta OPENROUTER_API_KEY — no se busca el precepto")
+    if not web_openai.hay_motor():
+        print("   🌐 Sin motor de búsqueda — no se busca el precepto")
         return vacio
 
     donde = f" (ámbito: {estado})" if estado else ""
@@ -294,26 +340,17 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
 
     for i, instruccion in enumerate(intentos, 1):
         try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=WEB_TIMEOUT) as cli:
-                r = await cli.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-                    json={"model": WEB_MODELO,
-                          "messages": [{"role": "user", "content": instruccion}],
-                          "max_tokens": 1200},
-                )
-                r.raise_for_status()
-                d = r.json()
-
-            _fin = ((d.get("choices") or [{}])[0].get("finish_reason") or "")
-            msg = (d.get("choices") or [{}])[0].get("message", {}) or {}
-            texto = (msg.get("content") or "").strip()
+            # El precepto se lee entero de la página oficial: contexto medio.
+            c = await _consultar(instruccion, 1200,
+                                 AGENTE_ARTICULO["cotos"] + OFICIALES_AUTONOMOS, contexto="medium")
+            if c["error"]:
+                print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i}: {c['error'][:90]}")
+                continue
+            texto = c["texto"]
             # UN ARTÍCULO CORTADO A LA MITAD DICE OTRA COSA. Si el modelo se
             # quedó sin presupuesto, lo que llega es media norma presentada
             # como norma entera.
-            if _fin == "length":
+            if c["cortada"]:
                 print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i}: "
                       f"la respuesta se cortó por longitud")
                 continue
@@ -350,13 +387,7 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
                 print(f"   🌐 artículo {num} de «{ley[:40]}» · vuelta {i}: {_porque}")
                 continue
 
-            crudas = []
-            for a in (msg.get("annotations") or []):
-                uc = a.get("url_citation") or {}
-                if uc.get("url"):
-                    crudas.append((uc.get("title") or "", uc["url"]))
-            for u in (d.get("citations") or []):
-                crudas.append(("", u))
+            crudas = c["crudas"]
 
             # LA CITA TIENE QUE SER DE ESTA NORMA, no una cualquiera que
             # resulte oficial. Bastaba con que UNA de las citas viniera de un
@@ -412,7 +443,9 @@ async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str
     tareas = lanzar_agentes(consulta, estado)
     if not tareas:
         return {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
-    hechas, pendientes = await asyncio.wait(tareas, timeout=WEB_TIMEOUT + 2)
+    import web_openai
+    plazo = WEB_TIMEOUT_OPENAI if web_openai.usar_openai() else WEB_TIMEOUT
+    hechas, pendientes = await asyncio.wait(tareas, timeout=plazo + 2)
     for x in pendientes:
         x.cancel()
     resultados = []

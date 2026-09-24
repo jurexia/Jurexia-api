@@ -14638,7 +14638,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 _web = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
                 if _web_tasks:
                     try:
-                        from busqueda_web import fusionar, SIN_NOVEDADES, bloque_fuentes_html
+                        from busqueda_web import fusionar, SIN_NOVEDADES, bloque_fuentes_html, espera_en_vivo
 
                         def _detalle_de(fuentes):
                             _por_agente, _vistos = {}, []
@@ -14654,7 +14654,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         _resultados = []
                         _pendientes = set(_web_tasks)
                         _t_web = time.perf_counter()
-                        while _pendientes and (time.perf_counter() - _t_web) < 10.0:
+                        # 10 s con sonar; con gpt-6-luna, más (ver espera_en_vivo).
+                        _espera_web = espera_en_vivo()
+                        while _pendientes and (time.perf_counter() - _t_web) < _espera_web:
                             _hechas, _pendientes = await asyncio.wait(
                                 _pendientes, timeout=1.0,
                                 return_when=asyncio.FIRST_COMPLETED)
@@ -32038,7 +32040,10 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
                     qdrant_client, _pral_txt, _hechos_txt,
                     getattr(r.encargo, "tipo_asunto", "") or "",
                     embed_juris=_embedding_juris),
-                timeout=40.0)
+                # 75 s y no 40: con gpt-6-luna cada ángulo tarda 21 s de
+                # mediana y 42 s el peor (23-sep-2026); los 40 de sonar la
+                # habrían cortado sin dejar rastro en el proyecto.
+                timeout=75.0)
             if _web.get("buscado"):
                 ses["internet"] = {k: _web[k] for k in ("pistas", "resumen", "fuentes", "buscado")}
                 ses["internet"]["registros"] = [t.get("registro") for t in _web["tesis"]]
