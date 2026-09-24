@@ -32477,7 +32477,11 @@ async def _taller_parametro(r, ses, material=None) -> tuple:
     _probs += [p.get("pregunta", "") for p in problemas if p.get("pregunta")]
     _col = (r.encargo.coleccion_estatal if r.encargo else "") or None
     _rec = bool(r.encargo and r.encargo.es_recurso)
-    huella = _hl_p.sha1("|".join(_probs + [str(_col), str(puerta), str(_rec)])
+    _temas = [str(p.get(k) or "") for p in problemas for k in ("resolvio", "combate")]
+    # LA HUELLA LLEVA LO QUE DECIDE QUÉ ARTÍCULOS ENTRAN, y una versión. Un
+    # parámetro guardado con la lectura anterior del mapa —el 711 salió vacío—
+    # no puede reutilizarse cuando la lectura cambia.
+    huella = _hl_p.sha1("|".join(["v2"] + _probs + _temas + [str(_col), str(puerta), str(_rec)])
                         .encode("utf8")).hexdigest()[:16]
     guardado = ses.get("parametro") if isinstance(ses, dict) else None
     if isinstance(guardado, dict) and guardado.get("huella") == huella:
@@ -32498,8 +32502,7 @@ async def _taller_parametro(r, ses, material=None) -> tuple:
                     getattr(r.fases, "antecedentes", "") or "",
                     getattr(r.fases, "resumen_acto", "") or "") if x),
                 puerta=puerta,
-                temas_extra=[str(p.get(k) or "") for p in problemas
-                             for k in ("resolvio", "combate")])
+                temas_extra=_temas)
             estudio_txt = _mj.bloque(m, _rec)
             razon_txt = _mj.bloque_para_razonar(m)
             print(f"   ⚖️ TALLER: parámetro de {len(estudio_txt)} caracteres"
