@@ -34089,6 +34089,96 @@ async def taller_resolver(
 # Se enumera lo reciente y suyo. La lista no rehidrata nada: para volver a un
 # asunto está `/taller/contexto-del-asunto`, que es el mismo camino que usa el
 # cliente al terminar un adelanto.
+@app.get("/taller/opinion")
+async def taller_opinion_leer(numero: str, user_email: str, version: int = 0):
+    """La opinión que el secretario ya dio sobre esa versión, para reabrirla.
+
+    Devuelve también los aspectos que se califican —la lista vive en
+    `opiniones_taller.ASPECTOS`, una sola— para que la pantalla no los tenga
+    escritos a mano.
+    """
+    _taller_puerta(user_email)
+    import opiniones_taller as _ot
+    correo = (user_email or "").strip().lower()
+    fila = None
+    if supabase_admin:
+        try:
+            q = supabase_admin.table("taller_opiniones").select(
+                "version, calificacion, correccion, aspectos, sobre_sentencia, "
+                "sobre_taller, actualizado_en") \
+                .eq("email", correo).eq("expediente", numero)
+            if version:
+                q = q.eq("version", int(version))
+            r = q.order("version", desc=True).limit(1).execute()
+            fila = (r.data or [None])[0]
+        except Exception as ex:
+            print(f"   ⚠️ TALLER: no se pudo leer la opinión de {numero}: {err(ex)}")
+    return {"opinion": fila,
+            "aspectos": [{"clave": k, "etiqueta": e} for k, e in _ot.ASPECTOS],
+            "correccion": list(_ot.CORRECCION)}
+
+
+@app.post("/taller/opinion")
+async def taller_opinion_guardar(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    version: int = Form(0),
+    calificacion: str = Form(""),
+    correccion: str = Form(""),
+    aspectos_json: str = Form("{}"),
+    sobre_sentencia: str = Form(""),
+    sobre_taller: str = Form(""),
+):
+    """La opinión del secretario sobre un proyecto terminado.
+
+    David (24-sep-2026): «al término de cada proyecto abrir un cuadro de texto
+    con formato visual profesional para que el usuario escriba sus puntos de
+    vista y aspectos a mejorar en el taller y, particularmente, en la calidad
+    de las sentencias que entrega».
+
+    No llama a ningún modelo ni descuenta nada. Se guarda con una FOTO del
+    proyecto —tipo, sentido y los avisos automáticos de ESA versión—, que es
+    lo que deja al auditor cruzar lo que dijo la persona con lo que dijo la
+    máquina. Opinar otra vez sobre la misma versión la corrige; no duplica.
+    """
+    _taller_puerta(user_email)
+    import opiniones_taller as _ot
+    correo = (user_email or "").strip().lower()
+    try:
+        _asp = json.loads(aspectos_json or "{}")
+        _asp = _asp if isinstance(_asp, dict) else {}
+    except Exception:
+        _asp = {}
+    fila, errores = _ot.limpiar(calificacion, correccion, _asp,
+                                sobre_sentencia, sobre_taller)
+    if errores:
+        raise HTTPException(422, " ".join(errores))
+    if not supabase_admin:
+        raise HTTPException(503, "No se pudo guardar la opinión: la base no responde.")
+    foto = {"version": int(version or 0), "tipo_asunto": None, "materia": None,
+            "sentido": None, "avisos_n": 0, "avisos": []}
+    try:
+        r = supabase_admin.table("taller_sesiones").select("estado") \
+            .eq("email", correo).eq("expediente", numero).limit(1).execute()
+        if r.data:
+            foto = _ot.foto_del_proyecto(r.data[0].get("estado") or {}, int(version or 0))
+    except Exception as ex:
+        print(f"   ⚠️ TALLER: sin foto del proyecto {numero} para la opinión: {err(ex)}")
+    import datetime as _dto
+    registro = {"email": correo, "expediente": numero, **foto, **fila,
+                "actualizado_en": _dto.datetime.now(_dto.timezone.utc).isoformat()}
+    try:
+        supabase_admin.table("taller_opiniones").upsert(
+            registro, on_conflict="email,expediente,version").execute()
+    except Exception as ex:
+        print(f"   ⚠️ TALLER: no se guardó la opinión de {numero}: {err(ex)}")
+        raise HTTPException(503, "No se pudo guardar la opinión. Inténtalo de nuevo.")
+    print(f"   💬 TALLER: opinión de {correo_opaco(correo)} sobre {numero} v{foto['version']} · "
+          f"{fila.get('calificacion') or '—'}/5 · corrección {fila.get('correccion') or '—'} · "
+          f"{len(fila.get('aspectos') or {})} aspectos")
+    return {"ok": True, "version": foto["version"]}
+
+
 @app.get("/taller/proyecto")
 async def taller_proyecto(numero: str, user_email: str):
     """La ficha del último proyecto del asunto: versión, cuándo, palabras y
