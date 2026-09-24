@@ -185,6 +185,35 @@ AGENTES = (
 )
 
 
+# ── EL ACERVO QUE FALTA, BUSCADO EN INTERNET (24-sep-2026) ─────────────────
+# David: «no en todos los estados tenemos buen acervo de ley. En esos estados
+# donde hay pocos códigos habilita la búsqueda web a la par de luna para que
+# otorgue más resultados. Sólo precisa que la fuente en esos casos es de
+# internet».
+#
+# El agente «local» de arriba contesta en dos o tres frases: sirve para decir
+# «el congreso publicó una reforma», no para suplir un código que no está.
+# Éste pide lo que el acervo no tiene —el TEXTO de los artículos estatales
+# aplicables, con su ley y su número— y sólo en sitios oficiales de la
+# entidad. Lo que traiga viaja marcado como internet hasta la respuesta.
+AGENTE_ACERVO_LOCAL = {
+    "id": "acervo_local",
+    "etiqueta": "Legislación estatal en internet",
+    "cotos": (),          # se resuelve por patrón estatal, como «local»
+    "max_tokens": 900,
+    "tope_resumen": 2600,
+    "tope_fuentes": 4,
+    "mision": (
+        "El acervo no tiene completa la legislación de esta entidad. Busca en los "
+        "sitios OFICIALES del estado —congreso, periódico oficial, poder judicial— "
+        "el texto VIGENTE de los artículos de la ley estatal que regulan lo que se "
+        "consulta. Para cada artículo pertinente da el nombre exacto de la ley, el "
+        "número de artículo y su texto literal o un extracto fiel. Hasta cinco "
+        "artículos. Si no encuentras el texto oficial, dilo en una línea."
+    ),
+}
+
+
 def _dominio(url: str) -> str:
     m = re.match(r"https?://([^/]+)", url or "")
     return m.group(1).replace("www.", "") if m else ""
@@ -202,20 +231,36 @@ def _es_oficial(dominio: str, cotos: tuple) -> bool:
     return bool(PATRON_ESTATAL.search(d))
 
 
-async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict[str, Any]:
-    """Un agente = una llamada al buscador con su misión. Nunca lanza."""
+async def _un_agente(agente: dict, consulta, estado: Optional[str]) -> Dict[str, Any]:
+    """Un agente = una llamada al buscador con su misión. Nunca lanza.
+
+    `consulta` puede llegar como texto o como tarea que lo entrega: el chat la
+    pasa así para que la búsqueda web espere la pregunta CON SU HILO (ver
+    _consulta_con_hilo en main.py) sin retrasar el arranque de los agentes."""
     vacio = {"id": agente["id"], "resumen": "", "fuentes": []}
     try:
+        if not isinstance(consulta, str):
+            consulta = await consulta
+        consulta = (consulta or "").strip()
+        if len(consulta) > 400:
+            consulta = consulta[:200] + " … " + consulta[-200:]
+        if not consulta:
+            return vacio
         donde = f" en el estado de {estado}" if estado else ""
-        if agente["id"] == "local" and not estado:
+        if agente["id"] in ("local", "acervo_local") and not estado:
             return vacio      # sin entidad, este agente no tiene qué buscar
 
-        instruccion = (
-            f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
-            f"TU MISIÓN: {agente['mision']}\n\n"
+        cierre = (
+            "Responde en español, sin adornos y sin repetir la consulta, así: "
+            "«Nombre de la ley — Artículo N: texto». Sólo sitios oficiales del estado."
+            if agente["id"] == "acervo_local" else
             "Responde en dos o tres frases, en español, sin adornos y sin "
             "repetir la consulta. Prioriza sitios oficiales mexicanos "
             "(.gob.mx, poderes judiciales, congresos)."
+        )
+        instruccion = (
+            f"Consulta jurídica mexicana: {consulta}{donde}\n\n"
+            f"TU MISIÓN: {agente['mision']}\n\n{cierre}"
         )
 
         # Con OpenAI el coto se pide DESDE la búsqueda (allowed_domains): así
@@ -223,7 +268,7 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
         # agente local no tiene coto fijo —su patrón es estatal— y busca
         # abierto; el filtro de abajo decide igual para todos.
         _dominios = (tuple(agente["cotos"]) + OFICIALES_AUTONOMOS) if agente["cotos"] else ()
-        c = await _consultar(instruccion, 400, _dominios)
+        c = await _consultar(instruccion, agente.get("max_tokens", 400), _dominios)
         if c["error"]:
             print(f"   🌐 [{agente['id']}] sin motor o sin respuesta ({c['error'][:90]})")
             return vacio
@@ -247,7 +292,8 @@ async def _un_agente(agente: dict, consulta: str, estado: Optional[str]) -> Dict
             print(f"   🌐 [{agente['id']}] {len(texto)} car., "
                   f"{len(crudas)} citas, {len(fuentes)} oficiales")
             return vacio
-        return {"id": agente["id"], "resumen": texto[:600], "fuentes": fuentes[:3]}
+        return {"id": agente["id"], "resumen": texto[:agente.get("tope_resumen", 600)],
+                "fuentes": fuentes[:agente.get("tope_fuentes", 3)]}
 
     except Exception as e:
         print(f"   🌐 [{agente['id']}] falló ({type(e).__name__}: {str(e)[:80]})")
@@ -424,17 +470,23 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
     return vacio
 
 
-def lanzar_agentes(consulta: str, estado: Optional[str] = None) -> List[asyncio.Task]:
+def lanzar_agentes(consulta, estado: Optional[str] = None,
+                   agentes: Optional[tuple] = None) -> List[asyncio.Task]:
     """
     Lanza los agentes y devuelve sus TAREAS, sin esperarlas.
 
     Es la pieza que permite las fuentes EN VIVO: quien consume va recogiendo
     cada tarea conforme termina (FIRST_COMPLETED) y emite el marcador
     actualizado al frontend, en vez de esperar a que acabe la última.
+
+    `consulta` puede ser texto o una tarea que lo entrega (la pregunta con su
+    hilo); `agentes` elige cuáles corren —por omisión, los tres del globo—.
     """
-    if not WEB_ACTIVA or not consulta.strip():
+    if not WEB_ACTIVA:
         return []
-    return [asyncio.create_task(_un_agente(a, consulta, estado)) for a in AGENTES]
+    if isinstance(consulta, str) and not consulta.strip():
+        return []
+    return [asyncio.create_task(_un_agente(a, consulta, estado)) for a in (agentes or AGENTES)]
 
 
 async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str, Any]:
@@ -463,7 +515,8 @@ def fusionar(resultados: List[Dict[str, Any]]) -> Dict[str, Any]:
     for r in resultados:
         if not isinstance(r, dict) or not r.get("resumen"):
             continue
-        etiqueta = next((a["etiqueta"] for a in AGENTES if a["id"] == r["id"]), r["id"])
+        etiqueta = next((a["etiqueta"] for a in AGENTES + (AGENTE_ACERVO_LOCAL,)
+                         if a["id"] == r["id"]), r["id"])
         partes.append(f"[{etiqueta}] {r['resumen']}")
         fuentes.extend(r["fuentes"])
         aportaron.append(r["id"])
@@ -471,28 +524,54 @@ def fusionar(resultados: List[Dict[str, Any]]) -> Dict[str, Any]:
             "agentes": aportaron, "corrio": True}
 
 
-def bloque_para_prompt(web: Dict[str, Any]) -> str:
+def bloque_para_prompt(web: Dict[str, Any], entidad_debil: Optional[str] = None) -> str:
     """
     Convierte el resultado en un bloque para el prompt, con su jerarquía
     escrita de forma explícita: el modelo tiene que saber que esto NO es ley.
+
+    `entidad_debil`: la búsqueda no la pidió el abogado, la lanzó Iurexia
+    porque el acervo de esa entidad está incompleto. Cambia el motivo y
+    endurece la marca: cada dato de aquí se cita como fuente de internet.
     """
     if not web or not web.get("resumen"):
         return ""
 
-    lineas = [
-        "<contexto_web>",
-        "INSTRUCCIONES PARA USAR LO QUE SIGUE (búsqueda en internet, dominios",
-        "oficiales). El usuario PIDIÓ estas fuentes con un clic: espera verlas",
-        "reflejadas en tu respuesta.",
-        "",
-        "1. INTEGRA lo relevante en el cuerpo de la respuesta, señalándolo:",
-        "   «según información en línea de <dominio>, …». Que se distinga qué",
-        "   viene de internet y qué del acervo documental.",
+    if entidad_debil:
+        cabecera = [
+            "<contexto_web>",
+            f"INSTRUCCIONES PARA USAR LO QUE SIGUE: el acervo de Iurexia para {entidad_debil}",
+            "está incompleto, así que se buscó en internet, en sitios oficiales de la",
+            "entidad, la legislación estatal que falta.",
+            "",
+            "1. ÚSALO para cubrir lo que el acervo no tiene, y MARCA CADA DATO que tomes",
+            "   de aquí como de internet, en la misma frase: «… (fuente: internet —",
+            "   <dominio>)». Nunca le pongas [Doc ID]: no viene del acervo verificado.",
+            "   Esto manda sobre la regla de no citar lo que no esté en el acervo: esa",
+            "   regla prohíbe citar DE MEMORIA; aquí el texto viene de un sitio oficial.",
+        ]
+    else:
+        cabecera = [
+            "<contexto_web>",
+            "INSTRUCCIONES PARA USAR LO QUE SIGUE (búsqueda en internet, dominios",
+            "oficiales). El usuario PIDIÓ estas fuentes con un clic: espera verlas",
+            "reflejadas en tu respuesta.",
+            "",
+            "1. INTEGRA lo relevante en el cuerpo de la respuesta, señalándolo:",
+            "   «según información en línea de <dominio>, …». Que se distinga qué",
+            "   viene de internet y qué del acervo documental.",
+        ]
+    jerarquia = [
+        "2. JERARQUÍA: si el acervo trae el mismo artículo, MANDA EL DEL ACERVO. Lo",
+        "   de internet sólo cubre lo que falta, y al usarlo recomienda cotejar su",
+        "   vigencia en la fuente oficial.",
+    ] if entidad_debil else [
         "2. JERARQUÍA: esto NO es la ley y NO sustituye a los artículos del",
         "   contexto documental. Si contradice un artículo, MANDA EL ARTÍCULO,",
         "   y puedes señalar que hay información en línea que apunta a un",
         "   cambio reciente. El fundamento jurídico son los artículos y las",
         "   tesis verificadas, nunca una página web.",
+    ]
+    lineas = cabecera + jerarquia + [
         "3. NO añadas tu propia lista de fuentes web al final: el sistema",
         "   agrega la sección «Fuentes de internet consultadas» con los",
         "   enlaces exactos.",

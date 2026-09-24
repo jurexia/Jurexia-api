@@ -14691,6 +14691,29 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         except Exception as _de:
             print(f"   📚 No pude lanzar la capa doctrinal: {_de}")
 
+        async def _plan_admite_web_automatica() -> bool:
+            """¿El plan paga la búsqueda automática? De pago o administración.
+
+            Mismo razonamiento que el candado del globo: cuesta dinero en cada
+            consulta, y equivocarse hacia arriba se paga en cada usuario
+            gratuito. WEB_AUTO_PLANES la amplía sin desplegar (p. ej. añadir
+            «gratuito»)."""
+            if not request.user_id or not supabase_admin:
+                return False
+            planes = [p.strip().lower() for p in
+                      os.getenv("WEB_AUTO_PLANES", "basico,pro,platinum,ultra").split(",") if p.strip()]
+            try:
+                r = await asyncio.to_thread(
+                    lambda: supabase_admin.table('user_profiles').select('subscription_type, email')
+                    .eq('id', request.user_id).limit(1).execute())
+                if r.data:
+                    sub = (r.data[0].get('subscription_type') or '').lower()
+                    correo = (r.data[0].get('email') or '').strip().lower()
+                    return any(sub.startswith(p) for p in planes) or bool(correo and correo in ADMIN_EMAILS)
+            except Exception as _e_plan:
+                print(f"   ⚠️ No pude leer el plan para la búsqueda automática: {err(_e_plan)}")
+            return False
+
         _web_tasks = []
         try:
             from busqueda_web import lanzar_agentes
@@ -14709,10 +14732,51 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # el planteamiento y la petición. Esto también levanta la
                 # exclusión que había con documento adjunto: si el globo está
                 # encendido, la web corre.
-                _consulta_web = last_user_message
-                if len(_consulta_web) > 400:
-                    _consulta_web = _consulta_web[:200] + " … " + _consulta_web[-200:]
-                _web_tasks = lanzar_agentes(_consulta_web, request.estado)
+                #
+                # Desde el 24-sep-2026 la consulta es la del HILO: los agentes
+                # esperan a _hilo_task (el recorte a 400 lo hace el agente). Con
+                # la pregunta cruda, «¿y en Jalisco?» se buscaba tal cual.
+                _web_tasks = lanzar_agentes(_hilo_task, request.estado)
+
+            # ── EL ACERVO FLOJO SE COMPLETA EN INTERNET (24-sep-2026) ─────────
+            # David: «en esos estados donde hay pocos códigos habilita la
+            # búsqueda web a la par de luna […] sólo precisa que la fuente es de
+            # internet». Una tarea más, en paralelo a la búsqueda del acervo:
+            # decide sola si corre —entidad floja (_entidad_con_acervo_flojo),
+            # pregunta no federal, plan de pago— y, si corre, pide a los sitios
+            # oficiales de la entidad el TEXTO de los artículos que faltan. Lo
+            # que traiga entra marcado como internet (bloque_para_prompt con
+            # entidad_debil) y sale al pie en las tarjetas de siempre.
+            #
+            # Fuera: Precedentes, el rayo, documentos y sentencias (tienen su
+            # propio camino) y quien apagó «Leyes estatales» (request.estado ya
+            # viene vacío). Se apaga sin desplegar con WEB_AUTO_ACERVO=0.
+            if (os.getenv("WEB_AUTO_ACERVO", "1") != "0" and request.estado
+                    and not (is_precedentes_mode or is_chat_flash or has_document or is_sentencia)):
+                async def _web_por_acervo_flojo():
+                    vacio = {"id": "acervo_local", "resumen": "", "fuentes": []}
+                    try:
+                        import busqueda_web as _bw
+                        if not _bw.WEB_ACTIVA:
+                            return vacio
+                        entidad = await _entidad_con_acervo_flojo(request.estado)
+                        if not entidad:
+                            return vacio
+                        consulta = await _hilo_task
+                        if is_federal_subject_query(consulta):
+                            print(f"   🌐 Acervo flojo en {entidad}, pero la consulta es federal: sin búsqueda estatal")
+                            return vacio
+                        if not await _plan_admite_web_automatica():
+                            return vacio
+                        print(f"   🌐 ACERVO FLOJO en {entidad}: se busca su legislación en internet, en paralelo")
+                        r = await _bw._un_agente(_bw.AGENTE_ACERVO_LOCAL, consulta, request.estado)
+                        r["entidad_floja"] = entidad
+                        return r
+                    except Exception as _e_af:
+                        print(f"   🌐 La búsqueda por acervo flojo falló: {_e_af}")
+                        return vacio
+
+                _web_tasks = list(_web_tasks) + [asyncio.create_task(_web_por_acervo_flojo())]
         except Exception as _we:
             print(f"   🌐 No pude lanzar la búsqueda web: {_we}")
 
@@ -14937,6 +15001,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # mayoría ya está resuelta al llegar aquí; el plazo de 10s es
                 # margen, no espera habitual.
                 _web = {"resumen": "", "fuentes": [], "agentes": [], "corrio": False}
+                _entidad_floja = None      # la entidad, si la web corrió por acervo flojo
                 if _web_tasks:
                     try:
                         from busqueda_web import fusionar, SIN_NOVEDADES, bloque_fuentes_html, espera_en_vivo
@@ -14979,15 +15044,25 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             _p_.cancel()
 
                         _web = fusionar(_resultados)
+                        # ¿Trajo algo la búsqueda por acervo flojo? Entonces el
+                        # bloque dice por qué se buscó y exige la marca de
+                        # internet en cada dato (ver bloque_para_prompt).
+                        _entidad_floja = next((r.get("entidad_floja") for r in _resultados
+                                               if isinstance(r, dict) and r.get("entidad_floja")
+                                               and r.get("fuentes")), None)
                         if _web.get("resumen") and _web.get("fuentes"):
                             from busqueda_web import bloque_para_prompt
-                            context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(_web)
+                            context_xml = (context_xml or "") + "\n\n" + bloque_para_prompt(
+                                _web, entidad_debil=_entidad_floja)
                         _det_final = _detalle_de(_web.get("fuentes", []))
-                        print(f"   🌐 Web: agentes {_web.get('agentes') or 'ninguno'} · {_det_final or 'sin fuentes'}")
+                        print(f"   🌐 Web: agentes {_web.get('agentes') or 'ninguno'} · {_det_final or 'sin fuentes'}"
+                              f"{f' · acervo flojo en {_entidad_floja}' if _entidad_floja else ''}")
                         # La etapa cierra SIEMPRE que se pidió: con el acumulado
                         # final, o con «sin fuentes» si nadie aportó. Ver eso es
-                        # una respuesta; ver nada es un fallo.
-                        yield f"<!--PASO:web|{_det_final if _det_final else SIN_NOVEDADES}-->"
+                        # una respuesta; ver nada es un fallo. La búsqueda por
+                        # acervo flojo nadie la pidió: sólo se pinta si trajo algo.
+                        if _quiere_web or _det_final:
+                            yield f"<!--PASO:web|{_det_final if _det_final else SIN_NOVEDADES}-->"
                     except Exception as _wb:
                         print(f"   🌐 No pude anexar el bloque web: {_wb}")
 
@@ -16821,7 +16896,7 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 # el modelo quiera recordar. La sección siempre aparece al pie
                 # de la respuesta cuando se pidió internet y hubo fuentes:
                 # así queda claro qué vino de la web y qué del acervo.
-                if _quiere_web and _web.get("fuentes"):
+                if (_quiere_web or _entidad_floja) and _web.get("fuentes"):
                     # Se emite HTML, no markdown. El renderizador de Iurexia no
                     # tiene regla para enlaces `[texto](url)` — se veían crudos
                     # y estirados por el `text-align: justify` de .prose-legal.
@@ -16830,6 +16905,11 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     from busqueda_web import bloque_fuentes_html as _bloque_html
                     yield "\n\n" + _bloque_html(
                         _web["fuentes"],
+                        (f"El acervo de Iurexia para {_entidad_floja} está incompleto: lo "
+                         "que la respuesta marca como «fuente: internet» proviene de estas "
+                         "páginas oficiales. Coteje el texto vigente en la fuente antes de "
+                         "citarlo en un escrito.")
+                        if _entidad_floja else
                         "Estas fuentes provienen de una búsqueda en internet en "
                         "dominios oficiales y complementan, sin sustituir, la "
                         "legislación y jurisprudencia del acervo de Iurexia.",
@@ -23207,6 +23287,101 @@ def _cobertura_del_acervo() -> dict:
             print(f"   ⚠️ No pude leer la cobertura del acervo: {err(e)}")
     _cobertura_cache.update(datos=datos, ts=_t.time())
     return datos
+
+
+# ── LAS ENTIDADES CON ACERVO FLOJO: AHÍ SE BUSCA TAMBIÉN EN INTERNET ─────────
+# David, 24-sep-2026: «no en todos los estados tenemos buen acervo de ley. En
+# esos estados donde hay pocos códigos habilita la búsqueda web a la par de
+# luna para que otorgue más resultados. Sólo precisa que la fuente en esos
+# casos es de internet».
+#
+# Medido ese día en acervo_cobertura: sólo CDMX y Querétaro tienen su Código
+# Civil y su Código Penal completos y más de veinte leyes. Diecinueve
+# entidades tienen de 5 a 17 leyes EN TOTAL (Hidalgo, 9: los códigos, nada
+# más), y otras tienen cientos de leyes con el Código Civil a medias (Edomex
+# 30%, Jalisco 32%, Nuevo León 3%, Guanajuato 1%, Michoacán 0%). El criterio
+# se lee de la tabla, así que una entidad sale sola de la lista en cuanto se
+# reingiere y se corre refrescar_cobertura.py.
+UMBRAL_LEYES_ENTIDAD = int(os.getenv("WEB_AUTO_MIN_LEYES", "20"))
+UMBRAL_CODIGO_ENTIDAD = float(os.getenv("WEB_AUTO_MIN_CODIGO", "60"))
+_acervo_entidades_cache: dict = {"datos": None, "ts": 0.0}
+_RE_CODIGO_CIVIL = re.compile(r"c[oó]digo\s+civil", re.I)
+_RE_CODIGO_PENAL = re.compile(r"c[oó]digo\s+penal", re.I)
+_RE_PROCEDIMIENTOS = re.compile(r"procedimient", re.I)
+
+_NOMBRE_ENTIDAD = {
+    "AGUASCALIENTES": "Aguascalientes", "BAJA_CALIFORNIA": "Baja California",
+    "BAJA_CALIFORNIA_SUR": "Baja California Sur", "CAMPECHE": "Campeche",
+    "CHIAPAS": "Chiapas", "CHIHUAHUA": "Chihuahua", "CIUDAD_DE_MEXICO": "Ciudad de México",
+    "COAHUILA": "Coahuila", "COLIMA": "Colima", "DURANGO": "Durango",
+    "GUANAJUATO": "Guanajuato", "GUERRERO": "Guerrero", "HIDALGO": "Hidalgo",
+    "JALISCO": "Jalisco", "MEXICO": "Estado de México", "EDOMEX": "Estado de México",
+    "ESTADO_DE_MEXICO": "Estado de México", "MICHOACAN": "Michoacán", "MORELOS": "Morelos",
+    "NAYARIT": "Nayarit", "NUEVO_LEON": "Nuevo León", "OAXACA": "Oaxaca", "PUEBLA": "Puebla",
+    "QUERETARO": "Querétaro", "QUINTANA_ROO": "Quintana Roo", "SAN_LUIS_POTOSI": "San Luis Potosí",
+    "SINALOA": "Sinaloa", "SONORA": "Sonora", "TABASCO": "Tabasco", "TAMAULIPAS": "Tamaulipas",
+    "TLAXCALA": "Tlaxcala", "VERACRUZ": "Veracruz", "YUCATAN": "Yucatán", "ZACATECAS": "Zacatecas",
+}
+
+
+def _acervo_por_coleccion() -> dict:
+    """{colección: {leyes, civil, penal}} desde acervo_cobertura. {} si falla.
+
+    Síncrona (cliente de Supabase) y con caché de una hora: quien la llama
+    desde una ruta la manda a un hilo. Fail-closed hacia el gasto: sin datos,
+    ninguna entidad cuenta como floja y no se lanza búsqueda automática.
+    """
+    import time as _t
+    if (_acervo_entidades_cache["datos"] is not None
+            and _t.time() - _acervo_entidades_cache["ts"] < _COBERTURA_TTL):
+        return _acervo_entidades_cache["datos"]
+    datos: dict = {}
+    if supabase_admin:
+        try:
+            desde = 0
+            while True:
+                r = supabase_admin.table("acervo_cobertura") \
+                    .select("coleccion, ley, cobertura") \
+                    .like("coleccion", "leyes%") \
+                    .range(desde, desde + 999).execute()
+                filas = r.data or []
+                for f in filas:
+                    d = datos.setdefault(f.get("coleccion") or "", {"leyes": 0, "civil": 0.0, "penal": 0.0})
+                    d["leyes"] += 1
+                    ley, cob = f.get("ley") or "", float(f.get("cobertura") or 0)
+                    if _RE_PROCEDIMIENTOS.search(ley):
+                        continue
+                    if _RE_CODIGO_CIVIL.search(ley):
+                        d["civil"] = max(d["civil"], cob)
+                    elif _RE_CODIGO_PENAL.search(ley):
+                        d["penal"] = max(d["penal"], cob)
+                if len(filas) < 1000:
+                    break
+                desde += 1000
+        except Exception as e:
+            print(f"   ⚠️ No pude leer el acervo por entidad: {err(e)}")
+            datos = {}
+    _acervo_entidades_cache.update(datos=datos, ts=_t.time())
+    return datos
+
+
+async def _entidad_con_acervo_flojo(estado: Optional[str]) -> Optional[str]:
+    """El nombre de la entidad si su acervo está flojo; None si está bien o no se sabe."""
+    if not estado:
+        return None
+    clave = normalize_estado(estado) or ""
+    nombre = _NOMBRE_ENTIDAD.get(clave) or clave.replace("_", " ").title()
+    silo = _silo_del_estado(estado)
+    if not silo:
+        return nombre                      # sin colección: todo está por buscar
+    datos = await asyncio.to_thread(_acervo_por_coleccion)
+    d = datos.get(silo)
+    if not d:
+        return None
+    if (d["leyes"] < UMBRAL_LEYES_ENTIDAD or d["civil"] < UMBRAL_CODIGO_ENTIDAD
+            or d["penal"] < UMBRAL_CODIGO_ENTIDAD):
+        return nombre
+    return None
 
 
 def _aviso_de_cobertura(nombres: list) -> str:
