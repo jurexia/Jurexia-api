@@ -26,14 +26,26 @@ Medido sobre los 151 asuntos del taller antes de tocar nada:
     Dos de Radilla (160525, 160589) están en el acervo SIN clave: buscadas por
     clave no aparecen. Por eso aquí todo va por REGISTRO.
 
-═══ LO QUE NO ES ══════════════════════════════════════════════════════════
-No es un sesgo a favor de quien pide. La propia Corte le puso límites al pro
-persona —no exime de los requisitos de procedencia, no obliga a resolver como
-pide la parte, cede ante una restricción constitucional expresa— y un proyecto
-que lo usa como llave maestra es el que se revoca. El método se recorre en LAS
-DOS DIRECCIONES: construye desde la lectura protectora cuando la calificación
-la adopta, y explica por qué no está disponible cuando la rechaza. Ese diálogo
-—no la palabra «convencionalidad»— es lo que hace resistente un proyecto.
+═══ SÓLO A FAVOR DE LA PERSONA ════════════════════════════════════════════
+La primera versión recorría la escalera «en las dos direcciones», y el 711/2025
+—revisión de la UIF contra el amparo concedido a una sociedad cuyas cuentas se
+bloquearon— salió diciendo que el artículo 115 de la Ley de Instituciones de
+Crédito se interpretaba «de manera compatible con el artículo 16» PARA SOSTENER
+EL BLOQUEO. David lo vio en el acto: «ahí no aplicaría, ya que se está dando la
+razón a la autoridad y se valida la restricción de un derecho… sólo operan ese
+tipo de interpretaciones en favor de la persona y en supuestos de alternativas
+para mayor acceso. Si cambio de alternativa, señalar cuándo sería posible una
+interpretación conforme o pro persona».
+
+Así que la dirección se CALCULA (`favorece_a_la_persona`): quién combate —la
+persona o una autoridad— y si la calificación prospera. En la vía que valida
+una restricción el pro persona y la interpretación conforme NO se invocan; en
+la que reconoce el derecho o da mayor acceso, la razón se construye desde la
+lectura protectora, con los límites que la propia Corte le puso —no exime de
+los requisitos de procedencia, no obliga a resolver como pide la parte, cede
+ante una restricción constitucional expresa—. Y la propuesta dice, en
+`via_protectora`, cuál es la vía que favorece a la persona y si en ella cabe
+esa lectura, para que el secretario lo vea al cambiar de alternativa.
 
 Y la arquitectura de la materia administrativa ya lo había medido por su lado:
 invocar la Constitución «para subir de nivel» es MÁS frecuente en los proyectos
@@ -44,7 +56,7 @@ depende del sentido de una norma, y si no, se calla.
 from __future__ import annotations
 
 import re
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 # ═══ EL CANON DEL MÉTODO, POR REGISTRO ═════════════════════════════════════
 # (registro, para qué sirve). Pocas y exactas: cada una responde a un peldaño.
@@ -98,6 +110,72 @@ def hay_puerta(problemas: Iterable) -> bool:
         if _RX_PUERTA.search(texto):
             return True
     return False
+
+
+# ═══ A FAVOR DE QUIÉN ══════════════════════════════════════════════════════
+PROSPERA = frozenset({"fundado", "esencialmente_fundado", "sustancialmente_fundado",
+                      "parcialmente_fundado"})
+NO_PROSPERA = frozenset({"infundado", "inoperante", "ineficaz", "inatendible",
+                         "fundado_insuficiente", "fundado_pero_insuficiente"})
+
+
+def _sentido(s) -> str:
+    return "_".join(str(s or "").strip().lower().replace("-", " ").split())
+
+
+def impugna_la_autoridad(tipo_asunto: str = "", recurrente: str = "",
+                         es_recurso: bool = False) -> Optional[bool]:
+    """¿Quien combate en ESTE asunto es una autoridad? None si no consta.
+
+    En el amparo directo combate el quejoso. En la revisión fiscal, siempre la
+    autoridad. En la revisión y en la queja depende de quién recurrió, y eso se
+    lee del nombre con el mismo detector que ya separa los papeles del asunto
+    (`redactor_adelanto._parece_autoridad`).
+    """
+    t = (tipo_asunto or "").strip().lower()
+    if t == "revision_fiscal":
+        return True
+    if t in ("amparo_revision", "queja") or es_recurso:
+        if not (recurrente or "").strip():
+            return None
+        from redactor_adelanto import _parece_autoridad
+        return bool(_parece_autoridad(recurrente))
+    return False
+
+
+def favorece_a_la_persona(sentido: str, tipo_asunto: str = "", recurrente: str = "",
+                          es_recurso: bool = False) -> Optional[bool]:
+    """¿Esta calificación le da la razón a quien reclama el derecho?
+
+    True: le reconoce el derecho o le da mayor acceso —ahí caben el pro persona y
+    la interpretación conforme—. False: valida una restricción o le niega lo que
+    pide —ahí no se invocan—. None: no se puede saber, y el prompt lo pregunta.
+    """
+    s = _sentido(sentido)
+    if s in PROSPERA:
+        prospera = True
+    elif s in NO_PROSPERA:
+        prospera = False
+    else:
+        return None
+    autoridad = impugna_la_autoridad(tipo_asunto, recurrente, es_recurso)
+    if autoridad is None:
+        return None
+    return prospera != autoridad
+
+
+def quien_combate(tipo_asunto: str = "", recurrente: str = "", es_recurso: bool = False) -> str:
+    """Una línea para la propuesta: cuál de las dos vías favorece a la persona."""
+    a = impugna_la_autoridad(tipo_asunto, recurrente, es_recurso)
+    if a is True:
+        quien = f" ({' '.join(recurrente.split())[:90]})" if (recurrente or "").strip() else ""
+        return ("QUIEN COMBATE AQUÍ ES UNA AUTORIDAD" + quien + ": la vía que favorece a quien "
+                "reclama el derecho es la que NO prospera —infundado, inoperante—.")
+    if a is False:
+        return ("QUIEN COMBATE AQUÍ ES QUIEN RECLAMA EL DERECHO: la vía que lo favorece es la "
+                "que prospera —fundado—.")
+    return ("NO CONSTA si quien combate es una autoridad o un particular: decide tú cuál de "
+            "las dos vías favorece a quien reclama el derecho.")
 
 
 # ═══ TRAERLO AL MATERIAL ═══════════════════════════════════════════════════
@@ -205,35 +283,59 @@ def _lista(material) -> str:
     return "\n".join(fuera)
 
 
-def bloque_metodo(material, modo: str = "razon") -> str:
+_NO_ENTRA = """
+═══════════════════════════════════════════════════════════════════════
+SIN PRO PERSONA NI INTERPRETACIÓN CONFORME EN ESTA CALIFICACIÓN
+═══════════════════════════════════════════════════════════════════════
+Esta calificación NO favorece a quien reclama el derecho: valida una
+restricción o le niega lo que pide. El principio pro persona y la
+interpretación conforme operan SÓLO a favor de la persona —para reconocerle un
+derecho o darle mayor acceso—, así que NO los invoques para sostenerla: no la
+fortalecen, la hacen vulnerable. Sostén la calificación con su fundamento
+legal y con la jurisprudencia que la valida. Si la parte planteó esos
+principios, contéstalos en lo que alegó, sin hacerlos tuyos.
+"""
+
+
+def bloque_metodo(material, modo: str = "razon", favorece: Optional[bool] = None,
+                  quien: str = "") -> str:
     """Para la propuesta y la razón. Vacío si el método no está en el material.
 
-    modo «razon»: la calificación ya la decidió quien firma y la escalera se
-    pone a su servicio. Modo «propuesta»: el motor aún propone, y la lectura
-    protectora es una de las que tiene que sopesar.
+    modo «razon»: la calificación ya la decidió quien firma. Si NO favorece a
+    la persona, el bloque dice que no se invocan (sin criterios del método); si
+    la favorece, la razón se construye desde la lectura protectora; si no se
+    sabe, el modelo lo resuelve con la regla por delante.
+    modo «propuesta»: el motor aún propone; la lectura protectora sólo cabe en
+    la vía que favorece a la persona, y la señala en `via_protectora`.
     """
     if not tesis_de_metodo(material):
         return ""
+    if modo != "propuesta" and favorece is False:
+        return _NO_ENTRA
     puerta = con_puerta(material)
     if modo == "propuesta":
-        uso = """CUÁNDO: si la calificación de un problema depende de CÓMO se lee una norma
-—sobre todo una ley local o un requisito procesal—, antes de proponer sopesa la
-lectura más protectora del derecho en juego. Si la propones, dilo en la razón
-(«interpretado conforme al artículo 17…»); si la descartas, di en una línea por
-qué no está disponible. Y en «alternativa» escribe la vía de la otra lectura.
-Si el problema no depende del sentido de una norma, no la fuerces."""
+        uso = f"""SÓLO A FAVOR DE LA PERSONA. El pro persona y la interpretación conforme operan
+únicamente en la vía que le reconoce un derecho o le da mayor acceso; en la
+que valida una restricción NO se invocan. {quien}
+- En la razón de la vía que favorece a la persona —sea tu propuesta o tu
+  alternativa—, si la calificación depende de cómo se lee un precepto,
+  construye desde la lectura protectora.
+- En la vía contraria no la menciones.
+- Y di en `via_protectora` si esa lectura existe en ESTE asunto: qué precepto,
+  qué lectura y con qué apoyo, y qué la haría inviable. Si ningún precepto
+  admite una lectura más favorable, dilo así. No la fuerces."""
+    elif favorece is True:
+        uso = """ESTA CALIFICACIÓN FAVORECE A QUIEN RECLAMA EL DERECHO. Si depende de cómo se
+lee un precepto, la razón se construye DESDE la lectura protectora: es su
+premisa, no un adorno al final. Si ningún precepto admite una lectura más
+favorable, no la fuerces: un pro persona sin lecturas en disputa es retórica.
+Cita estos registros sólo en el peldaño donde deciden algo."""
     else:
-        uso = """CÓMO SE USA CON LA CALIFICACIÓN YA DECIDIDA. La escalera está al servicio de
-la calificación de arriba, no la discute.
-- Si la calificación FAVORECE a quien reclama el derecho, la razón se
-  construye DESDE la lectura protectora: ésa es su premisa, no un adorno final.
-- Si NO le favorece, recorre la escalera para mostrar POR QUÉ la lectura
-  protectora no está disponible —la letra no la admite, hay una restricción
-  expresa, el requisito tiene una razón que lo sostiene—. Ese diálogo es el que
-  hace resistente el proyecto.
-- Si la calificación no depende del sentido de una norma, NO la recorras: un
-  pro persona invocado sin lecturas en disputa es retórica, y se nota.
-- Cita estos registros sólo en el peldaño donde deciden algo."""
+        uso = """SÓLO SI LA CALIFICACIÓN DE ARRIBA FAVORECE A QUIEN RECLAMA EL DERECHO —le
+reconoce el derecho o le da mayor acceso— recorre la escalera y construye desde
+la lectura protectora. Si valida una restricción o le niega lo que pide, NO
+invoques el pro persona ni la interpretación conforme: operan sólo a favor de
+la persona. Cita estos registros sólo en el peldaño donde deciden algo."""
     return f"""
 ═══════════════════════════════════════════════════════════════════════
 EL DIÁLOGO CONSTITUCIONAL — cuando la calificación depende de cómo se lee una norma
@@ -250,28 +352,35 @@ CRITERIOS DEL MÉTODO — dicen CÓMO interpretar; los del caso dicen QUÉ se re
 """
 
 
-def cierre_estudio(material) -> str:
+def cierre_estudio(material, favorece: Optional[bool] = None) -> str:
     """Lo último que lee el redactor antes de escribir, si el método está."""
     if not tesis_de_metodo(material):
         return ""
+    if favorece is False:
+        return """
+Y SIN PRO PERSONA NI INTERPRETACIÓN CONFORME: esta resolución no favorece a
+quien reclama el derecho —valida una restricción o le niega lo que pide— y esos
+principios operan sólo a su favor. No los invoques para sostenerla. Si la parte
+los planteó, se contestan en lo que alegó, sin hacerlos propios.
+"""
     puerta = con_puerta(material)
     _p = ("\n- EN LA PUERTA PROCESAL el peldaño se escribe con el artículo 17 —y su tercer\n"
           "  párrafo— y con los artículos 8.1 y 25 de la Convención Americana: el\n"
           "  requisito se lee por su finalidad, y si se exige, se dice qué finalidad\n"
           "  protege." if puerta else "")
+    _cuando = ("La resolución favorece a quien reclama el derecho: si la calificación\n"
+               "depende de cómo se lee una norma —sobre todo una ley local o un requisito\n"
+               "procesal—, el estudio se construye DESDE la lectura protectora."
+               if favorece is True else
+               "SÓLO si la resolución favorece a quien reclama el derecho —le reconoce el\n"
+               "derecho o le da mayor acceso—. Si valida una restricción, este párrafo no\n"
+               "se escribe: el pro persona y la interpretación conforme operan sólo a favor\n"
+               "de la persona.")
     return f"""
-Y EL DIÁLOGO CONSTITUCIONAL, donde la calificación depende de cómo se lee una
-norma —sobre todo una ley local o un requisito procesal—. Va DENTRO del
-problema que decide, después del marco y antes del caso concreto, en dos a
-cuatro párrafos: el derecho en juego y su fuente; las lecturas posibles del
-precepto y en qué se apoya cada una; cuál es la conforme y por qué; y los
-límites que la Corte fijó.
-- Si la calificación adopta la lectura protectora, el razonamiento se
-  construye DESDE ella: es la premisa, no una coda.
-- Si la rechaza, se dice por qué no está disponible —la letra no la admite,
-  hay una restricción expresa, el requisito tiene una razón que lo sostiene—:
-  contestar el pro persona que se planteó, y no ignorarlo, es lo que sostiene
-  el proyecto en revisión.{_p}
+Y EL DIÁLOGO CONSTITUCIONAL. {_cuando} Va DENTRO del problema que decide,
+después del marco y antes del caso concreto, en dos a cuatro párrafos: el
+derecho en juego y su fuente; las lecturas posibles del precepto y en qué se
+apoya cada una; cuál es la conforme y por qué; y los límites que la Corte fijó.{_p}
 - Los CRITERIOS DE MÉTODO del material se citan con su registro sólo en ese
   peldaño, y NO cuentan entre los tres a seis criterios del caso: dicen cómo
   interpretar, no qué se resuelve.

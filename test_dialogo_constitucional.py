@@ -59,31 +59,76 @@ try:
 finally:
     rag.tesis_por_registro = _orig
 
-print("\n4 · LA PROPUESTA Y LA RAZÓN")
+print("\n4 · LA RAZÓN, EN UN SOLO SENTIDO: SÓLO A FAVOR DE LA PERSONA")
 ok(all(not t.get("metodo") for t in f5._tesis_del_material(m)),
    "las del método no roban turnos a las del caso")
-pr = f5.prompt_razon("¿Podía extenderse el bloqueo a la persona moral?", "fundado", m,
-                     "resolvió", "combate", True, "amparo_revision",
-                     directriz="Es acto de molestia.", marco="EL PARÁMETRO DE ESTE ASUNTO — prueba")
-ok("EL DIÁLOGO CONSTITUCIONAL" in pr and "EL PARÁMETRO DE ESTE ASUNTO — prueba" in pr,
-   "la razón ve el método y el parámetro")
-ok("Si NO le favorece" in pr and "no la discute" in pr, "al servicio de la calificación decidida, en las dos direcciones")
-ok("de 60 a 160 palabras" in pr, "con espacio para la escalera")
-ok("PUERTA PROCESAL" in pr and "8.1 y 25" in pr, "y el 17 con la Convención cuando hay puerta")
+base = dict(problema="¿Podía extenderse el bloqueo a la persona moral?", material=m,
+            resumen_acto="resolvió", resumen_conceptos="combate", es_recurso=True,
+            tipo_asunto="amparo_revision", directriz="Es acto de molestia.",
+            marco="EL PARÁMETRO DE ESTE ASUNTO — prueba")
+contra = f5.prompt_razon(sentido="fundado", favorece=False, **base)
+ok("SIN PRO PERSONA NI INTERPRETACIÓN CONFORME" in contra and "CRITERIOS DEL MÉTODO" not in contra,
+   "711 con la UIF recurrente y «fundado»: NO se invocan, y sin criterios del método")
+ok("de 60 a 120 palabras" in contra and "EL PARÁMETRO DE ESTE ASUNTO — prueba" in contra,
+   "sin escalera no hay espacio extra, y el parámetro sí está")
+a_favor = f5.prompt_razon(sentido="infundado", favorece=True, **base)
+ok("ESTA CALIFICACIÓN FAVORECE A QUIEN RECLAMA EL DERECHO" in a_favor and "CRITERIOS DEL MÉTODO" in a_favor
+   and "de 60 a 160 palabras" in a_favor, "la vía que favorece a la persona: escalera y criterios")
+ok("PUERTA PROCESAL" in a_favor and "8.1 y 25" in a_favor, "y el 17 con la Convención cuando hay puerta")
+duda = f5.prompt_razon(sentido="fundado", favorece=None, **base)
+ok("SÓLO SI LA CALIFICACIÓN DE ARRIBA FAVORECE" in duda, "si no consta quién recurrió, la regla va por delante")
+via = {"sentido": "infundado", "posible": True, "norma": "Artículo 115 de la Ley de Instituciones de Crédito",
+       "lectura": "la extensión exige petición expresa", "limite": "", "apoyos": ["2029549"]}
+ok("LA LECTURA PROTECTORA QUE SEÑALÓ LA PROPUESTA" in f5.prompt_razon(sentido="infundado", favorece=True, via=via, **base),
+   "la razón parte de la lectura que señaló la propuesta, si es su vía")
+ok("LA LECTURA PROTECTORA QUE SEÑALÓ" not in f5.prompt_razon(sentido="fundado", favorece=False, via=via, **base),
+   "y no la trae a la vía contraria")
 sin = f6.Material()
 sin.tesis = [_tesis("2016903")]
 pr0 = f5.prompt_razon("¿?", "fundado", sin, "", "", True, "amparo_revision")
-ok("EL DIÁLOGO CONSTITUCIONAL" not in pr0 and "de 60 a 120 palabras" in pr0, "sin método en el material, todo como antes")
-pp = f5.prompt_propuesta([{"pregunta": "¿?"}], m, "resolvió", "combate", True, marco="PARÁMETRO-X")
-ok("PARÁMETRO-X" in pp and "sopesa la\nlectura más protectora" in pp, "la propuesta también, en su modo")
+ok("EL DIÁLOGO CONSTITUCIONAL" not in pr0 and "SIN PRO PERSONA" not in pr0 and "de 60 a 120 palabras" in pr0,
+   "sin método en el material, todo como antes")
 
-print("\n5 · EL ESTUDIO")
-bm = f6._bloque_material(m)
-ok("CRITERIO DE MÉTODO" in bm, "las del método van marcadas en el material")
-ok("{_dc_e.cierre_estudio(material)}" in inspect.getsource(f6.prompt_estudio), "el cierre del diálogo es lo último que lee")
-ce = dc.cierre_estudio(m)
-ok("NO cuentan entre los tres a seis" in ce and "retórica" in ce, "sin contar entre las del caso y sin forzarlo")
+print("\n5 · LA PROPUESTA SEÑALA LA VÍA PROTECTORA")
+quien = dc.quien_combate("amparo_revision", "TITULAR DE LA UNIDAD DE INTELIGENCIA FINANCIERA", True)
+pp = f5.prompt_propuesta([{"pregunta": "¿?"}], m, "resolvió", "combate", True, marco="PARÁMETRO-X", quien=quien)
+ok("PARÁMETRO-X" in pp and "QUIEN COMBATE AQUÍ ES UNA AUTORIDAD" in pp, "la propuesta sabe quién combate")
+ok('"via_protectora": {"sentido"' in pp and "LA VÍA PROTECTORA, en `via_protectora`" in pp,
+   "y pide la vía protectora, con llaves sencillas en el JSON")
+ok("via_protectora" not in f5.prompt_propuesta([{"pregunta": "¿?"}], sin, "r", "c", True),
+   "sin método delante no se pide (sería citar de memoria)")
+v = f5._via_protectora({"sentido": "Infundado", "posible": True, "norma": "art. 115", "lectura": "x", "apoyos": ["1", "2"]})
+ok(v["sentido"] == "infundado" and v["posible"] and v["apoyos"] == ["1", "2"], "se lee y se normaliza")
+ok(f5._via_protectora(None) == {} and f5._via_protectora({"posible": True}) == {}, "sin sentido, vacía")
+
+print("\n6 · EL ESTUDIO, EN UN SOLO SENTIDO")
+ok("CRITERIO DE MÉTODO" in f6._bloque_material(m), "las del método van marcadas en el material")
+crit = [f6.Criterio(problema="¿Podía extenderse el bloqueo?", sentido="fundado", jerarquia="principal")]
+m.dialogo_favorece = False
+pe_contra = f6.prompt_estudio("acto", "conceptos", crit, m, es_recurso=True)
+ok("CRITERIO DE MÉTODO" not in pe_contra and "SIN PRO PERSONA NI INTERPRETACIÓN CONFORME" in pe_contra,
+   "contra la persona: ni criterios del método ni peldaño, y se dice por qué")
+m.dialogo_favorece = True
+pe_favor = f6.prompt_estudio("acto", "conceptos", crit, m, es_recurso=True)
+ok("CRITERIO DE MÉTODO" in pe_favor and "La resolución favorece a quien reclama el derecho" in pe_favor,
+   "a favor de la persona: el peldaño se construye desde la lectura protectora")
+m.dialogo_favorece = None
+ok("SÓLO si la resolución favorece" in f6.prompt_estudio("acto", "conceptos", crit, m, es_recurso=True),
+   "sin dirección, la regla condicional")
+ok("NO cuentan entre los tres a seis" in dc.cierre_estudio(m, True), "sin contar entre las del caso")
 ok(dc.cierre_estudio(sin) == "", "sin método, el estudio no cambia")
+
+print("\n6b · A FAVOR DE QUIÉN")
+UIF = "TITULAR Y DIRECTOR GENERAL DE LA UNIDAD DE INTELIGENCIA FINANCIERA"
+ok(dc.favorece_a_la_persona("fundado", "amparo_revision", UIF, True) is False, "711: fundado con la UIF recurrente → contra la persona")
+ok(dc.favorece_a_la_persona("infundado", "amparo_revision", UIF, True) is True, "711: infundado → a favor de la persona (la alternativa)")
+ok(dc.favorece_a_la_persona("fundado", "amparo_directo") is True, "amparo directo: fundado favorece al quejoso")
+ok(dc.favorece_a_la_persona("inoperante", "amparo_directo") is False, "amparo directo: inoperante no")
+ok(dc.favorece_a_la_persona("fundado", "revision_fiscal") is False, "revisión fiscal: fundado favorece a la autoridad")
+ok(dc.favorece_a_la_persona("fundado", "amparo_revision", "Interamericana de Aceites, S.A. de C.V.", True) is True,
+   "revisión de la persona moral: fundado la favorece")
+ok(dc.favorece_a_la_persona("fundado", "amparo_revision", "", True) is None, "sin recurrente, no se adivina")
+ok(dc.favorece_a_la_persona("sin_materia", "amparo_directo") is None, "sin materia no tiene dirección")
 
 print("\n6 · EL MARCO: EL 17 ENTRA POR LA PUERTA, Y DELANTE")
 ok("8.1 y 25" in mj.CONSULTA_POR_ARTICULO["17"], "la consulta del 17 nombra los artículos 8.1 y 25")

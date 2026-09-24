@@ -1396,6 +1396,16 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     # parámetro nuevo se olvida en uno de los dos. Ha pasado.
     import tipos_asunto as _ta_e
     import dialogo_constitucional as _dc_e
+    # EN UN SOLO SENTIDO (24-sep-2026). Si la resolución no favorece a quien
+    # reclama el derecho, los criterios del método no se enseñan —no hay
+    # peldaño donde citarlos— y el cierre dice que no se invocan. La dirección
+    # la calcula quien llama y viaja con el material, como el tipo de asunto.
+    _fav_dc = getattr(material, "dialogo_favorece", None)
+    _mat_vista = material
+    if _fav_dc is False and any(t.get("metodo") for t in (getattr(material, "tesis", None) or [])):
+        import copy as _copy_dc
+        _mat_vista = _copy_dc.copy(material)
+        _mat_vista.tesis = [t for t in (material.tesis or []) if not t.get("metodo")]
     _voc = _ta_e.vocabulario_de(
         getattr(material, "tipo_asunto", "") or "amparo_directo")
     parte = _voc["parte"]
@@ -1900,7 +1910,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""))}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}
-{_bloque_material(material)}
+{_bloque_material(_mat_vista)}
 
 ═══════════════════════════════════════════════════════════════════════
 LO QUE RESOLVIÓ {_org_rotulo}
@@ -1945,7 +1955,7 @@ aplica a este asunto. Un estudio sin citas es una opinión con formato de
 sentencia, y el material se buscó precisamente para estos problemas.
 
 {cierre_marco}
-{_dc_e.cierre_estudio(material)}
+{_dc_e.cierre_estudio(material, _fav_dc)}
 NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
 frase de cierre que corresponde al tipo de asunto —«En ese sentido, ante la
 ineficacia de los {q} planteados, lo procedente es…»—. Si tú escribes otra

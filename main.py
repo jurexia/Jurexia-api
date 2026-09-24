@@ -32426,13 +32426,21 @@ async def taller_razonar(
 
     import fase5_propuesta as _f5
     _, _param_r = await _taller_parametro(r, ses, material)
+    # EN UN SOLO SENTIDO: sólo a favor de quien reclama el derecho.
+    _fav_r = _taller_favorece(r, sentido)
+    _g_r = ses.get("global")
+    _via_r = getattr(_g_r, "via_protectora", None) if _g_r is not None else None
+    print(f"   ⚖️ razón «{sentido}»: "
+          + ("favorece a la persona" if _fav_r is True else "no favorece a la persona"
+             if _fav_r is False else "dirección indeterminada"))
     try:
         razon = await _f5.razonar(
             chat_client, problema, sentido, material,
             r.fases.resumen_acto, r.fases.resumen_conceptos,
             bool(r.encargo and r.encargo.es_recurso),
             getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
-            directriz=(directriz or "").strip(), marco=_param_r)
+            directriz=(directriz or "").strip(), marco=_param_r,
+            favorece=_fav_r, via=_via_r)
     except Exception as ex:
         print(f"   ⚠️ no se pudo razonar «{sentido}»: {err(ex)}")
         raise HTTPException(502,
@@ -32449,6 +32457,46 @@ async def taller_razonar(
             "blanco, la redacción tendrá que suponerlo.")
     print(f"   ✍️  razón para «{sentido}» · {len(razon.split())} palabras")
     return {"razon": razon, "palabras": len(razon.split())}
+
+
+def _taller_recurrente(r) -> str:
+    """Quién recurrió, con la misma reconciliación de papeles que el documento."""
+    try:
+        from redactor_adelanto import _recurrente_de
+        return _recurrente_de(r.encargo, getattr(r, "partes", None)) if r.encargo else ""
+    except Exception:
+        return str(getattr(r.encargo, "recurrente", "") or "") if r.encargo else ""
+
+
+def _taller_favorece(r, sentido: str):
+    """¿Esta calificación favorece a quien reclama el derecho? True/False/None.
+
+    Sólo en esa dirección caben el pro persona y la interpretación conforme.
+    David, 711/2025: «se está dando la razón a la autoridad y se valida la
+    restricción de un derecho… sólo operan ese tipo de interpretaciones en
+    favor de la persona». Ver `dialogo_constitucional.favorece_a_la_persona`.
+    """
+    import dialogo_constitucional as _dc_f
+    return _dc_f.favorece_a_la_persona(
+        sentido, getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
+        _taller_recurrente(r), bool(r.encargo and r.encargo.es_recurso))
+
+
+def _taller_direccion_al_material(r, ses, crit, sentido_global: str = "") -> None:
+    """La dirección de la resolución, en el material que lee el estudio."""
+    _s = (sentido_global or "").strip()
+    if not _s and crit:
+        _pral = [c for c in crit if str(getattr(c, "jerarquia", "") or "") == "principal"]
+        _s = (_pral[0] if _pral else crit[0]).sentido or ""
+    _m = ses.get("material") if isinstance(ses, dict) else None
+    if _m is None:
+        return
+    _f = _taller_favorece(r, _s)
+    _m.dialogo_favorece = _f
+    print(f"   ⚖️ DIÁLOGO: «{_s or '—'}» "
+          + ("favorece a quien reclama el derecho: cabe la lectura protectora" if _f is True
+             else "no favorece a quien reclama el derecho: sin pro persona ni interpretación conforme"
+             if _f is False else "dirección indeterminada: el modelo decide con la regla"))
 
 
 async def _taller_parametro(r, ses, material=None) -> tuple:
@@ -32656,12 +32704,17 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
     if _contraste_previo is not None:
         print(f"   ⚖️ CONTRASTE adelantado recogido: {len(_contraste_previo)} planteamiento(s)")
     _, _param_p = await _taller_parametro(r, ses, ses["material"])
+    import dialogo_constitucional as _dc_p
+    _quien_p = _dc_p.quien_combate(
+        getattr(r.encargo, "tipo_asunto", "") if r.encargo else "",
+        _taller_recurrente(r), bool(r.encargo and r.encargo.es_recurso))
     propuestas, glob, avisos = await _f5.proponer(
         chat_client, problemas, ses["material"],
         "\n".join(r.fases.parrafos_acto() or []),
         "\n".join(r.fases.parrafos_conceptos() or []),
         bool(r.encargo and r.encargo.es_recurso),
-        contexto, contraste_previo=_contraste_previo, marco=_param_p)
+        contexto, contraste_previo=_contraste_previo, marco=_param_p,
+        quien=_quien_p)
 
     # LA PROPUESTA VIAJA DE VUELTA, no se queda aquí. Render corre gunicorn con
     # DOS workers: lo que guarde este proceso puede no existir en el que atienda
@@ -32837,6 +32890,11 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
              "jerarquia": _jer_por_problema.get(p.problema, "accesorio")}
             for p in propuestas],
         "resumen": _f5.resumen(propuestas),
+        # EL FORMATO DE LA RESPUESTA. Una propuesta guardada con un formato
+        # anterior no trae la vía protectora (24-sep-2026) y no se sirve: se
+        # recalcula. Súbelo cuando la respuesta gane un campo que la pantalla
+        # necesita.
+        "formato": 2,
         # EL CONTRASTE, A LA VISTA. Es la razón toral de cada planteamiento y si
         # el concepto la combate: lo que el secretario comprueba primero. Se
         # devuelve para que la pantalla lo enseñe junto a la propuesta y para
@@ -32859,6 +32917,10 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             # LA VÍA CONTRARIA, YA ESCRITA. Para que marcar «resolver al revés»
             # sea instantáneo y no otra espera.
             "alternativa": glob.alternativa,
+            # LA VÍA PROTECTORA: cuál calificación favorece a quien reclama el
+            # derecho y si en ella cabe una interpretación conforme o pro
+            # persona. La pantalla la enseña al cambiar de alternativa.
+            "via_protectora": getattr(glob, "via_protectora", None) or {},
             # LA LISTA DE COMPROBACIÓN, completada contra los problemas reales.
             "checklist": glob.checklist,
             # LAS CONSTANCIAS QUE HARÍA FALTA VER, para que la pantalla las pida.
@@ -32936,6 +32998,10 @@ async def taller_proponer(
                 _previa = _doc["respuesta"]
         except Exception as _exc_pp:
             print(f"   ⚠️ no se pudo recoger la propuesta calculada sola: {err(_exc_pp)}")
+    if _previa is not None and _previa.get("formato") != 2:
+        print(f"   ⚖️ TALLER: la propuesta guardada de {numero} es de un formato anterior "
+              f"(sin vía protectora): se recalcula")
+        _previa = None
     if _previa is not None:
         _taller_registrar_uso(user_email, numero, "propuesta")
         print(f"   ⚖️ TALLER: propuesta {numero} servida de la calculada sola · "
@@ -33328,6 +33394,7 @@ async def taller_resolver_stream(
     # método de interpretación en el material. Ver `_taller_parametro`.
     _t0_marco = time.time()
     _marco, _ = await _taller_parametro(r, ses, ses.get("material"))
+    _taller_direccion_al_material(r, ses, crit, sentido_global)
 
     # ═══════════════════════════════════════════════════════════════════
     # EL TRABAJO NO CUELGA DE LA CONEXIÓN (17-sep-2026)
@@ -33949,6 +34016,7 @@ async def taller_resolver(
     # método de interpretación en el material. Ver `_taller_parametro`.
     _t0_marco = time.time()
     _marco, _ = await _taller_parametro(r, ses, ses.get("material"))
+    _taller_direccion_al_material(r, ses, crit, sentido_global)
     if _marco:
         print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres "
               f"· {time.time() - _t0_marco:.1f}s")

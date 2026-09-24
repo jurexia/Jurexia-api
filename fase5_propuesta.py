@@ -168,6 +168,12 @@ class Global:
     # su propia razón y su propio efecto sobre los accesorios.
     # {sentido, razon, efecto, apoyos}
     alternativa: dict = field(default_factory=dict)
+    # LA VÍA PROTECTORA (24-sep-2026). Cuál de las dos vías favorece a quien
+    # reclama el derecho y si en ella cabe una interpretación conforme o pro
+    # persona —qué precepto, qué lectura—. David: «si cambio de alternativa,
+    # señalar cuándo sería posible». En la vía que valida una restricción esos
+    # principios no se invocan; por eso se dice cuál es la otra.
+    via_protectora: dict = field(default_factory=dict)
 
     # LA LISTA DE COMPROBACIÓN. Para que no se quede un tema sin contestar: cada
     # uno con su suerte en las DOS vías. La exhaustividad es de las cosas que se
@@ -837,7 +843,7 @@ def bloque_contraste(contraste: list) -> str:
 def prompt_propuesta(problemas: list, material, resumen_acto: str,
                      resumen_conceptos: str, es_recurso: bool = False,
                      contexto: str = "", contraste: str = "",
-                     marco: str = "") -> str:
+                     marco: str = "", quien: str = "") -> str:
     # EL TIPO VIAJA CON EL MATERIAL, igual que en el estudio: son dos módulos
     # que reciben el mismo objeto y así no hay un parámetro que se olvide.
     import tipos_asunto as _ta_p
@@ -856,6 +862,24 @@ def prompt_propuesta(problemas: list, material, resumen_acto: str,
     # le da palabras concretas.
     _verbos5 = _ta_p.verbos_del_recurrido(_t5)
     import dialogo_constitucional as _dc
+    _metodo_p = _dc.bloque_metodo(material, "propuesta", quien=quien)
+    # LA VÍA PROTECTORA SE PIDE SÓLO SI EL MÉTODO ESTÁ DELANTE: sin sus
+    # criterios, pedirle al modelo que diga si cabe una interpretación conforme
+    # es invitarlo a citar de memoria.
+    _regla_via = ("""14. LA VÍA PROTECTORA, en `via_protectora`. Di cuál calificación favorece a
+   quien reclama el derecho —según quién combate— y si en ESA vía cabe una
+   interpretación conforme o pro persona de algún precepto: una lectura que le
+   reconozca el derecho o le dé mayor acceso. Sólo en esa vía: en la que valida
+   una restricción no se invocan. Si ningún precepto admite una lectura más
+   favorable, `posible` es false y lo dices en `lectura` en una frase.
+""" if _metodo_p else "")
+    _via_json = ("""
+   "via_protectora": {"sentido": "<la calificación que favorece a quien reclama el derecho>",
+     "posible": true,
+     "norma": "<el precepto que admite una lectura más favorable, con su ley>",
+     "lectura": "<esa lectura y su apoyo —interpretación conforme o pro persona—, dos renglones>",
+     "limite": "<qué la haría inviable, un renglón>",
+     "apoyos": ["<registro>"]},""" if _metodo_p else "")
     tesis = _tesis_del_material(material)
     lista = "\n".join(
         f"{i}. {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
@@ -889,7 +913,7 @@ JURISPRUDENCIA DEL ACERVO — es TODO lo que puedes invocar
 NORMAS DEL ACERVO
 {_bloque_normas(material)}
 {marco}
-{_dc.bloque_metodo(material, "propuesta")}
+{_metodo_p}
 {_bloque_suplencia(material)}
 {_bloque_acervo_sentidos(material)}
 {_bloque_contexto(contexto)}
@@ -1014,7 +1038,7 @@ REGLAS QUE NO SE ROMPEN:
    afinaría), `problema` (el número). Como mucho seis. NO pidas lo que ya
    está en el material o entre lo aportado; no pidas por pedir. Si no hace
    falta ninguna, lista vacía.
-
+{_regla_via}
 Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
 {{"propuestas": [
   {{"problema": "<la pregunta, tal cual>",
@@ -1041,7 +1065,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
      "sentido": "<el contrario al de arriba>",
      "razon": "<cómo se sostendría, {PALABRAS_RAZON} palabras>",
      "efecto": "<qué les pasa a los accesorios en ESTA vía>",
-     "apoyos": ["<registro>", "..."]}},
+     "apoyos": ["<registro>", "..."]}},{_via_json}
    "constancias": [
      {{"que": "<el documento, nombrado como consta>",
        "para_que": "<qué hecho decide>",
@@ -1234,11 +1258,23 @@ def revisar_global(glob, material) -> list:
     return avisos
 
 
+def _via_protectora(v) -> dict:
+    """La vía protectora tal como la pinta la pantalla. Vacía si no vino."""
+    if not isinstance(v, dict) or not v.get("sentido"):
+        return {}
+    return {"sentido": str(v.get("sentido", "")).strip().lower(),
+            "posible": bool(v.get("posible")),
+            "norma": str(v.get("norma", ""))[:300],
+            "lectura": str(v.get("lectura", ""))[:700],
+            "limite": str(v.get("limite", ""))[:300],
+            "apoyos": [str(a) for a in (v.get("apoyos") or [])][:4]}
+
+
 async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
                    resumen_conceptos: str = "", es_recurso: bool = False,
                    contexto: str = "",
                    contraste_previo: list | None = None,
-                   marco: str = "") -> tuple[list, object, list]:
+                   marco: str = "", quien: str = "") -> tuple[list, object, list]:
     """Devuelve (propuestas, global, avisos). No decide nada: propone.
 
     El GLOBAL es la propuesta del asunto entero y sale de la MISMA llamada: es
@@ -1295,7 +1331,7 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
               messages=[{"role": "user", "content": prompt_propuesta(
                   problemas, material, resumen_acto, resumen_conceptos,
                   es_recurso, contexto, bloque_contraste(contraste),
-                  marco=marco)}])
+                  marco=marco, quien=quien)}])
     if ESFUERZO_PROPUESTA:
         kw["reasoning_effort"] = ESFUERZO_PROPUESTA
     import llamada_modelo as _lm
@@ -1354,7 +1390,8 @@ async def proponer(cliente, problemas: list, material, resumen_acto: str = "",
             "razon": str((g.get("alternativa") or {}).get("razon", ""))[:900],
             "efecto": str((g.get("alternativa") or {}).get("efecto", ""))[:400],
             "apoyos": [str(a) for a in ((g.get("alternativa") or {}).get("apoyos") or [])][:6],
-        })
+        },
+        via_protectora=_via_protectora(g.get("via_protectora")))
 
     # LA LISTA SE COMPLETA CONTRA LOS PROBLEMAS REALES, no contra la memoria
     # del modelo. Si omitió un tema, se añade con la suerte sin determinar.
@@ -1435,7 +1472,8 @@ def calificaciones_de(propuestas: list) -> list:
 def prompt_razon(problema: str, sentido: str, material,
                  resumen_acto: str = "", resumen_conceptos: str = "",
                  es_recurso: bool = False, tipo_asunto: str = "",
-                 directriz: str = "", marco: str = "") -> str:
+                 directriz: str = "", marco: str = "",
+                 favorece=None, via: dict | None = None) -> str:
     import tipos_asunto as _ta
     import dialogo_constitucional as _dc
     # EL MÉTODO Y EL PARÁMETRO, DONDE SE DECIDE EL PORQUÉ (24-sep-2026). Hasta
@@ -1443,10 +1481,21 @@ def prompt_razon(problema: str, sentido: str, material,
     # y el diálogo constitucional entraba después, como capa. Con la escalera
     # la razón necesita algo más de espacio: los dos o tres peldaños que
     # deciden no caben en sesenta palabras.
-    _metodo = _dc.bloque_metodo(material, "razon")
+    # EN UN SOLO SENTIDO: sólo a favor de quien reclama el derecho. Ver
+    # `dialogo_constitucional.favorece_a_la_persona`.
+    _metodo = _dc.bloque_metodo(material, "razon", favorece)
     _extension = ("UN PÁRRAFO, de 60 a 160 palabras si recorres la escalera del diálogo\n"
                   "  constitucional; si no, de 60 a 120"
-                  if _metodo else "UN PÁRRAFO, de 60 a 120 palabras")
+                  if _metodo and favorece is not False else "UN PÁRRAFO, de 60 a 120 palabras")
+    # LA LECTURA QUE YA SEÑALÓ LA PROPUESTA, si esta calificación es la vía
+    # protectora y el motor encontró el precepto: se parte de ahí.
+    if (favorece is not False and isinstance(via, dict) and via.get("posible")
+            and _dc._sentido(via.get("sentido")) == _dc._sentido(sentido)):
+        _metodo += ("\nLA LECTURA PROTECTORA QUE SEÑALÓ LA PROPUESTA — parte de ella si viene al caso:\n"
+                    f"  {via.get('norma','')}: {via.get('lectura','')}"
+                    + (f"\n  Límite: {via.get('limite')}" if via.get("limite") else "")
+                    + (f"\n  Apoyos: {', '.join(via.get('apoyos') or [])}" if via.get("apoyos") else "")
+                    + "\n")
     _t = tipo_asunto or ("amparo_revision" if es_recurso else "amparo_directo")
     q = _ta.vocabulario_de(_t)["combate"]
     _org = _ta.sujetos_de(_t)["organo"][0]
@@ -1518,7 +1567,8 @@ Escribe sólo el párrafo."""
 async def razonar(cliente, problema: str, sentido: str, material,
                   resumen_acto: str = "", resumen_conceptos: str = "",
                   es_recurso: bool = False, tipo_asunto: str = "",
-                  directriz: str = "", marco: str = "") -> str:
+                  directriz: str = "", marco: str = "",
+                  favorece=None, via: dict | None = None) -> str:
     """Una razón para el sentido que el secretario acaba de marcar."""
     if not (problema or "").strip() or not (sentido or "").strip():
         return ""
@@ -1530,7 +1580,8 @@ async def razonar(cliente, problema: str, sentido: str, material,
     # 120 palabras no necesita 900 tokens; el razonamiento, sí.
     _mensajes = [{"role": "user", "content": prompt_razon(
         problema, sentido, material, resumen_acto,
-        resumen_conceptos, es_recurso, tipo_asunto, directriz, marco)}]
+        resumen_conceptos, es_recurso, tipo_asunto, directriz, marco,
+        favorece, via)}]
     kw = dict(model=MODELO_PROPUESTA, messages=_mensajes,
               max_completion_tokens=2600,
               temperature=0, seed=20260831)
