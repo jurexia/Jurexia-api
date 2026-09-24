@@ -8323,8 +8323,30 @@ async def _deterministic_article_fetch(article_numbers: List[str]) -> List[Searc
                     print(f"   🎯 ARTICLE LOCK: Art. {num} → {collection} → {point.payload.get('ref')} (score=2.0)")
             except Exception as e:
                 print(f"   ⚠️ Deterministic fetch error for Art. {num} in {collection}: {err(e)}")
-    
+
     return results
+
+
+def _recorrido_para_pantalla(silos: List[str]) -> str:
+    """Lo que la ramificación debe decir que se recorrió.
+
+    Formato: «constitucional,federal,jurisprudencia,estatal=HIDALGO», o
+    «estatal=32» si se abrieron todas las entidades. Antes el paso llevaba sólo
+    el NÚMERO de colecciones y la pantalla pintaba fijo «Legislación federal ·
+    32 entidades»: con el selector de fuentes eso mentía —David, 23-sep-2026,
+    con sólo lo federal encendido, seguía viendo «32 entidades»—.
+    """
+    partes = [c for c in ("constitucional", "federal", "jurisprudencia")
+              if any(fuentes_sel.categoria(s) == c for s in silos)]
+    estatales = sorted({s for s in silos if fuentes_sel.categoria(s) == "estatal"})
+    if len(estatales) == 1:
+        # La primera llave del mapa es la canónica (CIUDAD_DE_MEXICO antes que
+        # CDMX); la pantalla resuelve además los alias para el escudo.
+        clave = next((k for k, v in ESTADO_SILO.items() if v == estatales[0]), None)
+        partes.append(f"estatal={clave or estatales[0]}")
+    elif estatales:
+        partes.append(f"estatal={len(estatales)}")
+    return ",".join(partes)
 
 
 async def hybrid_search_all_silos(
@@ -8509,7 +8531,7 @@ async def hybrid_search_all_silos(
                   f"{silos_to_search}")
 
     _t_search = time.perf_counter()
-    paso("buscar", str(len(silos_to_search)))
+    paso("buscar", _recorrido_para_pantalla(silos_to_search))
     tasks = []
     
     # Determinar el silo dedicado del estado seleccionado (si lo hay)
