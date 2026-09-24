@@ -168,7 +168,11 @@ def instruccion(elegidas: Optional[FrozenSet[str]], estado_humano: Optional[str]
         "invoques de memoria, ni siquiera como supletorias o «de referencia».\n"
         "· Si con las fuentes elegidas no alcanza para contestar algo, dilo en una línea y "
         "sigue con lo que sí tienes; no rellenes con las fuentes apagadas.\n"
-        "· No menciones esta configuración salvo en ese caso."
+        "· Si la petición pide algo de una fuente APAGADA —por ejemplo, jurisprudencia con "
+        "«Jurisprudencia nacional» apagada—, di que esa fuente está apagada en el botón "
+        "«Fuentes» y que puede encenderla. NUNCA digas que «no se encontró» o que «no existe»: "
+        "no se buscó.\n"
+        "· No menciones esta configuración salvo en esos casos."
     )
 
 

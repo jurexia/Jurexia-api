@@ -8169,6 +8169,126 @@ async def _generate_hyde_document(query: str, estado: Optional[str] = None) -> O
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# EL HILO DE LA CONVERSACIÓN, TAMBIÉN EN LA BÚSQUEDA DEL CHAT (24-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# David: «hice dos consultas y la segunda no guarda hilo por contexto […] Es
+# impensable que una plataforma de este nivel pierda el hilo del chat».
+#
+# Su segunda consulta fue «Relaciona lo anterior con jurisprudencia», después
+# de una sobre las excepciones en el juicio ejecutivo mercantil con pagaré. El
+# modelo que redacta sí tenía el historial; la BÚSQUEDA no: recibió esa frase
+# sola y trajo «JURISPRUDENCIA. CONCEPTO, CLASES Y FINES», «JURISPRUDENCIA. SU
+# APLICACIÓN POR EL ÓRGANO JURISDICCIONAL» —tesis sobre la palabra, no sobre
+# el tema— y el Estratega dictaminó «materia constitucional, amparo
+# indirecto». La respuesta terminó diciendo que no había jurisprudencia sobre
+# excepciones cambiarias, que las hay a docenas.
+#
+# La voz ya lo resolvía (`_voz_pregunta_con_hilo`) pegando la pregunta
+# anterior; el chat escrito nunca lo tuvo. Aquí se va un paso más allá porque
+# el chat sí tiene un segundo: cuando la pregunta no se sostiene sola, el
+# modelo rápido del HyDE la reescribe como consulta autónoma con el tema de la
+# conversación. Si tarda o falla, se cae a lo de la voz.
+#
+# Sólo cambia lo que se BUSCA —Estratega, HyDE, búsquedas, precedentes,
+# doctrina y web—. Lo que lee el modelo que redacta sigue siendo el historial
+# íntegro.
+
+_CHAT_SIGUE_EL_HILO = _re_mod.compile(
+    r"^\s*¿?\s*(?:y|e|o|pero|entonces|además|ademas|también|tambien|ahora|luego)\b"
+    r"|^\s*¿?\s*(?:eso|esto|ese|esa|este|esta|esos|esas|estos|estas|ello|ahí|ahi|allí|alli"
+    r"|lo mismo|igual|dicho|dicha)\b"
+    r"|\b(?:lo anterior|lo que (?:me )?(?:dijiste|mencionaste|explicaste|citaste|señalaste)"
+    r"|lo (?:mencionado|expuesto|citado|señalado)|en ese caso|en tal caso|y si|qu[eé] tal si"
+    r"|al respecto|sobre (?:eso|esto|ello|el tema|lo mismo)"
+    r"|relaci[oó]na(?:lo|la|los|las)?|ampl[ií]a(?:lo|la|los|las)?|profundiza|abunda"
+    r"|desarr[oó]lla(?:lo|la)?|fundam[eé]nta(?:lo|la)?|con base en (?:esto|eso|lo anterior)"
+    r"|con (?:la |las |los )?(?:jurisprudencias?|tesis|precedentes)\b)",
+    _re_mod.I)
+
+# Lo que no es conversación dentro de un mensaje: marcadores de modo, bloques
+# ocultos (el texto de un documento adjunto) y la cabecera del adjunto.
+_RE_RUIDO_MENSAJE = _re_mod.compile(
+    r"<!--[\s\S]*?-->|^\s*(?:\[[A-Z_]+(?::[^\]]*)?\]\s*)+|📄\s*\*\*Documento adjunto:\*\*\s*")
+
+
+def _texto_de_mensaje(texto: str, tope: int) -> str:
+    limpio = _RE_RUIDO_MENSAJE.sub(" ", texto or "")
+    return " ".join(limpio.split())[:tope]
+
+
+def _sigue_el_hilo(texto: str) -> bool:
+    """¿La pregunta se apoya en lo anterior? Corta, o con una marca de enlace."""
+    limpio = _texto_de_mensaje(texto, 2000)
+    return len(limpio.split()) <= 12 or bool(_CHAT_SIGUE_EL_HILO.search(limpio))
+
+
+_HILO_INSTRUCCION = (
+    "Eres el módulo de búsqueda de una plataforma jurídica mexicana. Recibes el hilo de "
+    "una conversación y la última petición del abogado. Reescríbela como UNA consulta de "
+    "búsqueda autónoma, de 8 a 35 palabras, que nombre el tema jurídico concreto —la "
+    "figura, la acción o el procedimiento, la ley y sus artículos— para recuperar leyes y "
+    "tesis. No respondas la petición. Quita las palabras de trámite («relaciona», «lo "
+    "anterior», «amplía», «con jurisprudencia», «fundamenta», «redacta»). Si la petición "
+    "cambia de tema, sigue el tema nuevo. Si ya es autónoma, devuélvela igual. Devuelve "
+    "sólo la consulta, en una línea y sin comillas."
+)
+
+
+async def _consulta_con_hilo(ultima: str, mensajes: list, aplica: bool = True) -> str:
+    """Lo que se BUSCA para la última pregunta: ella misma, o ella con su hilo.
+
+    Nunca lanza y nunca tarda más de ~3 s: el peor caso es la pregunta tal cual.
+    """
+    if not aplica or not ultima or not mensajes or len(mensajes) < 2:
+        return ultima
+    if not _sigue_el_hilo(ultima):
+        return ultima
+
+    previas, respuesta = [], ""
+    for m in reversed(mensajes[:-1]):
+        rol, texto = getattr(m, "role", ""), getattr(m, "content", "") or ""
+        if rol == "assistant" and not respuesta:
+            respuesta = _texto_de_mensaje(texto, 700)
+        elif rol == "user":
+            t = _texto_de_mensaje(texto, 400)
+            if t:
+                previas.append(t)
+            if len(previas) == 2:
+                break
+    if not previas:
+        return ultima
+    previas.reverse()
+    nueva = _texto_de_mensaje(ultima, 600)
+    respaldo = f"{previas[-1]} {nueva}"
+
+    entrada = ("PREGUNTAS ANTERIORES DEL ABOGADO:\n" + "\n".join(f"- {p}" for p in previas)
+               + (f"\n\nINICIO DE LA ÚLTIMA RESPUESTA:\n{respuesta}" if respuesta else "")
+               + f"\n\nPETICIÓN NUEVA:\n{nueva}")
+    try:
+        from google.genai import types as _gtypes
+        _t = time.perf_counter()
+        r = await asyncio.wait_for(
+            get_gemini_client().aio.models.generate_content(
+                model=GEMINI_LITE_MODEL,
+                contents=entrada,
+                config=_gtypes.GenerateContentConfig(
+                    system_instruction=_HILO_INSTRUCCION, temperature=0.1, max_output_tokens=120),
+            ),
+            timeout=float(os.getenv("HILO_PLAZO_SEG", "3.0")),
+        )
+        consulta = " ".join((r.text or "").split()).strip(" \"'«»")
+        if 12 <= len(consulta) <= 400:
+            print(f"   🧵 HILO ({time.perf_counter() - _t:.1f}s): «{nueva[:50]}» → «{consulta[:140]}»")
+            return consulta
+        print(f"   🧵 HILO: reescritura inservible ({len(consulta)} car.) — se pega la pregunta anterior")
+    except asyncio.TimeoutError:
+        print("   🧵 HILO: se agotó el plazo — se pega la pregunta anterior")
+    except Exception as e:
+        print(f"   🧵 HILO: falló la reescritura ({err(e)}) — se pega la pregunta anterior")
+    return respaldo
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ADVANCED RAG: Query Decomposition
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -13882,6 +14002,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         async def _perform_retrieval():
             import re
             nonlocal multi_states, is_comparative
+            # Desde aquí «last_user_message» es lo que se BUSCA: la pregunta con
+            # su hilo si no se sostenía sola. El modelo que redacta sigue
+            # leyendo el historial íntegro. Ver _consulta_con_hilo.
+            last_user_message = await _hilo_task
             search_results = []
             doc_id_map = {}
             context_xml = ""
@@ -14611,6 +14735,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             paso("jurisdiccion", str(request.estado))
 
         # Launch RAG search concurrently with infra and cache tasks
+        #
+        # EL HILO PRIMERO (24-sep-2026, ver _consulta_con_hilo): una pregunta de
+        # seguimiento se busca con el tema de la conversación. La búsqueda y los
+        # precedentes lo esperan; el latido del flujo, no. Con documento o con
+        # un escrito estructurado el mensaje ya trae su propio contenido.
+        _hilo_task = asyncio.create_task(_consulta_con_hilo(
+            last_user_message, request.messages,
+            aplica=not (has_document or is_sentencia or is_drafting)))
         retrieval_task = asyncio.create_task(_perform_retrieval())
 
         # ══ WAITING FOR ALL CONCURRENT TASKS ══
@@ -14690,13 +14822,15 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # La SCJN sube menos, de 8 a 12: su criterio es más fácil
                     # de hallar y no hace falta inundar con él.
                     # Ambos ajustables sin despliegue.
-                    _precedentes_task = asyncio.create_task(
-                        search_precedentes_unified(
-                            query=last_user_message,
+                    # Con el hilo: «relaciona lo anterior con jurisprudencia»
+                    # buscaba precedentes sobre la palabra «jurisprudencia».
+                    async def _precedentes_con_hilo():
+                        return await search_precedentes_unified(
+                            query=await _hilo_task,
                             limit_scjn=int(os.getenv("PRECEDENTES_SCJN", "12")),
                             limit_tcc=int(os.getenv("PRECEDENTES_TCC", "24")),
                         )
-                    )
+                    _precedentes_task = asyncio.create_task(_precedentes_con_hilo())
 
                 # ── Heartbeat: primer byte inmediato para mantener TCP en móvil ──
                 # Los carriers móviles cierran conexiones sin actividad en ~15s.
