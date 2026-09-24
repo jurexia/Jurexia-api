@@ -60,6 +60,7 @@ from supabase import create_client as supabase_create_client
 import httpx  # For Cohere Rerank API calls
 import hashlib  # For semantic cache keys
 import taller_estado as _te
+import fuentes_elegidas as fuentes_sel
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -169,7 +170,24 @@ CHAT_MODEL = "gpt-5-mini"  # For regular queries (powerful reasoning, rich outpu
 # como salida y nunca vistos por el usuario.
 #
 # REVERSA SIN DESPLIEGUE: BUSCAR_MODEL=deepseek-v4-flash en Render.
-BUSCAR_MODEL = os.getenv("BUSCAR_MODEL", "gpt-5.4-nano")
+#
+# ── 23-sep-2026: gpt-6-luna con razonamiento BAJO ─────────────────────────
+# David: «vamos a actualizar el modelo a gpt luna low para mayor calidad de
+# respuestas». Lo que nano ahorraba lo pagaba en autoridad: daba la
+# conclusión correcta sin citar el artículo ni la jurisprudencia que la
+# sostienen (ver arriba). Luna razona un poco antes de escribir y es la misma
+# familia que ya firma la búsqueda web (web_openai.py).
+#
+# Precio (sep-2026): 0.10 USD por millón de tokens de entrada y 0.50 de
+# salida; la entrada cacheada, 0.01. Una consulta típica del chat lleva de 60
+# a 100 mil tokens de contexto y escribe 3 a 5 mil: alrededor de un centavo
+# de dólar. Comprobado contra la API antes de cambiarlo: acepta
+# `reasoning_effort` y `max_completion_tokens` por Chat Completions en flujo.
+#
+# REVERSA SIN DESPLIEGUE: BUSCAR_MODEL=gpt-5.4-nano (y BUSCAR_ESFUERZO vacío)
+# en Render.
+BUSCAR_MODEL = os.getenv("BUSCAR_MODEL", "gpt-6-luna")
+BUSCAR_ESFUERZO = os.getenv("BUSCAR_ESFUERZO", "low")
 
 # ── EL CARRIL GRATUITO ────────────────────────────────────────────────────
 # Un buscador de precedentes, no un opinador: selecciona y resume las tesis
@@ -3379,6 +3397,12 @@ class ChatRequest(BaseModel):
     # sin volver a buscarse. Ver `_fuentes_ya_verificadas`.
     fuentes_previas: Optional[List[str]] = Field(
         None, description="Doc IDs ya verificados en esta conversación: se dan por buenos y no se vuelven a buscar.")
+    # El selector «Fuentes» del chat (23-sep-2026): constitucional,
+    # jurisprudencia, federal, estatal. Lo apagado no se lee —el veto vive en
+    # el cliente de Qdrant— ni se le deja citar al modelo. Ausente o con las
+    # cuatro, todo sigue como antes. Ver fuentes_elegidas.py.
+    fuentes: Optional[List[str]] = Field(
+        None, description="Fuentes que el abogado dejó encendidas: constitucional, jurisprudencia, federal, estatal.")
 
 
 class AuditRequest(BaseModel):
@@ -3521,7 +3545,15 @@ async def lifespan(app: FastAPI):
         print(f"   Qdrant Client conectado · uso instrumentado ({_n} métodos)")
     except Exception as _e:
         print(f"   Qdrant Client conectado · sin instrumentar: {_e}")
-    
+    # EL SELECTOR DE FUENTES MANDA AQUÍ, en la única puerta por la que pasa
+    # toda lectura del acervo. Va DESPUÉS del contador para que lo vetado no
+    # cuente como uso: no llegó a Qdrant. Ver fuentes_elegidas.py.
+    try:
+        _nv = fuentes_sel.vetar(qdrant_client)
+        print(f"   Selector de fuentes: veto en {_nv} métodos de lectura")
+    except Exception as _e:
+        print(f"   ⚠️ Selector de fuentes sin veto: {_e}")
+
     # OpenAI Client (for embeddings only)
     openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
     print("   OpenAI Client inicializado (embeddings)")
@@ -8465,7 +8497,17 @@ async def hybrid_search_all_silos(
         _sentencias_list = list(SENTENCIA_SILOS.values())
         silos_to_search.extend(_sentencias_list)
         print(f"   🏛️ BÚSQUEDA AMPLIA: Incluyendo {len(_sentencias_list)} silos de SENTENCIAS (Few-Shot)")
-    
+
+    # EL SELECTOR DE FUENTES (23-sep-2026): lo apagado ni se enumera. Aquí
+    # también cae la jurisprudencia «que SIEMPRE se incluye» si el abogado la
+    # apagó, y las 32 estatales que abría una consulta sin fuero ni entidad.
+    if fuentes_sel.actuales():
+        _antes_sel = len(silos_to_search)
+        silos_to_search = [s for s in silos_to_search if fuentes_sel.permitida(s)]
+        if len(silos_to_search) != _antes_sel:
+            print(f"   🧭 SELECTOR: {_antes_sel - len(silos_to_search)} colecciones fuera → "
+                  f"{silos_to_search}")
+
     _t_search = time.perf_counter()
     paso("buscar", str(len(silos_to_search)))
     tasks = []
@@ -11003,6 +11045,8 @@ async def analyze_document(
     # "0" apaga el acervo. Lo manda la carpeta de expedientes, que sólo
     # quiere el extracto del documento y no un análisis fundamentado.
     usar_acervo: str = Form("1"),
+    # El selector «Fuentes» del chat, separado por comas. Ver fuentes_elegidas.py.
+    fuentes: str = Form(None),
 ):
     """
     Analiza un documento completo con Gemini Flash vía OpenRouter.
@@ -11018,6 +11062,19 @@ async def analyze_document(
 
     filename = file.filename or "unknown"
     extension = filename.split(".")[-1].lower()
+
+    # El selector de fuentes vale igual con documento adjunto: el magistrado
+    # del folio 1033 consultaba casi siempre con un decreto delante. Sin
+    # estatales, la entidad se suelta aquí para que tampoco la rellene el
+    # perfil más abajo.
+    _fuentes_doc = fuentes_sel.normalizar(fuentes)
+    fuentes_sel.fijar(_fuentes_doc)
+    _estado_doc_selector = estado
+    _sin_estatal_doc = fuentes_sel.excluye("estatal", _fuentes_doc)
+    if _sin_estatal_doc:
+        estado = None
+    if _fuentes_doc:
+        print(f"   🧭 FUENTES ELEGIDAS (documento): {', '.join(sorted(_fuentes_doc))}")
 
     # ── Determinar límite de caracteres según suscripción del usuario ──
     effective_max_chars = DOCUMENT_MAX_CHARS  # 200,000 por defecto
@@ -11046,8 +11103,10 @@ async def analyze_document(
                 # La entidad del perfil es el respaldo cuando el formulario
                 # no la manda: sin ella el acervo no abre el silo estatal y
                 # la búsqueda se queda en lo federal.
-                if not estado and row.get('estado'):
+                if not estado and row.get('estado') and not _sin_estatal_doc:
                     estado = str(row.get('estado')).strip() or None
+                if not _estado_doc_selector and row.get('estado'):
+                    _estado_doc_selector = str(row.get('estado')).strip() or None
                 sub_type = row.get('subscription_type', 'gratuito')
                 plan_actual = sub_type or "gratuito"
                 user_email = row.get('email', '').strip().lower()
@@ -11439,6 +11498,9 @@ async def analyze_document(
                         query=consulta_para_acervo(prompt, extracted_text, filename),
                         estado=estado or None,
                         top_k=30,
+                        # Las cuotas, repartidas sólo entre lo que el abogado
+                        # dejó encendido. None sin selector: como siempre.
+                        fuero=fuentes_sel.fuero_equivalente(_fuentes_doc),
                     ),
                     timeout=25.0,
                 ) or []
@@ -11460,6 +11522,10 @@ async def analyze_document(
         system_documento = prompt_documento(con_acervo=_con_acervo)
         if _con_acervo:
             system_documento += "\n\nCONTEXTO JURÍDICO RECUPERADO:\n" + context_xml
+        if _fuentes_doc:
+            _ent_doc = ((normalize_estado(_estado_doc_selector) or _estado_doc_selector)
+                        .replace("_", " ").title() if _estado_doc_selector else None)
+            system_documento += "\n\n" + fuentes_sel.instruccion(_fuentes_doc, _ent_doc)
         _marcador_previas = _marcador_fuentes_previas(search_results) if _con_acervo else ""
 
         # ── Step 3: Send to Gemini 3 Flash via OpenRouter (streaming) ──
@@ -11511,10 +11577,15 @@ async def analyze_document(
             "model_to_use": model_to_use,
             "_marcador_previas": _marcador_previas,
             "_web_tasks_doc": _web_tasks_doc,
+            "extracted_text": extracted_text,
         }
 
     async def stream_analysis():
         try:
+            # `_preparar` nace aquí como tarea y hereda el selector de este
+            # contexto: se fija otra vez por si el servidor itera el flujo en
+            # otro distinto del de la ruta.
+            fuentes_sel.fijar(_fuentes_doc)
             # LA PREPARACIÓN, CONTADA. Corre aparte y el flujo la mira: cada
             # aviso sale como `progreso` y, cuando no hay ninguno, un latido
             # cada cinco segundos. Así la pantalla recibe algo desde el primer
@@ -11549,6 +11620,33 @@ async def analyze_document(
             model_to_use = _p["model_to_use"]
             _marcador_previas = _p["_marcador_previas"]
             _web_tasks_doc = _p["_web_tasks_doc"]
+
+            # ── EL DOCUMENTO SIGUE EN LA CONVERSACIÓN (23-sep-2026) ──────────
+            # El análisis leía el documento y lo olvidaba: el siguiente turno va
+            # por /chat, y ahí sólo viajaba «📄 Documento adjunto: nombre». El
+            # magistrado del folio 1033 subió el decreto del CIIT, preguntó por
+            # sus artículos 4 y 9 y le contestaron cuatro veces que no tenían
+            # el texto —«¿tienes problema en ver su contenido?»—, hasta que
+            # pegó los artículos a mano.
+            #
+            # Se le devuelve a la pantalla lo que se leyó —con el OCR ya hecho—
+            # y la pantalla lo guarda oculto dentro de su mensaje, entre los
+            # marcadores DOCUMENTO_INICIO/FIN que el chat ya sabe tratar: la
+            # burbuja no los enseña, el recorte del historial los respeta y el
+            # escáner de seguridad los salta. Con tope, porque viaja en cada
+            # turno siguiente.
+            try:
+                _tope_hist = int(os.getenv("DOCUMENTO_EN_HISTORIAL_MAX", "120000"))
+                _texto_hist = (_p.get("extracted_text") or "").strip()
+                if _texto_hist:
+                    _cortado = len(_texto_hist) > _tope_hist
+                    yield "data: " + json.dumps({"documento": {
+                        "nombre": filename,
+                        "texto": _texto_hist[:_tope_hist],
+                        "recortado": _cortado,
+                    }}, ensure_ascii=False) + "\n\n"
+            except Exception as _e_doc:
+                print(f"   ⚠️ El texto del documento no viajó a la pantalla: {_e_doc}")
 
             t_llm_start = _time.time()
 
@@ -12624,10 +12722,16 @@ async def _buscar_articulos_citados(
     
     # Priority 3: Federal laws (always search)
     article_collections.append(FIXED_SILOS["federal"])  # leyes_federales
-    
+
     # NOTE: LEGACY_ESTATAL_SILO (leyes_estatales) intentionally NOT added
     # — collection no longer exists; data lives in state-specific silos
-    
+
+    # EL SELECTOR DE FUENTES (23-sep-2026): lo apagado ni se enumera. El veto
+    # del cliente lo devolvería vacío de todos modos, pero con las estatales
+    # apagadas la entidad llega vacía y esta lista abría las 32 colecciones
+    # estatales ANTES de la federal: cada artículo pagaba 32 vueltas en vacío.
+    article_collections = [c for c in article_collections if fuentes_sel.permitida(c)]
+
     print(f"   📌 DIRECT LOOKUP: collections={article_collections}, estado={effective_estado}")
     print(f"   📌 DIRECT LOOKUP: articles={len(citations.get('articles', []))} groups, registros={len(citations.get('registros', []))}, tesis={len(citations.get('tesis_nums', []))}")
     found_refs = []
@@ -13546,7 +13650,34 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 msg.content = last_user_message
                 break
         print(f"   ⚖️ MODO PRECEDENTES activado (corte={precedentes_corte}, sala={precedentes_sala or 'todas'}, circuito={precedentes_circuit}, tribunal={tribunal_filter or 'todos'})")
-    
+
+    # ── LAS FUENTES QUE ELIGIÓ EL ABOGADO (23-sep-2026) ────────────────────
+    # El selector «Fuentes» del chat. Lo apagado no se lee: el veto vive en el
+    # cliente de Qdrant y alcanza a cada tarea que nace de esta consulta, así
+    # que ninguna ruta del buscador —directa, por concepto, por ley, cruzada—
+    # puede colarlo. Ver fuentes_elegidas.py y el caso que lo motivó.
+    #
+    # Precedentes queda fuera: ahí la jurisprudencia no es una fuente entre
+    # otras, es la búsqueda entera, y apagarla dejaría el modo vacío.
+    _fuentes_elegidas = None if is_precedentes_mode else fuentes_sel.normalizar(request.fuentes)
+    fuentes_sel.fijar(_fuentes_elegidas)
+    _sin_estatal = fuentes_sel.excluye("estatal", _fuentes_elegidas)
+    # El nombre se guarda antes de soltar la entidad: la instrucción al modelo
+    # dice «apagó las leyes del estado de Hidalgo», no «las estatales».
+    _estado_del_selector = request.estado
+    if _fuentes_elegidas:
+        # El fuero del buscador sale de la elección: así las cuotas se reparten
+        # entre lo que sí se va a leer, en vez de reservar quince huecos a un
+        # silo que el veto va a devolver vacío.
+        request.fuero = fuentes_sel.fuero_equivalente(_fuentes_elegidas)
+        if _sin_estatal:
+            # Sin entidad, además, el HyDE deja de redactarse como ley local y
+            # el prompt deja de anunciarle al modelo el estado del perfil.
+            request.estado = None
+        print(f"   🧭 FUENTES ELEGIDAS: {', '.join(sorted(_fuentes_elegidas))} "
+              f"(fuero del buscador: {request.fuero or 'sin fuero'}"
+              f"{'; entidad fuera' if _sin_estatal else ''})")
+
     # ── LA CORRECCIÓN DEL ABOGADO, ANOTADA ─────────────────────────────────
     # Medida 4 del plan de calidad, y la idea es de David: cuando un litigante
     # se molesta en decir «estás equivocado» y explicar por qué, nos está
@@ -13998,7 +14129,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Si el abogado pulsó Redactar, quiere UN escrito, no una
                 # comparación entre entidades. El modo comparativo cambia la
                 # búsqueda Y el prompt, así que se descarta de raíz.
-                multi_states = (None if is_chat_drafting
+                # Con las leyes estatales apagadas en el selector tampoco hay
+                # comparativa: sería comparar colecciones que el veto devuelve
+                # vacías.
+                multi_states = (None if (is_chat_drafting or _sin_estatal)
                                 else detect_multi_state_query(last_user_message))
                 is_comparative = multi_states is not None
                 
@@ -14043,7 +14177,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # `detect_multi_state_query` más arriba), y con fuero federal
                     # no se toca nada.
                     effective_estado = request.estado
-                    _estado_en_texto = detect_single_estado_from_query(last_user_message)
+                    # Si el abogado apagó las leyes estatales, que la pregunta
+                    # nombre un estado no las vuelve a encender: el selector es
+                    # explícito y es de ahora, igual que el texto.
+                    _estado_en_texto = (None if _sin_estatal
+                                        else detect_single_estado_from_query(last_user_message))
                     if (
                         _estado_en_texto
                         and request.fuero != "federal"
@@ -14497,6 +14635,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # _resolved_genio_ids is assigned later in this generator (model selection block)
                 # so Python would treat it as local — nonlocal makes it read from outer scope first.
                 nonlocal _resolved_genio_ids
+                # Las tareas que nacen en la ruta ya heredan el selector; esto
+                # lo asegura también si el servidor itera el flujo en otro
+                # contexto. Es idempotente.
+                fuentes_sel.fijar(_fuentes_elegidas)
                 reasoning_buffer = ""
                 content_buffer = ""
                 # Se declara AQUÍ y no donde se llena. Donde se llena está
@@ -14513,8 +14655,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # SOLO para chat normal (no redacción, no documentos, no precedentes dedicado).
                 # Corre en paralelo con el RAG — cero impacto en latencia.
                 _precedentes_task = None
+                # Si el abogado apagó la jurisprudencia, ni se lanza: el veto
+                # la devolvería vacía, pero no hay por qué pagar la búsqueda.
                 if not is_drafting and not is_chat_drafting and not is_precedentes_mode \
-                   and not has_document and not is_sentencia:
+                   and not has_document and not is_sentencia \
+                   and not fuentes_sel.excluye("jurisprudencia", _fuentes_elegidas):
                     # MÁS CRITERIOS DE CIRCUITO (2-sep-2026). Los TCC suben de
                     # 10 a 24: son los que resuelven el caso concreto del
                     # litigante y los que menos se encuentran por otra vía —el
@@ -15092,6 +15237,20 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                   f"{' · CON AVISO DE COBERTURA' if _cob else ''}")
                     except Exception as _e_inv:
                         print(f"   ⚠️ Inventario de leyes falló (no fatal): {err(_e_inv)}")
+
+                # ── LAS FUENTES ELEGIDAS, DICHAS AL MODELO (23-sep-2026) ──
+                # El veto ya dejó fuera del contexto lo que el abogado apagó,
+                # pero el modelo sabe derecho de memoria: sin esta orden, rellena
+                # con la ley estatal que recuerda —«primero el de Hidalgo»—, que
+                # es justo lo que el magistrado del folio 1033 no quería. Va
+                # detrás de la jerarquía por estado para mandar sobre ella.
+                if _fuentes_elegidas:
+                    _ent_sel = None
+                    if _estado_del_selector:
+                        _ent_sel = (normalize_estado(_estado_del_selector)
+                                    or _estado_del_selector).replace("_", " ").title()
+                    dynamic_injections.append(fuentes_sel.instruccion(_fuentes_elegidas, _ent_sel))
+                    print(f"   🧭 FUENTES AL MODELO: sólo {', '.join(sorted(_fuentes_elegidas))}")
 
                 # ═══════════════════════════════════════════════════════════════════
                 # INYECCIÓN DE MATERIA ESTRICTA (cuando el usuario selecciona materia)
@@ -16274,6 +16433,18 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             and "reasoning_effort" not in api_kwargs):
                         api_kwargs["reasoning_effort"] = "low"
                         print("   🪶 Razonamiento bajo: el fundamento ya venía verificado")
+
+                    # EL CHAT POR OMISIÓN CON SU ESCALÓN (23-sep-2026). Buscar
+                    # corre en gpt-6-luna con razonamiento `low` —lo pidió
+                    # David—. Se fija explícito porque el valor por omisión del
+                    # modelo no es contrato de nadie, y sólo si otra regla no
+                    # puso ya uno. DeepSeek queda fuera: allí el esfuerzo no
+                    # hace nada y el razonamiento se gobierna con `thinking`.
+                    if (_es_chat_busqueda and BUSCAR_ESFUERZO
+                            and "deepseek" not in active_model.lower()
+                            and "reasoning_effort" not in api_kwargs):
+                        api_kwargs["reasoning_effort"] = BUSCAR_ESFUERZO
+                        print(f"   🧠 BUSCAR: {active_model} con razonamiento {BUSCAR_ESFUERZO}")
 
                     # El chat por defecto (Buscar) responde SIN razonamiento.
                     #

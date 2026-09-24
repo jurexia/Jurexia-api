@@ -122,14 +122,15 @@ CATALOGO: list[Motor] = [
     ),
     Motor(
         clave="buscar", boton="Buscar (el chat por omisión)", marcador=None,
-        proveedor="deepseek", modelo="DEEPSEEK_OFFICIAL_CHAT_MODEL", razona=False,
-        esfuerzo=None, max_tokens=30_000, planes="todos",
-        nota="Razonamiento APAGADO a propósito, y desde el 21-ago-2026 APAGADO DE "
-             "VERDAD: omitir el parámetro `thinking` es encendido por defecto en "
-             "v4 — medido: sin parámetro, 2,000 tokens de salida (1,633 de "
-             "razonamiento oculto) en 20.9 s; con disabled explícito, 601 tokens "
-             "y 7.0 s. El chat pagó ~3× de salida por consulta durante semanas. "
-             "El tope de 30,000 se conserva por prudencia. CHAT_MAX_TOKENS lo cambia.",
+        proveedor="openai", modelo="BUSCAR_MODEL", razona=True,
+        esfuerzo="BUSCAR_ESFUERZO", max_tokens=30_000, planes="todos",
+        nota="Desde el 23-sep-2026 gpt-6-luna con razonamiento `low`, a pedido de "
+             "David («para mayor calidad de respuestas»); antes gpt-5.4-nano sin "
+             "razonar (2-sep) y antes deepseek-v4-flash con `thinking` apagado. "
+             "0.10/0.50 USD por millón de entrada/salida: ~1 centavo de dólar por "
+             "consulta. Si BUSCAR_MODEL vuelve a ser deepseek, el esfuerzo no se "
+             "manda y el razonamiento se apaga con `thinking`. El tope de 30,000 "
+             "lo cambia CHAT_MAX_TOKENS.",
     ),
     Motor(
         clave="salvame", boton="Sálvame", marcador=None,
