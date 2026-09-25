@@ -15100,7 +15100,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # Desde el 24-sep-2026 la consulta es la del HILO: los agentes
                 # esperan a _hilo_task (el recorte a 400 lo hace el agente). Con
                 # la pregunta cruda, «¿y en Jalisco?» se buscaba tal cual.
-                _web_tasks = lanzar_agentes(_hilo_task, request.estado)
+                # Internet cruzada con las demás fuentes (25-sep-2026): sólo
+                # los agentes de los rubros encendidos. Ver agentes_para().
+                from busqueda_web import agentes_para
+                _agentes_web = agentes_para(_fuentes_elegidas)
+                if _fuentes_elegidas:
+                    print(f"   🌐 INTERNET cruzada con {', '.join(sorted(_fuentes_elegidas))}: "
+                          f"agentes {', '.join(a['id'] for a in _agentes_web) or 'ninguno'}")
+                _web_tasks = lanzar_agentes(_hilo_task, request.estado, _agentes_web)
 
             # ── EL ACERVO FLOJO SE COMPLETA EN INTERNET (24-sep-2026) ─────────
             # David: «en esos estados donde hay pocos códigos habilita la
@@ -15849,7 +15856,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     if _estado_del_selector:
                         _ent_sel = (normalize_estado(_estado_del_selector)
                                     or _estado_del_selector).replace("_", " ").title()
-                    dynamic_injections.append(fuentes_sel.instruccion(_fuentes_elegidas, _ent_sel))
+                    dynamic_injections.append(fuentes_sel.instruccion(
+                        _fuentes_elegidas, _ent_sel, con_internet=_quiere_web))
                     print(f"   🧭 FUENTES AL MODELO: sólo {', '.join(sorted(_fuentes_elegidas))}")
 
                 # ═══════════════════════════════════════════════════════════════════

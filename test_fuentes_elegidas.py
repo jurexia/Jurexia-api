@@ -144,5 +144,27 @@ ok("de memoria" in txt, "y prohíbe rellenarlo de memoria")
 ok(fe.instruccion(None) == "", "sin selector, ninguna instrucción")
 ok(fe.excluye("estatal", frozenset({"federal"})) and not fe.excluye("estatal", None), "excluye()")
 
+print("\n6 · INTERNET CRUZADA CON LAS DEMÁS FUENTES (25-sep-2026)")
+import busqueda_web as bw
+ids = lambda f: [a["id"] for a in bw.agentes_para(f)]
+ok(ids(None) == ["vigencia", "criterios", "local"], "sin selector corren los tres agentes")
+ok(ids(fe.normalizar(list(fe.FUENTES))) == ["vigencia", "criterios", "local"], "con las cuatro, los tres")
+ok(ids(fe.normalizar(["jurisprudencia"])) == ["criterios"], "sólo jurisprudencia → sólo criterios (SCJN, CJF)")
+ok(ids(fe.normalizar(["federal"])) == ["vigencia"], "sólo leyes federales → sólo vigencia (DOF, Cámara)")
+ok(ids(fe.normalizar(["estatal"])) == ["local"], "sólo leyes estatales → sólo el agente local")
+ok(ids(fe.normalizar(["constitucional"])) == ["vigencia", "criterios"], "bloque constitucional → reformas y criterios")
+ok(ids(fe.normalizar(["jurisprudencia", "estatal"])) == ["criterios", "local"], "dos rubros → sus dos agentes")
+con = fe.instruccion(frozenset({"jurisprudencia"}), None, con_internet=True)
+sin = fe.instruccion(frozenset({"jurisprudencia"}), None)
+ok("«Internet»" in con and "«Internet»" not in sin, "con Internet encendida, la instrucción deja usar lo de internet")
+ok(fe.instruccion(None, None, con_internet=True) == "", "sin selector sigue sin instrucción")
+
+async def _sin_agentes():
+    return bw.lanzar_agentes("¿procede el amparo?", None, ())
+_web = bw.WEB_ACTIVA
+bw.WEB_ACTIVA = True
+ok(asyncio.run(_sin_agentes()) == [], "agentes=() no lanza nada (no es «los tres»)")
+bw.WEB_ACTIVA = _web
+
 print("\n" + ("TODO PASA" if not FALLOS else f"{len(FALLOS)} FALLAN: {FALLOS}"))
 raise SystemExit(1 if FALLOS else 0)

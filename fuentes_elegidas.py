@@ -143,7 +143,8 @@ def filtrar(resultados: Optional[List[Any]], elegidas: Optional[FrozenSet[str]] 
     return [r for r in resultados if permitida(getattr(r, "silo", "") or "", e)]
 
 
-def instruccion(elegidas: Optional[FrozenSet[str]], estado_humano: Optional[str] = None) -> str:
+def instruccion(elegidas: Optional[FrozenSet[str]], estado_humano: Optional[str] = None,
+                con_internet: bool = False) -> str:
     """Lo que se le dice al modelo cuando el abogado acotó las fuentes.
 
     Hace falta además del veto: el contexto ya no trae lo apagado, pero el
@@ -172,7 +173,10 @@ def instruccion(elegidas: Optional[FrozenSet[str]], estado_humano: Optional[str]
         "«Jurisprudencia nacional» apagada—, di que esa fuente está apagada en el botón "
         "«Fuentes» y que puede encenderla. NUNCA digas que «no se encontró» o que «no existe»: "
         "no se buscó.\n"
-        "· No menciones esta configuración salvo en esos casos."
+        + ("· El abogado encendió también «Internet»: las fuentes de internet del contexto "
+           "(sitios oficiales, marcadas como tales) son de esos mismos rubros y puedes usarlas, "
+           "diciendo que vienen de internet.\n" if con_internet else "")
+        + "· No menciones esta configuración salvo en esos casos."
     )
 
 

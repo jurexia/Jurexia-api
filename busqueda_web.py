@@ -470,6 +470,36 @@ async def texto_de_articulo(cuerpo_legal: str, numero: str,
     return vacio
 
 
+# ── INTERNET CRUZADA CON LAS DEMÁS FUENTES (25-sep-2026) ─────────────────
+# El globo pasó a ser una fila más del selector «Fuentes» (Internet), y David:
+# «si el abogado quiere sólo fuentes de internet cruzadas con algún otro
+# rubro podrá hacerlo». Cada agente busca lo de un rubro, así que corre sólo
+# si ese rubro está encendido; con las cuatro encendidas (o sin selector,
+# como en las apps viejas) corren los tres, igual que antes.
+#
+#   vigencia   DOF, Cámara, Senado          ← leyes federales o bloque constitucional
+#   criterios  SCJN, CJF, Semanario         ← jurisprudencia o bloque constitucional
+#   local      congreso y tribunal estatal  ← leyes estatales (sin entidad ya no corría)
+#
+# De paso cumple la promesa del selector —«lo apagado no se consulta ni se
+# cita»—, que la capa web no respetaba, y cuesta menos: cada agente son una o
+# dos búsquedas de un centavo de dólar.
+RUBROS_DE_AGENTE = {
+    "vigencia": ("federal", "constitucional"),
+    "criterios": ("jurisprudencia", "constitucional"),
+    "local": ("estatal",),
+}
+
+
+def agentes_para(fuentes) -> tuple:
+    """Los agentes del globo que corresponden a las fuentes encendidas.
+    `fuentes` es lo de fuentes_elegidas.normalizar(): None = sin filtro."""
+    if not fuentes:
+        return AGENTES
+    return tuple(a for a in AGENTES
+                 if any(r in fuentes for r in RUBROS_DE_AGENTE.get(a["id"], ())))
+
+
 def lanzar_agentes(consulta, estado: Optional[str] = None,
                    agentes: Optional[tuple] = None) -> List[asyncio.Task]:
     """
@@ -486,7 +516,9 @@ def lanzar_agentes(consulta, estado: Optional[str] = None,
         return []
     if isinstance(consulta, str) and not consulta.strip():
         return []
-    return [asyncio.create_task(_un_agente(a, consulta, estado)) for a in (agentes or AGENTES)]
+    # `agentes=()` —ningún rubro con agente— no es «los tres»: no corre nada.
+    return [asyncio.create_task(_un_agente(a, consulta, estado))
+            for a in (AGENTES if agentes is None else agentes)]
 
 
 async def buscar_en_web(consulta: str, estado: Optional[str] = None) -> Dict[str, Any]:
