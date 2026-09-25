@@ -1478,7 +1478,18 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     # Es el mismo fallo que tuvieron las citas, y se arregla igual: repitiendo
     # la orden al final, que es lo último que el modelo lee antes de escribir.
     cierre_marco = ""
-    if isinstance(marco, str) and marco.strip():
+    import formato_sentencia as _fs_cm
+    if (isinstance(marco, str) and marco.strip()
+            and _fs_cm.normalizar(getattr(material, "formato", "")) == _fs_cm.MODERNA):
+        # EN LA MODERNA EL MARCO NO ES UNA CAPA ESCRITA: se usa donde decide.
+        cierre_marco = """
+Y EL MARCO JURÍDICO QUE SE TE DIO, SÓLO DONDE DECIDE. En esta versión no hay
+apartado de marco: si un precepto constitucional o convencional es la premisa
+de un problema, enúncialo AHÍ, en una frase, y sigue. Nada de repaso general
+de derechos humanos, de la Convención Americana o de la Corte Interamericana
+que no cambie la respuesta.
+"""
+    elif isinstance(marco, str) and marco.strip():
         cierre_marco = f"""
 Y USA EL MARCO JURÍDICO QUE SE TE DIO. No es material de consulta: es una capa
 del estudio y va ESCRITA, después de anunciar el sentido y antes de entrar al

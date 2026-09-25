@@ -152,6 +152,11 @@ ok(llamadas == {"resolver": 5, "resolver_en_vivo": 5},
    "los DOS redactores pasan cliente y criterios a `_litis_y_material` (arranca la síntesis)")
 ok("_sint.get(\"conceptos\") or r.fases.parrafos_conceptos()" in src_ra, "`_terminar` compone con la síntesis o con el completo")
 ok("_fs_x.sin_contestar(" in src_ra, "`_terminar` comprueba la respuesta por concepto")
+ok(src_ra.count("and not _sin_marco:") == 2, "los DOS redactores omiten el apartado de marco en la moderna")
+p_mm = f6.prompt_estudio("ACTO", "CONCEPTOS", C93, m_mod, marco="MATERIAL CONSTITUCIONAL")
+p_ms = f6.prompt_estudio("ACTO", "CONCEPTOS", C93, m_std, marco="MATERIAL CONSTITUCIONAL")
+ok("SÓLO DONDE DECIDE" in p_mm and "es una capa" not in p_mm, "moderna: el marco se usa donde decide, no se escribe como capa")
+ok("es una capa" in p_ms and "SÓLO DONDE DECIDE" not in p_ms, "estándar: como siempre")
 ok("not _ef_escritos" in src_ra, "el aviso de «los EFECTOS los redactas tú» calla si el estudio ya los escribió")
 ok(dg.partir_efectos(["Los conceptos son fundados.", "Es fundado porque…"])[1] == [],
    "y sin efectos escritos el aviso sigue saliendo")

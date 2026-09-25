@@ -1130,8 +1130,16 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # estudio mira el caso— y ponerlas en paralelo hace que el marco no cueste
     # un segundo de espera. Que APAREZCA ya no depende de que el modelo del
     # estudio se acuerde de escribirlo: lo coloca el compositor.
+    # LA MODERNA NO LLEVA APARTADO DE MARCO. Medido en el ADC 93/2026 v11: 791
+    # palabras —el 15 % del proyecto— de doctrina constitucional y
+    # convencional que no decidía nada. «Prescinde de información irrelevante»
+    # (David, 25-sep-2026): el precepto que decide va en la premisa del
+    # problema, dentro del estudio. Además ahorra una llamada.
+    import formato_sentencia as _fs_mc
+    _sin_marco = _fs_mc.normalizar(getattr(e, "formato", "")) == _fs_mc.MODERNA
     tarea_marco = None
-    if (e.modo or "").lower() == "generado" and (marco or "").strip():
+    if (e.modo or "").lower() == "generado" and (marco or "").strip() \
+            and not _sin_marco:
         import documento_generado as _dg2
         tarea_marco = asyncio.create_task(_dg2.redactar_marco(
             cliente, marco,
@@ -1294,8 +1302,16 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
         print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
 
     avisos: list[str] = []
+    # LA MODERNA NO LLEVA APARTADO DE MARCO. Medido en el ADC 93/2026 v11: 791
+    # palabras —el 15 % del proyecto— de doctrina constitucional y
+    # convencional que no decidía nada. «Prescinde de información irrelevante»
+    # (David, 25-sep-2026): el precepto que decide va en la premisa del
+    # problema, dentro del estudio. Además ahorra una llamada.
+    import formato_sentencia as _fs_mc
+    _sin_marco = _fs_mc.normalizar(getattr(e, "formato", "")) == _fs_mc.MODERNA
     tarea_marco = None
-    if (e.modo or "").lower() == "generado" and (marco or "").strip():
+    if (e.modo or "").lower() == "generado" and (marco or "").strip() \
+            and not _sin_marco:
         import documento_generado as _dg3
         tarea_marco = asyncio.create_task(_dg3.redactar_marco(
             cliente, marco, [p for p in (r.fases.problemas or [])],
