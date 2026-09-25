@@ -2156,10 +2156,27 @@ _RX_FICHA_AL_FRENTE = re.compile(
     r"(?:[^,;.]|\.(?!\s*(?:[A-ZÁÉÍÓÚÑ]|$))){0,80}[,;]\s*", re.I)
 
 
+# EL ÓRGANO PEGADO DETRÁS DEL RUBRO TAMBIÉN ES FICHA. ADC 93/2026 v10: el
+# modelo escribió «…de rubro «DEMANDA DE NULIDAD…», de la Segunda Sala de la
+# Suprema Corte de Justicia de la Nación.»; la cita se rehízo desde el acervo
+# —que ya nombra la Sala— y la coletilla quedó sola como párrafo, dos veces en
+# el mismo estudio. Once palabras pasan el filtro de «más de seis es oración».
+_RX_ORGANO_AL_FRENTE = re.compile(
+    r"^(?:de\s+la|del|de)\s+(?:"
+    r"(?:Primera|Segunda)\s+Sala(?:\s+de\s+la\s+Suprema\s+Corte\s+de\s+Justicia"
+    r"(?:\s+de\s+la\s+Naci[óo]n)?)?"
+    r"|(?:Tribunal\s+)?Pleno(?:\s+de\s+la\s+Suprema\s+Corte\s+de\s+Justicia"
+    r"(?:\s+de\s+la\s+Naci[óo]n)?)?"
+    r"|(?:un|el|los)\s+Tribunal(?:es)?\s+Colegiados?(?:\s+de\s+Circuito)?"
+    r"(?:\s+en\s+Materias?\s+[^,;.]{0,80})?"
+    r")\s*(?:[,;.]\s*|$)", re.I)
+
+
 def _sin_ficha_al_frente(c: str) -> str:
     """Poda los trozos de ficha pegados al principio de la cola."""
     for _ in range(4):                      # «registro X, página Y, tomo Z,»
         n = _RX_FICHA_AL_FRENTE.sub("", c, count=1).lstrip(" ,;:")
+        n = _RX_ORGANO_AL_FRENTE.sub("", n, count=1).lstrip(" ,;:.")
         if n == c:
             break
         c = n

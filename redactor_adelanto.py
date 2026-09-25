@@ -1624,7 +1624,19 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     # extemporaneidad, el único resolutivo desecha el recurso y el estudio se
     # va al anexo: pedirle al secretario que redacte «los EFECTOS de la
     # concesión» es mandarlo a corregir algo que su proyecto no tiene.
-    if aviso_efectos and not getattr(r.computo, "cierra_por_extemporaneidad", False):
+    # NI CUANDO EL ESTUDIO YA LOS ESCRIBIÓ. Este aviso es de antes de que el
+    # estudio redactara los efectos con su rótulo (22-sep-2026): con
+    # calificación mixta daba por hecho que nadie los escribía, y en el ADC
+    # 93/2026 salió de v6 a v10 con el SÉPTIMO ya puesto en cinco pasos.
+    # Un aviso que acusa al proyecto bueno enseña a no leer los avisos.
+    _ef_escritos = []
+    try:
+        import documento_generado as _dg_ef
+        _ef_escritos = _dg_ef.partir_efectos(list(relleno.estudio or []))[1]
+    except Exception:
+        pass
+    if (aviso_efectos and not _ef_escritos
+            and not getattr(r.computo, "cierra_por_extemporaneidad", False)):
         avisos.append(aviso_efectos)
     # Deduplicado: el aviso del nombre se dispara una vez por párrafo donde
     # aparece, y el secretario no necesita leer tres veces lo mismo.

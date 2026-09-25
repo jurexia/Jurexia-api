@@ -437,6 +437,10 @@ Devuelve JSON y nada más:
   "planteamientos": ["párrafo", "párrafo"]}}"""
 
 
+# Por debajo de esto un apartado no dice nada, sea cual sea el original.
+MINIMO_PALABRAS = 40
+
+
 def _lista(x) -> list:
     if isinstance(x, str):
         x = [p for p in x.split("\n")]
@@ -467,7 +471,13 @@ def validar_sintesis(crudo: dict, antecedentes: list, acto: list, conceptos: lis
         if _pal(nuevo) >= 0.9 * _pal(original):
             notas.append(f"{clave}: la síntesis no acortó; se queda el original")
             continue
-        if _pal(nuevo) < 0.15 * _pal(original):
+        # EL SUELO ES ABSOLUTO, NO UNA PROPORCIÓN. Era «menos del 15 % del
+        # original» y rechazó justo la síntesis buena: en el ADC 93/2026 casi
+        # toda la sentencia —competencia, firma, nulidad— no la combate nadie,
+        # y condensarla a una décima parte es lo que David pidió («resuma o
+        # prescinda de resumir consideraciones que no serán materia de
+        # estudio»). v10 salió con las 1,530 palabras de siempre por eso.
+        if _pal(nuevo) < MINIMO_PALABRAS:
             notas.append(f"{clave}: la síntesis se quedó en casi nada; se queda el original")
             continue
         if clave == "conceptos" and int(n_planteamientos or 0) >= 2:

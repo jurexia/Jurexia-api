@@ -83,6 +83,13 @@ ok(f["conceptos"] is conc and any("perdió el 2" in n for n in notas), "si pierd
 largo = dict(bueno, resolvio=acto)
 f, _ = fs.validar_sintesis(largo, ante, acto, conc, 2)
 ok(f["acto"] is acto, "si no acorta, va el original")
+# 93/2026 v10: la sentencia casi entera no la combate nadie; condensarla a una
+# décima parte es lo pedido, no un fallo.
+decima = dict(bueno, resolvio=["La Sala " + "resolvió " * 45 + "fin"])
+f, _ = fs.validar_sintesis(decima, ante, ["La Sala " + "resolvió " * 1500], conc, 2)
+ok(f["acto"] == decima["resolvio"], "una décima parte del original vale si dice algo (≥40 palabras)")
+f, _ = fs.validar_sintesis(dict(bueno, resolvio=["La Sala resolvió."]), ante, acto, conc, 2)
+ok(f["acto"] is acto, "tres palabras no: va el original")
 f, notas = fs.validar_sintesis({}, ante, acto, conc, 2)
 ok(f == {"antecedentes": ante, "acto": acto, "conceptos": conc}, "si no llega nada, todo completo")
 ok(fs.leer_json('texto {"antecedentes": ["1. a"]} cola') == {"antecedentes": ["1. a"]}, "extrae el JSON")
@@ -121,6 +128,17 @@ ok(any("LA FORMA ESTÁNDAR SALIÓ CON 1 PREGUNTA" in a for a in f6.revisar(con_p
    "estándar con preguntas → se dice")
 ok(not any("LA FORMA ESTÁNDAR SALIÓ" in a for a in f6.revisar(con_preg, C93, m_mod)), "en la moderna no")
 
+print("\n6b · LA COLETILLA DEL ÓRGANO TRAS EL RUBRO (93/2026 v10)")
+import documento_generado as dg
+_j = {"tipo": "Jurisprudencia"}
+ok(dg._con_sujeto_tras_cita("de la Segunda Sala de la Suprema Corte de Justicia de la Nación.", _j) == "",
+   "la Sala sola, detrás del rubro, se va")
+ok(dg._con_sujeto_tras_cita("de la Primera Sala de la Suprema Corte de Justicia de la Nación, confirma "
+                            "que los requisitos procesales son legítimos cuando permiten decidir.", _j)
+   .startswith("La jurisprudencia en cita confirma que"), "con verbo detrás, recupera el sujeto")
+ok(dg._con_sujeto_tras_cita("de donde se sigue que la Sala debía admitir la ampliación y correr "
+                            "traslado.", _j).startswith("de donde se sigue"), "la prosa que no es órgano se queda")
+
 print("\n7 · LAS PUERTAS ESTÁN CONECTADAS")
 src_ra = open("redactor_adelanto.py", encoding="utf-8").read()
 arbol = ast.parse(src_ra)
@@ -134,6 +152,9 @@ ok(llamadas == {"resolver": 5, "resolver_en_vivo": 5},
    "los DOS redactores pasan cliente y criterios a `_litis_y_material` (arranca la síntesis)")
 ok("_sint.get(\"conceptos\") or r.fases.parrafos_conceptos()" in src_ra, "`_terminar` compone con la síntesis o con el completo")
 ok("_fs_x.sin_contestar(" in src_ra, "`_terminar` comprueba la respuesta por concepto")
+ok("not _ef_escritos" in src_ra, "el aviso de «los EFECTOS los redactas tú» calla si el estudio ya los escribió")
+ok(dg.partir_efectos(["Los conceptos son fundados.", "Es fundado porque…"])[1] == [],
+   "y sin efectos escritos el aviso sigue saliendo")
 src_m = open("main.py", encoding="utf-8").read()
 ok(src_m.count('formato: str = Form(""),') == 2, "los dos gemelos reciben `formato`")
 ok(src_m.count("r.encargo.formato = _fs_m.normalizar(formato)") == 2, "y los dos lo ponen en el encargo, siempre")
