@@ -76,18 +76,19 @@ CATALOGO: list[Motor] = [
         nota="El modelo más potente del catálogo.",
     ),
     Motor(
-        clave="redaccion_platinum", boton="Redactar › Platinum",
-        marcador="[MODO_REDACCION_PLATINUM]",
+        clave="redaccion_platinum", boton="Esfuerzo › Platinum",
+        marcador="[MODO_REDACCION_PLATINUM] o esfuerzo=platinum",
         proveedor="openai", modelo="REDACTOR_PLATINUM_MODEL", razona=True,
-        esfuerzo="REDACTOR_PLATINUM_ESFUERZO", max_tokens=32_000,
+        esfuerzo="REDACTOR_PLATINUM_ESFUERZO", max_tokens=64_000,
         planes="platinum, ultra_secretarios, admin",
-        nota="Sin plan Platinum cae a Pro, no se rechaza: el abogado igual "
-             "recibe su escrito. Comparte modelo con Pro y se distingue por el "
-             "esfuerzo alto, que en un modelo de razonamiento es más capacidad "
-             "real y más coste — es la configuración elegida, no un descuido.",
+        nota="Desde el 25-sep-2026 gpt-5.6-terra (2/12 USD por millón, 10× luna) "
+             "con el doble de salida y el ACABADO_PLATINUM al final del prompt, a "
+             "pedido de David. Sin plan Platinum el marcador cae a Pro y el campo "
+             "`esfuerzo` a lo que su plan permita. Tope: REDACTOR_PLATINUM_MAX_TOKENS.",
     ),
     Motor(
-        clave="redaccion_pro", boton="Redactar › Pro", marcador="[MODO_REDACCION_PRO]",
+        clave="redaccion_pro", boton="Esfuerzo › Pro",
+        marcador="[MODO_REDACCION_PRO] o esfuerzo=pro",
         proveedor="openai", modelo="REDACTOR_PRO_MODEL", razona=True,
         esfuerzo="REDACTOR_PRO_ESFUERZO", max_tokens=32_000,
         planes="pro y superiores",
@@ -101,8 +102,8 @@ CATALOGO: list[Motor] = [
              "creó el caché. Ya pasó en producción — 24 palabras y cero artículos.",
     ),
     Motor(
-        clave="redaccion_profesional", boton="Redactar › Profesional",
-        marcador="[MODO_REDACCION]",
+        clave="redaccion_profesional", boton="Esfuerzo › Básico",
+        marcador="[MODO_REDACCION] o esfuerzo=basico",
         proveedor="deepseek", modelo="DEEPSEEK_OFFICIAL_CHAT_MODEL", razona=True,
         esfuerzo="REDACTOR_PROFESIONAL_ESFUERZO", max_tokens=16_384, planes="todos",
         nota="El escalón base. El esfuerzo se manda pero v4-flash NO lo respeta "
@@ -188,7 +189,8 @@ def verificar() -> list[str]:
             continue
         fallos.append(f"{mo.clave}: la constante {mo.modelo} ya no existe en main.py")
 
-    # ¿Pro y Platinum se distinguen en ALGO? Compartir modelo no es un
+    # ¿Pro y Platinum se distinguen en ALGO? (Desde el 25-sep-2026 ni siquiera
+    # comparten modelo: Platinum va en terra.) Compartir modelo no es un
     # defecto: en un modelo de razonamiento el esfuerzo alto es más capacidad
     # real y cuesta más, así que Platinum sobre luna-high entrega más que Pro
     # sobre luna-medium. Es la configuración que eligió David (7-ago-2026) y

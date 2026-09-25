@@ -260,8 +260,25 @@ _STREAM_RAZONAMIENTO = os.getenv("STREAM_RAZONAMIENTO", "0") == "1"
 # relación con el futuro Platinum del redactor de sentencias.
 REDACTOR_PRO_MODEL = os.getenv("REDACTOR_PRO_MODEL", "gpt-5.6-luna")
 REDACTOR_PRO_ESFUERZO = os.getenv("REDACTOR_PRO_ESFUERZO", "medium")
-REDACTOR_PLATINUM_MODEL = os.getenv("REDACTOR_PLATINUM_MODEL", "gpt-5.6-luna")
+REDACTOR_PRO_MAX_TOKENS = int(os.getenv("REDACTOR_PRO_MAX_TOKENS", "32000"))
+# ── 25-sep-2026: PLATINUM PASA A TERRA ────────────────────────────────────
+# David: «si es pro dejarlo como está, pero si es platinum darle la fuerza de
+# Terra con más tokens; ahí sí veríamos un cambio notable». Lo de arriba (1-ago)
+# comparaba terra contra luna con el MISMO prompt y el mismo tope; ahora
+# Platinum lleva además su propio acabado (`ACABADO_PLATINUM` en
+# esfuerzo_redaccion.py) y el doble de salida. Terra admite hasta 128,000
+# tokens de salida (comprobado contra la API: 200,000 lo rechaza).
+#
+# Precio (sep-2026): 2 USD por millón de entrada y 12 de salida, diez veces
+# luna. Un escrito con ~80 mil tokens de contexto y ~20 mil de salida sale en
+# ~0.40 USD (~7 MXN). Medido del 18 al 25-sep: 17 redacciones Platinum en la
+# semana, o sea ~7 USD semanales al volumen de hoy.
+#
+# REVERSA SIN DESPLIEGUE: REDACTOR_PLATINUM_MODEL=gpt-5.6-luna y
+# REDACTOR_PLATINUM_MAX_TOKENS=32000 en Render.
+REDACTOR_PLATINUM_MODEL = os.getenv("REDACTOR_PLATINUM_MODEL", "gpt-5.6-terra")
 REDACTOR_PLATINUM_ESFUERZO = os.getenv("REDACTOR_PLATINUM_ESFUERZO", "high")
+REDACTOR_PLATINUM_MAX_TOKENS = int(os.getenv("REDACTOR_PLATINUM_MAX_TOKENS", "64000"))
 
 # Redacción PROFESIONAL (el escalón base) corre sobre v4-flash, que razona con
 # esfuerzo alto por omisión. Para un usuario gratuito o básico eso es gastar un
@@ -1755,64 +1772,15 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
         "Si los resultados son escasos o no permiten una conclusión firme, indícalo con claridad en lugar de generalizar.\n"
     )
 
-# Trigger phrases for natural language drafting detection (lowercase comparison)
-_CHAT_DRAFTING_TRIGGERS = [
-    # Redacción directa
-    "redacta ", "redáctame", "redactame", "ayúdame a redactar", "ayudame a redactar",
-    "genera un escrito", "genera argumentos", "generar argumentos", "genera agravios",
-    "vamos a generar", "vamos a redactar", "elabora un", "elabora una",
-    "redacción de", "redaccion de", "necesito redactar", "quiero redactar",
-    "prepara un escrito", "prepara una demanda", "prepara un recurso",
-    "hazme un escrito", "hazme una demanda", "hazme un recurso",
-    "draft ", "escribe un escrito", "escribe una demanda",
-    "ayúdame a generar", "ayudame a generar",
-    "genera un agravio", "genera los agravios", "genera un concepto de violación",
-    "genera un concepto de violacion",
-    # Triggers implícitos de redacción (frases que no empiezan con verbo pero piden texto legal)
-    "necesito un escrito", "necesito una demanda", "necesito los agravios",
-    "quiero los agravios", "quiero un escrito", "quiero una demanda",
-    "cómo alego", "como alego", "qué alego", "que alego",
-    "qué pongo en la demanda", "que pongo en la demanda",
-    "cómo redacto", "como redacto", "ayuda para redactar",
-    "necesito argumentar", "necesito fundamentar",
-    # Recursos e impugnaciones implícitas
-    "cómo impugnar", "como impugnar", "cómo recurrir", "como recurrir",
-    "cómo apelar", "como apelar", "cómo interponer", "como interponer",
-    "construye los agravios", "construye el agravio",
-    "arma la queja", "arma el recurso", "arma la apelación", "arma la apelacion",
-    # Amparo implícito
-    "cómo presentar el amparo", "como presentar el amparo",
-    "ayuda con el amparo", "necesito el amparo", "redacta el amparo",
-    "conceptos de violación para", "conceptos de violacion para",
-    "ayúdame con los conceptos", "ayudame con los conceptos",
-    # Peticiones y oficios
-    "redacta un oficio", "redacta la petición", "redacta la peticion",
-    "necesito un oficio", "quiero un oficio",
-]
-
-# Triggers en cualquier posición (NO solo al inicio)
-_CHAT_DRAFTING_ANYWHERE = [
-    "redacta para mí", "redacta para mi", "redacta esto",
-    "necesito que redactes", "puedes redactar", "puedes elaborar",
-    "puedes generar el escrito", "ayúdame a construir", "ayudame a construir",
-]
-
-def _detect_chat_drafting(message: str) -> bool:
-    """Detect if the user's message is a natural language drafting request.
-    
-    Detecta tanto triggers al inicio del mensaje (redacción directa) como
-    triggers en cualquier posición (redacción implícita).
-    """
-    msg_lower = message.strip().lower()
-    # Check if message STARTS with any trigger phrase
-    for trigger in _CHAT_DRAFTING_TRIGGERS:
-        if msg_lower.startswith(trigger):
-            return True
-    # Check if message CONTAINS any "anywhere" trigger phrase
-    for trigger in _CHAT_DRAFTING_ANYWHERE:
-        if trigger in msg_lower:
-            return True
-    return False
+# ¿La consulta encarga un escrito? Desde el 25-sep-2026 lo decide
+# esfuerzo_redaccion.py, que sustituye a la lista de disparadores que vivía
+# aquí: aquélla también encendía la redacción con preguntas («cómo impugnar…»,
+# «qué alego…»), y sin el interruptor Buscar/Redactar el detector ES el
+# interruptor.
+from esfuerzo_redaccion import (  # noqa: E402
+    ACABADO_PLATINUM, PLANES_PLATINUM, PLANES_PRO,
+    detectar_redaccion, normalizar_esfuerzo,
+)
 
 
 def extract_session_context(messages: list) -> dict:
@@ -3367,6 +3335,39 @@ def resolver_pdf(pdf_en_payload: Optional[str], origen: Optional[str], silo: Opt
     return None
 
 
+async def _plan_para_redaccion(user_id: Optional[str]) -> tuple:
+    """(subscription_type, es_admin, leído) del perfil, con tres intentos.
+
+    Ver «UN TROPIEZO NO ES UNA FALTA DE PLAN» en chat_endpoint. Sin usuario o
+    sin perfil devuelve (None, False, …): se sirve el escalón base.
+    """
+    if not user_id or not supabase_admin:
+        return None, False, False
+
+    def _perfil():
+        return supabase_admin.table('user_profiles') \
+            .select('subscription_type, email') \
+            .eq('id', user_id) \
+            .limit(1) \
+            .execute()
+
+    for _intento in (1, 2, 3):
+        try:
+            _res = await asyncio.wait_for(asyncio.to_thread(_perfil), timeout=6.0)
+            if _res.data:
+                _fila = _res.data[0]
+                _correo = (_fila.get('email') or '').strip().lower()
+                return (_fila.get('subscription_type'),
+                        bool(_correo and _correo in ADMIN_EMAILS), True)
+            # Sin filas: el perfil no existe. Reintentar no lo va a crear.
+            return None, False, True
+        except Exception as _e:
+            print(f"   ⚠️ Plan para redacción, intento {_intento}/3: {err(_e)}")
+            if _intento < 3:
+                await asyncio.sleep(0.4 * _intento)
+    return None, False, False
+
+
 class ChatRequest(BaseModel):
     """Request para chat conversacional"""
     messages: List[Message] = Field(..., min_length=1)
@@ -3404,6 +3405,12 @@ class ChatRequest(BaseModel):
     # cuatro, todo sigue como antes. Ver fuentes_elegidas.py.
     fuentes: Optional[List[str]] = Field(
         None, description="Fuentes que el abogado dejó encendidas: constitucional, jurisprudencia, federal, estatal.")
+    # El desplegable «Esfuerzo» del compositor (25-sep-2026). Viaja en CADA
+    # consulta, pero sólo cuenta si el mensaje pide un escrito o retoca el que
+    # se acaba de entregar; y nunca por encima del plan. Ver
+    # esfuerzo_redaccion.py.
+    esfuerzo: Optional[str] = Field(
+        None, description="Esfuerzo de redacción elegido: basico, pro o platinum.")
 
 
 class AuditRequest(BaseModel):
@@ -13925,6 +13932,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     is_chat_drafting = False
     is_chat_drafting_pro = False
     is_chat_drafting_platinum = False
+    # Verdadero cuando el escalón lo pidió el desplegable «Esfuerzo» y no un
+    # marcador: entonces se comprueba también el Pro contra el plan.
+    _esfuerzo_por_campo = False
     if "[MODO_REDACCION_PLATINUM]" in last_user_message:
         # Platinum va antes que Pro: comparte toda la ruta de Pro y sólo cambia
         # el motor, así que enciende ambas banderas.
@@ -13955,10 +13965,24 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 msg.content = last_user_message
                 break
         print(f"   ✍️ MODO REDACCIÓN activado por toggle del frontend")
-    elif not is_drafting and not has_document and not is_sentencia:
-        is_chat_drafting = _detect_chat_drafting(last_user_message)
-        if is_chat_drafting:
-            print(f"   ✍️ MODO REDACCIÓN CHAT detectado por lenguaje natural")
+    elif (not is_drafting and not has_document and not is_sentencia
+          and not is_chat_flash and "[MODO_PRECEDENTES]" not in last_user_message):
+        # SIN INTERRUPTOR (25-sep-2026): el compositor ya no tiene
+        # Buscar/Redactar. El mensaje decide si es un encargo —«redacta una
+        # demanda…»— o el retoque del escrito recién entregado —«agrega un
+        # concepto…»—, y el desplegable «Esfuerzo» decide con qué motor.
+        _via_redaccion = detectar_redaccion(request.messages)
+        if _via_redaccion:
+            is_chat_drafting = True
+            _esfuerzo_pedido = normalizar_esfuerzo(request.esfuerzo)
+            if _esfuerzo_pedido in ("pro", "platinum"):
+                is_chat_drafting_pro = True
+                is_chat_drafting_platinum = _esfuerzo_pedido == "platinum"
+                _esfuerzo_por_campo = True
+            _motivo = {"pide": "encargo", "ajuste": "retoque del escrito anterior",
+                       "acepta": "acepta la oferta de redactar"}.get(_via_redaccion, _via_redaccion)
+            print(f"   ✍️ REDACCIÓN por lenguaje natural ({_motivo}) "
+                  f"· esfuerzo pedido: {_esfuerzo_pedido or 'ninguno'}")
 
     # El marcador Platinum enciende un motor que cuesta ~8× lo que cuesta Pro.
     # Esconder el botón en el frontend no basta: cualquiera puede escribir
@@ -13966,51 +13990,29 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # contra Supabase y, si no lo tiene, la petición cae a Redacción Pro en vez
     # de rechazarse — el abogado igual recibe su escrito, sólo que con el motor
     # que le corresponde.
-    if is_chat_drafting_platinum:
-        # UN TROPIEZO NO ES UNA FALTA DE PLAN.
-        #
-        # Medido el 28-ago-2026: justo después de un despliegue, una cuenta
-        # `platinum_monthly` real recibió la insignia PRO; minutos más tarde,
-        # 6 de 6 intentos dieron PLATINUM. La lectura del perfil se cae o tarda
-        # en la ventana de arranque en frío de Render, el `except` se la tragaba
-        # y el cliente pagaba Platinum recibiendo Pro, sin rastro visible.
-        #
-        # Ahora se reintenta antes de degradar, con la misma doctrina que rige
-        # el vigilante de producción. Se distingue además NO TIENE PLAN (se
-        # degrada, que es lo correcto) de NO PUDE COMPROBARLO (se degrada
-        # igual, porque equivocarse hacia arriba cuesta ~8× por escrito, pero
-        # queda gritado en el registro para poder contarlo).
-        _tiene_platinum = False
-        _plan_leido = False
-        if request.user_id and supabase_admin:
-            def _perfil_platinum():
-                return supabase_admin.table('user_profiles') \
-                    .select('subscription_type, email') \
-                    .eq('id', request.user_id) \
-                    .limit(1) \
-                    .execute()
-            for _intento in (1, 2, 3):
-                try:
-                    _res = await asyncio.wait_for(
-                        asyncio.to_thread(_perfil_platinum), timeout=6.0)
-                    if _res.data:
-                        _fila = _res.data[0]
-                        _correo = (_fila.get('email') or '').strip().lower()
-                        _tiene_platinum = (
-                            _fila.get('subscription_type') in (
-                                'platinum_monthly', 'platinum_annual', 'ultra_secretarios')
-                            or (_correo and _correo in ADMIN_EMAILS)
-                        )
-                        _plan_leido = True
-                        break
-                    # Sin filas: el perfil no existe. Reintentar no lo va a crear.
-                    _plan_leido = True
-                    break
-                except Exception as _e:
-                    print(f"   ⚠️ Plan Platinum, intento {_intento}/3: {err(_e)}")
-                    if _intento < 3:
-                        await asyncio.sleep(0.4 * _intento)
-        if not _tiene_platinum:
+    # UN TROPIEZO NO ES UNA FALTA DE PLAN.
+    #
+    # Medido el 28-ago-2026: justo después de un despliegue, una cuenta
+    # `platinum_monthly` real recibió la insignia PRO; minutos más tarde,
+    # 6 de 6 intentos dieron PLATINUM. La lectura del perfil se cae o tarda
+    # en la ventana de arranque en frío de Render, el `except` se la tragaba
+    # y el cliente pagaba Platinum recibiendo Pro, sin rastro visible.
+    #
+    # Ahora se reintenta antes de degradar, con la misma doctrina que rige
+    # el vigilante de producción. Se distingue además NO TIENE PLAN (se
+    # degrada, que es lo correcto) de NO PUDE COMPROBARLO (se degrada
+    # igual, porque equivocarse hacia arriba cuesta ~10× por escrito, pero
+    # queda gritado en el registro para poder contarlo).
+    #
+    # El marcador Platinum se puede escribir a mano en el cuadro de texto y
+    # el campo `esfuerzo` se puede mandar desde cualquier cliente: los dos se
+    # comprueban aquí. Sin plan Platinum, el marcador cae a Pro (como
+    # siempre); el campo cae a lo que su plan permita.
+    if is_chat_drafting_platinum or (_esfuerzo_por_campo and is_chat_drafting_pro):
+        _plan_red, _admin_red, _plan_leido = await _plan_para_redaccion(request.user_id)
+        _tiene_platinum = _admin_red or _plan_red in PLANES_PLATINUM
+        _tiene_pro = _admin_red or _plan_red in PLANES_PRO
+        if is_chat_drafting_platinum and not _tiene_platinum:
             is_chat_drafting_platinum = False
             if _plan_leido:
                 print("   ⛔ REDACCIÓN PLATINUM sin plan Platinum → se atiende como Redacción Pro")
@@ -14020,6 +14022,11 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 # como Platinum.
                 print("   🚨 PLATINUM DEGRADADO SIN PODER COMPROBAR EL PLAN "
                       "(3 intentos fallidos) → se atiende como Redacción Pro")
+        if _esfuerzo_por_campo and is_chat_drafting_pro and not _tiene_pro:
+            is_chat_drafting_pro = False
+            is_chat_drafting_platinum = False
+            print(f"   ⛔ Esfuerzo {request.esfuerzo} sin plan Pro "
+                  f"({'plan ' + str(_plan_red) if _plan_leido else 'plan sin leer'}) → Básico")
 
     # ── Redacción PROFESIONAL: el razonamiento depende del PLAN, no del botón ──
     # v4-flash razona alto por omisión. En el escalón base eso significa gastar
@@ -15586,7 +15593,12 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         print(f"   ⚖️ Usando prompt PRECEDENTES para síntesis del {precedentes_circuit}° Circuito (tribunal={tribunal_filter or 'todos'})")
                 elif is_chat_drafting:
                     system_prompt = SYSTEM_PROMPT_CHAT_DRAFTING
-                    print("   ✍️ Usando prompt CHAT DRAFTING para redacción por lenguaje natural")
+                    if is_chat_drafting_platinum:
+                        # Básico y Pro reciben el prompt de siempre; Platinum,
+                        # además, el acabado de despacho (esfuerzo_redaccion.py).
+                        system_prompt = system_prompt + ACABADO_PLATINUM
+                    print("   ✍️ Usando prompt CHAT DRAFTING"
+                          f"{' + ACABADO PLATINUM' if is_chat_drafting_platinum else ''}")
                 else:
                     system_prompt = SYSTEM_PROMPT_CHAT
                 # ⚠️ FIX DEEPSEEK REASONER: Fusionar system messages en uno solo.
@@ -16089,11 +16101,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         active_model = REDACTOR_PLATINUM_MODEL
                         _esfuerzo_redaccion = REDACTOR_PLATINUM_ESFUERZO
                         _etiqueta_redaccion = "💎 REDACCIÓN PLATINUM"
+                        # El doble que Pro: «con más tokens» (David, 25-sep).
+                        # Es techo, no gasto: sólo se paga lo que se escribe.
+                        max_tokens = REDACTOR_PLATINUM_MAX_TOKENS
                     else:
                         active_model = REDACTOR_PRO_MODEL
                         _esfuerzo_redaccion = REDACTOR_PRO_ESFUERZO
                         _etiqueta_redaccion = "✨ REDACCIÓN PRO"
-                    max_tokens = 32000
+                        max_tokens = REDACTOR_PRO_MAX_TOKENS
                     use_thinking = True
                     print(f"   {_etiqueta_redaccion}: {active_model} "
                           f"(razonamiento {_esfuerzo_redaccion}) | "
