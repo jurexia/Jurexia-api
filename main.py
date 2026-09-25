@@ -30671,7 +30671,7 @@ def _taller_tocados(criterios_json: str, crit: list, modo_decision: str = "",
 
 def _taller_guardar_proyecto(email: str, numero: str, res,
                              criterios: list = None, modo: str = "",
-                             sentido_global: str = "") -> int:
+                             sentido_global: str = "", formato: str = "") -> int:
     """Lo que hay que saber del proyecto para volver a su pantalla.
 
     Devuelve el número de versión con que quedó guardado —1 el primero, 2 el
@@ -30698,6 +30698,10 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
             # pantalla no puede decir de qué se está cambiando.
             "modo": str(modo or ""),
             "sentido_global": str(sentido_global or ""),
+            # EN QUÉ FORMA SALIÓ —estándar o moderna—, para que el historial
+            # distinga dos versiones del mismo sentido y la opinión del
+            # secretario se pueda leer por forma.
+            "formato": str(formato or ""),
             "criterios": [
                 {"problema": str(getattr(c, "problema", "") or "")[:400],
                  "sentido": str(getattr(c, "sentido", "") or ""),
@@ -33447,6 +33451,9 @@ async def taller_resolver_stream(
     # gunicorn -w 2, el worker que compone no es el que leyó.
     oportunidad_decision: str = Form(""),
     oportunidad_motivo: str = Form(""),
+    # LA FORMA DE LA SENTENCIA: «estandar» o «moderna». David, 25-sep-2026.
+    # Vacío = estándar. Ver `formato_sentencia.py`.
+    formato: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -33516,6 +33523,11 @@ async def taller_resolver_stream(
             r.encargo.propuesta_global = _glob
         if (conceptos_violacion or "").strip():
             r.encargo.conceptos_violacion = conceptos_violacion.strip()
+        # SIEMPRE, no sólo si llega: el encargo sobrevive en la memoria del
+        # worker de una generación a la siguiente, y una «moderna» de la
+        # vuelta anterior no puede colarse en la estándar de ésta.
+        import formato_sentencia as _fs_m
+        r.encargo.formato = _fs_m.normalizar(formato)
         if (responsable or "").strip():
             r.encargo.responsable = responsable.strip()
             print(f"   ⚖️ autoridad corregida en pantalla: "
@@ -33835,7 +33847,8 @@ async def taller_resolver_stream(
                     _v_proy = _taller_guardar_proyecto(
                         user_email, numero, res, crit,
                         modo=(modo_decision or ""),
-                        sentido_global=(sentido_global or ""))
+                        sentido_global=(sentido_global or ""),
+                        formato=getattr(r.encargo, "formato", "") if r.encargo else "")
                     _taller_guardar_docx(user_email, numero, res.ruta, _v_proy)
                     print(f"   ⚖️ TALLER: proyecto EN VIVO {numero} · "
                           f"{len(res.estudio.split())} palabras · "
@@ -34114,6 +34127,9 @@ async def taller_resolver(
     # gunicorn -w 2, el worker que compone no es el que leyó.
     oportunidad_decision: str = Form(""),
     oportunidad_motivo: str = Form(""),
+    # LA FORMA DE LA SENTENCIA: «estandar» o «moderna». David, 25-sep-2026.
+    # Vacío = estándar. Ver `formato_sentencia.py`.
+    formato: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
@@ -34173,6 +34189,11 @@ async def taller_resolver(
             r.encargo.propuesta_global = _glob
         if (conceptos_violacion or "").strip():
             r.encargo.conceptos_violacion = conceptos_violacion.strip()
+        # SIEMPRE, no sólo si llega: el encargo sobrevive en la memoria del
+        # worker de una generación a la siguiente, y una «moderna» de la
+        # vuelta anterior no puede colarse en la estándar de ésta.
+        import formato_sentencia as _fs_m
+        r.encargo.formato = _fs_m.normalizar(formato)
         if (responsable or "").strip():
             r.encargo.responsable = responsable.strip()
             print(f"   ⚖️ autoridad corregida en pantalla: "
@@ -34429,7 +34450,8 @@ async def taller_resolver(
     # la que no se puede volver.
     _v_proy2 = _taller_guardar_proyecto(user_email, numero, r2, crit,
                                         modo=(modo_decision or ""),
-                                        sentido_global=(sentido_global or ""))
+                                        sentido_global=(sentido_global or ""),
+                                        formato=getattr(r.encargo, "formato", "") if r.encargo else "")
     _taller_guardar_docx(user_email, numero, r2.ruta, _v_proy2)
     # El trabajo está hecho. Ver la nota del endpoint de streaming.
     _soltar_constancias(user_email.strip().lower(), numero.strip())
@@ -34683,6 +34705,9 @@ async def taller_en_curso(user_email: str, limite: int = 6):
                  "avisos": len(x.get("avisos") or []),
                  "sentido_global": x.get("sentido_global") or "",
                  "modo": x.get("modo") or "",
+                 # Estándar o moderna: dos versiones del mismo sentido se
+                 # distinguen por esto y por nada más.
+                 "formato": x.get("formato") or "",
                  "nombre": x.get("nombre") or "",
                  # Sin copia propia: consta lo que se resolvió, pero el
                  # documento de ESA versión ya no existe. La pantalla no debe

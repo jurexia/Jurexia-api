@@ -143,6 +143,11 @@ class Encargo:
     # expediente del recurso: sólo aparecen si la sentencia recurrida los
     # relató. Los aporta el secretario.
     conceptos_violacion: str = ""
+    # LA FORMA DE LA SENTENCIA: «estandar» (concepto por concepto, extensión de
+    # siempre) o «moderna» (pregunta y respuesta, condensada). La fija cada
+    # generación desde la pantalla; vacío es la estándar. Ver
+    # `formato_sentencia.py`.
+    formato: str = ""
 
 
 @dataclass
@@ -978,13 +983,93 @@ async def _sondear_precedente(qdrant, embed, r: Resultado, problemas: list):
 
 
 
-def _litis_y_material(r, material, avisos: list) -> list:
+def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
+    """La forma de la sentencia y el reparto de la fase 3, al material.
+
+    Aquí y no en cada redactor: `_litis_y_material` es el único paso por el
+    que pasan los dos antes de escribir el estudio. Si es la versión moderna,
+    arranca también la síntesis de los resúmenes, EN PARALELO al estudio —no
+    alarga la espera— y deja la tarea colgada del material para `_terminar`.
+    Sin cliente no hay síntesis y van los resúmenes completos: nunca falta
+    nada por no haber condensado."""
+    try:
+        import formato_sentencia as _fs
+        e = getattr(r, "encargo", None)
+        material.formato = _fs.normalizar(getattr(e, "formato", "") if e else "")
+        material.problemas = [p for p in (getattr(r.fases, "problemas", None) or [])
+                              if isinstance(p, dict)]
+        _c = getattr(r.fases, "conteo", None) or {}
+        material.n_planteamientos = int(_c.get("n") or 0) \
+            if str(_c.get("estado")) == "contado" else 0
+        material.sintesis = None
+        if material.formato == _fs.MODERNA and cliente is not None:
+            material.sintesis = asyncio.ensure_future(
+                _sintetizar_moderna(cliente, r, criterios or [], material))
+        print(f"   📐 FORMATO: {_fs.rotulo(material.formato)} · "
+              f"{material.n_planteamientos} planteamientos contados")
+    except Exception as _ef:
+        print(f"   ⚠️ FORMATO: no se pudo fijar: {type(_ef).__name__}: {_ef}")
+
+
+async def _sintetizar_moderna(cliente, r, criterios, material) -> dict:
+    """Antecedentes, lo resuelto y los planteamientos, condensados.
+
+    Una llamada al motor de las fases —barato y rápido— con la orden de no
+    inventar y de conservar todos los planteamientos con su ordinal; lo que
+    vuelve se comprueba apartado por apartado y lo que no pasa se queda como
+    estaba. Devuelve {antecedentes, acto, conceptos} listos para el relleno."""
+    import formato_sentencia as _fs
+    import tipos_asunto as _ta_s
+    f = r.fases
+    ante, acto, conc = (f.parrafos_antecedentes(), f.parrafos_acto(),
+                        f.parrafos_conceptos())
+    base = {"antecedentes": ante, "acto": acto, "conceptos": conc}
+    try:
+        e = r.encargo
+        _t = getattr(e, "tipo_asunto", "") or "amparo_directo"
+        organo = _ta_s.sujetos_de(_t)["organo"][0]
+        q = "agravios" if e.es_recurso else "conceptos de violación"
+        t0 = _time.perf_counter()
+        crudo = await f123._pedir(cliente, _fs.prompt_sintesis(
+            "\n".join(ante), "\n".join(acto), "\n".join(conc),
+            material.problemas, criterios, organo, q,
+            material.n_planteamientos), 6000, json_estricto=True)
+        fuera, notas = _fs.validar_sintesis(
+            _fs.leer_json(crudo), ante, acto, conc, material.n_planteamientos)
+        # LO QUE SE CONDENSA NO PUEDE TRAER ARCHIVO NI META-LENGUAJE: la misma
+        # limpieza que pasan los resúmenes de la fase 1-2.
+        try:
+            import meta_lenguaje as _ml_s
+            for k in ("antecedentes", "acto", "conceptos"):
+                if fuera[k] is not base[k]:
+                    fuera[k] = [x for x in (_ml_s.limpiar(y)[0] for y in fuera[k]) if x.strip()]
+        except Exception:
+            pass
+        def _p(x):
+            return sum(len(str(y).split()) for y in x)
+        print(f"   📐 SÍNTESIS MODERNA en {_time.perf_counter() - t0:.1f}s: "
+              f"antecedentes {_p(ante)}→{_p(fuera['antecedentes'])} · "
+              f"acto {_p(acto)}→{_p(fuera['acto'])} · "
+              f"planteamientos {_p(conc)}→{_p(fuera['conceptos'])}"
+              + (f" · {'; '.join(notas)}" if notas else ""))
+        return fuera
+    except Exception as _es:
+        print(f"   ⚠️ SÍNTESIS MODERNA: {type(_es).__name__}: {_es} — van los resúmenes completos")
+        return base
+
+
+def _litis_y_material(r, material, avisos: list, cliente=None,
+                      criterios=None) -> list:
     """La litis del asunto, y el material ya sin ley local ajena a ella.
 
     Lo que no puede citarse no se le enseña al modelo: la guarda del final
     corrige lo que se escape, pero la mejor cita mala es la que nunca se
     escribe. Devuelve la litis para que `_terminar` la reutilice.
+
+    Y LA FORMA DE LA SENTENCIA, porque éste es el único paso común a los dos
+    redactores antes del estudio. Ver `_formato_al_material`.
     """
+    _formato_al_material(r, material, cliente, criterios)
     try:
         import litis_normativa as _ln
         litis = _ln.leyes_de_la_litis(getattr(r, "fases", None))
@@ -1053,7 +1138,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             [p for p in (r.fases.problemas or [])], e.es_recurso, e.tipo_asunto))
 
 
-    _litis_y_material(r, material, [])
+    _litis_y_material(r, material, [], cliente, criterios)
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
@@ -1217,7 +1302,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             e.es_recurso, e.tipo_asunto))
 
     estudio = advertencias = ""
-    _litis_y_material(r, material, avisos)
+    _litis_y_material(r, material, avisos, cliente, criterios)
     t0 = _time.perf_counter()
     async for paso in f6.redactar_en_vivo(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
@@ -1405,13 +1490,25 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     except Exception as _el:
         _litis, _buenas = [], material.normas
         print(f"   ⚠️ LITIS: no se pudo sanear el estudio: {type(_el).__name__}: {_el}")
+    # LA VERSIÓN MODERNA LLEVA LOS RESÚMENES CONDENSADOS. La síntesis corrió
+    # a la vez que el estudio; aquí se recoge. Si no llegó, o no pasó sus
+    # comprobaciones, van los completos: la forma corta nunca paga con un
+    # planteamiento perdido.
+    _sint = {}
+    _t_sint = getattr(material, "sintesis", None)
+    if _t_sint is not None:
+        try:
+            _sint = await asyncio.wait_for(_t_sint, timeout=120) or {}
+        except Exception as _ets:
+            print(f"   ⚠️ SÍNTESIS MODERNA no llegó: {type(_ets).__name__}")
+            _sint = {}
     relleno = ens.Relleno(
         encabezado=e.encabezado, numero_asunto=e.numero, quejoso=e.quejoso,
         magistrado=e.magistrado, secretario=e.secretario,
         oportunidad=f0.parrafo_oportunidad(r.computo),
-        antecedentes=r.fases.parrafos_antecedentes(),
-        resumen_acto=r.fases.parrafos_acto(),
-        resumen_conceptos=r.fases.parrafos_conceptos(),
+        antecedentes=_sint.get("antecedentes") or r.fases.parrafos_antecedentes(),
+        resumen_acto=_sint.get("acto") or r.fases.parrafos_acto(),
+        resumen_conceptos=_sint.get("conceptos") or r.fases.parrafos_conceptos(),
         problemas=r.fases.parrafos_problemas(),
         estudio=f6.parrafos(estudio),
         tesis=material.tesis,
@@ -1693,7 +1790,9 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                     f"pregunta que no cabe en una línea no fija la cuestión: "
                     f"la reformula entera. Si dentro lleva una «o», son dos "
                     f"problemas: «{_pe['kilometricas'][0][:100]}…»")
-            if _pe.get("sin_pregunta"):
+            import formato_sentencia as _fs_pe
+            if _pe.get("sin_pregunta") and _fs_pe.normalizar(
+                    getattr(material, "formato", "")) == _fs_pe.MODERNA:
                 avisos.insert(0,
                     f"{len(_pe['sin_pregunta'])} de {_pe['problemas']} problemas "
                     f"NO se plantean como pregunta en el estudio. Fijar la "
@@ -1724,6 +1823,20 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         for _e in _ce.estadistica_en_el_texto(_txt):
             avisos.append(f"LA CIFRA DEL ACERVO SE COLÓ EN LA SENTENCIA: «{_e[:110]}». "
                           f"El criterio no se vota: quítala.")
+        # CADA CONCEPTO, NOMBRADO. Las dos formas lo exigen —«Sobre el primer
+        # concepto…» en la estándar, «No. El primer concepto es infundado…» en
+        # la moderna— y es lo que deja comprobar que la versión corta no dejó
+        # ninguno fuera. Se mide sobre el estudio que escribió el modelo, no
+        # sobre el documento: los resúmenes de arriba nombran todos siempre.
+        # Calibrado: 0 de 14 engroses reales del banco Kingston acusados.
+        try:
+            import formato_sentencia as _fs_x
+            _falt_x = _fs_x.sin_contestar(
+                estudio, getattr(material, "n_planteamientos", 0))
+            if _falt_x:
+                avisos.insert(0, _fs_x.aviso_sin_contestar(_falt_x, e.es_recurso))
+        except Exception as _efx:
+            print(f"   ⚠️ no se pudo comprobar la respuesta por concepto: {_efx}")
         _ex = _m["exhaustividad"]
         if _ex.get("contesta_todo") is False:
             avisos.append(

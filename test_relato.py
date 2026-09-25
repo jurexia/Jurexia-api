@@ -25,7 +25,15 @@ p = f123.prompt_relato("ANT", "ACTO", "AGRAVIOS", True, "revision_fiscal",
                        "TITULAR DE LA SUBDELEGACIÓN", "SALA REGIONAL EN QUERÉTARO")
 ok("Mira: el asunto tuvo su origen en que" in p and "Aquí empieza el problema, porque" in p
    and "Inconforme con esa determinación" in p, "lleva los conectores de David como hilo")
-ok("¿Cómo resolvió la Sala esa demanda?" in p, "la pregunta nombra al órgano del tipo de asunto")
+# «ESA DEMANDA» SE FUE EL 23-SEP-2026. David: en amparo directo es «cómo
+# resolvió la responsable ese recurso de apelación» o «el juicio»; sin saber qué
+# se resolvió, la pregunta no lo adivina.
+ok("¿Qué resolvió la Sala?" in p and "esa demanda" not in p,
+   "la pregunta nombra al órgano del tipo de asunto, y sin «esa demanda»")
+pr = f123.prompt_relato("ANT", "ACTO", "AGRAVIOS", False, "amparo_directo",
+                        lo_resuelto="ese recurso de apelación")
+ok("¿Cómo resolvió la Sala responsable ese recurso de apelación?" in pr
+   or "ese recurso de apelación?" in pr, "con lo resuelto, lo nombra")
 ok("revisión fiscal" in p and "agravios" in p.lower() and "RECURRENTE" in p,
    "y el vocabulario de la revisión fiscal (recurso, agravios, recurrente)")
 ok("no enumeres los problemas jurídicos" in p and "no adelantes cómo debería resolverse" in p,
@@ -42,7 +50,7 @@ ok("amparo directo" in pa and "conceptos de violación" in pa and "QUEJOSO" in p
    and "quién demandó a" in pa, "en amparo directo el hilo empieza por el juicio de origen")
 ok("según la ficha" not in pa, "sin ficha no se inventa una")
 pq = f123.prompt_relato("A", "B", "C", True, "queja")
-ok("¿Cómo resolvió el Juzgado de Distrito esa demanda?" in pq, "en la queja, el Juzgado de Distrito")
+ok("¿Qué resolvió el Juzgado de Distrito?" in pq, "en la queja, el Juzgado de Distrito")
 
 print("\n2 · EL CAMPO Y EL PARALELO")
 ok(hasattr(f123.Fases123(), "relato") and f123.Fases123().relato == "", "Fases123 lleva relato")

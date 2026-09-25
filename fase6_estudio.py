@@ -71,6 +71,16 @@ MAX_NORMAS_PROMPT = 12
 PALABRAS_ESTUDIO = 3733
 PALABRAS_ESTUDIO_P90 = 6618
 
+
+def _objetivo_palabras(material, criterios) -> int:
+    """La medida del corpus para la estándar; la de `formato_sentencia` para la
+    moderna. El aviso de «se quedó corto» mide contra ESTE número: medido contra
+    el del corpus, toda sentencia moderna saldría acusada de corta."""
+    import formato_sentencia as _fs_o
+    if _fs_o.normalizar(getattr(material, "formato", "")) == _fs_o.MODERNA:
+        return _fs_o.palabras_moderna(criterios)
+    return PALABRAS_ESTUDIO
+
 CONECTORES = ("Lo anterior", "En ese sentido", "Por tanto", "En consecuencia",
               "No obstante", "En efecto", "Ahora bien")
 
@@ -189,6 +199,18 @@ class Material:
     # porque el material ya llega a todos los prompts. Sale de la colección
     # estatal que eligió el secretario («leyes_queretaro» → «Querétaro»).
     entidad: str = ""
+    # LA FORMA DE LA SENTENCIA —«estandar» o «moderna»—, por la misma razón que
+    # la materia: dos redactores arman el prompt y el material llega a los dos.
+    # Ver `formato_sentencia.py`.
+    formato: str = "estandar"
+    # EL REPARTO DE LA FASE 3: cada problema con su «cubre», la lista de
+    # planteamientos que contesta, y cuántos trae el escrito. Con él la forma
+    # estándar sabe qué concepto califica cada criterio.
+    problemas: list = field(default_factory=list)
+    n_planteamientos: int = 0
+    # La tarea de la síntesis de la versión moderna, que corre a la vez que el
+    # estudio y se recoge al componer. None en la estándar.
+    sintesis: object = None
 
 
 # LA ÚNICA EXCEPCIÓN A «INNEGOCIABLE», y hubo que escribirla porque el pipeline
@@ -325,9 +347,12 @@ def _misma_direccion(a: str, b: str) -> bool:
 
 
 def _bloque_criterio(criterios: list[Criterio], materia: str = "",
-                     material_texto: str = "", tipo_asunto: str = "") -> str:
+                     material_texto: str = "", tipo_asunto: str = "",
+                     formato: str = "", problemas: list = None) -> str:
     if not criterios:
         return ""
+    import formato_sentencia as _fs_c
+    _moderna = _fs_c.normalizar(formato) == _fs_c.MODERNA
     lineas = ["", "═" * 71,
               "EL CRITERIO DEL SECRETARIO — DIRECTIVA INNEGOCIABLE",
               "═" * 71,
@@ -345,18 +370,12 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
               # las tiraba: medido sobre el proyecto de la cuota pensionaria,
               # tres preguntas calculadas y CERO en el documento. Lo que se
               # arregla no es formularlas, es no perderlas.
-              "CADA PROBLEMA ABRE CON SU PREGUNTA, LITERAL Y EN SU PROPIA LÍNEA.",
-              "El problema va escrito abajo como pregunta: cópiala tal cual como",
-              "rótulo del apartado, numerada, y contéstala en el párrafo siguiente.",
-              "Así:",
-              "",
-              "    1. ¿La Sala responsable estaba obligada a…?",
-              "",
-              "    No lo estaba. El artículo 50 de la Ley Federal de…",
-              "",
-              "Y NO ESCRIBAS LA PREGUNTA DOS VECES ni la parafrasees en el cuerpo:",
-              "el apartado ya la lleva, y repetirla es lo que hace kilométricas a",
-              "las sentencias. Cada apartado dice lo suyo y sólo lo suyo.", ""]
+              # DESDE EL 25-SEP-2026 ESTO ES SÓLO DE LA VERSIÓN MODERNA. En la
+              # estándar los problemas guían y no se escriben: el estudio va
+              # concepto por concepto. Ver `formato_sentencia.py`.
+              ] + _fs_c.forma_del_criterio(
+                  formato, _ta_p.vocabulario_de(tipo_asunto or "amparo_directo")["combate_singular"],
+                  _ta_p.vocabulario_de(tipo_asunto or "amparo_directo")["parte"])
     # EL ORDEN DE ESTUDIO ES EL DE PRELACIÓN LÓGICA, no el de llegada: primero
     # el principal, del que dependen los demás. Un engrose que estudia un
     # accesorio antes que el problema del que depende obliga a rehacerlo.
@@ -368,6 +387,13 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}]"
                       f"{f' [GRUPO {_g}]' if _g else ''} {c.problema}")
         lineas.append(f"   SENTIDO: {c.sentido.upper()}")
+        # QUÉ PLANTEAMIENTOS CALIFICA. Es el puente entre el problema, que
+        # decide, y el concepto, que es lo que se escribe —en la estándar como
+        # apertura del apartado; en la moderna, nombrado en la respuesta—.
+        _cub = _fs_c.cubre_de(c, problemas or [])
+        if _cub:
+            lineas.append("   CUBRE: " + _fs_c.cubre_en_texto(
+                _cub, _ta_p.vocabulario_de(tipo_asunto or "amparo_directo")["combate_singular"]))
         # EL GRUPO LO DECIDE EL SECRETARIO. La arquitectura ya prohíbe resolver
         # dos planteamientos con una calificación conjunta «salvo que declares
         # que se estudian juntos y por qué»; faltaba quién lo declarara.
@@ -1427,6 +1453,24 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     # nada: es el órgano de control cuya decisión se revisa.
     _org_rotulo = _sjs["organo"][0].upper()
     calif = _calificacion(criterios)
+    # ── LA FORMA: ESTÁNDAR O MODERNA ──────────────────────────────────────
+    # David, 25-sep-2026. Ver `formato_sentencia.py`. Las órdenes que antes
+    # imponían la pregunta en todos los casos viven ahí, en un solo bloque, y
+    # se repite una línea al final porque lo último es lo que más se obedece.
+    import formato_sentencia as _fs_e
+    _formato = _fs_e.normalizar(getattr(material, "formato", ""))
+    _objetivo = _objetivo_palabras(material, criterios)
+    _forma = _fs_e.forma_del_estudio(_formato, q, q1, parte, calif, _objetivo)
+    _recuerda_forma = (
+        f"Y LA FORMA ES LA MODERNA: cada problema con su pregunta sola en su "
+        f"párrafo, la respuesta enseguida nombrando el {q1} que contesta, y "
+        f"alrededor de {_objetivo} palabras en total sin dejar ningún {q1} sin "
+        f"respuesta.\n"
+        if _formato == _fs_e.MODERNA else
+        f"Y LA FORMA ES LA ESTÁNDAR: sin preguntas ni rótulos numerados; cada "
+        f"{q1} abre con «Sobre el primer {q1}, en el que {parte} sostiene…», "
+        f"sigue su calificación y la demostración arranca con «Lo anterior…». "
+        f"Ningún {q1} sin su apartado.\n")
     # EL MARCO SE REPITE AL FINAL. Medido en el proyecto 360/2025: se le
     # entregaron 6,338 caracteres de marco —artículo 4º constitucional y
     # Convención sobre los Derechos del Niño— y el estudio salió con CERO
@@ -1454,8 +1498,6 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
 - ABRE con el encabezado ordinal y la CALIFICACIÓN: «SEXTO. Estudio. Los {q}
   son {calif}.» Anunciar el resultado y luego demostrarlo es el orden que mejor
   se lee, y el que sigue el 40% de los engroses reales.
-- PLANTEA LA CUESTIÓN COMO PREGUNTA y respóndela acto seguido. Lo hace el 18%
-  y ordena el estudio entero.
 - FRASE de unas 35 palabras, SUBORDINADA; PÁRRAFO de unas 49, es decir UNA O
   DOS FRASES POR PÁRRAFO. Es la medida real del corpus y no es un capricho: la
   prosa judicial encadena la premisa y su consecuencia dentro de la misma
@@ -1466,7 +1508,7 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
 - EL ÓRGANO RECURRIDO es {_org}; este tribunal se
   nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
   considera»). Nunca primera persona del singular.
-- LA EXTENSIÓN SE REPARTE, NO SE ESTIRA. Alrededor de {PALABRAS_ESTUDIO}
+- LA EXTENSIÓN SE REPARTE, NO SE ESTIRA. Alrededor de {_objetivo}
   palabras EN TOTAL, y ese total se gasta donde se decide el asunto:
 
     · EL TEMA PRINCIPAL se estudia a fondo: la premisa normativa, la
@@ -1492,28 +1534,16 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   Y NO RELLENES. Si un apartado queda corto porque el tema es corto, está
   bien. Repetir la misma razón con otras palabras no añade nada y es lo que un
   revisor marca primero.
-- Sin Markdown y sin viñetas. SÍ van numeradas las líneas argumentales: cada
-  problema abre con «1.», «2.»… y su pregunta. No es un esquema, es lo que
-  ordena la lectura y lo que hace que un apartado se entienda a la primera.
-
+- Sin Markdown y sin viñetas.
+{_forma}
 NO REPITAS LO QUE YA ESTÁ ESCRITO — esto es lo primero:
 - Los dos resúmenes que vienen abajo —lo que resolvió la responsable y lo que se
   combate— YA OCUPAN SU PROPIO APARTADO en la sentencia, antes del tuyo. Se te
   dan para que sepas de qué va el asunto, NO para que los reproduzcas.
 - TU TEXTO EMPIEZA CON LA CALIFICACIÓN GENERAL —una frase: «los agravios son
   fundados», «resultan en parte infundados y en parte inoperantes»— y ACTO
-  SEGUIDO abre el primer problema con su pregunta numerada. Nada de recuento.
-  Así:
-
-      Los agravios resultan fundados, por lo siguiente.
-
-      1. ¿La Sala responsable estaba obligada a precisar la unidad de
-      cuantificación aplicable a cada periodo?
-
-      Sí lo estaba. El artículo 50 de la Ley Federal de Procedimiento…
-
-  La pregunta va SOLA en su párrafo y termina en «?». Es el rótulo del
-  apartado, no una frase dentro de otra.
+  SEGUIDO abre el primer apartado en la forma que fija el bloque FORMATO de
+  arriba. Nada de recuento.
   Puedes referirte a lo que la responsable sostuvo cuando lo estés refutando
   —«la Sala afirmó X; ese razonamiento es incorrecto porque…»—, pero no vuelvas
   a contar la resolución ni a enumerar los agravios: el lector acaba de leerlos
@@ -1907,7 +1937,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal)}
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion)}
-{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""))}
+{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}
 {_bloque_material(_mat_vista)}
@@ -1956,6 +1986,7 @@ sentencia, y el material se buscó precisamente para estos problemas.
 
 {cierre_marco}
 {_dc_e.cierre_estudio(material, _fav_dc)}
+{_recuerda_forma}
 NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
 frase de cierre que corresponde al tipo de asunto —«En ese sentido, ante la
 ineficacia de los {q} planteados, lo procedente es…»—. Si tú escribes otra
@@ -2816,9 +2847,13 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
 
     # 3. Largo.
     n = len(estudio.split())
-    if n < 0.45 * PALABRAS_ESTUDIO:
+    _obj_r = _objetivo_palabras(material, criterios)
+    if n < 0.45 * _obj_r:
         avisos.append(f"El estudio tiene {n} palabras; la mediana de los "
-                      f"engroses es {PALABRAS_ESTUDIO}. Se quedó corto.")
+                      f"engroses es {PALABRAS_ESTUDIO}. Se quedó corto."
+                      if _obj_r == PALABRAS_ESTUDIO else
+                      f"El estudio tiene {n} palabras y la versión moderna pedía "
+                      f"unas {_obj_r}. Se quedó corto.")
 
     # 4. Higiene.
     if "**" in estudio or "##" in estudio:
@@ -2930,6 +2965,24 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
         avisos.append(f"El estudio tiene {n} palabras; sólo el 10% de los "
                       f"engroses reales pasa de {PALABRAS_ESTUDIO_P90}. "
                       f"Revisa si hay repetición.")
+    # LA MODERNA TIENE SU PROPIA MEDIDA, y pasarse de ella por la mitad es
+    # haber escrito la estándar con preguntas: lo que el secretario eligió
+    # precisamente para no recibir.
+    import formato_sentencia as _fs_r
+    _moderna_r = _fs_r.normalizar(getattr(material, "formato", "")) == _fs_r.MODERNA
+    if _moderna_r and n > 1.5 * _obj_r:
+        avisos.append(f"LA VERSIÓN MODERNA SALIÓ LARGA: {n} palabras donde se "
+                      f"pedían unas {_obj_r}. Busca lo que no decide —recuentos, "
+                      f"paráfrasis de tesis, objeciones que nadie planteó— y quítalo.")
+    # Y LA ESTÁNDAR NO LLEVA PREGUNTAS. Si el modelo las escribió igual, el
+    # secretario recibe la forma que no pidió; se le dice dónde.
+    if not _moderna_r:
+        _pregs = re.findall(r"(?m)^\s*\d{1,2}\.\s*¿[^\n]{0,90}", estudio or "")
+        if _pregs:
+            avisos.append(f"LA FORMA ESTÁNDAR SALIÓ CON {len(_pregs)} PREGUNTA(S) "
+                          f"COMO RÓTULO —«{_pregs[0].strip()[:80]}…»—. En esta forma "
+                          f"cada concepto abre con «Sobre el … concepto, en el que…»; "
+                          f"cámbialas o genera la versión moderna.")
 
     # 7. La medida de la prosa. El modelo tiende a apilar frases cortas dentro
     #    de párrafos largos —informe—; el corpus hace lo contrario: párrafo
