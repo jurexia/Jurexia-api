@@ -139,6 +139,16 @@ ok(dg._con_sujeto_tras_cita("de la Primera Sala de la Suprema Corte de Justicia 
 ok(dg._con_sujeto_tras_cita("de donde se sigue que la Sala debía admitir la ampliación y correr "
                             "traslado.", _j).startswith("de donde se sigue"), "la prosa que no es órgano se queda")
 
+print("\n6c · LOS EFECTOS ESCRITOS DEBAJO DE LAS ADVERTENCIAS (93/2026 v12)")
+_raw = ("Los conceptos son fundados.\n\nEl primero es fundado.\n\nADVERTENCIAS\n\nVerifíquese la demanda "
+        "inicial.\n\nEFECTOS DE LA CONCESIÓN\n\n1. Deje insubsistente la sentencia.\n\n2. Admita la ampliación.")
+_c, _a = f6.separar_advertencias(_raw)
+ok("EFECTOS DE LA CONCESIÓN" in _c and "1. Deje insubsistente" in _c and "EFECTOS" not in _a
+   and _a.startswith("Verifíquese"), "los efectos vuelven al estudio; la advertencia se queda sola")
+_c2, _a2 = f6.separar_advertencias("Estudio.\n\nADVERTENCIAS\n\nLos efectos de la reposición dependen de la demanda.")
+ok(_a2.startswith("Los efectos de la reposición"), "«efectos» en prosa dentro de la advertencia no se mueve")
+ok(f6.separar_advertencias("Estudio sin advertencias.") == ("Estudio sin advertencias.", ""), "sin advertencias, igual que antes")
+
 print("\n7 · LAS PUERTAS ESTÁN CONECTADAS")
 src_ra = open("redactor_adelanto.py", encoding="utf-8").read()
 arbol = ast.parse(src_ra)

@@ -2007,8 +2007,10 @@ Tu último párrafo SÍ recapitula, y con sustancia: qué {q} son infundados y p
 qué, cuáles inoperantes y por qué, y qué queda sin materia. Lo que no hace es
 rematar con la fórmula: de eso se encarga el documento.
 
-Si hay obstáculos al sentido fijado, añade al final un apartado «ADVERTENCIAS»
-—fuera del cuerpo de la sentencia— con lo que el secretario debe valorar.
+Si hay obstáculos al sentido fijado, añade al final —DESPUÉS de los EFECTOS DE
+LA CONCESIÓN, si los hay: los efectos son sentencia y las advertencias no— un
+apartado «ADVERTENCIAS» —fuera del cuerpo de la sentencia— con lo que el
+secretario debe valorar.
 Nada más."""
 
 
@@ -3047,7 +3049,23 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
     m = re.search(r"\n\s*ADVERTENCIAS?\s*[:\n]", estudio, re.I)
     if not m:
         return estudio.strip(), ""
-    return estudio[:m.start()].strip(), estudio[m.end():].strip()
+    cuerpo, adv = estudio[:m.start()].strip(), estudio[m.end():].strip()
+    # LOS EFECTOS NO SON UNA ADVERTENCIA. ADC 93/2026 v12: el modelo escribió
+    # ADVERTENCIAS y DEBAJO «EFECTOS DE LA CONCESIÓN» con sus cinco órdenes; el
+    # corte se los llevó a la nota del redactor y el proyecto salió SIN
+    # considerando de efectos, con el resolutivo concediendo «para los efectos»
+    # que no estaban. El prompt pedía los dos «al final» sin fijar el orden.
+    me = _RX_EFECTOS_TRAS_ADV.search("\n" + adv)
+    if me:
+        _a = "\n" + adv
+        cuerpo = cuerpo + "\n\n" + _a[me.start():].strip()
+        adv = _a[:me.start()].strip()
+    return cuerpo, adv
+
+
+_RX_EFECTOS_TRAS_ADV = re.compile(
+    r"\n\s*(?:\*\*|__)?\s*EFECTOS(?:\s+DE\s+LA\s+(?:CONCESI[ÓO]N|PROTECCI[ÓO]N"
+    r"\s+CONSTITUCIONAL))?\s*(?:\*\*|__)?\s*[.:]?\s*\n", re.I)
 
 
 async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
