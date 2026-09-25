@@ -3385,7 +3385,7 @@ class ChatRequest(BaseModel):
         description="IDs de los genios a usar: ['amparo', 'mercantil']. Si None pero enable_genio_juridico=True, usa 'amparo'."
     )
     user_id: Optional[str] = Field(None, description="Supabase user ID for server-side quota enforcement")
-    materia: Optional[str] = Field(None, description="Materia jurídica forzada (PENAL, CIVIL, FAMILIAR, etc.). Si None, auto-detecta por keywords.")
+    materia: Optional[str] = Field(None, description="IGNORADO si lo manda el cliente (25-sep-2026): la materia se deduce de la consulta. Sólo lo rellenan los Genios activos, dentro de /chat.")
     fuero: Optional[str] = Field(None, description="Filtro por fuero: constitucional, federal, estatal. Si None, busca en todos los silos.")
     # La señal del globo viajaba escondida como «[FUENTES_WEB] » dentro del
     # texto del mensaje, y cada camino que armaba el mensaje de otra forma
@@ -14177,6 +14177,16 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # Extract primary genio for cache logic (backward compatibility)
     _primary_genio_id = _resolved_genio_ids[0] if _resolved_genio_ids else None
     
+    # ── LA MATERIA YA NO LA ELIGE EL ABOGADO (25-sep-2026) ──
+    # David: «que la selección de la materia vaya implícita». El selector
+    # Auto·Civil·Penal·Familiar·Admin salió de la pantalla; lo que todavía mande
+    # un cliente —la app móvil publicada lo manda— se ignora, y la materia se
+    # deduce de la consulta (`_detect_materia`). Sólo los Genios la fijan, aquí
+    # abajo: un Genio activo sí es una elección explícita de rama.
+    if request.materia:
+        print(f"   🧭 MATERIA del cliente ignorada ('{request.materia}'): se deduce de la consulta")
+    request.materia = None
+
     # ── GENIO OVERRIDE (MULTI-GENIO AWARE) ──
     # Signal ALL active genios to the RAG, not just the first one.
     # This ensures hybrid_search receives materia hints for every genio.
