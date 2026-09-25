@@ -8955,18 +8955,29 @@ async def hybrid_search_all_silos(
     estatales = []
     jurisprudencia = []
     constitucional = []  # Nuevo silo: Constitución, Tratados DDHH, Jurisprudencia CoIDH
-    
+
+    # EL MISMO PUNTO LLEGABA DOS VECES (25-sep-2026): con una ley federal
+    # detectada, la búsqueda filtrada y la de respaldo sin filtro devuelven los
+    # mismos artículos, y cada copia se comía un lugar del contexto —medido:
+    # los artículos 2, 9 y 1 de la LFEP, dos veces cada uno—. Se queda una
+    # copia, la de mejor puntaje.
+    _unicos: dict = {}
     for results in all_results:
         for r in results:
-            if r.silo == "leyes_federales":
-                federales.append(r)
-            elif r.silo in JURIS_SILOS:
-                jurisprudencia.append(r)
-            elif r.silo == "bloque_constitucional":
-                constitucional.append(r)
-            elif r.silo.startswith("leyes_") or r.silo == LEGACY_ESTATAL_SILO:
-                # Todos los silos estatales (dedicados + legacy) van a «estatales»
-                estatales.append(r)
+            _clave = (r.silo, r.id)
+            if _clave not in _unicos or r.score > _unicos[_clave].score:
+                _unicos[_clave] = r
+
+    for r in _unicos.values():
+        if r.silo == "leyes_federales":
+            federales.append(r)
+        elif r.silo in JURIS_SILOS:
+            jurisprudencia.append(r)
+        elif r.silo == "bloque_constitucional":
+            constitucional.append(r)
+        elif r.silo.startswith("leyes_") or r.silo == LEGACY_ESTATAL_SILO:
+            # Todos los silos estatales (dedicados + legacy) van a «estatales»
+            estatales.append(r)
     
     # Ordenar cada grupo por score
     federales.sort(key=lambda x: x.score, reverse=True)
@@ -9422,7 +9433,46 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     if article_numbers:
         merged = rerank_by_article_match(merged, article_numbers)
-    
+
+    # ── EL ARTÍCULO QUE SE PREGUNTÓ, DE LA LEY QUE SE NOMBRÓ (25-sep-2026) ──
+    #
+    # Con la ley detectada, la búsqueda semántica DENTRO de ella seguía sin
+    # traer el artículo: «¿qué dice el artículo 29 de la Ley Federal de las
+    # Entidades Paraestatales?» devolvía sus artículos 1, 2 y 9 —un vector no
+    # sabe contar—, y el refuerzo por número subía el 29 de Instituciones de
+    # Crédito y del CFF, que llegaban por la búsqueda de respaldo sin filtro. Se
+    # pide por ley + número y va por delante de todo lo reforzado. El chat ya lo
+    # tenía por la búsqueda directa; esto es para /search, el taller y el resto.
+    if article_numbers and _ley_federal_detectada and "leyes_federales" in silos_to_search:
+        _exactos = []
+        for _n in article_numbers[:2]:
+            _exactos += await _articulo_federal_exacto(_ley_federal_detectada, _n)
+        if _exactos:
+            _tope = max((r.score for r in merged), default=1.0) + 1.0
+            _por_id = {r.id: r for r in merged}
+            _delante = []
+            for _p in _exactos:
+                _pid = str(_p.id)
+                if _pid in _por_id:
+                    _por_id[_pid].score = _tope
+                    continue
+                _pl = _p.payload or {}
+                _delante.append(SearchResult(
+                    id=_pid, score=_tope,
+                    texto=_pl.get("texto") or _pl.get("texto_raw") or "",
+                    ref=_pl.get("ref"),
+                    origen=_pl.get("cuerpo_legal_oficial") or _pl.get("ley"),
+                    jurisdiccion=_pl.get("materia"),
+                    entidad=_pl.get("entidad") or "FEDERAL",
+                    silo="leyes_federales",
+                    pdf_url=_pl.get("pdf_url") or _pl.get("url_pdf"),
+                    tema_articulo=_pl.get("tema_articulo"),
+                ))
+            merged = _delante + merged
+            merged.sort(key=lambda x: x.score, reverse=True)
+            print(f"   🎯 ARTÍCULO EXACTO: {len(_exactos)} trozo(s) del art. "
+                  f"{', '.join(article_numbers[:2])} de «{_ley_federal_detectada[:60]}» al frente")
+
     # ═══════════════════════════════════════════════════════════════════════════
     # POST-SEARCH: BOOST + ENRICHMENT + RERANK
     # Skipped for secondary queries (Q2/Q3) — they only contribute diversity.
