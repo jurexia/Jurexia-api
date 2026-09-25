@@ -113,10 +113,16 @@ def guardar_en_segundo_plano(cliente, h: str, texto: str, paginas: int) -> None:
 
 
 async def _guardar(cliente, h: str, texto: str, paginas: int) -> None:
+    # EL CDN DEL ALMACÉN GUARDA UNA HORA LO QUE SIRVE, y eso se midió en
+    # producción: un objeto recién borrado se siguió descargando. Aquí importa
+    # cuando una lectura caducada se sobrescribe: durante esa hora el CDN
+    # seguiría dando la vieja, se tomaría por caducada y Azure se pagaría otra
+    # vez en cada intento. Con cinco minutos, el hueco es de cinco minutos.
     try:
         datos = await asyncio.to_thread(empaquetar, texto, paginas)
         await asyncio.to_thread(lambda: cliente.storage.from_(CUBO).upload(
-            ruta(h), datos, {"content-type": "application/gzip", "upsert": "true"}))
+            ruta(h), datos, {"content-type": "application/gzip", "upsert": "true",
+                             "cache-control": "300"}))
         print(f"   💾 OCR caché: guardada la lectura de {paginas} pág "
               f"({len(datos) // 1024} KB, huella {h[:12]})")
     except Exception as e:

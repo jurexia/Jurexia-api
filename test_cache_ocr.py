@@ -42,6 +42,7 @@ class CuboFalso:
             raise RuntimeError("el almacén no responde")
         self.subidas += 1
         self.objetos[ruta] = {"datos": datos, "tipo": opciones.get("content-type"),
+                              "cache": opciones.get("cache-control"),
                               "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())}
 
     def list(self, prefijo, opciones):
@@ -112,6 +113,7 @@ async def parte_almacen():
     await _esperar_subidas()
     ok(c.cubo.subidas == 1 and co.ruta(h) in c.cubo.objetos, "se guarda en ocr-cache/v1/<huella>.json.gz")
     ok(c.cubo.objetos[co.ruta(h)]["tipo"] == "application/gzip", "con su tipo")
+    ok(c.cubo.objetos[co.ruta(h)]["cache"] == "300", "y el CDN no la guarda más de cinco minutos")
     ok(await co.leer(c, h) == texto, "y se lee de vuelta idéntica")
     ok(await co.leer(None, h) is None, "sin cliente de Supabase no pasa nada")
     c.cubo.caido = True
