@@ -4424,6 +4424,80 @@ def _detect_ley_federal_mencionada(query: str) -> Optional[str]:
     for alias, nombre_qdrant in sorted(LEY_FEDERAL_ALIASES.items(), key=lambda x: -len(x[0])):
         if alias in q:
             return nombre_qdrant
+    # Lo que no está en el mapa escrito a mano se busca entre los nombres que
+    # la colección tiene de verdad: así una ley recién ingerida se reconoce sin
+    # tocar código. Sólo nombre completo aquí; ver `_ley_federal_de_pista`.
+    return _ley_federal_de_pista(query)
+
+
+# ── LOS NOMBRES DE LAS LEYES FEDERALES, LEÍDOS DE LA COLECCIÓN (25-sep-2026) ──
+#
+# EL MAPA DE ARRIBA CONOCE TREINTA LEYES Y LA COLECCIÓN TIENE MÁS DE CIEN. Con
+# las 92 que entraron el 25-sep, «el artículo 29 de la Ley Federal de las
+# Entidades Paraestatales» —la pregunta del magistrado del Corredor
+# Interoceánico— no se reconocía como federal, y la búsqueda directa acababa
+# inyectando el artículo 29 de la ley de paraestatales DE MICHOACÁN. Una lista
+# a mano envejece el día que se ingiere la siguiente ley; la colección no.
+_NOMBRES_FEDERALES: dict = {"lista": [], "ts": 0.0}
+_NOMBRES_FEDERALES_TTL = 3600.0
+
+
+def _normalizar_nombre_ley(s: str) -> str:
+    import unicodedata as _ud
+    s = _ud.normalize("NFD", (s or "").lower())
+    s = "".join(c for c in s if _ud.category(c) != "Mn")
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", s).split())
+
+
+async def _nombres_leyes_federales() -> list:
+    """[(nombre normalizado, nombre exacto en Qdrant)], el más largo primero.
+
+    Se lee con una faceta sobre `ley` —indexado— y se guarda una hora. Si
+    Qdrant falla se sigue con lo que hubiera: esto afina la búsqueda, no la
+    sostiene.
+    """
+    import time as _t
+    if _NOMBRES_FEDERALES["lista"] and _t.time() - _NOMBRES_FEDERALES["ts"] < _NOMBRES_FEDERALES_TTL:
+        return _NOMBRES_FEDERALES["lista"]
+    try:
+        async with QDRANT_SEM:
+            r = await qdrant_client.facet(collection_name=FIXED_SILOS["federal"],
+                                          key="ley", limit=2000)
+        nombres = {h.value for h in r.hits if isinstance(h.value, str) and h.value.strip()}
+        _NOMBRES_FEDERALES["lista"] = sorted(((_normalizar_nombre_ley(n), n) for n in nombres),
+                                             key=lambda x: -len(x[0]))
+    except Exception as e:
+        print(f"   ⚠️ No pude leer los nombres de las leyes federales: {err(e)}")
+    _NOMBRES_FEDERALES["ts"] = _t.time()     # ni aun fallando se reintenta en cada consulta
+    return _NOMBRES_FEDERALES["lista"]
+
+
+def _ley_federal_de_pista(pista: str, permitir_prefijo: bool = False) -> Optional[str]:
+    """La ley federal que nombra un texto, con su nombre exacto en Qdrant, o None.
+
+    Primero el mapa de alias; después el nombre COMPLETO de alguna ley de la
+    colección, como palabras enteras («Ley de Puertos», no «puertos»). Con
+    `permitir_prefijo` basta el arranque del nombre si es inequívoco: «Ley de
+    Adquisiciones» es la de Adquisiciones, Arrendamientos y Servicios del Sector
+    Público y ninguna otra federal empieza así. Pide tres palabras y quince
+    letras, para que «Código Civil» no se lea como el Federal: ahí el abogado
+    suele hablar del de su estado.
+    """
+    h = _normalizar_nombre_ley(pista)
+    if not h:
+        return None
+    rodeado = f" {h} "
+    for alias, nombre in sorted(LEY_FEDERAL_ALIASES.items(), key=lambda x: -len(x[0])):
+        if f" {_normalizar_nombre_ley(alias)} " in rodeado:
+            return nombre
+    lista = _NOMBRES_FEDERALES["lista"]
+    for norm, original in lista:
+        if norm and f" {norm} " in rodeado:
+            return original
+    if permitir_prefijo and len(h.split()) >= 3 and len(h) >= 15:
+        candidatas = [o for n, o in lista if n == h or n.startswith(h + " ")]
+        if len(candidatas) == 1:
+            return candidatas[0]
     return None
 
 
@@ -8690,6 +8764,7 @@ async def hybrid_search_all_silos(
     # específica para aplicar filtro por 'ley' en el silo leyes_federales.
     # Si se detecta, TAMBIÉN se hace una búsqueda EXTRA sin filtro como fallback.
     # ═══════════════════════════════════════════════════════════════════════════
+    await _nombres_leyes_federales()
     _ley_federal_detectada = _detect_ley_federal_mencionada(query)
     _extra_federal_unfocused_task = None
     if _ley_federal_detectada:
@@ -9301,8 +9376,14 @@ async def hybrid_search_all_silos(
             multi_query_targets.append({"silo": silo, "strategy": "pure", "filter": get_filter_for_silo(silo, estado)})
         else:
             print(f"   🔍 Multi-query FEDERAL: buscando artículo(s) {article_numbers} en leyes federales")
-            # En federal, necesitamos contexto para desambiguar entre cientos de leyes
-            multi_query_targets.append({"silo": "leyes_federales", "strategy": "context", "filter": None})
+            # En federal, necesitamos contexto para desambiguar entre cientos de leyes.
+            # Si la consulta nombra la ley, se busca DENTRO de ella: sin filtro,
+            # «artículo 29 de la Ley Federal de las Entidades Paraestatales»
+            # traía el 29 de Instituciones de Crédito y del CFF, y el refuerzo
+            # por número los ponía por delante del que se preguntó.
+            multi_query_targets.append({"silo": "leyes_federales", "strategy": "context",
+                                        "filter": get_filter_for_silo("leyes_federales", None,
+                                                                      _ley_federal_detectada)})
             
         for target in multi_query_targets:
             silo_col = target["silo"]
@@ -12823,6 +12904,43 @@ async def _direct_article_lookup(
         return []
 
 
+async def _articulo_federal_exacto(ley: str, art_num) -> list:
+    """Los trozos de ESE artículo de ESA ley federal: el artículo entero, no sólo
+    su primer trozo, y el artículo pelado antes que sus bis («29» antes que
+    «29 Bis»). Vacío si la ley no lo tiene o si Qdrant falla."""
+    m = re.match(r"\d+", str(art_num).strip())
+    if not ley or not m:
+        return []
+    try:
+        async with QDRANT_SEM:
+            pts, _ = await qdrant_client.scroll(
+                collection_name=FIXED_SILOS["federal"],
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="ley", match=MatchValue(value=ley)),
+                    FieldCondition(key="articulo_num", match=MatchValue(value=int(m.group()))),
+                ]),
+                limit=16, with_payload=True, with_vectors=False)
+    except Exception as e:
+        print(f"   ⚠️ DIRECT LOOKUP federal ({ley[:40]}, art. {art_num}): {err(e)}")
+        return []
+
+    # En los datos del v2 el sufijo se perdió: el 69-H del CFF quedó como
+    # «Artículo 69» SIN punto, y el 69 de verdad como «Artículo 69.». Por eso
+    # el punto final decide el primero: pelado con punto, sin punto, con sufijo.
+    def _orden(p):
+        pl = p.payload or {}
+        ref = str(pl.get("ref") or "").strip()
+        if re.fullmatch(r"Art[íi]culo\s+\d+\.", ref):
+            clase = 0
+        elif re.fullmatch(r"Art[íi]culo\s+\d+", ref):
+            clase = 1
+        else:
+            clase = 2
+        return (clase, ref, int(pl.get("chunk_index") or 0))
+
+    return sorted(pts, key=_orden)[:6]
+
+
 async def _buscar_articulos_citados(
     citations: dict,
     estado: Optional[str] = None,
@@ -12881,16 +12999,66 @@ async def _buscar_articulos_citados(
     not_found_refs = []
     ambiguos = 0          # citas sin ley que tocaban dos ordenamientos a la vez
     
+    # ── LA CITA QUE NOMBRA UNA LEY FEDERAL VA DERECHO A ESA LEY (25-sep-2026) ──
+    #
+    # Lo de abajo busca el número en las 32 colecciones estatales y luego en la
+    # federal, trae ocho puntos cualesquiera por colección y elige por parecido
+    # de palabras con `origen`. Los puntos federales no tienen `origen`: puntuaban
+    # cero, y ganaba cualquier ley estatal que compartiera una palabra. Medido
+    # contra producción ese día, con score 1.0 de «coincidencia exacta»:
+    #
+    #     art. 29 Ley Federal de las Entidades Paraestatales → el 29 de la de Michoacán
+    #     art. 41 Ley de Adquisiciones (federal)              → el 41 de la de Querétaro
+    #     art. 69 Código Fiscal de la Federación              → el 69 del de Aguascalientes
+    #     art. 17 Ley Federal del Trabajo                     → el 17 del Código Penal del DF
+    #
+    # Es la queja que más se repite en las correcciones —«ese artículo pertenece
+    # a otra ley»— fabricada aquí mismo. Si la cita nombra una ley federal, se
+    # pregunta por esa ley y ese número; y si no lo tiene, no se inyecta otro.
+    await _nombres_leyes_federales()
+    _federal_permitida = fuentes_sel.permitida(FIXED_SILOS["federal"])
+
     # ── 1. Direct Article Lookup ──
     for cite_group in citations.get("articles", []):
         law_hint = cite_group.get("law_hint", "")
         state_hint = cite_group.get("state_hint") or effective_estado
-        
+        # Con una entidad nombrada junto a la cita, es ley local: no se toca.
+        _fed = (_ley_federal_de_pista(law_hint, permitir_prefijo=not estado)
+                if law_hint and _federal_permitida and not cite_group.get("state_hint") else None)
+        if _fed:
+            print(f"   📌 DIRECT LOOKUP: «{law_hint[:60]}» → federal «{_fed[:70]}»")
+
         for art_num in cite_group["nums"]:
             if lookup_count >= MAX_LOOKUPS:
                 break
             lookup_count += 1
-            
+
+            if _fed:
+                _exactos = await _articulo_federal_exacto(_fed, art_num)
+                for _p in _exactos:
+                    _pid = str(_p.id)
+                    if _pid in seen_ids:
+                        continue
+                    seen_ids.add(_pid)
+                    _pl = _p.payload or {}
+                    results.append(SearchResult(
+                        id=_pid,
+                        score=1.0,
+                        texto=_pl.get("texto") or _pl.get("texto_raw") or "",
+                        ref=_pl.get("ref"),
+                        origen=_pl.get("cuerpo_legal_oficial") or _pl.get("ley"),
+                        jurisdiccion=_pl.get("materia"),
+                        entidad=_pl.get("entidad") or "FEDERAL",
+                        silo=FIXED_SILOS["federal"],
+                        pdf_url=_pl.get("pdf_url") or _pl.get("url_pdf"),
+                        tema_articulo=_pl.get("tema_articulo"),
+                    ))
+                if _exactos:
+                    found_refs.append(f"Art. {art_num}")
+                else:
+                    not_found_refs.append(art_num)
+                continue
+
             # Build filter: ref matching article number
             # Qdrant stores ref in various formats depending on the ingestion script:
             # - "Art. 163" (Querétaro ingestion)
@@ -13021,13 +13189,18 @@ async def _buscar_articulos_citados(
             if all_candidate_points:
                 # Rank candidates by how well their `origen` matches the `law_hint`
                 stops = {'de', 'la', 'del', 'los', 'las', 'el', 'estado', 'ley', 'codigo', 'código', 'para', 'que', 'con'}
-                hint_words = set()
-                if law_hint:
-                    hint_words = set(w for w in law_hint.lower().replace(',', ' ').split() if w not in stops and len(w) > 3)
-                
+
+                # Palabras SIN su puntuación: la pista llega como «…Paraestatales?»
+                # y así no casaba con «Paraestatales».
+                def _palabras(s: str) -> set:
+                    return {w for w in re.findall(r"[a-záéíóúñü]+", (s or "").lower())
+                            if w not in stops and len(w) > 3}
+
+                hint_words = _palabras(law_hint) if law_hint else set()
+
                 def _similarity(origen: str) -> float:
                     if not hint_words or not origen: return 0.0
-                    origen_words = set(w for w in origen.lower().replace(',', ' ').split() if w not in stops and len(w) > 3)
+                    origen_words = _palabras(origen)
                     if not origen_words: return 0.0
                     return len(hint_words & origen_words) / len(hint_words | origen_words)
                 
@@ -13040,7 +13213,10 @@ async def _buscar_articulos_citados(
                 scored_points = []
                 for pid, (coll, p) in unique_points.items():
                     payload = p.payload or {}
-                    origen = payload.get("origen", "")
+                    # `leyes_federales` guarda el nombre en `ley`, no en `origen`:
+                    # leyendo sólo `origen`, toda ley federal puntuaba cero.
+                    origen = (payload.get("origen") or payload.get("ley")
+                              or payload.get("cuerpo_legal_oficial") or "")
                     score = _similarity(origen) if hint_words else 1.0 # If no hint, treat all as 1.0 to pick the first
                     scored_points.append((score, coll, p))
                 
