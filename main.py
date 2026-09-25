@@ -8544,6 +8544,72 @@ def _recorrido_para_pantalla(silos: List[str]) -> str:
     return ",".join(partes)
 
 
+# ── LA MATERIA LA DICTAMINA EL ESTRATEGA (25-sep-2026) ──────────────────────
+# El chat decidía la materia por palabras clave y con ella FILTRABA las leyes
+# federales: un `should` de Qdrant que por sí solo exige al menos una
+# coincidencia. Las palabras clave buscan subcadenas —«sat» dentro de
+# «satisfacción» es FISCAL, «iva» dentro de «restaurativa» también— y el
+# filtro tapaba leyes enteras: con CONSTITUCIONAL quedaba fuera la Ley de
+# Amparo (su materia es «amparo»), con CIVIL o FAMILIAR los códigos
+# procesales («procesal_civil»).
+#
+# Medido a mano sobre 24 consultas reales de la semana del 18-sep, cada una
+# con su estado: sin el filtro, los federales salieron mejor en 12, igual en
+# 10 y apenas peor en 2. Lo que se pierde es lo que el filtro sí hacía bien
+# —con LABORAL traía cinco artículos de la LFT—, y eso lo recupera el
+# Estratega sin quitar nada: con su materia se piden hasta cinco federales
+# MÁS de esas leyes (ayudó en 11 de las 24; en 4 metió ruido).
+#
+# Como filtro, el Estratega no sirve: nombra la materia del pleito, no la de la
+# ley aplicable. A un amparo contra un acto laboral le dice «laboral», y
+# filtrar por eso deja fuera la Ley de Amparo. Tampoco sirvió para elegir las
+# anclas del código estatal ni para reordenar los federales —salió peor tan a
+# menudo como mejor—, así que el chat se queda sin anclas de materia.
+#
+# El Estratega corre en paralelo con la búsqueda, así que el suplemento se pide
+# al volver, mientras corre la pasada por concepto: no suma espera.
+_MATERIA_ESTRATEGA_EN_FEDERAL = {
+    "civil": {"civil", "familiar", "procesal_civil"},
+    "familiar": {"familiar", "civil", "procesal_civil"},
+    "mercantil": {"mercantil", "consumidor"},
+    "penal": {"penal", "procesal_penal", "extincion_dominio", "trata_personas"},
+    "laboral": {"laboral", "seguridad_social"},
+    "administrativo": {"administrativo", "transparencia"},
+    "fiscal": {"fiscal", "administrativo"},
+    "agrario": {"agrario"},
+    "constitucional": {"constitucional", "amparo"},
+}
+
+
+def _materia_del_estratega(plan: Any) -> Optional[str]:
+    """La materia del dictamen, o None si no sirve para buscar («procesal»)."""
+    if not isinstance(plan, dict):
+        return None
+    materia = (plan.get("materia_principal") or "").lower().strip()
+    return materia if materia in _MATERIA_ESTRATEGA_EN_FEDERAL else None
+
+
+async def _federales_de_la_materia(query: str, materia: Optional[str], ya_presentes: set,
+                                   limite: int = 5) -> List[SearchResult]:
+    """Los federales de la materia del Estratega que la búsqueda sin filtro no trajo.
+
+    Es el filtro de antes convertido en suplemento: la búsqueda principal ya
+    no se estrecha por materia, y esto AÑADE hasta `limite` artículos de las
+    leyes de la materia dictaminada, sin quitar ninguno de los que llegaron.
+    """
+    valores = _MATERIA_ESTRATEGA_EN_FEDERAL.get(materia or "")
+    if not valores:
+        return []
+    filtro = Filter(must=[FieldCondition(key="materia", match=MatchAny(any=sorted(valores)))])
+    resultados = await hybrid_search_single_silo(
+        collection="leyes_federales", query=query,
+        dense_vector=await get_dense_embedding(query),
+        sparse_vector=get_sparse_embedding(query),
+        filter_=filtro, top_k=limite + 10, alpha=0.7,
+    )
+    return [r for r in resultados if r.id not in ya_presentes][:limite]
+
+
 async def hybrid_search_all_silos(
     query: str,
     estado: Optional[str],
@@ -8559,6 +8625,9 @@ async def hybrid_search_all_silos(
     precomputed_hyde: Optional[str] = None,
     precomputed_juris_concepts: Optional[str] = None,
     skip_post_search: bool = False,  # Skip boost + enrichment + rerank (for secondary queries)
+    # False: la materia no se adivina por palabras clave (ver
+    # _MATERIA_ESTRATEGA_EN_FEDERAL). Una materia forzada —la de un Genio— manda igual.
+    materia_por_palabras: bool = True,
 ) -> List[SearchResult]:
     """
     Ejecuta búsqueda híbrida paralela en silos relevantes según fuero.
@@ -8628,7 +8697,11 @@ async def hybrid_search_all_silos(
     # ═══════════════════════════════════════════════════════════════════════════
     # MATERIA-AWARE RETRIEVAL — Capa 1+2: Detección + Should Filter
     # ═══════════════════════════════════════════════════════════════════════════
-    detected_materias = _detect_materia(query, forced_materia=forced_materia)
+    if forced_materia or materia_por_palabras:
+        detected_materias = _detect_materia(query, forced_materia=forced_materia)
+    else:
+        detected_materias = None
+        print("   🎯 MATERIA: sin palabras clave, la dictamina el Estratega al volver")
     if detected_materias:
         print(f"   🎯 MATERIA DETECTADA: {detected_materias} (forced={forced_materia is not None})")
         # DESACTIVAR HYDE para consultas de materia para evitar contaminación semántica federal
@@ -14656,7 +14729,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             skip_llm_presearch=True,
                             precomputed_plan=_default_plan,
                             precomputed_hyde=None,
-                            precomputed_juris_concepts=precomp_juris_concepts
+                            precomputed_juris_concepts=precomp_juris_concepts,
+                            materia_por_palabras=False,
                         ),
                     ]
                     # Q2 solo si hay expansión de materia disponible (diferente a Q1)
@@ -14672,6 +14746,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 precomputed_plan=_default_plan,
                                 precomputed_hyde=None,
                                 precomputed_juris_concepts=precomp_juris_concepts,
+                                materia_por_palabras=False,
                             )
                         )
                     # Q3: Búsqueda constitucional si hay indicadores
@@ -14692,6 +14767,7 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 precomputed_plan=_default_plan,
                                 precomputed_hyde=None,
                                 precomputed_juris_concepts=precomp_juris_concepts,
+                                materia_por_palabras=False,
                             )
                         )
 
@@ -14721,6 +14797,24 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 _merged.append(_r)
                     semantic_results = _merged
                     print(f"   🔍 MULTI-QUERY FUSIÓN: {len(semantic_results)} docs únicos tras deduplicación")
+
+                    # LA MATERIA LA DICTAMINA EL ESTRATEGA (ver
+                    # _MATERIA_ESTRATEGA_EN_FEDERAL): no filtra, AÑADE los
+                    # federales de su materia. Se piden mientras corre la
+                    # pasada por concepto, que también es sólo Qdrant, y así no
+                    # suman espera. Con un Genio la materia es la suya, y si el
+                    # abogado dejó fuera lo federal, no se cuela por aquí.
+                    _materia_e = None if request.materia else _materia_del_estratega(legal_plan)
+                    _pide_federal = not request.fuero or "federal" in request.fuero.lower()
+                    _materia_task = None
+                    if _materia_e and _pide_federal:
+                        _materia_task = asyncio.create_task(_federales_de_la_materia(
+                            last_user_message, _materia_e, {r.id for r in semantic_results}))
+                    _dijo = legal_plan.get("materia_principal") if isinstance(legal_plan, dict) else None
+                    print(f"   🧭 MATERIA DEL ESTRATEGA: «{_dijo}»"
+                          + (f" → federales de {sorted(_MATERIA_ESTRATEGA_EN_FEDERAL[_materia_e])}"
+                             if _materia_task else " → sin suplemento"))
+                    _n_antes_concepto = len(semantic_results)
 
                     # ── PASADA POR CONCEPTO ──────────────────────────────────
                     # Las tres búsquedas de arriba embeben la pregunta TAL CUAL
@@ -14824,6 +14918,26 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         except Exception as _e_anc:
                             # Nunca romper la consulta por una pasada extra.
                             print(f"   ⚠️ Pasada por concepto falló (no fatal): {err(_e_anc)}")
+
+                    if _materia_task is not None:
+                        try:
+                            _vistos = {r.id for r in semantic_results}
+                            _de_materia = [r for r in await _materia_task if r.id not in _vistos]
+                            if _de_materia:
+                                # Detrás del último federal de la búsqueda
+                                # principal: completan, no desplazan. La pasada
+                                # por concepto sólo antepone, así que la búsqueda
+                                # principal empieza donde acabó ella.
+                                _pos_q1 = len(semantic_results) - _n_antes_concepto
+                                _tras = 1 + max((i for i in range(_pos_q1, len(semantic_results))
+                                                 if getattr(semantic_results[i], "silo", "") == "leyes_federales"),
+                                                default=_pos_q1 - 1)
+                                semantic_results = (semantic_results[:_tras] + _de_materia
+                                                    + semantic_results[_tras:])
+                            print(f"   🧭 MATERIA DEL ESTRATEGA ({_materia_e}): "
+                                  f"+{len(_de_materia)} federales de su materia")
+                        except Exception as _e_materia:
+                            print(f"   ⚠️ Suplemento de materia falló (no fatal): {err(_e_materia)}")
 
                     # ── FRENO DE RUIDO LOCAL EN MATERIA FEDERAL ──────────────
                     # La búsqueda arranca ANTES de que el Estratega dictamine
