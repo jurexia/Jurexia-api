@@ -93,17 +93,43 @@ def test_endpoint_sigue_si_el_modelo_falla():
                     raise RuntimeError("caído")
 
     async def _uid(_):
-        return "usuario-prueba"
+        return "usuario-prueba", "prueba@ejemplo.com"
 
-    antes = (fa._openai, fa._usuario)
-    fa._openai, fa._usuario = (lambda: Roto), _uid
+    async def _con_plan(uid, correo):
+        return None
+
+    antes = (fa._openai, fa._usuario, fa._exigir_plan)
+    fa._openai, fa._usuario, fa._exigir_plan = (lambda: Roto), _uid, _con_plan
     try:
         fa._llamadas.clear()
         req = DeducirRequest(flujo="f", entrega="E", parte="P", campos=CAMPOS)
         r = asyncio.run(fa.flujo_deducir(req, None))
         assert r["aviso"] and len(r["campos"]) == 4
     finally:
-        fa._openai, fa._usuario = antes
+        fa._openai, fa._usuario, fa._exigir_plan = antes
+
+
+def test_limite_por_plan():
+    assert fa.limite_flujos("pro_monthly") == 30 and fa.limite_flujos("pro_annual") == 30
+    assert fa.limite_flujos("platinum_monthly") == 60 and fa.limite_flujos("ultra_secretarios") == 60
+    assert fa.limite_flujos("basico_monthly") == 0 and fa.limite_flujos("gratuito") == 0
+    assert fa.limite_flujos(None) == 0
+
+
+def test_gratuito_no_deduce():
+    async def _plan(uid):
+        return "basico_monthly"
+
+    antes = fa._plan
+    fa._plan = _plan
+    try:
+        try:
+            asyncio.run(fa._exigir_plan("u", "alguien@ejemplo.com"))
+            raise AssertionError("un plan básico no debe deducir")
+        except HTTPException as e:
+            assert e.status_code == 403
+    finally:
+        fa._plan = antes
 
 
 if __name__ == "__main__":

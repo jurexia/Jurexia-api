@@ -19,8 +19,12 @@ respuesta JSON, sin Qdrant—, y no debe tocar el camino crítico del chat. Si
 algo falla aquí, el flujo sigue con los campos vacíos y el abogado los llena.
 
 Coste medido con gpt-6-luna (0.10/0.50 USD por millón): una llamada con 40
-mil caracteres de carpeta ronda 0.002 USD. Por eso no descuenta consultas; lo
-que cuesta es redactar, y eso se cobra en /chat como siempre.
+mil caracteres de carpeta ronda 0.002 USD.
+
+Cómo se cobra (David, 25-sep): los flujos son de Pro en adelante —30 al mes en
+Pro, 60 en Platinum— y cada flujo gasta UNO al empezar (`/flujo/iniciar`,
+función `consumir_flujo` en Supabase), tenga las partes que tenga. Deducir no
+gasta nada, pero sólo lo pide quien tiene flujos en su plan.
 """
 
 from __future__ import annotations
@@ -242,17 +246,82 @@ def normalizar(crudo: Any, campos: list[CampoFlujo]) -> dict:
 
 # ── Quién pregunta ───────────────────────────────────────────────────────────
 
-async def _usuario(request: Request) -> str:
+async def _usuario(request: Request) -> tuple[str, str]:
     token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     if not token:
         raise HTTPException(status_code=401, detail="Falta el token de sesión")
     try:
         quien = await asyncio.to_thread(_admin().auth.get_user, token)
-        return quien.user.id
+        return quien.user.id, (quien.user.email or "").lower()
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+
+
+# La misma base fija que ADMIN_EMAILS en main.py: si la variable se borra o
+# llega vacía, la casa no se queda sin probar sus propios flujos.
+_ADMINS_BASE = {"administracion@iurexia.com", "jdm.juridico@gmail.com"}
+
+
+def _es_admin(correo: str) -> bool:
+    admins = _ADMINS_BASE | {c.strip().lower() for c in os.getenv("ADMIN_EMAILS", "").split(",") if c.strip()}
+    return bool(correo) and correo in admins
+
+
+def limite_flujos(plan: Optional[str]) -> int:
+    """Espejo de `public.limite_flujos` en Supabase (y de `limiteFlujos` en el
+    frontend). Si cambia aquí, cambia en los tres."""
+    plan = (plan or "").strip()
+    if plan.startswith("platinum") or plan == "ultra_secretarios":
+        return 60
+    if plan.startswith("pro"):
+        return 30
+    return 0
+
+
+async def _plan(uid: str) -> Optional[str]:
+    r = await asyncio.to_thread(
+        lambda: _admin().table("user_profiles").select("subscription_type").eq("id", uid).limit(1).execute()
+    )
+    filas = r.data or []
+    return filas[0].get("subscription_type") if filas else None
+
+
+async def _exigir_plan(uid: str, correo: str) -> None:
+    if _es_admin(correo):
+        return
+    if limite_flujos(await _plan(uid)) == 0:
+        raise HTTPException(status_code=403, detail="Los flujos de trabajo están en los planes Pro y Platinum.")
+
+
+_MOTIVOS = {
+    "sin_plan": "Los flujos de trabajo están en los planes Pro y Platinum.",
+    "sin_saldo": "Ya usaste los flujos de trabajo de este mes.",
+    "cuenta_detenida": "Tu cuenta está detenida; revisa tu suscripción.",
+    "sin_perfil": "No encontramos tu perfil. Vuelve a iniciar sesión.",
+}
+
+
+@router.post("/flujo/iniciar")
+async def flujo_iniciar(request: Request):
+    """Gasta UN flujo del mes. Se llama una vez, al empezar el flujo."""
+    uid, correo = await _usuario(request)
+    if _es_admin(correo):
+        return {"ok": True, "ilimitado": True, "usados": 0, "limite": 0, "restantes": None}
+    r = await asyncio.to_thread(lambda: _admin().rpc("consumir_flujo", {"p_user_id": uid}).execute())
+    datos = r.data if isinstance(r.data, dict) else {}
+    if not datos.get("ok"):
+        motivo = datos.get("motivo") or "sin_plan"
+        print(f"   🧭 FLUJO rechazado ({motivo}) · usuario {uid[:8]}")
+        raise HTTPException(status_code=402, detail={
+            "motivo": motivo,
+            "mensaje": _MOTIVOS.get(motivo, "No se pudo iniciar el flujo."),
+            "usados": datos.get("usados", 0),
+            "limite": datos.get("limite", 0),
+        })
+    print(f"   🧭 FLUJO iniciado · {datos.get('usados')}/{datos.get('limite')} · usuario {uid[:8]}")
+    return datos
 
 
 def _frenar(uid: str) -> None:
@@ -267,7 +336,8 @@ def _frenar(uid: str) -> None:
 
 @router.post("/flujo/deducir")
 async def flujo_deducir(req: DeducirRequest, request: Request):
-    uid = await _usuario(request)
+    uid, correo = await _usuario(request)
+    await _exigir_plan(uid, correo)
     _frenar(uid)
 
     t0 = time.perf_counter()
