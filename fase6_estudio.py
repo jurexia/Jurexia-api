@@ -1478,28 +1478,17 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     # Es el mismo fallo que tuvieron las citas, y se arregla igual: repitiendo
     # la orden al final, que es lo último que el modelo lee antes de escribir.
     cierre_marco = ""
-    import formato_sentencia as _fs_cm
-    if (isinstance(marco, str) and marco.strip()
-            and _fs_cm.normalizar(getattr(material, "formato", "")) == _fs_cm.MODERNA):
-        # EN LA MODERNA EL MARCO NO ES UNA CAPA ESCRITA: se usa donde decide.
+    # EL MARCO NO SE ESCRIBE COMO CAPA, EN NINGUNA FORMA (David, 25-sep-2026:
+    # «hay que prescindir del marco jurídico»). Antes esta orden pedía un
+    # apartado de marco antes del caso; ahora el material constitucional se usa
+    # sólo donde decide, dentro de la respuesta a cada planteamiento.
+    if isinstance(marco, str) and marco.strip():
         cierre_marco = """
-Y EL MARCO JURÍDICO QUE SE TE DIO, SÓLO DONDE DECIDE. En esta versión no hay
+Y EL MARCO JURÍDICO QUE SE TE DIO, SÓLO DONDE DECIDE. La sentencia no lleva
 apartado de marco: si un precepto constitucional o convencional es la premisa
-de un problema, enúncialo AHÍ, en una frase, y sigue. Nada de repaso general
-de derechos humanos, de la Convención Americana o de la Corte Interamericana
-que no cambie la respuesta.
-"""
-    elif isinstance(marco, str) and marco.strip():
-        cierre_marco = f"""
-Y USA EL MARCO JURÍDICO QUE SE TE DIO. No es material de consulta: es una capa
-del estudio y va ESCRITA, después de anunciar el sentido y antes de entrar al
-caso concreto. Arranca por la figura jurídica discutida; PARAFRASEA el precepto
-constitucional —«el artículo 4º de la Constitución reconoce…»—, TRANSCRIBE entre
-comillas el precepto local decisivo, y trae la fuente convencional o a la Corte
-Interamericana SÓLO si el problema las exige. Cierra con la bisagra que devuelve
-al expediente —«Con ese marco jurídico, es posible dar solución a los
-planteamientos de {parte}.»— y entra al caso. Un marco que se recibe y
-no se escribe deja el estudio resolviendo sin premisa mayor.
+de un planteamiento, enúncialo AHÍ, en una frase, y sigue. Nada de repaso
+general de derechos humanos, de la Convención Americana o de la Corte
+Interamericana que no cambie la respuesta.
 """
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
 estudio de fondo de {_clase}. Escribes mejor que la media del
@@ -2727,18 +2716,11 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
             f"anclado al principio rector, sin excusarse: la concesiva salva "
             f"una distancia de tema, nunca de entidad federativa.")
 
-    # 1-octies. El marco que se construyó y no se escribió. Medido en el
-    #           360/2025: 6,338 caracteres entregados, cero usados.
-    if marco:
-        arts = set(re.findall(r"Artículo (\d{1,3}) de la Constitución", marco))
-        usados = {a for a in arts
-                  if re.search(r"art[íi]culo\s+" + a + r"[ºo°]?\s+"
-                               r"(?:de\s+la\s+)?constituci", estudio, re.I)}
-        if arts and not usados:
-            avisos.append(
-                f"El marco jurídico trajo el artículo {', '.join(sorted(arts))} "
-                f"constitucional y el estudio NO lo menciona. El marco se "
-                f"recibió y no se escribió: el estudio resuelve sin premisa mayor.")
+    # 1-octies. RETIRADO el 25-sep-2026. Acusaba «el marco se recibió y no se
+    #           escribió» cuando el estudio no mencionaba el artículo
+    #           constitucional del material; desde que no hay apartado de marco
+    #           y el precepto se cita sólo donde decide, no mencionarlo es lo
+    #           correcto en la mayoría de los asuntos.
 
     # 1-nonies. LA TESIS REPETIDA. Tras la cita, el modelo vuelve a contar lo
     #           que la tesis dice en vez de extraer su punto y aplicarlo. Se

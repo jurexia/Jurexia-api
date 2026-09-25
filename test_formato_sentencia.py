@@ -162,11 +162,15 @@ ok(llamadas == {"resolver": 5, "resolver_en_vivo": 5},
    "los DOS redactores pasan cliente y criterios a `_litis_y_material` (arranca la síntesis)")
 ok("_sint.get(\"conceptos\") or r.fases.parrafos_conceptos()" in src_ra, "`_terminar` compone con la síntesis o con el completo")
 ok("_fs_x.sin_contestar(" in src_ra, "`_terminar` comprueba la respuesta por concepto")
-ok(src_ra.count("and not _sin_marco:") == 2, "los DOS redactores omiten el apartado de marco en la moderna")
+ok("redactar_marco(" not in src_ra and src_ra.count("tarea_marco = None") >= 2,
+   "ningún redactor lanza el apartado de marco, en ninguna forma (David, 25-sep)")
 p_mm = f6.prompt_estudio("ACTO", "CONCEPTOS", C93, m_mod, marco="MATERIAL CONSTITUCIONAL")
 p_ms = f6.prompt_estudio("ACTO", "CONCEPTOS", C93, m_std, marco="MATERIAL CONSTITUCIONAL")
 ok("SÓLO DONDE DECIDE" in p_mm and "es una capa" not in p_mm, "moderna: el marco se usa donde decide, no se escribe como capa")
-ok("es una capa" in p_ms and "SÓLO DONDE DECIDE" not in p_ms, "estándar: como siempre")
+ok("SÓLO DONDE DECIDE" in p_ms and "es una capa" not in p_ms, "estándar: igual, sin apartado de marco")
+ok(not any("premisa mayor" in x for x in f6.revisar("Estudio sin artículo constitucional. " * 300, C93, m_std,
+                                                     marco="Artículo 17 de la Constitución")),
+   "no se acusa al estudio por no citar el artículo del material de marco")
 ok("not _ef_escritos" in src_ra, "el aviso de «los EFECTOS los redactas tú» calla si el estudio ya los escribió")
 ok(dg.partir_efectos(["Los conceptos son fundados.", "Es fundado porque…"])[1] == [],
    "y sin efectos escritos el aviso sigue saliendo")

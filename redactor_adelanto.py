@@ -1130,20 +1130,16 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
     # estudio mira el caso— y ponerlas en paralelo hace que el marco no cueste
     # un segundo de espera. Que APAREZCA ya no depende de que el modelo del
     # estudio se acuerde de escribirlo: lo coloca el compositor.
-    # LA MODERNA NO LLEVA APARTADO DE MARCO. Medido en el ADC 93/2026 v11: 791
-    # palabras —el 15 % del proyecto— de doctrina constitucional y
-    # convencional que no decidía nada. «Prescinde de información irrelevante»
-    # (David, 25-sep-2026): el precepto que decide va en la premisa del
-    # problema, dentro del estudio. Además ahorra una llamada.
-    import formato_sentencia as _fs_mc
-    _sin_marco = _fs_mc.normalizar(getattr(e, "formato", "")) == _fs_mc.MODERNA
+    # SIN APARTADO DE MARCO JURÍDICO, EN NINGUNA DE LAS DOS FORMAS. David,
+    # 25-sep-2026: «el marco jurídico se me hace innecesario ya que en cada
+    # caso se cita ley, jurisprudencia para resolver. Hay que prescindir del
+    # marco jurídico». Medido en el ADC 93/2026: 791-873 palabras de repaso
+    # constitucional y convencional que no cambiaban ninguna respuesta, y que
+    # transcribían ley estatal de Querétaro en un juicio federal. El material
+    # constitucional sigue llegando al estudio: se cita donde decide.
+    # `redactar_marco` y la poda de `marco_escrito` en `_terminar` se quedan
+    # vivas pero sin llamada; `tarea_marco` va siempre en None.
     tarea_marco = None
-    if (e.modo or "").lower() == "generado" and (marco or "").strip() \
-            and not _sin_marco:
-        import documento_generado as _dg2
-        tarea_marco = asyncio.create_task(_dg2.redactar_marco(
-            cliente, marco,
-            [p for p in (r.fases.problemas or [])], e.es_recurso, e.tipo_asunto))
 
 
     _litis_y_material(r, material, [], cliente, criterios)
@@ -1302,20 +1298,16 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
         print(f"   ⚠️ TALLER: no se pudo fijar la rama técnica: {type(_e).__name__}")
 
     avisos: list[str] = []
-    # LA MODERNA NO LLEVA APARTADO DE MARCO. Medido en el ADC 93/2026 v11: 791
-    # palabras —el 15 % del proyecto— de doctrina constitucional y
-    # convencional que no decidía nada. «Prescinde de información irrelevante»
-    # (David, 25-sep-2026): el precepto que decide va en la premisa del
-    # problema, dentro del estudio. Además ahorra una llamada.
-    import formato_sentencia as _fs_mc
-    _sin_marco = _fs_mc.normalizar(getattr(e, "formato", "")) == _fs_mc.MODERNA
+    # SIN APARTADO DE MARCO JURÍDICO, EN NINGUNA DE LAS DOS FORMAS. David,
+    # 25-sep-2026: «el marco jurídico se me hace innecesario ya que en cada
+    # caso se cita ley, jurisprudencia para resolver. Hay que prescindir del
+    # marco jurídico». Medido en el ADC 93/2026: 791-873 palabras de repaso
+    # constitucional y convencional que no cambiaban ninguna respuesta, y que
+    # transcribían ley estatal de Querétaro en un juicio federal. El material
+    # constitucional sigue llegando al estudio: se cita donde decide.
+    # `redactar_marco` y la poda de `marco_escrito` en `_terminar` se quedan
+    # vivas pero sin llamada; `tarea_marco` va siempre en None.
     tarea_marco = None
-    if (e.modo or "").lower() == "generado" and (marco or "").strip() \
-            and not _sin_marco:
-        import documento_generado as _dg3
-        tarea_marco = asyncio.create_task(_dg3.redactar_marco(
-            cliente, marco, [p for p in (r.fases.problemas or [])],
-            e.es_recurso, e.tipo_asunto))
 
     estudio = advertencias = ""
     _litis_y_material(r, material, avisos, cliente, criterios)
