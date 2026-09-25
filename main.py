@@ -61,6 +61,7 @@ import httpx  # For Cohere Rerank API calls
 import hashlib  # For semantic cache keys
 import taller_estado as _te
 import fuentes_elegidas as fuentes_sel
+import cache_ocr
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -18224,7 +18225,12 @@ AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT", "").rstrip("/")
 _TRAMO_AZURE = 1000
 
 
-async def _ocr_azure_por_tramos(contenido: bytes, total: int, ya: int) -> str:
+async def _ocr_azure_por_tramos(contenido: bytes, total: int, ya: int) -> tuple[str, bool]:
+    """(texto de los tramos, ¿se leyeron TODOS?).
+
+    Lo segundo decide si la lectura entra en la caché del OCR: un tramo que
+    vuelve vacío corta el bucle, y un documento leído a medias no se congela.
+    """
     partes = []
     inicio = int(ya) + 1
     while inicio <= total:
@@ -18236,7 +18242,7 @@ async def _ocr_azure_por_tramos(contenido: bytes, total: int, ya: int) -> str:
             break
         partes.append(t)
         inicio = fin + 1
-    return "\n\n".join(partes)
+    return "\n\n".join(partes), inicio > total
 
 
 class _OCRIncompleto(Exception):
@@ -18381,6 +18387,18 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
             print(f"   ⚠️ PyMuPDF error: {err(e)}")
             n_pages = 0
 
+        # ── 1b. ¿Este mismo PDF ya se leyó? ──────────────────────
+        #
+        # LA FACTURA DE SEPTIEMBRE FUERON LECTURAS REPETIDAS: 40.18 USD de OCR,
+        # casi todo en dos picos de pruebas del taller contra los mismos
+        # expedientes, pagados otra vez en cada corrida. Ver cache_ocr.py.
+        _huella = await asyncio.to_thread(cache_ocr.huella, content)
+        _guardado = await cache_ocr.leer(supabase_admin, _huella)
+        if _guardado:
+            print(f"   💾 OCR de caché: {len(_guardado)} chars ({n_pages} pág) — "
+                  f"Azure no se vuelve a pagar (huella {_huella[:12]})")
+            return _guardado
+
         # ── 2. Azure Document Intelligence — el OCR rápido ───────
         #
         # MEDIDO SOBRE LAS MISMAS 42 PÁGINAS del ADC 174-2026:
@@ -18400,6 +18418,8 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
                 if texto_az and len(texto_az) > 400:
                     print(f"   ⚡ Azure OCR: {len(texto_az)} chars en "
                           f"{time.time()-t0:.0f}s ({n_pages} pág)")
+                    cache_ocr.guardar_en_segundo_plano(supabase_admin, _huella,
+                                                       texto_az, n_pages)
                     return texto_az
                 print("   ⚠️ Azure devolvió poco texto; se prueba con Gemini")
             except _OCRIncompleto as e:
@@ -18409,14 +18429,19 @@ async def _extract_text_from_upload(file: UploadFile) -> str:
                 # al respaldo, que para ese tamaño es la muerte del trabajador.
                 print(f"   ⚠️ {e}")
                 try:
-                    _resto = await _ocr_azure_por_tramos(content, n_pages, e.leidas)
+                    _resto, _completo = await _ocr_azure_por_tramos(content, n_pages, e.leidas)
                 except Exception as e2:
-                    _resto = ""
+                    _resto, _completo = "", False
                     print(f"   ❌ no se pudo completar por tramos: {err(e2)}")
                 _todo = ((e.texto or "") + ("\n\n" + _resto if _resto else "")).strip()
                 if _todo and len(_todo) > 400:
                     print(f"   ⚡ Azure OCR por tramos: {len(_todo)} chars "
                           f"({n_pages} pág)")
+                    # Sólo lo leído ENTERO se guarda: lo que quedó a medias se
+                    # vuelve a intentar la próxima vez en vez de congelarse.
+                    if _completo:
+                        cache_ocr.guardar_en_segundo_plano(supabase_admin, _huella,
+                                                           _todo, n_pages)
                     return _todo
                 print("   ⚠️ ni por tramos; se prueba con Gemini")
             except Exception as e:
