@@ -82,6 +82,12 @@ scripts/
 # Render el módulo carga vacío y cada precepto de esa ley vuelve a la lotería
 # del acervo. Detectado en el log del 536/2025 (17-sep-2026).
 !normas_ley_de_amparo.json
+# La Corte IDH en el chat (25-sep-2026): el catálogo que lee el resolvedor
+# (coidh_catalogo.py) y la línea curada que lee linea_coidh.py. Sin ellos, en
+# Render el resolvedor no carga y la línea queda vacía. Sólo estos dos: el
+# resto de datos/*.json sigue fuera.
+!datos/coidh_catalogo.json
+!datos/lineas_coidh.json
 _catalog_*.json
 sise_*.json
 debug_resp.json

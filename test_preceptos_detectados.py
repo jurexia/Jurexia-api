@@ -44,8 +44,10 @@ def _cargar_de_main():
     tramos = [
         # el recortador de nombres de ley, con sus conectores
         ('_CONECTORES_LEY = {', "# «federal», «local» y sus hermanas NO son ruido"),
-        # el detector nuevo
-        ('# ── EL DETECTOR DE PRECEPTOS CITADOS', 'def _extract_legal_citations(text: str) -> dict:'),
+        # el detector nuevo. El ancla de cierre es el NOMBRE de la función, no
+        # su firma entera: el 25-sep-2026 ganó `pregunta_coidh` y `previo_coidh`
+        # (los casos de la Corte IDH) y la firma literal dejó de casar.
+        ('# ── EL DETECTOR DE PRECEPTOS CITADOS', 'def _extract_legal_citations('),
     ]
     for ini, fin in tramos:
         if ini not in src or fin not in src:

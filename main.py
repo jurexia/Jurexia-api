@@ -3170,6 +3170,31 @@ class SearchResult(BaseModel):
     distincion: Optional[str] = None
     sentido_del_criterio: Optional[str] = None
     obiter_dicta: Optional[str] = None
+    # ── Corte IDH (25-sep-2026): el contrato con el frontend ───────────
+    # Sólo los llena el silo «coidh» (linea_coidh.py); en los demás quedan en
+    # None. `pdf_url` = `url_oficial`, SIN «#page»: la página viaja aparte
+    # (con #page pegado la app Android dejaba de reconocer el PDF, plan §3.8).
+    # `pagina` es la del PDF en base 1 donde EMPIEZA el párrafo; el visor
+    # resalta de «N.» a «N+1.» y confirma con `ancla` (~15 palabras literales).
+    tipo: Optional[str] = None            # sentencia_coidh | voto_coidh | resolutivo_coidh | oc_coidh | supervision_coidh
+    url_oficial: Optional[str] = None
+    pagina: Optional[int] = None
+    parrafo: Optional[str] = None         # «124», «8»; None en ventanas sin numerar
+    seg: Optional[str] = None             # sentencia | voto | resolutivos | considerandos
+    voto_autor: Optional[str] = None      # nombre del juez
+    caso: Optional[str] = None            # «Almonacid Arellano y otros Vs. Chile»
+    serie: Optional[str] = None           # «Serie C No. 154»
+    fecha: Optional[str] = None           # «2006-09-26»
+    ancla: Optional[str] = None
+    cita_canonica: Optional[str] = None
+    llave: Optional[str] = None           # «C-154|s|124»
+    # Para versionar la caché del visor (&v=<sha1[:8]>): si la Corte reemplaza
+    # el PDF, el sha1 cambia y el CDN no sirve la copia vieja 30 días.
+    pdf_sha1: Optional[str] = None
+    # pedido | vecino | resolutivo | destacado | hito | ficha | supervision.
+    # Ordena el bloque <casos_corte_idh> y le dice al visor si es una ficha
+    # sin texto (no hay párrafo que resaltar), sin adivinarlo por la nota.
+    rol_coidh: Optional[str] = None
 
 
 class SearchResponse(BaseModel):
@@ -3316,7 +3341,8 @@ def _resolve_treaty_pdf(origen: str) -> Optional[str]:
     return None
 
 
-def resolver_pdf(pdf_en_payload: Optional[str], origen: Optional[str], silo: Optional[str] = None) -> Optional[str]:
+def resolver_pdf(pdf_en_payload: Optional[str], origen: Optional[str], silo: Optional[str] = None,
+                 url_oficial: Optional[str] = None) -> Optional[str]:
     """
     El PDF de ESTE documento, o None. Nunca el de otro.
 
@@ -3324,7 +3350,13 @@ def resolver_pdf(pdf_en_payload: Optional[str], origen: Optional[str], silo: Opt
     ingesta), luego el tratado concreto, y por último la Constitución **sólo si
     el documento es la Constitución**. No hay comodín por silo: si no sabemos,
     la app enseña el texto y dice que no hay PDF, que es la verdad.
+
+    `url_oficial` (Corte IDH, 25-sep-2026) va antes que todo: es el PDF de
+    corteidh.or.cr que la ingesta cotejó página por página, sin «#page» —la
+    página viaja aparte—. El visor lo abre por el proxy /api/ley/pdf.
     """
+    if url_oficial:
+        return url_oficial.split("#")[0]
     if pdf_en_payload:
         return pdf_en_payload
     tratado = _resolve_treaty_pdf(origen or "")
@@ -6199,6 +6231,11 @@ SILO_HIERARCHY_PRIORITY: Dict[str, int] = {
     "jurisprudencia_nacional_v3": 3,
     "jurisprudencia_tcc": 3,
     "jurisprudencia": 3,
+    # Corte IDH (25-sep-2026): junto a la jurisprudencia, NO en el nivel 0
+    # (rotularía «CONSTITUCION») ni en el 2 por omisión («LEY_ESTATAL»). En el
+    # chat ni siquiera pasa por aquí: va en su propio bloque (revisión A.3);
+    # esto es la red por si otro camino la ordena.
+    "coidh": 3,
 }
 
 
@@ -6208,6 +6245,8 @@ def _get_jerarquia_label(silo: str) -> str:
     Esta etiqueta se incluye en el XML del contexto para que el LLM
     pueda aplicar la regla de supremacía (REGLA #6 del system prompt).
     """
+    if silo == "coidh":
+        return "JURISPRUDENCIA_INTERAMERICANA"
     level = SILO_HIERARCHY_PRIORITY.get(silo, 2)
     if level == 0:
         return "CONSTITUCION"
@@ -6730,6 +6769,14 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             'que vengan aquí, además de la Constitución y la ley. -->'
         )
     
+    # ── LA CORTE IDH NO SE ORDENA AQUÍ (revisión A.3, 25-sep-2026) ──
+    # reorder_by_hierarchy ordena por (nivel, −puntaje): el párrafo que el
+    # abogado citó quedaba detrás de toda la Constitución y de todas las leyes,
+    # y la línea perdía la cronología. Sus documentos siguen en search_results
+    # y en el doc_id_map —[Doc ID] y el sello funcionan igual—, pero su XML lo
+    # AÑADE quien llama, después de esto: `_coidh_xml_resueltos` y la línea.
+    results = [r for r in results if r.silo != "coidh"]
+
     # ── REGLA DE JERARQUÍA: Reordenar para que CPEUM/leyes precedan jurisprudencia ──
     # Esto garantiza que el LLM vea primero la norma vigente y después las tesis.
     # Evita que jurisprudencia pre-reforma 2024 domine el análisis.
@@ -7456,6 +7503,9 @@ async def hybrid_search_single_silo(
                 distincion=payload.get("distincion") if payload.get("distincion") != "null" else None,
                 sentido_del_criterio=payload.get("sentido_del_criterio"),
                 obiter_dicta=payload.get("obiter_dicta") if payload.get("obiter_dicta") != "null" else None,
+                # Corte IDH (25-sep-2026): el contrato, leído con .get y sólo
+                # para su silo; en los demás no se toca nada.
+                **(_campos_contrato_coidh(payload) if collection == "coidh" else {}),
             ))
         return parsed
     
@@ -10052,6 +10102,10 @@ _COLECCIONES_CITA = list(dict.fromkeys(
     + [LEGACY_ESTATAL_SILO]
     + list(ESTADO_SILO.values())
     + list(SENTENCIA_SILOS.values())
+    # La Corte IDH (25-sep-2026), antes de la doctrina: es fuente primaria
+    # interamericana. Sin esto, las citas de los turnos siguientes no abren.
+    # Mientras la colección no exista, su consulta falla y se ignora.
+    + ["coidh"]
     # La doctrina va al final a propósito: es fuente secundaria, y hasta hoy
     # ni siquiera estaba, que es la razón de que las citas de Ferrer Mac-Gregor
     # se vieran en la respuesta y no abrieran nada.
@@ -10114,6 +10168,15 @@ async def _fuentes_ya_verificadas(ids: List[str]) -> List[SearchResult]:
     _salida: List[SearchResult] = []
     for _clave, (_col, _p) in _por_id.items():
         _pay = _p.payload or {}
+        # Corte IDH (25-sep-2026): con su contrato (página, párrafo, ancla…),
+        # para que la cita del turno anterior abra en su página.
+        if _col == "coidh":
+            try:
+                import linea_coidh as _lc
+                _salida.append(_sr_de(dict(_lc.contrato(_clave, _pay, score=2.0), rol_coidh="pedido")))
+            except Exception:
+                pass
+            continue
         _registro = _pay.get("registro")
         _texto = (_pay.get("texto") or _pay.get("text") or _pay.get("holding")
                   or _pay.get("chunk_text") or "")
@@ -10136,6 +10199,18 @@ async def _fuentes_ya_verificadas(ids: List[str]) -> List[SearchResult]:
             tesis_num=(_pay.get("clave_tesis") or _pay.get("numero_tesis")
                        or _pay.get("tesis_num")),
         ))
+    # Las fichas de la Corte IDH (resolución o hito sin ingerir) no viven en
+    # Qdrant: su id se reconstruye (linea_coidh.ficha_id).
+    for _i in _limpios:
+        if _i in _por_id:
+            continue
+        try:
+            import linea_coidh as _lc
+            _f = _lc.ficha_por_id(_i)
+            if _f:
+                _salida.append(_sr_de(dict(_f, score=2.0)))
+        except Exception:
+            pass
     # Se devuelven en el orden en que el abogado las citó, no en el de Qdrant.
     _orden = {i: n for n, i in enumerate(_limpios)}
     _salida.sort(key=lambda r: _orden.get(r.id, 999))
@@ -10793,11 +10868,26 @@ async def resolver_cita(doc_id: str):
     resultados = await asyncio.gather(*[_buscar(c) for c in _COLECCIONES_CITA])
     hallados = [r for r in resultados if r]
     if not hallados:
+        # Una ficha de la Corte IDH (resolución o hito sin ingerir) no vive en
+        # Qdrant, pero su id se reconstruye: devuelve cita y URL oficial.
+        try:
+            import linea_coidh as _lc
+            _f = _lc.ficha_por_id(doc_id)
+        except Exception:
+            _f = None
+        if _f:
+            return _cita_coidh(_sr_de(_f))
         raise HTTPException(404, "Documento no encontrado")
 
     # Respetar el orden de prioridad de la lista, no el orden de llegada.
     hallados.sort(key=lambda r: _COLECCIONES_CITA.index(r[0]))
     col, pay = hallados[0]
+
+    # La Corte IDH (25-sep-2026): el contrato completo —página, párrafo, ancla,
+    # cita canónica—, para que el visor abra el PDF oficial en su página.
+    if col == "coidh":
+        import linea_coidh as _lc
+        return _cita_coidh(_sr_de(_lc.contrato(doc_id, pay)))
 
     # El mismo contrato que las entradas de CITATION_META.sources, para que la
     # app pueda usar la respuesta sin un mapeo aparte.
@@ -11333,6 +11423,9 @@ def _marcador_fuentes_previas(results: List["SearchResult"]) -> str:
                 "tipo_criterio": getattr(_d, "tipo_criterio", None) or None,
                 "instancia": getattr(_d, "instancia_meta", None) or None,
                 "materia": getattr(_d, "materia_meta", None) or None,
+                # Corte IDH (25-sep-2026): página, párrafo, ancla… Nada para
+                # los demás silos.
+                **_campos_coidh(_d),
             }
         except Exception:
             continue
@@ -11367,6 +11460,7 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
                 "tipo_criterio": getattr(doc, "tipo_criterio", None) or None,
                 "instancia": getattr(doc, "instancia_meta", None) or None,
                 "materia": getattr(doc, "materia_meta", None) or None,
+                **_campos_coidh(doc),          # Corte IDH (25-sep-2026)
             }
         else:
             sources_map[cv.doc_id] = {"origen": "Fuente no verificada", "ref": "", "texto": ""}
@@ -12346,6 +12440,7 @@ PROTOCOLO_SCJN_KEYWORDS = [
 async def get_full_document(
     origen: str,
     highlight_chunk_id: Optional[str] = None,
+    silo: Optional[str] = None,
 ):
     """
     Reconstruye el documento completo buscando todos los chunks con el mismo
@@ -12356,6 +12451,30 @@ async def get_full_document(
     """
     print(f"   📖 /document-full called | origen='{origen}' | highlight={highlight_chunk_id}")
     
+    # ── LA CORTE IDH: su resolución entera, por `orden` (25-sep-2026) ──
+    # Por el punto citado (highlight) se sabe la resolución; se reconstruye
+    # en el orden del PDF —no por chunk_index, que la colección no tiene— y
+    # con la URL oficial de corteidh.or.cr, que no se descarta. Si no es de la
+    # Corte o la colección no está, sigue la ruta de siempre.
+    if highlight_chunk_id and (silo == "coidh" or (origen or "").startswith("Corte IDH")):
+        try:
+            import linea_coidh as _lc
+            _doc = await _lc.documento_completo(qdrant_client, highlight_id=highlight_chunk_id)
+            if not _doc:
+                # Una ficha (sin ingerir): su cita y la URL oficial, sin texto.
+                _f = _lc.ficha_por_id(highlight_chunk_id)
+                if _f:
+                    _doc = dict(origen=_f["origen"], titulo=_f["origen"], tipo=_f.get("tipo"),
+                                texto_completo=_f["texto"], total_chunks=1, highlight_chunk_index=0,
+                                source_doc_url=_f.get("url_oficial"),
+                                metadata={k: v for k, v in _lc.publico(_f).items()
+                                          if k in _CAMPOS_COIDH and v is not None})
+        except Exception as _e_doc:
+            print(f"   ⚖️ COIDH /document-full: {type(_e_doc).__name__}")
+            _doc = None
+        if _doc:
+            return FullDocumentResponse(**_doc)
+
     # ── Detectar si es un Protocolo SCJN → link externo ──
     origen_lower = origen.lower()
     is_protocolo = any(kw in origen_lower for kw in PROTOCOLO_SCJN_KEYWORDS)
@@ -12896,7 +13015,8 @@ def _numeros_citados(nums_raw: str) -> list:
     return fuera or re.findall(r'\d{1,4}', nums_raw)
 
 
-def _extract_legal_citations(text: str) -> dict:
+def _extract_legal_citations(text: str, pregunta_coidh: Optional[str] = None,
+                              previo_coidh: Optional[str] = None) -> dict:
     """
     Parse a legal document text to extract specific citations for direct lookup.
     
@@ -12904,8 +13024,9 @@ def _extract_legal_citations(text: str) -> dict:
     - articles: list of {"nums": ["163", "8"], "law_hint": "Código Civil", "state_hint": "Querétaro"}
     - registros: list of str (e.g., ["2031072", "2028456"])
     - tesis_nums: list of str (e.g., ["P./J. 15/2025 (11a.)"])
+    - casos_coidh: casos de la Corte IDH que nombra la PREGUNTA (ver el punto 4)
     """
-    result = {"articles": [], "registros": [], "tesis_nums": []}
+    result = {"articles": [], "registros": [], "tesis_nums": [], "casos_coidh": []}
     # La anáfora del apartado DERECHO —«el artículo 942 del mismo ordenamiento»—
     # hereda el último nombre de ley que el escrito dijo entero.
     _ultima_ley = ''
@@ -13014,6 +13135,27 @@ def _extract_legal_citations(text: str) -> dict:
     
     result["tesis_nums"] = list(tesis_found)[:20]  # Cap at 20
     
+    # ── 4. Casos de la Corte IDH: «Almonacid, párr. 124» (25-sep-2026) ──
+    #
+    # Sobre la PREGUNTA, no sobre `text`: aquí llegan también escritos de 30
+    # mil caracteres y con ellos cada demanda de amparo abriría la puerta
+    # (revisión B.8: apagado para documentos en el piloto). Quien no pasa
+    # `pregunta_coidh` —las rutas de documento y de sentencia— no la abre.
+    # Recortada a 4,000 caracteres, como se midió: 1 disparo en 4,000
+    # preguntas reales (0.03 %) y 0 por apellido sin pista; p99 23 ms con
+    # 30 mil. `previo_coidh` es la última llave citada en la conversación,
+    # para «¿y el párrafo 125?» (revisión B.7).
+    if pregunta_coidh:
+        try:
+            import linea_coidh as _lc
+            if _lc.modo() != "off":
+                import coidh_catalogo as _cc
+                result["casos_coidh"] = _cc.resolver_citas_coidh(
+                    pregunta_coidh[:_lc.TOPE_PREGUNTA], max_resultados=_lc.MAX_CASOS,
+                    previo=previo_coidh)
+        except Exception as _e_cc:
+            print(f"   ⚖️ COIDH: el resolvedor falló ({type(_e_cc).__name__}); se sigue sin casos")
+
     return result
 
 
@@ -13075,6 +13217,164 @@ async def _articulo_federal_exacto(ley: str, art_num) -> list:
         return (clase, ref, int(pl.get("chunk_index") or 0))
 
     return sorted(pts, key=_orden)[:6]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LA CORTE IDH EN EL CHAT (25-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Plan reingesta/coidh/plan_ingesta_coidh.md §3.5-3.7 con su revisión escéptica
+# (A.1, A.3, B.7, B.8, B.10, C.18). La lógica vive en linea_coidh.py y en
+# coidh_catalogo.py; aquí sólo las costuras con el chat. Todo entra SUMANDO y
+# nunca por hybrid_search_all_silos: el reparto por familias descarta sin
+# avisar un silo que no conoce. Y nada de esto puede costar la consulta: si
+# la colección `coidh` no existe (hoy no existe) o falla, se registra y se
+# sigue exactamente como antes.
+
+_CAMPOS_COIDH = ("tipo", "url_oficial", "pagina", "parrafo", "seg", "voto_autor", "caso",
+                 "serie", "fecha", "ancla", "cita_canonica", "llave", "pdf_sha1", "rol_coidh")
+
+
+def _campos_contrato_coidh(payload: dict) -> dict:
+    """Del payload de la colección `coidh`, los campos del contrato que no
+    trae SearchResult de siempre (para `_parse_results`)."""
+    try:
+        import linea_coidh as _lc
+        c = _lc.contrato(None, payload or {})
+        return {k: c.get(k) for k in _CAMPOS_COIDH}
+    except Exception:
+        return {}
+
+
+def _sr_de(d: dict) -> SearchResult:
+    """Un dict con claves de SearchResult (los que arma linea_coidh) → SearchResult."""
+    return SearchResult(**{k: v for k, v in d.items() if k in SearchResult.model_fields})
+
+
+def _campos_coidh(doc) -> dict:
+    """Lo que los marcadores de fuentes (FUENTES_PREVIAS, CITATION_META) y
+    /cita añaden para la Corte IDH: el contrato completo. Vacío para cualquier
+    otro silo, así que en las fuentes de siempre no cambia ni una clave."""
+    if getattr(doc, "silo", None) != "coidh":
+        return {}
+    url = resolver_pdf(getattr(doc, "pdf_url", None), getattr(doc, "origen", None), "coidh",
+                       url_oficial=getattr(doc, "url_oficial", None))
+    salida = {"silo": "coidh", "pdf_url": url, "url_oficial": getattr(doc, "url_oficial", None) or url}
+    for k in _CAMPOS_COIDH:
+        if k not in salida:
+            salida[k] = getattr(doc, k, None)
+    return salida
+
+
+def _cita_coidh(doc: SearchResult) -> dict:
+    """/cita para la Corte IDH: las claves de CITATION_META.sources (la app no
+    necesita otro mapeo) más el contrato."""
+    return {
+        "origen": humanize_origen(doc.origen) or "Corte IDH",
+        "ref": doc.ref or "",
+        "texto": doc.texto or "",
+        "pdf_url": None, "silo": "coidh", "entidad": None, "registro": None, "tesis_num": None,
+        "tipo_criterio": doc.tipo, "instancia": "Corte Interamericana de Derechos Humanos",
+        "materia": None,
+        **_campos_coidh(doc),
+    }
+
+
+def _tesis_a_dict(pid: str, pl: dict, silo: str) -> dict:
+    """Una tesis traída por registro para la línea (recepción en México), con
+    la misma forma que le da `_parse_results`: el visor de tesis la reconoce
+    por su `origen` «REGISTRO_CLAVE.txt» y su cabecera [TIPO:…]."""
+    registro = str(pl.get("registro")) if pl.get("registro") else None
+    tesis_num = (pl.get("tesis") or pl.get("numero_tesis") or pl.get("clave_tesis") or pl.get("tesis_num"))
+    materia = pl.get("materia")
+    if isinstance(materia, list):
+        materia = ", ".join(str(m) for m in materia) if materia else None
+    return dict(
+        id=str(pid), score=1.0, texto=_con_rubro(pl),
+        ref=pl.get("ref") or pl.get("rubro") or tesis_num or (f"Registro {registro}" if registro else None),
+        origen=(pl.get("origen") or _origen_tesis(pl) or None),
+        jurisdiccion=pl.get("jurisdiccion"), entidad=pl.get("entidad"), silo=silo,
+        pdf_url=pl.get("pdf_url") or pl.get("url_pdf"), registro=registro, tesis_num=tesis_num,
+        tipo_criterio=pl.get("tipo") or pl.get("tipo_criterio"), instancia_meta=pl.get("instancia"),
+        materia_meta=materia, localizacion=pl.get("localizacion"), vincula=pl.get("vincula"),
+    )
+
+
+def _norma_a_dict(pid: str, pl: dict, silo: str) -> dict:
+    """Un artículo constitucional traído por id para la línea (art. 19 y demás)."""
+    return dict(
+        id=str(pid), score=1.0, texto=pl.get("texto") or pl.get("text") or "",
+        ref=pl.get("ref"), origen=pl.get("origen"), jurisdiccion=pl.get("jurisdiccion"),
+        entidad=pl.get("entidad"), silo=silo, pdf_url=pl.get("pdf_url") or pl.get("url_pdf"),
+    )
+
+
+async def _coidh_puerta(user_id: Optional[str], fuentes: Optional[frozenset] = None) -> Tuple[bool, str]:
+    """(¿pasa?, por qué) según COIDH_ACTIVO. Con «admins» —el piloto— sólo
+    pasa quien está en ADMIN_EMAILS, leído del perfil igual que el candado de
+    Platinum (`_plan_para_redaccion`). Sin usuario, sin perfil o sin poder
+    leerlo en 4 s, NO pasa: equivocarse hacia arriba abre el piloto a todos.
+
+    EL SELECTOR DE FUENTES MANDA ANTES QUE EL PILOTO (revisión del
+    25-sep-2026). La Corte IDH es del rubro «constitucional» —así se lo dice
+    `fuentes_elegidas.instruccion()` al modelo: «bloque de constitucionalidad
+    (…) y jurisprudencia de la Corte Interamericana»—. La colección `coidh`
+    no está en `fuentes_elegidas.categoria()`, así que el veto del cliente
+    de Qdrant la dejaba pasar, y las fichas ni siquiera tocan Qdrant: con ese
+    rubro apagado el modelo recibía a la vez «esta fuente está apagada» y un
+    bloque <casos_corte_idh>. Ahora se cierra aquí, para todas las entradas."""
+    import linea_coidh as _lc
+    m = _lc.modo()
+    if m != "off" and fuentes_sel.excluye("constitucional", fuentes):
+        return False, "selector"
+    if m == "on":
+        return True, "on"
+    if m == "off" or not user_id:
+        return False, m if m == "off" else "admins:sin-usuario"
+    try:
+        _, _es_admin, _ = await asyncio.wait_for(_plan_para_redaccion(user_id), timeout=4.0)
+    except Exception:
+        return False, "admins:sin-perfil"
+    return (True, "admins") if _es_admin else (False, "admins:no-admin")
+
+
+def _coidh_xml_resueltos(results: List[SearchResult], casos: Optional[list] = None) -> str:
+    """El bloque <casos_corte_idh> que se AÑADE después de format_results_as_xml
+    (revisión A.3), o "" si no hay nada de la Corte. Los ambiguos (sin
+    documento, con candidatos) van declarados para que el modelo pregunte."""
+    try:
+        import linea_coidh as _lc
+        docs = [r for r in results if r.silo == "coidh"]
+        ambiguos = [c for c in (casos or []) if not c.get("doc_id") and c.get("candidatos")]
+        if not docs and not ambiguos:
+            return ""
+        return "\n\n" + _lc.bloque_resueltos_xml(docs, ambiguos)
+    except Exception as e:
+        print(f"   ⚖️ COIDH: no pude armar el bloque de casos ({type(e).__name__}); se sigue sin él")
+        return ""
+
+
+def _coidh_sumar_linea(lin: Optional[dict], search_results: List[SearchResult],
+                       doc_id_map: Dict[str, SearchResult]) -> Tuple[str, int]:
+    """Los documentos de la línea a search_results y al doc_id_map —[Doc ID],
+    sello y marcadores de fuentes— y su XML para AÑADIR al contexto. Lo que ya
+    venía (el ¶124 que trajo el resolvedor, una tesis de la búsqueda) no se
+    duplica: su id es el mismo punto de Qdrant."""
+    if not lin or not lin.get("xml"):
+        return "", 0
+    ya = {r.id for r in search_results}
+    n = 0
+    for d in lin.get("docs") or []:
+        if not d.get("id") or d["id"] in ya:
+            continue
+        try:
+            sr = _sr_de(d)
+        except Exception:
+            continue
+        search_results.append(sr)
+        doc_id_map[sr.id] = sr
+        ya.add(sr.id)
+        n += 1
+    return "\n\n" + lin["xml"], n
 
 
 async def _buscar_articulos_citados(
@@ -13501,6 +13801,34 @@ async def _buscar_articulos_citados(
         except Exception as e:
             print(f"   ⚠️ Direct lookup error for tesis {tesis_num}: {err(e)}")
     
+    # ── 4. Casos Corte IDH (25-sep-2026) ──
+    # El párrafo que se citó, por su llave («C-154|s|124») y con score 1.0,
+    # más un vecino a cada lado por `orden`; sin párrafo, los resolutivos y
+    # los tres más citados; sin ingesta, la ficha del catálogo con su cita y
+    # su URL oficial, sin una palabra inventada (linea_coidh.traer_citados).
+    # Aquí ya llegan filtrados por la puerta (COIDH_ACTIVO). Si la colección
+    # no existe, no entra nada —tampoco fichas— y la consulta sigue igual.
+    if citations.get("casos_coidh"):
+        try:
+            import linea_coidh as _lc
+            for _d in await _lc.traer_citados(qdrant_client, citations["casos_coidh"]):
+                if _d["id"] in seen_ids:
+                    continue
+                seen_ids.add(_d["id"])
+                results.append(_sr_de(_d))
+                found_refs.append(_d.get("llave") or _d["id"])
+        except Exception as e:
+            # Tampoco el aviso de cita ambigua (revisión del 25-sep-2026): con
+            # «Velásquez Rodríguez, párr. 166» y sin colección, el bloque
+            # <casos_corte_idh> entraba igual, sólo con <cita_ambigua>, y el
+            # modelo le pedía al abogado elegir un caso que después no se
+            # podía traer. Se vacía aquí —es el mismo dict que lee
+            # _coidh_xml_resueltos después de esperar esta búsqueda— y la
+            # consulta queda idéntica a la de antes.
+            citations["casos_coidh"] = []
+            print(f"   ⚖️ COIDH: la colección «coidh» no responde ({type(e).__name__}); "
+                  "los casos citados no entran y la consulta sigue igual")
+
     print(f"   📌 DIRECT LOOKUP SUMMARY: Found {len(results)} items "
           f"({lookup_count}/{MAX_LOOKUPS} queries used)")
     if found_refs:
@@ -14320,6 +14648,39 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     # Este buzón vive en el ámbito de chat_endpoint, así que ambas hijas lo ven.
     _plan_estratega: Dict[str, Any] = {}
 
+    # ── CORTE IDH: la pregunta tal cual, la cita anterior y la puerta ────────
+    # (25-sep-2026) El resolvedor mira la PREGUNTA del abogado, no la
+    # reescritura del hilo: ésta está pensada para leyes y tesis y en «¿y el
+    # párrafo 125?» puede perder el caso; por eso se le da la última llave
+    # citada en la conversación (revisión B.7). Con documento o sentencia no
+    # se usa en el piloto (revisión B.8). La puerta (COIDH_ACTIVO) se consulta
+    # UNA vez por consulta aunque la pidan el resolvedor y la línea, y sólo si
+    # alguno encontró algo: el 99.7 % de las consultas no paga ni la lectura
+    # del perfil. `_coidh_info` junta lo que sale en la línea «⚖️ COIDH:».
+    _pregunta_coidh = ("" if (has_document or is_sentencia or is_precedentes_mode)
+                       else (last_user_message or "")[:4000])
+    _previo_coidh = None
+    _coidh_info: Dict[str, Any] = {}
+    _coidh_estado: Dict[str, Any] = {}
+    try:
+        import linea_coidh as _lc_chat
+        if _pregunta_coidh and _lc_chat.modo() != "off":
+            _previo_coidh = _lc_chat.previo_de_historial(request.messages, _pregunta_coidh)
+    except Exception as _e_prev:
+        print(f"   ⚖️ COIDH: sin cita previa ({type(_e_prev).__name__})")
+
+    async def _coidh_permitido() -> bool:
+        if "t" not in _coidh_estado:
+            # Con el selector de esta consulta: «constitucional» apagado
+            # cierra la puerta (ver _coidh_puerta).
+            _coidh_estado["t"] = asyncio.ensure_future(_coidh_puerta(request.user_id, _fuentes_elegidas))
+        try:
+            _ok, _por = await asyncio.shield(_coidh_estado["t"])
+        except Exception:
+            _ok, _por = False, "error"
+        _coidh_info["puerta"] = "abierta" if _ok else f"cerrada({_por})"
+        return _ok
+
     try:
         # Define search as a local async block for gather
         async def _perform_retrieval():
@@ -14666,7 +15027,17 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     # Corre en paralelo con la búsqueda semántica.
                     # Garantiza recuperar "Art. 23, 27, 32 CPEUM" y "Art. 2, 8, 9 LGTOC"
                     # aunque la búsqueda semántica no los recupere.
-                    _citations = _extract_legal_citations(last_user_message)
+                    # Corte IDH (25-sep-2026): los casos salen de la PREGUNTA,
+                    # no de la reescritura del hilo, y sólo pasan si la puerta
+                    # (COIDH_ACTIVO) se abre para este usuario.
+                    _citations = _extract_legal_citations(
+                        last_user_message, pregunta_coidh=_pregunta_coidh, previo_coidh=_previo_coidh)
+                    if _citations.get("casos_coidh"):
+                        _coidh_info["resueltos"] = [
+                            ",".join((c.get("llaves") or [c.get("doc_id") or "ambigua"])[:3])
+                            for c in _citations["casos_coidh"]]
+                        if not await _coidh_permitido():
+                            _citations["casos_coidh"] = []
                     _has_explicit_citations = bool(_citations)
                     
                     if _has_explicit_citations:
@@ -15033,6 +15404,13 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                     
                     doc_id_map = build_doc_id_map(search_results)
                     context_xml = format_results_as_xml(search_results, estado=effective_estado, prose_mode=is_chat_drafting)
+                    # Corte IDH (revisión A.3): los párrafos citados van en su
+                    # bloque, DESPUÉS del contexto normal y fuera de
+                    # reorder_by_hierarchy; su [Doc ID] ya está en doc_id_map.
+                    _xml_casos = _coidh_xml_resueltos(search_results, _citations.get("casos_coidh"))
+                    if _xml_casos:
+                        context_xml += _xml_casos
+                        _coidh_info["n_resueltos"] = sum(1 for r in search_results if r.silo == "coidh")
 
             return search_results, doc_id_map, context_xml
 
@@ -15180,6 +15558,40 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             aplica=not (has_document or is_sentencia or is_drafting)))
         retrieval_task = asyncio.create_task(_perform_retrieval())
 
+        # ── LA LÍNEA JURISPRUDENCIAL DE LA CORTE IDH (25-sep-2026) ───────────
+        # Como la doctrina: una tarea en paralelo con el RAG que se espera con
+        # tiempo límite después del gather. Sin embeddings: detecta la figura
+        # o el tema en la pregunta (y, si no, en la del hilo: «¿desde cuándo es
+        # ex officio?» tras hablar del control), abre la puerta y trae los
+        # hitos por llave. Va DESPUÉS de crear _hilo_task, que la tarea espera.
+        # Fuera documentos, sentencias y Precedentes (revisión B.8).
+        _linea_task = None
+        try:
+            import linea_coidh as _lc_linea
+            if _pregunta_coidh and _lc_linea.modo() != "off":
+                async def _buscar_linea_coidh():
+                    try:
+                        _det = _lc_linea.pregunta_por_linea(_pregunta_coidh)
+                        if _det is None:
+                            _hilo = await _hilo_task
+                            if _hilo and _hilo != _pregunta_coidh:
+                                _det = _lc_linea.pregunta_por_linea(_hilo)
+                        if _det is None:
+                            return None
+                        _coidh_info["linea"] = (",".join(_det[1]) or _det[0])
+                        if not await _coidh_permitido():
+                            return None
+                        return await _lc_linea.traer_linea(
+                            qdrant_client, _det, coleccion_tesis=FIXED_SILOS["jurisprudencia"],
+                            coleccion_constitucion=FIXED_SILOS["constitucional"],
+                            tesis_a_dict=_tesis_a_dict, norma_a_dict=_norma_a_dict)
+                    except Exception as _e_lin:
+                        print(f"   ⚖️ COIDH: la línea falló ({type(_e_lin).__name__}); la consulta sigue sin ella")
+                        return None
+                _linea_task = asyncio.create_task(_buscar_linea_coidh())
+        except Exception as _e_lt:
+            print(f"   ⚖️ COIDH: no pude lanzar la línea ({type(_e_lt).__name__})")
+
         # ══ WAITING FOR ALL CONCURRENT TASKS ══
         # IMPORTANTE: cache_task tiene timeout de 8s.
         # Si Google AI Studio tarda más (cold start, latencia de red),
@@ -15313,6 +15725,14 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 if getattr(request, "fuentes_previas", None):
                     try:
                         _verificadas = await _fuentes_ya_verificadas(request.fuentes_previas)
+                        # Corte IDH (revisión del 25-sep-2026): lo que vuelve
+                        # por FUENTES_PREVIAS también pasa por la puerta. Sin
+                        # esto, COIDH_ACTIVO=off no apagaba los turnos
+                        # siguientes, el selector no mandaba, y cualquiera
+                        # que mandara el id de una ficha (se reconstruye del
+                        # catálogo, sin Qdrant) la metía en el contexto.
+                        if any(r.silo == "coidh" for r in _verificadas) and not await _coidh_permitido():
+                            _verificadas = [r for r in _verificadas if r.silo != "coidh"]
                         _ya = {r.id for r in search_results}
                         _nuevas = [r for r in _verificadas if r.id not in _ya]
                         if _nuevas:
@@ -15323,6 +15743,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 "el abogado ya las vio con su sello. Cítalas por su "
                                 "[Doc ID] sin reservas; no hace falta volver a justificarlas. -->\n"
                                 + format_results_as_xml(_nuevas, estado=None, prose_mode=False)
+                                # Corte IDH: su bloque propio (revisión A.3).
+                                + _coidh_xml_resueltos(_nuevas)
                                 + "\n\n" + context_xml
                             )
                         print(f"   ♻️ Fuentes ya verificadas: {len(_nuevas)} reaprovechadas "
@@ -15498,6 +15920,33 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
                         print(f"   📚 Doctrina: {len(_doctrina_frags)} fragmentos · {_autores}")
                         yield f"<!--PASO:doctrina|{_autores}-->"
+
+                # ── La línea de la Corte IDH: igual que la doctrina ───────
+                # (25-sep-2026) Entra en este punto común, se suma a
+                # search_results y al doc_id_map —[Doc ID], sello, marcadores—
+                # y su XML se AÑADE después del contexto normal: no pasa por
+                # reorder_by_hierarchy, que rompería la cronología (revisión
+                # A.3). Si no llega en 4 s o no hay colección, no entra.
+                if _linea_task is not None:
+                    try:
+                        _lin = await asyncio.wait_for(asyncio.shield(_linea_task), timeout=4.0)
+                    except Exception as _lte:
+                        print(f"   ⚖️ COIDH: la línea no llegó a tiempo ({type(_lte).__name__}); se sigue sin ella")
+                        _lin = None
+                    _xml_lin, _n_lin = _coidh_sumar_linea(_lin, search_results, doc_id_map)
+                    if _xml_lin:
+                        context_xml = (context_xml or "") + _xml_lin
+                        _coidh_info["n_linea"] = _n_lin
+                        if _lin.get("faltan"):
+                            _coidh_info["faltan"] = len(_lin["faltan"])
+                if _coidh_info.get("puerta") or _coidh_info.get("resueltos") or _coidh_info.get("linea"):
+                    # La línea que hay que buscar en Render: qué abrió la
+                    # puerta, qué se resolvió y cuánto entró al contexto.
+                    print(f"   ⚖️ COIDH: puerta={_coidh_info.get('puerta') or 'sin consultar'}, "
+                          f"resueltos={';'.join(_coidh_info.get('resueltos') or []) or 'ninguno'}, "
+                          f"linea={_coidh_info.get('linea') or 'no'}, "
+                          f"n={_coidh_info.get('n_resueltos', 0) + _coidh_info.get('n_linea', 0)}"
+                          + (f" (hitos sin ingerir: {_coidh_info['faltan']})" if _coidh_info.get("faltan") else ""))
 
 
                 # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────
@@ -16311,6 +16760,9 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 "tipo_criterio": getattr(_d, "tipo_criterio", None) or None,
                                 "instancia": getattr(_d, "instancia_meta", None) or None,
                                 "materia": getattr(_d, "materia_meta", None) or None,
+                                # Corte IDH (25-sep-2026): el contrato del
+                                # visor (página, párrafo, ancla, cita).
+                                **_campos_coidh(_d),
                             }
                         yield ("\n<!-- FUENTES_PREVIAS:"
                                + json.dumps(_previas, ensure_ascii=False) + " -->\n")
@@ -17390,6 +17842,10 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 "tipo_criterio": doc.tipo_criterio or None,
                                 "instancia": doc.instancia_meta or None,
                                 "materia": doc.materia_meta or None,
+                                # Corte IDH (25-sep-2026): pdf_url = url_oficial
+                                # sin #page; la página, el párrafo y el ancla
+                                # viajan aparte para que el visor resalte.
+                                **_campos_coidh(doc),
                             }
                             sources_map[cv.doc_id] = source_entry
                         else:
