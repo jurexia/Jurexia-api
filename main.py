@@ -9989,6 +9989,12 @@ app.add_middleware(
                     "X-Version", "Content-Disposition"],
 )
 
+# El agente de los flujos de trabajo (25-sep-2026): un ayudante sin estado que
+# decide qué datos pedir al abogado en cada parte del escrito. Vive aparte para
+# no tocar el camino del chat; ver flujo_agente.py.
+from flujo_agente import router as _flujo_router  # noqa: E402
+app.include_router(_flujo_router)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # UN ERROR TIENE QUE LLEGAR AL NAVEGADOR, Y HOY NO LLEGABA
