@@ -1281,6 +1281,10 @@ def mapa_computo(doc, computo, fecha_en_letra=None,
         _anchos(v, [ANCHO_UTIL])
         _sin_partir(v)
 
+    # AIRE ANTES DEL SIGUIENTE CONSIDERANDO: sin él, el «CUARTO.» quedaba
+    # pegado a la franja del veredicto (93/2026, en producción).
+    parrafo(doc, "", sangria=False)
+
 
 # El nombre viejo, por si algo externo lo llama: ya no hay tabla de dos columnas.
 tabla_computo = mapa_computo
