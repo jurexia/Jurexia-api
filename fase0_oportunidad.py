@@ -438,7 +438,10 @@ def reglas_para(tipo_asunto: str = "", responsable: str = "") -> dict:
         # LA LEY DE ESA ENTIDAD DICE CÓMO SURTE; el catálogo aún no la trae.
         return {"fuero": f, "por_omision": "otra", "reglas": [
             otra,
-            _r("personal", "Personal — surte al día hábil siguiente (art. 31, fr. I, Ley de Amparo)")]}
+            # NO ES EL 31 DE LA LEY DE AMPARO: la notificación del acto la rige
+            # la ley de esa entidad (art. 18 LA, «conforme a la ley del acto»).
+            # Decía «art. 31, fr. I», que además es la de las autoridades.
+            _r("personal", "Personal — surte al día hábil siguiente (según la ley del acto)")]}
     base = [_r("personal", "Personal — surte al día hábil siguiente"),
             _r("lista", "Por lista — surte al día hábil siguiente")]
     if f in ("federal", ""):
@@ -861,6 +864,85 @@ def leer_inhabiles_responsable(texto) -> InhabilesResponsable:
             cur += _dt.timedelta(days=1)
     r.declarado = bool(r.dias) or bool(r.errores)
     return r
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# POR QUÉ SE CUENTA ASÍ — los fundamentos del cómputo
+# ═══════════════════════════════════════════════════════════════════════════
+# David, 25-sep-2026: «falta el fundamento de por qué se computa en esos
+# términos (porque surte efectos a partir del día siguiente cuando es
+# notificación personal, porque al tercer día si es boletín)». Cotejado con el
+# texto oficial de la Ley de Amparo (DOF 16-10-2025):
+#   · art. 18 — los plazos del 17 «se computarán a partir del día siguiente a
+#     aquél en que surta efectos, conforme a la ley del acto, la notificación»;
+#   · art. 22 — los demás plazos «comenzarán a correr a partir del día
+#     siguiente al en que surta sus efectos la notificación»;
+#   · art. 31, fr. II — las notificaciones a los particulares surten «desde el
+#     día siguiente al de la notificación personal o al de la fijación y
+#     publicación de la lista». (La fr. I es la de las autoridades.)
+_INICIO_POR_TIPO = {
+    "amparo_directo": "artículo 18 de la Ley de Amparo",
+    "amparo_revision": "artículo 22 de la Ley de Amparo",
+    "queja": "artículo 22 de la Ley de Amparo",
+    # La revisión fiscal no: su artículo 63 ya dice «dentro de los quince días
+    # siguientes a aquél en que surta sus efectos la notificación».
+}
+
+
+def fundamento_de_inicio(tipo: str) -> str:
+    """El precepto que hace correr el plazo desde el día siguiente."""
+    import tipos_asunto as _ta_i
+    return _INICIO_POR_TIPO.get(_ta_i.normalizar(tipo) or "amparo_directo", "")
+
+
+def fundamento_de_surtimiento(regla, tipo: str) -> str:
+    """El precepto que dice cuándo surtió efectos la notificación. Vacío si
+    no se sabe: en el amparo directo lo fija la ley del acto, y la de cada
+    entidad no está en el catálogo — no se inventa."""
+    f = str(getattr(regla, "fundamento", "") or "").strip()
+    if f:
+        return f
+    import tipos_asunto as _ta_s
+    if (_ta_s.normalizar(tipo) in ("amparo_revision", "queja")
+            and getattr(regla, "clave", "") in ("personal", "lista")):
+        # En los recursos lo notificado es una resolución del juicio de
+        # amparo: la regla es la de la propia Ley de Amparo.
+        return "artículo 31, fracción II, de la Ley de Amparo"
+    return ""
+
+
+def tramos_inhabiles(fechas, cal) -> list:
+    """Los inhábiles como tramos: dos inhábiles se unen si entre ellos sólo
+    hay días que tampoco corren. Del 16 de diciembre al 1 de enero son trece
+    fechas sueltas y un solo tramo."""
+    tramos = []
+    for f in sorted(set(fechas or [])):
+        if tramos:
+            ini, fin = tramos[-1]
+            cur, puente = fin + _dt.timedelta(days=1), True
+            while cur < f:
+                if cal is not None and cal.es_habil(cur):
+                    puente = False
+                    break
+                cur += _dt.timedelta(days=1)
+            if puente:
+                tramos[-1] = (ini, f)
+                continue
+        tramos.append((f, f))
+    return tramos
+
+
+def aviso_fundamento(c, tipo: str) -> str:
+    """Lo que el considerando no puede fundar solo."""
+    if getattr(c.regla, "clave", "") == "otra":
+        return ""
+    if fundamento_de_surtimiento(c.regla, tipo):
+        return ""
+    return ("EL SURTIMIENTO VA SIN PRECEPTO: el considerando dice que la "
+            f"notificación {c.regla.descripcion} surtió efectos "
+            f"{_ORDINAL_SURTE.get(c.regla.dias_habiles, 'al día hábil siguiente')} "
+            "«conforme a la ley del acto», porque el catálogo no trae el artículo "
+            "de esa ley. Escríbelo: es lo que sostiene el día en que arrancó el plazo.")
 
 
 def tramos_en_letra(tramos) -> str:
@@ -1567,16 +1649,12 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
                           or "artículo 17 de la Ley de Amparo")
         except Exception:
             fundamento = "artículo 17 de la Ley de Amparo"
+    # SIEMPRE DESGLOSADO (25-sep-2026). La versión corta —«resultó oportuna, a
+    # la luz del artículo 17…»— afirmaba el resultado sin el cómputo ni su
+    # fundamento, y David la reclamó con el 93/2026 delante. Queda disponible
+    # con `desglosar=False` para quien la pida expresamente.
     if desglosar is None:
-        desglosar = ((c.oportuna is False)
-                     or _ta.normalizar(tipo) == "revision_fiscal"
-                     or bool(getattr(c, "resp_aplicados", False))
-                     # LA REGLA «OTRA» SIEMPRE SE DESGLOSA: no hay regla del
-                     # catálogo que respalde el surtimiento, así que las dos
-                     # fechas —cuándo se notificó y cuándo surtió efectos,
-                     # ambas declaradas por el secretario— tienen que constar
-                     # en el considerando para que se puedan comprobar.
-                     or getattr(c.regla, "clave", "") == "otra")
+        desglosar = True
     if not desglosar:
         if c.anticipada:
             cierre = (f", pues se presentó el {fecha_en_letra(c.presentacion)}, "
@@ -1587,6 +1665,18 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
                       else f", pues se presentó el {fecha_en_letra(c.presentacion)}")
         return (f"Igualmente, la presentación {_del(v['escrito'])} resultó "
                 f"oportuna, a la luz del {fundamento}{cierre}.")
+    # DESDE CUÁNDO CORRE, CON SU PRECEPTO, y los inhábiles como tramos con su
+    # fundamento: «ni del dieciséis de diciembre… al uno de enero…» en vez de
+    # trece fechas sueltas colgadas de un «así como» sin razón.
+    _f_ini = fundamento_de_inicio(tipo)
+    _desde_el_siguiente = (f", que corre a partir del día siguiente al en que "
+                           f"surtió efectos la notificación, en términos del "
+                           f"{_f_ini}," if _f_ini else "")
+    # «del cuatro al veinticinco de marzo de dos mil veintiséis», no el año
+    # dos veces cuando el plazo no cambia de mes.
+    _rango = tramos_en_letra([(c.inicio, c.vencimiento)])
+    _tr = tramos_inhabiles(c.inhabiles_en_medio, c.cal_amparo)
+    _ni_inhabiles = (f", ni {tramos_en_letra(_tr)}," if _tr else "")
     if getattr(c.regla, "clave", "") == "otra":
         # LA REGLA «OTRA»: NO SE AFIRMA UN FUNDAMENTO QUE NO CONSTA. El
         # secretario declaró las dos fechas; el considerando las dice, sin
@@ -1598,9 +1688,8 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
             f"{fecha_en_letra(c.notificacion)}; esa notificación surtió "
             f"efectos el {fecha_en_letra(c.surtio)}, según lo manifestado por "
             f"el {v['promovente']}, por lo que el plazo para la promoción "
-            f"{_del(v['escrito'])} fue del {fecha_en_letra(c.inicio)} al "
-            f"{fecha_en_letra(c.vencimiento)}, sin contar sábados y domingos "
-            f"por ser inhábiles en términos del {c.cal_amparo.fundamento}",
+            f"{_del(v['escrito'])}{_desde_el_siguiente} fue {_rango}, sin contar sábados y domingos"
+            f"{_ni_inhabiles} por ser inhábiles en términos del {c.cal_amparo.fundamento}",
         ]
     else:
         surte = _ORDINAL_SURTE.get(c.regla.dias_habiles, "al día hábil siguiente")
@@ -1609,21 +1698,20 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
         # Federal de Procedimiento Contencioso Administrativo». Un plazo que
         # arranca tres días después de la publicación no se afirma sin decir
         # de dónde sale.
-        _fund_regla = (f", conforme al {c.regla.fundamento}"
-                       if str(getattr(c.regla, "fundamento", "") or "").strip() else "")
+        _f_surte = fundamento_de_surtimiento(c.regla, tipo)
+        _fund_regla = (f", conforme al {_f_surte}" if _f_surte
+                       else ", conforme a la ley del acto")
         p = [
             f"Por cuanto hace a la oportunidad en la presentación "
             f"{_del(v['escrito'])}, en términos del {fundamento}, "
             f"{v['recurrido']} se notificó al {v['promovente']} el "
             f"{fecha_en_letra(c.notificacion)} {c.regla.descripcion} y surtió "
             f"efectos {surte}{_fund_regla}, es decir, el {fecha_en_letra(c.surtio)}, por lo que "
-            f"el plazo para la promoción {_del(v['escrito'])} fue del "
-            f"{fecha_en_letra(c.inicio)} al {fecha_en_letra(c.vencimiento)}, sin "
-            f"contar sábados y domingos por ser inhábiles en términos del "
+            f"el plazo para la promoción {_del(v['escrito'])}"
+            f"{_desde_el_siguiente} fue {_rango}, sin "
+            f"contar sábados y domingos{_ni_inhabiles} por ser inhábiles en términos del "
             f"{c.cal_amparo.fundamento}",
         ]
-    if c.inhabiles_en_medio:
-        p.append(f", así como {lista_en_letra_con_anio(c.inhabiles_en_medio)}")
 
     # ── LOS DÍAS DE LA RESPONSABLE, CON SU PROPIO FUNDAMENTO ──────────────
     _rec = getattr(c, "receptor", None)
@@ -1659,8 +1747,10 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
                          "lo que no le resta oportunidad" if c.anticipada
                          else "es claro que fue hecho valer oportunamente" if c.oportuna
                          else "resulta evidente su EXTEMPORANEIDAD")
-        p.append(f", entonces si se presentó el {fecha_en_letra(c.presentacion)}, "
-                 f"{veredicto}.")
+        _ultimo = (", último día del plazo," if (c.presentacion == c.vencimiento
+                                                  and not c.en_cualquier_tiempo) else "")
+        p.append(f"; entonces, si se presentó el {fecha_en_letra(c.presentacion)}"
+                 f"{_ultimo or ','} {veredicto}.")
     else:
         p.append(".")
     if c.rectificada:

@@ -45,7 +45,8 @@ import re
 from dataclasses import dataclass, field
 
 import docx
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import (WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT,
+                             WD_ROW_HEIGHT_RULE)
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -719,8 +720,196 @@ def _meses_del_computo(computo) -> list:
     return meses
 
 
-def _calendario_mes(doc, anio, mes, computo, marcas) -> None:
-    """Un mes, con sus días marcados."""
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CALENDARIO QUE SE EXPLICA SOLO (25-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# David, con el 93/2026 delante: «hay que darle lógica al calendario. Indicar al
+# lector qué implican los días marcados en rojo, qué son los días en gris,
+# marcar en negro cuando se presenta la demanda (con la indicación en letras
+# pequeñas en el propio recuadro) (…) y rediseñar la tabla de abajo a un mapa
+# visual mejorado, más moderno (no tabla simple) que ilustre el plazo».
+#
+# Tres piezas, y cada una contesta una pregunta del lector:
+#   · EL CALENDARIO — ¿qué pasó cada día? Cada recuadro marcado dice qué es,
+#     en letra pequeña dentro de él: «notificación», «surte efectos», «día 7»,
+#     «inhábil», «presentación».
+#   · LA LEYENDA — ¿qué significa cada color? Con su muestra y su porqué.
+#   · EL MAPA — ¿cómo se llega de la notificación a la presentación? Cuatro
+#     tarjetas enlazadas, la barra de los días hábiles y el veredicto.
+#
+# SIGUE SIENDO LEGIBLE EN BLANCO Y NEGRO: la presentación va en negro pleno,
+# los hitos en ámbar oscuro, los días del plazo en gris azulado claro y los que
+# no corren en blanco; y cada marca lleva además su palabra, que es lo que no
+# se pierde en una fotocopia.
+NEGRO_HITO = "1A1A1A"       # presentación: el día que se busca
+ROSA_FUERA = "EFD3CE"       # hábiles que corrieron después del vencimiento
+ROJO_VEREDICTO = "8B2A1E"   # fuera de plazo
+FONDO_TARJETA = "F5F7F9"
+TAMANO_ETIQUETA = Pt(6.5)
+TAMANO_LEYENDA = Pt(9)
+ANCHO_UTIL = 14.5           # cm: oficio con 5 cm de margen izquierdo y 2 derecho
+
+_MESES_CORTOS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago",
+                 "sep", "oct", "nov", "dic")
+_DIAS_LARGOS = ("lunes", "martes", "miércoles", "jueves", "viernes",
+                "sábado", "domingo")
+
+
+def _fecha_corta(f) -> str:
+    return f"{f.day} {_MESES_CORTOS[f.month - 1]} {f.year}" if f else ""
+
+
+def _fund_corto(f: str) -> str:
+    """«artículo 65 de la Ley Federal de Procedimiento Contencioso
+    Administrativo» → «art. 65 LFPCA». Para la tarjeta, no para el
+    considerando, que lo lleva entero."""
+    t = str(f or "")
+    t = re.sub(r",?\s+de\s+la\s+Ley\s+Federal\s+de\s+Procedimiento\s+Contencioso\s+"
+               r"Administrativo", " LFPCA", t)
+    t = re.sub(r",?\s+de\s+la\s+Ley\s+de\s+Amparo", " LA", t)
+    t = re.sub(r"\bart[íi]culos\b", "arts.", t)
+    t = re.sub(r"\bart[íi]culo\b", "art.", t)
+    t = re.sub(r"\bfracci[óo]n\b", "fr.", t)
+    return t.strip()
+
+
+def _sin_bordes(tabla) -> None:
+    tbl = tabla._tbl.tblPr
+    bordes = OxmlElement("w:tblBorders")
+    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        e = OxmlElement(f"w:{lado}")
+        e.set(qn("w:val"), "nil")
+        bordes.append(e)
+    tbl.append(bordes)
+
+
+def _disposicion_fija(tabla, margen_cm: float = None) -> None:
+    """Anchos que Word respeta, y márgenes de celda a la medida."""
+    tbl = tabla._tbl.tblPr
+    lay = OxmlElement("w:tblLayout")
+    lay.set(qn("w:type"), "fixed")
+    tbl.append(lay)
+    if margen_cm is not None:
+        mar = OxmlElement("w:tblCellMar")
+        for lado in ("left", "right"):
+            e = OxmlElement(f"w:{lado}")
+            e.set(qn("w:w"), str(int(margen_cm * 567)))
+            e.set(qn("w:type"), "dxa")
+            mar.append(e)
+        tbl.append(mar)
+
+
+def _borde_celda(celda, **lados) -> None:
+    """_borde_celda(c, top=("single", 18, "8A5A1B"), left=("nil",))"""
+    tcPr = celda._tc.get_or_add_tcPr()
+    tcb = OxmlElement("w:tcBorders")
+    for lado, spec in lados.items():
+        e = OxmlElement(f"w:{lado}")
+        e.set(qn("w:val"), spec[0])
+        if len(spec) > 1:
+            e.set(qn("w:sz"), str(spec[1]))
+            e.set(qn("w:space"), "0")
+            e.set(qn("w:color"), spec[2])
+        tcb.append(e)
+    tcPr.append(tcb)
+
+
+def _anchos(tabla, cms: list) -> None:
+    """El ancho en la rejilla Y en cada celda: Word lee la celda, pero otros
+    visores —y Word al reabrir con otra impresora— leen la rejilla, y con
+    sólo una de las dos la leyenda salía con las muestras hechas hilo."""
+    for col, w in zip(tabla.columns, cms):
+        col.width = Cm(w)
+    for fila in tabla.rows:
+        for c, w in zip(fila.cells, cms):
+            c.width = Cm(w)
+
+
+def _run(p, texto, tamano=TAMANO_TABLA, negrita=False, color=NEGRO):
+    r = p.add_run(str(texto))
+    r.bold = negrita
+    r.font.name = FUENTE
+    r.font.size = tamano
+    r.font.color.rgb = RGBColor.from_string(color)
+    return r
+
+
+def _p_compacto(p, alineacion=WD_ALIGN_PARAGRAPH.CENTER):
+    p.paragraph_format.alignment = alineacion
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.line_spacing = 1.0
+    return p
+
+
+def _celda_dia(celda, dia, fondo=None, color=NEGRO, negrita=False,
+               etiquetas=(), color_etiqueta=GRIS_TENUE) -> None:
+    """El número del día y, debajo, en letra pequeña, lo que ese día es."""
+    celda.text = ""
+    celda.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    p = _p_compacto(celda.paragraphs[0])
+    _run(p, dia, negrita=negrita, color=color)
+    for et in etiquetas:
+        _run(_p_compacto(celda.add_paragraph()), et, tamano=TAMANO_ETIQUETA,
+             color=color_etiqueta)
+    if fondo:
+        _sombrear(celda, fondo)
+
+
+def _dias_del_computo(computo) -> dict:
+    """{fecha: (clase, [etiquetas])} para cada día que el calendario explica.
+
+    Clases: notificacion · surte · plazo · presentacion · fuera · inhabil.
+    La presentación va la última: si cae en un día del plazo —lo normal— es
+    ese dato el que se busca, y lleva además su número de día."""
+    import datetime as _d
+    d = {}
+    numero = {f: i for i, f in enumerate(computo.dias or [], 1)}
+    total = len(computo.dias or [])
+    for f, i in numero.items():
+        ets = [f"día {i}"]
+        if i == total and not getattr(computo, "en_cualquier_tiempo", False):
+            ets = [f"día {i} · vence"]
+        d[f] = ("plazo", ets)
+    # Lo que NO corrió entre la notificación y el final: se dice por qué.
+    ini = computo.notificacion
+    fin = max([x for x in (computo.vencimiento, computo.presentacion) if x] or [ini])
+    cur = ini
+    while ini and cur <= fin:
+        if cur not in d and cur.weekday() < 5 and not computo.cal_amparo.es_habil(cur):
+            d[cur] = ("inhabil", ["inhábil"])
+        cur += _d.timedelta(days=1)
+    for f in getattr(computo, "resp_dias", None) or []:
+        if ini and ini <= f <= fin and f not in numero and f.weekday() < 5:
+            d[f] = ("inhabil", ["sin labores"])
+    # Hábiles después del vencimiento: la distancia a la presentación, a la vista.
+    if (computo.presentacion is not None and computo.oportuna is False
+            and not getattr(computo, "en_cualquier_tiempo", False)):
+        k, cur = 0, computo.vencimiento + _d.timedelta(days=1)
+        while cur <= computo.presentacion:
+            if computo.cal_amparo.es_habil(cur):
+                k += 1
+                d[cur] = ("fuera", [f"fuera +{k}"])
+            cur += _d.timedelta(days=1)
+    if computo.notificacion:
+        d[computo.notificacion] = ("notificacion", ["notificación"])
+    if computo.surtio:
+        if computo.surtio == computo.notificacion:
+            d[computo.surtio] = ("notificacion", ["notificación", "y surte efectos"])
+        else:
+            d[computo.surtio] = ("surte", ["surte efectos"])
+    if computo.presentacion is not None:
+        ets = ["presentación"]
+        if computo.presentacion in numero:
+            ets.append(f"día {numero[computo.presentacion]}")
+        elif computo.presentacion in d and d[computo.presentacion][0] == "fuera":
+            ets.append(d[computo.presentacion][1][0])
+        d[computo.presentacion] = ("presentacion", ets)
+    return d
+
+
+def _calendario_mes(doc, anio, mes, computo, dias) -> None:
+    """Un mes, con cada día marcado diciendo qué es."""
     import calendar as _c, datetime as _d
     _c.setfirstweekday(_c.MONDAY)
     semanas = _c.monthcalendar(anio, mes)
@@ -728,170 +917,373 @@ def _calendario_mes(doc, anio, mes, computo, marcas) -> None:
     t = doc.add_table(rows=2, cols=7)
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
     t.autofit = False
+    _disposicion_fija(t, margen_cm=0.05)
     _bordes(t, color="D8D8D8", grosor="4")
 
-    # El nombre del mes ocupa la fila entera.
     cab = t.rows[0].cells
     cab[0].merge(cab[6])
     _celda(t.rows[0].cells[0], f"{_MESES[mes - 1].upper()} {anio}",
            negrita=True, color=BLANCO, fondo=AZUL_BORDE,
            alineacion=WD_ALIGN_PARAGRAPH.CENTER)
-
     for i, d in enumerate(_DIAS_SEMANA):
         _celda(t.rows[1].cells[i], d, negrita=True, color=GRIS_TENUE,
                alineacion=WD_ALIGN_PARAGRAPH.CENTER)
 
     for semana in semanas:
         fila = t.add_row()
+        fila.height = Cm(0.95)
+        fila.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
         for i, dia in enumerate(semana):
             c = fila.cells[i]
             if dia == 0:
                 _celda(c, "", fondo=GRIS_FUERA)
                 continue
             f = _d.date(anio, mes, dia)
-            marca = marcas.get(f)
-            if marca:
-                _celda(c, str(dia), negrita=True, color=BLANCO,
-                       fondo=marca, alineacion=WD_ALIGN_PARAGRAPH.CENTER)
-            elif f in computo.dias:
-                _celda(c, str(dia), negrita=True, fondo=AZUL_PLAZO,
-                       alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+            clase, ets = dias.get(f, ("", []))
+            if clase == "presentacion":
+                _celda_dia(c, dia, fondo=NEGRO_HITO, color=BLANCO, negrita=True,
+                           etiquetas=ets, color_etiqueta=BLANCO)
+            elif clase in ("notificacion", "surte"):
+                _celda_dia(c, dia, fondo=AMBAR_HITO, color=BLANCO, negrita=True,
+                           etiquetas=ets, color_etiqueta=BLANCO)
+            elif clase == "plazo":
+                _celda_dia(c, dia, fondo=AZUL_PLAZO, negrita=True,
+                           etiquetas=ets, color_etiqueta=AZUL_BORDE)
+            elif clase == "fuera":
+                _celda_dia(c, dia, fondo=ROSA_FUERA, negrita=True,
+                           etiquetas=ets, color_etiqueta=ROJO_VEREDICTO)
+            elif clase == "inhabil":
+                _celda_dia(c, dia, color=GRIS_TENUE, etiquetas=ets)
             else:
-                _celda(c, str(dia), color=GRIS_TENUE,
-                       alineacion=WD_ALIGN_PARAGRAPH.CENTER)
+                _celda_dia(c, dia, color=GRIS_TENUE)
+    _anchos(t, [ANCHO_UTIL / 7] * 7)
+    _sin_partir(t)
+
+
+def _leyenda_computo(doc, computo, tipo_asunto, dias) -> None:
+    """Cada color con su muestra y su porqué: lo que un color sin nombre no dice."""
+    import fase0_oportunidad as _f0l
+    _v = _ta.vocabulario_de(tipo_asunto)
+    _escrito = _v["escrito"]
+    reg = computo.regla
+    f_surte = _f0l.fundamento_de_surtimiento(reg, tipo_asunto)
+    f_ini = _f0l.fundamento_de_inicio(tipo_asunto)
+    surte_txt = _f0l._ORDINAL_SURTE.get(getattr(reg, "dias_habiles", 1), "al día hábil siguiente")
+    filas = []
+    if computo.notificacion:
+        if getattr(reg, "clave", "") == "otra":
+            porque = "fecha de surtimiento declarada por el promovente"
+        else:
+            porque = (f"la notificación {reg.descripcion} surte efectos {surte_txt}"
+                      + (f" ({_fund_corto(f_surte)})" if f_surte else " (ley del acto)"))
+        filas.append((AMBAR_HITO, "Notificación y día en que surtió efectos",
+                       porque[0].upper() + porque[1:] + "."))
+    if not getattr(computo, "en_cualquier_tiempo", False):
+        filas.append((AZUL_PLAZO, f"Días hábiles del plazo, numerados del 1 al {computo.plazo}",
+                      "Corre a partir del día siguiente al en que surtió efectos la notificación"
+                      + (f" ({_fund_corto(f_ini)})" if f_ini else "") + "."))
+    if computo.presentacion is not None:
+        if computo.anticipada:
+            q = "antes de que empezara a correr el plazo, lo que no le resta oportunidad"
+        elif computo.oportuna is False:
+            q = "después del vencimiento"
+        elif computo.presentacion == computo.vencimiento:
+            q = "el último día del plazo"
+        else:
+            n = (computo.dias or []).index(computo.presentacion) + 1 \
+                if computo.presentacion in (computo.dias or []) else None
+            q = f"el día {n} de {computo.plazo}" if n else "dentro del plazo"
+        filas.append((NEGRO_HITO, f"Presentación {_ta_del(_escrito)}", q[0].upper() + q[1:] + "."))
+    if any(c == "fuera" for c, _ in dias.values()):
+        filas.append((ROSA_FUERA, "Días hábiles transcurridos después del vencimiento",
+                      "Cada uno lleva su cuenta: «fuera +1», «fuera +2»…"))
+    _no = "Sábados y domingos"
+    _tr = _f0l.tramos_inhabiles(computo.inhabiles_en_medio, computo.cal_amparo)
+    if _tr:
+        _no += "; " + "; ".join(
+            (_fecha_corta(a) if a == b else f"{_fecha_corta(a)} a {_fecha_corta(b)}")
+            for a, b in _tr) + f" ({_fund_corto(computo.cal_amparo.fundamento)})"
+    if getattr(computo, "resp_tramos_en_medio", None):
+        _no += "; días sin labores de la responsable: " + "; ".join(
+            (_fecha_corta(a) if a == b else f"{_fecha_corta(a)} a {_fecha_corta(b)}")
+            for a, b in computo.resp_tramos_en_medio)
+    filas.append((BLANCO, "Sin color: días que no corren", _no + "."))
+
+    # UN CUADRO DE COLOR POR LÍNEA, no una columna sombreada: sombreadas, las
+    # muestras se juntaban en una sola barra y no se sabía cuál era de quién.
+    # El cuadro es un carácter (■ / □), así que también sale en la fotocopia.
+    t = doc.add_table(rows=0, cols=2)
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    t.autofit = False
+    _sin_bordes(t)
+    _disposicion_fija(t, margen_cm=0.05)
+    for color, titulo, detalle in filas:
+        fila = t.add_row()
+        m, x = fila.cells
+        m.text = ""
+        m.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+        _glifo = "□" if color == BLANCO else "■"
+        _col = ("9A9A9A" if color == BLANCO else "9FB3C8" if color == AZUL_PLAZO else color)
+        _run(_p_compacto(m.paragraphs[0]), _glifo, tamano=Pt(13), color=_col)
+        x.text = ""
+        p_ = _p_compacto(x.paragraphs[0], WD_ALIGN_PARAGRAPH.LEFT)
+        p_.paragraph_format.space_before = Pt(2)
+        p_.paragraph_format.space_after = Pt(3)
+        _run(p_, titulo + ". ", tamano=TAMANO_LEYENDA, negrita=True, color="3B3B3B")
+        _run(p_, detalle, tamano=TAMANO_LEYENDA, color="5A5A5A")
+    _anchos(t, [0.6, ANCHO_UTIL - 0.6])
+    _sin_partir(t)
+
+
+def _ta_del(x: str) -> str:
+    from fase0_oportunidad import _del as _d0
+    return _d0(x)
 
 
 def calendario_computo(doc, computo, tipo_asunto: str = "amparo_directo") -> None:
-    """Los meses del cómputo, con los días del plazo y los tres hitos."""
+    """Los meses del cómputo, cada día marcado diciendo qué es, y su leyenda."""
     meses = _meses_del_computo(computo)
     if not meses:
         return
-    # EL ORDEN IMPORTA: si dos hitos caen el mismo día —y pasa, cuando la
-    # notificación surte efectos ese mismo día por vía electrónica— gana el que
-    # se escribe después. Se pone primero el que abre y último el que cierra,
-    # porque la presentación es el dato que se busca.
-    marcas = {}
-    if computo.notificacion:
-        marcas[computo.notificacion] = AMBAR_HITO
-    if computo.surtio:
-        marcas[computo.surtio] = AMBAR_HITO
-    if computo.presentacion is not None:
-        marcas[computo.presentacion] = VERDE_HITO
-
+    dias = _dias_del_computo(computo)
     for anio, mes in meses:
-        _calendario_mes(doc, anio, mes, computo, marcas)
+        _calendario_mes(doc, anio, mes, computo, dias)
         parrafo(doc, "", sangria=False)
-
-    # LA LEYENDA, porque un color sin nombre no informa. Va en una línea y con
-    # el mismo cuerpo de la tabla.
-    _leyenda = []
-    if computo.notificacion:
-        _leyenda.append("notificación y surtimiento de efectos")
-    _leyenda.append("días del plazo")
-    if computo.presentacion is not None:
-        _leyenda.append("presentación")
-    p = doc.add_paragraph()
-    r = p.add_run("En el calendario: " + "; ".join(_leyenda) +
-                  ". Los días en blanco no corrieron.")
-    r.font.name = FUENTE
-    r.font.size = TAMANO_TABLA
-    r.font.color.rgb = RGBColor.from_string(GRIS_TENUE)
-    p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.line_spacing = 1.0
+    _leyenda_computo(doc, computo, tipo_asunto, dias)
+    parrafo(doc, "", sangria=False)
 
 
-def tabla_computo(doc, computo, fecha_en_letra,
-                  tipo_asunto: str = "amparo_directo") -> None:
-    """El cómputo del plazo, en negro y gris.
+def _fundamentos_juntos(a: str, b: str) -> str:
+    """«art. 17 LA» + «art. 18 LA» → «arts. 17 y 18 LA»."""
+    ma = re.match(r"^art\. (\S+) (LA|LFPCA)$", a or "")
+    mb = re.match(r"^art\. (\S+) (LA|LFPCA)$", b or "")
+    if ma and mb and ma.group(2) == mb.group(2):
+        return f"arts. {ma.group(1)} y {mb.group(1)} {ma.group(2)}"
+    return " · ".join(x for x in (a, b) if x)
 
-    No es adorno: es la parte de la sentencia que más se revisa y la que peor
-    se lee en prosa. Una fila por hito, la fecha al lado, y el resultado
-    destacado abajo. Quien la revisa comprueba en diez segundos lo que en un
-    párrafo corrido cuesta releer tres veces.
-    """
-    # LOS RÓTULOS SON DEL TIPO, NO DEL AMPARO DIRECTO. Una queja mostraba
-    # «Notificación de la sentencia reclamada» y «Presentación de la demanda»
-    # cuando lo que se notificó fue un auto y lo que se presentó, un recurso.
-    # El resto del documento ya hablaba con el vocabulario correcto: sólo la
-    # tabla seguía anclada al tipo con el que nació.
+
+def _tarjeta(celda, rotulo, color, grande, lineas) -> None:
+    """Una tarjeta del mapa: franja de color arriba, rótulo, dato y detalle."""
+    celda.text = ""
+    celda.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    _sombrear(celda, FONDO_TARJETA)
+    _borde_celda(celda, top=("single", 24, color), left=("nil",), right=("nil",),
+                 bottom=("single", 4, "D8DEE4"))
+    p = _p_compacto(celda.paragraphs[0])
+    p.paragraph_format.space_before = Pt(3)
+    _run(p, rotulo, tamano=Pt(7.5), negrita=True, color=color if color != AZUL_PLAZO else AZUL_BORDE)
+    p = _p_compacto(celda.add_paragraph())
+    p.paragraph_format.space_before = Pt(2)
+    _run(p, grande, tamano=Pt(11.5), negrita=True, color=NEGRO)
+    for i, (txt, col) in enumerate(lineas):
+        p = _p_compacto(celda.add_paragraph())
+        if i == len(lineas) - 1:
+            p.paragraph_format.space_after = Pt(3)
+        _run(p, txt, tamano=Pt(7.5), color=col)
+
+
+def _flecha(celda) -> None:
+    celda.text = ""
+    celda.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    _run(_p_compacto(celda.paragraphs[0]), "›", tamano=Pt(20), negrita=True, color="B5BEC7")
+
+
+def _habiles_de_retraso(computo) -> int:
+    """Días hábiles entre el vencimiento y la presentación, ésta incluida."""
+    import datetime as _d
+    if computo.presentacion is None or computo.oportuna is not False:
+        return 0
+    k, cur = 0, computo.vencimiento + _d.timedelta(days=1)
+    while cur <= computo.presentacion:
+        if computo.cal_amparo.es_habil(cur):
+            k += 1
+        cur += _d.timedelta(days=1)
+    return k
+
+
+def _dias_habiles_txt(k: int) -> str:
+    return f"{k} día hábil" if k == 1 else f"{k} días hábiles"
+
+
+def _junto_al_siguiente(tabla) -> None:
+    """Que el mapa no se parta: cada párrafo de la tabla pide ir con el que
+    sigue. Sin esto el veredicto se iba solo a la hoja siguiente."""
+    for fila in tabla.rows:
+        for c in fila.cells:
+            for p in c.paragraphs:
+                p.paragraph_format.keep_with_next = True
+
+
+def mapa_computo(doc, computo, fecha_en_letra=None,
+                 tipo_asunto: str = "amparo_directo") -> None:
+    """EL MAPA DEL PLAZO: de la notificación a la presentación, de un vistazo.
+
+    Sustituye a la tabla de dos columnas «concepto · fecha». Las fechas exactas
+    siguen aquí —y en letra, en el considerando, que es lo que se copia al
+    engrose—; lo que cambia es que el lector ve el recorrido: qué abrió el
+    plazo, cuántos días hábiles tuvo, dónde cayó la presentación y el resultado.
+    Todo con tablas, sombreados y bordes de Word: se edita como cualquier otra
+    tabla del documento."""
+    import fase0_oportunidad as _f0m
     _v = _ta.vocabulario_de(tipo_asunto)
-    # El «recurrido» del catálogo trae artículo —«el auto recurrido»— y el
-    # «escrito» no —«recurso de queja»—: cada uno necesita su contracción.
-    from fase0_oportunidad import _del as _del_
+    reg = computo.regla
+    sin_plazo = bool(getattr(computo, "en_cualquier_tiempo", False))
+    f_surte = _f0m.fundamento_de_surtimiento(reg, tipo_asunto)
+    f_ini = _f0m.fundamento_de_inicio(tipo_asunto)
+    f_plazo = _ta.plazo_de(tipo_asunto, "").get("fundamento") or ""
 
-    def _complemento(x: str) -> str:
-        return "del " + x[3:] if x.startswith("el ") else "de " + x
+    def _dia(f):
+        return _DIAS_LARGOS[f.weekday()] if f else ""
 
-    _recurrido = _complemento(_v["recurrido"])
-    _escrito = _del_(_v["escrito"])
-
-    filas = [
-        (f"Notificación {_recurrido}",
-         fecha_en_letra(computo.notificacion)),
-        (f"Surtimiento de efectos ({computo.regla.descripcion})",
-         fecha_en_letra(computo.surtio)),
+    medio = re.sub(r"^(?:mediante|de manera|por)\s+", "", str(reg.descripcion or "")).strip()
+    tarjetas = [
+        ("NOTIFICACIÓN", AMBAR_HITO, _fecha_corta(computo.notificacion),
+         [(_dia(computo.notificacion), GRIS_TENUE),
+          ((medio[:1].upper() + medio[1:]) if medio else "", "5A5A5A")]),
     ]
-    # SIN PLAZO NO HAY VENCIMIENTO QUE ENSEÑAR. Con el cómputo ya blindado
-    # contra el plazo cero, la tabla habría escrito «Plazo legal: 0 días
-    # hábiles» y un vencimiento igual al día de inicio: una fecha inventada
-    # para un asunto en el que la ley dice que no vence nada.
-    if getattr(computo, "en_cualquier_tiempo", False):
-        filas.append(("Plazo legal", "no hay: procede en cualquier tiempo"))
+    if getattr(reg, "clave", "") == "otra":
+        _det = "fecha declarada"
     else:
-        filas += [
-            ("Inicio del plazo", fecha_en_letra(computo.inicio)),
-            ("Plazo legal", f"{computo.plazo} días hábiles"),
-            ("Vencimiento del plazo", fecha_en_letra(computo.vencimiento)),
-        ]
+        _det = {1: "día hábil siguiente", 2: "2.º día hábil", 3: "3.er día hábil"}.get(
+            reg.dias_habiles, "mismo día" if reg.dias_habiles == 0 else f"{reg.dias_habiles}.º día hábil")
+    tarjetas.append(("SURTE EFECTOS", AMBAR_HITO, _fecha_corta(computo.surtio),
+                     [(_dia(computo.surtio), GRIS_TENUE),
+                      (_det + (f" · {_fund_corto(f_surte)}" if f_surte else ""), "5A5A5A")]))
+    if sin_plazo:
+        tarjetas.append(("PLAZO", AZUL_PLAZO, "Sin plazo",
+                         [("procede en cualquier tiempo", "5A5A5A")]))
+    else:
+        tarjetas.append(("PLAZO", AZUL_PLAZO, f"{_fecha_corta(computo.inicio)}",
+                         [(f"al {_fecha_corta(computo.vencimiento)}", NEGRO),
+                          (f"{computo.plazo} días hábiles · "
+                           + _fundamentos_juntos(_fund_corto(f_plazo), _fund_corto(f_ini)),
+                           "5A5A5A")]))
     if computo.presentacion is not None:
-        filas.append((f"Presentación {_escrito}",
-                      fecha_en_letra(computo.presentacion)))
-    if computo.inhabiles_en_medio:
-        # LA FILA MENTÍA. Decía «Días inhábiles descontados: 1» mientras el
-        # párrafo explicaba que se descontaron seis sábados y domingos más un
-        # festivo. Contaba SÓLO los inhábiles declarados, no los fines de
-        # semana. Se dice lo que de verdad cuenta.
-        filas.append(("Días inhábiles declarados (además de sábados y domingos)",
-                      str(len(computo.inhabiles_en_medio))))
+        if computo.anticipada:
+            _q = "antes de iniciar el plazo"
+        elif computo.presentacion in (computo.dias or []):
+            _q = f"día {(computo.dias or []).index(computo.presentacion) + 1} de {computo.plazo}"
+        elif computo.oportuna is False:
+            _q = f"{_dias_habiles_txt(_habiles_de_retraso(computo))} después del vencimiento"
+        else:
+            _q = ""
+        tarjetas.append(("PRESENTACIÓN", NEGRO_HITO, _fecha_corta(computo.presentacion),
+                         [(_dia(computo.presentacion), GRIS_TENUE), (_q, "5A5A5A")]))
+    elif not sin_plazo:
+        tarjetas.append(("VENCIMIENTO", AZUL_BORDE, _fecha_corta(computo.vencimiento),
+                         [(_dia(computo.vencimiento), GRIS_TENUE)]))
 
-    t = doc.add_table(rows=1, cols=2)
+    # ── 1. LAS TARJETAS, ENLAZADAS ─────────────────────────────────────────
+    n = len(tarjetas)
+    flecha_w = 0.55
+    tarj_w = (ANCHO_UTIL - flecha_w * (n - 1)) / n
+    t = doc.add_table(rows=1, cols=2 * n - 1)
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
     t.autofit = False
-    _bordes(t)
-
-    _celda(t.rows[0].cells[0], "CÓMPUTO DEL PLAZO", negrita=True,
-           color=BLANCO, fondo=GRIS_CABECERA)
-    _celda(t.rows[0].cells[1], "FECHA", negrita=True, color=BLANCO,
-           fondo=GRIS_CABECERA, alineacion=WD_ALIGN_PARAGRAPH.CENTER)
-
-    for i, (concepto, valor) in enumerate(filas):
-        fila = t.add_row()
-        fondo = GRIS_ALTERNO if i % 2 == 0 else None
-        _celda(fila.cells[0], concepto, fondo=fondo)
-        _celda(fila.cells[1], valor, fondo=fondo,
-               alineacion=WD_ALIGN_PARAGRAPH.CENTER)
-
-    if computo.oportuna is not None:
-        fila = t.add_row()
-        veredicto = ("PRESENTADA ANTES DEL INICIO DEL PLAZO"
-                     if computo.anticipada
-                     else "PRESENTADA EN TIEMPO" if computo.oportuna
-                     else "PRESENTADA FUERA DE PLAZO")
-        _celda(fila.cells[0], "Resultado", negrita=True, color=BLANCO,
-               fondo=GRIS_CABECERA)
-        _celda(fila.cells[1], veredicto, negrita=True, color=BLANCO,
-               fondo=GRIS_CABECERA, alineacion=WD_ALIGN_PARAGRAPH.CENTER)
-
-    # NINGUNA FILA SE PARTE ENTRE PÁGINAS, y se declara AL FINAL: puesto tras
-    # `add_table` sólo alcanzaba a la única fila que existía entonces, y las
-    # ocho que vienen después —las que de verdad se parten— se quedaban fuera.
-    # Cada fila es de un renglón; partida, Word deja media y su sombreado al
-    # pie de una hoja, que es la franja negra suelta.
+    _sin_bordes(t)
+    _disposicion_fija(t, margen_cm=0.1)
+    celdas = t.rows[0].cells
+    for i, (rot, col, grande, lineas) in enumerate(tarjetas):
+        _tarjeta(celdas[2 * i], rot, col, grande, [x for x in lineas if x[0]])
+        if i < n - 1:
+            _flecha(celdas[2 * i + 1])
+    _anchos(t, [tarj_w if j % 2 == 0 else flecha_w for j in range(2 * n - 1)])
     _sin_partir(t)
+    _junto_al_siguiente(t)
 
-    for fila in t.rows:
-        fila.cells[0].width = Cm(9.5)
-        fila.cells[1].width = Cm(5.0)
+    # ── 2. LA BARRA DE LOS DÍAS HÁBILES ────────────────────────────────────
+    if not sin_plazo and computo.dias:
+        dias = _dias_del_computo(computo)
+        fuera = sorted(f for f, (c, _) in dias.items() if c == "fuera")
+        anticipada = bool(computo.anticipada)
+        # La presentación tardía cierra la barra: sin ella el segmento negro
+        # —el dato que se busca— no aparecía cuando más importa.
+        tardia = ([computo.presentacion] if (computo.presentacion is not None
+                  and computo.oportuna is False) else [])
+        segmentos = (["pre"] if anticipada else []) + list(computo.dias) + fuera[:10] + tardia
+        m = len(segmentos)
+        pp = parrafo(doc, "", sangria=False)
+        pp.paragraph_format.space_after = Pt(0)
+        pp.paragraph_format.keep_with_next = True
+        b = doc.add_table(rows=2, cols=m)
+        b.alignment = WD_TABLE_ALIGNMENT.CENTER
+        b.autofit = False
+        _sin_bordes(b)
+        _disposicion_fija(b, margen_cm=0)
+        fila = b.rows[0]
+        fila.height = Cm(0.42)
+        fila.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        for j, s in enumerate(segmentos):
+            c = fila.cells[j]
+            c.text = ""
+            if s == "pre":
+                color = NEGRO_HITO
+            elif s == computo.presentacion:
+                color = NEGRO_HITO
+            elif s in fuera:
+                color = ROSA_FUERA
+            else:
+                color = "9FB3C8"
+            _sombrear(c, color)
+            _borde_celda(c, left=("single", 8, "FFFFFF"), right=("single", 8, "FFFFFF"))
+        # Debajo, los extremos: dónde empezó y dónde terminó.
+        abajo = b.rows[1].cells
+        mitad = max(1, m // 2)
+        izq = abajo[0].merge(abajo[mitad - 1]) if mitad > 1 else abajo[0]
+        der = abajo[mitad].merge(abajo[m - 1]) if m - mitad > 1 else abajo[mitad]
+        izq.text = der.text = ""
+        _run(_p_compacto(izq.paragraphs[0], WD_ALIGN_PARAGRAPH.LEFT),
+             f"día 1 · {_fecha_corta(computo.inicio)}", tamano=Pt(7.5), color="5A5A5A")
+        if computo.presentacion is not None and not anticipada:
+            _fin_txt = (f"día {computo.plazo} · {_fecha_corta(computo.vencimiento)}"
+                        if computo.presentacion == computo.vencimiento
+                        else f"vence · {_fecha_corta(computo.vencimiento)}   "
+                             f"presentación · {_fecha_corta(computo.presentacion)}")
+        else:
+            _fin_txt = f"vence · {_fecha_corta(computo.vencimiento)}"
+        _run(_p_compacto(der.paragraphs[0], WD_ALIGN_PARAGRAPH.RIGHT),
+             _fin_txt, tamano=Pt(7.5), color="5A5A5A")
+        _anchos(b, [ANCHO_UTIL / m] * m)
+        _sin_partir(b)
+        _junto_al_siguiente(b)
+
+    # ── 3. EL VEREDICTO ────────────────────────────────────────────────────
+    if computo.oportuna is not None:
+        if getattr(computo, "rectificada", False):
+            fondo, txt = AZUL_BORDE, ("EL CÓMPUTO ARROJA FUERA DE PLAZO · EL TRIBUNAL LO TIENE "
+                                      "POR OPORTUNO POR LA RAZÓN QUE EXPRESA EL CONSIDERANDO")
+        elif computo.anticipada:
+            fondo, txt = VERDE_HITO, "EN TIEMPO · PRESENTADA ANTES DEL INICIO DEL PLAZO"
+        elif computo.oportuna:
+            fondo = VERDE_HITO
+            txt = ("EN TIEMPO · PRESENTADA EL ÚLTIMO DÍA DEL PLAZO"
+                   if computo.presentacion == computo.vencimiento else "EN TIEMPO")
+        else:
+            _k = _habiles_de_retraso(computo)
+            fondo, txt = ROJO_VEREDICTO, ("FUERA DE PLAZO" + (
+                f" · PRESENTADA {_dias_habiles_txt(_k).upper()} DESPUÉS DEL VENCIMIENTO"
+                if _k else ""))
+        pp = parrafo(doc, "", sangria=False)
+        pp.paragraph_format.space_after = Pt(0)
+        pp.paragraph_format.keep_with_next = True
+        v = doc.add_table(rows=1, cols=1)
+        v.alignment = WD_TABLE_ALIGNMENT.CENTER
+        v.autofit = False
+        _sin_bordes(v)
+        c = v.rows[0].cells[0]
+        c.text = ""
+        c.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        _sombrear(c, fondo)
+        p = _p_compacto(c.paragraphs[0])
+        p.paragraph_format.space_before = Pt(3)
+        p.paragraph_format.space_after = Pt(3)
+        _run(p, txt, tamano=Pt(9.5), negrita=True, color=BLANCO)
+        _anchos(v, [ANCHO_UTIL])
+        _sin_partir(v)
+
+
+# El nombre viejo, por si algo externo lo llama: ya no hay tabla de dos columnas.
+tabla_computo = mapa_computo
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3888,6 +4280,17 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         computo,
         _ta.plazo_de(tipo_asunto, "").get("fundamento") or "artículo 17 de la Ley de Amparo",
         tipo_asunto)
+    # EL SURTIMIENTO SIN PRECEPTO SE AVISA. En el amparo directo con
+    # notificación personal lo fija la ley del acto, que el catálogo no trae:
+    # el considerando dice «conforme a la ley del acto» y quien firma escribe el
+    # artículo. Ver `fase0_oportunidad.aviso_fundamento`.
+    try:
+        from fase0_oportunidad import aviso_fundamento as _av_fund
+        _avf = _av_fund(computo, tipo_asunto)
+        if _avf:
+            _avisos_bk.append(_avf)
+    except Exception:
+        pass
 
     # LA LEGITIMACIÓN VA PRIMERO, y sin ella el párrafo del cómputo abre con
     # «Igualmente,» sin nada a lo que enlazar. Se compone: quién interpuso, en
@@ -3914,12 +4317,13 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # —el secretario la dibuja a mano y cuesta—, pero eso mide lo que hoy
         # es caro hacer, no lo que sobra: la máquina tiene el calendario.
         if esq["tabla_computo"]:
-            # EL CALENDARIO PRIMERO, LA TABLA DESPUÉS. El calendario enseña
-            # por qué el plazo terminó ese día —los huecos son los que no
-            # corrieron—; la tabla dice las fechas exactas, que es lo que se
-            # cita y lo que se copia al engrose. Las dos, en ese orden.
+            # EL CALENDARIO PRIMERO, EL MAPA DESPUÉS. El calendario enseña qué
+            # fue cada día —con su palabra dentro del recuadro y su leyenda—;
+            # el mapa, el recorrido de la notificación a la presentación y el
+            # resultado. Las fechas en letra están en el párrafo de arriba,
+            # que es lo que se copia al engrose (David, 25-sep-2026).
             calendario_computo(doc, computo, tipo_asunto)
-            tabla_computo(doc, computo, fecha_en_letra, tipo_asunto)
+            mapa_computo(doc, computo, fecha_en_letra, tipo_asunto)
 
     _legit = (_bk.rotulo_de(tipo_asunto, "legitimacion", esq["legitimacion"]),
               _legitimacion)
