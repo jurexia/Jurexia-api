@@ -563,7 +563,12 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         # CUBRE el estudio no sabía qué concepto contestaba, y su razón se
         # perdía—; lo demás (innecesario, caída, corriente del acervo) supone
         # un sentido que no tiene.
-        _sin_calif = bool(_v2c and not str(c.sentido or "").strip())
+        # LA v1 TAMBIÉN (integración, 26-sep-2026): es la de producción para
+        # las cuentas que no son de casa, y con el sentido vacío imprimía
+        # «SENTIDO: » a secas. Un sentido vacío sólo llega aquí cuando el árbol
+        # lo tumbó para recalificar y la recalificación no llegó (main.py filtra
+        # los demás), así que la v1 de siempre no cambia ni una coma.
+        _sin_calif = not str(c.sentido or "").strip()
         lineas.append("   SENTIDO: SIN CALIFICAR (ver «PLANTEAMIENTOS SIN CALIFICAR»)" if _sin_calif
                       else f"   SENTIDO: {c.sentido.upper()}")
         # QUÉ PLANTEAMIENTOS CALIFICA. Es el puente entre el problema, que
@@ -1944,7 +1949,10 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
     # se recurre lo resolvió el Juzgado de Distrito, que no es responsable de
     # nada: es el órgano de control cuya decisión se revisa.
     _org_rotulo = _sjs["organo"][0].upper()
-    calif = _calificacion(criterios)
+    # Los SIN CALIFICAR no entran en la frase de apertura («en parte fundados
+    # y en parte » salía en la v1 con un sentido vacío); sin ellos, igual.
+    calif = _calificacion([c for c in criterios if str(getattr(c, "sentido", "") or "").strip()]
+                          or criterios)
     # ── LA FORMA: ESTÁNDAR O MODERNA ──────────────────────────────────────
     # David, 25-sep-2026. Ver `formato_sentencia.py`. Las órdenes que antes
     # imponían la pregunta en todos los casos viven ahí, en un solo bloque, y
@@ -2458,7 +2466,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_tecnica(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), rama, violacion_procesal)}
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion)}
-{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}
+{_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}

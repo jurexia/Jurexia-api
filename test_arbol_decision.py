@@ -881,8 +881,12 @@ ok("sin cortes ni puntos suspensivos" in _p5b_1l,
    "entera y seguida: una cita con «…» no consta tal cual y el tema no caería")
 ok('"presupone": null | {"premisa"' in _p5b_1l and '"causa_propia": null | "' in _p5b_1l,
    "el esquema enseña la forma del objeto, no sólo el null que el modelo copiaría siempre")
-ok("costas por una causa suya y no por el resultado que pide en el principal" in _p5b_1l,
-   "las costas son vicio propio sólo por una causa suya: las que sólo piden seguir al principal, caen")
+# Integración (26-sep-2026): descrito sin los dos temas del 722/2025, que es
+# el caso de origen y no puede ser el ejemplo (lección: se copia literal).
+_i12 = _p5b_1l[_p5b_1l.find("12. LA SUERTE CONDICIONAL"):_p5b_1l.find("13. LAS CONSTANCIAS")]
+ok("decisión accesoria que tiene su propia causa" in _i12
+   and "costas" not in _i12 and "congruencia" not in _i12,
+   "una decisión accesoria es vicio propio sólo por su propia causa; sin los temas del caso de origen")
 
 print("\n31 · LA CITA SE BUSCA DONDE LA TIENE EL ÁRBOL: los tres caminos le pasan la fase 3 entera")
 # Revisión del 26-sep-2026: se comprueba sobre el árbol sintáctico de main, no

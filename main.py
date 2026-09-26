@@ -32030,6 +32030,53 @@ def _taller_tocados(criterios_json: str, crit: list, modo_decision: str = "",
             if str(d.get("sentido") or "").strip()}
 
 
+def _taller_guardar_global(email: str, numero: str, r, resp) -> None:
+    """LA PROPUESTA GLOBAL, EN LA FILA (integración del Paso 2, 26-sep-2026).
+
+    Vivía sólo en la memoria del worker que la calculó (`ses["global"]`), y la
+    pantalla no la devuelve cuando no alcanza. Con gunicorn -w 2, el árbol de
+    /taller/reparto, /taller/recalificar, los dos gemelos y el pedido del plan
+    leían lista de comprobación y sentido del motor distintos según el worker:
+    la pantalla tumbaba unos accesorios y el proyecto recalificaba otros (lo
+    demostró la revisión adversarial con el árbol real). Se guarda la ÚLTIMA
+    que vio la pantalla, con la huella del adelanto, y sólo si cambió."""
+    try:
+        g = (resp or {}).get("global")
+        if not isinstance(g, dict):
+            return
+        g = json.loads(json.dumps(g, ensure_ascii=False, default=str))
+        hu = _te.huella_contraste(r)
+        prev = _taller_leer_marca(email, numero, "global_propuesta") or {}
+        if isinstance(prev, dict) and prev.get("huella") == hu and prev.get("global") == g:
+            return
+        _taller_guardar_marca(email, numero, "global_propuesta",
+                              {"huella": hu, "global": g, "desde": time.time()}, hu)
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo guardar la propuesta global: {err(ex)}")
+
+
+def _taller_global_de_fila(est: dict, resultado):
+    """La global guardada para ESTE adelanto (misma huella), como objeto con
+    atributos —que es como la leen `_taller_glob` y el reparto—, o None. La
+    marca propia primero; si no, la de la propuesta calculada sola."""
+    try:
+        hu = _te.huella_contraste(resultado)
+    except Exception:
+        return None
+    g = None
+    _gp = (est or {}).get("global_propuesta")
+    if isinstance(_gp, dict) and _gp.get("huella") == hu and isinstance(_gp.get("global"), dict):
+        g = _gp["global"]
+    else:
+        _pm = (est or {}).get("propuesta")
+        if isinstance(_pm, dict) and _pm.get("huella") == hu \
+                and isinstance((_pm.get("respuesta") or {}).get("global"), dict):
+            g = _pm["respuesta"]["global"]
+    if not g:
+        return None
+    return _types.SimpleNamespace(**{k: v for k, v in g.items() if isinstance(k, str)})
+
+
 def _taller_glob(global_json: str, ses) -> dict:
     """LA PROPUESTA GLOBAL QUE LEE EL CRITERIO: la que devuelve el cliente o,
     si no la mandó, la que esta sesión guardó al proponer. Es la del árbol de
@@ -33584,6 +33631,12 @@ def _taller_recuperar_sesion(email: str, numero: str):
     # la propuesta y en el resolver: tres acervos para un proyecto. Sólo se
     # repone el guardado completo; el de las filas antiguas, sin sondeo ni
     # principios, se ignora y se consulta como antes.
+    # LA PROPUESTA GLOBAL VUELVE CON LA SESIÓN (26-sep-2026): el árbol la lee
+    # (sentido del motor y lista de comprobación) en cinco puertas, y con dos
+    # workers no puede depender de cuál calculó la propuesta.
+    _g_fila = _taller_global_de_fila(est, resultado)
+    if _g_fila is not None:
+        ses["global"] = _g_fila
     _ml = est.get("material")
     if _te.esta_completo(_ml):
         _m = _te.material_rehidratado(_ml)
@@ -34865,13 +34918,11 @@ async def taller_reparto(
         _lista = json.loads(criterios_json or "[]") or []
     except Exception:
         raise HTTPException(422, "criterios_json no es JSON válido.")
-    _glob = {}
-    if (global_json or "").strip():
-        try:
-            _g = json.loads(global_json)
-            _glob = _g if isinstance(_g, dict) else {}
-        except Exception:
-            _glob = {}
+    # LA MISMA GLOBAL QUE LAS OTRAS CUATRO PUERTAS (26-sep-2026): la del
+    # cliente o, si no la manda —no la manda cuando no alcanza—, la guardada en
+    # la fila. Antes sólo la del cliente: el reparto tumbaba unos accesorios y
+    # el proyecto recalificaba otros.
+    _glob = _taller_glob(global_json, ses)
     import arbol_decision as _ad
     # EL CAMBIO DE SENTIDO (26-sep-2026): los accesorios que el árbol tumba
     # vuelven vacíos con `recalificar: true`; si ya hay una recalificación
@@ -35823,11 +35874,13 @@ async def taller_proponer(
         _previa = None
     if _previa is not None:
         _taller_registrar_uso(user_email, numero, "propuesta")
+        _taller_guardar_global(user_email, numero, ses["resultado"], _previa)
         print(f"   ⚖️ TALLER: propuesta {numero} servida de la calculada sola · "
               f"{len(_previa.get('propuestas') or [])} sentidos")
         return _previa
     _resp = await _taller_proponer_nucleo(user_email, numero, ses, contexto)
     _taller_registrar_uso(user_email, numero, "propuesta")
+    _taller_guardar_global(user_email, numero, ses["resultado"], _resp)
     return _resp
 
 

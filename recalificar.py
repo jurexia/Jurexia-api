@@ -60,7 +60,11 @@ TOPE_SALIDA = int(os.getenv("RECALIFICAR_TOPE_SALIDA", "12000"))
 TOPE_S = float(os.getenv("RECALIFICAR_TOPE_S", "90"))
 # Seis corridas por adelanto, contando todas (pantalla y gemelos), y seis
 # casillas: la pantalla pide una por cada razón estable del principal.
-TOPE_CORRIDAS = int(os.getenv("RECALIFICAR_TOPE_CORRIDAS", "6"))
+# 12 y no 6 (integración, 26-sep-2026): cada razón nueva del principal es
+# una premisa nueva, y con 6 bastaba corregirla tres o cuatro veces y pisar un
+# accesorio para que el proyecto saliera con todos sin calificar. Cada corrida
+# es una llamada de las fases, barata frente a un proyecto sin calificar.
+TOPE_CORRIDAS = int(os.getenv("RECALIFICAR_TOPE_CORRIDAS", "12"))
 MAX_CASILLAS = 6
 # Una corrida «en curso» sin latido en este tiempo es de un worker que murió.
 # La corrida no pasa de 90 s y late cada 30.

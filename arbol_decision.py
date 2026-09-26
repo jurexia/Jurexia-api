@@ -371,7 +371,8 @@ def presupuesto(entrada: dict, accesorio, principal) -> dict:
     `principal`: los dicts de la fase 3 (o sus preguntas). Devuelve
     {"verificado": bool, "motivo": str, "cita": str, "premisa": str,
      "causa_propia": str}. `motivo` dice por qué no, para el aviso y para
-    medir: "sin_declarar", "causa_propia", "cita_corta", "cita_no_consta",
+    medir: "sin_declarar", "causa_propia", "cita_corta", "cita_extensa",
+    "cita_no_consta",
     "cita_ajena_al_principal"; "" cuando se verifica.
     """
     pre = (entrada or {}).get("presupone")
@@ -392,6 +393,16 @@ def presupuesto(entrada: dict, accesorio, principal) -> dict:
     pc = _plano(cita)
     if len(pc.split()) < 4:
         out["motivo"] = "cita_corta"
+        return out
+    # NI EL PLANTEAMIENTO ENTERO (integración, 26-sep-2026): medido sobre 12
+    # asuntos, las dos citas de `presupone` que dio el motor eran el párrafo
+    # entero de lo que se combate. Eso «consta» siempre y no prueba dónde da por
+    # cierta la premisa: la prueba es un pasaje, no el todo.
+    _n_cit = len(pc.split())
+    _n_com = max((len(_plano(_textos_de(accesorio, k)).split()) for k in ("combate", "pregunta")),
+                 default=0)
+    if _n_cit > 60 or (_n_com >= 15 and _n_cit >= 0.8 * _n_com):
+        out["motivo"] = "cita_extensa"
         return out
     # PALABRAS ENTERAS Y DENTRO DE UN SOLO TEXTO (revisión del 26-sep-2026):
     # sin los espacios de los bordes, «scindida es la obligada principal»
@@ -1088,6 +1099,28 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 f"consta. "
                 f"Se estudian con su calificación: " + " · ".join(_partes)
                 + ". Si alguno sólo tiene sentido con esa premisa, márcalo inoperante tú.")
+    # EL ASUNTO QUE PROSPERA POR UN ACCESORIO, DICHO SIEMPRE (integración,
+    # 26-sep-2026). Medido sobre 16 engroses con el principal desestimado: en
+    # 6 un accesorio que el secretario no tocó quedaba «fundado» —cuatro con la
+    # calificación del motor en la misma vía, dos con la suerte escrita para
+    # ella— y sólo se avisaba si venía de la otra vía. Que el asunto prospere
+    # por un accesorio puede ser justo lo correcto; lo que no puede pasar es
+    # que ocurra sin que él lo lea. Lo que él marcó es su decisión: no se avisa.
+    if not pros:
+        _dicho = " ".join(avisos)
+        _por_acc = [str(_get(c, "problema", "")) for c in criterios
+                    if c is not principal
+                    and str(_get(c, "jerarquia", "")).lower() != "principal"
+                    and str(_get(c, "problema", "")) not in _tocados
+                    and _prospera(str(_get(c, "sentido", "")))]
+        _por_acc = [t for t in _por_acc if f"«{t[:80]}»" not in _dicho]
+        if _por_acc:
+            avisos.append(
+                f"CON EL PRINCIPAL {p_sent.replace('_', ' ').upper()}, EL ASUNTO PROSPERARÍA "
+                f"POR {'UN ACCESORIO' if len(_por_acc) == 1 else 'ACCESORIOS'} que no "
+                f"calificaste tú: " + " · ".join(f"«{t[:80]}»" for t in _por_acc[:4])
+                + ". Esa calificación es la que propuso el motor; confírmala o márcala tú "
+                  "antes de generar.")
     return avisos, detalle
 
 

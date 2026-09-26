@@ -1,3 +1,4 @@
+import re
 """RECALIFICAR CON LA PREMISA DEL CAMBIO DE SENTIDO (26-sep-2026) — sin modelo.
 
 David: «si cambio sentido hay que tumbar y regenerar con la premisa del cambio
@@ -474,8 +475,14 @@ ok("SENTIDO: SIN CALIFICAR" in p2_sin and "PLANTEAMIENTOS SIN CALIFICAR" not in 
    "…y sólo cuando los hay (la v2 de siempre no cambia)")
 mat1 = f6.Material(tipo_asunto="amparo_directo", materia="civil", variante="v1")
 p1_sin = f6.prompt_estudio("acto", "conceptos", C_sin, mat1)
-ok("PLANTEAMIENTOS SIN CALIFICAR" not in p1_sin and "SENTIDO: SIN CALIFICAR" not in p1_sin,
-   "la v1, congelada: no recibe el bloque (sólo el aviso al secretario)")
+# LA v1 TAMBIÉN, SÓLO CUANDO LOS HAY (integración, 26-sep-2026): es la de
+# producción para quien no es de casa, y con el sentido vacío salía «SENTIDO: »
+# y «en parte infundados y en parte ». Sin sin calificar, idéntica.
+p1_con = f6.prompt_estudio("acto", "conceptos", C_con, mat1)
+ok("PLANTEAMIENTOS SIN CALIFICAR" in p1_sin and "SENTIDO: SIN CALIFICAR" in p1_sin
+   and "en parte  " not in p1_sin and not re.search(r"en parte\s*[.,]", p1_sin)
+   and "PLANTEAMIENTOS SIN CALIFICAR" not in p1_con,
+   "la v1: con un sin calificar, el bloque y una apertura sin huecos; sin ellos, como siempre")
 ok("SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO" in rc.aviso_sin_calificar([P2], "infundado")
    and P2[:60] in rc.aviso_sin_calificar([P2], "infundado"), "el aviso al secretario nombra los que quedaron")
 # El guion del plan (v4): su rótulo propio, no «no lo califiques».
@@ -951,8 +958,8 @@ ok("CUBRE:" in _tramo and "RAZÓN DEL SECRETARIO: la cedente litigó de buena fe
    "v2: el sin calificar lleva su CUBRE y la razón que él escribió")
 _p1_c = f6.prompt_estudio("acto", "conceptos", _C_c, f6.Material(tipo_asunto="amparo_directo", materia="civil",
                                                                   variante="v1", problemas=fase3(P1, P2, P3)))
-ok("SENTIDO: SIN CALIFICAR" not in _p1_c and "RAZÓN DEL SECRETARIO: la cedente litigó de buena fe" in _p1_c,
-   "la v1, como estaba")
+ok("SENTIDO: SIN CALIFICAR" in _p1_c and "RAZÓN DEL SECRETARIO: la cedente litigó de buena fe" in _p1_c,
+   "la v1: el sin calificar lo dice y conserva la razón que él escribió")
 
 print()
 if FALLOS:

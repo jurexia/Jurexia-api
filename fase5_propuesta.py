@@ -297,6 +297,18 @@ def emparejar(problemas: list, propuestas: list) -> list:
                         break
         if elegida is not None:
             libres.remove(elegida)
+            # CON LA PREGUNTA DE LA FASE 3, NO CON LA DEL MODELO (integración
+            # del Paso 2, 26-sep-2026). Emparejada por tema, conservaba el texto
+            # recortado o reformulado del modelo, y el árbol —que busca cada
+            # problema por su texto entre los de la fase 3— la perdía: el
+            # accesorio salía «sin relación con el principal». Se copia, no se
+            # toca el objeto del modelo.
+            if preg and getattr(elegida, "problema", None) != preg:
+                try:
+                    import dataclasses as _dc
+                    elegida = _dc.replace(elegida, problema=preg)
+                except Exception:
+                    pass
         fuera.append(elegida)
     return fuera
 
@@ -1073,10 +1085,10 @@ REGLAS QUE NO SE ROMPEN:
    · `si_no_prospera`: {{"sentido", "razon"}} = qué le pasa si el principal
      NO prospera. Quedar sin materia cuando el principal prospera NO lo hace
      caer cuando no prospera: si ataca otra consideración del acto o denuncia
-     otro vicio —la congruencia o el alcance de una condena, la condena en
-     costas por una causa suya y no por el resultado que pide en el
-     principal, una omisión de estudio propia—, lleva la calificación que
-     merece por lo que él mismo plantea, con su razón. Sólo es "inoperante"
+     un vicio distinto del que sostiene el principal —de forma, del alcance
+     de lo resuelto, o de una decisión accesoria que tiene su propia causa—,
+     lleva la calificación que merece por lo que él mismo plantea, con su
+     razón. Sólo es "inoperante"
      por caer con el principal cuando TODO su argumento da por cierta la
      premisa que el principal sostenía y que se desestima; entonces la razón
      dice qué premisa y lo declaras en `presupone`.{_procesal12}
@@ -1148,7 +1160,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
        "relacion": "depende|distinto",
        "si_prospera": {{"sentido": "innecesario|fundado|infundado|inoperante|ineficaz",
                         "razon": "<una frase>"}},
-       "si_no_prospera": {{"sentido": "fundado|infundado|inoperante|ineficaz",
+       "si_no_prospera": {{"sentido": "inoperante|infundado|fundado|ineficaz",
                            "razon": "<una frase: por qué, en esta vía>"}},
        "presupone": null | {{"premisa": "<la premisa del principal que da por cierta>",
                              "cita": "<palabras literales de «Se combate diciendo» de este problema>",
