@@ -32944,6 +32944,56 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
               "otra vez, o confirma que no había que contestarlos.")
     if not crit:
         raise HTTPException(422, "criterios_json no trae ningún sentido.")
+    # ═══ «ESTUDIAR JUNTOS», DESPUÉS DEL ÁRBOL (26-sep-2026) ═══════════════
+    # El árbol no mira el grupo, y un agrupado que queda innecesario, caído con
+    # el principal o sin calificar recibía a la vez «se estudia junto con los
+    # demás del grupo» y «no se estudia» (revisión adversarial de la
+    # integración). Sale del grupo; el grupo que se queda con menos de dos se
+    # deshace, y se le dice al secretario. En un solo sitio: los dos gemelos,
+    # /taller/recalificar y /taller/plan/pedir ven lo mismo.
+    def _grupos_tras_el_arbol(crit: list) -> list:
+        """Vacía EN SITIO el grupo de los criterios que el árbol dejó innecesarios,
+        caídos con el principal o sin calificar, deshace el grupo que se queda con
+        menos de dos y devuelve los avisos para el secretario («EL GRUPO X NO SE
+        APLICÓ: …»). Vive aquí dentro y no aparte: las pruebas sacan esta
+        función sola por AST."""
+        import arbol_decision as _ad_g
+
+        def _por_que_fuera(c) -> str:
+            s = str(getattr(c, "sentido", "") or "").strip().lower()
+            if not s:
+                return "quedó sin calificar"
+            if s in (_ad_g.INNECESARIO, "sin_materia"):
+                return "quedó sin materia por el sentido del principal"
+            if str(getattr(c, "razonamiento", "") or "").startswith(_ad_g.CAE_CON_PRINCIPAL):
+                return "cae con el principal"
+            return ""
+
+        miembros: dict = {}
+        for c in crit or []:
+            g = str(getattr(c, "grupo", "") or "").strip()
+            if g:
+                miembros.setdefault(g, []).append(c)
+        avisos = []
+        for g, cs in miembros.items():
+            fuera = [(c, _por_que_fuera(c)) for c in cs if _por_que_fuera(c)]
+            if not fuera:
+                continue
+            for c, _ in fuera:
+                c.grupo = ""
+            quedan = [c for c in cs if str(getattr(c, "grupo", "") or "").strip()]
+            _porque = "; ".join(f"«{str(c.problema)[:80]}» {m}" for c, m in fuera[:4])
+            if len(quedan) < 2:
+                for c in quedan:
+                    c.grupo = ""
+                avisos.append(f"EL GRUPO {g} NO SE APLICÓ: {_porque}. Con menos de dos planteamientos "
+                              f"no hay nada que estudiar junto: cada uno se estudia en su apartado.")
+            else:
+                avisos.append(f"EL GRUPO {g} SE APLICÓ SIN PARTE DE SUS PLANTEAMIENTOS: {_porque}; "
+                              f"los demás se estudian juntos.")
+        return avisos
+
+    avisos_fases.extend(_grupos_tras_el_arbol(crit))
     # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
     # Sólo cuando HAY tarjeta global —dictada o del motor—; en la vía por
     # problema sus marcas son la tarjeta y no se tocan.

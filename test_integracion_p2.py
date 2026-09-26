@@ -495,6 +495,63 @@ _pr_k, _acc_k = rc.entradas(resultado(F3g), _arm_con["crit"], _arm_con["detalle"
 ok(rc.clave(_pr_k["problema"], _pr_k["sentido"], _pr_k["razon"], [a["problema"] for a in _acc_k],
             _te.huella_contraste(resultado(F3g)), "amparo_directo", rc.huella_premisa(_SUP, ""))
    == _k_con, "la clave del árbol es la que calcula la recalificación con esa suplencia")
+
+
+print("\n9 · «ESTUDIAR JUNTOS»: LA v1 CON EL TEXTO DE LA v2, Y SIN ÓRDENES OPUESTAS")
+_G1 = [f6.Criterio(problema="¿Es ilegal la valoración del dictamen pericial?", sentido="infundado",
+                   razonamiento="r", jerarquia="principal", grupo="A"),
+       f6.Criterio(problema="¿Se omitió valorar la testimonial de dos testigos?", sentido="infundado",
+                   razonamiento="r", jerarquia="accesorio", grupo="A")]
+_p_v1g = f6.prompt_estudio("acto", "conceptos", _G1, f6.Material(tipo_asunto="amparo_directo", variante="v1"))
+_p_v2g = f6.prompt_estudio("acto", "conceptos", _G1, f6.Material(tipo_asunto="amparo_directo", variante="v2"))
+_linea = lambda p: next(x for x in p.splitlines() if "SE ESTUDIA JUNTO" in x)  # noqa: E731
+ok("no los contestes por separado" not in _p_v1g and "respuesta identificable" in _linea(_p_v1g)
+   and _linea(_p_v1g) == _linea(_p_v2g),
+   "(a) la v1 con grupo recibe el MISMO texto que la v2 (cada argumento, su respuesta)")
+_G0 = [dataclasses.replace(c, grupo="") for c in _G1]
+ok("SE ESTUDIA JUNTO" not in f6.prompt_estudio("acto", "conceptos", _G0,
+                                               f6.Material(tipo_asunto="amparo_directo", variante="v1")),
+   "(a) la v1 sin grupo no lo menciona (el resto lo congela test_prompt_v2)")
+# (b) Después del árbol: el agrupado que queda sin materia sale del grupo.
+Q1 = "¿La Sala valoró la testimonial ofrecida por la actora?"
+Q2 = "¿Procedía la condena en costas de primera instancia?"
+Q3 = "¿Se omitió estudiar la excepción de pago parcial?"
+F3q = [{"pregunta": Q1, "jerarquia": "principal", "combate": "no valoró la testimonial"},
+       {"pregunta": Q2, "jerarquia": "accesorio", "depende_de": 1, "combate": "las costas"},
+       {"pregunta": Q3, "jerarquia": "accesorio", "combate": "la excepción de pago"}]
+PRq = [_prop(Q1, "fundado"), _prop(Q2, "fundado"), _prop(Q3, "infundado")]
+
+
+def _cjq(g3):
+    return json.dumps([
+        {"problema": Q1, "sentido": "fundado", "razonamiento": "no la valoró", "jerarquia": "principal",
+         "tocado": True, "grupo": "A"},
+        {"problema": Q2, "sentido": "fundado", "razonamiento": "r", "jerarquia": "accesorio", "tocado": False,
+         "grupo": "A"},
+        {"problema": Q3, "sentido": "infundado", "razonamiento": "r", "jerarquia": "accesorio", "tocado": False,
+         "grupo": g3}], ensure_ascii=False)
+
+
+_ses_q = {"propuestas": [types.SimpleNamespace(**p) for p in PRq], "material": None}
+_arm_q = NS["_taller_armar_criterio"](resultado(F3q), _ses_q, {"sentido": "fundado", "alcanza": True},
+                                      criterios_json=_cjq(""))
+_g_q = {c.problema: (c.sentido, c.grupo) for c in _arm_q["crit"]}
+ok(_g_q[Q2] == ("innecesario", "") and _g_q[Q1][1] == ""
+   and any(a.startswith("EL GRUPO A NO SE APLICÓ") and Q2[:40] in a and "sin materia" in a
+           for a in _arm_q["avisos_fases"]),
+   "(b) el agrupado sin materia sale del grupo, el grupo de uno se deshace y se le dice")
+_p_q = f6.prompt_estudio("acto", "conceptos", _arm_q["crit"],
+                         f6.Material(tipo_asunto="amparo_directo", variante="v1"))
+ok("SE ESTUDIA JUNTO" not in _p_q, "(b) el prompt ya no le da a la vez «se estudia junto» y «no se estudia»")
+_arm_q3 = NS["_taller_armar_criterio"](resultado(F3q), _ses_q, {"sentido": "fundado", "alcanza": True},
+                                       criterios_json=_cjq("A"))
+_g_q3 = {c.problema: c.grupo for c in _arm_q3["crit"]}
+ok(_g_q3 == {Q1: "A", Q2: "", Q3: "A"}
+   and any(a.startswith("EL GRUPO A SE APLICÓ SIN") and Q2[:40] in a for a in _arm_q3["avisos_fases"]),
+   "(b) con dos que quedan, el grupo sigue sin el que salió, y se le dice")
+_arm_q0 = NS["_taller_armar_criterio"](resultado(F3q), _ses_q, {"sentido": "fundado", "alcanza": True},
+                                       criterios_json=_cjq("").replace('"grupo": "A"', '"grupo": ""'))
+ok(not any("EL GRUPO" in a for a in _arm_q0["avisos_fases"]), "(b) sin grupos, ningún aviso nuevo")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)

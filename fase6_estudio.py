@@ -581,11 +581,17 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         # EL GRUPO LO DECIDE EL SECRETARIO. La arquitectura ya prohíbe resolver
         # dos planteamientos con una calificación conjunta «salvo que declares
         # que se estudian juntos y por qué»; faltaba quién lo declarara.
-        if _g and _v2c:
-            # EN LA v2 EL GRUPO NO BORRA LA RESPUESTA DE CADA UNO. «No los
-            # contestes por separado» chocaba con la regla nueva —cada
-            # argumento, una respuesta identificable— y un argumento con dato
-            # propio metido en la respuesta común es el que luego falta.
+        if _g:
+            # EL GRUPO NO BORRA LA RESPUESTA DE CADA UNO. «No los contestes
+            # por separado» chocaba con la regla nueva —cada argumento, una
+            # respuesta identificable— y un argumento con dato propio metido en
+            # la respuesta común es el que luego falta.
+            # LA v1 RECIBE EL MISMO TEXTO (revisión adversarial de la
+            # integración, 26-sep-2026): «Estudiar juntos» ya se ve en todas
+            # las cuentas y el grupo viaja en los tres modos, así que la orden
+            # de la v1 —«no los contestes por separado»— llegaba a producción
+            # contra lo que promete la pantalla (inexhaustividad, art. 74, fr.
+            # II). Sólo cambia cuando hay grupo: la v1 sin grupo, ni una coma.
             lineas.append(f"   SE ESTUDIA JUNTO CON LOS DEMÁS DEL GRUPO {_g}: "
                           f"un solo apartado que ABRE diciendo QUÉ LOS UNE —la "
                           f"consideración que atacan y la razón que los "
@@ -593,12 +599,6 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                           f"común se expone una vez; dentro, cada argumento "
                           f"recibe una respuesta identificable, y el que trae "
                           f"un dato propio, la suya.")
-        elif _g:
-            lineas.append(f"   SE ESTUDIA JUNTO CON LOS DEMÁS DEL GRUPO {_g}: "
-                          f"un solo apartado, una sola línea argumentativa y "
-                          f"una calificación conjunta. ABRE ese apartado "
-                          f"diciendo QUÉ LOS UNE y por qué se resuelven a la "
-                          f"vez; no los contestes por separado dentro de él.")
         if _sin_calif:
             if c.razonamiento:
                 lineas.append(f"   RAZÓN DEL SECRETARIO: {c.razonamiento}")
