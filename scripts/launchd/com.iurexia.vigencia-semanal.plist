@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LA REGENERACIÓN SEMANAL DEL ÍNDICE DE VIGENCIA (26-sep-2026).
+
+  Cada domingo a las 03:30, hora local, corre scripts/vigencia_semanal.sh: pone
+  al día la caché del SJF (~/Documents/IUREXIA-MAC/reingesta/vigencia), rehace
+  datos/vigencia_tesis.json y, si cambió y pasa la cordura y las pruebas, hace
+  commit y push a main (Render despliega solo). Corre en la Mac porque el SJF
+  bloquea con Incapsula las IP de Render y Vercel.
+
+  StartCalendarInterval (y no StartInterval): si la Mac dormía a esa hora,
+  launchd lo corre al despertar; si se perdieron varias, una sola vez.
+
+  Usa la copia del worktree dedicado (la de origin/main, que el propio guion
+  pone al día cada semana); si ese worktree aún no existe, la del checkout
+  principal, que lo crea.
+
+  INSTALAR (lo hace quien integre, no este repo):
+      mkdir -p ~/Library/Logs/iurexia
+      cp scripts/launchd/com.iurexia.vigencia-semanal.plist ~/Library/LaunchAgents/
+      launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.iurexia.vigencia-semanal.plist
+  PROBAR YA:   launchctl kickstart -p gui/$(id -u)/com.iurexia.vigencia-semanal
+  QUITAR:      launchctl bootout gui/$(id -u)/com.iurexia.vigencia-semanal
+  REGISTRO:    ~/Library/Logs/iurexia/vigencia-semanal.log (línea «RESUMEN · …»)
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.iurexia.vigencia-semanal</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/zsh</string>
+		<string>-c</string>
+		<string>f=/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/wt-vigencia-semanal/scripts/vigencia_semanal.sh; [ -f "$f" ] || f=/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-git/scripts/vigencia_semanal.sh; exec /bin/zsh "$f"</string>
+	</array>
+
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Weekday</key>
+		<integer>0</integer>
+		<key>Hour</key>
+		<integer>3</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/jurexia-api-git/.venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>LANG</key>
+		<string>es_MX.UTF-8</string>
+		<key>PYTHONIOENCODING</key>
+		<string>utf-8</string>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>/Users/josedavidalcantarmendoza/Library/Logs/iurexia/vigencia-semanal.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/josedavidalcantarmendoza/Library/Logs/iurexia/vigencia-semanal.log</string>
+
+	<key>RunAtLoad</key>
+	<false/>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>5</integer>
+</dict>
+</plist>
