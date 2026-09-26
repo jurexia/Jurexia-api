@@ -1540,6 +1540,44 @@ def _reindexar(mapa: dict, lineas: list, pars: list) -> dict:
     return {ident: sorted({a_doc.get(i, i) for i in idxs}) for ident, idxs in (mapa or {}).items()}
 
 
+# ═══ LA LIMPIEZA DEFENSIVA DE LOS RÓTULOS DEL GUION (26-sep-2026) ═══════════
+# El guion del plan (v4) es interno: sus rótulos no se escriben en la sentencia
+# (plan_estudio.bloque lo dice). Si el modelo copia alguno como renglón suelto,
+# llegaría al .docx. Se quitan SÓLO los renglones que EMPIEZAN por un rótulo del
+# guion inequívoco —en mayúsculas y seguido del identificador del plan—; una
+# sentencia no escribe «APLICA C1.a» ni «APARTADO 2 ·». Calibrado contra los
+# engroses reales del corpus (campo «oro»): 0 renglones quitados. El renglón
+# «DESVIACIONES DEL GUION» es la explicación que el guion manda poner en
+# ADVERTENCIAS: si quedó en el cuerpo, se lleva allí, no se tira.
+_ID_PLAN = r"(?:AD|[CAS])\d+\.[a-z]{1,2}"
+_RX_ROTULO_GUION = re.compile(
+    r"^[ \t>*#\-]*(?:"
+    r"GUION DEL ESTUDIO\b"
+    r"|APARTADO \d+ ·"
+    r"|(?:APLICA|REMITE|DESARROLLA|RESIDUAL|NO SE ESTUDIA) " + _ID_PLAN + r"\b"
+    r"|EXPONE M\d+\b"
+    r")")
+_RX_DESVIACIONES = re.compile(r"^[ \t>*#\-]*DESVIACIONES DEL GUION\b")
+
+
+def limpiar_rotulos_del_guion(estudio: str, advertencias: str = "") -> tuple:
+    """(estudio, advertencias, renglones quitados, renglones llevados a
+    ADVERTENCIAS). Ver `_RX_ROTULO_GUION`. No toca nada más: un renglón que no
+    empieza por un rótulo del guion se queda aunque lo nombre dentro."""
+    fuera, llevados, quedan = 0, [], []
+    for ln in str(estudio or "").split("\n"):
+        if _RX_DESVIACIONES.match(ln):
+            llevados.append(ln.strip(" \t>*#-"))
+            continue
+        if _RX_ROTULO_GUION.match(ln):
+            fuera += 1
+            continue
+        quedan.append(ln)
+    if llevados:
+        advertencias = "\n\n".join(x for x in [str(advertencias or "").strip()] + llevados if x)
+    return "\n".join(quedan), advertencias, fuera, len(llevados)
+
+
 def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str) -> dict:
     """Separa las marcas y aplica el control V1. Nunca lanza.
 
@@ -1665,6 +1703,19 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     # Aquí convergen los dos gemelos, así que deciden igual. El mapa y la
     # cobertura van a la ficha y al evento «listo» por `meta_estudio`.
     meta_estudio = dict(meta_estudio or {})
+    # LOS RÓTULOS DEL GUION QUE SE COLARON, fuera (antes de las marcas: el mapa
+    # de marcas a párrafos se calcula sobre el texto que se compone).
+    estudio, advertencias, _n_rot, _n_desv = limpiar_rotulos_del_guion(estudio, advertencias)
+    if _n_rot or _n_desv:
+        print(f"   🧹 GUION: {_n_rot} rótulo(s) del plan quitados del estudio"
+              + (f", {_n_desv} desviación(es) llevadas a ADVERTENCIAS" if _n_desv else ""))
+        avisos.insert(0, "LIMPIEZA: el estudio copió "
+                      + (f"{_n_rot} renglón(es) con rótulos internos del guion (APARTADO, APLICA, "
+                         f"EXPONE…), que se quitaron" if _n_rot else "")
+                      + ("; " if _n_rot and _n_desv else "")
+                      + ("la explicación «DESVIACIONES DEL GUION» en el cuerpo, que se llevó a "
+                         "ADVERTENCIAS" if _n_desv else "")
+                      + ". Revisa que no falte nada en el apartado donde estaban.")
     _v1 = _marcas_y_cobertura(r, e, material, estudio, advertencias)
     estudio, advertencias = _v1["estudio"], _v1["advertencias"]
     if _v1["aviso"]:

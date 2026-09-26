@@ -783,6 +783,53 @@ _, _, _av_e = rc.validar({"planteamientos": [{"numero": 2, "sentido": "inoperant
                          _acc_e, _pr_i)
 ok(_av_e.get(P2g) and "todo lo que se combate" in _av_e[P2g] and "no consta" not in _av_e[P2g],
    "el aviso de la cita entera no dice «no consta» (sí consta: es demasiado)")
+
+
+print("\n13 · LOS RÓTULOS DEL GUION QUE SE CUELAN AL ESTUDIO SE QUITAN (SÓLO ESOS)")
+import glob  # noqa: E402
+import inspect  # noqa: E402
+_ra_l = _ra_t
+_EST = "\n".join([
+    "GUION DEL ESTUDIO — organiza; el sentido es el del criterio del secretario",
+    "APARTADO 1 · abre: primer concepto de violación",
+    "  APLICA C1.a · etiqueta: infundado · razón: infundado",
+    "- REMITE C2.b · a APARTADO 1",
+    "DESARROLLA AD1.a · diferencia: prueba",
+    "EXPONE M1 · unidad U1 · fuentes: registro 2001111",
+    "⟦C1.a⟧ Es infundado el primer concepto de violación, porque la Sala sí valoró la pericial.",
+    "Aplica al caso la jurisprudencia 2a./J. 12/2020, que es obligatoria.",
+    "Remite la quejosa a lo resuelto en el amparo directo 12/2024.",
+    "APARTADO B del artículo 123 constitucional, que rige la relación burocrática.",
+    "El guion del estudio no se escribe; esta frase tampoco empieza por un rótulo.",
+    "DESVIACIONES DEL GUION: el guion remitía C3.b al apartado 1; se desarrolló aparte.",
+    "Desarrolla la autoridad su argumento en tres puntos."])
+_e_l, _a_l, _q_l, _d_l = _ra_l.limpiar_rotulos_del_guion(_EST, "ADVERTENCIAS PREVIAS")
+ok(_q_l == 6 and _d_l == 1 and "APLICA C1.a" not in _e_l and "APARTADO 1 ·" not in _e_l
+   and "EXPONE M1" not in _e_l and "GUION DEL ESTUDIO" not in _e_l and "DESVIACIONES" not in _e_l,
+   "quita los renglones que empiezan por un rótulo del guion (con su identificador)")
+ok(all(x in _e_l for x in ("⟦C1.a⟧ Es infundado", "Aplica al caso la jurisprudencia", "Remite la quejosa",
+                           "APARTADO B del artículo 123", "El guion del estudio no se escribe",
+                           "Desarrolla la autoridad")),
+   "y deja la prosa que sólo se parece (Aplica…, Remite…, APARTADO B del artículo…)")
+ok(_a_l.startswith("ADVERTENCIAS PREVIAS") and _a_l.rstrip().endswith("se desarrolló aparte."),
+   "«DESVIACIONES DEL GUION» en el cuerpo se lleva al final de ADVERTENCIAS, no se tira")
+_src_t = inspect.getsource(_ra_l._terminar)
+ok(_src_t.index("limpiar_rotulos_del_guion(") < _src_t.index("_marcas_y_cobertura("),
+   "_terminar limpia antes de separar las marcas y de componer (los dos gemelos convergen ahí)")
+_oros = []
+for _fj in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "redactor-sentencias",
+                                  "corpus", "casos", "*.json")):
+    try:
+        _dj_ = json.load(open(_fj, encoding="utf-8"))
+    except Exception:
+        continue
+    if isinstance(_dj_, dict) and isinstance(_dj_.get("oro"), str) and _dj_["oro"].strip():
+        _oros.append(_dj_["oro"])
+if _oros:
+    _quitados = sum(sum(_ra_l.limpiar_rotulos_del_guion(o, "")[2:]) for o in _oros)
+    ok(_quitados == 0, f"calibrado contra {len(_oros)} engroses reales (campo «oro»): 0 renglones quitados")
+else:
+    print("   (sin el corpus de engroses a mano: la calibración no se corre aquí)")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)
