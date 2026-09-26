@@ -178,7 +178,10 @@ class Global:
     # LA LISTA DE COMPROBACIÓN. Para que no se quede un tema sin contestar: cada
     # uno con su suerte en las DOS vías. La exhaustividad es de las cosas que se
     # revisan de oficio, y un tema olvidado es un amparo de vuelta.
-    # [{tema, papel, con_propuesta, con_alternativa, tema_distinto}]
+    # [{tema, papel, con_propuesta, con_alternativa, tema_distinto}]; desde
+    # el 22-sep, además `relacion`, `si_prospera` y `si_no_prospera`, y desde
+    # el 26-sep `presupone` —la prueba de que un accesorio cae con el
+    # principal, que `arbol_decision.presupuesto` comprueba—.
     checklist: list = field(default_factory=list)
 
     # LAS CONSTANCIAS QUE HARÍA FALTA VER: [{que, para_que, indispensable,
@@ -918,6 +921,17 @@ def prompt_propuesta(problemas: list, material, resumen_acto: str,
      "lectura": "<esa lectura y su apoyo —interpretación conforme o pro persona—, dos renglones>",
      "limite": "<qué la haría inviable, un renglón>",
      "apoyos": ["<registro>"]},""" if _metodo_p else "")
+    # ═══ LAS DOS DIRECCIONES DE «DEPENDE» (26-sep-2026) ═══════════════════
+    # La instrucción 12 definía `relacion: depende` para las dos vías a la vez
+    # —«si el principal cae, éste cae; si prospera, queda sin materia»— y el
+    # esquema pedía para `si_no_prospera` «qué premisa cae con el principal»,
+    # así que cada accesorio que quedaba sin materia en una vía salía caído en
+    # la otra. ADC 722/2025: la congruencia de la condena y las costas se
+    # despacharon como caídas con la premisa registral, que no contienen. Ahora
+    # las dos direcciones se preguntan aparte, la caída exige `presupone` con
+    # una cita que el árbol busca en lo que se combate en ese problema, y sin
+    # ella el tema se estudia (`arbol_decision.presupuesto`). Se describe qué
+    # es cada campo; no se da ninguna frase para copiar.
     tesis = _tesis_del_material(material)
     lista = "\n".join(
         f"{i}. {p.get('pregunta','') if isinstance(p, dict) else str(p)}"
@@ -1046,21 +1060,33 @@ REGLAS QUE NO SE ROMPEN:
    —1, 2, 3… tal como van numerados en LOS PROBLEMAS JURÍDICOS DEL ASUNTO—.
    Puedes titular el tema como quieras; el número es lo que permite saber a
    cuál te refieres sin adivinarlo por el texto.
-12. LA SUERTE CONDICIONAL DE CADA ACCESORIO, en dos campos estructurados que
-   el taller aplica SOLO cuando el secretario fija el principal:
-   · `relacion`: "depende" si su respuesta presupone la del principal —si el
-     principal cae, éste cae; si prospera, éste queda sin materia o lo
-     absorbe—; "distinto" si se sostiene y se resuelve solo, pase lo que pase
-     con el principal.
+12. LA SUERTE CONDICIONAL DE CADA ACCESORIO, en campos estructurados que el
+   taller aplica SOLO cuando el secretario fija el principal. La relación con
+   el principal tiene DOS direcciones y cada una se responde por separado:
+   · `relacion`: "depende" si, al PROSPERAR el principal, éste queda sin
+     materia o lo absorbe; "distinto" si se sostiene y se resuelve solo, pase
+     lo que pase con el principal.
    · `si_prospera`: {{"sentido", "razon"}} = qué le pasa si el principal
      PROSPERA. Casi siempre "innecesario" (queda sin materia: la reposición o
      la nueva sentencia lo atenderá) o, si es distinto, su propia
      calificación.
    · `si_no_prospera`: {{"sentido", "razon"}} = qué le pasa si el principal
-     NO prospera. Si descansaba en la premisa del principal —«debía estudiar
-     los alegatos contra el crédito» presupone que el crédito estaba en la
-     litis— es "inoperante", y la razón dice qué premisa se desestimó. Si es
-     distinto, su propia calificación con su razón.{_procesal12}
+     NO prospera. Quedar sin materia cuando el principal prospera NO lo hace
+     caer cuando no prospera: si ataca otra consideración del acto o denuncia
+     otro vicio —la congruencia o el alcance de una condena, las costas, una
+     omisión de estudio propia—, lleva la calificación que merece por lo que
+     él mismo plantea, con su razón. Sólo es "inoperante" por caer con el
+     principal cuando TODO su argumento da por cierta la premisa que el
+     principal sostenía y que se desestima; entonces la razón dice qué premisa
+     y lo declaras en `presupone`.{_procesal12}
+   · `presupone`: null, salvo cuando el tema cae con el principal por dar por
+     cierta su premisa. Entonces es un objeto con `premisa` (la premisa del
+     principal que este argumento da por cierta, en una frase), `cita` (las
+     palabras LITERALES, copiadas de «Se combate diciendo» de ESTE problema,
+     en que la da por cierta: el taller las busca ahí y, si no están, el tema
+     no cae) y `causa_propia` (lo que el argumento plantea además por su
+     cuenta, en una frase, o null si no plantea nada más: con causa propia se
+     estudia aunque el principal no prospere).
    La `razon` es UNA frase que el proyecto podrá escribir tal cual. No
    contradigas la `relacion` con la suerte: si escribes que en una vía «al
    no formar parte de la litis… no podía», ese tema DEPENDE.
@@ -1120,8 +1146,9 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
        "relacion": "depende|distinto",
        "si_prospera": {{"sentido": "innecesario|fundado|infundado|inoperante|ineficaz",
                         "razon": "<una frase>"}},
-       "si_no_prospera": {{"sentido": "inoperante|infundado|fundado|ineficaz",
-                           "razon": "<una frase: qué premisa cae con el principal>"}}}}
+       "si_no_prospera": {{"sentido": "fundado|infundado|inoperante|ineficaz",
+                           "razon": "<una frase: por qué, en esta vía>"}},
+       "presupone": null}}
    ]}}}}"""
 
 

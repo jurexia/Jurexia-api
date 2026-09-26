@@ -48,14 +48,18 @@ def crit(s1, s2, tocado2=False):
             {"problema": P2, "sentido": s2, "razonamiento": "razón vieja del motor", "jerarquia": "accesorio", "tocado": tocado2}]
 
 
-print("\n1 · EL CASO REAL: el principal cae y el accesorio cae con él")
+print("\n1 · EL CASO REAL: el principal cae y el accesorio toma la suerte escrita para esa vía")
 c = crit("infundado", "fundado")
 av, det = ad.aplicar(PROBLEMAS, c, CHECKLIST_VIEJA, PROPUESTAS, sentido_motor="fundado")
 ok(c[1]["sentido"] == "infundado", f"el accesorio pasa de fundado a {c[1]['sentido']}")
 ok("no formar parte de la litis" in c[1]["razonamiento"], "con la razón que el motor había escrito para esa vía")
 ok("razón vieja del motor" not in c[1]["razonamiento"], "y la razón del sentido viejo se va")
 ok(det[P2]["de"] == "principal", "la pantalla sabrá que sigue al principal")
-ok(any("CAEN CON EL PRINCIPAL" in a for a in av), "con su aviso")
+# 26-sep-2026: «infundado» es una calificación de fondo. Antes se le pegaba la
+# fórmula de la caída y el estudio lo despachaba en un párrafo sin contestarlo.
+ok(not c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL),
+   "como calificación razonada, sin la fórmula de la caída (la lista vieja no trae `presupone`)")
+ok(not any("CAEN CON EL PRINCIPAL" in a for a in av), "y no se cuenta como caída")
 
 print("\n2 · EL PRINCIPAL PROSPERA: el accesorio sigue la suerte escrita para esa vía")
 c = crit("fundado", "infundado")
@@ -85,6 +89,32 @@ c = crit("infundado", "")
 av, det = ad.aplicar(PROBLEMAS, c, CHECKLIST_NUEVA, PROPUESTAS)
 ok(c[1]["sentido"] == "inoperante" and "presupone que el crédito" in c[1]["razonamiento"],
    "principal infundado → inoperante, con la razón")
+# 26-sep-2026: la lista dice «inoperante» pero no trae `presupone` con su cita:
+# es la palabra del motor, no la prueba. Se estudia con esa calificación,
+# razonada, y se le dice al secretario.
+ok(not c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL),
+   "sin la cita que lo pruebe, no se despacha como caído: se razona como calificación")
+ok(any("NO SE DECLARARON CAÍDOS" in a and "sin mostrar dónde da por cierta la premisa" in a
+       for a in av), "y el aviso dice que el motor escribió que caía sin mostrar dónde")
+# CON la cita, literal de lo que se combate en ese problema: cae.
+PROBLEMAS_C = [dict(PROBLEMAS[0], combate="la ampliación se presentó en tiempo e introducía los "
+                                          "argumentos contra el crédito fiscal"),
+               dict(PROBLEMAS[1], combate="la Sala omitió estudiar los alegatos dirigidos contra "
+                                          "el crédito fiscal que introdujo la ampliación")]
+CL_P = [dict(CHECKLIST_NUEVA[0]),
+        dict(CHECKLIST_NUEVA[1], presupone={
+            "premisa": "el crédito fiscal formaba parte de la litis",
+            "cita": "alegatos dirigidos contra el crédito fiscal que introdujo la ampliación",
+            "causa_propia": None})]
+c = [{"problema": P1, "sentido": "infundado", "razonamiento": "", "jerarquia": "principal", "tocado": True},
+     {"problema": P2, "sentido": "", "razonamiento": "", "jerarquia": "accesorio"}]
+av, det = ad.aplicar(PROBLEMAS_C, c, CL_P, PROPUESTAS)
+ok(c[1]["sentido"] == "inoperante" and c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL)
+   and "presupone que el crédito" in c[1]["razonamiento"],
+   f"con `presupone` verificado, cae con el principal y con su razón: {c[1]['razonamiento'][:90]}")
+ok(det[P2].get("relacion") == "presupone" and "introdujo la ampliación" in det[P2].get("cita", ""),
+   "y la pantalla sabe por qué: la cita del propio planteamiento")
+ok(any("CAEN CON EL PRINCIPAL" in a for a in av), "con su aviso")
 
 print("\n5 · LOS ESCAPES")
 c = crit("fundado", "infundado")
@@ -101,11 +131,17 @@ c3 = crit("fundado", "") + [{"problema": P3, "sentido": "infundado", "razonamien
 av, det = ad.aplicar(probs3, c3, CHECKLIST_NUEVA, PROPUESTAS)
 ok(c3[2]["sentido"] == "infundado" and det[P3]["de"] == "mayor_beneficio", "el de mayor beneficio se estudia")
 
-print("\n6 · SIN LISTA: `depende_de` de la fase 3 basta")
+print("\n6 · SIN LISTA: `depende_de` de la fase 3 basta PARA QUEDAR SIN MATERIA, NO PARA CAER")
 probs = [{"pregunta": P1, "jerarquia": "principal"}, {"pregunta": P2, "jerarquia": "accesorio", "depende_de": 1}]
 c = crit("infundado", "fundado")
 av, det = ad.aplicar(probs, c, [], [])
-ok(c[1]["sentido"] == "inoperante", "depende del 1 y el 1 cae: inoperante")
+# 26-sep-2026. `depende_de` dice que el accesorio queda sin materia si el
+# principal prospera; no que su argumento dé por cierta la premisa del
+# principal. Sin la cita que lo pruebe, se estudia con su calificación.
+ok(c[1]["sentido"] == "fundado" and c[1]["razonamiento"] == "razón vieja del motor",
+   f"depende del 1 y el 1 cae: ya NO cae por eso, se estudia con la suya: {c[1]['sentido']}")
+ok(det[P2].get("relacion") == "autonoma" and det[P2]["de"] == "propio",
+   "la pantalla sabe que se relaciona con el principal y aun así se estudia")
 c = crit("fundado", "fundado")
 av, det = ad.aplicar(probs, c, [], [])
 ok(c[1]["sentido"] == "innecesario", "depende del 1 y el 1 prospera: innecesario")
@@ -499,6 +535,304 @@ ok(_SALV not in f5.prompt_propuesta(probs(PV1, PF2), _M5(), "acto", "conceptos",
 _M5q = type("_M5q", (_M5,), {"tipo_asunto": "queja"})
 ok(_SALV not in f5.prompt_propuesta(probs(PF, PV1), _M5q(), "acto", "agravios", True, "", ""),
    "en una queja, nada (los artículos 74-V y 174 son del amparo directo)")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LA CAÍDA CON EL PRINCIPAL EXIGE QUE EL ARGUMENTO PRESUPONGA LA PREMISA
+# (26-sep-2026, paso 2 del plan que aprobó David)
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n24 · EL ADC 722/2025, CONGELADO: la congruencia de la condena y las costas no caen")
+# Los datos de la sesión real (administracion@, 26-sep-2026), mínimos y sin
+# nombres: los problemas de la fase 3 y lo que el motor propuso. Sin lista de
+# comprobación ni sentido global, como resolvió el banco. El árbol viejo
+# declaraba los dos accesorios «inoperantes porque descansan en la premisa»
+# registral, que ninguno contiene; el engrose real los contestó uno por uno.
+Q1 = "¿La falta de inscripción registral del inmueble incide en la procedencia de la acción pro forma?"
+Q2 = "¿La condena relativa a la prestación B) correspondió a los conceptos pactados y reclamados por las partes?"
+Q3 = ("¿La condena en costas de segunda instancia atendió al resultado de los recursos y a la "
+      "conducta procesal de las partes?")
+P722 = [
+    {"pregunta": Q1, "jerarquia": "principal", "depende_de": None, "cubre": [1],
+     "resolvio": "La Sala declaró inoperante el agravio relativo a la falta de inscripción registral, al "
+                 "considerar que correspondía a la etapa de ejecución de sentencia y que el informe "
+                 "registral carecía de eficacia porque no identificaba expresamente el inmueble.",
+     "combate": "La parte quejosa sostiene que la inscripción registral constituye un requisito vinculado "
+                "con el interés jurídico para ejercer la acción, que el informe sí se relaciona con el "
+                "inmueble litigioso y que la responsable debió declarar improcedente la acción."},
+    {"pregunta": Q2, "jerarquia": "accesorio", "depende_de": 1, "cubre": [2],
+     "resolvio": "La Sala estimó parcialmente fundado el agravio de la parte actora y modificó la sentencia "
+                 "para condenar al demandado al pago de los gastos correspondientes a la liberación del "
+                 "gravamen, la regularización del predio y el impuesto sobre la renta.",
+     "combate": "La parte quejosa sostiene que la condena fue genérica, comprendió conceptos no reclamados "
+                "en esos términos, alteró la litis y desconoció la distribución contractual y legal de los "
+                "gastos."},
+    {"pregunta": Q3, "jerarquia": "accesorio", "depende_de": 1, "cubre": [3],
+     "resolvio": "La Sala condenó al demandado al pago de gastos y costas de segunda instancia en favor de "
+                 "la parte actora, después de considerar fundado uno de los agravios de ésta.",
+     "combate": "La parte quejosa sostiene que la condena omitió considerar que algunos de sus agravios "
+                "fueron fundados aunque ineficaces, que no actuó con temeridad ni mala fe y que la "
+                "modificación de la sentencia por el recurso de la contraparte justificaba que cada parte "
+                "soportara sus costas."},
+]
+R1 = ("La inscripción registral no constituye, por sí sola, presupuesto de procedencia de la acción pro "
+      "forma, cuyo objeto es exigir la formalización de un derecho personal.")
+R2 = ("La condena se circunscribió a los gastos que la Sala atribuyó expresamente al vendedor conforme a "
+      "las cláusulas primera y décima tercera: no se advierte alteración de la litis.")
+R3 = ("La condena atendió al resultado de la segunda instancia; la ausencia de temeridad o mala fe no "
+      "excluye necesariamente la condena.")
+PROP722 = [{"problema": Q1, "sentido": "infundado", "razon": R1, "alcanza": True},
+           {"problema": Q2, "sentido": "infundado", "razon": R2, "alcanza": True},
+           {"problema": Q3, "sentido": "infundado", "razon": R3, "alcanza": True}]
+
+
+def crit722():
+    """Como los arma el resolver en modo acervo: la propuesta del motor."""
+    return [{"problema": p["problema"], "sentido": p["sentido"], "razonamiento": p["razon"],
+             "jerarquia": "principal" if i == 0 else "accesorio"} for i, p in enumerate(PROP722)]
+
+
+c = crit722()
+av, det = ad.aplicar(P722, c, [], PROP722, tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "infundado" and c[1]["razonamiento"] == R2,
+   f"la congruencia de la condena conserva la calificación del motor y su razón: {c[1]['sentido']}")
+ok(c[2]["sentido"] == "infundado" and c[2]["razonamiento"] == R3,
+   f"las costas de segunda instancia, igual: {c[2]['sentido']}")
+ok(not any(x["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL) for x in c),
+   "ninguno sale con la fórmula de la caída, que el estudio despacha sin contestar")
+ok(not any("CAEN CON EL PRINCIPAL" in a for a in av), "y no se anuncia ninguna caída")
+ok(det[Q2].get("relacion") == "autonoma" and det[Q3].get("relacion") == "autonoma"
+   and "no consta que su argumento dé por cierta" in det[Q2]["por_que"],
+   "la pantalla sabe que se relacionan con el principal y que se estudian")
+ok(not any("NO SE DECLARARON CAÍDOS" in a for a in av),
+   "con la calificación que el motor les dio para esta misma vía no hay nada que revisar: sin aviso")
+# La otra dirección no cambia: si la acción fuera improcedente, la condena y
+# las costas quedan sin materia. Por eso la fase 3 escribió `depende_de`.
+c = crit722()
+c[0]["sentido"], c[0]["tocado"] = "fundado", True
+av, det = ad.aplicar(P722, c, [], PROP722, tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "innecesario" and c[2]["sentido"] == "innecesario",
+   "con el principal fundado, los dos quedan sin materia, como antes")
+# Con la lista escrita a la vieja usanza —«inoperante: descansa en la premisa
+# registral», sin cita—, lo que el motor propuso para esta misma vía manda.
+CL722 = [{"numero": 1, "papel": "principal"},
+         {"numero": 2, "papel": "accesorio", "relacion": "depende",
+          "si_prospera": {"sentido": "innecesario", "razon": "la acción sería improcedente"},
+          "si_no_prospera": {"sentido": "inoperante",
+                             "razon": "Descansa en la premisa que se desestimó: la falta de inscripción"}},
+         {"numero": 3, "papel": "accesorio", "relacion": "depende",
+          "si_no_prospera": {"sentido": "inoperante", "razon": "cae con la premisa registral"},
+          "presupone": {"premisa": "la acción era improcedente por la falta de inscripción",
+                        "cita": "la inscripción registral constituye un requisito", "causa_propia": None}}]
+c = crit722()
+av, det = ad.aplicar(P722, c, CL722, PROP722, sentido_motor="infundado", tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "infundado" and c[1]["razonamiento"] == R2
+   and c[2]["sentido"] == "infundado" and c[2]["razonamiento"] == R3,
+   "con la lista vieja, los dos se estudian con lo que el motor propuso para esta vía")
+ok(det[Q3].get("motivo") == "cita_no_consta",
+   "la cita que el motor dio para las costas es del principal, no de lo que se combate en ellas: no consta")
+ok(any("NO SE DECLARARON CAÍDOS CON EL PRINCIPAL 2 planteamiento" in a
+       and a.count("el motor escribió que caía") == 2 for a in av),
+   "y se le dice al secretario que el motor escribió que caían sin mostrar dónde")
+r = ad.reparto_para_pantalla(P722, crit722(), CL722, PROP722, "infundado", "amparo_directo")
+ok(r["criterios"][1]["sentido"] == "infundado" and r["criterios"][1]["relacion"] == "autonoma",
+   "/taller/reparto enseña lo mismo, con la relación")
+
+print("\n25 · SÍ CAE: el argumento sólo tiene sentido si la premisa del principal fuera cierta")
+# Estructura de un asunto real del banco Kingston (ADC 529/2024), sin nombres:
+# el principal sostiene que el convenio liberó a la escindente; el accesorio
+# pide levantar el embargo PORQUE la escindida sería la única obligada. El
+# engrose lo declaró inoperante «al sustentarse en disidencias que ya han sido
+# desestimadas». Las costas del mismo asunto, en cambio, añaden algo propio
+# (no hubo mala fe) y se contestaron con razón propia.
+QA = "¿El convenio modificatorio liberó a la escindente de responder por las rentas reclamadas?"
+QB = "¿La existencia de obligaciones concurrentes justificó mantener el embargo sobre bienes de la escindente?"
+QC = "¿La condena en gastos y costas impuesta a la escindente se sustentó en las circunstancias acreditadas?"
+PK = [{"pregunta": QA, "jerarquia": "principal",
+       "combate": "el arrendador reconoció a la escindida como arrendataria y obligada al pago mediante el "
+                  "convenio modificatorio, por lo que la escindente dejó de responder"},
+      {"pregunta": QB, "jerarquia": "accesorio", "depende_de": 1,
+       "combate": "la escindida es la obligada principal conforme al convenio modificatorio, por lo que no "
+                  "era necesario afectar bienes de la escindente"},
+      {"pregunta": QC, "jerarquia": "accesorio", "depende_de": 1,
+       "combate": "no actuó de mala fe ni interpuso defensas frívolas, desconocía los actos celebrados entre "
+                  "el arrendador y la escindida y sus agravios fueron parcialmente fundados"}]
+PROPK = [{"problema": QA, "sentido": "infundado", "razon": "el convenio no liberó a la escindente"},
+         {"problema": QB, "sentido": "infundado", "razon": "parte de que la escindida era la única obligada"},
+         {"problema": QC, "sentido": "infundado", "razon": "la buena fe no exime de la condena"}]
+CLK = [{"numero": 1, "papel": "principal"},
+       {"numero": 2, "papel": "accesorio", "relacion": "depende",
+        "si_no_prospera": {"sentido": "inoperante",
+                           "razon": "parte de que la escindida era la única obligada, lo que se desestimó"},
+        "presupone": {"premisa": "la escindida es la única obligada por el convenio",
+                      "cita": "la escindida es la obligada principal conforme al convenio modificatorio",
+                      "causa_propia": None}},
+       {"numero": 3, "papel": "accesorio", "relacion": "depende",
+        "si_no_prospera": {"sentido": "infundado", "razon": "la buena fe no exime de la condena"},
+        "presupone": {"premisa": "la escindida es la única obligada",
+                      "cita": "desconocía los actos celebrados entre el arrendador y la escindida",
+                      "causa_propia": "no actuó de mala fe ni interpuso defensas frívolas"}}]
+
+
+def critk():
+    return [{"problema": p["problema"], "sentido": p["sentido"], "razonamiento": p["razon"],
+             "jerarquia": "principal" if i == 0 else "accesorio"} for i, p in enumerate(PROPK)]
+
+
+c = critk()
+av, det = ad.aplicar(PK, c, CLK, PROPK, sentido_motor="infundado", tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "inoperante" and c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL)
+   and "única obligada" in c[1]["razonamiento"],
+   f"el embargo cae con el principal, con la premisa que se desestimó: {c[1]['razonamiento'][:100]}")
+ok(det[QB].get("relacion") == "presupone" and "obligada principal" in det[QB].get("cita", ""),
+   "con la cita de su propio planteamiento")
+ok(c[2]["sentido"] == "infundado" and not c[2]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL),
+   "las costas, que plantean además algo propio, se estudian aunque parte de ellas presuponga la premisa")
+ok(det[QC].get("relacion") == "mixta", "la pantalla sabe que es mixta")
+ok(any("CAEN CON EL PRINCIPAL" in a for a in av)
+   and any("plantea además algo propio" in a and "mala fe" in a for a in av),
+   "un aviso por la caída y otro que dice qué parte es propia")
+# `presupone` como cadena sola (la cita) también vale.
+CLK2 = [CLK[0], dict(CLK[1], presupone="la escindida es la obligada principal conforme al convenio modificatorio")]
+c = critk()
+ad.aplicar(PK, c, CLK2, PROPK, sentido_motor="infundado", tipo_asunto="amparo_directo")
+ok(c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL), "la cita sola, como cadena, también se verifica")
+# La misma lista con el principal FUNDADO: la cita no importa, queda sin materia.
+c = critk()
+c[0]["sentido"], c[0]["tocado"] = "fundado", True
+ad.aplicar(PK, c, CLK, PROPK, sentido_motor="infundado", tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "innecesario" and c[2]["sentido"] == "innecesario",
+   "con el principal fundado, los dependientes quedan sin materia")
+# En una queja o una revisión (sin guarda procesal) la regla es la misma.
+c = critk()
+ad.aplicar(PK, c, CLK, PROPK, sentido_motor="infundado", tipo_asunto="amparo_revision")
+ok(c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL) and c[2]["sentido"] == "infundado",
+   "la regla no depende del tipo de asunto")
+
+print("\n26 · LA VERIFICACIÓN DE LA CITA, UNA POR UNA")
+_acc, _pr = PK[1], PK[0]
+_ok = {"premisa": "x", "cita": "la escindida es la obligada principal conforme al convenio modificatorio",
+       "causa_propia": None}
+ok(ad.presupuesto({"presupone": _ok}, _acc, _pr)["verificado"], "la cita literal, con ancla del principal: vale")
+ok(ad.presupuesto({"presupone": dict(_ok, cita="«La escindida es la obligada principal, conforme al "
+                                                 "convenio modificatorio»")}, _acc, _pr)["verificado"],
+   "sin que la tildes, las mayúsculas, las comillas o una coma lo impidan")
+ok(ad.presupuesto({}, _acc, _pr)["motivo"] == "sin_declarar", "sin `presupone`: no se declaró")
+ok(ad.presupuesto({"presupone": None}, _acc, _pr)["motivo"] == "sin_declarar", "null: no se declaró")
+ok(ad.presupuesto({"presupone": dict(_ok, cita="obligada principal")}, _acc, _pr)["motivo"] == "cita_corta",
+   "dos palabras no son una cita")
+ok(ad.presupuesto({"presupone": dict(_ok, cita="la escindida no responde de ninguna renta pactada")},
+                  _acc, _pr)["motivo"] == "cita_no_consta",
+   "una cita que no está en lo que se combate en ese problema: no consta")
+ok(ad.presupuesto({"presupone": dict(_ok, cita="por lo que no era necesario afectar bienes")},
+                  _acc, _pr)["motivo"] == "cita_ajena_al_principal",
+   "una cita del accesorio sin nada del principal: la premisa no es la del principal")
+ok(ad.presupuesto({"presupone": dict(_ok, causa_propia="además, el embargo excede el adeudo")},
+                  _acc, _pr)["motivo"] == "causa_propia",
+   "con causa propia no hay caída entera")
+ok(ad.presupuesto({"presupone": dict(_ok, causa_propia="null")}, _acc, _pr)["verificado"]
+   and ad.presupuesto({"presupone": dict(_ok, causa_propia="ninguna")}, _acc, _pr)["verificado"],
+   "«null» o «ninguna» escritos como texto no son causa propia")
+
+print("\n27 · UNA SUERTE DE FONDO PARA ESTA VÍA YA NO LLEVA LA FÓRMULA DE LA CAÍDA")
+# Revisión fiscal 26/2025 (sesión de casa): el motor escribió para esta vía
+# «infundado: la consideración de la Sala sobre el tope se tendría por
+# incorporada…», un tema que él mismo marcó distinto, y la propuesta guardó
+# «Descansa en la premisa que se desestimó…: La consideración…». El estudio
+# habría despachado como caído un tema que tenía su propia calificación.
+QX = "¿La resolución expresó razones suficientes para justificar los incrementos aplicados?"
+QY = "¿La sentencia recurrida debió pronunciarse sobre el tope máximo aplicable a la cuantificación?"
+_py = [{"pregunta": QX, "jerarquia": "principal", "clase": "fondo"},
+       {"pregunta": QY, "jerarquia": "accesorio", "depende_de": None, "clase": "fondo"}]
+_cly = [{"numero": 1, "papel": "principal"},
+        {"numero": 2, "papel": "accesorio", "relacion": "distinto",
+         "si_no_prospera": {"sentido": "infundado",
+                            "razon": "La consideración sobre el tope se tendría por incorporada."}}]
+c = [{"problema": QX, "sentido": "infundado", "razonamiento": "", "jerarquia": "principal"},
+     {"problema": QY, "sentido": "fundado", "razonamiento": "", "jerarquia": "accesorio"}]
+av, det = ad.aplicar(_py, c, _cly, [], sentido_motor="fundado", tipo_asunto="revision_fiscal")
+ok(c[1]["sentido"] == "infundado" and c[1]["razonamiento"].startswith("La consideración sobre el tope"),
+   f"se aplica como calificación con su razón: {c[1]['razonamiento'][:60]}")
+ok(det[QY]["de"] == "principal" and det[QY].get("origen") == "via",
+   "la pantalla sabe que es la suerte escrita para esta vía")
+
+print("\n28 · LOS RESTOS DE OTRA PASADA")
+# Un accesorio que vuelve de la pantalla con la caída que le escribió el árbol
+# viejo: con el principal desestimado se estudia con la calificación del
+# motor; con el principal fundado y sin relación, tampoco se queda la fórmula.
+_resto = ad.CAE_CON_PRINCIPAL + " al resolver el problema principal, de modo que su estudio no produciría ningún fin práctico."
+c = crit722()
+c[1]["sentido"], c[1]["razonamiento"] = "inoperante", _resto
+av, det = ad.aplicar(P722, c, [], PROP722, tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "infundado" and c[1]["razonamiento"] == R2,
+   f"la caída vieja se sustituye por lo que el motor propuso: {c[1]['sentido']}")
+_sin_dep = [dict(P722[0]), dict(P722[1], depende_de=None)]
+c = crit722()[:2]
+c[0]["sentido"], c[0]["tocado"] = "fundado", True
+c[1]["sentido"], c[1]["razonamiento"] = "inoperante", _resto
+av, det = ad.aplicar(_sin_dep, c, [], PROP722[:2], tipo_asunto="amparo_directo")
+ok(not c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL) and c[1]["sentido"] == "infundado",
+   "con el principal fundado y sin relación declarada, tampoco se queda la fórmula")
+c = crit722()[:2]
+c[1]["sentido"], c[1]["razonamiento"] = "inoperante", _resto
+av, det = ad.aplicar(_sin_dep, c, [{"numero": 2, "tema_distinto": True}], PROP722[:2],
+                     tipo_asunto="amparo_directo")
+ok(not c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL), "ni en un tema distinto")
+# Un resto se reconoce por la fórmula, no por una palabra: una razón de fondo
+# puede decir «innecesario» con todo derecho y se queda.
+c = crit722()
+c[1]["razonamiento"] = "resulta innecesario examinar el traslado de dominio: la condena no lo comprende"
+ad.aplicar(P722, c, [], [], tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "infundado" and c[1]["razonamiento"].startswith("resulta innecesario examinar"),
+   "una razón de fondo con la palabra «innecesario» no se toma por resto")
+# Lo que el secretario marcó, aunque sea la caída, no se toca.
+c = crit722()
+c[1].update(sentido="inoperante", razonamiento=_resto, tocado=True)
+ad.aplicar(P722, c, [], PROP722, tipo_asunto="amparo_directo")
+ok(c[1]["razonamiento"] == _resto, "la caída que marcó el secretario se respeta")
+
+print("\n29 · CON EL PRINCIPAL EN LA OTRA VÍA, LA CALIFICACIÓN SE CONSERVA Y SE AVISA")
+# El motor propuso el principal fundado y la congruencia de la condena
+# fundada; el secretario desestima el principal. Sin suerte escrita para esta
+# vía, la congruencia se estudia con lo que el motor le propuso —no cae: su
+# causa de pedir es suya—, y el aviso dice que esa calificación se escribió
+# con el principal al revés.
+PROP_F = [dict(PROP722[0], sentido="fundado"),
+          dict(PROP722[1], sentido="fundado", razon="la condena excede lo reclamado"), PROP722[2]]
+c = [{"problema": p["problema"], "sentido": p["sentido"], "razonamiento": p["razon"],
+      "jerarquia": "principal" if i == 0 else "accesorio"} for i, p in enumerate(PROP_F)]
+c[0]["sentido"], c[0]["tocado"] = "infundado", True
+av, det = ad.aplicar(P722, c, [], PROP_F, tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "fundado" and c[1]["razonamiento"] == "la condena excede lo reclamado",
+   "sin suerte escrita para esta vía, se estudia con la que el motor le propuso")
+_otra = [a for a in av if "calificación escrita con el principal en la otra vía" in a]
+ok(_otra and Q2[:60] in _otra[0], "y se le pide al secretario que la revise, nombrándola")
+# Lo que el secretario dictó para todo el asunto (modo global) no es «de la
+# otra vía» aunque no se escribiera para este problema.
+c = [{"problema": p["problema"], "sentido": "infundado", "razonamiento": "",
+      "jerarquia": "principal" if i == 0 else "accesorio"} for i, p in enumerate(PROP_F)]
+c[0]["tocado"] = True
+av, det = ad.aplicar(P722, c, [], PROP_F, tipo_asunto="amparo_directo")
+ok(c[1]["sentido"] == "infundado" and not any(Q2[:60] in a for a in av if "otra vía" in a),
+   "el «infundado» dictado para el asunto no se anuncia como calificación de la otra vía")
+
+print("\n30 · LA FASE 5 PREGUNTA LAS DOS DIRECCIONES POR SEPARADO Y PIDE LA PRUEBA")
+_p5b = f5.prompt_propuesta(probs(PF, PF2), _M5(), "acto", "conceptos", False, "", "")
+ok("DOS direcciones" in _p5b and "`presupone`" in _p5b and '"presupone": null' in _p5b,
+   "la instrucción 12 separa las dos vías y el esquema trae `presupone`")
+ok("qué premisa cae con el principal" not in _p5b,
+   "el esquema ya no pide para `si_no_prospera` «qué premisa cae con el principal»")
+ok("«debía estudiar\n     los alegatos contra el crédito»" not in _p5b
+   and "debía estudiar los alegatos contra el crédito" not in _p5b.replace("\n     ", " "),
+   "ni trae una frase de ejemplo que se copie (se describe, no se modela)")
+ok("LITERALES, copiadas de «Se combate" in _p5b and "Se combate diciendo:" in inspect.getsource(f5.prompt_propuesta),
+   "la cita se pide de lo que el motor tiene delante: «Se combate diciendo» de ese problema")
+
+print("\n31 · LA CITA SE BUSCA DONDE LA TIENE EL ÁRBOL: los tres caminos le pasan la fase 3 entera")
+ok(src.count("list(r.fases.problemas or []), crit,") >= 2,
+   "los dos gemelos del resolver pasan los problemas de la fase 3 (con `combate`)")
+ok("list(r.fases.problemas or []),\n        [d for d in _lista if isinstance(d, dict)]," in src,
+   "/taller/reparto también")
+ok("problemas, _crit_ad, list(getattr(glob, \"checklist\", None) or [])," in src,
+   "y la propuesta, con la lista de comprobación donde viene `presupone`")
 
 print()
 if FALLOS:

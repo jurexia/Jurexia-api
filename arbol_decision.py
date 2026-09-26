@@ -20,6 +20,37 @@ LA REGLA, en las dos direcciones:
     («la Sala debía estudiar los alegatos contra el crédito» presupone que el
     crédito estaba en la litis, y eso acaba de negarse).
 
+LAS DOS DIRECCIONES NO SON LA MISMA (26-sep-2026, paso 2 del plan que aprobó
+David). «Depende» se escribía para las dos y se aplicaba a las dos, y no son
+simétricas: que un accesorio quede sin materia si el principal PROSPERA no
+dice nada de si cae cuando el principal NO prospera. Medido en el ADC
+722/2025, cuatro corridas, v1 y v2 por igual: el principal —¿la falta de
+inscripción registral hacía improcedente la acción?— se desestimó, y el
+segundo concepto (la condena comprendió conceptos distintos de los reclamados
+y pactados: congruencia) y el tercero (costas de segunda instancia: art. 136,
+agravios fundados, sin temeridad) salieron «inoperantes porque descansan en
+la premisa» registral, que ninguno de los dos contiene. Si la acción fuera
+improcedente, la condena y las costas caerían, y por eso la fase 3 escribió
+`depende_de`; pero con la acción procedente, su causa de pedir es OTRA y el
+engrose real los contestó uno por uno. Con la calificación del motor en la
+mano —infundados, con su razón—, el árbol la tiraba y el estudio los
+despachaba en un párrafo sin tesis: omisión de estudio, la falta más cara.
+
+LA REGLA DESDE ENTONCES, para la vía en que el principal NO prospera: un
+accesorio CAE con el principal sólo si su argumento DA POR CIERTA la premisa
+desestimada, y eso se VERIFICA (`presupuesto`): el motor lo declara en la
+lista (`presupone`, con las palabras del propio planteamiento donde la da por
+cierta), esas palabras están en lo que la fase 3 resumió que se combate en ese
+problema, comparten un ancla con el principal, y el accesorio no plantea nada
+más por su cuenta (`causa_propia`). Si falta cualquiera de las cuatro cosas,
+se estudia con su calificación PROPIA —la que el motor le propuso sabiendo
+que el principal no prosperaba, o la que escribió para esta vía— y se le dice
+al secretario. Ni `depende_de`, ni `relacion: depende`, ni una suerte
+«inoperante» sin la cita bastan: son la palabra del motor, no la prueba. Y una
+suerte «infundado» para esta vía es una calificación de fondo: se estudia con
+su razón, no se le pega la fórmula de la caída (se la pegaba, y el estudio la
+despachaba igual).
+
 Y LOS ESCAPES, que son los de siempre y uno nuevo:
   · lo que el secretario marcó a mano (`tocado`) no se toca;
   · el tema DISTINTO —el motor lo declaró ajeno a la suerte del principal—;
@@ -45,7 +76,9 @@ condicional que la fase 5 escribe por tema (`si_prospera` / `si_no_prospera`,
 con su razón), la `relacion` que declara, y el `depende_de` de la fase 3. No
 hay heurística de texto: una palabra dentro de una pregunta no prueba
 dependencia, y este proyecto ya sabe qué pasa con las heurísticas de una
-palabra.
+palabra. Lo único que se lee con palabras es la CITA que el motor aporta para
+la caída, y sólo para comprobar que existe donde dice: nunca para deducir que
+cae.
 
 Un solo módulo, una sola regla, aplicada en tres sitios: al proponer (para que
 la pantalla ya enseñe la suerte), en /taller/reparto (cuando el secretario
@@ -126,6 +159,9 @@ def _decide(s: str) -> bool:
 # que vuelve de la pantalla con él —un reparto anterior al 26-sep— saldría sin
 # decidir aunque su calificación diga «inoperante».
 CAE_CON_PRINCIPAL = "Descansa en la premisa que se desestimó"
+# Y el de la sustracción de materia, que escriben este módulo y
+# `modos_decision.repartir`.
+SIN_MATERIA = "Dado el sentido del estudio del problema principal, queda sin materia"
 
 
 def _cae_con_principal(c) -> bool:
@@ -246,6 +282,125 @@ def relacion_de(problema, principal_num: int, entrada: dict) -> str:
     return ""
 
 
+# ═══ ¿SU ARGUMENTO DA POR CIERTA LA PREMISA DEL PRINCIPAL? ════════════════
+#
+# La prueba de que un accesorio cae con el principal (26-sep-2026). No se
+# deduce: el motor la DECLARA en la lista de comprobación y aquí sólo se
+# comprueba que lo declarado existe. La fase 5 escribe, para cada accesorio
+# cuyo argumento da por cierta la premisa del principal,
+#
+#     "presupone": {"premisa": "…", "cita": "…", "causa_propia": null | "…"}
+#
+# y `cita` son palabras literales de «Se combate diciendo» de ESE problema
+# —el `combate` de la fase 3, que es lo que el motor tiene delante y lo que
+# llega aquí con el problema—. Se verifica que:
+#   1. la cita tiene cuerpo (cuatro palabras o más);
+#   2. está, tal cual, en lo que se combate en ese problema (o en su pregunta);
+#   3. comparte al menos un ancla con el principal (su pregunta, lo que se
+#      combate en él o lo que resolvió el órgano): si no, las palabras citadas
+#      son del accesorio, pero la premisa no es la del principal;
+#   4. no hay `causa_propia`: si el accesorio plantea además algo por su
+#      cuenta, eso se contesta aunque la premisa caiga, y el problema se
+#      estudia (la parte que descansa en la premisa se contesta remitiendo a
+#      ella: es la técnica que David aprobó para una razón mixta).
+#
+# Las anclas son un filtro de coherencia sobre lo que el motor ya citó, no un
+# detector: sin `presupone` no hay caída, compartan las palabras que compartan.
+
+_CAIDA = (INOPERANTE, "ineficaz", "inatendible")
+
+# Palabras que cualquier problema del taller comparte con cualquier otro: no
+# anclan una premisa. Vocabulario del oficio y de las partes, no del asunto.
+_VACIAS = frozenset("""
+a al ante bajo con contra de del desde durante en entre hacia hasta mediante
+para por segun sin sobre tras el la los las lo un una unos unas y e o u ni que
+se su sus es son fue fueron ser sido era esta este esto estas estos esa ese eso
+esas esos dicha dicho dichos dichas cual cuales quien cuyo cuya misma mismo
+mismos mismas tambien ya le les otra otro otros otras no si como mas pero aun
+porque pues tanto cuando donde mientras aunque pese dado dada cada ambos ambas
+todo toda todos todas solo sola asi
+debia debio debe deben podia puede tenia tuvo hacer hizo sostiene afirma alega
+aduce considera estima estimo resolvio declaro determino confirmo modifico
+parte partes quejosa quejoso actora actor demandada demandado recurrente
+tercero interesado responsable autoridad sala tribunal juez jueza juzgado
+organo instancia sentencia resolucion reclamada recurrida acto actos concepto
+conceptos violacion violaciones agravio agravios argumento argumentos
+planteamiento planteamientos omitio omitir omision analizar analizo analisis
+examinar examino estudio estudiar valorar valoro valoracion considerar
+considero debido debida indebida indebidamente correcta correctamente legal
+legalidad ilegal fundamentacion motivacion fundo motivo fundada motivada
+articulo articulos constitucional constitucionales constitucion ley codigo
+pruebas prueba derecho derechos procedencia improcedente procedente
+respecto relacion relativo relativa conforme caso manera forma modo termino
+terminos virtud cuenta principio principios estado juicio procedimiento
+""".split())
+
+
+def _plano(t) -> str:
+    """Minúsculas, sin acentos, sin puntuación: para comparar lo citado con
+    lo resumido sin que una tilde o una coma lo impidan."""
+    import unicodedata
+    t = unicodedata.normalize("NFD", str(t or "").lower())
+    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+    return " ".join(_re.findall(r"[a-z0-9ñ]+", t))
+
+
+def _anclas(t) -> set:
+    return {w for w in _plano(t).split()
+            if len(w) >= 4 and not w.isdigit() and w not in _VACIAS}
+
+
+def _textos_de(p, *claves) -> str:
+    if isinstance(p, dict):
+        return " ".join(str(p.get(k) or "") for k in claves)
+    return str(p or "")
+
+
+def _vacio(x) -> bool:
+    return (x is None or (isinstance(x, str) and _plano(x) in
+            ("", "null", "none", "ninguna", "ninguno", "no", "nada", "n a")))
+
+
+def presupuesto(entrada: dict, accesorio, principal) -> dict:
+    """¿El accesorio da por cierta la premisa del principal, y consta?
+
+    `entrada`: su entrada de la lista de comprobación; `accesorio` y
+    `principal`: los dicts de la fase 3 (o sus preguntas). Devuelve
+    {"verificado": bool, "motivo": str, "cita": str, "premisa": str,
+     "causa_propia": str}. `motivo` dice por qué no, para el aviso y para
+    medir: "sin_declarar", "causa_propia", "cita_corta", "cita_no_consta",
+    "cita_ajena_al_principal"; "" cuando se verifica.
+    """
+    pre = (entrada or {}).get("presupone")
+    if isinstance(pre, str) and not _vacio(pre):
+        pre = {"cita": pre}
+    out = {"verificado": False, "motivo": "sin_declarar", "cita": "",
+           "premisa": "", "causa_propia": ""}
+    if not isinstance(pre, dict):
+        return out
+    cita = str(pre.get("cita") or "").strip().strip("«»“”\"'").strip()
+    out["cita"] = cita
+    out["premisa"] = str(pre.get("premisa") or "").strip()
+    causa = pre.get("causa_propia")
+    if not _vacio(causa):
+        out["causa_propia"] = str(causa).strip()
+        out["motivo"] = "causa_propia"
+        return out
+    pc = _plano(cita)
+    if len(pc.split()) < 4:
+        out["motivo"] = "cita_corta"
+        return out
+    if pc not in _plano(_textos_de(accesorio, "combate", "pregunta")):
+        out["motivo"] = "cita_no_consta"
+        return out
+    if not (_anclas(cita) & _anclas(_textos_de(principal, "pregunta", "combate", "resolvio"))):
+        out["motivo"] = "cita_ajena_al_principal"
+        return out
+    out["verificado"] = True
+    out["motivo"] = ""
+    return out
+
+
 # ═══ LA REGLA ══════════════════════════════════════════════════════════════
 
 def aplicar(problemas: list, criterios: list, checklist: list = None,
@@ -354,6 +509,21 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # ¿El principal va por la MISMA vía que propuso el motor? Entonces lo que el
     # motor propuso para cada problema es la calificación de esta vía.
     _misma_via = bool(sentido_motor) and _prospera(str(sentido_motor)) == pros
+    # LO MISMO, MIRANDO LO QUE EL MOTOR PROPUSO PARA EL PRINCIPAL (26-sep-2026).
+    # `sentido_motor` es el sentido GLOBAL, y no siempre llega: el banco y las
+    # sesiones cuyo global vivía sólo en memoria resuelven sin él, y el ADC
+    # 722/2025 salió así —sin global y con el principal donde el motor lo
+    # propuso—. Lo que el motor propuso para el problema principal dice en qué
+    # vía calificó los demás. Sólo lo usa la regla de la caída; la guarda
+    # procesal sigue con `_misma_via`, como estaba.
+    _pr_p = next((pr for pr in (propuestas or [])
+                  if str(_get(pr, "problema", "")) == p_txt), None) or {}
+    _s_mot_p = (str(_get(_pr_p, "sentido_propio", "") or "")
+                or str(_get(_pr_p, "sentido", "") or ""))
+    _via_motor = (_prospera(_s_mot_p) == pros) if _decide(_s_mot_p) else _misma_via
+    _via_conocida = _decide(_s_mot_p) or bool(sentido_motor)
+    _p_ref_f3 = por_texto.get(p_txt, (0, None))[1] or p_txt
+    estudiados: list = []          # relacionados con el principal que NO caen
 
     def _conservar(c, t: str) -> str:
         """Lo que se hace con una procesal que el árbol habría sacado: se
@@ -453,6 +623,9 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         # parte de la litis… no podían», lo concreto es la suerte.
         _s_via, _ = _suerte(entrada, "si_prospera" if pros else "si_no_prospera", sentido_motor)
         if rel == "distinto" and not _s_via:
+            if not proc and _cae_con_principal(c):
+                # Un resto de otra pasada: el tema distinto no cae con nadie.
+                _calificacion_propia(c, "", "", _via_motor, _motor_de.get(t, ("", "")))
             detalle[t] = {"de": "distinto", "por_que": "tema distinto: no cuelga del principal y se estudia aparte"}
             siguen += 1
             continue
@@ -505,10 +678,15 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 detalle[t] = {"de": "principal", "por_que": razon}
                 siguen += 1
             else:
+                if not proc and _cae_con_principal(c):
+                    # Llegó caída de un reparto con el principal en la otra
+                    # vía; con éste prosperando, esa razón ya no sostiene nada.
+                    _calificacion_propia(c, "", "", _via_motor, _motor_de.get(t, ("", "")))
                 detalle[t] = {"de": "propio", "por_que": "no consta que dependa del principal: se estudia por su cuenta"}
                 siguen += 1
         else:
             s, razon = _suerte(entrada, "si_no_prospera", sentido_motor)
+            s_escrita = s
             if not s and rel == "depende":
                 s = INOPERANTE
             if s in (INOPERANTE, "infundado", "ineficaz", "inatendible", INNECESARIO) and proc:
@@ -554,22 +732,49 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                     razon_sug=razon))
                 siguen += 1
                 continue
-            if s in (INOPERANTE, "infundado", "ineficaz", "inatendible", INNECESARIO):
-                if s == INNECESARIO:
-                    s = INOPERANTE
-                _set(c, "sentido", s)
+            if proc:
+                # Una procesal que la guarda no tomó —sin suerte que la saque,
+                # o con una calificación de fondo para esta vía—: como estaba.
+                # Sus restos de otra pasada los recoge el cierre de la guarda.
+                if s:
+                    _set(c, "sentido", s)
+                    if razon:
+                        _set(c, "razonamiento", razon)
+                    detalle[t] = {"de": "principal", "por_que": razon}
+                else:
+                    detalle[t] = {"de": "propio", "por_que": "no consta que dependa del principal: se estudia por su cuenta"}
+                siguen += 1
+                continue
+            # ── ¿CAE CON EL PRINCIPAL? SÓLO SI LO PRESUPONE, Y CONSTA ──
+            # (26-sep-2026; ver el encabezado del módulo y `presupuesto`.)
+            ev = presupuesto(entrada, pdict if pdict is not None else t, _p_ref_f3)
+            if ev["verificado"] and (not s_escrita or s_escrita in _CAIDA
+                                     or s_escrita == INNECESARIO):
+                s_c = s_escrita if s_escrita in _CAIDA else INOPERANTE
+                _r = razon if (razon and s_escrita in _CAIDA
+                               and not razon.startswith(CAE_CON_PRINCIPAL)) else ""
+                _r = _r or ev["premisa"]
+                _set(c, "sentido", s_c)
                 _set(c, "razonamiento",
                      "Descansa en la premisa que se desestimó al resolver el "
                      "problema principal"
-                     + (f": {razon}" if razon else
+                     + (f": {_r}" if _r else
                         ", de modo que su estudio no produciría ningún fin práctico."))
-                detalle[t] = {"de": "principal", "por_que": razon or "cae con el principal: parte de una premisa desestimada"}
+                detalle[t] = {"de": "principal", "relacion": "presupone", "cita": ev["cita"],
+                              "por_que": (_r or "cae con el principal: su argumento da por "
+                                          "cierta la premisa desestimada")
+                              + f" («{ev['cita'][:120]}»)"}
                 caen += 1
-            elif s:
-                _set(c, "sentido", s)
-                if razon:
-                    _set(c, "razonamiento", razon)
-                detalle[t] = {"de": "principal", "por_que": razon}
+            elif s_escrita or rel == "depende" or _cae_con_principal(c):
+                # RELACIONADO CON EL PRINCIPAL, PERO SU CAUSA DE PEDIR ES SUYA
+                # (o no consta que no lo sea): se estudia con su calificación.
+                _k, _de, _org = _calificacion_propia(c, s_escrita, razon, _via_motor,
+                                                     _motor_de.get(t, ("", "")))
+                detalle[t] = {"de": _de, "relacion": ("mixta" if ev["motivo"] == "causa_propia"
+                                                       else "autonoma"),
+                              "motivo": ev["motivo"], "origen": _org,
+                              "por_que": _por_que_estudia(ev, _k)}
+                estudiados.append((t, _k, _org, ev, s_escrita))
                 siguen += 1
             else:
                 detalle[t] = {"de": "propio", "por_que": "no consta que dependa del principal: se estudia por su cuenta"}
@@ -654,10 +859,113 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         else:
             avisos.append(
                 f"{caen} planteamiento(s) accesorio(s) CAEN CON EL PRINCIPAL: al "
-                f"resultar {p_sent.replace('_', ' ')}, descansan en una premisa "
-                f"desestimada y se declaran inoperantes con esa razón. Si alguno "
-                f"merece estudio propio, márcalo tú.")
+                f"resultar {p_sent.replace('_', ' ')}, su argumento da por cierta "
+                f"una premisa desestimada y se declaran inoperantes con esa razón. "
+                f"Si alguno merece estudio propio, márcalo tú.")
+    if estudiados:
+        # LO QUE NO SE TIRÓ, DICHO CUANDO HAY ALGO QUE REVISAR (26-sep-2026).
+        # El accesorio que se estudia con la calificación que el motor le dio
+        # para esta misma vía no necesita aviso: es un problema más, y la
+        # pantalla ya dice por qué en `por_que`. Se avisa cuando el secretario
+        # tiene algo que mirar: el motor escribió que caía y no mostró dónde
+        # da por cierta la premisa, plantea algo propio además de la premisa,
+        # su calificación se escribió con el principal en la otra vía, o se
+        # quedó sin calificar.
+        _partes = []
+        for _t, _k, _org, _ev, _s_esc in estudiados:
+            _nota = ""
+            if _ev["motivo"] == "causa_propia":
+                _nota = f" —plantea además algo propio: {_ev['causa_propia'][:110]}—"
+            elif _s_esc in _CAIDA and _org == "via":
+                _nota = (" —el motor escribió para esta vía que caía, sin mostrar dónde da "
+                         "por cierta la premisa: el estudio lo razona como calificación suya—")
+            elif _s_esc in _CAIDA:
+                _nota = " —el motor escribió que caía, sin mostrar dónde da por cierta la premisa—"
+            # «La otra vía» sólo cuando se sabe: el motor propuso el principal
+            # al revés y lo que el accesorio lleva es lo que el motor le propuso
+            # entonces. Un «infundado» que dictó el secretario para todo el
+            # asunto (modo global) no es de la otra vía, aunque no se escribiera
+            # para éste.
+            if _org == "motor_otra_via" or (
+                    _org == "actual" and _via_conocida and not _via_motor
+                    and _k and _k == _motor_de.get(_t, ("", ""))[0]):
+                _nota += (" —calificación escrita con el principal en la otra vía: revisa que "
+                          "siga siendo la tuya—")
+            if not _k:
+                _nota += " —SIN CALIFICAR: califícalo tú antes de generar—"
+            if _nota:
+                _partes.append(f"«{_t[:80]}» ({_k.replace('_', ' ') if _k else 'sin calificar'})"
+                               + _nota)
+        if _partes:
+            avisos.append(
+                f"NO SE DECLARARON CAÍDOS CON EL PRINCIPAL {len(_partes)} planteamiento(s) "
+                f"relacionados con él: con el principal {p_sent.replace('_', ' ')}, cae sólo "
+                f"el argumento que, entero, da por cierta la premisa desestimada, y de éstos no "
+                f"consta. "
+                f"Se estudian con su calificación: " + " · ".join(_partes)
+                + ". Si alguno sólo tiene sentido con esa premisa, márcalo inoperante tú.")
     return avisos, detalle
+
+
+def _calificacion_propia(c, s_escrita: str, razon_escrita: str, via_motor: bool,
+                         motor: tuple) -> tuple:
+    """La calificación con que se estudia un accesorio relacionado con el
+    principal que NO cae con él (26-sep-2026). Ajusta `c` en sitio y devuelve
+    (sentido, de, origen).
+
+    El orden, y por qué:
+      1. Si el motor calificó los problemas con el principal en ESTA vía, su
+         propuesta para este problema es la calificación de fondo que hizo
+         sabiendo que el principal no prosperaba («la calificación propia que
+         el motor le propuso para su problema»). En el ADC 722/2025 eran dos
+         «infundado» con su razón, y el árbol los tiraba.
+      2. Si no, lo que el motor escribió para esta vía en la lista, aplicado
+         como calificación razonada —sin la fórmula de la caída—, que es lo
+         que la guarda procesal ya hacía con una procesal.
+      3. Si no, la que trae, salvo que sea un resto de otra pasada (la caída o
+         el «sin materia»).
+      4. Si no, la que el motor le propuso, aunque sea de la otra vía: mejor
+         que dejarla sin calificar, y el aviso lo dice.
+    La razón que sostenía otro sentido no se queda pegada al nuevo; la que el
+    secretario tecleó para el mismo sentido, sí.
+    """
+    s_act = str(_get(c, "sentido", "") or "").strip().lower().replace(" ", "_")
+    r_act = str(_get(c, "razonamiento", "") or "")
+    # UN RESTO DE OTRA PASADA se reconoce por las fórmulas que escriben este
+    # módulo y `modos_decision`, no por una palabra suelta: una razón de fondo
+    # puede decir «innecesario» con todo derecho.
+    sobra = (r_act.startswith(CAE_CON_PRINCIPAL) or r_act.startswith(SIN_MATERIA)
+             or s_act in (INNECESARIO, "sin_materia", "queda_sin_materia"))
+    s_mot, r_mot = motor or ("", "")
+    _r_esc = "" if str(razon_escrita or "").startswith(CAE_CON_PRINCIPAL) else str(razon_escrita or "")
+    if via_motor and s_mot:
+        s_n, r_n, de, org = s_mot, r_mot, "propio", "motor"
+    elif s_escrita and _decide(s_escrita):
+        s_n, r_n, de, org = s_escrita, _r_esc, "principal", "via"
+    elif _decide(s_act) and not sobra:
+        s_n, r_n, de, org = s_act, r_act, "propio", "actual"
+    elif s_mot:
+        s_n, r_n, de, org = s_mot, r_mot, "propio", "motor_otra_via"
+    else:
+        s_n, r_n, de, org = s_act, "", "propio", "sin_calificar"
+    if sobra:
+        _set(c, "razonamiento", "")
+        r_act = ""
+    if s_n and s_n != s_act:
+        _set(c, "sentido", s_n)
+        _set(c, "razonamiento", r_n or "")
+    elif r_n and not r_act.strip():
+        _set(c, "razonamiento", r_n)
+    return s_n, de, org
+
+
+def _por_que_estudia(ev: dict, sentido: str) -> str:
+    _s = sentido.replace("_", " ") if sentido else "sin calificar"
+    if ev.get("motivo") == "causa_propia":
+        return (f"parte de su argumento descansa en la premisa desestimada, pero plantea "
+                f"además algo propio: se estudia con su calificación ({_s})")
+    return (f"se relaciona con el principal, pero no consta que su argumento dé por cierta "
+            f"la premisa desestimada: se estudia con su calificación ({_s})")
 
 
 def _entrada_tiene_suerte(entrada: dict, sentido_motor: str = "") -> bool:
@@ -686,4 +994,8 @@ def reparto_para_pantalla(problemas: list, criterios: list, checklist: list = No
         # «procesal» (se decide) o «mayor_beneficio_189»: la pantalla de hoy
         # pinta `de` y `por_que`; esto viaja para la que lo distinga.
         c["guarda"] = d.get("guarda", "")
+        # «presupone» (cae con el principal, con su cita), «autonoma» o
+        # «mixta» (relacionado con el principal, pero se estudia): 26-sep-2026.
+        # Viaja para la pantalla que lo distinga; la de hoy pinta `por_que`.
+        c["relacion"] = d.get("relacion", "")
     return {"criterios": copia, "avisos": avisos}
