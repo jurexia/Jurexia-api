@@ -1168,6 +1168,39 @@ _src_ped = ast.get_source_segment(SRC_MAIN, FN["taller_plan_pedir"])
 ok("_taller_variante_estudio(user_email, variante_estudio)" in _src_ped
    and 'variante_estudio or "v4"' not in _src_ped,
    "pedir: la variante vacía es la global, como en el resolver (no «v4» por omisión)")
+# (j) Las citas del escrito a renglón fijo: la del inventario (renglones
+# repuestos) y la del planificador (texto crudo) valen las dos; una palabra
+# cambiada, ninguna. Medido en las 8 sesiones del banco (sólo lectura): antes
+# 56 de 101 citas del inventario pasaban V0; ahora 101, y 0 de 101 alteradas.
+_ANCHO = 70
+_frase = ("el tribunal de alzada omitio valorar las documentales que acreditan la posesiones "
+          "pacifica continua publica y de buena fe sobre la parcela en litigio ") * 30
+_crudo = "\n".join(_frase[i:i + _ANCHO] for i in range(0, len(_frase), _ANCHO))
+_linea_partida = next(ln for ln in _crudo.split("\n") if ln and ln[-1].isalpha() and len(ln) == _ANCHO)
+_ult = _linea_partida.split()[-1]
+try:
+    import inventario as _inv_j  # noqa: F401
+    _doble_j = None
+except ImportError:
+    # Sin el inventario en esta rama: un doble que repone los renglones como
+    # él (a columna fija, sin espacio), para probar la fontanería.
+    _doble_j = types.ModuleType("inventario")
+    _doble_j.normalizar_escrito = lambda t: (" ".join(
+        "".join(t.split("\n")).split()), [])
+    sys.modules["inventario"] = _doble_j
+_tj = pe.Texto(_crudo)
+_i_cr = _crudo.index(_linea_partida)
+_ventana_cruda = " ".join(_crudo[_i_cr + _ANCHO - 60:_i_cr + _ANCHO + 60].split()[1:-1])
+_ventana_rep = " ".join(pe._renglones_repuestos(_crudo).split())
+_k = _ventana_rep.find(" ".join(_ventana_cruda.split()[1:4]))
+_cita_inv = " ".join(_ventana_rep[_k:].split()[:15])
+ok(_tj.contiene(_ventana_cruda, 6), "la cita copiada del texto crudo (con la palabra partida) vale")
+ok(_tj.contiene(_cita_inv, 6), "la cita con los renglones repuestos (como la saca el inventario) vale")
+_w = _cita_inv.split()
+_w[len(_w) // 2] = "zqxjv"
+ok(not _tj.contiene(" ".join(_w), 6), "…y con una palabra cambiada, ninguna de las dos lecturas la acepta")
+if _doble_j is not None:
+    sys.modules.pop("inventario", None)
 
 print()
 if FALLOS:

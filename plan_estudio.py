@@ -277,33 +277,61 @@ def _palabras(t: str) -> list[str]:
     return re.findall(r"\w+", t)
 
 
+def _renglones_repuestos(t: str) -> str:
+    """El texto con los renglones de ancho fijo del PDF repuestos, con EL
+    MISMO normalizador que usa el inventario para sacar sus citas
+    (`inventario.normalizar_escrito`: «posesi⏎ones» → «posesiones»). Sin el
+    inventario, el texto tal cual."""
+    try:
+        import inventario as _inv
+        return _inv.normalizar_escrito(t)[0]
+    except Exception:
+        return t
+
+
 class Texto:
-    """Un texto listo para buscar citas en él muchas veces."""
+    """Un texto listo para buscar citas en él muchas veces.
+
+    DOS LECTURAS DEL MISMO TEXTO, y una cita vale si casa con cualquiera
+    (revisión del 26-sep-2026). El escrito llega del PDF a renglón fijo, con
+    palabras partidas sin guion al final del renglón. El inventario saca sus
+    citas del escrito con los renglones repuestos; el planificador copia del
+    texto crudo que ve en su prompt. Medido en las 8 sesiones del banco: con
+    sólo la lectura cruda, V0 aceptaba 56 de las 101 citas que el inventario
+    verifica (1 de 7 en el 640/2024), y el plan habría fallado por «citas sin
+    verificar» que sí están en el escrito. Las dos lecturas son el escrito
+    palabra por palabra; ninguna admite una palabra que no esté."""
 
     def __init__(self, *textos: str):
-        self.plano = " " + " ".join(_palabras("\n".join(str(x or "") for x in textos))) + " "
+        crudos = [str(x or "") for x in textos]
+        self.plano = " " + " ".join(_palabras("\n".join(crudos))) + " "
+        rep = " " + " ".join(_palabras("\n".join(_renglones_repuestos(x) for x in crudos))) + " "
+        self.planos = [self.plano] + ([rep] if rep != self.plano else [])
 
     def __bool__(self):
         return len(self.plano) > 2
 
     def contiene(self, cita: str, minimo: int = MIN_PALABRAS_CITA) -> bool:
-        """¿La cita está, palabra por palabra? Admite elisiones («…», «...»):
-        cada tramo tiene que estar, en orden."""
+        """¿La cita está, palabra por palabra, en alguna de las dos lecturas?
+        Admite elisiones («…», «...»): cada tramo tiene que estar, en orden."""
         if not self or not str(cita or "").strip():
             return False
         tramos = [w for w in (_palabras(fr) for fr in
                               re.split(r"\.\.\.|…|\[\s*\.{3}\s*\]", str(cita))) if w]
-        if not tramos:
+        if not tramos or sum(len(w) for w in tramos) < minimo:
             return False
-        pos, total = 0, 0
-        for w in tramos:
-            aguja = " " + " ".join(w) + " "
-            i = self.plano.find(aguja, pos)
-            if i < 0:
-                return False
-            pos = i + len(aguja) - 1
-            total += len(w)
-        return total >= minimo
+        for plano in self.planos:
+            pos, bien = 0, True
+            for w in tramos:
+                aguja = " " + " ".join(w) + " "
+                i = plano.find(aguja, pos)
+                if i < 0:
+                    bien = False
+                    break
+                pos = i + len(aguja) - 1
+            if bien:
+                return True
+        return False
 
 
 # ═══ ANCLAS DURAS (las del inventario, y un respaldo para la razón) ═════════
