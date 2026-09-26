@@ -36784,7 +36784,11 @@ async def taller_recalificar(
             al_generar=False))
     return {"estado": out["estado"], "clave": out["clave"],
             "criterios": _taller_criterios_pantalla(a2),
-            "avisos": _av_rc + list(out.get("avisos") or [])}
+            "avisos": _av_rc + list(out.get("avisos") or []),
+            # SI VOLVER A PEDIRLA SIRVE (integración, 26-sep-2026): un fallo de
+            # validación con esta premisa se devuelve igual al instante; la
+            # pantalla no ofrece «volver a intentar» cuando es False.
+            "reintentable": bool(out.get("reintentable", True))}
 
 
 @app.post("/taller/resolver/stream")
@@ -37041,6 +37045,10 @@ async def taller_resolver_stream(
                       f"recalificación ({_rc_out.get('motivo') or '?'}); no se genera")
                 _cola.put_nowait({"tipo": "error", "mensaje": _sin_calif})
                 return
+            # «Recalificando…» se cierra en cuanto termina (la pantalla ya lo
+            # acepta): sin plan, el rótulo duraba hasta el primer texto.
+            if (_rc_out or {}).get("estado") == "listo":
+                _cola.put_nowait({"tipo": "recalificado"})
             # EL PLAN DEL ESTUDIO (v4), DENTRO DE LA TAREA y nunca antes de las
             # cabeceras: la pasarela corta a los ~280 s y el plan puede tardar
             # hasta 120. Mientras, la pantalla ve «ordenando». Fuera de la v4

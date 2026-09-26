@@ -913,6 +913,14 @@ _msg_n = _ns_n["_taller_recalificado_al_resolver"](_r_n, _arm_n, _out_n, list(_a
 ok(rc.pendientes(_out_n["arm"]["detalle"]) and _out_n["motivo"] == "fallo" and _out_n["reintentable"] is False
    and _msg_n and "vuelve a generar" not in _msg_n and "Califícalos tú en la pantalla" in _msg_n,
    "una «listo» que no califica a todos: «califícalos tú», sin el «vuelve a generar» que no reintentaría")
+print("\n16 · LA PANTALLA SABE SI REINTENTAR SIRVE Y CUÁNDO TERMINÓ LA RECALIFICACIÓN")
+_src_rcf = ast.get_source_segment(SRC_MAIN, FN["taller_recalificar"])
+ok('"reintentable": bool(out.get("reintentable", True))' in _src_rcf,
+   "/taller/recalificar dice si volver a pedir la misma premisa serviría")
+_src_st = ast.get_source_segment(SRC_MAIN, FN["taller_resolver_stream"])
+ok(_src_st.find('{"tipo": "recalificado"}') > _src_st.find('{"tipo": "recalificando"}') > 0,
+   "el flujo cierra «recalificando» con «recalificado» cuando la recalificación terminó")
+
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)
