@@ -1490,6 +1490,17 @@ de un planteamiento, enúncialo AHÍ, en una frase, y sigue. Nada de repaso
 general de derechos humanos, de la Convención Americana o de la Corte
 Interamericana que no cambie la respuesta.
 """
+    # ═══ EL ORDEN DEL ARTÍCULO 189, LA ÚNICA CORRECCIÓN DE LA v1 (26-sep-2026) ═
+    # La fórmula de método decía «privilegiando el estudio de las violaciones
+    # procesales que inciden en el sentido del fallo», y se copiaba literal en
+    # tres de cada cuatro estudios. El artículo 189 vigente (DOF 13-03-2025)
+    # dice lo contrario: «se privilegiará el estudio de los conceptos de
+    # violación de fondo por encima de los de procedimiento y forma, a menos que
+    # invertir el orden redunde en un mayor beneficio para la persona quejosa».
+    # David: «sí, alinear al art. 189… también alinea a cómo debe resolverse
+    # (mayor beneficio art 189)». Vale para todos por ser de ley, y por eso es
+    # lo ÚNICO que cambia en la v1: la frase del molde y, fuera de las
+    # comillas, que si se invierte el orden se diga en qué consiste el beneficio.
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
 estudio de fondo de {_clase}. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
@@ -1557,7 +1568,10 @@ AQUÍ SÍ SE AGRUPA, Y SE ANUNCIA — la regla que él sigue sin excepción:
   antes de empezar y con fundamento en el ARTÍCULO 76 DE LA LEY DE AMPARO.
       «Por cuestión de método, los {q} se analizarán agrupados por bloques
        temáticos, conforme al artículo 76 de la Ley de Amparo, privilegiando el
-       estudio de las violaciones procesales que inciden en el sentido del fallo.»
+       estudio de los de fondo sobre los de procedimiento y forma, como lo
+       ordena el artículo 189 de esa ley.» (Si inviertes ese orden porque
+       estudiar primero una violación procesal redunda en un mayor beneficio
+       para {parte}, dilo y di en qué consiste ese beneficio.)
       «se procede al análisis conjunto de los {q} identificados como TERCERO y
        QUINTO, dada su estrecha vinculación con el fondo del asunto.»
 - EL CRITERIO PARA AGRUPAR NO ES EL ARTÍCULO CONSTITUCIONAL INVOCADO —casi todos
