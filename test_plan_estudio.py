@@ -584,6 +584,10 @@ d4, dec = pe.fila_resultado(d, "k1", "H", {"segmentos": []}, [], 30.0, _t0 + 30)
 ok(dec == "listo" and pe.fila_pedir(d4, "k1", "H", _t0 + 40)[1] == "listo", "listo: se sirve")
 d5, _ = pe.fila_resultado(d, "k1", "H", None, ["falló"], 30.0, _t0 + 30)
 ok(pe.fila_pedir(d5, "k1", "H", _t0 + 40)[1] == "fallo", "una clave que falló no se recalcula")
+d6, dec = pe.fila_resultado(d, "k1", "H", None, ["red"], 3.0, _t0 + 30, reintentable=True)
+ok(dec == "error" and pe.estado_para_pantalla(d6, "H", _t0 + 31)["estado"] == "fallo"
+   and pe.fila_pedir(d6, "k1", "H", _t0 + 40)[1] == "lanzar",
+   "un error del proveedor no condena la clave: la pantalla deja de esperar y el próximo pedido reintenta")
 dx = None
 for i in range(pe.TOPE_CORRIDAS):
     dx, dec = pe.fila_pedir(dx, f"k{i}", "H", _t0)
@@ -797,6 +801,9 @@ ok([c.sentido for c in _g_mod["crit"]] == ["infundado", "inoperante"],
 _a_mod = _arm(_rr, _ses, {}, criterios_json=_cj, modo_decision="acervo")
 ok([c.grupo for c in _a_mod["crit"]] == ["A", "A"] and any("SIN SUPERVISIÓN" in a for a in _a_mod["avisos_r"]),
    "modo del motor: el grupo llega, y el aviso de sin supervisión vuelve en su lista")
+_t_mod = _arm(_rr, _ses, {"sentido": "fundado", "alcanza": True}, criterios_json=_cj, modo_decision="acervo")
+ok(_t_mod["crit"][0].sentido == "fundado" and any("tarjeta final" in a for a in _t_mod["avisos_fases"]),
+   "…y los grupos no le quitan al modo del motor su tarjeta final (el desenlace sigue mandando)")
 _p_mod = _arm(_rr, _ses, {}, criterios_json=json.dumps(
     [{"problema": PREG1, "sentido": "infundado", "grupo": "B", "razonamiento": "x"},
      {"problema": PREG2, "sentido": "inoperante", "grupo": "B", "razonamiento": "y"}]))
@@ -991,6 +998,24 @@ o = asyncio.run(ns5["_taller_plan_para"]("casa@iurexia.com", "1/2026", _r8, _ses
 ok(o["estado"] == "sin_plan" and _r8.encargo.variante_estudio == "v3"
    and any("inventario" in a for a in o["avisos"]), "sin el inventario de argumentos: sin plan, v3, y se dice")
 sys.modules["inventario"] = _inv
+
+# (h2) un error del proveedor: sin plan esta vez, y la vuelta siguiente reintenta
+class _Caido(Modelo):
+    async def _crear(self, **kw):
+        self.kw.append(kw)
+        raise RuntimeError("503 del proveedor")
+
+
+_b3 = FakeBase()
+_caido = _Caido(PLAN_BUENO)
+o = asyncio.run(entorno(_caido, _b3)["_taller_plan_para"]("casa@iurexia.com", "1/2026", resultado(), _ses_r,
+                                                          crit(), tope_s=5.0))
+_bien = Modelo(PLAN_BUENO)
+o2 = asyncio.run(entorno(_bien, _b3)["_taller_plan_para"]("casa@iurexia.com", "1/2026", resultado(), _ses_r,
+                                                          crit(), tope_s=5.0))
+ok(o["estado"] == "sin_plan" and o2["estado"] == "usado" and len(_bien.kw) == 1
+   and _b3.filas[0]["plan"]["corridas"] == 2,
+   "un 503 del proveedor no condena la clave: la vuelta siguiente la reintenta (y cuenta corrida)")
 
 # (i) el pedido de la pantalla no espera y no recalcula
 _b2 = FakeBase()

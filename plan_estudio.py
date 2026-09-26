@@ -1951,17 +1951,23 @@ def fila_latido(doc, clave_: str, huella: str, ahora: float):
 
 
 def fila_resultado(doc, clave_: str, huella: str, plan, avisos, segundos: float,
-                   ahora: float) -> tuple:
+                   ahora: float, reintentable: bool = False) -> tuple:
     """Guarda el resultado de SU clave. Si la fila ya es de otro adelanto, no
-    escribe nada (lo calculado es de otro asunto)."""
+    escribe nada (lo calculado es de otro asunto).
+
+    «fallo» es lo que V0 rechazó dos veces: determinista, no se recalcula.
+    Un error del proveedor (red, cuota, un 500) es otra cosa: se guarda como
+    «error» y el pedido siguiente lo vuelve a intentar —cuenta corrida—, para
+    que un tropiezo pasajero no deje sin plan ese criterio toda la sesión."""
     if not isinstance(doc, dict) or doc.get("huella") != huella:
         return None, "otro_adelanto"
     d = _doc(doc, huella)
-    d["planes"][clave_] = {"estado": "listo" if plan else "fallo", "plan": plan or None,
+    estado = "listo" if plan else ("error" if reintentable else "fallo")
+    d["planes"][clave_] = {"estado": estado, "plan": plan or None,
                            "avisos": list(avisos or [])[:20], "segundos": round(segundos, 1),
                            "hecho": ahora}
     _podar(d, clave_)
-    return d, "listo" if plan else "fallo"
+    return d, estado
 
 
 def _podar(d: dict, conservar: str) -> None:
@@ -1986,6 +1992,8 @@ def estado_para_pantalla(doc, huella: str, ahora: float, clave_: str = "") -> di
     est = c.get("estado")
     if est == "en_curso" and casilla_abandonada(c, ahora):
         est = "fallo"
+    if est == "error":                  # la pantalla deja de esperar; el
+        est = "fallo"                   # próximo pedido lo reintenta
     return {"estado": est if est in ("listo", "en_curso", "fallo") else "sin_plan",
             "clave": k, "plan": c.get("plan") if est == "listo" else None,
             "avisos": list(c.get("avisos") or []),

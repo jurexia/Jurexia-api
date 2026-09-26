@@ -32105,6 +32105,7 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
 
     # En los modos global y del motor, `criterios_json` no es la decisión: en el
     # global son las marcas y los grupos; en el del motor, sólo los grupos.
+    _por_problema = bool(criterios_json.strip()) and _modo not in ("global", "acervo")
     if criterios_json.strip() and _modo not in ("global", "acervo"):
         try:
             _datos = json.loads(criterios_json)
@@ -32279,7 +32280,9 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
         _tarjeta = ""
         if _modo == "global":
             _tarjeta = (sentido_global or "").strip()
-        elif (_modo == "acervo" or usar_propuesta) and not criterios_json.strip():
+        elif (_modo == "acervo" or usar_propuesta) and not _por_problema:
+            # (Los grupos que viajen en el modo del motor no son una decisión
+            # por problema: la tarjeta del motor sigue mandando, como sin ellos.)
             if (_glob or {}).get("alcanza", True):
                 _tarjeta = str((_glob or {}).get("sentido") or "").strip()
         if _tarjeta and crit:
@@ -32423,11 +32426,16 @@ async def _taller_plan_correr(email: str, numero: str, r, crit, ent: dict, *,
             _taller_plan_cas(email, numero,
                              lambda d: _pe.fila_latido(d, k, huella, time.time()))
     plan, avisos, info = None, [], {}
+    reintentable = False
     try:
         plan, avisos, info = tarea.result()
     except _pe.PlanNoDisponible as ex:
         avisos = [f"no hubo plan: {ex}"]
     except Exception as ex:
+        # UN TROPIEZO DEL PROVEEDOR NO CONDENA LA CLAVE: se guarda como
+        # «error» y el pedido siguiente lo reintenta (V0, en cambio, es
+        # determinista y su «fallo» no se recalcula).
+        reintentable = True
         avisos = [f"el planificador falló: {type(ex).__name__}"]
         print(f"   ⚠️ PLAN de {numero}: {err(ex)}")
     if plan:
@@ -32441,7 +32449,7 @@ async def _taller_plan_correr(email: str, numero: str, r, crit, ent: dict, *,
           f"{len((plan or {}).get('unidades') or [])} unidades")
     if persistir:
         _taller_plan_cas(email, numero, lambda d: _pe.fila_resultado(
-            d, k, huella, plan, avisos, _seg, time.time()))
+            d, k, huella, plan, avisos, _seg, time.time(), reintentable))
     return plan, avisos
 
 
@@ -32585,7 +32593,9 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
                         "marcas pero sin guion): " + "; ".join(avisos[:3]) + ".")
     except Exception:
         pass
-    print(f"   🧭 PLAN de {numero}: sin plan, va la v3 · {'; '.join(avisos[:2])[:200]}")
+    # HIGIENE DE REGISTROS: los avisos pueden nombrar anclas del asunto
+    # (expedientes, cifras); al registro sólo va cuántos hubo.
+    print(f"   🧭 PLAN de {numero}: sin plan, va la v3 · {len(avisos)} aviso(s)")
     return {"estado": "sin_plan", "clave": k, "avisos": avisos}
 
 
