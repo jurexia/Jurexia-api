@@ -425,11 +425,16 @@ ok(para_arbol[1]["sentido_propio"] == "infundado",
    "y lo que el motor le propuso se guarda aparte, con la sesión")
 pant = [dict(crit[0], sentido="infundado", tocado=True), dict(crit[1])]
 r = ad.reparto_para_pantalla(pp, pant, [], para_arbol)
-ok(r["criterios"][1]["sentido"] == "infundado"
-   and r["criterios"][1]["razonamiento"] == "la ampliación fue extemporánea",
-   f"al pasar el principal a infundado, la procesal recupera la calificación del motor y su razón: "
-   f"{r['criterios'][1]['sentido']}")
-ok(not any("ESTÁ SIN CALIFICAR" in a for a in r["avisos"]), "y no queda sin calificar")
+# DECISIÓN DE DAVID (26-sep-2026): «si cambio sentido hay que tumbar y
+# regenerar con la premisa del cambio de sentido». Lo que el motor le propuso
+# a la procesal («infundado») lo escribió con el fondo fundado: con el
+# principal al revés se tumba y se recalifica, en vez de devolvérselo.
+ok(r["criterios"][1]["sentido"] == "" and r["criterios"][1]["razonamiento"] == ""
+   and r["criterios"][1]["recalificar"] and r["criterios"][1]["de"] == "por_recalificar",
+   f"al pasar el principal a infundado, la procesal se tumba para recalificarla con la premisa: "
+   f"{r['criterios'][1]['de']}")
+ok(not any("ESTÁ SIN CALIFICAR" in a for a in r["avisos"]),
+   "y no se le pide calificarla: la recalifica el motor")
 ok(r["criterios"][1]["guarda"] == "procesal", "la pantalla recibe también por qué se estudia (`guarda`)")
 # Lo que el secretario tecleó antes de elegir sentido no se borra al devolverle
 # la calificación del motor.
@@ -781,8 +786,11 @@ c = crit722()[:2]
 c[0]["sentido"], c[0]["tocado"] = "fundado", True
 c[1]["sentido"], c[1]["razonamiento"] = "inoperante", _resto
 av, det = ad.aplicar(_sin_dep, c, [], PROP722[:2], tipo_asunto="amparo_directo")
-ok(not c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL) and c[1]["sentido"] == "infundado",
-   "con el principal fundado y sin relación declarada, tampoco se queda la fórmula")
+# El motor propuso el principal infundado: con él fundado es la otra vía, y lo
+# que trae el accesorio se tumba para recalificarlo (decisión del 26-sep-2026).
+ok(not c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL) and c[1]["sentido"] == ""
+   and det[Q2].get("recalificar"),
+   "con el principal fundado y sin relación declarada, tampoco se queda la fórmula: se recalifica")
 c = crit722()[:2]
 c[1]["sentido"], c[1]["razonamiento"] = "inoperante", _resto
 av, det = ad.aplicar(_sin_dep, c, [{"numero": 2, "tema_distinto": True}], PROP722[:2],
@@ -801,30 +809,35 @@ c[1].update(sentido="inoperante", razonamiento=_resto, tocado=True)
 ad.aplicar(P722, c, [], PROP722, tipo_asunto="amparo_directo")
 ok(c[1]["razonamiento"] == _resto, "la caída que marcó el secretario se respeta")
 
-print("\n29 · CON EL PRINCIPAL EN LA OTRA VÍA, LA CALIFICACIÓN SE CONSERVA Y SE AVISA")
+print("\n29 · CON EL PRINCIPAL EN LA OTRA VÍA, LA CALIFICACIÓN SE TUMBA PARA RECALIFICARLA")
 # El motor propuso el principal fundado y la congruencia de la condena
-# fundada; el secretario desestima el principal. Sin suerte escrita para esta
-# vía, la congruencia se estudia con lo que el motor le propuso —no cae: su
-# causa de pedir es suya—, y el aviso dice que esa calificación se escribió
-# con el principal al revés.
+# fundada; el secretario desestima el principal. Hasta el 26-sep-2026 la
+# congruencia se estudiaba con lo que el motor le propuso y se avisaba; desde
+# la decisión de David («si cambio sentido hay que tumbar y regenerar con la
+# premisa del cambio de sentido») esa calificación se TUMBA —sin sentido ni
+# razón— y queda pendiente de recalificar con la premisa.
 PROP_F = [dict(PROP722[0], sentido="fundado"),
           dict(PROP722[1], sentido="fundado", razon="la condena excede lo reclamado"), PROP722[2]]
 c = [{"problema": p["problema"], "sentido": p["sentido"], "razonamiento": p["razon"],
       "jerarquia": "principal" if i == 0 else "accesorio"} for i, p in enumerate(PROP_F)]
 c[0]["sentido"], c[0]["tocado"] = "infundado", True
 av, det = ad.aplicar(P722, c, [], PROP_F, tipo_asunto="amparo_directo")
-ok(c[1]["sentido"] == "fundado" and c[1]["razonamiento"] == "la condena excede lo reclamado",
-   "sin suerte escrita para esta vía, se estudia con la que el motor le propuso")
-_otra = [a for a in av if "calificación escrita con el principal en la otra vía" in a]
-ok(_otra and Q2[:60] in _otra[0], "y se le pide al secretario que la revise, nombrándola")
-# Lo que el secretario dictó para todo el asunto (modo global) no es «de la
-# otra vía» aunque no se escribiera para este problema.
+ok(c[1]["sentido"] == "" and c[1]["razonamiento"] == "" and det[Q2].get("recalificar")
+   and det[Q2].get("de") == "por_recalificar",
+   "sin suerte escrita para esta vía, lo que el motor le propuso para la otra se tumba")
+_rec = [a for a in av if "SE RECALIFICAN CON TU PREMISA" in a]
+ok(_rec and Q2[:60] in _rec[0] and not any("otra vía: revisa" in a for a in av),
+   "y se le dice al secretario que se recalifica, nombrándolo (ya no «revisa la de la otra vía»)")
+# Lo que el secretario dictó para todo el asunto (modo global) es su palabra:
+# no se recalifica nada (`global_dictado`).
 c = [{"problema": p["problema"], "sentido": "infundado", "razonamiento": "",
       "jerarquia": "principal" if i == 0 else "accesorio"} for i, p in enumerate(PROP_F)]
 c[0]["tocado"] = True
-av, det = ad.aplicar(P722, c, [], PROP_F, tipo_asunto="amparo_directo")
-ok(c[1]["sentido"] == "infundado" and not any(Q2[:60] in a for a in av if "otra vía" in a),
-   "el «infundado» dictado para el asunto no se anuncia como calificación de la otra vía")
+av, det = ad.aplicar(P722, c, [], PROP_F, tipo_asunto="amparo_directo", global_dictado=True)
+ok(c[1]["sentido"] == "infundado" and c[2]["sentido"] == "infundado"
+   and not any(Q2[:60] in a for a in av if "otra vía" in a)
+   and not any(d.get("recalificar") for d in det.values()),
+   "el «infundado» dictado para el asunto se queda: ni se recalifica ni se anuncia de la otra vía")
 
 print("\n29b · EL GLOBAL QUE DICTÓ EL SECRETARIO MANDA SOBRE LA CALIFICACIÓN DEL MOTOR")
 # Modo global dictado «infundado»: la brocha llena los problemas que nadie
@@ -947,20 +960,32 @@ ok(c[1]["sentido"] == "infundado" and det[_PY].get("origen") == "motor_otra_via"
 ok(any("sin que conste en qué vía la escribió" in a for a in av)
    and not any("principal en la otra vía" in a for a in av),
    "y el aviso no afirma que sea de la otra vía, porque no consta")
-# LA OTRA VÍA QUE PROSPERA CAMBIA EL DESENLACE: se conserva —tumbarla sería
-# la omisión, rebajarla inventar— y se dice que el asunto prosperaría por él.
+# LA OTRA VÍA QUE PROSPERA CAMBIABA EL DESENLACE. Hasta el 26-sep-2026 se
+# conservaba y se avisaba; desde la decisión de David se TUMBA y se recalifica
+# con la premisa (el engrose real negó los cinco del banco Kingston). Si lo
+# recalificado prospera, el aviso lo dice igual.
 _PROP_F2 = [{"problema": _PX, "sentido": "fundado", "razon": "la acción era improcedente"},
             {"problema": _PY, "sentido": "fundado", "razon": "la condena excede lo reclamado"}]
 c = _cxy("fundado", "la condena excede lo reclamado")
 av, det = ad.aplicar(_pxy, c, [], _PROP_F2)
-ok(c[1]["sentido"] == "fundado", "la calificación de la otra vía se conserva")
-ok(any("principal en la otra vía" in a and "el asunto prosperaría por él" in a for a in av),
-   "y el aviso dice que, si prospera, el asunto prosperaría por él")
+ok(c[1]["sentido"] == "" and det[_PY].get("recalificar"),
+   "la calificación de la otra vía ya no se conserva: se tumba para recalificar")
+import recalificar as _rc_t
+_k_t = _rc_t.clave(_PX, "infundado", "", [_PY], "", "")
+c = _cxy("fundado", "la condena excede lo reclamado")
+av, det = ad.aplicar(_pxy, c, [], _PROP_F2, recalificadas={"clave": _k_t, "resultados": {
+    _PY: {"sentido": "fundado", "razon": "la condena comprendió gastos que nadie reclamó",
+          "presupone": None, "verificado": False}}})
+ok(c[1]["sentido"] == "fundado" and det[_PY].get("de") == "recalificada"
+   and any("RECALIFICADOS CON TU PREMISA" in a and "el asunto prosperaría por él" in a for a in av),
+   "y si lo recalificado prospera, el aviso dice que el asunto prosperaría por él")
 _PROP_F3 = [_PROP_F2[0], dict(_PROP_F2[1], sentido="infundado", razon="la condena se ciñe a lo pactado")]
 c = _cxy("infundado", "la condena se ciñe a lo pactado")
-av, det = ad.aplicar(_pxy, c, [], _PROP_F3)
-ok(any("principal en la otra vía" in a for a in av) and not any("prosperaría por él" in a for a in av),
-   "una de la otra vía que no prospera no lleva esa nota")
+av, det = ad.aplicar(_pxy, c, [], _PROP_F3, recalificadas={"clave": _k_t, "resultados": {
+    _PY: {"sentido": "infundado", "razon": "la condena se ciñó a lo pactado en la cláusula primera",
+          "presupone": None, "verificado": False}}})
+ok(any("RECALIFICADOS CON TU PREMISA" in a for a in av) and not any("prosperaría por él" in a for a in av),
+   "una recalificada que no prospera no lleva esa nota")
 # La cita, por palabras enteras y dentro de un solo texto.
 ok(ad.presupuesto({"presupone": dict(_ok, cita="scindida es la obligada principal conforme")},
                   _acc, _pr)["motivo"] == "cita_no_consta",

@@ -412,7 +412,9 @@ def presupuesto(entrada: dict, accesorio, principal) -> dict:
 
 def aplicar(problemas: list, criterios: list, checklist: list = None,
             propuestas: list = None, tocados: set = None,
-            sentido_motor: str = "", tipo_asunto: str = "") -> tuple:
+            sentido_motor: str = "", tipo_asunto: str = "",
+            recalificadas: dict = None, huella_adelanto: str = "",
+            global_dictado: bool = False) -> tuple:
     """Ajusta EN SITIO el sentido de los accesorios que siguen al principal.
 
     `problemas`: los dicts de la fase 3, en su orden (pregunta, jerarquia,
@@ -422,6 +424,19 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     lo que propuso el motor (para `alcanza` y, en la guarda procesal, para
     devolverle a una procesal la calificación que el motor le dio).
     `tipo_asunto`: la guarda procesal es del amparo directo (sin tipo, rige).
+
+    EL CAMBIO DE SENTIDO (David, 26-sep-2026: «si cambio sentido hay que
+    tumbar y regenerar con la premisa del cambio de sentido»). Si el principal
+    va por la vía CONTRARIA a la que propuso el motor, los accesorios
+    relacionados que el secretario no tocó y cuya calificación sería la de la
+    otra vía se TUMBAN —sentido y razón vacíos— y su `detalle` lleva
+    `"recalificar": True`, `"de": "por_recalificar"` y `"clave_recalificar"`
+    (ver `recalificar.py`). `recalificadas`: lo que el motor recalificó con la
+    premisa —una casilla {"clave", "resultados"} o la rama entera de la fila,
+    {clave: casilla}—; se aplica SÓLO la de la misma clave (`de:
+    "recalificada"`). `huella_adelanto` entra en esa clave. `global_dictado`:
+    el sentido del asunto lo dictó el secretario en el modo global; su brocha
+    es su palabra y no se recalifica nada.
 
     Devuelve (avisos, detalle): `detalle` es {problema: {"de": ..., "por_que":
     ...}} para que la pantalla diga de quién es cada calificación. Cuando
@@ -531,6 +546,50 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     _via_conocida = _decide(_s_mot_p) or bool(sentido_motor)
     _p_ref_f3 = por_texto.get(p_txt, (0, None))[1] or p_txt
     estudiados: list = []          # relacionados con el principal que NO caen
+
+    # ═══ EL CAMBIO DE SENTIDO: QUIÉN SE RECALIFICA (26-sep-2026) ═══════════
+    # David: «si cambio sentido hay que tumbar y regenerar con la premisa del
+    # cambio de sentido». Sólo cuando consta que el principal va por la vía
+    # CONTRARIA a la del motor; si vuelve a la del motor, vale lo que el motor
+    # propuso y nada se recalifica. Y nunca en el modo global dictado: el
+    # sentido que el secretario dictó para todo el asunto es su palabra.
+    #
+    # QUIÉN ENTRA NO DEPENDE DE LO QUE TRAE: se decide por la regla (la
+    # relación con el principal, la suerte escrita, la guarda), no por el
+    # sentido que llega. Lo que llega de un accesorio no tocado lo escribió la
+    # máquina —la propuesta de la otra vía, un reparto anterior, o la
+    # recalificación que la pantalla devuelve—, y si decidiera quién entra, la
+    # clave cambiaría en cuanto la pantalla devolviera lo recalificado y la
+    # recalificación guardada no se encontraría nunca.
+    _cambio_via = bool(_via_conocida and not _via_motor and not global_dictado)
+    _cand: dict = {}               # problema → {"procesal": bool}
+    # LA RAZÓN QUE ÉL TECLEÓ SIN ELEGIR SENTIDO es su palabra aunque la pantalla
+    # no lo marque tocado: no se tumba (se borraría) y se queda como estaba —la
+    # calificación del motor con su razón, y el aviso que la pide revisar—.
+    _razon_suya = {str(_get(c, "problema", "")) for c in criterios
+                   if c is not principal and str(_get(c, "problema", "")) not in _tocados
+                   and not str(_get(c, "sentido", "") or "").strip()
+                   and str(_get(c, "razonamiento", "") or "").strip()}
+
+    def _recal_ok(t: str) -> bool:
+        return _cambio_via and t not in _razon_suya
+
+    # LO QUE LA PANTALLA DEVUELVE VACÍO Y ÉL NO TOCÓ, CON EL PRINCIPAL EN LA
+    # VÍA DEL MOTOR, es un tumbado de una vuelta anterior en la otra vía
+    # (26-sep-2026): el principal volvió y vale lo que el motor propuso. Una
+    # razón que él tecleó se queda.
+    if _via_conocida and _via_motor:
+        for c in criterios:
+            if c is principal or str(_get(c, "jerarquia", "")).lower() == "principal":
+                continue
+            _t0 = str(_get(c, "problema", ""))
+            if _t0 in _tocados or str(_get(c, "sentido", "") or "").strip():
+                continue
+            _s0, _r0 = _motor_de.get(_t0, ("", ""))
+            if _s0:
+                _set(c, "sentido", _s0)
+                if not str(_get(c, "razonamiento", "") or "").strip():
+                    _set(c, "razonamiento", _r0 or "")
 
     def _conservar(c, t: str) -> str:
         """Lo que se hace con una procesal que el árbol habría sacado: se
@@ -642,10 +701,18 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 f"NO SE DECLARÓ INNECESARIO «{t[:90]}»: pide algo que da MÁS que lo "
                 f"concedido en el principal. Declararlo innecesario sería negarlo "
                 f"sin decirlo. Se estudia.")
+            if _recal_ok(t):
+                # Se estudia, pero lo que trae se escribió con el principal sin
+                # prosperar: se recalifica con la premisa.
+                _cand[t] = {"procesal": proc}
             continue
 
         if pros:
             if not alcanza:
+                if _recal_ok(t):
+                    # Lo fundado no alcanza y se estudia; su calificación se
+                    # escribió con el principal sin prosperar.
+                    _cand[t] = {"procesal": proc}
                 continue
             s, razon = _suerte(entrada, "si_prospera", sentido_motor)
             if not s and rel == "depende":
@@ -665,7 +732,12 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                     detalle[t] = {"de": "propio", "guarda": "procesal",
                                   "por_que": "violación procesal: los arts. 74-V y 174 mandan "
                                              "decidirla; no queda sin materia"}
-                    avisos.append(_aviso_procesal(t, _k, cae_con=False))
+                    if _recal_ok(t):
+                        # Se decide, pero con lo que el motor escribió con el
+                        # principal sin prosperar: se recalifica con la premisa.
+                        _cand[t] = {"procesal": True}
+                    else:
+                        avisos.append(_aviso_procesal(t, _k, cae_con=False))
                     siguen += 1
                 continue
             if s == INNECESARIO:
@@ -683,6 +755,9 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 if razon:
                     _set(c, "razonamiento", razon)
                 detalle[t] = {"de": "principal", "por_que": razon}
+                if _recal_ok(t) and not razon.strip():
+                    # Escrita para esta vía pero sin su razón: se recalifica.
+                    _cand[t] = {"procesal": proc}
                 siguen += 1
             else:
                 if not proc and _cae_con_principal(c):
@@ -690,6 +765,10 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                     # vía; con éste prosperando, esa razón ya no sostiene nada.
                     _calificacion_propia(c, "", "", _via_motor, _motor_de.get(t, ("", "")))
                 detalle[t] = {"de": "propio", "por_que": "no consta que dependa del principal: se estudia por su cuenta"}
+                if _recal_ok(t):
+                    # No queda sin materia y lo que trae se escribió con el
+                    # principal sin prosperar: se recalifica con la premisa.
+                    _cand[t] = {"procesal": proc}
                 siguen += 1
         else:
             s, razon = _suerte(entrada, "si_no_prospera", sentido_motor)
@@ -733,10 +812,15 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 detalle[t] = {"de": "propio", "guarda": "procesal",
                               "por_que": "violación procesal: se decide por sí misma "
                                          "(arts. 74-V y 174); no cae con el principal"}
-                avisos.append(_aviso_procesal(
-                    t, _k, cae_con=True,
-                    sugerida=(s if _entrada_tiene_suerte(entrada, sentido_motor) else ""),
-                    razon_sug=razon))
+                if _recal_ok(t):
+                    # Lo que conserva es lo que el motor le escribió para la
+                    # otra vía, sin suerte escrita para ésta: se recalifica.
+                    _cand[t] = {"procesal": True}
+                else:
+                    avisos.append(_aviso_procesal(
+                        t, _k, cae_con=True,
+                        sugerida=(s if _entrada_tiene_suerte(entrada, sentido_motor) else ""),
+                        razon_sug=razon))
                 siguen += 1
                 continue
             if proc:
@@ -781,7 +865,16 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                                                        else "autonoma"),
                               "motivo": ev["motivo"], "origen": _org,
                               "por_que": _por_que_estudia(ev, _k)}
-                estudiados.append((t, _k, _org, ev, s_escrita))
+                # CON EL PRINCIPAL EN LA OTRA VÍA, se recalifica todo el que no
+                # trae la suerte que el motor escribió PARA ESTA VÍA con su
+                # razón: la de la otra vía, la que trae (que escribió la
+                # máquina), un resto o nada.
+                if _recal_ok(t) and not (
+                        _org == "via" and str(razon or "").strip()
+                        and not str(razon).startswith(CAE_CON_PRINCIPAL)):
+                    _cand[t] = {"procesal": False}
+                else:
+                    estudiados.append((t, _k, _org, ev, s_escrita))
                 siguen += 1
             else:
                 detalle[t] = {"de": "propio", "por_que": "no consta que dependa del principal: se estudia por su cuenta"}
@@ -811,7 +904,8 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 detalle[t] = {"de": "propio", "guarda": "procesal",
                               "por_que": "violación procesal: se decide por sí misma "
                                          "(arts. 74-V y 174); no cae con el principal"}
-                avisos.append(_aviso_procesal(t, _k, cae_con=True))
+                if t not in _cand:
+                    avisos.append(_aviso_procesal(t, _k, cae_con=True))
                 continue
             if mb_fondo:
                 # «sin materia» se escribe como tal en el estudio, que sólo
@@ -824,12 +918,48 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                                   "por_que": "violación procesal innecesaria por mayor beneficio "
                                              "(art. 189): el fondo que prospera da más que reponer"}
                     por_189.append(t)
+                # Innecesaria por la regla (art. 189): no se recalifica.
+                _cand.pop(t, None)
                 continue
             _k = _conservar(c, t)
             detalle[t] = {"de": "propio", "guarda": "procesal",
                           "por_que": "violación procesal: los arts. 74-V y 174 mandan "
                                      "decidirla; no queda sin materia"}
-            avisos.append(_aviso_procesal(t, _k, cae_con=False))
+            if t not in _cand:
+                avisos.append(_aviso_procesal(t, _k, cae_con=False))
+
+    # ═══ TUMBAR Y, SI YA ESTÁ, APLICAR LO RECALIFICADO (26-sep-2026) ═══════
+    # Ver arriba (`_cambio_via`) y `recalificar.py`. Lo que se tumba se queda
+    # SIN sentido ni razón: la calificación de la otra vía no se usa ni se le
+    # enseña al modelo que recalifica. Si ya hay una recalificación guardada
+    # con la MISMA clave —el mismo principal, el mismo sentido, la misma razón
+    # del secretario, los mismos tumbados, el mismo adelanto—, se aplica.
+    _recal = [str(_get(c, "problema", "")) for c in criterios
+              if str(_get(c, "problema", "")) in _cand and str(_get(c, "problema", "")) not in _tocados]
+    if _recal:
+        _rc = _recalificar_mod()
+        if _rc is not None:
+            _aplicadas, _faltan = _tumbar_y_aplicar(
+                _rc, criterios, _recal, _cand, detalle, principal, p_txt, p_sent, pros,
+                recalificadas, huella_adelanto, tipo_asunto)
+            if _faltan:
+                avisos.append(
+                    f"SE RECALIFICAN CON TU PREMISA {len(_faltan)} planteamiento(s): con el "
+                    f"principal {p_sent.replace('_', ' ')} —la vía contraria a la que propuso el "
+                    f"motor—, la calificación que el motor les había escrito suponía el principal "
+                    f"al revés y no se usa. El motor los vuelve a calificar con tu sentido y tu "
+                    f"razón como premisa: " + " · ".join(f"«{x[:80]}»" for x in _faltan[:6])
+                    + ". Si calificas tú alguno, manda tu marca.")
+            if _aplicadas:
+                avisos.append(
+                    f"RECALIFICADOS CON TU PREMISA {len(_aplicadas)} planteamiento(s): con el "
+                    f"principal {p_sent.replace('_', ' ')}, el motor los volvió a calificar "
+                    f"partiendo de tu sentido y tu razón: "
+                    + " · ".join(f"«{x[:80]}» ({s.replace('_', ' ') or 'sin calificar'})"
+                                 + (" —prospera: el asunto prosperaría por él aunque el principal "
+                                    "no prospere—" if (not pros and _prospera(s)) else "")
+                                 for x, s in _aplicadas[:6])
+                    + ". Revisa que sean los tuyos; si marcas alguno, manda tu marca.")
 
     if por_189:
         # El mismo texto que el reparto global, que corre antes en esa vía.
@@ -847,7 +977,8 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             and str(_get(c, "problema", "")) not in _tocados
             and not _procesal(str(_get(c, "problema", "")),
                               por_texto.get(str(_get(c, "problema", "")), (0, None))[1])
-            and (detalle.get(str(_get(c, "problema", ""))) or {}).get("de") in ("propio", "distinto")
+            and (detalle.get(str(_get(c, "problema", ""))) or {}).get("de") in ("propio", "distinto",
+                                                                                "recalificada")
             and _decide(str(_get(c, "sentido", "")))]
         if _fondo_vivo:
             avisos.append(
@@ -939,6 +1070,73 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     return avisos, detalle
 
 
+def _recalificar_mod():
+    """El módulo de la recalificación, o None si no carga: sin él, el árbol
+    se comporta como antes (conserva y avisa) en vez de tumbar sin poder
+    regenerar."""
+    try:
+        import recalificar as _rc
+        return _rc
+    except Exception:                                   # pragma: no cover
+        return None
+
+
+def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: dict,
+                      principal, p_txt: str, p_sent: str, pros: bool,
+                      recalificadas, huella_adelanto: str, tipo_asunto: str) -> tuple:
+    """Tumba los de `recal` y aplica la recalificación guardada de la misma
+    clave. Devuelve ([(problema, sentido) aplicados], [problemas pendientes]).
+
+    Lo recalificado se escribe como el árbol escribe lo suyo: una calificación
+    de fondo con su razón; la caída verificada con la fórmula de la caída (el
+    estudio la reconoce por ella); «innecesario» con la de la sustracción."""
+    k = _rc.clave(p_txt, p_sent, str(_get(principal, "razonamiento", "") or ""), recal,
+                  huella_adelanto, tipo_asunto)
+    casilla = _rc.casilla_de(recalificadas, k)
+    res = dict((casilla or {}).get("resultados") or {})
+    por_c = {str(_get(c, "problema", "")): c for c in criterios}
+    aplicadas, faltan = [], []
+    for t in recal:
+        c = por_c[t]
+        prev = detalle.get(t) or {}
+        base = {x: prev[x] for x in ("guarda", "relacion") if prev.get(x)}
+        base.update({"clave_recalificar": k, "principal": p_txt,
+                     "procesal": bool((cand.get(t) or {}).get("procesal"))})
+        # TUMBAR: ni el sentido ni la razón de la otra vía se quedan.
+        _set(c, "sentido", "")
+        _set(c, "razonamiento", "")
+        rt = res.get(t) if isinstance(res.get(t), dict) else None
+        s_rt = _sentido_valido((rt or {}).get("sentido"))
+        r_rt = str((rt or {}).get("razon") or "").strip()
+        if rt and s_rt and r_rt:
+            pre = rt.get("presupone") if isinstance(rt.get("presupone"), dict) else None
+            if pre and rt.get("verificado") is True and not base["procesal"] and not pros:
+                _pq = str(pre.get("por_que") or "").strip() or r_rt
+                _set(c, "sentido", s_rt if s_rt in _CAIDA else INOPERANTE)
+                _set(c, "razonamiento", f"{CAE_CON_PRINCIPAL} al resolver el problema principal: {_pq}")
+                base.update({"relacion": "presupone", "cita": str(pre.get("cita") or "")})
+                _pant = f"cae con tu premisa: {_pq[:200]} («{str(pre.get('cita') or '')[:120]}»)"
+            elif s_rt == INNECESARIO:
+                _set(c, "sentido", INNECESARIO)
+                _set(c, "razonamiento", f"{SIN_MATERIA} el análisis de este planteamiento: {r_rt}")
+                _pant = r_rt
+            else:
+                _set(c, "sentido", s_rt)
+                _set(c, "razonamiento", r_rt)
+                _pant = r_rt
+            detalle[t] = dict(base, de="recalificada", recalificar=False, recalificada=True,
+                              por_que=f"recalificada por el motor con tu premisa: {_pant[:240]}")
+            aplicadas.append((t, str(_get(c, "sentido", "") or "")))
+        else:
+            detalle[t] = dict(base, de="por_recalificar", recalificar=True,
+                              por_que=(f"con el principal {p_sent.replace('_', ' ')} —la vía contraria "
+                                       f"a la que propuso el motor— la calificación que traía se "
+                                       f"escribió para la otra vía y no se usa: se recalifica con tu "
+                                       f"premisa"))
+            faltan.append(t)
+    return aplicadas, faltan
+
+
 def _calificacion_propia(c, s_escrita: str, razon_escrita: str, via_motor: bool,
                          motor: tuple) -> tuple:
     """La calificación con que se estudia un accesorio relacionado con el
@@ -1027,25 +1225,40 @@ def _entrada_tiene_suerte(entrada: dict, sentido_motor: str = "") -> bool:
 
 def reparto_para_pantalla(problemas: list, criterios: list, checklist: list = None,
                           propuestas: list = None, sentido_motor: str = "",
-                          tipo_asunto: str = "") -> dict:
+                          tipo_asunto: str = "", recalificadas: dict = None,
+                          huella_adelanto: str = "") -> dict:
     """Lo que devuelve /taller/reparto: los criterios ya ajustados y de quién
-    es cada uno. Trabaja sobre COPIAS: la pantalla decide qué hace con ello."""
+    es cada uno. Trabaja sobre COPIAS: la pantalla decide qué hace con ello.
+    Los que se tumban por el cambio de sentido vuelven vacíos, con `de:
+    "por_recalificar"` y `recalificar: true`; si ya hay recalificación
+    guardada con la misma clave (`recalificadas`), vuelven con ella y `de:
+    "recalificada"`. Sin llamar a ningún modelo."""
     copia = [dict(c) if isinstance(c, dict) else {
         "problema": _get(c, "problema", ""), "sentido": _get(c, "sentido", ""),
         "razonamiento": _get(c, "razonamiento", ""),
         "jerarquia": _get(c, "jerarquia", "accesorio"),
         "tocado": bool(_get(c, "tocado", False))} for c in (criterios or [])]
     avisos, detalle = aplicar(problemas, copia, checklist, propuestas,
-                              sentido_motor=sentido_motor, tipo_asunto=tipo_asunto)
+                              sentido_motor=sentido_motor, tipo_asunto=tipo_asunto,
+                              recalificadas=recalificadas, huella_adelanto=huella_adelanto)
     for c in copia:
-        d = detalle.get(str(c.get("problema", "")), {})
-        c["de"] = d.get("de", "")
-        c["por_que"] = d.get("por_que", "")
-        # «procesal» (se decide) o «mayor_beneficio_189»: la pantalla de hoy
-        # pinta `de` y `por_que`; esto viaja para la que lo distinga.
-        c["guarda"] = d.get("guarda", "")
-        # «presupone» (cae con el principal, con su cita), «autonoma» o
-        # «mixta» (relacionado con el principal, pero se estudia): 26-sep-2026.
-        # Viaja para la pantalla que lo distinga; la de hoy pinta `por_que`.
-        c["relacion"] = d.get("relacion", "")
+        _pantalla(c, detalle.get(str(c.get("problema", "")), {}))
     return {"criterios": copia, "avisos": avisos}
+
+
+def _pantalla(c: dict, d: dict) -> dict:
+    """Los campos que la pantalla lee de cada criterio repartido (en sitio)."""
+    c["de"] = d.get("de", "")
+    c["por_que"] = d.get("por_que", "")
+    # «procesal» (se decide) o «mayor_beneficio_189»: la pantalla de hoy
+    # pinta `de` y `por_que`; esto viaja para la que lo distinga.
+    c["guarda"] = d.get("guarda", "")
+    # «presupone» (cae con el principal, con su cita), «autonoma» o
+    # «mixta» (relacionado con el principal, pero se estudia): 26-sep-2026.
+    # Viaja para la pantalla que lo distinga; la de hoy pinta `por_que`.
+    c["relacion"] = d.get("relacion", "")
+    # EL CAMBIO DE SENTIDO (26-sep-2026): tumbado y pendiente de
+    # recalificar, o ya recalificado con la premisa del secretario.
+    c["recalificar"] = bool(d.get("recalificar"))
+    c["recalificada"] = bool(d.get("recalificada"))
+    return c
