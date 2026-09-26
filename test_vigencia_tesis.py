@@ -18,6 +18,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -81,9 +82,23 @@ class QdrantFalso:
                     return False
         return True
 
+    @staticmethod
+    def _validar(flt):
+        """Lo que la v3 rechaza ANTES de mirar un solo punto (26-sep-2026):
+        `registro` y `clave_tesis` sólo tienen índice keyword, así que un
+        entero da 400 aunque el registro exista. Antes este doble dejaba pasar
+        los enteros —simplemente no casaban— y por eso ninguna prueba vio que
+        una sustituta ausente tumbaba a todas las demás."""
+        for c in (getattr(flt, "must", None) or []):
+            vals = c.match.any if isinstance(c.match, MatchAny) else [getattr(c.match, "value", None)]
+            if c.key in ("registro", "clave_tesis") and any(isinstance(v, int) for v in vals):
+                raise ValueError(f'Unexpected Response: 400 (Bad Request) Index required but not found '
+                                 f'for "{c.key}" of one of the following types: [integer]')
+
     async def scroll(self, collection_name, scroll_filter=None, limit=10, with_payload=True,
                      with_vectors=False, **kw):
         self.llamadas.append(("scroll", collection_name, scroll_filter))
+        self._validar(scroll_filter)
         if self.demora:
             await asyncio.sleep(self.demora)
         pts = [p for p in self._pts(collection_name) if self._cumple(p.payload, scroll_filter)]
@@ -94,12 +109,14 @@ class QdrantFalso:
         return [p for p in self._pts(collection_name) if str(p.id).lower() in quiero]
 
 
-def punto(n, registro, clave, rubro, tipo="TESIS AISLADA", instancia="Pleno"):
+def punto(n, registro, clave, rubro, tipo="TESIS AISLADA", instancia="Pleno", epoca=None):
     """Una tesis de mentira con los campos que el código lee de la v3."""
-    return SimpleNamespace(id=f"00000000-0000-4000-8000-{n:012d}", payload={
-        "registro": registro, "clave_tesis": clave, "rubro": rubro,
-        "texto": f"Cuerpo de la tesis {registro}, que NO debe llegar al modelo con TESIS_SOLO_RUBRO.",
-        "tipo": tipo, "instancia": instancia, "materia": "Común"})
+    pl = {"registro": registro, "clave_tesis": clave, "rubro": rubro,
+          "texto": f"Cuerpo de la tesis {registro}, que NO debe llegar al modelo con TESIS_SOLO_RUBRO.",
+          "tipo": tipo, "instancia": instancia, "materia": "Común"}
+    if epoca:
+        pl["epoca"] = epoca
+    return SimpleNamespace(id=f"00000000-0000-4000-8000-{n:012d}", payload=pl)
 
 
 TESIS = [
@@ -140,9 +157,33 @@ crudo = json.loads(vt.RUTA_INDICE.read_text(encoding="utf-8"))
 ok(set(crudo) >= {"generado", "fuente", "n", "tesis"} and crudo["n"] == len(crudo["tesis"]) >= 550,
    f"datos/vigencia_tesis.json: {{generado, fuente, n, tesis}} con sus tesis (tiene {crudo.get('n')})")
 CAMPOS = {"estado", "parcial", "por_registro", "por_clave", "por_rubro", "por_resolucion", "desde", "fuente", "nota"}
-ok(all(set(v) == CAMPOS for v in crudo["tesis"].values()), "cada entrada lleva exactamente los campos del contrato")
-ok(all(len(v["nota"] or "") <= 400 and len(v["por_rubro"] or "") <= 200 for v in crudo["tesis"].values()),
-   "nota ≤ 400 y por_rubro ≤ 200 caracteres")
+# 26-sep-2026: `alcance` y `por_intermedias` sólo en las entradas que los tienen.
+OPCIONALES = {"alcance", "por_intermedias"}
+ok(all(CAMPOS <= set(v) <= CAMPOS | OPCIONALES for v in crudo["tesis"].values()),
+   "cada entrada lleva los campos del contrato (y alcance / por_intermedias sólo si los tiene)")
+ok(sum(1 for v in crudo["tesis"].values() if set(v) & OPCIONALES) == 3,
+   "sólo 3 entradas llevan los opcionales (164500, 190237, 192096): el resto no cambió ni un byte")
+ok(all(len(v["nota"] or "") <= 400 and len(v["por_rubro"] or "") <= 200 and len(v.get("alcance") or "") <= 240
+       for v in crudo["tesis"].values()),
+   "nota ≤ 400, por_rubro ≤ 200 y alcance ≤ 240 caracteres")
+
+# EL ALCANCE Y LA CADENA (hallazgo 8, 26-sep-2026). La 164500 figuraba como
+# interrumpida EN TODO por la 3a./J. 23/91, que también perdió vigencia; el SJF
+# dice «en la parte relativa» y que a la 3a./J. 23/91 la interrumpió a su vez
+# la P./J. 55/2003 (183349). La 190237 y la 192096, abandonadas «por lo que se
+# refiere a los efectos de … la veda electoral», figuraban como totales.
+v164 = vt.de("164500")
+ok(v164["parcial"] and v164.get("alcance") == "en la parte relativa" and v164["por_clave"] == "P./J. 55/2003"
+   and v164["por_registro"] == "183349" and v164.get("por_intermedias") == ["3a./J. 23/91"]
+   and v164["desde"] == "1991-05",
+   "164500 → EN PARTE («en la parte relativa»), reemplazo el último eslabón: P./J. 55/2003 (183349), "
+   "vía la 3a./J. 23/91; desde mayo de 1991 (cuando la perdió ella)")
+ok(vt.cadena("164500") == ["183349"], "y la sustituta que se trae es la 183349, no una tesis también interrumpida")
+for _r in ("190237", "192096"):
+    _v = vt.de(_r)
+    ok(_v["parcial"] and (_v.get("alcance") or "").startswith("por lo que se refiere a los efectos")
+       and "veda electoral" in _v["alcance"] and _v["alcance"].endswith("Estados Unidos Mexicanos"),
+       f"{_r} → abandonada EN PARTE, con su alcance entero («por lo que se refiere a … veda electoral …»)")
 ok(not any((v["nota"] or "").endswith(" pu") for v in crudo["tesis"].values())
    and crudo["tesis"]["2009817"]["nota"].endswith("…"),
    "la nota se corta en palabra entera con «…» (el prototipo dejaba «…, pu»)")
@@ -212,6 +253,12 @@ ok(vt.etiqueta(None) == "" and vt.atributos_xml(None) == "" and vt.linea_visible
    and vt.marcador(None) is None, "sin pérdida, todo vacío")
 ok(vt.linea_visible(vt.de("2015368")).startswith("⚠️ TEXTO CORREGIDO: ACLARADA"),
    "una aclaración se avisa como texto corregido, no como «perdió vigencia»")
+e164 = vt.etiqueta(vt.de("164500"))
+ok(e164 == ("INTERRUMPIDA EN PARTE —en la parte relativa— por la 3a./J. 23/91 y, a su vez, por la "
+            "P./J. 55/2003, registro 183349, desde mayo de 1991"), f"la cadena y el alcance, dichos: «{e164}»")
+ok(vt.linea_visible(vt.de("164500")).startswith("⚠️ PERDIÓ VIGENCIA EN PARTE:")
+   and vt.linea_visible(vt.de("190237")).startswith("⚠️ PERDIÓ VIGENCIA EN PARTE: ABANDONADA EN PARTE —por lo que"),
+   "ya no «No la presentes como vigente» a secas: «EN PARTE», con el inciso")
 
 
 # ═══════════════════════════════════════════════════════════════ 3 · el XML
@@ -239,6 +286,24 @@ ok("INSTRUCCIÓN VIGENCIA" not in main.format_results_as_xml([a4159]), "sin ning
 ok('vigencia_parcial="si"' in main.format_results_as_xml([sr("159870")])
    and "⚠️ PERDIÓ VIGENCIA EN PARTE" in main.format_results_as_xml([sr("159870")]), "la parcial se marca como parcial")
 ok('vigencia_fuente="curaduria"' in main.format_results_as_xml([sr("160584")]), "la curada se distingue en el tag")
+
+# DE QUIÉN ES LA PÉRDIDA (hallazgo 18, 26-sep-2026): la instrucción decía «según
+# el Semanario» también para las curadas, que el Semanario NO anota.
+def _instr(xml_):
+    return re.search(r"<!-- INSTRUCCIÓN VIGENCIA:.*?-->", xml_, re.S).group(0)
+
+
+i_cur = _instr(main.format_results_as_xml([sr("160584")]))
+i_exp = _instr(main.format_results_as_xml([sr("2009817")]))
+i_mix = _instr(main.format_results_as_xml([sr("2009817"), sr("160584")]))
+ok("según el Semanario" not in i_cur and "consta en el Semanario" not in i_cur
+   and "curaduría de Iurexia" in i_cur and "no se lo atribuyas al Semanario" in i_cur,
+   "sólo curadas: la instrucción NO se la atribuye al Semanario y dice que es curaduría de Iurexia")
+ok("consta en el Semanario" in i_exp and "curaduría" not in i_exp,
+   "sólo expresas: la pérdida consta en el Semanario, y no se habla de curaduría")
+ok("consta en el Semanario" in i_mix and "curaduría de Iurexia" in i_mix, "mezcladas: cada origen con el suyo")
+ok(all("parte afectada" in x and "parte abandonada" not in x for x in (i_cur, i_exp, i_mix)),
+   "«sólo en la parte afectada», no «abandonada» (la parcial curada está superada)")
 os.environ["TESIS_SOLO_RUBRO"] = "0"
 xml0 = main.format_results_as_xml([sr("2009817")])
 ok("Cuerpo de la tesis 2009817" in xml0 and "⚠️ PERDIÓ VIGENCIA" in xml0, "con TESIS_SOLO_RUBRO=0 van la línea y el cuerpo")
@@ -315,6 +380,32 @@ with tempfile.TemporaryDirectory() as d:
     vt.RUTA_INDICE, vt.RUTA_CURADA = _ri, _rc
     vt.indice.cache_clear()
 
+# UNA SUSTITUTA AUSENTE NO TUMBA A LAS DEMÁS (hallazgo 1, 26-sep-2026). La
+# 2016052 (índice real) remite a la 2031844, que no está en la v3; la 2009817
+# a la 2024159, que sí. Antes: la pasada con enteros daba 400 y se perdían las
+# dos («no pude traer 2 sustituta(s) (UnexpectedResponse)»).
+p2016052 = punto(10, "2016052", "XIV.C.A.3 C (10a.)", "UNA TESIS DE YUCATÁN ABANDONADA POR LA XIV.C.A.1 C (12a.).")
+ok((vt.de("2016052") or {}).get("por_registro") == "2031844" and "2031844" not in POR_REG,
+   "el caso: 2016052 → 2031844, que no está en el acervo")
+Q9 = QdrantFalso({V3: TESIS + [p2016052]})
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        hall9 = correr(main._traer_tesis_por_registro(Q9, V3, ["2024159", "2031844"]))
+except Exception as _e9:
+    hall9 = {f"lanzó {type(_e9).__name__}": None}
+ok(set(hall9) == {"2024159"}, f"_traer_tesis_por_registro con una presente y una ausente: {sorted(hall9)} (antes lanzaba)")
+res9 = [sr("2009817", 0.7), main._sr_de(main._tesis_a_dict(p2016052.id, p2016052.payload, V3))]
+buf9 = io.StringIO()
+with contextlib.redirect_stdout(buf9):
+    xml9, n9 = correr(main._sumar_sustitutas(res9, main.build_doc_id_map(res9), qdrant=Q9))
+ok(n9 == 1 and [r.registro for r in res9] == ["2009817", "2024159", "2016052"] and "no pude traer" not in buf9.getvalue(),
+   f"la presente entra y la ausente sólo falta: {[r.registro for r in res9]}")
+ok(xml9.count("<perdida ") == 2 and 'reemplazada_por="2031844"' in xml9,
+   "la ausente conserva su sello y su reemplazada_por en el resumen")
+ok(not any(isinstance(v, int) for c in fuera_de_llamadas(Q9) for v in (c[2].must[0].match.any
+           if isinstance(c[2].must[0].match, MatchAny) else [c[2].must[0].match.value])),
+   "ninguna consulta por registro va con enteros (el índice es keyword)")
+
 
 print("\n   · dónde se engancha")
 FUENTE = Path("main.py").read_text(encoding="utf-8")
@@ -339,6 +430,34 @@ i_fx = AD.index("context_xml = format_results_as_xml(search_results, estado=_ent
 i_sa = AD.index("await _sumar_sustitutas(search_results, doc_id_map)")
 i_cx = AD.index('"\\n\\nCONTEXTO JURÍDICO RECUPERADO:\\n" + context_xml')
 ok(i_fx < i_sa < i_cx, "en /analyze-document: después del XML del acervo y antes de meterlo al prompt")
+
+# /chat-sentencia y /audit (hallazgo 4, 26-sep-2026): el XML les ordenaba
+# «funda en la que los reemplaza» y la sustituta no viajaba.
+def _en_orden(texto, *trozos):
+    """¿Están todos los trozos en `texto`, y en ese orden?"""
+    pos = [texto.find(t) for t in trozos]
+    return all(p >= 0 for p in pos) and pos == sorted(pos)
+
+
+CS = FUENTE[FUENTE.index("async def chat_sentencia_endpoint("):]
+CS = CS[:CS.index("\n@app.")]
+ok(_en_orden(CS, "search_results: List[SearchResult] = []", "if request.use_rag:",
+             "rag_context = format_results_as_xml(search_results, estado=None)",
+             "await _sumar_sustitutas(search_results, build_doc_id_map(search_results))",
+             "rag_context += _xml_vig", "CONTEXTO JURÍDICO RECUPERADO", "registros_fuera_del_contexto(content_buffer"),
+   "en /chat-sentencia: sustitutas tras el XML y antes del prompt; search_results existe aunque use_rag=False")
+AU = FUENTE[FUENTE.index("async def audit_endpoint("):]
+AU = AU[:AU.index("\n@app.")]
+ok(_en_orden(AU, "evidence_xml = format_results_as_xml(consolidated_results)",
+             "await _sumar_sustitutas(consolidated_results, build_doc_id_map(consolidated_results))",
+             "evidence_xml += _xml_vig", "EVIDENCIA JURÍDICA:"),
+   "en /audit: sustitutas tras el XML de la evidencia y antes del prompt")
+# Y si la sustituta NO se pudo traer, su registro no es «de memoria»: lo dio el contexto.
+_resp = "La P. X/2015 fue abandonada por la P./J. 2/2022 (11a.), registro digital 2024159."
+ok(main.registros_fuera_del_contexto(_resp, [sr("2009817")]) == [],
+   "REGISTROS_FUERA no marca el reemplazada_por de una tesis del contexto (antes: ['2024159'])")
+ok(main.registros_fuera_del_contexto(_resp + " Véase el registro digital 2000004.", [sr("2009817")]) == ["2000004"],
+   "y un registro que nadie dio sigue saliendo fuera")
 
 
 # ═══════════════════════════════════════════════════════════════ 5 · búsqueda directa
@@ -368,10 +487,35 @@ with contextlib.redirect_stdout(io.StringIO()):
                           ("160584", [])):
         c = main._extract_legal_citations(txt)
         ok(c["registros"] == esperado, f"«{txt}» → {esperado} (dio {c['registros']})")
+    # UN NÚMERO DE SIETE CIFRAS NO ES UN REGISTRO POR SERLO (hallazgo 3,
+    # 26-sep-2026): toda la franja 2020000-2029999 existe en la v3, así que
+    # cada importe, folio o expediente metía una tesis ajena al frente.
+    for txt in ("Me demandan por 2025000 pesos de daños", "expediente 2024123", "folio 2025001",
+                "matrícula 2023456 del IMSS", "Registro Civil acta 2025678", "el crédito 2029999",
+                "inscrito en el registro 185000 del RPP", "pagué $2025000 de anticipo",
+                "la tesis que cité en el expediente 2024123", "registro 2024159 del Registro Público de la Propiedad",
+                "el monto asciende a 2025000 MXN", "¿Qué pasa con 2025000?"):
+        c = main._extract_legal_citations(txt)
+        ok(c["registros"] == [], f"«{txt}»: no es un registro ({c['registros']})")
+    for txt, esperado in (("la tesis 2024159 sigue vigente", ["2024159"]),
+                          ("esa jurisprudencia, 2024159, dice", ["2024159"]),
+                          ("el criterio 2024159", ["2024159"]),
+                          ("IUS 2024159", ["2024159"]),
+                          ("la P./J. 2/2022 (11a.) 2024159", ["2024159"]),
+                          ("registros digitales 2024159, 2009817 y 2009816", ["2024159", "2009817", "2009816"]),
+                          ("el Ministerio Público invocó la tesis con registro 160584", ["160584"]),
+                          ("la tesis en materia civil, registro 160584", ["160584"]),
+                          ("registro digital 2025678 del Semanario", ["2025678"]),
+                          ("[J]; 11a. Época; Pleno; Gaceta S.J.F.; Libro 11, Marzo de 2022; Tomo I; Pág. 5. 2024159",
+                           ["2024159"]),
+                          ("en esa época cobraba 2025000 al año", [])):
+        c = main._extract_legal_citations(txt)
+        ok(c["registros"] == esperado, f"«{txt}» → {esperado} (dio {c['registros']})")
 ok(main._variantes_de_clave("P./J. 2/2022") [:1] == ["P./J. 2/2022"]
    and "P./J. 2/2022 (11a.)" in main._variantes_de_clave("P./J. 2/2022")
-   and main._variantes_de_clave("P. X/2015 (10a.)") == ["P. X/2015 (10a.)", "P. X/2015(10a.)"],
-   "variantes: sin época, las cuatro épocas; con época, sólo ésa")
+   and main._variantes_de_clave("P. X/2015 (10a.)") == ["P. X/2015 (10a.)", "P. X/2015(10a.)", "P. X/2015  (10a.)"]
+   and "III.5o.A.1 A  (12a.)" in main._variantes_de_clave("III.5o.A.1 A"),
+   "variantes: sin época, las cuatro épocas; con época, sólo ésa (con 0, 1 o 2 espacios antes del paréntesis)")
 
 main.qdrant_client = QdrantFalso({V3: TESIS})
 with contextlib.redirect_stdout(io.StringIO()):
@@ -387,6 +531,64 @@ with contextlib.redirect_stdout(io.StringIO()):
     solo_clave = correr(main._buscar_articulos_citados(
         {"articles": [], "registros": [], "tesis_nums": ["P./J. 2/2022"], "casos_coidh": []}))
 ok([r.registro for r in solo_clave] == ["2024159"], "sólo con la clave, sin época: encuentra 2024159")
+ok(solo_clave[0].score == 1.0 and not getattr(solo_clave[0], "clave_ambigua", None), "y como es la única, entra como exacta")
+
+# LA CLAVE SIN ÉPOCA QUE NOMBRA A VARIAS TESIS (hallazgo 2, 26-sep-2026). En el
+# doble, el orden de la lista hace de orden por UUID de Qdrant: la literal va
+# AL FINAL, que es donde el limit=3 de antes la dejaba fuera.
+HOMONIMAS = [
+    # «I.3o.C.15 K»: la 9a. es la clave literal; la 10a. y la 11a. comparten la base.
+    punto(30, "2026057", "I.3o.C.15 K (11a.)", "EMPLAZAMIENTO A JUICIO A LOS CODEMANDADOS."),
+    punto(31, "2001572", "I.3o.C.15 K (10a.)", "APARIENCIA DEL BUEN DERECHO. CUESTIONES JURÍDICAS."),
+    punto(32, "190791", "I.3o.C.15 K", "VIOLACIONES AL PROCEDIMIENTO. OPORTUNIDAD.", epoca="Novena Época"),
+    # «IV.2o.P.3 P»: tres de época delante y la literal (186061) la cuarta.
+    punto(33, "2032126", "IV.2o.P.3 P (12a.)", "UNA DE LA DUODÉCIMA."),
+    punto(34, "2026779", "IV.2o.P.3 P (11a.)", "UNA DE LA UNDÉCIMA."),
+    punto(35, "2002803", "IV.2o.P.3 P (10a.)", "UNA DE LA DÉCIMA."),
+    punto(36, "186061", "IV.2o.P.3 P", "LA LITERAL, LA QUE SE CITÓ.", epoca="Novena Época"),
+    # «VII.9o.C.9 C»: sin literal y con cuatro homónimas (dos de la 10a.).
+    punto(37, "2031999", "VII.9o.C.9 C (12a.)", "HOMÓNIMA DOCE."),
+    punto(38, "2026999", "VII.9o.C.9 C (11a.)", "HOMÓNIMA ONCE."),
+    punto(39, "2012999", "VII.9o.C.9 C (10a.)", "HOMÓNIMA DIEZ A."),
+    punto(40, "2002999", "VII.9o.C.9 C(10a.)", "HOMÓNIMA DIEZ B, SIN ESPACIO ANTES DEL PARÉNTESIS."),
+    # «II.4o.P.10 P (10a.)»: CON época y aun así dos tesis.
+    punto(41, "2020715", "II.4o.P.10 P (10a.)", "UNA."),
+    punto(42, "2012791", "II.4o.P.10 P (10a.)", "OTRA."),
+]
+main.qdrant_client = QdrantFalso({V3: TESIS + HOMONIMAS})
+
+
+def por_clave(clave):
+    with contextlib.redirect_stdout(io.StringIO()):
+        return correr(main._buscar_articulos_citados(
+            {"articles": [], "registros": [], "tesis_nums": [main._normalizar_clave(clave)], "casos_coidh": []}))
+
+
+h1 = por_clave("I.3o.C.15 K")
+ok([(r.registro, r.score, getattr(r, "clave_ambigua", None)) for r in h1] == [("190791", 1.0, None)],
+   f"«I.3o.C.15 K» → sólo la literal (190791, 9a.), exacta; antes entraban 3 con score 1.0: {[r.registro for r in h1]}")
+h2 = por_clave("IV.2o.P.3 P")
+ok([r.registro for r in h2] == ["186061"] and h2[0].score == 1.0,
+   f"«IV.2o.P.3 P» → la literal aunque venga cuarta (antes limit=3 la dejaba fuera): {[r.registro for r in h2]}")
+h3 = por_clave("VII.9o.C.9 C")
+ok([r.registro for r in h3] == ["2002999", "2012999", "2026999", "2031999"],
+   f"sin literal: las cuatro, ordenadas por época y no por UUID: {[r.registro for r in h3]}")
+ok(all(r.score == getattr(main, "CLAVE_AMBIGUA_SCORE", None) and r.score < 1.0 for r in h3), "ninguna como exacta: score < 1.0")
+ok(all(getattr(r, "clave_ambigua", None) == "4 tesis con la clave «VII.9o.C.9 C»: 2002999 (10a.), 2012999 (10a.), "
+                          "2026999 (11a.), 2031999 (12a.)" for r in h3),
+   f"cada una dice cuántas son y de qué época: «{getattr(h3[0], 'clave_ambigua', None) if h3 else None}»")
+x3 = main.format_results_as_xml(h3)
+ok(x3.count('clave_ambigua="4 tesis con la clave') == 4 and 'score="1.0000"' not in x3
+   and "INSTRUCCIÓN CLAVE AMBIGUA" in x3, "en el XML: atributo clave_ambigua=, sin score 1.0 y con su instrucción")
+ok("INSTRUCCIÓN CLAVE AMBIGUA" not in main.format_results_as_xml(h1), "sin ambigüedad no se infla el prompt")
+h4 = por_clave("II.4o.P.10 P (10a.)")
+ok(sorted(r.registro for r in h4) == ["2012791", "2020715"] and all(getattr(r, "clave_ambigua", None) and r.score < 1.0 for r in h4),
+   "con época y dos tesis con la misma clave: también ambigua")
+ok(all(c[2].must[0].key == "clave_tesis" and c[2].must[0].match.any == main._variantes_de_clave(
+           main._normalizar_clave(k))
+       for c, k in zip([c for c in main.qdrant_client.llamadas if c[0] == "scroll"][-4:],
+                       ("I.3o.C.15 K", "IV.2o.P.3 P", "VII.9o.C.9 C", "II.4o.P.10 P (10a.)"))),
+   "una sola consulta por clave, con todas sus variantes")
 
 
 # ═══════════════════════════════════════════════════════════════ 6 · el prompt
@@ -507,6 +709,153 @@ ok(len(c) <= 400 and c.endswith("…") and not c.endswith(" …") and gen.cortar
    "cortar(): ≤ tope, en palabra entera y con «…»")
 comp = gen.compacto({"2009817": dict(vt.de("2009817"), fuentes=["nota_propia"], patron="tesis_fue")})
 ok(set(comp["2009817"]) == CAMPOS, "compacto(): sólo los campos del contrato")
+
+# EL ALCANCE Y LA CADENA, EN EL GENERADOR (hallazgo 8, 26-sep-2026). Las notas
+# son las del Semanario, literales; 900001/900002/900009 son de mentira.
+NOTA_164500 = (
+    'Este criterio fue interrumpido y modificado, en la parte relativa, por la tesis 3a./J. 23/91, de rubro: '
+    '"AMPARO INDIRECTO, RESULTA IMPROCEDENTE CONTRA LA RESOLUCIÓN QUE DESECHA LA EXCEPCIÓN DE FALTA DE '
+    'COMPETENCIA (INTERRUPCIÓN Y MODIFICACIÓN EN LA PARTE RELATIVA, DE LA TESIS JURISPRUDENCIAL NÚMERO 166, '
+    'VISIBLE EN LAS PÁGINAS 297 Y 298, SEGUNDA PARTE, DE LA COMPILACIÓN DE 1917 A 1988).", publicada en el '
+    'Semanario Judicial de la Federación, Octava Época, Tomo VII, mayo de 1991, página 47; la que, a su vez, '
+    'fue interrumpida y modificada, en la parte relativa, por la tesis P./J. 55/2003, de rubro: "AMPARO '
+    'INDIRECTO, RESULTA PROCEDENTE CONTRA LA RESOLUCIÓN QUE DESECHA LA EXCEPCIÓN DE FALTA DE COMPETENCIA.", '
+    'publicada en el Semanario Judicial de la Federación y su Gaceta, Novena Época, Tomo XVIII, septiembre de '
+    '2003, página 5.')
+NOTA_190237 = (
+    'Nota: El criterio contenido en la presente tesis fue abandonado por el Pleno de la Suprema Corte de '
+    'Justicia de la Nación, por lo que se refiere a los efectos de que se declare la violación a la veda '
+    'electoral señalada en el párrafo penúltimo de la fracción II del artículo 105 de la Constitución Política '
+    'de los Estados Unidos Mexicanos, al resolver la acción de inconstitucionalidad 145/2017 y su acumulada 146/2017.')
+T_GEN = [
+    {"registro": "164500", "clave_tesis": "3a. (7a. Época)", "rubro": "AMPARO INDIRECTO. NO PROCEDE…",
+     "precedentes": "Amparo en revisión 1/1986.\n\n" + NOTA_164500},
+    {"registro": "183349", "clave_tesis": "P./J. 55/2003", "fecha_publicacion": "2003-09-01", "precedentes": "",
+     "rubro": "AMPARO INDIRECTO, RESULTA PROCEDENTE CONTRA LA RESOLUCIÓN QUE DESECHA LA EXCEPCIÓN DE FALTA DE COMPETENCIA."},
+    {"registro": "190237", "clave_tesis": "P./J. 25/2001", "rubro": "VEDA ELECTORAL…", "precedentes": NOTA_190237},
+    {"registro": "900001", "clave_tesis": "P./J. 1/2030", "rubro": "UNA TOTAL.",
+     "precedentes": "Nota: La presente tesis fue abandonada por la tesis P./J. 9/2030."},
+    {"registro": "900002", "clave_tesis": "P./J. 2/2030", "rubro": "UNA EN LO CONDUCENTE.",
+     "precedentes": "Nota: Este criterio fue interrumpido, en lo conducente, por la tesis P./J. 9/2030."},
+    {"registro": "900009", "clave_tesis": "P./J. 9/2030", "rubro": "LA NUEVA.", "precedentes": "",
+     "fecha_publicacion": "2030-01-10"},
+]
+AG = gen.Acervo(T_GEN)
+EX = gen.Extractor(AG)
+for _t in T_GEN:
+    EX.procesar(_t)
+CG = gen.compacto(gen.consolidar(AG, EX.rel)[0])
+c164 = CG["164500"]
+ok(c164["por_registro"] == "183349" and c164["por_clave"] == "P./J. 55/2003"
+   and c164.get("por_intermedias") == ["3a./J. 23/91"] and c164["desde"] == "1991-05",
+   f"«la que, a su vez, fue interrumpida … por la P./J. 55/2003»: el reemplazo es el último eslabón ({c164['por_clave']})")
+ok(c164["parcial"] and c164.get("alcance") == "en la parte relativa",
+   "«, en la parte relativa,» hace parcial la pérdida (antes sólo «parcialmente»)")
+ok(CG["190237"]["parcial"] and (CG["190237"].get("alcance") or "").startswith("por lo que se refiere a los efectos")
+   and (CG["190237"].get("alcance") or "").endswith("Estados Unidos Mexicanos")
+   and CG["190237"]["por_resolucion"] == "acción de inconstitucionalidad 145/2017",
+   "«por lo que se refiere a …»: parcial, con el inciso hasta «, al resolver»")
+ok(CG["900002"]["parcial"] and CG["900002"].get("alcance") == "en lo conducente", "«en lo conducente»: parcial")
+ok(not CG["900001"]["parcial"] and set(CG["900001"]) == CAMPOS and CG["900001"]["por_registro"] == "900009",
+   "una pérdida total sigue igual: sin alcance ni por_intermedias")
+ok(hasattr(gen, "alcance_en") and gen.alcance_en(' por la tesis X, de rubro: "… (INTERRUPCIÓN Y MODIFICACIÓN EN LA PARTE RELATIVA …)"') is None,
+   "el «EN LA PARTE RELATIVA» del rubro citado es de la OTRA tesis: no cuenta")
+
+# LA CACHÉ DEL SJF, OBLIGATORIA (hallazgo 20, 26-sep-2026). Antes, sin ella, el
+# guion avisaba por stderr, salía con 0 y escribía un índice peor (555 en vez
+# de 558) sobre datos/vigencia_tesis.json.
+GEN = Path(os.getcwd(), "scripts", "vigencia_tesis_generar.py")
+ok("/private/tmp" not in GEN.read_text(encoding="utf-8") and "claude-worktrees" not in GEN.read_text(encoding="utf-8"),
+   "ninguna carpeta de sesión como caché por omisión")
+with tempfile.TemporaryDirectory() as d:
+    tc = Path(d, "tesis.jsonl")
+    tc.write_text("\n".join(json.dumps(t, ensure_ascii=False) for t in [
+        {"registro": "900001", "clave_tesis": "P./J. 1/2030", "rubro": "UNA CORTADA.", "precedentes": "x" * 2600},
+        {"registro": "900009", "clave_tesis": "P./J. 9/2030", "rubro": "LA NUEVA.", "precedentes": "",
+         "fecha_publicacion": "2030-01-10"}]), encoding="utf-8")
+    cache = Path(d, "sjf")
+    cache.mkdir()
+    (cache / "900001.json").write_text(json.dumps({"precedentes": "<p>" + "x" * 2600 + "</p><p>Nota: La presente "
+                                                   "tesis fue abandonada por la tesis P./J. 9/2030.</p>"}))
+    Path(d, "vacia").mkdir()
+    _n = [0]
+
+    def gen_cli(*args):
+        _n[0] += 1
+        sal = Path(d, f"salida_{_n[0]}.json")
+        r = subprocess.run([sys.executable, str(GEN), "--tesis-cache", str(tc), "--salida", str(sal), *args],
+                           capture_output=True, text=True, timeout=120)
+        return r, sal
+
+    r, sal = gen_cli()
+    ok(r.returncode != 0 and not sal.exists(), f"sin --sjf-cache ni --sin-sjf: error (rc={r.returncode}) y no escribe")
+    r, sal = gen_cli("--sjf-cache", str(Path(d, "no_existe")))
+    ok(r.returncode != 0 and not sal.exists() and "No se escribió nada" in r.stderr,
+       f"con una caché que no existe: error (rc={r.returncode}) y no escribe")
+    r, sal = gen_cli("--sjf-cache", str(Path(d, "vacia")))
+    ok(r.returncode != 0 and not sal.exists(), "con una caché vacía, tampoco")
+    r, sal = gen_cli("--sjf-cache", str(cache))
+    ok(r.returncode == 0 and "900001" in json.loads(sal.read_text())["tesis"],
+       "con la caché: la nota que el corte de 2,500 se comía aparece")
+    r, sal = gen_cli("--sin-sjf")
+    _s = json.loads(sal.read_text()) if sal.exists() else {}
+    ok(r.returncode == 0 and "900001" not in _s.get("tesis", {}) and "SIN la caché del SJF" in _s.get("fuente", "")
+       and "--sin-sjf" in r.stderr, "con --sin-sjf explícito corre, pero lo dice en stderr y en «fuente»")
+
+# EL DESCARGADOR DE LA CACHÉ, EN EL REPO (sólo GET, ≤ 1 petición/s, sin red aquí).
+_RUTA_DL = Path(os.getcwd(), "scripts", "sjf_cache_descargar.py")
+ok(_RUTA_DL.exists(), "scripts/sjf_cache_descargar.py está en el repo (antes vivía en un scratchpad)")
+if _RUTA_DL.exists():
+    _spec2 = importlib.util.spec_from_file_location("sjf_cache_descargar", _RUTA_DL)
+    dl = importlib.util.module_from_spec(_spec2)
+    _spec2.loader.exec_module(dl)
+else:
+    dl = None
+
+
+class _Resp:
+    def __init__(self, cuerpo):
+        self.cuerpo = cuerpo
+
+    def read(self):
+        return self.cuerpo
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+pedidas, dormido, reloj = [], [], [100.0]
+
+
+def _abrir(req, timeout=30):
+    pedidas.append(req)
+    if "/tesis/999999?" in req.full_url:
+        raise OSError("HTTP Error 403: Forbidden")
+    return _Resp(json.dumps({"precedentes": "…"}).encode())
+
+
+def _dormir(s):
+    dormido.append(s)
+    reloj[0] += s
+
+
+if dl is not None:
+    with tempfile.TemporaryDirectory() as d:
+        D = dl.Descargador(Path(d), abrir=_abrir, dormir=_dormir, reloj=lambda: reloj[0])
+        a1, a2, _b, e1, _e2 = (D.tesis(x) for x in ("164500", "164500", "183349", "999999", "999999"))
+        ok(len(pedidas) == 4 and a1 == a2, "lo ya bajado no se vuelve a pedir; el error sí se reintenta")
+        ok(all(p.get_method() == "GET" and "sjf2.scjn.gob.mx" in p.full_url for p in pedidas), "sólo GET, sólo al SJF")
+        ok(len(dormido) == 3 and all(s >= 1.0 for s in dormido), f"al menos 1 s entre peticiones ({dormido})")
+        ok(Path(d, "164500.json").exists() and not Path(d, "999999.json").exists() and "_error" in e1,
+           "un error no se guarda en la caché")
+        ok(dl.Descargador(Path(d), pausa=0.2).pausa >= 1.0, "ni pidiéndolo baja de una petición por segundo")
+    ok(dl.registros_cortados([{"registro": "1", "precedentes": "x" * 2500},
+                              {"registro": "2", "precedentes": "x" * 2499},
+                              {"registro": "1", "precedentes": "x" * 2600}], 2500) == ["1"],
+       "pide sólo las tesis con `precedentes` cortado (≥ 2,500), sin repetir")
 
 
 print()

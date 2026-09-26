@@ -195,6 +195,8 @@ def etiqueta(v: Optional[Dict[str, Any]]) -> str:
     """La frase que lee el abogado y el modelo, p. ej.:
     «ABANDONADA por la P./J. 2/2022 (11a.), registro 2024159, desde el 11 de febrero de 2022»
     «ABANDONADA EN PARTE por la 1a./J. 67/2014 (10a.), registro …»
+    «INTERRUMPIDA EN PARTE —en la parte relativa— por la 3a./J. 23/91 y, a su
+     vez, por la P./J. 55/2003, registro 183349, desde mayo de 1991»
     «SUPERADA EN LOS HECHOS por la P./J. 21/2014 (10a.), registro 2006225, desde el 28 de abril
      de 2014 (el Semanario no lo anota)»"""
     try:
@@ -210,8 +212,14 @@ def etiqueta(v: Optional[Dict[str, Any]]) -> str:
             # —«inciso d)»— y el paréntesis se cerraba antes de tiempo.
             est += f" —{v['alcance']}—"
         clave, reg = v.get("por_clave"), v.get("por_registro")
+        # La cadena (26-sep-2026): la 164500 la interrumpió la 3a./J. 23/91, a
+        # la que a su vez interrumpió la P./J. 55/2003. El reemplazo es la
+        # última; las de en medio se nombran para que la nota literal —que
+        # sólo habla de la primera— no parezca contradecir la etiqueta.
+        inter = [str(c) for c in (v.get("por_intermedias") or []) if c]
         if clave:
-            por = f" por la {clave}" + (f", registro {reg}" if reg else "")
+            por = (" por " + "".join(f"la {c} y, a su vez, por " for c in inter)
+                   + f"la {clave}" + (f", registro {reg}" if reg else ""))
         elif reg:
             por = f" por la tesis de registro {reg}"
         elif v.get("por_resolucion"):

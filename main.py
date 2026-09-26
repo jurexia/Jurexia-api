@@ -3210,6 +3210,12 @@ class SearchResult(BaseModel):
     # la nota estaba en el acervo y ningún constructor la copiaba. Se llena al
     # construir o, si no, al consumir (`_vigencia_sr`), siempre por registro.
     vigencia: Optional[Dict[str, Any]] = None
+    # LA CLAVE CITADA QUE NOMBRA A VARIAS TESIS (26-sep-2026). Sólo la llena la
+    # búsqueda directa por clave cuando «I.3o.C.15 K» sin época casa con tesis
+    # de la 9a., la 10a. y la 11a.: «3 tesis con la clave «I.3o.C.15 K»:
+    # 190791 (9a.), 2001572 (10a.), 2026057 (11a.)». Viaja como atributo
+    # clave_ambigua= en el XML; en todo lo demás queda en None.
+    clave_ambigua: Optional[str] = None
     # Campos LLM Tagging (conceptos semánticos para Concept Boost)
     conceptos_transversales: Optional[List[str]] = None
     tema_articulo: Optional[str] = None
@@ -6880,14 +6886,40 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
     # necesitan. Aquí y no sólo en el system prompt porque este formateador lo
     # usan también /analyze-document, /audit y /chat-sentencia, que no llevan
     # la REGLA #6.
-    if any(_vigencia_sr(r) for r in results if r.silo in JURIS_SILOS):
+    #
+    # DE QUIÉN ES CADA PÉRDIDA (26-sep-2026). Decía «según el Semanario» para
+    # todas, también para las dos curadas (160584, 160526), cuya línea dice
+    # lo contrario —«(el Semanario no lo anota). Curaduría Iurexia»— y que
+    # vigencia_curada.json llama «inferencia de contenido, no declaración».
+    # El modelo podía escribir «según el Semanario, la P. LXVI/2011 perdió
+    # vigencia», que el Semanario no dice. Ahora cada origen se nombra sólo si
+    # hay alguna tesis de ese origen. Y «parte afectada», no «abandonada»: la
+    # parcial curada está superada, no abandonada.
+    _vig_ctx = [v for v in (_vigencia_sr(r) for r in results if r.silo in JURIS_SILOS) if v]
+    if _vig_ctx:
+        _curadas = [v for v in _vig_ctx if _vig.curada(v)]
         xml_parts.append(
             '<!-- INSTRUCCIÓN VIGENCIA: los documentos con atributo vigencia= '
-            'PERDIERON VIGENCIA (abandonada, interrumpida, superada…) según el '
-            'Semanario. Nunca los presentes como vigentes: di que perdieron vigencia, '
-            'por cuál tesis (reemplazo_clave, reemplazada_por) y desde cuándo, y funda '
-            'en la que los reemplaza. Con vigencia_parcial="si", sólo en la parte '
-            'abandonada. -->'
+            'PERDIERON VIGENCIA (abandonada, interrumpida, superada…). Nunca los '
+            'presentes como vigentes: di que perdieron vigencia, por cuál tesis '
+            '(reemplazo_clave, reemplazada_por) y desde cuándo, y funda en la que los '
+            'reemplaza. Con vigencia_parcial="si", sólo en la parte afectada.'
+            + (' Si no llevan vigencia_fuente, la pérdida consta en el Semanario.'
+               if len(_curadas) < len(_vig_ctx) else '')
+            + (' Con vigencia_fuente="curaduria" el Semanario NO lo anota: es curaduría '
+               'de Iurexia (superada en los hechos); dilo así y no se lo atribuyas al '
+               'Semanario.' if _curadas else '')
+            + ' -->'
+        )
+
+    # LA CLAVE AMBIGUA (26-sep-2026): ver `_elegir_por_clave`. Sólo cuando hay.
+    if any(getattr(r, "clave_ambigua", None) for r in results):
+        xml_parts.append(
+            '<!-- INSTRUCCIÓN CLAVE AMBIGUA: los documentos con atributo clave_ambigua= '
+            'comparten la clave que se citó con otras tesis (el atributo las nombra con '
+            'su época). No atribuyas a esa clave el rubro de otra: identifica la citada '
+            'por su época, su rubro o su registro y, si no se puede saber, dilo y '
+            'distingue cada una por su registro. -->'
         )
 
     # ── LA CORTE IDH NO SE ORDENA AQUÍ (revisión A.3, 25-sep-2026) ──
@@ -7044,6 +7076,8 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             # vigencia / vigencia_parcial / reemplazada_por / reemplazo_clave /
             # vigencia_desde: "" si la tesis no perdió vigencia.
             juris_attrs += _vig.atributos_xml(_vigencia_doc)
+            if getattr(r, "clave_ambigua", None):
+                juris_attrs += f' clave_ambigua="{html.escape(str(r.clave_ambigua))}"'
 
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
@@ -7312,6 +7346,17 @@ def registros_fuera_del_contexto(respuesta: str, search_results: List[SearchResu
         str(r.registro).strip()
         for r in (search_results or [])
         if getattr(r, "registro", None)
+    }
+    # LA SUSTITUTA QUE EL CONTEXTO NOMBRA (26-sep-2026). Una tesis sin
+    # vigencia viaja con reemplazada_por="2024159" y la orden «funda en la que
+    # los reemplaza»; si la sustituta no se pudo traer (fuera del acervo, Qdrant
+    # lento) el modelo que obedece escribe «registro digital 2024159» y aquí
+    # salía marcado como escrito de memoria. Ese número lo dio el contexto, con
+    # su clave (reemplazo_clave): no es un registro fuera de él.
+    del_contexto |= {
+        str(v["por_registro"]).strip()
+        for v in (_vigencia_sr(r) for r in (search_results or []))
+        if v and v.get("por_registro")
     }
     fuera, vistos = [], set()
     for m in _RE_REGISTRO_CITADO.finditer(respuesta):
@@ -13293,13 +13338,135 @@ def _variantes_de_clave(c: str) -> list:
     """Las formas en que `clave_tesis` puede guardar esa clave. Con época
     («(11a.)») sólo esa época —la misma clave de colegiado existe en 1995 y en
     la 10a.—; sin ella, la clave pelada (Novena y anteriores) y las cuatro
-    épocas, con y sin espacio antes del paréntesis (así vienen 8 de 71 mil)."""
+    épocas, con y sin espacio antes del paréntesis (así vienen 8 de 71 mil) y
+    con DOS espacios (26-sep-2026: 108 de 71 mil, como «III.5o.A.1 A  (12a.)»,
+    2031772; sin esa forma no salía, y la lista de clave_ambigua decía 3
+    homónimas donde hay 4). Quedan 114 con espacios DENTRO de la clave
+    («P./J.  53/2002») o «(10a)» sin punto, que ninguna variante alcanza."""
     n = _normalizar_clave(c)
     m = re.search(r'\s\((9|10|11|12)a\.\)$', n)
     if m:
         base = n[:m.start()]
-        return [n, f"{base}({m.group(1)}a.)"]
-    return [n] + [f"{n}{sep}({e}a.)" for e in (9, 10, 11, 12) for sep in (" ", "")]
+        return [n, f"{base}({m.group(1)}a.)", f"{base}  ({m.group(1)}a.)"]
+    return [n] + [f"{n}{sep}({e}a.)" for e in (9, 10, 11, 12) for sep in (" ", "", "  ")]
+
+
+# ── LA CLAVE SIN ÉPOCA NOMBRA A VARIAS TESIS (26-sep-2026) ───────────────────
+# Desde que la búsqueda por clave funciona (25-sep), «I.3o.C.15 K» sin sufijo
+# traía con score 1.0, al frente del contexto y como coincidencia exacta, TRES
+# tesis distintas: 190791 (9a., «VIOLACIONES AL PROCEDIMIENTO…»), 2001572
+# (10a., «APARIENCIA DEL BUEN DERECHO…») y 2026057 (11a., «EMPLAZAMIENTO…»).
+# En la v3, 8,490 claves base las comparten tesis de épocas distintas y 43
+# tienen más de tres; con limit=3 y el orden por UUID de Qdrant, en 10 de esas
+# 43 se quedaba fuera justo la de la clave LITERAL que se escribió
+# («IV.2o.P.3 P» → entraban la 12a., la 11a. y la 10a.; no la 186061).
+#
+# Ahora: sin época manda la clave pelada literal (así la guarda el Semanario
+# en la Novena y antes); sólo si no existe entran las variantes con época. Si
+# con eso queda más de una tesis —o si con época hay dos con la misma clave,
+# que también pasa: «II.4o.P.10 P (10a.)» → 2020715 y 2012791— NO entran como
+# exactas: van con score CLAVE_AMBIGUA_SCORE y el atributo clave_ambigua=, que
+# nombra a las N con su época. Todo sale de UNA consulta con tope holgado
+# (el máximo medido son 5 homónimas) y se ordena por época, no por UUID.
+CLAVE_HOMONIMAS_TOPE = 16
+CLAVE_HOMONIMAS_INYECTAR = 6
+CLAVE_AMBIGUA_SCORE = 0.9
+_EPOCA_NUM = (("duodecima", 12), ("undecima", 11), ("decima", 10), ("novena", 9),
+              ("octava", 8), ("septima", 7), ("sexta", 6), ("quinta", 5))
+
+
+def _epoca_de_tesis(pl):
+    """(número, «10a.») de la época de una tesis, por el sufijo de su clave o,
+    sin él (Novena y antes), por el campo `epoca`. (0, "") si no se sabe."""
+    m = re.search(r'\(\s*(\d{1,2})\s*a\s*\.?\s*\)\s*$', str(pl.get("clave_tesis") or ""))
+    if m:
+        return int(m.group(1)), f"{int(m.group(1))}a."
+    e = str(pl.get("epoca") or "").lower().replace("é", "e")
+    for nombre, n in _EPOCA_NUM:        # «undécima» antes que «décima»: la contiene
+        if nombre in e:
+            return n, f"{n}a."
+    return 0, ""
+
+
+def _elegir_por_clave(tesis_num, puntos):
+    """De lo que devolvió la consulta por `clave_tesis`, lo que entra y cómo:
+    (puntos en orden de época, aviso de clave ambigua o None). Ver arriba."""
+    n = _normalizar_clave(tesis_num)
+    pts = sorted(puntos or [], key=lambda p: (_epoca_de_tesis(p.payload or {})[0],
+                                              str((p.payload or {}).get("registro") or "")))
+    if not re.search(r'\s\((9|10|11|12)a\.\)$', n):
+        literal = [p for p in pts if _normalizar_clave((p.payload or {}).get("clave_tesis") or "") == n]
+        if literal:
+            pts = literal
+    if len(pts) <= 1:
+        return pts, None
+    nombres = []
+    for p in pts:
+        pl = p.payload or {}
+        ep = _epoca_de_tesis(pl)[1]
+        nombres.append(f"{pl.get('registro')}" + (f" ({ep})" if ep else ""))
+    return pts[:CLAVE_HOMONIMAS_INYECTAR], f"{len(pts)} tesis con la clave «{n}»: " + ", ".join(nombres)
+
+
+# ── UN NÚMERO DE SIETE CIFRAS NO ES UN REGISTRO POR SERLO (26-sep-2026) ─────
+# Al quitar el filtro «parece un año» (25-sep), todo número suelto de 2000000
+# a 2039999 pasó a tomarse como registro, y esa franja está LLENA: 200 de 200
+# números al azar de 2020000-2029999 existen en la v3. «Me demandan por
+# 2025000 pesos» metía al frente, con score 1.0, la tesis 2025000 («IMPUESTO
+# SOBRE LA RENTA…»); igual «expediente 2024123», «folio 2025001», «matrícula
+# 2023456 del IMSS», «Registro Civil acta 2025678», «el crédito 2029999». Y
+# con «registro» delante valía cualquier número de 6 cifras: «inscrito en el
+# registro 185000 del RPP» (la franja 160000-199999 también está casi llena).
+#
+# Ahora, sin la palabra «registro» pegada, un número de 7 cifras entra sólo si
+# algo cerca dice que es una tesis —tesis, jurisprudencia, criterio,
+# precedente, IUS, registro digital, una clave de tesis, o «la 2024159» como
+# se nombra a una tesis— y nunca si va tras folio, expediente, crédito,
+# matrícula, acta, cuenta, póliza… o antes de «pesos»/«MXN». Con «registro»
+# delante (sin «digital» ni «IUS») se rechaza si cerca se nombra otro registro:
+# el Público, el Civil, el Agrario, el de la Propiedad o el de marcas, o el RPP.
+# También la ficha del Semanario, que pone el registro suelto al final:
+# «[J]; 11a. Época; Pleno; Gaceta S.J.F.; Libro 11…; Pág. 5. 2024159».
+_RX_SENAL_TESIS = re.compile(
+    r'\b(?:tesis|jurisprudencias?|jurisprudencial(?:es)?|criterios?|precedentes?|ejecutorias?|IUS|'
+    r'semanario|gaceta|registros?|reg\.?\s*digital(?:es)?|\d{1,2}a\.\s*[ÉE]poca)\b'
+    r'|\[(?:J|TA)\]|\bS\.\s?J\.\s?F\.', re.IGNORECASE)
+_RX_ANTES_AJENO = re.compile(
+    r'(?:\b(?:folios?|expedientes?|exp|cr[eé]ditos?|matr[ií]culas?|actas?|cuentas?|p[oó]lizas?|facturas?|'
+    r'contratos?|oficios?|pedimentos?|gu[ií]as?|tel[eé]fonos?|tel|celular|NSS|CURP|RFC)\.?'
+    r'\s*(?:n[uú]m(?:ero)?\.?|no\.?|#|:)?\s*|\$\s*)$', re.IGNORECASE)
+_RX_DESPUES_AJENO = re.compile(
+    r'^\s*(?:pesos|MXN|M\.\s?N\.|USD|d[oó]lares|UMAs?|salarios?\s+m[ií]nimos?)\b', re.IGNORECASE)
+# Los otros registros, por su NOMBRE y no por palabras sueltas: «Ministerio
+# Público», «materia civil» o «la tesis que marca el criterio» van cerca de
+# registros de tesis de verdad. Las siglas y «de la Propiedad», con mayúsculas.
+_RX_REGISTRO_AJENO = re.compile(
+    r'\bregistros?\s+(?:p[uú]blicos?|civil(?:es)?|agrarios?|nacional|federal|patronal'
+    r'|de\s+(?:la\s+)?(?:propiedad|comercio|marcas?))'
+    r'|\bmarcas?\s+(?:registradas?|comerciales?)\b'
+    r'|(?-i:\bde\s+la\s+Propiedad\b|\b(?:RPPC?|RAN|IMPI)\b)', re.IGNORECASE)
+
+
+def _registro_citado_valido(texto, m):
+    """¿El número que casó `_RX_REGISTRO_CITADO` en `m` es un registro digital
+    de tesis? Ver el comentario de arriba."""
+    num = m.group("num")
+    ini, fin = m.start("num"), m.end("num")
+    cerca = texto[max(0, ini - 60):fin + 60]
+    pref = m.group("pref")
+    if pref:
+        if re.search(r'digital|IUS', pref, re.IGNORECASE):
+            return True                     # «registro digital 2024159», «registro IUS 160584»
+        return not _RX_REGISTRO_AJENO.search(cerca)
+    if len(num) != 7 or not 2000000 <= int(num) < 2040000:
+        return False
+    antes = texto[max(0, ini - 80):ini]
+    if (_RX_ANTES_AJENO.search(antes) or _RX_DESPUES_AJENO.search(texto[fin:fin + 30])
+            or _RX_REGISTRO_AJENO.search(cerca)):
+        return False
+    if re.search(r'\blas?\s+$', antes, re.IGNORECASE):
+        return True                         # «la 2024159 y la 2009817»
+    return bool(_RX_SENAL_TESIS.search(antes)) or any(rx.search(antes) for rx in _RX_CLAVES_TESIS)
 
 
 def _extract_legal_citations(text: str, pregunta_coidh: Optional[str] = None,
@@ -13392,11 +13559,9 @@ def _extract_legal_citations(text: str, pregunta_coidh: Optional[str] = None,
     registros_found: List[str] = []
     for match in _RX_REGISTRO_CITADO.finditer(text):
         num = match.group("num")
-        if match.group("pref"):
-            valido = True                                   # «registro 160584», «registro digital 2024159»
-        else:
-            valido = len(num) == 7 and 2000000 <= int(num) < 2040000
-        if valido and num not in registros_found:
+        # Con contexto, no por el número solo (26-sep-2026): ver
+        # `_registro_citado_valido`.
+        if num not in registros_found and _registro_citado_valido(text, match):
             registros_found.append(num)
     result["registros"] = registros_found[:20]  # Cap at 20
 
@@ -13745,23 +13910,30 @@ SUSTITUTAS_PLAZO = 3.0
 
 async def _traer_tesis_por_registro(qdrant, coleccion: str,
                                     registros: List[str]) -> Dict[str, Tuple[str, dict]]:
-    """registro → (id, payload), en una consulta: primero como texto y luego
-    como número, que es como la búsqueda directa ya los encuentra."""
-    regs = [str(r) for r in registros if str(r).isdigit()]
+    """registro → (id, payload), en UNA consulta y sólo como texto.
+
+    SIN LA PASADA CON ENTEROS (26-sep-2026). Había una segunda pasada con
+    int(registro) para «los que no salieran como texto». En la v3 `registro`
+    sólo tiene índice keyword y el payload lo guarda como str, así que esa
+    pasada no podía encontrar nada: Qdrant la rechaza con 400 «Index required
+    … [integer]». Y como sólo se hacía cuando faltaba alguno, bastaba UNA
+    sustituta ausente del acervo (2016052 → 2031844) para que la llamada
+    entera lanzara y `_sumar_sustitutas` tirara también las que sí había
+    encontrado (2009817 → 2024159): 0 sustitutas y un registro que parecía
+    una caída de Qdrant. Un registro que no está simplemente no vuelve."""
+    regs = list(dict.fromkeys(str(r).strip() for r in registros if str(r).strip().isdigit()))
     out: Dict[str, Tuple[str, dict]] = {}
-    for valores in (regs, [int(r) for r in regs]):
-        faltan = [v for v in valores if str(v) not in out]
-        if not faltan:
-            break
-        async with QDRANT_SEM:
-            pts, _ = await qdrant.scroll(
-                collection_name=coleccion,
-                scroll_filter=Filter(must=[FieldCondition(key="registro", match=MatchAny(any=faltan))]),
-                limit=3 * len(faltan), with_payload=True, with_vectors=False)
-        for p in pts or []:
-            reg = str((p.payload or {}).get("registro") or "")
-            if reg and reg not in out:
-                out[reg] = (str(p.id), p.payload or {})
+    if not regs:
+        return out
+    async with QDRANT_SEM:
+        pts, _ = await qdrant.scroll(
+            collection_name=coleccion,
+            scroll_filter=Filter(must=[FieldCondition(key="registro", match=MatchAny(any=regs))]),
+            limit=3 * len(regs), with_payload=True, with_vectors=False)
+    for p in pts or []:
+        reg = str((p.payload or {}).get("registro") or "")
+        if reg and reg not in out:
+            out[reg] = (str(p.id), p.payload or {})
     return out
 
 
@@ -14240,20 +14412,21 @@ async def _buscar_articulos_citados(
         lookup_count += 1
         
         try:
-            # Registro can be stored as int or string
-            for reg_val in [registro, int(registro)]:
-                points, _ = await qdrant_client.scroll(
-                    collection_name=juris_collection,
-                    scroll_filter=Filter(must=[
-                        FieldCondition(key="registro", match=MatchValue(value=reg_val))
-                    ]),
-                    limit=3,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                if points:
-                    break
-            
+            # Sólo como texto (26-sep-2026): `registro` tiene índice keyword y
+            # la pasada con int(registro) que venía después daba 400 «Index
+            # required … [integer]» siempre que el texto no encontraba nada —
+            # el mismo fallo que tumbaba las sustitutas; ver
+            # `_traer_tesis_por_registro`—. Aquí sólo ensuciaba el registro.
+            points, _ = await qdrant_client.scroll(
+                collection_name=juris_collection,
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="registro", match=MatchValue(value=str(registro)))
+                ]),
+                limit=3,
+                with_payload=True,
+                with_vectors=False,
+            )
+
             for point in points:
                 pid = str(point.id)
                 if pid not in seen_ids:
@@ -14282,6 +14455,9 @@ async def _buscar_articulos_citados(
             # clave llegó nunca. La clave se busca en sus variantes de época
             # («P./J. 2/2022» → también «P./J. 2/2022 (11a.)»), porque así la
             # guarda el Semanario y el abogado casi nunca escribe el sufijo.
+            # Qué entra de lo que vuelve —la literal primero; las homónimas de
+            # otra época, marcadas y sin score 1.0—: `_elegir_por_clave`
+            # (26-sep-2026). El tope ya no es 3: con 3 se perdía la citada.
             points = []
             try:
                 points, _ = await qdrant_client.scroll(
@@ -14290,18 +14466,25 @@ async def _buscar_articulos_citados(
                         FieldCondition(key="clave_tesis",
                                        match=MatchAny(any=_variantes_de_clave(tesis_num)))
                     ]),
-                    limit=3,
+                    limit=CLAVE_HOMONIMAS_TOPE,
                     with_payload=True,
                     with_vectors=False,
                 )
             except Exception as e:
                 print(f"   ⚠️ Direct lookup: la clave «{tesis_num}» no se pudo consultar: {err(e)}")
-            
-            for point in points or []:
+
+            elegidos, ambigua = _elegir_por_clave(tesis_num, points)
+            if ambigua:
+                print(f"   ⚠️ Direct lookup: {ambigua} — entran como clave ambigua (score {CLAVE_AMBIGUA_SCORE})")
+            for point in elegidos:
                 pid = str(point.id)
                 if pid not in seen_ids:
                     seen_ids.add(pid)
-                    results.append(_sr_de(_tesis_a_dict(pid, point.payload or {}, juris_collection)))
+                    sr = _sr_de(_tesis_a_dict(pid, point.payload or {}, juris_collection))
+                    if ambigua:
+                        sr.score = CLAVE_AMBIGUA_SCORE
+                        sr.clave_ambigua = ambigua
+                    results.append(sr)
         except Exception as e:
             print(f"   ⚠️ Direct lookup error for tesis {tesis_num}: {err(e)}")
     
@@ -18767,7 +18950,11 @@ Responde SOLO con un JSON array de strings:
         consolidated_results = consolidated_results[:30]
         
         evidence_xml = format_results_as_xml(consolidated_results)
-        
+        # El sello de vigencia, como en /chat (26-sep-2026): la tesis que
+        # reemplaza a la que perdió vigencia entra a la evidencia que se audita.
+        _xml_vig, _ = await _sumar_sustitutas(consolidated_results, build_doc_id_map(consolidated_results))
+        evidence_xml += _xml_vig
+
         # ─────────────────────────────────────────────────────────────────────
         # PASO 4: Auditoría por LLM
         # ─────────────────────────────────────────────────────────────────────
@@ -19199,6 +19386,11 @@ async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
         # ── RAG search (optional) ────────────────────────────────────────
         rag_context = ""
         rag_count = 0
+        # Siempre definida (26-sep-2026): el stream la lee al final para
+        # REGISTROS_FUERA y, con use_rag=False, no existía —NameError tras
+        # emitir la respuesta entera, que el except convertía en «Respuesta
+        # truncada. Envía 'continúa'»—.
+        search_results: List[SearchResult] = []
         if request.use_rag:
             try:
                 search_results = await hybrid_search_all_silos(
@@ -19209,6 +19401,13 @@ async def chat_sentencia_endpoint(request: ChatSentenciaRequest):
                 )
                 if search_results:
                     rag_context = format_results_as_xml(search_results, estado=None)
+                    # El sello de vigencia, como en /chat (26-sep-2026): el XML
+                    # ya le ordena «funda en la que los reemplaza»; sin esto la
+                    # sustituta no viajaba y, si el modelo obedecía, su registro
+                    # salía en REGISTROS_FUERA. search_results se amplía en su
+                    # lugar, así que el doc_id_map del final y el sello la ven.
+                    _xml_vig, _ = await _sumar_sustitutas(search_results, build_doc_id_map(search_results))
+                    rag_context += _xml_vig
                     rag_count = len(search_results)
                     print(f"   ✅ RAG: {rag_count} resultados, {len(rag_context)} chars contexto")
             except Exception as e:

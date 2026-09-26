@@ -28,8 +28,19 @@ QUÉ LEE (sólo lectura; nada de embeddings ni modelos)
     quedó CORTADO a 2,500 caracteres en la ingesta v3_semanario_2026-08: las
     notas de vigencia van al final y el corte se las comía. 2024159 perdió así su
     propia nota («La presente tesis abandona… P. IX/2015 y P. X/2015»). Con la
-    caché salieron 4 afectadas nuevas y cambiaron 4 reemplazos. Sin la caché el
-    guion corre igual y lo dice (esas tesis quedan como «qdrant_truncado»).
+    caché salieron 4 afectadas nuevas y cambiaron 4 reemplazos. Desde el
+    26-sep-2026 es OBLIGATORIA: sin `--sjf-cache` (o si la carpeta no existe o
+    está vacía) el guion sale con error y no escribe nada; para generar sin ella
+    hay que pedirlo con `--sin-sjf`. La caché se arma con
+    scripts/sjf_cache_descargar.py (sólo GET a la API pública, ≤ 1 petición/s).
+
+EL ALCANCE Y LA CADENA (26-sep-2026)
+------------------------------------
+  · «parcialmente», «en la parte relativa», «en lo conducente» y «por lo que se
+    refiere/hace a …» hacen parcial la pérdida; el inciso va en `alcance`.
+  · «…por la tesis A; la que, a su vez, fue interrumpida … por la tesis B»: el
+    reemplazo es B (el último eslabón) y A va en `por_intermedias`.
+  Los dos campos sólo aparecen en las entradas que los tienen.
 
 DE DÓNDE SALE CADA PÉRDIDA (con la dirección explícita)
 -------------------------------------------------------
@@ -78,12 +89,18 @@ PENDIENTE (a propósito fuera del índice)
 
 USO
 ---
+    # 1. la caché del SJF (la primera vez ~35 min; después sólo baja lo que falta)
+    .venv/bin/python scripts/sjf_cache_descargar.py \\
+        --env ../../../.env --sjf-cache <dir> [--tesis-cache tesis.jsonl]
+    # 2. el índice
     .venv/bin/python scripts/vigencia_tesis_generar.py \\
         --env ../../../.env --sjf-cache <dir> [--salida datos/vigencia_tesis.json] \\
         [--tesis-cache tesis.jsonl] [--informes DIR]
 
 `--tesis-cache` guarda (o reutiliza, si existe) el volcado de las 71,655 tesis
-para no releer Qdrant en cada ensayo. Tarda ~20 s con la caché.
+para no releer Qdrant en cada ensayo. Tarda ~20 s con la caché. Antes de
+versionar un índice nuevo, compáralo POR REGISTRO con el anterior (el JSON va
+en una sola línea y un diff de git no dice qué tesis cambió).
 """
 from __future__ import annotations
 
@@ -104,9 +121,6 @@ COLECCION = "jurisprudencia_nacional_v3"
 CAMPOS = ["registro", "clave_tesis", "rubro", "precedentes", "tipo", "epoca",
           "fecha_publicacion", "instancia", "materia"]
 SALIDA = RAIZ / "datos" / "vigencia_tesis.json"
-SJF_CACHE_OMISION = ("/private/tmp/claude-501/-Users-josedavidalcantarmendoza-Documents-IUREXIA-MAC-"
-                     "jurexia-api-git--claude-worktrees-xenodochial-poincare-fb5468/"
-                     "ef3b257b-8e89-453a-8ee1-4c9ffa7ff848/scratchpad/pilar/sjf_cache")
 
 # Topes del archivo compacto: el índice viaja con el código y se carga en cada
 # arranque del servidor. La nota se guarda LITERAL (es lo que se le muestra al
@@ -157,7 +171,7 @@ def cargar(env_ruta: Path, tesis_cache: Optional[Path] = None) -> List[dict]:
 
 
 # --------------------------------------------------------------------------- precedentes completos (SJF)
-SJF_CACHE = SJF_CACHE_OMISION     # se fija desde --sjf-cache en main()
+SJF_CACHE: Optional[str] = None   # se fija desde --sjf-cache en main(); None sólo con --sin-sjf
 TOPE_QDRANT = 2500  # jurisprudencia_nacional_v3 guarda `precedentes` cortado en 2,500 caracteres
 
 
@@ -167,6 +181,8 @@ def precedentes_completos(t: dict) -> Tuple[str, str]:
     prec = t.get("precedentes") or ""
     if len(prec) < TOPE_QDRANT:
         return prec, "qdrant"
+    if not SJF_CACHE:
+        return prec, "qdrant_truncado"
     ruta = os.path.join(SJF_CACHE, f"{t.get('registro')}.json")
     if not os.path.exists(ruta):
         return prec, "qdrant_truncado"
@@ -545,6 +561,62 @@ def es_jurisprudencia_clave(c: str) -> bool:
     return bool(re.search(r"/\s*J\.|\bJ/", c))
 
 
+# --------------------------------------------------------------------------- alcance y cadena (26-sep-2026)
+# EL ALCANCE QUE LA NOTA DICE CON OTRAS PALABRAS. Sólo «parcialmente» marcaba
+# una pérdida como parcial. La 164500 («Este criterio fue interrumpido y
+# modificado, en la parte relativa, por la tesis 3a./J. 23/91») y la 190237 y
+# la 192096 («abandonado …, por lo que se refiere a los efectos de que se
+# declare la violación a la veda electoral…») salían como pérdidas TOTALES, y
+# el chat decía «No la presentes como vigente» de tesis que siguen vigentes en
+# todo lo demás. El inciso se guarda en `alcance` y etiqueta() lo muestra.
+#
+# «en cuanto a» (2004995, 2006760-2006762: «se apartó … en cuanto a lo que
+# debe entenderse por "sentencia favorable"») NO entra: puede ser todo el
+# criterio de la tesis y no está cotejado contra el SJF.
+ALCANCE_RX = re.compile(
+    r"\ben\s+(?:la\s+parte\s+relativa|lo\s+conducente)\b"
+    r"|\bpor\s+lo\s+que\s+(?:se\s+refiere|hace|toca|respecta)\s+a\s+[^;:\"“«]{3,300}?"
+    r"(?=,\s*(?:al\s+resolver|seg[úu]n|por\s+(?:la|el|los|las)\s|mediante|en\s+sesi[óo]n|publicad|de\s+rubro)"
+    r"|[.;]\s|[.;]?\s*$)", re.I)
+TOPE_ALCANCE = 240   # el de 190237 («…por lo que se refiere a … Estados Unidos Mexicanos») mide 216
+# LA CADENA «…por la tesis A; la que, a su vez, fue interrumpida … por la
+# tesis B». La 164500 remitía a la 3a./J. 23/91, que también perdió vigencia
+# (por la P./J. 55/2003, el criterio actual, que ni se mencionaba). El
+# reemplazo es el ÚLTIMO eslabón; los de en medio van en `por_intermedias`.
+CADENA_RX = re.compile(
+    r"\b(?:la|el)\s+que,?\s+a\s+su\s+vez,?\s+(?:fue|ha\s+sido|qued[óo])\s+(?:parcialmente\s+)?"
+    r"(?:abandonad|interrumpid|superad|sustituid|modificad)[oa]", re.I)
+_CITA_RX = re.compile(r"[\"“«][^\"”»]{0,1800}[\"”»]")
+
+
+def alcance_en(cola: str) -> Optional[str]:
+    """El inciso que acota la pérdida («en la parte relativa», «por lo que se
+    refiere a …»), buscado sólo en la oración de la pérdida y ANTES de
+    cualquier rubro citado: el de la 3a./J. 23/91 también dice «EN LA PARTE
+    RELATIVA» y ése es de la otra tesis."""
+    cabeza = re.split(r"[\"“«]|\bde\s+rubros?\b|\bt[íi]tulo\s+y\s+subt[íi]tulo\b|;|\.\s+(?=[A-ZÁÉÍÓÚÑ][a-záéíóúñ])",
+                      cola or "", maxsplit=1)[0][:500]
+    m = ALCANCE_RX.search(cabeza)
+    return cortar(m.group(0).strip(" ,"), TOPE_ALCANCE) if m else None
+
+
+def eslabones_en(cola: str) -> List[Tuple[str, Optional[str]]]:
+    """[(clave, rubro citado)] de cada «la que, a su vez, fue … por la tesis X»
+    de la cola, en orden. Los rubros entre comillas se tapan antes de buscar
+    (con espacios, para no mover las posiciones)."""
+    tapada = _CITA_RX.sub(lambda m: " " * len(m.group(0)), cola or "")
+    out = []
+    for m in CADENA_RX.finditer(tapada):
+        tramo = re.split(r"\bde\s+rubros?\b|;", tapada[m.end():m.end() + 300], maxsplit=1)[0]
+        pos = claves_pos(tramo)
+        if not pos:
+            continue
+        c, _, f = pos[0]
+        rq = RUBRO_Q_RX.search(cola, m.end() + f)
+        out.append((c, rq.group(1) if rq and rq.start() - (m.end() + f) < 60 else None))
+    return out
+
+
 # --------------------------------------------------------------------------- extracción
 class Extractor:
     def __init__(self, acervo: Acervo):
@@ -623,6 +695,8 @@ class Extractor:
 
     def _add(self, **k):
         k.setdefault("precedentes_de", self._origen_actual)
+        k.setdefault("alcance", None)
+        k.setdefault("por_intermedias", [])
         self.rel.append(k)
 
     # --- por tesis
@@ -809,8 +883,10 @@ class Extractor:
             if (nombre == "cancelada" or est == "sin_efectos") and re.search(r"republicad|como consta", cola, re.I):
                 # "…como consta en la tesis republicada…": la republicada es el aviso de cancelación, no un reemplazo
                 cl, rq, cola = [], None, ""
-            self._relacion_propia(reg, cl[0] if cl else None, rq.group(1) if rq else None, est, parc, nombre,
-                                  recorte(p, m.start()), p, otros=cl[1:4], cola=cola)
+            # «, en la parte relativa,» / «, por lo que se refiere a …»: también es parcial (26-sep-2026).
+            alc = alcance_en(cola) if est not in ("texto_sustituido", "aclarada") else None
+            self._relacion_propia(reg, cl[0] if cl else None, rq.group(1) if rq else None, est, parc or bool(alc),
+                                  nombre, recorte(p, m.start()), p, otros=cl[1:4], cola=cola, alcance=alc)
             break
 
         # 3) la tesis declara lo que reemplaza
@@ -858,15 +934,24 @@ class Extractor:
         return "superada"
 
     # --- constructores de relación
-    def _relacion_propia(self, reg, clave, rubro, estado, parcial, patron, nota, parrafo, otros=(), cola=None):
+    def _relacion_propia(self, reg, clave, rubro, estado, parcial, patron, nota, parrafo, otros=(), cola=None,
+                         alcance=None):
         regs = [x for x in REGISTRO_RX.findall(cola if cola is not None else parrafo) if x != reg]
         ref = self._ref(clave, reg, rubro, regs[0] if regs else None)
+        # La fecha es la del PRIMER eslabón: cuándo perdió vigencia ESTA tesis.
         desde, origen = self._desde_propia(parrafo, ref.get("registro"), cola, clave)
+        intermedias: List[str] = []
+        # «…por la tesis A; la que, a su vez, fue interrumpida … por la tesis B»: el reemplazo es B
+        # (26-sep-2026). Si B no está en el acervo queda su clave sin registro, como con cualquier otra.
+        eslabones = [(c, r) for c, r in eslabones_en(cola) if not self._es_propia(reg, c)] if clave and cola else []
+        if eslabones:
+            intermedias = [clave] + [c for c, _ in eslabones[:-1]]
+            ref = self._ref(eslabones[-1][0], reg, eslabones[-1][1], None)
         self._add(afectado=reg, afectado_via="propia", por=ref, estado=estado, parcial=parcial,
                   fuente="nota_propia", patron=patron, nota=nota, desde=desde, desde_origen=origen,
                   fecha_resolucion=self._fecha_resolucion(parrafo),
                   por_otros=[{"clave": c} for c in otros],
-                  por_resolucion=self._resolucion(parrafo))
+                  por_resolucion=self._resolucion(parrafo), alcance=alcance, por_intermedias=intermedias)
 
     def _relacion_nueva(self, reg, clave_afectada, rubro_afectada, estado, parcial, patron, nota, prec,
                         mismo_numero=False, registro_nota=None):
@@ -1051,12 +1136,14 @@ def consolidar(A: Acervo, rel: List[dict]) -> Tuple[Dict[str, dict], List[dict]]
         p = rs[0]
         por = p["por"] or {}
         por_reg = por.get("registro")
+        de_por = p          # la relación de la que sale el reemplazo (y sus eslabones intermedios)
         # si la fuente principal no resolvió el reemplazo, pedirlo prestado a otra fuente que sí
         if not por_reg:
             for r in rs[1:]:
                 if (r["por"] or {}).get("registro"):
                     por = r["por"]
                     por_reg = por.get("registro")
+                    de_por = r
                     break
         t_af = A.por_reg.get(af, {})
         aviso_en = None
@@ -1065,7 +1152,7 @@ def consolidar(A: Acervo, rel: List[dict]) -> Tuple[Dict[str, dict], List[dict]]
                 A.rubro_coincide(por_reg, t_af.get("rubro")):
             # "…según se desprende de la que con el número VI.2o.C.591 C aparece publicada en mayo de 2019": es la
             # misma tesis republicada con el aviso, no un criterio nuevo.
-            aviso_en, por_reg, por = por_reg, None, {}
+            aviso_en, por_reg, por, de_por = por_reg, None, {}, {}
         t_por = A.por_reg.get(por_reg or "", {})
         fuentes = sorted({r["fuente"] for r in rs}, key=lambda f: PRIORIDAD_FUENTE[f])
         otros = []
@@ -1099,6 +1186,9 @@ def consolidar(A: Acervo, rel: List[dict]) -> Tuple[Dict[str, dict], List[dict]]
             "otros_reemplazos": otros[:5],
             "precedentes_de": p.get("precedentes_de"),
             "aviso_republicado_en": aviso_en,
+            # 26-sep-2026: el inciso que acota la pérdida y los eslabones entre la afectada y el reemplazo.
+            "alcance": next((r.get("alcance") for r in rs if r.get("alcance") and r["estado"] == p["estado"]), None),
+            "por_intermedias": list(de_por.get("por_intermedias") or []),
         }
         if p["fuente"] == "cita_tercera":
             out[af]["citada_en"] = p.get("citada_en")
@@ -1165,6 +1255,11 @@ def compacto(idx: Dict[str, dict]) -> Dict[str, dict]:
             "fuente": v["fuente"],
             "nota": cortar(v.get("nota"), TOPE_NOTA),
         }
+        # Sólo si los hay (26-sep-2026): así las entradas que no los tienen no cambian ni un byte.
+        if v.get("alcance"):
+            out[reg]["alcance"] = cortar(v["alcance"], TOPE_ALCANCE)
+        if v.get("por_intermedias"):
+            out[reg]["por_intermedias"] = list(v["por_intermedias"])
     return out
 
 
@@ -1173,8 +1268,20 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--env", default=str(RAIZ / ".env"),
                     help="archivo .env con QDRANT_URL y QDRANT_API_KEY (sólo se leen)")
-    ap.add_argument("--sjf-cache", default=SJF_CACHE_OMISION,
-                    help="carpeta con {registro}.json del SJF para los `precedentes` cortados")
+    # LA CACHÉ DEL SJF ES OBLIGATORIA (26-sep-2026). Su valor por omisión era una
+    # carpeta del scratchpad de UNA sesión (efímera), y si no existía el guion
+    # sólo avisaba por stderr, salía con 0 y sobrescribía datos/vigencia_tesis.json
+    # con un índice peor: 555 tesis en vez de 558 —197896, 2016903 y 2026329
+    # volvían a pasar por vigentes— y 23 entradas distintas, en un JSON de una
+    # línea donde el diff no se lee. Ahora hay que nombrarla (se arma con
+    # scripts/sjf_cache_descargar.py) o renunciar a ella a propósito con --sin-sjf.
+    fuente_sjf = ap.add_mutually_exclusive_group(required=True)
+    fuente_sjf.add_argument("--sjf-cache", default=None,
+                            help="carpeta con {registro}.json del SJF para los `precedentes` cortados "
+                                 "(la arma scripts/sjf_cache_descargar.py)")
+    fuente_sjf.add_argument("--sin-sjf", action="store_true",
+                            help="generar SIN la caché: las tesis con `precedentes` cortado se leen cortadas "
+                                 "y el índice sale peor (sólo para ensayos)")
     ap.add_argument("--salida", default=str(SALIDA))
     ap.add_argument("--tesis-cache", default=None,
                     help="volcado jsonl de la v3: se reutiliza si existe, si no se escribe")
@@ -1182,10 +1289,16 @@ def main():
                     help="carpeta para el índice completo, ver_jurisprudencia, sin_resolver y conteos")
     a = ap.parse_args()
 
-    SJF_CACHE = a.sjf_cache
-    if not os.path.isdir(SJF_CACHE):
-        print(f"⚠️ No existe la caché del SJF ({SJF_CACHE}): las 1,370 tesis con `precedentes` cortado "
-              "se leerán cortadas y pueden faltar notas.", file=sys.stderr)
+    if a.sin_sjf:
+        SJF_CACHE = None
+        print("⚠️ --sin-sjf: las tesis con `precedentes` cortado a 2,500 car. se leen cortadas y pueden "
+              "faltar notas de vigencia (medido: 555 tesis en vez de 558).", file=sys.stderr)
+    else:
+        SJF_CACHE = a.sjf_cache
+        if not os.path.isdir(SJF_CACHE) or not any(n.endswith(".json") for n in os.listdir(SJF_CACHE)):
+            sys.exit(f"✗ La caché del SJF no existe o está vacía ({SJF_CACHE}). Ármala con "
+                     "scripts/sjf_cache_descargar.py, o pasa --sin-sjf si de verdad quieres el índice sin ella. "
+                     "No se escribió nada.")
 
     tesis = cargar(Path(a.env), Path(a.tesis_cache) if a.tesis_cache else None)
     A = Acervo(tesis)
@@ -1206,11 +1319,15 @@ def main():
         sin.append(s)
 
     tesis_c = compacto(idx)
+    n_cortados = sum(1 for t in tesis if len(t.get("precedentes") or "") >= TOPE_QDRANT)
     salida = {
         "generado": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-        "fuente": (f"{COLECCION} (Qdrant, sólo lectura: rubro y precedentes) + SJF para los "
-                   f"{sum(1 for t in tesis if len(t.get('precedentes') or '') >= TOPE_QDRANT)} "
-                   f"`precedentes` cortados a {TOPE_QDRANT} car.; scripts/vigencia_tesis_generar.py"),
+        "fuente": (f"{COLECCION} (Qdrant, sólo lectura: rubro y precedentes) + "
+                   + (f"SJF para los {n_cortados} `precedentes` cortados a {TOPE_QDRANT} car."
+                      if SJF_CACHE else
+                      f"SIN la caché del SJF (--sin-sjf): {n_cortados} `precedentes` se leyeron cortados a "
+                      f"{TOPE_QDRANT} car.")
+                   + "; scripts/vigencia_tesis_generar.py"),
         "n": len(tesis_c),
         "tesis": tesis_c,
     }
