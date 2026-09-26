@@ -307,6 +307,33 @@ ok([x["concepto"] for x in K.efectos_sin_cubrir(_ef_mal, [], CRIT, PROB)] == [[4
 ok(not K.EFECTOS_VISIBLE and "v3 2/14" in K.CALIBRACION_EFECTOS, "va en sombra, con su calibración escrita")
 
 # ═══════════════════════════════════════════════════════════════════════════
+print("\n6b · LA REPARACIÓN DIRIGIDA RESPETA LA CALIFICACIÓN DEL ARGUMENTO EN EL PLAN")
+import exhaustivo as X
+_mat_r = f6.Material(tipo_asunto="amparo_directo", variante="v4", inventario=SEGS, problemas=PROB)
+_est_r = "Los conceptos son en parte fundados.\n\n⟦C1.d⟧ Sobre la reconvención, su estudio resulta innecesario."
+_falt = [{"id": "C1.d", "parrafo": 1}]
+_sin_plan = X.prompt_reparacion(_est_r, CRIT, _mat_r, _falt, "")
+_con_plan = X.prompt_reparacion(_est_r, CRIT, _mat_r, _falt, "", plan={"segmentos": _segs})
+ok("en el plan" not in _sin_plan, "sin plan (v3), el prompt de la reparación no cambia")
+ok("calificación de este argumento en el plan: INFUNDADO" in _con_plan
+   and "se contesta con ella: es la suya\n  dentro del sentido de su problema" in _con_plan,
+   "con plan (v4): el argumento lleva su calificación del plan como dato, y la regla de usarla")
+_POR = {s["id"]: s for s in SEGS}
+_REP = X.reparto(CRIT, PROB)
+_et = X.etiquetas_del_plan({"segmentos": _segs})
+_pieza = "En ese sentido, el argumento de la reconvención es infundado, porque la Sala sí valoró la confesional."
+ok(X.guardas(["C1.d"], _pieza, False, _est_r, _POR, _REP).startswith("califica en contra"),
+   "sin plan, la guarda de siempre: infundado bajo un problema fundado se descarta")
+ok(X.guardas(["C1.d"], _pieza, False, _est_r, _POR, _REP, _et) == "",
+   "con el plan que la califica infundada, la pieza pasa (plan-4)")
+ok(X.guardas(["C1.d"], "Al dictar la nueva resolución, valore la confesional sobre la reconvención.", True,
+             _est_r, _POR, _REP, _et).startswith("nombra en los efectos un argumento que su criterio desestima"),
+   "…y no va a los EFECTOS: la responsable no reexamina lo que este tribunal desestimó")
+ok(X.guardas(["C1.a"], "En ese sentido, el argumento es infundado, porque la Sala sí explicó la prueba.", False,
+             _est_r, _POR, _REP, _et).startswith("califica en contra"),
+   "el argumento que el plan califica fundado no puede salir infundado")
+
+# ═══════════════════════════════════════════════════════════════════════════
 print("\n7 · EL CAMINO: LOS DOS GEMELOS, `_terminar`, EL «LISTO» Y LA v1")
 import redactor_adelanto as ra
 _r = types.SimpleNamespace(encargo=types.SimpleNamespace(plan={"estado": "usado", "plan": {"segmentos": _segs}}))
@@ -345,6 +372,9 @@ ok([x["id"] for x in _me4["congruencia"]["efectos_sin_cubrir"]] == ["C4.a"] and 
 _me5 = {}
 ra._congruencia_efectos(types.SimpleNamespace(plan={}), f6.Material(variante="v1"), "\n".join(_ef_mal), CRIT, _me5)
 ok(_me5 == {}, "…y en la v1, nada")
+ok("plan=_pl if isinstance(_pl, dict) else None" in ast.get_source_segment(
+    SRC_RA, next(n for n in ARBOL.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_completar_estudio")),
+   "`_completar_estudio` pasa el plan del encargo a la reparación")
 SRC_MAIN = open(os.path.join(AQUI, "main.py"), encoding="utf-8").read()
 ok('fuera["congruencia"] = dict(_m["congruencia"])' in SRC_MAIN, "el «listo» y la ficha la llevan (sólo si la hay)")
 

@@ -1726,8 +1726,12 @@ async def _completar_estudio(cliente, r, criterios, material, estudio: str,
     try:
         import exhaustivo as _ex
         _esc = (list(getattr(getattr(r, "fases", None), "fuentes", []) or []) + ["", ""])[1]
+        # EL PLAN (v4): la calificación de cada argumento dentro de su problema
+        # (plan-4, p2-congruencia). Sin plan —v3— la reparación de siempre.
+        _pl = (getattr(getattr(r, "encargo", None), "plan", None) or {})
+        _pl = _pl.get("plan") if isinstance(_pl, dict) else None
         nuevo, informe = await _ex.reparar(cliente, estudio, criterios, material, faltan,
-                                           escrito=_esc)
+                                           escrito=_esc, plan=_pl if isinstance(_pl, dict) else None)
         _av = _ex.aviso_reparacion(informe, list(getattr(material, "inventario", None) or []))
         if _av:
             avisos.insert(0, _av)
