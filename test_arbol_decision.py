@@ -472,6 +472,34 @@ ok(src[i_st:i_pl].count('"sentido_propio": getattr(_p, "sentido_propio", "") or 
    and src[i_pl:i_pl + 40000].count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 1,
    "igual en /taller/resolver/stream y en /taller/resolver")
 
+print("\n23 · LA FASE 5 YA NO ENSEÑA QUE UNA PROCESAL QUEDA SIN MATERIA")
+# Las instrucciones 7 y 12 decían «si el principal prospera, quedan sin
+# materia» y `si_prospera` «casi siempre innecesario», también para una
+# segunda procesal. La salvedad entra sólo con procesales accesorias en un
+# amparo directo: en lo demás el prompt es el de ayer.
+
+
+class _M5:
+    tipo_asunto = "amparo_directo"
+    sondeo = None
+    tesis = []
+    normas = []
+    espejo = None
+
+
+_SALV = "LAS VIOLACIONES PROCESALES —aquí"
+_p5 = f5.prompt_propuesta(probs(PF, PV1, PF2), _M5(), "acto", "conceptos", False, "", "")
+ok(_SALV in _p5 and "el problema 2—" in _p5 and "189" in _p5 and "74, fracción" in _p5,
+   "con una procesal accesoria, la salvedad con su número y sus artículos")
+ok("Una VIOLACIÓN PROCESAL no sigue esa suerte" in _p5, "y la instrucción 7 remite a ella")
+ok(_SALV not in f5.prompt_propuesta(probs(PF, PF2), _M5(), "acto", "conceptos", False, "", ""),
+   "sin procesales, nada")
+ok(_SALV not in f5.prompt_propuesta(probs(PV1, PF2), _M5(), "acto", "conceptos", False, "", ""),
+   "si la única procesal es el principal, nada: la suerte condicional es de los accesorios")
+_M5q = type("_M5q", (_M5,), {"tipo_asunto": "queja"})
+ok(_SALV not in f5.prompt_propuesta(probs(PF, PV1), _M5q(), "acto", "agravios", True, "", ""),
+   "en una queja, nada (los artículos 74-V y 174 son del amparo directo)")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

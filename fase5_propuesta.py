@@ -861,6 +861,44 @@ def prompt_propuesta(problemas: list, material, resumen_acto: str,
     # equivocado iban en el MISMO prompt, y ganaba el menú, que es lo único que
     # le da palabras concretas.
     _verbos5 = _ta_p.verbos_del_recurrido(_t5)
+    # ═══ UNA VIOLACIÓN PROCESAL NO QUEDA SIN MATERIA (26-sep-2026) ═════════
+    # Decisión 1 de David: los artículos 74, fracción V, y 174 mandan decidir
+    # todas las violaciones procesales, y la única excepción es un principal de
+    # FONDO que prospere con mayor beneficio que la reposición (artículo 189).
+    # Las instrucciones 7 y 12 enseñaban lo contrario —«si el principal
+    # prospera, quedan sin materia», `si_prospera` «casi siempre innecesario»—
+    # y el motor escribía para una segunda procesal una suerte que la dejaba
+    # sin decidir. El árbol lo corrige en código, pero sin calificación propia
+    # para esa vía sólo puede conservar la de la otra y avisar. Se dice SÓLO
+    # cuando hay procesales en un amparo directo: en los demás asuntos el
+    # prompt queda idéntico al de ayer. Los números salen de la `clase` de la
+    # fase 3; es dato del asunto, no un ejemplo que copiar.
+    # Sólo los ACCESORIOS: la suerte condicional es de ellos, y si la única
+    # procesal es el principal no hay nada que decirle al motor aquí. Sin
+    # jerarquía declarada, el primero es el principal (como en el árbol).
+    _nums_proc = []
+    try:
+        import violacion_procesal as _vp5
+        if _vp5.guarda_aplica(_t5):
+            _hay_jer = any(isinstance(p, dict) and str(p.get("jerarquia") or "").strip()
+                           for p in (problemas or []))
+            _nums_proc = [
+                i for i, p in enumerate(problemas or [], 1)
+                if _vp5.clase_de(p) == "procesal"
+                and not ((str(p.get("jerarquia") or "").strip().lower() == "principal")
+                         if (_hay_jer and isinstance(p, dict)) else i == 1)]
+    except Exception:
+        _nums_proc = []
+    _procesal7 = (" Una VIOLACIÓN PROCESAL no sigue esa suerte: se decide siempre "
+                  "(instrucción 12)." if _nums_proc else "")
+    _procesal12 = (f"""
+   · LAS VIOLACIONES PROCESALES —aquí, el problema {", el ".join(str(n) for n in _nums_proc)}—
+     NO QUEDAN SIN MATERIA NI CAEN CON EL PRINCIPAL: los artículos 74, fracción
+     V, y 174 de la Ley de Amparo mandan decidirlas todas. En sus dos suertes
+     llevan la calificación que merecen por lo que ellas mismas plantean, con
+     su razón. La única excepción es un principal de FONDO que prospere dando a
+     la parte quejosa más que la reposición (artículo 189): sólo entonces su
+     `si_prospera` es "innecesario", y la razón dice ese mayor beneficio.""" if _nums_proc else "")
     import dialogo_constitucional as _dc
     _metodo_p = _dc.bloque_metodo(material, "propuesta", quien=quien)
     # LA VÍA PROTECTORA SE PIDE SÓLO SI EL MÉTODO ESTÁ DELANTE: sin sus
@@ -989,7 +1027,7 @@ REGLAS QUE NO SE ROMPEN:
    demás. LA REGLA: cuando el tema principal se resuelve, los accesorios
    SIGUEN SU SUERTE —si el principal prospera, quedan sin materia—, SALVO que
    sean temas DISTINTOS que exijan estudio propio, o que alguno pueda dar MÁS
-   de lo que da el principal. Esa salvedad la marcas tú, tema por tema.
+   de lo que da el principal. Esa salvedad la marcas tú, tema por tema.{_procesal7}
 8. LA PROPUESTA LLEVA SU PROPIA OBJECIÓN. En `en_contra`, di en un renglón por
    dónde se cae: el mejor argumento de quien resolvería al revés. No es un
    formalismo. Quien lee esto es quien firma, y una propuesta sin su contra se
@@ -1022,7 +1060,7 @@ REGLAS QUE NO SE ROMPEN:
      NO prospera. Si descansaba en la premisa del principal —«debía estudiar
      los alegatos contra el crédito» presupone que el crédito estaba en la
      litis— es "inoperante", y la razón dice qué premisa se desestimó. Si es
-     distinto, su propia calificación con su razón.
+     distinto, su propia calificación con su razón.{_procesal12}
    La `razon` es UNA frase que el proyecto podrá escribir tal cual. No
    contradigas la `relacion` con la suerte: si escribes que en una vía «al
    no formar parte de la litis… no podía», ese tema DEPENDE.
