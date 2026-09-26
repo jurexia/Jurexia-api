@@ -1546,7 +1546,13 @@ def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str) -> dict
             return fuera
         pars = f6.parrafos(limpio)
         mapa_doc = _reindexar(mapa, _mc_t.parrafos(limpio), pars)
-        meta = {"mapa": mapa_doc}
+        # EL ARRANQUE DE CADA PÁRRAFO, EN LISTA Y CON EL MISMO ÍNDICE QUE EL
+        # MAPA (revisión adversarial, 26-sep-2026): la pestaña «Mapa del
+        # estudio» de la pieza de pantallas lee `parrafos` así, en el primer
+        # nivel del «listo» y de la ficha; sin él enseña «párrafo 14» sin su
+        # texto. Catorce palabras por párrafo: unos 100 bytes cada uno.
+        meta = {"mapa": mapa_doc,
+                "parrafos": [" ".join(p.split()[:14]) for p in pars][:400]}
         if segs:
             cob = _mc_t.verificar(segs, mapa, limpio)
             # LO QUE LA PANTALLA NECESITA PARA EL «MAPA DEL ESTUDIO»: cada
@@ -1578,6 +1584,13 @@ def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str) -> dict
         fuera["meta"] = meta
     except Exception as _ex:
         print(f"   ⚠️ MARCAS: no se pudieron separar: {type(_ex).__name__}")
+        # SI LO QUE REVENTÓ FUE LA SEPARACIÓN MISMA, el estudio seguiría con
+        # sus marcas camino del .docx (revisión adversarial, 26-sep-2026). Se
+        # quitan a lo bruto: sin mapa, pero ninguna marca llega a la sentencia.
+        for _k in ("estudio", "advertencias"):
+            if "⟦" in (fuera[_k] or ""):
+                fuera[_k] = re.sub(r"[ \t]*⟦[^⟦⟧\n]{0,1200}⟧[ \t]?", " ", fuera[_k])
+                fuera[_k] = "\n".join(_l.strip() for _l in fuera[_k].split("\n"))
     return fuera
 
 

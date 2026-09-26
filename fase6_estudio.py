@@ -4290,13 +4290,22 @@ def parrafos(estudio: str) -> list[str]:
     return fuera
 
 
+# Una marca de la v3/v4 (`marcas.py`) al principio del renglón de un rótulo.
+_RX_MARCA_DELANTE = r"⟦[^⟦⟧\n]{1,1200}⟧[ \t]*"
+
+
 def separar_advertencias(estudio: str) -> tuple[str, str]:
     """Aparta el apartado de ADVERTENCIAS: no es parte de la sentencia.
 
     Se le enseña al secretario en pantalla, pero NO entra en el .docx: una
     sentencia no lleva notas del redactor a su lector.
     """
-    m = re.search(r"\n\s*ADVERTENCIAS?\s*[:\n]", estudio, re.I)
+    # UNA MARCA DELANTE DEL RÓTULO NO LO ESCONDE (revisión adversarial,
+    # 26-sep-2026). Este corte corre sobre el texto CON las marcas de la v3/v4
+    # —`_terminar` las separa después— y «⟦C3.e⟧ ADVERTENCIAS:» no casaba: las
+    # advertencias se quedaban dentro de la sentencia. Sin «⟦» —v1, v2— el
+    # patrón es el de siempre.
+    m = re.search(r"\n\s*(?:" + _RX_MARCA_DELANTE + r")?ADVERTENCIAS?\s*[:\n]", estudio, re.I)
     if not m:
         return estudio.strip(), ""
     cuerpo, adv = estudio[:m.start()].strip(), estudio[m.end():].strip()
@@ -4314,7 +4323,7 @@ def separar_advertencias(estudio: str) -> tuple[str, str]:
 
 
 _RX_EFECTOS_TRAS_ADV = re.compile(
-    r"\n\s*(?:\*\*|__)?\s*EFECTOS(?:\s+DE\s+LA\s+(?:CONCESI[ÓO]N|PROTECCI[ÓO]N"
+    r"\n\s*(?:" + _RX_MARCA_DELANTE + r")?(?:\*\*|__)?\s*EFECTOS(?:\s+DE\s+LA\s+(?:CONCESI[ÓO]N|PROTECCI[ÓO]N"
     r"\s+CONSTITUCIONAL))?\s*(?:\*\*|__)?\s*[.:]?\s*\n", re.I)
 
 

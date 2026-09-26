@@ -78,10 +78,44 @@ ok(filtrar(["⟦C1.a⟧", " Sobre el primero."]) == "Sobre el primero.",
    "el blanco que sigue a la marca se come aunque llegue en el trozo siguiente")
 ok(filtrar(["texto ⟦C1.a⟧\nOtro párrafo."]) == "texto \nOtro párrafo.",
    "una marca al final del renglón no se lleva el salto")
-sin_cierre = "El monto era ⟦ según la sentencia " + "x" * 250 + " y sigue."
-ok(filtrar([sin_cierre]) == sin_cierre, "«⟦» sin cierre en 200 caracteres se devuelve tal cual")
+sin_cierre = "El monto era ⟦ según la sentencia " + "x" * (mc.LIMITE + 50) + " y sigue."
+_f_sc = mc.FiltroMarcas()
+ok(_f_sc.alimentar(sin_cierre) == sin_cierre,
+   f"«⟦» sin cierre en {mc.LIMITE} caracteres se devuelve tal cual, SIN esperar al final del flujo")
 ok(filtrar([sin_cierre[:40], sin_cierre[40:120], sin_cierre[120:]]) == sin_cierre,
    "…también si llega a trozos")
+# LA MARCA LARGA (revisión adversarial, 26-sep-2026): la regla de la v3 pide
+# nombrar juntos los argumentos que se contestan a la vez, y en dos de las 64
+# sesiones reales la marca con todo el concepto más largo pasaba de 200
+# caracteres (407 con 72 argumentos). Con el tope viejo llegaba entera a la
+# pantalla y al .docx.
+_ids72 = [f"C1.{mc_l}" for mc_l in ([chr(97 + i) for i in range(26)]
+                                    + ["a" + chr(97 + i) for i in range(26)]
+                                    + ["b" + chr(97 + i) for i in range(20)])]
+_larga = "Abre.\n⟦" + " ".join(_ids72) + "⟧ Sobre todos, infundados.\nSigue."
+ok(len(_larga) > 400, f"la marca de prueba mide lo que la real ({len(_larga)} caracteres)")
+_l_larga, _m_larga = mc.separar_marcas(_larga)
+ok(_l_larga == "Abre.\nSobre todos, infundados.\nSigue." and len(_m_larga) == 72
+   and _m_larga["C1.bt"] == [1], "el texto final la quita y el mapa trae los 72")
+ok(filtrar([_larga[i:i + 9] for i in range(0, len(_larga), 9)]) == "Abre.\nSobre todos, infundados.\nSigue.",
+   "y el flujo también, aunque llegue en trozos de nueve")
+# EL MISMO TOPE EN LOS DOS: una marca justo en el borde se quita o se deja
+# igual en la pantalla y en el texto final.
+for _extra in (-1, 0, 1):
+    _cont = "C1.a" + " " * (mc.LIMITE + _extra - 4)      # una marca válida de ese largo
+    _t = "Uno ⟦" + _cont + "⟧ dos."
+    _quita = _extra <= 0
+    ok(len(_cont) == mc.LIMITE + _extra
+       and ("⟦" not in filtrar([_t])) == _quita and ("⟦" not in mc.separar_marcas(_t)[0]) == _quita,
+       f"en el borde del tope ({len(_cont)} caracteres dentro): flujo y texto final "
+       f"{'la quitan' if _quita else 'la dejan'} los dos")
+ok(mc.ids_de("C1.a/C1.b") == ["C1.a", "C1.b"] and mc.ids_de("C1.a | C2.b") == ["C1.a", "C2.b"]
+   and mc.ids_de("C1.a – C1.c") == ["C1.a", "C1.b", "C1.c"],
+   "barras y rango con blancos también son marca (si no, llegaban al .docx)")
+_nota_larga = "Nota [[" + "p.7 " * 80 + "]] fin."
+_f_nl = mc.FiltroMarcas()
+ok(_f_nl.alimentar(_nota_larga[:-10]).startswith("Nota [[p.7"),
+   f"un «[[» sin cerrar se suelta a los {mc.LIMITE_CORCHETES}: la nota al pie no espera como «⟦»")
 ok(filtrar(["Queda un ⟦ abierto"]) == "Queda un ⟦ abierto",
    "«⟦» abierto al final del flujo: `cerrar` lo devuelve")
 raro = "Un corchete ⟦que no es marca⟧ y sigue."

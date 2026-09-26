@@ -24927,11 +24927,19 @@ def _taller_es_casa(correo: str) -> bool:
     return bool(c) and (c in ADMIN_EMAILS or _taller_sin_tope(c))
 
 
-def _taller_variante_estudio(correo: str, pedida: str = "") -> str:
+def _taller_variante_estudio(correo: str, pedida: str = "",
+                             tipo_asunto: str = "") -> str:
     """La variante con que se escribe ESTE estudio: la pedida si es de casa y
-    se reconoce; si no, la global."""
+    se reconoce; si no, la global DE SU TIPO.
+
+    EL TIPO, DESDE EL 26-SEP-2026 (revisión adversarial del Paso 2). El
+    contrato enciende por tipo con `variante_global(tipo)` —`ESTUDIO_PROMPT_AD`
+    para el amparo directo—, pero aquí se leía la global sin tipo y el encargo
+    salía SIEMPRE con ella puesta, así que `_formato_al_material` nunca llegaba
+    a mirar el tipo: poner `ESTUDIO_PROMPT_AD` no habría encendido nada. Sin
+    esa variable, la de siempre."""
     import fase6_estudio as _f6v
-    _glob_v = _f6v.variante_global()
+    _glob_v = _f6v.variante_global(tipo_asunto or "")
     if not (pedida or "").strip():
         return _glob_v
     _v = _f6v.normalizar_variante(pedida, "")
@@ -32029,6 +32037,10 @@ def _taller_meta_listo(res) -> dict:
         fuera["mapa"] = dict(_m["mapa"])
     if isinstance(_m.get("cobertura"), dict):
         fuera["cobertura"] = dict(_m["cobertura"])
+    # Y el arranque de cada párrafo, con el índice del mapa: sin él la pestaña
+    # dice «párrafo 14» y no enseña cuál es.
+    if isinstance(_m.get("parrafos"), list):
+        fuera["parrafos"] = [str(x) for x in _m["parrafos"]]
     return fuera
 
 
@@ -34993,7 +35005,8 @@ async def taller_resolver_stream(
         # Y LA VARIANTE DEL PROMPT, TAMBIÉN SIEMPRE, por la misma razón: una
         # v2 pedida en la vuelta anterior no puede colarse en ésta.
         r.encargo.variante_estudio = _taller_variante_estudio(
-            user_email, variante_estudio)
+            user_email, variante_estudio,
+            getattr(r.encargo, "tipo_asunto", "") or "")
         # Y LA SUPLENCIA, TAMBIÉN SIEMPRE y por la misma razón: una suplencia
         # confirmada en la vuelta anterior no puede sobrevivir en la memoria del
         # worker a que el secretario la quite. `leer` no revienta con un JSON
@@ -35695,7 +35708,8 @@ async def taller_resolver(
         # Y LA VARIANTE DEL PROMPT, TAMBIÉN SIEMPRE, por la misma razón: una
         # v2 pedida en la vuelta anterior no puede colarse en ésta.
         r.encargo.variante_estudio = _taller_variante_estudio(
-            user_email, variante_estudio)
+            user_email, variante_estudio,
+            getattr(r.encargo, "tipo_asunto", "") or "")
         # Y LA SUPLENCIA, TAMBIÉN SIEMPRE y por la misma razón: una suplencia
         # confirmada en la vuelta anterior no puede sobrevivir en la memoria del
         # worker a que el secretario la quite. `leer` no revienta con un JSON

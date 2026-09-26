@@ -744,12 +744,29 @@ def anclar(texto: str, esc: _Escrito, tramo: tuple = None) -> tuple:
     hits.sort()
     if not hits:
         return "", -1, 0.0
-    mejor = (0.0, 0, None)
+    # (peso, tramo, ini, fin): gana el peso; A IGUAL PESO, EL TRAMO MÁS CORTO.
+    mejor = (0.0, 0, 0, None)
     cuenta = Counter()
     peso_vent = 0.0
     j = 0
     # Dos punteros sobre los aciertos: la ventana va de hits[i] a VENTANA
     # palabras de contenido más allá, y pesa cada raíz una vez.
+    #
+    # LA CITA ES EL TRAMO JUSTO, NO LA VENTANA ENTERA (revisión adversarial,
+    # 26-sep-2026). Antes ganaba la PRIMERA ventana de peso máximo y la cita
+    # iba de su primer acierto al último, cortada a 40 palabras desde el
+    # principio. Como la ventana arranca en cualquier aparición de una palabra
+    # repetida («prueba», «reconvención»), la cita empezaba en el pasaje del
+    # argumento ANTERIOR y el corte se comía el del propio: en el asunto de
+    # test_inventario.py, «omite analizar la reconvención…» quedaba anclado en
+    # el párrafo de la pericial, y otro segmento heredaba como «dato» el
+    # expediente del concepto siguiente. Medido contra el inventario ciego del
+    # banco (85 pares adjudicados a mano): la cita pisaba el pasaje del
+    # localizador sólo en el 41 % de los pares. Ahora, entre las ventanas de
+    # peso máximo gana la de tramo más corto, y el tramo deja fuera lo que se
+    # repite a los lados: va de la última aparición de lo repetido al
+    # principio a la primera de la última raíz distinta. El PESO —y con él el
+    # umbral y qué segmentos llevan cita— no cambia.
     for i in range(len(hits)):
         while j < len(hits) and hits[j][0] < hits[i][0] + VENTANA:
             s = hits[j][1]
@@ -758,19 +775,63 @@ def anclar(texto: str, esc: _Escrito, tramo: tuple = None) -> tuple:
             cuenta[s] += 1
             j += 1
         distintas = sum(1 for v in cuenta.values() if v > 0)
-        if distintas >= MIN_COMUNES and peso_vent > mejor[0]:
-            mejor = (peso_vent, i, j)
+        if distintas >= MIN_COMUNES and peso_vent >= mejor[0] - 1e-9:
+            loc = Counter(hits[k][1] for k in range(i, j))
+            ini_t = i
+            while loc[hits[ini_t][1]] > 1:
+                loc[hits[ini_t][1]] -= 1
+                ini_t += 1
+            primeras = {}
+            for k in range(ini_t, j):
+                primeras.setdefault(hits[k][1], k)
+            fin_t = max(primeras.values())
+            tramo = hits[fin_t][0] - hits[ini_t][0]
+            if (peso_vent > mejor[0] + 1e-9 or mejor[3] is None or tramo < mejor[1]):
+                mejor = (peso_vent, tramo, ini_t, fin_t)
         s = hits[i][1]
         cuenta[s] -= 1
         if cuenta[s] == 0:
             peso_vent -= esc.peso(s)
     parecido = mejor[0] / total if total else 0.0
-    if mejor[2] is None or parecido < UMBRAL_CITA:
+    if mejor[3] is None or parecido < UMBRAL_CITA:
         return "", -1, round(parecido, 3)
-    a_ficha, b_ficha = hits[mejor[1]][0], hits[mejor[2] - 1][0]
+    a_ficha, b_ficha = _mejor_tramo_de_cita(esc, hits[mejor[2]:mejor[3] + 1])
     a, b = esc.fichas[a_ficha][0], esc.fichas[b_ficha][1]
     cita = _ajustar_cita(esc, a, b)
     return cita, a, round(parecido, 3)
+
+
+def _mejor_tramo_de_cita(esc: "_Escrito", sub: list) -> tuple:
+    """(primera ficha, última ficha) de la cita dentro del tramo elegido.
+
+    Si el tramo cabe en `CITA_MAX` palabras, es él entero. Si no, NO SE CORTA
+    DESDE EL PRINCIPIO —eso dejaba la cita en la palabra suelta que casó lejos
+    («autos», «identidad») y se comía el pasaje del argumento—: se elige el
+    trozo de `CITA_MAX` palabras con más peso de raíces distintas, y la cita
+    va de su primer acierto al último. Así tampoco se derrama en el concepto
+    siguiente y el segmento no hereda sus anclas."""
+    pal = [bisect.bisect_right(esc.ini_pal, esc.fichas[k][0]) - 1 for k, _ in sub]
+    if not sub or pal[-1] - pal[0] + 1 <= CITA_MAX:
+        return sub[0][0], sub[-1][0]
+    mejor = (-1.0, 0, 0, 0)
+    cuenta = Counter()
+    peso = 0.0
+    q = 0
+    for p in range(len(sub)):
+        while q < len(sub) and pal[q] - pal[p] < CITA_MAX:
+            s = sub[q][1]
+            if cuenta[s] == 0:
+                peso += esc.peso(s)
+            cuenta[s] += 1
+            q += 1
+        tramo = pal[q - 1] - pal[p]
+        if peso > mejor[0] + 1e-9 or (abs(peso - mejor[0]) <= 1e-9 and tramo < mejor[1]):
+            mejor = (peso, tramo, p, q - 1)
+        s = sub[p][1]
+        cuenta[s] -= 1
+        if cuenta[s] == 0:
+            peso -= esc.peso(s)
+    return sub[mejor[2]][0], sub[mejor[3]][0]
 
 
 def _ajustar_cita(esc: "_Escrito", a: int, b: int) -> str:

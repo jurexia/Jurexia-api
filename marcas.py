@@ -39,9 +39,21 @@ import re
 from collections import Counter
 
 ABRE, CIERRA = "⟦", "⟧"        # ⟦ ⟧
-# Lo que se espera a que llegue el cierre. Una marca con veinte identificadores
-# mide unos 120 caracteres; 200 deja margen sin retener de más.
-LIMITE = 200
+# Lo que se espera a que llegue el cierre de «⟦». Eran 200 caracteres («una
+# marca con veinte identificadores mide unos 120»), y la regla de la v3 pide
+# nombrar JUNTOS en un párrafo los argumentos que se contestan a la vez
+# (revisión adversarial, 26-sep-2026): medido sobre las 64 sesiones reales con
+# escrito, la marca con todos los argumentos del concepto más largo pasa de 200
+# caracteres en DOS de ellas (407 en la de 72 argumentos). Con 200, esa marca
+# no se reconocía ni en el flujo ni en el texto final y llegaba entera a la
+# pantalla y al .docx: la marca filtrada que bloquea el despliegue (w2_final
+# §6.6). «⟦» no aparece en el texto de una sentencia, así que esperar más no
+# retrasa nada en la v1 ni en la v2; sólo a una marca de verdad.
+LIMITE = 1200
+# «[[…]]» sí sale en lo normal —la nota al pie «[[p.7 §3]]» de los resúmenes—,
+# y la marca con corchetes dobles es sólo la forma de rescate: para ella se
+# conservan los 200, que es lo que el flujo retiene un «[[» sin cerrar.
+LIMITE_CORCHETES = 200
 
 # C = concepto, A = agravio, AD = adhesivo, S = suplido (segmentos del
 # inventario); M = premisa y U = unidad (del plan, v4).
@@ -54,7 +66,7 @@ _RX_RANGO = re.compile(r"^((?:ad|[casmu])\d{1,3})\.([a-z])[-–—]\s*(?:(?:ad|[
 # y el filtro del flujo no quitaban lo mismo (lo cazó la prueba de textos al
 # azar de test_marcas.py).
 _RX_MARCA_U = re.compile(ABRE + r"([^" + ABRE + CIERRA + r"\n]{1,%d})" % LIMITE + CIERRA)
-_RX_MARCA_C = re.compile(r"\[\[([^\[\]\n]{1,%d})\]\]" % LIMITE)
+_RX_MARCA_C = re.compile(r"\[\[([^\[\]\n]{1,%d})\]\]" % LIMITE_CORCHETES)
 
 
 def marcas_en(texto: str) -> list:
@@ -80,11 +92,15 @@ def _normal(tok: str) -> str:
 def ids_de(contenido: str) -> list:
     """Los identificadores de una marca, o [] si lo de dentro no es una marca.
 
-    Admite separarlos con espacios, comas o punto y coma, una «y» antes del
-    último y un rango «C1.a–C1.c». Si UN SOLO elemento no es identificador, no
-    es una marca: se deja el texto como estaba."""
+    Admite separarlos con espacios, comas, punto y coma, barras, una «y» antes
+    del último y un rango «C1.a–C1.c» (también con blancos alrededor del
+    guion). Si UN SOLO elemento no es identificador, no es una marca: se deja
+    el texto como estaba. Las barras y el rango con blancos, desde la revisión
+    adversarial del 26-sep-2026: «⟦C1.a/C1.b⟧» o «⟦C1.a – C1.c⟧» no eran
+    marca, así que llegaban enteras al .docx."""
     fuera = []
-    toks = [t for t in re.split(r"[\s,;·]+", (contenido or "").strip()) if t]
+    contenido = re.sub(r"\s*([-–—])\s*", r"\1", (contenido or "").strip())
+    toks = [t for t in re.split(r"[\s,;·/|]+", contenido) if t]
     if not toks:
         return []
     for t in toks:
@@ -123,8 +139,9 @@ class FiltroMarcas:
     partida entre dos trozos del flujo. Si lo de dentro son identificadores,
     la quita con UN blanco detrás —«⟦C1.a⟧ Sobre el primer…» sale «Sobre el
     primer…»—, aunque ese blanco llegue en el trozo siguiente. Si no, la
-    devuelve tal cual. Un «⟦» sin cierre en `LIMITE` caracteres se devuelve
-    tal cual: el filtro puede retrasar texto, nunca comérselo.
+    devuelve tal cual. Un «⟦» sin cierre en `LIMITE` caracteres (un «[[» en
+    `LIMITE_CORCHETES`) se devuelve tal cual: el filtro puede retrasar texto,
+    nunca comérselo.
 
     Uso: `alimentar(trozo)` por cada trozo, y `cerrar()` al terminar el flujo
     para soltar lo que quedara retenido."""
@@ -158,12 +175,16 @@ class FiltroMarcas:
             k = min(candidatos)
             out.append(s[i:k])
             if s[k] == ABRE:
-                abre, cierra = ABRE, CIERRA
+                abre, cierra, lim = ABRE, CIERRA, LIMITE
             else:
-                abre, cierra = "[[", "]]"
+                abre, cierra, lim = "[[", "]]", LIMITE_CORCHETES
             m = s.find(cierra, k + len(abre))
             if m < 0:
-                if n - k > LIMITE:
+                # EL MISMO TOPE QUE EL TEXTO FINAL: lo de dentro, como mucho
+                # `lim` caracteres (`_RX_MARCA_U`/`_RX_MARCA_C`). Si el flujo
+                # y `separar_marcas` midieran distinto, una marca justo en el
+                # borde se vería en pantalla y no en el .docx, o al revés.
+                if n - (k + len(abre)) > lim:
                     # Sin cierre a la vista: no es una marca. Tal cual.
                     out.append(abre)
                     i = k + len(abre)
@@ -171,7 +192,7 @@ class FiltroMarcas:
                 self._pend = s[k:]
                 break
             contenido = s[k + len(abre):m]
-            if m - k > LIMITE or "\n" in contenido or not es_marca(contenido):
+            if len(contenido) > lim or "\n" in contenido or not es_marca(contenido):
                 out.append(abre)
                 i = k + len(abre)
                 continue

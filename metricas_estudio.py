@@ -1056,7 +1056,9 @@ def remisiones(solucion: str) -> dict:
 # BLOQUEA el despliegue (w2_final §6.6: «una marca filtrada»). Se cuenta sobre
 # el documento ENTERO: la marca no tiene por qué colarse sólo en la Solución.
 _RX_MARCA_FILTRADA = re.compile(
-    r"\u27e6[^\u27e6\u27e7\n]{0,200}\u27e7|[\u27e6\u27e7]"
+    # Hasta 1,200 caracteres dentro, lo mismo que `marcas.LIMITE`: una marca
+    # larga cuenta una vez, no como dos signos sueltos.
+    r"\u27e6[^\u27e6\u27e7\n]{0,1200}\u27e7|[\u27e6\u27e7]"
     r"|\[\[\s*(?:AD|[CASMU])\d{1,3}(?:\.[a-z]{1,2})?\b")
 
 

@@ -214,6 +214,20 @@ ok(all(_n1 - 400 <= _pos[i] < _n2 + 400 for i in ("C1.a", "C1.b", "C1.c", "C1.d"
 ok("pericial" in segs[0]["cita"].lower() and "cosa juzgada refleja" in segs[4]["cita"].lower()
    and "dolo" in segs[6]["cita"].lower() and "campesino" in segs[7]["cita"].lower(),
    "y es el pasaje del argumento, no uno cualquiera del tramo")
+# LA CITA ES EL PASAJE DE SU PROPIO ARGUMENTO, NO EL DEL VECINO (revisión
+# adversarial, 26-sep-2026). Con la ventana cortada a 40 palabras desde su
+# primer acierto, «omite analizar la reconvención» quedaba anclado en el pasaje
+# de la pericial, el de las superficies se cortaba antes de las hectáreas y el
+# cuarto argumento heredaba el expediente del segundo concepto.
+_propio = {"C1.b": "cuatro hectáreas", "C1.c": "omite analizar la reconvención",
+           "C1.d": "contrato verbal", "C2.b": "analizar de oficio la cosa juzgada"}
+ok(all(frase in s["cita"] for s in segs for i, frase in _propio.items() if s["id"] == i),
+   "cada cita es el pasaje de SU argumento: " + " · ".join(
+       f"{s['id']}={'sí' if _propio[s['id']] in s['cita'] else 'NO'}" for s in segs if s["id"] in _propio))
+ok("pericial" not in segs[2]["cita"] and "SEGUNDO CONCEPTO" not in segs[3]["cita"],
+   "sin arrastrar el pasaje del argumento anterior ni el del concepto siguiente")
+ok("exp 1114/2017" not in segs[3]["anclas"],
+   "el argumento no hereda como dato el expediente del concepto siguiente")
 ok("exp 1114/2017" in segs[4]["anclas"] and "reg 2009789" in segs[3]["anclas"],
    "anclas duras del argumento: el expediente y el registro")
 ok(not any("exp 1414/2020" in s["anclas"] or "exp 601/2023" in s["anclas"] for s in segs),
@@ -460,6 +474,11 @@ _pars = f6.parrafos(v1["estudio"])
 ok(v1["meta"]["mapa"]["C1.a"] == [1] and _pars[1].startswith("Sobre el primer concepto")
    and v1["meta"]["mapa"]["C2.b"] == [3] and _pars[3].startswith("Sobre el segundo"),
    "el mapa cuenta los párrafos como los compone el documento (sin el «SEXTO. Estudio.»)")
+_ps = v1["meta"]["parrafos"]
+ok(isinstance(_ps, list) and len(_ps) == len(_pars)
+   and all(_ps[k].split()[:5] == _pars[k].split()[:5] for k in range(len(_pars)))
+   and _ps[v1["meta"]["mapa"]["C2.b"][0]].startswith("Sobre el segundo"),
+   "`parrafos`: el arranque de cada párrafo, en lista y con el índice del mapa (lo que lee la pestaña)")
 ok(cob["parrafos"]["1"].startswith("Sobre el primer concepto") and len(cob["segmentos"]) == 8
    and set(cob["segmentos"][0]) >= {"id", "concepto", "texto", "cita"},
    "la cobertura trae lo que la pestaña «Mapa del estudio» necesita")
@@ -480,6 +499,55 @@ ok(_malo["estudio"] == "" and isinstance(_malo["aviso"], str)
    and _roto["estudio"] == "Texto." and _roto["aviso"] == "",
    "con datos raros no lanza; si el control revienta, el texto sale limpio igual y sin aviso")
 
+# UNA MARCA DELANTE DEL RÓTULO no esconde las ADVERTENCIAS ni los EFECTOS
+# (revisión adversarial, 26-sep-2026): `separar_advertencias` corre sobre el
+# texto con marcas, antes de `_terminar`.
+_c, _a = f6.separar_advertencias("Estudio.\n⟦C1.a⟧ Sobre el primero.\n⟦C3.e⟧ ADVERTENCIAS:\nRevise el tercero.")
+ok(_c == "Estudio.\n⟦C1.a⟧ Sobre el primero." and _a == "Revise el tercero.",
+   "«⟦…⟧ ADVERTENCIAS:» se aparta igual: no entra en la sentencia")
+_c, _a = f6.separar_advertencias("Estudio.\nADVERTENCIAS:\nNota.\n⟦U1⟧ EFECTOS DE LA CONCESIÓN\nDicte otra.")
+ok(_a == "Nota." and _c.endswith("⟦U1⟧ EFECTOS DE LA CONCESIÓN\nDicte otra."),
+   "y los EFECTOS con su marca delante vuelven a la sentencia, con la marca para el mapa")
+# El corte de origin/main, copiado tal cual, para comparar: sin «⟦» tiene que
+# dar exactamente lo mismo.
+_RX_ADV_VIEJO = re.compile(r"\n\s*ADVERTENCIAS?\s*[:\n]", re.I)
+_RX_EF_VIEJO = re.compile(r"\n\s*(?:\*\*|__)?\s*EFECTOS(?:\s+DE\s+LA\s+(?:CONCESI[ÓO]N|PROTECCI[ÓO]N"
+                          r"\s+CONSTITUCIONAL))?\s*(?:\*\*|__)?\s*[.:]?\s*\n", re.I)
+
+
+def _separar_viejo(estudio):
+    m_ = _RX_ADV_VIEJO.search(estudio)
+    if not m_:
+        return estudio.strip(), ""
+    cuerpo, adv = estudio[:m_.start()].strip(), estudio[m_.end():].strip()
+    me = _RX_EF_VIEJO.search("\n" + adv)
+    if me:
+        _a = "\n" + adv
+        cuerpo = cuerpo + "\n\n" + _a[me.start():].strip()
+        adv = _a[:me.start()].strip()
+    return cuerpo, adv
+
+
+_muestras = ["Estudio.\nADVERTENCIAS:\nNota.", "Estudio.\n\nADVERTENCIA\nNota.\nEFECTOS\nDicte.",
+             "Sin nada.", "Estudio.\n**ADVERTENCIAS**:\nNota.", "Estudio.\nadvertencias:\nx\n**EFECTOS:**\ny",
+             "A.\n  ADVERTENCIAS\nB.\nEFECTOS DE LA PROTECCIÓN CONSTITUCIONAL:\nC.\nD.",
+             ESTUDIO_MARCADO.replace("⟦", "").replace("⟧", "") + "\nADVERTENCIAS:\nuna [[p.7 §3]]"]
+ok(all(f6.separar_advertencias(t) == _separar_viejo(t) for t in _muestras),
+   "sin marcas (v1, v2) el corte es exactamente el de origin/main")
+
+# SI REVIENTA LA SEPARACIÓN MISMA, ninguna marca llega a la sentencia.
+_sep_orig = mc.separar_marcas
+def _revienta(*a, **k):
+    raise RuntimeError("prueba")
+mc.separar_marcas = _revienta
+try:
+    _rb = ra._marcas_y_cobertura(r, enc, m3, ESTUDIO_MARCADO, "⟦C3.a⟧ Nota.")
+finally:
+    mc.separar_marcas = _sep_orig
+ok("⟦" not in _rb["estudio"] and "⟦" not in _rb["advertencias"] and _rb["aviso"] == ""
+   and _rb["estudio"].split("\n")[1].startswith("Sobre el primer concepto"),
+   "si `separar_marcas` revienta, las marcas se quitan a lo bruto y el texto sigue entero")
+
 # main.py: el evento «listo» y la ficha.
 SRC_MAIN = open(os.path.join(AQUI, "main.py"), encoding="utf-8").read()
 ARBOL_MAIN = ast.parse(SRC_MAIN)
@@ -499,13 +567,30 @@ _v = _ns["_taller_variante_estudio"]
 ok(_v("administracion@iurexia.com", "v3") == "v3" and _v("soporte@iurexia.com", "v4") == "v4",
    "una cuenta de casa puede pedir la v3 y la v4")
 ok(_v("secretario.piloto@gmail.com", "v3") == "v1", "un secretario del piloto no")
+# EL ENCENDIDO POR TIPO LLEGA DE VERDAD AL ENCARGO (revisión adversarial,
+# 26-sep-2026): antes la global se leía sin tipo y `ESTUDIO_PROMPT_AD` no
+# encendía nada.
+os.environ["ESTUDIO_PROMPT_AD"] = "v3"
+ok(_v("secretario.piloto@gmail.com", "", "amparo_directo") == "v3"
+   and _v("secretario.piloto@gmail.com", "v2", "amparo_directo") == "v3"
+   and _v("secretario.piloto@gmail.com", "", "revision_fiscal") == "v1"
+   and _v("administracion@iurexia.com", "v2", "amparo_directo") == "v2",
+   "con ESTUDIO_PROMPT_AD, el amparo directo sale con ella; los recursos, con la global; casa manda")
+os.environ.pop("ESTUDIO_PROMPT_AD", None)
+ok(_v("secretario.piloto@gmail.com", "", "amparo_directo") == "v1",
+   "sin la variable, lo de siempre")
+ok(SRC_MAIN.count('_taller_variante_estudio(\n            user_email, variante_estudio,\n'
+                  '            getattr(r.encargo, "tipo_asunto", "") or "")') == 2,
+   "los dos gemelos le pasan el tipo del encargo")
 _con = type("Res", (), {"meta_estudio": {"variante": "v3", "finish_reason": "stop", "uso": {},
-                                         "mapa": {"C1.a": [1]}, "cobertura": {"cobertura": 1.0, "total": 1}}})()
+                                         "mapa": {"C1.a": [1]}, "cobertura": {"cobertura": 1.0, "total": 1},
+                                         "parrafos": ["Abre.", "Sobre el primero…"]}})()
 _sin = type("Res", (), {"meta_estudio": {"variante": "v2", "finish_reason": "stop", "uso": {}}})()
 os.environ["RENDER_GIT_COMMIT"] = "abc123"
 ml = _ns["_taller_meta_listo"](_con)
-ok(ml["mapa"] == {"C1.a": [1]} and ml["cobertura"]["cobertura"] == 1.0 and ml["variante"] == "v3",
-   "el evento «listo» y la ficha llevan el mapa y la cobertura")
+ok(ml["mapa"] == {"C1.a": [1]} and ml["cobertura"]["cobertura"] == 1.0 and ml["variante"] == "v3"
+   and ml["parrafos"] == ["Abre.", "Sobre el primero…"],
+   "el evento «listo» y la ficha llevan el mapa, la cobertura y el arranque de los párrafos")
 ok(_ns["_taller_meta_listo"](_sin) == {"variante": "v2", "commit": "abc123", "finish_reason": "stop", "uso": {}},
    "la v1/v2 no ganan ni un campo")
 os.environ.pop("RENDER_GIT_COMMIT", None)
