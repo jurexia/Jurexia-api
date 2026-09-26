@@ -548,7 +548,10 @@ main._plan_para_redaccion = _original
 ok("_coidh_puerta(request.user_id, _fuentes_elegidas)" in ce, "el chat le pasa a la puerta el selector de la consulta")
 i_ver = ce.index("_verificadas = await _fuentes_ya_verificadas(request.fuentes_previas)")
 i_ver_p = ce.index('if any(r.silo == "coidh" for r in _verificadas) and not await _coidh_permitido():', i_ver)
-i_ver_x = ce.index("format_results_as_xml(_nuevas", i_ver)
+# Desde el sello de vigencia (25-sep-2026) el XML de las verificadas lo arma
+# `_xml_verificadas` (separa las que perdieron vigencia): el orden que se
+# comprueba es el mismo.
+i_ver_x = ce.index("_xml_verificadas(_nuevas", i_ver)
 ok(i_ver < i_ver_p < i_ver_x, "lo que vuelve por FUENTES_PREVIAS pasa por la puerta antes de entrar al contexto")
 
 main.qdrant_client = qdrant_con(coidh=False)

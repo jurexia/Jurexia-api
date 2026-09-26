@@ -41,6 +41,7 @@ from typing import Awaitable, Callable, Optional
 log = logging.getLogger("fase6_rag")
 
 import fase6_estudio as f6
+import vigencia_tesis as _vig
 
 COLECCION_JURIS = "jurisprudencia_nacional_v3"
 VECTOR_RUBRO = "rubro"          # el ganador medido, con pregunta conceptual
@@ -314,6 +315,10 @@ def _tesis_de(p: dict) -> dict:
         "materia": p.get("materia") or "",
         "obligatoria": bool(p.get("vincula")),
         "localizacion": p.get("localizacion") or "",
+        # EL SELLO DE VIGENCIA (25-sep-2026): None si no consta pérdida. Todas
+        # las tesis del taller pasan por aquí —búsqueda, citadas por la parte,
+        # diálogo constitucional, línea de internet—, así que lo heredan todas.
+        "vigencia": _vig.de(p.get("registro")),
     }
 
 

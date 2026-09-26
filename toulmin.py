@@ -57,6 +57,7 @@ import re
 from typing import Awaitable, Callable, Optional
 
 import llamada_modelo as _lm
+import vigencia_tesis as _vig
 
 MODELO_TOULMIN = os.getenv("TOULMIN_MODEL", "gpt-5.6-luna")
 ESFUERZO_TOULMIN = os.getenv("TOULMIN_ESFUERZO", "medium")
@@ -379,7 +380,13 @@ def catalogo(material, marco) -> tuple[str, dict]:
                           "cita": (f"{tipo} de {_instancia_con_articulo(inst)}, registro digital {reg}, "
                                    f"de rubro: «{rubro}»") if inst else
                                   f"{tipo}, registro digital {reg}, de rubro: «{rubro}»"}
-            p.append(f"[{k}] {tipo.upper()} · {inst} · {rubro}\n    {str(t.get('texto') or '')[:1500]}")
+            # El sello de vigencia (25-sep-2026): la tesis sin vigencia se
+            # marca en el catálogo y en su ficha, para que no sea garantía.
+            _v = t.get("vigencia") or _vig.de(reg)
+            if _v:
+                fuentes[k]["vigencia"] = _vig.marcador(_v)
+            _aviso = f"    ⚠️ {_vig.etiqueta(_v)}: NO la uses como garantía vigente\n" if _v else ""
+            p.append(f"[{k}] {tipo.upper()} · {inst} · {rubro}\n{_aviso}    {str(t.get('texto') or '')[:1500]}")
     return "\n".join(p), fuentes
 
 
@@ -417,6 +424,12 @@ def _de_ley(ley: str) -> str:
     return "del " + c[3:] if c.startswith("el ") else "de " + c
 
 
+def _sin_vigencia(t: dict) -> bool:
+    """¿Perdió vigencia del todo? (la parcial sigue en lo demás)."""
+    v = t.get("vigencia") or _vig.de(t.get("registro"))
+    return bool(v) and not v.get("parcial")
+
+
 def _tesis_repartidas(tesis: list, tope: int) -> list:
     """Hasta `tope` tesis, sin que un problema se quede sin ninguna.
 
@@ -425,6 +438,9 @@ def _tesis_repartidas(tesis: list, tope: int) -> list:
     la segunda…— conservando ese orden dentro de cada uno; las que no traen
     `para` completan al final.
     """
+    # Las que perdieron vigencia del todo, al final (25-sep-2026): se marcan en
+    # el catálogo, pero no le quitan el sitio a una vigente cuando hay tope.
+    tesis = [t for t in tesis if not _sin_vigencia(t)] + [t for t in tesis if _sin_vigencia(t)]
     if len(tesis) <= tope:
         return tesis
     por_problema: dict = {}

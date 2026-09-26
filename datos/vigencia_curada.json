@@ -1,0 +1,45 @@
+{
+ "generado": "2026-09-25",
+ "fuente": "curaduria",
+ "descripcion": "Pérdidas de vigencia que el Semanario NO anota y que las reglas de scripts/vigencia_tesis_generar.py no pueden ver. Se dicen con otra redacción («superada en los hechos; el Semanario no lo anota») y nunca pisan una nota expresa: si el SJF anota la tesis, manda datos/vigencia_tesis.json. Cada entrada lleva la cita de las dos tesis y cómo se verificó.",
+ "n": 2,
+ "tesis": {
+  "160584": {
+   "estado": "superada",
+   "parcial": false,
+   "por_registro": "2006225",
+   "por_clave": "P./J. 21/2014 (10a.)",
+   "por_rubro": "JURISPRUDENCIA EMITIDA POR LA CORTE INTERAMERICANA DE DERECHOS HUMANOS. ES VINCULANTE PARA LOS JUECES MEXICANOS SIEMPRE QUE SEA MÁS FAVORABLE A LA PERSONA.",
+   "por_resolucion": "contradicción de tesis 293/2011",
+   "desde": "2014-04-28",
+   "fuente": "curaduria",
+   "nota": "La P. LXVI/2011 tiene por “orientadores” los criterios de la Corte IDH cuando México no fue parte; la P./J. 21/2014 (CT 293/2011) los hace vinculantes “con independencia de que el Estado Mexicano haya sido parte en el litigio”, siempre que sean más favorables a la persona.",
+   "justificacion": {
+    "afectada": "P. LXVI/2011 (9a.), registro 160584: «Los criterios de la Corte Interamericana de Derechos Humanos que derivan de sentencias en donde el Estado Mexicano no intervino como parte en el litigio son orientadores para todas las decisiones de los jueces mexicanos, siempre que sean más favorables a la persona…»",
+    "sustituta": "P./J. 21/2014 (10a.), registro 2006225: «Los criterios jurisprudenciales de la Corte Interamericana de Derechos Humanos, con independencia de que el Estado Mexicano haya sido parte en el litigio ante dicho tribunal, resultan vinculantes para los Jueces nacionales…» Publicada el viernes 25 de abril de 2014; obligatoria desde el lunes 28 de abril de 2014 (textoPublicacion del SJF).",
+    "semanario": "El SJF no le pone nota de pérdida a 160584: sólo registra las contradicciones 283/2012 y 286/2012, declaradas improcedentes (19-sep-2012). La 2006225 no la menciona ni en el texto ni en los precedentes.",
+    "inferencia": "Es inferencia de contenido, no declaración: el engrose de la CT 293/2011 no declara expresamente la superación. Por eso va aquí y no en el índice expreso.",
+    "verificado": "25-sep-2026, API pública del SJF (pilar/verifA/cache/160584.json y 2006225.json) y la ficha datos/lineas_coidh.json («Superada, sólo implícitamente, por la P./J. 21/2014»)."
+   }
+  },
+  "160526": {
+   "estado": "superada",
+   "parcial": true,
+   "alcance": "sólo el inciso d): los criterios “orientadores” de la Corte IDH cuando México no fue parte",
+   "por_registro": "2006225",
+   "por_clave": "P./J. 21/2014 (10a.)",
+   "por_rubro": "JURISPRUDENCIA EMITIDA POR LA CORTE INTERAMERICANA DE DERECHOS HUMANOS. ES VINCULANTE PARA LOS JUECES MEXICANOS SIEMPRE QUE SEA MÁS FAVORABLE A LA PERSONA.",
+   "por_resolucion": "contradicción de tesis 293/2011",
+   "desde": "2014-04-28",
+   "fuente": "curaduria",
+   "nota": "El inciso d) del parámetro tiene por “criterios orientadores” la jurisprudencia interamericana de casos en que México no fue parte; la P./J. 21/2014 la hace vinculante “con independencia de que el Estado Mexicano haya sido parte en el litigio”. Los incisos a) a c) siguen operando.",
+   "justificacion": {
+    "afectada": "P. LXVIII/2011 (9a.), registro 160526: «…c) los criterios vinculantes de la Corte Interamericana de Derechos Humanos derivados de las sentencias en las que el Estado Mexicano haya sido parte, y d) los criterios orientadores de la jurisprudencia y precedentes de la citada Corte, cuando el Estado Mexicano no haya sido parte.»",
+    "sustituta": "P./J. 21/2014 (10a.), registro 2006225: «…con independencia de que el Estado Mexicano haya sido parte en el litigio ante dicho tribunal, resultan vinculantes para los Jueces nacionales…»",
+    "semanario": "El SJF no le pone nota de pérdida a 160526: sólo registra las contradicciones 283/2012 y 286/2012, improcedentes.",
+    "alcance": "Sólo el inciso d). El verificador corrigió «modificada» por «superada» porque no hubo acto formal de modificación (es tesis aislada, sin nota). El inciso a) se lee además con la P./J. 20/2014 (restricción constitucional expresa) y la P./J. 64/2014 (la jurisprudencia de la SCJN no se somete a control ex officio), que lo precisan pero no lo superan.",
+    "verificado": "25-sep-2026, API pública del SJF (pilar/verifA/cache/160526.json y 2006225.json)."
+   }
+  }
+ }
+}

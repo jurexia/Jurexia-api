@@ -61,6 +61,7 @@ import httpx  # For Cohere Rerank API calls
 import hashlib  # For semantic cache keys
 import taller_estado as _te
 import fuentes_elegidas as fuentes_sel
+import vigencia_tesis as _vig
 import cache_ocr
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -460,6 +461,41 @@ def _con_rubro(payload: dict) -> str:
         cuerpo = cuerpo[len(r):].lstrip(" .\n")
 
     return "\n".join(x for x in (cab, r, cuerpo) if x)
+
+
+# ── EL SELLO DE VIGENCIA, LEÍDO POR REGISTRO (25-sep-2026) ─────────────────
+# Seis constructores distintos arman una tesis como SearchResult (búsqueda,
+# refuerzo, búsqueda directa, verificadas, línea, reintento) y ninguno leía la
+# nota de abandono. En vez de confiar en que los seis se acuerden, quien
+# CONSUME la tesis —el XML del modelo, los marcadores, el registro— pregunta
+# aquí, por registro, y deja el resultado guardado en el propio resultado.
+def _vigencia_sr(r) -> Optional[Dict[str, Any]]:
+    """La pérdida de vigencia de una tesis (vigencia_tesis.de), o None. Nunca
+    lanza: un sello que tumba la consulta es peor que no tenerlo."""
+    try:
+        v = getattr(r, "vigencia", None)
+        if v:
+            return v
+        if getattr(r, "silo", None) not in JURIS_SILOS or not getattr(r, "registro", None):
+            return None
+        v = _vig.de(r.registro)
+        if v:
+            try:
+                r.vigencia = v
+            except Exception:
+                pass
+        return v
+    except Exception:
+        return None
+
+
+def _campos_vigencia(doc) -> dict:
+    """Lo que los marcadores de fuentes (FUENTES_PREVIAS, CITATION_META) y
+    /cita añaden cuando una tesis perdió vigencia: {"vigencia": {estado,
+    etiqueta, por_registro, por_clave…}}. Vacío en todo lo demás, así que en
+    las fuentes de siempre no cambia ni una clave ni un byte."""
+    m = _vig.marcador(_vigencia_sr(doc))
+    return {"vigencia": m} if m else {}
 
 
 def _vector_de(coleccion: str) -> str:
@@ -1137,6 +1173,12 @@ jurisprudencia de un sistema ANTERIOR, OBLIGATORIAMENTE debes:
      indicando EXPRESAMENTE: "Esta tesis corresponde al sistema anterior a la
      Reforma [año]. Bajo el marco constitucional vigente, la regla es..."
   c) NUNCA presentar como vigente una tesis que contradiga el texto actual de la CPEUM
+
+TESIS QUE PERDIERON VIGENCIA (atributo vigencia= en <documento> o linea "⚠️ PERDIÓ VIGENCIA"):
+  - NUNCA la presentes como vigente. Di que perdio vigencia (abandonada, interrumpida,
+    superada...), por cual tesis (reemplazo_clave=, registro reemplazada_por=) y desde
+    cuando (vigencia_desde=); si vigencia_parcial="si", solo en la parte afectada.
+  - Funda en la tesis que la reemplaza, citandola con su [Doc ID].
 
 SEÑALES DE QUE UNA TESIS PUEDE ESTAR SUPERADA POR REFORMA:
   - Tesis de Novena Epoca (antes de 2011): verificar si la norma cambio despues
@@ -3161,6 +3203,13 @@ class SearchResult(BaseModel):
     # True = jurisprudencia OBLIGATORIA. De 71.655 tesis sólo vinculan 17.930;
     # hasta ahora no se distinguía y todo se citaba igual.
     vincula: Optional[bool] = None
+    # EL SELLO DE VIGENCIA (25-sep-2026). Sólo tesis, y sólo si perdieron
+    # vigencia: {estado, parcial, por_registro, por_clave, desde, fuente,
+    # nota…} de vigencia_tesis.de(registro). El chat le dio a David como
+    # vigentes la P. X/2015 y la P. IX/2015, abandonadas por la P./J. 2/2022:
+    # la nota estaba en el acervo y ningún constructor la copiaba. Se llena al
+    # construir o, si no, al consumir (`_vigencia_sr`), siempre por registro.
+    vigencia: Optional[Dict[str, Any]] = None
     # Campos LLM Tagging (conceptos semánticos para Concept Boost)
     conceptos_transversales: Optional[List[str]] = None
     tema_articulo: Optional[str] = None
@@ -6793,7 +6842,22 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             'respuesta DEBE apoyarse en el tratado y en la sentencia interamericana '
             'que vengan aquí, además de la Constitución y la ley. -->'
         )
-    
+
+    # EL SELLO DE VIGENCIA (25-sep-2026): la instrucción va sólo cuando hay
+    # algo que sellar, para no inflar el prompt de las consultas que no lo
+    # necesitan. Aquí y no sólo en el system prompt porque este formateador lo
+    # usan también /analyze-document, /audit y /chat-sentencia, que no llevan
+    # la REGLA #6.
+    if any(_vigencia_sr(r) for r in results if r.silo in JURIS_SILOS):
+        xml_parts.append(
+            '<!-- INSTRUCCIÓN VIGENCIA: los documentos con atributo vigencia= '
+            'PERDIERON VIGENCIA (abandonada, interrumpida, superada…) según el '
+            'Semanario. Nunca los presentes como vigentes: di que perdieron vigencia, '
+            'por cuál tesis (reemplazo_clave, reemplazada_por) y desde cuándo, y funda '
+            'en la que los reemplaza. Con vigencia_parcial="si", sólo en la parte '
+            'abandonada. -->'
+        )
+
     # ── LA CORTE IDH NO SE ORDENA AQUÍ (revisión A.3, 25-sep-2026) ──
     # reorder_by_hierarchy ordena por (nivel, −puntaje): el párrafo que el
     # abogado citó quedaba detrás de toda la Constitución y de todas las leyes,
@@ -6843,6 +6907,23 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             _rub = next((x for x in _lineas if not x.lstrip().startswith("[")), "")
             if _rub:
                 texto = "\n".join(x for x in (_cab, _rub) if x)
+
+        # ── LA PÉRDIDA DE VIGENCIA, A LA VISTA (25-sep-2026) ──────────────
+        # La P. X/2015 le llegó al modelo como «[TIPO: TESIS AISLADA] …
+        # [REGISTRO: 2009817]» y su rubro, sin una palabra de que la P./J.
+        # 2/2022 la abandonó; la presentó como vigente. Ahora, DESPUÉS del
+        # recorte a rubro (si fuera antes, el recorte la tomaría por el rubro o
+        # se la comería), una línea entre la cabecera y el rubro con la
+        # etiqueta y la nota literal del Semanario; y en el tag, los atributos.
+        _vigencia_doc = _vigencia_sr(r) if r.silo in JURIS_SILOS else None
+        if _vigencia_doc:
+            _aviso_vig = _vig.linea_visible(_vigencia_doc)
+            if _aviso_vig:
+                _ls = texto.split("\n")
+                if _ls and _ls[0].lstrip().startswith("["):
+                    texto = "\n".join([_ls[0], _aviso_vig] + _ls[1:])
+                else:
+                    texto = _aviso_vig + "\n" + texto
 
         escaped_texto = html.escape(texto)
         escaped_ref = html.escape(r.ref or "N/A")
@@ -6928,6 +7009,9 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
                 juris_attrs += f' tipo_criterio="{html.escape(str(r.tipo_criterio))}"'
             if r.materia_meta:
                 juris_attrs += f' materia="{html.escape(str(r.materia_meta))}"'
+            # vigencia / vigencia_parcial / reemplazada_por / reemplazo_clave /
+            # vigencia_desde: "" si la tesis no perdió vigencia.
+            juris_attrs += _vig.atributos_xml(_vigencia_doc)
 
         xml_parts.append(
             f'<documento id="{r.id}" ref="{escaped_ref}" '
@@ -7520,6 +7604,8 @@ async def hybrid_search_single_silo(
                 # copiarla en vez de componerla, y si el criterio OBLIGA.
                 localizacion=payload.get("localizacion"),
                 vincula=payload.get("vincula"),
+                # El sello de vigencia (25-sep-2026): sólo tesis, por registro.
+                vigencia=(_vig.de(registro) if collection in JURIS_SILOS else None),
                 # LLM Tagging fields (Concept Boost)
                 conceptos_transversales=payload.get("conceptos_transversales"),
                 tema_articulo=payload.get("tema_articulo"),
@@ -7594,21 +7680,10 @@ async def hybrid_search_single_silo(
             print(f"   ⚠️  Filtro falló en {collection} (índice faltante), reintentando sin filtro...")
             try:
                 results = await _do_search(None)  # Sin filtro
-                search_results = []
-                for point in results.points:
-                    payload = point.payload or {}
-                    search_results.append(SearchResult(
-                        id=str(point.id),
-                        score=point.score,
-                        texto=payload.get("texto", payload.get("text", "")),
-                        ref=payload.get("ref"),
-                        origen=payload.get("origen") or payload.get("ley"),
-                        jurisdiccion=payload.get("jurisdiccion"),
-                        entidad=payload.get("entidad"),
-                        silo=collection,
-                        pdf_url=payload.get("pdf_url") or payload.get("url_pdf"),
-                    ))
-                return search_results
+                # El mismo conversor que el intento con filtro (25-sep-2026):
+                # éste armaba las tesis sin registro ni rubro, así que ni el
+                # visor las reconocía ni el sello de vigencia las podía leer.
+                return _parse_results(results)
             except Exception as retry_e:
                 print(f"   ❌ Retry sin filtro también falló en {collection}: {retry_e}")
                 return []
@@ -10213,6 +10288,17 @@ async def _fuentes_ya_verificadas(ids: List[str]) -> List[SearchResult]:
             except Exception:
                 pass
             continue
+        # Las tesis, como las arma la búsqueda (25-sep-2026): cabecera, rubro,
+        # tipo, instancia y su sello de vigencia. Volvían con el texto crudo,
+        # así que el XML tomaba el cuerpo entero como «rubro» y perdía la
+        # instancia; y una tesis abandonada citada en el turno 1 regresaba en
+        # el 2 como «verificada, cítala sin reservas».
+        if _col in JURIS_SILOS:
+            try:
+                _salida.append(_sr_de(dict(_tesis_a_dict(_clave, _pay, _col), score=2.0)))
+            except Exception:
+                pass
+            continue
         _registro = _pay.get("registro")
         _texto = (_pay.get("texto") or _pay.get("text") or _pay.get("holding")
                   or _pay.get("chunk_text") or "")
@@ -10251,6 +10337,30 @@ async def _fuentes_ya_verificadas(ids: List[str]) -> List[SearchResult]:
     _orden = {i: n for n, i in enumerate(_limpios)}
     _salida.sort(key=lambda r: _orden.get(r.id, 999))
     return _salida
+
+
+def _xml_verificadas(nuevas: List[SearchResult]) -> str:
+    """El XML de las fuentes que vuelven de un turno anterior.
+
+    «SIN RESERVAS» NO VALE PARA UNA TESIS SIN VIGENCIA (25-sep-2026). Todo lo
+    reaprovechado iba bajo «cítalas por su [Doc ID] sin reservas»: una tesis
+    abandonada que se citó en el turno 1 —como la P. X/2015 en la
+    conversación de David— volvía en el turno 2 blindada. Las que perdieron
+    vigencia van aparte, fuera del blindaje, con su sello en el tag y a la
+    vista; las demás, como siempre."""
+    blindadas = [r for r in nuevas if not _vigencia_sr(r)]
+    sin_vigencia = [r for r in nuevas if _vigencia_sr(r)]
+    xml = ""
+    if blindadas:
+        xml += ("<!-- FUENTES YA VERIFICADAS EN ESTA CONVERSACIÓN: "
+                "el abogado ya las vio con su sello. Cítalas por su "
+                "[Doc ID] sin reservas; no hace falta volver a justificarlas. -->\n"
+                + format_results_as_xml(blindadas, estado=None, prose_mode=False))
+    if sin_vigencia:
+        xml += ("\n<!-- CITADAS ANTES, PERO PERDIERON VIGENCIA: ya se citaron y NO por eso "
+                "son vigentes. Dilo así y funda en la que las reemplaza. -->\n"
+                + format_results_as_xml(sin_vigencia, estado=None, prose_mode=False))
+    return xml
 
 
 # ── EL SEMANARIO, PEDIDO DESDE AQUÍ Y NO DESDE VERCEL (2-sep-2026) ──────
@@ -10974,6 +11084,9 @@ async def resolver_cita(doc_id: str):
     # el número con el que arma el enlace al Semanario y la ficha no aparece.
     _es_tesis = col in JURIS_SILOS or bool(pay.get("clave_tesis") or pay.get("numero_tesis"))
     _origen_final = origen or (_origen_tesis(pay) if _es_tesis else None)
+    # El sello de vigencia (25-sep-2026), con el mismo contrato que
+    # CITATION_META: la clave sólo existe si la tesis perdió vigencia.
+    _vig_cita = _vig.marcador(_vig.de(registro)) if (_es_tesis and registro) else None
 
     return {
         "origen": _origen_final or humanize_origen(origen) or "Fuente legal",
@@ -10994,6 +11107,7 @@ async def resolver_cita(doc_id: str):
         "tipo_criterio": pay.get("tipo") or pay.get("tipo_criterio"),
         "instancia": pay.get("instancia"),
         "materia": materia,
+        **({"vigencia": _vig_cita} if _vig_cita else {}),
     }
 
 
@@ -11471,6 +11585,8 @@ def _marcador_fuentes_previas(results: List["SearchResult"]) -> str:
                 # los demás silos.
                 **_campos_coidh(_d),
                 **_campos_doctrina(_d),        # doctrina: página y ancla (25-sep-2026)
+                # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
+                **_campos_vigencia(_d),
             }
         except Exception:
             continue
@@ -11507,6 +11623,8 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
                 "materia": getattr(doc, "materia_meta", None) or None,
                 **_campos_coidh(doc),          # Corte IDH (25-sep-2026)
                 **_campos_doctrina(doc),       # doctrina: página y ancla (25-sep-2026)
+                # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
+                **_campos_vigencia(doc),
             }
         else:
             sources_map[cv.doc_id] = {"origen": "Fuente no verificada", "ref": "", "texto": ""}
@@ -11518,6 +11636,8 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
     if _regs_fuera:
         print(f"   🚨 Documento: registros fuera del contexto ({len(_regs_fuera)}): {', '.join(_regs_fuera[:12])}")
         salida.append(f"<!--REGISTROS_FUERA:{','.join(_regs_fuera)}-->")
+    for _lv in _vigencia_citadas(texto, doc_id_map):   # sello de vigencia: sólo registro
+        print(_lv)
     meta = json.dumps({
         "valid": validation.valid_count,
         "invalid": validation.invalid_count,
@@ -12007,6 +12127,11 @@ async def analyze_document(
                 if search_results:
                     doc_id_map = build_doc_id_map(search_results)
                     context_xml = format_results_as_xml(search_results, estado=_entidad_acervo)
+                    # El sello de vigencia, como en /chat (25-sep-2026): la
+                    # tesis que reemplaza a la que perdió vigencia entra con su
+                    # [Doc ID], en el mapa de fuentes y en el sello.
+                    _xml_vig, _ = await _sumar_sustitutas(search_results, doc_id_map)
+                    context_xml += _xml_vig
                 print(f"   📚 Documento + acervo: {len(search_results)} fuentes "
                       f"(entidad={_entidad_acervo or '—'}) en {_time.time() - _t_acervo:.1f}s")
             except asyncio.TimeoutError:
@@ -13065,6 +13190,86 @@ def _numeros_citados(nums_raw: str) -> list:
     return fuera or re.findall(r'\d{1,4}', nums_raw)
 
 
+# ── REGISTROS Y CLAVES QUE EL ABOGADO NOMBRA (25-sep-2026) ────────────────
+# Comprobado con la frase del diagnóstico: en «¿Sigue vigente la tesis P.
+# X/2015 (10a.), registro 2009817? ¿Y la P./J. 2/2022 (11a.), registro digital
+# 2024159?» sólo se aceptaba 2009817. El abogado no podía pedir la sustituta
+# ni por su número ni por su clave, que es justo lo que hace cuando sospecha
+# que una tesis se abandonó. Tres fallos:
+#
+#   1. Se descartaba todo registro entre 2020000 y 2030000 «por parecer un
+#      año». Un año suelto («2022») tiene cuatro cifras y el patrón pide siete:
+#      nunca pudo casar. Lo que tiraba eran registros de la 11a. y la 12a.
+#      época —2024159, 2030517, 2032440…—, los más recientes, que son los que
+#      reemplazan a los viejos. Ahora: con la palabra «registro» delante vale
+#      cualquier número de 6 o 7 cifras (la Novena usa 6: 160584); sin ella,
+#      sólo 7 cifras en el rango real de los registros digitales (2000000 en
+#      adelante). Un año sigue sin poder entrar: no tiene 6 cifras.
+#   2. Las claves de la Corte no casaban: el patrón pedía una «J» pegada al
+#      órgano y dígitos, así que «P./J. 2/2022» y «P. X/2015» (romano) se
+#      quedaban fuera. Tampoco los Plenos Regionales («PR.P.CN. J/13 P»).
+#   3. La consulta iba por los campos «tesis» y «tesis_num», que la v3 no
+#      indexa: ver `_buscar_articulos_citados`.
+#
+# Con `re` y sin anotaciones de typing: este tramo cae entre las anclas que
+# test_preceptos_detectados.py ejecuta aparte, en un espacio con sólo `re`.
+_RX_REGISTRO_CITADO = re.compile(
+    r'(?P<pref>\bregistros?\s*(?:digital(?:es)?\s*)?(?:n[uú]m(?:ero)?\.?\s*)?(?:IUS\s*)?:?\s*)?'
+    r'(?<![\d./-])\b(?P<num>\d{6,7})\b(?![./-]\d)',
+    re.IGNORECASE)
+_SUF_EPOCA = r'(?:\s*\(\s*(?:9|10|11|12)\s*a\s*\.?\s*\))?'
+_RX_CLAVES_TESIS = (
+    # Suprema Corte, jurisprudencia: «P./J. 2/2022», «1a./J. 84/2022», y la
+    # errata sin diagonal «1a. J. 96/2011».
+    re.compile(r'(?<![\w.])(?:P|[1-4]a)\.\s*/?\s*J\.?\s*\d{1,4}\s*/\s*\d{2,4}' + _SUF_EPOCA,
+               re.IGNORECASE),
+    # Suprema Corte, aislada, con número romano: «P. X/2015», «2a. CIV/2014».
+    # Sin IGNORECASE: el romano va en mayúsculas y así no casa «la. mix/2015».
+    re.compile(r'(?<![\w.])(?:P|[1-4][aA])\.\s*[IVXLCDM]{1,9}\s*/\s*\d{2,4}' + _SUF_EPOCA),
+    # Plenos Regionales y de Circuito: «PR.P.CN. J/13 P», «PC.I.A. J/158 A»,
+    # «PR.P.CN.6 K».
+    re.compile(r'(?<![\w.])(?:PR|PC)\.(?:[A-Z]{1,6}\.){0,5}\s*(?:J/\s*\d{1,4}|\d{1,4})\s*[A-Z]{1,2}\b'
+               + _SUF_EPOCA),
+    # Tribunales Colegiados, jurisprudencia: «VI.2o. J/91», «IV.3o.T. J/97 (9a.)».
+    re.compile(r'(?<![\w.])[IVXL]{1,6}\.\d{1,2}[oa]\.(?:[A-Z]{1,2}\.){0,4}\s*J/\s*\d{1,4}(?:\s*[A-Z]{1,2}\b)?'
+               + _SUF_EPOCA),
+    # Tribunales Colegiados, aislada —el patrón de siempre—: «I.1o.C.15 K (10a.)».
+    re.compile(r'([IVXLC]+\.\d+[oa]\.(?:[A-Z]\.)*\d+\s*[A-Z]*(?:\s*\(\d{1,2}a?\.\))?)',
+               re.IGNORECASE),
+)
+
+
+def _normalizar_clave(c: str) -> str:
+    """La clave como la escribe el Semanario: «P./J.2/2022(11a.)» → «P./J. 2/2022 (11a.)»,
+    «p. x/2015» no (el romano va en mayúsculas), «PR.P.CN. J/ 13 P» → «PR.P.CN. J/13 P»."""
+    c = " ".join(str(c or "").split()).strip(" ,;:")
+    suf = ""
+    m = re.search(r'\(\s*(9|10|11|12)\s*a?\s*\.?\s*\)\s*$', c, re.IGNORECASE)
+    if m:
+        suf, c = f" ({m.group(1)}a.)", c[:m.start()].strip()
+    org = lambda o: "P" if o.upper() == "P" else o[0] + "a"  # noqa: E731
+    m = re.fullmatch(r'(P|[1-4]a)\.\s*/?\s*J\.?\s*(\d+)\s*/\s*(\d{2,4})', c, re.IGNORECASE)
+    if m:
+        return f"{org(m.group(1))}./J. {m.group(2)}/{m.group(3)}{suf}"
+    m = re.fullmatch(r'(P|[1-4]a)\.\s*([IVXLCDM]+)\s*/\s*(\d{2,4})', c, re.IGNORECASE)
+    if m:
+        return f"{org(m.group(1))}. {m.group(2).upper()}/{m.group(3)}{suf}"
+    return re.sub(r'J/\s+', 'J/', c) + suf
+
+
+def _variantes_de_clave(c: str) -> list:
+    """Las formas en que `clave_tesis` puede guardar esa clave. Con época
+    («(11a.)») sólo esa época —la misma clave de colegiado existe en 1995 y en
+    la 10a.—; sin ella, la clave pelada (Novena y anteriores) y las cuatro
+    épocas, con y sin espacio antes del paréntesis (así vienen 8 de 71 mil)."""
+    n = _normalizar_clave(c)
+    m = re.search(r'\s\((9|10|11|12)a\.\)$', n)
+    if m:
+        base = n[:m.start()]
+        return [n, f"{base}({m.group(1)}a.)"]
+    return [n] + [f"{n}{sep}({e}a.)" for e in (9, 10, 11, 12) for sep in (" ", "")]
+
+
 def _extract_legal_citations(text: str, pregunta_coidh: Optional[str] = None,
                               previo_coidh: Optional[str] = None) -> dict:
     """
@@ -13149,41 +13354,30 @@ def _extract_legal_citations(text: str, pregunta_coidh: Optional[str] = None,
     print(f"   📌 CITATIONS EXTRACTED: {len(all_nums)} unique article numbers across {len(result['articles'])} groups")
     print(f"   📌 ARTICLE NUMS: {sorted(all_nums, key=lambda x: int(x) if x.isdigit() else 0)[:30]}")
     
-    # ── 2. Registro numbers: 7-digit numbers (e.g., 2031072) ──
-    # Must be 7 digits to avoid false positives with years, article numbers, etc.
-    registro_pattern = _dl_re.compile(
-        r'(?:registro\s*(?:digital\s*)?(?:n[uú]m\.?\s*)?:?\s*)?'
-        r'\b(2\d{6})\b'  # 7 digits starting with 2 (all SCJN registros start with 2)
-    )
-    registros_found = set()
-    for match in registro_pattern.finditer(text):
-        num = match.group(1)
-        # Avoid false positives: check it's not a year (2020-2030) or phone-like
-        if not (2020000 <= int(num) <= 2030000):  # Not a year range
-            registros_found.add(num)
-    result["registros"] = list(registros_found)[:20]  # Cap at 20
-    
-    # ── 3. Tesis numbers: "P./J. 15/2025 (11a.)", "I.1o.C.15 K (10a.)", etc. ──
-    tesis_pattern = _dl_re.compile(
-        r'(?:tesis\s*:?\s*)?'
-        r'([PIXV]+[./]\s*[J]?\s*\.?\s*\d+/\d{4}'  # Base: P./J. 15/2025 or I.3o.A.5/2024
-        r'(?:\s*\(\d{1,2}a?\.\))?)',  # Optional epoch: (11a.)
-        _dl_re.IGNORECASE
-    )
-    tesis_found = set()
-    for match in tesis_pattern.finditer(text):
-        tesis_found.add(match.group(1).strip())
-    
-    # Also catch more complex TCC tesis patterns: "I.1o.C.15 K (10a.)"
-    tesis_pattern_2 = _dl_re.compile(
-        r'([IVXLC]+\.\d+[oa]\.(?:[A-Z]\.)*\d+\s*[A-Z]*'
-        r'(?:\s*\(\d{1,2}a?\.\))?)',
-        _dl_re.IGNORECASE  
-    )
-    for match in tesis_pattern_2.finditer(text):
-        tesis_found.add(match.group(1).strip())
-    
-    result["tesis_nums"] = list(tesis_found)[:20]  # Cap at 20
+    # ── 2. Registros digitales (ver _RX_REGISTRO_CITADO) ──
+    # En el orden en que aparecen: con el tope de 20, el que el abogado nombró
+    # primero no puede quedarse fuera por el orden de un set.
+    registros_found: List[str] = []
+    for match in _RX_REGISTRO_CITADO.finditer(text):
+        num = match.group("num")
+        if match.group("pref"):
+            valido = True                                   # «registro 160584», «registro digital 2024159»
+        else:
+            valido = len(num) == 7 and 2000000 <= int(num) < 2040000
+        if valido and num not in registros_found:
+            registros_found.append(num)
+    result["registros"] = registros_found[:20]  # Cap at 20
+
+    # ── 3. Claves de tesis (ver _RX_CLAVES_TESIS), normalizadas como las
+    # guarda el Semanario para que el filtro exacto de Qdrant las encuentre.
+    tesis_found: List[str] = []
+    for _rx_clave in _RX_CLAVES_TESIS:
+        for match in _rx_clave.finditer(text):
+            _c = _normalizar_clave(match.group(0))
+            if _c and _c not in tesis_found:
+                tesis_found.append(_c)
+
+    result["tesis_nums"] = tesis_found[:20]  # Cap at 20
     
     # ── 4. Casos de la Corte IDH: «Almonacid, párr. 124» (25-sep-2026) ──
     #
@@ -13384,7 +13578,12 @@ def _cita_coidh(doc: SearchResult) -> dict:
 def _tesis_a_dict(pid: str, pl: dict, silo: str) -> dict:
     """Una tesis traída por registro para la línea (recepción en México), con
     la misma forma que le da `_parse_results`: el visor de tesis la reconoce
-    por su `origen` «REGISTRO_CLAVE.txt» y su cabecera [TIPO:…]."""
+    por su `origen` «REGISTRO_CLAVE.txt» y su cabecera [TIPO:…].
+
+    Desde el 25-sep-2026 la usan también la búsqueda directa por registro y
+    por clave, las fuentes ya verificadas y las sustitutas del sello de
+    vigencia: antes cada una armaba su tesis con el texto crudo, sin registro
+    ni rubro, y el modelo recibía el cuerpo entero sin un solo atributo."""
     registro = str(pl.get("registro")) if pl.get("registro") else None
     tesis_num = (pl.get("tesis") or pl.get("numero_tesis") or pl.get("clave_tesis") or pl.get("tesis_num"))
     materia = pl.get("materia")
@@ -13398,6 +13597,7 @@ def _tesis_a_dict(pid: str, pl: dict, silo: str) -> dict:
         pdf_url=pl.get("pdf_url") or pl.get("url_pdf"), registro=registro, tesis_num=tesis_num,
         tipo_criterio=pl.get("tipo") or pl.get("tipo_criterio"), instancia_meta=pl.get("instancia"),
         materia_meta=materia, localizacion=pl.get("localizacion"), vincula=pl.get("vincula"),
+        vigencia=_vig.de(registro) if registro else None,
     )
 
 
@@ -13477,6 +13677,178 @@ def _coidh_sumar_linea(lin: Optional[dict], search_results: List[SearchResult],
         ya.add(sr.id)
         n += 1
     return "\n\n" + lin["xml"], n
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LA TESIS QUE REEMPLAZA, AL LADO DE LA QUE PERDIÓ VIGENCIA (25-sep-2026)
+# ══════════════════════════════════════════════════════════════════════════════
+# Decir «abandonada por la P./J. 2/2022» no basta: si la P./J. 2/2022 no está
+# en el contexto, el modelo no la puede citar —el sello la marcaría como
+# registro fuera del contexto— ni fundar en ella. Y por similitud no llega:
+# con el vector de la P. X/2015, la 2024159 sale en el puesto 38 y el pase
+# principal deja unas seis tesis. Así que se trae por su registro, que el
+# índice ya conoce, y entra como cualquier otra fuente: en search_results
+# (junto a la afectada), en el doc_id_map ([Doc ID], sello, marcadores) y su
+# XML se AÑADE al contexto, como la doctrina y la línea.
+#
+# Topes: seis sustitutas y tres segundos. Si la sustituta también perdió
+# vigencia se sigue la cadena hasta tres saltos (A → B → C). Nada de esto
+# puede costar la consulta: si Qdrant no responde, la afectada se queda con su
+# sello —que es lo importante— y se sigue.
+SUSTITUTAS_TOPE = 6
+SUSTITUTAS_SALTOS = 3
+SUSTITUTAS_PLAZO = 3.0
+
+
+async def _traer_tesis_por_registro(qdrant, coleccion: str,
+                                    registros: List[str]) -> Dict[str, Tuple[str, dict]]:
+    """registro → (id, payload), en una consulta: primero como texto y luego
+    como número, que es como la búsqueda directa ya los encuentra."""
+    regs = [str(r) for r in registros if str(r).isdigit()]
+    out: Dict[str, Tuple[str, dict]] = {}
+    for valores in (regs, [int(r) for r in regs]):
+        faltan = [v for v in valores if str(v) not in out]
+        if not faltan:
+            break
+        async with QDRANT_SEM:
+            pts, _ = await qdrant.scroll(
+                collection_name=coleccion,
+                scroll_filter=Filter(must=[FieldCondition(key="registro", match=MatchAny(any=faltan))]),
+                limit=3 * len(faltan), with_payload=True, with_vectors=False)
+        for p in pts or []:
+            reg = str((p.payload or {}).get("registro") or "")
+            if reg and reg not in out:
+                out[reg] = (str(p.id), p.payload or {})
+    return out
+
+
+async def _sumar_sustitutas(search_results: List[SearchResult], doc_id_map: Dict[str, SearchResult],
+                            qdrant=None, tope: int = SUSTITUTAS_TOPE, saltos: int = SUSTITUTAS_SALTOS,
+                            plazo: float = SUSTITUTAS_PLAZO) -> Tuple[str, int]:
+    """Trae la tesis que reemplaza a cada una que perdió vigencia y no está ya
+    en el contexto. Modifica search_results y doc_id_map EN SU LUGAR y
+    devuelve (xml para AÑADIR al contexto, cuántas sustitutas entraron).
+
+    El XML lleva un resumen <vigencia_tesis> —una línea por tesis sin
+    vigencia, con el Doc ID de la que la reemplaza cuando está— y las
+    sustitutas nuevas formateadas como las demás. Sin afectadas: ("", 0)."""
+    try:
+        col = FIXED_SILOS["jurisprudencia"]
+        q = qdrant if qdrant is not None else qdrant_client
+        afectadas = [r for r in search_results if r.silo in JURIS_SILOS and _vigencia_sr(r)]
+        if not afectadas:
+            return "", 0
+        ya_reg = {str(r.registro) for r in search_results if r.silo in JURIS_SILOS and r.registro}
+        ya_id = {r.id for r in search_results} | set(doc_id_map)
+        frente = [(r, str(_vigencia_sr(r)["por_registro"])) for r in afectadas
+                  if (_vigencia_sr(r) or {}).get("por_registro")]
+        nuevas: List[SearchResult] = []
+        t0 = time.perf_counter()
+        for _salto in range(max(0, saltos)):
+            pedir: List[str] = []
+            for _af, reg in frente:
+                if reg not in ya_reg and reg not in pedir:
+                    pedir.append(reg)
+            pedir = pedir[:max(0, tope - len(nuevas))]
+            restante = plazo - (time.perf_counter() - t0)
+            if not pedir or restante <= 0:
+                break
+            try:
+                hallados = await asyncio.wait_for(_traer_tesis_por_registro(q, col, pedir), timeout=restante)
+            except Exception as e:
+                print(f"   📛 VIGENCIA: no pude traer {len(pedir)} sustituta(s) ({type(e).__name__}); "
+                      "las afectadas van con su sello y sin la que las reemplaza")
+                break
+            siguiente = []
+            for af, reg in frente:
+                if reg in ya_reg or reg not in hallados or len(nuevas) >= tope:
+                    continue
+                pid, pl = hallados[reg]
+                ya_reg.add(reg)
+                if pid in ya_id:
+                    continue
+                sr = _sr_de(_tesis_a_dict(pid, pl, col))
+                # Junto a la afectada: en la lista va justo detrás y con su
+                # mismo puntaje (un pelo arriba, para que reorder_by_hierarchy
+                # la ponga delante si ambas llegan al mismo XML).
+                sr.score = float(af.score or 0.0) + 1e-6
+                pos = next((i for i, x in enumerate(search_results) if x is af), len(search_results) - 1)
+                search_results.insert(pos + 1, sr)
+                doc_id_map[sr.id] = sr
+                ya_id.add(sr.id)
+                nuevas.append(sr)
+                v2 = _vigencia_sr(sr)
+                if v2 and v2.get("por_registro"):
+                    siguiente.append((sr, str(v2["por_registro"])))
+            frente = siguiente
+            if not frente or len(nuevas) >= tope:
+                break
+
+        # El resumen: una línea por tesis sin vigencia de TODO el contexto
+        # (también las de la línea de la Corte IDH, cuyo XML no pasa por
+        # format_results_as_xml), con el Doc ID de la sustituta si está.
+        id_de_reg = {str(r.registro): r.id for r in search_results if r.silo in JURIS_SILOS and r.registro}
+        lineas = []
+        for r in search_results:
+            v = _vigencia_sr(r) if r.silo in JURIS_SILOS else None
+            if not v:
+                continue
+            sid = id_de_reg.get(str(v.get("por_registro") or ""))
+            lineas.append(
+                f'<perdida doc_id="{r.id}" registro="{html.escape(str(r.registro))}"'
+                f' tesis="{html.escape(str(r.tesis_num or ""))}"{_vig.atributos_xml(v)}'
+                + (f' doc_id_reemplazo="{sid}"' if sid else "")
+                + f'>{html.escape(_vig.etiqueta(v))}</perdida>')
+        xml = ("\n\n<vigencia_tesis>\n<!-- Tesis de este contexto que PERDIERON VIGENCIA y la que las "
+               "reemplaza (doc_id_reemplazo, cuando está aquí). Nunca las presentes como vigentes. -->\n"
+               + "\n".join(lineas) + "\n</vigencia_tesis>")
+        if nuevas:
+            xml += ("\n<!-- LAS TESIS QUE LAS REEMPLAZAN, traídas por su registro: cítalas con su "
+                    "[Doc ID] como a cualquier otra fuente. -->\n"
+                    + format_results_as_xml(nuevas, estado=None, prose_mode=False))
+        print(f"   📛 VIGENCIA: {len(afectadas)} tesis sin vigencia en el contexto "
+              f"({', '.join(str(r.registro) for r in afectadas[:6])}); "
+              f"sustitutas traídas: {', '.join(str(r.registro) for r in nuevas) or 'ninguna'}")
+        return xml, len(nuevas)
+    except Exception as e:
+        print(f"   📛 VIGENCIA: no pude sumar las sustitutas ({type(e).__name__}: {str(e)[:120]}); se sigue sin ellas")
+        return "", 0
+
+
+def _vigencia_citadas(texto: str, doc_id_map: Dict[str, SearchResult]) -> List[str]:
+    """Para el registro, tras la respuesta: una línea por tesis SIN vigencia
+    que la respuesta citó (por su [Doc ID] o por su registro) y si citó
+    también la que la reemplaza. Sólo observa: no toca la respuesta.
+
+        📛 VIGENCIA: citó 2009817 (abandonada; sustituta 2024159 citada: sí)"""
+    try:
+        if not texto or not doc_id_map:
+            return []
+        t = texto.lower()
+        regs_citados = set(_RE_REGISTRO_CITADO.findall(texto)) | set(re.findall(r"\b\d{6,7}\b", texto))
+        id_de_reg = {str(d.registro): i for i, d in doc_id_map.items()
+                     if getattr(d, "registro", None) and d.silo in JURIS_SILOS}
+        salida, vistos = [], set()
+        for i, d in doc_id_map.items():
+            if getattr(d, "silo", None) not in JURIS_SILOS:
+                continue
+            v = _vigencia_sr(d)
+            reg = str(getattr(d, "registro", "") or "")
+            if not v or reg in vistos:
+                continue
+            if str(i).lower() not in t and reg not in regs_citados:
+                continue
+            vistos.add(reg)
+            sus = str(v.get("por_registro") or "")
+            if sus:
+                citada = sus in regs_citados or (sus in id_de_reg and str(id_de_reg[sus]).lower() in t)
+                cola = f"sustituta {sus} citada: {'sí' if citada else 'no'}"
+            else:
+                cola = "sin sustituta en el índice"
+            salida.append(f"   📛 VIGENCIA: citó {reg} ({v.get('estado')}; {cola})")
+        return salida
+    except Exception:
+        return []
 
 
 async def _buscar_articulos_citados(
@@ -13843,18 +14215,13 @@ async def _buscar_articulos_citados(
                 pid = str(point.id)
                 if pid not in seen_ids:
                     seen_ids.add(pid)
-                    payload = point.payload or {}
-                    results.append(SearchResult(
-                        id=pid,
-                        score=1.0,
-                        texto=payload.get("texto", payload.get("text", "")),
-                        ref=payload.get("ref", payload.get("rubro")),
-                        origen=payload.get("origen") or payload.get("ley"),
-                        jurisdiccion=payload.get("jurisdiccion"),
-                        entidad=payload.get("entidad"),
-                        silo=juris_collection,
-                        pdf_url=payload.get("url_pdf"),
-                    ))
+                    # Como las demás tesis (25-sep-2026): con registro, clave,
+                    # cabecera y rubro, y con su sello de vigencia. Antes iba
+                    # el texto crudo sin registro: con TESIS_SOLO_RUBRO el
+                    # modelo recibía el cuerpo entero y ni un atributo, y una
+                    # P. X/2015 pedida por número entraba con score 1.0 sin
+                    # que nada dijera que está abandonada.
+                    results.append(_sr_de(_tesis_a_dict(pid, point.payload or {}, juris_collection)))
         except Exception as e:
             print(f"   ⚠️ Direct lookup error for registro {registro}: {err(e)}")
     
@@ -13865,41 +14232,33 @@ async def _buscar_articulos_citados(
         lookup_count += 1
         
         try:
-            # Try both "tesis" and "tesis_num" field names
+            # POR `clave_tesis`, QUE ES EL CAMPO INDEXADO (25-sep-2026). Se
+            # filtraba por «tesis» y «tesis_num»: la v3 no los tiene
+            # indexados, Qdrant respondía 400 «Index required» y el except de
+            # abajo se tragaba el error. Resultado: ninguna tesis pedida por su
+            # clave llegó nunca. La clave se busca en sus variantes de época
+            # («P./J. 2/2022» → también «P./J. 2/2022 (11a.)»), porque así la
+            # guarda el Semanario y el abogado casi nunca escribe el sufijo.
             points = []
-            for field_name in ["tesis", "tesis_num"]:
-                try:
-                    pts, _ = await qdrant_client.scroll(
-                        collection_name=juris_collection,
-                        scroll_filter=Filter(must=[
-                            FieldCondition(key=field_name, match=MatchValue(value=tesis_num))
-                        ]),
-                        limit=3,
-                        with_payload=True,
-                        with_vectors=False,
-                    )
-                    if pts:
-                        points = pts
-                        break
-                except Exception:
-                    continue
+            try:
+                points, _ = await qdrant_client.scroll(
+                    collection_name=juris_collection,
+                    scroll_filter=Filter(must=[
+                        FieldCondition(key="clave_tesis",
+                                       match=MatchAny(any=_variantes_de_clave(tesis_num)))
+                    ]),
+                    limit=3,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+            except Exception as e:
+                print(f"   ⚠️ Direct lookup: la clave «{tesis_num}» no se pudo consultar: {err(e)}")
             
-            for point in points:
+            for point in points or []:
                 pid = str(point.id)
                 if pid not in seen_ids:
                     seen_ids.add(pid)
-                    payload = point.payload or {}
-                    results.append(SearchResult(
-                        id=pid,
-                        score=1.0,
-                        texto=payload.get("texto", payload.get("text", "")),
-                        ref=payload.get("ref", payload.get("rubro")),
-                        origen=payload.get("origen") or payload.get("ley"),
-                        jurisdiccion=payload.get("jurisdiccion"),
-                        entidad=payload.get("entidad"),
-                        silo=juris_collection,
-                        pdf_url=payload.get("url_pdf"),
-                    ))
+                    results.append(_sr_de(_tesis_a_dict(pid, point.payload or {}, juris_collection)))
         except Exception as e:
             print(f"   ⚠️ Direct lookup error for tesis {tesis_num}: {err(e)}")
     
@@ -15852,11 +16211,10 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         if _nuevas:
                             search_results = _nuevas + search_results
                             doc_id_map.update(build_doc_id_map(_nuevas))
+                            # Las que perdieron vigencia van FUERA del «sin
+                            # reservas» (25-sep-2026): ver _xml_verificadas.
                             context_xml = (
-                                "<!-- FUENTES YA VERIFICADAS EN ESTA CONVERSACIÓN: "
-                                "el abogado ya las vio con su sello. Cítalas por su "
-                                "[Doc ID] sin reservas; no hace falta volver a justificarlas. -->\n"
-                                + format_results_as_xml(_nuevas, estado=None, prose_mode=False)
+                                _xml_verificadas(_nuevas)
                                 # Corte IDH: su bloque propio (revisión A.3).
                                 + _coidh_xml_resueltos(_nuevas)
                                 + "\n\n" + context_xml
@@ -16122,6 +16480,17 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         yield "\n<!-- SUSCRIPCION_SUSPENDIDA -->"
                     yield f"\n❌ {err_msg}"
                     return
+
+                # ── El sello de vigencia: la tesis que reemplaza, al lado ──
+                # (25-sep-2026) AQUÍ, en el punto común: ya entraron la
+                # búsqueda de las seis ramas (consulta, redacción, documento,
+                # sentencia, precedentes), las verificadas, la línea y los
+                # precedentes, y todavía no se arma el prompt ni se emite
+                # FUENTES_PREVIAS, así que la sustituta sale con su [Doc ID],
+                # en el mapa de fuentes y en el sello. Ver _sumar_sustitutas.
+                _xml_vig, _ = await _sumar_sustitutas(search_results, doc_id_map)
+                if _xml_vig:
+                    context_xml = (context_xml or "") + _xml_vig
 
                 # ─────────────────────────────────────────────────────────────────────
                 # PASO 2: Construir mensajes para LLM
@@ -16878,6 +17247,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 **_campos_coidh(_d),
                                 # Y la doctrina, con su página y su ancla.
                                 **_campos_doctrina(_d),
+                                # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
+                                **_campos_vigencia(_d),
                             }
                         yield ("\n<!-- FUENTES_PREVIAS:"
                                + json.dumps(_previas, ensure_ascii=False) + " -->\n")
@@ -17928,6 +18299,13 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 print(f"      ❌ Registro {_hr} NO está en el RAG — ALUCINACIÓN del LLM")
                         else:
                             print(f"   ✅ Registros verificados: {len(_cited_registros)} citados, todos válidos")
+                    # EL SELLO DE VIGENCIA EN EL REGISTRO (25-sep-2026). «Todos
+                    # válidos» dio por buenas dos tesis abandonadas: el
+                    # registro existía. Esto no toca la respuesta; deja en
+                    # Render qué tesis sin vigencia se citó y si se citó
+                    # también la que la reemplaza, para medir antes de decidir.
+                    for _lv in _vigencia_citadas(content_buffer, doc_id_map):
+                        print(_lv)
 
                 # Validar citas (ahora con UUIDs reparados en content_buffer)
                 if doc_id_map:
@@ -17965,6 +18343,8 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 # Doctrina: la URL de la UNAM sin #page, con
                                 # `pagina` y `ancla` aparte (25-sep-2026).
                                 **_campos_doctrina(doc),
+                                # Sello de vigencia (25-sep-2026): sólo tesis que la perdieron.
+                                **_campos_vigencia(doc),
                             }
                             sources_map[cv.doc_id] = source_entry
                         else:
@@ -18887,6 +19267,7 @@ Usa este texto como base para continuar, modificar o mejorar según las instrucc
                                     "tipo_criterio": doc.tipo_criterio or None,
                                     "instancia": doc.instancia_meta or None,
                                     "materia": doc.materia_meta or None,
+                                    **_campos_vigencia(doc),   # sello de vigencia (25-sep-2026)
                                 }
                         meta = json.dumps({
                             "valid": validation.valid_count,
@@ -24974,6 +25355,9 @@ def _build_qdrant_search_for_redactor():
                         "epoca": p.get("epoca", ""),
                         "tipo": p.get("tipo", ""),
                         "numero_tesis": p.get("numero_tesis", ""),
+                        # El sello de vigencia (25-sep-2026): None si no consta
+                        # pérdida. El plan del redactor aún no lo lee.
+                        "vigencia": _vig.de(p.get("registro")),
                         "_source_collection": _col,
                     })
             except Exception as e:
@@ -35522,9 +35906,13 @@ async def _gratis_fuentes(consulta: str) -> tuple:
     for i, pt in enumerate(_pt, 1):
         pl = pt.payload or {}
         _reg = str(pl.get("registro") or "")
+        # El sello de vigencia (25-sep-2026), también en el carril gratuito:
+        # una línea más, sólo cuando la tesis la perdió.
+        _vg = _vig.de(_reg)
         partes.append(
             f"[{i}] TESIS · registro {_reg} · {pl.get('clave_tesis') or ''} · "
-            f"{pl.get('instancia') or ''} · {pl.get('epoca') or ''}\n"
+            f"{pl.get('instancia') or ''} · {pl.get('epoca') or ''}"
+            + (f" · ⚠️ {_vig.etiqueta(_vg)} (NO la presentes como vigente)" if _vg else "") + "\n"
             f"{(pl.get('rubro') or '')[:320]}\n{(pl.get('texto') or '')[:900]}")
         fuentes.append({
             "n": i, "tipo": "tesis", "registro": _reg,
@@ -35539,6 +35927,7 @@ async def _gratis_fuentes(consulta: str) -> tuple:
             # carpeta y su historial— es exactamente lo que se paga.
             "semanario": f"https://sjf2.scjn.gob.mx/detalle/tesis/{_reg}" if _reg else None,
             "texto": (pl.get("texto") or "")[:1200],
+            **({"vigencia": _vig.marcador(_vg)} if _vg else {}),
         })
     for j, pb in enumerate(_pb, len(partes) + 1):
         pl = pb.payload or {}

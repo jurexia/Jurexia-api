@@ -92,6 +92,12 @@ scripts/
 # que lee linea_coidh.pdf_de: sin él, en Render el visor vuelve a pedir
 # corteidh.or.cr, que Cloudflare reta con 403, y dice «No se pudo abrir el PDF».
 !datos/coidh_copias.json
+# El sello de vigencia de las tesis (25-sep-2026): el índice de las 558 que
+# perdieron vigencia según el Semanario (scripts/vigencia_tesis_generar.py) y
+# la capa curada que las reglas no ven. Sin ellos, en Render vigencia_tesis.py
+# no sella nada y la P. X/2015 vuelve a salir como vigente.
+!datos/vigencia_tesis.json
+!datos/vigencia_curada.json
 _catalog_*.json
 sise_*.json
 debug_resp.json

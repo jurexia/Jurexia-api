@@ -36,6 +36,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
+import vigencia_tesis as _vig
+
 # Las entidades donde el Código Nacional YA rige. Vacío por omisión: la
 # vigencia es un dato del mundo, no del acervo, y ponerla a ojo sería inventar.
 # Se declara con CNPCF_VIGENTE=jalisco,colima… cuando se sepa con certeza.
@@ -609,6 +611,16 @@ def _bloque_material(m: Material) -> str:
             if t.get("metodo"):
                 _linea = (" — CRITERIO DE MÉTODO: dice CÓMO interpretar; se cita "
                           "sólo en el peldaño del diálogo constitucional")
+            # EL SELLO DE VIGENCIA (25-sep-2026). Una jurisprudencia
+            # abandonada ya no obliga, y la co-citación del circuito premia
+            # justo a los criterios viejos y muy citados: sin la marca, «LO
+            # CITAN 9 SENTENCIAS» empujaba a fundar en una tesis sin vigencia.
+            _v = t.get("vigencia")
+            if _v:
+                if not _v.get("parcial"):
+                    fuerza = "SIN VIGENCIA"
+                _linea += (f" — ⚠️ {_vig.etiqueta(_v)}: no la invoques como vigente"
+                           + (f"; funda en la {_v['por_clave']}" if _v.get("por_clave") else ""))
             p.append(f"\n  · [{fuerza}] [{tipo}] Registro "
                      f"{t.get('registro','')} — {t.get('instancia','')}{_uso}{_linea}")
             p.append(f"    {t.get('rubro','')}")
