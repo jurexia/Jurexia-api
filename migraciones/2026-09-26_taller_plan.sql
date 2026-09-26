@@ -21,7 +21,7 @@
 --
 -- LA FORMA (la escribe y la lee sólo el servidor, con el rol de servicio):
 --   {rev, version, huella, corridas, pedido_clave,
---    planes: {<clave>: {estado: en_curso|listo|fallo, desde, latido,
+--    planes: {<clave>: {estado: en_curso|listo|fallo|error, desde, latido,
 --                       plan, avisos, segundos, hecho}}}
 -- `huella` es la del adelanto: si el secretario rehace el adelanto, el tope de
 -- cuatro corridas y los planes empiezan de cero. Como mucho seis casillas.

@@ -1050,6 +1050,115 @@ try:
 except ImportError:
     print("      (el inventario de verdad aún no está en esta rama: se usó el doble del contrato)")
 
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n14 · REVISIÓN ADVERSARIAL (26-sep-2026)")
+# (a) ART. 189: «fondo por encima de los de procedimiento Y FORMA». La forma
+# se contaba del lado del fondo.
+_d = mutar(lambda d: (seg(d, "C2.a").update(vicio="forma"), d["unidades"].reverse(),
+                      d["orden"].update(por_que="el escrito")))
+ok(any("189" in x and "en la lista de unidades" in x for x in _v0(_d, c=_co, f=_fo)),
+   "art. 189: una violación FORMAL antes que el fondo, sin mayor beneficio dicho, se rechaza")
+# (b) Con orden «promovente» la estándar imprime los apartados por número de
+# concepto: V0 revisa ESE orden, no sólo la lista de unidades.
+_fq = fases(problemas=[{"pregunta": PREG1, "cubre": [2, 3], "clase": "fondo", "jerarquia": "principal"},
+                       {"pregunta": PREG2, "cubre": [1], "clase": "procesal", "jerarquia": "principal"}])
+_cq = [f6.Criterio(problema=PREG1, sentido="infundado", razonamiento=RAZON1, jerarquia="principal"),
+       f6.Criterio(problema=PREG2, sentido="infundado", razonamiento=RAZON2, jerarquia="principal")]
+
+
+def _procesal_primero(d):
+    for x in ("C1.a", "C1.b"):
+        seg(d, x).update(problema_id=2, vicio="procesal")
+    for x in ("C2.a", "C3.a", "C3.b"):
+        seg(d, x).update(problema_id=1)
+    d["unidades"] = [{"id": "U1", "problemas": [1], "segmentos": ["C2.a", "C3.a", "C3.b"],
+                      "premisa": "M1", "objecion": None},
+                     {"id": "U2", "problemas": [2], "segmentos": ["C1.a", "C1.b"],
+                      "premisa": "M2", "objecion": None}]
+    d["orden"] = {"criterio": "promovente", "por_que": "el del escrito"}
+
+
+_d = mutar(_procesal_primero)
+_f = _v0(_d, c=_cq, f=_fq)
+ok(not any("189" in x and "en la lista de unidades" in x for x in _f)
+   and any("189" in x and "promovente" in x for x in _f),
+   "estándar con orden «promovente»: la procesal del concepto 1 saldría antes que el fondo → se rechaza")
+_d["orden"]["criterio"] = "prelacion"
+ok(not any("189" in x for x in _v0(_d, c=_cq, f=_fq)),
+   "…y con «prelacion» (las unidades, fondo primero) pasa")
+_p_orden = pe.prompt_plan(tipo_asunto="amparo_directo", probs=pe.problemas_del_criterio(crit(), fases()),
+                          segs=SEGS_N, resumen_acto="r", tramos=pe._tramos_del_escrito(fases()),
+                          indice=_ind, n=3)
+ok("«promovente» = los apartados siguen el orden del escrito" in _p_orden
+   and "forma: vicio formal de la resolución" in _p_orden
+   and "procesal o formal da mayor beneficio" in _p_orden,
+   "el planificador sabe qué imprime cada orden y qué es cada vicio (descripciones, no frases)")
+# (c) Art. 79: la regla de «sólo se expresa si trae beneficio» es del PENÚLTIMO
+# párrafo (el último es el de las procesales y formales sin vicio de fondo).
+ok("penúltimo párrafo" in pe._DESCRIBE_TRAT["no_se_expresa_art79"]
+   and "art. 79, último" not in pe._DESCRIBE_TRAT["no_se_expresa_art79"],
+   "art. 79: no se expresa lo suplido sin beneficio (penúltimo párrafo)")
+_ds = mutar(lambda d: (d["segmentos"].append(
+    {"id": "S1.a", "problema_id": 1, "vicio": "procesal", "ataca": None, "reitera": None, "dato": None,
+     "etiqueta": "fundado", "razon": "fundado", "trat": "aplica", "diferencia": None, "pendiente": None}),
+    [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C1.b", "C3.a", "C3.b")]))
+_rs, _ = _rep(_ds, c=crit(s1="fundado"))
+ok(any("S1.a" in a and "79, último párrafo" in a for a in _rs["avisos_al_secretario"]),
+   "art. 79, último párrafo: suplir una procesal habiendo vicio de fondo que prospera se avisa")
+# (d) Un argumento del escrito no desaparece por el tratamiento.
+_d = mutar(lambda d: seg(d, "C1.b").update(trat="no_se_expresa_art79"))
+ok(any("C1.b" in x and "no_se_expresa_art79" in x for x in _v0(_d)),
+   "un concepto del escrito no puede ir a «no se expresa» (eso es sólo lo suplido)")
+_d = mutar(lambda d: seg(d, "C1.b").update(trat="no_se_estudia"))
+ok(any("C1.b" in x and "no_se_estudia" in x for x in _v0(_d)),
+   "ni a «no se estudia» si su criterio lo decide (infundado)")
+_ci = crit(s1="fundado", s2="innecesario", r2="Queda sin materia.")
+_d = mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C1.b", "C3.a", "C3.b")])
+_ri, _avi = _rep(_d, c=_ci)
+ok(seg(_ri, "C2.a")["trat"] == "no_se_estudia" and any("C2.a" in a and "no se estudia" in a for a in _avi),
+   "si el criterio dice «innecesario», el argumento va a «no se estudia» (organización, no sentido)")
+# (e) El adhesivo con un criterio que lo estudia: aviso, no un V0 imposible.
+_da = mutar(lambda d: d["segmentos"].append(dict(seg(d, "C2.a"), id="AD1.a")))
+ok(not any("adhesivo_sin_materia" in x for x in _v0(_da)),
+   "el adhesivo que su criterio estudia no exige adhesivo_sin_materia (V0 no puede cambiar el sentido)")
+ok(any("AD1.a" in a and "182" in a for a in _rep(_da)[0]["avisos_al_secretario"]),
+   "…pero se avisa (art. 182: sigue la suerte del principal)")
+# (f) La remisión a la premisa que expuso OTRA unidad.
+
+
+def _u3(d):
+    d["unidades"][0]["segmentos"] = ["C1.a", "C1.b"]
+    d["unidades"].append({"id": "U3", "problemas": [1], "segmentos": ["C3.a", "C3.b"], "premisa": "M1",
+                          "objecion": None})
+
+
+_p3, _ = _rep(mutar(_u3))
+_g3 = pe.vista(_p3, "estandar")
+_l3 = {ln.strip().split(" · ")[0]: ln for ln in _g3.splitlines()}
+ok(_g3.count("EXPONE M1") == 1 and "REMITE C3.a" in _l3 and "→ apartado 1 (M1)" in _l3["REMITE C3.a"],
+   "remite a la premisa que expuso OTRA unidad: con su destino, y la premisa una sola vez")
+ok("premisa M1 ya expuesta en el apartado 1" in _l3.get("DESARROLLA C3.b", ""),
+   "y lo que se desarrolla en otro apartado sabe que la premisa ya está expuesta")
+# (g) Las marcas del plan: las unidades que prosperan y ⟦M⟧/⟦U⟧ en el bloque.
+_pf, _ = _rep(mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado")
+                               for x in ("C1.a", "C1.b", "C3.a", "C3.b")]), c=crit(s1="fundado"))
+_gf = pe.vista(_pf, "estandar")
+ok("UNIDADES QUE PROSPERAN (de ellas salen los efectos): U1 (C1.a, C1.b, C3.a, C3.b)" in _gf
+   and "UNIDADES QUE PROSPERAN" not in _g, "el guion dice qué unidades prosperan (y ninguna si nada prospera)")
+_bf = pe.bloque(_gf)
+ok("MARCAS DEL PLAN" in _bf and "identificador M" in _bf and "identificador U" in _bf,
+   "la v4 pide ⟦M⟧ donde se expone la premisa y ⟦U⟧ en cada efecto (w2_final §4.7)")
+# (h) La ficha no se lleva textos largos a `estado`.
+_fl = pe.para_ficha(pe.aplicar_razones(_pb, {"C3.b": "palabra " * 500}))
+ok(len(seg(_fl, "C3.b")["razon_secretario"].split()) <= 60 and all(len(str(s.get("cita", "")).split()) <= 40
+                                                                   for s in _fl["segmentos"]),
+   "la ficha recorta la cita y la razón del secretario")
+# (i) El pedido decide la variante como los gemelos.
+_src_ped = ast.get_source_segment(SRC_MAIN, FN["taller_plan_pedir"])
+ok("_taller_variante_estudio(user_email, variante_estudio)" in _src_ped
+   and 'variante_estudio or "v4"' not in _src_ped,
+   "pedir: la variante vacía es la global, como en el resolver (no «v4» por omisión)")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

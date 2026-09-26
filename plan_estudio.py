@@ -64,7 +64,7 @@ import unicodedata
 
 # Sube cuando cambie el esquema, el prompt o una regla de V0: un plan hecho con
 # otra versión no se reutiliza (entra en la clave).
-PLAN_VERSION = "plan-1"
+PLAN_VERSION = "plan-2"      # plan-2: revisión del 26-sep-2026 (orden del art. 189, marcas M/U)
 
 # EL MODELO DE LAS FASES, con razonamiento MEDIO (propuesta §3.6: «Se mide
 # ESFUERZO_PLAN=medium contra high»). Se lee al llamar, no al importar, para
@@ -179,7 +179,20 @@ _DESCRIBE_TRAT = {
     "desarrolla": "trae algo que ninguna premisa contesta (su diferencia): se construye sólo eso",
     "residual": "argumento menor: una o dos frases con su calificación y su razón",
     "no_se_estudia": "no se estudia, con su razón (cae_con_principal, sin_materia, innecesario_mayor_beneficio, adhesivo_sin_materia)",
-    "no_se_expresa_art79": "segmento suplido que no trae beneficio: no se expresa en la sentencia (art. 79, último párrafo)",
+    # PENÚLTIMO párrafo del art. 79 LA («En estos casos solo se expresará en
+    # las sentencias cuando la suplencia derive de un beneficio»), verificado
+    # contra el texto vigente el 26-sep-2026; el último es otro: la suplencia
+    # por violaciones procesales o formales sólo opera sin vicio de fondo.
+    "no_se_expresa_art79": "segmento suplido que no trae beneficio: no se expresa en la sentencia (art. 79, penúltimo párrafo); sólo para segmentos S",
+}
+# Qué es cada vicio (el orden del art. 189 depende de él): descripciones, sin
+# frases que copiar.
+_DESCRIBE_VICIO = {
+    "procedencia": "ataca la procedencia del juicio o del recurso, o lo que la condiciona",
+    "procesal": "violación a las leyes del procedimiento cometida durante el juicio (artículos 171 y 172 de la Ley de Amparo)",
+    "forma": "vicio formal de la resolución misma —fundamentación, motivación, congruencia— sin discutir lo decidido",
+    "omision": "la responsable dejó de pronunciarse sobre algo que se le planteó",
+    "fondo": "discute lo decidido: los hechos, la valoración de las pruebas o la interpretación y aplicación de la norma",
 }
 
 # ═══ NORMALIZACIÓN ═════════════════════════════════════════════════════════
@@ -651,6 +664,7 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
     razones = "\n".join(f"  {k}: {v} → implica {RAZONES[k]['clase'].replace('_', ' ')}"
                         for k, v in _DESCRIBE_RAZON.items())
     trats = "\n".join(f"  {k}: {v}" for k, v in _DESCRIBE_TRAT.items())
+    vicios = "\n".join(f"  {k}: {v}" for k, v in _DESCRIBE_VICIO.items())
     escrito = "\n\n".join(
         (f"── {q1} {k} ──\n{t}" if k != "escrito" else t) for k, t in tramos
     ) or "(no está el escrito)"
@@ -681,8 +695,8 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
     _orden_ad = (
         "  · En el amparo directo, el fondo antes que el procedimiento y la forma (artículo 189\n"
         "    de la Ley de Amparo); el orden sólo se invierte si estudiar primero una violación\n"
-        "    procesal da mayor beneficio, y entonces orden.por_que dice en qué consiste ese\n"
-        "    beneficio.\n") if _ad else (
+        "    procesal o formal da mayor beneficio, y entonces orden.por_que dice en qué consiste\n"
+        "    ese beneficio.\n") if _ad else (
         "  · En un recurso, el orden que fije su técnica.\n")
 
     return f"""Organizas el estudio de fondo de un proyecto de resolución de un Tribunal Colegiado de Circuito ({voc['nombre']}). NO decides el sentido: el secretario ya lo fijó para cada problema y está abajo. NO redactas: la prosa la escribe otro paso con tu plan como guion. Decides, con datos, cómo se organiza la respuesta a cada argumento, para que ninguno quede sin respuesta propia y ninguna premisa se exponga dos veces.
@@ -706,7 +720,7 @@ REGLAS QUE EL CÓDIGO COMPRUEBA (si no se cumplen, tu plan se rechaza)
   · cosa_juzgada_amparo_previo sólo contra una proposición vinculada por una ejecutoria de amparo que conste en lo que resolvió {organo}, en el contexto o en el material.
   · Un segmento cuyo problema tiene sentido pero cuya razón del secretario NO contesta lo propio del segmento (su dato, su precepto, su precedente): pendiente «razon» y trat «desarrolla». No inventes esa razón.
   · Un segmento cuyo problema no tiene sentido fijado: pendiente «sentido» y etiqueta vacía.
-  · Orden:
+  · Orden. orden.criterio «promovente» = los apartados siguen el orden del escrito; «prelacion» = siguen el orden de tu lista de unidades. Con cualquiera de los dos, el orden que resulta cumple esto:
   · La procedencia primero, y cada accesorio después de su principal.
 {_orden_ad}
 CATÁLOGOS
@@ -714,7 +728,8 @@ razon (nombre: qué significa → qué implica):
 {razones}
 trat:
 {trats}
-vicio: procedencia | procesal | forma | omision | fondo
+vicio (la clase de violación que alega el segmento):
+{vicios}
 diferencia (lo que obliga a desarrollar): hecho | prueba | norma | precedente | procesal | consecuencia
 carácter de una proposición: toral | accesoria | obiter | consecuencia
 relación de una proposición: necesaria | suficiente | dependiente_de:Pk
@@ -1178,10 +1193,46 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                     n = cx.resolver_norma(f"art. {art}")
                     m["fuentes"]["normas"].append(n or f"art. {art} (razón del secretario)")
 
-    # (k) Suplidos sin beneficio: al mapa, no a la sentencia.
+    # (k) Suplidos sin beneficio: al mapa, no a la sentencia (art. 79,
+    # PENÚLTIMO párrafo, LA).
     for s in segmentos:
         if s["id"].startswith("S") and clase_sentido(s.get("etiqueta")) != PROSPERA:
             s["trat"] = "no_se_expresa_art79"
+    # Y el ÚLTIMO párrafo del art. 79: la suplencia por violaciones procesales
+    # o formales sólo opera si en el acto no hay vicio de fondo. Si el criterio
+    # concede por fondo y además por una procesal o formal suplida, el plan no
+    # lo cambia (es el sentido), pero lo dice.
+    if cx.alguno_prospera_fondo:
+        for s in segmentos:
+            if s["id"].startswith("S") and s.get("vicio") in ("procesal", "forma") \
+                    and clase_sentido(s.get("etiqueta")) == PROSPERA:
+                _a = (f"{s['id']}: se suple una violación procesal o formal y hay un vicio de fondo "
+                      f"que prospera (art. 79, último párrafo, de la Ley de Amparo)")
+                if _a not in plan["avisos_al_secretario"]:
+                    plan["avisos_al_secretario"].append(_a)
+
+    # LO QUE EL CRITERIO NO MANDA ESTUDIAR, NO SE ESTUDIA: si su problema dice
+    # «innecesario» o «sin materia», el argumento va a una frase con su razón,
+    # no a una unidad con su premisa. Es organización, no sentido: la etiqueta
+    # ya es la del criterio. Tampoco se le pide una razón que no se usará.
+    for s in segmentos:
+        if s.get("etiqueta") and clase_sentido(s["etiqueta"]) == NO_SE_ESTUDIA:
+            if s.get("trat") in _EN_UNIDAD + ("",):
+                avisos.append(f"{s['id']}: su criterio dice que no se estudia; va a no_se_estudia")
+                s["trat"] = "no_se_estudia"
+            if s.get("pendiente") == "razon":
+                s["pendiente"] = None
+    # (m) El adhesivo sigue la suerte del principal (art. 182 LA): si nada
+    # prospera y el criterio aun así le da una calificación de estudio, el plan
+    # no la cambia; lo dice.
+    if not cx.alguno_prospera:
+        for s in segmentos:
+            if s["id"].startswith("AD") and s.get("etiqueta") \
+                    and clase_sentido(s["etiqueta"]) != NO_SE_ESTUDIA:
+                _a = (f"{s['id']}: el principal no prospera y tu criterio estudia el adhesivo; sigue la "
+                      f"suerte del principal (art. 182 de la Ley de Amparo)")
+                if _a not in plan["avisos_al_secretario"]:
+                    plan["avisos_al_secretario"].append(_a)
 
     # Decisión 6: el pendiente de razón se desarrolla.
     for s in segmentos:
@@ -1374,8 +1425,23 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
         # Decisión 6.
         if s.get("pendiente") == "razon" and s.get("trat") != "desarrolla":
             f.append(f"{sid}: pendiente de razón va «desarrolla»")
-        # (m) Adhesivo sin materia si el principal no prospera.
-        if sid.startswith("AD") and not cx.alguno_prospera and rz != "adhesivo_sin_materia":
+        # EL TRATAMIENTO NO PUEDE BORRAR UN ARGUMENTO (revisión del 26-sep-2026).
+        # El guion no imprime lo que va a `no_se_expresa_art79` y reduce a una
+        # frase lo que va a `no_se_estudia`: si el plan pone ahí un concepto
+        # que el criterio DECIDE, el argumento desaparece del estudio sin que
+        # nadie lo haya resuelto así (art. 74, fracción II, de la Ley de
+        # Amparo: el análisis de TODOS los conceptos).
+        if s.get("trat") == "no_se_expresa_art79" and not sid.startswith("S"):
+            f.append(f"{sid}: no_se_expresa_art79 es sólo para lo suplido (S); un argumento del "
+                     f"escrito siempre se contesta")
+        if s.get("trat") == "no_se_estudia" and fijado and clase_sentido(fijado) != NO_SE_ESTUDIA:
+            f.append(f"{sid}: el criterio lo decide («{fijado}»): no puede ir a no_se_estudia")
+        # (m) Adhesivo sin materia si el principal no prospera. Sólo se exige
+        # cuando el criterio de su problema ya dice que no se estudia: si dice
+        # otra cosa, el plan no puede cambiarlo (lo avisa `reparar`) y exigirlo
+        # aquí haría imposible cualquier plan.
+        if sid.startswith("AD") and not cx.alguno_prospera and rz != "adhesivo_sin_materia" \
+                and clase_sentido(s.get("etiqueta")) == NO_SE_ESTUDIA:
             f.append(f"{sid}: si el principal no prospera, el adhesivo queda sin materia (adhesivo_sin_materia)")
 
     # (e) Una unidad no mezcla proposición, vicio ni razón (salvo el grupo del
@@ -1446,39 +1512,84 @@ def _exime_171(cx: _Ctx) -> bool:
         return False
 
 
+# ART. 189 DE LA LEY DE AMPARO (verificado contra el texto vigente, DOF
+# 13-03-2025): «se privilegiará el estudio de los conceptos de violación de
+# FONDO por encima de los de PROCEDIMIENTO Y FORMA, a menos que invertir el
+# orden redunde en un mayor beneficio». Hasta la revisión del 26-sep-2026 el
+# código contaba la «forma» del lado del fondo, al revés que la ley. La
+# «omisión» (la responsable no se pronunció) no va en ninguna de las dos
+# listas: según lo omitido es fondo o forma, y el código no puede saberlo.
+_VICIOS_FONDO_189 = {"fondo"}
+_VICIOS_TRAS_FONDO_189 = {"procesal", "forma"}
+
+
+def _secuencias_de_orden(plan: dict, cx: _Ctx, por_id: dict) -> list[tuple]:
+    """Los órdenes en que el guion PRESENTA el estudio, que es lo que hay que
+    revisar —no una lista que nadie imprime—:
+      · el de las unidades: la moderna ordena sus problemas por ahí, y la
+        estándar también cuando el orden es de prelación;
+      · con el orden «promovente», el de los apartados de la estándar, que
+        siguen el número de concepto del escrito (`_apartados_estandar`).
+    El plan no sabe con qué forma se escribirá (la forma no entra en la
+    clave), así que V0 revisa las dos. Hasta el 26-sep-2026 sólo miraba las
+    unidades, y una estándar con la procesal en el primer concepto salía antes
+    que el fondo aunque V0 la diera por buena."""
+    unis = plan.get("unidades") or []
+    seqs = [("unidades", [[por_id[x] for x in u.get("segmentos") or [] if x in por_id]
+                          for u in unis])]
+    if (plan.get("orden") or {}).get("criterio") != "prelacion":
+        # El concepto de cada segmento es el del PISO: lo que diga el plan de
+        # él no cuenta (y un plan sin reparar puede no traerlo).
+        _p = dict(plan)
+        _p["segmentos"] = [dict(s, concepto=(cx.seg_piso.get(s.get("id")) or s).get("concepto") or 0)
+                           for s in plan.get("segmentos") or [] if s.get("id")]
+        _por = {s["id"]: s for s in _p["segmentos"]}
+        aps = _apartados_estandar(_p, _por)
+        seqs.append(("apartados", [[s for s in ap["segmentos"]
+                                    if s.get("trat") != "no_se_expresa_art79"
+                                    and s.get("pendiente") != "sentido"] for ap in aps]))
+    return seqs
+
+
 def _faltas_de_orden(plan: dict, cx: _Ctx, por_id: dict) -> list[str]:
     f = []
-    unis = plan.get("unidades") or []
-    primero_de_problema, clase_u = {}, []
-    for i, u in enumerate(unis):
-        us = [por_id[x] for x in u.get("segmentos") or [] if x in por_id]
-        for s in us:
-            primero_de_problema.setdefault(s.get("problema_id"), i)
-        clase_u.append({s.get("vicio") for s in us})
-    # La procedencia primero.
-    proc = [i for i, v in enumerate(clase_u) if "procedencia" in v]
-    otras = [i for i, v in enumerate(clase_u) if v and "procedencia" not in v]
-    if proc and otras and max(proc) > min(otras):
-        f.append("la procedencia va antes que cualquier otra unidad")
-    # Cada accesorio después de su principal.
-    principales = [p["id"] for p in cx.probs if p["jerarquia"] == "principal"]
-    for p in cx.probs:
-        dep = p.get("depende_de") or (principales[0] if principales and p["jerarquia"] == "accesorio"
-                                     and p["id"] not in principales else None)
-        if dep and p["id"] in primero_de_problema and dep in primero_de_problema \
-                and primero_de_problema[p["id"]] < primero_de_problema[dep]:
-            f.append(f"el problema {p['id']} (accesorio) se estudia antes que el {dep}, del que depende")
-    # En el amparo directo, el fondo antes que el procedimiento salvo mayor
-    # beneficio dicho (art. 189). Queda pendiente de la Decisión 1 si esto
-    # debe ser estricto; hoy basta con que se diga el beneficio.
     import tipos_asunto as _ta
-    if _ta.normalizar(plan.get("tipo_asunto", "")) in ("", "amparo_directo"):
-        procesal = [i for i, v in enumerate(clase_u) if "procesal" in v]
-        fondo = [i for i, v in enumerate(clase_u) if v & {"fondo", "omision", "forma"}]
-        por_que = _sin_acentos((plan.get("orden") or {}).get("por_que") or "").lower()
-        if procesal and fondo and min(procesal) < min(fondo) and "beneficio" not in por_que:
-            f.append("una violación procesal va antes que el fondo sin decir en orden.por_que el mayor "
-                     "beneficio (art. 189 de la Ley de Amparo)")
+    _ad = _ta.normalizar(plan.get("tipo_asunto", "")) in ("", "amparo_directo")
+    por_que = _sin_acentos((plan.get("orden") or {}).get("por_que") or "").lower()
+    principales = [p["id"] for p in cx.probs if p["jerarquia"] == "principal"]
+    for que, seq in _secuencias_de_orden(plan, cx, por_id):
+        # Cómo se dice en el reintento: el planificador tiene que saber QUÉ
+        # orden falló y cómo arreglarlo.
+        donde = ("en la lista de unidades" if que == "unidades" else
+                 "con orden «promovente» (los apartados de la estándar siguen el número de "
+                 "concepto del escrito; si ese orden no cumple, usa «prelacion» y ordena las unidades)")
+        primero_de_problema, clase_u = {}, []
+        for i, us in enumerate(seq):
+            for s in us:
+                primero_de_problema.setdefault(s.get("problema_id"), i)
+            clase_u.append({s.get("vicio") for s in us})
+        # La procedencia primero.
+        proc = [i for i, v in enumerate(clase_u) if "procedencia" in v]
+        otras = [i for i, v in enumerate(clase_u) if v and "procedencia" not in v]
+        if proc and otras and max(proc) > min(otras):
+            f.append(f"la procedencia va antes que cualquier otra cosa, {donde}")
+        # Cada accesorio después de su principal.
+        for p in cx.probs:
+            dep = p.get("depende_de") or (principales[0] if principales and p["jerarquia"] == "accesorio"
+                                         and p["id"] not in principales else None)
+            if dep and p["id"] in primero_de_problema and dep in primero_de_problema \
+                    and primero_de_problema[p["id"]] < primero_de_problema[dep]:
+                f.append(f"el problema {p['id']} (accesorio) se estudia antes que el {dep}, del que "
+                         f"depende, {donde}")
+        # En el amparo directo, el fondo antes que el procedimiento y la forma
+        # salvo mayor beneficio DICHO (art. 189; Decisión 1 de David: la única
+        # excepción es el mayor beneficio, y orden.por_que dice en qué consiste).
+        if _ad:
+            tras = [i for i, v in enumerate(clase_u) if v & _VICIOS_TRAS_FONDO_189]
+            fondo = [i for i, v in enumerate(clase_u) if v & _VICIOS_FONDO_189]
+            if tras and fondo and min(tras) < min(fondo) and "beneficio" not in por_que:
+                f.append(f"una violación procesal o formal va antes que el fondo sin decir en "
+                         f"orden.por_que el mayor beneficio (art. 189 de la Ley de Amparo), {donde}")
     return f
 
 
@@ -1629,10 +1740,11 @@ def _linea_seg(s: dict, trat: str, extra: str = "") -> str:
     return "  " + " · ".join(partes)
 
 
-def _linea_premisa(m: dict, props: dict) -> str:
+def _linea_premisa(m: dict, props: dict, uid: str = "") -> str:
     resp = ", ".join(f"{pk} «{(props.get(pk) or {}).get('dice', '')}»" for pk in m.get("responde_a") or [])
     fu = [f"registro {x}" for x in m["fuentes"]["tesis"]] + list(m["fuentes"]["normas"])
     return ("  EXPONE " + m["id"]
+            + (f" · unidad {uid}" if uid else "")
             + (f" · responde a {resp}" if resp else "")
             + (f" · fuentes: {'; '.join(fu)}" if fu else " · fuentes: la razón del secretario")
             + (f" · anclas: {' | '.join(m.get('anclas') or [])}" if m.get("anclas") else ""))
@@ -1674,6 +1786,7 @@ def vista(plan: dict, formato: str = "estandar") -> str:
                      + (" · vinculada por ejecutoria" if p.get("vinculada_por_ejecutoria") else ""))
     expuesta: dict = {}          # premisa → apartado donde se expone
     vista_u: dict = {}           # unidad → primer apartado donde aparece
+    apartado_de: dict = {}       # segmento → apartado donde se contesta
     objecion_puesta: set = set()
     presupuesto: list[str] = []
 
@@ -1692,29 +1805,40 @@ def vista(plan: dict, formato: str = "estandar") -> str:
             trat = s.get("trat") or "aplica"
             if s.get("pendiente") == "sentido":
                 continue                               # van abajo, SIN SENTIDO
+            apartado_de.setdefault(s["id"], n_ap)
             extra = []
             if u is not None and trat in _EN_UNIDAD:
                 uid = u.get("id")
                 m = prems.get(u.get("premisa"))
-                antes = vista_u.get(uid)
-                if antes is None or antes == n_ap:
-                    vista_u[uid] = n_ap
-                    if trat == "remite":
-                        trat = "aplica"                # no se remite hacia adelante
-                    if m and m["id"] not in expuesta:
-                        salida.append(_linea_premisa(m, props))
-                        expuesta[m["id"]] = n_ap
-                        palabras += _PALABRAS["expone"]
-                elif trat == "remite":
-                    dest = expuesta.get((m or {}).get("id"), antes)
+                vista_u.setdefault(uid, n_ap)
+                # ¿DÓNDE VIVE LA RESPUESTA A LA QUE SE REMITE O SE APLICA? La
+                # premisa de su unidad se expone UNA vez, en el primer apartado
+                # que la usa —sea de esta unidad o de otra que comparte premisa
+                # (revisión del 26-sep-2026: una remisión a la premisa que
+                # expuso OTRA unidad salía como «aplica» sin destino, y el
+                # estudio la volvía a exponer)—. Sin premisa, el destino es el
+                # apartado del segmento que reitera o el primero de su unidad.
+                if m and m["id"] not in expuesta:
+                    salida.append(_linea_premisa(m, props, uid))
+                    expuesta[m["id"]] = n_ap
+                    palabras += _PALABRAS["expone"]
+                if m:
+                    dest = expuesta[m["id"]]
+                else:
+                    dest = apartado_de.get(s.get("reitera") or "") or vista_u[uid]
+                if trat == "remite" and dest < n_ap:
                     salida.append(_linea_seg(s, "remite", (
-                        f"→ apartado {dest}" + (f" ({m['id']})" if m else "")
+                        f"unidad {uid} → apartado {dest}" + (f" ({m['id']})" if m else "")
                         + (f" · proposición: {', '.join(m.get('responde_a') or [])}"
                            if m and m.get("responde_a") else ""))))
                     palabras += _PALABRAS["remite"]
                     continue
-                elif m and m["id"] in expuesta and expuesta[m["id"]] != n_ap:
-                    extra.append(f"premisa {m['id']} ya expuesta en el apartado {expuesta[m['id']]}")
+                if trat == "remite":
+                    trat = "aplica"                    # no se remite hacia adelante
+                extra.append(f"unidad {uid}")
+                if m and dest != n_ap:
+                    extra.append(f"premisa {m['id']} ya expuesta en el apartado {dest}: "
+                                 f"no se expone otra vez")
                 if u.get("objecion") and uid not in objecion_puesta \
                         and vista_u.get(uid) == n_ap and ultimo_de_u.get(uid) == s["id"]:
                     objecion_puesta.add(uid)
@@ -1785,6 +1909,17 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     if sin:
         L.append("SIN SENTIDO FIJADO: " + ", ".join(s["id"] for s in sin)
                  + " → no lo califiques; va en ADVERTENCIAS")
+    # LAS UNIDADES QUE PROSPERAN: de ellas, y sólo de ellas, salen los efectos
+    # (w2_final §4.4, V6), y cada efecto lleva la marca ⟦U⟧ de la suya (§4.7).
+    # Sin esta lista el estudio no tenía cómo saber qué identificador poner.
+    prosperan = []
+    for u in unis:
+        _us = [por_id[x] for x in u.get("segmentos") or [] if x in por_id
+               and por_id[x].get("trat") in _EN_UNIDAD and por_id[x].get("pendiente") != "sentido"]
+        if _us and any(clase_sentido(x.get("etiqueta")) == PROSPERA for x in _us):
+            prosperan.append(f"{u.get('id')} ({', '.join(x['id'] for x in _us)})")
+    if prosperan:
+        L.append("UNIDADES QUE PROSPERAN (de ellas salen los efectos): " + " · ".join(prosperan))
     # QUÉ SIGNIFICA CADA RAZÓN USADA: su descripción del catálogo, para que el
     # estudio sepa qué respuesta toca sin tener que adivinar un identificador.
     usadas = []
@@ -1796,7 +1931,8 @@ def vista(plan: dict, formato: str = "estandar") -> str:
             f"{k} = {_DESCRIBE_RAZON.get(k, '')}" for k in usadas))
     sup = [s for s in segs if s.get("trat") == "no_se_expresa_art79"]
     if sup:
-        L.append("SUPLIDOS SIN BENEFICIO (no se expresan, art. 79): " + ", ".join(s["id"] for s in sup))
+        L.append("SUPLIDOS SIN BENEFICIO (no se expresan, art. 79, penúltimo párrafo): "
+                 + ", ".join(s["id"] for s in sup))
     if presupuesto:
         L.append("EXTENSIÓN (techo, no meta): " + " · ".join(presupuesto))
     return "\n".join(L)
@@ -1843,9 +1979,16 @@ o los grupos, manda el guion.
   debe revisarla él.
 - SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.
 - EXTENSIÓN: techo por apartado, no meta.
+- MARCAS DEL PLAN, además de las de los argumentos y con su mismo formato: el
+  párrafo donde construyes una premisa que el guion dice EXPONE lleva en su
+  marca el identificador M de esa premisa (junto a los de los argumentos que
+  contesta, si los hay); y cada efecto que se sigue de una de las UNIDADES QUE
+  PROSPERAN empieza con la marca de esa unidad, su identificador U. Con guion,
+  esto sustituye a lo que la regla de las marcas dice del párrafo que expone
+  una premisa y de los efectos. Son internas, como las demás.
 - Los rótulos y los identificadores del guion (APARTADO, EXPONE, APLICA, C1.a,
-  P2, M1, U1…) no se escriben en la sentencia, salvo en las marcas entre ⟦ ⟧
-  si este prompt te las pide.
+  P2, M1, U1…) no se escriben en la sentencia, salvo dentro de las marcas
+  entre ⟦ ⟧.
 - Si el guion te parece equivocado en algo, síguelo igual y explícalo en el
   último párrafo de ADVERTENCIAS, que empieza con el rótulo
   «DESVIACIONES DEL GUION»; nunca en el cuerpo del estudio.
@@ -1860,13 +2003,24 @@ def para_ficha(plan: dict, estado: str = "usado", clave_: str = "", avisos=None)
     etiqueta → razón, con la cita) y nada más pesado."""
     if not plan:
         return {"estado": estado, "clave": clave_, "avisos": list(avisos or [])[:12]}
+
+    # RECORTADO (revisión del 26-sep-2026): la ficha se apila con cada proyecto
+    # en `estado`, que ya lleva el acto y el escrito. La cita del segmento
+    # mide 10-40 palabras por contrato y la razón del secretario puede ser
+    # larga; a la pestaña le basta su arranque. El plan entero sigue en la
+    # columna `plan`.
+    def _corta(v, n):
+        return " ".join(str(v).split()[:n]) if isinstance(v, str) else v
+
+    _topes = {"cita": 40, "razon_secretario": 60}
     return {
         "estado": estado, "clave": clave_ or plan.get("clave", ""),
         "version": plan.get("version", ""),
-        "segmentos": [{k: s.get(k) for k in ("id", "problema_id", "concepto", "etiqueta", "razon",
-                                             "trat", "reitera", "diferencia", "pendiente", "cita",
-                                             "razon_secretario") if s.get(k) not in (None, "", [])}
-                      for s in plan.get("segmentos") or []],
+        "segmentos": [{k: _corta(s.get(k), _topes[k]) if k in _topes else s.get(k)
+                       for k in ("id", "problema_id", "concepto", "etiqueta", "razon",
+                                 "trat", "reitera", "diferencia", "pendiente", "cita",
+                                 "razon_secretario") if s.get(k) not in (None, "", [])}
+                      for s in plan.get("segmentos") or []][:120],
         "unidades": [{"id": u.get("id"), "segmentos": u.get("segmentos"), "premisa": u.get("premisa")}
                      for u in plan.get("unidades") or []],
         "premisas": [{"id": m.get("id"), "fuentes": m.get("fuentes"), "anclas": m.get("anclas")}

@@ -32544,8 +32544,11 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
                 # luego rehacer). Si la corrida muere, `fila_pedir` la da por
                 # abandonada y la vuelta siguiente la relanza aquí.
                 while time.time() - t0 < tope:
-                    await asyncio.sleep(3)
-                    doc = _taller_plan_leer(user_email, numero)
+                    await asyncio.sleep(max(0.05, min(3.0, tope - (time.time() - t0))))
+                    # La lectura, fuera del bucle de eventos: son hasta
+                    # cuarenta en dos minutos y el latido del flujo de ESTA
+                    # pantalla corre en el mismo bucle.
+                    doc = await asyncio.to_thread(_taller_plan_leer, user_email, numero)
                     v = _pe.estado_para_pantalla(doc, ent["huella"], time.time(), k)
                     if v["estado"] != "en_curso":
                         break
@@ -35543,10 +35546,12 @@ async def taller_plan_pedir(
     sesión como mucho, contando todas; una clave ya calculada no se recalcula.
     No cobra: el plan es parte del proyecto que se cobra al generarlo."""
     _taller_puerta(user_email)
-    # SÓLO PARA QUIEN ESCRIBE CON LA v4 —hoy, las cuentas de casa, que la
-    # tienen por omisión en este pedido—: a las demás el plan no les sirve y
-    # cuesta.
-    if _taller_variante_estudio(user_email, variante_estudio or "v4") != "v4":
+    # SÓLO PARA QUIEN ESCRIBE CON LA v4: a los demás el plan no les sirve y
+    # cuesta. La variante se decide COMO EN LOS GEMELOS, con la misma función y
+    # el mismo campo (revisión del 26-sep-2026: aquí una variante vacía valía
+    # «v4» para las cuentas de casa, mientras el resolver les daba la global;
+    # el plan se calculaba, gastaba una de las cuatro corridas y nadie lo usaba).
+    if _taller_variante_estudio(user_email, variante_estudio) != "v4":
         return {"estado": "sin_plan", "clave": "",
                 "avisos": ["el plan del estudio sólo corre con la variante v4"]}
     _taller_purgar()
