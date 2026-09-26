@@ -33,7 +33,12 @@ LAS PIEZAS (firmas del contrato; lo que se añade va sólo como keyword):
               razonamiento medio y JSON estricto.
   reparar()   lo que el código corrige solo: etiqueta → la del criterio (y la
               otra, a propuestas); `reitera` con ancla propia → `desarrolla`;
-              datos sin verificar, borrados.
+              datos sin verificar, borrados. Y lo organizativo que V0
+              rechazaba (26-sep-2026): la unidad que mezcla, partida; la
+              premisa sin rastro, retirada; la razón que no cabe con la
+              etiqueta, la de la etiqueta (la otra, a propuestas); la cita
+              que nadie encontró, fuera; referencias rotas, limpias; el orden
+              del art. 189, cuando se puede sin decidir. Cada cosa, dicha.
   validar()   V0: lo que obliga a rehacer el plan. [] = válido.
   preparar()  planear → reparar → validar; un reintento con la lista de lo
               que falló; si vuelve a fallar, NO hay plan (el estudio va con la
@@ -64,7 +69,7 @@ import unicodedata
 
 # Sube cuando cambie el esquema, el prompt o una regla de V0: un plan hecho con
 # otra versión no se reutiliza (entra en la clave).
-PLAN_VERSION = "plan-2"      # plan-2: revisión del 26-sep-2026 (orden del art. 189, marcas M/U)
+PLAN_VERSION = "plan-3"      # plan-3: reparar la organización (partir unidades, retirar premisas sin rastro…)
 
 # EL MODELO DE LAS FASES, con razonamiento MEDIO (propuesta §3.6: «Se mide
 # ESFUERZO_PLAN=medium contra high»). Se lee al llamar, no al importar, para
@@ -1128,6 +1133,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
         suplencia = plan.get("suplencia") or {}
     cx = _Ctx(crit, segs, fases, material, contexto, suplencia, tocados)
     avisos: list[str] = []
+    _del_modelo = list(plan.get("avisos_al_secretario") or [])
     plan["problemas"] = [{"id": p["id"], "pregunta": p["pregunta"], "sentido": p["sentido"],
                           "clase": p["clase"], "jerarquia": p["jerarquia"], "grupo": p["grupo"],
                           "sin_calificar": bool(p.get("sin_calificar"))}
@@ -1135,11 +1141,17 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     plan.setdefault("propuestas", [])
     plan.setdefault("avisos_al_secretario", [])
     segmentos = [s for s in (plan.get("segmentos") or []) if s.get("id")]
+    # REFERENCIAS QUE NO CASAN (26-sep-2026, primer caso real): un segmento
+    # repetido o uno que no está en el inventario no es un argumento más; se
+    # quita la copia o lo inventado y se dice. Nunca un argumento del escrito:
+    # el que FALTA sigue siendo motivo de rehacer el plan (V0 a).
+    segmentos = _limpiar_segmentos(segmentos, cx, plan)
     por_id = {}
     for s in segmentos:
-        por_id.setdefault(s["id"], s)          # un duplicado lo acusa V0 (a)
+        por_id.setdefault(s["id"], s)
 
     # Los datos del piso mandan sobre lo que el modelo diga de ellos.
+    sin_cita = []
     for s in segmentos:
         piso = cx.seg_piso.get(s["id"])
         if piso:
@@ -1157,6 +1169,21 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 s["cita"] = s["cita_plan"]
             else:
                 avisos.append(f"{s['id']}: la cita que propuso el planificador no está en el escrito; se borró")
+        # (g) NI EL INVENTARIO NI EL PLANIFICADOR LA ENCONTRARON: el segmento es
+        # del inventario (del código, no del modelo) y el estudio lo contesta
+        # con plan o sin él, así que tirar el plan no lo ancla a nada; sólo
+        # pierde la organización. Medido el 26-sep-2026: en el 93/2026 los dos
+        # primeros intentos, que en lo demás pasaban V0, se rechazaron sólo por
+        # esto. Queda sin cita, como el dato que no se verifica, y se dice.
+        s["sin_cita"] = bool(cx.hay_escrito and not s["id"].startswith("S")
+                             and s["id"] in cx.seg_piso and not s.get("cita"))
+        if s["sin_cita"]:
+            sin_cita.append(s["id"])
+    if sin_cita:
+        plan["avisos_al_secretario"].append(
+            f"sin cita literal del escrito: {', '.join(sin_cita[:12])} (ni el inventario ni el "
+            f"planificador la encontraron palabra por palabra); se estudian igual y el mapa los "
+            f"muestra sin cita: compruébalos en el escrito")
 
     # (c) El problema lo fija el código.
     for s in segmentos:
@@ -1184,6 +1211,14 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
                 plan["propuestas"].append({"seg": s["id"], "de": fijado, "a": s["etiqueta"],
                                            "por_que": "calificación que sugirió el planificador"})
         s["etiqueta"] = fijado
+    # UNA PROPUESTA ES UNA CALIFICACIÓN (26-sep-2026): el planificador del
+    # 642/2024 propuso «fundado → fondo_desestimado» y «→ no_combate», que son
+    # RAZONES; el botón del panel pondría eso como sentido. Se traduce a la
+    # calificación que la razón implica y la razón queda dicha en el porqué.
+    for x in plan["propuestas"]:
+        if x.get("a") in RAZONES and _implica(x["a"]) not in ("", x["a"]):
+            x["por_que"] = _ws(f"({x['a']}) {x.get('por_que') or ''}")[:400]
+            x["a"] = _implica(x["a"])
     plan["propuestas"] = [x for x in plan["propuestas"]
                           if x.get("seg") in por_id and x.get("a")
                           and x["a"] != (por_id[x["seg"]].get("etiqueta") or "")
@@ -1349,7 +1384,377 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     plan["segmentos"] = segmentos
     plan["suplencia"] = dict(suplencia) if isinstance(suplencia, dict) else {}
     plan["n_planteamientos"] = cx.n
+    # LO ORGANIZATIVO QUE V0 RECHAZABA Y EL CÓDIGO PUEDE CORREGIR SOLO.
+    _reparar_organizacion(plan, cx)
+    # LO QUE DICE EL CÓDIGO VA PRIMERO: la ficha guarda doce avisos del plan y
+    # una corrección del código no puede quedarse fuera por los del modelo.
+    _av = plan["avisos_al_secretario"]
+    plan["avisos_al_secretario"] = [a for a in _av if a not in _del_modelo] + \
+                                   [a for a in _av if a in _del_modelo]
     return plan, avisos
+
+
+# ═══ REPARAR LA ORGANIZACIÓN (26-sep-2026, tras el primer caso real) ════════
+# El ADC 642/2024 se quedó sin plan dos veces por «U9: mezcla vicios» y «M4:
+# premisa sin rastro verificado». Las dos reglas son correctas (una unidad es
+# la MISMA proposición, la MISMA razón y el MISMO vicio; una premisa necesita
+# rastro verificado), pero tirar el plan entero no lo era: el código puede
+# partir la unidad y retirar la premisa sin decidir nada de fondo, como V0 (g)
+# ya borra el dato que no se verifica. Medido en 8 casos × 2 corridas con el
+# código de producción: 8 de 16 corridas se quedaban sin plan, y en las 8 lo
+# que tumbó el segundo intento era organizativo o una falsa alarma de V0; la
+# única falla de contenido apareció en un primer intento. Aquí va sólo lo que es
+# ORGANIZACIÓN; lo de contenido (un argumento que falta, una procesal que se
+# deja sin estudiar sin el art. 189, una inoperancia sin razón de
+# inoperancia) sigue siendo motivo de rehacer el plan. Nada de esto toca la
+# etiqueta de un segmento ni quita un argumento del escrito, y cada
+# corrección se dice en `avisos_al_secretario`.
+
+def _limpiar_segmentos(segmentos: list, cx: "_Ctx", plan: dict) -> list:
+    """Una copia repetida de un segmento, fuera (se queda la primera); un
+    identificador DEL ESPACIO DEL INVENTARIO (C o A: los únicos que numera
+    `inventario.segmentos`) que no está en él, fuera: es un argumento que el
+    planificador numeró mal o inventó. Un AD o un S no se toca: pueden venir
+    de otro escrito o de la suplencia, y V0 (a) decide. El que FALTA no se
+    inventa aquí: V0 (a) lo sigue rechazando."""
+    fuera, vistos, dup, ajenos = [], set(), [], []
+    for s in segmentos:
+        sid = s["id"]
+        if sid in vistos:
+            dup.append(sid)
+            continue
+        if cx.seg_piso and sid not in cx.seg_piso and re.match(r"^[CA]\d", sid):
+            ajenos.append(sid)
+            continue
+        vistos.add(sid)
+        fuera.append(s)
+    if dup:
+        plan["avisos_al_secretario"].append(
+            f"el planificador repitió {', '.join(sorted(set(dup))[:8])}: se tomó la primera vez")
+    if ajenos:
+        plan["avisos_al_secretario"].append(
+            f"el planificador nombró segmentos que no están en el inventario "
+            f"({', '.join(ajenos[:8])}): se quitaron")
+    return fuera
+
+
+def _contestado(s: dict) -> bool:
+    """¿Se contesta dentro de una unidad? (lo que V0 e mira)."""
+    return s.get("trat") in _EN_UNIDAD and s.get("pendiente") != "sentido"
+
+
+def _implica(rz: str) -> str:
+    """La calificación que implica una razón del catálogo (para la propuesta
+    que deja ver lo que el planificador opinaba)."""
+    if rz in _RAZONES_DE_INFUNDADO:
+        return "infundado"
+    if rz == "fundado_insuficiente":
+        return "fundado_insuficiente"
+    if rz in _RAZONES_DE_INOPERANTE:
+        return "inoperante"
+    if rz in ("fundado", "esencialmente_fundado"):
+        return rz
+    if rz in ("sin_materia", "adhesivo_sin_materia"):
+        return "sin_materia"
+    if rz in RAZONES:
+        return "innecesario"
+    return ""
+
+
+def _falla_razon(rz: str, et: str) -> str:
+    """Por qué la razón `rz` no cabe con la etiqueta `et` (V0 d), o «»."""
+    if not rz or not et:
+        return ""
+    if RAZONES[rz]["clase"] != clase_sentido(et):
+        return f"la razón {rz} no es compatible con «{et}»"
+    if et == "infundado" and rz not in _RAZONES_DE_INFUNDADO:
+        return f"«infundado» sólo admite {', '.join(sorted(_RAZONES_DE_INFUNDADO))}"
+    if et == "inoperante" and rz not in _RAZONES_DE_INOPERANTE:
+        return f"«inoperante» exige una razón de inoperancia, no {rz}"
+    if et == "fundado_insuficiente" and rz != "fundado_insuficiente":
+        return "«fundado pero insuficiente» exige la razón fundado_insuficiente"
+    return ""
+
+
+def _razon_de_la_etiqueta(s: dict, et: str, cx: "_Ctx") -> str:
+    """LA ÚNICA razón del catálogo que la etiqueta deja, o «» si deja varias.
+    «fundado» → fundado; «infundado» → omision_inexistente si el vicio es de
+    omisión y fondo_desestimado si no; «fundado pero insuficiente» → la suya.
+    Lo que no se estudia, por lo que el CRITERIO dice de él: sin materia, el
+    adhesivo sin materia, la procesal que una concesión de fondo vuelve
+    innecesaria (art. 189) y, lo demás, lo que cae con el principal (el
+    árbol escribe «Dado el sentido del estudio del problema principal, queda
+    sin materia…»). La procesal que el criterio deja sin estudiar SIN
+    concesión de fondo no tiene razón que la cubra: se queda como está y la
+    avisa `reparar` (arts. 74-V, 174 y 189). «Inoperante» deja diez: no se
+    elige ninguna; eso lo decide el reintento."""
+    et = norm_sentido(et)
+    cl = clase_sentido(et)
+    if cl == PROSPERA:
+        return "esencialmente_fundado" if et == "esencialmente_fundado" else "fundado"
+    if et == "infundado":
+        return "omision_inexistente" if s.get("vicio") == "omision" else "fondo_desestimado"
+    if et == "fundado_insuficiente":
+        return "fundado_insuficiente"
+    if cl == NO_SE_ESTUDIA:
+        sid = s.get("id") or ""
+        if sid.startswith("AD") and not cx.alguno_prospera:
+            return "adhesivo_sin_materia"
+        procesal = _guarda_procesal(getattr(cx, "tipo_asunto", "")) and _es_procesal(s, cx)
+        if procesal:
+            return "innecesario_mayor_beneficio" if cx.alguno_prospera_fondo else ""
+        if et == "adhesivo_sin_materia":
+            return "adhesivo_sin_materia"
+        if et == "sin_materia":
+            return "sin_materia"
+        return "cae_con_principal"
+    return ""
+
+
+def _premisa_con_rastro(m: dict, cx: "_Ctx") -> bool:
+    """V0 (i), en un solo sitio: el rastro dice de dónde sale la premisa y su
+    cita está, palabra por palabra, ahí."""
+    cita = m.get("rastro_cita") or ""
+    if m.get("rastro") == "razon":
+        return any(cx.razones[p["id"]].contiene(cita) for p in cx.probs)
+    if m.get("rastro") == "material":
+        return cx.texto_de_fuentes(m).contiene(cita)
+    return False
+
+
+def _aviso(plan: dict, texto: str) -> None:
+    if texto not in plan["avisos_al_secretario"]:
+        plan["avisos_al_secretario"].append(texto)
+
+
+def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
+    """Las correcciones organizativas, EN SITIO y en este orden (cada una
+    deja lo que la siguiente necesita): referencias, razones, premisas sin
+    rastro, unidades que mezclan y orden."""
+    cx.tipo_asunto = plan.get("tipo_asunto", "")
+    segmentos = plan.get("segmentos") or []
+    por_id = {s["id"]: s for s in segmentos}
+    props = {p.get("id") for p in plan.get("proposiciones") or [] if p.get("id")}
+
+    # 1 · REFERENCIAS A IDENTIFICADORES QUE NO EXISTEN, limpias.
+    quitadas = []
+    for s in segmentos:
+        if s.get("ataca") and s["ataca"] not in props:
+            quitadas.append(f"{s['id']}→{s['ataca']}")
+            s["ataca"] = None
+        if s.get("razon_p") and s["razon_p"] not in props:
+            s["razon_p"] = None
+    prems = [m for m in plan.get("premisas") or [] if m.get("id")]
+    for m in prems:
+        _r = [pk for pk in m.get("responde_a") or [] if pk in props]
+        if len(_r) != len(m.get("responde_a") or []):
+            quitadas.append(f"{m['id']}→{', '.join(pk for pk in m['responde_a'] if pk not in props)}")
+            m["responde_a"] = _r
+    ids_m = {m["id"] for m in prems}
+    en_unidad: dict = {}
+    unis = []
+    for u in plan.get("unidades") or []:
+        lista = []
+        for x in u.get("segmentos") or []:
+            if x not in por_id:
+                quitadas.append(f"{u.get('id')}→{x}")
+            elif x in en_unidad:
+                quitadas.append(f"{x} también en {u.get('id')} (se queda en {en_unidad[x]})")
+            elif x not in lista:
+                lista.append(x)
+                en_unidad[x] = u.get("id")
+        u["segmentos"] = lista
+        if u.get("premisa") and u["premisa"] not in ids_m:
+            quitadas.append(f"{u.get('id')}→{u['premisa']}")
+            u["premisa"] = None
+        if lista:
+            unis.append(u)
+    plan["unidades"] = unis
+    if quitadas:
+        _aviso(plan, "referencias del plan a lo que no existe, quitadas: " + "; ".join(quitadas[:10]))
+
+    # 2 · LA RAZÓN QUE NO CABE CON LA ETIQUETA. La etiqueta es la del criterio
+    # (V0 b) y no se toca; la razón del planificador que la contradice sale
+    # como PROPUESTA visible —igual que su etiqueta— y en su lugar va la única
+    # que la etiqueta deja. Si deja varias («inoperante»), no se elige: el
+    # reintento. Medido: 30 rechazos en 6 de las 16 corridas (4 de los 8
+    # casos), y el reintento no los corregía (43/2025: diez en el primer
+    # intento, cuatro en el segundo). Un segmento pendiente de razón
+    # (Decisión 6) no la necesita.
+    ajustadas, puestas = [], []
+    for s in segmentos:
+        et = s.get("etiqueta") or ""
+        if not et or s.get("pendiente") == "sentido":
+            continue
+        rz = s.get("razon") or ""
+        if not rz and s.get("pendiente") == "razon":
+            continue
+        if rz and not _falla_razon(rz, et):
+            continue
+        nueva = _razon_de_la_etiqueta(s, et, cx)
+        if not nueva or nueva == rz:
+            continue
+        if rz:
+            a = _implica(rz)
+            if a and a != et and not cx.tocado(s.get("problema_id")) \
+                    and not any(x.get("seg") == s["id"] for x in plan["propuestas"]):
+                plan["propuestas"].append({"seg": s["id"], "de": et, "a": a,
+                                           "por_que": f"razón que sugirió el planificador: {rz}"})
+            ajustadas.append(f"{s['id']} ({rz}→{nueva})")
+        else:
+            puestas.append(f"{s['id']} ({nueva})")
+        s["razon"] = nueva
+        if not RAZONES[nueva].get("con_p"):
+            s["razon_p"] = None
+    if ajustadas:
+        _aviso(plan, "razones que no cabían con tu sentido, ajustadas a él (lo que opinaba el "
+                     "planificador va en propuestas): " + ", ".join(ajustadas[:12]))
+    if puestas:
+        _aviso(plan, "razones que el planificador dejó vacías, puestas por tu sentido: "
+                     + ", ".join(puestas[:12]))
+
+    # 3 · PREMISA SIN RASTRO VERIFICADO (V0 i): se retira. Sus unidades quedan
+    # sin premisa y lo que se contestaba con ella (aplica, remite) se
+    # desarrolla, desde la razón del secretario. Medido: las cuatro que V0
+    # rechazó citaban como rastro el resumen del ACTO (lo que resolvió la
+    # responsable) o una definición que no está en ninguna parte: no hay
+    # regla verificada que exponer.
+    retiradas = [m for m in plan.get("premisas") or [] if not _premisa_con_rastro(m, cx)]
+    if retiradas:
+        fuera = {m["id"] for m in retiradas}
+        plan["premisas"] = [m for m in plan.get("premisas") or [] if m["id"] not in fuera]
+        for m in retiradas:
+            unis_m = [u for u in plan["unidades"] if u.get("premisa") == m["id"]]
+            segs_m = []
+            for u in unis_m:
+                u["premisa"] = None
+                for x in u["segmentos"]:
+                    s = por_id[x]
+                    if _contestado(s):
+                        if s.get("trat") in ("aplica", "remite"):
+                            s["trat"] = "desarrolla"
+                        s["sin_premisa"] = True
+                        segs_m.append(x)
+            _aviso(plan, f"{m['id']} se retiró: su rastro no está palabra por palabra en tu razón ni "
+                         f"en el material"
+                         + (f"; {', '.join(u['id'] for u in unis_m)} queda sin premisa expuesta y se "
+                            f"desarrolla desde tu razón ({', '.join(segs_m[:10])})" if unis_m else ""))
+
+    # 4 · UNIDAD QUE MEZCLA proposición, vicio o razón (V0 e): se parte. Salvo
+    # el grupo del secretario, que manda. Cada parte conserva la premisa (el
+    # guion la expone una vez y las demás la aplican); la objeción se queda
+    # en la primera. Un segmento sin proposición o pendiente de razón no
+    # separa: va con los de su vicio.
+    nuevas_u = []
+    ultimo = max([_int(re.sub(r"\D", "", str(u.get("id") or "")) or 0) for u in plan["unidades"]] + [0])
+    for u in plan["unidades"]:
+        us = [por_id[x] for x in u["segmentos"]]
+        conts = [s for s in us if _contestado(s)]
+        partes: list = []
+        for s in conts:
+            a = s.get("ataca") or None
+            v = s.get("vicio")
+            r = s.get("razon") or None           # pendiente de razón: no separa
+            for g in partes:
+                if g["v"] == v and (a is None or g["a"] is None or g["a"] == a) \
+                        and (r is None or g["r"] is None or g["r"] == r):
+                    g["segs"].append(s["id"])
+                    g["a"] = g["a"] or a
+                    g["r"] = g["r"] or r
+                    break
+            else:
+                partes.append({"a": a, "v": v, "r": r, "segs": [s["id"]]})
+        if len(partes) < 2 or _grupo_comun(u, conts, cx):
+            nuevas_u.append(u)
+            continue
+        resto = [x for x in u["segmentos"] if x not in {y for g in partes for y in g["segs"]}]
+        ids = []
+        for i, g in enumerate(partes):
+            if i == 0:
+                uid = u["id"]
+                segs_g = g["segs"] + resto
+            else:
+                ultimo += 1
+                uid = f"U{ultimo}"
+                segs_g = g["segs"]
+            pids = sorted({por_id[x].get("problema_id") for x in segs_g if por_id[x].get("problema_id")})
+            nuevas_u.append({"id": uid, "problemas": pids or list(u.get("problemas") or []),
+                             "segmentos": segs_g, "premisa": u.get("premisa"),
+                             "objecion": u.get("objecion") if i == 0 else None})
+            ids.append(f"{uid} ({', '.join(g['segs'][:6])})")
+        que = []
+        if len({g["a"] for g in partes if g["a"]}) > 1:
+            que.append("proposiciones")
+        if len({g["v"] for g in partes}) > 1:
+            que.append("vicios")
+        if len({g["r"] for g in partes if g["r"]}) > 1:
+            que.append("razones")
+        _aviso(plan, f"{u['id']} juntaba argumentos con {' y '.join(que) or 'rasgos'} distintos; se partió en "
+                     + " · ".join(ids) + (f", con la misma premisa {u['premisa']}" if u.get("premisa") else ""))
+    plan["unidades"] = nuevas_u
+
+    # 5 · EL ORDEN (V0 l), cuando el código puede cumplirlo sin decidir nada:
+    # la procedencia primero y, en el amparo directo sin mayor beneficio
+    # dicho, el fondo antes que el procedimiento y la forma (art. 189). Si con
+    # el orden del escrito no se puede, el de prelación, que es lo que el
+    # prompt ya pide. Si ni así, se deja como estaba: lo decide el reintento.
+    _reordenar(plan, cx)
+
+
+def _reordenar(plan: dict, cx: "_Ctx") -> None:
+    por_id = {s["id"]: s for s in plan.get("segmentos") or []}
+    if not _faltas_de_orden(plan, cx, por_id):
+        return
+    import tipos_asunto as _ta
+    _ad = _ta.normalizar(plan.get("tipo_asunto", "")) in ("", "amparo_directo")
+    por_que = _sin_acentos((plan.get("orden") or {}).get("por_que") or "").lower()
+    unis0 = list(plan.get("unidades") or [])
+    orden0 = dict(plan.get("orden") or {})
+
+    def _peso(u):
+        v = {por_id[x].get("vicio") for x in u.get("segmentos") or [] if x in por_id}
+        if "procedencia" in v:
+            return 0
+        if _ad and "beneficio" not in por_que and v & _VICIOS_TRAS_FONDO_189 \
+                and not v & _VICIOS_FONDO_189:
+            return 2
+        return 1
+
+    unis = sorted(unis0, key=_peso)
+    # Cada accesorio después de su principal: la primera unidad de un
+    # accesorio no puede ir antes que la primera de su principal.
+    principales = [p["id"] for p in cx.probs if p["jerarquia"] == "principal"]
+    for _ in range(len(unis)):
+        primero: dict = {}
+        for i, u in enumerate(unis):
+            for x in u.get("segmentos") or []:
+                primero.setdefault((por_id.get(x) or {}).get("problema_id"), i)
+        mover = None
+        for p in cx.probs:
+            dep = p.get("depende_de") or (principales[0] if principales and p["jerarquia"] == "accesorio"
+                                         and p["id"] not in principales else None)
+            if dep and p["id"] in primero and dep in primero and primero[p["id"]] < primero[dep]:
+                mover = (primero[p["id"]], primero[dep])
+                break
+        if not mover:
+            break
+        u = unis.pop(mover[0])
+        unis.insert(mover[1], u)
+    cambiado = [u["id"] for u in unis] != [u["id"] for u in unis0]
+    plan["unidades"] = unis
+    if cambiado and not _faltas_de_orden(plan, cx, por_id):
+        _aviso(plan, "el orden de las unidades se ajustó a la ley (procedencia primero; en el amparo "
+                     "directo, el fondo antes que el procedimiento y la forma, art. 189): "
+                     + ", ".join(u["id"] for u in unis))
+        return
+    if (plan.get("orden") or {}).get("criterio") != "prelacion":
+        plan["orden"] = dict(orden0, criterio="prelacion")
+        if not _faltas_de_orden(plan, cx, por_id):
+            _aviso(plan, "el orden del escrito no cumplía la prelación de la ley; el estudio sigue el "
+                         "de las unidades: " + ", ".join(u["id"] for u in unis))
+            return
+    plan["unidades"] = unis0
+    plan["orden"] = orden0
 
 
 def _grupo_comun(u: dict, us: list, cx: _Ctx) -> bool:
@@ -1435,21 +1840,20 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
                      f"la diferencia va a propuestas")
         if not fijado and s.get("pendiente") != "sentido":
             f.append(f"{sid}: su problema no tiene sentido fijado; va con pendiente «sentido»")
-        # (d) La razón es del catálogo y coherente con la etiqueta.
+        # (d) La razón es del catálogo y coherente con la etiqueta. EL PENDIENTE
+        # DE RAZÓN NO LA LLEVA (falsa alarma medida el 26-sep-2026: el prompt
+        # le dice al planificador «no inventes esa razón» y V0 rechazaba la
+        # razón vacía: 14 rechazos en 6 de 16 corridas, 5 de los 8 casos): lo
+        # contesta el estudio con el material o el secretario en el panel
+        # (Decisión 6).
         rz = s.get("razon") or ""
         if not rz:
-            if s.get("pendiente") != "sentido":
+            if s.get("pendiente") not in ("sentido", "razon"):
                 f.append(f"{sid}: razón fuera del catálogo ({s.get('razon_crudo') or 'vacía'})")
         else:
-            et = s.get("etiqueta") or ""
-            if et and RAZONES[rz]["clase"] != clase_sentido(et):
-                f.append(f"{sid}: la razón {rz} no es compatible con «{et}»")
-            elif et == "infundado" and rz not in _RAZONES_DE_INFUNDADO:
-                f.append(f"{sid}: «infundado» sólo admite {', '.join(sorted(_RAZONES_DE_INFUNDADO))}")
-            elif et == "inoperante" and rz not in _RAZONES_DE_INOPERANTE:
-                f.append(f"{sid}: «inoperante» exige una razón de inoperancia, no {rz}")
-            elif et == "fundado_insuficiente" and rz != "fundado_insuficiente":
-                f.append(f"{sid}: «fundado pero insuficiente» exige la razón fundado_insuficiente")
+            _fr = _falla_razon(rz, s.get("etiqueta") or "")
+            if _fr:
+                f.append(f"{sid}: {_fr}")
             if RAZONES[rz].get("solo_recursos") and not _es_recurso(plan):
                 f.append(f"{sid}: {rz} sólo cabe en recursos")
             if RAZONES[rz].get("con_p") and not (s.get("ataca") or s.get("razon_p")):
@@ -1466,11 +1870,15 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
                 if _propias:
                     f.append(f"{sid}: no puede reiterar a {t}: trae anclas propias "
                              f"({', '.join(sorted(_propias)[:3])}); va «desarrolla»")
-        if s.get("trat") == "desarrolla" and not s.get("diferencia") and not s.get("pendiente"):
+        # Lo que obliga a desarrollar: su diferencia, o que el código le
+        # retiró la premisa por no tener rastro (`_reparar_organizacion`).
+        if s.get("trat") == "desarrolla" and not s.get("diferencia") and not s.get("pendiente") \
+                and not s.get("sin_premisa"):
             f.append(f"{sid}: desarrolla sin decir qué diferencia lo obliga")
         # (g) La cita literal del escrito. Los suplidos (S) no la tienen: no
-        # salen del escrito sino de la suplencia.
-        if cx.hay_escrito and not sid.startswith("S"):
+        # salen del escrito sino de la suplencia. Tampoco el segmento del
+        # inventario cuya cita no encontró nadie: `reparar` lo marca y lo dice.
+        if cx.hay_escrito and not sid.startswith("S") and not s.get("sin_cita"):
             cita = s.get("cita") or ""
             if not cita:
                 piso = (cx.seg_piso.get(sid) or {}).get("cita", "")
@@ -1546,7 +1954,9 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
             mezcla.append("proposiciones")
         if len({s.get("vicio") for s in us}) > 1:
             mezcla.append("vicios")
-        if len({s.get("razon") for s in us}) > 1:
+        # El pendiente de razón no trae razón: no «mezcla» (falsa alarma
+        # medida: 722/2025, una unidad de fondo_desestimado con su pendiente).
+        if len({s.get("razon") for s in us if s.get("razon")}) > 1:
             mezcla.append("razones")
         if mezcla and not _grupo_comun(u, us, cx):
             f.append(f"{u.get('id')}: mezcla {', '.join(mezcla)} distintas; son unidades distintas")
@@ -1561,10 +1971,7 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
         for x in m["fuentes"]["normas"]:
             if not cx.resolver_norma(x):
                 f.append(f"{m['id']}: la fuente «{x[:40]}» no está en el índice ni en la razón del secretario")
-        cita = m.get("rastro_cita") or ""
-        ok_r = m.get("rastro") == "razon" and any(cx.razones[p["id"]].contiene(cita) for p in cx.probs)
-        ok_m = m.get("rastro") == "material" and cx.texto_de_fuentes(m).contiene(cita)
-        if not (ok_r or ok_m):
+        if not _premisa_con_rastro(m, cx):
             f.append(f"{m['id']}: premisa sin rastro verificado en la razón del secretario ni en sus fuentes")
         for pk in m.get("responde_a") or []:
             if pk not in props:
@@ -1820,6 +2227,8 @@ def _linea_seg(s: dict, trat: str, extra: str = "") -> str:
         partes.append(f"ataca {s['ataca']}")
     if s.get("diferencia") and trat == "desarrolla":
         partes.append(f"diferencia: {s['diferencia']}")
+    if s.get("sin_premisa") and trat == "desarrolla":
+        partes.append(_RX_SIN_PREMISA)
     if s.get("dato"):
         d = s["dato"]
         partes.append(f"dato ({d.get('fuente')}): «{d.get('cita')}»")
@@ -2049,6 +2458,19 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     return "\n".join(L)
 
 
+# SIN PREMISA VERIFICADA (26-sep-2026): la premisa de su unidad se retiró
+# porque su rastro no estaba en la razón del secretario ni en el material
+# (`_reparar_organizacion`). Como el rótulo de abajo, su descripción sólo entra
+# cuando el guion lo trae: la v4 de siempre no cambia.
+_RX_SIN_PREMISA = "sin premisa verificada"
+_SIN_PREMISA_DESC = """
+- «sin premisa verificada»: el plan no encontró, palabra por palabra, de dónde
+  sale la regla que decide esa unidad. Contéstala desde la razón del
+  secretario; si hace falta una regla, sólo con una fuente del material que la
+  diga, y sin atribuírsela a él. Los argumentos de una misma unidad comparten
+  esa respuesta: se construye una vez, en el primero, y en los demás sólo lo
+  propio de cada uno."""
+
 # SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): su descripción sólo
 # entra cuando el guion trae el rótulo, para que la v4 de siempre no cambie.
 _RX_SIN_CALIFICAR = "SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO:"
@@ -2101,7 +2523,7 @@ o los grupos, manda el guion.
   Contéstalo con el material, sin presentar tu respuesta como razón del
   secretario, y enuméralo PRIMERO en ADVERTENCIAS diciendo que esa respuesta
   debe revisarla él.
-- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}
+- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}
 - EXTENSIÓN: techo por apartado, no meta.
 - MARCAS DEL PLAN, además de las de los argumentos y con su mismo formato: el
   párrafo donde construyes una premisa que el guion dice EXPONE lleva en su
@@ -2143,7 +2565,8 @@ def para_ficha(plan: dict, estado: str = "usado", clave_: str = "", avisos=None)
         "segmentos": [{k: _corta(s.get(k), _topes[k]) if k in _topes else s.get(k)
                        for k in ("id", "problema_id", "concepto", "etiqueta", "razon",
                                  "trat", "reitera", "diferencia", "pendiente", "cita",
-                                 "razon_secretario") if s.get(k) not in (None, "", [])}
+                                 "razon_secretario", "sin_cita", "sin_premisa")
+                       if s.get(k) not in (None, "", []) and s.get(k) is not False}
                       for s in plan.get("segmentos") or []][:120],
         "unidades": [{"id": u.get("id"), "segmentos": u.get("segmentos"), "premisa": u.get("premisa")}
                      for u in plan.get("unidades") or []],

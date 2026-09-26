@@ -464,15 +464,23 @@ def resultado(f=None, variante="v4", suplencia=None, formato=""):
     return r
 
 
-_malo = mutar(lambda d: seg(d, "C3.b").update(reitera="C2.a", trat="remite", pendiente=None))
+# EL PLAN MALO LLEVA UN DEFECTO DE CONTENIDO (un argumento del escrito que el
+# planificador dejó fuera: V0 a) y, además, dos que el código ya corrige solo
+# (reitera con ancla propia y premisa sin rastro, 26-sep-2026). Sólo el
+# primero justifica pedir otro plan.
+_malo = mutar(lambda d: (seg(d, "C3.b").update(reitera="C2.a", trat="remite", pendiente=None),
+                         d["segmentos"].remove(seg(d, "C3.a"))))
 _malo["premisas"][0]["rastro_cita"] = "texto que no está en ninguna parte y no se puede verificar"
 _cli = Modelo(_malo, PLAN_BUENO)
 _plan, _av, _info = asyncio.run(pe.preparar(_cli, resultado(), crit(), material(), "", {}, segs=SEGS_N))
 ok(_plan is not None and _info["intentos"] == 2, "el primero falla V0, el reintento pasa")
+_rech = _cli.kw[1]["messages"][0]["content"].split("LO QUE EL CÓDIGO RECHAZÓ")[-1][:2000]
 ok("LO QUE EL CÓDIGO RECHAZÓ" in _cli.kw[1]["messages"][0]["content"]
-   and "M1" in _cli.kw[1]["messages"][0]["content"].split("LO QUE EL CÓDIGO RECHAZÓ")[1][:2000]
+   and "C3.a" in _rech
    and "LO QUE EL CÓDIGO RECHAZÓ" not in _cli.kw[0]["messages"][0]["content"],
    "el reintento lleva la lista de lo que falló, y el primero no")
+ok("M1" not in _rech and "reiterar" not in _rech,
+   "…y en esa lista sólo va lo que el código no pudo corregir (no la premisa sin rastro ni el reitera)")
 ok(_cli.kw[0]["model"] == f123.MODELO_FASES == "gpt-5.6-luna"
    and _cli.kw[0]["reasoning_effort"] == "medium"
    and _cli.kw[0]["response_format"] == {"type": "json_object"},
@@ -1296,6 +1304,209 @@ _bs = pe._bloque_segmentos([_piso_inf], [], 2)
 ok("orden del párrafo: el resumen no numera los conceptos" in _bs
    and "orden del párrafo" not in pe._bloque_segmentos([pe.normalizar_segmento_piso(SEGS[0])], [], 2),
    "el planificador lo recibe como dato (sólo en ese caso)")
+
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n15 · REPARAR LA ORGANIZACIÓN (primer caso real, ADC 642/2024, 26-sep-2026)")
+# El 642/2024 se quedó sin plan dos veces por «U9: mezcla vicios» y «M4:
+# premisa sin rastro verificado». Las reglas son buenas; tirar el plan entero,
+# no: el código parte la unidad y retira la premisa. Cada caso: V0 sin reparar
+# lo rechaza (la regla sigue viva), reparado pasa, la etiqueta y los
+# argumentos del escrito quedan intactos, y se le dice al secretario.
+_IDS_PISO = sorted(s["id"] for s in SEGS_N)
+
+
+def _intacto(plan_r, c=None):
+    """Ni una etiqueta distinta de la del criterio ni un argumento de menos."""
+    fij = {p["id"]: p["sentido"] for p in pe.problemas_del_criterio(c or crit(), fases())}
+    return (sorted(s["id"] for s in plan_r["segmentos"]) == _IDS_PISO
+            and all(s["etiqueta"] == fij.get(s["problema_id"], s["etiqueta"]) for s in plan_r["segmentos"]))
+
+
+def _v0r(plan_r, c=None, f=None, suplencia=None):
+    return pe.validar(plan_r, c or crit(), SEGS_N, f or fases(), material(), "", suplencia=suplencia or {})
+
+
+# (a) La unidad que mezcla VICIOS (el U9 del 642): se parte.
+_d = mutar(lambda d: seg(d, "C1.b").update(vicio="omision", razon="omision_inexistente"))
+ok(any("U1" in x and "mezcla vicios" in x for x in _v0(_d)), "sin reparar, V0 sigue viendo la mezcla de vicios")
+_r, _ = _rep(_d)
+_u = {u["id"]: u for u in _r["unidades"]}
+ok(_v0r(_r) == [] and _intacto(_r), f"reparada, pasa V0 sin tocar etiquetas ni argumentos: {_v0r(_r)[:2]}")
+_partes = [u for u in _r["unidades"] if u["premisa"] == "M1"]
+ok(len(_partes) == 2 and _partes[0]["id"] == "U1" and _partes[1]["segmentos"] == ["C1.b"]
+   and "C1.b" not in _partes[0]["segmentos"] and [u["id"] for u in _r["unidades"]][:2] == [p["id"] for p in _partes],
+   "U1 se parte en dos unidades seguidas, cada una con un solo vicio y la MISMA premisa")
+ok(_partes[0]["objecion"] and not _partes[1]["objecion"], "la objeción se queda en la primera parte (una vez)")
+ok(any("U1 juntaba" in a and "vicios" in a for a in _r["avisos_al_secretario"])
+   and _r["avisos_al_secretario"][0].startswith("U1 juntaba"),
+   "se le dice al secretario, y lo del código va antes que lo del modelo")
+_g = pe.vista(_r, "estandar")
+ok(_g.count("EXPONE M1") == 1 and _g.count("EXPONE M2") == 1, "en el guion, cada premisa se sigue exponiendo UNA vez")
+# (a') La que mezcla PROPOSICIONES.
+_d = mutar(lambda d: d["proposiciones"].append(dict(d["proposiciones"][0], id="P3", relacion="necesaria"))
+           or seg(d, "C1.b").update(ataca="P3"))
+ok(any("U1" in x and "proposiciones" in x for x in _v0(_d)), "sin reparar, V0 ve la mezcla de proposiciones")
+_r, _ = _rep(_d)
+ok(_v0r(_r) == [] and _intacto(_r) and sum(1 for u in _r["unidades"] if "C1.b" in u["segmentos"]) == 1
+   and len(_r["unidades"]) == 3, "reparada: una unidad por proposición")
+# (a'') El grupo del secretario manda: no se parte.
+_d = mutar(lambda d: (d["unidades"][0]["segmentos"].append("C2.a"), d["unidades"].pop(1)))
+_r, _ = _rep(_d, c=crit(g1="A", g2="A"))
+ok(len(_r["unidades"]) == 1 and "C2.a" in _r["unidades"][0]["segmentos"],
+   "lo que el secretario agrupó no se parte (su grupo manda)")
+
+# (b) LA PREMISA SIN RASTRO (el M4 del 642): se retira.
+_d = mutar(lambda d: d["premisas"][0].update(rastro_cita="la confesión ficta basta siempre para identificar cualquier bien"))
+ok(any("M1" in x and "rastro" in x for x in _v0(_d)), "sin reparar, V0 sigue exigiendo el rastro")
+_r, _ = _rep(_d)
+_u1 = next(u for u in _r["unidades"] if "C1.a" in u["segmentos"])
+ok(_v0r(_r) == [] and _intacto(_r), f"reparado, pasa V0: {_v0r(_r)[:2]}")
+ok("M1" not in [m["id"] for m in _r["premisas"]] and _u1["premisa"] is None
+   and [m["id"] for m in _r["premisas"]] == ["M2"], "la premisa sin rastro se retira y su unidad queda sin premisa")
+ok(all(seg(_r, x)["trat"] == "desarrolla" and seg(_r, x).get("sin_premisa") for x in ("C1.a", "C1.b", "C3.a"))
+   and seg(_r, "C2.a")["trat"] == "aplica" and not seg(_r, "C2.a").get("sin_premisa"),
+   "lo que se contestaba con ella (aplica, remite) pasa a «desarrolla»; lo de otras unidades, no")
+ok(any(a.startswith("M1 se retiró") and "U1" in a for a in _r["avisos_al_secretario"]), "y se le dice al secretario")
+_g = pe.vista(_r, "estandar")
+_b = pe.bloque(_g)
+ok("EXPONE M1" not in _g and "sin premisa verificada" in _g and "«sin premisa verificada»" in _b,
+   "el guion dice «sin premisa verificada» y el bloque explica qué hacer con él")
+ok("sin premisa verificada" not in pe.bloque(pe.vista(_pb, "estandar")),
+   "…y un guion que no lo trae deja la v4 como estaba")
+_fr = pe.para_ficha(_r)
+ok(any(s.get("sin_premisa") for s in _fr["segmentos"]) and all("sin_cita" not in s for s in _fr["segmentos"]),
+   "la ficha lleva la marca (y no las que valen False)")
+
+# (c) LA RAZÓN QUE NO CABE CON LA ETIQUETA: vuelve a la de la etiqueta; la
+# del planificador, a propuestas (43/2025: diez; el reintento no las
+# arreglaba).
+_d = mutar(lambda d: (seg(d, "C1.b").update(razon="generico"),
+                      seg(d, "C1.a").update(vicio="omision", razon="no_combate(P1)")))
+_f = _v0(_d)
+ok(any("C1.b" in x and "infundado" in x for x in _f) and any("C1.a" in x for x in _f),
+   "sin reparar, V0 rechaza la razón que no cabe con «infundado»")
+_r, _ = _rep(_d)
+ok(seg(_r, "C1.b")["razon"] == "fondo_desestimado" and seg(_r, "C1.a")["razon"] == "omision_inexistente"
+   and seg(_r, "C1.a")["razon_p"] is None,
+   "la razón vuelve a la única que la etiqueta deja (omisión → omision_inexistente)")
+ok({"seg": "C1.b", "de": "infundado", "a": "inoperante",
+    "por_que": "razón que sugirió el planificador: generico"} in _r["propuestas"]
+   and all(s["etiqueta"] == "infundado" for s in _r["segmentos"] if s["problema_id"] == 1),
+   "lo que opinaba el planificador sale como PROPUESTA; la etiqueta no se toca")
+ok(any("razones que no cabían" in a and "C1.b" in a for a in _r["avisos_al_secretario"]) and _v0r(_r) == [],
+   "se dice, y el plan pasa")
+_r, _ = _rep(_d, tocados=[PREG1])
+ok(not any(x["seg"] in ("C1.a", "C1.b") for x in _r["propuestas"]) and seg(_r, "C1.b")["razon"] == "fondo_desestimado",
+   "en un problema que el secretario tocó a mano, se ajusta sin proponer")
+# …«inoperante» deja diez: el código no elige (clase B, el reintento).
+_d = mutar(lambda d: seg(d, "C2.a").update(razon="fondo_desestimado"))
+_r, _ = _rep(_d)
+ok(any("C2.a" in x and "inoperancia" in x for x in _v0r(_r)) and seg(_r, "C2.a")["razon"] == "fondo_desestimado",
+   "«inoperante» con una razón que no es de inoperancia: el código no elige cuál; V0 pide otro plan")
+
+# (d) FALSA ALARMA CORREGIDA: el pendiente de razón no lleva razón.
+_d = mutar(lambda d: seg(d, "C3.b").update(razon=None))
+ok(not any("C3.b" in x for x in _v0(_d)), "un segmento pendiente de razón sin razón del catálogo pasa (el prompt pide no inventarla)")
+ok(not any("mezcla" in x for x in _v0(_d)), "…y no «mezcla razones» en su unidad")
+_d = mutar(lambda d: seg(d, "C1.b").update(razon=None))
+ok(any("C1.b" in x and "razón fuera del catálogo" in x for x in _v0(_d)),
+   "sin pendiente, la razón vacía sigue siendo una falta")
+_r, _ = _rep(_d)
+ok(seg(_r, "C1.b")["razon"] == "fondo_desestimado" and any("dejó vacías" in a for a in _r["avisos_al_secretario"])
+   and _v0r(_r) == [], "…que el código llena con la única que la etiqueta deja, y lo dice")
+# Lo que no se estudia, con la razón que dice su criterio.
+_ci2 = crit(s1="fundado", s2="innecesario", r2="Dado el sentido del estudio del problema principal, queda sin materia.")
+_d = mutar(lambda d: ([seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C1.b", "C3.a", "C3.b")],
+                      seg(d, "C2.a").update(etiqueta="innecesario", razon=None, trat="no_se_estudia")))
+ok(any("C2.a" in x and "razón" in x for x in _v0(_d, c=_ci2)), "sin reparar: «no se estudia» sin razón")
+_r, _ = _rep(_d, c=_ci2)
+ok(seg(_r, "C2.a")["razon"] == "cae_con_principal" and _v0r(_r, c=_ci2) == [] and _intacto(_r, _ci2),
+   "reparado: cae con el principal (lo que el árbol escribió), y pasa")
+
+# (e) LA CITA QUE NO ENCONTRÓ NADIE (93/2026: dos planes buenos tirados por
+# esto): el segmento es del inventario; queda sin cita y se dice.
+_segs_sin = [dict(s, cita="") if s["id"] == "C1.a" else s for s in SEGS_N]
+_d = mutar(lambda d: seg(d, "C1.a").update(cita="la responsable inventó una identidad que nunca existió en autos"))
+ok(any("C1.a" in x and "cita literal" in x for x in pe.validar(norm(_d), crit(), _segs_sin, fases(), material(), "")),
+   "sin reparar, V0 sigue rechazando la cita que no está")
+_r, _av = pe.reparar(norm(_d), crit(), _segs_sin, fases(), material(), "", {})
+ok(pe.validar(_r, crit(), _segs_sin, fases(), material(), "") == [] and seg(_r, "C1.a")["cita"] == ""
+   and seg(_r, "C1.a")["sin_cita"] and not seg(_r, "C1.b")["sin_cita"],
+   "reparado: el segmento sigue, sin cita y marcado; los demás, con la suya")
+ok(any("sin cita literal" in a and "C1.a" in a for a in _r["avisos_al_secretario"]), "y el secretario lo sabe")
+
+# (f) REFERENCIAS A LO QUE NO EXISTE, limpias; lo inventado, fuera.
+_d = mutar(lambda d: (d["unidades"][0]["segmentos"].append("C7.q"), d["unidades"][1].update(premisa="M9"),
+                      seg(d, "C1.b").update(ataca="P9"), d["premisas"][0]["responde_a"].append("P8"),
+                      d["segmentos"].append(dict(seg(d, "C1.a"))),
+                      d["segmentos"].append(dict(seg(d, "C1.a"), id="C9.z")),
+                      d["unidades"][1]["segmentos"].append("C1.a")))
+_f = _v0(_d)
+ok(len(_f) >= 5, f"sin reparar, V0 acusa cada referencia rota ({len(_f)})")
+_r, _ = _rep(_d)
+ok(_v0r(_r) == [] and _intacto(_r), f"reparado, pasa: {_v0r(_r)[:3]}")
+ok(seg(_r, "C1.b")["ataca"] is None and _r["unidades"][1]["premisa"] is None
+   and "C1.a" not in _r["unidades"][1]["segmentos"] and "P8" not in _r["premisas"][0]["responde_a"],
+   "la proposición, la premisa y el segmento que no existen salen de las referencias; el repetido, de la segunda unidad")
+ok(any("repitió C1.a" in a for a in _r["avisos_al_secretario"])
+   and any("C9.z" in a for a in _r["avisos_al_secretario"]), "el duplicado y el inventado, fuera y dichos")
+_da = mutar(lambda d: d["segmentos"].append(dict(seg(d, "C2.a"), id="AD1.a")))
+ok(any(s["id"] == "AD1.a" for s in _rep(_da)[0]["segmentos"]),
+   "un AD que no está en el inventario no se quita: puede ser de otro escrito (V0 decide)")
+
+# (g) EL ORDEN: la forma antes que el fondo, sin mayor beneficio dicho, se
+# reordena; lo que la ley no deja resolver sin decidir, no.
+_fo2 = fases(problemas=[{"pregunta": PREG1, "cubre": [1, 3], "clase": "fondo", "jerarquia": "principal"},
+                        {"pregunta": PREG2, "cubre": [2], "clase": "fondo", "jerarquia": "principal"}])
+_co2 = [f6.Criterio(problema=PREG1, sentido="infundado", razonamiento=RAZON1, jerarquia="principal"),
+        f6.Criterio(problema=PREG2, sentido="inoperante", razonamiento=RAZON2, jerarquia="principal")]
+_d = mutar(lambda d: (seg(d, "C2.a").update(vicio="forma"), d["unidades"].reverse(),
+                      d["orden"].update(por_que="el del escrito")))
+ok(any("189" in x for x in _v0(_d, c=_co2, f=_fo2)), "sin reparar: la forma antes que el fondo (art. 189)")
+_r, _ = pe.reparar(norm(_d), _co2, SEGS_N, _fo2, material(), "", {})
+ok(pe.validar(_r, _co2, SEGS_N, _fo2, material(), "") == [] and [u["id"] for u in _r["unidades"]] == ["U1", "U2"]
+   and any("orden de las unidades" in a for a in _r["avisos_al_secretario"]),
+   "reparado: el fondo primero, y se dice")
+_d = mutar(lambda d: (seg(d, "C2.a").update(vicio="procesal"), d["unidades"].reverse(),
+                      d["orden"].update(por_que="el escrito")))
+_r, _ = pe.reparar(norm(_d), _co, SEGS_N, _fo, material(), "", {})
+ok(any("189" in x for x in pe.validar(_r, _co, SEGS_N, _fo, material(), "")),
+   "procesal PRINCIPAL con su accesorio de fondo: la ley no deja ordenarlo sin decidir el mayor beneficio (clase B)")
+
+# (h) CLASE B: lo de contenido sigue pidiendo otro plan.
+_d = mutar(lambda d: d["segmentos"].remove(seg(d, "C3.a")))
+_r, _ = _rep(_d)
+ok(any("faltan segmentos" in x and "C3.a" in x for x in _v0r(_r)),
+   "un argumento del escrito que el planificador dejó fuera: V0 lo sigue rechazando")
+_d = mutar(lambda d: seg(d, "C2.a").update(etiqueta="fundado", razon="cae_con_principal",
+                                           trat="no_se_estudia", vicio="procesal"))
+_r, _ = pe.reparar(norm(_d), _cp, SEGS_N, _fp, material(), "", {})
+ok(any("C2.a" in x and "procesal" in x for x in pe.validar(_r, _cp, SEGS_N, _fp, material(), "")),
+   "una procesal que el criterio estudia y el plan deja sin estudio: V0 la sigue rechazando")
+
+# (i) DE PUNTA A PUNTA: el plan del 642 (mezcla + premisa sin rastro) pasa al
+# PRIMER intento; el reintento queda para lo de contenido.
+_642 = mutar(lambda d: seg(d, "C1.b").update(vicio="omision", razon="omision_inexistente"))
+_642["premisas"][1]["rastro_cita"] = "la ejecutoria dijo algo que no está en ninguna parte del expediente"
+_cli = Modelo(_642)
+_plan, _av, _info = asyncio.run(pe.preparar(_cli, resultado(), crit(), material(), "", {}, segs=SEGS_N))
+ok(_plan is not None and _info["intentos"] == 1 and len(_cli.kw) == 1 and _info["faltas"] == [[]],
+   "un plan con sólo defectos organizativos pasa al primer intento: una sola llamada")
+ok(_plan and any("M2 se retiró" in a for a in _plan["avisos_al_secretario"])
+   and any("U1 juntaba" in a for a in _plan["avisos_al_secretario"]),
+   "…con las dos correcciones dichas al secretario")
+ok(pe.PLAN_VERSION == "plan-3", "la versión del plan sube: un «fallo» guardado con la regla vieja no bloquea el nuevo cálculo")
+# (j) Una propuesta es una CALIFICACIÓN: la razón que el planificador puso ahí
+# (642/2024: «fundado → fondo_desestimado») se traduce; el botón del panel
+# pondría si no una razón como sentido.
+_d = mutar(lambda d: d["propuestas"].extend([
+    {"seg": "C2.a", "de": "inoperante", "a": "fondo_desestimado", "por_que": "la ejecutoria no vincula"},
+    {"seg": "C1.a", "de": "infundado", "a": "fundado", "por_que": "tiene razón"}]))
+_r, _ = _rep(_d)
+_pp = {x["seg"]: x for x in _r["propuestas"]}
+ok(_pp["C2.a"]["a"] == "infundado" and "fondo_desestimado" in _pp["C2.a"]["por_que"]
+   and _pp["C1.a"]["a"] == "fundado" and _pp["C1.a"]["por_que"] == "tiene razón",
+   "la razón puesta como propuesta se vuelve la calificación que implica; una calificación queda igual")
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))
