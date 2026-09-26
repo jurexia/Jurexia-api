@@ -211,6 +211,50 @@ _r_c, _i_c = K.reparar_aperturas(_corto, CRIT, PROB)
 ok("Sostiene que el perito no tenía cédula. Dicho argumento resulta infundado." in _r_c
    and len(_r_c.split()) == len(_corto.split()) and not _i_c["anadidas"],
    "…pero si la calificación es de menos de seis palabras (el compositor la tiraría), se pega, sin añadir nada")
+# LOS DOS CANDADOS DE LA REPARACIÓN (revisión adversarial, 26-sep-2026): la
+# máquina no escribe una calificación que la demostración del apartado niega,
+# ni adivina, sin el plan, cuál de los conceptos de un problema fundado lo funda.
+ok(K.direcciones(["Es infundado, porque la Sala sí examinó la reconvención."]) == {"contra"}
+   and K.direcciones(["No le asiste la razón a la quejosa."]) == {"contra"}
+   and K.direcciones(["El planteamiento no es fundado."]) == {"contra"}
+   and K.direcciones(["Es fundado pero insuficiente, pues subsiste la otra consideración."]) == {"contra"}
+   and K.direcciones(["No asiste razón en una parte; sin embargo, sí la asiste en otra."]) == {"contra", "favor"}
+   and K.direcciones(["Resulta fundado el concepto."]) == {"favor"}
+   and K.direcciones(["COSTAS. SE DETERMINAN POR LO FUNDADO O INFUNDADO DE LOS AGRAVIOS."]) == set(),
+   "la dirección de lo que el apartado ya califica (la negación y el «pero insuficiente» van en contra; "
+   "el rubro de una tesis no cuenta)")
+_dos = ("Los conceptos de violación son fundados.\n\n"
+        "Sobre el primer concepto de violación, en el que la parte quejosa sostiene que faltó la pericial.\n\n"
+        "Lo anterior, porque la Sala no explicó qué prueba identifica la fracción reclamada.\n\n"
+        "Sobre el tercer concepto de violación, en el que la parte quejosa sostiene que la Sala omitió la "
+        "reconvención.\n\n"
+        "Lo anterior, porque la Sala sí examinó la confesional y la testimonial.\n\n"
+        "De ahí que el planteamiento sea infundado.")
+_rd, _id = K.reparar_aperturas(_dos, CRIT, PROB)
+ok(not _id["anadidas"] and _rd == _dos
+   and sorted((x["ordinales"], "otros conceptos" in x["motivo"] or "contraria" in x["motivo"])
+              for x in _id["sin_reparar"]) == [([1], True), ([3], True)],
+   "sin plan, el problema 1 (fundado) cubre el primero y el tercero: al primero no se le añade «fundado» "
+   "porque nada dice que sea él quien lo funda, y al tercero, que se demuestra infundado, menos")
+_uno = _dos.replace("identifica la fracción reclamada.",
+                    "identifica la fracción reclamada.\n\nPor eso le asiste la razón a la quejosa.")
+_ru, _iu = K.reparar_aperturas(_uno, CRIT, PROB)
+ok([x["ordinales"] for x in _iu["anadidas"]] == [[1]] and [x["ordinales"] for x in _iu["sin_reparar"]] == [[3]],
+   "…si el cuerpo del primero ya razona a su favor, se le añade; el tercero sigue sin tocarse y se avisa")
+_plan_mal = {"segmentos": [{"id": "C3.a", "etiqueta": "fundado"}]}
+_dos_m = _dos.replace("Sobre el tercer concepto", "⟦C3.a⟧ Sobre el tercer concepto")
+_rm, _im = K.reparar_aperturas(_dos_m, CRIT, PROB, plan=_plan_mal)
+ok(not any(x["ordinales"] == [3] for x in _im["anadidas"])
+   and any(x["ordinales"] == [3] and "contraria" in x["motivo"] for x in _im["sin_reparar"]),
+   "con plan: tampoco la etiqueta del plan se escribe si la demostración del apartado va al revés")
+ok("el tercer concepto de violación («Lo anterior, porque la Sala sí examinó" in K.aviso_aperturas(_im)
+   and "dirección contraria a «fundado» (la de su plan)" in K.aviso_aperturas(_im),
+   "…y el secretario lo sabe por el aviso, con su porqué")
+_ef = ("Sobre el primer concepto de violación, en el que sostiene X.\n\nEs fundado.\n\nLo anterior, porque sí.\n\n"
+       "EFECTOS DE LA CONCESIÓN\n\n1. Deje insubsistente la sentencia.\n\nEs fundado.\n\n2. Dicte otra.")
+_pe_, _he_ = K.pegar_calificaciones(_ef)
+ok(len(_he_) == 1 and "1. Deje insubsistente la sentencia.\n\nEs fundado.\n\n2. Dicte otra." in _pe_,
+   "el pegado sólo toca el cuerpo: en los EFECTOS un renglón corto no es la calificación de ningún apartado")
 _sombra = K.informe_sombra(_inf)
 ok("texto" not in json.dumps(_sombra) or all("texto" not in x for x in _sombra["anadidas"] + _sombra["sin_reparar"]
                                               + _sombra["sombra"]),
@@ -234,6 +278,21 @@ ok(pe.etiqueta_fuera("fundado", "infundado") != "" and pe.etiqueta_fuera("fundad
    "dentro de un problema que no prospera, el que tiene razón y no alcanza es «fundado pero insuficiente»")
 ok("etiqueta: infundado (dentro del problema 1, fundado)" in pe._linea_seg(_c1d, "desarrolla", "", {1: "fundado"}),
    "el guion dice la calificación del argumento y el sentido de su problema")
+# EL GUION YA NO DICE LA IGUALDAD DE plan-3 (revisión adversarial): ni en su
+# encabezado ni en la descripción que lee el estudio; y el RESIDUAL que trae
+# dato se hace cargo de él (el planificador marca residual con dato: 16 de 18
+# en el banco de plan_rep), en vez de despacharlo en una o dos frases.
+_bl = " ".join(pe.bloque("APARTADO 1").split())
+ok("el sentido de cada argumento es el de su criterio" not in _bl
+   and "el sentido de cada problema es el del criterio y el guion no lo cambia" in _bl
+   and "la etiqueta de cada argumento es su calificación dentro de él" in _bl,
+   "la descripción del guion: el sentido es del PROBLEMA; la etiqueta, del argumento")
+ok("si el guion le pone un dato, la respuesta se hace cargo de ese dato" in _bl,
+   "RESIDUAL con dato: la respuesta se hace cargo del dato")
+_vi = pe.vista({"segmentos": [dict(_c1d, trat="aplica")], "problemas": [{"id": 1, "sentido": "fundado"}],
+                "unidades": [], "premisas": [], "propuestas": [], "orden": {}}, "estandar")
+ok(_vi.startswith("GUION DEL ESTUDIO — organiza; el sentido de cada problema es el del criterio"),
+   "el encabezado del guion habla del sentido de cada problema")
 # El apartado del primer concepto mezcla C1.a (fundado) y C1.d (infundado):
 ok(K.calificacion_de_apartado([1], CRIT, PROB, ["C1.a", "C1.d"], {"segmentos": _segs}) == ("fundado", "criterio"),
    "la apertura del apartado mixto lleva el sentido de su problema (lo funda C1.a)")
@@ -358,6 +417,34 @@ for nombre in ("resolver", "resolver_en_vivo"):
     ok(llamadas.count("_congruencia_apertura") == 1
        and src.index("_completar_estudio(") < src.index("_congruencia_apertura(") < src.index("_terminar("),
        f"{nombre}: una vez, después de la reparación dirigida y antes de componer")
+    ok(llamadas.count("_congruencia_pegar") == 1
+       and src.index("_congruencia_pegar(") < src.index("_por_completar(") < src.index("_completar_estudio("),
+       f"{nombre}: la calificación suelta se pega ANTES de la reparación dirigida")
+# POR QUÉ ANTES (revisión adversarial, 26-sep-2026): la reparación dirigida
+# inserta la pieza tras el último párrafo que marca un argumento de su
+# concepto; si ése es la apertura, sin pegar antes la pieza queda entre la
+# apertura y su «Es fundado.», y el pegado posterior se la da a la pieza.
+import exhaustivo as X_ins
+_ins = ("⟦C1.a⟧ Sobre el primer concepto de violación, en el que sostiene que faltó la pericial.\n\n"
+        "Es fundado.\n\n"
+        "Lo anterior, porque la Sala no explicó qué prueba identifica la fracción reclamada.")
+_pz = [(["C1.b"], "En cuanto a la reconvención, la Sala sí examinó la confesional y la testimonial ofrecidas.")]
+_spi = {"C1.a": {"id": "C1.a", "concepto": 1}, "C1.b": {"id": "C1.b", "concepto": 1}}
+_tarde = K.pegar_calificaciones(X_ins.insertar(_ins, _pz, [], _spi)[0])[0]
+_pronto = X_ins.insertar(K.pegar_calificaciones(_ins)[0], _pz, [], _spi)[0]
+ok(_tarde.split("\n")[0].rstrip().endswith("faltó la pericial.") and "ofrecidas. Es fundado." in _tarde,
+   "pegando DESPUÉS de la reparación, la calificación de la apertura acaba en la pieza insertada")
+ok(_pronto.split("\n")[0].rstrip().endswith("faltó la pericial. Es fundado.") and "ofrecidas. Es fundado." not in _pronto,
+   "pegando ANTES, la apertura conserva su calificación y la pieza va detrás")
+_me6, _av6 = {}, []
+_m6 = f6.Material(tipo_asunto="amparo_directo", variante="v4", problemas=PROB)
+_p6 = ra._congruencia_pegar(_m6, V4, _me6)
+_o6 = ra._congruencia_apertura(_r, CRIT, _m6, _p6, _me6, _av6)
+ok(_p6 == _pegado and _o6 == _pegado and _me6["congruencia"]["pegadas"] == 4 and "_cg_pegadas" not in _me6
+   and _av6 == [], "lo pegado antes cuenta en el informe, sin dejar rastro interno en la ficha")
+_me7 = {}
+ok(ra._congruencia_pegar(f6.Material(variante="v1", problemas=PROB), V4, _me7) == V4 and _me7 == {},
+   "v1: el pegado previo tampoco toca una coma")
 _term = next(n for n in ARBOL.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "_terminar")
 _st = ast.get_source_segment(SRC_RA, _term)
 ok("_congruencia_efectos(e, material, estudio, criterios, meta_estudio)" in _st

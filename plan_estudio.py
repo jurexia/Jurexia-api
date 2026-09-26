@@ -2494,7 +2494,11 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     for u in unis:
         for x in u.get("segmentos") or []:
             u_de.setdefault(x, u)
-    L = ["GUION DEL ESTUDIO — organiza; el sentido es el del criterio del secretario; la prosa es tuya",
+    # «EL SENTIDO» DE CADA PROBLEMA (revisión adversarial de p2-congruencia):
+    # con plan-4 la etiqueta de un argumento puede no ser la de su problema, y
+    # «el sentido es el del criterio» se leía como la igualdad de plan-3.
+    L = ["GUION DEL ESTUDIO — organiza; el sentido de cada problema es el del criterio del secretario; "
+         "la prosa es tuya",
          f"FORMA: {'moderna: un apartado por problema, con su pregunta' if moderna else 'estándar: un apartado por ' + q1}"]
     o = plan.get("orden") or {}
     L.append(f"ORDEN: {'prelación lógica' if o.get('criterio') == 'prelacion' else 'el del escrito'}"
@@ -2729,9 +2733,10 @@ EL GUION DEL ESTUDIO — manda la organización
 Lo que sigue organiza tu estudio: qué apartados hay y en qué orden, qué
 argumentos contesta cada uno, dónde se expone cada premisa una sola vez y
 dónde sólo se aplica o se remite. Se armó sobre el criterio del secretario y
-se verificó contra el expediente; el sentido de cada argumento es el de su
-criterio y el guion no lo cambia. Donde este prompt te deja decidir el orden
-o los grupos, manda el guion.
+se verificó contra el expediente; el sentido de cada problema es el del
+criterio y el guion no lo cambia —la etiqueta de cada argumento es su
+calificación dentro de él—. Donde este prompt te deja decidir el orden o los
+grupos, manda el guion.
 - Un apartado por cada APARTADO del guion, en su orden. En la estándar, abre
   nombrando los argumentos que contesta; en la moderna, con la pregunta del
   problema.
@@ -2745,8 +2750,9 @@ o los grupos, manda el guion.
 - REMITE: se contesta nombrando el apartado donde se expuso la premisa y la
   proposición que decide lo distintivo de este argumento; una remisión que
   sólo manda a lo ya dicho lo deja sin respuesta.
-- RESIDUAL: una o dos frases con su calificación y su razón. NO SE ESTUDIA:
-  una frase que dice por qué.
+- RESIDUAL: una o dos frases con su calificación y su razón; si el guion le
+  pone un dato, la respuesta se hace cargo de ese dato aunque pida más de dos
+  frases. NO SE ESTUDIA: una frase que dice por qué.
 - etiqueta: la calificación de ESE argumento. El sentido de cada problema es
   el que fijó el secretario (SENTIDO DE CADA PROBLEMA) y no se toca; dentro de
   él, cada argumento se contesta con su etiqueta: en un problema que prospera

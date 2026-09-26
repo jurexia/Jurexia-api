@@ -27,6 +27,15 @@ LO QUE HAY AQUÍ, sin modelo:
   · `reparar_aperturas`: lo anterior junto; y donde la apertura sigue sin
     calificación, añade la que el CRITERIO DEL SECRETARIO (o el plan) asigna a
     ese apartado, sin tocar nada más. Si no es unívoca, no escribe: avisa.
+    Y dos candados (revisión adversarial): nunca la calificación contraria a
+    la que el apartado ya razona, y sin la etiqueta del plan no adivina cuál
+    de los conceptos de un problema fundado es el que lo funda. Simulado en el
+    banco (quitando al modelo sus 24 calificaciones sueltas): añade 17, las 17
+    en la dirección que el modelo había escrito; las 2 que no, las avisa.
+    El pegado corre también ANTES de la reparación dirigida
+    (`redactor_adelanto._congruencia_pegar`): ésta inserta tras el último
+    párrafo que marca el concepto, y si es la apertura, la pieza quedaba
+    entre la apertura y su calificación.
   · `efectos_sin_cubrir` (en sombra): el argumento fundado cuyo efecto no es
     liso y llano y que los EFECTOS no recogen.
 
@@ -184,14 +193,29 @@ def _sin_doble_blanco(lineas: list, k: int) -> None:
         del lineas[k]
 
 
+def _corte_del_cuerpo(lineas: list) -> int:
+    """El renglón donde acaba el cuerpo del estudio (empiezan los EFECTOS o
+    las ADVERTENCIAS), o len(lineas)."""
+    idx = [n for n, ln in enumerate(lineas) if _limpio(ln)]
+    fin_c, _ = _partes([_limpio(lineas[n]) for n in idx])
+    return idx[fin_c] if fin_c < len(idx) else len(lineas)
+
+
 def pegar_calificaciones(estudio: str) -> tuple:
     """(estudio, [(renglón, «texto pegado», «atrás»|«adelante»)]).
 
     La calificación sola se pega al final del párrafo anterior —el que abre
     el apartado—; si el anterior es una pregunta o un rótulo, al comienzo del
     siguiente. El «Sí.»/«No.» solo, al comienzo del siguiente. Sus marcas, si
-    las lleva, pasan al párrafo que la recibe. Nada más cambia."""
-    lineas = (estudio or "").split("\n")
+    las lleva, pasan al párrafo que la recibe. Nada más cambia.
+
+    SÓLO EN EL CUERPO (revisión adversarial, 26-sep-2026): los EFECTOS son
+    órdenes numeradas y las ADVERTENCIAS, notas al secretario; un renglón
+    corto ahí no es la calificación de ningún apartado, y pegarlo a una orden
+    la estropearía."""
+    todas = (estudio or "").split("\n")
+    corte = _corte_del_cuerpo(todas)
+    lineas, cola = todas[:corte], todas[corte:]
     hechas = []
     k = 0
     while k < len(lineas):
@@ -230,7 +254,7 @@ def pegar_calificaciones(estudio: str) -> tuple:
             hechas.append((k, txt, "adelante"))
             continue
         k += 1
-    return "\n".join(lineas), hechas
+    return "\n".join(lineas + cola), hechas
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -410,8 +434,50 @@ def frase_calificacion(sentido: str, plural: bool = False) -> str:
     return "Es " + s.replace("fundado_insuficiente", "fundado pero insuficiente").replace("_", " ") + "."
 
 
+# LA DIRECCIÓN DE LO QUE EL APARTADO YA RAZONA (revisión adversarial,
+# 26-sep-2026). La reparación añade una calificación que el modelo no
+# escribió; si el cuerpo del apartado razona la contraria —«es infundado»,
+# «no le asiste la razón» donde se iba a añadir «Es fundado.»—, añadirla sería
+# el defecto (2) del 642 hecho por la máquina: una apertura que niega su
+# propia demostración. Se lee sólo en las frases que califican por cuenta de
+# este tribunal (`califica`), sin los rubros de las tesis.
+_RX_DIR_FAVOR = re.compile(
+    r"\bfundad[oa]s?\b(?!\s*,?\s*(?:pero|aunque)\s+(?:\w+\s+)?(?:insuficien|inoperan|inefica))"
+    r"|\b(?:le|les|la)\s+asiste\b|\basiste\s+(?:la\s+)?raz[óo]n|\btiene\w*\s+(?:la\s+)?raz[óo]n", re.I)
+# «insuficiente» sólo califica pegado a «fundado pero…»: suelto es de la prueba
+# («explicar por qué resulta insuficiente», 174/2026 v3), no del concepto.
+_RX_DIR_CONTRA = re.compile(
+    r"\b(?:infundad|inoperan|inefica|inatendib|desestim)\w*|\bcarece\w*\s+de\s+raz[óo]n"
+    r"|\bfundad\w*\s*,?\s*(?:pero|aunque)\s+(?:\w+\s+)?insuficien", re.I)
+_RX_NEGADO = re.compile(r"\bno\s+(?:\w+\s+){0,2}$", re.I)
+
+
+def direcciones(parrafos_: list) -> set:
+    """{«favor», «contra»}: las direcciones de las calificaciones propias que
+    ya trae el texto. «no es fundado», «no le asiste la razón» van en contra."""
+    fuera = set()
+    for p in parrafos_ or []:
+        for fr in frases(p):
+            if _es_rubro(fr) or not califica(fr):
+                continue
+            t = _RX_NO_CALIF.sub(" ", fr)
+            if _RX_DIR_CONTRA.search(t):
+                fuera.add("contra")
+            for m in _RX_DIR_FAVOR.finditer(t):
+                fuera.add("contra" if _RX_NEGADO.search(t[max(0, m.start() - 24):m.start()]) else "favor")
+    return fuera
+
+
+def _clase(sentido: str) -> str:
+    s = _norm_sentido(sentido)
+    if not s or s in ("innecesario", "sin_materia", "cae_con_principal", "no_se_estudia",
+                      "adhesivo_sin_materia"):
+        return ""
+    return "favor" if _prospera(s) else "contra"
+
+
 def calificacion_de_apartado(ordinales_: list, criterios: list, problemas: list,
-                             ids: list = None, plan: dict = None) -> tuple:
+                             ids: list = None, plan: dict = None, cuerpo: list = None) -> tuple:
     """(sentido, de dónde) de un apartado, o («», motivo) si no es unívoco.
 
     Del CRITERIO: el sentido de los problemas que cubren los conceptos que el
@@ -419,26 +485,48 @@ def calificacion_de_apartado(ordinales_: list, criterios: list, problemas: list,
     PLAN (v4) y marcas en el apartado, la etiqueta de sus argumentos manda si
     es una sola; si difieren (plan-4: dentro de un problema fundado cabe un
     argumento infundado), el apartado abre con el sentido de su problema
-    siempre que alguno de sus argumentos lo lleve —es el que lo funda—."""
+    siempre que alguno de sus argumentos lo lleve —es el que lo funda—.
+
+    DOS CANDADOS (revisión adversarial, 26-sep-2026), con `cuerpo` = los
+    párrafos del apartado:
+      · SIN LA ETIQUETA DEL PLAN, UN PROBLEMA QUE PROSPERA Y CUBRE OTROS
+        CONCEPTOS no dice cuál de ellos lo funda: dentro de él cabe un
+        concepto entero infundado. Sólo se añade si el cuerpo ya razona en su
+        favor; si no, se avisa.
+      · NUNCA LA CONTRARIA DE LO QUE EL APARTADO RAZONA: si el cuerpo sólo
+        califica en la otra dirección, no se escribe; se avisa."""
     try:
         import exhaustivo as _ex
         rep = _ex.reparto(criterios, problemas)
     except Exception:
         rep = []
-    ss = {_norm_sentido(_get(c, "sentido")) for c, cub in rep
-          if set(cub) & set(ordinales_ or []) and _get(c, "sentido")}
+    suyos = [(c, cub) for c, cub in rep if set(cub) & set(ordinales_ or []) and _get(c, "sentido")]
+    ss = {_norm_sentido(_get(c, "sentido")) for c, _ in suyos}
     del_criterio = next(iter(ss)) if len(ss) == 1 else ""
+    dirs = direcciones(cuerpo) if cuerpo is not None else None
+
+    def _cabe(sentido: str, fuente: str) -> tuple:
+        cl = _clase(sentido)
+        if cl and dirs and cl not in dirs:
+            return "", (f"el apartado ya razona en la dirección contraria a «{sentido}» (la de su "
+                        f"{fuente}): la máquina no escribe una calificación que su demostración niega")
+        return sentido, fuente
+
     if plan and ids:
         et = {_norm_sentido(s.get("etiqueta")) for s in plan.get("segmentos") or []
               if s.get("id") in set(ids) and s.get("etiqueta")}
         if len(et) == 1:
-            return next(iter(et)), "plan"
+            return _cabe(next(iter(et)), "plan")
         if len(et) > 1:
             if del_criterio and del_criterio in et:
-                return del_criterio, "criterio"
+                return _cabe(del_criterio, "criterio")
             return "", "los argumentos del apartado llevan calificaciones distintas en el plan"
     if del_criterio:
-        return del_criterio, "criterio"
+        otros = set().union(*[set(cub) for _, cub in suyos]) - set(ordinales_ or [])
+        if _clase(del_criterio) == "favor" and otros and not (dirs and "favor" in dirs):
+            return "", ("el problema que lo cubre prospera y cubre también otros conceptos: sin la "
+                        "etiqueta del plan no se sabe si éste es el que lo funda")
+        return _cabe(del_criterio, "criterio")
     if not ss:
         return "", "ningún problema del criterio cubre ese concepto"
     return "", "los problemas que cubren ese concepto tienen sentidos distintos"
@@ -518,7 +606,9 @@ def reparar_aperturas(estudio: str, criterios: list, problemas: list,
             ids = []
             for j in range(h["apartado"], a.get("fin", h["apartado"] + 1)):
                 ids += [x for x in por_parrafo.get(j, []) if x not in ids]
-            sentido, fuente = calificacion_de_apartado(h["ordinales"], criterios, problemas, ids, plan)
+            sentido, fuente = calificacion_de_apartado(
+                h["ordinales"], criterios, problemas, ids, plan,
+                cuerpo=ps[h["apartado"]:a.get("fin", h["apartado"] + 1)])
             frase = frase_calificacion(sentido, plural=len(h["ordinales"]) > 1) if sentido else ""
             n = _renglon_de(lineas, h["apartado"])
             if not frase or n < 0:
@@ -555,8 +645,13 @@ def aviso_aperturas(informe: dict, q1: str = "concepto de violación") -> str:
             f"{'plan' if x.get('fuente') == 'plan' else 'criterio'}" for x in an[:6]))
     sr = informe.get("sin_reparar") or []
     if sr:
+        # LA DEMOSTRACIÓN QUE VA AL REVÉS se dice con su porqué (revisión
+        # adversarial, 26-sep-2026): no es un hueco de forma, es una
+        # incongruencia entre la calificación asignada y lo que se razona.
         trozos.append("no se pudo añadir en " + "; ".join(
-            f"{_quien(x)} («{x['texto'][:90]}…»)" for x in sr[:6]))
+            f"{_quien(x)} («{x['texto'][:90]}…»)"
+            + (f", porque {x['motivo']}" if "contraria" in str(x.get("motivo") or "") else "")
+            for x in sr[:6]))
     if not trozos:
         return ""
     return ("CALIFICACIÓN AL ABRIR: el estudio demostraba con «Lo anterior…» una calificación "
@@ -660,7 +755,9 @@ def informe_sombra(informe: dict) -> dict:
         return {}
     quita = ("texto",)
     return {
-        "pegadas": len(informe.get("pegadas") or []),
+        # Lo pegado antes de la reparación dirigida (`redactor_adelanto.
+        # _congruencia_pegar`) y lo pegado aquí, juntos.
+        "pegadas": len(informe.get("pegadas") or []) + int(informe.get("pegadas_antes") or 0),
         "anadidas": [{k: v for k, v in x.items() if k not in quita} for x in informe.get("anadidas") or []],
         "sin_reparar": [{k: v for k, v in x.items() if k not in quita} for x in informe.get("sin_reparar") or []],
         "sombra": [{k: v for k, v in x.items() if k not in quita} for x in informe.get("sombra") or []],

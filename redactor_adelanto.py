@@ -1226,6 +1226,12 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # EL GUION DEL PLAN (v4): lo puso `main._taller_plan_para` en el
             # encargo de ESTA petición; vacío fuera de la v4.
             guion=str(getattr(e, "guion", "") or ""))
+    # LA CALIFICACIÓN SUELTA, A SU APERTURA ANTES DE LA REPARACIÓN DIRIGIDA
+    # (revisión adversarial de p2-congruencia): la reparación inserta cada
+    # pieza tras el último párrafo que marca su argumento, y si ése era la
+    # apertura, la pieza quedaba entre la apertura y su «Es fundado.», que
+    # después se pegaba a la pieza. Sin modelo; sólo la familia v2.
+    estudio = _congruencia_pegar(material, estudio, _meta)
     # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): lo mismo que el gemelo en
     # vivo, en el mismo sitio —antes de los efectos, las constancias y los
     # preceptos, que leen el estudio ya completado—.
@@ -1427,6 +1433,9 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     if _resto:
         yield {"tipo": "texto", "dato": _resto}
     TIEMPOS["estudio de fondo"] = round(_time.perf_counter() - t0, 1)
+    # LA CALIFICACIÓN SUELTA, A SU APERTURA, antes de la reparación dirigida
+    # (igual que en `resolver`).
+    estudio = _congruencia_pegar(material, estudio, _meta)
     # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): igual que en `resolver`.
     # La pantalla ve «completando» mientras corre la llamada; sólo si la hay.
     _faltan = _por_completar(material, criterios, estudio)
@@ -1768,6 +1777,24 @@ async def _completar_estudio(cliente, r, criterios, material, estudio: str,
 # anterior» no tiene a qué referirse, se añade la calificación que el criterio
 # (o el plan) da a ese apartado. Sin modelo. SÓLO LA FAMILIA v2: las 14
 # corridas v1 del banco no tienen una calificación suelta.
+def _congruencia_pegar(material, estudio: str, meta: dict) -> str:
+    """La calificación que el modelo escribió sola en su renglón, pegada a su
+    apertura (`congruencia.pegar_calificaciones`), ANTES de la reparación
+    dirigida. Cuenta lo pegado en `meta` para el informe de
+    `_congruencia_apertura`. Sólo la familia v2. Nunca lanza."""
+    try:
+        if not f6._v2(material):
+            return estudio
+        import congruencia as _cg
+        nuevo, hechas = _cg.pegar_calificaciones(estudio or "")
+        if isinstance(meta, dict):
+            meta["_cg_pegadas"] = len(hechas)
+        return nuevo
+    except Exception as _ex_cp:
+        print(f"   ⚠️ CONGRUENCIA (pegar): {type(_ex_cp).__name__}")
+        return estudio
+
+
 def _congruencia_apertura(r, criterios, material, estudio: str, meta: dict,
                           avisos: list) -> str:
     """El estudio con la calificación en su apertura. Anota el informe en
@@ -1786,14 +1813,20 @@ def _congruencia_apertura(r, criterios, material, estudio: str, meta: dict,
         _av = _cg.aviso_aperturas(inf, _q1)
         if _av:
             avisos.insert(0, _av)
+        # LO PEGADO ANTES DE LA REPARACIÓN DIRIGIDA (`_congruencia_pegar`)
+        # cuenta con lo de ahora: el informe dice lo que se pegó en total.
+        inf["pegadas_antes"] = int((meta.pop("_cg_pegadas", 0) if isinstance(meta, dict) else 0) or 0)
         if isinstance(meta, dict):
             meta["congruencia"] = _cg.informe_sombra(inf)
         # HIGIENE DE REGISTROS: cifras, nunca el texto.
-        print(f"   🧷 CONGRUENCIA: {len(inf.get('pegadas') or [])} calificación(es) pegada(s) · "
+        print(f"   🧷 CONGRUENCIA: {len(inf.get('pegadas') or []) + inf['pegadas_antes']} "
+              f"calificación(es) pegada(s) · "
               f"{len(inf.get('anadidas') or [])} añadida(s) · {len(inf.get('sin_reparar') or [])} "
               f"sin reparar · {len(inf.get('sombra') or [])} en sombra")
         return nuevo
     except Exception as _ex_cg:
+        if isinstance(meta, dict):
+            meta.pop("_cg_pegadas", None)
         print(f"   ⚠️ CONGRUENCIA: {type(_ex_cg).__name__}")
         return estudio
 
