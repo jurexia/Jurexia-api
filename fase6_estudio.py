@@ -1860,7 +1860,19 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    violacion_procesal: bool = False,
                    conceptos_violacion: str = "",
                    # EL ESCRITO DE LA PARTE, LITERAL. Ver `_bloque_escrito_literal`.
-                   escrito_literal: str = "") -> str:
+                   escrito_literal: str = "",
+                   # EL GUION DEL PLAN DEL ESTUDIO (v4; `plan_estudio.vista`).
+                   # Viaja como ARGUMENTO y no colgado del material, que vive en
+                   # la memoria del worker de una generación a la siguiente: un
+                   # guion de la vuelta anterior no puede colarse en ésta.
+                   # Vacío = sin plan. Sólo lo lee la v4.
+                   guion: str = "") -> str:
+    # LA v4 ES LA v3 CON EL GUION (contrato del Paso 2). Se captura la llamada
+    # entera ANTES de definir nada —`locals()` en la primera línea sólo tiene
+    # los parámetros— para que la v3 se arme con exactamente lo mismo, también
+    # con los parámetros que añada la pieza del inventario.
+    if normalizar_variante(getattr(material, "variante", "v1"), "v1") == "v4":
+        return _prompt_estudio_v4(dict(locals()))
     # LA VARIANTE LA TRAE EL MATERIAL, como la forma (ver `VARIANTES`). La v1
     # es lo que sigue, congelado por test_prompt_v2.py; la v2 vive aparte
     # para que tocarla no pueda mover ni una coma de la v1. La v3 y la v4 son
@@ -3195,6 +3207,49 @@ secretario debe valorar.
 Nada más."""
 
 
+# ═══ LA v4: LA v3 CON EL GUION DEL PLAN (Paso 2, 26-sep-2026) ════════════════
+# La v3 —v2 + inventario de argumentos + marcas— la construye otra pieza. Aquí
+# no se copia ni se reescribe: se pide el prompt de la v3 con la MISMA llamada
+# (el material con la variante «v3») y se le inserta el guion. Así la v4 no
+# puede divergir de la v3 más que en el guion, que es lo que se mide (C frente
+# a C-lite dice si el valor viene del planificador o de las marcas, §6.6).
+#
+# SIN GUION —el plan falló dos veces, venció o no hay inventario— la v4 ES la
+# v3, sin un carácter de diferencia: es la salida prevista y el resolver la
+# anota como tal (main.py `_taller_plan_para`).
+#
+# DÓNDE VA: justo antes de «Escribe el estudio de fondo.», después de todo el
+# material y de los resúmenes, porque lo último es lo que más se obedece; y una
+# línea al final que lo recuerda. El bloque sólo trae descripciones de sus
+# rótulos: ni una frase para copiar (lección del ejemplo que se firma literal).
+_MARCA_ESCRIBE = "\nEscribe el estudio de fondo."
+_RECUERDA_GUION = (
+    "EL GUION DE ARRIBA MANDA LA ORGANIZACIÓN: un apartado por cada APARTADO, "
+    "cada premisa sólo donde dice EXPONE, cada argumento con la respuesta que "
+    "le asigna, y lo PENDIENTE DE RAZÓN primero en ADVERTENCIAS.\n")
+
+
+def _prompt_estudio_v4(args: dict) -> str:
+    import copy as _copy_v4
+    import plan_estudio as _pe
+    guion = str(args.pop("guion", "") or "")
+    _m3 = _copy_v4.copy(args["material"])
+    _m3.variante = "v3"
+    args["material"] = _m3
+    base = prompt_estudio(**args)
+    blq = _pe.bloque(guion)
+    if not blq:
+        return base
+    i = base.rfind(_MARCA_ESCRIBE)
+    if i < 0:
+        return base.rstrip() + "\n" + blq + "\n" + _RECUERDA_GUION
+    con = base[:i] + "\n" + blq + base[i:]
+    j = con.rfind("\nNada más.")
+    if j >= 0 and not con[j + len("\nNada más."):].strip():
+        return con[:j] + "\n" + _RECUERDA_GUION.rstrip("\n") + con[j:]
+    return con.rstrip() + "\n" + _RECUERDA_GUION
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Verificación antes de entregar
 # ═══════════════════════════════════════════════════════════════════════════
@@ -4367,7 +4422,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                            contexto: str = "", propuesta_global=None,
                            rama: str = "", violacion_procesal: bool = False,
                            conceptos_violacion: str = "",
-                          escrito_literal: str = ""):
+                          escrito_literal: str = "",
+                           guion: str = ""):
     """El estudio, trozo a trozo, según lo escribe el modelo.
 
     David: «que el usuario vea el texto escribiéndose sería de ayuda». No
@@ -4385,7 +4441,9 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                   propuesta_global=propuesta_global, rama=rama,
                   violacion_procesal=violacion_procesal,
                   conceptos_violacion=conceptos_violacion,
-        escrito_literal=escrito_literal)}])
+        escrito_literal=escrito_literal,
+                  # EL GUION DEL PLAN (v4), en los DOS redactores.
+                  guion=guion)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     # EL USO SE PIDE AL FLUJO (26-sep-2026): sin `include_usage` el flujo no
@@ -4433,7 +4491,8 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    rama: str = "", violacion_procesal: bool = False,
                    conceptos_violacion: str = "",
                    escrito_literal: str = "",
-                   meta: dict = None) -> tuple[str, str, list[str]]:
+                   meta: dict = None,
+                   guion: str = "") -> tuple[str, str, list[str]]:
     """Devuelve (estudio, advertencias, avisos).
 
     `meta`, si se pasa, sale con la variante, el `finish_reason` y el uso de
@@ -4445,7 +4504,9 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                   propuesta_global=propuesta_global, rama=rama,
                   violacion_procesal=violacion_procesal,
                   conceptos_violacion=conceptos_violacion,
-        escrito_literal=escrito_literal)}])
+        escrito_literal=escrito_literal,
+                  # EL GUION DEL PLAN (v4), en los DOS redactores.
+                  guion=guion)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     import llamada_modelo as _lm

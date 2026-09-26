@@ -102,9 +102,19 @@ ok(dz.contradicciones(V5, "amparo_directo") == [],
 print("\n5 · LAS PUERTAS ESTÁN CONECTADAS")
 src = open("main.py", encoding="utf-8").read()
 ok("_dz.reconciliar(propuestas, glob.sentido" in src, "la fase que propone reconcilia antes de guardar")
-ok(src.count("_dz.reconciliar(crit, _tarjeta") == 2, "los dos gemelos del resolver reconcilian")
-ok(src.count('if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":') == 2,
-   "y los dos deciden igual cuando hay sentido global")
+# Desde el 26-sep-2026 los dos gemelos arman el criterio con UNA función
+# (`_taller_armar_criterio`): reconcilian por ella y deciden igual por
+# construcción.
+_i_ar = src.find("def _taller_armar_criterio(")
+_ar = src[_i_ar:src.find("\n\n\ndef ", _i_ar + 10)]
+ok(src.count("_dz.reconciliar(crit, _tarjeta") == 1 and "_dz.reconciliar(crit, _tarjeta" in _ar,
+   "el criterio común de los dos gemelos del resolver reconcilia")
+_i_st = src.find("async def taller_resolver_stream(")
+_i_pl = src.find("async def taller_resolver(")
+ok('if criterios_json.strip() and _modo not in ("global", "acervo"):' in _ar
+   and src[_i_st:_i_pl].count("_taller_armar_criterio(") == 1
+   and src[_i_pl:_i_pl + 40000].count("_taller_armar_criterio(") == 1,
+   "y los dos deciden igual cuando hay sentido global: los dos lo llaman")
 import redactor_adelanto as ra
 ok("_dz_f.contradicciones(" in inspect.getsource(ra._terminar),
    "el documento final se comprueba en _terminar")

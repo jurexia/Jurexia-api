@@ -175,7 +175,13 @@ ok("not _ef_escritos" in src_ra, "el aviso de «los EFECTOS los redactas tú» c
 ok(dg.partir_efectos(["Los conceptos son fundados.", "Es fundado porque…"])[1] == [],
    "y sin efectos escritos el aviso sigue saliendo")
 src_m = open("main.py", encoding="utf-8").read()
-ok(src_m.count('formato: str = Form(""),') == 2, "los dos gemelos reciben `formato`")
+# (Desde el 26-sep-2026 también lo recibe /taller/plan/pedir: se cuentan los
+# dos gemelos.)
+_i_st_f = src_m.index('@app.post("/taller/resolver/stream")')
+_i_pl_f = src_m.index('@app.post("/taller/resolver")')
+ok(src_m[_i_st_f:_i_pl_f].count('formato: str = Form(""),') == 1
+   and src_m[_i_pl_f:_i_pl_f + 8000].count('formato: str = Form(""),') == 1,
+   "los dos gemelos reciben `formato`")
 ok(src_m.count("r.encargo.formato = _fs_m.normalizar(formato)") == 2, "y los dos lo ponen en el encargo, siempre")
 ok(src_m.count('formato=getattr(r.encargo, "formato", "")') == 2, "y la ficha del proyecto lo guarda en los dos")
 

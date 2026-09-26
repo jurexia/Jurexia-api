@@ -31935,6 +31935,16 @@ async def _taller_preproponer(email: str, numero: str, r, material) -> None:
             print(f"   ⚖️ PROPUESTA calculada sola para {numero}: "
                   f"{len(resp.get('propuestas') or [])} sentidos en {_seg:.0f} s, "
                   f"lista para el paso 3")
+            # Y EL PLAN DEL ESTUDIO, SI HAY CRITERIO (Paso 2, 26-sep-2026): en
+            # segundo plano, con el criterio que la pantalla mandaría si el
+            # secretario acepta sin tocar. Si toca algo, la clave cambia y la
+            # pantalla pide otro. Sólo para quien escribe con la v4 (hoy, las
+            # cuentas de casa; ver `_taller_plan_adelantar`).
+            if _taller_plan_adelantar(email):
+                _tp = asyncio.ensure_future(
+                    _taller_plan_desde_propuesta(email, numero, r, ses, resp))
+                _TALLER_EN_MARCHA.add(_tp)
+                _tp.add_done_callback(_TALLER_EN_MARCHA.discard)
     except Exception as ex:
         print(f"   ⚠️ la propuesta calculada sola de {numero} falló: {err(ex)}")
         if huella:
@@ -32018,6 +32028,649 @@ def _taller_tocados(criterios_json: str, crit: list, modo_decision: str = "",
                 if d.get("tocado") in (True, 1, "1", "true", "si", "sí")}
     return {str(d.get("problema") or "") for d in _lista
             if str(d.get("sentido") or "").strip()}
+
+
+def _taller_glob(global_json: str, ses) -> dict:
+    """LA PROPUESTA GLOBAL QUE LEE EL CRITERIO: la que devuelve el cliente o,
+    si no la mandó, la que esta sesión guardó al proponer. Es la del árbol de
+    decisión (el sentido del motor y la lista de comprobación), así que las
+    TRES puertas que arman el criterio —los dos gemelos y el pedido del plan—
+    tienen que leerla igual; antes estaba copiada en cada gemelo."""
+    _glob = {}
+    if (global_json or "").strip():
+        try:
+            _g = json.loads(global_json)
+            if isinstance(_g, dict):
+                _glob = _g
+        except Exception:
+            _glob = {}          # un JSON roto no tumba la resolución
+    if not _glob:
+        _g_ses = (ses or {}).get("global")
+        if _g_ses is not None:
+            _glob = {"problema_que_decide": getattr(_g_ses, "problema_que_decide", ""),
+                     "efecto": getattr(_g_ses, "efecto", ""),
+                     "en_contra": getattr(_g_ses, "en_contra", ""),
+                     "contexto": getattr(_g_ses, "contexto", None) or {},
+                     # LO QUE EL ÁRBOL DE DECISIÓN LEE: el sentido del motor
+                     # y la lista con la suerte condicional de cada tema.
+                     "sentido": getattr(_g_ses, "sentido", "") or "",
+                     "razon": getattr(_g_ses, "razon", "") or "",
+                     "alcanza": bool(getattr(_g_ses, "alcanza", True)),
+                     "alternativa": getattr(_g_ses, "alternativa", None) or {},
+                     "checklist": list(getattr(_g_ses, "checklist", None) or [])}
+    return _glob
+
+
+# ═══ EL CRITERIO, ARMADO EN UN SOLO SITIO (Paso 2, 26-sep-2026) ══════════════
+# El formulario de decisión se volvía `Criterio` en DOS copias —una en cada
+# gemelo de resolver— que ya habían divergido tres veces (el sentido global
+# dictado, la jerarquía y la predicción, el modo acervo). El plan del estudio
+# añade una TERCERA puerta que tiene que armar exactamente el mismo criterio:
+# `/taller/plan/pedir` y el precálculo calculan la clave del plan sobre él, y
+# si el resolver lo armara distinto el plan adelantado no serviría nunca o, lo
+# que es peor, se usaría con otro criterio. Por eso vive aquí, una vez: parseo
+# → reparto → árbol → desenlace (w2_final §3.6, «una sola armar_criterio»).
+#
+# Es el código del gemelo de flujo —el que usa la pantalla y el banco— movido
+# sin cambiar su decisión, con DOS arreglos:
+#   · EL GRUPO LLEGA EN LOS TRES MODOS. En el modo global y en el del motor
+#     `grupo` se tiraba: «Estudiar juntos» sólo servía por problema (L6). Se
+#     lee de TODAS las entradas de `criterios_json`, también de las que sólo
+#     traen el grupo, sin sentido.
+#   · EN EL MODO GLOBAL, una entrada con `"tocado": false` explícito no es una
+#     marca del secretario: sólo aporta su grupo. Sin eso, la pantalla no podría
+#     mandar el grupo de un problema que él no calificó sin que ese sentido
+#     pasara por encima del global.
+#   · EN EL MODO DEL MOTOR (`modo_decision=acervo`), `criterios_json` sólo
+#     trae grupos: antes, si llegaba, la petición se resolvía por problema con
+#     esas entradas. La pantalla no manda las dos cosas a la vez hoy.
+# El gemelo plano lo usa también; al converger, el plano deja de leer la
+# predicción del sondeo en el modo global y, en el modo del motor, reparte con
+# `modos_decision` como el de flujo (antes tomaba las propuestas sin jerarquía).
+# No lanza nada que no lanzaran los gemelos: los mismos 409/422. NO toca `r`:
+# los avisos vuelven en listas y cada gemelo los pone donde los ponía.
+def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: str = "",
+                           razonamiento: str = "", criterios_json: str = "",
+                           usar_propuesta: bool = False, modo_decision: str = "",
+                           sentido_global: str = "", global_dictado: str = "") -> dict:
+    """{"crit", "avisos_r" (van a r.avisos), "avisos_modo" (el reparto global),
+    "avisos_fases" (árbol y desenlace), "tocados"}."""
+    import fase6_estudio as _f6
+    _glob = glob or {}
+    avisos_r: list = []
+    avisos_modo: list = []
+    avisos_fases: list = []
+    _modo = (modo_decision or "").strip().lower()
+    criterios_json = criterios_json or ""
+    # EL GRUPO DE CADA PROBLEMA, de todas las entradas —con sentido o sin él—.
+    _grupos: dict = {}
+    try:
+        for _c in (json.loads(criterios_json or "[]") or []):
+            if isinstance(_c, dict) and str(_c.get("grupo") or "").strip():
+                _grupos[str(_c.get("problema") or "")] = str(_c.get("grupo")).strip()
+    except Exception:
+        _grupos = {}
+
+    # En los modos global y del motor, `criterios_json` no es la decisión: en el
+    # global son las marcas y los grupos; en el del motor, sólo los grupos.
+    _por_problema = bool(criterios_json.strip()) and _modo not in ("global", "acervo")
+    if criterios_json.strip() and _modo not in ("global", "acervo"):
+        try:
+            _datos = json.loads(criterios_json)
+        except Exception:
+            raise HTTPException(422, "criterios_json no es JSON válido.")
+        # UN PROBLEMA SIN SENTIDO SE CAÍA EN SILENCIO. David: «regularmente el
+        # último problema jurídico queda sin respuesta (desconozco por qué)». El
+        # filtro descarta el criterio sin sentido —sin sentido no hay nada que
+        # demostrar— pero lo dice.
+        _todos = _datos if isinstance(_datos, list) else []
+        _todos = [d for d in _todos if isinstance(d, dict)]
+        _sin_sentido = [str(d.get("problema", ""))[:120] for d in _todos
+                        if not str(d.get("sentido", "")).strip()]
+        crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
+                             sentido=str(d.get("sentido", "")).strip().lower(),
+                             razonamiento=str(d.get("razonamiento", "")),
+                             jerarquia=str(d.get("jerarquia", "accesorio")),
+                             # EL GRUPO: los problemas que el secretario marcó
+                             # para resolverse con una sola línea argumentativa.
+                             grupo=str(d.get("grupo", "") or "").strip(),
+                             prediccion=d.get("prediccion") or {})
+                for d in _todos
+                if str(d.get("sentido", "")).strip()]
+        if _sin_sentido:
+            print(f"   ⚠️ TALLER: {len(_sin_sentido)} problema(s) sin sentido, "
+                  f"fuera del estudio")
+            avisos_r.append(
+                f"NO SE ESTUDIARON {len(_sin_sentido)} PLANTEAMIENTO(S) "
+                f"porque se quedaron sin sentido asignado: "
+                + " · ".join(f"«{x}»" for x in _sin_sentido[:3])
+                + ". Vuelve a la pantalla del criterio, decídelos y genera "
+                  "otra vez, o confirma que no había que contestarlos.")
+        if not crit:
+            raise HTTPException(422, "criterios_json no trae ningún sentido.")
+    elif _modo == "global":
+        # EL SENTIDO GLOBAL: el secretario dicta uno para el proyecto entero y
+        # `modos_decision` lo reparte —si el principal alcanza, los accesorios
+        # quedan sin materia—. Los frenos son de la regla, no de la puerta.
+        if not (sentido_global or "").strip():
+            raise HTTPException(422, "El modo global necesita `sentido_global`.")
+        import modos_decision as _md
+        _probs_g = [p if isinstance(p, dict) else {"pregunta": str(p)}
+                    for p in (r.fases.problemas or [])]
+        if not _probs_g and r.fases.problema_global:
+            _probs_g = [{"pregunta": r.fases.problema_global,
+                         "jerarquia": "principal"}]
+        _props_g = [{"problema": p.problema, "sentido": p.sentido,
+                     "razon": getattr(p, "razon", ""),
+                     "alcanza": getattr(p, "alcanza", True)}
+                    for p in (ses.get("propuestas") or [])]
+        # LO QUE EL SECRETARIO MARCÓ POR PROBLEMA VIAJA TAMBIÉN EN MODO GLOBAL
+        # y manda sobre el relleno —salvo la entrada que dice expresamente que
+        # él no la tocó: ésa sólo trae su grupo—.
+        _califs = {}
+        try:
+            for _c in (json.loads(criterios_json or "[]") or []):
+                if isinstance(_c, dict) and str(_c.get("sentido") or "").strip() \
+                        and _c.get("tocado") not in (False, 0, "0", "false", "no"):
+                    _califs[str(_c.get("problema") or "")] = {
+                        "sentido": _c.get("sentido"),
+                        "razonamiento": _c.get("razonamiento") or ""}
+        except Exception:
+            _califs = {}
+        # EL TEMA DISTINTO NO SE DECLARA INNECESARIO. Viaja en `global_json`.
+        _distintos = _md.temas_distintos_de(
+            (_glob or {}).get("checklist") or [], _probs_g)
+        _rep, _av_modo = _md.repartir(
+            _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g,
+            _califs,
+            # ¿LO DICTÓ ÉL, O LO PUSO LA PANTALLA? Si lo eligió a propósito, su
+            # sentido global manda sobre lo que el motor propuso por problema.
+            global_dictado=str(global_dictado).strip().lower() in ("1", "true", "si", "sí"),
+            temas_distintos=_distintos,
+            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
+        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
+                             razonamiento=x.get("razonamiento", ""),
+                             jerarquia=x.get("jerarquia", "accesorio"),
+                             grupo=_grupos.get(x["problema"], ""))
+                for x in _rep if str(x.get("sentido", "")).strip()]
+        # LA RAZÓN QUE ESCRIBIÓ EL SECRETARIO VA SOBRE EL PRINCIPAL: es el
+        # problema que decide, y sin ella el estudio se inventaba el porqué.
+        if (razonamiento or "").strip() and crit:
+            _pral = next((c for c in crit
+                          if str(getattr(c, "jerarquia", "")).lower() == "principal"),
+                         crit[0])
+            _pral.razonamiento = razonamiento.strip()
+        avisos_modo = list(_av_modo or [])
+        if not crit:
+            raise HTTPException(
+                422, "El modo global no pudo repartir el sentido: no hay "
+                     "problemas jurídicos sobre los que aplicarlo.")
+    elif _modo == "acervo" or usar_propuesta:
+        # EL ATAJO DE UN SOLO CLIC: QUE DECIDA EL MOTOR. David: «una opción con
+        # un botón amarillo desde el principio (…) el proyecto se genera solo».
+        # Toma el sentido y la razón TAL CUAL de lo que el motor propuso; las
+        # propuestas salen de la sesión, no de memoria (-w 2).
+        import modos_decision as _md
+        _probs_a = [p if isinstance(p, dict) else {"pregunta": str(p)}
+                    for p in (r.fases.problemas or [])]
+        if not _probs_a and r.fases.problema_global:
+            _probs_a = [{"pregunta": r.fases.problema_global,
+                         "jerarquia": "principal"}]
+        _props_a = [{"problema": p.problema, "sentido": p.sentido,
+                     "razon": getattr(p, "razon", ""),
+                     "alcanza": getattr(p, "alcanza", True)}
+                    for p in (ses.get("propuestas") or [])]
+        if not _props_a:
+            raise HTTPException(
+                409, "No hay propuesta en este proceso. Pide primero "
+                     "/taller/proponer: sin ella no hay sentido que escribir y "
+                     "nadie lo ha decidido a mano.")
+        _rep_a, _av_a = _md.repartir(_probs_a, _md.ACERVO, "", _props_a, {})
+        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
+                             razonamiento=x.get("razonamiento", ""),
+                             jerarquia=x.get("jerarquia", "accesorio"),
+                             grupo=_grupos.get(x["problema"], ""))
+                for x in _rep_a if str(x.get("sentido", "")).strip()]
+        print(f"   ⚡ TALLER: reparto por jurimetría · {len(crit)} de "
+              f"{len(_probs_a)} planteamiento(s) · sin supervisión")
+        # SE DICE, PERO SÓLO EN LA PANTALLA: ningún aviso del taller llega al
+        # .docx, así que el archivo no dirá que nadie revisó el sentido.
+        avisos_r.append(
+            "PROYECTO GENERADO SIN SUPERVISIÓN: el sentido de cada "
+            "planteamiento lo decidió el motor por jurimetría y nadie lo "
+            "revisó antes de escribirlo. Compruébalo tema por tema antes "
+            "de firmar.")
+        avisos_r.extend(list(_av_a or []))
+        if not crit:
+            raise HTTPException(
+                422, "El motor no pudo decidir el sentido de ningún "
+                     "planteamiento. El criterio te toca a ti.")
+    else:
+        if not sentido:
+            raise HTTPException(
+                422, "Falta el sentido o la propuesta aceptada. Si el motor no "
+                     "propuso nada, manda `modo_decision=global` con "
+                     "`sentido_global`.")
+        crit = [_f6.Criterio(problema=problema or (r.fases.problema_global or ""),
+                             sentido=sentido, razonamiento=razonamiento)]
+
+    # ═══ LA SUERTE DE LOS ACCESORIOS LA DICTA EL PRINCIPAL ═══════════════
+    # En los TRES modos. `arbol_decision` es el único sitio donde se decide;
+    # aquí sólo se le dan los problemas de la fase 3, la lista de la fase 5 y
+    # qué marcó el secretario a mano —eso no se toca—.
+    _toc_ad = _taller_tocados(criterios_json, crit, modo_decision,
+                              usar_propuesta, sentido)
+    try:
+        import arbol_decision as _ad
+        _av_ad, _ = _ad.aplicar(
+            list(r.fases.problemas or []), crit,
+            (_glob or {}).get("checklist") or [],
+            [{"problema": _p.problema, "sentido": _p.sentido,
+              "razon": getattr(_p, "razon", "") or "",
+              "alcanza": getattr(_p, "alcanza", True),
+              # LA GUARDA PROCESAL devuelve a una procesal lo que el motor
+              # propuso antes del árbol, no lo que el árbol guardó encima.
+              "sentido_propio": getattr(_p, "sentido_propio", "") or "",
+              "razon_propia": getattr(_p, "razon_propia", "") or ""}
+             for _p in (ses.get("propuestas") or [])],
+            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
+            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
+        for _a in _av_ad:
+            print(f"   🌳 ÁRBOL: {_a[:160]}")
+            avisos_fases.append(_a)
+    except Exception as _ead:
+        print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
+    # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
+    # Sólo cuando HAY tarjeta global —dictada o del motor—; en la vía por
+    # problema sus marcas son la tarjeta y no se tocan.
+    try:
+        import desenlace as _dz
+        _tarjeta = ""
+        if _modo == "global":
+            _tarjeta = (sentido_global or "").strip()
+        elif (_modo == "acervo" or usar_propuesta) and not _por_problema:
+            # (Los grupos que viajen en el modo del motor no son una decisión
+            # por problema: la tarjeta del motor sigue mandando, como sin ellos.)
+            if (_glob or {}).get("alcanza", True):
+                _tarjeta = str((_glob or {}).get("sentido") or "").strip()
+        if _tarjeta and crit:
+            _jer_dz = {str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia") or "")
+                       for p in (r.fases.problemas or []) if p}
+            for _a in _dz.reconciliar(crit, _tarjeta, _jer_dz):
+                print(f"   ⚖️ DESENLACE: {_a[:160]}")
+                avisos_fases.append(_a)
+    except Exception as _edz:
+        print(f"   ⚠️ DESENLACE: no se pudo reconciliar con la tarjeta: {err(_edz)}")
+    return {"crit": crit, "avisos_r": avisos_r, "avisos_modo": avisos_modo,
+            "avisos_fases": avisos_fases, "tocados": _toc_ad}
+
+
+# ═══ EL PLAN DEL ESTUDIO: ESTADO, ESPERA Y DISPAROS (Paso 2, 26-sep-2026) ════
+# Ver `plan_estudio.py`. Aquí sólo va lo que toca la base y el flujo:
+#   · el estado vive en la columna `taller_sesiones.plan` (migración
+#     `migraciones/2026-09-26_taller_plan.sql`), NUNCA en memoria: con
+#     gunicorn -w 2 el worker que pide el plan no es el que resuelve. Se
+#     escribe por compare-and-set sobre `rev`: si otra escritura se cruzó, se
+#     relee y se vuelve a aplicar la función pura de `plan_estudio`.
+#   · la espera del resolver ocurre DENTRO de la tarea del flujo, con el evento
+#     «ordenando», y nunca pasa de 120 s: la pasarela corta a los ~280 s.
+#   · si el plan no llega —vence, V0 lo rechaza dos veces, no hay inventario o
+#     se agotó el tope—, el estudio se escribe SIN plan (la v3) y se dice.
+
+def _taller_plan_aplica(r) -> bool:
+    """¿Este estudio se escribe con la v4 (y por tanto con plan)?"""
+    import fase6_estudio as _f6p
+    e = getattr(r, "encargo", None)
+    return e is not None and _f6p.normalizar_variante(
+        getattr(e, "variante_estudio", "") or "", "") == "v4"
+
+
+def _taller_plan_cas(email: str, numero: str, cambio) -> tuple:
+    """(documento resultante, decisión). `cambio(doc_viejo)` es una función
+    PURA de `plan_estudio` que devuelve (doc_nuevo | None, decisión); None =
+    no hay nada que escribir. Se escribe sólo si la fila sigue en el `rev` que
+    se leyó; si no, se relee y se reintenta (tres veces)."""
+    if not supabase_admin:
+        return None, "sin_base"
+    _correo = (email or "").strip().lower()
+    for _ in range(4):
+        try:
+            res = supabase_admin.table("taller_sesiones").select("plan") \
+                .eq("email", _correo).eq("expediente", numero).limit(1).execute()
+        except Exception as ex:
+            # SIN LA COLUMNA (la migración no se ha aplicado) el plan sigue
+            # sirviendo dentro de la petición; sólo se pierde la reutilización.
+            print(f"   ⚠️ PLAN: no se pudo leer taller_sesiones.plan de {numero}: {err(ex)}")
+            return None, "sin_columna"
+        if not res.data:
+            return None, "sin_fila"
+        viejo = res.data[0].get("plan")
+        nuevo, decision = cambio(viejo)
+        if nuevo is None:
+            return viejo, decision
+        rev = int((viejo or {}).get("rev") or 0) if isinstance(viejo, dict) else 0
+        nuevo = dict(nuevo)
+        nuevo["rev"] = rev + 1
+        try:
+            q = supabase_admin.table("taller_sesiones").update({"plan": nuevo}) \
+                .eq("email", _correo).eq("expediente", numero)
+            if not isinstance(viejo, dict):
+                q = q.is_("plan", "null")
+            elif "rev" in viejo:
+                q = q.eq("plan->>rev", str(rev))
+            else:
+                q = q.is_("plan->rev", "null")
+            out = q.execute()
+        except Exception as ex:
+            print(f"   ⚠️ PLAN: no se pudo escribir taller_sesiones.plan de {numero}: {err(ex)}")
+            return None, "sin_columna"
+        if out.data:
+            return nuevo, decision
+    print(f"   ⚠️ PLAN: {numero}: cuatro escrituras cruzadas seguidas; se desiste")
+    return None, "conflicto"
+
+
+def _taller_plan_leer(email: str, numero: str):
+    doc, _ = _taller_plan_cas(email, numero, lambda d: (None, "leer"))
+    return doc
+
+
+def _taller_plan_contraste(email: str, numero: str, r):
+    """El contraste adelantado, si está listo y es de este adelanto. El plan
+    funciona sin él (w2_final §3.4); con él lee la razón toral de cada
+    planteamiento."""
+    try:
+        doc = _taller_leer_contraste(email, numero)
+        if isinstance(doc, dict) and doc.get("estado") == "listo" \
+                and doc.get("huella") == _te.huella_contraste(r):
+            return list(doc.get("items") or []) or None
+    except Exception:
+        pass
+    return None
+
+
+def _taller_plan_entradas(r, ses, crit, *, contexto: str = "", suplencia=None,
+                          conceptos_violacion: str = "", formato: str = "") -> dict:
+    """Lo que identifica el plan: el inventario, la huella de las entradas y la
+    CLAVE. Lanza `plan_estudio.PlanNoDisponible` si no hay inventario o no
+    hay escrito."""
+    import plan_estudio as _pe
+    material = (ses or {}).get("material")
+    if material is None:
+        raise _pe.PlanNoDisponible("no está el acervo de la sesión")
+    es_rec = bool(getattr(getattr(r, "encargo", None), "es_recurso", False))
+    segs = _pe.segmentos_de(r.fases, "", es_rec)
+    if not segs:
+        raise _pe.PlanNoDisponible("el inventario no trae segmentos")
+    _cv = (conceptos_violacion or "").strip() or str(
+        getattr(getattr(r, "encargo", None), "conceptos_violacion", "") or "")
+    huella_f = _pe.huella_entradas(r, material, _cv, segs)
+    return {"segs": segs, "material": material, "conceptos_violacion": _cv,
+            "huella": _te.huella_contraste(r),
+            "clave": _pe.clave(crit, huella_f, contexto, suplencia or {}, formato, "v4")}
+
+
+async def _taller_plan_correr(email: str, numero: str, r, crit, ent: dict, *,
+                              contexto: str = "", suplencia=None, tocados=None,
+                              checklist=None, persistir: bool = True) -> tuple:
+    """UNA corrida del planificador (planear → V0 → un reintento) con latido
+    cada 45 s, y su resultado a SU casilla de la fila. Devuelve (plan | None,
+    avisos). Nunca lanza: un plan que falla no tumba nada."""
+    import plan_estudio as _pe
+    k, huella = ent["clave"], ent["huella"]
+    t0 = time.time()
+    # La lista de comprobación la lee el planificador del encargo; el pedido
+    # y el precálculo traen la suya y no tocan el encargo de nadie.
+    tarea = asyncio.ensure_future(_pe.preparar(
+        chat_client, r, crit, ent["material"], contexto, suplencia or {},
+        segs=ent["segs"], contraste=_taller_plan_contraste(email, numero, r),
+        tocados=tocados, conceptos_violacion=ent["conceptos_violacion"],
+        checklist=checklist))
+    while True:
+        hechas, _ = await asyncio.wait({tarea}, timeout=45)
+        if hechas:
+            break
+        if persistir:
+            _taller_plan_cas(email, numero,
+                             lambda d: _pe.fila_latido(d, k, huella, time.time()))
+    plan, avisos, info = None, [], {}
+    reintentable = False
+    try:
+        plan, avisos, info = tarea.result()
+    except _pe.PlanNoDisponible as ex:
+        avisos = [f"no hubo plan: {ex}"]
+    except Exception as ex:
+        # UN TROPIEZO DEL PROVEEDOR NO CONDENA LA CLAVE: se guarda como
+        # «error» y el pedido siguiente lo reintenta (V0, en cambio, es
+        # determinista y su «fallo» no se recalcula).
+        reintentable = True
+        avisos = [f"el planificador falló: {type(ex).__name__}"]
+        print(f"   ⚠️ PLAN de {numero}: {err(ex)}")
+    if plan:
+        plan["clave"] = k
+    elif (info or {}).get("faltas"):
+        # LO QUE V0 RECHAZÓ, a la casilla (no al registro): es lo que hay que
+        # leer para saber por qué un plan no pasa, y lo ve la cuenta de casa en
+        # el panel. Sin esto el diagnóstico sólo sería «falló dos veces».
+        avisos = list(avisos) + [f"V0: {x}" for x in (info["faltas"][-1] or [])[:10]]
+    _seg = time.time() - t0
+    # HIGIENE DE REGISTROS: sólo números y la clave; ni citas, ni datos, ni lo
+    # que el segmento «sostiene».
+    print(f"   🧭 PLAN de {numero}: {'listo' if plan else 'sin plan'} en {_seg:.0f} s · "
+          f"{info.get('intentos', 0)} intento(s) · clave {k[:8]} · "
+          f"{len((plan or {}).get('segmentos') or [])} segmentos · "
+          f"{len((plan or {}).get('unidades') or [])} unidades")
+    if persistir:
+        _taller_plan_cas(email, numero, lambda d: _pe.fila_resultado(
+            d, k, huella, plan, avisos, _seg, time.time(), reintentable))
+    return plan, avisos
+
+
+def _taller_plan_lanzar(email: str, numero: str, r, crit, ent: dict, **kw):
+    """La corrida en segundo plano, retenida para que no la recoja el
+    recolector ni la cancele la respuesta que la pidió."""
+    t = asyncio.ensure_future(_taller_plan_correr(email, numero, r, crit, ent, **kw))
+    _TALLER_EN_MARCHA.add(t)
+    t.add_done_callback(_TALLER_EN_MARCHA.discard)
+    return t
+
+
+async def _taller_plan_pedido(email: str, numero: str, r, ses, arm: dict, *,
+                              contexto: str = "", suplencia=None, formato: str = "",
+                              conceptos_violacion: str = "", checklist=None) -> dict:
+    """Pide el plan de este criterio SIN esperarlo: /taller/plan/pedir y el
+    precálculo. Nunca recalcula una clave ya calculada; respeta el tope."""
+    import plan_estudio as _pe
+    crit = arm["crit"]
+    try:
+        ent = _taller_plan_entradas(r, ses, crit, contexto=contexto, suplencia=suplencia,
+                                    conceptos_violacion=conceptos_violacion, formato=formato)
+    except _pe.PlanNoDisponible as ex:
+        return {"estado": "sin_plan", "clave": "", "avisos": [f"no hay plan: {ex}"]}
+    k = ent["clave"]
+    _, dec = _taller_plan_cas(email, numero, lambda d: _pe.fila_pedir(
+        d, k, ent["huella"], time.time()))
+    if dec == "lanzar":
+        _taller_plan_lanzar(email, numero, r, crit, ent, contexto=contexto,
+                            suplencia=suplencia, tocados=arm.get("tocados"),
+                            checklist=checklist)
+        return {"estado": "en_curso", "clave": k}
+    if dec in ("listo", "en_curso"):
+        return {"estado": dec, "clave": k}
+    if dec == "fallo":
+        return {"estado": "fallo", "clave": k,
+                "avisos": ["ya se calculó un plan con este criterio y no pasó la validación; "
+                           "no se vuelve a calcular"]}
+    if dec == "tope":
+        return {"estado": "sin_plan", "clave": k,
+                "avisos": [f"se agotaron las {_pe.TOPE_CORRIDAS} corridas del plan de esta sesión; "
+                           f"el proyecto se escribirá sin plan si cambia el criterio"]}
+    return {"estado": "sin_plan", "clave": k,
+            "avisos": ["no se pudo guardar el pedido del plan; se calculará al generar"]}
+
+
+async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
+                            contexto: str = "", razones_segmento: str = "",
+                            tocados=None, tope_s: float = None) -> dict:
+    """EL PLAN QUE USARÁ ESTE ESTUDIO, dentro de la tarea del resolver.
+
+    Pone en el encargo, SIEMPRE (el encargo vive en la memoria del worker):
+    `plan` = {estado, clave, avisos, plan} y `guion` = la vista por forma, o
+    vacíos. Con un plan listo de la misma clave, se usa; con uno en curso de
+    la misma clave, se espera; si no, se calcula aquí. Todo con un tope de
+    120 s, y si no llega, el estudio va SIN plan —la v3— y se dice arriba.
+    Decisión 6: la razón que el secretario escribió para un segmento
+    pendiente entra al guion como suya (`razones_segmento`)."""
+    import plan_estudio as _pe
+    e = getattr(r, "encargo", None)
+    if e is None:
+        return {"estado": "no_aplica"}
+    e.plan, e.guion = {}, ""
+    if not _taller_plan_aplica(r):
+        return {"estado": "no_aplica"}
+    tope = _pe.ESPERA_RESOLVER_S if tope_s is None else float(tope_s)
+    t0 = time.time()
+    plan, avisos, k = None, [], ""
+    _sup = dict(getattr(e, "suplencia", None) or {})
+    _check = ((getattr(e, "propuesta_global", None) or {}).get("checklist")
+              if isinstance(getattr(e, "propuesta_global", None), dict) else None)
+    try:
+        ent = _taller_plan_entradas(r, ses, crit, contexto=contexto, suplencia=_sup,
+                                    formato=getattr(e, "formato", "") or "")
+        k = ent["clave"]
+        while True:
+            _, dec = _taller_plan_cas(user_email, numero, lambda d: _pe.fila_pedir(
+                d, k, ent["huella"], time.time()))
+            if dec == "listo":
+                doc = _taller_plan_leer(user_email, numero)
+                plan = (_pe.estado_para_pantalla(doc, ent["huella"], time.time(), k) or {}).get("plan")
+                if not plan:
+                    avisos.append("el plan guardado no se pudo leer")
+                break
+            if dec == "en_curso":
+                # EL MISMO CRITERIO YA SE ESTÁ PLANEANDO: se espera (nunca para
+                # luego rehacer). Si la corrida muere, `fila_pedir` la da por
+                # abandonada y la vuelta siguiente la relanza aquí.
+                while time.time() - t0 < tope:
+                    await asyncio.sleep(max(0.05, min(3.0, tope - (time.time() - t0))))
+                    # La lectura, fuera del bucle de eventos: son hasta
+                    # cuarenta en dos minutos y el latido del flujo de ESTA
+                    # pantalla corre en el mismo bucle.
+                    doc = await asyncio.to_thread(_taller_plan_leer, user_email, numero)
+                    v = _pe.estado_para_pantalla(doc, ent["huella"], time.time(), k)
+                    if v["estado"] != "en_curso":
+                        break
+                if time.time() - t0 >= tope:
+                    avisos.append(f"el plan no llegó en {tope:.0f} s")
+                    break
+                continue
+            if dec == "fallo":
+                avisos.append("el plan de este criterio ya se calculó y no pasó la validación")
+                break
+            if dec == "tope":
+                avisos.append(f"se agotaron las {_pe.TOPE_CORRIDAS} corridas del plan de esta sesión")
+                break
+            # «lanzar», o sin base / sin columna: se calcula aquí. Sin base no
+            # hay reutilización ni tope que contar, pero el plan sirve igual
+            # dentro de esta petición.
+            _persistir = dec == "lanzar"
+            tarea = _taller_plan_lanzar(user_email, numero, r, crit, ent, contexto=contexto,
+                                        suplencia=_sup, tocados=tocados, checklist=_check,
+                                        persistir=_persistir)
+            _resto = max(0.05, tope - (time.time() - t0))
+            # SHIELD: si vence, la corrida SIGUE y deja su plan en la fila
+            # para la próxima vez; este estudio no la espera más.
+            hechas, _ = await asyncio.wait({asyncio.shield(tarea)}, timeout=_resto)
+            if hechas:
+                plan, _av = tarea.result()
+                avisos += list(_av or [])
+            else:
+                avisos.append(f"el plan no llegó en {tope:.0f} s")
+            break
+    except _pe.PlanNoDisponible as ex:
+        avisos.append(str(ex))
+    except Exception as ex:
+        print(f"   ⚠️ PLAN de {numero}: {err(ex)}")
+        avisos.append(f"el plan falló ({type(ex).__name__})")
+    if plan:
+        plan = _pe.aplicar_razones(plan, _pe.leer_razones_segmento(razones_segmento))
+        e.guion = _pe.vista(plan, getattr(e, "formato", "") or "")
+        e.plan = {"estado": "usado", "clave": k, "avisos": avisos, "plan": plan}
+        print(f"   🧭 PLAN de {numero} al estudio: clave {k[:8]} · "
+              f"{time.time() - t0:.0f} s de espera · guion de {len(e.guion)} caracteres")
+        return {"estado": "usado", "clave": k}
+    # SIN PLAN, LA v3, Y SE DICE. La variante del encargo pasa a «v3» para que
+    # el prompt, la ficha y el evento «listo» digan con qué se escribió de
+    # verdad: el banco descarta la corrida que no casa con lo que pidió.
+    e.variante_estudio = "v3"
+    e.plan = {"estado": "sin_plan", "clave": k, "avisos": avisos, "plan": None}
+    try:
+        r.avisos.append("EL ESTUDIO SE ESCRIBIÓ SIN PLAN (versión v3, con el inventario y las "
+                        "marcas pero sin guion): " + "; ".join(avisos[:3]) + ".")
+    except Exception:
+        pass
+    # HIGIENE DE REGISTROS: los avisos pueden nombrar anclas del asunto
+    # (expedientes, cifras); al registro sólo va cuántos hubo.
+    print(f"   🧭 PLAN de {numero}: sin plan, va la v3 · {len(avisos)} aviso(s)")
+    return {"estado": "sin_plan", "clave": k, "avisos": avisos}
+
+
+def _taller_plan_adelantar(email: str) -> bool:
+    """¿Se precalcula el plan en cuanto hay criterio? `PLAN_ESTUDIO`:
+    «off» nunca · «casa» (por omisión) sólo cuentas de casa, las únicas que hoy
+    escriben con la v4 · «sombra»/«ad»/«todos» todas, para medir la
+    reutilización real antes de prometer nada (w2_final §3.6)."""
+    modo = (os.getenv("PLAN_ESTUDIO", "casa") or "casa").strip().lower()
+    if modo in ("off", "0", "no"):
+        return False
+    if modo == "casa":
+        return _taller_es_casa(email)
+    return True
+
+
+async def _taller_plan_desde_propuesta(email: str, numero: str, r, ses: dict,
+                                       resp: dict) -> None:
+    """EL PLAN ADELANTADO, en cuanto la propuesta calculada sola deja criterio
+    (w2_final §3.2: lo disparan el precálculo). Arma el criterio que mandaría
+    la pantalla si el secretario acepta sin tocar —el sentido global del motor,
+    como la pantalla lo pone al llegar la propuesta; si el motor no se atrevió
+    con uno global, las propuestas por problema— con la MISMA función que el
+    resolver, para que la clave case. Si él cambia algo, la clave cambia y la
+    pantalla pide otro. Nunca lanza."""
+    try:
+        glob = dict(resp.get("global") or {})
+        if glob.get("alcanza") and str(glob.get("sentido") or "").strip():
+            form = {"modo_decision": "global", "sentido_global": str(glob["sentido"]),
+                    "razonamiento": str(glob.get("razon") or ""), "global_dictado": ""}
+        elif str(resp.get("criterios_json") or "").strip() not in ("", "[]"):
+            form = {"criterios_json": str(resp["criterios_json"])}
+        else:
+            return
+        arm = _taller_armar_criterio(r, ses, glob, **form)
+        out = await _taller_plan_pedido(
+            email, numero, r, ses, arm, contexto=_con_autos(r, ""), suplencia={},
+            conceptos_violacion=str(getattr(r.encargo, "conceptos_violacion", "") or ""),
+            checklist=glob.get("checklist"))
+        print(f"   🧭 PLAN adelantado de {numero}: {out.get('estado')} · clave "
+              f"{str(out.get('clave') or '')[:8]}")
+    except HTTPException as ex:
+        print(f"   🧭 PLAN adelantado de {numero}: sin criterio que planear ({ex.detail})")
+    except Exception as ex:
+        print(f"   ⚠️ PLAN adelantado de {numero}: {err(ex)}")
+
+
+def _taller_plan_ficha(res) -> dict:
+    """Lo que la ficha y el evento «listo» llevan del plan (pestaña «Mapa del
+    estudio»). Vacío si el estudio no era de la v4."""
+    try:
+        import plan_estudio as _pe
+        _p = getattr(getattr(res, "encargo", None), "plan", None) or {}
+        if not _p:
+            return {}
+        return _pe.para_ficha(_p.get("plan"), _p.get("estado", ""), _p.get("clave", ""),
+                              _p.get("avisos"))
+    except Exception:
+        return {}
 
 
 def _taller_meta_listo(res) -> dict:
@@ -32127,6 +32780,10 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
             # CON QUÉ SE ESCRIBIÓ: variante del prompt, commit, si el modelo
             # acabó o se cortó (`length`) y cuántos tokens gastó.
             **_taller_meta_listo(res),
+            # Y CON QUÉ PLAN (v4, 26-sep-2026): segmento → apartado → etiqueta →
+            # razón, con la cita, o por qué no lo hubo. La pestaña «Mapa del
+            # estudio» lo lee de aquí al volver a un proyecto.
+            "plan": _taller_plan_ficha(res),
         }
         r = supabase_admin.table("taller_sesiones").select("estado") \
             .eq("email", _correo).eq("expediente", numero).limit(1).execute()
@@ -34860,6 +35517,89 @@ async def taller_proponer(
     return _resp
 
 
+# ═══ EL PLAN DEL ESTUDIO, PARA LA PANTALLA (Paso 2, 26-sep-2026) ═════════════
+# El panel «Cómo se estudiará» pide el plan en cuanto el criterio se estabiliza
+# (antirrebote de ~8 s en la pantalla) y lo lee cuando está. Ver
+# `_taller_plan_pedido` y `plan_estudio.py`. Contrato: diag/contrato_paso2.md.
+@app.get("/taller/plan")
+async def taller_plan(numero: str, user_email: str):
+    """{"estado": "listo"|"en_curso"|"sin_plan"|"fallo", "clave", "plan", "avisos"}
+    del ÚLTIMO pedido de esta sesión. La pantalla compara `clave` con la que le
+    devolvió /taller/plan/pedir: si no casa, el plan es de otro criterio."""
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    import plan_estudio as _pe
+    return _pe.estado_para_pantalla(_taller_plan_leer(user_email, numero),
+                                    _te.huella_contraste(ses["resultado"]), time.time())
+
+
+@app.post("/taller/plan/pedir")
+async def taller_plan_pedir(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    criterios_json: str = Form(""),
+    global_json: str = Form(""),
+    contexto: str = Form(""),
+    suplencia: str = Form(""),
+    formato: str = Form(""),
+    # DECISIÓN 6 DE DAVID (opción a). Se acepta para que el pedido y la
+    # generación manden el mismo formulario, pero NO entra en la clave: la
+    # razón que el secretario escribe para un segmento pendiente se aplica al
+    # plan ya hecho (`plan_estudio.aplicar_razones`), sin gastar una corrida.
+    razones_segmento: str = Form(""),
+    # LOS MISMOS CAMPOS DE DECISIÓN QUE LOS DOS GEMELOS. Sin ellos el criterio
+    # de aquí no sería el del resolver y la clave no casaría nunca: la pantalla
+    # manda el mismo formulario que a /taller/resolver/stream.
+    modo_decision: str = Form(""),
+    sentido_global: str = Form(""),
+    global_dictado: str = Form(""),
+    usar_propuesta: bool = Form(False),
+    sentido: str = Form(""),
+    problema: str = Form(""),
+    razonamiento: str = Form(""),
+    conceptos_violacion: str = Form(""),
+    variante_estudio: str = Form(""),
+):
+    """Pide el plan de ESTE criterio y no lo espera: {"estado": "en_curso"|
+    "listo"|"fallo"|"sin_plan", "clave", "avisos"?}. Cuatro corridas por
+    sesión como mucho, contando todas; una clave ya calculada no se recalcula.
+    No cobra: el plan es parte del proyecto que se cobra al generarlo."""
+    _taller_puerta(user_email)
+    # SÓLO PARA QUIEN ESCRIBE CON LA v4: a los demás el plan no les sirve y
+    # cuesta. La variante se decide COMO EN LOS GEMELOS, con la misma función y
+    # el mismo campo (revisión del 26-sep-2026: aquí una variante vacía valía
+    # «v4» para las cuentas de casa, mientras el resolver les daba la global;
+    # el plan se calculaba, gastaba una de las cuatro corridas y nadie lo usaba).
+    _taller_purgar()
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    # CON EL TIPO DEL ENCARGO, como los gemelos (integración del 26-sep-2026):
+    # sin él, `ESTUDIO_PROMPT_AD` encendería la v4 en el resolver y aquí el
+    # pedido seguiría contestando «sin_plan».
+    _tipo_pp = getattr(getattr(ses["resultado"], "encargo", None), "tipo_asunto", "") or ""
+    if _taller_variante_estudio(user_email, variante_estudio, _tipo_pp) != "v4":
+        return {"estado": "sin_plan", "clave": "",
+                "avisos": ["el plan del estudio sólo corre con la variante v4"]}
+    if not ses.get("material"):
+        raise HTTPException(409, "Consulta primero el acervo: el plan se arma con el mismo "
+                                 "material que verá el estudio.")
+    import suplencia as _sp_p
+    r = ses["resultado"]
+    _glob = _taller_glob(global_json, ses)
+    arm = _taller_armar_criterio(
+        r, ses, _glob, sentido=sentido, problema=problema, razonamiento=razonamiento,
+        criterios_json=criterios_json, usar_propuesta=usar_propuesta,
+        modo_decision=modo_decision, sentido_global=sentido_global,
+        global_dictado=global_dictado)
+    return await _taller_plan_pedido(
+        user_email, numero, r, ses, arm, contexto=_con_autos(r, contexto),
+        suplencia=_sp_p.leer(suplencia), formato=formato,
+        conceptos_violacion=conceptos_violacion, checklist=_glob.get("checklist"))
+
+
 @app.post("/taller/resolver/stream")
 async def taller_resolver_stream(
     numero: str = Form(...),
@@ -34928,6 +35668,12 @@ async def taller_resolver_stream(
     # confirmar = como antes. Está en los DOS gemelos: el mismo formulario tiene
     # que dar la misma sentencia por cualquiera de las dos puertas.
     suplencia: str = Form(""),
+    # DECISIÓN 6 DE DAVID (opción a, 26-sep-2026): la razón que el secretario
+    # escribe en el panel para un argumento que su criterio no contesta, JSON
+    # {"C3.e": "texto"}. Entra al guion del plan como SUYA; sin ella, el estudio
+    # lo desarrolla con el material y lo pone primero en ADVERTENCIAS. En los
+    # DOS gemelos: el mismo formulario, la misma sentencia.
+    razones_segmento: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -34966,28 +35712,7 @@ async def taller_resolver_stream(
     # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
     # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
     # y ahorra que el secretario tenga que reenviarlo—.
-    _glob = {}
-    if (global_json or "").strip():
-        try:
-            _g = json.loads(global_json)
-            if isinstance(_g, dict):
-                _glob = _g
-        except Exception:
-            _glob = {}          # un JSON roto no tumba la resolución
-    if not _glob:
-        _g_ses = ses.get("global")
-        if _g_ses is not None:
-            _glob = {"problema_que_decide": getattr(_g_ses, "problema_que_decide", ""),
-                     "efecto": getattr(_g_ses, "efecto", ""),
-                     "en_contra": getattr(_g_ses, "en_contra", ""),
-                     "contexto": getattr(_g_ses, "contexto", None) or {},
-                     # LO QUE EL ÁRBOL DE DECISIÓN LEE: el sentido del motor
-                     # y la lista con la suerte condicional de cada tema.
-                     "sentido": getattr(_g_ses, "sentido", "") or "",
-                     "razon": getattr(_g_ses, "razon", "") or "",
-                     "alcanza": bool(getattr(_g_ses, "alcanza", True)),
-                     "alternativa": getattr(_g_ses, "alternativa", None) or {},
-                     "checklist": list(getattr(_g_ses, "checklist", None) or [])}
+    _glob = _taller_glob(global_json, ses)
     _decl = (resolvio_declarado or "").strip() or str(
         (_glob.get("contexto") or {}).get("resolvio", "")).strip()
     if r.encargo is not None:
@@ -35033,250 +35758,28 @@ async def taller_resolver_stream(
                                            or usar_propuesta
                                            or (modo_decision or "").strip()))
 
-    if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":
+    # ═══ EL CRITERIO, EN UN SOLO SITIO (26-sep-2026) ═══════════════════════
+    # Parseo, reparto, árbol y desenlace viven en `_taller_armar_criterio`: la
+    # MISMA función que usan el otro gemelo, /taller/plan/pedir y el
+    # precálculo del plan. Si cada puerta armara el suyo, la clave del plan
+    # adelantado no casaría con la del resolver —o, peor, casaría con otro
+    # criterio—. Los avisos vuelven en listas y van donde iban.
+    _arm = _taller_armar_criterio(
+        r, ses, _glob, sentido=sentido, problema=problema, razonamiento=razonamiento,
+        criterios_json=criterios_json, usar_propuesta=usar_propuesta,
+        modo_decision=modo_decision, sentido_global=sentido_global,
+        global_dictado=global_dictado)
+    crit = _arm["crit"]
+    for _a in _arm["avisos_r"]:
         try:
-            _datos = json.loads(criterios_json)
-        except Exception:
-            raise HTTPException(422, "criterios_json no es JSON válido.")
-        # ═══════════════════════════════════════════════════════════════════
-        # UN PROBLEMA SIN SENTIDO SE CAÍA EN SILENCIO
-        # ═══════════════════════════════════════════════════════════════════
-        # David: «regularmente el último problema jurídico queda sin respuesta
-        # (desconozco por qué)».
-        #
-        # Éste es un camino por el que puede pasar: el filtro descarta el
-        # criterio al que le falta el sentido —y hace bien, porque sin sentido
-        # no hay nada que demostrar— pero lo hacía CALLANDO. El problema
-        # desaparecía del estudio y nadie se enteraba hasta leer el proyecto.
-        # Ahora se cuenta y se avisa.
-        _todos = _datos if isinstance(_datos, list) else []
-        _sin_sentido = [str(d.get("problema", ""))[:120] for d in _todos
-                        if not str(d.get("sentido", "")).strip()]
-        crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
-                             sentido=str(d.get("sentido", "")).strip().lower(),
-                             razonamiento=str(d.get("razonamiento", "")),
-                             jerarquia=str(d.get("jerarquia", "accesorio")),
-                             # EL GRUPO: los problemas que el secretario marcó
-                             # para resolverse con una sola línea argumentativa.
-                             grupo=str(d.get("grupo", "") or "").strip(),
-                             prediccion=d.get("prediccion") or {})
-                for d in _todos
-                if str(d.get("sentido", "")).strip()]
-        if _sin_sentido:
-            print(f"   ⚠️ TALLER: {len(_sin_sentido)} problema(s) sin sentido, "
-                  f"fuera del estudio")
-            # SE CUELGA DEL RESULTADO, que es lo que llega al documento. NO de
-            # una variable `avisos` local: en estas dos funciones no existe
-            # —comprobado— y usarla habría reventado la generación entera con
-            # un NameError. Es el mismo error de ámbito del `_rama`, y aquí el
-            # guardián no lo ve porque main.py no está entre los módulos que
-            # revisa.
-            try:
-                r.avisos.append(
-                    f"NO SE ESTUDIARON {len(_sin_sentido)} PLANTEAMIENTO(S) "
-                    f"porque se quedaron sin sentido asignado: "
-                    + " · ".join(f"«{x}»" for x in _sin_sentido[:3])
-                    + ". Vuelve a la pantalla del criterio, decídelos y genera "
-                      "otra vez, o confirma que no había que contestarlos.")
-            except Exception:
-                pass
-        if not crit:
-            raise HTTPException(422, "criterios_json no trae ningún sentido.")
-    elif (modo_decision or "").strip().lower() == "global":
-        # EL SENTIDO GLOBAL, con la misma regla que el endpoint plano: el
-        # secretario dicta uno para el proyecto entero y `modos_decision` lo
-        # reparte —si el principal alcanza, los accesorios quedan sin materia—.
-        # Los frenos están en ese módulo, no aquí: son de la regla, no de la
-        # puerta.
-        if not sentido_global.strip():
-            raise HTTPException(422, "El modo global necesita `sentido_global`.")
-        import modos_decision as _md
-        _probs_g = [p if isinstance(p, dict) else {"pregunta": str(p)}
-                    for p in (r.fases.problemas or [])]
-        if not _probs_g and r.fases.problema_global:
-            _probs_g = [{"pregunta": r.fases.problema_global,
-                         "jerarquia": "principal"}]
-        _props_g = [{"problema": p.problema, "sentido": p.sentido,
-                     "razon": getattr(p, "razon", ""),
-                     "alcanza": getattr(p, "alcanza", True)}
-                    for p in (ses.get("propuestas") or [])]
-        # LO QUE EL SECRETARIO MARCÓ POR PROBLEMA VIAJA TAMBIÉN EN MODO
-        # GLOBAL, y manda sobre el relleno. Antes las dos ramas eran
-        # excluyentes: si llegaba `modo_decision=global`, `criterios_json` se
-        # ignoraba sin decir nada, y con él se iba la instrucción expresa del
-        # secretario sobre un tema concreto.
-        _califs = {}
-        try:
-            for _c in (json.loads(criterios_json or "[]") or []):
-                if isinstance(_c, dict) and str(_c.get("sentido") or "").strip():
-                    _califs[str(_c.get("problema") or "")] = {
-                        "sentido": _c.get("sentido"),
-                        "razonamiento": _c.get("razonamiento") or ""}
-        except Exception:
-            _califs = {}
-        # EL TEMA DISTINTO NO SE DECLARA INNECESARIO. Viaja en `global_json`
-        # —la lista de comprobación entera— y no en memoria: con -w 2 el worker
-        # que compone no es el que propuso.
-        _distintos = _md.temas_distintos_de(
-            (_glob or {}).get("checklist") or [], _probs_g)
-        _rep, _av_modo = _md.repartir(
-            _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g,
-            _califs,
-            # ¿LO DICTÓ ÉL, O LO PUSO LA PANTALLA? Si lo eligió a propósito, su
-            # sentido global manda sobre lo que el motor propuso por problema.
-            global_dictado=str(global_dictado).strip().lower() in ("1", "true", "si", "sí"),
-            temas_distintos=_distintos,
-            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
-        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
-                             razonamiento=x.get("razonamiento", ""),
-                             jerarquia=x.get("jerarquia", "accesorio"))
-                for x in _rep if str(x.get("sentido", "")).strip()]
-        # LA RAZÓN QUE ESCRIBIÓ EL SECRETARIO VA SOBRE EL PRINCIPAL. En el modo
-        # global él dicta el sentido del problema del que cuelgan los demás, y
-        # hasta hoy sólo viajaba el sentido: el estudio recibía un «fundado»
-        # sin una línea que explicara por qué, y se la inventaba. Es el
-        # problema principal el que la lleva, porque es el que decide.
-        if razonamiento.strip() and crit:
-            _pral = next((c for c in crit
-                          if str(getattr(c, "jerarquia", "")).lower() == "principal"),
-                         crit[0])
-            _pral.razonamiento = razonamiento.strip()
-        # LOS AVISOS DEL REPARTO SE ENTREGAN. `_av_modo` se calculaba y se
-        # tiraba: el secretario nunca se enteraba de que un planteamiento suyo
-        # había quedado sin materia, ni de que su marca había prevalecido.
-        for _a in (_av_modo or []):
-            if _a not in (r.fases.avisos or []):
-                r.fases.avisos.append(_a)
-        if not crit:
-            raise HTTPException(
-                422, "El modo global no pudo repartir el sentido: no hay "
-                     "problemas jurídicos sobre los que aplicarlo.")
-    elif (modo_decision or "").strip().lower() == "acervo" or usar_propuesta:
-        # ═══════════════════════════════════════════════════════════════════
-        # EL ATAJO DE UN SOLO CLIC: QUE DECIDA EL MOTOR
-        # ═══════════════════════════════════════════════════════════════════
-        # David: «una opción con un botón amarillo desde el principio (…) el
-        # proyecto se genera solo conforme lo que considere acertado. (…) Si el
-        # secretario decide arriesgar sus consultas sin supervisión, dejémoslo
-        # (…) pero queda expuesto a que él lo tenga que cambiar».
-        #
-        # AQUÍ NO EXISTÍA, Y DE DOS MANERAS: `modo_decision=acervo` figuraba en
-        # la firma del formulario y en modos_decision, pero ninguna rama lo
-        # pasaba a `repartir`; y `usar_propuesta` se declaraba en esta misma
-        # función —línea de arriba— sin que nadie lo leyera. Las dos palabras
-        # caían en el `else` y devolvían 422 «Falta el sentido», callando que
-        # el parámetro se había tragado. El gemelo sí atendía `usar_propuesta`,
-        # así que el mismo asunto se resolvía o no según qué endpoint tocara.
-        #
-        # La rama que lo atiende en modos_decision es la `else`: toma el
-        # sentido y la razón TAL CUAL de lo que el motor propuso. Y las
-        # propuestas salen de la sesión, no de memoria: con -w 2 el worker que
-        # compone no es el que propuso, y por eso `proponer` las guarda.
-        import modos_decision as _md
-        _probs_a = [p if isinstance(p, dict) else {"pregunta": str(p)}
-                    for p in (r.fases.problemas or [])]
-        if not _probs_a and r.fases.problema_global:
-            _probs_a = [{"pregunta": r.fases.problema_global,
-                         "jerarquia": "principal"}]
-        _props_a = [{"problema": p.problema, "sentido": p.sentido,
-                     "razon": getattr(p, "razon", ""),
-                     "alcanza": getattr(p, "alcanza", True)}
-                    for p in (ses.get("propuestas") or [])]
-        if not _props_a:
-            raise HTTPException(
-                409, "No hay propuesta en este proceso. Pide primero "
-                     "/taller/proponer: sin ella no hay sentido que escribir y "
-                     "nadie lo ha decidido a mano.")
-        _rep_a, _av_a = _md.repartir(_probs_a, _md.ACERVO, "", _props_a, {})
-        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
-                             razonamiento=x.get("razonamiento", ""),
-                             jerarquia=x.get("jerarquia", "accesorio"))
-                for x in _rep_a if str(x.get("sentido", "")).strip()]
-        print(f"   ⚡ TALLER: reparto por jurimetría · {len(crit)} de "
-              f"{len(_probs_a)} planteamiento(s) · sin supervisión")
-        # SE DICE, PERO SÓLO EN LA PANTALLA —y conviene no confundirse—.
-        # `r.avisos` es el canal de la pantalla: NINGÚN aviso del taller llega
-        # al .docx, ni éste ni los demás; se comprobó sobre el 650-2025 y no
-        # aparece uno solo en el documento. Así que quien abra este proyecto
-        # dentro de un mes NO puede saber por el archivo que nadie revisó el
-        # sentido. Marcarlo dentro exige tocar el ensamblado del documento, que
-        # es otro trabajo; queda anotado aquí para no darlo por hecho.
-        try:
-            r.avisos.append(
-                "PROYECTO GENERADO SIN SUPERVISIÓN: el sentido de cada "
-                "planteamiento lo decidió el motor por jurimetría y nadie lo "
-                "revisó antes de escribirlo. Compruébalo tema por tema antes "
-                "de firmar.")
-            for _a in _av_a:
-                r.avisos.append(_a)
+            r.avisos.append(_a)
         except Exception:
             pass
-        if not crit:
-            raise HTTPException(
-                422, "El motor no pudo decidir el sentido de ningún "
-                     "planteamiento. El criterio te toca a ti.")
-    else:
-        if not sentido:
-            raise HTTPException(
-                422, "Falta el sentido o la propuesta aceptada. Si el motor no "
-                     "propuso nada, manda `modo_decision=global` con "
-                     "`sentido_global`.")
-        crit = [_f6.Criterio(problema=problema or (r.fases.problema_global or ""),
-                             sentido=sentido, razonamiento=razonamiento)]
-
-    # ═══ LA SUERTE DE LOS ACCESORIOS LA DICTA EL PRINCIPAL ═══════════════
-    # En los TRES modos, no sólo en el global. ADC 93/2026: en la vía por
-    # problema cada tema era una isla y el accesorio conservó el tratamiento
-    # que el motor había escrito para el sentido contrario del principal.
-    # `arbol_decision` es el único sitio donde se decide; aquí sólo se le dan
-    # los problemas de la fase 3, la lista de la fase 5 y qué marcó el
-    # secretario a mano —eso no se toca—.
-    try:
-        import arbol_decision as _ad
-        _toc_ad = _taller_tocados(criterios_json, crit, modo_decision,
-                                  usar_propuesta, sentido)
-        _av_ad, _ = _ad.aplicar(
-            list(r.fases.problemas or []), crit,
-            (_glob or {}).get("checklist") or [],
-            [{"problema": _p.problema, "sentido": _p.sentido,
-              "razon": getattr(_p, "razon", "") or "",
-              "alcanza": getattr(_p, "alcanza", True),
-              # LA GUARDA PROCESAL devuelve a una procesal lo que el motor
-              # propuso antes del árbol, no lo que el árbol guardó encima.
-              "sentido_propio": getattr(_p, "sentido_propio", "") or "",
-              "razon_propia": getattr(_p, "razon_propia", "") or ""}
-             for _p in (ses.get("propuestas") or [])],
-            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
-            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
-        for _a in _av_ad:
-            print(f"   🌳 ÁRBOL: {_a[:160]}")
-            if _a not in (r.fases.avisos or []):
-                r.fases.avisos.append(_a)
-    except Exception as _ead:
-        print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
-    # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
-    # Otra vez aquí, para lo que llegue por otro camino que la propuesta recién
-    # reconciliada: una sesión de antes, un criterio editado a mano, el global
-    # dictado por el secretario. Sólo cuando HAY tarjeta global —dictada o del
-    # motor—; en la vía por problema sus marcas son la tarjeta y no se tocan.
-    try:
-        import desenlace as _dz
-        _modo_dz = (modo_decision or "").strip().lower()
-        _tarjeta = ""
-        if _modo_dz == "global":
-            _tarjeta = (sentido_global or "").strip()
-        elif (_modo_dz == "acervo" or usar_propuesta) and not criterios_json.strip():
-            if (_glob or {}).get("alcanza", True):
-                _tarjeta = str((_glob or {}).get("sentido") or "").strip()
-        if _tarjeta and crit:
-            _jer_dz = {str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia") or "")
-                       for p in (r.fases.problemas or []) if p}
-            for _a in _dz.reconciliar(crit, _tarjeta, _jer_dz):
-                print(f"   ⚖️ DESENLACE: {_a[:160]}")
-                if _a not in (r.fases.avisos or []):
-                    r.fases.avisos.append(_a)
-    except Exception as _edz:
-        print(f"   ⚠️ DESENLACE: no se pudo reconciliar con la tarjeta: {err(_edz)}")
+    # Los del reparto global, el árbol y el desenlace, con los de la fase,
+    # como los ponía este gemelo.
+    for _a in _arm["avisos_modo"] + _arm["avisos_fases"]:
+        if _a not in (r.fases.avisos or []):
+            r.fases.avisos.append(_a)
     salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
     # EL MISMO PARÁMETRO QUE VIERON LA PROPUESTA Y LA RAZÓN (24-sep-2026), y el
     # método de interpretación en el material. Ver `_taller_parametro`.
@@ -35312,6 +35815,17 @@ async def taller_resolver_stream(
 
     async def _trabajar():
         try:
+            # EL PLAN DEL ESTUDIO (v4), DENTRO DE LA TAREA y nunca antes de las
+            # cabeceras: la pasarela corta a los ~280 s y el plan puede tardar
+            # hasta 120. Mientras, la pantalla ve «ordenando». Fuera de la v4
+            # sólo vacía el plan y el guion del encargo (una vuelta anterior no
+            # se cuela).
+            if _taller_plan_aplica(r):
+                _cola.put_nowait({"tipo": "ordenando"})
+            await _taller_plan_para(user_email, numero, r, ses, crit,
+                                    contexto=_con_autos(r, contexto),
+                                    razones_segmento=razones_segmento,
+                                    tocados=_arm["tocados"])
             async for paso in _ra.resolver_en_vivo(
                     chat_client, r, crit, ses["material"], salida, _marco,
                     qdrant=qdrant_client, contexto=_con_autos(r, contexto)):
@@ -35382,6 +35896,9 @@ async def taller_resolver_stream(
                         # medición descarta las corridas cuya variante o
                         # commit no casan con lo que pidió.
                         **_taller_meta_listo(res),
+                        # Y CON QUÉ PLAN (v4): lo que lee la pestaña «Mapa
+                        # del estudio», igual que la ficha.
+                        "plan": _taller_plan_ficha(res),
                     })
         except Exception as ex:
             print(f"   ⚠️ TALLER en vivo: {ex}")
@@ -35641,6 +36158,12 @@ async def taller_resolver(
     # confirmar = como antes. Está en los DOS gemelos: el mismo formulario tiene
     # que dar la misma sentencia por cualquiera de las dos puertas.
     suplencia: str = Form(""),
+    # DECISIÓN 6 DE DAVID (opción a, 26-sep-2026): la razón que el secretario
+    # escribe en el panel para un argumento que su criterio no contesta, JSON
+    # {"C3.e": "texto"}. Entra al guion del plan como SUYA; sin ella, el estudio
+    # lo desarrolla con el material y lo pone primero en ADVERTENCIAS. En los
+    # DOS gemelos: el mismo formulario, la misma sentencia.
+    razones_segmento: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
@@ -35669,28 +36192,7 @@ async def taller_resolver(
     # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
     # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
     # y ahorra que el secretario tenga que reenviarlo—.
-    _glob = {}
-    if (global_json or "").strip():
-        try:
-            _g = json.loads(global_json)
-            if isinstance(_g, dict):
-                _glob = _g
-        except Exception:
-            _glob = {}          # un JSON roto no tumba la resolución
-    if not _glob:
-        _g_ses = ses.get("global")
-        if _g_ses is not None:
-            _glob = {"problema_que_decide": getattr(_g_ses, "problema_que_decide", ""),
-                     "efecto": getattr(_g_ses, "efecto", ""),
-                     "en_contra": getattr(_g_ses, "en_contra", ""),
-                     "contexto": getattr(_g_ses, "contexto", None) or {},
-                     # LO QUE EL ÁRBOL DE DECISIÓN LEE: el sentido del motor
-                     # y la lista con la suerte condicional de cada tema.
-                     "sentido": getattr(_g_ses, "sentido", "") or "",
-                     "razon": getattr(_g_ses, "razon", "") or "",
-                     "alcanza": bool(getattr(_g_ses, "alcanza", True)),
-                     "alternativa": getattr(_g_ses, "alternativa", None) or {},
-                     "checklist": list(getattr(_g_ses, "checklist", None) or [])}
+    _glob = _taller_glob(global_json, ses)
     _decl = (resolvio_declarado or "").strip() or str(
         (_glob.get("contexto") or {}).get("resolvio", "")).strip()
     if r.encargo is not None:
@@ -35735,212 +36237,29 @@ async def taller_resolver(
                                            or (sentido or "").strip()
                                            or usar_propuesta
                                            or (modo_decision or "").strip()))
-    # DOS CAMINOS, Y NINGUNO ES «QUE SIGA COMO ESTÉ». O el secretario dicta su
-    # criterio, o acepta la propuesta del motor. Antes existía un tercero —no
-    # decidir— y era el que producía sentencias incongruentes: el estudio se
-    # escribía y el resolutivo se quedaba con la calificación de la plantilla.
-    avisos_modo: list = []
-    # LA MISMA CONDICIÓN QUE EL GEMELO DE FLUJO. La pantalla manda
-    # `criterios_json` TAMBIÉN en la vía global —«lo que él marcó por problema
-    # viaja igual»—, y aquí esta rama iba primero sin mirar el modo: con un
-    # sentido global dictado, este endpoint lo ignoraba y resolvía por las
-    # marcas sueltas. El de flujo ya lo excluía. Dos puertas, dos desenlaces.
-    if criterios_json.strip() and not (modo_decision or "").strip().lower() == "global":
-        # El camino bueno: el secretario devuelve lo que aceptó, con sus
-        # ediciones si las hizo. No depende de qué worker atendió la propuesta.
+    # ═══ EL CRITERIO, EN UN SOLO SITIO (26-sep-2026) ═══════════════════════
+    # Parseo, reparto, árbol y desenlace viven en `_taller_armar_criterio`: la
+    # MISMA función que usan el otro gemelo, /taller/plan/pedir y el
+    # precálculo del plan. Si cada puerta armara el suyo, la clave del plan
+    # adelantado no casaría con la del resolver —o, peor, casaría con otro
+    # criterio—. Los avisos vuelven en listas y van donde iban.
+    _arm = _taller_armar_criterio(
+        r, ses, _glob, sentido=sentido, problema=problema, razonamiento=razonamiento,
+        criterios_json=criterios_json, usar_propuesta=usar_propuesta,
+        modo_decision=modo_decision, sentido_global=sentido_global,
+        global_dictado=global_dictado)
+    crit = _arm["crit"]
+    for _a in _arm["avisos_r"]:
         try:
-            _datos = json.loads(criterios_json)
+            r.avisos.append(_a)
         except Exception:
-            raise HTTPException(422, "criterios_json no es JSON válido.")
-        # JERARQUÍA Y PREDICCIÓN VIAJAN TAMBIÉN AQUÍ. Su gemela de
-        # /taller/resolver/stream sí las pasaba y ésta no, así que el mismo
-        # `criterios_json` daba un estudio distinto según el endpoint: por esta
-        # ruta se perdían la prelación lógica del estudio y el aviso de ir
-        # contra la corriente del acervo.
-        #
-        # Es la trampa que este proyecto ya tiene con nombre: un arreglo
-        # reconstruye una lista y descarta lo que otro sembró. La escribí en un
-        # comentario de /taller/proponer y volví a caer en ella doce líneas
-        # más abajo.
-        # ═══════════════════════════════════════════════════════════════════
-        # UN PROBLEMA SIN SENTIDO SE CAÍA EN SILENCIO
-        # ═══════════════════════════════════════════════════════════════════
-        # David: «regularmente el último problema jurídico queda sin respuesta
-        # (desconozco por qué)».
-        #
-        # Éste es un camino por el que puede pasar: el filtro descarta el
-        # criterio al que le falta el sentido —y hace bien, porque sin sentido
-        # no hay nada que demostrar— pero lo hacía CALLANDO. El problema
-        # desaparecía del estudio y nadie se enteraba hasta leer el proyecto.
-        # Ahora se cuenta y se avisa.
-        _todos = _datos if isinstance(_datos, list) else []
-        _sin_sentido = [str(d.get("problema", ""))[:120] for d in _todos
-                        if not str(d.get("sentido", "")).strip()]
-        crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
-                             sentido=str(d.get("sentido", "")).strip().lower(),
-                             razonamiento=str(d.get("razonamiento", "")),
-                             jerarquia=str(d.get("jerarquia", "accesorio")),
-                             # EL GRUPO: los problemas que el secretario marcó
-                             # para resolverse con una sola línea argumentativa.
-                             grupo=str(d.get("grupo", "") or "").strip(),
-                             prediccion=d.get("prediccion") or {})
-                for d in _todos
-                if str(d.get("sentido", "")).strip()]
-        if _sin_sentido:
-            print(f"   ⚠️ TALLER: {len(_sin_sentido)} problema(s) sin sentido, "
-                  f"fuera del estudio")
-            # SE CUELGA DEL RESULTADO, que es lo que llega al documento. NO de
-            # una variable `avisos` local: en estas dos funciones no existe
-            # —comprobado— y usarla habría reventado la generación entera con
-            # un NameError. Es el mismo error de ámbito del `_rama`, y aquí el
-            # guardián no lo ve porque main.py no está entre los módulos que
-            # revisa.
-            try:
-                r.avisos.append(
-                    f"NO SE ESTUDIARON {len(_sin_sentido)} PLANTEAMIENTO(S) "
-                    f"porque se quedaron sin sentido asignado: "
-                    + " · ".join(f"«{x}»" for x in _sin_sentido[:3])
-                    + ". Vuelve a la pantalla del criterio, decídelos y genera "
-                      "otra vez, o confirma que no había que contestarlos.")
-            except Exception:
-                pass
-        if not crit:
-            raise HTTPException(422, "criterios_json no trae ningún sentido.")
-    elif (modo_decision or "").strip().lower() == "global":
-        # EL SENTIDO GLOBAL. El secretario dicta uno para el proyecto entero y
-        # la máquina lo reparte; si el principal alcanza, los accesorios quedan
-        # sin materia. Los frenos —lo que pide MAYOR BENEFICIO no se declara
-        # innecesario, y tampoco si el motor no pudo afirmar que alcance— están
-        # en modos_decision, no aquí: son de la regla, no del endpoint.
-        if not sentido_global.strip():
-            raise HTTPException(422, "El modo global necesita `sentido_global`.")
-        import modos_decision as _md
-        _probs = [p if isinstance(p, dict) else {"pregunta": str(p)}
-                  for p in (r.fases.problemas or [])]
-        if not _probs and r.fases.problema_global:
-            _probs = [{"pregunta": r.fases.problema_global,
-                       "jerarquia": "principal"}]
-        _props = [{"problema": p.problema, "sentido": p.sentido,
-                   "razon": p.razon, "alcanza": getattr(p, "alcanza", True)}
-                  for p in (ses.get("propuestas") or [])]
-        # LO QUE MARCÓ POR PROBLEMA VIAJA TAMBIÉN EN MODO GLOBAL, igual que en
-        # el gemelo: las dos ramas eran excluyentes y con `modo_decision=global`
-        # se tiraba `criterios_json` sin decir nada.
-        _califs = {}
-        try:
-            for _c in (json.loads(criterios_json or "[]") or []):
-                if isinstance(_c, dict) and str(_c.get("sentido") or "").strip():
-                    _califs[str(_c.get("problema") or "")] = {
-                        "sentido": _c.get("sentido"),
-                        "razonamiento": _c.get("razonamiento") or ""}
-        except Exception:
-            _califs = {}
-        _dictado = str(global_dictado).strip().lower() in ("1", "true", "si", "sí")
-        _distintos = _md.temas_distintos_de(
-            (_glob or {}).get("checklist") or [], _probs)
-        _repartido, _av_modo = _md.repartir(
-            _probs, _md.GLOBAL, sentido_global.strip().lower(), _props,
-            _califs, global_dictado=_dictado, temas_distintos=_distintos,
-            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
-        print(f"   ⚖️ reparto global «{sentido_global.strip().lower()}» "
-              f"({'dictado por el secretario' if _dictado else 'eco del motor'}): "
-              + ", ".join(sorted({str(x.get('sentido')) for x in _repartido})))
-        _pred = {d.get("problema", ""): d.get("prediccion") or {}
-                 for d in getattr(getattr(ses.get("material"), "sondeo", None),
-                                  "por_problema", []) or []}
-        crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
-                             razonamiento=x["razonamiento"],
-                             jerarquia=x["jerarquia"],
-                             prediccion=_pred.get(x["problema"], {}))
-                for x in _repartido if x["sentido"]]
-        # LA MISMA REGLA QUE EN EL OTRO ENDPOINT, y hay que ponerla en los DOS:
-        # la pantalla llama a éste y el guion de pruebas al de streaming, así
-        # que arreglar uno solo habría dado un pipeline que funciona cuando lo
-        # pruebo yo y no cuando lo usa el secretario. Ya paso con los tres
-        # modos de decidir, que vivian solo en uno.
-        if razonamiento.strip() and crit:
-            _pral2 = next((c for c in crit
-                           if str(getattr(c, "jerarquia", "")).lower() == "principal"),
-                          crit[0])
-            _pral2.razonamiento = razonamiento.strip()
-        if not crit:
-            raise HTTPException(422, "No hay problemas jurídicos a los que "
-                                     "repartir el sentido global.")
-        avisos_modo = _av_modo
-    elif usar_propuesta or (modo_decision or "").strip().lower() == "acervo":
-        # LA MISMA PALABRA EN LOS DOS ENDPOINTS. Este gemelo ya atendía la
-        # propuesta del motor, pero sólo con `usar_propuesta=1`; el de streaming
-        # no la atendía en absoluto. Un mismo asunto se resolvía o no según qué
-        # puerta tocaras. Ahora las dos entienden `modo_decision=acervo`.
-        props = ses.get("propuestas") or []
-        crit = [_f6.Criterio(problema=p.problema, sentido=p.sentido,
-                             razonamiento=p.razon)
-                for p in props if getattr(p, "alcanza", True) and p.sentido]
-        if not crit:
-            raise HTTPException(409, "No hay propuesta en este proceso. Vuelve a "
-                                     "pedir /taller/proponer y manda su "
-                                     "`criterios_json` aquí, que no depende del "
-                                     "worker que atienda.")
-    else:
-        if not sentido:
-            raise HTTPException(422, "Falta el sentido. Dicta tu criterio o "
-                                     "acepta la propuesta con usar_propuesta=1.")
-        crit = [_f6.Criterio(
-            problema=problema or (r.fases.problema_global or ""),
-            sentido=sentido, razonamiento=razonamiento)]
-    # ═══ LA SUERTE DE LOS ACCESORIOS LA DICTA EL PRINCIPAL ═══════════════
-    # En los TRES modos, no sólo en el global. ADC 93/2026: en la vía por
-    # problema cada tema era una isla y el accesorio conservó el tratamiento
-    # que el motor había escrito para el sentido contrario del principal.
-    # `arbol_decision` es el único sitio donde se decide; aquí sólo se le dan
-    # los problemas de la fase 3, la lista de la fase 5 y qué marcó el
-    # secretario a mano —eso no se toca—.
-    try:
-        import arbol_decision as _ad
-        _toc_ad = _taller_tocados(criterios_json, crit, modo_decision,
-                                  usar_propuesta, sentido)
-        _av_ad, _ = _ad.aplicar(
-            list(r.fases.problemas or []), crit,
-            (_glob or {}).get("checklist") or [],
-            [{"problema": _p.problema, "sentido": _p.sentido,
-              "razon": getattr(_p, "razon", "") or "",
-              "alcanza": getattr(_p, "alcanza", True),
-              # LA GUARDA PROCESAL devuelve a una procesal lo que el motor
-              # propuso antes del árbol, no lo que el árbol guardó encima.
-              "sentido_propio": getattr(_p, "sentido_propio", "") or "",
-              "razon_propia": getattr(_p, "razon_propia", "") or ""}
-             for _p in (ses.get("propuestas") or [])],
-            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
-            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
-        for _a in _av_ad:
-            print(f"   🌳 ÁRBOL: {_a[:160]}")
-            if _a not in (r.fases.avisos or []):
-                r.fases.avisos.append(_a)
-    except Exception as _ead:
-        print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
-    # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
-    # Otra vez aquí, para lo que llegue por otro camino que la propuesta recién
-    # reconciliada: una sesión de antes, un criterio editado a mano, el global
-    # dictado por el secretario. Sólo cuando HAY tarjeta global —dictada o del
-    # motor—; en la vía por problema sus marcas son la tarjeta y no se tocan.
-    try:
-        import desenlace as _dz
-        _modo_dz = (modo_decision or "").strip().lower()
-        _tarjeta = ""
-        if _modo_dz == "global":
-            _tarjeta = (sentido_global or "").strip()
-        elif (_modo_dz == "acervo" or usar_propuesta) and not criterios_json.strip():
-            if (_glob or {}).get("alcanza", True):
-                _tarjeta = str((_glob or {}).get("sentido") or "").strip()
-        if _tarjeta and crit:
-            _jer_dz = {str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia") or "")
-                       for p in (r.fases.problemas or []) if p}
-            for _a in _dz.reconciliar(crit, _tarjeta, _jer_dz):
-                print(f"   ⚖️ DESENLACE: {_a[:160]}")
-                if _a not in (r.fases.avisos or []):
-                    r.fases.avisos.append(_a)
-    except Exception as _edz:
-        print(f"   ⚠️ DESENLACE: no se pudo reconciliar con la tarjeta: {err(_edz)}")
+            pass
+    # Los del reparto global, al frente del resultado (como antes en este
+    # gemelo); los del árbol y el desenlace, con los de la fase.
+    avisos_modo: list = list(_arm["avisos_modo"])
+    for _a in _arm["avisos_fases"]:
+        if _a not in (r.fases.avisos or []):
+            r.fases.avisos.append(_a)
     salida = f"{ses['tmp']}/{numero.replace('/', '-')} PROYECTO.docx"
     # El marco jurídico de ESTE asunto. Si los problemas no lo piden, sale vacío
     # y no se escribe: pegar derechos humanos en todos los asuntos era el riesgo
@@ -35955,6 +36274,12 @@ async def taller_resolver(
         print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres "
               f"· {time.time() - _t0_marco:.1f}s")
 
+    # EL PLAN DEL ESTUDIO (v4), igual que en el gemelo de flujo pero sin
+    # evento: este camino no emite nada hasta el final.
+    await _taller_plan_para(user_email, numero, r, ses, crit,
+                            contexto=_con_autos(r, contexto),
+                            razones_segmento=razones_segmento,
+                            tocados=_arm["tocados"])
     r2 = await _ra.resolver(chat_client, r, crit, ses["material"], salida,
                             _marco, qdrant=qdrant_client,
                             contexto=_con_autos(r, contexto))
