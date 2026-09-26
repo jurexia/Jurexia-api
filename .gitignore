@@ -128,3 +128,10 @@ _calidad/corridas/
 # sentencia con las partes nombradas. La prueba se salta sola si no está, que
 # es preferible a versionar el expediente de un particular.
 banco_acto91.txt
+
+# Banco de pruebas del taller: 48 autos, demandas y actos reclamados REALES
+# (paternidad, sumarios con menores, agrarios, desahucios) con sus partes
+# nombradas. El repositorio es público. Las reglas «*.txt» y «*.html» ya
+# tapaban las transcripciones, pero no los PDF originales ni resultados.jsonl:
+# un «git add -A» los habría publicado. Misma regla que banco_acto91.txt.
+bancos/
