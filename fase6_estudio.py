@@ -117,29 +117,65 @@ SOLUCION_EXCESO = round(1.25 * SOLUCION_P90)
 # petición manda. Viaja como la forma de la sentencia: encargo → material →
 # prompt (ver `redactor_adelanto._formato_al_material`). Render no reinicia al
 # guardar una variable: cambiar la global exige un despliegue.
-VARIANTES = ("v1", "v2")
-# «A» y «B» son los nombres de la propuesta (A = producción, B = limpieza).
-_ALIAS_VARIANTE = {"a": "v1", "b": "v2", "1": "v1", "2": "v2"}
+#
+# EL PASO 2 AÑADE DOS (26-sep-2026, contrato del Paso 2). El banco midió la v2
+# contra la v1 ese día: la v2 reduce la Solución a la mitad pero contesta con
+# razón propia sólo el 73 % de los argumentos autónomos (la v1, el 79 %) y
+# duplica las omisiones graves; al acortar sin saber qué argumentos hay, funde
+# los que traen dato propio en una respuesta global. De ahí:
+#   · «v3» = la v2 + el INVENTARIO de argumentos (`inventario.py`) como lista
+#     de datos + la regla de las MARCAS (`marcas.py`). Sin llamada nueva.
+#   · «v4» = la v3 + el plan del estudio (guion), que trae la pieza del plan.
+#     Sin el plan, la v4 escribe como la v3: aquí no hay guion que añadir.
+# Las dos son de la familia de la v2: todo lo que la v2 cambió respecto de la
+# v1 lo siguen teniendo (ver `_v2`).
+VARIANTES = ("v1", "v2", "v3", "v4")
+# «A», «B», «C-lite» y «C» son los nombres de la propuesta (w2_final §6.1).
+_ALIAS_VARIANTE = {"a": "v1", "b": "v2", "1": "v1", "2": "v2", "3": "v3",
+                   "4": "v4", "clite": "v3", "c-lite": "v3", "c_lite": "v3",
+                   "c": "v4"}
+# Las que escriben marcas y reciben el inventario.
+CON_INVENTARIO = ("v3", "v4")
 
 
 def normalizar_variante(x, por_omision: str = "") -> str:
-    """«v1», «v2» o `por_omision` si no se reconoce. Nunca inventa una."""
+    """«v1»…«v4» o `por_omision` si no se reconoce. Nunca inventa una."""
     t = str(x or "").strip().lower()
     t = _ALIAS_VARIANTE.get(t, t)
     return t if t in VARIANTES else por_omision
 
 
-def variante_global() -> str:
+def variante_global(tipo_asunto: str = "") -> str:
     """La de todos: `ESTUDIO_PROMPT`, y «v1» si falta o no se reconoce.
+
+    ENCENDIDO POR TIPO (contrato del Paso 2): en amparo directo manda
+    `ESTUDIO_PROMPT_AD` si está puesta y se reconoce; es el primer tipo que se
+    encenderá (w2_final §6.1, paso 4: recursos en sombra). Sin tipo, o sin esa
+    variable, la global. Ninguna de las dos cambia de valor en esta entrega.
 
     Se lee en cada petición y no al importar, para que una prueba pueda
     cambiarla; en Render da igual, porque la variable sólo cambia con un
     despliegue."""
-    return normalizar_variante(os.getenv("ESTUDIO_PROMPT", "v1"), "v1")
+    glob = normalizar_variante(os.getenv("ESTUDIO_PROMPT", "v1"), "v1")
+    if tipo_asunto:
+        try:
+            if _ta_p.normalizar(tipo_asunto) == "amparo_directo":
+                return normalizar_variante(os.getenv("ESTUDIO_PROMPT_AD", ""), glob)
+        except Exception:
+            pass
+    return glob
 
 
 def _v2(material) -> bool:
-    return normalizar_variante(getattr(material, "variante", "v1"), "v1") == "v2"
+    """¿Es de la familia de la v2? La v3 y la v4 SON la v2 más lo suyo: cada
+    sitio que pregunta esto —el prompt, el cierre, la calidad que cuenta una
+    calificación por apartado— tiene que tratarlas como a la v2."""
+    return normalizar_variante(getattr(material, "variante", "v1"), "v1") in ("v2",) + CON_INVENTARIO
+
+
+def con_inventario(material) -> bool:
+    """¿Esta variante recibe el inventario y escribe marcas? (v3 y v4)"""
+    return normalizar_variante(getattr(material, "variante", "v1"), "v1") in CON_INVENTARIO
 
 
 def _objetivo_palabras(material, criterios) -> int:
@@ -287,6 +323,13 @@ class Material:
     # porque el material vive en la memoria del worker de una generación a la
     # siguiente. Ver `VARIANTES` arriba.
     variante: str = "v1"
+    # EL INVENTARIO DE ARGUMENTOS (Paso 2a, 26-sep-2026): los segmentos de
+    # `inventario.segmentos`, sólo con la v3 y la v4. Lo fija
+    # `redactor_adelanto._formato_al_material` en CADA petición —vacío en las
+    # demás variantes—, por lo mismo que la variante: el material vive en la
+    # memoria del worker y el inventario de una vuelta no puede colarse en la
+    # siguiente. Lo leen el prompt (el bloque) y `_terminar` (el control V1).
+    inventario: list = field(default_factory=list)
     # LA SUPLENCIA QUE DECIDIÓ EL SECRETARIO (Decisión 4 de David, 26-sep-2026):
     # {fraccion, a_favor_de, confirmada}, o vacío. Viaja con el material por lo
     # mismo que la forma: dos redactores arman el prompt y a los dos les llega el
@@ -1820,8 +1863,11 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    escrito_literal: str = "") -> str:
     # LA VARIANTE LA TRAE EL MATERIAL, como la forma (ver `VARIANTES`). La v1
     # es lo que sigue, congelado por test_prompt_v2.py; la v2 vive aparte
-    # para que tocarla no pueda mover ni una coma de la v1.
+    # para que tocarla no pueda mover ni una coma de la v1. La v3 y la v4 son
+    # la v2 con el inventario y la regla de las marcas (ver `_partes_v3`); con
+    # esos dos textos vacíos, la v2 sale idéntica (también por instantánea).
     if _v2(material):
+        _inv_b, _inv_r = _partes_v3(material, es_recurso) if con_inventario(material) else ("", "")
         return _prompt_estudio_v2(
             resumen_acto, resumen_conceptos, criterios, material,
             es_recurso=es_recurso, partes=partes, marco=marco,
@@ -1829,7 +1875,8 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
             propuesta_global=propuesta_global, rama=rama,
             violacion_procesal=violacion_procesal,
             conceptos_violacion=conceptos_violacion,
-            escrito_literal=escrito_literal)
+            escrito_literal=escrito_literal,
+            bloque_inventario=_inv_b, recordatorio_marcas=_inv_r)
     q = "agravios" if es_recurso else "conceptos de violación"
     # CÓMO SE LA NOMBRA. Estaba escrito «la parte quejosa» dentro de un EJEMPLO
     # de este prompt, y el modelo lo copiaba: en la revisión fiscal el proyecto
@@ -2525,6 +2572,58 @@ def _cierre_permitido(criterios: list) -> bool:
     return n >= 3 and distintos >= 2
 
 
+# ═══ LA v3: EL INVENTARIO Y LAS MARCAS (Paso 2a, 26-sep-2026) ══════════════
+# Dos textos que se cuelgan de la v2 y NADA MÁS: el bloque con la lista de
+# argumentos —datos, sin frases que imitar; lección medida tres veces: lo que va
+# de ejemplo en un prompt se copia literal— con la regla de qué se hace con
+# ella, y un recordatorio de una línea al final, que es lo último que lee el
+# modelo. Las funciones de redacción, la extensión, el cierre y todo lo demás
+# son los de la v2.
+def _regla_marcas(q1: str) -> str:
+    return f"""
+QUÉ SE HACE CON EL INVENTARIO — y lo que el sistema comprueba después:
+- El inventario es la lista de los argumentos del escrito, sacada del resumen
+  y anclada en el escrito. Es un dato, no un guion: el orden y los grupos los
+  decides tú con las reglas de este prompt.
+- CADA ARGUMENTO DEL INVENTARIO RECIBE UNA RESPUESTA IDENTIFICABLE: la razón que
+  lo decide aplicada a su dato propio —el hecho, la prueba, la cifra, el
+  precepto o el precedente que trae—, o una remisión con contenido a la
+  respuesta que ya lo resuelve: qué apartado y qué proposición. Los que
+  reiteran otro se nombran juntos en el párrafo que los contesta. Un argumento
+  que sólo queda cubierto por la calificación general de su {q1} queda sin
+  respuesta.
+- EL PÁRRAFO QUE CONTESTA UNO O VARIOS ARGUMENTOS EMPIEZA CON SU MARCA: los
+  identificadores del inventario de los argumentos que contesta, separados por
+  un espacio, entre ⟦ y ⟧, al comienzo del párrafo y antes de su primera
+  palabra. El párrafo que no contesta ningún argumento —el que abre el
+  estudio, el que expone una premisa común, los efectos— no lleva marca. Si la
+  respuesta a un argumento ocupa varios párrafos, basta la marca en el
+  primero.
+- LA MARCA ES INTERNA: el sistema la retira antes de mostrar el texto y antes de
+  componer la sentencia, y la usa para comprobar que ningún argumento quedó sin
+  respuesta. Fuera de la marca no escribas identificadores: en la prosa cada
+  argumento se nombra como en una sentencia, por su {q1} y por lo que alega.
+- Usa sólo identificadores del inventario, y todos: al terminar, cada uno está
+  en alguna marca.
+"""
+
+
+def _partes_v3(material, es_recurso: bool = False) -> tuple:
+    """(bloque del inventario con su regla, recordatorio final) para la v3/v4.
+    Sin inventario —el resumen vino vacío o no se pudo leer— no hay nada que
+    marcar y la v3 escribe como la v2."""
+    segs = list(getattr(material, "inventario", None) or [])
+    if not segs:
+        return "", ""
+    import inventario as _inv_p
+    _tipo = getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo")
+    q1 = _ta_p.vocabulario_de(_tipo)["combate_singular"]
+    bloque = _inv_p.bloque_inventario(segs, q1) + _regla_marcas(q1)
+    recordatorio = (f"Y CADA ARGUMENTO DEL INVENTARIO ({len(segs)}), CON SU MARCA "
+                    f"AL COMIENZO DEL PÁRRAFO QUE LO CONTESTA.\n")
+    return bloque, recordatorio
+
+
 def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
                        criterios: list[Criterio], material: Material,
                        es_recurso: bool = False, partes=None, marco=None,
@@ -2532,7 +2631,10 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
                        propuesta_global=None, rama: str = "",
                        violacion_procesal: bool = False,
                        conceptos_violacion: str = "",
-                       escrito_literal: str = "") -> str:
+                       escrito_literal: str = "",
+                       # LA v3 (ver `_partes_v3`). Vacíos, la v2 sale igual.
+                       bloque_inventario: str = "",
+                       recordatorio_marcas: str = "") -> str:
     q = "agravios" if es_recurso else "conceptos de violación"
     import tipos_asunto as _ta_e
     import dialogo_constitucional as _dc_e
@@ -3074,12 +3176,12 @@ LO QUE RESOLVIÓ {_org_rotulo}
 LO QUE SE COMBATE
 ═══════════════════════════════════════════════════════════════════════
 {resumen_conceptos}
-{_bloque_escrito_literal(escrito_literal, resumen_conceptos)}
+{_bloque_escrito_literal(escrito_literal, resumen_conceptos)}{bloque_inventario}
 
 Escribe el estudio de fondo.
 {cierre_marco}
 {_dc_cierre}
-{_recuerda_forma}
+{_recuerda_forma}{recordatorio_marcas}
 NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
 frase de cierre que corresponde al tipo de asunto. Si tú escribes otra igual,
 el proyecto acaba con dos cierres seguidos diciendo lo mismo, que es lo que
@@ -4305,8 +4407,12 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
             yield {"tipo": "texto", "dato": pieza}
     crudo = "".join(entero).strip()
     estudio, advertencias = separar_advertencias(crudo)
+    # LAS MARCAS NO SON TEXTO DEL ESTUDIO (v3/v4): los controles leen el texto
+    # sin ellas. El estudio sale CON ellas: `_terminar` las separa y guarda el
+    # mapa. Sin marcas —v1, v2— `sin_marcas` devuelve el texto idéntico.
+    import marcas as _mc_r
     yield {"tipo": "fin", "estudio": estudio, "advertencias": advertencias,
-           "avisos": revisar(estudio, criterios, material, resumen_acto,
+           "avisos": revisar(_mc_r.sin_marcas(estudio), criterios, material, resumen_acto,
                              marco if isinstance(marco, str) else ""),
            "meta": meta}
 
@@ -4344,9 +4450,12 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
             pass
     crudo = (r.choices[0].message.content or "").strip()
     estudio, advertencias = separar_advertencias(crudo)
-    avisos = revisar(estudio, criterios, material, resumen_acto,
+    # Lo mismo que el gemelo en vivo: los controles, sin las marcas.
+    import marcas as _mc_r
+    _limpio = _mc_r.sin_marcas(estudio)
+    avisos = revisar(_limpio, criterios, material, resumen_acto,
                      marco if isinstance(marco, str) else "")
     if partes is not None:
         import fase_partes
-        avisos.extend(fase_partes.revisar_partes(estudio, partes))
+        avisos.extend(fase_partes.revisar_partes(_limpio, partes))
     return estudio, advertencias, avisos

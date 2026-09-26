@@ -32017,10 +32017,19 @@ def _taller_meta_listo(res) -> dict:
     `finish_reason` y uso de tokens. Lo mismo en el evento «listo», en las
     cabeceras del gemelo plano y en la ficha (26-sep-2026)."""
     _m = dict(getattr(res, "meta_estudio", None) or {})
-    return {"variante": str(_m.get("variante") or ""),
-            "commit": _commit_desplegado(),
-            "finish_reason": str(_m.get("finish_reason") or ""),
-            "uso": dict(_m.get("uso") or {})}
+    fuera = {"variante": str(_m.get("variante") or ""),
+             "commit": _commit_desplegado(),
+             "finish_reason": str(_m.get("finish_reason") or ""),
+             "uso": dict(_m.get("uso") or {})}
+    # EL MAPA DEL ESTUDIO (Paso 2a, 26-sep-2026): qué párrafo contesta cada
+    # argumento del inventario y la cobertura por marcas, con su rescate. Sólo
+    # cuando lo hay —v3 y v4—: la v1 y la v2 no cambian ni un campo. Lo lee la
+    # pestaña «Mapa del estudio» y el banco (`banco_estudio.py`).
+    if isinstance(_m.get("mapa"), dict):
+        fuera["mapa"] = dict(_m["mapa"])
+    if isinstance(_m.get("cobertura"), dict):
+        fuera["cobertura"] = dict(_m["cobertura"])
+    return fuera
 
 
 # EL CRITERIO COMPLETO, TAL COMO LLEGÓ. Hasta el 26-sep-2026 la ficha guardaba
@@ -34896,9 +34905,10 @@ async def taller_resolver_stream(
     # LA FORMA DE LA SENTENCIA: «estandar» o «moderna». David, 25-sep-2026.
     # Vacío = estándar. Ver `formato_sentencia.py`.
     formato: str = Form(""),
-    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» o «v2»—, sólo para cuentas de
+    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» a «v4»; la v3 y la v4, con el
+    # inventario de argumentos y las marcas (Paso 2)—, sólo para cuentas de
     # casa; a las demás se les ignora. Vacío = ESTUDIO_PROMPT. Ver
-    # `_taller_variante_estudio` (26-sep-2026).
+    # `_taller_variante_estudio` y `fase6_estudio.VARIANTES` (26-sep-2026).
     variante_estudio: str = Form(""),
     # LA SUPLENCIA DE LA QUEJA, decidida en la pantalla de decisión (David,
     # 26-sep-2026: «Sí», un paso más de esa pantalla). JSON {fraccion,
@@ -35607,9 +35617,10 @@ async def taller_resolver(
     # LA FORMA DE LA SENTENCIA: «estandar» o «moderna». David, 25-sep-2026.
     # Vacío = estándar. Ver `formato_sentencia.py`.
     formato: str = Form(""),
-    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» o «v2»—, sólo para cuentas de
+    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» a «v4»; la v3 y la v4, con el
+    # inventario de argumentos y las marcas (Paso 2)—, sólo para cuentas de
     # casa; a las demás se les ignora. Vacío = ESTUDIO_PROMPT. Ver
-    # `_taller_variante_estudio` (26-sep-2026).
+    # `_taller_variante_estudio` y `fase6_estudio.VARIANTES` (26-sep-2026).
     variante_estudio: str = Form(""),
     # LA SUPLENCIA DE LA QUEJA, decidida en la pantalla de decisión (David,
     # 26-sep-2026: «Sí», un paso más de esa pantalla). JSON {fraccion,
