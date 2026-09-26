@@ -388,8 +388,13 @@ try:
         ("fuero militar", linf["xml"]))}
     for nombre, n in tam.items():
         print(f"      tokens del bloque «{nombre}»: {n:,}")
-    ok(max(tam.values()) < 8000 and tam["prisión preventiva"] < 3500,
-       "presupuesto: la línea entera < 8 mil tokens; un tema, < 3.5 mil")
+    # El tope del tema subió de 3.5 a 5.5 mil con el pilar (25-sep-2026): el
+    # tema ahora trae sus tesis con vigencia, su cronología (reforma del
+    # 31-dic-2024, AG 2/2024, art. 166 LA, proyecto de recepción 3/2023) y las
+    # reglas de redacción que le tocan. Medido con tesis reales en
+    # test_linea_pilar.py: ~5.4 mil; aquí, con tres tesis de prueba, ~4.2 mil.
+    ok(max(tam.values()) < 8000 and tam["prisión preventiva"] < 5500,
+       "presupuesto: la línea entera < 8 mil tokens; un tema, < 5.5 mil")
 except ImportError:
     pass
 
@@ -543,7 +548,14 @@ ok(correr(main._coidh_puerta("u-admin", frozenset({"constitucional"})))[0] is Tr
 os.environ["COIDH_ACTIVO"] = "on"
 ok(correr(main._coidh_puerta("u-normal", frozenset({"jurisprudencia"})))[0] is False,
    "con «on» el selector también manda")
+# El pilar (25-sep-2026): con sólo «jurisprudencia», la LÍNEA pasa en modo
+# «solo_mx» (sin nada interamericano); los casos citados siguen cerrados.
+ok(correr(main._coidh_puerta("u-normal", frozenset({"jurisprudencia"}), linea=True)) == (True, "on:solo_mx"),
+   "con «on» y sólo «jurisprudencia», la línea pasa en modo solo_mx")
 os.environ["COIDH_ACTIVO"] = "admins"
+ok(correr(main._coidh_puerta("u-admin", frozenset({"jurisprudencia"}), linea=True)) == (True, "admins:solo_mx")
+   and correr(main._coidh_puerta("u-admin", frozenset({"federal"}), linea=True)) == (False, "selector"),
+   "con «admins»: solo_mx para el admin; con los dos rubros apagados, cerrada")
 main._plan_para_redaccion = _original
 ok("_coidh_puerta(request.user_id, _fuentes_elegidas)" in ce, "el chat le pasa a la puerta el selector de la consulta")
 i_ver = ce.index("_verificadas = await _fuentes_ya_verificadas(request.fuentes_previas)")
