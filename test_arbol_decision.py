@@ -134,7 +134,11 @@ ok(ad._leer_suerte("La Sala debe examinar los alegatos") == ("", ""), "prosa sin
 
 print("\n9 · LAS PUERTAS ESTÁN CONECTADAS")
 src = open("main.py", encoding="utf-8").read()
-ok(src.count("_ad.aplicar(") >= 3, f"los dos gemelos del resolver y la propuesta aplican el árbol ({src.count('_ad.aplicar(')})")
+# Los dos gemelos lo aplican por el criterio común `_taller_armar_criterio`
+# (26-sep-2026); la propuesta, por su cuenta.
+_i_ar9 = src.find("def _taller_armar_criterio(")
+ok(src.count("_ad.aplicar(") >= 2 and "_ad.aplicar(" in src[_i_ar9:src.find("\n\n\ndef ", _i_ar9 + 10)],
+   f"el criterio común de los dos gemelos y la propuesta aplican el árbol ({src.count('_ad.aplicar(')})")
 ok('@app.post("/taller/reparto")' in src, "la pantalla tiene su puerta: /taller/reparto")
 ok('@app.post("/taller/problema")' in src, "y el problema jurídico se puede corregir: /taller/problema")
 ok('"tocado"' in src, "los criterios distinguen lo que el secretario marcó")
@@ -324,11 +328,20 @@ ok({x["problema"]: x for x in fu}[VP2]["sentido"] == "innecesario", "en revisió
 
 print("\n17 · LAS PUERTAS: el tipo llega a los dos gemelos, la propuesta y la pantalla")
 _ti = 'tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))'
-ok(src.count(_ti) == 6, f"cuatro árboles y dos repartos globales reciben el tipo ({src.count(_ti)})")
+# DESDE EL 26-SEP-2026 LOS DOS GEMELOS ARMAN EL CRITERIO CON UNA SOLA FUNCIÓN
+# (`_taller_armar_criterio`, que usan también /taller/plan/pedir y el
+# precálculo del plan): el reparto global y el árbol viven allí una vez, y cada
+# gemelo la llama. Es la forma fuerte de «los dos gemelos, igual».
+ok(src.count(_ti) == 4, f"dos árboles, el reparto global y el árbol del criterio común reciben el tipo ({src.count(_ti)})")
 i_st = src.find("async def taller_resolver_stream(")
 i_pl = src.find("async def taller_resolver(")
-ok(src[i_st:i_pl].count(_ti) == 2 and src[i_pl:i_pl + 40000].count(_ti) == 2,
-   "los dos gemelos del resolver, igual: reparto global y árbol")
+i_ar = src.find("def _taller_armar_criterio(")
+_fin_ar = src.find("\n\n\ndef ", i_ar + 10)
+ok(i_ar > 0 and src[i_ar:_fin_ar].count(_ti) == 2,
+   "el criterio común: reparto global y árbol, con el tipo")
+ok(src[i_st:i_pl].count("_taller_armar_criterio(") == 1
+   and src[i_pl:i_pl + 40000].count("_taller_armar_criterio(") == 1,
+   "y los dos gemelos del resolver lo llaman, una vez cada uno")
 
 # ═══════════════════════════════════════════════════════════════════════════
 # REVISIÓN ADVERSARIAL DEL 26-SEP-2026
@@ -464,13 +477,12 @@ print("\n22 · main GUARDA, REPONE Y PASA LO QUE EL MOTOR PROPUSO (gemelos igual
 i_prop = src.find("LA SUERTE DE LOS ACCESORIOS, YA EN LA PROPUESTA")
 ok(i_prop > 0 and "_p.sentido_propio = _p.sentido" in src[i_prop:i_prop + 4000],
    "la propuesta guarda lo del motor antes de sobrescribirlo")
-ok(src.count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 4,
-   "se persiste con la sesión y llega al árbol en /taller/reparto y en los dos gemelos")
+ok(src.count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 3,
+   "se persiste con la sesión y llega al árbol en /taller/reparto y en el criterio común de los gemelos")
 ok('sentido_propio=str(x.get("sentido_propio") or "")' in src,
    "y el worker que no la calculó la repone")
-ok(src[i_st:i_pl].count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 1
-   and src[i_pl:i_pl + 40000].count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 1,
-   "igual en /taller/resolver/stream y en /taller/resolver")
+ok(src[i_ar:_fin_ar].count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 1,
+   "igual en /taller/resolver/stream y en /taller/resolver: los dos por `_taller_armar_criterio`")
 
 print("\n23 · LA FASE 5 YA NO ENSEÑA QUE UNA PROCESAL QUEDA SIN MATERIA")
 # Las instrucciones 7 y 12 decían «si el principal prospera, quedan sin

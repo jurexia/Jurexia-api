@@ -55,16 +55,27 @@ if str(rep2[2].get("sentido") or "").strip():
 src = io.open("main.py", encoding="utf-8").read()
 # Cada resolvedor declara su formulario con `modo_decision`; se cuentan las
 # ramas que lo comparan con "acervo".
-ramas = len(re.findall(r'modo_decision\s*or\s*""\)\.strip\(\)\.lower\(\)\s*==\s*"acervo"', src))
-if ramas < 2:
-    fallos.append(f"sólo {ramas} endpoint(s) atienden modo_decision=acervo; "
-                  f"hacen falta 2 (streaming y gemelo). Es el fallo de "
-                  f"«arreglado en un camino y no en el otro».")
+# Desde el 26-sep-2026 el criterio se arma en UNA función común
+# (`_taller_armar_criterio`) que los dos gemelos llaman: la rama «acervo» vive
+# ahí una vez y los dos la atienden por construcción.
+_i_ar = src.find("def _taller_armar_criterio(")
+_ar = src[_i_ar:src.find("\n\n\ndef ", _i_ar + 10)]
+ramas = len(re.findall(r'_modo\s*==\s*"acervo"\s*or\s*usar_propuesta', _ar))
+_i_st = src.find("async def taller_resolver_stream(")
+_i_pl = src.find("async def taller_resolver(")
+llaman = (src[_i_st:_i_pl].count("_taller_armar_criterio(") == 1
+          and src[_i_pl:_i_pl + 40000].count("_taller_armar_criterio(") == 1)
+if ramas < 1 or not llaman:
+    fallos.append(f"el criterio común no atiende modo_decision=acervo ({ramas}) o algún "
+                  f"gemelo no lo llama ({llaman}). Es el fallo de «arreglado en un "
+                  f"camino y no en el otro».")
 
 # Y el parámetro muerto: si `usar_propuesta` se declara, alguien tiene que
 # leerlo. Se declaraba dos veces y sólo se leía una.
 declara = len(re.findall(r'usar_propuesta:\s*bool\s*=\s*Form', src))
-lee = len(re.findall(r'elif[^\n]*usar_propuesta', src))
+# Cada endpoint que la declara se la pasa al criterio común, que la lee.
+lee = len(re.findall(r'usar_propuesta=usar_propuesta', src)) \
+    if re.search(r'elif[^\n]*usar_propuesta', _ar) else 0
 if lee < declara:
     fallos.append(f"`usar_propuesta` se declara {declara} veces y se lee {lee}: "
                   f"hay un endpoint que se lo traga en silencio")

@@ -310,7 +310,13 @@ ok(p_con.replace(sp.bloque(S_V, "amparo_directo"), "") == p_sin,
 
 print("\n7 · LOS GEMELOS Y LA PANTALLA ESTÁN CONECTADOS")
 src = open("main.py", encoding="utf-8").read()
-ok(src.count('suplencia: str = Form(""),') == 2, "el campo en los DOS endpoints de resolver")
+# (Desde el 26-sep-2026 también lo lleva /taller/plan/pedir, que arma el mismo
+# criterio para la clave del plan: se cuentan los dos gemelos.)
+_i_st7 = src.index('@app.post("/taller/resolver/stream")')
+_i_pl7 = src.index('@app.post("/taller/resolver")')
+ok(src[_i_st7:_i_pl7].count('suplencia: str = Form(""),') == 1
+   and src[_i_pl7:_i_pl7 + 8000].count('suplencia: str = Form(""),') == 1,
+   "el campo en los DOS endpoints de resolver")
 ok(src.count("r.encargo.suplencia = _sp_m.leer(suplencia)") == 2,
    "y en los dos se asigna SIEMPRE, no sólo si llega")
 _ini = src.index('@app.post("/taller/resolver/stream")')
