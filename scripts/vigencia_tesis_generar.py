@@ -32,7 +32,29 @@ QUÉ LEE (sólo lectura; nada de embeddings ni modelos)
     26-sep-2026 es OBLIGATORIA: sin `--sjf-cache` (o si la carpeta no existe o
     está vacía) el guion sale con error y no escribe nada; para generar sin ella
     hay que pedirlo con `--sin-sjf`. La caché se arma con
-    scripts/sjf_cache_descargar.py (sólo GET a la API pública, ≤ 1 petición/s).
+    scripts/sjf_cache_descargar.py (sólo GET a la API pública, ≤ 1 petición/s)
+    y la pone al día cada semana scripts/vigencia_semanal.py. Vive en
+    ~/Documents/IUREXIA-MAC/reingesta/vigencia/sjf_cache, fuera de git.
+
+EL SJF MANDA, Y LAS TESIS NUEVAS CUENTAN (26-sep-2026)
+------------------------------------------------------
+  · Si la caché tiene la ficha del SJF de una tesis, su `precedentes` manda
+    sobre el de Qdrant, esté cortado o no: el Semanario AÑADE notas a tesis
+    viejas («Esta tesis fue abandonada…») y Qdrant se quedó con la versión de
+    la ingesta. El HTML se pasa a texto como lo guardó la ingesta (espacios,
+    tabuladores y NBSP a un espacio): medido sobre las 1,439 de la caché, 69
+    de 69 enteras salen idénticas a Qdrant y 1,367 de 1,370 cortadas lo
+    contienen tal cual; las 3 restantes son notas que el SJF cambió después.
+    Salvo que Qdrant sea más nuevo: si su texto contiene el de la ficha y es
+    más largo, o si la ficha se bajó antes de la `ingesta` de la tesis, manda
+    Qdrant (origen «qdrant_mas_nuevo»; ver precedentes_completos).
+  · Las fichas de la caché que NO están en el acervo (las tesis que el SJF
+    publicó después de la ingesta) entran como tesis NUEVAS: pueden declarar
+    la pérdida de otra (fuente «tesis_nueva», `por_en_acervo` = false) y
+    pueden ser el reemplazo que nombra una nota, pero nunca son la afectada
+    —el chat aún no las puede traer— y sólo se resuelven por clave con la
+    época explícita e idéntica, para no robarle la cita a una tesis vieja con
+    la misma clave. Lo que ya resolvía el acervo sigue resolviéndose igual.
 
 EL ALCANCE Y LA CADENA (26-sep-2026)
 ------------------------------------
@@ -83,19 +105,24 @@ PENDIENTE (a propósito fuera del índice)
   · 12 claves ambiguas (misma clave con otro rubro) y 27 afectadas fuera del
     acervo (sobre todo de la Octava) quedan sin registro: van a
     DIR/vigencia_sin_resolver.json.
-  · El arreglo de fondo es la ingesta: guardar `precedentes` completo y correr
-    esto cada semana con la carga del Semanario. El SJF añade notas a tesis
-    viejas: 2019978 y 2029850 se abandonaron el 12-ago-2026.
+  · El arreglo de fondo es la ingesta: guardar `precedentes` completo y cargar
+    las tesis nuevas en Qdrant. Mientras tanto (26-sep-2026) esto corre cada
+    semana con la caché del SJF al día (scripts/vigencia_semanal.py): el SJF
+    añade notas a tesis viejas —2019978 y 2029850 se abandonaron el
+    12-ago-2026— y publica tesis que el acervo aún no tiene.
 
 USO
 ---
+Cada domingo lo corre, desatendido, scripts/vigencia_semanal.sh (caché al
+día, índice, cordura, pruebas, commit y push). A mano:
+
     # 1. la caché del SJF (la primera vez ~35 min; después sólo baja lo que falta)
     .venv/bin/python scripts/sjf_cache_descargar.py \\
-        --env ../../../.env --sjf-cache <dir> [--tesis-cache tesis.jsonl]
+        --env ../../../.env --sjf-cache ~/Documents/IUREXIA-MAC/reingesta/vigencia/sjf_cache
     # 2. el índice
     .venv/bin/python scripts/vigencia_tesis_generar.py \\
-        --env ../../../.env --sjf-cache <dir> [--salida datos/vigencia_tesis.json] \\
-        [--tesis-cache tesis.jsonl] [--informes DIR]
+        --env ../../../.env --sjf-cache ~/Documents/IUREXIA-MAC/reingesta/vigencia/sjf_cache \\
+        [--salida datos/vigencia_tesis.json] [--tesis-cache tesis.jsonl] [--informes DIR]
 
 `--tesis-cache` guarda (o reutiliza, si existe) el volcado de las 71,655 tesis
 para no releer Qdrant en cada ensayo. Tarda ~20 s con la caché. Antes de
@@ -106,6 +133,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import datetime as _dt
 import difflib
 import json
@@ -118,8 +146,11 @@ from typing import Dict, List, Optional, Tuple
 
 RAIZ = Path(__file__).resolve().parents[1]
 COLECCION = "jurisprudencia_nacional_v3"
+# `ingesta` («v3_semanario_2026-08»): dice de cuándo es el `precedentes` de
+# Qdrant, para no dejar que una ficha del SJF más vieja lo pise (ver
+# precedentes_completos).
 CAMPOS = ["registro", "clave_tesis", "rubro", "precedentes", "tipo", "epoca",
-          "fecha_publicacion", "instancia", "materia"]
+          "fecha_publicacion", "instancia", "materia", "ingesta"]
 SALIDA = RAIZ / "datos" / "vigencia_tesis.json"
 
 # Topes del archivo compacto: el índice viaja con el código y se carga en cada
@@ -175,28 +206,142 @@ SJF_CACHE: Optional[str] = None   # se fija desde --sjf-cache en main(); None s�
 TOPE_QDRANT = 2500  # jurisprudencia_nacional_v3 guarda `precedentes` cortado en 2,500 caracteres
 
 
-def precedentes_completos(t: dict) -> Tuple[str, str]:
-    """Si el precedente de Qdrant llegó cortado y hay copia del SJF en la caché local, usa la del SJF
-    (las notas de vigencia van al final y el corte se las come). -> (texto, origen)."""
-    prec = t.get("precedentes") or ""
-    if len(prec) < TOPE_QDRANT:
-        return prec, "qdrant"
+def texto_sjf(h: Optional[str]) -> str:
+    """El HTML de un campo del SJF, como texto y como lo guardó la ingesta en la
+    v3. Los espacios, tabuladores y NBSP se juntan en uno —la ingesta lo hizo—:
+    sin eso, 17 de las 69 tesis enteras de la caché no salían iguales a Qdrant
+    («registro digital:  2024159», «página\\xa01190») y cada tesis que el
+    repaso semanal bajara del SJF podía mover una nota por un espacio.
+    Recortado por los DOS lados: la 2029910 trae un espacio al principio en el
+    SJF y no en Qdrant, y con sólo rstrip el repaso la contaba «con nota
+    distinta» (y el mensaje del commit también)."""
+    h = re.sub(r"</p>\s*(?:<br\s*/?>\s*)*<p[^>]*>", "\n\n", h or "")
+    h = re.sub(r"<br\s*/?>", "\n", h)
+    h = re.sub(r"<[^>]+>", "", h)
+    h = h.replace("&nbsp;", " ").replace("&quot;", '"').replace("&amp;", "&")
+    h = re.sub(r"[ \t\xa0]+", " ", h)
+    return h.strip()
+
+
+def ficha_sjf(registro) -> Optional[dict]:
+    """La ficha del SJF de ese registro en la caché local, o None (sin caché,
+    sin archivo, archivo roto o un error guardado por descuido)."""
     if not SJF_CACHE:
-        return prec, "qdrant_truncado"
-    ruta = os.path.join(SJF_CACHE, f"{t.get('registro')}.json")
+        return None
+    ruta = os.path.join(SJF_CACHE, f"{registro}.json")
     if not os.path.exists(ruta):
-        return prec, "qdrant_truncado"
+        return None
     try:
         with open(ruta, encoding="utf-8") as fh:
             d = json.load(fh)
     except Exception:
-        return prec, "qdrant_truncado"
-    h = d.get("precedentes") or ""
-    h = re.sub(r"</p>\s*(?:<br\s*/?>\s*)*<p[^>]*>", "\n\n", h)
-    h = re.sub(r"<br\s*/?>", "\n", h)
-    h = re.sub(r"<[^>]+>", "", h)
-    h = h.replace("&nbsp;", " ").replace("&quot;", '"').replace("&amp;", "&")
-    return (h, "sjf") if len(h) > len(prec) else (prec, "qdrant_truncado")
+        return None
+    return d if isinstance(d, dict) and "_error" not in d else None
+
+
+def fecha_ingesta(t: dict) -> Optional[_dt.date]:
+    """El primer día en que pudo hacerse la ingesta de esa tesis en Qdrant, según
+    su etiqueta `ingesta` («v3_semanario_2026-08» → 1-ago-2026), o None. Sólo
+    trae el mes: se toma el día 1 para no dar por más nueva a la de Qdrant sin
+    estar seguros."""
+    m = re.search(r"(20\d\d)-(\d\d)(?:-(\d\d))?", str(t.get("ingesta") or ""))
+    if not m:
+        return None
+    try:
+        return _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3) or 1))
+    except ValueError:
+        return None
+
+
+def fecha_bajada(registro, d: dict) -> Optional[_dt.date]:
+    """El día en que se bajó la ficha del SJF: su `_bajada` (la pone
+    sjf_cache_descargar.py desde el 26-sep-2026) o, en las de antes, la fecha
+    del archivo en la caché."""
+    b = d.get("_bajada") if isinstance(d, dict) else None
+    if isinstance(b, str):
+        with contextlib.suppress(ValueError):
+            return _dt.date.fromisoformat(b[:10])
+    if not SJF_CACHE:
+        return None
+    try:
+        return _dt.date.fromtimestamp(os.path.getmtime(os.path.join(SJF_CACHE, f"{registro}.json")))
+    except OSError:
+        return None
+
+
+def precedentes_completos(t: dict) -> Tuple[str, str]:
+    """El `precedentes` que miran las reglas -> (texto, origen).
+
+    Si la caché del SJF tiene la tesis, MANDA el SJF (26-sep-2026), esté o no
+    cortado el de Qdrant: el Semanario añade notas a tesis viejas y Qdrant se
+    quedó con la versión de la ingesta. Antes sólo se usaba para las que
+    Qdrant cortó a 2,500 caracteres. Una ficha sin `precedentes` no pisa nada.
+
+    SALVO QUE QDRANT SEA MÁS NUEVO (26-sep-2026, revisión). El repaso rotativo
+    vuelve a cada tesis del carril general una vez al año: si una reingesta de
+    la v3 trae notas que la ficha aún no tiene, la ficha rancia las taparía
+    durante meses. Manda Qdrant («qdrant_mas_nuevo») cuando
+      · su texto CONTIENE el del SJF y es más largo (la ingesta ya trae lo que
+        dice la ficha y algo más: una nota añadida después), o
+      · la ficha se bajó ANTES de la ingesta (`_bajada` < `ingesta`), salvo
+        que Qdrant esté cortado y el SJF lo continúe tal cual: entonces la
+        ficha es lo único que tiene el final de las notas y sigue mandando."""
+    prec = t.get("precedentes") or ""
+    cortado = len(prec) >= TOPE_QDRANT
+    d = ficha_sjf(t.get("registro"))
+    h = texto_sjf(d.get("precedentes")) if d and isinstance(d.get("precedentes"), str) else ""
+    if not h:
+        return prec, ("qdrant_truncado" if cortado else "qdrant")
+    q = prec.strip()
+    if len(q) > len(h) and h in q:
+        return prec, "qdrant_mas_nuevo"
+    ing, baj = fecha_ingesta(t), fecha_bajada(t.get("registro"), d)
+    if ing and baj and baj < ing and not (cortado and h.startswith(q)):
+        return prec, "qdrant_mas_nuevo"
+    return h, "sjf"
+
+
+# --------------------------------------------------------------------------- tesis nuevas (SJF, fuera del acervo)
+def tesis_del_sjf(d: dict) -> Optional[dict]:
+    """Una ficha del SJF con la forma de la v3 (los campos que miran las reglas).
+    Medido sobre las 1,439 de la caché: rubro, clave y época salen idénticos a
+    los de Qdrant; `ta_tj` 1 es «JURISPRUDENCIA» y 0 «TESIS AISLADA»."""
+    if not isinstance(d, dict) or "_error" in d:
+        return None
+    reg = str(d.get("ius") or "").strip()
+    clave = (d.get("claveTesis") or "").strip()
+    rubro = texto_sjf(d.get("rubro")).strip()
+    if not reg.isdigit() or not (clave or rubro):
+        return None
+    tj = d.get("ta_tj")
+    tipo = "JURISPRUDENCIA" if tj == 1 or str(d.get("tipoTesis") or "").lower().startswith("tesis jurisprudencial") \
+        else "TESIS AISLADA"
+    return {"registro": reg, "clave_tesis": clave, "rubro": rubro, "precedentes": texto_sjf(d.get("precedentes")),
+            "tipo": tipo, "epoca": d.get("epoca"), "fecha_publicacion": str(d.get("fechaPublicacion") or ""),
+            "instancia": d.get("instancia"), "materia": d.get("materias"), "_fuera_del_acervo": True}
+
+
+def cargar_nuevas_sjf(cache: Optional[str], en_acervo) -> List[dict]:
+    """Las fichas de la caché cuyo registro NO está en el acervo: las tesis que
+    el SJF publicó después de la ingesta (las baja scripts/vigencia_semanal.py).
+    Sólo archivos «{registro}.json» cuyo `ius` es ese registro."""
+    if not cache or not os.path.isdir(cache):
+        return []
+    en_acervo = {str(r) for r in en_acervo}
+    out = []
+    for nombre in sorted(os.listdir(cache)):
+        m = re.fullmatch(r"(\d+)\.json", nombre)
+        if not m or m.group(1) in en_acervo:
+            continue
+        try:
+            with open(os.path.join(cache, nombre), encoding="utf-8") as fh:
+                d = json.load(fh)
+        except Exception:
+            continue
+        t = tesis_del_sjf(d)
+        if t and t["registro"] == m.group(1):
+            out.append(t)
+    return sorted(out, key=lambda t: int(t["registro"]))
 
 
 # --------------------------------------------------------------------------- normalización
@@ -305,11 +450,18 @@ def iso(d: str, m: str, a: str) -> str:
 
 # --------------------------------------------------------------------------- índices
 class Acervo:
-    def __init__(self, tesis: List[dict]):
+    def __init__(self, tesis: List[dict], nuevas: Optional[List[dict]] = None):
+        """`tesis`: las de la v3 (Qdrant). `nuevas`: las del SJF que aún no están
+        en el acervo (cargar_nuevas_sjf). Las nuevas van en `por_reg` —para que
+        puedan declarar pérdidas y nombrarse como reemplazo— pero en índices de
+        clave y rubro APARTE, que sólo se consultan cuando el acervo no tiene
+        ningún candidato: así nada de lo que ya resolvía el acervo cambia."""
         self.por_reg: Dict[str, dict] = {}
         self.por_base: Dict[str, List[Tuple[Optional[str], str]]] = collections.defaultdict(list)
         self.por_rubro: Dict[str, List[str]] = collections.defaultdict(list)
         self.por_rubro80: Dict[str, List[str]] = collections.defaultdict(list)
+        self.nuevas_base: Dict[str, List[Tuple[Optional[str], str]]] = collections.defaultdict(list)
+        self.nuevas_rubro: Dict[str, List[str]] = collections.defaultdict(list)
         for t in tesis:
             r = str(t.get("registro"))
             self.por_reg[r] = t
@@ -321,9 +473,35 @@ class Acervo:
             if nr:
                 self.por_rubro[nr].append(r)
                 self.por_rubro80[nr[:80]].append(r)
+        # Lo que el chat puede traer: sólo esto puede ser la tesis AFECTADA.
+        self.en_acervo = set(self.por_reg)
+        for t in nuevas or []:
+            r = str(t.get("registro"))
+            if r in self.por_reg:
+                continue          # si ya está en el acervo, manda el acervo
+            self.por_reg[r] = t
+            c = (t.get("clave_tesis") or "").strip()
+            if c:
+                b, s = norm_clave(c)
+                self.nuevas_base[b].append((s, r))
+            nr = norm_rubro(t.get("rubro") or "")
+            if nr:
+                self.nuevas_rubro[nr].append(r)
 
     def clave_de(self, r: str) -> Tuple[str, Optional[str]]:
         return norm_clave(self.por_reg.get(r, {}).get("clave_tesis") or "")
+
+    def _nueva_por_clave(self, b: str, s: Optional[str], excluir: Optional[str]) -> Tuple[Optional[str], str]:
+        """Una tesis nueva (fuera del acervo) con esa clave, sólo con la época
+        explícita e idéntica: las nuevas son de la Undécima o la Duodécima, y
+        una cita sin época es de antes de la Décima —con la misma clave de un
+        colegiado, la nueva le robaría la cita a la tesis vieja—."""
+        if not s:
+            return None, "no_en_acervo"
+        c = [r for cs, r in self.nuevas_base.get(b, []) if r != excluir and cs == s]
+        if len(c) == 1:
+            return c[0], "alta"
+        return None, "ambigua" if c else "no_en_acervo"
 
     def resolver_clave(self, texto: str, excluir: Optional[str] = None,
                        rubro_hint: Optional[str] = None) -> Tuple[Optional[str], str]:
@@ -332,7 +510,7 @@ class Acervo:
         b, s = norm_clave(texto)
         cands = [(cs, r) for cs, r in self.por_base.get(b, []) if r != excluir]
         if not cands:
-            return None, "no_en_acervo"
+            return self._nueva_por_clave(b, s, excluir)
         elegidos: List[str]
         if s:
             elegidos = [r for cs, r in cands if cs == s]
@@ -370,8 +548,14 @@ class Acervo:
         c = [r for r in self.por_rubro.get(nr, []) if r != excluir]
         if len(c) == 1:
             return c[0]
-        c = [r for r in self.por_rubro80.get(nr[:80], []) if r != excluir]
-        return c[0] if len(c) == 1 else None
+        c80 = [r for r in self.por_rubro80.get(nr[:80], []) if r != excluir]
+        if len(c80) == 1:
+            return c80[0]
+        if c or c80:
+            return None
+        # Ningún candidato en el acervo: una tesis nueva, sólo con el rubro entero.
+        n = [r for r in self.nuevas_rubro.get(nr, []) if r != excluir]
+        return n[0] if len(n) == 1 else None
 
     def rubro_coincide(self, r: str, rubro: Optional[str]) -> Optional[bool]:
         if not rubro or r not in self.por_reg:
@@ -653,7 +837,7 @@ class Extractor:
         if registro_nota and registro_nota != reg_self:
             out["registro"], out["via"] = registro_nota, "registro_en_nota"
             out["confianza"] = "alta"
-            out["en_acervo"] = registro_nota in self.A.por_reg
+            out["en_acervo"] = registro_nota in self.A.en_acervo
             return out
         r_clave = None
         if texto_clave:
@@ -694,6 +878,15 @@ class Extractor:
         return out
 
     def _add(self, **k):
+        # La afectada es siempre una tesis del acervo: el sello lo pide el chat por
+        # registro y una tesis nueva del SJF aún no le llega (26-sep-2026). Hasta
+        # hoy ninguna ruta añadía otra cosa; con las nuevas en `por_reg`, podría.
+        if k.get("afectado") and k["afectado"] not in self.A.en_acervo:
+            self.sin_resolver.append({"por_registro": (k.get("por") or {}).get("registro"),
+                                      "citada_en": k.get("citada_en"), "afectada_registro": k["afectado"],
+                                      "estado": k.get("estado"), "motivo": "afectada_fuera_del_acervo",
+                                      "patron": k.get("patron"), "nota": k.get("nota")})
+            return
         k.setdefault("precedentes_de", self._origen_actual)
         k.setdefault("alcance", None)
         k.setdefault("por_intermedias", [])
@@ -961,7 +1154,7 @@ class Extractor:
                    "en_acervo": bool(r)}
         else:
             ref = self._ref(clave_afectada, reg, rubro_afectada, registro_nota, anterior_a=reg)
-        if ref.get("registro") and ref["registro"] not in self.A.por_reg:
+        if ref.get("registro") and ref["registro"] not in self.A.en_acervo:
             self.sin_resolver.append({"por_registro": reg, "afectada_clave": clave_afectada,
                                       "afectada_registro": ref["registro"], "estado": estado,
                                       "motivo": "afectada_fuera_del_acervo", "patron": patron, "nota": nota})
@@ -973,7 +1166,7 @@ class Extractor:
             return
         desde, origen = self._desde_nueva(reg, prec)
         yo = {"clave": self.A.por_reg[reg].get("clave_tesis"), "rubro": self.A.por_reg[reg].get("rubro"),
-              "registro": reg, "via": "propia", "confianza": "alta", "en_acervo": True}
+              "registro": reg, "via": "propia", "confianza": "alta", "en_acervo": reg in self.A.en_acervo}
         for i, af in enumerate([ref["registro"]] + [d for d in ref.get("duplicados", []) if d != reg]):
             self._add(afectado=af, afectado_via=ref["via"] if i == 0 else "duplicado_misma_clave_y_rubro",
                       afectado_confianza=ref["confianza"], afectado_clave_citada=clave_afectada, por=yo, estado=estado,
@@ -1166,7 +1359,7 @@ def consolidar(A: Acervo, rel: List[dict]) -> Tuple[Dict[str, dict], List[dict]]
             "por_registro": por_reg,
             "por_clave": t_por.get("clave_tesis") or por.get("clave"),
             "por_rubro": (t_por.get("rubro") or por.get("rubro") or None),
-            "por_en_acervo": bool(t_por) if por_reg else None,
+            "por_en_acervo": (por_reg in A.en_acervo) if por_reg else None,
             "por_resolucion": p.get("por_resolucion"),
             "desde": p.get("desde"),
             "desde_origen": p.get("desde_origen"),
@@ -1263,6 +1456,19 @@ def compacto(idx: Dict[str, dict]) -> Dict[str, dict]:
     return out
 
 
+def generar(tesis: List[dict], nuevas: Optional[List[dict]] = None):
+    """Las reglas sobre el acervo y, detrás, sobre las tesis nuevas del SJF
+    -> (índice completo, descartes, extractor). En ese orden a propósito: con
+    dos relaciones de la misma prioridad gana la primera, así que una tesis
+    nueva no desplaza lo que ya decía el acervo."""
+    A = Acervo(tesis, nuevas)
+    E = Extractor(A)
+    for t in list(tesis) + [t for t in (nuevas or []) if str(t.get("registro")) not in A.en_acervo]:
+        E.procesar(t)
+    idx, descartes = consolidar(A, E.rel)
+    return idx, descartes, E
+
+
 def main():
     global SJF_CACHE
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -1301,11 +1507,8 @@ def main():
                      "No se escribió nada.")
 
     tesis = cargar(Path(a.env), Path(a.tesis_cache) if a.tesis_cache else None)
-    A = Acervo(tesis)
-    E = Extractor(A)
-    for t in tesis:
-        E.procesar(t)
-    idx, descartes = consolidar(A, E.rel)
+    nuevas = cargar_nuevas_sjf(SJF_CACHE, (str(t.get("registro")) for t in tesis)) if SJF_CACHE else []
+    idx, descartes, E = generar(tesis, nuevas)
 
     # ver_jurisprudencia sólo para las que no perdieron vigencia de forma expresa
     ver = {r: v for r, v in E.ver.items() if r not in idx}
@@ -1320,10 +1523,13 @@ def main():
 
     tesis_c = compacto(idx)
     n_cortados = sum(1 for t in tesis if len(t.get("precedentes") or "") >= TOPE_QDRANT)
+    n_sjf = E.origen_prec["sjf"] - len(nuevas)
     salida = {
         "generado": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "fuente": (f"{COLECCION} (Qdrant, sólo lectura: rubro y precedentes) + "
-                   + (f"SJF para los {n_cortados} `precedentes` cortados a {TOPE_QDRANT} car."
+                   + (f"SJF (caché local): su `precedentes` manda en {n_sjf} tesis del acervo ({n_cortados} "
+                      f"llegaron cortadas a {TOPE_QDRANT} car. en Qdrant) y aporta {len(nuevas)} tesis nuevas "
+                      f"aún fuera del acervo"
                       if SJF_CACHE else
                       f"SIN la caché del SJF (--sin-sjf): {n_cortados} `precedentes` se leyeron cortados a "
                       f"{TOPE_QDRANT} car.")
@@ -1339,6 +1545,8 @@ def main():
     meta = {
         "coleccion": COLECCION,
         "tesis_recorridas": len(tesis),
+        "tesis_nuevas_del_sjf": len(nuevas),
+        "reemplazo_fuera_del_acervo": sum(1 for v in idx.values() if v["por_en_acervo"] is False),
         "afectadas": len(idx),
         "por_estado": dict(cnt.most_common()),
         "por_fuente": dict(collections.Counter(v["fuente"] for v in idx.values()).most_common()),
