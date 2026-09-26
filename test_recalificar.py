@@ -709,16 +709,21 @@ ok(crit6 is arm6["crit"] and crit6[1].sentido == "infundado"
    and any("RECALIFICADOS CON TU PREMISA" in a for a in _r6.fases.avisos)
    and not any("SE RECALIFICAN CON TU PREMISA" in a for a in _r6.fases.avisos),
    "el gemelo sustituye el criterio en sitio y los avisos del árbol viejo por los nuevos")
-# Si no llega: SIN CALIFICAR, y se le dice al secretario.
+# Si no llega: SIN CALIFICAR, y NO SE GENERA (decisión del integrador,
+# 26-sep-2026): el gemelo recibe el mensaje que nombra los planteamientos y dice
+# qué hacer, y no toca ni el criterio ni los avisos del adelanto.
 _b2 = FakeBase()
 ns2 = entorno(Modelo("nada", "nada"), _b2)
 _r7 = resultado()
 arm7 = ns2["_taller_armar_criterio"](_r7, _ses, {}, **FORM)
 out7 = asyncio.run(ns2["_taller_recalificar_para"]("casa@iurexia.com", "1/2026", _r7, _ses, {}, FORM, arm7))
-ns2["_taller_recalificado_al_resolver"](_r7, arm7, out7, arm7["crit"])
+_msg7 = ns2["_taller_recalificado_al_resolver"](_r7, arm7, out7, arm7["crit"])
 ok(out7["estado"] == "fallo" and arm7["crit"][1].sentido == ""
-   and any("SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO" in a for a in _r7.avisos),
-   "si falla dos veces: queda SIN CALIFICAR y el aviso lo dice")
+   and "SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO" in _msg7 and P2[:60] in _msg7
+   and "Califícalos tú en la pantalla" in _msg7 and not _r7.avisos,
+   "si falla dos veces: queda SIN CALIFICAR, no se genera y el mensaje lo dice")
+ok(out7["motivo"] == "fallo" and not out7["reintentable"] and "vuelve a generar" not in _msg7,
+   "…y como esa premisa no se reintenta, no le dice que vuelva a generar")
 out7b = asyncio.run(ns2["_taller_recalificar_para"]("casa@iurexia.com", "1/2026", resultado(), _ses, {}, FORM,
                                                     ns2["_taller_armar_criterio"](resultado(), _ses, {}, **FORM)))
 ok(out7b["estado"] == "fallo" and any("no se vuelve a intentar" in a for a in out7b["avisos"]),
@@ -944,7 +949,9 @@ _, faltaT = nsT["_taller_recalificado_al_pedir"]("casa@iurexia.com", "1/2026", r
 ok(not faltaT, "tope: el plan no espera una recalificación que nadie va a calcular")
 _bT.filas[0]["plan"] = dict(dT, recalificaciones={})
 _, faltaT2 = nsT["_taller_recalificado_al_pedir"]("casa@iurexia.com", "1/2026", resultado(), _ses, {}, FORM, aT)
-ok(not faltaT2, "…tampoco sin nada guardado")
+# Sin nada guardado y sin corridas, el tumbado queda sin calificar: el proyecto
+# no se genera sin él (26-sep-2026), así que tampoco se pide un plan sobre él.
+ok(faltaT2 == "sin_calificar", "…tampoco sin nada guardado: no espera, y no pide un plan que nadie usaría")
 # (h) EL SIN CALIFICAR, EN LA v2, CONSERVA SU CONCEPTO Y SU RAZÓN: sin CUBRE
 # el estudio no sabía qué concepto contestaba, y la razón que él tecleó se
 # perdía.

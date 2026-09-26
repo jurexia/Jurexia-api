@@ -431,7 +431,12 @@ def problemas_del_criterio(crit: list, fases) -> list[dict]:
     fuera = []
     for i, p in enumerate(probs, 1):
         preg = str(p.get("pregunta") or "")
-        claves = {_clave_texto(preg), _clave_texto(p.get("pregunta_original"))} - {""}
+        # Y POR LA CLAVE RECORTADA DEL ÁRBOL: el criterio armado recorta el
+        # problema a 400 caracteres y la fase 3 lo trae entero; sin esto un
+        # planteamiento largo sólo casaba «por tema», con aviso.
+        claves = {_clave_texto(preg), _clave_texto(p.get("pregunta_original")),
+                  _clave_texto(_clave_problema(preg)),
+                  _clave_texto(_clave_problema(p.get("pregunta_original")))} - {""}
         elegido, por_tema = None, False
         for c in libres:
             if _clave_texto(getattr(c, "problema", "")) in claves:
@@ -482,6 +487,16 @@ def problemas_del_criterio(crit: list, fases) -> list[dict]:
 
 def _clave_texto(x) -> str:
     return re.sub(r"[^a-z0-9 ]", "", _sin_acentos(_ws(x)).lower()).strip()
+
+
+def _clave_problema(t) -> str:
+    """La clave recortada con que el árbol compara problemas (un solo sitio:
+    `arbol_decision.clave_problema`)."""
+    try:
+        import arbol_decision as _ad
+        return _ad.clave_problema(t)
+    except Exception:                                   # pragma: no cover
+        return str(t or "")[:400]
 
 
 def n_planteamientos(fases) -> int:
@@ -994,7 +1009,8 @@ class _Ctx:
                                getattr(fases, "resumen_acto", "") or "")
         self.indice = indice_material(material, fases)
         self.razones = {p["id"]: Texto(p["razon"]) for p in self.probs}
-        self.tocados = {_clave_texto(t) for t in (tocados or [])}
+        # Por la clave recortada del árbol: los tocados llegan enteros.
+        self.tocados = {_clave_texto(_clave_problema(t)) for t in (tocados or [])}
         self.suplencia = suplencia if isinstance(suplencia, dict) else {}
         self.hay_escrito = bool(self.escrito)
         # LA ÚNICA EXCEPCIÓN DEL ART. 189 es una concesión DE FONDO (Decisión
@@ -1007,7 +1023,7 @@ class _Ctx:
 
     def tocado(self, pid) -> bool:
         p = self.por_pid.get(pid)
-        return bool(p and _clave_texto(p["pregunta"]) in self.tocados)
+        return bool(p and _clave_texto(_clave_problema(p["pregunta"])) in self.tocados)
 
     def sup_confirmada(self) -> bool:
         try:

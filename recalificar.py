@@ -56,7 +56,8 @@ VERSION = "recal-1"
 ESFUERZO = os.getenv("ESFUERZO_RECALIFICAR", "medium")
 TOPE_SALIDA = int(os.getenv("RECALIFICAR_TOPE_SALIDA", "12000"))
 # LO QUE SE ESPERA COMO MUCHO, los dos intentos juntos. Si vence, los
-# pendientes quedan SIN CALIFICAR y el estudio los desarrolla con el material.
+# pendientes quedan SIN CALIFICAR y los dos gemelos NO generan: se lo dicen al
+# secretario (`aviso_sin_calificar`) para que los califique o reintente.
 TOPE_S = float(os.getenv("RECALIFICAR_TOPE_S", "90"))
 # Seis corridas por adelanto, contando todas (pantalla y gemelos), y seis
 # casillas: la pantalla pide una por cada razón estable del principal.
@@ -165,12 +166,11 @@ def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
     # LOS TEXTOS, RECORTADOS COMO LOS RECORTA EL CRITERIO ARMADO (400): la
     # pantalla (/taller/reparto) manda el problema entero y los gemelos lo
     # traen recortado; la clave tiene que ser la misma por las dos puertas.
-    _c = _corte()
     base = {"v": VERSION,
-            "p": _clave_texto(str(principal_problema or "")[:_c]),
+            "p": _clave_texto(_clave_problema(principal_problema)),
             "s": _norm_sentido(sentido),
             "r": _ws(razon),
-            "pend": sorted(_clave_texto(str(x or "")[:_c]) for x in (pendientes or [])),
+            "pend": sorted(_clave_texto(_clave_problema(x)) for x in (pendientes or [])),
             "h": str(huella_adelanto or ""),
             "t": str(tipo_asunto or "").strip().lower()}
     return hashlib.sha1(json.dumps(base, ensure_ascii=False, sort_keys=True)
@@ -199,9 +199,9 @@ def premisa_de(detalle: dict) -> str:
 
 
 def _cubre(resultados: dict, pendientes: list) -> bool:
-    _c = _corte()
-    tiene = {_clave_texto(str(x)[:_c]) for x, v in (resultados or {}).items() if isinstance(v, dict)}
-    return bool(pendientes) and all(_clave_texto(str(x)[:_c]) in tiene for x in pendientes)
+    tiene = {_clave_texto(_clave_problema(x)) for x, v in (resultados or {}).items()
+             if isinstance(v, dict)}
+    return bool(pendientes) and all(_clave_texto(_clave_problema(x)) in tiene for x in pendientes)
 
 
 def casilla_de(recalificadas, k: str, premisa: str = "", pendientes: list = None):
@@ -252,6 +252,16 @@ def _corte() -> int:
         return 400
 
 
+def _clave_problema(t) -> str:
+    """La clave recortada con que se comparan los problemas: la del árbol
+    (`arbol_decision.clave_problema`), un solo sitio para todas las puertas."""
+    try:
+        import arbol_decision as _ad
+        return _ad.clave_problema(t)
+    except Exception:                                   # pragma: no cover
+        return str(t or "")[:_corte()]
+
+
 def _fase3(r, problema: str):
     """(número 1..n, dict de la fase 3) del problema, por su pregunta. El
     criterio armado recorta el problema a 400 caracteres: se casa también por
@@ -259,13 +269,12 @@ def _fase3(r, problema: str):
     modelo sin número y sin lo que combate)."""
     probs = list(getattr(getattr(r, "fases", None), "problemas", None) or [])
     k = _clave_texto(problema)
-    _c = _corte()
-    k_c = _clave_texto(str(problema or "")[:_c])
+    k_c = _clave_texto(_clave_problema(problema))
     for i, p in enumerate(probs, 1):
         d = p if isinstance(p, dict) else {"pregunta": str(p)}
         for campo in ("pregunta", "pregunta_original"):
             v = str(d.get(campo) or "")
-            if v and (_clave_texto(v) == k or _clave_texto(v[:_c]) == k_c):
+            if v and (_clave_texto(v) == k or _clave_texto(_clave_problema(v)) == k_c):
                 return i, d
     return 0, {"pregunta": problema}
 
@@ -368,13 +377,16 @@ def entradas(r, crit, detalle: dict) -> tuple:
     —con el árbol aplicado— y su `detalle`. El principal lleva el sentido y la
     razón que fijó el secretario; cada accesorio, su pregunta, su dict de la
     fase 3 y si es una violación procesal. Nunca la calificación tumbada."""
+    import arbol_decision as _ad
+    _kp = _ad.clave_problema          # la MISMA clave recortada del árbol
     pend = pendientes(detalle)
     p_txt = ""
     for t in pend:
         p_txt = str((detalle.get(t) or {}).get("principal") or "")
         if p_txt:
             break
-    pc = next((c for c in (crit or []) if str(_get(c, "problema", "")) == p_txt), None)
+    pc = next((c for c in (crit or []) if p_txt and _kp(_get(c, "problema", "")) == _kp(p_txt)),
+              None)
     if pc is None:
         pc = next((c for c in (crit or []) if str(_get(c, "jerarquia", "")).lower() == "principal"),
                   None)
@@ -383,7 +395,9 @@ def entradas(r, crit, detalle: dict) -> tuple:
                  "sentido": _norm_sentido(_get(pc, "sentido", "")),
                  "razon": str(_get(pc, "razonamiento", "") or ""), "fase3": f3_p}
     acc = []
-    por_c = {str(_get(c, "problema", "")): c for c in (crit or [])}
+    por_c: dict = {}
+    for c in (crit or []):
+        por_c.setdefault(_kp(_get(c, "problema", "")), c)
     _usados = {n_p}
     for t in pend:
         n, f3 = _fase3(r, t)
@@ -398,7 +412,7 @@ def entradas(r, crit, detalle: dict) -> tuple:
                     "procesal": bool(d.get("procesal")),
                     # La razón que tecleó él (el árbol sólo la deja en un tumbado
                     # cuando es suya): dato, no ancla de la otra vía.
-                    "razon_suya": (str(_get(por_c.get(t), "razonamiento", "") or "")
+                    "razon_suya": (str(_get(por_c.get(_kp(t)), "razonamiento", "") or "")
                                    if d.get("razon_suya") else "")})
     return principal, acc
 
@@ -824,13 +838,32 @@ def estado_de(doc, huella: str, k: str, ahora: float) -> dict:
 
 # ═══ LO QUE SE LE DICE AL SECRETARIO ════════════════════════════════════════
 
-def aviso_sin_calificar(problemas: list, sentido_principal: str) -> str:
-    """El aviso cuando la recalificación no llegó: los tumbados quedan SIN
-    CALIFICAR. Va en los avisos del proyecto en TODAS las variantes (la v1,
-    congelada, sólo recibe esto)."""
-    return ("SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO: "
+def aviso_sin_calificar(problemas: list, sentido_principal: str, reintentable: bool = True,
+                        motivo: str = "") -> str:
+    """LO QUE SE LE DICE CUANDO LA RECALIFICACIÓN NO LLEGÓ, y por qué NO se
+    genera (decisión del integrador, 26-sep-2026). Los dos gemelos lo devuelven
+    —el de flujo como evento «error», el plano como 409— en vez de escribir el
+    proyecto: con un accesorio SIN CALIFICAR, la apertura, el cierre y los
+    resolutivos se calculaban sin él mientras el cuerpo del estudio sí lo
+    calificaba, y el documento salía incongruente (art. 74, fr. VI, de la Ley
+    de Amparo) sin que la revisión de congruencia lo viera.
+
+    Nombra los planteamientos y dice qué hacer. «Vuelve a generar» sólo cuando
+    volver a generar de verdad lo reintenta (`reintentable`): una corrida que
+    sigue en marcha o que tropezó con el proveedor; no una premisa cuya
+    recalificación ya no pasó la validación, ni con las corridas agotadas.
+    `motivo`: «fallo», «tope», «error» o «en_curso»."""
+    _por = {"fallo": " (con esta premisa ya se intentó y no pasó la validación)",
+            "tope": f" (se agotaron las {TOPE_CORRIDAS} recalificaciones de este adelanto)",
+            "error": " (el proveedor falló o no respondió a tiempo)",
+            "en_curso": " (sigue calculándose)"}.get(str(motivo or ""), "")
+    _hacer = ("Califícalos tú en la pantalla —un clic— o vuelve a generar para reintentar "
+              "la recalificación." if reintentable else
+              "Califícalos tú en la pantalla —un clic—: con esta premisa no se vuelve a "
+              "intentar.")
+    return ("NO SE GENERÓ EL PROYECTO. SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO: "
             + " · ".join(f"«{t[:80]}»" for t in problemas[:6])
             + f". Con el principal {str(sentido_principal or '').replace('_', ' ')} —la vía "
               "contraria a la que propuso el motor— su calificación de la otra vía se retiró y la "
-              "recalificación con tu premisa no llegó. El estudio los desarrolla con el material y "
-              "los pone PRIMERO en ADVERTENCIAS; califícalos tú si quieres otra cosa.")
+              f"recalificación con tu premisa no llegó{_por}. Sin su calificación, la apertura, el "
+              "cierre y los resolutivos se armarían sin ellos. " + _hacer)

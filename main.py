@@ -32703,11 +32703,15 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
     _sin_sentido: list = []        # los que él dejó sin sentido (por problema)
     _dictado = False               # el sentido del asunto lo dictó él (global)
     # EL GRUPO DE CADA PROBLEMA, de todas las entradas —con sentido o sin él—.
+    # Por la clave recortada del árbol (`clave_problema`): la pantalla manda la
+    # pregunta entera y el reparto global la de la fase 3.
+    import arbol_decision as _ad_k
+    _kp = _ad_k.clave_problema
     _grupos: dict = {}
     try:
         for _c in (json.loads(criterios_json or "[]") or []):
             if isinstance(_c, dict) and str(_c.get("grupo") or "").strip():
-                _grupos[str(_c.get("problema") or "")] = str(_c.get("grupo")).strip()
+                _grupos[_kp(_c.get("problema") or "")] = str(_c.get("grupo")).strip()
     except Exception:
         _grupos = {}
 
@@ -32739,7 +32743,9 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
 
         _sin_sentido = [str(d.get("problema", ""))[:120] for d in _todos
                         if not str(d.get("sentido", "")).strip() and not _de_la_maquina(d)]
-        crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
+        # EL RECORTE ES EL DEL ÁRBOL (`clave_problema`): el mismo con que se
+        # comparan los tocados, las propuestas y la fase 3.
+        crit = [_f6.Criterio(problema=_kp(d.get("problema", "")),
                              sentido=str(d.get("sentido", "")).strip().lower(),
                              razonamiento=str(d.get("razonamiento", "")),
                              jerarquia=str(d.get("jerarquia", "accesorio")),
@@ -32797,7 +32803,7 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"),
-                             grupo=_grupos.get(x["problema"], ""))
+                             grupo=_grupos.get(_kp(x["problema"]), ""))
                 for x in _rep if str(x.get("sentido", "")).strip()]
         # LA RAZÓN QUE ESCRIBIÓ EL SECRETARIO VA SOBRE EL PRINCIPAL: es el
         # problema que decide, y sin ella el estudio se inventaba el porqué.
@@ -32835,7 +32841,7 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"),
-                             grupo=_grupos.get(x["problema"], ""))
+                             grupo=_grupos.get(_kp(x["problema"]), ""))
                 for x in _rep_a if str(x.get("sentido", "")).strip()]
         print(f"   ⚡ TALLER: reparto por jurimetría · {len(crit)} de "
               f"{len(_probs_a)} planteamiento(s) · sin supervisión")
@@ -32934,7 +32940,8 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
             if (_glob or {}).get("alcanza", True):
                 _tarjeta = str((_glob or {}).get("sentido") or "").strip()
         if _tarjeta and crit:
-            _jer_dz = {str((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia") or "")
+            # Por la clave recortada, como todo lo demás (`desenlace` casa igual).
+            _jer_dz = {_kp((p or {}).get("pregunta") or p): str((p or {}).get("jerarquia") or "")
                        for p in (r.fases.problemas or []) if p}
             for _a in _dz.reconciliar(crit, _tarjeta, _jer_dz):
                 print(f"   ⚖️ DESENLACE: {_a[:160]}")
@@ -33337,7 +33344,9 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
     el MISMO formulario— para que el árbol lo aplique.
 
     → {"arm": el criterio (el mismo si no hay nada que aplicar), "estado":
-       "sin_cambios"|"listo"|"en_curso"|"fallo", "clave", "avisos"}
+       "sin_cambios"|"listo"|"en_curso"|"fallo", "clave", "avisos",
+       "motivo": por qué quedaron pendientes («fallo», «tope», «error»,
+       «en_curso») o "", "reintentable": si volver a generar lo reintentaría}
     `al_esperar` se llama una vez si hay que esperar o calcular (el evento
     «recalificando» del gemelo de flujo). Nunca lanza."""
     import recalificar as _rc
@@ -33345,11 +33354,14 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
     k = _rc.clave_de(det)
     if not _rc.pendientes(det):
         return {"arm": arm, "estado": "listo" if _rc.tumbados(det) else "sin_cambios",
-                "clave": k, "avisos": []}
+                "clave": k, "avisos": [], "motivo": "", "reintentable": True}
     huella = arm.get("huella") or _te.huella_contraste(r)
     tope = _rc.TOPE_S if tope_s is None else float(tope_s)
     t0 = time.time()
     salida, avisos, estado = None, [], "fallo"
+    # POR QUÉ PUEDEN QUEDAR PENDIENTES, para decirle al secretario si volver a
+    # generar lo reintenta (los gemelos no generan con pendientes).
+    motivo = "error"
     _avisado = []
 
     def _avisar():
@@ -33379,6 +33391,7 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
                 if not salida:
                     avisos.append("ya se intentó recalificar con esta premisa y no pasó la "
                                   "validación; no se vuelve a intentar")
+                motivo = "fallo"
                 break
             if dec == "en_curso":
                 # LA MISMA PREMISA YA SE ESTÁ RECALIFICANDO (la pantalla la pidió,
@@ -33392,6 +33405,7 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
                 if time.time() - t0 >= tope:
                     avisos.append(f"la recalificación no llegó en {tope:.0f} s")
                     estado = "en_curso"
+                    motivo = "en_curso"
                     break
                 continue
             if dec == "tope":
@@ -33402,6 +33416,7 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
                 # ya lo aplican, y el documento no puede decir otra cosa
                 # (revisión adversarial, 26-sep-2026).
                 salida = _rc.guardadas(_taller_plan_leer(user_email, numero), huella).get(k)
+                motivo = "tope"
                 break
             # «lanzar», o sin base / sin columna / sin fila: se calcula aquí; sin
             # base no hay reutilización, pero sirve a esta petición.
@@ -33413,9 +33428,11 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
             hechas, _ = await asyncio.wait({asyncio.shield(tarea)}, timeout=_resto)
             if hechas:
                 salida = tarea.result()
+                motivo = "fallo" if (salida or {}).get("estado") == "fallo" else "error"
             else:
                 avisos.append(f"la recalificación no llegó en {tope:.0f} s")
                 estado = "en_curso"
+                motivo = "en_curso"
             break
     except Exception as ex:
         print(f"   ⚠️ RECALIFICAR {numero}: {err(ex)}")
@@ -33423,6 +33440,8 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
     if isinstance(salida, dict):
         avisos = list(salida.get("avisos") or []) + avisos
         estado = "listo" if salida.get("estado") == "listo" else "fallo"
+        if salida.get("estado") == "fallo" and motivo not in ("tope",):
+            motivo = "fallo"
     nuevo = arm
     if isinstance(salida, dict) and salida.get("resultados"):
         try:
@@ -33430,19 +33449,47 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
         except Exception as ex:
             print(f"   ⚠️ RECALIFICAR {numero}: no se pudo volver a armar el criterio: {err(ex)}")
             nuevo = arm
-    if _rc.pendientes(nuevo.get("detalle") or {}) and estado == "listo":
+    _pend = _rc.pendientes(nuevo.get("detalle") or {})
+    if _pend and estado == "listo":
         estado = "fallo"
-    return {"arm": nuevo, "estado": estado, "clave": k, "avisos": avisos[:20]}
+    # ¿VOLVER A GENERAR LO REINTENTA? Sí, si la corrida sigue en marcha o
+    # tropezó con el proveedor —un «error» se relanza—, salvo que ya no queden
+    # corridas; no, si esta premisa no pasó la validación (no se recalcula) o se
+    # agotaron las corridas.
+    _reint = motivo in ("en_curso", "error")
+    if _pend and motivo == "error":
+        try:
+            if _rc.agotadas(_taller_plan_leer(user_email, numero), huella):
+                _reint, motivo = False, "tope"
+        except Exception:
+            pass
+    return {"arm": nuevo, "estado": estado, "clave": k, "avisos": avisos[:20],
+            "motivo": motivo if _pend else "", "reintentable": _reint if _pend else True}
 
 
-def _taller_recalificado_al_resolver(r, arm: dict, out: dict, crit: list) -> None:
+def _taller_recalificado_al_resolver(r, arm: dict, out: dict, crit: list) -> str:
     """Lo que el gemelo hace con la recalificación, IGUAL en los dos: el
-    criterio nuevo sustituye EN SITIO al viejo (el flujo lo tiene capturado),
-    los avisos del árbol viejo salen y entran los nuevos, y lo que quedó SIN
-    CALIFICAR se le dice al secretario —en todas las variantes; la v1,
-    congelada, sólo recibe esto—."""
+    criterio nuevo sustituye EN SITIO al viejo (el flujo lo tiene capturado) y
+    los avisos del árbol viejo salen y entran los nuevos. Devuelve "".
+
+    SI QUEDAN PENDIENTES, NO SE GENERA (decisión del integrador, 26-sep-2026):
+    devuelve el mensaje para el secretario —nombra los planteamientos y dice
+    qué hacer— y no toca ni `r` ni el criterio. El gemelo de flujo lo emite como
+    evento «error» y el plano como 409. Antes se generaba con los tumbados SIN
+    CALIFICAR: el cuerpo del estudio les proponía calificación, pero la
+    apertura, el cierre y los resolutivos se calculaban sin ellos (art. 74, fr.
+    VI) y la revisión de congruencia no lo veía. Tampoco se dice ya «SE
+    RECALIFICAN…» junto a «la recalificación no llegó»: no hay proyecto que
+    los lleve."""
     import recalificar as _rc
     nuevo = out.get("arm") or arm
+    pend = _rc.pendientes(nuevo.get("detalle") or {})
+    if pend:
+        _pral = next((c for c in (nuevo.get("crit") or crit)
+                      if str(getattr(c, "jerarquia", "")).lower() == "principal"), None)
+        return _rc.aviso_sin_calificar(pend, getattr(_pral, "sentido", ""),
+                                       reintentable=bool(out.get("reintentable", True)),
+                                       motivo=str(out.get("motivo") or ""))
     if nuevo is not arm:
         crit[:] = list(nuevo.get("crit") or [])
         try:
@@ -33454,14 +33501,31 @@ def _taller_recalificado_al_resolver(r, arm: dict, out: dict, crit: list) -> Non
                     r.fases.avisos.append(_a)
         except Exception:
             pass
-    pend = _rc.pendientes(nuevo.get("detalle") or {})
     try:
         for _a in out.get("avisos") or []:
             r.avisos.append(f"RECALIFICACIÓN: {_a}")
-        if pend:
-            _pral = next((c for c in crit if str(getattr(c, "jerarquia", "")).lower()
-                          == "principal"), None)
-            r.avisos.append(_rc.aviso_sin_calificar(pend, getattr(_pral, "sentido", "")))
+    except Exception:
+        pass
+    return ""
+
+
+def _taller_avisos_foto(r) -> tuple:
+    """Los avisos del adelanto antes de esta petición: el adelanto vive en la
+    memoria del worker y un gemelo que NO genera no puede dejarle los suyos
+    pegados para la vuelta siguiente (un «SE RECALIFICAN…» de una petición
+    cortada saldría en el proyecto de la siguiente)."""
+    try:
+        return list(r.avisos or []), list(r.fases.avisos or [])
+    except Exception:
+        return None
+
+
+def _taller_avisos_restaurar(r, foto) -> None:
+    if not foto:
+        return
+    try:
+        r.avisos[:] = foto[0]
+        r.fases.avisos[:] = foto[1]
     except Exception:
         pass
 
@@ -33470,7 +33534,9 @@ def _taller_criterios_pantalla(arm: dict) -> list:
     """Los criterios como los devuelve /taller/reparto, desde el criterio
     armado: con de/por_que/guarda/relacion y las marcas de recalificación."""
     import arbol_decision as _ad
-    toc = set(arm.get("tocados") or set())
+    # «tocado» por la clave recortada del árbol: el criterio va recortado a 400
+    # y los tocados llegan enteros de la pantalla (revisión adversarial).
+    toc = {_ad.clave_problema(x) for x in (arm.get("tocados") or set())}
     det = arm.get("detalle") or {}
     fuera = []
     for c in arm.get("crit") or []:
@@ -33478,7 +33544,7 @@ def _taller_criterios_pantalla(arm: dict) -> list:
         d = {"problema": t, "sentido": str(getattr(c, "sentido", "") or ""),
              "razonamiento": str(getattr(c, "razonamiento", "") or ""),
              "jerarquia": str(getattr(c, "jerarquia", "") or "accesorio"),
-             "tocado": t in toc, "grupo": str(getattr(c, "grupo", "") or "")}
+             "tocado": _ad.clave_problema(t) in toc, "grupo": str(getattr(c, "grupo", "") or "")}
         fuera.append(_ad._pantalla(d, det.get(t) or {}))
     return fuera
 
@@ -33488,30 +33554,39 @@ def _taller_recalificado_al_pedir(email: str, numero: str, r, ses, glob: dict, f
     """(criterio, falta) para /taller/plan/pedir: la clave del plan lleva el
     criterio YA recalificado, así que con una recalificación pendiente no se
     pide plan (se pediría sobre los tumbados y el resolver no lo usaría). Con
-    la guardada, se aplica; si ya falló, el plan va con los tumbados sin
-    calificar, que es con lo que se generará."""
+    la guardada, se aplica.
+
+    `falta`: "" (se pide el plan) · "en_curso" (se está recalificando: el plan
+    se pide cuando termine) · "sin_calificar" (quedan tumbados que nadie va a
+    calcular —la premisa falló o se agotaron las corridas—: el proyecto no se
+    genera hasta que él los califique, y un plan sobre ellos no lo usaría nadie;
+    26-sep-2026)."""
     import recalificar as _rc
     det = arm.get("detalle") or {}
     if not _rc.pendientes(det):
-        return arm, False
+        return arm, ""
     k = _rc.clave_de(det)
     huella = arm.get("huella") or _te.huella_contraste(r)
     doc = _taller_plan_leer(email, numero)
     casilla = _rc.casilla_de(_rc.guardadas(doc, huella), k, _rc.premisa_de(det),
                              _rc.pendientes(det))
     est = _rc.estado_de(doc, huella, k, time.time())["estado"]
-    # CON LAS CORRIDAS AGOTADAS nadie la va a calcular: el resolver genera con
-    # lo que haya (lo guardado, o los tumbados sin calificar), y el plan se pide
-    # sobre eso mismo; si no, esperaría para siempre (revisión adversarial).
+    # CON LAS CORRIDAS AGOTADAS nadie la va a calcular (revisión adversarial).
     _nadie = _rc.agotadas(doc, huella) and est != "en_curso"
+    nuevo = arm
     if casilla:
         try:
             nuevo = _taller_armar_criterio(r, ses, glob, **form, recalificadas={k: casilla})
         except Exception:
             nuevo = arm
-        return nuevo, bool(_rc.pendientes(nuevo.get("detalle") or {})
-                           and casilla.get("estado") not in ("listo", "fallo") and not _nadie)
-    return arm, est != "fallo" and not _nadie
+        if not _rc.pendientes(nuevo.get("detalle") or {}):
+            return nuevo, ""
+        if casilla.get("estado") in ("listo", "fallo") or _nadie:
+            return nuevo, "sin_calificar"
+        return nuevo, "en_curso"
+    if est == "fallo" or _nadie:
+        return arm, "sin_calificar"
+    return arm, "en_curso"
 
 
 def _taller_plan_adelantar(email: str) -> bool:
@@ -36510,6 +36585,11 @@ async def taller_plan_pedir(
     # una recalificación pendiente, el plan se pide cuando termine.
     arm, _falta_rc = _taller_recalificado_al_pedir(user_email, numero, r, ses, _glob,
                                                    _form_pp, arm)
+    if _falta_rc == "sin_calificar":
+        return {"estado": "sin_plan", "clave": "",
+                "avisos": ["hay accesorios sin calificar tras tu cambio de sentido y la "
+                           "recalificación no llegó: califícalos tú; el proyecto no se genera sin "
+                           "ellos y el plan se pide cuando los califiques"]}
     if _falta_rc:
         return {"estado": "sin_plan", "clave": "",
                 "avisos": ["hay accesorios recalificándose con tu premisa; el plan se pide "
@@ -36577,10 +36657,22 @@ async def taller_recalificar(
         user_email, numero, r, ses, _glob, _form_rc, arm,
         contexto=_con_autos(r, contexto), suplencia=_sp_rc.leer(suplencia))
     a2 = out["arm"]
+    _av_rc = list(a2.get("avisos_modo") or []) + list(a2.get("avisos_fases") or [])
+    # SI QUEDAN PENDIENTES Y NADIE LOS ESTÁ CALCULANDO, «SE RECALIFICAN CON TU
+    # PREMISA…» es falso: se dice lo que pasa y qué hacer, lo mismo que dirán
+    # los gemelos al negarse a generar (26-sep-2026).
+    import recalificar as _rc_e
+    _pend_e = _rc_e.pendientes(a2.get("detalle") or {})
+    if _pend_e and out["estado"] != "en_curso":
+        _av_rc = [a for a in _av_rc if not str(a).startswith("SE RECALIFICAN CON TU PREMISA")]
+        _pral_e = next((c for c in (a2.get("crit") or [])
+                        if str(getattr(c, "jerarquia", "")).lower() == "principal"), None)
+        _av_rc.append(_rc_e.aviso_sin_calificar(
+            _pend_e, getattr(_pral_e, "sentido", ""),
+            reintentable=bool(out.get("reintentable", True)), motivo=str(out.get("motivo") or "")))
     return {"estado": out["estado"], "clave": out["clave"],
             "criterios": _taller_criterios_pantalla(a2),
-            "avisos": list(a2.get("avisos_modo") or []) + list(a2.get("avisos_fases") or [])
-                      + list(out.get("avisos") or [])}
+            "avisos": _av_rc + list(out.get("avisos") or [])}
 
 
 @app.post("/taller/resolver/stream")
@@ -36691,6 +36783,9 @@ async def taller_resolver_stream(
     import fase6_estudio as _f6
     import redactor_adelanto as _ra
     r = ses["resultado"]
+    # Si esta petición acaba sin generar (accesorios SIN CALIFICAR), sus avisos
+    # no se quedan en el adelanto para la vuelta siguiente.
+    _avisos_antes = _taller_avisos_foto(r)
     # EL DATO SE PONE EN EL ENCARGO, que es lo que llega hasta la composición.
     # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
     # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
@@ -36814,7 +36909,18 @@ async def taller_resolver_stream(
                 contexto=_con_autos(r, contexto),
                 suplencia=getattr(getattr(r, "encargo", None), "suplencia", None),
                 al_esperar=_al_recalificar)
-            _taller_recalificado_al_resolver(r, _arm, _rc_out, crit)
+            # CON ACCESORIOS SIN CALIFICAR NO SE GENERA (decisión del
+            # integrador, 26-sep-2026): el mismo mensaje que el 409 del gemelo
+            # plano, antes del plan, del estudio, del registro de uso y del
+            # cobro. Nada se cobra: no hubo proyecto.
+            _sin_calif = _taller_recalificado_al_resolver(r, _arm, _rc_out, crit)
+            if _sin_calif:
+                _taller_avisos_restaurar(r, _avisos_antes)
+                # HIGIENE DE REGISTROS: sólo el motivo, sin los planteamientos.
+                print(f"   ⛔ TALLER en vivo {numero}: accesorios sin calificar tras la "
+                      f"recalificación ({_rc_out.get('motivo') or '?'}); no se genera")
+                _cola.put_nowait({"tipo": "error", "mensaje": _sin_calif})
+                return
             # EL PLAN DEL ESTUDIO (v4), DENTRO DE LA TAREA y nunca antes de las
             # cabeceras: la pasarela corta a los ~280 s y el plan puede tardar
             # hasta 120. Mientras, la pantalla ve «ordenando». Fuera de la v4
@@ -37188,6 +37294,9 @@ async def taller_resolver(
     import redactor_adelanto as _ra
 
     r = ses["resultado"]
+    # Si esta petición acaba sin generar (accesorios SIN CALIFICAR), sus avisos
+    # no se quedan en el adelanto para la vuelta siguiente.
+    _avisos_antes = _taller_avisos_foto(r)
     # EL DATO SE PONE EN EL ENCARGO, que es lo que llega hasta la composición.
     # Manda lo que devuelva el cliente; si no lo mandó, se mira el global que
     # esta sesión guardó al proponer, por si cayó en el mismo worker —es gratis
@@ -37283,7 +37392,16 @@ async def taller_resolver(
         user_email, numero, r, ses, _glob, _form_crit, _arm,
         contexto=_con_autos(r, contexto),
         suplencia=getattr(getattr(r, "encargo", None), "suplencia", None))
-    _taller_recalificado_al_resolver(r, _arm, _rc_out, crit)
+    # CON ACCESORIOS SIN CALIFICAR NO SE GENERA: 409 con el mismo mensaje que
+    # el evento «error» del gemelo de flujo, antes del plan, del estudio, del
+    # registro de uso y del cobro (decisión del integrador, 26-sep-2026).
+    _sin_calif = _taller_recalificado_al_resolver(r, _arm, _rc_out, crit)
+    if _sin_calif:
+        _taller_avisos_restaurar(r, _avisos_antes)
+        # HIGIENE DE REGISTROS: sólo el motivo, sin los planteamientos.
+        print(f"   ⛔ TALLER {numero}: accesorios sin calificar tras la recalificación "
+              f"({_rc_out.get('motivo') or '?'}); no se genera")
+        raise HTTPException(409, _sin_calif)
     # EL PLAN DEL ESTUDIO (v4), igual que en el gemelo de flujo pero sin
     # evento: este camino no emite nada hasta el final.
     await _taller_plan_para(user_email, numero, r, ses, crit,

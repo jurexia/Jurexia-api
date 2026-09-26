@@ -86,11 +86,21 @@ def reconciliar(items: list, sentido_global: str, jerarquias: dict = None) -> li
     va = prospera_la_tarjeta(sentido_global)
     if va is None or not items:
         return []
-    jer = jerarquias or {}
+    # POR LA CLAVE RECORTADA DEL ÁRBOL (`arbol_decision.clave_problema`): el
+    # criterio armado recorta el problema a 400 caracteres y la fase 3 lo trae
+    # entero; comparados tal cual, un principal largo no se reconocía.
+    try:
+        from arbol_decision import clave_problema as _kp
+    except Exception:                                   # pragma: no cover
+        def _kp(t):
+            return str(t or "")[:400]
+    jer = {}
+    for _t, _j in (jerarquias or {}).items():
+        jer.setdefault(_kp(_t), _j)
     avisos = []
 
     def _es_principal(x, i):
-        j = str(_get(x, "jerarquia", "") or jer.get(str(_get(x, "problema", "")), "")).lower()
+        j = str(_get(x, "jerarquia", "") or jer.get(_kp(_get(x, "problema", "")), "")).lower()
         return j == "principal" if j else i == 0
 
     if va is False:

@@ -92,6 +92,21 @@ INOPERANTE = "inoperante"
 # recortado se casa con su problema de la fase 3 por esos primeros caracteres.
 CORTE_PROBLEMA = 400
 
+
+def clave_problema(t) -> str:
+    """LA CLAVE CON QUE SE COMPARA UN PROBLEMA CON OTRO, en todas las puertas
+    (revisión adversarial de la integración, 26-sep-2026). El criterio armado
+    (`main._taller_armar_criterio`) recorta el problema a `CORTE_PROBLEMA`;
+    /taller/reparto, las propuestas guardadas, los tocados y la fase 3 lo traen
+    entero. Comparar el entero con el recortado fallaba en silencio con los
+    planteamientos largos —16 de 157 sesiones reales tienen alguno—: el accesorio
+    que el secretario marcó a mano dejaba de ser suyo y el motor lo recalificaba,
+    y el principal largo perdía su propuesta y su «alcanza». Por eso TODA
+    comparación de problemas pasa por aquí: el árbol, la recalificación, la
+    pantalla de /taller/recalificar y el desenlace. Un solo sitio, un solo
+    corte."""
+    return str(t or "")[:CORTE_PROBLEMA]
+
 # Lo que un accesorio pide y que NO se declara innecesario aunque el principal
 # prospere: da más de lo concedido. Es la misma lista de modos_decision, que
 # sigue siendo su dueño; se lee de ahí para que no haya dos.
@@ -461,34 +476,36 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     detalle: dict = {}
     if not criterios:
         return avisos, detalle
-    _tocados = set(tocados or [])
+    # TODA COMPARACIÓN DE PROBLEMAS, POR LA MISMA CLAVE RECORTADA
+    # (`clave_problema`). El criterio armado recorta el problema a 400
+    # caracteres (`main._taller_armar_criterio`) y /taller/reparto, las
+    # propuestas guardadas, los tocados y la fase 3 no. Antes sólo `por_texto`
+    # casaba por el recorte (81fe4a0): el accesorio largo que el secretario
+    # marcó no era «suyo» en los gemelos —se tumbaba y lo recalificaba el
+    # motor, la máquina cambiando su sentido—, y el principal largo perdía su
+    # propuesta (`_pr_p`, `_motor_de`) y su «alcanza» (revisión adversarial de
+    # la integración, 26-sep-2026). Las claves de `detalle` siguen siendo el
+    # texto de cada criterio tal como llegó: cada puerta lee el suyo.
+    _kp = clave_problema
+    _tocados = {_kp(t) for t in (tocados or [])}
     for c in criterios:
         if _get(c, "tocado", False):
-            _tocados.add(str(_get(c, "problema", "")))
+            _tocados.add(_kp(_get(c, "problema", "")))
 
     textos = [_texto(p) for p in (problemas or [])]
-    por_texto = {t: (i + 1, p) for i, (t, p) in enumerate(zip(textos, problemas or []))}
-    # EL CRITERIO ARMADO RECORTA EL PROBLEMA A 400 CARACTERES
-    # (`main._taller_armar_criterio`) y /taller/reparto no (revisión
-    # adversarial del cambio de sentido, 26-sep-2026). Sin esto, en los
-    # gemelos un planteamiento largo no casaba con su problema de la fase 3:
-    # perdía su `depende_de`, su clase y lo que combate, y el árbol lo
-    # estudiaba «por su cuenta» con la calificación de la otra vía mientras la
-    # pantalla lo enseñaba tumbado —otra clave, otra suerte—.
-    for _t_largo, _v_largo in list(por_texto.items()):
-        if len(_t_largo) > CORTE_PROBLEMA:
-            por_texto.setdefault(_t_largo[:CORTE_PROBLEMA], _v_largo)
+    por_texto: dict = {}
+    for _i, (_t3, _p3) in enumerate(zip(textos, problemas or [])):
+        por_texto.setdefault(_kp(_t3), (_i + 1, _p3))
 
     principal = next((c for c in criterios
                       if str(_get(c, "jerarquia", "")).lower() == "principal"), None)
     if principal is None:
         # Sin marca de jerarquía, el primero de la fase 3 es el principal.
         principal = next((c for c in criterios
-                          if textos and str(_get(c, "problema", "")) in
-                          (textos[0], textos[0][:CORTE_PROBLEMA])),
+                          if textos and _kp(_get(c, "problema", "")) == _kp(textos[0])),
                          criterios[0])
     p_txt = str(_get(principal, "problema", ""))
-    p_num = por_texto.get(p_txt, (1, None))[0]
+    p_num = por_texto.get(_kp(p_txt), (1, None))[0]
     p_sent = str(_get(principal, "sentido", "")).strip().lower()
     if not p_sent:
         return avisos, detalle
@@ -499,7 +516,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # sin materia lo que pide el fondo. La propuesta lo dice cuando lo sabe.
     alcanza = True
     for pr in (propuestas or []):
-        if str(_get(pr, "problema", "")) == p_txt and _get(pr, "alcanza", True) is False:
+        if _kp(_get(pr, "problema", "")) == _kp(p_txt) and _get(pr, "alcanza", True) is False:
             alcanza = False
     if pros and not alcanza:
         avisos.append(
@@ -519,12 +536,12 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # combate, con la misma función que usa el resto del taller.
     _m = _vp()
     guarda = bool(_m and _m.guarda_aplica(tipo_asunto))
-    _p_ref = por_texto.get(p_txt, (0, None))[1] or p_txt
+    _p_ref = por_texto.get(_kp(p_txt), (0, None))[1] or p_txt
 
     def _procesal(txt: str, pd) -> bool:
         return guarda and _m.clase_de(pd if pd is not None else txt) == "procesal"
 
-    p_proc = _procesal(p_txt, por_texto.get(p_txt, (0, None))[1])
+    p_proc = _procesal(p_txt, por_texto.get(_kp(p_txt), (0, None))[1])
     # LA ÚNICA PUERTA PARA NO DECIDIR UNA PROCESAL: el principal es de fondo y
     # prospera entero. Si la concesión es para efectos que dan menos que
     # reponer, eso no lo sabe el código: lo sabe el secretario, y se le avisa.
@@ -550,7 +567,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 return _s, _r
         return "", ""
 
-    _motor_de = {str(_get(pr, "problema", "")): _propia(pr) for pr in (propuestas or [])}
+    _motor_de = {_kp(_get(pr, "problema", "")): _propia(pr) for pr in (propuestas or [])}
     por_189: list = []
 
     # ¿El principal va por la MISMA vía que propuso el motor? Entonces lo que el
@@ -564,12 +581,12 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # vía calificó los demás. Sólo lo usa la regla de la caída; la guarda
     # procesal sigue con `_misma_via`, como estaba.
     _pr_p = next((pr for pr in (propuestas or [])
-                  if str(_get(pr, "problema", "")) == p_txt), None) or {}
+                  if _kp(_get(pr, "problema", "")) == _kp(p_txt)), None) or {}
     _s_mot_p = (str(_get(_pr_p, "sentido_propio", "") or "")
                 or str(_get(_pr_p, "sentido", "") or ""))
     _via_motor = (_prospera(_s_mot_p) == pros) if _decide(_s_mot_p) else _misma_via
     _via_conocida = _decide(_s_mot_p) or bool(sentido_motor)
-    _p_ref_f3 = por_texto.get(p_txt, (0, None))[1] or p_txt
+    _p_ref_f3 = por_texto.get(_kp(p_txt), (0, None))[1] or p_txt
     estudiados: list = []          # relacionados con el principal que NO caen
 
     # ═══ EL CAMBIO DE SENTIDO: QUIÉN SE RECALIFICA (26-sep-2026) ═══════════
@@ -598,7 +615,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # sentido coherente con ella (la razón es suya, el sentido lo pide él).
     _razon_suya = {str(_get(c, "problema", "")): str(_get(c, "razonamiento", "") or "")
                    for c in criterios
-                   if c is not principal and str(_get(c, "problema", "")) not in _tocados
+                   if c is not principal and _kp(_get(c, "problema", "")) not in _tocados
                    and not str(_get(c, "sentido", "") or "").strip()
                    and str(_get(c, "razonamiento", "") or "").strip()}
 
@@ -614,9 +631,9 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             if c is principal or str(_get(c, "jerarquia", "")).lower() == "principal":
                 continue
             _t0 = str(_get(c, "problema", ""))
-            if _t0 in _tocados or str(_get(c, "sentido", "") or "").strip():
+            if _kp(_t0) in _tocados or str(_get(c, "sentido", "") or "").strip():
                 continue
-            _s0, _r0 = _motor_de.get(_t0, ("", ""))
+            _s0, _r0 = _motor_de.get(_kp(_t0), ("", ""))
             if _s0:
                 _set(c, "sentido", _s0)
                 if not str(_get(c, "razonamiento", "") or "").strip():
@@ -638,7 +655,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         ella—."""
         s_act = str(_get(c, "sentido", "")).strip().lower().replace(" ", "_")
         _cae = _cae_con_principal(c)
-        s_mot, r_mot = _motor_de.get(t, ("", ""))
+        s_mot, r_mot = _motor_de.get(_kp(t), ("", ""))
         _otra = bool(_misma_via and s_mot and _decide(s_act) and s_act != s_mot)
         if _decide(s_act) and not _cae and not _otra:
             return s_act
@@ -685,10 +702,10 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         t = str(_get(c, "problema", ""))
         if str(_get(c, "jerarquia", "")).lower() == "principal":
             continue
-        num, pdict = por_texto.get(t, (0, None))
+        num, pdict = por_texto.get(_kp(t), (0, None))
         entrada = entrada_de(checklist, num, t)
         rel = relacion_de(pdict, p_num, entrada)
-        suyo = t in _tocados
+        suyo = _kp(t) in _tocados
         proc = _procesal(t, pdict)
 
         if suyo:
@@ -722,7 +739,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         if rel == "distinto" and not _s_via:
             if not proc and _cae_con_principal(c):
                 # Un resto de otra pasada: el tema distinto no cae con nadie.
-                _calificacion_propia(c, "", "", _via_motor, _motor_de.get(t, ("", "")))
+                _calificacion_propia(c, "", "", _via_motor, _motor_de.get(_kp(t), ("", "")))
             detalle[t] = {"de": "distinto", "por_que": "tema distinto: no cuelga del principal y se estudia aparte"}
             siguen += 1
             continue
@@ -794,7 +811,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 if not proc and _cae_con_principal(c):
                     # Llegó caída de un reparto con el principal en la otra
                     # vía; con éste prosperando, esa razón ya no sostiene nada.
-                    _calificacion_propia(c, "", "", _via_motor, _motor_de.get(t, ("", "")))
+                    _calificacion_propia(c, "", "", _via_motor, _motor_de.get(_kp(t), ("", "")))
                 detalle[t] = {"de": "propio", "por_que": "no consta que dependa del principal: se estudia por su cuenta"}
                 if _recal_ok(t):
                     # No queda sin materia y lo que trae se escribió con el
@@ -891,7 +908,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 # RELACIONADO CON EL PRINCIPAL, PERO SU CAUSA DE PEDIR ES SUYA
                 # (o no consta que no lo sea): se estudia con su calificación.
                 _k, _de, _org = _calificacion_propia(c, s_escrita, razon, _via_motor,
-                                                     _motor_de.get(t, ("", "")))
+                                                     _motor_de.get(_kp(t), ("", "")))
                 detalle[t] = {"de": _de, "relacion": ("mixta" if ev["motivo"] == "causa_propia"
                                                        else "autonoma"),
                               "motivo": ev["motivo"], "origen": _org,
@@ -921,7 +938,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             if c is principal or str(_get(c, "jerarquia", "")).lower() == "principal":
                 continue
             t = str(_get(c, "problema", ""))
-            if t in _tocados or not _procesal(t, por_texto.get(t, (0, None))[1]):
+            if _kp(t) in _tocados or not _procesal(t, por_texto.get(_kp(t), (0, None))[1]):
                 continue
             s_act = str(_get(c, "sentido", "")).strip().lower()
             _cae = _cae_con_principal(c)
@@ -966,7 +983,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # con la MISMA clave —el mismo principal, el mismo sentido, la misma razón
     # del secretario, los mismos tumbados, el mismo adelanto—, se aplica.
     _recal = [str(_get(c, "problema", "")) for c in criterios
-              if str(_get(c, "problema", "")) in _cand and str(_get(c, "problema", "")) not in _tocados]
+              if str(_get(c, "problema", "")) in _cand and _kp(_get(c, "problema", "")) not in _tocados]
     if _recal:
         _rc = _recalificar_mod()
         if _rc is not None:
@@ -1006,9 +1023,9 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             str(_get(c, "problema", "")) for c in criterios
             if c is not principal
             and str(_get(c, "jerarquia", "")).lower() != "principal"
-            and str(_get(c, "problema", "")) not in _tocados
+            and _kp(_get(c, "problema", "")) not in _tocados
             and not _procesal(str(_get(c, "problema", "")),
-                              por_texto.get(str(_get(c, "problema", "")), (0, None))[1])
+                              por_texto.get(_kp(_get(c, "problema", "")), (0, None))[1])
             and (detalle.get(str(_get(c, "problema", ""))) or {}).get("de") in ("propio", "distinto",
                                                                                 "recalificada")
             and _decide(str(_get(c, "sentido", "")))]
@@ -1058,7 +1075,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             # para éste.
             _de_otra = _org == "motor_otra_via" or (
                 _org == "actual" and _via_conocida and not _via_motor
-                and _k and _k == _motor_de.get(_t, ("", ""))[0])
+                and _k and _k == _motor_de.get(_kp(_t), ("", ""))[0])
             if _de_otra and _via_conocida:
                 _nota += (" —calificación escrita con el principal en la otra vía: revisa que "
                           "siga siendo la tuya—")
@@ -1111,7 +1128,7 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         _por_acc = [str(_get(c, "problema", "")) for c in criterios
                     if c is not principal
                     and str(_get(c, "jerarquia", "")).lower() != "principal"
-                    and str(_get(c, "problema", "")) not in _tocados
+                    and _kp(_get(c, "problema", "")) not in _tocados
                     and _prospera(str(_get(c, "sentido", "")))]
         _por_acc = [t for t in _por_acc if f"«{t[:80]}»" not in _dicho]
         if _por_acc:
@@ -1158,6 +1175,9 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
                            huella_adelanto, tipo_asunto)
     casilla = _rc.casilla_de(recalificadas, k, kp, recal)
     res = dict((casilla or {}).get("resultados") or {})
+    _res_k: dict = {}
+    for _x, _v in res.items():
+        _res_k.setdefault(clave_problema(_x), _v)
     por_c = {str(_get(c, "problema", "")): c for c in criterios}
     aplicadas, faltan = [], []
     for t in recal:
@@ -1174,9 +1194,10 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
         _set(c, "sentido", "")
         _set(c, "razonamiento", _suya)
         # Lo guardado lleva el problema como lo armó el criterio (recortado a
-        # 400); /taller/reparto lo trae entero.
+        # 400); /taller/reparto lo trae entero: se casa por `clave_problema`.
         rt = res.get(t) if isinstance(res.get(t), dict) else (
-            res.get(t[:CORTE_PROBLEMA]) if isinstance(res.get(t[:CORTE_PROBLEMA]), dict) else None)
+            _res_k.get(clave_problema(t)) if isinstance(_res_k.get(clave_problema(t)), dict)
+            else None)
         s_rt = _sentido_valido((rt or {}).get("sentido"))
         r_rt = str((rt or {}).get("razon") or "").strip()
         if rt and s_rt and r_rt:
