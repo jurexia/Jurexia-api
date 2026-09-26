@@ -357,15 +357,19 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         _cae = _cae_con_principal(c)
         if _decide(s_act) and not _cae:
             return s_act
-        # La razón que traía sostenía NO decidirla —sin materia, innecesaria,
-        # caída con el principal—: no se deja pegada a una calificación. El
-        # estudio (fase6) reconoce la caída por su arranque y la escribiría
-        # como tal.
-        _set(c, "razonamiento", "")
+        # La razón de «queda sin materia», de «innecesario» (también la del
+        # 189) o de «descansa en la premisa desestimada» sostenía NO decidirla:
+        # no se deja pegada a una calificación. El estudio (fase6) reconoce la
+        # caída por su arranque y la escribiría como tal. Otra razón —la que
+        # el secretario tecleó antes de elegir sentido— no se toca.
+        _raz = str(_get(c, "razonamiento", "") or "")
+        if _cae or "sin materia" in _raz.lower() or "innecesari" in _raz.lower():
+            _set(c, "razonamiento", "")
+            _raz = ""
         s_mot, r_mot = _motor_de.get(t, ("", ""))
         if s_mot:
             _set(c, "sentido", s_mot)
-            if r_mot:
+            if r_mot and not _raz.strip():
                 _set(c, "razonamiento", r_mot)
             return s_mot
         return s_act
@@ -571,16 +575,8 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             avisos.append(_aviso_procesal(t, _k, cae_con=False))
 
     if por_189:
-        avisos.append(
-            f"VIOLACIÓN(ES) PROCESAL(ES) INNECESARIA(S) POR MAYOR BENEFICIO "
-            f"(artículo 189 de la Ley de Amparo): "
-            + " · ".join(f"«{x[:80]}»" for x in por_189[:4])
-            + f". El principal es de fondo y resulta {p_sent.replace('_', ' ')}, y se "
-              f"entiende que esa concesión da a la parte quejosa más que reponer el "
-              f"procedimiento. Los artículos 74, fracción V, y 174 mandan decidir "
-              f"todas las procesales y ésta es la única excepción: si la concesión "
-              f"de fondo no da más que la reposición —por ejemplo, porque es para "
-              f"efectos—, márcala tú y se estudia.")
+        # El mismo texto que el reparto global, que corre antes en esa vía.
+        avisos.append(_m.aviso_mayor_beneficio(por_189, p_sent))
     # EL FONDO, CON LA REPOSICIÓN. Si lo que prospera es una procesal, la
     # sentencia reclamada se deja insubsistente y el fondo queda sin materia;
     # el árbol lo aplica a lo que depende del principal, pero no inventa

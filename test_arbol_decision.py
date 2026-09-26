@@ -369,6 +369,14 @@ ok(r["criterios"][1]["sentido"] == "infundado"
    f"{r['criterios'][1]['sentido']}")
 ok(not any("ESTÁ SIN CALIFICAR" in a for a in r["avisos"]), "y no queda sin calificar")
 ok(r["criterios"][1]["guarda"] == "procesal", "la pantalla recibe también por qué se estudia (`guarda`)")
+# Lo que el secretario tecleó antes de elegir sentido no se borra al devolverle
+# la calificación del motor.
+pant = [dict(crit[0], sentido="infundado", tocado=True),
+        dict(crit[1], sentido="", razonamiento="la actora sí ofreció la pericial en tiempo")]
+r = ad.reparto_para_pantalla(pp, pant, [], para_arbol)
+ok(r["criterios"][1]["sentido"] == "infundado"
+   and r["criterios"][1]["razonamiento"] == "la actora sí ofreció la pericial en tiempo",
+   "la razón que tecleó el secretario se conserva")
 # Una propuesta guardada ANTES de hoy puede traer la caída que el árbol le
 # escribió: eso no se devuelve como si fuera una calificación.
 cc = [cr(VP1, "infundado", "principal", tocado=True), cr(VP2, "innecesario")]
@@ -397,6 +405,14 @@ ok(cc[1]["sentido"] == "innecesario" and "189" in cc[1]["razonamiento"],
 import violacion_procesal as _vp_t
 ok("única razón" not in _vp_t.RAZON_MAYOR_BENEFICIO and "74" not in _vp_t.RAZON_MAYOR_BENEFICIO,
    "la razón del 189 es prosa de sentencia: la lección para el secretario va en el aviso")
+# En modo global corren el reparto y el árbol seguidos: cada uno escribía su
+# aviso del 189 con otras palabras y el secretario leía dos.
+for _pp in (probs(PF, PV1), probs(PF, PV1, dep=None), probs(PF, PV1, PV2)):
+    fu, avm = md.repartir(_pp, md.GLOBAL, "fundado", [], {}, global_dictado=True)
+    av2, _ = ad.aplicar(_pp, [dict(x) for x in fu], [], [])
+    _t = {a for a in avm + av2 if "POR MAYOR BENEFICIO" in a}
+    ok(len(_t) == 1, f"modo global: un solo aviso del 189, no {len(_t)} "
+                     f"({len(_pp) - 1} procesal(es), depende_de={_pp[1].get('depende_de')})")
 
 print("\n21 · main GUARDA, REPONE Y PASA LO QUE EL MOTOR PROPUSO (gemelos iguales)")
 i_prop = src.find("LA SUERTE DE LOS ACCESORIOS, YA EN LA PROPUESTA")

@@ -366,12 +366,7 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             f"resultar {principal['sentido']} el principal, su estudio se "
             f"vuelve innecesario. El proyecto lo DICE, no lo calla.")
     if _por_189:
-        avisos.append(
-            "VIOLACIÓN(ES) PROCESAL(ES) INNECESARIA(S) POR MAYOR BENEFICIO "
-            "(artículo 189 de la Ley de Amparo): "
-            + " · ".join(f"«{x[:80]}»" for x in _por_189[:4])
-            + f". El principal es de fondo y resulta {principal['sentido']}; se "
-              f"entiende que esa concesión da más que reponer el procedimiento. "
-              f"Si no es así —por ejemplo, porque es para efectos—, decide la "
-              f"violación procesal problema por problema.")
+        # El mismo texto que el árbol, que corre después sobre lo mismo: con
+        # dos redacciones el secretario leía dos avisos (revisión 26-sep-2026).
+        avisos.append(_vpm.aviso_mayor_beneficio(_por_189, principal["sentido"]))
     return fuera, avisos

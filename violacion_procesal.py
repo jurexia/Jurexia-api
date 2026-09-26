@@ -258,6 +258,26 @@ def aviso_se_decide(problema: str, sentido: str, principal_procesal: bool) -> st
             f"mandan decidir todas las procesales, {_por}. {_cal}")
 
 
+def aviso_mayor_beneficio(problemas: list, sentido_principal: str) -> str:
+    """El aviso de la ÚNICA excepción: procesales innecesarias por el 189.
+
+    UNO SOLO para el reparto global y para el árbol, por la misma razón que
+    `aviso_se_decide`: en modo global corren seguidos y cada uno escribía el
+    suyo con otras palabras, así que el secretario leía dos avisos de lo mismo
+    (revisión del 26-sep-2026). La salida vale para las dos vías: en la global
+    no hay pastillas por tema, y por eso dice dónde marcarla."""
+    s = str(sentido_principal or "").strip().lower().replace("_", " ")
+    return ("VIOLACIÓN(ES) PROCESAL(ES) INNECESARIA(S) POR MAYOR BENEFICIO "
+            "(artículo 189 de la Ley de Amparo): "
+            + " · ".join(f"«{str(x)[:80]}»" for x in list(problemas or [])[:4])
+            + f". El principal es de fondo y resulta {s}, y se entiende que esa "
+              f"concesión da a la parte quejosa más que reponer el procedimiento. "
+              f"Los artículos 74, fracción V, y 174 mandan decidir todas las "
+              f"procesales y ésta es la única excepción: si la concesión de fondo "
+              f"no da más que la reposición —por ejemplo, porque es para efectos—, "
+              f"márcala tú, en la vía por problema, y se estudia.")
+
+
 def concesion_de_fondo_con_mayor_beneficio(principal, sentido: str,
                                            alcanza: bool = True) -> bool:
     """¿El principal es de FONDO y prospera ENTERO, de modo que la concesión
