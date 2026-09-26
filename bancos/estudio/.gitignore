@@ -1,0 +1,5 @@
+# Las corridas del banco llevan el proyecto entero —nombres, expedientes,
+# cifras— y los .docx. No van al repositorio (otra sesión con «git add -A»
+# se los llevaría). Sólo este archivo se versiona.
+*
+!.gitignore
