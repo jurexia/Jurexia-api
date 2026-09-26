@@ -871,6 +871,9 @@ def apartados(solucion: str) -> list:
             if not _RX_NO_CALIF.search(cuerpo[max(0, mm.start() - 25):mm.end() + 25]):
                 m = mm
                 break
+        # EL RESULTADO DEL APARTADO: su primera calificación, por familia. Lo
+        # necesita la Decisión 3 (b) —el cierre sólo con resultados distintos—.
+        a["resultado"] = familia_calificacion(m.group(0)) if m else None
         n_hasta = palabras(cuerpo[:m.end()]) if m else None
         if n_hasta is None or n_hasta > TOPE_APERTURA:
             if a["tipo"] == "pregunta" and a["i"] + 1 < len(ps):
@@ -880,6 +883,34 @@ def apartados(solucion: str) -> list:
         a["apertura"] = n_hasta
         a["texto"] = "\n".join(ps[a["i"]:fin])
     return fuera
+
+
+_FAMILIAS_CALIF = (("infundad", "infundado"), ("fundad", "fundado"),
+                   ("inoperant", "inoperante"), ("ineficac", "ineficaz"),
+                   ("ineficaz", "ineficaz"), ("inatendibl", "inatendible"),
+                   ("innecesari", "innecesario"), ("sin materia", "innecesario"),
+                   ("insuficient", "insuficiente"), ("desestim", "desestimado"))
+
+
+def familia_calificacion(palabra: str):
+    """«infundados» → «infundado»; «sin materia» → «innecesario»."""
+    t = re.sub(r"\s+", " ", plano(palabra or ""))
+    return next((f for raiz, f in _FAMILIAS_CALIF if t.startswith(raiz)), None)
+
+
+def resultados_distintos(aps: list):
+    """¿Los apartados llegan a resultados distintos? (Decisión 3 b)
+
+    True si hay al menos dos familias de calificación entre los apartados, o
+    si alguno no deja leer la suya: ante la duda no se acusa —el ADA 400/2024
+    abre dos de sus tres apartados sin calificar en las primeras líneas, y es
+    un engrose bueno—. False sólo cuando TODOS dicen lo mismo."""
+    if not aps:
+        return None
+    res = [a.get("resultado") for a in aps]
+    if any(r is None for r in res):
+        return True
+    return len(set(res)) >= 2
 
 
 def calificaciones_por_concepto(solucion: str) -> dict:
@@ -1091,6 +1122,7 @@ def medir(texto: str, escrito: str = None, n: int = None) -> dict:
         "objeciones_x1000": x1000(len(_RX_OBJECION.findall(sol))),
         "recapitulaciones": len(_RX_RECAPITULA.findall(sol)),
         "recapitulacion_final": int(bool(_RX_RECAPITULA.search(cola))),
+        "resultados_distintos": resultados_distintos(aps),
         "metodo_molde": len(_RX_METODO.findall(sol)),
         "ordenes_fuera_efectos": len(_RX_ORDEN_RESPONSABLE.findall(sol)),
         "remisiones": rem["remisiones"],
@@ -1108,6 +1140,7 @@ def medir(texto: str, escrito: str = None, n: int = None) -> dict:
         "cobertura_demanda": round(len(cubiertas) / len(a_esc), 3) if a_esc else None,
         "detalle": {
             "aperturas": aperturas,
+            "resultados_por_apartado": [a.get("resultado") for a in aps],
             "ordinales_por_apartado": [sorted(a["ordinales"]) for a in aps],
             "calificaciones_por_concepto": calif,
             "citas_repetidas": cit["lista_repetidas"],
@@ -1149,10 +1182,16 @@ METRICAS = [
     ("objeciones_x1000", "Marcadores de objeción por 1000 palabras", "menos", None, None),
     # Decisión 3 (b) de David, 26-sep-2026: «sin cierre por defecto; un cierre
     # breve sólo cuando hay tres o más apartados con resultados distintos».
-    # Con tres apartados o más el cierre está permitido y no acusa.
+    # LAS DOS CONDICIONES, no sólo la cuenta (revisión, 26-sep-2026): tres
+    # apartados que concluyen todos «infundado» no justifican el cierre. Con el
+    # resultado ilegible no se acusa (ver `resultados_distintos`). Calibrado: el
+    # oro sigue acusado en 1 de 24 (ADC 529/2024, un solo apartado); el ADA
+    # 103/2025 cierra con infundado/inoperante/ineficaz y no se acusa. «Breve»
+    # no se mide: no hay número que lo defina.
     ("recapitulacion_final", "Recapitulación al final", "menos",
-     "presente con < 3 apartados (Decisión 3 b)",
-     lambda v, f: bool(v) and (f.get("apartados") or 0) < 3),
+     "presente sin 3+ apartados de resultado distinto (Decisión 3 b)",
+     lambda v, f: bool(v) and not ((f.get("apartados") or 0) >= 3
+                                   and f.get("resultados_distintos"))),
     ("metodo_molde", "Molde «Por cuestión de método»", "menos",
      "> 0 (C8)", lambda v, f: bool(v)),
     ("ordenes_fuera_efectos", "Órdenes a la responsable fuera de Efectos", "menos",

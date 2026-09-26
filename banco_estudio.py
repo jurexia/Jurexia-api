@@ -33,12 +33,18 @@ LAS REGLAS, cada una con su porqué:
     descartó, sí.
   · 900 s DE TOPE por corrida: el estudio con razonamiento alto tarda 70-150 s
     y la recomposición otros 30; lo que pasa de quince minutos está colgado.
+  · TRAS UN CORTE, SE ESPERA. Una corrida cortada sin «listo» sigue viva en el
+    servidor y acabará escribiendo la fila: la siguiente del mismo expediente
+    espera `ESPERA_TRAS_CORTE` (revisión del 26-sep-2026).
+  · ANTES DE GASTAR, `--sesiones` lee la fila de cada caso (sin escribir) y
+    avisa de lo que daría 404/409 y del acervo que no está guardado completo.
   · NUNCA SE PIDE /taller/proponer. En modo `acervo` el criterio sale de la
     propuesta ya guardada en la sesión; volver a proponer cambiaría el
     criterio entre variantes y ya no se compararía el prompt.
 
 Uso (nunca sin --dry-run hasta que el servidor acepte `variante_estudio`):
     .venv/bin/python banco_estudio.py --variantes v1,v2 --corridas 3 --dry-run
+    .venv/bin/python banco_estudio.py --sesiones --dry-run     # con el .env cargado
     .venv/bin/python banco_estudio.py --variantes v1,v2 --corridas 3 \\
         --formato estandar --casos 103/2025,93/2026 --paralelo 3
     Variantes: «prod» = no se manda el campo (lo que haya en producción);
@@ -252,6 +258,14 @@ def formulario(caso: Caso, formato: str, variante: Variante, raiz: Path = AQUI) 
     """Los campos de la FormData, como los manda la pantalla (o
     `scratchpad/93/generar_formatos.sh` para el 93)."""
     correo = exigir_casa(caso.correo)
+    # LO QUE LA PANTALLA MANDA Y AQUÍ NO (revisión, 26-sep-2026). En modo
+    # acervo la pantalla (`api.ts`) añade `global_json` y `resolvio_declarado`,
+    # que le devolvió la propuesta. Las 13 sesiones de administracion@ son
+    # anteriores al 17-sep: no guardan `estado.propuesta.respuesta.global`, y
+    # el banco no vuelve a proponer. Así que estas corridas escriben el estudio
+    # SIN la propuesta global a la vista. Es igual para todas las variantes (la
+    # comparación vale), pero no es el camino de la pantalla; si esas sesiones
+    # se rehacen, el global guardado debería viajar aquí como `global_json`.
     f = {"numero": caso.numero, "user_email": correo, "formato": formato,
          "modo_decision": caso.modo}
     if variante.servidor is not None:
@@ -475,37 +489,152 @@ def plan(casos: list, vars_: list, corridas: int, etiqueta: str, raiz: Path = AQ
 # media tanda, la variante B se escribe con otro criterio que la A y la
 # comparación deja de ser del prompt. Se guarda sólo el HASH —no el estado,
 # que lleva el expediente— y se comprueba antes de cada corrida.
-def huella_de(fases: dict, propuestas) -> str:
-    f = fases or {}
-    base = {"problemas": f.get("problemas"), "problema_global": f.get("problema_global"),
-            "resumen_acto": f.get("resumen_acto"),
-            "resumen_conceptos": f.get("resumen_conceptos"), "conteo": f.get("conteo"),
-            "propuestas": propuestas}
+#
+# EL ACERVO TAMBIÉN ENTRA EN LA HUELLA (revisión, 26-sep-2026). El estudio se
+# escribe con `estado.material`: si alguien vuelve a consultar el acervo entre
+# dos corridas, la B se escribe con otras tesis que la A y las citas dejan de
+# medir el prompt. Y se piden SÓLO las piezas que se comparan: `estado->fases`
+# entero arrastra `fuentes` —el escrito y el acto, hasta 1.2 MB— en cada
+# corrida, para tirarlo.
+_CAMPOS_HUELLA = {
+    "problemas": "estado->fases->problemas",
+    "problema_global": "estado->fases->problema_global",
+    "resumen_acto": "estado->fases->resumen_acto",
+    "resumen_conceptos": "estado->fases->resumen_conceptos",
+    "conteo": "estado->fases->conteo",
+    "material": "estado->material",
+}
+
+
+def huella_de(fila: dict) -> str:
+    f = fila or {}
+    base = {k: f.get(k) for k in sorted(_CAMPOS_HUELLA)}
+    base["propuestas"] = f.get("propuestas")
     return hashlib.sha256(json.dumps(base, sort_keys=True, ensure_ascii=False,
                                      default=str).encode()).hexdigest()[:16]
 
 
-async def huella_sesion(cx, correo: str, numero: str) -> str | None:
+def _supabase():
     url = (os.getenv("SUPABASE_URL") or "").rstrip("/")
     key = os.getenv("SUPABASE_SERVICE_KEY") or ""
     if not (url and key):
+        return None, None
+    return url, {"apikey": key, "Authorization": f"Bearer {key}"}
+
+
+async def _fila_sesion(cx, correo: str, numero: str, select: str):
+    """La fila de `taller_sesiones` de una cuenta de casa, SÓLO LECTURA."""
+    url, cab = _supabase()
+    if not url:
         return None
     r = await cx.get(f"{url}/rest/v1/taller_sesiones",
-                     params={"select": "fases:estado->fases,propuestas",
-                             "email": f"eq.{exigir_casa(correo)}",
+                     params={"select": select, "email": f"eq.{exigir_casa(correo)}",
                              "expediente": f"eq.{numero}", "limit": "1"},
-                     headers={"apikey": key, "Authorization": f"Bearer {key}"},
-                     timeout=30)
+                     headers=cab, timeout=60)
     r.raise_for_status()
     filas = r.json() or []
-    if not filas:
+    return filas[0] if filas else {}
+
+
+async def huella_sesion(cx, correo: str, numero: str) -> str | None:
+    sel = ",".join(f"{k}:{v}" for k, v in _CAMPOS_HUELLA.items()) + ",propuestas"
+    fila = await _fila_sesion(cx, correo, numero, sel)
+    if not fila:
         return None
-    return huella_de(filas[0].get("fases"), filas[0].get("propuestas"))
+    return huella_de(fila)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ¿ESTÁN LISTAS LAS SESIONES? (--sesiones, sólo lectura)
+# ═══════════════════════════════════════════════════════════════════════════
+# LO QUE SE VIO AL REVISAR EL ARNÉS (26-sep-2026), leyendo la base: las 13
+# sesiones de administracion@ guardan el acervo en el formato ANTERIOR al
+# 17-sep —sin `completo`, sin sondeo ni principios— y ninguna tiene contraste.
+# `_taller_recuperar_sesion` ignora ese acervo y el resolver lo VUELVE A
+# CONSULTAR, con reordenación del modelo; y como cada corrida reescribe la fila
+# (la ficha del proyecto) y cambia su sello, la siguiente corrida relee la base
+# y consulta otra vez. Resultado: cada corrida escribe con un acervo distinto,
+# y además distinto del camino de hoy (que guarda el acervo completo y el
+# contraste). No invalida comparar variantes intercaladas —el ruido les cae a
+# las dos—, pero ensancha la banda y ensucia justo las métricas de citas. Esto
+# lo dice antes de gastar la tanda; arreglarlo es volver a consultar esas
+# sesiones, que ESCRIBE en producción y no lo hace el arnés.
+_SELECT_REVISION = ("consultado,propuestas,actualizado_en,"
+                    "problemas:estado->fases->problemas,"
+                    "material_completo:estado->material->completo,"
+                    "contraste:estado->contraste->estado")
+
+
+def diagnostico_sesion(caso: Caso, fila) -> list:
+    """[(grave, texto)] de una fila de `taller_sesiones` para este caso.
+    `grave` = la corrida fallaría (404/409); si no, sólo ensucia la medida."""
+    if fila is None:
+        return [(False, "sin SUPABASE_URL / SUPABASE_SERVICE_KEY: no se pudo revisar")]
+    if not fila:
+        return [(True, "no hay sesión: el servidor contestará 404")]
+    fuera = []
+    if not fila.get("consultado"):
+        fuera.append((True, "sin consultar el acervo: el servidor contestará 409"))
+    if caso.modo == "acervo" and not (fila.get("propuestas") or []):
+        fuera.append((True, "modo acervo sin propuestas guardadas: 409 (y NO se "
+                            "pide /taller/proponer desde el banco)"))
+    if fila.get("material_completo") is not True:
+        fuera.append((False, "el acervo no está guardado completo: cada corrida lo "
+                             "vuelve a consultar (otras tesis en cada una)"))
+    if not fila.get("contraste"):
+        fuera.append((False, "sin contraste guardado"))
+    return fuera
+
+
+async def revisar_sesiones(casos: list, cliente=None, imprimir=print) -> dict:
+    """Lee (sólo lee) la fila de cada caso y dice qué fallaría o ensuciaría."""
+    import httpx
+    propio = cliente is None
+    cx = cliente or httpx.AsyncClient(timeout=60)
+    fuera = {}
+    try:
+        for c in casos:
+            try:
+                fila = await _fila_sesion(cx, c.correo, c.numero, _SELECT_REVISION)
+                diag = diagnostico_sesion(c, fila)
+            except Exception as ex:
+                diag = [(False, f"no se pudo leer la sesión ({type(ex).__name__})")]
+            fuera[c.numero] = diag
+            txt = " · ".join(("✗ " if g else "! ") + t for g, t in diag) or "✓ lista"
+            imprimir(f"  {c.numero:<9} {c.correo:<27} {txt}")
+    finally:
+        if propio:
+            await cx.aclose()
+    return fuera
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CORRER
 # ═══════════════════════════════════════════════════════════════════════════
+# ═══ UNA CORRIDA CORTADA SIGUE CORRIENDO EN EL SERVIDOR (revisión, 26-sep) ═══
+# El endpoint lanza el trabajo en una tarea propia (`_TALLER_EN_MARCHA`) que NO
+# se cancela cuando el cliente se va: si el flujo se corta —el tope de 900 s,
+# un reinicio de la red, un proxy que cierra— el servidor sigue escribiendo el
+# estudio y al final lee-modifica-escribe el `estado` entero de la fila
+# (`_taller_guardar_proyecto`). Lanzar en ese momento la corrida siguiente del
+# MISMO expediente es justo lo que la regla «en secuencia dentro de un
+# expediente» quería evitar: dos escrituras sobre la misma fila. Se espera lo
+# que tarda el pipeline completo (280-380 s medidos, ver el comentario de los
+# tres modos en main.py) con margen. Si llegó «listo» o un evento «error», el
+# trabajo ya terminó y no se espera nada; un 4xx/5xx no llegó a lanzarlo.
+ESPERA_TRAS_CORTE = 420
+
+
+def quedo_corriendo(fila: dict) -> bool:
+    """¿Pudo quedar la generación viva en el servidor tras esta corrida?"""
+    if fila.get("ok") or "listo" in fila or (fila.get("eventos") or {}).get("error"):
+        return False
+    if str(fila.get("error") or "").startswith("formulario:"):
+        return False                    # no llegó a mandarse
+    http = fila.get("http")
+    return http is None or int(http) == 200
+
+
 async def correr_una(cx, base: str, caso: Caso, var: Variante, k: int, formato: str,
                      etiqueta: str, raiz: Path = AQUI, timeout: float = TIMEOUT_S) -> tuple:
     """Una corrida: (fila para el .json, bytes del .docx o None). Nunca lanza:
@@ -564,8 +693,10 @@ def _linea(fila: dict) -> str:
 async def correr(casos: list, vars_: list, corridas: int, formato: str, etiqueta: str,
                  paralelo: int = 3, base: str = BASE, raiz: Path = AQUI,
                  congelar: bool = False, cliente=None, timeout: float = TIMEOUT_S,
-                 imprimir=print) -> list:
+                 imprimir=print, espera_tras_corte: float = None) -> list:
     import httpx
+    espera = ESPERA_TRAS_CORTE if espera_tras_corte is None else espera_tras_corte
+    _forma_de_etiqueta(raiz, etiqueta, formato)
     p = plan(casos, vars_, corridas, etiqueta, raiz)
     pend = sum(1 for xs in p.values() for x in xs if not x[3])
     imprimir(f"═══ banco del estudio «{etiqueta}» · {formato} · {len(casos)} casos · "
@@ -587,9 +718,19 @@ async def correr(casos: list, vars_: list, corridas: int, formato: str, etiqueta
         f_huella = raiz / etiqueta / c.slug / "huella.txt"
         if f_huella.exists():
             huella0 = f_huella.read_text(encoding="utf-8").strip()
+        pendiente_espera = 0.0
         for v, k, ruta, ya in p[c.numero]:
             if ya:
                 continue
+            if pendiente_espera > 0:
+                # FUERA DEL SEMÁFORO: mientras este expediente espera a que el
+                # servidor suelte la corrida cortada, los demás siguen.
+                imprimir(f"  … {c.numero}: la corrida anterior se cortó sin «listo»; se "
+                         f"esperan {pendiente_espera:.0f} s a que el servidor la termine "
+                         f"antes de la siguiente (escribirían la misma fila).")
+                await asyncio.sleep(pendiente_espera)
+                pendiente_espera = 0.0
+            t_inicio = dt.datetime.now().isoformat(timespec="seconds")
             async with sem:
                 if congelar:
                     try:
@@ -612,10 +753,13 @@ async def correr(casos: list, vars_: list, corridas: int, formato: str, etiqueta
                 fila, docx_bytes = await correr_una(cx, base, c, v, k, formato, etiqueta,
                                                     raiz, timeout)
             fila["huella_sesion"] = h
-            fila["t_inicio"] = dt.datetime.now().isoformat(timespec="seconds")
+            # Antes era la hora de TERMINAR con el nombre de la de empezar.
+            fila["t_inicio"] = t_inicio
             guardar(ruta, fila, docx_bytes)
             hechas.append(fila)
             imprimir(_linea(fila))
+            if quedo_corriendo(fila):
+                pendiente_espera = espera
             # Un 404/409/422 es la sesión, no la suerte: las demás corridas de
             # este expediente fallarían igual.
             if fila.get("http") and 400 <= int(fila["http"]) < 500:
@@ -633,6 +777,26 @@ async def correr(casos: list, vars_: list, corridas: int, formato: str, etiqueta
     return hechas
 
 
+# UNA ETIQUETA, UNA FORMA (revisión, 26-sep-2026). Las corridas se guardan por
+# etiqueta, caso y variante, no por forma: `--formato moderna` con la etiqueta
+# de una tanda estándar daba por HECHAS las corridas estándar (y el comparador
+# habría medido una moderna contra una estándar como si fueran variantes).
+def _misma_forma(m: dict, formato: str, etiqueta: str) -> None:
+    if m.get("formato") and m["formato"] != formato:
+        raise SystemExit(f"La etiqueta «{etiqueta}» ya tiene corridas en forma "
+                         f"«{m['formato']}»; para «{formato}» usa otra etiqueta.")
+
+
+def _forma_de_etiqueta(raiz: Path, etiqueta: str, formato: str) -> None:
+    ruta = raiz / etiqueta / "manifiesto.json"
+    if ruta.exists():
+        try:
+            m = json.loads(ruta.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        _misma_forma(m, formato, etiqueta)
+
+
 def _manifiesto(raiz: Path, etiqueta: str, casos, vars_, corridas, formato, base) -> None:
     ruta = raiz / etiqueta / "manifiesto.json"
     ruta.parent.mkdir(parents=True, exist_ok=True)
@@ -640,6 +804,7 @@ def _manifiesto(raiz: Path, etiqueta: str, casos, vars_, corridas, formato, base
         m = json.loads(ruta.read_text(encoding="utf-8"))
     except Exception:
         m = {"invocaciones": []}
+    _misma_forma(m, formato, etiqueta)
     m["formato"] = formato
     m["invocaciones"].append({
         "fecha": dt.datetime.now().isoformat(timespec="seconds"), "base": base,
@@ -662,6 +827,7 @@ def en_seco(casos: list, vars_: list, corridas: int, formato: str, etiqueta: str
     """Lo que se correría, sin tocar la red. Comprueba cuentas, entradas y
     escritos, y enseña los campos del formulario (claves y tamaños, no el
     contenido: el criterio y el contexto son del expediente)."""
+    _forma_de_etiqueta(raiz, etiqueta, formato)
     p = plan(casos, vars_, corridas, etiqueta, raiz)
     imprimir(f"═══ EN SECO · {base}{RUTA_STREAM} · «{etiqueta}» · {formato} ═══")
     problemas = []
@@ -707,6 +873,12 @@ def main(argv=None) -> int:
                     help="comprueba con la huella de la sesión (Supabase) que el "
                          "criterio no cambió entre corridas")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--sesiones", action="store_true",
+                    help="lee (sólo lee) la fila de cada caso en Supabase y dice si la "
+                         "corrida fallaría o se ensuciaría; con --dry-run, además del plan")
+    ap.add_argument("--espera-tras-corte", type=float, default=ESPERA_TRAS_CORTE,
+                    help="segundos que un expediente espera tras una corrida cortada sin "
+                         "«listo», porque el servidor la sigue escribiendo")
     a = ap.parse_args(argv)
     casos = elegir_casos(a.casos)
     vars_ = variantes(a.variantes)
@@ -715,12 +887,19 @@ def main(argv=None) -> int:
         raise SystemExit(f"Etiqueta inválida: «{etiqueta}»")
     if a.corridas < 1:
         raise SystemExit("--corridas tiene que ser 1 o más")
+    graves = False
+    if a.sesiones:
+        print("═══ LAS SESIONES (lectura de taller_sesiones; no se escribe nada) ═══")
+        diag = asyncio.run(revisar_sesiones(casos))
+        graves = any(g for xs in diag.values() for g, _ in xs)
+        if not a.dry_run:
+            return 1 if graves else 0
     if a.dry_run:
         r = en_seco(casos, vars_, a.corridas, a.formato, etiqueta, AQUI, a.base,
                     a.paralelo)
-        return 1 if r["problemas"] else 0
+        return 1 if (r["problemas"] or graves) else 0
     asyncio.run(correr(casos, vars_, a.corridas, a.formato, etiqueta, a.paralelo,
-                       a.base, AQUI, a.congelar))
+                       a.base, AQUI, a.congelar, espera_tras_corte=a.espera_tras_corte))
     return 0
 
 

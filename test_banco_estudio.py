@@ -189,6 +189,17 @@ ok(R("Por las razones expuestas en el apartado anterior, es infundado.")["con_de
 ok(m["ordenes_fuera_efectos"] == 1, "«para que la Sala deje insubsistente» en la Solución; "
    "los Efectos no cuentan")
 ok(m["recapitulacion_final"] == 1 and m["recapitulaciones"] == 1, "«En suma» al final")
+_rec = next(x[4] for x in me.METRICAS if x[0] == "recapitulacion_final")
+ok(_rec(1, m), "cierre con dos apartados: acusa (Decisión 3 b)")
+ok(not _rec(1, {"apartados": 3, "resultados_distintos": True}) and
+   _rec(1, {"apartados": 3, "resultados_distintos": False}),
+   "con tres apartados, sólo si sus resultados son distintos (Decisión 3 b, las dos condiciones)")
+ok(me.resultados_distintos([{"resultado": "infundado"}] * 3) is False and
+   me.resultados_distintos([{"resultado": "infundado"}, {"resultado": "inoperante"}]) and
+   me.resultados_distintos([{"resultado": "infundado"}, {"resultado": None}]),
+   "resultados distintos por familia; el ilegible no acusa")
+ok(me.familia_calificacion("Infundados") == "infundado" and
+   me.familia_calificacion("sin materia") == "innecesario", "familias de calificación")
 ok(m["cobertura_ordinal"] == 1.0 and me.medir(ESTANDAR, n=4)["cobertura_ordinal"] == 0.75,
    "cobertura por ordinal con la n del contador")
 ok(m["n_planteamientos"] == 3, "la n forzada se respeta")
@@ -230,6 +241,9 @@ if me.CASOS_KINGSTON.exists():
     o103 = me.medir(oros["ADA 103-2025"]["texto"], oros["ADA 103-2025"]["escrito"])
     ok(o103["apartados"] == 3 and o103["apertura_mediana"] <= 30,
        f"oro 103: tres apartados y apertura corta ({o103['apertura_mediana']}; w2 midió 27)")
+    ok(o103["recapitulacion_final"] == 1 and o103["resultados_distintos"] and
+       not _rec(o103["recapitulacion_final"], o103),
+       "oro 103: cierra con infundado/inoperante/ineficaz en tres apartados: no se acusa")
     k702 = next(k for k in oros if k.startswith("ADA 702"))
     ok(me.medir(oros[k702]["texto"])["ordenes_fuera_efectos"] == 0,
        "oro 702: «impide que una decisión… deje insubsistente» no es una orden")
@@ -398,13 +412,16 @@ ok(r["pendientes"] == 3 and not r["problemas"], "en seco: 3 por hacer, sin red")
 
 
 # ── el servidor simulado ─────────────────────────────────────────────────
-def _servidor(activos, maximos, lento=0.05, falla=(), cuelga=()):
+def _servidor(activos, maximos, lento=0.05, falla=(), cuelga=(), inicios=None):
     import httpx
+    import time as _t
 
     async def manejar(req):
         cuerpo = req.content.decode("utf-8", "replace")
         num = re.search(r'name="numero"\r\n\r\n([^\r]+)', cuerpo).group(1)
         var = re.search(r'name="variante_estudio"\r\n\r\n([^\r]+)', cuerpo)
+        if inicios is not None:
+            inicios.setdefault(num, []).append(_t.monotonic())
         if num in falla:
             return httpx.Response(409, text="No hay propuesta en este proceso.")
         activos[num] = activos.get(num, 0) + 1
@@ -433,7 +450,7 @@ activos, maximos = {}, {}
 raiz = Path(tempfile.mkdtemp())
 hechas = asyncio.run(be.correr(casos3, vs, 2, "estandar", "e", paralelo=3, base="http://x",
                                raiz=raiz, cliente=_servidor(activos, maximos),
-                               imprimir=lambda *a: None))
+                               imprimir=lambda *a: None, espera_tras_corte=0))
 ok(len(hechas) == 12 and all(h["ok"] and not h["descartada"] for h in hechas),
    "12 corridas buenas (3 casos × 2 variantes × 2)")
 ok(all(maximos[n] == 1 for n in ("103/2025", "642/2024", "174/2026")),
@@ -444,14 +461,24 @@ ok(len(list((raiz / "e").glob("*/*.json"))) == 12 and (raiz / "e" / "manifiesto.
 otra = asyncio.run(be.correr(casos3, vs, 2, "estandar", "e", paralelo=3, base="http://x",
                              raiz=raiz, cliente=_servidor({}, {}), imprimir=lambda *a: None))
 ok(otra == [], "reanudar sin nada pendiente no repite nada")
+try:
+    asyncio.run(be.correr(casos3, vs, 2, "moderna", "e", paralelo=3, base="http://x",
+                          raiz=raiz, cliente=_servidor({}, {}), imprimir=lambda *a: None))
+    ok(False, "una etiqueta estándar no admite corridas modernas")
+except SystemExit as ex:
+    ok("usa otra etiqueta" in str(ex),
+       "una etiqueta, una forma: la moderna no se da por hecha con corridas estándar")
 
-activos, maximos = {}, {}
+activos, maximos, inicios = {}, {}, {}
 raiz = Path(tempfile.mkdtemp())
+msgs_corte = []
 hechas = asyncio.run(be.correr(casos3, vs, 2, "estandar", "e", paralelo=2, base="http://x",
                                raiz=raiz, cliente=_servidor(activos, maximos,
                                                             falla={"642/2024"},
-                                                            cuelga={"174/2026"}),
-                               timeout=0.3, imprimir=lambda *a: None))
+                                                            cuelga={"174/2026"},
+                                                            inicios=inicios),
+                               timeout=0.3, imprimir=msgs_corte.append,
+                               espera_tras_corte=0.4))
 por = {}
 for h in hechas:
     por.setdefault(h["caso"], []).append(h)
@@ -461,6 +488,23 @@ ok(all("sin evento «listo» a los 0 s" in h["error"] or "0 s" in h["error"]
        for h in por["174/2026"]) and len(por["174/2026"]) == 4,
    "el tope de tiempo corta la corrida colgada y la marca como error")
 ok(maximos["_"] <= 2, "el paralelo pedido se respeta")
+# Revisión 26-sep: la corrida cortada sigue viva en el servidor (tarea propia
+# que no se cancela) y acabará escribiendo la fila; la siguiente del MISMO
+# expediente espera. Entre dos arranques del 174: 0.3 s de tope + 0.4 de espera.
+_ini = inicios.get("174/2026", [])
+ok(len(_ini) == 4 and all(b - a >= 0.65 for a, b in zip(_ini, _ini[1:])),
+   f"tras una corrida cortada el expediente espera antes de la siguiente "
+   f"({[round(b - a, 2) for a, b in zip(_ini, _ini[1:])]})")
+ok(any("se cortó sin «listo»" in m for m in msgs_corte), "y lo dice")
+ok(len(inicios.get("103/2025", [])) == 4 and max(inicios["103/2025"]) < _ini[-1],
+   "la espera de un expediente no frena a los demás (el 103 acabó antes)")
+F = lambda **k: dict({"ok": False, "eventos": {}, "error": "x", "http": 200}, **k)
+ok(be.quedo_corriendo(F()) and be.quedo_corriendo(F(http=None)),
+   "flujo cortado o sin respuesta: puede seguir vivo en el servidor")
+ok(not any(be.quedo_corriendo(x) for x in (
+    F(ok=True), F(listo={}), F(eventos={"error": 1}), F(http=409), F(http=502),
+    F(error="formulario: FileNotFoundError", http=None))),
+   "con «listo», con «error», con 4xx/5xx o sin mandar nada, no se espera")
 
 # ── --congelar: la huella de la sesión (Supabase simulado) ──────────────
 def _con_huella(huella_de_sesion):
@@ -472,9 +516,14 @@ def _con_huella(huella_de_sesion):
 
     async def manejar(req):
         if req.url.path.startswith("/rest/v1/taller_sesiones"):
-            ok(req.url.params.get("email") == "eq.administracion@iurexia.com",
-               "la huella se pide sólo para la cuenta de casa del caso")
-            return httpx.Response(200, json=[{"fases": {"problemas": [huella_de_sesion]},
+            ok(req.url.params.get("email") == "eq.administracion@iurexia.com"
+               and req.method == "GET",
+               "la huella se pide sólo para la cuenta de casa del caso, y sólo se lee")
+            sel = req.url.params.get("select") or ""
+            ok("material:estado->material" in sel and "estado->fases," not in sel
+               and "fuentes" not in sel,
+               "la huella pide el acervo y las piezas del criterio, no `fuentes` (1.2 MB)")
+            return httpx.Response(200, json=[{"problemas": [huella_de_sesion],
                                               "propuestas": []}])
         return await sse_srv._transport.handle_async_request(req)
     return httpx.AsyncClient(transport=httpx.MockTransport(manejar))
@@ -491,12 +540,45 @@ h2 = asyncio.run(be.correr([c], vs, 2, "estandar", "e", base="http://x", raiz=ra
                            imprimir=msgs.append))
 ok(h2 == [] and any("LA SESIÓN CAMBIÓ" in m for m in msgs),
    "si la sesión cambió (otro criterio), el caso se para y se dice")
+ok(be.huella_de({"problemas": ["¿P?"], "material": {"tesis": [1]}}) !=
+   be.huella_de({"problemas": ["¿P?"], "material": {"tesis": [2]}}),
+   "otro acervo, otra huella: una consulta a media tanda cambia las citas")
+
+# ── --sesiones: sólo lee y dice qué fallaría o ensuciaría ──
+def _supa_sesiones(filas):
+    import httpx
+
+    async def manejar(req):
+        ok(req.method == "GET", "revisar las sesiones sólo lee")
+        num = req.url.params.get("expediente", "")[3:]
+        return httpx.Response(200, json=[filas[num]] if num in filas else [])
+    return httpx.AsyncClient(transport=httpx.MockTransport(manejar))
+
+
+rev = asyncio.run(be.revisar_sesiones(
+    [be.POR_NUMERO[n] for n in ("103/2025", "642/2024", "174/2026", "93/2026")],
+    cliente=_supa_sesiones({
+        "103/2025": {"consultado": True, "propuestas": [{"sentido": "fundado"}],
+                     "material_completo": None, "contraste": None},
+        "642/2024": {"consultado": True, "propuestas": [], "material_completo": True,
+                     "contraste": "listo"},
+        "93/2026": {"consultado": True, "propuestas": [], "material_completo": True,
+                    "contraste": "listo"}}),
+    imprimir=lambda *a: None))
+ok([g for g, _ in rev["103/2025"]] == [False, False],
+   "acervo viejo y sin contraste: avisa, no para (ensucia la medida, no la tumba)")
+ok(any(g and "sin propuestas" in t for g, t in rev["642/2024"]),
+   "modo acervo sin propuestas: la corrida daría 409")
+ok(any(g and "404" in t for g, t in rev["174/2026"]), "sin fila: 404")
+ok(rev["93/2026"] == [], "el 93 por problema no necesita propuestas guardadas")
 import os as _os
 del _os.environ["SUPABASE_URL"], _os.environ["SUPABASE_SERVICE_KEY"]
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n14 · EL COMPARADOR")
-ok(abs(ce.signo(12, 4) - 0.0384) < 0.001, "prueba de signo: 12 de 16 → p ≈ 0.04 (w2 §6.6)")
+ok(abs(ce.signo(12, 16) - 0.0384) < 0.001, "prueba de signo: 12 de 16 → p ≈ 0.04 (w2 §6.6)")
+ok(ce.signo(5, 16) > 0.5,
+   "5 mejoras y 11 «≈» no es significativo: los empates cuentan como no ganados")
 ok(ce.veredicto(-3, 1, "menos") == "mejora" and ce.veredicto(3, 1, "menos") == "EMPEORA"
    and ce.veredicto(0.5, 1, "menos") == "≈" and ce.veredicto(1, None, None) == "—",
    "veredicto con dirección y banda de ruido")
@@ -539,6 +621,69 @@ md = ce.informe("e", [par], ce.operacion(datos), {"palabras_solucion": {"mediana
 ok("BLOQUEA en 1 caso" in md and "#### Palabras de la Solución" in md and "2982" in md
    and "c0ffee1" in md, "el informe trae el bloqueo, las tablas por métrica, el oro y el commit")
 ok("1× se pidió «v2» y corrió «v1»" in md, "y dice por qué se descartó lo descartado")
+
+# ── el bloqueo, calibrado contra el ruido (revisión 26-sep) ──────────────
+# ESTANDAR nombra 3 de las 5 anclas (0.6); SOL_V1 las 5 (1.0).
+def _tanda(raiz, caso_n, variante, textos, **extra):
+    cc = be.POR_NUMERO[caso_n]
+    for k, t in enumerate(textos, 1):
+        f = {"caso": caso_n, "variante": variante, "k": k, "ok": True, "descartada": None,
+             "texto": t, "commit": "c0ffee1", "version": 3, "t_total": 150, "palabras": 3000}
+        f.update(extra)
+        be.guardar(be.ruta_corrida(raiz, "e", cc, be.Variante(variante, variante), k), f)
+
+
+raiz = Path(tempfile.mkdtemp())
+# 103: un ancla que sale 2 de 3 en la base y 1 de 3 en la variante es azar.
+_tanda(raiz, "103/2025", "v1", [SOL_V1, SOL_V1, ESTANDAR])
+_tanda(raiz, "103/2025", "v2", [SOL_V1, ESTANDAR, ESTANDAR])
+# 642: la variante trunca.
+_tanda(raiz, "642/2024", "v1", [SOL_V1] * 3)
+_tanda(raiz, "642/2024", "v2", [SOL_V1] * 3, listo={"finish_reason": "length"})
+# 174: la variante no entrega ninguna corrida buena.
+_tanda(raiz, "174/2026", "v1", [SOL_V1] * 3)
+for k in (1, 2, 3):
+    be.guardar(be.ruta_corrida(raiz, "e", be.POR_NUMERO["174/2026"], be.Variante("v2", "v2"), k),
+               {"caso": "174/2026", "variante": "v2", "k": k, "ok": False,
+                "error": "HTTP 500: Internal Server Error"})
+datos = ce.cargar(raiz, "e")
+med = ce.Medidor(raiz, escritos={c: ESCRITO for c in ("103/2025", "642/2024", "174/2026")},
+                 oros={c: None for c in ("103/2025", "642/2024", "174/2026")})
+par = ce.comparar_par(datos, med, "v1", "v2")
+f103 = next(f for f in par["filas"] if f["caso"] == "103/2025")
+ok(not f103["regresion"]["anclas"] and f103["regresion"]["anclas_revisar"] ==
+   ["exp 312/2023", "reg 2010224"] and "103/2025" not in [f["caso"] for f in par["bloquea"]],
+   "un ancla 2/3 → 1/3 no bloquea (salta por azar con el mismo prompt): se lista a revisar")
+ok([f["caso"] for f in par["bloquea"]] == ["642/2024"] and par["bloquea"][0]["truncadas"] == 3,
+   "una corrida truncada (finish_reason=length) bloquea")
+ok([f["caso"] for f in par["incompletos"]] == ["174/2026"] and ce.detiene(par),
+   "la variante sin corridas buenas en un caso no se certifica: detiene")
+md = ce.informe("e", [par], ce.operacion(datos), {})
+ok("NO SE PUEDE CERTIFICAR en 1 caso" in md and "A revisar (no bloquea)" in md
+   and "el bloqueo no está calibrado" in md and "| 3 |" in md,
+   "el informe dice lo incompleto, lo que se revisa, que sin réplica no está calibrado "
+   "y las truncadas")
+
+# M1b con banda, y la réplica que calibra el bloqueo.
+raiz = Path(tempfile.mkdtemp())
+_tanda(raiz, "103/2025", "v1", [SOL_V1] * 3)
+_tanda(raiz, "103/2025", "v1@r", [SOL_V1, SOL_V1, ESTANDAR])
+_tanda(raiz, "103/2025", "v2", [ESTANDAR] * 3)
+datos = ce.cargar(raiz, "e")
+med = ce.Medidor(raiz, escritos={"103/2025": ESCRITO}, oros={"103/2025": None})
+par = ce.comparar_par(datos, med, "v1", "v2", "v1@r")
+r = par["filas"][0]["regresion"]
+ok(not r["anclas"] and r["anclas_revisar"] == ["exp 312/2023", "reg 2010224"],
+   "con réplica, el ancla que la réplica no nombró siempre no es estable: no bloquea")
+ok(r["peor_corrida"] is None and r["peor_corrida_bruta"] == (1.0, 0.6),
+   "la peor corrida más baja dentro de la banda (réplica 1.0-0.6) no bloquea")
+ok(par["calibrado"] and [f["caso"] for f in par["falsos_bloqueos"]] == ["103/2025"],
+   "la base contra su réplica bloquearía aquí: el informe lo dice como falta de calibración")
+md = ce.informe("e", [par], ce.operacion(datos), {})
+ok("El bloqueo NO está calibrado" in md, "y lo escribe")
+par0 = ce.comparar_par(datos, med, "v1", "v2")
+ok(par0["filas"][0]["regresion"]["anclas"] == ["exp 312/2023", "reg 2010224"],
+   "sin réplica, el ancla que la base nombró SIEMPRE y la variante NUNCA sí bloquea")
 
 print()
 if FALLOS:
