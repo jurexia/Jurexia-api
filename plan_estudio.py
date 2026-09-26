@@ -15,12 +15,20 @@ qué trae cada uno de suyo. Aquí se decide, con datos, y el estudio lo recibe
 como guion.
 
 LO QUE NO HACE, Y NO SE NEGOCIA
-  · NO DECIDE EL SENTIDO. La etiqueta de cada segmento es, POR IGUALDAD, el
-    sentido que el secretario fijó para su problema. Toda «afinación» del
-    planificador sale como PROPUESTA visible en el panel y no se aplica sin su
-    clic. No se usa `fase6_estudio._misma_direccion`: trata como neutro todo
-    sentido fuera de sus dos listas (w2_final §1.5, L1), justo el agujero por
-    el que un plan podía cambiar la calificación sin que nada lo detectara.
+  · NO DECIDE EL SENTIDO DE NINGÚN PROBLEMA. El de cada problema es el que
+    fijó el secretario y no se toca. DENTRO de él, cada argumento lleva su
+    propia calificación razonada (plan-4, 26-sep-2026: el ADC 642/2024 v4
+    sacó «fundado» el argumento de la reconvención porque el plan le ponía la
+    etiqueta de su problema, y la Sala sí la había examinado), con la regla de
+    coherencia que se comprueba aquí: problema que prospera ⇒ al menos un
+    argumento lo funda; problema que no prospera ⇒ ningún argumento queda
+    fundado sin decir por qué no alcanza (va como «fundado pero
+    insuficiente»); problema que no se estudia ⇒ sus argumentos, tampoco. Lo
+    que sí sería cambiar el sentido de un PROBLEMA sale como PROPUESTA
+    visible en el panel y no se aplica sin su clic. No se usa
+    `fase6_estudio._misma_direccion`: trata como neutro todo sentido fuera de
+    sus dos listas (w2_final §1.5, L1), justo el agujero por el que un plan
+    podía cambiar la calificación sin que nada lo detectara.
   · NO REDACTA REGLAS. Una premisa son sus fuentes y sus anclas; la regla la
     escribe el estudio a partir de la razón del secretario.
   · NO INVENTA DATOS. La cita de cada segmento, la de su dato, la de cada
@@ -31,8 +39,12 @@ LAS PIEZAS (firmas del contrato; lo que se añade va sólo como keyword):
   clave()     identifica un plan: adelanto + criterio + contexto + suplencia.
   planear()   la llamada al planificador: el modelo de las fases con
               razonamiento medio y JSON estricto.
-  reparar()   lo que el código corrige solo: etiqueta → la del criterio (y la
-              otra, a propuestas); `reitera` con ancla propia → `desarrolla`;
+  reparar()   lo que el código corrige solo: la etiqueta que no cabe en el
+              sentido de su problema (sin estudio dentro de un problema que
+              se estudia → la del problema; fundado dentro de uno que no
+              prospera → fundado pero insuficiente; un problema que prospera
+              sin argumento que lo funde → todos a la del problema y la otra,
+              a propuestas); `reitera` con ancla propia → `desarrolla`;
               datos sin verificar, borrados. Y lo organizativo que V0
               rechazaba (26-sep-2026): la unidad que mezcla, partida; la
               premisa sin rastro, retirada; la razón que no cabe con la
@@ -70,7 +82,11 @@ import unicodedata
 
 # Sube cuando cambie el esquema, el prompt o una regla de V0: un plan hecho con
 # otra versión no se reutiliza (entra en la clave).
-PLAN_VERSION = "plan-3"      # plan-3: reparar la organización (partir unidades, retirar premisas sin rastro…)
+# plan-3: reparar la organización (partir unidades, retirar premisas sin rastro…).
+# plan-4: la calificación por argumento dentro del sentido del problema (V0 b
+# deja de exigir igualdad y exige coherencia): un plan-3 traía la etiqueta del
+# problema en cada argumento y no se reutiliza.
+PLAN_VERSION = "plan-4"
 
 # EL MODELO DE LAS FASES, con razonamiento MEDIO (propuesta §3.6: «Se mide
 # ESFUERZO_PLAN=medium contra high»). Se lee al llamar, no al importar, para
@@ -240,6 +256,72 @@ def clase_sentido(s) -> str:
         return NO_SE_ESTUDIA
     import tipos_asunto as _ta
     return PROSPERA if _ta.prospera(t) else NO_PROSPERA
+
+
+# ═══ LA CALIFICACIÓN DE CADA ARGUMENTO DENTRO DEL SENTIDO DE SU PROBLEMA ═════
+# (plan-4, 26-sep-2026). David: «que el proyecto mismo sea inteligente (se le
+# denomina congruencia interna)». Hasta plan-3 la etiqueta de cada argumento
+# era, por igualdad, el sentido de su problema; en el ADC 642/2024 v4 eso hizo
+# «fundado» el argumento de la reconvención —la Sala SÍ la examinó— porque su
+# problema era fundado, cuando la v3, sin plan, lo calificó bien como
+# infundado dentro de un problema fundado. Dentro de un problema fundado caben
+# argumentos infundados o inoperantes: el sentido del PROBLEMA es del
+# secretario y no se toca; la calificación de cada argumento la razona el plan
+# (y el estudio) y tiene que casar con él:
+#   · problema que prospera   → al menos un argumento lo funda;
+#   · problema que no prospera → ningún argumento queda fundado sin decir por
+#     qué no alcanza: ése es el «fundado pero insuficiente»;
+#   · problema que no se estudia → sus argumentos, tampoco (misma etiqueta);
+#   · y dentro de un problema que se estudia, ningún argumento se declara sin
+#     estudio (la misma regla que `exhaustivo` vigila en el texto).
+def calificacion_conocida(s) -> bool:
+    """¿Es una calificación del catálogo (o una de las de no estudiar)?"""
+    t = norm_sentido(s)
+    if not t:
+        return False
+    import tipos_asunto as _ta
+    return t in _ta.CALIFICACIONES or t in _SENTIDOS_NO_SE_ESTUDIA \
+        or t in ("parcialmente_fundado", "sustancialmente_fundado", "fundado_suplido")
+
+
+def etiqueta_fuera(etiqueta, fijado) -> str:
+    """Por qué la calificación de un argumento no cabe dentro del sentido
+    `fijado` de su problema, o «» si cabe. Sin sentido fijado no hay nada que
+    casar (eso es el pendiente «sentido»)."""
+    et, fij = norm_sentido(etiqueta), norm_sentido(fijado)
+    if not fij:
+        return ""
+    cf = clase_sentido(fij)
+    if cf == NO_SE_ESTUDIA:
+        return "" if et == fij else (
+            f"distinta del sentido fijado «{fij}»: un problema que no se estudia no califica "
+            f"sus argumentos; si crees que debe estudiarse, va a propuestas")
+    if not et:
+        return f"vacía dentro de un problema que se estudia («{fij}»)"
+    if not calificacion_conocida(et):
+        return "no es una calificación del catálogo"
+    ce = clase_sentido(et)
+    if ce == NO_SE_ESTUDIA:
+        return (f"declara sin estudio un argumento de un problema que se estudia («{fij}»); "
+                f"dentro de él cada argumento se califica en el fondo")
+    if cf == NO_PROSPERA and ce == PROSPERA:
+        return (f"prospera dentro de un problema que no prospera («{fij}»): el argumento que "
+                f"tiene razón y no alcanza es fundado_insuficiente")
+    return ""
+
+
+def problemas_sin_quien_los_funde(segmentos: list, probs: list) -> list:
+    """Los problemas que prosperan y en los que NINGÚN argumento con sentido
+    lleva una calificación que prospera: la regla de coherencia al revés."""
+    fuera = []
+    for p in probs or []:
+        if clase_sentido(p.get("sentido")) != PROSPERA:
+            continue
+        suyos = [s for s in segmentos or [] if s.get("problema_id") == p.get("id")
+                 and s.get("pendiente") != "sentido" and s.get("trat") != "no_se_expresa_art79"]
+        if suyos and not any(clase_sentido(s.get("etiqueta")) == PROSPERA for s in suyos):
+            fuera.append(p["id"])
+    return fuera
 
 
 _RX_ID = re.compile(r"^\s*(AD|[CASP]|U|M)\s*(\d+)\s*(?:\.?\s*([a-z]{1,3}))?\s*$", re.I)
@@ -787,7 +869,8 @@ QUÉ DECIDES
 5. EL ORDEN DEL ESTUDIO: el orden de la lista de unidades.
 
 REGLAS QUE EL CÓDIGO COMPRUEBA (si no se cumplen, tu plan se rechaza)
-  · etiqueta = el sentido que el secretario fijó para el problema del segmento, escrito tal cual. Si crees que otra calificación sería más exacta, NO la pongas en la etiqueta: escríbela en «propuestas» con su porqué.
+  · El SENTIDO DE CADA PROBLEMA lo fijó el secretario y no se toca. etiqueta = la calificación de ESE segmento dentro de su problema, por lo que él mismo plantea, y coherente con el sentido del problema: si el problema prospera, al menos uno de sus segmentos lo funda y los demás pueden ser infundados o inoperantes; si no prospera, ninguno queda fundado —el que tiene razón y no alcanza es fundado_insuficiente—; si el problema no se estudia (innecesario, sin materia), todos sus segmentos llevan ese mismo sentido. Dentro de un problema que se estudia, ningún segmento se declara sin estudio.
+  · propuestas: SÓLO cuando crees que el sentido de un PROBLEMA debería ser otro. seg = uno de sus segmentos; a = la calificación que propones para el problema entero; por_que = la razón. La calificación distinta de un segmento dentro de su problema no es una propuesta: va en su etiqueta.
   · problema_id: uno de los problemas posibles que el inventario indica para ese segmento.
   · Todo segmento que se contesta (aplica, remite, desarrolla) está en UNA unidad, y sólo en una; los residuales y los que no se estudian pueden quedar fuera de las unidades.
   · razon: del catálogo, compatible con la etiqueta (la tabla dice qué implica cada una).
@@ -816,10 +899,10 @@ fuente de un dato: escrito | reclamada | constancia | antecedentes
 ESQUEMA DE LA RESPUESTA — un objeto JSON y nada más; los valores son los tipos:
 {{
  "proposiciones": [{{"id": "P<n>", "dice": "<30 palabras como máximo>", "caracter": "<carácter>", "relacion": "<relación>", "fuente": "<fuente>", "cita": "<literal>", "vinculada_por_ejecutoria": <true|false>}}],
- "segmentos": [{{"id": "<id del inventario>", "problema_id": <número>, "vicio": "<vicio>", "ataca": "P<n>" | null, "reitera": "<id>" | null, "dato": {{"texto": "<qué dato>", "cita": "<literal, 40 palabras como máximo>", "fuente": "<fuente de un dato>"}} | null, "etiqueta": "<el sentido fijado>", "razon": "<razon>", "trat": "<trat>", "diferencia": "<diferencia>" | null, "pendiente": null | "sentido" | "razon", "cita": "<sólo si el inventario no trae cita: 10 a 40 palabras literales del escrito>", "sostiene": "<25 palabras como máximo, para la pantalla>"}}],
+ "segmentos": [{{"id": "<id del inventario>", "problema_id": <número>, "vicio": "<vicio>", "ataca": "P<n>" | null, "reitera": "<id>" | null, "dato": {{"texto": "<qué dato>", "cita": "<literal, 40 palabras como máximo>", "fuente": "<fuente de un dato>"}} | null, "etiqueta": "<la calificación de este segmento>", "razon": "<razon>", "trat": "<trat>", "diferencia": "<diferencia>" | null, "pendiente": null | "sentido" | "razon", "cita": "<sólo si el inventario no trae cita: 10 a 40 palabras literales del escrito>", "sostiene": "<25 palabras como máximo, para la pantalla>"}}],
  "premisas": [{{"id": "M<n>", "responde_a": ["P<n>"], "fuentes": {{"tesis": ["T<n>" | "<registro>"], "normas": ["N<n>" | "<artículo y ley>"]}}, "anclas": ["<término>"], "rastro": "razon" | "material", "rastro_cita": "<literal de la razón o del texto de la fuente>"}}],
  "unidades": [{{"id": "U<n>", "problemas": [<número>], "segmentos": ["<id>"], "premisa": "M<n>" | null, "objecion": {{"de": "<quién la plantea>", "anclas": ["<término>"]}} | null}}],
- "propuestas": [{{"seg": "<id>", "de": "<el sentido fijado>", "a": "<la calificación que propones>", "por_que": "<razón breve>"}}],
+ "propuestas": [{{"seg": "<id>", "de": "<el sentido fijado del problema>", "a": "<la calificación que propones para el problema>", "por_que": "<razón breve>"}}],
  "avisos_al_secretario": ["<texto breve>"],
  "orden": {{"criterio": "promovente" | "prelacion", "por_que": "<razón breve>"}}
 }}
@@ -1196,8 +1279,18 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
             avisos.append(f"{s['id']}: el problema que eligió el planificador no cubre su "
                           f"{'concepto' if s.get('concepto') else 'argumento'}; va al problema {s['problema_id']}")
 
-    # (b) LA ETIQUETA ES LA DEL CRITERIO. La otra, a propuestas (salvo que el
-    # secretario haya tocado ese problema a mano: entonces ni se propone).
+    # (b) LA CALIFICACIÓN DE CADA ARGUMENTO, DENTRO DEL SENTIDO DE SU PROBLEMA
+    # (plan-4; ver `etiqueta_fuera`). El sentido del PROBLEMA es el del
+    # secretario y no se toca; la etiqueta del argumento se queda si cabe en
+    # él. Lo que no cabe se corrige sin decidir nada de fondo, y se dice:
+    #   · en un problema que NO SE ESTUDIA, la del problema; la otra, a
+    #     propuestas (proponer estudiarlo es proponer otro sentido del problema);
+    #   · FUNDADO dentro de un problema que no prospera → fundado pero
+    #     insuficiente: es la calificación que dice que tiene razón y no alcanza;
+    #   · vacía, fuera del catálogo o SIN ESTUDIO dentro de uno que se estudia →
+    #     la del problema.
+    # Salvo que el secretario haya tocado ese problema a mano: entonces ni se
+    # propone.
     for s in segmentos:
         p = cx.por_pid.get(s.get("problema_id"))
         fijado = p["sentido"] if p else ""
@@ -1207,11 +1300,51 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
             continue
         if s.get("pendiente") == "sentido":
             s["pendiente"] = None
-        if s.get("etiqueta") and s["etiqueta"] != fijado and not cx.tocado(p["id"]):
-            if not any(x["seg"] == s["id"] for x in plan["propuestas"]):
-                plan["propuestas"].append({"seg": s["id"], "de": fijado, "a": s["etiqueta"],
+        et = norm_sentido(s.get("etiqueta"))
+        motivo = etiqueta_fuera(et, fijado)
+        if not motivo:
+            s["etiqueta"] = et
+            continue
+        if clase_sentido(fijado) == NO_SE_ESTUDIA:
+            if et and calificacion_conocida(et) and not cx.tocado(p["id"]) \
+                    and not any(x["seg"] == s["id"] for x in plan["propuestas"]):
+                plan["propuestas"].append({"seg": s["id"], "de": fijado, "a": et,
                                            "por_que": "calificación que sugirió el planificador"})
-        s["etiqueta"] = fijado
+            s["etiqueta"] = fijado
+        elif clase_sentido(fijado) == NO_PROSPERA and clase_sentido(et) == PROSPERA \
+                and calificacion_conocida(et):
+            s["etiqueta"] = "fundado_insuficiente"
+            avisos.append(f"{s['id']}: el planificador lo calificó «{et}» dentro de un problema "
+                          f"«{fijado}»; va como fundado pero insuficiente: el estudio dice por qué "
+                          f"no alcanza")
+        else:
+            if et:
+                avisos.append(f"{s['id']}: «{et}» no cabe dentro de un problema «{fijado}»; lleva "
+                              f"la calificación del problema")
+            s["etiqueta"] = fijado
+    # EL PROBLEMA QUE PROSPERA Y QUE NINGÚN ARGUMENTO FUNDA: las etiquetas del
+    # planificador niegan el sentido del secretario. No se elige a cuál darle
+    # la razón —eso sería decidir—: todos vuelven a la del problema, como en
+    # plan-3, y lo que el planificador opinaba va a propuestas, que es un
+    # cambio de sentido del PROBLEMA y sólo lo aplica el secretario.
+    for pid in problemas_sin_quien_los_funde(segmentos, cx.probs):
+        p = cx.por_pid[pid]
+        suyos = [s for s in segmentos if s.get("problema_id") == pid
+                 and s.get("pendiente") != "sentido"]
+        cuenta: dict = {}
+        for s in suyos:
+            cuenta[s["etiqueta"]] = cuenta.get(s["etiqueta"], 0) + 1
+        otra = max(cuenta, key=lambda k: cuenta[k]) if cuenta else ""
+        for s in suyos:
+            s["etiqueta"] = p["sentido"]
+        if otra and not cx.tocado(pid) \
+                and not any((por_id.get(x.get("seg")) or {}).get("problema_id") == pid
+                            for x in plan["propuestas"]):
+            plan["propuestas"].append({"seg": suyos[0]["id"], "de": p["sentido"], "a": otra,
+                                       "por_que": "según el planificador, ninguno de los argumentos "
+                                                  "de este problema lo funda"})
+        avisos.append(f"problema {pid}: el planificador no dejó ningún argumento que lo funde; "
+                      f"todos llevan «{p['sentido']}», el sentido que fijaste")
     # UNA PROPUESTA ES UNA CALIFICACIÓN (26-sep-2026): el planificador del
     # 642/2024 propuso «fundado → fondo_desestimado» y «→ no_combate», que son
     # RAZONES; el botón del panel pondría eso como sentido. Se traduce a la
@@ -1220,14 +1353,29 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
         if x.get("a") in RAZONES and _implica(x["a"]) not in ("", x["a"]):
             x["por_que"] = _ws(f"({x['a']}) {x.get('por_que') or ''}")[:400]
             x["a"] = _implica(x["a"])
-    plan["propuestas"] = [x for x in plan["propuestas"]
-                          if x.get("seg") in por_id and x.get("a")
-                          and x["a"] != (por_id[x["seg"]].get("etiqueta") or "")
-                          and not cx.tocado(por_id[x["seg"]].get("problema_id"))]
+
+    # UNA PROPUESTA ES DEL PROBLEMA, NO DEL ARGUMENTO (plan-4): el botón del
+    # panel cambia la calificación de todo el problema. Así que «de» es el
+    # sentido del problema, lo que ya es ese sentido no se propone, dos
+    # propuestas iguales para el mismo problema son una, y la que sólo repite
+    # la etiqueta que ya lleva su argumento habla del ARGUMENTO —ya está dicha
+    # en su etiqueta— y no se ofrece como cambio del problema.
+    def _fijado_de(sid):
+        p_ = cx.por_pid.get((por_id.get(sid) or {}).get("problema_id"))
+        return p_["sentido"] if p_ else ""
+    _vistas, _props = set(), []
     for x in plan["propuestas"]:
-        s = por_id.get(x["seg"])
-        if s:
-            x["de"] = s["etiqueta"]
+        if not (x.get("seg") in por_id and x.get("a") and calificacion_conocida(x["a"])):
+            continue
+        _pid = por_id[x["seg"]].get("problema_id")
+        if not _fijado_de(x["seg"]) or x["a"] == _fijado_de(x["seg"]) or cx.tocado(_pid) \
+                or x["a"] == (por_id[x["seg"]].get("etiqueta") or "") \
+                or (_pid, x["a"]) in _vistas:
+            continue
+        _vistas.add((_pid, x["a"]))
+        x["de"] = _fijado_de(x["seg"])
+        _props.append(x)
+    plan["propuestas"] = _props
 
     # (f) `reitera` con ancla propia → desarrolla, con la diferencia del ancla.
     for s in segmentos:
@@ -1888,11 +2036,14 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
         perm = problemas_permitidos(cx.seg_piso.get(sid) or s, cx.probs, cx.n)
         if s.get("problema_id") not in perm:
             f.append(f"{sid}: problema_id {s.get('problema_id')} no es uno de sus problemas posibles ({perm})")
-        # (b) IGUALDAD, no dirección.
+        # (b) COHERENCIA CON EL SENTIDO DEL PROBLEMA (plan-4), no igualdad: la
+        # etiqueta es la calificación del argumento y tiene que caber en el
+        # sentido que el secretario fijó para su problema (`etiqueta_fuera`).
         fijado = (p or {}).get("sentido", "")
-        if fijado and s.get("etiqueta") != fijado:
-            f.append(f"{sid}: etiqueta «{s.get('etiqueta')}» distinta del sentido fijado «{fijado}»; "
-                     f"la diferencia va a propuestas")
+        if fijado and s.get("pendiente") != "sentido":
+            _fe = etiqueta_fuera(s.get("etiqueta"), fijado)
+            if _fe:
+                f.append(f"{sid}: etiqueta «{s.get('etiqueta')}» {_fe}")
         if not fijado and s.get("pendiente") != "sentido":
             f.append(f"{sid}: su problema no tiene sentido fijado; va con pendiente «sentido»")
         # (d) La razón es del catálogo y coherente con la etiqueta. EL PENDIENTE
@@ -1996,6 +2147,14 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
         if sid.startswith("AD") and not cx.alguno_prospera and rz != "adhesivo_sin_materia" \
                 and clase_sentido(s.get("etiqueta")) == NO_SE_ESTUDIA:
             f.append(f"{sid}: si el principal no prospera, el adhesivo queda sin materia (adhesivo_sin_materia)")
+
+    # (b, la otra mitad) UN PROBLEMA QUE PROSPERA LO FUNDA AL MENOS UNO DE SUS
+    # ARGUMENTOS: si todos van en contra, las etiquetas niegan el sentido del
+    # secretario (`reparar` lo devuelve a su sentido y lo propone).
+    for pid in problemas_sin_quien_los_funde(segmentos, cx.probs):
+        f.append(f"problema {pid}: el secretario lo fijó «{cx.por_pid[pid]['sentido']}» y ninguna "
+                 f"etiqueta de sus segmentos lo funda; al menos uno lleva una calificación que "
+                 f"prospera (si crees que el problema no prospera, va a propuestas)")
 
     # (e) Una unidad no mezcla proposición, vicio ni razón (salvo el grupo del
     # secretario, que manda).
@@ -2271,11 +2430,16 @@ def _apartados_estandar(plan: dict, por_id: dict) -> list[dict]:
     return apartados
 
 
-def _linea_seg(s: dict, trat: str, extra: str = "") -> str:
+def _linea_seg(s: dict, trat: str, extra: str = "", sentidos: dict = None) -> str:
     et = s.get("etiqueta") or "sin sentido fijado"
     partes = [f"{trat.upper().replace('_', ' ')} {s['id']}"]
     if s.get("etiqueta"):
-        partes.append(f"etiqueta: {et}")
+        # LA ETIQUETA DEL ARGUMENTO QUE NO ES LA DE SU PROBLEMA SE DICE CON SU
+        # PROBLEMA (plan-4): «infundado dentro del problema 1, fundado» es lo
+        # que el estudio tiene que escribir sin volverlo el sentido de todo.
+        _fp = (sentidos or {}).get(s.get("problema_id"), "")
+        partes.append(f"etiqueta: {et}" + (f" (dentro del problema {s.get('problema_id')}, {_fp})"
+                                             if _fp and _fp != et else ""))
     if s.get("razon"):
         partes.append(f"razón: {s['razon']}" + (f"({s['razon_p']})" if s.get("razon_p") else ""))
     if s.get("ataca"):
@@ -2335,6 +2499,12 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     o = plan.get("orden") or {}
     L.append(f"ORDEN: {'prelación lógica' if o.get('criterio') == 'prelacion' else 'el del escrito'}"
              + (f" · por qué: {o['por_que']}" if o.get("por_que") else ""))
+    # EL SENTIDO DE CADA PROBLEMA, del secretario (plan-4): la etiqueta de cada
+    # argumento es la suya DENTRO de él, y el estudio tiene que ver las dos.
+    _sent = [f"{p['id']} {p['sentido']}" for p in plan.get("problemas") or [] if p.get("sentido")]
+    if _sent:
+        L.append("SENTIDO DE CADA PROBLEMA (del secretario; no se toca): problema "
+                 + " · problema ".join(_sent))
     if props:
         # LO QUE DICE CADA PROPOSICIÓN ES LA PARÁFRASIS DEL PLANIFICADOR, no
         # palabras del acto: sin comillas angulares, que en una sentencia dicen
@@ -2348,6 +2518,7 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     apartado_de: dict = {}       # segmento → apartado donde se contesta
     objecion_puesta: set = set()
     presupuesto: list[str] = []
+    _sentidos_p = {p.get("id"): p.get("sentido") for p in plan.get("problemas") or [] if p.get("sentido")}
 
     def _render_segs(n_ap: int, lista: list, salida: list) -> int:
         palabras = 0
@@ -2389,7 +2560,7 @@ def vista(plan: dict, formato: str = "estandar") -> str:
                     salida.append(_linea_seg(s, "remite", (
                         f"unidad {uid} → apartado {dest}" + (f" ({m['id']})" if m else "")
                         + (f" · proposición: {', '.join(m.get('responde_a') or [])}"
-                           if m and m.get("responde_a") else ""))))
+                           if m and m.get("responde_a") else "")), _sentidos_p))
                     palabras += _PALABRAS["remite"]
                     continue
                 if trat == "remite":
@@ -2405,10 +2576,11 @@ def vista(plan: dict, formato: str = "estandar") -> str:
                     extra.append(f"objeción aquí, una vez: {ob.get('de')}" + (
                         f" ({' | '.join(ob.get('anclas') or [])})" if ob.get("anclas") else ""))
             if s.get("pendiente") == "razon":
-                salida.append(_linea_seg(s, "desarrolla", " · ".join(extra + ["PENDIENTE DE RAZÓN (ver abajo)"])))
+                salida.append(_linea_seg(s, "desarrolla", " · ".join(extra + ["PENDIENTE DE RAZÓN (ver abajo)"]),
+                                         _sentidos_p))
                 palabras += _PALABRAS["pendiente"]
                 continue
-            salida.append(_linea_seg(s, trat, " · ".join(extra)))
+            salida.append(_linea_seg(s, trat, " · ".join(extra), _sentidos_p))
             palabras += _PALABRAS.get("aplica_con_dato" if trat == "aplica" and s.get("dato") else trat, 45)
         return palabras
 
@@ -2508,8 +2680,13 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     if sup:
         L.append("SUPLIDOS SIN BENEFICIO (no se expresan, art. 79, penúltimo párrafo): "
                  + ", ".join(s["id"] for s in sup))
-    if presupuesto:
-        L.append("EXTENSIÓN (techo, no meta): " + " · ".join(presupuesto))
+    # SIN TECHO POR APARTADO (26-sep-2026, David: la brevedad no es el
+    # objetivo). El presupuesto por función (_PALABRAS) era provisional y sin
+    # calibrar, y un «aplica ≤ 45» o «remite ≤ 50» es justo lo que empuja a
+    # contestar en genérico el argumento que trae su dato: la v4 contestó con
+    # respuesta propia el 79 % de los decisivos, frente al 98 % de la v1. Se
+    # sigue calculando por apartado —sirve para medir— pero no entra al guion:
+    # la medida es que cada argumento con dato propio reciba la suya.
     return "\n".join(L)
 
 
@@ -2570,6 +2747,14 @@ o los grupos, manda el guion.
   sólo manda a lo ya dicho lo deja sin respuesta.
 - RESIDUAL: una o dos frases con su calificación y su razón. NO SE ESTUDIA:
   una frase que dice por qué.
+- etiqueta: la calificación de ESE argumento. El sentido de cada problema es
+  el que fijó el secretario (SENTIDO DE CADA PROBLEMA) y no se toca; dentro de
+  él, cada argumento se contesta con su etiqueta: en un problema que prospera
+  caben argumentos infundados o inoperantes junto al que lo funda, y en uno
+  que no prospera el argumento que tiene razón y no alcanza va como fundado
+  pero insuficiente, diciendo por qué no alcanza. Cada apartado abre con la
+  calificación que resulta de sus argumentos —si difieren, cuál corresponde a
+  cada parte— antes de demostrarla.
 - «objeción aquí, una vez»: la objeción seria se contesta en ese punto y en
   ningún otro.
 - «razón del secretario para este argumento»: es la razón que decide ese
@@ -2579,7 +2764,9 @@ o los grupos, manda el guion.
   secretario, y enuméralo PRIMERO en ADVERTENCIAS diciendo que esa respuesta
   debe revisarla él.
 - SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}{_SIN_PREMISA_DESC if _RX_SIN_PREMISA in guion else ""}
-- EXTENSIÓN: techo por apartado, no meta.
+- EXTENSIÓN: la pide lo que cada apartado contesta. Cada argumento con dato
+  propio recibe su respuesta, aunque eso alargue el apartado; lo que no se
+  hace es repetir. El único techo es el del estudio entero, y no es una meta.
 - MARCAS DEL PLAN, además de las de los argumentos y con su mismo formato: el
   párrafo donde construyes una premisa que el guion dice EXPONE lleva en su
   marca el identificador M de esa premisa (junto a los de los argumentos que
