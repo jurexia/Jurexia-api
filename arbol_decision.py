@@ -564,15 +564,17 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     _cambio_via = bool(_via_conocida and not _via_motor and not global_dictado)
     _cand: dict = {}               # problema → {"procesal": bool}
     # LA RAZÓN QUE ÉL TECLEÓ SIN ELEGIR SENTIDO es su palabra aunque la pantalla
-    # no lo marque tocado: no se tumba (se borraría) y se queda como estaba —la
-    # calificación del motor con su razón, y el aviso que la pide revisar—.
-    _razon_suya = {str(_get(c, "problema", "")) for c in criterios
+    # no lo marque tocado. Si ese accesorio se recalifica, se tumba el sentido
+    # pero su razón se queda: el motor la recibe como dato y sólo le pone el
+    # sentido coherente con ella (la razón es suya, el sentido lo pide él).
+    _razon_suya = {str(_get(c, "problema", "")): str(_get(c, "razonamiento", "") or "")
+                   for c in criterios
                    if c is not principal and str(_get(c, "problema", "")) not in _tocados
                    and not str(_get(c, "sentido", "") or "").strip()
                    and str(_get(c, "razonamiento", "") or "").strip()}
 
     def _recal_ok(t: str) -> bool:
-        return _cambio_via and t not in _razon_suya
+        return _cambio_via
 
     # LO QUE LA PANTALLA DEVUELVE VACÍO Y ÉL NO TOCÓ, CON EL PRINCIPAL EN LA
     # VÍA DEL MOTOR, es un tumbado de una vuelta anterior en la otra vía
@@ -941,7 +943,8 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         if _rc is not None:
             _aplicadas, _faltan = _tumbar_y_aplicar(
                 _rc, criterios, _recal, _cand, detalle, principal, p_txt, p_sent, pros,
-                recalificadas, huella_adelanto, tipo_asunto)
+                recalificadas, huella_adelanto, tipo_asunto,
+                {t: r for t, r in _razon_suya.items() if t in _recal})
             if _faltan:
                 avisos.append(
                     f"SE RECALIFICAN CON TU PREMISA {len(_faltan)} planteamiento(s): con el "
@@ -1083,15 +1086,19 @@ def _recalificar_mod():
 
 def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: dict,
                       principal, p_txt: str, p_sent: str, pros: bool,
-                      recalificadas, huella_adelanto: str, tipo_asunto: str) -> tuple:
+                      recalificadas, huella_adelanto: str, tipo_asunto: str,
+                      razon_suya: dict = None) -> tuple:
     """Tumba los de `recal` y aplica la recalificación guardada de la misma
     clave. Devuelve ([(problema, sentido) aplicados], [problemas pendientes]).
 
     Lo recalificado se escribe como el árbol escribe lo suyo: una calificación
     de fondo con su razón; la caída verificada con la fórmula de la caída (el
-    estudio la reconoce por ella); «innecesario» con la de la sustracción."""
+    estudio la reconoce por ella); «innecesario» con la de la sustracción.
+    `razon_suya`: la razón que el secretario tecleó sin elegir sentido; se
+    queda, entra en la clave, y de lo recalificado sólo se toma el sentido."""
+    razon_suya = dict(razon_suya or {})
     k = _rc.clave(p_txt, p_sent, str(_get(principal, "razonamiento", "") or ""), recal,
-                  huella_adelanto, tipo_asunto)
+                  huella_adelanto, tipo_asunto, razones_propias=razon_suya)
     casilla = _rc.casilla_de(recalificadas, k)
     res = dict((casilla or {}).get("resultados") or {})
     por_c = {str(_get(c, "problema", "")): c for c in criterios}
@@ -1102,9 +1109,13 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
         base = {x: prev[x] for x in ("guarda", "relacion") if prev.get(x)}
         base.update({"clave_recalificar": k, "principal": p_txt,
                      "procesal": bool((cand.get(t) or {}).get("procesal"))})
-        # TUMBAR: ni el sentido ni la razón de la otra vía se quedan.
+        _suya = str(razon_suya.get(t) or "").strip()
+        if _suya:
+            base["razon_suya"] = True
+        # TUMBAR: ni el sentido ni la razón de la otra vía se quedan. La razón
+        # que tecleó él, sí.
         _set(c, "sentido", "")
-        _set(c, "razonamiento", "")
+        _set(c, "razonamiento", _suya)
         rt = res.get(t) if isinstance(res.get(t), dict) else None
         s_rt = _sentido_valido((rt or {}).get("sentido"))
         r_rt = str((rt or {}).get("razon") or "").strip()
@@ -1122,8 +1133,8 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
                 _pant = r_rt
             else:
                 _set(c, "sentido", s_rt)
-                _set(c, "razonamiento", r_rt)
-                _pant = r_rt
+                _set(c, "razonamiento", _suya or r_rt)
+                _pant = (f"{s_rt.replace('_', ' ')}, con tu razón" if _suya else r_rt)
             detalle[t] = dict(base, de="recalificada", recalificar=False, recalificada=True,
                               por_que=f"recalificada por el motor con tu premisa: {_pant[:240]}")
             aplicadas.append((t, str(_get(c, "sentido", "") or "")))

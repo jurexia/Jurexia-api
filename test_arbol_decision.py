@@ -441,9 +441,11 @@ ok(r["criterios"][1]["guarda"] == "procesal", "la pantalla recibe también por q
 pant = [dict(crit[0], sentido="infundado", tocado=True),
         dict(crit[1], sentido="", razonamiento="la actora sí ofreció la pericial en tiempo")]
 r = ad.reparto_para_pantalla(pp, pant, [], para_arbol)
-ok(r["criterios"][1]["sentido"] == "infundado"
+# Desde el 26-sep-2026 el sentido de la otra vía se tumba igual; la razón que
+# él tecleó se queda, y la recalificación sólo le pondrá el sentido.
+ok(r["criterios"][1]["sentido"] == "" and r["criterios"][1]["recalificar"]
    and r["criterios"][1]["razonamiento"] == "la actora sí ofreció la pericial en tiempo",
-   "la razón que tecleó el secretario se conserva")
+   "la razón que tecleó el secretario se conserva (y el sentido se recalifica)")
 # Una propuesta guardada ANTES de hoy puede traer la caída que el árbol le
 # escribió: eso no se devuelve como si fuera una calificación.
 cc = [cr(VP1, "infundado", "principal", tocado=True), cr(VP2, "innecesario")]

@@ -147,12 +147,14 @@ def clave_de(detalle: dict) -> str:
 
 
 def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
-          tipo_asunto) -> str:
+          tipo_asunto, razones_propias: dict = None) -> str:
     """LA CLAVE DE UNA RECALIFICACIÓN: el principal, el sentido que fijó el
     secretario y SU razón literal (la premisa), qué accesorios se recalifican,
     el adelanto y el tipo de asunto. Con cualquiera de ellos distinto, la
     recalificación guardada no sirve. Los pendientes se ordenan: el mismo
-    conjunto da la misma clave venga de la pantalla o de los gemelos."""
+    conjunto da la misma clave venga de la pantalla o de los gemelos.
+    `razones_propias`: la razón que el secretario tecleó para un accesorio sin
+    elegir sentido; es dato de la recalificación y entra (sólo si la hay)."""
     base = {"v": VERSION,
             "p": _clave_texto(principal_problema),
             "s": _norm_sentido(sentido),
@@ -160,6 +162,9 @@ def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
             "pend": sorted(_clave_texto(x) for x in (pendientes or [])),
             "h": str(huella_adelanto or ""),
             "t": str(tipo_asunto or "").strip().lower()}
+    _rp = {_clave_texto(k): _ws(v) for k, v in (razones_propias or {}).items() if _ws(v)}
+    if _rp:
+        base["rp"] = sorted(_rp.items())
     return hashlib.sha1(json.dumps(base, ensure_ascii=False, sort_keys=True)
                         .encode()).hexdigest()[:20]
 
@@ -311,10 +316,16 @@ def entradas(r, crit, detalle: dict) -> tuple:
                  "sentido": _norm_sentido(_get(pc, "sentido", "")),
                  "razon": str(_get(pc, "razonamiento", "") or ""), "fase3": f3_p}
     acc = []
+    por_c = {str(_get(c, "problema", "")): c for c in (crit or [])}
     for t in pend:
         n, f3 = _fase3(r, t)
+        d = detalle.get(t) or {}
         acc.append({"problema": t, "numero": n, "fase3": f3,
-                    "procesal": bool((detalle.get(t) or {}).get("procesal"))})
+                    "procesal": bool(d.get("procesal")),
+                    # La razón que tecleó él (el árbol sólo la deja en un tumbado
+                    # cuando es suya): dato, no ancla de la otra vía.
+                    "razon_suya": (str(_get(por_c.get(t), "razonamiento", "") or "")
+                                   if d.get("razon_suya") else "")})
     return principal, acc
 
 
@@ -359,6 +370,10 @@ def prompt(r, material, principal: dict, accesorios: list, contexto: str = "",
         if f3.get("resolvio"):
             L.append(f"  lo que resolvió el órgano: {_ws(f3['resolvio'])[:900]}")
         L.append(f"  se combate diciendo: {_ws(f3.get('combate'))[:1500] or '(la fase 3 no lo resumió)'}")
+        if _ws(a.get("razon_suya")):
+            L.append("  razón que escribió el secretario para este planteamiento (literal; manda: "
+                     "la calificación tiene que ser coherente con ella): "
+                     + _ws(a["razon_suya"])[:1500])
         args = argumentos_de(r, a["numero"], f3)
         if args:
             L.append("  argumentos del escrito:")
@@ -558,7 +573,8 @@ async def recalificar(r, material, principal: dict, accesorios: list[dict], cont
             _h = ""
         clave_ = clave(principal.get("problema", ""), principal.get("sentido", ""),
                        principal.get("razon", ""), [a["problema"] for a in accesorios],
-                       _h, str(getattr(e, "tipo_asunto", "") or ""))
+                       _h, str(getattr(e, "tipo_asunto", "") or ""),
+                       razones_propias={a["problema"]: a.get("razon_suya") for a in accesorios})
     acc = [a for a in accesorios if a.get("problema")]
     if not acc:
         return {"clave": clave_, "estado": "listo", "resultados": {}, "avisos": [],

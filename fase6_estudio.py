@@ -2580,7 +2580,7 @@ def _bloque_sin_calificar(criterios: list) -> str:
                  == "principal" and str(getattr(c, "sentido", "") or "").strip()), None)
     _s = str(getattr(pral, "sentido", "") or "").replace("_", " ")
     _r = " ".join(str(getattr(pral, "razonamiento", "") or "").split())
-    L = ["", "═" * 71, "PLANTEAMIENTOS SIN CALIFICAR", "═" * 71,
+    L = ["", "", "═" * 71, "PLANTEAMIENTOS SIN CALIFICAR", "═" * 71,
          "El secretario resolvió el problema principal en la vía contraria a la que había "
          "propuesto el motor. La calificación que el motor había escrito para estos "
          "planteamientos suponía el principal resuelto al revés y se retiró; la nueva, con su "
