@@ -556,6 +556,13 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         _g = str(getattr(c, "grupo", "") or "").strip()
         lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}]"
                       f"{f' [GRUPO {_g}]' if _g else ''} {c.problema}")
+        if _v2c and not str(c.sentido or "").strip():
+            # SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): lo dice
+            # el bloque de datos que sigue (`_bloque_sin_calificar`). Sólo
+            # desde la v2; la v1 está congelada.
+            lineas.append("   SENTIDO: SIN CALIFICAR (ver «PLANTEAMIENTOS SIN CALIFICAR»)")
+            lineas.append("")
+            continue
         lineas.append(f"   SENTIDO: {c.sentido.upper()}")
         # QUÉ PLANTEAMIENTOS CALIFICA. Es el puente entre el problema, que
         # decide, y el concepto, que es lo que se escribe —en la estándar como
@@ -2557,6 +2564,37 @@ def _techo_palabras(material, criterios) -> int:
     return SOLUCION_P90
 
 
+def _bloque_sin_calificar(criterios: list) -> str:
+    """LOS QUE QUEDARON SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026).
+
+    David: «si cambio sentido hay que tumbar y regenerar con la premisa del
+    cambio de sentido». Si el motor no pudo recalificarlos (dos intentos o 90
+    s), llegan aquí sin sentido: la misma regla que la Decisión 6 del plan —se
+    desarrollan con el material y van PRIMERO en ADVERTENCIAS—. Son DATOS y
+    descripciones: ninguna frase que copiar. Sólo la v2 y lo que se arma
+    sobre ella (v3, v4); la v1, congelada, sólo recibe el aviso al secretario."""
+    sin = [c for c in (criterios or []) if not str(getattr(c, "sentido", "") or "").strip()]
+    if not sin:
+        return ""
+    pral = next((c for c in criterios if str(getattr(c, "jerarquia", "") or "").lower()
+                 == "principal" and str(getattr(c, "sentido", "") or "").strip()), None)
+    _s = str(getattr(pral, "sentido", "") or "").replace("_", " ")
+    _r = " ".join(str(getattr(pral, "razonamiento", "") or "").split())
+    L = ["", "═" * 71, "PLANTEAMIENTOS SIN CALIFICAR", "═" * 71,
+         "El secretario resolvió el problema principal en la vía contraria a la que había "
+         "propuesto el motor. La calificación que el motor había escrito para estos "
+         "planteamientos suponía el principal resuelto al revés y se retiró; la nueva, con su "
+         "premisa, no llegó. Nadie los ha calificado:"]
+    L += [f"  · {getattr(c, 'problema', '')}" for c in sin]
+    L += [f"Premisa, como hecho dado: el principal es {_s or 'el que fijó el secretario'}"
+          + (f", por esta razón del secretario: {_r[:1500]}" if _r else "") + ".",
+          "Cada uno se contesta por lo que él mismo plantea, con el material y con esa premisa; "
+          "la calificación la propones tú y no se presenta como del secretario. En ADVERTENCIAS "
+          "van PRIMERO, cada uno con su calificación y la indicación de que debe confirmarla "
+          "el secretario."]
+    return "\n".join(L)
+
+
 def _apartados_y_resultados(criterios: list) -> tuple:
     """(apartados, resultados distintos), contados sobre el criterio.
 
@@ -2674,7 +2712,10 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
     # copia en la primera línea del estudio (el 93/2026 la trae). La v1 queda
     # como estaba —está congelada—; la v2 lo concuerda (revisión adversarial,
     # 26-sep-2026).
-    calif = re.sub(r"\binnecesario\b", "innecesarios", _calificacion(criterios))
+    # Los SIN CALIFICAR tras el cambio de sentido (26-sep-2026) no entran en la
+    # frase de apertura: no tienen calificación que anunciar.
+    calif = re.sub(r"\binnecesario\b", "innecesarios", _calificacion(
+        [c for c in criterios if str(getattr(c, "sentido", "") or "").strip()] or criterios))
     _formato = _fs_e.normalizar(getattr(material, "formato", ""))
     _moderna = _formato == _fs_e.MODERNA
     _techo = _techo_palabras(material, criterios)
@@ -3173,7 +3214,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_tecnica(_tipo_tec, rama, violacion_procesal)}
 {_bloque_circuito(_tipo_tec, criterios)}
 {_bloque_conceptos(rama, conceptos_violacion, "v2")}
-{_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}
+{_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}{_bloque_sin_calificar(criterios)}
 {_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}

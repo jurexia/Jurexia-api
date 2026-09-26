@@ -459,6 +459,12 @@ def problemas_del_criterio(crit: list, fases) -> list[dict]:
             "razon": str(getattr(elegido, "razonamiento", "") or "") if elegido else "",
             "grupo": str(getattr(elegido, "grupo", "") or "").strip() if elegido else "",
             "por_tema": por_tema,
+            # SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): el
+            # criterio está, pero vacío —el árbol lo tumbó y la recalificación
+            # no llegó—. No es uno que el secretario dejó sin decidir: se
+            # desarrolla con el material y va primero en ADVERTENCIAS.
+            "sin_calificar": bool(elegido is not None
+                                  and not norm_sentido(getattr(elegido, "sentido", ""))),
         })
     # Un criterio que no casó con ningún problema (el camino de un solo
     # sentido, o una pregunta reescrita del todo) se añade como problema
@@ -1085,7 +1091,8 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     cx = _Ctx(crit, segs, fases, material, contexto, suplencia, tocados)
     avisos: list[str] = []
     plan["problemas"] = [{"id": p["id"], "pregunta": p["pregunta"], "sentido": p["sentido"],
-                          "clase": p["clase"], "jerarquia": p["jerarquia"], "grupo": p["grupo"]}
+                          "clase": p["clase"], "jerarquia": p["jerarquia"], "grupo": p["grupo"],
+                          "sin_calificar": bool(p.get("sin_calificar"))}
                          for p in cx.probs]
     plan.setdefault("propuestas", [])
     plan.setdefault("avisos_al_secretario", [])
@@ -1936,7 +1943,15 @@ def vista(plan: dict, formato: str = "estandar") -> str:
             f"{s['id']} ({s.get('diferencia') or 'lo propio del argumento'})" for s in pend)
             + " → desarróllalo con el material sin atribuirle al secretario una razón que no dio; "
               "va PRIMERO en ADVERTENCIAS")
-    sin = [s for s in segs if s.get("pendiente") == "sentido"]
+    # LOS SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026) no son los que
+    # el secretario dejó sin decidir: se desarrollan (ver `bloque`).
+    _sinc = {p.get("id") for p in plan.get("problemas") or [] if p.get("sin_calificar")}
+    sinc = [s for s in segs if s.get("pendiente") == "sentido" and s.get("problema_id") in _sinc]
+    sin = [s for s in segs if s.get("pendiente") == "sentido" and s.get("problema_id") not in _sinc]
+    if sinc:
+        L.append("SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO: " + ", ".join(s["id"] for s in sinc)
+                 + " → desarróllalo con el material y la premisa del principal; va PRIMERO "
+                   "en ADVERTENCIAS")
     if sin:
         L.append("SIN SENTIDO FIJADO: " + ", ".join(s["id"] for s in sin)
                  + " → no lo califiques; va en ADVERTENCIAS")
@@ -1967,6 +1982,19 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     if presupuesto:
         L.append("EXTENSIÓN (techo, no meta): " + " · ".join(presupuesto))
     return "\n".join(L)
+
+
+# SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): su descripción sólo
+# entra cuando el guion trae el rótulo, para que la v4 de siempre no cambie.
+_RX_SIN_CALIFICAR = "SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO:"
+_SIN_CALIFICAR_DESC = """
+- SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO: el secretario resolvió el principal
+  al revés de lo que propuso el motor y la calificación de esos argumentos se
+  retiró sin que llegara la nueva. Contéstalos en un apartado propio, en el
+  orden de su problema, por lo que ellos mismos plantean y con el sentido y la
+  razón del principal como hechos dados; la calificación la propones tú, sin
+  presentarla como del secretario, y van PRIMERO en ADVERTENCIAS diciendo que
+  debe confirmarla él."""
 
 
 def bloque(guion: str) -> str:
@@ -2008,7 +2036,7 @@ o los grupos, manda el guion.
   Contéstalo con el material, sin presentar tu respuesta como razón del
   secretario, y enuméralo PRIMERO en ADVERTENCIAS diciendo que esa respuesta
   debe revisarla él.
-- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.
+- SIN SENTIDO FIJADO: no lo califiques; dilo en ADVERTENCIAS.{_SIN_CALIFICAR_DESC if _RX_SIN_CALIFICAR in guion else ""}
 - EXTENSIÓN: techo por apartado, no meta.
 - MARCAS DEL PLAN, además de las de los argumentos y con su mismo formato: el
   párrafo donde construyes una premisa que el guion dice EXPONE lleva en su

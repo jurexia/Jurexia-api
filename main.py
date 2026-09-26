@@ -32092,9 +32092,15 @@ def _taller_glob(global_json: str, ses) -> dict:
 def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: str = "",
                            razonamiento: str = "", criterios_json: str = "",
                            usar_propuesta: bool = False, modo_decision: str = "",
-                           sentido_global: str = "", global_dictado: str = "") -> dict:
+                           sentido_global: str = "", global_dictado: str = "",
+                           recalificadas: dict = None) -> dict:
     """{"crit", "avisos_r" (van a r.avisos), "avisos_modo" (el reparto global),
-    "avisos_fases" (árbol y desenlace), "tocados"}."""
+    "avisos_fases" (árbol y desenlace), "tocados", "detalle" (el del árbol:
+    quién se tumbó para recalificar y con qué clave), "huella"}.
+
+    `recalificadas` (26-sep-2026): lo que el motor recalificó con la premisa
+    del cambio de sentido —una casilla o la rama de la fila—; el árbol aplica
+    la de la MISMA clave. Ver `recalificar.py` y `_taller_recalificar_para`."""
     import fase6_estudio as _f6
     _glob = glob or {}
     avisos_r: list = []
@@ -32102,6 +32108,8 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
     avisos_fases: list = []
     _modo = (modo_decision or "").strip().lower()
     criterios_json = criterios_json or ""
+    _sin_sentido: list = []        # los que él dejó sin sentido (por problema)
+    _dictado = False               # el sentido del asunto lo dictó él (global)
     # EL GRUPO DE CADA PROBLEMA, de todas las entradas —con sentido o sin él—.
     _grupos: dict = {}
     try:
@@ -32125,8 +32133,20 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
         # demostrar— pero lo dice.
         _todos = _datos if isinstance(_datos, list) else []
         _todos = [d for d in _todos if isinstance(d, dict)]
+
+        # LO QUE LA PANTALLA DEVUELVE VACÍO Y MARCA «tocado: false» lo dejó
+        # vacío la máquina (26-sep-2026): un accesorio que el árbol tumbó para
+        # recalificarlo con la premisa del cambio de sentido. Pasa al árbol,
+        # que lo vuelve a tumbar —y le aplica lo recalificado— o, si el
+        # principal volvió a la vía del motor, le devuelve lo que el motor
+        # propuso. Lo que se quede vacío después se dice como siempre. Un
+        # cliente que no manda `tocado` no cambia en nada.
+        def _de_la_maquina(d) -> bool:
+            return (not str(d.get("sentido", "")).strip()
+                    and d.get("tocado") in (False, 0, "0", "false", "no"))
+
         _sin_sentido = [str(d.get("problema", ""))[:120] for d in _todos
-                        if not str(d.get("sentido", "")).strip()]
+                        if not str(d.get("sentido", "")).strip() and not _de_la_maquina(d)]
         crit = [_f6.Criterio(problema=str(d.get("problema", ""))[:400],
                              sentido=str(d.get("sentido", "")).strip().lower(),
                              razonamiento=str(d.get("razonamiento", "")),
@@ -32136,17 +32156,8 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
                              grupo=str(d.get("grupo", "") or "").strip(),
                              prediccion=d.get("prediccion") or {})
                 for d in _todos
-                if str(d.get("sentido", "")).strip()]
-        if _sin_sentido:
-            print(f"   ⚠️ TALLER: {len(_sin_sentido)} problema(s) sin sentido, "
-                  f"fuera del estudio")
-            avisos_r.append(
-                f"NO SE ESTUDIARON {len(_sin_sentido)} PLANTEAMIENTO(S) "
-                f"porque se quedaron sin sentido asignado: "
-                + " · ".join(f"«{x}»" for x in _sin_sentido[:3])
-                + ". Vuelve a la pantalla del criterio, decídelos y genera "
-                  "otra vez, o confirma que no había que contestarlos.")
-        if not crit:
+                if str(d.get("sentido", "")).strip() or _de_la_maquina(d)]
+        if not any(str(c.sentido or "").strip() for c in crit):
             raise HTTPException(422, "criterios_json no trae ningún sentido.")
     elif _modo == "global":
         # EL SENTIDO GLOBAL: el secretario dicta uno para el proyecto entero y
@@ -32180,12 +32191,15 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
         # EL TEMA DISTINTO NO SE DECLARA INNECESARIO. Viaja en `global_json`.
         _distintos = _md.temas_distintos_de(
             (_glob or {}).get("checklist") or [], _probs_g)
+        # SU BROCHA ES SU PALABRA (26-sep-2026): con el global dictado, el
+        # árbol no recalifica nada aunque el principal vaya al revés del motor.
+        _dictado = str(global_dictado).strip().lower() in ("1", "true", "si", "sí")
         _rep, _av_modo = _md.repartir(
             _probs_g, _md.GLOBAL, sentido_global.strip().lower(), _props_g,
             _califs,
             # ¿LO DICTÓ ÉL, O LO PUSO LA PANTALLA? Si lo eligió a propósito, su
             # sentido global manda sobre lo que el motor propuso por problema.
-            global_dictado=str(global_dictado).strip().lower() in ("1", "true", "si", "sí"),
+            global_dictado=_dictado,
             temas_distintos=_distintos,
             tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
@@ -32260,9 +32274,18 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
     # qué marcó el secretario a mano —eso no se toca—.
     _toc_ad = _taller_tocados(criterios_json, crit, modo_decision,
                               usar_propuesta, sentido)
+    # LA HUELLA DEL ADELANTO entra en la clave de la recalificación: la misma
+    # en las cuatro puertas (los dos gemelos, /taller/reparto y
+    # /taller/recalificar), porque se calcula aquí.
+    try:
+        import taller_estado as _te_ac
+        _huella_ac = _te_ac.huella_contraste(r)
+    except Exception:
+        _huella_ac = ""
+    _det_ad: dict = {}
     try:
         import arbol_decision as _ad
-        _av_ad, _ = _ad.aplicar(
+        _av_ad, _det_ad = _ad.aplicar(
             list(r.fases.problemas or []), crit,
             (_glob or {}).get("checklist") or [],
             [{"problema": _p.problema, "sentido": _p.sentido,
@@ -32274,12 +32297,37 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
               "razon_propia": getattr(_p, "razon_propia", "") or ""}
              for _p in (ses.get("propuestas") or [])],
             tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
+            # EL CAMBIO DE SENTIDO (26-sep-2026): lo recalificado con la
+            # premisa del secretario, y cuándo no se recalifica nada.
+            recalificadas=recalificadas, huella_adelanto=_huella_ac,
+            global_dictado=bool(_dictado and (sentido_global or "").strip()),
             tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         for _a in _av_ad:
             print(f"   🌳 ÁRBOL: {_a[:160]}")
             avisos_fases.append(_a)
     except Exception as _ead:
         print(f"   ⚠️ ÁRBOL: no se pudo aplicar la suerte de los accesorios: {err(_ead)}")
+    # LO QUE SIGUE VACÍO Y NO ESTÁ POR RECALIFICAR no se estudia, y se dice: son
+    # los que él dejó sin sentido y los que la máquina dejó vacíos sin que el
+    # árbol les encontrara calificación. Los tumbados por recalificar se
+    # quedan: los recalifica el motor o, si no llega, el estudio los desarrolla
+    # con el material y los pone primero en ADVERTENCIAS.
+    _huecos = [c for c in crit if not str(c.sentido or "").strip()
+               and not (_det_ad.get(str(c.problema)) or {}).get("recalificar")]
+    if _huecos:
+        crit = [c for c in crit if c not in _huecos]
+        _sin_sentido = _sin_sentido + [str(c.problema)[:120] for c in _huecos]
+    if _sin_sentido:
+        print(f"   ⚠️ TALLER: {len(_sin_sentido)} problema(s) sin sentido, "
+              f"fuera del estudio")
+        avisos_r.append(
+            f"NO SE ESTUDIARON {len(_sin_sentido)} PLANTEAMIENTO(S) "
+            f"porque se quedaron sin sentido asignado: "
+            + " · ".join(f"«{x}»" for x in _sin_sentido[:3])
+            + ". Vuelve a la pantalla del criterio, decídelos y genera "
+              "otra vez, o confirma que no había que contestarlos.")
+    if not crit:
+        raise HTTPException(422, "criterios_json no trae ningún sentido.")
     # ═══ EL DESENLACE LO DICTA LA TARJETA FINAL ═══════════════════════════
     # Sólo cuando HAY tarjeta global —dictada o del motor—; en la vía por
     # problema sus marcas son la tarjeta y no se tocan.
@@ -32302,7 +32350,8 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
     except Exception as _edz:
         print(f"   ⚠️ DESENLACE: no se pudo reconciliar con la tarjeta: {err(_edz)}")
     return {"crit": crit, "avisos_r": avisos_r, "avisos_modo": avisos_modo,
-            "avisos_fases": avisos_fases, "tocados": _toc_ad}
+            "avisos_fases": avisos_fases, "tocados": _toc_ad,
+            "detalle": _det_ad, "huella": _huella_ac}
 
 
 # ═══ EL PLAN DEL ESTUDIO: ESTADO, ESPERA Y DISPAROS (Paso 2, 26-sep-2026) ════
@@ -32613,6 +32662,240 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
     # (expedientes, cifras); al registro sólo va cuántos hubo.
     print(f"   🧭 PLAN de {numero}: sin plan, va la v3 · {len(avisos)} aviso(s)")
     return {"estado": "sin_plan", "clave": k, "avisos": avisos}
+
+
+# ═══ RECALIFICAR CON LA PREMISA DEL CAMBIO DE SENTIDO (26-sep-2026) ═════════
+# David: «si cambio sentido hay que tumbar y regenerar con la premisa del cambio
+# de sentido». El árbol (`arbol_decision.aplicar`) TUMBA los accesorios cuya
+# calificación se escribió para la otra vía; aquí se REGENERAN con el modelo
+# de las fases (`recalificar.py`). El estado vive en la columna
+# `taller_sesiones.plan`, rama `recalificaciones`, con el MISMO compare-and-set
+# por `rev` que el plan (gunicorn -w 2: nada en memoria). Lo usan
+# /taller/recalificar (la pantalla), los dos gemelos del resolver —dentro de
+# la tarea y ANTES del plan, porque la clave del plan lleva el criterio ya
+# recalificado— y /taller/plan/pedir, que no pide plan sobre un criterio con
+# recalificación pendiente.
+
+def _taller_recalificadas_guardadas(email: str, numero: str, huella: str) -> dict:
+    """{clave: casilla} de lo recalificado en ESTE adelanto (para el árbol).
+    Nunca lanza: sin base o sin columna, {} y el árbol deja los tumbados."""
+    try:
+        import recalificar as _rc
+        return _rc.guardadas(_taller_plan_leer(email, numero), huella)
+    except Exception as ex:
+        print(f"   ⚠️ RECALIFICAR: no se pudo leer lo guardado de {numero}: {err(ex)}")
+        return {}
+
+
+async def _taller_recalificar_correr(email: str, numero: str, r, ses, arm: dict, k: str,
+                                     huella: str, *, contexto: str = "", suplencia=None,
+                                     persistir: bool = True) -> dict:
+    """UNA corrida de la recalificación (una llamada y, si la validación no
+    pasa, un reintento; 90 s como mucho) con latido, y su resultado a SU
+    casilla. Nunca lanza."""
+    import recalificar as _rc
+    t0 = time.time()
+    principal, accesorios = _rc.entradas(r, arm.get("crit"), arm.get("detalle") or {})
+    tarea = asyncio.ensure_future(_rc.recalificar(
+        r, (ses or {}).get("material"), principal, accesorios, contexto, suplencia or {},
+        cliente=chat_client, clave_=k))
+    while True:
+        hechas, _ = await asyncio.wait({tarea}, timeout=_rc.LATIDO_S)
+        if hechas:
+            break
+        if persistir:
+            _taller_plan_cas(email, numero, lambda d: _rc.fila_latido(d, k, huella, time.time()))
+    try:
+        salida = tarea.result()
+    except Exception as ex:
+        salida = {"clave": k, "estado": "error", "resultados": {},
+                  "avisos": [f"la recalificación falló ({type(ex).__name__})"]}
+    _seg = time.time() - t0
+    # HIGIENE DE REGISTROS: sólo números y la clave.
+    print(f"   🔁 RECALIFICAR {numero}: {salida.get('estado')} en {_seg:.0f} s · "
+          f"{len(salida.get('resultados') or {})} de {len(accesorios)} · "
+          f"{salida.get('intentos', 0)} intento(s) · clave {k[:8]}")
+    if persistir:
+        _taller_plan_cas(email, numero, lambda d: _rc.fila_resultado(
+            d, k, huella, salida, _seg, time.time()))
+    return salida
+
+
+def _taller_recalificar_lanzar(email: str, numero: str, r, ses, arm: dict, k: str,
+                               huella: str, **kw):
+    """La corrida retenida: si quien espera se cansa, sigue y deja su
+    resultado en la fila para la siguiente petición."""
+    t = asyncio.ensure_future(_taller_recalificar_correr(email, numero, r, ses, arm, k,
+                                                         huella, **kw))
+    _TALLER_EN_MARCHA.add(t)
+    t.add_done_callback(_TALLER_EN_MARCHA.discard)
+    return t
+
+
+async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: dict,
+                                   form: dict, arm: dict, *, contexto: str = "",
+                                   suplencia=None, tope_s: float = None,
+                                   al_esperar=None) -> dict:
+    """LA RECALIFICACIÓN DE ESTE CRITERIO: la guardada con la misma clave, la
+    que está en curso (se espera, no se duplica) o una nueva, calculada aquí.
+    Con lo recalificado, el criterio se vuelve a armar —con la MISMA función y
+    el MISMO formulario— para que el árbol lo aplique.
+
+    → {"arm": el criterio (el mismo si no hay nada que aplicar), "estado":
+       "sin_cambios"|"listo"|"en_curso"|"fallo", "clave", "avisos"}
+    `al_esperar` se llama una vez si hay que esperar o calcular (el evento
+    «recalificando» del gemelo de flujo). Nunca lanza."""
+    import recalificar as _rc
+    det = arm.get("detalle") or {}
+    k = _rc.clave_de(det)
+    if not _rc.pendientes(det):
+        return {"arm": arm, "estado": "listo" if _rc.tumbados(det) else "sin_cambios",
+                "clave": k, "avisos": []}
+    huella = arm.get("huella") or _te.huella_contraste(r)
+    tope = _rc.TOPE_S if tope_s is None else float(tope_s)
+    t0 = time.time()
+    salida, avisos, estado = None, [], "fallo"
+    _avisado = []
+
+    def _avisar():
+        if al_esperar is not None and not _avisado:
+            _avisado.append(1)
+            try:
+                al_esperar()
+            except Exception:
+                pass
+
+    try:
+        while True:
+            _, dec = _taller_plan_cas(user_email, numero, lambda d: _rc.fila_pedir(
+                d, k, huella, time.time()))
+            if dec in ("listo", "fallo"):
+                salida = _rc.guardadas(_taller_plan_leer(user_email, numero), huella).get(k)
+                if not salida:
+                    avisos.append("ya se intentó recalificar con esta premisa y no pasó la "
+                                  "validación; no se vuelve a intentar")
+                break
+            if dec == "en_curso":
+                # LA MISMA PREMISA YA SE ESTÁ RECALIFICANDO (la pantalla la pidió,
+                # u otro worker): se espera, nunca se duplica.
+                _avisar()
+                while time.time() - t0 < tope:
+                    await asyncio.sleep(max(0.05, min(2.0, tope - (time.time() - t0))))
+                    doc = await asyncio.to_thread(_taller_plan_leer, user_email, numero)
+                    if _rc.estado_de(doc, huella, k, time.time())["estado"] != "en_curso":
+                        break
+                if time.time() - t0 >= tope:
+                    avisos.append(f"la recalificación no llegó en {tope:.0f} s")
+                    estado = "en_curso"
+                    break
+                continue
+            if dec == "tope":
+                avisos.append(f"se agotaron las {_rc.TOPE_CORRIDAS} recalificaciones de este "
+                              f"adelanto")
+                break
+            # «lanzar», o sin base / sin columna / sin fila: se calcula aquí; sin
+            # base no hay reutilización, pero sirve a esta petición.
+            _avisar()
+            tarea = _taller_recalificar_lanzar(user_email, numero, r, ses, arm, k, huella,
+                                               contexto=contexto, suplencia=suplencia,
+                                               persistir=(dec == "lanzar"))
+            _resto = max(0.05, tope + 10 - (time.time() - t0))
+            hechas, _ = await asyncio.wait({asyncio.shield(tarea)}, timeout=_resto)
+            if hechas:
+                salida = tarea.result()
+            else:
+                avisos.append(f"la recalificación no llegó en {tope:.0f} s")
+                estado = "en_curso"
+            break
+    except Exception as ex:
+        print(f"   ⚠️ RECALIFICAR {numero}: {err(ex)}")
+        avisos.append(f"la recalificación falló ({type(ex).__name__})")
+    if isinstance(salida, dict):
+        avisos = list(salida.get("avisos") or []) + avisos
+        estado = "listo" if salida.get("estado") == "listo" else "fallo"
+    nuevo = arm
+    if isinstance(salida, dict) and salida.get("resultados"):
+        try:
+            nuevo = _taller_armar_criterio(r, ses, glob, **form, recalificadas={k: salida})
+        except Exception as ex:
+            print(f"   ⚠️ RECALIFICAR {numero}: no se pudo volver a armar el criterio: {err(ex)}")
+            nuevo = arm
+    if _rc.pendientes(nuevo.get("detalle") or {}) and estado == "listo":
+        estado = "fallo"
+    return {"arm": nuevo, "estado": estado, "clave": k, "avisos": avisos[:20]}
+
+
+def _taller_recalificado_al_resolver(r, arm: dict, out: dict, crit: list) -> None:
+    """Lo que el gemelo hace con la recalificación, IGUAL en los dos: el
+    criterio nuevo sustituye EN SITIO al viejo (el flujo lo tiene capturado),
+    los avisos del árbol viejo salen y entran los nuevos, y lo que quedó SIN
+    CALIFICAR se le dice al secretario —en todas las variantes; la v1,
+    congelada, sólo recibe esto—."""
+    import recalificar as _rc
+    nuevo = out.get("arm") or arm
+    if nuevo is not arm:
+        crit[:] = list(nuevo.get("crit") or [])
+        try:
+            for _a in arm.get("avisos_fases") or []:
+                if _a in (r.fases.avisos or []):
+                    r.fases.avisos.remove(_a)
+            for _a in nuevo.get("avisos_fases") or []:
+                if _a not in (r.fases.avisos or []):
+                    r.fases.avisos.append(_a)
+        except Exception:
+            pass
+    pend = _rc.pendientes(nuevo.get("detalle") or {})
+    try:
+        for _a in out.get("avisos") or []:
+            r.avisos.append(f"RECALIFICACIÓN: {_a}")
+        if pend:
+            _pral = next((c for c in crit if str(getattr(c, "jerarquia", "")).lower()
+                          == "principal"), None)
+            r.avisos.append(_rc.aviso_sin_calificar(pend, getattr(_pral, "sentido", "")))
+    except Exception:
+        pass
+
+
+def _taller_criterios_pantalla(arm: dict) -> list:
+    """Los criterios como los devuelve /taller/reparto, desde el criterio
+    armado: con de/por_que/guarda/relacion y las marcas de recalificación."""
+    import arbol_decision as _ad
+    toc = set(arm.get("tocados") or set())
+    det = arm.get("detalle") or {}
+    fuera = []
+    for c in arm.get("crit") or []:
+        t = str(getattr(c, "problema", ""))
+        d = {"problema": t, "sentido": str(getattr(c, "sentido", "") or ""),
+             "razonamiento": str(getattr(c, "razonamiento", "") or ""),
+             "jerarquia": str(getattr(c, "jerarquia", "") or "accesorio"),
+             "tocado": t in toc, "grupo": str(getattr(c, "grupo", "") or "")}
+        fuera.append(_ad._pantalla(d, det.get(t) or {}))
+    return fuera
+
+
+def _taller_recalificado_al_pedir(email: str, numero: str, r, ses, glob: dict, form: dict,
+                                  arm: dict) -> tuple:
+    """(criterio, falta) para /taller/plan/pedir: la clave del plan lleva el
+    criterio YA recalificado, así que con una recalificación pendiente no se
+    pide plan (se pediría sobre los tumbados y el resolver no lo usaría). Con
+    la guardada, se aplica; si ya falló, el plan va con los tumbados sin
+    calificar, que es con lo que se generará."""
+    import recalificar as _rc
+    det = arm.get("detalle") or {}
+    if not _rc.pendientes(det):
+        return arm, False
+    k = _rc.clave_de(det)
+    huella = arm.get("huella") or _te.huella_contraste(r)
+    doc = _taller_plan_leer(email, numero)
+    casilla = _rc.guardadas(doc, huella).get(k)
+    if casilla:
+        try:
+            nuevo = _taller_armar_criterio(r, ses, glob, **form, recalificadas={k: casilla})
+        except Exception:
+            nuevo = arm
+        return nuevo, bool(_rc.pendientes(nuevo.get("detalle") or {})
+                           and casilla.get("estado") not in ("listo", "fallo"))
+    return arm, _rc.estado_de(doc, huella, k, time.time())["estado"] != "fallo"
 
 
 def _taller_plan_adelantar(email: str) -> bool:
@@ -34566,6 +34849,11 @@ async def taller_reparto(
         except Exception:
             _glob = {}
     import arbol_decision as _ad
+    # EL CAMBIO DE SENTIDO (26-sep-2026): los accesorios que el árbol tumba
+    # vuelven vacíos con `recalificar: true`; si ya hay una recalificación
+    # guardada con la misma clave, vuelven con ella. Aquí no se llama a ningún
+    # modelo: la pantalla la pide a /taller/recalificar.
+    _huella_rp = _te.huella_contraste(r)
     return _ad.reparto_para_pantalla(
         list(r.fases.problemas or []),
         [d for d in _lista if isinstance(d, dict)],
@@ -34579,6 +34867,8 @@ async def taller_reparto(
           "razon_propia": getattr(_p, "razon_propia", "") or ""}
          for _p in (ses.get("propuestas") or [])],
         sentido_motor=str((_glob or {}).get("sentido") or ""),
+        recalificadas=_taller_recalificadas_guardadas(user_email, numero, _huella_rp),
+        huella_adelanto=_huella_rp,
         # LA GUARDA PROCESAL ES DEL AMPARO DIRECTO (26-sep-2026): el árbol
         # tiene que saber el tipo para no sacar una violación procesal.
         tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
@@ -35589,15 +35879,86 @@ async def taller_plan_pedir(
     import suplencia as _sp_p
     r = ses["resultado"]
     _glob = _taller_glob(global_json, ses)
-    arm = _taller_armar_criterio(
-        r, ses, _glob, sentido=sentido, problema=problema, razonamiento=razonamiento,
-        criterios_json=criterios_json, usar_propuesta=usar_propuesta,
-        modo_decision=modo_decision, sentido_global=sentido_global,
-        global_dictado=global_dictado)
+    _form_pp = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
+                    criterios_json=criterios_json, usar_propuesta=usar_propuesta,
+                    modo_decision=modo_decision, sentido_global=sentido_global,
+                    global_dictado=global_dictado)
+    arm = _taller_armar_criterio(r, ses, _glob, **_form_pp)
+    # LA CLAVE DEL PLAN LLEVA EL CRITERIO YA RECALIFICADO (26-sep-2026): con
+    # una recalificación pendiente, el plan se pide cuando termine.
+    arm, _falta_rc = _taller_recalificado_al_pedir(user_email, numero, r, ses, _glob,
+                                                   _form_pp, arm)
+    if _falta_rc:
+        return {"estado": "sin_plan", "clave": "",
+                "avisos": ["hay accesorios recalificándose con tu premisa; el plan se pide "
+                           "cuando terminen"]}
     return await _taller_plan_pedido(
         user_email, numero, r, ses, arm, contexto=_con_autos(r, contexto),
         suplencia=_sp_p.leer(suplencia), formato=formato,
         conceptos_violacion=conceptos_violacion, checklist=_glob.get("checklist"))
+
+
+@app.post("/taller/recalificar")
+async def taller_recalificar(
+    numero: str = Form(...),
+    user_email: str = Form(...),
+    # EL MISMO FORMULARIO QUE LOS GEMELOS Y /taller/plan/pedir: sin él, el
+    # criterio de aquí no sería el del resolver y la clave no casaría.
+    criterios_json: str = Form(""),
+    global_json: str = Form(""),
+    modo_decision: str = Form(""),
+    sentido_global: str = Form(""),
+    global_dictado: str = Form(""),
+    usar_propuesta: bool = Form(False),
+    sentido: str = Form(""),
+    problema: str = Form(""),
+    razonamiento: str = Form(""),
+    contexto: str = Form(""),
+    suplencia: str = Form(""),
+    formato: str = Form(""),
+):
+    """RECALIFICAR CON LA PREMISA DEL CAMBIO DE SENTIDO (26-sep-2026).
+
+    David: «si cambio sentido hay que tumbar y regenerar con la premisa del
+    cambio de sentido». La pantalla lo pide cuando la razón del principal está
+    estable. Arma el criterio como los gemelos; si el árbol tumbó accesorios,
+    usa la recalificación guardada con la misma clave, espera la que está en
+    curso o la calcula, y devuelve los criterios como /taller/reparto, ya con
+    lo recalificado aplicado. Espera como mucho 90 s. No cobra.
+
+    → {"estado": "listo"|"sin_cambios"|"en_curso"|"fallo", "clave",
+       "criterios": [...], "avisos": [...]}"""
+    _taller_puerta(user_email)
+    ses = _taller_recuperar_sesion(user_email, numero)
+    if not ses:
+        raise HTTPException(404, "No hay un adelanto reciente de ese expediente.")
+    r = ses["resultado"]
+    if "material" not in ses and ses.get("consultado"):
+        # La consulta la hizo otro worker: se rehace, como en los gemelos. La
+        # recalificación ve el material que verá el estudio.
+        try:
+            import redactor_adelanto as _ra_rc
+            ses["material"] = await _ra_rc.consultar(
+                qdrant_client, _embedding_juris,
+                lambda t: get_dense_embedding(t, modelo=EMBEDDING_MODEL),
+                r, chat_client)
+        except Exception as ex:
+            print(f"   ⚠️ RECALIFICAR {numero}: sin el acervo ({err(ex)}); se recalifica sin él")
+    import suplencia as _sp_rc
+    _glob = _taller_glob(global_json, ses)
+    _form_rc = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
+                    criterios_json=criterios_json, usar_propuesta=usar_propuesta,
+                    modo_decision=modo_decision, sentido_global=sentido_global,
+                    global_dictado=global_dictado)
+    arm = _taller_armar_criterio(r, ses, _glob, **_form_rc)
+    out = await _taller_recalificar_para(
+        user_email, numero, r, ses, _glob, _form_rc, arm,
+        contexto=_con_autos(r, contexto), suplencia=_sp_rc.leer(suplencia))
+    a2 = out["arm"]
+    return {"estado": out["estado"], "clave": out["clave"],
+            "criterios": _taller_criterios_pantalla(a2),
+            "avisos": list(a2.get("avisos_modo") or []) + list(a2.get("avisos_fases") or [])
+                      + list(out.get("avisos") or [])}
 
 
 @app.post("/taller/resolver/stream")
@@ -35764,11 +36125,13 @@ async def taller_resolver_stream(
     # precálculo del plan. Si cada puerta armara el suyo, la clave del plan
     # adelantado no casaría con la del resolver —o, peor, casaría con otro
     # criterio—. Los avisos vuelven en listas y van donde iban.
-    _arm = _taller_armar_criterio(
-        r, ses, _glob, sentido=sentido, problema=problema, razonamiento=razonamiento,
-        criterios_json=criterios_json, usar_propuesta=usar_propuesta,
-        modo_decision=modo_decision, sentido_global=sentido_global,
-        global_dictado=global_dictado)
+    # EL FORMULARIO, EN UN SOLO DICCIONARIO: la recalificación (26-sep-2026)
+    # vuelve a armar el criterio con él, y tiene que ser el mismo.
+    _form_crit = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
+                      criterios_json=criterios_json, usar_propuesta=usar_propuesta,
+                      modo_decision=modo_decision, sentido_global=sentido_global,
+                      global_dictado=global_dictado)
+    _arm = _taller_armar_criterio(r, ses, _glob, **_form_crit)
     crit = _arm["crit"]
     for _a in _arm["avisos_r"]:
         try:
@@ -35815,6 +36178,21 @@ async def taller_resolver_stream(
 
     async def _trabajar():
         try:
+            # EL CAMBIO DE SENTIDO (26-sep-2026), DENTRO DE LA TAREA y SIEMPRE
+            # ANTES DEL PLAN: la clave del plan lleva el criterio ya
+            # recalificado. Si el árbol tumbó accesorios, se usa la
+            # recalificación guardada con la misma clave, se espera la que está
+            # en curso o se calcula aquí (90 s como mucho); mientras, la
+            # pantalla ve «recalificando». Si no llega, quedan SIN CALIFICAR y
+            # se dice.
+            def _al_recalificar():
+                _cola.put_nowait({"tipo": "recalificando"})
+            _rc_out = await _taller_recalificar_para(
+                user_email, numero, r, ses, _glob, _form_crit, _arm,
+                contexto=_con_autos(r, contexto),
+                suplencia=getattr(getattr(r, "encargo", None), "suplencia", None),
+                al_esperar=_al_recalificar)
+            _taller_recalificado_al_resolver(r, _arm, _rc_out, crit)
             # EL PLAN DEL ESTUDIO (v4), DENTRO DE LA TAREA y nunca antes de las
             # cabeceras: la pasarela corta a los ~280 s y el plan puede tardar
             # hasta 120. Mientras, la pantalla ve «ordenando». Fuera de la v4
@@ -36243,11 +36621,13 @@ async def taller_resolver(
     # precálculo del plan. Si cada puerta armara el suyo, la clave del plan
     # adelantado no casaría con la del resolver —o, peor, casaría con otro
     # criterio—. Los avisos vuelven en listas y van donde iban.
-    _arm = _taller_armar_criterio(
-        r, ses, _glob, sentido=sentido, problema=problema, razonamiento=razonamiento,
-        criterios_json=criterios_json, usar_propuesta=usar_propuesta,
-        modo_decision=modo_decision, sentido_global=sentido_global,
-        global_dictado=global_dictado)
+    # EL FORMULARIO, EN UN SOLO DICCIONARIO, como en el gemelo de flujo: la
+    # recalificación vuelve a armar el criterio con él.
+    _form_crit = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
+                      criterios_json=criterios_json, usar_propuesta=usar_propuesta,
+                      modo_decision=modo_decision, sentido_global=sentido_global,
+                      global_dictado=global_dictado)
+    _arm = _taller_armar_criterio(r, ses, _glob, **_form_crit)
     crit = _arm["crit"]
     for _a in _arm["avisos_r"]:
         try:
@@ -36274,6 +36654,14 @@ async def taller_resolver(
         print(f"   ⚖️ TALLER: marco jurídico de {len(_marco)} caracteres "
               f"· {time.time() - _t0_marco:.1f}s")
 
+    # EL CAMBIO DE SENTIDO (26-sep-2026), igual que en el gemelo de flujo pero
+    # sin evento, y SIEMPRE ANTES DEL PLAN: la clave del plan lleva el
+    # criterio ya recalificado.
+    _rc_out = await _taller_recalificar_para(
+        user_email, numero, r, ses, _glob, _form_crit, _arm,
+        contexto=_con_autos(r, contexto),
+        suplencia=getattr(getattr(r, "encargo", None), "suplencia", None))
+    _taller_recalificado_al_resolver(r, _arm, _rc_out, crit)
     # EL PLAN DEL ESTUDIO (v4), igual que en el gemelo de flujo pero sin
     # evento: este camino no emite nada hasta el final.
     await _taller_plan_para(user_email, numero, r, ses, crit,
