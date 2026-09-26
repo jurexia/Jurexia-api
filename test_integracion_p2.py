@@ -289,11 +289,13 @@ class _Parar(Exception):
 
 async def _resolver_espia(*a, **k):
     LLAMADAS["resolver"] += 1
+    LLAMADAS.setdefault("cv", []).append(a[1].encargo.conceptos_violacion)
     raise _Parar()
 
 
 async def _en_vivo_espia(*a, **k):
     LLAMADAS["en_vivo"] += 1
+    LLAMADAS.setdefault("cv", []).append(a[1].encargo.conceptos_violacion)
     yield {"tipo": "componiendo"}
 
 
@@ -552,6 +554,67 @@ ok(_g_q3 == {Q1: "A", Q2: "", Q3: "A"}
 _arm_q0 = NS["_taller_armar_criterio"](resultado(F3q), _ses_q, {"sentido": "fundado", "alcanza": True},
                                        criterios_json=_cjq("").replace('"grupo": "A"', '"grupo": ""'))
 ok(not any("EL GRUPO" in a for a in _arm_q0["avisos_fases"]), "(b) sin grupos, ningún aviso nuevo")
+
+
+print("\n10 · LOS CONCEPTOS DE VIOLACIÓN VIENEN DEL FORMULARIO, TAMBIÉN VACÍOS")
+# Los dos gemelos: el encargo en memoria traía los de una vuelta anterior.
+_orig = (rc._llamar, _ra_t.resolver, _ra_t.resolver_en_vivo)
+_ra_t.resolver, _ra_t.resolver_en_vivo = _resolver_espia, _en_vivo_espia
+LLAMADAS["cv"] = []
+try:
+    rc._llamar = _llamar_bien
+    for _gem in ("flujo", "plano"):
+        _s, _r = _sesion()
+        _r.encargo.conceptos_violacion = "LOS DE UNA VUELTA GLOBAL ANTERIOR"
+        GN["_taller_recuperar_sesion"] = lambda u, n, _s=_s: _s
+        if _gem == "flujo":
+            asyncio.run(_flujo(GN))
+        else:
+            try:
+                asyncio.run(GN["taller_resolver"](**_FORMg))
+            except _Parar:
+                pass
+finally:
+    rc._llamar, _ra_t.resolver, _ra_t.resolver_en_vivo = _orig
+ok(LLAMADAS["cv"] == ["", ""], "los dos gemelos fijan los del formulario aunque lleguen vacíos")
+# El plan: con formulario no cae al encargo; sin formulario (None), sí.
+import plan_estudio as _pe_t  # noqa: E402
+_ns_pe = {"_te": types.SimpleNamespace(huella_contraste=lambda r: "H")}
+exec(compile(ast.Module(body=[FN["_taller_plan_entradas"]], type_ignores=[]), "main.py", "exec"), _ns_pe)
+_orig_pe = (_pe_t.segmentos_de, _pe_t.huella_entradas)
+try:
+    _pe_t.segmentos_de = lambda *a, **k: [{"id": "C1.a"}]
+    _pe_t.huella_entradas = lambda r, m, cv, segs: cv
+    _r_pe = resultado(F3g)
+    _r_pe.encargo.conceptos_violacion = "VIEJOS"
+    _e_form = _ns_pe["_taller_plan_entradas"](_r_pe, {"material": object()}, [], conceptos_violacion="")
+    _e_none = _ns_pe["_taller_plan_entradas"](_r_pe, {"material": object()}, [])
+finally:
+    _pe_t.segmentos_de, _pe_t.huella_entradas = _orig_pe
+ok(_e_form["conceptos_violacion"] == "" and _e_none["conceptos_violacion"] == "VIEJOS",
+   "_taller_plan_entradas: el formulario vacío manda; sólo sin formulario se lee el encargo")
+# El precálculo no se lanza si la propuesta pide los conceptos.
+_PEDIDOS = []
+
+
+async def _pedido_espia(*a, **k):
+    _PEDIDOS.append(k.get("conceptos_violacion"))
+    return {"estado": "en_curso", "clave": "k"}
+
+
+_ns_pp = {"_taller_armar_criterio": lambda *a, **k: {"crit": []}, "_taller_plan_pedido": _pedido_espia,
+          "_con_autos": lambda r, c: c, "HTTPException": HTTPException, "err": str,
+          "print": lambda *a, **k: None}
+exec(compile(ast.Module(body=[FN["_taller_plan_desde_propuesta"]], type_ignores=[]), "main.py", "exec"),
+     _ns_pp)
+_resp_pp = {"global": {"alcanza": True, "sentido": "fundado", "razon": "r"}}
+_r_pp = resultado(F3g)
+_r_pp.encargo.conceptos_violacion = "VIEJOS"
+asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, dict(_resp_pp,
+                                                                                 necesita_conceptos=True)))
+ok(_PEDIDOS == [], "el plan no se adelanta cuando la propuesta pide los conceptos de violación")
+asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, _resp_pp))
+ok(_PEDIDOS == [""], "sin esa necesidad se adelanta con los de la pantalla (ninguno), no con los del encargo")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)

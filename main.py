@@ -33106,10 +33106,16 @@ def _taller_plan_contraste(email: str, numero: str, r):
 
 
 def _taller_plan_entradas(r, ses, crit, *, contexto: str = "", suplencia=None,
-                          conceptos_violacion: str = "", formato: str = "") -> dict:
+                          conceptos_violacion=None, formato: str = "") -> dict:
     """Lo que identifica el plan: el inventario, la huella de las entradas y la
     CLAVE. Lanza `plan_estudio.PlanNoDisponible` si no hay inventario o no
-    hay escrito."""
+    hay escrito.
+
+    `conceptos_violacion`: los del formulario —también vacíos— cuando la
+    petición lo trae; None sólo si no hay formulario (entonces, los del
+    encargo, que los gemelos fijan SIEMPRE desde el suyo). Antes un formulario
+    vacío caía al encargo en memoria: la clave del plan cambiaba según el
+    worker (revisión adversarial, 26-sep-2026)."""
     import plan_estudio as _pe
     material = (ses or {}).get("material")
     if material is None:
@@ -33118,8 +33124,10 @@ def _taller_plan_entradas(r, ses, crit, *, contexto: str = "", suplencia=None,
     segs = _pe.segmentos_de(r.fases, "", es_rec)
     if not segs:
         raise _pe.PlanNoDisponible("el inventario no trae segmentos")
-    _cv = (conceptos_violacion or "").strip() or str(
-        getattr(getattr(r, "encargo", None), "conceptos_violacion", "") or "")
+    if conceptos_violacion is None:
+        _cv = str(getattr(getattr(r, "encargo", None), "conceptos_violacion", "") or "").strip()
+    else:
+        _cv = str(conceptos_violacion or "").strip()
     huella_f = _pe.huella_entradas(r, material, _cv, segs)
     return {"segs": segs, "material": material, "conceptos_violacion": _cv,
             "huella": _te.huella_contraste(r),
@@ -33193,7 +33201,7 @@ def _taller_plan_lanzar(email: str, numero: str, r, crit, ent: dict, **kw):
 
 async def _taller_plan_pedido(email: str, numero: str, r, ses, arm: dict, *,
                               contexto: str = "", suplencia=None, formato: str = "",
-                              conceptos_violacion: str = "", checklist=None) -> dict:
+                              conceptos_violacion=None, checklist=None) -> dict:
     """Pide el plan de este criterio SIN esperarlo: /taller/plan/pedir y el
     precálculo. Nunca recalcula una clave ya calculada; respeta el tope."""
     import plan_estudio as _pe
@@ -33251,8 +33259,11 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
     _check = ((getattr(e, "propuesta_global", None) or {}).get("checklist")
               if isinstance(getattr(e, "propuesta_global", None), dict) else None)
     try:
+        # Los conceptos, los que el gemelo fijó en el encargo desde SU
+        # formulario (siempre, también vacíos).
         ent = _taller_plan_entradas(r, ses, crit, contexto=contexto, suplencia=_sup,
-                                    formato=getattr(e, "formato", "") or "")
+                                    formato=getattr(e, "formato", "") or "",
+                                    conceptos_violacion=str(getattr(e, "conceptos_violacion", "") or ""))
         k = ent["clave"]
         while True:
             _, dec = _taller_plan_cas(user_email, numero, lambda d: _pe.fila_pedir(
@@ -33680,6 +33691,14 @@ async def _taller_plan_desde_propuesta(email: str, numero: str, r, ses: dict,
     resolver, para que la clave case. Si él cambia algo, la clave cambia y la
     pantalla pide otro. Nunca lanza."""
     try:
+        # SI LA PROPUESTA PIDE LOS CONCEPTOS DE VIOLACIÓN (el recurso levanta un
+        # sobreseimiento), el criterio de verdad los llevará y nadie sabe aún
+        # cuáles: un plan sin ellos no lo usaría nadie (revisión adversarial,
+        # 26-sep-2026).
+        if resp.get("necesita_conceptos"):
+            print(f"   🧭 PLAN adelantado de {numero}: no se adelanta; la propuesta pide los "
+                  f"conceptos de violación")
+            return
         glob = dict(resp.get("global") or {})
         if glob.get("alcanza") and str(glob.get("sentido") or "").strip():
             form = {"modo_decision": "global", "sentido_global": str(glob["sentido"]),
@@ -33691,7 +33710,9 @@ async def _taller_plan_desde_propuesta(email: str, numero: str, r, ses: dict,
         arm = _taller_armar_criterio(r, ses, glob, **form)
         out = await _taller_plan_pedido(
             email, numero, r, ses, arm, contexto=_con_autos(r, ""), suplencia={},
-            conceptos_violacion=str(getattr(r.encargo, "conceptos_violacion", "") or ""),
+            # Los de la pantalla si acepta sin tocar: ninguno (la propuesta no
+            # los pide). No los del encargo en memoria de este worker.
+            conceptos_violacion="",
             checklist=glob.get("checklist"))
         print(f"   🧭 PLAN adelantado de {numero}: {out.get('estado')} · clave "
               f"{str(out.get('clave') or '')[:8]}")
@@ -36878,8 +36899,12 @@ async def taller_resolver_stream(
             r.encargo.resolvio_declarado = _decl
         if _glob:
             r.encargo.propuesta_global = _glob
-        if (conceptos_violacion or "").strip():
-            r.encargo.conceptos_violacion = conceptos_violacion.strip()
+        # LOS CONCEPTOS DE VIOLACIÓN, SIEMPRE —también vacíos—, como el
+        # formato, la variante y la suplencia (revisión adversarial de la
+        # integración, 26-sep-2026): el encargo vive en la memoria del worker y
+        # los de una vuelta global anterior se colaban en «problema por
+        # problema»; el estudio salía distinto según el worker que contestara.
+        r.encargo.conceptos_violacion = (conceptos_violacion or "").strip()
         # SIEMPRE, no sólo si llega: el encargo sobrevive en la memoria del
         # worker de una generación a la siguiente, y una «moderna» de la
         # vuelta anterior no puede colarse en la estándar de ésta.
@@ -37393,8 +37418,12 @@ async def taller_resolver(
             r.encargo.resolvio_declarado = _decl
         if _glob:
             r.encargo.propuesta_global = _glob
-        if (conceptos_violacion or "").strip():
-            r.encargo.conceptos_violacion = conceptos_violacion.strip()
+        # LOS CONCEPTOS DE VIOLACIÓN, SIEMPRE —también vacíos—, como el
+        # formato, la variante y la suplencia (revisión adversarial de la
+        # integración, 26-sep-2026): el encargo vive en la memoria del worker y
+        # los de una vuelta global anterior se colaban en «problema por
+        # problema»; el estudio salía distinto según el worker que contestara.
+        r.encargo.conceptos_violacion = (conceptos_violacion or "").strip()
         # SIEMPRE, no sólo si llega: el encargo sobrevive en la memoria del
         # worker de una generación a la siguiente, y una «moderna» de la
         # vuelta anterior no puede colarse en la estándar de ésta.
