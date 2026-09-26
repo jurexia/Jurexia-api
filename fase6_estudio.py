@@ -2644,7 +2644,13 @@ def _cierre_permitido(criterios: list) -> bool:
 # ella, y un recordatorio de una línea al final, que es lo último que lee el
 # modelo. Las funciones de redacción, la extensión, el cierre y todo lo demás
 # son los de la v2.
-def _regla_marcas(q1: str) -> str:
+def _regla_marcas(q1: str, sin_ordinal: bool = False) -> str:
+    # SIN ORDINAL (revisión adversarial de la integración, 26-sep-2026): si el
+    # resumen no numera los conceptos, el inventario no inventa el número y la
+    # prosa los nombra por lo que alegan. Sólo entonces cambia esta regla.
+    _como = (f"por su {q1} y por lo que alega; el que en el inventario no trae "
+             f"ordinal se nombra sólo por lo que alega, sin número de {q1}"
+             if sin_ordinal else f"por su {q1} y por lo que alega")
     return f"""
 QUÉ SE HACE CON EL INVENTARIO — y lo que el sistema comprueba después:
 - El inventario es la lista de los argumentos del escrito, sacada del resumen
@@ -2667,7 +2673,7 @@ QUÉ SE HACE CON EL INVENTARIO — y lo que el sistema comprueba después:
 - LA MARCA ES INTERNA: el sistema la retira antes de mostrar el texto y antes de
   componer la sentencia, y la usa para comprobar que ningún argumento quedó sin
   respuesta. Fuera de la marca no escribas identificadores: en la prosa cada
-  argumento se nombra como en una sentencia, por su {q1} y por lo que alega.
+  argumento se nombra como en una sentencia, {_como}.
 - Usa sólo identificadores del inventario, y todos: al terminar, cada uno está
   en alguna marca.
 """
@@ -2683,7 +2689,8 @@ def _partes_v3(material, es_recurso: bool = False) -> tuple:
     import inventario as _inv_p
     _tipo = getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo")
     q1 = _ta_p.vocabulario_de(_tipo)["combate_singular"]
-    bloque = _inv_p.bloque_inventario(segs, q1) + _regla_marcas(q1)
+    bloque = _inv_p.bloque_inventario(segs, q1) + _regla_marcas(
+        q1, any(isinstance(s, dict) and s.get("concepto_inferido") for s in segs))
     recordatorio = (f"Y CADA ARGUMENTO DEL INVENTARIO ({len(segs)}), CON SU MARCA "
                     f"AL COMIENZO DEL PÁRRAFO QUE LO CONTESTA.\n")
     return bloque, recordatorio

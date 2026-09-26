@@ -572,6 +572,13 @@ def piezas_del_resumen(fases, partir: bool = True) -> tuple:
     ords = {i: _ordinal(p) for i, p in cuerpo}
     hay_ordinal = any(v is not None for v in ords.values())
     asignado = {}
+    # ¿EL NÚMERO DEL CONCEPTO LO PUSO EL INVENTARIO Y NO EL ESCRITO? (revisión
+    # adversarial de la integración, 26-sep-2026). Sin ordinales en el resumen
+    # y sin una cuenta que case, el concepto es el orden de párrafos: con tres
+    # párrafos enlazados por conectores salía «tercer concepto de violación» en
+    # una demanda que no tiene tres. Se marca en cada pieza y el bloque del
+    # prompt no imprime ese número.
+    inferido = False
     if hay_ordinal:
         actual = None
         for i, _ in cuerpo:
@@ -612,6 +619,7 @@ def piezas_del_resumen(fases, partir: bool = True) -> tuple:
         for k, (i, _) in enumerate(cuerpo, 1):
             asignado[i] = k if n != 1 else 1
         if cuerpo:
+            inferido = True
             anomalias.append("resumen sin ordinales: concepto = orden de párrafos")
     if not cuerpo:
         anomalias.append("resumen sin párrafos de argumento")
@@ -627,7 +635,7 @@ def piezas_del_resumen(fases, partir: bool = True) -> tuple:
                 piezas[-1]["texto"] = (piezas[-1]["texto"] + " " + limpio).strip()
             else:
                 piezas.append({"concepto": conc, "parrafo": i, "texto": limpio,
-                               "paginas": pags})
+                               "paginas": pags, "concepto_inferido": inferido})
             continue
         grupos = []
         for f in _frases(limpio):
@@ -664,7 +672,8 @@ def piezas_del_resumen(fases, partir: bool = True) -> tuple:
             piezas.append({"concepto": conc, "parrafo": i, "texto": txt,
                            # La marca de página la lleva el primer argumento
                            # del párrafo, que es donde la fase 2 la pone.
-                           "paginas": pags if k == 0 else []})
+                           "paginas": pags if k == 0 else [],
+                           "concepto_inferido": inferido})
     return piezas, anomalias
 
 
@@ -867,9 +876,12 @@ def segmentos(fases, escrito: str, es_recurso: bool = False,
       texto     el argumento tal como lo resumió la fase 2, ≤ 80 palabras
       cita      10-40 palabras literales del escrito, o «» si no se encontró
       anclas    las anclas duras del segmento, sin los datos del asunto
-    y dos campos más que el contrato no pide y la pantalla puede usar:
+    y tres campos más que el contrato no pide y la pantalla puede usar:
       pagina    la marca «p.X §Y» del resumen, si el párrafo la traía
       parecido  cuánto del segmento casa con la cita (0-1), para medir
+      concepto_inferido  True si el resumen no numera los conceptos y el
+                número es el orden de párrafos: el bloque del prompt no lo
+                escribe como ordinal (no es del escrito)
     """
     try:
         piezas, _ = piezas_del_resumen(fases, partir=partir)
@@ -900,6 +912,7 @@ def segmentos(fases, escrito: str, es_recurso: bool = False,
             "anclas": anclas_duras(pz["texto"] + " \n " + cita, excluir=propias),
             "pagina": (pz.get("paginas") or [""])[0],
             "parecido": parecido,
+            "concepto_inferido": bool(pz.get("concepto_inferido")),
         })
     return fuera
 
@@ -945,8 +958,11 @@ def bloque_inventario(segs: list, q1: str) -> str:
         "",
     ]
     for s in segs:
+        # EL ORDINAL SÓLO SI ES DEL ESCRITO: el que puso el inventario por el
+        # orden de párrafos no se imprime (el estudio lo escribía en la prosa).
         partes = [str(s.get("id") or ""),
-                  f"{_ordinal_palabra(int(s.get('concepto') or 1))} {q1}",
+                  (f"{q1} sin ordinal en el resumen" if s.get("concepto_inferido") else
+                   f"{_ordinal_palabra(int(s.get('concepto') or 1))} {q1}"),
                   _recortar(str(s.get("texto") or ""), TEXTO_EN_BLOQUE)]
         if s.get("cita"):
             partes.append(f"cita: «{s['cita']}»")

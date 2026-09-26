@@ -653,6 +653,43 @@ _md2 = ce_.informe("prueba", [ce_.comparar_par(_datos2, ce_.Medidor(escritos={"9
                    ce_.operacion(_datos2))
 ok("Marcas e inventario" not in _md2, "sin corridas con marcas (v1 contra v2) el informe no cambia")
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n8 · EL ORDINAL QUE NO ES DEL ESCRITO NO SE ESCRIBE (revisión adversarial, 26-sep-2026)")
+# Un resumen en modo CONECTORES (el que autoriza la fase 2), sin ordinales, y
+# el contador sin contar: el concepto es el orden de párrafos, no del escrito.
+_RC_CON = "\n".join([
+    "La parte quejosa aduce que la Sala responsable omite valorar la pericial en materia de topografía "
+    "ofrecida en primera instancia, con la que se acredita la superficie real del predio.",
+    "Asimismo, sostiene que la responsable aplica indebidamente el artículo 1635 del Código Civil Federal "
+    "al computar el plazo de prescripción de la acción reivindicatoria.",
+    "Finalmente, afirma que la condena en costas es ilegal porque no se actualiza ninguno de los supuestos "
+    "de temeridad o mala fe previstos en la legislación procesal."])
+for _et, _conteo in (("n=0", {"estado": "contado", "n": 0}), ("sin conteo", {}),
+                     ("n=2 con tres párrafos", {"estado": "contado", "n": 2})):
+    _segs_i = inv.segmentos({"resumen_conceptos": _RC_CON, "conteo": _conteo}, "")
+    _blq_i = inv.bloque_inventario(_segs_i, "concepto de violación")
+    ok(len(_segs_i) >= 3 and all(s.get("concepto_inferido") for s in _segs_i)
+       and "tercer concepto" not in _blq_i and "segundo concepto" not in _blq_i
+       and "primer concepto" not in _blq_i and "concepto de violación sin ordinal en el resumen" in _blq_i,
+       f"{_et}: tres párrafos sin ordinales → el bloque no dice «tercer concepto» (ni primero ni segundo)")
+_segs_1 = inv.segmentos({"resumen_conceptos": _RC_CON, "conteo": {"estado": "contado", "n": 1}}, "")
+ok(not any(s.get("concepto_inferido") for s in _segs_1)
+   and "primer concepto de violación" in inv.bloque_inventario(_segs_1, "concepto de violación"),
+   "con n=1 el concepto es el del contador: se escribe «primer concepto»")
+_segs_o = inv.segmentos({"resumen_conceptos": RESUMEN, "conteo": {}}, "")
+ok(_segs_o and not any(s.get("concepto_inferido") for s in _segs_o)
+   and "primer concepto de violación" in inv.bloque_inventario(_segs_o, "concepto de violación"),
+   "con ordinales en el resumen, el número es del escrito y se escribe")
+_mat_i = types.SimpleNamespace(inventario=inv.segmentos({"resumen_conceptos": _RC_CON, "conteo": {}}, ""),
+                               tipo_asunto="amparo_directo")
+_blq_v3, _ = f6._partes_v3(_mat_i)
+ok("no trae ordinal se nombra sólo por lo que alega" in _blq_v3,
+   "la regla de las marcas: el argumento sin ordinal se nombra por lo que alega")
+_mat_o = types.SimpleNamespace(inventario=_segs_o, tipo_asunto="amparo_directo")
+ok("no trae ordinal" not in f6._partes_v3(_mat_o)[0]
+   and "por su concepto de violación y por lo que alega." in f6._partes_v3(_mat_o)[0],
+   "…y con ordinales la regla queda como estaba")
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))
