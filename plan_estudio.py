@@ -36,7 +36,8 @@ LAS PIEZAS (firmas del contrato; lo que se añade va sólo como keyword):
               datos sin verificar, borrados. Y lo organizativo que V0
               rechazaba (26-sep-2026): la unidad que mezcla, partida; la
               premisa sin rastro, retirada; la razón que no cabe con la
-              etiqueta, la de la etiqueta (la otra, a propuestas); la cita
+              etiqueta, la de la etiqueta (la otra, dicha en el aviso: no
+              es una propuesta de calificación); la cita
               que nadie encontró, fuera; referencias rotas, limpias; el orden
               del art. 189, cuando se puede sin decidir. Cada cosa, dicha.
   validar()   V0: lo que obliga a rehacer el plan. [] = válido.
@@ -1282,7 +1283,20 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
             elif m.get("rastro") == "material" and not en_mat and en_razon:
                 m["rastro"] = "razon"
             elif not (en_razon or en_mat):
-                m["rastro_cita"] = ""
+                # PALABRAS DE MÁS EN LOS BORDES (revisión adversarial,
+                # 26-sep-2026): en el 640/2024 el rastro de M2 era el rubro
+                # de su propia tesis (T7, registro 187149) con un artículo
+                # añadido delante, y V0 retiraba una premisa buena. Se deja
+                # sólo lo que está palabra por palabra; nada se añade.
+                _rec, _donde = _recorte_literal(
+                    m["rastro_cita"], [cx.texto_de_fuentes(m)] + [cx.razones[p["id"]] for p in cx.probs])
+                if _rec:
+                    m["rastro"] = "material" if _donde == 0 else "razon"
+                    m["rastro_cita"] = _rec
+                    avisos.append(f"{m['id']}: su rastro traía palabras de más en los bordes; se dejó sólo "
+                                  f"lo que está palabra por palabra en {'su fuente' if _donde == 0 else 'tu razón'}")
+                else:
+                    m["rastro_cita"] = ""
     # (h, segunda mitad) Lo que el secretario citó en su razón figura en la
     # premisa de la unidad de su problema.
     prem_por_id = {m["id"]: m for m in plan.get("premisas") or []}
@@ -1522,6 +1536,27 @@ def _premisa_con_rastro(m: dict, cx: "_Ctx") -> bool:
     return False
 
 
+def _recorte_literal(cita: str, textos: list, max_fuera: int = 3) -> tuple[str, int]:
+    """La cita SIN hasta `max_fuera` palabras de sus bordes, si así está
+    palabra por palabra en alguno de `textos` (objetos `Texto`) y conserva al
+    menos tres cuartas partes de sus palabras y nunca menos de ocho. Devuelve
+    (lo que queda, índice del texto donde está) o («», -1). Sólo QUITA: lo que
+    queda es copia literal, y lo quitado deja de presentarse como cita."""
+    toks = str(cita or "").split()
+    n = len(toks)
+    minimo = max(8, -(-3 * n // 4))
+    for fuera in range(1, max_fuera + 1):
+        for a in range(fuera + 1):
+            w = toks[a:n - (fuera - a)]
+            if len(w) < minimo:
+                continue
+            c = " ".join(w)
+            for i, t in enumerate(textos):
+                if t.contiene(c):
+                    return c, i
+    return "", -1
+
+
 def _aviso(plan: dict, texto: str) -> None:
     if texto not in plan["avisos_al_secretario"]:
         plan["avisos_al_secretario"].append(texto)
@@ -1553,6 +1588,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
     ids_m = {m["id"] for m in prems}
     en_unidad: dict = {}
     unis = []
+    rotas_u = []                  # unidades cuya premisa no existe: como las retiradas (paso 3)
     for u in plan.get("unidades") or []:
         lista = []
         for x in u.get("segmentos") or []:
@@ -1567,6 +1603,7 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
         if u.get("premisa") and u["premisa"] not in ids_m:
             quitadas.append(f"{u.get('id')}→{u['premisa']}")
             u["premisa"] = None
+            rotas_u.append(u)
         if lista:
             unis.append(u)
     plan["unidades"] = unis
@@ -1574,13 +1611,21 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
         _aviso(plan, "referencias del plan a lo que no existe, quitadas: " + "; ".join(quitadas[:10]))
 
     # 2 · LA RAZÓN QUE NO CABE CON LA ETIQUETA. La etiqueta es la del criterio
-    # (V0 b) y no se toca; la razón del planificador que la contradice sale
-    # como PROPUESTA visible —igual que su etiqueta— y en su lugar va la única
-    # que la etiqueta deja. Si deja varias («inoperante»), no se elige: el
-    # reintento. Medido: 30 rechazos en 6 de las 16 corridas (4 de los 8
-    # casos), y el reintento no los corregía (43/2025: diez en el primer
-    # intento, cuatro en el segundo). Un segmento pendiente de razón
-    # (Decisión 6) no la necesita.
+    # (V0 b) y no se toca; en lugar de la razón que la contradice va la única
+    # que la etiqueta deja, y la que había se dice en el aviso. Si deja varias
+    # («inoperante»), no se elige: el reintento. Medido: 30 rechazos en 6 de
+    # las 16 corridas (4 de los 8 casos), y el reintento no los corregía
+    # (43/2025: diez en el primer intento, cuatro en el segundo). Un segmento
+    # pendiente de razón (Decisión 6) no la necesita.
+    # ESA RAZÓN NO ES UNA PROPUESTA (revisión adversarial, 26-sep-2026): en
+    # los 47 casos medidos el planificador había puesto como etiqueta el
+    # sentido del secretario y no propuso nada para ese argumento; en los
+    # problemas «fundado» (43, 103, 642, 93) lo que el propio planificador dice
+    # que el argumento sostiene es fundado: usaba fondo_desestimado u
+    # omision_inexistente para decir de QUÉ trata el argumento (fondo,
+    # omisión), no cómo se califica. Convertirla en propuesta ponía en el panel
+    # un botón para invertir el sentido que nadie había propuesto. Las
+    # afinaciones del planificador salen de su etiqueta o de sus propuestas.
     ajustadas, puestas = [], []
     for s in segmentos:
         et = s.get("etiqueta") or ""
@@ -1595,11 +1640,6 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
         if not nueva or nueva == rz:
             continue
         if rz:
-            a = _implica(rz)
-            if a and a != et and not cx.tocado(s.get("problema_id")) \
-                    and not any(x.get("seg") == s["id"] for x in plan["propuestas"]):
-                plan["propuestas"].append({"seg": s["id"], "de": et, "a": a,
-                                           "por_que": f"razón que sugirió el planificador: {rz}"})
             ajustadas.append(f"{s['id']} ({rz}→{nueva})")
         else:
             puestas.append(f"{s['id']} ({nueva})")
@@ -1607,38 +1647,53 @@ def _reparar_organizacion(plan: dict, cx: "_Ctx") -> None:
         if not RAZONES[nueva].get("con_p"):
             s["razon_p"] = None
     if ajustadas:
-        _aviso(plan, "razones que no cabían con tu sentido, ajustadas a él (lo que opinaba el "
-                     "planificador va en propuestas): " + ", ".join(ajustadas[:12]))
+        _aviso(plan, "razones que no cabían con tu sentido, ajustadas a él (antes de la flecha, la "
+                     "que había puesto el planificador; no cambia la calificación): "
+                     + ", ".join(ajustadas[:12]))
     if puestas:
         _aviso(plan, "razones que el planificador dejó vacías, puestas por tu sentido: "
                      + ", ".join(puestas[:12]))
 
     # 3 · PREMISA SIN RASTRO VERIFICADO (V0 i): se retira. Sus unidades quedan
     # sin premisa y lo que se contestaba con ella (aplica, remite) se
-    # desarrolla, desde la razón del secretario. Medido: las cuatro que V0
-    # rechazó citaban como rastro el resumen del ACTO (lo que resolvió la
-    # responsable) o una definición que no está en ninguna parte: no hay
-    # regla verificada que exponer.
+    # desarrolla, desde la razón del secretario. Medido: de las cuatro que V0
+    # rechazó, tres citaban como rastro el resumen del ACTO (lo que resolvió
+    # la responsable), que no es regla verificada que exponer; la cuarta era
+    # el rubro de su tesis con una palabra de más delante, y ésa ya no llega
+    # aquí: `reparar` (i) deja sólo lo literal (`_recorte_literal`).
+    def _sin_premisa(unis_m: list) -> list:
+        segs_m = []
+        for u in unis_m:
+            u["premisa"] = None
+            for x in u["segmentos"]:
+                s = por_id[x]
+                if _contestado(s):
+                    if s.get("trat") in ("aplica", "remite"):
+                        s["trat"] = "desarrolla"
+                    s["sin_premisa"] = True
+                    segs_m.append(x)
+        return segs_m
+
     retiradas = [m for m in plan.get("premisas") or [] if not _premisa_con_rastro(m, cx)]
     if retiradas:
         fuera = {m["id"] for m in retiradas}
         plan["premisas"] = [m for m in plan.get("premisas") or [] if m["id"] not in fuera]
         for m in retiradas:
             unis_m = [u for u in plan["unidades"] if u.get("premisa") == m["id"]]
-            segs_m = []
-            for u in unis_m:
-                u["premisa"] = None
-                for x in u["segmentos"]:
-                    s = por_id[x]
-                    if _contestado(s):
-                        if s.get("trat") in ("aplica", "remite"):
-                            s["trat"] = "desarrolla"
-                        s["sin_premisa"] = True
-                        segs_m.append(x)
+            segs_m = _sin_premisa(unis_m)
             _aviso(plan, f"{m['id']} se retiró: su rastro no está palabra por palabra en tu razón ni "
                          f"en el material"
                          + (f"; {', '.join(u['id'] for u in unis_m)} queda sin premisa expuesta y se "
                             f"desarrolla desde tu razón ({', '.join(segs_m[:10])})" if unis_m else ""))
+    # LA UNIDAD QUE NOMBRABA UNA PREMISA INEXISTENTE (paso 1) queda igual que
+    # la de una retirada (revisión adversarial, 26-sep-2026): si no, sus
+    # argumentos salían en el guion como APLICA sin premisa que aplicar.
+    rotas_u = [u for u in rotas_u if u in plan["unidades"]]
+    if rotas_u:
+        segs_m = _sin_premisa(rotas_u)
+        if segs_m:
+            _aviso(plan, f"{', '.join(u['id'] for u in rotas_u)} nombraba una premisa que no existe: "
+                         f"queda sin premisa expuesta y se desarrolla desde tu razón ({', '.join(segs_m[:10])})")
 
     # 4 · UNIDAD QUE MEZCLA proposición, vicio o razón (V0 e): se parte. Salvo
     # el grupo del secretario, que manda. Cada parte conserva la premisa (el

@@ -1376,10 +1376,43 @@ ok("sin premisa verificada" not in pe.bloque(pe.vista(_pb, "estandar")),
 _fr = pe.para_ficha(_r)
 ok(any(s.get("sin_premisa") for s in _fr["segmentos"]) and all("sin_cita" not in s for s in _fr["segmentos"]),
    "la ficha lleva la marca (y no las que valen False)")
+# (b') FALSA ALARMA: el rastro con palabras de más en los bordes (640/2024,
+# M2: el rubro de su propia tesis con un artículo delante). Se deja sólo lo
+# literal y la premisa se queda; en medio, o con poco que quede, no.
+_rub = "La identidad del inmueble puede acreditarse con la confesión del demandado."
+_d = mutar(lambda d: d["premisas"][0].update(rastro="material", rastro_cita=_rub))
+ok(any("M1" in x and "rastro" in x for x in _v0(_d)), "sin reparar, V0 no acepta la palabra de más")
+_r, _av = _rep(_d)
+_m1 = next((m for m in _r["premisas"] if m["id"] == "M1"), None)
+ok(_m1 is not None and _m1["rastro_cita"] == "identidad del inmueble puede acreditarse con la confesión del demandado."
+   and _m1["rastro"] == "material" and _v0r(_r) == [] and not any(s.get("sin_premisa") for s in _r["segmentos"]),
+   "reparado: queda lo literal del rubro, la premisa se conserva y el plan pasa")
+ok(any(a.startswith("M1: su rastro traía palabras de más") for a in _av), "y se dice")
+_d = mutar(lambda d: d["premisas"][0].update(
+    rastro="material", rastro_cita="La identidad del inmueble siempre puede acreditarse con la confesión del demandado."))
+ok("M1" not in [m["id"] for m in _rep(_d)[0]["premisas"]], "una palabra de más EN MEDIO no se recorta: se retira")
+_d = mutar(lambda d: d["premisas"][0].update(rastro="material",
+                                              rastro_cita="Según la Corte, IDENTIDAD DEL INMUEBLE. PUEDE ACREDITARSE"))
+ok("M1" not in [m["id"] for m in _rep(_d)[0]["premisas"]],
+   "si lo literal que queda es poco (menos de ocho palabras o de tres cuartas partes), se retira")
+_largo = ("Tal como lo sostiene la Corte: la identidad del bien reclamado puede tenerse por demostrada "
+          "con la confesión del demandado de poseer el inmueble materia del juicio, sin que sea "
+          "indispensable la prueba pericial.")
+_d = mutar(lambda d: d["premisas"][0].update(rastro="material", rastro_cita=_largo))
+ok("M1" not in [m["id"] for m in _rep(_d)[0]["premisas"]],
+   "más de tres palabras de más en los bordes no se recortan, aunque lo demás sea literal: se retira")
+# (b'') LA UNIDAD QUE NOMBRA UNA PREMISA QUE NO EXISTE: igual que la retirada;
+# ningún APLICA sin premisa en el guion.
+_d = mutar(lambda d: d["unidades"][1].update(premisa="M9"))
+_r, _ = _rep(_d)
+ok(_v0r(_r) == [] and seg(_r, "C2.a")["trat"] == "desarrolla" and seg(_r, "C2.a").get("sin_premisa")
+   and "APLICA C2.a" not in pe.vista(_r, "estandar") and "APLICA C2.a" not in pe.vista(_r, "moderna"),
+   "la unidad con una premisa inexistente se desarrolla sin premisa: ningún APLICA sin premisa que aplicar")
+ok(any("U2 nombraba una premisa que no existe" in a for a in _r["avisos_al_secretario"]), "y se dice")
 
 # (c) LA RAZÓN QUE NO CABE CON LA ETIQUETA: vuelve a la de la etiqueta; la
-# del planificador, a propuestas (43/2025: diez; el reintento no las
-# arreglaba).
+# del planificador se dice en el aviso, no se propone (43/2025: diez; el
+# reintento no las arreglaba).
 _d = mutar(lambda d: (seg(d, "C1.b").update(razon="generico"),
                       seg(d, "C1.a").update(vicio="omision", razon="no_combate(P1)")))
 _f = _v0(_d)
@@ -1389,12 +1422,29 @@ _r, _ = _rep(_d)
 ok(seg(_r, "C1.b")["razon"] == "fondo_desestimado" and seg(_r, "C1.a")["razon"] == "omision_inexistente"
    and seg(_r, "C1.a")["razon_p"] is None,
    "la razón vuelve a la única que la etiqueta deja (omisión → omision_inexistente)")
-ok({"seg": "C1.b", "de": "infundado", "a": "inoperante",
-    "por_que": "razón que sugirió el planificador: generico"} in _r["propuestas"]
+# LA RAZÓN NO ES UNA PROPUESTA (revisión adversarial): en los 47 casos medidos
+# el planificador tenía la etiqueta del secretario y no proponía nada; en los
+# «fundado», lo que decía del argumento era fundado. Una propuesta sacada de
+# la razón ponía en el panel un botón para invertir el sentido.
+ok(not any(x["seg"] in ("C1.a", "C1.b") for x in _r["propuestas"])
    and all(s["etiqueta"] == "infundado" for s in _r["segmentos"] if s["problema_id"] == 1),
-   "lo que opinaba el planificador sale como PROPUESTA; la etiqueta no se toca")
-ok(any("razones que no cabían" in a and "C1.b" in a for a in _r["avisos_al_secretario"]) and _v0r(_r) == [],
-   "se dice, y el plan pasa")
+   "la razón que no cabe NO se vuelve propuesta de calificación; la etiqueta no se toca")
+ok(any("razones que no cabían" in a and "C1.b (generico→fondo_desestimado)" in a
+       for a in _r["avisos_al_secretario"]) and _v0r(_r) == [],
+   "se dice en el aviso (la que había y la que queda), y el plan pasa")
+_dff = mutar(lambda d: ([seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C3.a", "C3.b")],
+                        seg(d, "C1.b").update(etiqueta="fundado", vicio="omision", razon="omision_inexistente")))
+_rff, _ = _rep(_dff, c=crit(s1="fundado"))
+ok(seg(_rff, "C1.b")["razon"] == "fundado" and not any(x["seg"] == "C1.b" for x in _rff["propuestas"])
+   and seg(_rff, "C1.b")["etiqueta"] == "fundado",
+   "en un problema «fundado», la razón usada para decir «trata de una omisión» no propone «infundado»")
+_dfp = mutar(lambda d: (seg(d, "C1.b").update(razon="generico"),
+                        d["propuestas"].append({"seg": "C1.b", "de": "infundado", "a": "inoperante",
+                                                "por_que": "no combate la consideración toral"})))
+_rfp, _ = _rep(_dfp)
+ok(any(x["seg"] == "C1.b" and x["a"] == "inoperante" and x["por_que"] == "no combate la consideración toral"
+       for x in _rfp["propuestas"]),
+   "…lo que el planificador SÍ propuso en «propuestas» sigue saliendo, con su porqué")
 _r, _ = _rep(_d, tocados=[PREG1])
 ok(not any(x["seg"] in ("C1.a", "C1.b") for x in _r["propuestas"]) and seg(_r, "C1.b")["razon"] == "fondo_desestimado",
    "en un problema que el secretario tocó a mano, se ajusta sin proponer")
