@@ -918,7 +918,9 @@ def _calificacion_propia(c, s_escrita: str, razon_escrita: str, via_motor: bool,
          propuesta para este problema es la calificación de fondo que hizo
          sabiendo que el principal no prosperaba («la calificación propia que
          el motor le propuso para su problema»). En el ADC 722/2025 eran dos
-         «infundado» con su razón, y el árbol los tiraba.
+         «infundado» con su razón, y el árbol los tiraba. Salvo que traiga un
+         sentido sin razón distinto del del motor: es el global que dictó el
+         secretario, y manda.
       2. Si no, lo que el motor escribió para esta vía en la lista, aplicado
          como calificación razonada —sin la fórmula de la caída—, que es lo
          que la guarda procesal ya hacía con una procesal.
@@ -938,11 +940,20 @@ def _calificacion_propia(c, s_escrita: str, razon_escrita: str, via_motor: bool,
              or s_act in (INNECESARIO, "sin_materia", "queda_sin_materia"))
     s_mot, r_mot = motor or ("", "")
     _r_esc = "" if str(razon_escrita or "").startswith(CAE_CON_PRINCIPAL) else str(razon_escrita or "")
-    if via_motor and s_mot:
+    _act_ok = _decide(s_act) and not sobra
+    if via_motor and s_mot and _act_ok and not r_act.strip() and s_act != s_mot:
+        # UNA CALIFICACIÓN SIN RAZÓN QUE NADIE ESCRIBIÓ PARA ÉL es el sentido
+        # que el secretario dictó para todo el asunto (modo global: la brocha
+        # llega sin razón). Su palabra va antes que la del motor —«lo que debe
+        # dársele mayor peso es a la palabra del secretario»—; lo que el motor
+        # propuso con razón, en cambio, sí sustituye a la calificación de la
+        # otra vía que un reparto anterior dejó (ida y vuelta del principal).
+        s_n, r_n, de, org = s_act, "", "propio", "actual"
+    elif via_motor and s_mot:
         s_n, r_n, de, org = s_mot, r_mot, "propio", "motor"
     elif s_escrita and _decide(s_escrita):
         s_n, r_n, de, org = s_escrita, _r_esc, "principal", "via"
-    elif _decide(s_act) and not sobra:
+    elif _act_ok:
         s_n, r_n, de, org = s_act, r_act, "propio", "actual"
     elif s_mot:
         s_n, r_n, de, org = s_mot, r_mot, "propio", "motor_otra_via"

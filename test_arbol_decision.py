@@ -814,6 +814,23 @@ av, det = ad.aplicar(P722, c, [], PROP_F, tipo_asunto="amparo_directo")
 ok(c[1]["sentido"] == "infundado" and not any(Q2[:60] in a for a in av if "otra vía" in a),
    "el «infundado» dictado para el asunto no se anuncia como calificación de la otra vía")
 
+print("\n29b · EL GLOBAL QUE DICTÓ EL SECRETARIO MANDA SOBRE LA CALIFICACIÓN DEL MOTOR")
+# Modo global dictado «infundado»: la brocha llena los problemas que nadie
+# marcó, sin razón. El motor había propuesto la congruencia de la condena
+# fundada; el árbol no puede cambiar la palabra del secretario por la del
+# motor (el mismo reclamo que dio origen al orden de `modos_decision`).
+PROP_G = [PROP722[0], dict(PROP722[1], sentido="fundado", razon="la condena excede lo reclamado"),
+          PROP722[2]]
+fu, avm = md.repartir(P722, md.GLOBAL, "infundado", PROP_G, {}, global_dictado=True,
+                      tipo_asunto="amparo_directo")
+cg = [dict(x) for x in fu]
+av, det = ad.aplicar(P722, cg, [], PROP_G, sentido_motor="infundado", tipo_asunto="amparo_directo")
+_g = {x["problema"]: x for x in cg}
+ok(_g[Q2]["sentido"] == "infundado" and not _g[Q2]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL),
+   f"el «infundado» dictado para todo el asunto se queda, sin la caída: {_g[Q2]['sentido']}")
+ok(_g[Q3]["sentido"] == "infundado" and _g[Q3]["razonamiento"] == R3,
+   "y donde el motor propuso lo mismo, se estudia con su razón")
+
 print("\n30 · LA FASE 5 PREGUNTA LAS DOS DIRECCIONES POR SEPARADO Y PIDE LA PRUEBA")
 _p5b = f5.prompt_propuesta(probs(PF, PF2), _M5(), "acto", "conceptos", False, "", "")
 ok("DOS direcciones" in _p5b and "`presupone`" in _p5b and '"presupone": null' in _p5b,
