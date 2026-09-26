@@ -15456,6 +15456,25 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                 print(f"   ⚠️ No pude leer el plan para la búsqueda automática: {err(_e_plan)}")
             return False
 
+        # EL HILO PRIMERO (24-sep-2026, ver _consulta_con_hilo): una pregunta de
+        # seguimiento se busca con el tema de la conversación. La búsqueda, los
+        # precedentes y los agentes web lo esperan; el latido del flujo, no. Con
+        # documento o con un escrito estructurado el mensaje ya trae su propio
+        # contenido.
+        #
+        # TIENE QUE NACER AQUÍ, ANTES DE LA WEB (25-sep-2026). Se creaba más
+        # abajo, junto a retrieval_task, y el globo se lo pasaba a
+        # lanzar_agentes() setenta líneas antes de que existiera. Medido en
+        # Render: las 7 consultas con el globo encendido desde b1b3713 dejaron
+        # «No pude lanzar la búsqueda web: cannot access local variable
+        # '_hilo_task'…» y ni un agente corrió; el `except` de abajo se lo
+        # tragaba y, de paso, se llevaba la tarea del acervo flojo. No escucha
+        # el canal de pasos, así que no necesita nacer después de él. Lo vigila
+        # test_hilo_antes_que_la_web.py.
+        _hilo_task = asyncio.create_task(_consulta_con_hilo(
+            last_user_message, request.messages,
+            aplica=not (has_document or is_sentencia or is_drafting)))
+
         _web_tasks = []
         try:
             from busqueda_web import lanzar_agentes
@@ -15547,15 +15566,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         if request.estado:
             paso("jurisdiccion", str(request.estado))
 
-        # Launch RAG search concurrently with infra and cache tasks
-        #
-        # EL HILO PRIMERO (24-sep-2026, ver _consulta_con_hilo): una pregunta de
-        # seguimiento se busca con el tema de la conversación. La búsqueda y los
-        # precedentes lo esperan; el latido del flujo, no. Con documento o con
-        # un escrito estructurado el mensaje ya trae su propio contenido.
-        _hilo_task = asyncio.create_task(_consulta_con_hilo(
-            last_user_message, request.messages,
-            aplica=not (has_document or is_sentencia or is_drafting)))
+        # Launch RAG search concurrently with infra and cache tasks.
+        # Espera a _hilo_task, que ya se creó antes del bloque de la web.
         retrieval_task = asyncio.create_task(_perform_retrieval())
 
         # ── LA LÍNEA JURISPRUDENCIAL DE LA CORTE IDH (25-sep-2026) ───────────
