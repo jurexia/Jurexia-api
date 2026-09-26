@@ -17,8 +17,8 @@ mejora. Así que la prosa va, pero acompañada de tres cosas que SÍ se suman:
     método del secretario son 2-3 horas por 10 páginas, y un proyecto que se
     rehace no ahorró ninguna;
   · los aspectos de la sentencia, uno por uno —sentido, fundamentación,
-    citas, redacción, estructura, efectos, cómputo del plazo—, cada uno
-    «bien» o «a mejorar».
+    si contesta cada argumento, si repite lo ya razonado, citas, redacción,
+    estructura, efectos, cómputo del plazo—, cada uno «bien» o «a mejorar».
 
 Y UNA FOTO DEL PROYECTO AL OPINAR: su tipo, su sentido y los avisos que el
 propio pipeline le puso. Es lo que permite al auditor cruzar lo que dijo la
@@ -34,9 +34,18 @@ from __future__ import annotations
 # Los aspectos de la sentencia que se califican uno por uno. El orden es el de
 # lectura de un proyecto. La clave es estable —el auditor suma por ella—; la
 # etiqueta es lo que ve el secretario.
+#
+# «CONTESTA CADA ARGUMENTO» Y «NO REPITE LO YA RAZONADO» (Decisión 5 de David,
+# 26-sep-2026: «De acuerdo»; llegan a todos los usuarios). Son las dos cosas
+# que el diagnóstico del estudio de fondo midió y ningún aspecto preguntaba: la
+# ratio se reenunciaba en el 45-58 % de los párrafos, y la exhaustividad se
+# medía contra el resumen del modelo y no contra la demanda. Sin la palabra del
+# secretario, la mejora del estudio no se puede comprobar con quien firma.
 ASPECTOS = (
     ("sentido", "El sentido de la resolución"),
     ("fundamentacion", "Fundamentación y argumentación"),
+    ("exhaustividad", "Contesta cada argumento"),
+    ("sin_repeticion", "No repite lo ya razonado"),
     ("citas", "Citas de ley y jurisprudencia"),
     ("redaccion", "Redacción y estilo"),
     ("estructura", "Estructura y forma del proyecto"),

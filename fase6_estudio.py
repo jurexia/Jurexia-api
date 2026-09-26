@@ -211,6 +211,12 @@ class Material:
     # La tarea de la síntesis de la versión moderna, que corre a la vez que el
     # estudio y se recoge al componer. None en la estándar.
     sintesis: object = None
+    # LA SUPLENCIA QUE DECIDIÓ EL SECRETARIO (Decisión 4 de David, 26-sep-2026):
+    # {fraccion, a_favor_de, confirmada}, o vacío. Viaja con el material por lo
+    # mismo que la forma: dos redactores arman el prompt y a los dos les llega el
+    # material. La fija `redactor_adelanto._formato_al_material` en CADA
+    # petición. Ver `suplencia.py`.
+    suplencia: dict = field(default_factory=dict)
 
 
 # LA ÚNICA EXCEPCIÓN A «INNEGOCIABLE», y hubo que escribirla porque el pipeline
@@ -247,11 +253,14 @@ _SUPLENCIA_ABSOLUTA = {
 # trabajadora: la suplencia opera igual. Clasificar el asunto como
 # «administrativa» lo dejaba fuera, que es tanto como quitarle la suplencia por
 # haber elegido bien la vía.
+# EL \b DEL PRINCIPIO (26-sep-2026): sin él, «pensión» se encontraba dentro de
+# «SUSPENSIÓN», que está en toda demanda de amparo. Medido en el banco Kingston:
+# dos amparos agrarios (ADA 263/2025 y 448/2025) salían como pensionarios.
 _RX_TRABAJADOR_EN_ADMINISTRATIVA = re.compile(
-    r"pensi[óo]n|pensionari|jubilaci[óo]n|jubilad|cesant[íi]a|"
+    r"\b(?:pensi[óo]n|pensionari|jubilaci[óo]n|jubilad|cesant[íi]a|"
     r"cuota\s+pensionaria|haber\s+de\s+retiro|ISSSTE|IMSS|"
     r"burocr[áa]tic|trabajador(?:a|es)?\s+al\s+servicio\s+del\s+estado|"
-    r"seguridad\s+social", re.I)
+    r"seguridad\s+social)", re.I)
 
 # LA FRACCIÓN VII NO DEPENDE DE LA MATERIA SINO DE LA PERSONA, así que aquí no
 # se puede decidir: se le RECUERDA LA REGLA a quien redacta y se le pide que
@@ -288,11 +297,31 @@ def _aviso_de_suplencia(criterios: list, materia: str,
     # El trabajador que litiga en la vía administrativa.
     if not par and _RX_TRABAJADOR_EN_ADMINISTRATIVA.search(material or ""):
         par = ("la persona trabajadora o pensionada", "79, fracción V")
-    if not par:
-        return []
     if not any("inoperan" in str(getattr(c, "sentido", "")).lower()
                for c in (criterios or [])):
         return []
+    # LA VII SE MIRA ANTES DE RENDIRSE (defecto L4, 26-sep-2026). Aquí había un
+    # `if not par: return []` ANTES de mirar la fracción VII, así que en civil,
+    # mercantil o administrativa —las materias sin suplencia absoluta— la
+    # desventaja social no se recordaba nunca, que es justo donde la VII es la
+    # única puerta: ella «no depende de la materia sino de la persona».
+    if not par:
+        if not _RX_DESVENTAJA.search(material or ""):
+            return []
+        return ["",
+                "── UNA SALVEDAD, Y SÓLO UNA ──",
+                "Se te dicta INOPERANTE y la materia de este asunto no trae",
+                "suplencia absoluta. Pero la fracción VII del artículo 79 de la Ley",
+                "de Amparo no depende de la materia sino de la persona: opera «en",
+                "favor de quienes por sus condiciones de pobreza o marginación se",
+                "encuentren en clara desventaja social para su defensa en el",
+                "juicio», aun sin conceptos de violación. En el material hay",
+                "indicios de esa condición. NO LA AFIRMES si el expediente no la",
+                "acredita —eso sería inventar un hecho—; si consta, estudia el",
+                "planteamiento en el fondo antes de escribir la inoperancia, y si al",
+                "suplirlo prospera, dilo en ADVERTENCIAS para que el secretario lo",
+                "valore.",
+                ]
     quien, precepto = par
     extra = []
     if _RX_DESVENTAJA.search(material or ""):
@@ -325,6 +354,20 @@ def _aviso_de_suplencia(criterios: list, materia: str,
             "es criterio: es un mandato del artículo 79 que ningún acuerdo de",
             "ponencia puede dispensar.",
             ] + extra
+
+
+def _bloque_suplencia(material) -> str:
+    """La suplencia CONFIRMADA por el secretario, como bloque propio del prompt.
+
+    Sin confirmar —o con «sin suplencia»— no añade nada: el estudio se comporta
+    como antes. Ver `suplencia.bloque`."""
+    try:
+        import suplencia as _sp
+        return _sp.bloque(getattr(material, "suplencia", None) or {},
+                          getattr(material, "tipo_asunto", "") or "")
+    except Exception as _es:
+        print(f"   ⚠️ SUPLENCIA: no se pudo armar el bloque: {type(_es).__name__}")
+        return ""
 
 
 # A FAVOR o EN CONTRA de quien promueve. Es lo único que hay que comparar: el
@@ -1938,6 +1981,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion)}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}
+{_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}
 {_bloque_material(_mat_vista)}
