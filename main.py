@@ -5877,6 +5877,38 @@ async def _embedding_juris(texto: str) -> List[float]:
     return v
 
 
+# LA SONDA DE LA LÍNEA Y LA DOCTRINA EMBEBEN LA MISMA PREGUNTA (25-sep-2026).
+# Las dos tareas corren en paralelo con el RAG y las dos piden el vector de
+# 1536 (EMBEDDING_MODEL) de `pregunta[:500]`: sin esto se pagaría dos veces.
+# Se guarda la TAREA, no el vector: si la segunda llega mientras la primera
+# espera a OpenAI, espera la misma llamada en vez de lanzar otra. La llave es
+# el texto entero (≤500 caracteres), no un prefijo: dos preguntas distintas
+# nunca comparten vector. Si la llamada falla, se olvida y el siguiente la
+# reintenta.
+_CACHE_EMB_DENSO: Dict[str, "asyncio.Future"] = {}
+_CACHE_EMB_DENSO_MAX = 32
+
+
+async def _embedding_denso(texto: str) -> List[float]:
+    """get_dense_embedding(texto) con el modelo por omisión, una vez por texto."""
+    llave = texto or ""
+    tarea = _CACHE_EMB_DENSO.get(llave)
+    # Una tarea de otro bucle de eventos (pruebas con asyncio.run) no se espera.
+    if tarea is not None and tarea.get_loop() is not asyncio.get_running_loop():
+        tarea = None
+    if tarea is None:
+        tarea = asyncio.ensure_future(get_dense_embedding(llave))
+        _CACHE_EMB_DENSO[llave] = tarea
+        if len(_CACHE_EMB_DENSO) > _CACHE_EMB_DENSO_MAX:
+            _CACHE_EMB_DENSO.pop(next(iter(_CACHE_EMB_DENSO)))
+    try:
+        return await asyncio.shield(tarea)
+    except Exception:
+        if _CACHE_EMB_DENSO.get(llave) is tarea:
+            _CACHE_EMB_DENSO.pop(llave, None)
+        raise
+
+
 def get_sparse_embedding(text: str) -> SparseVector:
     """Genera embedding sparse usando BM25. Degrada a sparse vacío si el modelo aún carga."""
     if sparse_encoder is None:
@@ -13410,7 +13442,8 @@ def _norma_a_dict(pid: str, pl: dict, silo: str) -> dict:
     )
 
 
-async def _coidh_puerta(user_id: Optional[str], fuentes: Optional[frozenset] = None) -> Tuple[bool, str]:
+async def _coidh_puerta(user_id: Optional[str], fuentes: Optional[frozenset] = None,
+                        linea: bool = False) -> Tuple[bool, str]:
     """(¿pasa?, por qué) según COIDH_ACTIVO. Con «admins» —el piloto— sólo
     pasa quien está en ADMIN_EMAILS, leído del perfil igual que el candado de
     Platinum (`_plan_para_redaccion`). Sin usuario, sin perfil o sin poder
@@ -13423,20 +13456,30 @@ async def _coidh_puerta(user_id: Optional[str], fuentes: Optional[frozenset] = N
     no está en `fuentes_elegidas.categoria()`, así que el veto del cliente
     de Qdrant la dejaba pasar, y las fichas ni siquiera tocan Qdrant: con ese
     rubro apagado el modelo recibía a la vez «esta fuente está apagada» y un
-    bloque <casos_corte_idh>. Ahora se cierra aquí, para todas las entradas."""
+    bloque <casos_corte_idh>. Ahora se cierra aquí, para todas las entradas.
+
+    LA LÍNEA CON SÓLO «JURISPRUDENCIA» (pilar, 25-sep-2026). La pregunta de
+    David sobre los Colegiados llevaba sólo ese rubro y la puerta cerraba la
+    línea entera, con la P./J. 2/2022 dentro. Con `linea=True` y
+    «constitucional» apagado pero «jurisprudencia» encendida, la línea PASA en
+    modo «solo_mx» (linea_coidh.alcance_por_fuentes): sólo tesis y
+    resoluciones mexicanas. Los casos citados de la Corte IDH (`linea=False`)
+    siguen cerrados, y con los dos rubros apagados se cierra todo."""
     import linea_coidh as _lc
     m = _lc.modo()
-    if m != "off" and fuentes_sel.excluye("constitucional", fuentes):
+    alcance = _lc.alcance_por_fuentes(fuentes)
+    if m != "off" and (alcance is None or (alcance == "solo_mx" and not linea)):
         return False, "selector"
+    marca = ":solo_mx" if alcance == "solo_mx" else ""
     if m == "on":
-        return True, "on"
+        return True, "on" + marca
     if m == "off" or not user_id:
         return False, m if m == "off" else "admins:sin-usuario"
     try:
         _, _es_admin, _ = await asyncio.wait_for(_plan_para_redaccion(user_id), timeout=4.0)
     except Exception:
         return False, "admins:sin-perfil"
-    return (True, "admins") if _es_admin else (False, "admins:no-admin")
+    return (True, "admins" + marca) if _es_admin else (False, "admins:no-admin")
 
 
 def _coidh_xml_resueltos(results: List[SearchResult], casos: Optional[list] = None) -> str:
@@ -14764,23 +14807,36 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
     _previo_coidh = None
     _coidh_info: Dict[str, Any] = {}
     _coidh_estado: Dict[str, Any] = {}
+    # Qué deja pasar el selector a la línea: «completa», «solo_mx» (sólo
+    # jurisprudencia encendida) o None (ver linea_coidh.alcance_por_fuentes).
+    _alcance_coidh: Optional[str] = "completa"
     try:
         import linea_coidh as _lc_chat
+        _alcance_coidh = _lc_chat.alcance_por_fuentes(_fuentes_elegidas)
         if _pregunta_coidh and _lc_chat.modo() != "off":
             _previo_coidh = _lc_chat.previo_de_historial(request.messages, _pregunta_coidh)
     except Exception as _e_prev:
         print(f"   ⚖️ COIDH: sin cita previa ({type(_e_prev).__name__})")
 
-    async def _coidh_permitido() -> bool:
-        if "t" not in _coidh_estado:
-            # Con el selector de esta consulta: «constitucional» apagado
-            # cierra la puerta (ver _coidh_puerta).
-            _coidh_estado["t"] = asyncio.ensure_future(_coidh_puerta(request.user_id, _fuentes_elegidas))
+    async def _coidh_permitido(linea: bool = False) -> bool:
+        # La línea con sólo «jurisprudencia» (modo solo_mx) tiene su propia
+        # respuesta; en los demás casos la de la línea y la de los casos
+        # citados es la misma, y se pregunta UNA vez (una lectura del perfil).
+        _k = "l" if (linea and _alcance_coidh == "solo_mx") else "t"
+        if _k not in _coidh_estado:
+            if _k == "l":
+                _coidh_estado[_k] = asyncio.ensure_future(
+                    _coidh_puerta(request.user_id, _fuentes_elegidas, linea=True))
+            else:
+                # Con el selector de esta consulta: «constitucional» apagado
+                # cierra la puerta (ver _coidh_puerta).
+                _coidh_estado[_k] = asyncio.ensure_future(_coidh_puerta(request.user_id, _fuentes_elegidas))
         try:
-            _ok, _por = await asyncio.shield(_coidh_estado["t"])
+            _ok, _por = await asyncio.shield(_coidh_estado[_k])
         except Exception:
             _ok, _por = False, "error"
-        _coidh_info["puerta"] = "abierta" if _ok else f"cerrada({_por})"
+        _coidh_info["puerta"] = ("abierta" + (f"({_por})" if _por.endswith("solo_mx") else "")) if _ok \
+            else f"cerrada({_por})"
         return _ok
 
     try:
@@ -15529,7 +15585,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
             import doctrina as _doctrina_mod
             if _doctrina_mod.activa():
                 async def _buscar_doctrina():
-                    v = await get_dense_embedding(last_user_message[:500])
+                    # Mismo vector que la sonda de la línea: una sola llamada.
+                    v = await _embedding_denso(last_user_message[:500])
                     return await _doctrina_mod.buscar(qdrant_client, v, last_user_message)
                 _doctrina_task = asyncio.create_task(_buscar_doctrina())
         except Exception as _de:
@@ -15679,26 +15736,50 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
         # ex officio?» tras hablar del control), abre la puerta y trae los
         # hitos por llave. Va DESPUÉS de crear _hilo_task, que la tarea espera.
         # Fuera documentos, sentencias y Precedentes (revisión B.8).
+        #
+        # EL PILAR (25-sep-2026, noche). Tres cambios, todos detrás de la
+        # misma puerta de administradores: (1) con sólo «jurisprudencia» en el
+        # selector la línea entra en modo «solo_mx» en vez de cerrarse —la
+        # pregunta de David sobre los Colegiados se quedó sin la P./J. 2/2022
+        # por eso—; (2) si ni la pregunta ni el hilo casan, la SONDA pregunta a
+        # la colección `lineas` con el vector de la pregunta (el mismo que ya
+        # pidió la doctrina: `_embedding_denso` no paga dos veces) y sólo si la
+        # colección existe y la pregunta huele a la línea; (3) la pregunta
+        # viaja a la selección para ordenar por relevancia.
         _linea_task = None
         try:
             import linea_coidh as _lc_linea
             if _pregunta_coidh and _lc_linea.modo() != "off":
                 async def _buscar_linea_coidh():
                     try:
+                        _texto_det = _pregunta_coidh
                         _det = _lc_linea.pregunta_por_linea(_pregunta_coidh)
                         if _det is None:
                             _hilo = await _hilo_task
                             if _hilo and _hilo != _pregunta_coidh:
                                 _det = _lc_linea.pregunta_por_linea(_hilo)
+                                _texto_det = f"{_pregunta_coidh}\n{_hilo}"
+                        _ids_sonda: list = []
                         if _det is None:
-                            return None
-                        _coidh_info["linea"] = (",".join(_det[1]) or _det[0])
-                        if not await _coidh_permitido():
+                            if (_alcance_coidh is None or not _lc_linea.candidata_sonda(_pregunta_coidh)
+                                    or not await _lc_linea.lineas_disponible(qdrant_client)
+                                    or not await _coidh_permitido(linea=True)):
+                                return None
+                            _son = await _lc_linea.sondear(
+                                qdrant_client, await _embedding_denso(_pregunta_coidh[:500]), _lc_linea.umbral())
+                            if not _son:
+                                return None
+                            _det, _ids_sonda = (_son[0], _son[1]), list(_son[2])
+                            _coidh_info["sonda"] = len(_ids_sonda)
+                        _coidh_info["linea"] = (",".join(_det[1]) or _det[0]) + (
+                            f" [{_alcance_coidh}]" if _alcance_coidh != "completa" else "")
+                        if not await _coidh_permitido(linea=True):
                             return None
                         return await _lc_linea.traer_linea(
                             qdrant_client, _det, coleccion_tesis=FIXED_SILOS["jurisprudencia"],
                             coleccion_constitucion=FIXED_SILOS["constitucional"],
-                            tesis_a_dict=_tesis_a_dict, norma_a_dict=_norma_a_dict)
+                            tesis_a_dict=_tesis_a_dict, norma_a_dict=_norma_a_dict,
+                            alcance=_alcance_coidh, pregunta=_texto_det, ids=_ids_sonda)
                     except Exception as _e_lin:
                         print(f"   ⚖️ COIDH: la línea falló ({type(_e_lin).__name__}); la consulta sigue sin ella")
                         return None
@@ -16059,7 +16140,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                           f"resueltos={';'.join(_coidh_info.get('resueltos') or []) or 'ninguno'}, "
                           f"linea={_coidh_info.get('linea') or 'no'}, "
                           f"n={_coidh_info.get('n_resueltos', 0) + _coidh_info.get('n_linea', 0)}"
-                          + (f" (hitos sin ingerir: {_coidh_info['faltan']})" if _coidh_info.get("faltan") else ""))
+                          + (f" (hitos sin ingerir: {_coidh_info['faltan']})" if _coidh_info.get("faltan") else "")
+                          + (f" (sonda: {_coidh_info['sonda']} ids)" if _coidh_info.get("sonda") else ""))
 
 
                 # ── Los precedentes ENTRAN al razonamiento, no sólo al pie ──────

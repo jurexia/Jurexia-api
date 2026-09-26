@@ -43,9 +43,34 @@ dispara en el 12.8 %: por eso la puerta NO lo usa. COIDH_ACTIVO la gobierna:
 LA COLECCIÓN
 ------------
 Alias `coidh` (física `coidh_parrafos_p1`), payload de la sección 3.4 del plan
-tal como lo escribe `scripts/ingesta_coidh.py`. HOY NO EXISTE: se crea después
-con permiso de David. Mientras no exista, todo esto devuelve vacío, lo dice en
-el registro y la consulta sigue exactamente igual que antes.
+tal como lo escribe `scripts/ingesta_coidh.py`. Existe desde el 25-sep-2026
+(16,825 puntos de 58 resoluciones). Si deja de responder, todo esto devuelve
+vacío, lo dice en el registro y la consulta sigue exactamente igual que antes.
+
+EL PILAR (25-sep-2026, noche)
+-----------------------------
+David preguntó si los Tribunales Colegiados pueden hacer control difuso sobre
+las normas del juicio de origen, y el chat le dio como vigentes la P. IX/2015
+y la P. X/2015, ABANDONADAS desde feb-2022 por la P./J. 2/2022 (reg. 2024159).
+La nota de abandono estaba en nuestro Qdrant; ninguna ruta la ponía delante
+del modelo, y la sustituta salía en el puesto 38 por similitud. Aquí se
+arregla la mitad que toca a la línea (la otra mitad, la vigencia de CUALQUIER
+tesis recuperada, es del otro frente, en main.py):
+  · la ficha trae ahora una `cronologia` de 200 entradas verificadas (sólo
+    «verificado» o «parcial»), seis `tramos` con su resumen, los `cortes` de
+    cada fuente y la `recepcion_mx` con vigencia, fuerza y reemplazo;
+  · `seleccionar` prioriza por relevancia a la pregunta, vigencia y fuerza —ya
+    no por el orden del archivo, que dejaba fuera la P./J. 20/2014 y la
+    P./J. 2/2022 en la pregunta de David— y si entra una tesis abandonada
+    entra su sustituta, y al revés;
+  · la detección abre para las preguntas reales que no abrían (control difuso
+    de los Colegiados, amparo contra reformas constitucionales, cláusulas
+    pétreas, inconvencionalidad de la Constitución) y, para lo que las palabras
+    no alcanzan, `sondear` pregunta a la colección `lineas` (hoy no existe:
+    devuelve None);
+  · el selector de fuentes con sólo «jurisprudencia» ya no cierra la línea: la
+    abre en modo «solo_mx», sin nada de la Corte IDH, la CIDH, la ONU, la
+    doctrina ni las reformas.
 """
 from __future__ import annotations
 
@@ -54,8 +79,10 @@ import html
 import json
 import os
 import re
+import time
 import unicodedata
 import uuid
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -75,6 +102,23 @@ MAX_UNIDADES_CITADAS = 24    # techo de lo que entra por el resolvedor
 MAX_PARTES = 6               # ventanas de un mismo párrafo partido (~500 tokens cada una)
 MAX_HITOS = 16               # ~240 tokens por hito (cl100k): la línea entera, 3.5-6.5 mil
 MAX_TESIS = 10
+# Con México en la pregunta entran también tesis y la cronología mexicana: el
+# tope de hitos baja para que la línea entera quede por debajo de ~8 mil
+# tokens (medido con cl100k en test_linea_pilar.py, 25-sep-2026).
+MAX_HITOS_MEXICO = 8
+MAX_TESIS_LINEA = 8          # la línea entera con México: las tesis del núcleo y las que más pesan
+MAX_CRONO = 5                # entradas de <cronologia> (~120 tokens cada una)
+MAX_PAREJAS = 3              # sustitutas o abandonadas que entran por encima de MAX_TESIS
+
+# La colección de la línea para la sonda semántica (scripts/lineas_qdrant.py).
+# Alias; la física es `lineas_p1`. HOY NO EXISTE: sondear() devuelve None.
+LINEAS = "lineas"
+# A CALIBRAR CON LA COLECCIÓN CREADA. Coseno de text-embedding-3-small: una
+# pregunta sobre otra cosa rara vez pasa de 0.35 contra textos jurídicos, y lo
+# pedido suele quedar entre 0.45 y 0.65. 0.55 es conservador a propósito:
+# prefiere no abrir a abrir en falso (una línea que no toca cuesta ~6 mil
+# tokens en cada respuesta). Se mueve con LINEAS_UMBRAL sin desplegar.
+UMBRAL_LINEAS = 0.55
 
 # La precisión histórica que el plan corrigió (§ «Sobre el origen»): la
 # expresión es de los votos de García Ramírez desde 2003; la Corte en pleno la
@@ -98,6 +142,33 @@ def modo() -> str:
     if v in ("on", "true", "1", "si", "sí", "todos"):
         return "on"
     return "admins"
+
+
+def alcance_por_fuentes(fuentes: Optional[Iterable[str]] = None) -> Optional[str]:
+    """Qué parte de la línea deja pasar el selector de fuentes del abogado.
+
+      · «completa» — el rubro «constitucional» está encendido (o no hay
+        selector): la Corte IDH, la CIDH, la ONU, la doctrina y las reformas;
+      · «solo_mx» — «constitucional» apagado pero «jurisprudencia» encendida:
+        sólo tesis y resoluciones mexicanas (SCJN, Plenos Regionales, TCC);
+      · None — los dos apagados: la línea no entra.
+
+    POR QUÉ (25-sep-2026): la pregunta de David sobre los Colegiados llevaba
+    sólo «jurisprudencia» y la puerta cerraba la línea entera, con la P./J.
+    2/2022 dentro. La Corte IDH sí es del rubro «constitucional» (así lo dice
+    `fuentes_elegidas.instruccion()`), pero las tesis de la SCJN son
+    jurisprudencia nacional: cerrarlas por la Corte IDH era tirar lo mexicano
+    con lo interamericano."""
+    try:
+        import fuentes_elegidas as fs
+    except Exception:
+        return "completa"
+    elegidas = frozenset(fuentes) if fuentes is not None else None
+    if not fs.excluye("constitucional", elegidas):
+        return "completa"
+    if not fs.excluye("jurisprudencia", elegidas):
+        return "solo_mx"
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════ utilidades
@@ -259,8 +330,10 @@ def _alias_rx(fid: str) -> Tuple[re.Pattern, ...]:
             rxs.append(re.compile(r"\b" + cuerpo + r"\b"))
     for a in f.get("alias_rx") or []:
         rxs.append(re.compile(a))
-    # `alias_amplios` («inconvencional») NO se usa: la ficha pide medir cuánto
-    # abre la puerta antes de activarlo (es frecuente en tesis mexicanas).
+    # «inconvencional(idad)» pasó de `alias_amplios` a `alias_rx` el
+    # 25-sep-2026, con límite de palabra: la pregunta de David sobre la
+    # «inconvencionalidad» de la Constitución no abría. Medido en
+    # `prueba_disparadores` de la ficha (test_linea_pilar.py).
     return tuple(rxs)
 
 
@@ -282,7 +355,7 @@ _RX_FASES = {
         r"|ejes|alcances?|ampli\w+|ex\s+officio)\b"),
     "actual": re.compile(
         r"\b(hoy|actual\w*|vigente|estado\s+actual|reciente\w*|ultim[oa]s?|ahora|todavia|aun|sigue"
-        r"|20(2[3-9]|3\d))\b"),
+        r"|postura\w*|20(2[3-9]|3\d))\b"),
     "concepto": re.compile(
         r"\b(que\s+es|concepto|definicion|define|en\s+que\s+consiste|naturaleza|significa|explica\w*"
         r"|como\s+funciona)\b"),
@@ -306,8 +379,13 @@ _RX_EJES = {
     "cumplimiento": re.compile(r"\b(cumpl\w*|sin\s+reforma|reforma\s+legal)\b"),
 }
 # México en la pregunta: trae su resumen, sus artículos constitucionales y más
-# recepción. No abre la puerta por sí solo.
-_RX_MEXICO = re.compile(r"\b(mexic\w*|scjn|suprema\s+corte|varios\s+912|ct\s*293|contradiccion\s+de\s+tesis\s+293)\b")
+# recepción. No abre la puerta por sí solo. Desde el 25-sep-2026 también los
+# tribunales mexicanos por su nombre: la pregunta de David («¿los tribunales
+# colegiados pueden…?») no decía «SCJN» y la capa de México no se encendía.
+_RX_MEXICO = re.compile(
+    r"\b(mexic\w*|scjn|suprema\s+corte|varios\s+912|ct\s*293|contradiccion\s+de\s+tesis\s+293"
+    r"|tribunal(es)?\s+colegiados?|colegiados|juicio\s+de\s+origen|regularidad\s+constitucional"
+    r"|plenos?\s+regional(es)?|primera\s+sala|segunda\s+sala|juez(es)?\s+de\s+distrito)\b")
 
 
 def pregunta_por_linea(texto: str) -> Optional[Tuple[str, List[str]]]:
@@ -324,7 +402,12 @@ def pregunta_por_linea(texto: str) -> Optional[Tuple[str, List[str]]]:
 
     Límite de palabra en todo: «pena convencional», «interés convencional» o
     «convención colectiva» no disparan (`no_disparan` de la ficha); el arraigo
-    mercantil o civil tampoco (`excluir` del tema)."""
+    mercantil o civil tampoco (`excluir` del tema).
+
+    Si sólo casó un tema y la pregunta dice además qué fase quiere («¿cuál es
+    la postura ACTUAL de la SCJN sobre el control difuso?»), esas fases se
+    pasan con la marca «tema_primero»: el tema manda y la fase ordena, sin
+    arrastrar el núcleo del origen interamericano (25-sep-2026)."""
     if not texto or not texto.strip():
         return None
     p = _plegar(texto[:TOPE_PREGUNTA])
@@ -338,10 +421,14 @@ def pregunta_por_linea(texto: str) -> Optional[Tuple[str, List[str]]]:
         if not casa_figura and not temas:
             continue
         fases: List[str] = []
+        mx = ["mexico"] if _RX_MEXICO.search(p) else []
         if casa_figura:
             ejes = [f"eje:{k}" for k, rx in _RX_EJES.items() if rx.search(p)]
             fases = [k for k, rx in _RX_FASES.items() if rx.search(p)] or (["evolucion"] if ejes else ["concepto"])
-            fases += ejes + (["mexico"] if _RX_MEXICO.search(p) else [])
+            fases += ejes + mx
+        else:
+            pedidas = [k for k, rx in _RX_FASES.items() if rx.search(p) and k != "concepto"]
+            fases = pedidas + mx + (["tema_primero"] if pedidas else [])
         return fid, fases + [f"tema:{t}" for t in temas]
     return None
 
@@ -372,35 +459,304 @@ def _hitos_por_llave(fid: str) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def seleccionar(fid: str, fases: Sequence[str]) -> Dict[str, Any]:
-    """Qué se trae para (figura, fases): hitos, registros de la SCJN,
-    artículos constitucionales y supervisiones. Sin red; se puede probar solo.
+# ── La cronología del pilar (25-sep-2026) ─────────────────────────────────
+# Qué tramos de la narración (ver «tramos» en la ficha) tocan cada fase o
+# tema: suben de prioridad las entradas de esos tramos, y un tema con fase
+# («tema_primero») trae el resumen de su tramo.
+_TRAMOS_FASE = {"origen": ("t1",), "concepto": ("t1", "t2"), "evolucion": ("t2", "t3", "t4"),
+                "actual": ("t6",), "mexico": ("t3", "t4", "t6")}
+_TRAMO_TEMA = {"restricciones_constitucionales": "t5", "amparo_reformas_constitucionales": "t5",
+               "prision_preventiva_oficiosa": "t6", "arraigo": "t6", "control_ex_officio_mx": "t4",
+               "control_difuso_jueces_locales": "t3"}
+# Modo «solo_mx» (el abogado apagó «constitucional»): de la cronología sólo
+# pasan tesis y resoluciones mexicanas. Ni la Corte IDH, ni la CIDH, ni la
+# ONU, ni votos, proyectos, doctrina o reformas.
+_TIPOS_SOLO_MX = frozenset({"scjn_tesis", "scjn_resolucion", "acuerdo_general", "pleno_regional_tesis", "tcc_tesis"})
+_TIPOS_CORTE_IDH = ("corte_idh_sentencia", "corte_idh_voto", "corte_idh_oc", "corte_idh_supervision")
+_PESO_VIGENCIA = {"vigente": 2.0, "pendiente": 1.0, "superada_en_parte": 0.5, "modificada": 0.0, "no_aplica": 0.0,
+                  "historica": -0.5, "superada": -1.0, "abandonada": -1.0}
+_PESO_FUERZA_TESIS = {"jurisprudencia_obligatoria": 2.0, "plenos_regionales": 1.0, "tesis_aislada": 0.5, "tcc": 0.0}
+_PESO_FUERZA = {"obligatoria": 1.5, "norma": 1.5, "orientadora": 0.5, "recomendacion": 0.5, "historica": 0.0,
+                "voto": 0.0, "doctrina": 0.0, "proyecto": 0.0}
+# Cuántas de cada clase entran por puntuación (lo que pide un tema entra
+# aparte): que una pregunta general no se llene de recomendaciones o votos.
+_LIMITE_CLASE = {"recomendacion": 2, "scjn_voto": 2, "doctrina": 2, "scjn_proyecto": 2}
+_STOP = frozenset(
+    "de la el los las del en que se por con para una uno unos unas sus como esta este estos estas esas esos hay "
+    "ser son fue han sin entre cual cuales donde cuando sobre desde hasta tiene tienen puede pueden debe deben "
+    "mas muy tambien pero porque segun ante bajo cada otra otro otras otros dicho dicha todo toda todos todas "
+    "cuya cuyo asi solo "
+    # Las palabras de FASE dicen qué parte de la línea se quiere, no de qué
+    # trata: «¿dónde nace…?» subía la 2a./J. 163/2017 porque su aporte dice
+    # «el matiz nace en el ADR 583/2015» (medido el 25-sep-2026).
+    "nace nacio surge surgio origen origenes actual actualmente vigente vigentes evolucion linea postura "
+    "historia hoy ahora".split())
+
+
+def cronologia(fid: str) -> List[Dict[str, Any]]:
+    """La cronología verificada de la figura (vacía si la ficha no la trae)."""
+    return (figuras().get(fid) or {}).get("cronologia") or []
+
+
+@lru_cache(maxsize=8)
+def _crono_por_id(fid: str) -> Dict[str, Dict[str, Any]]:
+    return {e["id"]: e for e in cronologia(fid)}
+
+
+def entrada_resuelta(fid: str, e: Dict[str, Any]) -> Dict[str, Any]:
+    """Una entrada de la cronología con los datos de su hito si sólo es una
+    referencia (`ref_hito`): URL, página, párrafo, extracto y aporte viven en
+    el hito, no se duplican en la cronología."""
+    ll = e.get("ref_hito")
+    if not ll:
+        return e
+    h = _hitos_por_llave(fid).get(ll) or {}
+    out = dict(e)
+    for k in ("url_oficial", "pagina", "parrafo", "extracto", "aporte"):
+        if out.get(k) in (None, "") and h.get(k) not in (None, ""):
+            out[k] = str(h[k]) if k in ("pagina", "parrafo") else h[k]
+    if not h.get("verificado", True) and out.get("verificacion", {}).get("estado") == "verificado":
+        out["verificacion"] = dict(out["verificacion"], estado="parcial")
+    return out
+
+
+@lru_cache(maxsize=4096)
+def _raices(texto: str) -> frozenset:
+    """Raíces de 6 letras de las palabras con contenido (sin acentos): lo justo
+    para que «colegiados» case con «Colegiados» y «reclamado» con «reclamados»."""
+    return frozenset(w[:6] for w in re.findall(r"[a-z0-9]+", _plegar(texto or "")) if len(w) >= 4 and w not in _STOP)
+
+
+def _texto_entrada(e: Dict[str, Any]) -> str:
+    return " ".join(str(e.get(k) or "") for k in ("titulo", "aporte", "extracto", "clave", "organo"))
+
+
+def _texto_tesis(r: Dict[str, Any], e: Optional[Dict[str, Any]]) -> str:
+    return " ".join(str(x or "") for x in (r.get("rubro_abreviado"), r.get("porque"), r.get("clave"),
+                                           (e or {}).get("titulo"), (e or {}).get("aporte")))
+
+
+@lru_cache(maxsize=4)
+def _idf(fid: str) -> Dict[str, float]:
+    """Peso de cada raíz en el corpus de la línea (cronología + recepción): una
+    raíz que está en todas («contro», «consti») no distingue nada; «colegi»,
+    «difuso» o «reclam» sí. log(N / df), calculado una vez por proceso."""
+    import math
+    textos = [_texto_entrada(entrada_resuelta(fid, e)) for e in cronologia(fid)]
+    textos += [_texto_tesis(r, None) for r in (figuras().get(fid) or {}).get("recepcion_mx") or []]
+    df: Counter = Counter()
+    for t in textos:
+        df.update(_raices(t))
+    n = max(1, len(textos))
+    return {r: math.log(n / c) for r, c in df.items()}
+
+
+def _relevancia(fid: str, raices_q: frozenset, texto: str) -> float:
+    if not raices_q:
+        return 0.0
+    idf = _idf(fid)
+    return sum(idf.get(r, 0.0) for r in raices_q & _raices(texto))
+
+
+def _elegir_registros(fid: str, q: frozenset, reales: Sequence[str], temas: Sequence[str], mexico: bool,
+                      tema_primero: bool, ids: Sequence[str], solo_mx: bool) -> List[str]:
+    """Las tesis de `recepcion_mx` que entran, por prioridad y no por el orden
+    del archivo (revisión crítica del pilar, 25-sep-2026: con la pregunta de
+    David el recorte por orden dejaba sólo registros de 2011-2013 y fuera las
+    P./J. 20/2014, 21/2014, 2/2022 y 2/2025).
+
+    Prioridad = relevancia a la pregunta (idf) + vigencia + fuerza + núcleo
+    mexicano + lo que pidió el tema, el estado actual o la sonda. Después, las
+    PAREJAS: si entra una abandonada entra su sustituta y al revés, por encima
+    del tope (MAX_PAREJAS), para que el modelo nunca vea una sin la otra."""
+    f = figuras().get(fid) or {}
+    crono = _crono_por_id(fid)
+    rec = {str(r["registro"]): r for r in f.get("recepcion_mx") or [] if r.get("en_acervo")}
+    temas_mx = f.get("temas_mx") or {}
+    forz: List[str] = []
+    # Primero el estado actual: con «¿cuál es la postura ACTUAL…?» la P./J.
+    # 20/2014, la 21/2014, la 2/2022, la 64/2014 y la 2/2025 no pueden quedar
+    # detrás de las dieciséis de un tema.
+    actual = "actual" in reales and (mexico or tema_primero or solo_mx)
+    if actual:
+        forz += [str(x) for x in (f.get("fase_actual") or {}).get("registros") or []]
+    for tid in temas:
+        forz += [str(x) for x in (temas_mx.get(tid) or {}).get("registros") or []]
+    for i in ids:
+        if i in rec:
+            forz.append(i)
+        elif i in crono and str(crono[i].get("registro") or "") in rec:
+            forz.append(str(crono[i]["registro"]))
+    forz = [x for x in dict.fromkeys(forz) if x in rec]
+    # El núcleo mexicano y la recepción entera sólo cuando se pregunta por la
+    # LÍNEA (no por un tema) con México en la pregunta o en modo solo_mx;
+    # «¿dónde nace…?» o «¿quiénes están obligados hoy?» traen unas pocas
+    # tesis de la recepción, no la P./J. 2/2022 (medido: sin este corte la
+    # pregunta interamericana pasaba de 8 mil tokens).
+    linea = bool(reales) and not tema_primero
+    amplia = linea and (mexico or solo_mx)
+    nucleo = [str(x) for x in f.get("nucleo_mx") or [] if str(x) in rec] if amplia else []
+    cands = set(forz) | set(nucleo)
+    if linea:
+        # La recepción de la SCJN; los Plenos Regionales y los colegiados
+        # entran sólo si un tema, el estado actual o la sonda los piden.
+        cands |= {k for k, r in rec.items() if r.get("instancia") in ("Pleno", "Primera Sala", "Segunda Sala")}
+    if not cands:
+        return []
+    tope = MAX_TESIS if (temas or ids) else MAX_TESIS_LINEA if amplia else 4
+    # Lo del estado actual no compite: entra entero (con «¿cuál es la postura
+    # actual de la SCJN sobre el control difuso?» la P./J. 21/2014 y la 2/2025
+    # quedaban detrás de las tesis que dicen «difuso» en el rubro).
+    fijos = [str(x) for x in (f.get("fase_actual") or {}).get("registros") or [] if str(x) in rec] if actual else []
+    rango_forz = {x: i for i, x in enumerate(forz)}
+
+    def prio(reg: str) -> float:
+        r = rec[reg]
+        s = 3.0 * _relevancia(fid, q, _texto_tesis(r, crono.get(r.get("crono_id") or "")))
+        s += _PESO_VIGENCIA.get(r.get("vigencia") or "vigente", 0.0) + _PESO_FUERZA_TESIS.get(r.get("fuerza"), 0.0)
+        if reg in nucleo:
+            s += 3.0
+        if reg in rango_forz:
+            s += 6.0 - 0.1 * rango_forz[reg]
+        fecha = str(r.get("fecha_publicacion") or "")
+        if "actual" in reales and fecha >= "2014":
+            s += 1.0
+        if "origen" in reales and fecha and fecha <= "2011-12-31":
+            # El origen en México es la recepción del Varios 912/2010 (la P.
+            # LXVII/2011 es la tesis madre), no la jurisprudencia posterior.
+            s += 2.5 if r.get("relacion") == "recibe" else 1.0
+        # Plenos Regionales y colegiados: sólo si un tema los pide o la
+        # pregunta los toca de verdad (en la línea general, la IX.P. J/2 P
+        # subía por decir «línea jurisprudencial» en su rubro).
+        if r.get("instancia") in ("Plenos Regionales", "Tribunales Colegiados de Circuito") and reg not in rango_forz:
+            s -= 4.0
+        return s
+
+    elegidos = fijos + [reg for reg in sorted(cands - set(fijos), key=lambda reg: (-prio(reg), reg))][:max(0, tope - len(fijos))]
+    parejas: List[Tuple[int, str]] = []
+    for reg in elegidos:
+        r = rec[reg]
+        otros = ([str(r["reemplazo"])] if r.get("reemplazo") else []) + [str(x) for x in r.get("sustituye") or []]
+        for o in otros:
+            if o in rec and o not in elegidos and o not in [p[1] for p in parejas]:
+                abandono = "abandonada" in (r.get("vigencia"), rec[o].get("vigencia"))
+                # Un abandono va SIEMPRE en pareja (el error de David); una
+                # superación de contenido, sólo si la pidió un tema o la sonda.
+                if abandono or temas or ids:
+                    parejas.append((0 if abandono else 1, o))
+    parejas.sort()
+    return elegidos + [o for _, o in parejas[:MAX_PAREJAS]]
+
+
+def _elegir_cronologia(fid: str, q: frozenset, reales: Sequence[str], temas: Sequence[str], mexico: bool,
+                       tema_primero: bool, ids: Sequence[str], solo_mx: bool) -> List[str]:
+    """Las entradas de la cronología que van en <cronologia>: lo que NO es de la
+    Corte IDH (eso va en <hitos>) ni una tesis del acervo (va en <tesis>), o sea
+    resoluciones y acuerdos de la SCJN, votos, proyectos, reformas y leyes,
+    informes de la CIDH y de la ONU, doctrina y tesis que no están en el acervo.
+    Primero lo que pide el tema, el estado actual o la sonda; después, si la
+    pregunta es de la línea, lo que más puntúa, con topes por clase."""
+    f = figuras().get(fid) or {}
+    crono = cronologia(fid)
+    rec = {str(r["registro"]) for r in f.get("recepcion_mx") or [] if r.get("en_acervo")}
+
+    def candidata(e: Dict[str, Any]) -> bool:
+        if e.get("ref_hito") or e.get("tipo") in _TIPOS_CORTE_IDH:
+            return False
+        if e.get("registro") and str(e["registro"]) in rec:
+            return False
+        return not solo_mx or e.get("tipo") in _TIPOS_SOLO_MX
+
+    cands = {e["id"]: e for e in crono if candidata(e)}
+    forz: List[str] = []
+    for tid in temas:
+        forz += (((f.get("temas_mx") or {}).get(tid) or {}).get("cronologia") or [])
+    if "actual" in reales and (mexico or tema_primero or solo_mx):
+        forz += (f.get("fase_actual") or {}).get("cronologia") or []
+    forz += [i for i in ids if i in cands]
+    elegidos = [i for i in dict.fromkeys(forz) if i in cands][:MAX_CRONO + 2]
+    # Por puntuación sólo cuando se pregunta por la LÍNEA con México (o en modo
+    # solo_mx): un tema trae lo suyo y nada más (medido el 25-sep-2026: con
+    # México en la pregunta de los Colegiados entraban la «supremacía
+    # convencional» de Ferrer y un informe de la CIDH que no venían al caso).
+    if reales and not tema_primero and (mexico or solo_mx) and len(elegidos) < MAX_CRONO:
+        tramos_q = set()
+        for x in list(reales) + (["mexico"] if mexico else []):
+            tramos_q |= set(_TRAMOS_FASE.get(x, ()))
+        tramos_q |= {_TRAMO_TEMA[t] for t in temas if t in _TRAMO_TEMA}
+
+        def rel(e: Dict[str, Any]) -> float:
+            return 3.0 * _relevancia(fid, q, _texto_entrada(e))
+
+        def prio(e: Dict[str, Any]) -> float:
+            s = rel(e) + (2.0 if e.get("tramo") in tramos_q else 0.0)
+            s += _PESO_FUERZA.get(e.get("fuerza"), 0.0) + 0.5 * _PESO_VIGENCIA.get(e.get("vigencia"), 0.0)
+            if "actual" in reales and str(e.get("fecha_resolucion") or e.get("fecha_publicacion") or "") >= "2022":
+                s += 1.0
+            return s
+
+        clases: Counter = Counter()
+        for e in sorted((c for i, c in cands.items() if i not in elegidos), key=lambda e: (-prio(e), e.get("orden") or 0)):
+            if len(elegidos) >= MAX_CRONO or prio(e) < 4.0:
+                break
+            # Fuera de los tramos de la pregunta, sólo lo que la toca de verdad.
+            if e.get("tramo") not in tramos_q and rel(e) < 4.5:
+                continue
+            clase = "recomendacion" if e.get("tipo") in ("cidh", "onu") else e.get("tipo")
+            if clase in _LIMITE_CLASE and clases[clase] >= _LIMITE_CLASE[clase]:
+                continue
+            clases[clase] += 1
+            elegidos.append(e["id"])
+    return sorted(elegidos, key=lambda i: cands[i].get("orden") or 0)
+
+
+def seleccionar(fid: str, fases: Sequence[str], pregunta: Optional[str] = None, alcance: Optional[str] = "completa",
+                ids: Sequence[str] = ()) -> Dict[str, Any]:
+    """Qué se trae para (figura, fases): hitos de la Corte IDH, registros de la
+    SCJN, entradas de la cronología, artículos constitucionales y
+    supervisiones. Sin red; se puede probar solo.
 
     Con presupuesto (medido con cl100k el 25-sep-2026: ~230 tokens por hito):
-    el núcleo del origen siempre; los ejes pedidos, enteros; y un cupo por
-    fase —«actual» toma lo más reciente, las demás lo que más aporta según la
-    arista—, hasta MAX_HITOS. Después, orden cronológico."""
+    el núcleo del origen cuando se pide el origen, la evolución, el concepto
+    o un eje (no con «¿cuál es el estado actual…?» a secas); los ejes
+    pedidos, enteros; un cupo por fase —«actual» toma lo más reciente, las
+    demás lo que más aporta según la arista—, hasta MAX_HITOS (MAX_HITOS_MEXICO
+    si entra México, para dejar sitio a las tesis y la cronología). Después,
+    orden cronológico.
+
+    `pregunta` ordena por relevancia las tesis y la cronología; `alcance`
+    «solo_mx» deja fuera todo lo interamericano (ver alcance_por_fuentes);
+    `ids` son hitos, registros o entradas que la sonda semántica dio por
+    relevantes y entran por delante."""
     f = figuras().get(fid) or {}
     por_llave = _hitos_por_llave(fid)
     temas = [x[5:] for x in fases if x.startswith("tema:")]
     ejes = [x[4:] for x in fases if x.startswith("eje:")]
     mexico = "mexico" in fases
+    tema_primero = "tema_primero" in fases
     reales = [x for x in fases if x in _FASES_HITO]
+    solo_mx = alcance == "solo_mx"
+    ids = [str(i) for i in ids or ()]
+    q = _raices(pregunta or "")
 
     elegidos: Dict[str, int] = {}          # llave → prioridad (menor = antes)
-    registros: List[str] = []
     constitucion: List[str] = []
     supervisiones: List[Dict[str, Any]] = []
     advertencias: List[str] = []
-    todos = f.get("hitos") or []
+    todos = [h for h in f.get("hitos") or [] if not h.get("solo_por_tema")]
+    actual_mx = "actual" in reales and (mexico or tema_primero)
 
     def fase_de(h):
         return (h.get("fase") or "").lower()
 
-    if reales:
-        for ll in NUCLEO:
-            if ll in por_llave:
-                elegidos[ll] = -1
+    if reales and not solo_mx:
+        # El núcleo del origen, cuando se pide la línea o uno de sus ejes; no
+        # con «¿cuál es el estado actual…?» a secas (eran ~1,200 tokens de
+        # origen en una pregunta que no lo pide; 25-sep-2026).
+        if not tema_primero and (ejes or set(reales) & {"origen", "evolucion", "concepto"}):
+            for ll in NUCLEO:
+                if ll in por_llave:
+                    elegidos[ll] = -1
         for eje in ejes:
             rx_eje = _RX_EJES.get(eje)
             for h in todos:
@@ -410,9 +766,13 @@ def seleccionar(fid: str, fases: Sequence[str]) -> Dict[str, Any]:
                 if fase_de(h) == eje or (h.get("arista") in ("amplía", "origina") and rx_eje is not None
                                          and rx_eje.search(_plegar(h.get("aporte") or ""))):
                     elegidos.setdefault(h["llave"], 0)
-        libres = max(0, MAX_HITOS - len(elegidos))
+        tope = MAX_HITOS_MEXICO if mexico else MAX_HITOS
+        libres = max(0, tope - len(elegidos))
         cupo = max(2, libres // max(1, len(reales)))
-        for x in reales:
+        # Con «tema_primero» el tema manda: no se llena la fase con lo más
+        # reciente de la Corte IDH en otros países (la postura ACTUAL de la
+        # SCJN sobre el control difuso no pide a Huilcamán ni la OC-32).
+        for x in ([] if tema_primero else reales):
             quiere = set(_FASES_HITO[x])
             if not mexico:
                 quiere -= {"contenido (méxico)"}
@@ -428,41 +788,57 @@ def seleccionar(fid: str, fases: Sequence[str]) -> Dict[str, Any]:
                 cands.sort(key=lambda h: (_PESO_ARISTA.get(h.get("arista"), 5), h.get("fecha") or ""))
             for h in cands[:cupo]:
                 elegidos.setdefault(h["llave"], 1)
-        # Recepción en México: Pleno y Salas (los colegiados van con sus temas).
-        for r in f.get("recepcion_mx") or []:
-            if r.get("en_acervo") and r.get("instancia") in ("Pleno", "Primera Sala", "Segunda Sala") \
-                    and r.get("relacion") in ("recibe", "acota", "precisa"):
-                registros.append(str(r["registro"]))
-        registros = registros[:(8 if mexico else 6)]
         if mexico:
             constitucion += list(_CONSTITUCION_MEXICO)
 
+    if not solo_mx:
+        # El estado a sep-2026 con México: Tzompaxtle ¶118 y García Rodríguez
+        # ¶176, 301 y 303 entran siempre (la crítica del pilar los encontró
+        # fuera: la fase «actual» sólo miraba lo más reciente).
+        if actual_mx:
+            for ll in (f.get("fase_actual") or {}).get("hitos") or []:
+                if ll in por_llave:
+                    elegidos[ll] = min(elegidos.get(ll, 0), 0)
+        for tid in temas:
+            t = (f.get("temas_mx") or {}).get(tid) or {}
+            for ll in t.get("hitos") or []:
+                if ll in por_llave:
+                    elegidos[ll] = min(elegidos.get(ll, 0), 0)
+            for x in t.get("extra") or []:
+                elegidos.setdefault(x["llave"], 1)
+            constitucion = list(t.get("constitucion") or []) + constitucion
+            for s in t.get("supervision") or []:
+                if s.get("doc_id") not in {x.get("doc_id") for x in supervisiones}:
+                    supervisiones.append(s)
+        if actual_mx:
+            # Y las supervisiones del 26-nov-2024, que dejaron abierto el punto.
+            for tid in ("prision_preventiva_oficiosa", "arraigo"):
+                for s in ((f.get("temas_mx") or {}).get(tid) or {}).get("supervision") or []:
+                    if s.get("doc_id") not in {x.get("doc_id") for x in supervisiones}:
+                        supervisiones.append(s)
+        for x in ids:
+            if x in por_llave:
+                elegidos[x] = min(elegidos.get(x, 0), 0)
     for tid in temas:
         t = (f.get("temas_mx") or {}).get(tid) or {}
-        for ll in t.get("hitos") or []:
-            if ll in por_llave:
-                elegidos[ll] = min(elegidos.get(ll, 0), 0)
-        for x in t.get("extra") or []:
-            elegidos.setdefault(x["llave"], 1)
-        registros = [str(r) for r in t.get("registros") or []] + registros
-        constitucion = list(t.get("constitucion") or []) + constitucion
-        for s in t.get("supervision") or []:
-            if s.get("doc_id") not in {x.get("doc_id") for x in supervisiones}:
-                supervisiones.append(s)
         if t.get("advertencia"):
             advertencias.append(t["advertencia"])
 
-    # El tope recorta lo de cupo, nunca el núcleo, los ejes ni los temas; y a
-    # cada fase pedida le deja al menos 2 («¿quiénes están obligados HOY?»
-    # llena el eje de sujetos y aun así trae lo más reciente).
+    # El tope recorta lo de cupo, nunca el núcleo, los ejes, los temas ni el
+    # estado actual; y a cada fase pedida le deja al menos 2 («¿quiénes están
+    # obligados HOY?» llena el eje de sujetos y aun así trae lo más reciente).
+    tope = MAX_HITOS_MEXICO if mexico else MAX_HITOS
     fijos = [ll for ll in elegidos if elegidos[ll] <= 0]
     resto = sorted((ll for ll in elegidos if elegidos[ll] > 0),
                    key=lambda ll: (elegidos[ll], por_llave[ll].get("fecha") or "", ll))
-    orden = fijos + resto[:max(MAX_HITOS - len(fijos), 2 * len(reales))]
+    orden = fijos + resto[:max(tope - len(fijos), 0 if mexico else 2 * len(reales))]
     hitos = sorted((por_llave[ll] for ll in orden), key=lambda h: (h.get("fecha") or "", _orden_llave(h["llave"])))
-    return dict(hitos=hitos, registros=list(dict.fromkeys(registros))[:MAX_TESIS],
-                constitucion=list(dict.fromkeys(constitucion)), supervisiones=supervisiones,
-                advertencias=advertencias, temas=temas, fases=reales, ejes=ejes, mexico=mexico)
+    registros = _elegir_registros(fid, q, reales, temas, mexico, tema_primero, ids, solo_mx)
+    crono = _elegir_cronologia(fid, q, reales, temas, mexico, tema_primero, ids, solo_mx)
+    return dict(hitos=hitos, registros=list(dict.fromkeys(registros)), cronologia=crono,
+                constitucion=[] if solo_mx else list(dict.fromkeys(constitucion)), supervisiones=supervisiones,
+                advertencias=advertencias, temas=temas, fases=reales, ejes=ejes, mexico=mexico,
+                alcance=alcance or "completa", tema_primero=tema_primero, actual_mx=actual_mx or (solo_mx and "actual" in reales))
 
 
 def _orden_llave(ll: str) -> Tuple[int, int]:
@@ -907,70 +1283,219 @@ async def traer_por_ids(qdrant, coleccion: str, ids: Sequence[str]) -> Dict[str,
     return {str(p.id): (p.payload or {}) for p in pts or []}
 
 
-async def traer_linea(qdrant, deteccion: Tuple[str, List[str]], coleccion_tesis: str,
+def _doc_doctrina(pid: str, pl: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Un punto de `doctrina` → dict de SearchResult con el contrato del visor
+    (el mismo que arma main._sr_doctrina), para que su [Doc ID] resuelva."""
+    try:
+        import doctrina as _doctrina
+        return _doctrina.contrato(_doctrina.fragmento(pid, pl), 0.9)
+    except Exception:
+        return None
+
+
+async def traer_cronologia(qdrant, fid: str, ids: Sequence[str], coleccion_tesis: str,
+                           norma_a_dict: Optional[Callable[[str, Dict[str, Any], str], Dict[str, Any]]] = None
+                           ) -> Dict[str, Dict[str, Any]]:
+    """entrada → dict de SearchResult del punto del acervo que la respalda
+    (doctrina, Constitución o ley), para que la <entrada> lleve un [Doc ID]
+    que el sello reconozca. Lo que no está en el acervo no se inventa: esa
+    entrada va sin [Doc ID] y con su URL oficial. Las tesis van por registro
+    (traer_tesis), no por aquí."""
+    crono = _crono_por_id(fid)
+    por_col: Dict[str, List[Tuple[str, str]]] = {}
+    for i in ids:
+        ea = (crono.get(i) or {}).get("en_acervo") or {}
+        if ea.get("coleccion") and ea.get("id") and ea["coleccion"] not in (coleccion_tesis, COLECCION):
+            por_col.setdefault(ea["coleccion"], []).append((i, ea["id"]))
+    salida: Dict[str, Dict[str, Any]] = {}
+    for col, pares in por_col.items():
+        pls = await traer_por_ids(qdrant, col, list(dict.fromkeys(pid for _, pid in pares)))
+        for i, pid in pares:
+            pl = pls.get(pid)
+            if pl is None:
+                continue
+            d = _doc_doctrina(pid, pl) if col == "doctrina" else (norma_a_dict(pid, pl, col) if norma_a_dict else None)
+            if d:
+                salida[i] = d
+    return salida
+
+
+async def traer_linea(qdrant, deteccion: Sequence[Any], coleccion_tesis: str,
                       coleccion_constitucion: str = "bloque_constitucional",
                       tesis_a_dict: Optional[Callable[[str, Dict[str, Any], str], Dict[str, Any]]] = None,
-                      norma_a_dict: Optional[Callable[[str, Dict[str, Any], str], Dict[str, Any]]] = None
-                      ) -> Optional[Dict[str, Any]]:
+                      norma_a_dict: Optional[Callable[[str, Dict[str, Any], str], Dict[str, Any]]] = None,
+                      alcance: Optional[str] = "completa", pregunta: Optional[str] = None,
+                      ids: Sequence[str] = ()) -> Optional[Dict[str, Any]]:
     """La línea para (figura, fases): hitos por llave, recepción en México por
-    registro y los artículos constitucionales que conviven con ella.
+    registro, la cronología y los artículos constitucionales que conviven con
+    ella.
 
-    Devuelve {xml, docs, n, faltan, figura, fases, temas}, o None si no hay
-    nada o si la colección no existe (hoy no existe). Nunca lanza: una línea
-    que no llega no puede costar la consulta.
+    `deteccion` es lo que dio pregunta_por_linea —(figura, fases)— o la sonda
+    —(figura, fases, ids)—. `alcance` sale de alcance_por_fuentes: con
+    «solo_mx» no se toca la colección `coidh` ni se trae nada interamericano;
+    con None no se trae nada.
+
+    Devuelve {xml, docs, n, faltan, figura, fases, temas, hitos, registros,
+    cronologia, alcance}, o None si no hay nada o si la colección `coidh` no
+    responde cuando hace falta. Nunca lanza: una línea que no llega no puede
+    costar la consulta.
 
     `docs` son dicts con los campos de SearchResult: los hitos (silo «coidh»,
-    con el contrato) y, si se pasan los conversores de main.py, las tesis y
-    los artículos traídos, para que su [Doc ID] resuelva y el sello los vea."""
+    con el contrato) y, si se pasan los conversores de main.py, las tesis, los
+    artículos y el acervo de la cronología, para que su [Doc ID] resuelva y el
+    sello los vea."""
     try:
-        fid, fases = deteccion
+        fid, fases = deteccion[0], list(deteccion[1])
+        if len(deteccion) > 2 and not ids:
+            ids = deteccion[2] or ()
         f = figuras().get(fid)
-        if not f:
+        if not f or alcance is None:
             return None
-        sel = seleccionar(fid, fases)
-        if not sel["hitos"] and not sel["registros"]:
+        solo_mx = alcance == "solo_mx"
+        sel = seleccionar(fid, fases, pregunta=pregunta, alcance=alcance, ids=ids)
+        if not sel["hitos"] and not sel["registros"] and not sel["cronologia"]:
             return None
-        try:
-            puntos = await traer_por_llaves(qdrant, [h["llave"] for h in sel["hitos"]])
-        except Exception as e:
-            print(f"   ⚖️ COIDH: la colección «{COLECCION}» no responde ({type(e).__name__}): "
-                  "la línea no entra y la consulta sigue igual")
-            return None
-
+        crono = _crono_por_id(fid)
         hitos: List[Dict[str, Any]] = []
         faltan: List[str] = []
-        for h in sel["hitos"]:
-            partes = puntos.get(h["llave"])
-            if partes:
-                pid, pl = _parte_con(h.get("extracto"), partes)
-                d = contrato(pid, pl, rol="hito")
-                d["ingerido"] = True
-            else:
-                d = ficha_hito(h)
-                d["ingerido"] = False
-                faltan.append(h["llave"])
-            d["_hito"] = h
-            hitos.append(d)
-        supervisiones = [dict(ficha_supervision(s), ingerido=False, _sup=s) for s in sel["supervisiones"]]
+        if sel["hitos"]:
+            try:
+                puntos = await traer_por_llaves(qdrant, [h["llave"] for h in sel["hitos"]])
+            except Exception as e:
+                print(f"   ⚖️ COIDH: la colección «{COLECCION}» no responde ({type(e).__name__}): "
+                      "la línea no entra y la consulta sigue igual")
+                return None
+            for h in sel["hitos"]:
+                partes = puntos.get(h["llave"])
+                if partes:
+                    pid, pl = _parte_con(h.get("extracto"), partes)
+                    d = contrato(pid, pl, rol="hito")
+                    d["ingerido"] = True
+                else:
+                    d = ficha_hito(h)
+                    d["ingerido"] = False
+                    faltan.append(h["llave"])
+                d["_hito"] = h
+                d["_crono"] = crono.get(h["llave"])
+                hitos.append(d)
+        supervisiones = [] if solo_mx else [dict(ficha_supervision(s), ingerido=False, _sup=s,
+                                                 _crono=crono.get(s.get("doc_id")))
+                                            for s in sel["supervisiones"]]
 
         tesis = await traer_tesis(qdrant, coleccion_tesis, sel["registros"])
         normas: Dict[str, Dict[str, Any]] = {}
         ids_norma = {c["qdrant_id"]: c for c in f.get("constitucion_mx") or []
                      if c.get("ref") in sel["constitucion"] and c.get("qdrant_id") and c.get("en_acervo")}
-        if ids_norma:
+        if ids_norma and not solo_mx:
             normas = await traer_por_ids(qdrant, coleccion_constitucion, list(ids_norma))
+        docs_crono = {} if solo_mx else await traer_cronologia(qdrant, fid, sel["cronologia"], coleccion_tesis,
+                                                                norma_a_dict)
 
         docs = [publico(d) for d in hitos + supervisiones]
         if tesis_a_dict:
             docs += [tesis_a_dict(pid, pl, coleccion_tesis) for pid, pl in tesis.values()]
         if norma_a_dict:
             docs += [norma_a_dict(pid, normas[pid], coleccion_constitucion) for pid in normas]
-        xml = bloque_xml(fid, sel, hitos, supervisiones, tesis, {pid: ids_norma[pid] for pid in normas})
+        ya = {d.get("id") for d in docs}
+        for d in docs_crono.values():
+            if d.get("id") not in ya:
+                docs.append(d)
+                ya.add(d.get("id"))
+        xml = bloque_xml(fid, sel, hitos, supervisiones, tesis, {pid: ids_norma[pid] for pid in normas},
+                         {i: d.get("id") for i, d in docs_crono.items()})
         return dict(xml=xml, docs=docs, n=len(docs), faltan=faltan, figura=fid, fases=sel["fases"],
-                    temas=sel["temas"], hitos=[h["llave"] for h in sel["hitos"]])
+                    temas=sel["temas"], hitos=[h["llave"] for h in sel["hitos"]], registros=sel["registros"],
+                    cronologia=sel["cronologia"], alcance=sel["alcance"])
     except Exception as e:
         print(f"   ⚖️ COIDH: la línea falló ({type(e).__name__}: {str(e)[:120]}); la consulta sigue sin ella")
         return None
+
+
+# ═══════════════════════════════════════════════════════════════ la sonda
+
+# Qué fases abre un tramo cuando la sonda lo encuentra (ver «tramos»).
+_FASES_TRAMO = {"t1": ["origen"], "t2": ["evolucion"], "t3": ["evolucion", "mexico"], "t4": ["evolucion", "mexico"],
+                "t5": ["mexico", "tema:restricciones_constitucionales"], "t6": ["actual", "mexico"]}
+_RX_CANDIDATA = re.compile(
+    r"\b(control\w*|constitucion\w*|convencion\w*|tratados?|derechos\s+humanos|corte\s+idh|interamerican\w*|cidh"
+    r"|scjn|suprema\s+corte|amparo|jurisprudencia\w*|tesis|restriccion\w*|prision\s+preventiva|arraigo|colegiad\w*"
+    r"|supremacia|inaplic\w*|pro\s+persona|reforma\s+(judicial|constitucional))\b")
+_DISPONIBLE: Dict[str, Any] = {"t": 0.0, "v": False}
+_TTL_DISPONIBLE = 300.0
+
+
+def umbral() -> float:
+    """LINEAS_UMBRAL o UMBRAL_LINEAS (0.55). A calibrar con la colección creada."""
+    try:
+        return float(os.getenv("LINEAS_UMBRAL") or UMBRAL_LINEAS)
+    except ValueError:
+        return UMBRAL_LINEAS
+
+
+def candidata_sonda(texto: str) -> bool:
+    """¿Vale la pena preguntarle a la sonda? Sin esto, con la colección creada,
+    cada consulta sin detección leería el perfil (la puerta) y pediría un
+    embedding: el 99 % de las preguntas no tienen nada que ver con la línea.
+    Un filtro de palabras amplio y barato; la decisión la toma el umbral."""
+    p = _plegar((texto or "")[:TOPE_PREGUNTA])
+    return len(p) >= 20 and bool(_RX_CANDIDATA.search(p))
+
+
+async def lineas_disponible(qdrant) -> bool:
+    """¿Existe la colección `lineas`? Un `count` aproximado, recordado 5 min
+    por proceso para no preguntarlo en cada consulta. Hoy: False."""
+    ahora = time.monotonic()
+    if ahora - _DISPONIBLE["t"] < _TTL_DISPONIBLE:
+        return bool(_DISPONIBLE["v"])
+    try:
+        await qdrant.count(collection_name=LINEAS, exact=False)
+        v = True
+    except Exception:
+        v = False
+    _DISPONIBLE.update(t=ahora, v=v)
+    return v
+
+
+async def sondear(qdrant, vector: Optional[Sequence[float]], umbral_min: Optional[float] = None,
+                  limite: int = 8) -> Optional[Tuple[str, List[str], List[str]]]:
+    """La sonda semántica: la pregunta (su embedding de 1536, el mismo
+    text-embedding-3-small de la búsqueda) contra la colección `lineas`, que
+    tiene un punto por entrada de la cronología, por hito, por tramo y un mapa
+    (scripts/lineas_qdrant.py). Para lo que las palabras no alcanzan: «¿los
+    jueces pueden dejar de aplicar la Constitución si choca con un tratado?»
+    no dice «convencionalidad» ni «restricción».
+
+    Devuelve (figura, fases, ids) o None: sin vector, sin colección (HOY no
+    existe), si falla o si nada pasa del umbral. `ids` son las entradas,
+    llaves o registros que pasaron, en orden de score; `fases` salen de los
+    tramos de lo encontrado (_FASES_TRAMO). Nunca lanza."""
+    if not vector:
+        return None
+    u = umbral() if umbral_min is None else umbral_min
+    try:
+        res = await qdrant.query_points(collection_name=LINEAS, query=list(vector), using="dense", limit=limite,
+                                        with_payload=True, score_threshold=u)
+        pts = list(getattr(res, "points", None) or [])
+    except Exception as e:
+        print(f"   ⚖️ LINEAS: la sonda no responde ({type(e).__name__}); se sigue sin ella")
+        return None
+    pts = [p for p in pts if (getattr(p, "score", 0.0) or 0.0) >= u and (p.payload or {}).get("linea") in figuras()]
+    if not pts:
+        return None
+    figura = Counter((p.payload or {}).get("linea") for p in pts).most_common(1)[0][0]
+    fases: List[str] = []
+    ids: List[str] = []
+    for p in pts:
+        pl = p.payload or {}
+        if pl.get("linea") != figura:
+            continue
+        if pl.get("tipo_ficha") == "mapa":
+            fases += ["evolucion", "mexico"]
+        elif pl.get("tramo"):
+            fases += _FASES_TRAMO.get(pl["tramo"], [])
+        if pl.get("tipo_ficha") == "hito":
+            ids += [str(x) for x in (pl.get("id"), pl.get("llave"), pl.get("registro")) if x]
+    return figura, list(dict.fromkeys(fases)) or ["concepto"], list(dict.fromkeys(ids))
 
 
 # ═══════════════════════════════════════════════════════════════ los bloques
@@ -1041,14 +1566,28 @@ def bloque_resueltos_xml(docs: Sequence[Any], ambiguos: Sequence[Dict[str, Any]]
 
 
 def _hito_xml(d: Dict[str, Any]) -> str:
-    """Un hito, en lo justo (~230 tokens): el caso, la serie y el tipo ya van
-    en la <cita>, y el id una sola vez, en su [Doc ID]."""
+    """Un hito, en lo justo (~240 tokens): el caso, la serie y el tipo ya van
+    en la <cita>, y el id una sola vez, en su [Doc ID]. Desde el pilar
+    (25-sep-2026) lleva también su postura y su fuerza —una sentencia ORDENA,
+    un voto PROPONE—, y verificacion="parcial" si su extracto sólo se cotejó en
+    una copia no oficial (entonces no se imprime)."""
     h = d.get("_hito") or {}
+    c = d.get("_crono") or {}
     attrs = [f'fecha="{_esc(d.get("fecha"))}"', f'fase="{_esc(h.get("fase"))}"', f'arista="{_esc(h.get("arista"))}"']
     for k, nombre in (("parrafo", "parrafo"), ("pagina", "pagina"), ("voto_autor", "voto")):
         if d.get(k) not in (None, ""):
             attrs.append(f'{nombre}="{_esc(d[k])}"')
     attrs.append(f'ingerido="{"sí" if d.get("ingerido") else "no"}"')
+    # Sólo lo que dice algo: una sentencia que no toca la restricción
+    # constitucional (postura «no_aplica») y obliga (lo normal) no lo repite.
+    if c.get("postura") not in (None, "no_aplica"):
+        attrs.append(f'postura="{_esc(c["postura"])}"' + (f' sentido="{_esc(c["sentido"])}"' if c.get("sentido") else ""))
+    if c.get("fuerza") not in (None, "obligatoria"):
+        attrs.append(f'fuerza="{_esc(c["fuerza"])}"')
+    if c.get("vigencia") not in (None, "vigente", "no_aplica"):
+        attrs.append(f'vigencia="{_esc(c["vigencia"])}"')
+    if not h.get("verificado", True):
+        attrs.append('verificacion="parcial"')
     cuerpo = [f"<cita>{_esc(d.get('cita_canonica'))} [Doc ID: {_esc(d['id'])}]</cita>"]
     if h.get("ubicacion") and not d.get("parrafo"):
         cuerpo.append(f"<ubicacion>{_esc(h['ubicacion'])}</ubicacion>")
@@ -1096,38 +1635,198 @@ def _precision_historica(hitos: Sequence[Dict[str, Any]]) -> str:
     return "\n".join(txt)
 
 
+_INSTRUCCION_PILAR = (
+    "Cuéntala en orden cronológico uniendo <hitos>, <recepcion_mx> y <cronologia> por su fecha. postura=, "
+    "fuerza= y vigencia= dicen quién ORDENA, RECOMIENDA o PROPONE y si sigue vigente (vigencia=\"abandonada\": "
+    "NO es criterio vigente, cita su reemplazo); sigue las <reglas> y fecha el estado actual con <cortes>.")
+
+_INSTRUCCION_SOLO_MX = (
+    "<!-- INSTRUCCIÓN LÍNEA JURISPRUDENCIAL (sólo México): el abogado apagó «constitucional» en «Fuentes» y dejó "
+    "«jurisprudencia»: aquí van SÓLO tesis y resoluciones mexicanas (SCJN, Plenos Regionales, Tribunales "
+    "Colegiados). No cites a la Corte IDH, a la CIDH, a la ONU ni tratados de memoria. Cuéntala en orden "
+    "cronológico por su fecha. Una tesis con vigencia=\"abandonada\" o \"superada\" NO es criterio vigente: dilo y "
+    "cita la que la reemplaza. Cita cada tesis con su clave, su registro y su [Doc ID]. Fecha el estado actual con "
+    "<cortes> («según lo verificado hasta…»), nunca «hoy». -->")
+
+
+def _palabras(s: Any, n: int) -> str:
+    w = str(s or "").split()
+    return " ".join(w[:n]) + ("…" if len(w) > n else "")
+
+
+def _reglas_para(f: Dict[str, Any], sel: Dict[str, Any], vigencias: Iterable[str], clases: Iterable[str]) -> List[str]:
+    """Las reglas de redacción que tocan a lo que entró, no las doce siempre
+    (cada una cuesta ~30 tokens). Se eligen por lo que dicen, no por su lugar
+    en la lista: si mañana se reordenan, no se cruzan."""
+    reglas = f.get("reglas_de_redaccion") or []
+    temas = set(sel.get("temas") or [])
+    solo_mx = sel.get("alcance") == "solo_mx"
+    vig = set(vigencias)
+    cls = set(clases)
+    ppo = bool(temas & {"prision_preventiva_oficiosa", "arraigo"}) or sel.get("actual_mx")
+    restr = bool(temas & {"restricciones_constitucionales", "amparo_reformas_constitucionales"}) or sel.get("actual_mx")
+    salida = []
+    for r in reglas:
+        p = _plegar(r)
+        if "sistema interamericano" in p or "un voto no es la corte" in p:
+            ok = False            # ya lo dice _INSTRUCCION_CITA, que va en todo bloque con la Corte IDH
+        elif "ordena" in p and "recomienda" in p:
+            ok = not solo_mx
+        elif "proyecto no votado" in p:
+            ok = "scjn_proyecto" in cls
+        elif "abandonada o superada" in p:
+            ok = bool(vig & {"abandonada", "superada", "superada_en_parte"})
+        elif "p./j. 64/2014" in p:
+            ok = restr or ppo
+        elif "literalidad" in p or "166" in p or "arraigo y la prision" in p:
+            ok = ppo
+        elif "12a. epoca" in p:
+            ok = bool(cls & {"sala", "pleno_regional"})
+        elif "dos posturas" in p:
+            ok = restr and not solo_mx
+        else:
+            ok = True
+        if ok:
+            salida.append(r)
+    return salida
+
+
+def _entrada_xml(e: Dict[str, Any], doc_id: Optional[str]) -> str:
+    """Una entrada de la cronología (~110 tokens): quién, cuándo, qué fuerza y
+    qué aporta, con su extracto literal (recortado) y su [Doc ID] si está en
+    el acervo; si no, la URL oficial, sin inventar un id."""
+    fecha = e.get("fecha_resolucion") or e.get("fecha_publicacion")
+    attrs = [f'fecha="{_esc(fecha)}"', f'organo="{_esc(_palabras(e.get("organo"), 6))}"', f'tipo="{_esc(e.get("tipo"))}"']
+    for k in ("clave", "registro"):
+        if e.get(k):
+            attrs.append(f'{k}="{_esc(e[k])}"')
+    for k in ("vigencia", "reemplazo", "postura", "sentido", "fuerza"):
+        if e.get(k) and e[k] != "no_aplica":
+            attrs.append(f'{k}="{_esc(e[k])}"')
+    cuerpo = [_esc(_palabras(e.get("titulo"), 8)) + "."]
+    if e.get("aporte"):
+        cuerpo.append(_esc(_palabras(e["aporte"], 32)))
+    if e.get("extracto"):
+        cuerpo.append(f"«{_esc(_palabras(e['extracto'], 16))}»")
+    if e.get("vigencia") not in ("vigente", "no_aplica") and e.get("vigencia_nota"):
+        cuerpo.append(f"({_esc(_palabras(e['vigencia_nota'], 20))})")
+    cuerpo.append(f"[Doc ID: {_esc(doc_id)}]" if doc_id else f"(no está en el acervo: {_esc(e.get('url_oficial'))})")
+    return f"<entrada {' '.join(attrs)}>" + " ".join(cuerpo) + "</entrada>"
+
+
+def _tesis_xml(pid: str, pl: Dict[str, Any], r: Dict[str, Any], e: Optional[Dict[str, Any]], reg: str) -> str:
+    """Una tesis de la recepción con su vigencia a la vista (25-sep-2026: el
+    modelo recibió la P. X/2015 como «TESIS AISLADA» del Pleno sin ninguna
+    advertencia y la dio por vigente)."""
+    clave = pl.get("clave_tesis") or pl.get("numero_tesis") or pl.get("tesis") or r.get("clave") or ""
+    rubro = (pl.get("rubro") or r.get("rubro_abreviado") or "").strip()
+    vig = r.get("vigencia") or "vigente"
+    # Sin atributo id: el mismo uuid va en el [Doc ID] (eran ~25 tokens por tesis).
+    attrs = [f'registro="{_esc(reg)}"', f'clave="{_esc(clave)}"',
+             f'instancia="{_esc(pl.get("instancia") or r.get("instancia"))}"',
+             f'fecha="{_esc(r.get("fecha_publicacion") or pl.get("fecha_publicacion"))}"',
+             f'fuerza="{_esc(r.get("fuerza"))}"', f'vigencia="{_esc(vig)}"']
+    if r.get("reemplazo"):
+        attrs.append(f'reemplazo="{_esc(r["reemplazo"])}"')
+    if r.get("sustituye"):
+        attrs.append(f'sustituye="{_esc(",".join(r["sustituye"]))}"')
+    if r.get("postura") not in (None, "no_aplica"):
+        attrs.append(f'postura="{_esc(r["postura"])}"')
+    aviso = ""
+    if vig == "abandonada":
+        aviso = f"ABANDONADA por la tesis de registro {r.get('reemplazo')}: NO la presentes como vigente. "
+    elif vig in ("superada", "superada_en_parte"):
+        aviso = ("SUPERADA" + (" EN PARTE" if vig == "superada_en_parte" else "")
+                 + (f" por la tesis de registro {r.get('reemplazo')}" if r.get("reemplazo") else "") + ". ")
+    if vig in ("abandonada", "superada"):
+        # La abandonada o superada va corta: su rubro para reconocerla y el
+        # aviso; lo que hay que citar es su reemplazo, que va entero.
+        return (f"<tesis {' '.join(attrs)}>{_esc(aviso)}Decía: {_esc(_palabras(rubro, 18))}"
+                f" [Doc ID: {_esc(pid)}]</tesis>")
+    porque = (e or {}).get("aporte") or r.get("porque")
+    nota = r.get("vigencia_nota") if (vig != "vigente" or re.search(
+        r"pendiente|sub iudice|desplaz|inaplicable", str(r.get("vigencia_nota") or ""))) else None
+    # La que sustituye a otra va con su aporte entero: es la que hay que citar
+    # (el de la P./J. 2/2022 cortado a 26 palabras perdía «y sobre las normas
+    # aplicadas en el acto reclamado», que es la respuesta a David).
+    return (f"<tesis {' '.join(attrs)}>{_esc(aviso)}{_esc(_palabras(rubro, 22))}"
+            + (f" — {_esc(_palabras(porque, 50 if r.get('sustituye') else 26))}" if porque else "")
+            + (f" ({_esc(_palabras(nota, 16))})" if nota else "")
+            + f" [Doc ID: {_esc(pid)}]</tesis>")
+
+
+def _cortes_xml(f: Dict[str, Any]) -> str:
+    c = f.get("cortes") or {}
+    if not c:
+        return ""
+    trozos = []
+    if c.get("corte_idh"):
+        trozos.append(f"Corte IDH hasta {c['corte_idh'].get('fecha')} (México completo; de otros países faltan "
+                      "sentencias de 2024-2026)")
+    if c.get("acervo_sjf"):
+        trozos.append(f"acervo de tesis hasta {c['acervo_sjf'].get('fecha')}")
+    if c.get("api_sjf"):
+        trozos.append(f"Semanario hasta el registro {c['api_sjf'].get('registro')} ({c['api_sjf'].get('fecha')}; "
+                      "después, laguna)")
+    if c.get("dof_y_acuerdos"):
+        trozos.append(f"DOF y acuerdos hasta {c['dof_y_acuerdos'].get('fecha')}")
+    return "<cortes>" + _esc("; ".join(trozos)) + ".</cortes>"
+
+
 def bloque_xml(fid: str, sel: Dict[str, Any], hitos: Sequence[Dict[str, Any]],
                supervisiones: Sequence[Dict[str, Any]] = (),
                tesis: Optional[Dict[str, Tuple[str, Dict[str, Any]]]] = None,
-               normas: Optional[Dict[str, Dict[str, Any]]] = None) -> str:
+               normas: Optional[Dict[str, Dict[str, Any]]] = None,
+               docs_crono: Optional[Dict[str, Optional[str]]] = None) -> str:
     """<linea_jurisprudencial>: los hitos en orden CRONOLÓGICO, cada uno con
     caso, fecha, párrafo, página, aporte, extracto y [Doc ID]; la precisión
     histórica del origen; tensiones; recepción en México (registros de la
-    SCJN); y «según lo ingerido hasta [fecha]». Se añade después del contexto
-    normal (patrón de la doctrina): la jerarquía rompería la cronología."""
+    SCJN) con su vigencia; la <cronologia> del pilar; y «según lo ingerido
+    hasta [fecha]» con los <cortes> de cada fuente. Se añade después del
+    contexto normal (patrón de la doctrina): la jerarquía rompería la
+    cronología. Con alcance «solo_mx», sólo lo mexicano."""
     f = figuras().get(fid) or {}
     tesis = tesis or {}
     normas = normas or {}
+    docs_crono = docs_crono or {}
+    crono = _crono_por_id(fid)
     vig = f.get("vigente_al") or lineas().get("generado") or ""
     temas = sel.get("temas") or []
     reales = sel.get("fases") or []
-    alcance = ("línea completa" if reales else "hitos del tema, no la línea entera")
+    solo_mx = sel.get("alcance") == "solo_mx"
+    alcance = ("línea completa" if reales and not sel.get("tema_primero") else "hitos del tema, no la línea entera")
+    fichas = {str(r.get("registro")): r for r in f.get("recepcion_mx") or []}
+    entradas = [crono[i] for i in sel.get("cronologia") or [] if i in crono]
+    regs_xml = [reg for reg in sel.get("registros") or [] if reg in tesis]
+    vigencias = [(fichas.get(r) or {}).get("vigencia") or "vigente" for r in regs_xml] + [e.get("vigencia") for e in entradas]
+    clases = [e.get("tipo") for e in entradas] + [
+        {"Primera Sala": "sala", "Segunda Sala": "sala", "Plenos Regionales": "pleno_regional"}.get(
+            (fichas.get(r) or {}).get("instancia"), "") for r in regs_xml]
+
     partes = [f'<linea_jurisprudencial figura="{_esc(f.get("nombre") or fid)}" '
               f'fases="{_esc(",".join(reales))}" temas="{_esc(",".join(temas))}" '
-              f'alcance="{_esc(alcance)}" curada="sí" vigente_al="{_esc(vig)}">',
-              "<!-- INSTRUCCIÓN LÍNEA JURISPRUDENCIAL (Corte IDH): "
-              + ("esta es la línea curada y verificada contra el PDF oficial de cada resolución. Cuéntala en "
-                 "este orden: expresión (votos de García Ramírez; el control lo ejerce la Corte IDH) → "
-                 "formulación en pleno (Almonacid ¶124) → ex officio (Cesados ¶128) → ejes (quién está "
-                 "obligado, parámetro, efectos, forma) → estado actual → tensiones → recepción en México. "
-                 if reales else
-                 "éstos son SÓLO los hitos de la Corte IDH que tocan el tema mexicano de la pregunta, "
-                 "verificados contra el PDF oficial; no cuentes la línea entera. Preséntalos después de la "
-                 "norma y la jurisprudencia mexicanas, con sus tensiones. ")
-              + f"Del estado actual di «según lo ingerido hasta {vig}», nunca «hoy». ingerido=\"no\": el "
-              "texto completo no está en Iurexia, sólo su extracto verificado; cita igual su [Doc ID].\n"
-              + _INSTRUCCION_CITA + " -->"]
-    if reales:
+              f'alcance="{_esc(alcance)}" curada="sí" vigente_al="{_esc(vig)}"'
+              + (' modo="solo_mx"' if solo_mx else "") + ">"]
+    if solo_mx:
+        partes.append(_INSTRUCCION_SOLO_MX)
+    else:
+        partes.append(
+            "<!-- INSTRUCCIÓN LÍNEA JURISPRUDENCIAL (Corte IDH): "
+            + ("esta es la línea curada y verificada contra el PDF oficial de cada resolución. Su columna: "
+               "expresión (votos de García Ramírez; el control lo ejerce la Corte IDH) → formulación en pleno "
+               "(Almonacid ¶124) → ex officio (Cesados ¶128) → ejes (quién está obligado, parámetro, efectos, "
+               "forma) → estado actual → tensiones → recepción en México. "
+               if alcance == "línea completa" else
+               "éstos son SÓLO los hitos y criterios que tocan el tema de la pregunta, verificados; no cuentes "
+               "la línea entera. Preséntalos después de la norma y la jurisprudencia mexicanas, con sus tensiones. ")
+            + _INSTRUCCION_PILAR
+            + f" Del estado actual de la Corte IDH di «según lo ingerido hasta {vig}», nunca «hoy». ingerido=\"no\": "
+            "el texto completo no está en Iurexia, sólo su extracto verificado; cita igual su [Doc ID].\n"
+            + _INSTRUCCION_CITA + " -->")
+    reglas = _reglas_para(f, sel, vigencias, clases)
+    if reglas:
+        partes.append("<reglas>" + " ".join(f"{i}. {_esc(r)}" for i, r in enumerate(reglas, 1)) + "</reglas>")
+    if reales and not solo_mx and not sel.get("tema_primero"):
         pre = _precision_historica(hitos)
         if pre:
             partes.append(pre)
@@ -1138,34 +1837,58 @@ def bloque_xml(fid: str, sel: Dict[str, Any], hitos: Sequence[Dict[str, Any]],
             claves += {"evolucion": ["evolucion"], "actual": ["estado_actual"],
                        "concepto": ["estado_actual"]}.get(x, [])
         if sel.get("mexico"):
-            claves.append("mexico")
+            # Con México basta su resumen, que ya trae el estado a sep-2026:
+            # los tres juntos eran ~1,000 tokens (medido el 25-sep-2026).
+            claves = ["mexico"]
         for k in dict.fromkeys(claves):
             if resumen.get(k):
                 partes.append(f'<resumen parte="{_esc(k)}">{_esc(resumen[k])}</resumen>')
+    elif temas and sel.get("tema_primero") and not solo_mx:
+        # Si además de un tema se pide su fase («¿cuál es la postura actual
+        # sobre…?»), el resumen del tramo del pilar: el hilo que une sus
+        # piezas. Sin fase, las piezas y la advertencia bastan (el de la
+        # prisión preventiva son ~1,300 tokens).
+        tid = next((_TRAMO_TEMA[t] for t in temas if t in _TRAMO_TEMA), None)
+        t = (f.get("tramos") or {}).get(tid) if tid else None
+        if t:
+            partes.append(f'<resumen parte="tramo:{_esc(tid)}" titulo="{_esc(t.get("titulo"))}" '
+                          f'periodo="{_esc(t.get("periodo"))}">{_esc(t.get("resumen"))}</resumen>')
     for adv in sel.get("advertencias") or []:
-        partes.append(f"<advertencia>{_esc(adv)}</advertencia>")
+        if not solo_mx or not re.search(r"Corte IDH|supervisi", adv):
+            partes.append(f"<advertencia>{_esc(adv)}</advertencia>")
 
-    partes.append('<hitos orden="cronologico">')
-    partes += [_hito_xml(d) for d in hitos]
-    partes.append("</hitos>")
+    if hitos:
+        partes.append('<hitos orden="cronologico">')
+        partes += [_hito_xml(d) for d in hitos]
+        partes.append("</hitos>")
 
+    # El extracto de la supervisión sólo con su tema (prisión preventiva,
+    # arraigo): en la línea entera basta su estado, «abierto».
+    con_extracto = bool(set(temas) & {"prision_preventiva_oficiosa", "arraigo"})
     for s in supervisiones:
         sup = s.get("_sup") or {}
+        if not con_extracto:
+            partes.append(f'<supervision fecha="{_esc(sup.get("fecha"))}" caso="{_esc(sup.get("caso"))}" '
+                          f'pagina="{_esc(sup.get("pagina"))}" ingerido="no">{_esc(sup.get("estado"))} '
+                          f"[Doc ID: {_esc(s['id'])}]</supervision>")
+            continue
         partes.append(f'<supervision id="{_esc(s["id"])}" fecha="{_esc(sup.get("fecha"))}" '
-                      f'caso="{_esc(sup.get("caso"))}" pagina="{_esc(sup.get("pagina"))}" ingerido="no">\n'
+                      f'caso="{_esc(sup.get("caso"))}" pagina="{_esc(sup.get("pagina"))}" ingerido="no" '
+                      f'postura="ordena_adecuar">\n'
                       f"<estado>{_esc(sup.get('estado'))}</estado>\n"
-                      + (f"<extracto>«{_esc(sup.get('extracto'))}»</extracto>\n" if sup.get("verificado") else "")
+                      + (f"<extracto>«{_esc(sup.get('extracto'))}»</extracto>\n"
+                         if sup.get("verificado") and con_extracto else "")
                       + f"<cita>{_esc(s.get('cita_canonica'))} [Doc ID: {_esc(s['id'])}]</cita>\n</supervision>")
 
     # Tensiones: con la línea, salvo que sólo se pregunte el origen; con un
     # tema, las que tocan sus hitos (la de prisión preventiva, la del arraigo).
-    ten = f.get("tensiones") or []
-    if reales:
-        if reales == ["origen"]:
-            ten = []
-    else:
-        mias = {d.get("llave") for d in hitos}
-        ten = [t for t in ten if mias & set((t.get("a_favor") or []) + (t.get("en_contra") or []))]
+    ten = [] if solo_mx or reales == ["origen"] else (f.get("tensiones") or [])
+    # Las que tocan lo que entró (hitos o tesis), como mucho tres: con la
+    # línea entera eran seis y ~900 tokens, las de México también en una
+    # pregunta sin México (25-sep-2026).
+    mias = {d.get("llave") for d in hitos} | set(regs_xml)
+    ten = [t for t in ten if mias & set((t.get("a_favor") or []) + (t.get("en_contra") or [])
+                                        + [str(x) for x in t.get("registros") or []])][:2]
     if ten:
         partes.append("<tensiones>")
         for t in ten:
@@ -1174,25 +1897,26 @@ def bloque_xml(fid: str, sel: Dict[str, Any], hitos: Sequence[Dict[str, Any]],
                           + (f" (registros: {_esc(regs)})" if regs else "") + "</tension>")
         partes.append("</tensiones>")
 
-    if tesis:
-        fichas = {str(r.get("registro")): r for r in f.get("recepcion_mx") or []}
+    if regs_xml:
         partes.append("<recepcion_mx>")
         partes.append("<!-- Criterios de la SCJN y de tribunales mexicanos: son derecho mexicano y se citan "
-                      "como cualquier tesis, con su registro y su [Doc ID]. -->")
-        for reg in sel.get("registros") or []:
-            if reg not in tesis:
-                continue
+                      "como cualquier tesis, con su registro y su [Doc ID]. Mira vigencia= antes de citarla. -->")
+        for reg in regs_xml:
             pid, pl = tesis[reg]
             r = fichas.get(reg) or {}
-            clave = pl.get("clave_tesis") or pl.get("numero_tesis") or pl.get("tesis") or r.get("clave") or ""
-            rubro = (pl.get("rubro") or r.get("rubro_abreviado") or "").strip()
-            partes.append(f'<tesis id="{_esc(pid)}" registro="{_esc(reg)}" clave="{_esc(clave)}" '
-                          f'instancia="{_esc(pl.get("instancia") or r.get("instancia"))}" '
-                          f'relacion="{_esc(r.get("relacion"))}">{_esc(rubro)}'
-                          + (f" — {_esc(r.get('porque'))}" if r.get("porque") else "")
-                          + f" [Doc ID: {_esc(pid)}]</tesis>")
+            partes.append(_tesis_xml(pid, pl, r, crono.get(r.get("crono_id") or ""), reg))
         partes.append("</recepcion_mx>")
 
+    if entradas:
+        partes.append('<cronologia orden="cronologico">')
+        partes += [_entrada_xml(e, docs_crono.get(e["id"])) for e in entradas]
+        partes.append("</cronologia>")
+
+    # Un artículo que ya entró como [Doc ID] de una reforma de la cronología
+    # (el 19 con la del 31-dic-2024, el 105 con la del 31-oct-2024) no se
+    # repite: mismo punto del acervo, mismo texto.
+    ya_crono = set(docs_crono.values())
+    normas = {pid: c for pid, c in normas.items() if pid not in ya_crono}
     if normas:
         partes.append("<constitucion_mx>")
         partes.append("<!-- La norma mexicana vigente con la que convive la línea. Transcríbela de su "
@@ -1204,8 +1928,14 @@ def bloque_xml(fid: str, sel: Dict[str, Any], hitos: Sequence[Dict[str, Any]],
                           + f" [Doc ID: {_esc(pid)}]</articulo>")
         partes.append("</constitucion_mx>")
 
-    nota_vig = f.get("vigente_al_nota") or ""
-    partes.append(f"<vigencia>Según lo ingerido hasta {_esc(vig)}. {_esc(nota_vig)}</vigencia>")
+    if sel.get("actual_mx") and (f.get("fase_actual") or {}).get("pendientes"):
+        partes.append(f"<pendientes>{_esc(f['fase_actual']['pendientes'])}</pendientes>")
+    cortes = _cortes_xml(f)
+    if cortes:
+        partes.append(cortes)
+    # La nota larga de vigente_al (qué sentencias de 2024-2026 no se leyeron)
+    # la resume ahora <cortes>; aquí sólo la fecha.
+    partes.append(f"<vigencia>Según lo ingerido hasta {_esc(vig)}.</vigencia>")
     partes.append("</linea_jurisprudencial>")
     return "\n".join(partes)
 
