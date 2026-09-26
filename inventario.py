@@ -118,17 +118,25 @@ def _ancho_fijo(lineas: list) -> int:
     return w if n >= 0.3 * len(largas) else 0
 
 
-def normalizar_escrito(texto: str) -> tuple:
+def normalizar_escrito(texto: str, saltos: bool = False) -> tuple:
     """(texto normalizado, posiciones): cada carácter del normalizado dice de
     qué posición del original viene. Renglones partidos a columna fija se
     unen sin espacio; un guion de fin de renglón entre minúsculas se quita; el
-    resto de los blancos se colapsa a uno."""
+    resto de los blancos se colapsa a uno.
+
+    `saltos=True` es la lectura que ve el modelo en `inventario_escrito`: el
+    salto de renglón que NO parte una palabra se conserva como salto en vez de
+    volverse espacio, para que se vean los rótulos y los párrafos. Las palabras
+    son las mismas y, colapsando los blancos, sale el mismo texto que sin la
+    bandera: una cita copiada de esa lectura se verifica igual. Sin la bandera,
+    la salida es la de siempre (el piso y V0 la usan)."""
     texto = texto or ""
     lineas = texto.split("\n")
     w = _ancho_fijo(lineas)
     fuera, pos = [], []
     i = 0
     blanco_pendiente = False
+    salto_pendiente = False
     for k, ln in enumerate(lineas):
         sig = lineas[k + 1] if k + 1 < len(lineas) else ""
         for j, c in enumerate(ln):
@@ -136,9 +144,10 @@ def normalizar_escrito(texto: str) -> tuple:
                 blanco_pendiente = bool(fuera)
                 continue
             if blanco_pendiente:
-                fuera.append(" ")
+                fuera.append("\n" if (saltos and salto_pendiente) else " ")
                 pos.append(i + j)
                 blanco_pendiente = False
+            salto_pendiente = False
             fuera.append(c)
             pos.append(i + j)
         # ¿El salto de renglón parte una palabra? A columna fija, un renglón
@@ -159,6 +168,7 @@ def normalizar_escrito(texto: str) -> tuple:
                 unir = True
         if not unir and k + 1 < len(lineas):
             blanco_pendiente = bool(fuera)
+            salto_pendiente = bool(fuera)
         elif unir:
             blanco_pendiente = False
         i += len(ln) + 1
@@ -864,9 +874,15 @@ def _ajustar_cita(esc: "_Escrito", a: int, b: int) -> str:
 # LA FUNCIÓN DEL CONTRATO
 # ═══════════════════════════════════════════════════════════════════════════
 def segmentos(fases, escrito: str, es_recurso: bool = False,
-              partir: bool = True) -> list:
+              partir: bool = True, extraidos=None) -> list:
     """El inventario: un segmento por argumento del resumen, anclado en el
     escrito. Nunca lanza: con un resumen vacío devuelve [].
+
+    `extraidos`: los argumentos que la lectura del escrito dejó verificados
+    (`inventario_escrito`, sólo v3/v4). Sin ellos —None o []— sale el piso de
+    siempre, idéntico; con ellos, el piso intacto y detrás de cada concepto lo
+    que el resumen no trae (`inventario_escrito.fusionar`). Si la fusión
+    falla, el piso.
 
     Cada segmento (contrato del Paso 2):
       id        «C1.a» (C = concepto, A = agravio; la letra, por argumento
@@ -914,6 +930,12 @@ def segmentos(fases, escrito: str, es_recurso: bool = False,
             "parecido": parecido,
             "concepto_inferido": bool(pz.get("concepto_inferido")),
         })
+    if extraidos:
+        try:
+            import inventario_escrito as _ie
+            return _ie.fusionar(fuera, extraidos, escrito or "", es_recurso)[0]
+        except Exception:
+            return fuera
     return fuera
 
 
@@ -946,6 +968,10 @@ def bloque_inventario(segs: list, q1: str) -> str:
     if not segs:
         return ""
     q1 = (q1 or "concepto de violación").strip()
+    # LOS RENGLONES QUE AÑADIÓ LA LECTURA DEL ESCRITO (`inventario_escrito`,
+    # v3/v4) no vienen del resumen: se dice en la cabecera y en el renglón. Sin
+    # ninguno, el bloque sale idéntico al de antes.
+    leidos = any(isinstance(s, dict) and s.get("origen") == "escrito" for s in segs)
     lineas = [
         "",
         "═" * 71,
@@ -954,7 +980,10 @@ def bloque_inventario(segs: list, q1: str) -> str:
         f"Un renglón por argumento. Campos: identificador · {q1} al que "
         "pertenece · lo que se alega, según el resumen · cita literal del "
         "escrito donde se plantea (si se localizó) · datos duros que trae "
-        "(artículo con su ley, registro, expediente, cifra, fecha).",
+        "(artículo con su ley, registro, expediente, cifra, fecha)."
+        + (" Los renglones marcados «leído del escrito» no están en el resumen: "
+           "los añadió una lectura directa del escrito, y lo que se alega es "
+           "según esa lectura." if leidos else ""),
         "",
     ]
     for s in segs:
@@ -964,6 +993,8 @@ def bloque_inventario(segs: list, q1: str) -> str:
                   (f"{q1} sin ordinal en el resumen" if s.get("concepto_inferido") else
                    f"{_ordinal_palabra(int(s.get('concepto') or 1))} {q1}"),
                   _recortar(str(s.get("texto") or ""), TEXTO_EN_BLOQUE)]
+        if s.get("origen") == "escrito":
+            partes.insert(2, "leído del escrito")
         if s.get("cita"):
             partes.append(f"cita: «{s['cita']}»")
         if s.get("anclas"):

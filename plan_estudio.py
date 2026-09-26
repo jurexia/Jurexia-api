@@ -383,16 +383,20 @@ class PlanNoDisponible(Exception):
     resolver escribe entonces sin plan (v3) y lo dice."""
 
 
-def segmentos_de(fases, escrito: str = "", es_recurso: bool = False) -> list[dict]:
+def segmentos_de(fases, escrito: str = "", es_recurso: bool = False,
+                 extraidos=None) -> list[dict]:
     """El inventario de la pieza INVENTARIO (`inventario.segmentos`, contrato
     del Paso 2). Sin él no hay plan: el plan se enlaza al piso por ID y no
     se inventa un inventario propio aquí —dos inventarios que discrepan son
-    peor que ninguno—."""
+    peor que ninguno—. `extraidos`: la lectura del escrito que verá el
+    estudio (`inventario_escrito`); la misma lista, o el plan no casa."""
     try:
         import inventario as _inv
     except ImportError as ex:
         raise PlanNoDisponible("falta el inventario de argumentos (inventario.py)") from ex
-    segs = _inv.segmentos(fases, escrito or _escrito_de(fases), es_recurso) or []
+    # Sin lectura, la llamada de siempre (el piso), byte a byte.
+    _kw = {"extraidos": list(extraidos)} if extraidos else {}
+    segs = _inv.segmentos(fases, escrito or _escrito_de(fases), es_recurso, **_kw) or []
     return [normalizar_segmento_piso(s) for s in segs if isinstance(s, dict)]
 
 
@@ -404,7 +408,10 @@ def normalizar_segmento_piso(s: dict) -> dict:
             # El número de concepto lo puso el inventario por el orden de
             # párrafos, no el escrito (`inventario.segmentos`): el guion no lo
             # escribe. No entra en la clave del plan (`huella_entradas`).
-            "concepto_inferido": bool(s.get("concepto_inferido"))}
+            "concepto_inferido": bool(s.get("concepto_inferido")),
+            # «escrito» si el segmento lo añadió la lectura del escrito
+            # (`inventario_escrito`) y no el resumen: su texto no es del resumen.
+            **({"origen": "escrito"} if s.get("origen") == "escrito" else {})}
 
 
 def _int(x, por_omision=0) -> int:
@@ -694,7 +701,8 @@ def _bloque_segmentos(segs: list[dict], probs: list[dict], n: int = 2) -> str:
             + " · problema(s) posible(s): "
             f"{', '.join(str(x) for x in perm)}"
             + (f" · anclas: {' | '.join(s['anclas'])}" if s.get("anclas") else " · anclas: —")
-            + f"\n  resumen: {s['texto']}"
+            + (f"\n  leído del escrito: {s['texto']}" if s.get("origen") == "escrito"
+               else f"\n  resumen: {s['texto']}")
             + (f"\n  cita literal del escrito: «{s['cita']}»" if s.get("cita") else
                "\n  cita literal del escrito: (no encontrada: pon tú 10 a 40 palabras literales del tramo en «cita»)"))
     return "\n".join(lineas)

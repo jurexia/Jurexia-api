@@ -658,7 +658,9 @@ def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
         idx = f.get("parrafo")
         hoy = ps[idx] if isinstance(idx, int) and 0 <= idx < len(ps) else ""
         partes_f = [f"{f['id']} · {q1} {_concepto(s)}",
-                    f"lo que se alega, según el resumen: {' '.join(str(_get(s, 'texto') or '').split())}"]
+                    (f"lo que se alega, leído del escrito: " if _get(s, "origen") == "escrito"
+                     else f"lo que se alega, según el resumen: ")
+                    + ' '.join(str(_get(s, 'texto') or '').split())]
         if _get(s, "cita"):
             partes_f.append(f"cita literal del escrito: «{_get(s, 'cita')}»")
         tr = _tramo_del_escrito(str(_get(s, "cita") or ""), escrito)

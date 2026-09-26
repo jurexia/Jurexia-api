@@ -32088,6 +32088,9 @@ async def taller_adelanto(
         asyncio.ensure_future(_taller_precontrastar(user_email, numero, r))
     except Exception as _exc_pc:
         print(f"   ⚠️ no se pudo adelantar el contraste: {err(_exc_pc)}")
+    # Y LA LECTURA DEL ESCRITO PARA EL INVENTARIO DE LA v3/v4 (26-sep-2026):
+    # sólo depende del adelanto, así que empieza aquí y se guarda en la fila.
+    _taller_preinventariar_suelta(user_email, numero, r)
     # Y LA CONSULTA DEL ACERVO, TAMBIÉN SOLA. El secretario lee de qué va el
     # asunto mientras el acervo y el contraste se preparan; cuando pulsa
     # «Buscar solución jurídica», ya está.
@@ -33021,6 +33024,206 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
             "detalle": _det_ad, "huella": _huella_ac}
 
 
+# ═══ LA LECTURA DEL ESCRITO PARA EL INVENTARIO (v3/v4, 26-sep-2026) ═════════
+# Ver `inventario_escrito.py`. El inventario de la v3/v4 sale del RESUMEN de la
+# fase 2, y el resumen pierde argumentos (12 de las 27 omisiones graves medidas
+# en v3/v4 eran argumentos que no estaban en la lista). Una lectura del escrito
+# con el modelo de las fases añade lo que falta. Aquí sólo va la base y el flujo:
+#   · depende SÓLO del adelanto (escrito, resumen, conteo), no del criterio: se
+#     calcula en segundo plano en cuanto hay adelanto —o consulta, para las
+#     sesiones de antes de esto— y se guarda en `taller_sesiones.plan`, rama
+#     «inventario», con el compare-and-set por `rev` del plan (gunicorn -w 2:
+#     nada en memoria), atada a la huella del adelanto y a la de la lectura;
+#   · al generar (v3/v4) y al planear (v4) se usa la guardada; si está en curso
+#     se espera como mucho un tope; si no hay, se calcula dentro de la tarea con
+#     ese tope; si vence o falla, queda el piso —el inventario de siempre— y se
+#     registra. La v1 y la v2 no la ven nunca.
+
+def _taller_inv_escrito_adelantar(email: str, tipo: str = "") -> bool:
+    """¿Se precalcula la lectura del escrito para esta cuenta? `INVENTARIO_ESCRITO`:
+    «off» nunca · «casa» (por omisión) las cuentas de casa, las únicas que hoy
+    escriben con la v3/v4, y quien tenga la v3/v4 como variante global de su
+    tipo · «todos» todas."""
+    import inventario_escrito as _ie
+    m = _ie.interruptor()
+    if m == "off":
+        return False
+    if m == "todos":
+        return True
+    try:
+        import fase6_estudio as _f6i
+        if _ie.aplica_variante(_f6i.variante_global(tipo or "")):
+            return True
+    except Exception:
+        pass
+    return _taller_es_casa(email)
+
+
+def _taller_inv_escrito_huellas(r) -> tuple:
+    """(huella del adelanto, huella de la lectura). La segunda lleva el escrito,
+    el conteo y el piso: si cualquiera cambia, la lectura guardada no sirve."""
+    import inventario_escrito as _ie
+    es_rec = bool(getattr(getattr(r, "encargo", None), "es_recurso", False))
+    return _te.huella_contraste(r), _ie.huella(r.fases, "", es_rec)
+
+
+async def _taller_inv_escrito_correr(email: str, numero: str, r, hu: str, h: str, *,
+                                     persistir: bool = True) -> dict:
+    """UNA lectura del escrito con latido, y su resultado a la rama «inventario»
+    de la fila. Nunca lanza."""
+    import inventario_escrito as _ie
+    e = getattr(r, "encargo", None)
+    t0 = time.time()
+    tarea = asyncio.ensure_future(_ie.extraer(
+        chat_client, r.fases, "", bool(getattr(e, "es_recurso", False)),
+        str(getattr(e, "tipo_asunto", "") or "")))
+    while True:
+        hechas, _ = await asyncio.wait({tarea}, timeout=_ie.LATIDO_S)
+        if hechas:
+            break
+        if persistir:
+            await asyncio.to_thread(_taller_plan_cas, email, numero,
+                                    lambda d: _ie.fila_latido(d, hu, h, time.time()))
+    try:
+        salida = tarea.result()
+    except Exception as ex:
+        salida = {"estado": "error", "argumentos": [],
+                  "avisos": [f"la lectura del escrito falló ({type(ex).__name__})"]}
+    # HIGIENE DE REGISTROS: sólo números, ni citas ni lo que se alega.
+    _u = salida.get("uso") or {}
+    print(f"   🧭 LECTURA DEL ESCRITO de {numero}: {salida.get('estado')} en "
+          f"{time.time() - t0:.0f} s · {len(salida.get('argumentos') or [])} argumentos "
+          f"verificados · {sum((salida.get('descartes') or {}).values())} descartados · "
+          f"entrada {_u.get('entrada', 0)} · salida {_u.get('salida', 0)} "
+          f"(razonamiento {_u.get('razonamiento', 0)}) · {salida.get('coste', 0)} USD")
+    if persistir:
+        await asyncio.to_thread(_taller_plan_cas, email, numero, lambda d: _ie.fila_resultado(
+            d, hu, h, salida, time.time()))
+    return salida
+
+
+def _taller_inv_escrito_lanzar(email: str, numero: str, r, hu: str, h: str, **kw):
+    """La lectura retenida: si quien espera se cansa, sigue y deja lo leído en
+    la fila para la siguiente petición."""
+    t = asyncio.ensure_future(_taller_inv_escrito_correr(email, numero, r, hu, h, **kw))
+    _TALLER_EN_MARCHA.add(t)
+    t.add_done_callback(_TALLER_EN_MARCHA.discard)
+    return t
+
+
+async def _taller_preinventariar(email: str, numero: str, r) -> None:
+    """La lectura, sola, en cuanto hay adelanto (o consulta). Sólo si nadie la
+    tiene ya hecha o en curso; nunca lanza."""
+    try:
+        e = getattr(r, "encargo", None)
+        if not _taller_inv_escrito_adelantar(email, str(getattr(e, "tipo_asunto", "") or "")):
+            return
+        import inventario_escrito as _ie
+        hu, h = await asyncio.to_thread(_taller_inv_escrito_huellas, r)
+        _, dec = await asyncio.to_thread(_taller_plan_cas, email, numero,
+                                         lambda d: _ie.fila_pedir(d, hu, h, time.time()))
+        if dec == "lanzar":
+            await _taller_inv_escrito_correr(email, numero, r, hu, h)
+    except Exception as ex:
+        print(f"   ⚠️ LECTURA DEL ESCRITO adelantada de {numero}: {err(ex)}")
+
+
+def _taller_preinventariar_suelta(email: str, numero: str, r) -> None:
+    try:
+        _t = asyncio.ensure_future(_taller_preinventariar(email, numero, r))
+        _TALLER_EN_MARCHA.add(_t)
+        _t.add_done_callback(_TALLER_EN_MARCHA.discard)
+    except Exception as ex:
+        print(f"   ⚠️ no se pudo adelantar la lectura del escrito: {err(ex)}")
+
+
+async def _taller_inv_escrito_para(email: str, numero: str, r, tope_s: float) -> tuple:
+    """(argumentos leídos y verificados | None, estado). La guardada si está;
+    si está en curso, se espera hasta `tope_s`; si no hay, se lanza aquí (la
+    tarea sigue aunque venza la espera y deja lo leído en la fila). None = el
+    piso: vencida, fallida, sin escrito o apagada. Nunca lanza."""
+    import inventario_escrito as _ie
+    if _ie.interruptor() == "off":
+        return None, "apagada"
+    t0 = time.time()
+    try:
+        hu, h = await asyncio.to_thread(_taller_inv_escrito_huellas, r)
+        while True:
+            doc, dec = await asyncio.to_thread(_taller_plan_cas, email, numero,
+                                               lambda d: _ie.fila_pedir(d, hu, h, time.time()))
+            if dec in ("listo", "vacio"):
+                est, args = _ie.guardado(doc, hu, h, time.time())
+                return (args if est in ("listo", "vacio") else None), est
+            if dec == "en_curso":
+                while time.time() - t0 < tope_s:
+                    await asyncio.sleep(max(0.05, min(3.0, tope_s - (time.time() - t0))))
+                    doc = await asyncio.to_thread(_taller_plan_leer, email, numero)
+                    est, args = _ie.guardado(doc, hu, h, time.time())
+                    if est in ("listo", "vacio"):
+                        return args, est
+                    if est != "en_curso":
+                        break                    # abandonada o fallida: se relanza
+                if time.time() - t0 >= tope_s:
+                    return None, f"no llegó en {tope_s:.0f} s"
+                continue
+            if dec == "tope":
+                return None, "tope de lecturas de esta sesión"
+            # «lanzar», o sin base / sin columna: se lee aquí. Sin base no se
+            # reutiliza, pero sirve dentro de esta petición.
+            tarea = _taller_inv_escrito_lanzar(email, numero, r, hu, h,
+                                               persistir=(dec == "lanzar"))
+            _resto = max(0.05, tope_s - (time.time() - t0))
+            hechas, _ = await asyncio.wait({asyncio.shield(tarea)}, timeout=_resto)
+            if not hechas:
+                return None, f"no llegó en {tope_s:.0f} s"
+            salida = tarea.result() or {}
+            if salida.get("estado") in ("listo", "vacio"):
+                return list(salida.get("argumentos") or []), salida["estado"]
+            return None, str(salida.get("estado") or "error")
+    except Exception as ex:
+        print(f"   ⚠️ LECTURA DEL ESCRITO de {numero}: {err(ex)}")
+        return None, f"falló ({type(ex).__name__})"
+
+
+async def _taller_inventario_al_encargo(email: str, numero: str, r, al_esperar=None) -> None:
+    """EL INVENTARIO QUE USARÁ ESTE ESTUDIO, dentro de la tarea del resolver y
+    ANTES del plan (la clave del plan lleva los segmentos). Pone SIEMPRE en el
+    encargo `inventario_escrito` —vacío fuera de la v3/v4 o si la lectura no
+    llegó: el encargo vive en la memoria del worker y una lectura de la vuelta
+    anterior no puede colarse en ésta—. `al_esperar`: se llama si hay que
+    esperar (la pantalla lo rotula)."""
+    import inventario_escrito as _ie
+    import fase6_estudio as _f6i
+    e = getattr(r, "encargo", None)
+    if e is None:
+        return
+    e.inventario_escrito = []
+    if not _ie.aplica_variante(_f6i.normalizar_variante(
+            getattr(e, "variante_estudio", "") or "", "")):
+        return
+    if _ie.interruptor() == "off":
+        return
+    t0 = time.time()
+    try:
+        hu, h = await asyncio.to_thread(_taller_inv_escrito_huellas, r)
+        doc = await asyncio.to_thread(_taller_plan_leer, email, numero)
+        est0, _ = _ie.guardado(doc, hu, h, time.time())
+        if est0 not in ("listo", "vacio") and al_esperar is not None:
+            al_esperar()
+    except Exception:
+        pass
+    args, est = await _taller_inv_escrito_para(email, numero, r, _ie.ESPERA_RESOLVER_S)
+    if args is None:
+        # SE REGISTRA Y QUEDA EL PISO: el estudio se escribe con el inventario
+        # del resumen, como antes de esto.
+        print(f"   🧭 LECTURA DEL ESCRITO de {numero}: queda el piso ({est}) · "
+              f"{time.time() - t0:.0f} s")
+        return
+    e.inventario_escrito = list(args)
+    print(f"   🧭 LECTURA DEL ESCRITO de {numero} al estudio: {len(args)} argumentos "
+          f"leídos ({est}) · {time.time() - t0:.0f} s de espera")
+
+
 # ═══ EL PLAN DEL ESTUDIO: ESTADO, ESPERA Y DISPAROS (Paso 2, 26-sep-2026) ════
 # Ver `plan_estudio.py`. Aquí sólo va lo que toca la base y el flujo:
 #   · el estado vive en la columna `taller_sesiones.plan` (migración
@@ -33106,7 +33309,8 @@ def _taller_plan_contraste(email: str, numero: str, r):
 
 
 def _taller_plan_entradas(r, ses, crit, *, contexto: str = "", suplencia=None,
-                          conceptos_violacion=None, formato: str = "") -> dict:
+                          conceptos_violacion=None, formato: str = "",
+                          extraidos=None) -> dict:
     """Lo que identifica el plan: el inventario, la huella de las entradas y la
     CLAVE. Lanza `plan_estudio.PlanNoDisponible` si no hay inventario o no
     hay escrito.
@@ -33115,13 +33319,18 @@ def _taller_plan_entradas(r, ses, crit, *, contexto: str = "", suplencia=None,
     petición lo trae; None sólo si no hay formulario (entonces, los del
     encargo, que los gemelos fijan SIEMPRE desde el suyo). Antes un formulario
     vacío caía al encargo en memoria: la clave del plan cambiaba según el
-    worker (revisión adversarial, 26-sep-2026)."""
+    worker (revisión adversarial, 26-sep-2026).
+
+    `extraidos`: la lectura del escrito que usará el estudio
+    (`inventario_escrito`), SIEMPRE explícita —None o [] = el piso—: los
+    segmentos entran en la clave, y el plan tiene que ver la misma lista que el
+    estudio. Nunca se lee del encargo en memoria aquí."""
     import plan_estudio as _pe
     material = (ses or {}).get("material")
     if material is None:
         raise _pe.PlanNoDisponible("no está el acervo de la sesión")
     es_rec = bool(getattr(getattr(r, "encargo", None), "es_recurso", False))
-    segs = _pe.segmentos_de(r.fases, "", es_rec)
+    segs = _pe.segmentos_de(r.fases, "", es_rec, extraidos=list(extraidos or []))
     if not segs:
         raise _pe.PlanNoDisponible("el inventario no trae segmentos")
     if conceptos_violacion is None:
@@ -33203,14 +33412,18 @@ def _taller_plan_lanzar(email: str, numero: str, r, crit, ent: dict, **kw):
 
 async def _taller_plan_pedido(email: str, numero: str, r, ses, arm: dict, *,
                               contexto: str = "", suplencia=None, formato: str = "",
-                              conceptos_violacion=None, checklist=None) -> dict:
+                              conceptos_violacion=None, checklist=None,
+                              extraidos=None) -> dict:
     """Pide el plan de este criterio SIN esperarlo: /taller/plan/pedir y el
-    precálculo. Nunca recalcula una clave ya calculada; respeta el tope."""
+    precálculo. Nunca recalcula una clave ya calculada; respeta el tope.
+    `extraidos`: la lectura del escrito que se usará al generar (ver
+    `_taller_inv_escrito_para`); sin ella, el piso."""
     import plan_estudio as _pe
     crit = arm["crit"]
     try:
         ent = _taller_plan_entradas(r, ses, crit, contexto=contexto, suplencia=suplencia,
-                                    conceptos_violacion=conceptos_violacion, formato=formato)
+                                    conceptos_violacion=conceptos_violacion, formato=formato,
+                                    extraidos=extraidos)
     except _pe.PlanNoDisponible as ex:
         return {"estado": "sin_plan", "clave": "", "avisos": [f"no hay plan: {ex}"]}
     k = ent["clave"]
@@ -33265,7 +33478,11 @@ async def _taller_plan_para(user_email: str, numero: str, r, ses, crit, *,
         # formulario (siempre, también vacíos).
         ent = _taller_plan_entradas(r, ses, crit, contexto=contexto, suplencia=_sup,
                                     formato=getattr(e, "formato", "") or "",
-                                    conceptos_violacion=str(getattr(e, "conceptos_violacion", "") or ""))
+                                    conceptos_violacion=str(getattr(e, "conceptos_violacion", "") or ""),
+                                    # La MISMA lectura que verá el estudio: la
+                                    # fijó `_taller_inventario_al_encargo` en
+                                    # esta petición, justo antes.
+                                    extraidos=list(getattr(e, "inventario_escrito", None) or []))
         k = ent["clave"]
         while True:
             _, dec = _taller_plan_cas(user_email, numero, lambda d: _pe.fila_pedir(
@@ -33717,12 +33934,23 @@ async def _taller_plan_desde_propuesta(email: str, numero: str, r, ses: dict,
         else:
             return
         arm = _taller_armar_criterio(r, ses, glob, **form)
+        # LA LECTURA DEL ESCRITO que verá el estudio: se espera aquí, que corre
+        # suelto (empezó al terminar el adelanto y suele estar hecha); sin ella
+        # la clave sería la del piso y el resolver no podría usar este plan.
+        import inventario_escrito as _ie_pa
+        _args_pa, _est_pa = await _taller_inv_escrito_para(email, numero, r,
+                                                           _ie_pa.ESPERA_ADELANTADO_S)
+        if _args_pa is None and str(_est_pa).startswith("no llegó"):
+            # Un plan con el piso no casaría con el del resolver: no se gasta.
+            print(f"   🧭 PLAN adelantado de {numero}: no se pide, la lectura del "
+                  f"escrito sigue en curso ({_est_pa})")
+            return
         out = await _taller_plan_pedido(
             email, numero, r, ses, arm, contexto=_con_autos(r, ""), suplencia={},
             # Los de la pantalla si acepta sin tocar: ninguno (la propuesta no
             # los pide). No los del encargo en memoria de este worker.
             conceptos_violacion="",
-            checklist=glob.get("checklist"))
+            checklist=glob.get("checklist"), extraidos=_args_pa or [])
         print(f"   🧭 PLAN adelantado de {numero}: {out.get('estado')} · clave "
               f"{str(out.get('clave') or '')[:8]}")
     except HTTPException as ex:
@@ -35438,6 +35666,9 @@ async def taller_consultar(
     import redactor_adelanto as _ra
 
     r = ses["resultado"]
+    # LA LECTURA DEL ESCRITO, si nadie la tiene hecha ni en curso: las sesiones
+    # de antes del despliegue no la lanzaron al terminar el adelanto.
+    _taller_preinventariar_suelta(user_email, numero, r)
     if r.encargo is not None:
         # NO SE BORRA LO QUE EL ENCARGO YA TRAÍA. Antes esta línea sobreescribía
         # siempre, así que el valor por omisión del formulario ganaba a la
@@ -36702,10 +36933,25 @@ async def taller_plan_pedir(
         return {"estado": "sin_plan", "clave": "",
                 "avisos": ["hay accesorios recalificándose con tu premisa; el plan se pide "
                            "cuando terminen"]}
+    # LA LECTURA DEL ESCRITO que verá el estudio (v4 = con inventario): la
+    # guardada, o la que está en curso con una espera corta —esto es una
+    # petición—. SI SIGUE LEYÉNDOSE, el plan NO se pide con el piso: su clave
+    # no casaría con la del resolver (que sí tendrá la lectura) y gastaría una
+    # de las corridas del plan para nada; se contesta como con la
+    # recalificación pendiente y el resolver lo planea. Si falló, se agotó el
+    # tope o está apagada, el piso: es lo que verá el estudio.
+    import inventario_escrito as _ie_pp
+    _args_pp, _est_pp = await _taller_inv_escrito_para(user_email, numero, r,
+                                                       _ie_pp.ESPERA_PEDIDO_S)
+    if _args_pp is None and str(_est_pp).startswith("no llegó"):
+        return {"estado": "sin_plan", "clave": "",
+                "avisos": ["el inventario se está completando con la lectura del escrito; "
+                           "el plan se calcula al generar"]}
     return await _taller_plan_pedido(
         user_email, numero, r, ses, arm, contexto=_con_autos(r, contexto),
         suplencia=_sp_p.leer(suplencia), formato=formato,
-        conceptos_violacion=conceptos_violacion, checklist=_glob.get("checklist"))
+        conceptos_violacion=conceptos_violacion, checklist=_glob.get("checklist"),
+        extraidos=_args_pp or [])
 
 
 @app.post("/taller/recalificar")
@@ -36930,6 +37176,10 @@ async def taller_resolver_stream(
         r.encargo.variante_estudio = _taller_variante_estudio(
             user_email, variante_estudio,
             getattr(r.encargo, "tipo_asunto", "") or "")
+        # Y LA LECTURA DEL ESCRITO, VACÍA, por lo mismo: la de una vuelta
+        # anterior no se cuela. La fija `_taller_inventario_al_encargo` dentro
+        # de la tarea, antes del plan, y sólo para la v3/v4.
+        r.encargo.inventario_escrito = []
         # Y LA SUPLENCIA, TAMBIÉN SIEMPRE y por la misma razón: una suplencia
         # confirmada en la vuelta anterior no puede sobrevivir en la memoria del
         # worker a que el secretario la quite. `leer` no revienta con un JSON
@@ -37049,6 +37299,13 @@ async def taller_resolver_stream(
             # acepta): sin plan, el rótulo duraba hasta el primer texto.
             if (_rc_out or {}).get("estado") == "listo":
                 _cola.put_nowait({"tipo": "recalificado"})
+            # LA LECTURA DEL ESCRITO (v3/v4, 26-sep-2026), dentro de la tarea y
+            # ANTES DEL PLAN: sus segmentos entran en la clave. La guardada, o
+            # se espera / se calcula con tope; si no llega, el piso. Mientras
+            # espera, la pantalla ve «ordenando».
+            await _taller_inventario_al_encargo(
+                user_email, numero, r,
+                al_esperar=lambda: _cola.put_nowait({"tipo": "ordenando"}))
             # EL PLAN DEL ESTUDIO (v4), DENTRO DE LA TAREA y nunca antes de las
             # cabeceras: la pasarela corta a los ~280 s y el plan puede tardar
             # hasta 120. Mientras, la pantalla ve «ordenando». Fuera de la v4
@@ -37457,6 +37714,10 @@ async def taller_resolver(
         r.encargo.variante_estudio = _taller_variante_estudio(
             user_email, variante_estudio,
             getattr(r.encargo, "tipo_asunto", "") or "")
+        # Y LA LECTURA DEL ESCRITO, VACÍA, por lo mismo: la de una vuelta
+        # anterior no se cuela. La fija `_taller_inventario_al_encargo` dentro
+        # de la tarea, antes del plan, y sólo para la v3/v4.
+        r.encargo.inventario_escrito = []
         # Y LA SUPLENCIA, TAMBIÉN SIEMPRE y por la misma razón: una suplencia
         # confirmada en la vuelta anterior no puede sobrevivir en la memoria del
         # worker a que el secretario la quite. `leer` no revienta con un JSON
@@ -37542,6 +37803,9 @@ async def taller_resolver(
         print(f"   ⛔ TALLER {numero}: accesorios sin calificar tras la recalificación "
               f"({_rc_out.get('motivo') or '?'}); no se genera")
         raise HTTPException(409, _sin_calif)
+    # LA LECTURA DEL ESCRITO (v3/v4), igual que en el gemelo de flujo pero sin
+    # evento, y ANTES DEL PLAN: sus segmentos entran en la clave.
+    await _taller_inventario_al_encargo(user_email, numero, r)
     # EL PLAN DEL ESTUDIO (v4), igual que en el gemelo de flujo pero sin
     # evento: este camino no emite nada hasta el final.
     await _taller_plan_para(user_email, numero, r, ses, crit,

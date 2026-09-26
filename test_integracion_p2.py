@@ -283,6 +283,12 @@ async def _plan_espia(*a, **k):
     return {"estado": "no_aplica"}
 
 
+async def _inventario_espia(*a, **k):
+    # La lectura del escrito para el inventario de la v3/v4 (test_inventario_escrito
+    # prueba la de verdad): aquí sólo se cuenta que los gemelos pasan por ella.
+    LLAMADAS["inventario"] = LLAMADAS.get("inventario", 0) + 1
+
+
 class _Parar(Exception):
     pass
 
@@ -311,6 +317,7 @@ def _gemelos_ns():
         "_taller_variante_estudio": lambda *a, **k: "v1", "_taller_parametro": _parametro,
         "_taller_direccion_al_material": lambda *a, **k: None, "_con_autos": lambda r, c: c or "",
         "_taller_plan_para": _plan_espia, "_taller_plan_aplica": lambda r: False,
+        "_taller_inventario_al_encargo": _inventario_espia,
         "_taller_registrar_uso": lambda *a, **k: LLAMADAS.__setitem__("uso", LLAMADAS["uso"] + 1),
         "_taller_cobrar": lambda *a, **k: LLAMADAS.__setitem__("cobro", LLAMADAS["cobro"] + 1),
         "_TALLER_LATIDO_S": 0.2, "qdrant_client": None})
@@ -599,12 +606,22 @@ _PEDIDOS = []
 
 async def _pedido_espia(*a, **k):
     _PEDIDOS.append(k.get("conceptos_violacion"))
+    _EXTRAIDOS.append(k.get("extraidos"))
     return {"estado": "en_curso", "clave": "k"}
+
+
+# La lectura del escrito (v3/v4) que verá el estudio: apagada salvo que se diga.
+_LECTURA = {"out": (None, "apagada")}
+_EXTRAIDOS = []
+
+
+async def _lectura_doble(*a, **k):
+    return _LECTURA["out"]
 
 
 _ns_pp = {"_taller_armar_criterio": lambda *a, **k: {"crit": []}, "_taller_plan_pedido": _pedido_espia,
           "_con_autos": lambda r, c: c, "HTTPException": HTTPException, "err": str,
-          "print": lambda *a, **k: None}
+          "print": lambda *a, **k: None, "_taller_inv_escrito_para": _lectura_doble}
 exec(compile(ast.Module(body=[FN["_taller_plan_desde_propuesta"]], type_ignores=[]), "main.py", "exec"),
      _ns_pp)
 _resp_pp = {"global": {"alcanza": True, "sentido": "fundado", "razon": "r"}}
@@ -615,6 +632,18 @@ asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, d
 ok(_PEDIDOS == [], "el plan no se adelanta cuando la propuesta pide los conceptos de violación")
 asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, _resp_pp))
 ok(_PEDIDOS == [""], "sin esa necesidad se adelanta con los de la pantalla (ninguno), no con los del encargo")
+# Con la lectura del escrito lista, el plan adelantado la lleva (su clave es la
+# del resolver); si sigue en curso, no se adelanta un plan con el piso que el
+# resolver no podría usar.
+_LECTURA["out"] = ([{"concepto": 1, "texto": "t", "cita": "c"}], "listo")
+asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, _resp_pp))
+ok(_EXTRAIDOS[-1] == [{"concepto": 1, "texto": "t", "cita": "c"}],
+   "con la lectura del escrito lista, el plan adelantado se pide con ella")
+_LECTURA["out"] = (None, "no llegó en 300 s")
+_n_ped = len(_PEDIDOS)
+asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, _resp_pp))
+ok(len(_PEDIDOS) == _n_ped, "con la lectura aún en curso no se gasta un plan con el piso")
+_LECTURA["out"] = (None, "apagada")
 
 
 print("\n11 · UN WORKER MUERTO: EL GEMELO RELANZA DENTRO DE SU VENTANA (relojes falsos)")

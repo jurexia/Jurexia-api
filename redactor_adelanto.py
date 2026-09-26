@@ -167,6 +167,12 @@ class Encargo:
     # `prompt_estudio`; el plan, a la ficha (pestaña «Mapa del estudio»).
     plan: dict = field(default_factory=dict)
     guion: str = ""
+    # LA LECTURA DEL ESCRITO PARA EL INVENTARIO (v3/v4, 26-sep-2026): los
+    # argumentos que un modelo leyó en el escrito y el código verificó
+    # (`inventario_escrito`). La fija en CADA petición
+    # `main._taller_inventario_al_encargo` —vacía fuera de la v3/v4 o si no
+    # llegó—, antes del plan; `_formato_al_material` la funde con el piso.
+    inventario_escrito: list = field(default_factory=list)
 
 
 @dataclass
@@ -1048,12 +1054,18 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
             try:
                 import inventario as _inv_m
                 _esc_m = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
+                # Con la LECTURA DEL ESCRITO que fijó el resolver en el
+                # encargo (vacía si no llegó: entonces el piso, como antes).
+                # La misma lista que vio el plan: su clave lleva los segmentos.
                 material.inventario = _inv_m.segmentos(
-                    r.fases, _esc_m, bool(getattr(e, "es_recurso", False)) if e else False)
+                    r.fases, _esc_m, bool(getattr(e, "es_recurso", False)) if e else False,
+                    extraidos=list(getattr(e, "inventario_escrito", None) or []) if e else [])
                 _conc_m = sorted({x["concepto"] for x in material.inventario})
                 print(f"   🧭 INVENTARIO: {len(material.inventario)} argumentos en "
                       f"{len(_conc_m)} concepto(s) · "
-                      f"{sum(1 for x in material.inventario if x.get('cita'))} anclados en el escrito")
+                      f"{sum(1 for x in material.inventario if x.get('cita'))} anclados en el escrito · "
+                      f"{sum(1 for x in material.inventario if x.get('origen') == 'escrito')} "
+                      f"añadidos por la lectura del escrito")
             except Exception as _ei:
                 material.inventario = []
                 print(f"   ⚠️ INVENTARIO: no se pudo armar: {type(_ei).__name__}")
