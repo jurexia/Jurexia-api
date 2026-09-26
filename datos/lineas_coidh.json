@@ -2,7 +2,7 @@
  "version": 2,
  "generado": "2026-09-25",
  "estado": "En uso en el chat para administradores (COIDH_ACTIVO=admins): lo leen linea_coidh.py (pregunta_por_linea, seleccionar, bloque_xml, sondear) y scripts/lineas_qdrant.py. Pilar del 25-sep-2026: cronología, tramos, cortes y vigencia de la recepción en México, sólo con lo verificado o parcialmente verificado.",
- "origen": "reingesta/coidh/plan_ingesta_coidh.md §3.5 y revisión A.4 y B.10; construido por scratchpad/coidh/ficha/construir_ficha.py; pilar: scratchpad/pilar/wf1_resultado.json (tramos A-E verificados y revisión crítica), armado por scratchpad/wf2/armar_pilar.py",
+ "origen": "reingesta/coidh/plan_ingesta_coidh.md §3.5 y revisión A.4 y B.10; construido por scratchpad/coidh/ficha/construir_ficha.py; pilar: scratchpad/pilar/wf1_resultado.json (tramos A-E verificados y revisión crítica), armado por scratchpad/wf2/armar_pilar.py; enmiendas de la revisión adversarial del 26-sep-2026: scratchpad/wf2/enmiendas_c01_26sep.py",
  "convenciones": {
   "llave": "«doc_id|seg|párrafo»: seg «s» sentencia, «r» punto resolutivo, «c» considerando de supervisión, «v:autor» voto (autor = slug del campo votos del catálogo). Voto sin numerar: párrafo vacío.",
   "doc_id": "C-N (Serie C), A-N (Serie A, opiniones consultivas), SS-caso-AAAA-MM-DD (supervisión).",
@@ -12,8 +12,9 @@
   "extracto": "Literal, ≤30 palabras. Se compara sólo por letras; puede diferir del PDF en espacios pegados o comillas.",
   "cronologia": "Una entrada por hito verificado o parcial de la línea, en orden (campo «orden»). Las de la Corte IDH que están en «hitos» sólo llevan «ref_hito» (la llave) y sus datos viven en el hito. «fecha_resolucion» es la del acto (sentencia, ejecutoria, sesión); «fecha_publicacion», la del Semanario, el DOF o el documento.",
   "postura": "Sobre la restricción constitucional frente al tratado: prevalece_constitucion | interpreta_conforme_o_inaplica | ordena_adecuar (SÓLO sentencias y resoluciones de la Corte IDH) | recomienda (CIDH, ONU) | propone (votos, doctrina, proyectos; «sentido» dice hacia dónde) | mixta | no_aplica.",
-  "fuerza": "obligatoria | orientadora | recomendacion | voto | doctrina | proyecto | historica | norma. En recepcion_mx: jurisprudencia_obligatoria | tesis_aislada | plenos_regionales | tcc.",
-  "vigencia": "vigente | abandonada | superada | superada_en_parte | modificada | historica | pendiente | no_aplica; «reemplazo» es el registro que la sustituye y «sustituye» los que ella abandona."
+  "fuerza": "obligatoria | orientadora | recomendacion | voto | doctrina | proyecto | historica | norma | no_publicada (resuelta pero sin tesis publicada, como la CC 3/2026). En recepcion_mx: jurisprudencia_obligatoria | tesis_aislada | plenos_regionales | tcc.",
+  "vigencia": "vigente | abandonada | superada | superada_en_parte | modificada | historica | pendiente | no_aplica; «reemplazo» es el registro que la sustituye y «sustituye» los que ella abandona.",
+  "fuente_tipo": "«prensa» cuando la entrada sólo consta en notas de prensa porque no hay versión oficial publicada: va con verificación «parcial», url_oficial apunta a la nota principal y «fuentes_prensa» las lista todas (26-sep-2026)."
  },
  "figuras": {
   "control_convencionalidad": {
@@ -125,7 +126,7 @@
     "Tesis abandonada o superada: nunca como vigente; di su reemplazo (P. IX y X/2015 → P./J. 2/2022).",
     "Contra la P./J. 20/2014 advierte la P./J. 64/2014: ningún juez inferior controla la jurisprudencia de la SCJN.",
     "La literalidad del art. 19 (31-dic-2024) impide inaplicar; si impide interpretar conforme se discute (AR 186/2024, ¶272 y ¶329).",
-    "Desde el 16-oct-2025 el art. 166, fr. I, LA limita la suspensión: la PR.P.CN. J/13 P ya no es base segura.",
+    "Desde el 16-oct-2025 el art. 166, fr. I, LA limita la suspensión: la PR.P.CN. J/13 P ya no es base segura (disputado: la CC 3/2026 del Pleno Regional Centro-Norte, sin publicar por petición de la SCJN, sostuvo lo contrario).",
     "El arraigo y la prisión preventiva oficiosa NO se eliminaron; las supervisiones de 2024 los dejaron abiertos, sin cumplimiento declarado.",
     "Jurisprudencia de Salas y Plenos Regionales: su obligatoriedad en la 12a. época no está verificada.",
     "Restricciones constitucionales: las dos posturas en equilibrio, cada una con su fuente; la línea va además de la norma mexicana.",
@@ -612,14 +613,16 @@
      "contexto": [],
      "aporte": "Todavía la fórmula vieja: el obligado es el Poder Judicial.",
      "extracto": "sus jueces, como parte del aparato del Estado, también están sometidos a ella",
-     "url_oficial": "https://www.corteidh.or.cr/docs/casos/articulos/seriec_217_esp1.pdf",
+     "url_oficial": "https://www.corteidh.or.cr/docs/casos/articulos/seriec_217_esp.pdf",
      "pdf_bytes": 548923,
      "pdf_sha1": "1081730d5f0c36f51bc39323b7f957950c405ce7",
      "cita_canonica": "Corte IDH. Caso Ibsen Cárdenas e Ibsen Peña Vs. Bolivia. Fondo, Reparaciones y Costas. Sentencia de 1 de septiembre de 2010. Serie C No. 217, párr. 202.",
      "verificado": true,
      "verificacion": "extracto hallado en la pág. 64 de seriec_217_esp.pdf (548,923 bytes, sha1 1081730d5f0c); el troceador ubica el ¶202 en las págs. 64-64; fila confirmada en la tabla del plan §1",
      "origen": "plan §1",
-     "nota": "La copia cotejada se llama seriec_217_esp.pdf y mide lo mismo que el seriec_217_esp1.pdf del catálogo (548,923 bytes, repo/tam_resultados.tsv)."
+     "nota": "La copia cotejada se llama seriec_217_esp.pdf y mide lo mismo que el seriec_217_esp1.pdf del catálogo (548,923 bytes, repo/tam_resultados.tsv).",
+     "url_catalogo": "https://www.corteidh.or.cr/docs/casos/articulos/seriec_217_esp1.pdf",
+     "advertencia": "El catálogo enlaza seriec_217_esp1.pdf; la página se cotejó sobre seriec_217_esp.pdf. No hay tamaño medido del _esp1: confirmar que es el mismo archivo antes de F1."
     },
     {
      "llave": "C-218|s|287",
@@ -2475,16 +2478,18 @@
      "contexto": [],
      "aporte": "La ciudadanía respaldó la Ley de Caducidad en el referéndum de 1989 y en el plebiscito de 2009 sobre una reforma constitucional para anularla (arts. 79 y 331 de la Constitución uruguaya). Ambos son «hecho atribuible al Estado» que genera responsabilidad. Antecede al ¶239: los derechos son un límite para las mayorías.",
      "extracto": "aprobada en un régimen democrático y aún ratificada o respaldada por la ciudadanía en dos ocasiones no le concede, automáticamente ni por sí sola, legitimidad ante el Derecho Internacional",
-     "url_oficial": "https://www.corteidh.or.cr/docs/casos/articulos/seriec_221_esp1.pdf",
-     "pdf_bytes": null,
-     "pdf_sha1": null,
+     "url_oficial": "https://www.corteidh.or.cr/docs/casos/articulos/seriec_221_esp.pdf",
+     "pdf_bytes": 755325,
+     "pdf_sha1": "a17e112537d96af16ef215851b10fbcab1235cee",
      "cita_canonica": null,
      "verificado": true,
      "verificacion": "Extracto literal en el ¶238, pág. 69 de seriec_221_esp.pdf (755,325 bytes, sha1 a17e112537d9); el mismo ¶ nombra el art. 79 (referéndum 1989) y el art. 331 literal A (plebiscito 25-oct-2009) de la Constitución uruguaya; ¶239 empieza en la pág. 69. Fecha 24-feb-2011 en la portada. El catálogo enlaza seriec_221_esp1.pdf (no cotejado).",
      "origen": "pilar, tramo D (verif_coidh-normas-constitucionales.json)",
      "nota": null,
      "solo_por_tema": true,
-     "vigencia_nota": "Criterio de la Corte IDH no abandonado según lo revisado hasta 2025-09-30; el cumplimiento de la orden no se revisó."
+     "vigencia_nota": "Criterio de la Corte IDH no abandonado según lo revisado hasta 2025-09-30; el cumplimiento de la orden no se revisó.",
+     "url_catalogo": "https://www.corteidh.or.cr/docs/casos/articulos/seriec_221_esp1.pdf",
+     "advertencia": "El catálogo enlaza seriec_221_esp1.pdf; la página se cotejó sobre seriec_221_esp.pdf. No hay tamaño medido del _esp1: confirmar que es el mismo archivo antes de F1."
     },
     {
      "llave": "C-282|s|469",
@@ -3580,12 +3585,12 @@
      "tipo": "JURISPRUDENCIA",
      "fecha_publicacion": "2023-09-22",
      "relacion": "aplica",
-     "porque": "Suspensión provisional con efectos restitutorios contra la prisión preventiva oficiosa, con Tzompaxtle y García Rodríguez como apariencia del buen derecho. Choca con la PR.P.CS. J/16 P (CC 377/2023, pendiente) y la reforma del art. 166 LA (16-oct-2025) la desplaza en la práctica.",
+     "porque": "Suspensión provisional con efectos restitutorios contra la prisión preventiva oficiosa, con Tzompaxtle y García Rodríguez como apariencia del buen derecho. Choca con la PR.P.CS. J/16 P (CC 377/2023, pendiente) y tras la reforma del art. 166 LA (16-oct-2025) está disputada (2031701 frente a la CC 3/2026).",
      "en_acervo": true,
      "qdrant": "jurisprudencia_nacional_v3",
      "qdrant_id": "be9a33d6-dd97-5bab-a90f-123fb9478bbf",
      "vigencia": "vigente",
-     "vigencia_nota": "Sub iudice en la CC 377/2023 (pendiente); desplazada en la práctica por el art. 166, fr. I, LA reformado el 16-oct-2025 (reg. 2031701).",
+     "vigencia_nota": "Sub iudice en la CC 377/2023 (pendiente); disputada tras el art. 166 LA reformado (16-oct-2025): un colegiado (2031701) la tiene por inaplicable; el Pleno Regional Centro-Norte sostuvo lo contrario para su J/3 P en la CC 3/2026, con publicación suspendida por la SCJN.",
      "fuerza": "plenos_regionales",
      "postura": "interpreta_conforme_o_inaplica",
      "crono_id": "SCJN-2027280"
@@ -3657,7 +3662,7 @@
      "qdrant_id": "d6c9993c-bf7c-560d-82d5-2e9171c5c3f9",
      "vigencia": "vigente",
      "fuerza": "tcc",
-     "postura": "no_aplica"
+     "postura": "interpreta_conforme_o_inaplica"
     },
     {
      "registro": "2027761",
@@ -3673,7 +3678,7 @@
      "qdrant_id": "87444fcc-10c4-52e1-88bf-51e5640360bf",
      "vigencia": "vigente",
      "fuerza": "tcc",
-     "postura": "no_aplica"
+     "postura": "interpreta_conforme_o_inaplica"
     },
     {
      "registro": "2027766",
@@ -3689,7 +3694,7 @@
      "qdrant_id": "23ce0179-5584-52c8-b95b-e394ccd9abb6",
      "vigencia": "vigente",
      "fuerza": "tcc",
-     "postura": "no_aplica"
+     "postura": "interpreta_conforme_o_inaplica"
     },
     {
      "registro": "2027894",
@@ -3776,7 +3781,7 @@
      "qdrant": "jurisprudencia_nacional_v3",
      "qdrant_id": "a1e51a2c-f86f-50bc-8f9f-11eeae89c0ab",
      "vigencia": "vigente",
-     "vigencia_nota": "Vigente en lo formal; tras la reforma del art. 166 LA (16-oct-2025) un colegiado la declara inaplicable (reg. 2031701).",
+     "vigencia_nota": "Vigente en lo formal; disputada: un colegiado (2031701) tiene por inaplicable la J/3 P que ésta mantiene; el Pleno Regional Centro-Norte sostuvo lo contrario en la CC 3/2026 (16-abr-2026), con publicación suspendida por la SCJN.",
      "fuerza": "plenos_regionales",
      "postura": "mixta",
      "crono_id": "SCJN-2030441"
@@ -3822,12 +3827,12 @@
      "tipo": "JURISPRUDENCIA",
      "fecha_publicacion": "2025-06-20",
      "relacion": "aplica",
-     "porque": "PPO: la PR.P.CN. J/13 P (suspensión restitutoria contra la imposición) sigue aplicando aun con la reforma del 31-dic-2024 al art. 19; en la práctica la desplaza el art. 166, fr. I, LA reformado el 16-oct-2025 (reg. 2031701).",
+     "porque": "PPO: la PR.P.CN. J/13 P (suspensión restitutoria contra la imposición) sigue aplicando aun con la reforma del 31-dic-2024 al art. 19; tras el art. 166, fr. I, LA reformado el 16-oct-2025, disputada (2031701 frente a la CC 3/2026).",
      "en_acervo": true,
      "qdrant": "jurisprudencia_nacional_v3",
      "qdrant_id": "1ec1c19b-5975-5418-815c-13443370fdcf",
      "vigencia": "vigente",
-     "vigencia_nota": "Vigente en lo formal; desplazada en la práctica por el art. 166, fr. I, LA reformado el 16-oct-2025 (reg. 2031701).",
+     "vigencia_nota": "Vigente en lo formal; disputada tras el art. 166 LA reformado (16-oct-2025): un colegiado (2031701) la tiene por inaplicable; el Pleno Regional Centro-Norte sostuvo lo contrario para su J/3 P en la CC 3/2026, con publicación suspendida por la SCJN.",
      "fuerza": "plenos_regionales",
      "postura": "interpreta_conforme_o_inaplica",
      "crono_id": "SCJN-2030607"
@@ -3892,7 +3897,7 @@
      "rubro_abreviado": "SENTENCIAS EMITIDAS POR LA CORTE INTERAMERICANA DE DERECHOS HUMANOS",
      "instancia": "Pleno",
      "tipo": "TESIS AISLADA",
-     "fecha_publicacion": null,
+     "fecha_publicacion": "2011-12",
      "relacion": "recibe",
      "porque": "Varios 912/2010: las sentencias contra México obligan en sus términos.",
      "en_acervo": true,
@@ -3908,7 +3913,7 @@
      "rubro_abreviado": "RESTRICCIÓN INTERPRETATIVA DE FUERO MILITAR",
      "instancia": "Pleno",
      "tipo": "TESIS AISLADA",
-     "fecha_publicacion": null,
+     "fecha_publicacion": "2011-12",
      "relacion": "recibe",
      "porque": "Varios 912/2010: restricción interpretativa del fuero militar (art. 57 CJM).",
      "en_acervo": true,
@@ -3925,7 +3930,7 @@
      "rubro_abreviado": "FUERO MILITAR",
      "instancia": "Pleno",
      "tipo": "TESIS AISLADA",
-     "fecha_publicacion": null,
+     "fecha_publicacion": "2013-03",
      "relacion": "aplica",
      "porque": "El art. 57, fr. II, inciso a) del CJM contraviene la CADH.",
      "en_acervo": true,
@@ -3942,7 +3947,7 @@
      "rubro_abreviado": "SENTENCIAS EMITIDAS POR LA CORTE INTERAMERICANA DE DERECHOS HUMANOS EN ASUNTOS DONDE EL ESTADO MEXICANO FUE PARTE",
      "instancia": "Pleno",
      "tipo": "TESIS AISLADA",
-     "fecha_publicacion": null,
+     "fecha_publicacion": "2013-03",
      "relacion": "recibe",
      "porque": "Los criterios de sentencias contra México obligan sin necesidad de reiteración.",
      "en_acervo": true,
@@ -4141,6 +4146,7 @@
       "DOF-2024-12-31-art19-literalidad",
       "SCJN-AG-2-2024",
       "DOF-2025-10-16-ley-amparo-166",
+      "PR-PTCN-CC-3-2026",
       "SCJN-RST-3-2023-proyecto-pardo"
      ]
     },
@@ -4301,10 +4307,10 @@
      "advertencia": "Presentar las dos posturas en equilibrio, cada una con su fuente: la de la SCJN (P./J. 20/2014, vigente) obliga a los jueces mexicanos; la de la Corte IDH (Tzompaxtle ¶118, García Rodríguez ¶303) obliga a México como Estado; votos y doctrina proponen. La ficha no decide cuál prevalece.",
      "cronologia": [
       "SCJN-ct-293-2011-ejecutoria-24985",
-      "SCJN-voto-41362",
-      "SCJN-voto-41356",
       "DOCTRINA-885ee8c6-7543-5a1b-bbdb-fa0a3e510053",
+      "SCJN-voto-41362",
       "DOCTRINA-ext-silva-garcia-2014",
+      "SCJN-voto-41356",
       "DOF-2024-10-31-inimpugnabilidad"
      ]
     },
@@ -4480,7 +4486,8 @@
     "Expediente de recepción 3/2023 (García Rodríguez): su desenlace después del 16-feb-2026 no consta.",
     "SJF entre el 11-jul y el 25-sep-2026: la API da 404 desde el registro 2032444; no se puede afirmar la postura del Pleno en esa ventana.",
     "Obligatoriedad en la 12a. época de la jurisprudencia de las Salas extintas y de los Plenos Regionales: sin verificar.",
-    "Estándar sustantivo de García Rodríguez sobre la prisión preventiva (¶154-163 y 184, a los que remite el ¶301): no son hitos."
+    "Estándar sustantivo de García Rodríguez sobre la prisión preventiva (¶154-163 y 184, a los que remite el ¶301): no son hitos.",
+    "CC 3/2026 del Pleno Regional Penal y de Trabajo Centro-Norte (16-abr-2026): sin versión oficial; entró sólo con prensa (verificación parcial). Cotejarla con el engrose cuando la SCJN levante la suspensión de su publicación."
    ],
    "cronologia": [
     {
@@ -8999,9 +9006,9 @@
      "pagina": "Gaceta S.J.F., 11a. Época, Libro 29, septiembre de 2023, Tomo IV, p. 4670",
      "parrafo": null,
      "extracto": "es posible conceder la suspensión provisional con efectos restitutorios cuando el acto reclamado sea la imposición de la medida cautelar de prisión preventiva oficiosa",
-     "aporte": "Suspensión provisional con efectos restitutorios contra la prisión preventiva oficiosa, con Tzompaxtle y García Rodríguez como apariencia del buen derecho. Choca con la PR.P.CS. J/16 P (CC 377/2023, pendiente) y la reforma del art. 166 LA (16-oct-2025) la desplaza en la práctica.",
+     "aporte": "Suspensión provisional con efectos restitutorios contra la prisión preventiva oficiosa, con Tzompaxtle y García Rodríguez como apariencia del buen derecho. Choca con la PR.P.CS. J/16 P (CC 377/2023, pendiente) y tras la reforma del art. 166 LA (16-oct-2025) está disputada (2031701 frente a la CC 3/2026).",
      "vigencia": "vigente",
-     "vigencia_nota": "Sub iudice en la CC 377/2023 (pendiente); desplazada en la práctica por el art. 166, fr. I, LA reformado el 16-oct-2025 (reg. 2031701).",
+     "vigencia_nota": "Sub iudice en la CC 377/2023 (pendiente); disputada tras el art. 166 LA reformado (16-oct-2025): un colegiado (2031701) la tiene por inaplicable; el Pleno Regional Centro-Norte sostuvo lo contrario para su J/3 P en la CC 3/2026, con publicación suspendida por la SCJN.",
      "postura": "interpreta_conforme_o_inaplica",
      "fuerza": "obligatoria",
      "tramo": "t6",
@@ -9017,7 +9024,7 @@
       "B",
       "C"
      ],
-     "detalle": "La vía más eficaz que abrieron los tribunales: tomar Tzompaxtle y García Rodríguez como apariencia del buen derecho y conceder suspensión restitutoria (interpretación conforme del art. 166 LA con el art. 107, fr. X). Choca con PR.P.CS. J/16 P (2028043); las dos están denunciadas en la CC 377/2023, pendiente en la SCJN. El mismo Pleno la ratificó tras la reforma de 2024 (PR.P.T.CN. J/33 P, 2030607); un colegiado la declaró inaplicable tras la reforma a la LA de 16-oct-2025 (2031701)."
+     "detalle": "La vía más eficaz que abrieron los tribunales: tomar Tzompaxtle y García Rodríguez como apariencia del buen derecho y conceder suspensión restitutoria (interpretación conforme del art. 166 LA con el art. 107, fr. X). Choca con PR.P.CS. J/16 P (2028043); las dos están denunciadas en la CC 377/2023, pendiente en la SCJN. El mismo Pleno la ratificó tras la reforma de 2024 (PR.P.T.CN. J/33 P, 2030607); un colegiado la declaró inaplicable tras la reforma a la LA de 16-oct-2025 (2031701) y el mismo Pleno Regional sostuvo en la CC 3/2026 (16-abr-2026, sin publicar a petición de la SCJN) que esa reforma no fue sustancial."
     },
     {
      "id": "SCJN-2027539",
@@ -9201,7 +9208,7 @@
      "fecha_resolucion": null,
      "fecha_publicacion": "2024-01-19",
      "tipo": "pleno_regional_tesis",
-     "organo": "Plenos Regionales",
+     "organo": "Pleno Regional en Materia Penal de la Región Centro-Sur",
      "titulo": "SUSPENSIÓN PROVISIONAL EN EL JUICIO DE AMPARO. CUANDO SE RECLAMA LA PRISIÓN PREVENTIVA OFICIOSA, NO ES PROCEDENTE CONCEDERLA CON EFECTOS RESTITUTORIOS CON BASE EN LO DETERMINADO POR LA CORTE INTERAMERICANA DE DERECHOS HUMANOS EN LAS SENTENCIAS DICTADAS EN LOS CASOS TZOMPAXTLE TECPILE Y OTROS CONTRA MÉXICO Y GARCÍA RODRÍGUEZ Y OTRO CONTRA MÉXICO.",
      "clave": "PR.P.CS. J/16 P (11a.)",
      "registro": "2028043",
@@ -9308,8 +9315,39 @@
      ]
     },
     {
-     "id": "C-527|s|286",
+     "id": "SCJN-2030517",
      "orden": 167,
+     "fecha_resolucion": "2024-06-17",
+     "fecha_publicacion": "2025-06-13",
+     "tipo": "scjn_tesis",
+     "organo": "SCJN · Pleno",
+     "titulo": "OPINIONES CONSULTIVAS DE LA CORTE INTERAMERICANA DE DERECHOS HUMANOS. NO SON JURÍDICAMENTE VINCULANTES PARA LAS PERSONAS JUZGADORAS MEXICANAS, PERO GOZAN DE RELEVANCIA JURÍDICA.",
+     "clave": "P./J. 2/2025 (11a.)",
+     "registro": "2030517",
+     "url_oficial": "https://sjf2.scjn.gob.mx/detalle/tesis/2030517",
+     "pagina": null,
+     "parrafo": null,
+     "extracto": "OPINIONES CONSULTIVAS DE LA CORTE INTERAMERICANA DE DERECHOS HUMANOS. NO SON JURÍDICAMENTE VINCULANTES PARA LAS PERSONAS JUZGADORAS MEXICANAS, PERO GOZAN DE RELEVANCIA JURÍDICA.",
+     "aporte": "Las opiniones consultivas de la Corte IDH no son jurídicamente vinculantes para los jueces mexicanos, pero gozan de relevancia jurídica. Acota la P./J. 21/2014 para la función consultiva. CC 175/2022, resuelta el 17-jun-2024 por la integración anterior.",
+     "vigencia": "vigente",
+     "postura": "no_aplica",
+     "fuerza": "obligatoria",
+     "tramo": "t6",
+     "en_acervo": {
+      "coleccion": "jurisprudencia_nacional_v3",
+      "id": "dcff8da0-187d-529a-b2aa-c58ed46eda91"
+     },
+     "verificacion": {
+      "estado": "verificado",
+      "como": "API pública del SJF leída en la revisión crítica del 25-sep-2026 (pilar/critico/vig_*.json): rubro, clave, fecha de publicación y notas; punto confirmado en jurisprudencia_nacional_v3."
+     },
+     "fuentes_pilar": [
+      "critica"
+     ]
+    },
+    {
+     "id": "C-527|s|286",
+     "orden": 168,
      "fecha_resolucion": "2024-06-18",
      "fecha_publicacion": null,
      "tipo": "corte_idh_sentencia",
@@ -9332,7 +9370,7 @@
     },
     {
      "id": "C-527|v:mudrovitsch+ferrer-mac-gregor-poisot|30",
-     "orden": 168,
+     "orden": 169,
      "fecha_resolucion": "2024-06-18",
      "fecha_publicacion": null,
      "tipo": "corte_idh_voto",
@@ -9355,7 +9393,7 @@
     },
     {
      "id": "C-527|v:sierra-porto|9",
-     "orden": 169,
+     "orden": 170,
      "fecha_resolucion": "2024-06-18",
      "fecha_publicacion": null,
      "tipo": "corte_idh_voto",
@@ -9378,7 +9416,7 @@
     },
     {
      "id": "SCJN-AG-2-2024",
-     "orden": 170,
+     "orden": 171,
      "fecha_resolucion": "2024-07-01",
      "fecha_publicacion": "2024-07-12",
      "tipo": "acuerdo_general",
@@ -9409,7 +9447,7 @@
     },
     {
      "id": "ONU-GTDA-A-HRC-57-44-Add1",
-     "orden": 171,
+     "orden": 172,
      "fecha_resolucion": null,
      "fecha_publicacion": "2024-07-16",
      "tipo": "onu",
@@ -9438,7 +9476,7 @@
     },
     {
      "id": "DOF-2024-09-15-reforma-judicial",
-     "orden": 172,
+     "orden": 173,
      "fecha_resolucion": null,
      "fecha_publicacion": "2024-09-15",
      "tipo": "reforma_constitucional",
@@ -9471,7 +9509,7 @@
     },
     {
      "id": "DOF-2024-10-31-inimpugnabilidad",
-     "orden": 173,
+     "orden": 174,
      "fecha_resolucion": null,
      "fecha_publicacion": "2024-10-31",
      "tipo": "reforma_constitucional",
@@ -9505,7 +9543,7 @@
     },
     {
      "id": "SCJN-AI-164-2024",
-     "orden": 174,
+     "orden": 175,
      "fecha_resolucion": "2024-11-05",
      "fecha_publicacion": null,
      "tipo": "scjn_resolucion",
@@ -9534,7 +9572,7 @@
     },
     {
      "id": "C-546|s|151",
-     "orden": 175,
+     "orden": 176,
      "fecha_resolucion": "2024-11-15",
      "fecha_publicacion": null,
      "tipo": "corte_idh_sentencia",
@@ -9557,7 +9595,7 @@
     },
     {
      "id": "ONU-alto-comisionado-2024-11-22-ppo",
-     "orden": 176,
+     "orden": 177,
      "fecha_resolucion": null,
      "fecha_publicacion": "2024-11-22",
      "tipo": "onu",
@@ -9585,7 +9623,7 @@
     },
     {
      "id": "SS-garcia-rodriguez-mexico-2024-11-26",
-     "orden": 177,
+     "orden": 178,
      "fecha_resolucion": "2024-11-26",
      "fecha_publicacion": null,
      "tipo": "corte_idh_supervision",
@@ -9615,7 +9653,7 @@
     },
     {
      "id": "SS-tzompaxtle-tecpile-mexico-2024-11-26",
-     "orden": 178,
+     "orden": 179,
      "fecha_resolucion": "2024-11-26",
      "fecha_publicacion": null,
      "tipo": "corte_idh_supervision",
@@ -9645,7 +9683,7 @@
     },
     {
      "id": "DOF-2024-12-31-art19-literalidad",
-     "orden": 179,
+     "orden": 180,
      "fecha_resolucion": null,
      "fecha_publicacion": "2024-12-31",
      "tipo": "reforma_constitucional",
@@ -9675,11 +9713,11 @@
       "B",
       "C"
      ],
-     "detalle": "Respuesta constitucional al choque: amplía el catálogo (extorsión; precursores, drogas sintéticas, fentanilo y derivados; contrabando y falsos comprobantes fiscales) y añade la cláusula de literalidad dirigida contra la inaplicación o la interpretación conforme. Transitorios: derogación de lo que se oponga, 180 días al Congreso para armonizar y 365 a las legislaturas. En vigor desde el 1-ene-2025. Es posterior a García Rodríguez y a las supervisiones del 26-nov-2024. Los Plenos Regionales la leyeron como mandato al Ministerio Público y al juez de control, no al juez de amparo (2030441, 2030607); el proyecto Pardo sostuvo que no impide cumplir la sentencia interamericana."
+     "detalle": "Respuesta constitucional al choque: amplía el catálogo (extorsión; precursores, drogas sintéticas, fentanilo y derivados; contrabando y falsos comprobantes fiscales) y añade la cláusula de literalidad dirigida contra la inaplicación o la interpretación conforme. Transitorios: derogación de lo que se oponga, 180 días al Congreso para armonizar y 365 a las legislaturas. En vigor desde el 1-ene-2025. Es posterior a García Rodríguez y a las supervisiones del 26-nov-2024. El Pleno Regional en Materias Penal y de Trabajo de la Región Centro-Norte la leyó como mandato al Ministerio Público y al juez de control, no al juez de amparo (2030441, 2030607; obliga sólo en su región); el proyecto Pardo sostuvo que no impide cumplir la sentencia interamericana."
     },
     {
      "id": "CIDH-IA2024-capV-mexico",
-     "orden": 180,
+     "orden": 181,
      "fecha_resolucion": null,
      "fecha_publicacion": "2025-03-19",
      "tipo": "cidh",
@@ -9707,7 +9745,7 @@
     },
     {
      "id": "SCJN-2030441",
-     "orden": 181,
+     "orden": 182,
      "fecha_resolucion": "2025-04-03",
      "fecha_publicacion": "2025-05-23",
      "tipo": "pleno_regional_tesis",
@@ -9721,7 +9759,7 @@
      "extracto": "constituye un mandato dirigido específicamente al Ministerio Público en los casos de prisión preventiva justificada, y al Juez de Control en los casos de prisión preventiva oficiosa",
      "aporte": "La jurisprudencia sobre la suspensión contra la orden de aprehensión sigue aplicando tras el 31-dic-2024: la literalidad del art. 19 se dirige al Ministerio Público y al juez de control, no al juez de amparo.",
      "vigencia": "vigente",
-     "vigencia_nota": "Vigente en lo formal; tras la reforma del art. 166 LA (16-oct-2025) un colegiado la declara inaplicable (reg. 2031701).",
+     "vigencia_nota": "Vigente en lo formal; disputada: un colegiado (2031701) tiene por inaplicable la J/3 P que ésta mantiene; el Pleno Regional Centro-Norte sostuvo lo contrario en la CC 3/2026 (16-abr-2026), con publicación suspendida por la SCJN.",
      "postura": "mixta",
      "fuerza": "obligatoria",
      "tramo": "t6",
@@ -9740,7 +9778,7 @@
     },
     {
      "id": "SCJN-2030398",
-     "orden": 182,
+     "orden": 183,
      "fecha_resolucion": null,
      "fecha_publicacion": "2025-05-16",
      "tipo": "scjn_tesis",
@@ -9768,37 +9806,6 @@
      },
      "fuentes_pilar": [
       "A"
-     ]
-    },
-    {
-     "id": "SCJN-2030517",
-     "orden": 183,
-     "fecha_resolucion": "2025-05-27",
-     "fecha_publicacion": "2025-06-13",
-     "tipo": "scjn_tesis",
-     "organo": "SCJN · Pleno",
-     "titulo": "OPINIONES CONSULTIVAS DE LA CORTE INTERAMERICANA DE DERECHOS HUMANOS. NO SON JURÍDICAMENTE VINCULANTES PARA LAS PERSONAS JUZGADORAS MEXICANAS, PERO GOZAN DE RELEVANCIA JURÍDICA.",
-     "clave": "P./J. 2/2025 (11a.)",
-     "registro": "2030517",
-     "url_oficial": "https://sjf2.scjn.gob.mx/detalle/tesis/2030517",
-     "pagina": null,
-     "parrafo": null,
-     "extracto": "OPINIONES CONSULTIVAS DE LA CORTE INTERAMERICANA DE DERECHOS HUMANOS. NO SON JURÍDICAMENTE VINCULANTES PARA LAS PERSONAS JUZGADORAS MEXICANAS, PERO GOZAN DE RELEVANCIA JURÍDICA.",
-     "aporte": "Las opiniones consultivas de la Corte IDH no son jurídicamente vinculantes para los jueces mexicanos, pero gozan de relevancia jurídica. Acota la P./J. 21/2014 para la función consultiva.",
-     "vigencia": "vigente",
-     "postura": "no_aplica",
-     "fuerza": "obligatoria",
-     "tramo": "t6",
-     "en_acervo": {
-      "coleccion": "jurisprudencia_nacional_v3",
-      "id": "dcff8da0-187d-529a-b2aa-c58ed46eda91"
-     },
-     "verificacion": {
-      "estado": "verificado",
-      "como": "API pública del SJF leída en la revisión crítica del 25-sep-2026 (pilar/critico/vig_*.json): rubro, clave, fecha de publicación y notas; punto confirmado en jurisprudencia_nacional_v3."
-     },
-     "fuentes_pilar": [
-      "critica"
      ]
     },
     {
@@ -9853,7 +9860,7 @@
      "fecha_resolucion": null,
      "fecha_publicacion": "2025-06-20",
      "tipo": "pleno_regional_tesis",
-     "organo": "Plenos Regionales",
+     "organo": "Pleno Regional en Materias Penal y de Trabajo de la Región Centro-Norte",
      "titulo": "SUSPENSIÓN PROVISIONAL CONTRA LA IMPOSICIÓN DE LA PRISIÓN PREVENTIVA OFICIOSA. LA JURISPRUDENCIA PR.P.CN. J/13 P (11a.) ES APLICABLE AUN CON LA ENTRADA EN VIGOR DE LA REFORMA DE 31 DE DICIEMBRE DE 2024 AL ARTÍCULO 19, PÁRRAFO SEGUNDO, CONSTITUCIONAL.",
      "clave": "PR.P.T.CN. J/33 P (11a.)",
      "registro": "2030607",
@@ -9863,7 +9870,7 @@
      "extracto": "SUSPENSIÓN PROVISIONAL CONTRA LA IMPOSICIÓN DE LA PRISIÓN PREVENTIVA OFICIOSA. LA JURISPRUDENCIA PR.P.CN. J/13 P (11a.) ES APLICABLE AUN CON LA ENTRADA EN VIGOR DE LA REFORMA DE 31 DE DICIEMBRE DE 2024 AL ARTÍCULO 19, PÁRRAFO SEGUNDO, CONSTITUCIONAL.",
      "aporte": "La PR.P.CN. J/13 P (suspensión restitutoria contra la imposición de la prisión preventiva oficiosa) sigue aplicando aun con la reforma del 31-dic-2024 al art. 19.",
      "vigencia": "vigente",
-     "vigencia_nota": "Vigente en lo formal; desplazada en la práctica por el art. 166, fr. I, LA reformado el 16-oct-2025 (reg. 2031701).",
+     "vigencia_nota": "Vigente en lo formal; disputada tras el art. 166 LA reformado (16-oct-2025): un colegiado (2031701) la tiene por inaplicable; el Pleno Regional Centro-Norte sostuvo lo contrario para su J/3 P en la CC 3/2026, con publicación suspendida por la SCJN.",
      "postura": "interpreta_conforme_o_inaplica",
      "fuerza": "obligatoria",
      "tramo": "t6",
@@ -10059,7 +10066,7 @@
      "pagina": null,
      "parrafo": "Art. 166, fr. I, Ley de Amparo; transitorios primero y tercero",
      "extracto": "Tratándose de estos casos, la suspensión no podrá otorgarse con efectos distintos a los expresamente previstos en esta fracción",
-     "aporte": "Art. 166, fr. I, LA: en delitos de prisión preventiva oficiosa la suspensión sólo tiene los efectos de esa fracción; cierra la vía restitutoria de las jurisprudencias regionales. Rige las actuaciones posteriores de los juicios en trámite (transitorio tercero).",
+     "aporte": "Art. 166, fr. I, LA: en delitos de prisión preventiva oficiosa la suspensión sólo tiene los efectos de esa fracción; si cierra la vía de las jurisprudencias regionales está disputado (2031701 dice que sí; la CC 3/2026, que no). Rige las actuaciones posteriores de los juicios en trámite (transitorio tercero).",
      "vigencia": "vigente",
      "vigencia_nota": "El art. 166 de la Ley de Amparo en leyes_federales trae el texto reformado.",
      "postura": "prevalece_constitucion",
@@ -10076,7 +10083,7 @@
      "fuentes_pilar": [
       "C"
      ],
-     "detalle": "Cierra por ley la vía de la suspensión restitutoria que habían abierto los Plenos Regionales con base en Tzompaxtle y García Rodríguez (2027280, 2030607): con delitos de prisión preventiva oficiosa el quejoso sólo queda a disposición del juez de amparo en cuanto a su libertad. Entró en vigor al día siguiente; el transitorio tercero la aplica a las actuaciones posteriores de los juicios en trámite."
+     "detalle": "Busca cerrar por ley la vía de la suspensión restitutoria que habían abierto los Plenos Regionales con base en Tzompaxtle y García Rodríguez (2027280, 2030607): con delitos de prisión preventiva oficiosa el quejoso sólo queda a disposición del juez de amparo en cuanto a su libertad. Entró en vigor al día siguiente; el transitorio tercero la aplica a las actuaciones posteriores de los juicios en trámite. Un colegiado la aplicó así (2031701); el Pleno Regional Centro-Norte sostuvo en la CC 3/2026 que no fue sustancial (publicación suspendida por la SCJN)."
     },
     {
      "id": "SCJN-2031419",
@@ -10294,6 +10301,42 @@
       "C"
      ],
      "detalle": "RECOMIENDA / observa. Primer registro interamericano de la reforma ya vigente, con su efecto medido: la tasa de prisión preventiva subió entre junio de 2024 y julio de 2025 del 39.3 % al 44.6 % en el fuero federal y del 36.9 % al 39.2 % en el común (datos oficiales de la SSPC que cita). La nota 1656 fecha el decreto el «31 de diciembre de 2025»; es un error de la fuente, el decreto es de 2024."
+    },
+    {
+     "id": "PR-PTCN-CC-3-2026",
+     "orden": 201,
+     "fecha_resolucion": "2026-04-16",
+     "fecha_publicacion": null,
+     "tipo": "pleno_regional_resolucion",
+     "organo": "Pleno Regional en Materias Penal y de Trabajo de la Región Centro-Norte",
+     "titulo": "Contradicción de criterios 3/2026: la reforma de 16-oct-2025 al art. 166, fr. I, de la Ley de Amparo no fue sustancial y la PR.P.T.CN. J/3 P (11a.) sigue siendo aplicable",
+     "clave": "CC 3/2026",
+     "registro": null,
+     "url_oficial": "https://grupoanimal.mx/politica/corte-frena-criterio-prision-preventiva-oficiosa",
+     "pagina": null,
+     "parrafo": null,
+     "extracto": null,
+     "aporte": "El 16-abr-2026, por dos votos contra uno, sostuvo que la reforma del 16-oct-2025 al art. 166, fr. I, LA «no fue sustancial» y que la PR.P.T.CN. J/3 P (suspensión contra la orden de aprehensión) sigue aplicable. Dice lo contrario que la XXX.4o.1 P (2031701).",
+     "vigencia": "pendiente",
+     "vigencia_nota": "Sin publicar: el 17-abr-2026 la Secretaría General de Acuerdos de la SCJN pidió por oficio suspender la publicación del criterio y de los engroses con base en el AG 2/2024. Sólo consta en prensa.",
+     "postura": "mixta",
+     "fuerza": "no_publicada",
+     "tramo": "t6",
+     "en_acervo": null,
+     "verificacion": {
+      "estado": "parcial",
+      "como": "Sólo prensa, leída el 26-sep-2026: Grupo Animal (27-abr-2026) cita el resolutivo y el oficio del 17-abr-2026 del Secretario General de Acuerdos de la SCJN; Portal Judicial (20-abr-2026) y La Silla Rota (17-abr-2026) confirman lo resuelto. No está en el SJF (publicación suspendida) ni se localizó en scjn.gob.mx."
+     },
+     "fuentes_pilar": [
+      "revision-26sep"
+     ],
+     "fuente_tipo": "prensa",
+     "fuentes_prensa": [
+      "https://grupoanimal.mx/politica/corte-frena-criterio-prision-preventiva-oficiosa",
+      "https://portaljudicial.com/mantiene-pleno-regional-vigencia-de-la-suspension-ante-prision-preventiva-automatica/",
+      "https://lasillarota.com/nacion/2026/4/17/jueces-frenan-prision-preventiva-oficiosa-determinan-que-viola-derechos-505924.html"
+     ],
+     "detalle": "El mismo Pleno Regional que emitió las J/31 P y J/33 P (2030441, 2030607) resolvió, con la reforma del art. 166 LA ya vigente, que la suspensión para que el quejoso no sea detenido sigue procediendo contra la orden de aprehensión por delitos de prisión preventiva oficiosa. Al día siguiente la SCJN de la nueva integración pidió suspender su publicación hasta pronunciarse, por el AG 2/2024 (que aplaza las contradicciones de Plenos Regionales sobre la materia). Obliga, si llega a publicarse, sólo en la Región Centro-Norte."
     }
    ],
    "nucleo_mx": [
@@ -10324,7 +10367,7 @@
      "SCJN-AG-2-2024",
      "SCJN-impedimento-60-2025"
     ],
-    "pendientes": "Pendiente: el expediente de recepción de sentencias internacionales 3/2023 (cumplimiento de García Rodríguez por el Poder Judicial) no se ha resuelto: el proyecto de Pardo (14-ago-2025) no se votó, se returnó a Ríos González el 2-sep-2025 y el 16-feb-2026 sólo se resolvió un impedimento. El SJF da como pendientes la CC 377/2023 y las CC 135 y 137/2023; el AG 2/2024 sigue sin levantarse. La nueva integración no ha revisado la P./J. 20/2014 en lo publicado hasta el 10-jul-2026 (su P./J. 168/2026, reg. 2032440, distingue la línea de «jueces sin rostro», no la desconoce)."
+    "pendientes": "Pendiente: el expediente de recepción de sentencias internacionales 3/2023 (cumplimiento de García Rodríguez por el Poder Judicial) no se ha resuelto: el proyecto de Pardo (14-ago-2025) no se votó, se returnó a Ríos González el 2-sep-2025 y el 16-feb-2026 sólo se resolvió un impedimento. El SJF da como pendientes la CC 377/2023 y las CC 135 y 137/2023; el AG 2/2024 sigue sin levantarse. La CC 3/2026 del Pleno Regional en Materias Penal y de Trabajo de la Región Centro-Norte (16-abr-2026, dos votos contra uno: la reforma del art. 166, fr. I, LA «no fue sustancial» y la PR.P.T.CN. J/3 P sigue aplicable) no se ha publicado: el 17-abr-2026 la SCJN pidió suspender su publicación con base en el AG 2/2024; sólo consta en prensa. La nueva integración no ha revisado la P./J. 20/2014 en lo publicado hasta el 10-jul-2026 (su P./J. 168/2026, reg. 2032440, distingue la línea de «jueces sin rostro», no la desconoce)."
    },
    "tramos": {
     "t1": {
@@ -10501,7 +10544,7 @@
     "t6": {
      "titulo": "Prisión preventiva oficiosa y arraigo; el estado actual",
      "periodo": "2019-2026 (corte: 25-sep-2026)",
-     "resumen": "El art. 16 constitucional prevé el arraigo para delincuencia organizada y el art. 19, párr. 2, un catálogo de prisión preventiva oficiosa, ampliado el 12-abr-2019 y otra vez el 31-dic-2024. La CIDH (informes de 2013, 2015 y 2017, comunicado de 2019 e informes anuales aprobados en 2025 y 2026) y órganos de la ONU (CAT y Comité de Derechos Humanos en 2019, Grupo de Trabajo sobre la Detención Arbitraria en 2023 y 2024, ONU-DH en 2022 y el Alto Comisionado en 2024) RECOMIENDAN eliminar la prisión preventiva obligatoria y el arraigo; no son sentencias. La Corte IDH ORDENA: en Tzompaxtle Tecpile (7-nov-2022) suprimir el arraigo preprocesal (resolutivo 7) y adecuar la prisión preventiva (resolutivo 8); en García Rodríguez (25-ene-2023) declara el art. 19 per se contrario a la Convención (¶174) y ordena suprimir el arraigo «incluyendo la constitucional» (¶300) y adecuar la prisión preventiva oficiosa «incluyendo sus disposiciones constitucionales» (¶301). Las supervisiones del 26-nov-2024 dejan abiertos, para una resolución posterior, el arraigo y la prisión preventiva en ambos casos, sin declarar cumplimiento ni incumplimiento; el catálogo leído el 25-sep-2026 no registra supervisiones posteriores. En la SCJN, el primer proyecto de la AI 130/2019 (inaplicar la última parte del art. 19) se retiró el 8-sep-2022; el 24-nov-2022 el Pleno sólo invalidó la prisión preventiva oficiosa que la ley extendió a delitos fiscales, porque el catálogo del art. 19 es cerrado, y la interpretación conforme no tuvo mayoría. Los tribunales se dividieron: unos aplican el test de García Rodríguez por interpretación conforme (IX.P. J/2 P, 2023) o declaran inconvencional el art. 167 del CNPP (X.P. J/1 P); otros niegan que un juez pueda inaplicarla (XX.1o.P.C.4 P, con las P./J. 20/2014 y 64/2014), y un Pleno Regional niega la suspensión restitutoria (PR.P.CS. J/16 P) mientras otro la concede (PR.P.CN. J/13 P). El Acuerdo General 2/2024 (1-jul-2024) aplazó las contradicciones de Plenos Regionales y los amparos en revisión sobre la convencionalidad de la prisión preventiva oficiosa hasta que la SCJN fije criterio; ningún acuerdo lo levanta hasta el AG 10/2026-LAG (9-sep-2026). La reforma del 31-dic-2024 amplió el catálogo y ordenó a los órganos del Estado atenerse a su «literalidad»; dos Plenos Regionales dijeron en 2025 que sus criterios sobre la suspensión siguen aplicando (PR.P.T.CN. J/31 P, que lee la literalidad como mandato al Ministerio Público y al juez de control, y J/33 P). La reforma del 16-oct-2025 al art. 166, fr. I, de la Ley de Amparo limita la suspensión a los efectos de esa fracción, y un colegiado declaró inaplicables las jurisprudencias regionales que la ampliaban (XXX.4o.1 P, 2026); no se localizó criterio de Pleno Regional ni de la SCJN que la interprete. Dos proyectos no votados proponían otra salida: el AR 186/2024 (interpretación conforme; admite que la reforma impide inaplicar, ¶272, pero no interpretar conforme, ¶329; quedó en lista el 13-ago-2025 por desistimiento) y el de Pardo en el expediente de recepción 3/2023 (inaplicar la prisión preventiva oficiosa y el arraigo). Ese expediente sigue pendiente: el 2-sep-2025 se returnó a la ministra Ríos González y el 16-feb-2026 el Pleno resolvió un impedimento sin decidir el fondo. La nueva integración, que funciona sólo en Pleno desde el 1-sep-2025, no ha revisado la P./J. 20/2014 en lo publicado hasta el 10-jul-2026; su P./J. 168/2026 distingue la línea de «jueces sin rostro», no la desconoce. El arraigo y la prisión preventiva oficiosa NO se eliminaron: siguen en los arts. 16 y 19 vigentes; el arraigo local es inconstitucional (P./J. 31/2014, 1a./J. 4/2015).",
+     "resumen": "El art. 16 constitucional prevé el arraigo para delincuencia organizada y el art. 19, párr. 2, un catálogo de prisión preventiva oficiosa, ampliado el 12-abr-2019 y otra vez el 31-dic-2024. La CIDH (informes de 2013, 2015 y 2017, comunicado de 2019 e informes anuales aprobados en 2025 y 2026) y órganos de la ONU (CAT y Comité de Derechos Humanos en 2019, Grupo de Trabajo sobre la Detención Arbitraria en 2023 y 2024, ONU-DH en 2022 y el Alto Comisionado en 2024) RECOMIENDAN eliminar la prisión preventiva obligatoria y el arraigo; no son sentencias. La Corte IDH ORDENA: en Tzompaxtle Tecpile (7-nov-2022) suprimir el arraigo preprocesal (resolutivo 7) y adecuar la prisión preventiva (resolutivo 8); en García Rodríguez (25-ene-2023) declara el art. 19 per se contrario a la Convención (¶174) y ordena suprimir el arraigo «incluyendo la constitucional» (¶300) y adecuar la prisión preventiva oficiosa «incluyendo sus disposiciones constitucionales» (¶301). Las supervisiones del 26-nov-2024 dejan abiertos, para una resolución posterior, el arraigo y la prisión preventiva en ambos casos, sin declarar cumplimiento ni incumplimiento; el catálogo leído el 25-sep-2026 no registra supervisiones posteriores. En la SCJN, el primer proyecto de la AI 130/2019 (inaplicar la última parte del art. 19) se retiró el 8-sep-2022; el 24-nov-2022 el Pleno sólo invalidó la prisión preventiva oficiosa que la ley extendió a delitos fiscales, porque el catálogo del art. 19 es cerrado, y la interpretación conforme no tuvo mayoría. Los tribunales se dividieron: unos aplican el test de García Rodríguez por interpretación conforme (IX.P. J/2 P, 2023) o declaran inconvencional el art. 167 del CNPP (X.P. J/1 P); otros niegan que un juez pueda inaplicarla (XX.1o.P.C.4 P, con las P./J. 20/2014 y 64/2014), y el Pleno Regional en Materia Penal de la Región Centro-Sur niega la suspensión restitutoria (PR.P.CS. J/16 P) mientras el de la Región Centro-Norte la concede (PR.P.CN. J/13 P); cada uno obliga sólo en su región. El Acuerdo General 2/2024 (1-jul-2024) aplazó las contradicciones de Plenos Regionales y los amparos en revisión sobre la convencionalidad de la prisión preventiva oficiosa hasta que la SCJN fije criterio; ningún acuerdo lo levanta hasta el AG 10/2026-LAG (9-sep-2026). La reforma del 31-dic-2024 amplió el catálogo y ordenó a los órganos del Estado atenerse a su «literalidad»; el Pleno Regional en Materias Penal y de Trabajo de la Región Centro-Norte dijo en dos contradicciones de 2025 (CC 20/2025 y CC 19/2025) que sus criterios sobre la suspensión siguen aplicando (PR.P.T.CN. J/31 P, que lee la literalidad como mandato al Ministerio Público y al juez de control, y J/33 P); en la Región Centro-Sur rige la PR.P.CS. J/16 P. La reforma del 16-oct-2025 al art. 166, fr. I, de la Ley de Amparo limita la suspensión a los efectos de esa fracción, y un colegiado declaró inaplicables las jurisprudencias regionales que la ampliaban (XXX.4o.1 P, 2026); el Pleno Regional Centro-Norte sostuvo lo contrario en la CC 3/2026 (16-abr-2026: la reforma «no fue sustancial» y la J/3 P sigue aplicable), pero al día siguiente la SCJN pidió suspender su publicación con base en el AG 2/2024 (consta sólo en prensa). Dos proyectos no votados proponían otra salida: el AR 186/2024 (interpretación conforme; admite que la reforma impide inaplicar, ¶272, pero no interpretar conforme, ¶329; quedó en lista el 13-ago-2025 por desistimiento) y el de Pardo en el expediente de recepción 3/2023 (inaplicar la prisión preventiva oficiosa y el arraigo). Ese expediente sigue pendiente: el 2-sep-2025 se returnó a la ministra Ríos González y el 16-feb-2026 el Pleno resolvió un impedimento sin decidir el fondo. La nueva integración, que funciona sólo en Pleno desde el 1-sep-2025, no ha revisado la P./J. 20/2014 en lo publicado hasta el 10-jul-2026; su P./J. 168/2026 distingue la línea de «jueces sin rostro», no la desconoce. El arraigo y la prisión preventiva oficiosa NO se eliminaron: siguen en los arts. 16 y 19 vigentes; el arraigo local es inconstitucional (P./J. 31/2014, 1a./J. 4/2015).",
      "frases": 13,
      "ids": [
       "DOCTRINA-0d6c255c-d54e-5452-b8aa-ecd236bde7ed",
@@ -10542,6 +10585,7 @@
       "SCJN-2027894",
       "SCJN-2028043",
       "SCJN-2028716",
+      "SCJN-2030517",
       "C-527|s|286",
       "C-527|v:mudrovitsch+ferrer-mac-gregor-poisot|30",
       "C-527|v:sierra-porto|9",
@@ -10556,7 +10600,6 @@
       "CIDH-IA2024-capV-mexico",
       "SCJN-2030441",
       "SCJN-2030398",
-      "SCJN-2030517",
       "A-32|s|560",
       "A-31|s|37",
       "SCJN-2030607",
@@ -10572,7 +10615,8 @@
       "DOF-2025-11-28-extorsion-cnpp167",
       "SCJN-2032440",
       "SCJN-impedimento-60-2025",
-      "CIDH-IA2025-parr723"
+      "CIDH-IA2025-parr723",
+      "PR-PTCN-CC-3-2026"
      ]
     }
    },

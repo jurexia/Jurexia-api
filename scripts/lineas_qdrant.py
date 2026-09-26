@@ -34,7 +34,9 @@ ids que `linea_coidh.seleccionar` entiende sin otra consulta.
 EL ID Y LO QUE NUNCA HACE
 -------------------------
 id = uuid5(NAMESPACE_URL, "iurexia-lineas|{linea}|{tipo_ficha}|{id}"):
-determinista, reescribir sobrescribe y no duplica. Nunca toca otra colección
+determinista, reescribir sobrescribe y no duplica; y BORRA de `lineas_p1` lo
+que ya no está en el JSON (una entrada quitada o renombrada seguía abriendo la
+línea por la sonda; 26-sep-2026). Nunca toca otra colección
 que `lineas_p1` (alias `lineas`); `--revertir` borra sólo el alias (si apunta
 a `lineas_p1`) y esa colección. En seco no abre una sola conexión ni paga un
 embedding: arma los puntos, cuenta los tokens con tiktoken (cl100k_base, el de
@@ -210,8 +212,10 @@ def _env(ruta: Path) -> Dict[str, str]:
 
 def escribir(env_ruta: Path, ruta: Path = RUTA_LINEAS) -> int:
     """Crea `lineas_p1` (vectores, payload y HNSW en disco, como `coidh`) con sus
-    índices, embebe, sube y crea el alias `lineas`. Si el alias ya apunta a
-    otra colección, no lo mueve (azul-verde es manual)."""
+    índices, embebe, sube, borra los huérfanos y crea el alias `lineas`. Si el
+    alias ya apunta a otra colección, no lo mueve (azul-verde es manual).
+    Devuelve 1 si al final la colección no tiene exactamente los puntos del
+    JSON."""
     from openai import OpenAI
     from qdrant_client import QdrantClient, models
 
@@ -239,6 +243,19 @@ def escribir(env_ruta: Path, ruta: Path = RUTA_LINEAS) -> int:
         for j in range(0, len(est), LOTE_UPSERT):
             q.upsert(COLECCION, points=est[j:j + LOTE_UPSERT], wait=True)
             time.sleep(PAUSA)
+    # LOS HUÉRFANOS (revisión adversarial, 26-sep-2026): el upsert sólo pisa
+    # los ids que siguen en el JSON. Una entrada quitada o renombrada (p. ej.
+    # por mal verificada) se quedaba en `lineas_p1` y la sonda la devolvía: la
+    # línea se abría (~6 mil tokens) por algo que ya no existe y, si su registro
+    # seguía en recepcion_mx, lo forzaba a entrar. La colección es sólo de este
+    # guion: se borra todo lo que no sea un punto de esta corrida.
+    vivos = [p["id"] for p in puntos]
+    antes = q.count(COLECCION, exact=True).count
+    q.delete(COLECCION, points_selector=models.FilterSelector(filter=models.Filter(
+        must_not=[models.HasIdCondition(has_id=vivos)])), wait=True)
+    n = q.count(COLECCION, exact=True).count
+    if antes > n:
+        print(f"{antes - n} puntos huérfanos borrados (ya no están en {ruta.name})")
     alias = {a.alias_name: a.collection_name for a in q.get_aliases().aliases}
     if ALIAS not in alias:
         q.update_collection_aliases(change_aliases_operations=[
@@ -248,6 +265,10 @@ def escribir(env_ruta: Path, ruta: Path = RUTA_LINEAS) -> int:
         print(f"AVISO: el alias {ALIAS} apunta a {alias[ALIAS]}; no se mueve")
     n = q.count(COLECCION, exact=True).count
     print(f"{len(puntos)} puntos subidos; en Qdrant {n}; tokens {gastados:,} ≈ {gastados * PRECIO_MTOK / 1e6:.6f} USD")
+    if n != len(puntos):
+        print(f"AVISO: el conteo no cuadra ({n} en {COLECCION} frente a {len(puntos)} del JSON): revisa antes de "
+              "darla por buena")
+        return 1
     return 0
 
 
