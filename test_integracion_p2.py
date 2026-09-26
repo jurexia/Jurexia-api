@@ -860,6 +860,59 @@ ok(_out_rc["estado"] == "fallo" and len(_av_sc) == 1 and P2g[:60] in _av_sc[0]
    "la pantalla: nombra los planteamientos y qué hacer, sin decir que no se generó un proyecto")
 ok(rc.aviso_sin_calificar([P2g], "infundado").startswith("NO SE GENERÓ EL PROYECTO."),
    "…y los gemelos, que sí se negaron a generar, lo siguen diciendo")
+
+
+print("\n15 · COMPROBACIÓN: «LO FUNDADO NO ALCANZA» ENTRA EN LA CLAVE, Y UNA «LISTO» QUE NO SIRVE "
+      "NO SE REINTENTA EN BUCLE")
+# El principal pasa a FUNDADO contra el motor y el accesorio es de tema propio:
+# se tumba con «alcanza» y sin él, con los MISMOS tumbados. Hecha cuando
+# alcanzaba, la recalificación podía decir «innecesario»; con una propuesta
+# nueva que dice que no alcanza, esa misma clave se reutilizaba, la defensa del
+# árbol la rechazaba y el tumbado quedaba sin calificar para siempre.
+F3n = [{"pregunta": C1, "jerarquia": "principal", "combate": "la cesión liberó"},
+       {"pregunta": C3, "jerarquia": "accesorio", "combate": "omitió la excepción"}]
+CJn = [{"problema": C1, "sentido": "fundado", "razonamiento": "la cesión se notificó", "jerarquia": "principal",
+        "tocado": True},
+       {"problema": C3, "sentido": "infundado", "razonamiento": "r", "jerarquia": "accesorio"}]
+
+
+def _props_n(alc):
+    return [_prop(C1, "infundado", alcanza=alc), _prop(C3, "infundado")]
+
+
+_, _d_si = ad.aplicar(copy.deepcopy(F3n), copy.deepcopy(CJn), [], _props_n(True), sentido_motor="infundado",
+                      tipo_asunto="amparo_directo", huella_adelanto="H")
+_, _d_no = ad.aplicar(copy.deepcopy(F3n), copy.deepcopy(CJn), [], _props_n(False), sentido_motor="infundado",
+                      tipo_asunto="amparo_directo", huella_adelanto="H")
+ok(rc.pendientes(_d_si) == [C3] and rc.pendientes(_d_no) == [C3]
+   and rc.clave_de(_d_si) == rc.clave(C1, "fundado", "la cesión se notificó", [C3], "H", "amparo_directo")
+   and rc.clave_de(_d_no) != rc.clave_de(_d_si) and rc.premisa_de(_d_no) != rc.premisa_de(_d_si),
+   "mismos tumbados: con «no alcanza» la clave y la premisa cambian (y con «alcanza», como siempre)")
+_cas_si = {rc.clave_de(_d_si): {"estado": "listo", "premisa": rc.premisa_de(_d_si), "hecho": 1.0,
+                                "resultados": {C3: {"sentido": "innecesario", "razon": "sin materia por la premisa",
+                                                    "presupone": None, "verificado": False}}}}
+ok(rc.casilla_de(_cas_si, rc.clave_de(_d_no), rc.premisa_de(_d_no), rc.pendientes(_d_no)) is None,
+   "la recalificación hecha cuando alcanzaba no se reutiliza cuando ya no alcanza")
+# Defensa en la puerta: una «listo» de la MISMA clave que, aplicada, deja
+# pendientes no se ofrece como «vuelve a generar» (se reutilizaría igual).
+_ses_n = {"propuestas": [types.SimpleNamespace(**p) for p in _props_n(False)], "material": None}
+_glob_n = {"sentido": "infundado", "alcanza": False, "checklist": []}
+_form_n = dict(criterios_json=json.dumps(CJn, ensure_ascii=False))
+_r_n = resultado(F3n)
+_arm_n = NS["_taller_armar_criterio"](_r_n, _ses_n, _glob_n, **_form_n)
+_k_n = rc.clave_de(_arm_n["detalle"])
+_doc_n = {"huella": _arm_n["huella"], "recalificaciones_corridas": 1,
+          "recalificaciones": {_k_n: {"estado": "listo", "premisa": rc.premisa_de(_arm_n["detalle"]), "hecho": 1.0,
+                                      "resultados": {C3: {"sentido": "innecesario", "razon": "sin materia",
+                                                          "presupone": None, "verificado": False}}}}}
+_ns_n = entorno()
+_ns_n["_taller_plan_leer"] = lambda e, n: copy.deepcopy(_doc_n)
+_out_n = asyncio.run(_ns_n["_taller_recalificar_para"]("x@y.mx", "1/2026", _r_n, _ses_n, _glob_n, _form_n,
+                                                       _arm_n))
+_msg_n = _ns_n["_taller_recalificado_al_resolver"](_r_n, _arm_n, _out_n, list(_arm_n["crit"]))
+ok(rc.pendientes(_out_n["arm"]["detalle"]) and _out_n["motivo"] == "fallo" and _out_n["reintentable"] is False
+   and _msg_n and "vuelve a generar" not in _msg_n and "Califícalos tú en la pantalla" in _msg_n,
+   "una «listo» que no califica a todos: «califícalos tú», sin el «vuelve a generar» que no reintentaría")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)

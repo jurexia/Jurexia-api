@@ -33531,6 +33531,13 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
             print(f"   ⚠️ RECALIFICAR {numero}: no se pudo volver a armar el criterio: {err(ex)}")
             nuevo = arm
     _pend = _rc.pendientes(nuevo.get("detalle") or {})
+    if _pend and isinstance(salida, dict) and salida.get("estado") == "listo" \
+            and motivo not in ("tope",):
+        # UNA «LISTO» QUE, APLICADA, DEJA PENDIENTES (la defensa del árbol
+        # rechazó alguna) no se recalcula: volver a generar reutilizaría la
+        # misma. No se le dice que vuelva a generar (comprobación de la
+        # revisión adversarial, 26-sep-2026).
+        motivo = "fallo"
     if _pend and estado == "listo":
         estado = "fallo"
     # ¿VOLVER A GENERAR LO REINTENTA? Sí, si la corrida sigue en marcha o

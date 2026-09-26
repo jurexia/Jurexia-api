@@ -993,11 +993,21 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     if _recal:
         _rc = _recalificar_mod()
         if _rc is not None:
+            # «LO FUNDADO NO ALCANZA» TAMBIÉN ES PREMISA DE LA RECALIFICACIÓN
+            # (comprobación de la revisión adversarial, 26-sep-2026): quita
+            # «innecesario» del catálogo (`se_estudia`). Sin esto, una
+            # recalificación hecha cuando la propuesta decía que alcanzaba
+            # tenía la MISMA clave cuando una propuesta nueva dice que no: se
+            # reutilizaba, la defensa de `_tumbar_y_aplicar` la rechazaba y el
+            # tumbado quedaba sin calificar para siempre —volver a generar
+            # reutilizaba la misma—. «Mayor beneficio» no hace falta: sale del
+            # texto del planteamiento, que ya está en la clave.
+            _hp_rc = str(huella_premisa or "") + ("·no_alcanza" if (pros and not alcanza) else "")
             _aplicadas, _faltan = _tumbar_y_aplicar(
                 _rc, criterios, _recal, _cand, detalle, principal, p_txt, p_sent, pros,
                 recalificadas, huella_adelanto, tipo_asunto,
                 {t: r for t, r in _razon_suya.items() if t in _recal},
-                huella_premisa)
+                _hp_rc)
             if _faltan:
                 avisos.append(
                     f"SE RECALIFICAN CON TU PREMISA {len(_faltan)} planteamiento(s): con el "
