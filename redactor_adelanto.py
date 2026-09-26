@@ -159,6 +159,14 @@ class Encargo:
     # formulario. Vacío = no decidió nada y el estudio se comporta como antes.
     # Ver `suplencia.py`.
     suplencia: dict = field(default_factory=dict)
+    # EL PLAN DEL ESTUDIO Y SU GUION (v4, Paso 2, 26-sep-2026). Los fija en
+    # CADA petición `main._taller_plan_para` —vacíos si la variante no es la
+    # v4 o si el plan no llegó—, por la misma razón que la forma: el encargo
+    # vive en la memoria del worker y un plan de la vuelta anterior no puede
+    # colarse en ésta. El guion llega al prompt como argumento de
+    # `prompt_estudio`; el plan, a la ficha (pestaña «Mapa del estudio»).
+    plan: dict = field(default_factory=dict)
+    guion: str = ""
 
 
 @dataclass
@@ -1190,7 +1198,10 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # moría en el adelanto: la fase que CONTESTA los conceptos recibía
             # el resumen —unas 472 palabras— y CERO caracteres del escrito.
             escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1],
-            meta=_meta)
+            meta=_meta,
+            # EL GUION DEL PLAN (v4): lo puso `main._taller_plan_para` en el
+            # encargo de ESTA petición; vacío fuera de la v4.
+            guion=str(getattr(e, "guion", "") or ""))
     # LOS EFECTOS DE UNA VIOLACIÓN PROCESAL SE ORDENAN PASO A PASO (v5 del
     # 93/2026: «dicte otra» sobre una reposición). Se comprueba aquí porque
     # aquí se sabe si la hay.
@@ -1355,7 +1366,9 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             # recurso o de la demanda tal como se leyó del PDF. Hasta ahora
             # moría en el adelanto: la fase que CONTESTA los conceptos recibía
             # el resumen —unas 472 palabras— y CERO caracteres del escrito.
-            escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]):
+            escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1],
+            # EL GUION DEL PLAN (v4), igual que el gemelo `resolver`.
+            guion=str(getattr(e, "guion", "") or "")):
         if paso.get("tipo") == "texto":
             yield paso
         else:
