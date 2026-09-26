@@ -118,6 +118,13 @@ p = sp.proponer("civil", "amparo_directo",
                 "Se discute la guarda y custodia y la pensión alimenticia de mis hijos.", "",
                 quejoso="Laura Soto")
 ok(p["fraccion"] == "II", "civil con custodia y alimentos → II (el formulario no ofrece «familiar»)")
+# LA II ES EN FAVOR DEL MENOR O DE LA FAMILIA, no de quien promueve (revisión,
+# 26-sep-2026: en el ADC 640/2024 promovía el presunto padre).
+ok(p["a_favor_de"] == sp.A_FAVOR_II and "Laura Soto" in p["parte"],
+   "la II: a favor del menor o de la familia; la parte que promueve queda aparte")
+ok([f["a_favor_de"] for f in p["fracciones"] if f["a_favor_de"]] == [sp.A_FAVOR_II]
+   and next(f for f in p["fracciones"] if f["id"] == "II")["a_favor_de"] == sp.A_FAVOR_II,
+   "el catálogo le dice a la pantalla el beneficiario de la II, y sólo de ella")
 p = sp.proponer("civil", "amparo_directo",
                 "Tesis: las acciones del estado civil (matrimonio, divorcio, filiación, "
                 "tutela, adopción) y los menores de edad.", "", quejoso="Esteban Guzmán")
@@ -151,6 +158,23 @@ p = sp.proponer("laboral", "amparo_directo", "Soy trabajadora en pobreza.", "",
                 quejoso="Eva Cruz", actor_origen="Eva Cruz")
 ok(p["fraccion"] == "V" and any(a["fraccion"] == "VII" for a in p["alternativas"]),
    "con la V ya propuesta, la VII queda como alternativa")
+# LA LEY TRANSCRITA NO ES LA PARTE HABLANDO DE SÍ (revisión, 26-sep-2026).
+p = sp.proponer("civil", "amparo_directo",
+                "SUPLENCIA. Solicito se supla la queja conforme al artículo 79 de la Ley de "
+                "Amparo, que dice: VII. En cualquier materia, en favor de quienes por sus "
+                "condiciones de pobreza o marginación se encuentren en clara desventaja "
+                "social para su defensa en el juicio.", "", quejoso="Tomás Luna")
+ok(p["fraccion"] == sp.NINGUNA and not any(a["fraccion"] == "VII" for a in p["alternativas"]),
+   "el artículo 79 transcrito no es la parte afirmando su pobreza")
+p = sp.proponer("administrativa", "amparo_directo",
+                "Sentencia del Tribunal Unitario Agrario; Ley Agraria. El artículo 27 dispone "
+                "que la ley protegerá la integridad de las tierras de los grupos indígenas y "
+                "apoyará la asesoría legal de los campesinos.", "", quejoso="Rosa Rangel")
+ok(p["fraccion"] == "IV-b" and not any(a["fraccion"] == "VII" for a in p["alternativas"]),
+   "el artículo 27 transcrito («campesinos», «indígenas») no es un indicio de la VII")
+p = sp.proponer("laboral", "amparo_directo", "Demanda.", "")
+ok(p["fraccion"] == "V" and "persona física" not in p["porque"],
+   "sin el nombre de quien promueve, el porqué no afirma nada de él")
 
 print("\n3-ter · LO QUE LA PARTE PIDE Y DÓNDE NO HAY SUPLENCIA")
 p = sp.proponer("civil", "amparo_directo",
@@ -167,6 +191,8 @@ p = sp.proponer("administrativa", "revision_fiscal", "pensión del ISSSTE", "",
                 quejoso="Titular de la Unidad Jurídica del ISSSTE")
 ok(p["fraccion"] == sp.NINGUNA and "juicio de amparo" in p["porque"],
    "revisión fiscal → sin suplencia: no es juicio de amparo")
+ok([f["id"] for f in p["fracciones"]] == [sp.NINGUNA],
+   "y la pantalla no ofrece fracciones que elegir en una revisión fiscal")
 p = sp.proponer("laboral", "amparo_revision", "", "", quejoso="Ana Pérez",
                 recurrente="Director General del Instituto de Salud")
 ok(p["fraccion"] == "V" and p["a_favor_de"].startswith("la parte quejosa")
@@ -209,11 +235,44 @@ ok("171" not in b3, "la víctima (III b) no está en el 171: no se le promete la
 b6 = sp.bloque({"fraccion": "VI", "a_favor_de": "x", "confirmada": True}, "amparo_directo")
 ok("NO ES ABSOLUTA" in b6 and "violación evidente" in b6 and "derive un beneficio" not in b6,
    "la VI: sólo ante violación evidente, sin la regla de expresión de las otras")
+b2 = sp.bloque({"fraccion": "II", "a_favor_de": "la parte quejosa (el presunto padre)",
+                "confirmada": True}, "amparo_directo")
+ok(sp.A_FAVOR_II in b2 and "presunto padre" not in b2
+   and "NINGUNA INOPERANCIA DE FORMA EN LO QUE TOQUE A SUS DERECHOS" in b2
+   and "persona adulta" in b2 and "«" not in b2,
+   "la II: en favor del menor o de la familia aunque el formulario diga otra cosa")
+ok("estado civil" in b2 and "171" in b2,
+   "y la exención del 171 por la materia del acto, no por quien promueve")
+ok(sp.bloque(dict(S_V), "revision_fiscal") == "",
+   "revisión fiscal: ningún bloque aunque llegue confirmada (no es juicio de amparo)")
 bq = sp.bloque(dict(S_V), "queja")
 ok("agravios" in bq and "171" not in bq, "en un recurso: «agravios» y sin el 171 del amparo directo")
 ok(sp.bloque({"fraccion": "V", "confirmada": False}) == ""
    and sp.bloque({"fraccion": "ninguna", "confirmada": True}) == "" and sp.bloque({}) == "",
    "sin confirmar, «sin suplencia» o nada → ningún bloque")
+
+print("\n5-bis · LA REVISIÓN NO REPROCHA LA INOPERANCIA QUE LA SUPLENCIA PROHIBIÓ")
+_EST = "Suplido el planteamiento, se estudia en el fondo y resulta infundado. " * 40
+
+
+def _aviso_sentido(materia, supl, tipo="amparo_directo"):
+    m = f6.Material(tipo_asunto=tipo, materia=materia)
+    m.suplencia = supl
+    return [a for a in f6.revisar(_EST, INO, m) if a.startswith("El criterio pedía")]
+
+
+_a = _aviso_sentido("civil", dict(S_V, fraccion="II"))
+ok(len(_a) == 1 and "confirmó en la pantalla" in _a[0] and "CORRECTO" in _a[0],
+   "civil con la II confirmada: el aviso admite que no escribirla puede ser lo correcto")
+_a = _aviso_sentido("civil", {})
+ok(len(_a) == 1 and _a[0].endswith("no aparece en el estudio."),
+   "civil sin suplencia confirmada: el aviso de siempre")
+_a = _aviso_sentido("laboral", {})
+ok(len(_a) == 1 and "materia laboral" in _a[0] and "CORRECTO" in _a[0],
+   "laboral: la salvedad que el [:7] impedía dar ya se da")
+_a = _aviso_sentido("laboral", dict(S_V), tipo="revision_fiscal")
+ok(len(_a) == 1 and _a[0].endswith("no aparece en el estudio."),
+   "revisión fiscal: sin salvedad de suplencia, aunque la materia sea laboral")
 
 print("\n6 · EL CAMINO: FORMULARIO → ENCARGO → MATERIAL → PROMPT")
 import fases123_pipeline as f123
@@ -272,7 +331,7 @@ BANCO = "/Users/josedavidalcantarmendoza/Documents/IUREXIA-MAC/redactor-sentenci
 if not os.path.isdir(BANCO):
     print("   (el corpus no está en este disco: se salta)")
 else:
-    vistos, props = set(), {}
+    vistos, props, con_vii = set(), {}, set()
     for fp in sorted(glob.glob(BANCO + "*.json")):
         if os.path.basename(fp).startswith("_"):
             continue
@@ -285,9 +344,12 @@ else:
         dem = (pz.get("demanda") or {}).get("texto", "") or ""
         eng = (pz.get("engrose") or {}).get("texto", "") or d.get("oro", "")
         q = re.search(r"QUEJOS[OA]S?:\s*(.+)", eng)
-        props[asunto] = sp.proponer(
+        _p = sp.proponer(
             "administrativa" if asunto.startswith("ADA") else "civil", "amparo_directo",
-            dem, "", quejoso=q.group(1).strip().rstrip(".") if q else "")["fraccion"]
+            dem, "", quejoso=q.group(1).strip().rstrip(".") if q else "")
+        props[asunto] = _p["fraccion"]
+        if _p["fraccion"] == "VII" or any(a["fraccion"] == "VII" for a in _p["alternativas"]):
+            con_vii.add(asunto)
     AGRARIOS = {"ADA 103-2025", "ADA 263-2025 AGRARIO", "ADA 448-2025",
                 "ADA 704-2022 AGRARIO PRESCRIPCIÓN", "ADA 767-2025"}
     FAMILIA = {"ADC 282-2025", "ADC 284-2026 (llego por incompetencia de juzgado)",
@@ -303,6 +365,15 @@ else:
     malos = {a: f for a, f in resto.items() if f != sp.NINGUNA}
     ok(not malos, f"los otros {len(resto)} (civiles, mercantiles, fiscales, empresas) → sin "
                   f"suplencia; propuestas de más: {malos or 'ninguna'}")
+    # LA VII A LA VISTA SÓLO DONDE LA PARTE HABLA DE SÍ (revisión, 26-sep-2026):
+    # el 642/2024 («el suscrito quejoso no sabe leer», «la clase campesina») y
+    # el 120/2026 («soy campesino»). En los tres agrarios los «indicios» eran
+    # el artículo 27 constitucional transcrito.
+    VII_ESPERADOS = {unicodedata.normalize("NFC", a) for a in
+                     ("ADC 642-2024 ORD CIVIL SOBRE REIVINDICACIÓN", "ADC 120-2026")}
+    ok(con_vii == VII_ESPERADOS,
+       f"la VII (propuesta o alternativa) sólo donde la parte habla de su condición: "
+       f"{sorted(con_vii)}")
     print(f"   {len(props)} asuntos: {sum(1 for f in props.values() if f != sp.NINGUNA)} con "
           f"propuesta, {sum(1 for f in props.values() if f == sp.NINGUNA)} sin suplencia")
 

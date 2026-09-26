@@ -113,6 +113,23 @@ def rotulo(fraccion: str) -> str:
     return f"fracción {f}"
 
 
+# LA II NO FAVORECE A QUIEN PROMUEVE SINO AL MENOR O A LA FAMILIA (revisión,
+# 26-sep-2026). Dice «en favor de las personas menores de edad o incapaces, o
+# en aquellos casos en que se afecte el orden y desarrollo de la familia», y
+# opera promueva quien promueva. En el ADC 640/2024 del banco Kingston —un
+# reconocimiento de paternidad— quien promovía era el demandado, y la
+# adherente, la Procuraduría de Protección de Niñas, Niños y Adolescentes: la
+# propuesta decía «a favor de la parte quejosa» y el bloque habría mandado
+# suplir los conceptos del padre contra el interés de la niña.
+A_FAVOR_II = ("las personas menores de edad o incapaces, o el orden y desarrollo "
+              "de la familia, promueva quien promueva")
+
+
+def a_favor_de(fraccion: str, quien: str) -> str:
+    """A favor de quién opera la fracción: la parte que promueve, salvo la II."""
+    return A_FAVOR_II if normalizar_fraccion(fraccion) == "II" else (quien or "")
+
+
 def normalizar_fraccion(x) -> str:
     """Lo que escriba la pantalla o la parte, a la clave del catálogo.
 
@@ -211,6 +228,45 @@ _RX_DESVENTAJA_DICHA = re.compile(
 _RX_INDICIO_VII = re.compile(
     r"ind[íi]gena|comunidad\s+originaria|analfabet|campesin[oa]s?\b|"
     r"no\s+s[ée]\s+(?:leer|escribir)|no\s+sabe\s+(?:leer|escribir)", re.I)
+
+# LA LEY TRANSCRITA NO ES LA PARTE HABLANDO DE SÍ MISMA (revisión, 26-sep-2026).
+# Las demandas transcriben el 79 o el 171 al pedir la suplencia, y las tesis
+# sobre la VII repiten su texto: «quienes por sus condiciones de pobreza o
+# marginación se encuentren en clara desventaja social». Con eso delante, la
+# propuesta decía «quien promueve afirma su condición» de alguien que no dijo
+# nada de sí. Y en los tres amparos agrarios del banco Kingston (ADA 103/2025,
+# 263/2025 y 448/2025) los «indicios» de la VII eran el artículo 27
+# constitucional transcrito —«la asesoría legal de los campesinos», «las
+# tierras de los grupos indígenas»—. Se quita el texto de la ley y se exige que
+# la señal esté en una frase en que la parte habla de sí misma.
+_RX_LEY_VII = re.compile(
+    r"(?:quienes\s+)?por\s+sus\s+condiciones\s+de\s+pobreza\s+o\s+marginaci[óo]n\s+"
+    r"se\s+encuentren\s+en\s+clara\s+desventaja\s+social", re.I)
+_RX_PRIMERA_PERSONA = re.compile(
+    r"\b(?:soy|somos|vivo|vivimos|me|nos|mi|mis|carezco|carecemos|pertenezco|"
+    r"pertenecemos|tengo|tenemos|el\s+suscrito|la\s+suscrita|los\s+suscritos|"
+    r"el\s+quejoso|la\s+quejosa|la\s+parte\s+quejosa|el\s+promovente|la\s+promovente)\b",
+    re.I)
+
+
+def _dicho_de_si(rx, texto: str, tope: int = 3) -> list:
+    """Los hallazgos de `rx` en frases donde la parte habla de sí misma.
+
+    La frase es lo que va del punto anterior al hallazgo, con un tope de 200
+    caracteres hacia atrás: basta para «el suscrito quejoso no sabe leer» o «me
+    encuentro ubicado en la clase campesina» y deja fuera la ley transcrita."""
+    t = _RX_LEY_VII.sub(" ", texto or "")
+    vistos = []
+    for m in rx.finditer(t):
+        ini = max(t.rfind(".", 0, m.start()) + 1, m.start() - 200)
+        if not _RX_PRIMERA_PERSONA.search(t[ini:m.end()]):
+            continue
+        w = _plano(m.group(0)).lower()
+        if w not in vistos:
+            vistos.append(w)
+        if len(vistos) >= tope:
+            break
+    return vistos
 
 # QUIÉN NO ES UNA PERSONA TRABAJADORA. La V favorece a la persona, no al ente
 # que la emplea: en el ADA 400/2024 del banco quien promovía era un consejo
@@ -339,20 +395,26 @@ def proponer(materia: str = "", tipo_asunto: str = "", escrito: str = "",
                 alts.append({"fraccion": f_alt, "rotulo": rotulo(f_alt), "porque": p_alt})
         return {"fraccion": fraccion, "rotulo": rotulo(fraccion),
                 "texto": (_POR_ID.get(fraccion) or {}).get("texto", ""),
-                "a_favor_de": quien if fraccion != NINGUNA else "",
+                "a_favor_de": a_favor_de(fraccion, quien) if fraccion != NINGUNA else "",
                 # LA PARTE QUE PROMUEVE, SIEMPRE: si el motor no propone nada y
                 # el secretario elige una fracción, la pantalla sabe a favor de
-                # quién sin volver a preguntar.
-                "parte": quien,
+                # quién sin volver a preguntar. Es quien promueve y no el
+                # beneficiario de la propuesta: si ésta es la II, su «a favor
+                # de» es el menor, y no puede heredarlo la V que él elija.
+                "parte": a_favor,
                 "porque": porque, "alternativas": alts, "pedida": pedida,
                 "fracciones": catalogo()}
 
     # ── DONDE NO HAY JUICIO DE AMPARO NO HAY ARTÍCULO 79 ─────────────────
     if tipo in _f6._SIN_SUPLENCIA:
-        return _salida(NINGUNA,
-                       "La revisión fiscal no es un juicio de amparo: el artículo 79 "
-                       "obliga a «la autoridad que conozca del juicio de amparo», y "
-                       "quien recurre es la autoridad.")
+        out = _salida(NINGUNA,
+                      "La revisión fiscal no es un juicio de amparo: el artículo 79 "
+                      "obliga a «la autoridad que conozca del juicio de amparo», y "
+                      "quien recurre es la autoridad.")
+        # Y SIN SELECTOR (revisión, 26-sep-2026): la pantalla dejaba elegir la V
+        # en una revisión fiscal, y el bloque del estudio la habría aplicado.
+        out["fracciones"] = [f for f in out["fracciones"] if f["id"] == NINGUNA]
+        return out
 
     fuertes, alternas = [], []
     # ¿QUIEN PROMUEVE ES UNA PERSONA, O UN ENTE? La V y la VII son de personas.
@@ -371,12 +433,17 @@ def proponer(materia: str = "", tipo_asunto: str = "", escrito: str = "",
                                   "empleadora: la fracción V opera sólo en favor de la "
                                   "persona trabajadora."))
         else:
-            quien = ("figura como actora en el juicio de origen"
+            # SIN NOMBRE NO SE AFIRMA NADA DE QUIEN PROMUEVE (revisión,
+            # 26-sep-2026): el porqué decía «es una persona física» de una
+            # parte que la sesión no traía.
+            quien = (" y quien promueve figura como actora en el juicio de origen"
                      if actor_origen and _mismo(nombre, actor_origen)
-                     else "es una persona física")
-            fuertes.append(("V", f"Materia laboral y quien promueve {quien}: la fracción V "
+                     else " y quien promueve es una persona física"
+                     if (nombre or "").strip() else "")
+            fuertes.append(("V", f"Materia laboral{quien}: la fracción V "
                                  f"opera en favor de la persona trabajadora aun sin "
-                                 f"conceptos de violación. Compruébalo en la carátula."))
+                                 f"conceptos de violación. Comprueba en la carátula que "
+                                 f"quien promueve lo sea."))
 
     # ── III · PENAL, POR LOS DOS LADOS ───────────────────────────────────
     if por_materia == "III":
@@ -428,8 +495,8 @@ def proponer(materia: str = "", tipo_asunto: str = "", escrito: str = "",
                                + "): mira si el acto afecta sus derechos."))
 
     # ── VII · POBREZA O MARGINACIÓN, SÓLO SI CONSTA ──────────────────────
-    dicha = _hallazgos(_RX_DESVENTAJA_DICHA, t_parte)
-    otros = [x for x in _hallazgos(_RX_INDICIO_VII, t_parte) if x not in dicha]
+    dicha = _dicho_de_si(_RX_DESVENTAJA_DICHA, t_parte)
+    otros = [x for x in _dicho_de_si(_RX_INDICIO_VII, t_parte) if x not in dicha]
     if dicha and not ente:
         (fuertes if not fuertes else alternas).append(
             ("VII", "Quien promueve afirma su condición (" + ", ".join(f"«{h}»" for h in dicha)
@@ -499,11 +566,17 @@ def proponer_de(r) -> dict:
 
 
 def catalogo() -> list:
-    """Las fracciones para el selector de la pantalla, con su texto vigente."""
-    return ([{"id": f["id"], "rotulo": rotulo(f["id"]), "texto": f["texto"]}
+    """Las fracciones para el selector de la pantalla, con su texto vigente.
+
+    `a_favor_de` sólo va lleno donde el beneficiario lo fija la ley y no quien
+    promueve —la II—: así la pantalla no tiene que saber derecho para rotular
+    la fracción que el secretario elija a mano."""
+    return ([{"id": f["id"], "rotulo": rotulo(f["id"]), "texto": f["texto"],
+              "a_favor_de": a_favor_de(f["id"], "")}
              for f in FRACCIONES]
             + [{"id": NINGUNA, "rotulo": rotulo(NINGUNA),
-                "texto": "No opera ningún supuesto del artículo 79: estricto derecho."}])
+                "texto": "No opera ningún supuesto del artículo 79: estricto derecho.",
+                "a_favor_de": ""}])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -551,12 +624,24 @@ def confirmada(s) -> bool:
 def bloque(s, tipo_asunto: str = "") -> str:
     if not confirmada(s):
         return ""
+    import fase6_estudio as _f6
     import tipos_asunto as _ta
     tipo = _ta.normalizar(tipo_asunto or "") or "amparo_directo"
+    # DONDE NO HAY JUICIO DE AMPARO NO HAY ARTÍCULO 79, aunque llegue confirmada
+    # (revisión, 26-sep-2026): el formulario es texto libre y la revisión
+    # fiscal la recurre la autoridad. Ver `fase6_estudio._SIN_SUPLENCIA`.
+    if tipo in _f6._SIN_SUPLENCIA:
+        return ""
     voc = _ta.vocabulario_de(tipo)
     q = voc.get("combate") or "conceptos de violación"
     fr = _POR_ID[s["fraccion"]]
-    quien = s.get("a_favor_de") or voc.get("parte") or "la parte que promueve"
+    # LA II SE APLICA EN FAVOR DEL MENOR O DE LA FAMILIA, promueva quien
+    # promueva (ver `A_FAVOR_II`): lo que llegue del formulario no lo cambia.
+    es_ii = fr["id"] == "II"
+    quien = a_favor_de(fr["id"], s.get("a_favor_de") or voc.get("parte")
+                       or "la parte que promueve")
+    suyo = "del que dependan sus derechos" if es_ii else "suyo"
+    benef = "a la persona menor de edad o incapaz, o a la familia" if es_ii else "a esa parte"
     L = ["", "═" * 71,
          "SUPLENCIA DE LA QUEJA — LA CONFIRMÓ EL SECRETARIO",
          "═" * 71,
@@ -565,17 +650,23 @@ def bloque(s, tipo_asunto: str = "") -> str:
          f"  {fr['texto']}",
          f"A favor de: {quien}.",
          ""]
-    forma = ["   un planteamiento suyo por cómo está formulado: por genérico o dogmático,",
+    forma = [f"   un planteamiento {suyo} por cómo está formulado: por genérico o dogmático,",
              "   por no combatir la razón toral o todas las consideraciones, por reiterar",
              "   lo dicho en la instancia o por atacar sólo una consideración accesoria.",
              "   Donde el planteamiento sea deficiente, reconstruye lo que la parte",
              "   pretende y ESTÚDIALO EN EL FONDO con lo que consta en autos; la suplencia",
              "   no autoriza a suponer hechos que no obran en el expediente."]
     if fr["sin_conceptos"]:
-        L += ["1. NINGUNA INOPERANCIA DE FORMA A FAVOR DE ESA PARTE. No declares inoperante"]
+        L += ["1. NINGUNA INOPERANCIA DE FORMA " + ("EN LO QUE TOQUE A SUS DERECHOS."
+                                                 if es_ii else "A FAVOR DE ESA PARTE.")
+              + " No declares inoperante"]
         L += forma
+        if es_ii:
+            L += ["   La suplencia opera en SU favor, promueva quien promueva: no sirve para",
+                  "   mejorar la posición de la persona adulta que litiga frente a su",
+                  "   interés; lo que se suple es lo que lo protege."]
         L += [f"   Opera aun ante la ausencia de {q}: si adviertes en el acto un vicio",
-              "   que nadie alegó y que beneficiaría a esa parte, no lo calles. Si cabe",
+              f"   que nadie alegó y que beneficiaría {benef}, no lo calles. Si cabe",
               "   en el sentido dictado, estúdialo; si lo cambiaría, dilo en ADVERTENCIAS",
               "   para que decida el secretario."]
     else:
@@ -590,7 +681,7 @@ def bloque(s, tipo_asunto: str = "") -> str:
         L += forma[1:]
         L += ["   En lo demás, los planteamientos se estudian en sus términos."]
     L += ["",
-          "2. EL SENTIDO SIGUE SIENDO EL DEL SECRETARIO. Si a un problema de esa parte",
+          f"2. EL SENTIDO SIGUE SIENDO EL DEL SECRETARIO. Si a un problema {suyo if es_ii else 'de esa parte'}",
           "   se le dictó una inoperancia, sólo puede descansar en una causa ajena a",
           "   la formulación del argumento —cosa juzgada, argumento novedoso, falsa",
           "   premisa—. Si la única causa posible es la deficiencia del planteamiento,",
@@ -599,23 +690,32 @@ def bloque(s, tipo_asunto: str = "") -> str:
           "   prosperaría, dilo también ahí."]
     n = 3
     if fr["exime_171"] and tipo == "amparo_directo":
-        L += ["",
-              f"{n}. NO SE LE EXIGE HABER PREPARADO LA VIOLACIÓN PROCESAL. El artículo 171,",
-              "   segundo párrafo, de la Ley de Amparo exime de ese requisito a este",
-              "   sujeto: no declares inoperante una violación procesal suya por no",
-              "   haberla impugnado durante el juicio. Sigue haciendo falta que",
-              "   trascienda al resultado del fallo."]
+        if es_ii:
+            L += ["",
+                  f"{n}. NO SE EXIGE HABER PREPARADO LA VIOLACIÓN PROCESAL. El artículo 171,",
+                  "   segundo párrafo, de la Ley de Amparo exime de ese requisito los amparos",
+                  "   contra actos que afecten derechos de menores de edad o incapaces, el",
+                  "   estado civil o el orden o estabilidad de la familia: no declares",
+                  "   inoperante por no haberla impugnado durante el juicio una violación",
+                  "   procesal que los afecte. Sigue haciendo falta que trascienda al",
+                  "   resultado del fallo."]
+        else:
+            L += ["",
+                  f"{n}. NO SE LE EXIGE HABER PREPARADO LA VIOLACIÓN PROCESAL. El artículo 171,",
+                  "   segundo párrafo, de la Ley de Amparo exime de ese requisito a este",
+                  "   sujeto: no declares inoperante una violación procesal suya por no",
+                  "   haberla impugnado durante el juicio. Sigue haciendo falta que",
+                  "   trascienda al resultado del fallo."]
         n += 1
     if fr["sin_conceptos"]:
         L += ["",
               f"{n}. CUÁNDO SE ESCRIBE LA PALABRA SUPLENCIA. El artículo 79, en el párrafo",
               "   que sigue a la fracción VII, manda que la suplencia sólo se exprese en",
-              "   la sentencia cuando de ella derive un beneficio para esa parte. Si",
-              "   suplir no cambia el resultado, no la anuncies ni la invoques: contesta",
-              "   lo que la parte pretende y sigue. Si deriva un beneficio, dilo en el",
-              "   punto donde se suple y explica qué se suplió. Esta regla gobierna",
-              "   sobre cualquier otra instrucción de este encargo que mande anunciar",
-              "   la suplencia."]
+              "   la sentencia cuando de ella derive un beneficio. Si suplir no cambia",
+              "   el resultado, no la anuncies ni la invoques: contesta lo que la parte",
+              "   pretende y sigue. Si deriva un beneficio, dilo en el punto donde se",
+              "   suple y explica qué se suplió. Esta regla gobierna sobre cualquier",
+              "   otra instrucción de este encargo que mande anunciar la suplencia."]
     else:
         L += ["",
               f"{n}. CUÁNDO SE ESCRIBE. Si adviertes la violación evidente, exprésala y",

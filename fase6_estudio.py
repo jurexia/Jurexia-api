@@ -2869,14 +2869,35 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     #    Entre las dos dejaban al modelo sin salida buena, y eligió obedecer a
     #    la que iba rotulada innegociable.
     _mat = str(getattr(material, "materia", "") or "").strip().lower()
+    # LA SUPLENCIA QUE EL SECRETARIO CONFIRMÓ TAMBIÉN CUENTA (revisión,
+    # 26-sep-2026). El bloque de suplencia le prohíbe al estudio la inoperancia
+    # de forma a favor de esa parte; si aquí sólo valiera la materia, una II
+    # confirmada en un asunto civil de alimentos, o una IV en un agrario que
+    # llega como administrativo, recibía el reproche seco de no haber escrito la
+    # inoperancia que el propio encargo le prohibió.
+    try:
+        import suplencia as _sp_rv
+        _supl_conf = _sp_rv.confirmada(getattr(material, "suplencia", None) or {})
+    except Exception:
+        _supl_conf = False
     for c in criterios:
         raiz = c.sentido[:7].lower()
         if not raiz or raiz in estudio.lower():
             continue
-        if raiz.startswith("inoperan") and _mat in _SUPLENCIA_ABSOLUTA:
+        # SE MIRA EL SENTIDO ENTERO, NO LA RAÍZ: «inoperante»[:7] es «inopera»,
+        # que nunca empieza por «inoperan», así que esta salvedad no se había
+        # dado jamás y el aviso salía siempre seco (revisión, 26-sep-2026).
+        # Y NUNCA EN LA VÍA SIN SUPLENCIA (la revisión fiscal): ahí la
+        # salvedad invocaría un artículo 79 que no rige.
+        if (str(c.sentido or "").lower().startswith("inoperan")
+                and not _via_sin_suplencia
+                and (_mat in _SUPLENCIA_ABSOLUTA or _supl_conf)):
+            _con = ("con la suplencia de la queja que se confirmó en la pantalla "
+                    "de decisión" if _supl_conf else
+                    f"en materia {_mat}, con la suplencia del artículo 79")
             avisos.append(
                 f"El criterio pedía «{c.sentido}» y el estudio no lo escribió. "
-                f"En materia {_mat}, con la suplencia del artículo 79, eso "
+                f"{_con[0].upper() + _con[1:]}, eso "
                 f"puede ser lo CORRECTO: revisa si el estudio suplió el "
                 f"planteamiento y lo resolvió en el fondo. Si es así, la "
                 f"calificación cambió y hay que confirmarla.")
