@@ -24210,6 +24210,45 @@ def _taller_sin_tope(correo: str) -> bool:
     return bool(c) and (c in TALLER_SIN_LIMITE or c.endswith(TALLER_DOMINIO_INTERNO))
 
 
+# ── LA VARIANTE DEL PROMPT DEL ESTUDIO (26-sep-2026) ─────────────────────────
+# David aprobó la limpieza del prompt del estudio como «Paso 1», que se mide
+# antes de encenderse. La de todos la fija ESTUDIO_PROMPT (por omisión «v1»,
+# el prompt de producción); una cuenta DE CASA puede pedir otra por
+# petición, en el campo `variante_estudio`, para correr el banco sin tocar a
+# nadie. Casa = los correos del panel (`ADMIN_EMAILS`) y las cuentas sin tope
+# (`_taller_sin_tope`: las de David y todo @iurexia.com, administracion@ y
+# soporte@ incluidas). A cualquier otra cuenta se le ignora el campo: un
+# secretario del piloto no elige el prompt con que se mide el producto.
+def _taller_es_casa(correo: str) -> bool:
+    c = (correo or "").strip().lower()
+    return bool(c) and (c in ADMIN_EMAILS or _taller_sin_tope(c))
+
+
+def _taller_variante_estudio(correo: str, pedida: str = "") -> str:
+    """La variante con que se escribe ESTE estudio: la pedida si es de casa y
+    se reconoce; si no, la global."""
+    import fase6_estudio as _f6v
+    _glob_v = _f6v.variante_global()
+    if not (pedida or "").strip():
+        return _glob_v
+    _v = _f6v.normalizar_variante(pedida, "")
+    if not _v:
+        print(f"   ⚠️ TALLER: variante de estudio «{str(pedida)[:20]}» no "
+              f"reconocida; va la global ({_glob_v})")
+        return _glob_v
+    if not _taller_es_casa(correo):
+        print(f"   ⚠️ TALLER: una cuenta que no es de casa pidió la variante "
+              f"{_v}; se ignora y va la global ({_glob_v})")
+        return _glob_v
+    return _v
+
+
+def _commit_desplegado() -> str:
+    """El commit que está corriendo. Render lo pone en RENDER_GIT_COMMIT; en
+    local no existe y se deja vacío en vez de inventarlo."""
+    return (os.getenv("RENDER_GIT_COMMIT", "") or "").strip()
+
+
 # ── EL GUARDIA DE COBERTURA ──────────────────────────────────────────────
 #
 # «Cita mal las leyes» es el motivo escrito en las bajas de septiembre, y no
@@ -31267,9 +31306,51 @@ def _taller_tocados(criterios_json: str, crit: list, modo_decision: str = "",
             if str(d.get("sentido") or "").strip()}
 
 
+def _taller_meta_listo(res) -> dict:
+    """Con qué se escribió el estudio: variante del prompt, commit desplegado,
+    `finish_reason` y uso de tokens. Lo mismo en el evento «listo», en las
+    cabeceras del gemelo plano y en la ficha (26-sep-2026)."""
+    _m = dict(getattr(res, "meta_estudio", None) or {})
+    return {"variante": str(_m.get("variante") or ""),
+            "commit": _commit_desplegado(),
+            "finish_reason": str(_m.get("finish_reason") or ""),
+            "uso": dict(_m.get("uso") or {})}
+
+
+# EL CRITERIO COMPLETO, TAL COMO LLEGÓ. Hasta el 26-sep-2026 la ficha guardaba
+# de cada problema sólo la pregunta, el sentido y la jerarquía: ni la razón del
+# secretario, ni el grupo, ni si lo tocó a mano. Sin eso un proyecto no se puede
+# volver a generar con el mismo criterio, y la medición del estudio (el banco
+# de la propuesta) exige fijar el criterio una vez y correr las variantes
+# contra él. Se recorta cada texto para que la pila de doce fichas no crezca
+# sin techo dentro del jsonb.
+_FICHA_TEXTO_MAX = 8000
+
+
+def _criterios_json_para_ficha(criterios_json: str):
+    t = (criterios_json or "").strip()
+    if not t:
+        return []
+    try:
+        datos = json.loads(t)
+    except Exception:
+        return t[:_FICHA_TEXTO_MAX]
+
+    def _corta(x):
+        if isinstance(x, str):
+            return x[:_FICHA_TEXTO_MAX]
+        if isinstance(x, dict):
+            return {str(k)[:80]: _corta(v) for k, v in list(x.items())[:40]}
+        if isinstance(x, list):
+            return [_corta(v) for v in x[:40]]
+        return x
+    return _corta(datos)
+
+
 def _taller_guardar_proyecto(email: str, numero: str, res,
                              criterios: list = None, modo: str = "",
-                             sentido_global: str = "", formato: str = "") -> int:
+                             sentido_global: str = "", formato: str = "",
+                             criterios_json: str = "") -> int:
     """Lo que hay que saber del proyecto para volver a su pantalla.
 
     Devuelve el número de versión con que quedó guardado —1 el primero, 2 el
@@ -31303,8 +31384,18 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
             "criterios": [
                 {"problema": str(getattr(c, "problema", "") or "")[:400],
                  "sentido": str(getattr(c, "sentido", "") or ""),
-                 "jerarquia": str(getattr(c, "jerarquia", "") or "")}
+                 "jerarquia": str(getattr(c, "jerarquia", "") or ""),
+                 # LO QUE DE VERDAD LLEGÓ AL ESTUDIO, después del árbol y del
+                 # desenlace: la razón con que se escribió y el grupo.
+                 "razonamiento": str(getattr(c, "razonamiento", "") or "")[:_FICHA_TEXTO_MAX],
+                 "grupo": str(getattr(c, "grupo", "") or "")}
                 for c in (criterios or [])][:20],
+            # Y LO QUE MANDÓ LA PANTALLA, entero: con `tocado`, la predicción y
+            # lo que el árbol luego pudo cambiar.
+            "criterios_json": _criterios_json_para_ficha(criterios_json),
+            # CON QUÉ SE ESCRIBIÓ: variante del prompt, commit, si el modelo
+            # acabó o se cortó (`length`) y cuántos tokens gastó.
+            **_taller_meta_listo(res),
         }
         r = supabase_admin.table("taller_sesiones").select("estado") \
             .eq("email", _correo).eq("expediente", numero).limit(1).execute()
@@ -34052,6 +34143,10 @@ async def taller_resolver_stream(
     # LA FORMA DE LA SENTENCIA: «estandar» o «moderna». David, 25-sep-2026.
     # Vacío = estándar. Ver `formato_sentencia.py`.
     formato: str = Form(""),
+    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» o «v2»—, sólo para cuentas de
+    # casa; a las demás se les ignora. Vacío = ESTUDIO_PROMPT. Ver
+    # `_taller_variante_estudio` (26-sep-2026).
+    variante_estudio: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -34126,6 +34221,10 @@ async def taller_resolver_stream(
         # vuelta anterior no puede colarse en la estándar de ésta.
         import formato_sentencia as _fs_m
         r.encargo.formato = _fs_m.normalizar(formato)
+        # Y LA VARIANTE DEL PROMPT, TAMBIÉN SIEMPRE, por la misma razón: una
+        # v2 pedida en la vuelta anterior no puede colarse en ésta.
+        r.encargo.variante_estudio = _taller_variante_estudio(
+            user_email, variante_estudio)
         if (responsable or "").strip():
             r.encargo.responsable = responsable.strip()
             print(f"   ⚖️ autoridad corregida en pantalla: "
@@ -34446,7 +34545,8 @@ async def taller_resolver_stream(
                         user_email, numero, res, crit,
                         modo=(modo_decision or ""),
                         sentido_global=(sentido_global or ""),
-                        formato=getattr(r.encargo, "formato", "") if r.encargo else "")
+                        formato=getattr(r.encargo, "formato", "") if r.encargo else "",
+                        criterios_json=criterios_json)
                     _taller_guardar_docx(user_email, numero, res.ruta, _v_proy)
                     print(f"   ⚖️ TALLER: proyecto EN VIVO {numero} · "
                           f"{len(res.estudio.split())} palabras · "
@@ -34480,6 +34580,10 @@ async def taller_resolver_stream(
                         "advertencias": bool(getattr(res, "advertencias", "")),
                         "version": int(_v_proy or 0),
                         "tiempos": _ra.reloj_resumen(),
+                        # CON QUÉ SE ESCRIBIÓ (26-sep-2026): el arnés de
+                        # medición descarta las corridas cuya variante o
+                        # commit no casan con lo que pidió.
+                        **_taller_meta_listo(res),
                     })
         except Exception as ex:
             print(f"   ⚠️ TALLER en vivo: {ex}")
@@ -34728,6 +34832,10 @@ async def taller_resolver(
     # LA FORMA DE LA SENTENCIA: «estandar» o «moderna». David, 25-sep-2026.
     # Vacío = estándar. Ver `formato_sentencia.py`.
     formato: str = Form(""),
+    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» o «v2»—, sólo para cuentas de
+    # casa; a las demás se les ignora. Vacío = ESTUDIO_PROMPT. Ver
+    # `_taller_variante_estudio` (26-sep-2026).
+    variante_estudio: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
@@ -34792,6 +34900,10 @@ async def taller_resolver(
         # vuelta anterior no puede colarse en la estándar de ésta.
         import formato_sentencia as _fs_m
         r.encargo.formato = _fs_m.normalizar(formato)
+        # Y LA VARIANTE DEL PROMPT, TAMBIÉN SIEMPRE, por la misma razón: una
+        # v2 pedida en la vuelta anterior no puede colarse en ésta.
+        r.encargo.variante_estudio = _taller_variante_estudio(
+            user_email, variante_estudio)
         if (responsable or "").strip():
             r.encargo.responsable = responsable.strip()
             print(f"   ⚖️ autoridad corregida en pantalla: "
@@ -35049,7 +35161,8 @@ async def taller_resolver(
     _v_proy2 = _taller_guardar_proyecto(user_email, numero, r2, crit,
                                         modo=(modo_decision or ""),
                                         sentido_global=(sentido_global or ""),
-                                        formato=getattr(r.encargo, "formato", "") if r.encargo else "")
+                                        formato=getattr(r.encargo, "formato", "") if r.encargo else "",
+                                        criterios_json=criterios_json)
     _taller_guardar_docx(user_email, numero, r2.ruta, _v_proy2)
     # El trabajo está hecho. Ver la nota del endpoint de streaming.
     _soltar_constancias(user_email.strip().lower(), numero.strip())
@@ -35073,6 +35186,11 @@ async def taller_resolver(
             "X-Tiempos": _cabecera_segura([_ra.reloj_resumen()]),
             "X-Huecos": str(len(r2.huecos)),
             "X-Advertencias": "1" if r2.advertencias else "0",
+            # LO MISMO QUE EL EVENTO «listo» DEL GEMELO EN VIVO: la variante
+            # del prompt, el commit y si el modelo acabó o se cortó.
+            "X-Variante-Estudio": _taller_meta_listo(r2)["variante"],
+            "X-Commit": _taller_meta_listo(r2)["commit"],
+            "X-Finish-Reason": _taller_meta_listo(r2)["finish_reason"],
         },
     )
 

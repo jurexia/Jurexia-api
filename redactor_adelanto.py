@@ -148,6 +148,11 @@ class Encargo:
     # generación desde la pantalla; vacío es la estándar. Ver
     # `formato_sentencia.py`.
     formato: str = ""
+    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» o «v2»—, fijada en CADA
+    # petición por los dos endpoints del taller: la global de ESTUDIO_PROMPT,
+    # o la que pida una cuenta de casa. Vacío = la global. Ver
+    # `fase6_estudio.VARIANTES` (26-sep-2026).
+    variante_estudio: str = ""
 
 
 @dataclass
@@ -165,6 +170,11 @@ class Resultado:
     partes: Optional["fpartes.Partes"] = None
     # Las partes estructurales ya escritas, para no volver a pedirlas.
     estructura: object = None
+    # CON QUÉ SE ESCRIBIÓ EL ESTUDIO: la variante del prompt, el
+    # `finish_reason` y el uso de tokens (26-sep-2026). Lo llenan los dos
+    # redactores y lo lee la ficha del proyecto: sin esto no hay manera de
+    # saber, mirando un proyecto viejo, con qué prompt salió ni si se cortó.
+    meta_estudio: dict = field(default_factory=dict)
 
 
     @property
@@ -996,6 +1006,12 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
         import formato_sentencia as _fs
         e = getattr(r, "encargo", None)
         material.formato = _fs.normalizar(getattr(e, "formato", "") if e else "")
+        # LA VARIANTE DEL PROMPT, EN CADA PETICIÓN, como la forma: el material
+        # vive en la memoria del worker y una v2 de la vuelta anterior no puede
+        # colarse en la v1 de ésta. Sin variante en el encargo, la global.
+        import fase6_estudio as _f6v
+        material.variante = _f6v.normalizar_variante(
+            getattr(e, "variante_estudio", "") if e else "", _f6v.variante_global())
         material.problemas = [p for p in (getattr(r.fases, "problemas", None) or [])
                               if isinstance(p, dict)]
         _c = getattr(r.fases, "conteo", None) or {}
@@ -1006,7 +1022,8 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
             material.sintesis = asyncio.ensure_future(
                 _sintetizar_moderna(cliente, r, criterios or [], material))
         print(f"   📐 FORMATO: {_fs.rotulo(material.formato)} · "
-              f"{material.n_planteamientos} planteamientos contados")
+              f"{material.n_planteamientos} planteamientos contados · "
+              f"prompt {material.variante}")
     except Exception as _ef:
         print(f"   ⚠️ FORMATO: no se pudo fijar: {type(_ef).__name__}: {_ef}")
 
@@ -1143,6 +1160,9 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
 
 
     _litis_y_material(r, material, [], cliente, criterios)
+    # LO QUE SE ANOTA DEL ESTUDIO, igual que el gemelo en vivo: la variante,
+    # el `finish_reason` y los tokens. Va a la ficha por `_terminar`.
+    _meta = {}
     with cronometrar("estudio de fondo"):
         estudio, advertencias, avisos = await f6.redactar(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
@@ -1158,7 +1178,8 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # recurso o de la demanda tal como se leyó del PDF. Hasta ahora
             # moría en el adelanto: la fase que CONTESTA los conceptos recibía
             # el resumen —unas 472 palabras— y CERO caracteres del escrito.
-            escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1])
+            escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1],
+            meta=_meta)
     # LOS EFECTOS DE UNA VIOLACIÓN PROCESAL SE ORDENAN PASO A PASO (v5 del
     # 93/2026: «dicte otra» sobre una reposición). Se comprueba aquí porque
     # aquí se sabe si la hay.
@@ -1260,7 +1281,7 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
     return await _terminar(cliente, r, e, criterios, material, estudio,
                            advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco,
-                           contexto)
+                           contexto, meta_estudio=_meta)
 
 
 async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
@@ -1310,6 +1331,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     tarea_marco = None
 
     estudio = advertencias = ""
+    _meta = {}
     _litis_y_material(r, material, avisos, cliente, criterios)
     t0 = _time.perf_counter()
     async for paso in f6.redactar_en_vivo(
@@ -1329,6 +1351,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             estudio = paso.get("estudio", "")
             advertencias = paso.get("advertencias", "")
             avisos.extend(paso.get("avisos", []))
+            _meta = dict(paso.get("meta") or {})
     TIEMPOS["estudio de fondo"] = round(_time.perf_counter() - t0, 1)
     _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
     if _av_ef:
@@ -1429,7 +1452,7 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
         print(f"   ⚠️ no se pudieron completar los preceptos citados: {_ex}")
     res = await _terminar(cliente, r, e, criterios, material, estudio,
                           advertencias, avisos, tarea_marco, ruta_salida, qdrant, marco,
-                          contexto)
+                          contexto, meta_estudio=_meta)
     yield {"tipo": "listo", "resultado": res}
 
 
@@ -1470,7 +1493,8 @@ def _revisar_contaminacion(r, e) -> list:
 
 async def _terminar(cliente, r, e, criterios, material, estudio,
                     advertencias, avisos, tarea_marco, ruta_salida, qdrant=None,
-                    marco: str = "", contexto: str = ""):
+                    marco: str = "", contexto: str = "",
+                    meta_estudio: dict = None):
     """De la salida del modelo al documento entregado.
 
     Vive fuera de `resolver()` porque la versión en vivo hace exactamente lo
@@ -1747,7 +1771,13 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
         import calidad_estudio as _ce
         from docx import Document as _Doc
         _txt = "\n".join(p.text for p in _Doc(ruta).paragraphs)
-        _m = _ce.medir(_txt)
+        # LA v2 CALIFICA UNA VEZ POR APARTADO, con la fórmula de David («Se
+        # considera infundado.»): se cuenta también esa forma, o el recuento
+        # la acusaría de dejar planteamientos sin respuesta. Ver
+        # `calidad_estudio._RX_CALIFICA_AMPLIA`.
+        import fase6_estudio as _f6m
+        _v2_m = _f6m._v2(material)
+        _m = _ce.medir(_txt, amplia=_v2_m)
         _d = _m["densidad"]
         if _d["palabras"] > 400 and _d["pct_propio"] < 0.70:
             avisos.append(
@@ -1820,6 +1850,13 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                     f"apartado que se entiende de uno que hay que releer: "
                     f"«{_pe['sin_pregunta'][0]}…»")
             for _q, _d in _ce.cierre_ciego(_txt):
+                # EN LA v2 NO HAY PÁRRAFO DE CIERRE QUE TENGA QUE DECIR «QUÉ, POR
+                # QUÉ Y PARA QUÉ» (decisión 3 de David): lo que se acusa es la
+                # remisión en blanco al final del estudio, y se dice así.
+                if _v2_m:
+                    _q = ("el estudio termina remitiendo a lo expuesto en vez de "
+                          "decirlo: una remisión lleva su contenido —qué apartado "
+                          "y qué proposición—")
                 avisos.insert(0, f"{_q}: «…{_d[:120]}…»")
         except Exception as _ep:
             print(f"   ⚠️ no se pudo medir la delimitación: {_ep}")
@@ -1909,10 +1946,14 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                     if "RESOLUTIVO DE REVISIÓN, rama «sin_determinar»" not in str(a)
                     and not str(a).startswith("NO CONSTA QUÉ RESOLVIÓ EL JUZGADO")]
 
+    # LA VARIANTE VA SIEMPRE, aunque el modelo no haya dicho nada más: es lo
+    # que el arnés de medición usa para descartar corridas que no casan.
+    _meta_f = dict(meta_estudio or {})
+    _meta_f.setdefault("variante", getattr(material, "variante", "v1") or "v1")
     return Resultado(ruta=ruta, computo=r.computo, fases=r.fases, encargo=e,
                      partes=r.partes, estudio=estudio, advertencias=advertencias,
                      huecos=ens.huecos_pendientes(ruta),
-                     avisos=_limpios)
+                     avisos=_limpios, meta_estudio=_meta_f)
 
 
 

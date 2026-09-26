@@ -90,13 +90,18 @@ def palabras_moderna(criterios: list) -> int:
 # LO QUE CAMBIA EN EL PROMPT DEL ESTUDIO
 # ═══════════════════════════════════════════════════════════════════════════
 def forma_del_estudio(formato: str, q: str, q1: str, parte: str, calif: str,
-                      palabras: int) -> str:
+                      palabras: int, variante: str = "v1") -> str:
     """El bloque de FORMA que decide cómo se ordena y se abre cada apartado.
 
     Sustituye a las cuatro instrucciones que antes obligaban a la pregunta en
     los dos casos —la de FORMA, la de viñetas, la de «tu texto empieza» y la
     del criterio— para que no convivan dos órdenes contrarias en el prompt.
+
+    `variante` es la del prompt del estudio (ver `fase6_estudio.VARIANTES`):
+    la v2 cambia la unidad de la estándar y quita el ejemplo de la moderna.
     """
+    if str(variante or "").strip().lower() == "v2":
+        return _forma_del_estudio_v2(formato, q, q1, parte, calif, palabras)
     if normalizar(formato) == MODERNA:
         return f"""
 FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
@@ -166,13 +171,105 @@ FORMATO: ESTÁNDAR — concepto por concepto, con la fórmula del oficio.
 """
 
 
+# ═══ LA FORMA EN LA v2 DEL PROMPT (26-sep-2026) ═══════════════════════════
+# Lo que cambia, por la propuesta del estudio que David aprobó:
+#   · ESTÁNDAR. La unidad deja de ser el concepto con su premisa propia —«un
+#     apartado por concepto» era una de las cinco órdenes que fabricaban la
+#     repetición (C1)— y pasa a ser la consideración atacada con la razón que
+#     la decide, nombrando los conceptos que entran. El apartado de un solo
+#     concepto sigue abriendo con la fórmula de David. La calificación va una
+#     vez, al abrir (fila 16): el apartado ya no «cierra» con ella. La
+#     apertura dice qué consideración se ataca en no más de treinta palabras:
+#     el sistema gastaba 59-84 en re-contar el concepto y el engrose, 27
+#     (fila 4). Lo accesorio se mide con la tabla única del prompt (fila 13).
+#   · MODERNA. Sale el ejemplo de la unidad de cuantificación y el artículo 50
+#     de la LFPCA (fila 14b: un ejemplo con materia se copia), la objeción
+#     deja de pedirse aquí (fila 8: se pedía desde cuatro sitios) y la medida
+#     es un techo. Cada apartado sigue siendo un problema con su pregunta.
+def _forma_del_estudio_v2(formato: str, q: str, q1: str, parte: str, calif: str,
+                          palabras: int) -> str:
+    if normalizar(formato) == MODERNA:
+        return f"""
+FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
+- ABRE con la calificación general en una frase («Los {q} son {calif}.») y
+  ACTO SEGUIDO el primer problema, numerado y como pregunta, SOLA en su
+  párrafo y terminada en «?». El párrafo siguiente EMPIEZA POR LA RESPUESTA
+  —«Sí.», «No.»— y en esa misma frase NOMBRA el {q1} o los {q} que contesta y
+  su calificación. Nombrar el {q1} no es adorno: es lo que permite comprobar,
+  leyendo, que ninguno se quedó sin respuesta.
+- ES LA VERSIÓN CORTA, NO LA INCOMPLETA. Todos los planteamientos se
+  contestan —uno olvidado es un amparo de vuelta—, pero se escribe con
+  economía, dentro del techo de {palabras} palabras que fija la extensión.
+    · EL PROBLEMA CENTRAL se razona a fondo y con argumentación de alto nivel:
+      la regla, su fuente y la aplicación a estos hechos. Cada párrafo avanza;
+      ninguno repite.
+    · UNO O DOS CRITERIOS por problema, los que de verdad deciden, no una
+      batería. Un criterio que sólo refuerza lo ya fundado sobra.
+    · LO ACCESORIO, con la medida única de la extensión.
+    · FUERA lo que no decide: el recuento de antecedentes, lo que la
+      responsable resolvió y nadie combate, los «no pasa inadvertido» sobre
+      objeciones que nadie planteó, y la paráfrasis de la tesis recién citada.
+- NO REMITAS A LOS ANTECEDENTES POR SU NÚMERO («como se dijo en el antecedente
+  7»): en esta versión se resumen de nuevo y su numeración cambia. Nómbralos
+  por su fecha o su contenido.
+"""
+    return f"""
+FORMATO: ESTÁNDAR — por la consideración que se ataca, con la fórmula del oficio.
+- NO HAY PREGUNTAS NI RÓTULOS NUMERADOS. Los problemas jurídicos que vienen
+  abajo son tu guía para decidir y ordenar; NO se escriben en la sentencia.
+  Ninguna línea del estudio empieza por «¿» ni por «1.», «2.».
+- ABRE con la calificación general en una frase («Los {q} son {calif}.») y,
+  si reagrupas o alteras el orden, el anuncio de método con el artículo 76 de
+  la Ley de Amparo.
+- LA UNIDAD DEL ESTUDIO ES LA CONSIDERACIÓN QUE SE ATACA Y LA RAZÓN QUE LA
+  DECIDE, NO EL {q1.upper()}. Los {q} que atacan la misma consideración y caen
+  por la misma razón se estudian en UN apartado que los nombra a todos por su
+  ordinal; el que ataca otra consideración, o cae por otra razón, lleva el
+  suyo. Un {q1} que trae dos argumentos de distinta suerte se parte: cada
+  parte con su respuesta y su calificación.
+- CADA APARTADO ABRE ASÍ, en este orden:
+    1) si es de un solo {q1}, con la fórmula del oficio: «Sobre el primer {q1},
+       en el que {parte} sostiene que…», diciendo en no más de treinta
+       palabras QUÉ CONSIDERACIÓN ataca —no el argumento entero: el resumen de
+       arriba ya lo expuso—; si junta varios, «Sobre los {q} segundo y
+       tercero, en los que…», y dice qué los une;
+    2) su calificación, en la frase siguiente: «Se considera infundado.»,
+       «Es fundado.», «Resulta inoperante.»;
+    3) y la demostración, que arranca con «Lo anterior, porque…», «Lo
+       anterior es así, ya que…» o «Lo anterior se estima así, toda vez
+       que…».
+  Varía las entradas —«Sobre el segundo…», «En relación con el tercer…»,
+  «Por lo que hace al cuarto…»— y no copies la fórmula letra por letra en
+  todos; lo que no varía es el orden: planteamiento, calificación, «Lo
+  anterior…».
+- LA CALIFICACIÓN VA UNA VEZ, AL ABRIR. El apartado no la repite al final:
+  cierra con la consecuencia y, si el siguiente depende de él, con el puente.
+  Si dentro un argumento tiene una calificación distinta, se dice en su
+  párrafo.
+- LO QUE QUEDA SIN MATERIA O CAE CON EL PRINCIPAL se nombra por su ordinal y
+  se despacha con la medida única de la extensión.
+"""
+
+
 def forma_del_criterio(formato: str, q1: str = "concepto de violación",
-                       parte: str = "la parte quejosa") -> list:
+                       parte: str = "la parte quejosa",
+                       variante: str = "v1") -> list:
     """Las líneas del bloque del criterio que dicen cómo se abre cada problema.
 
     `q1` y `parte` salen del vocabulario del tipo de asunto: un ejemplo con
     «la quejosa» escrito a mano acabó firmado en una revisión fiscal, donde
     quien recurre es la autoridad."""
+    if (str(variante or "").strip().lower() == "v2"
+            and normalizar(formato) != MODERNA):
+        # EN LA v2 DE LA ESTÁNDAR el criterio ya no reparte «{q1} por {q1}»:
+        # dice la calificación y la razón, y el estudio agrupa por la
+        # consideración atacada (ver `_forma_del_estudio_v2`).
+        return [
+            "LOS PROBLEMAS DE ABAJO NO SE ESCRIBEN: son el CRITERIO con que se",
+            f"califica cada planteamiento. Cada {q1} recibe la calificación que le",
+            "da el problema que lo resuelve (la línea CUBRE dice cuáles son), y la",
+            "RAZÓN DEL SECRETARIO es la que decide: los que caen por la misma",
+            "razón contra la misma consideración van en un solo apartado.", ""]
     if normalizar(formato) == MODERNA:
         return [
             "CADA PROBLEMA ABRE CON SU PREGUNTA, LITERAL Y EN SU PROPIA LÍNEA.",

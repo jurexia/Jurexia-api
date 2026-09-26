@@ -125,11 +125,28 @@ _RX_AGRUPA = re.compile(
     r"(?:se\s+)?(?:estudian|analizan|examinan)", re.I)
 
 
-def exhaustividad(estudio: str) -> dict:
+# LA CALIFICACIÓN DE LA FÓRMULA DE DAVID NO SE CONTABA (26-sep-2026). «Sobre
+# el primer concepto…, en el que… Se considera infundado.» es la apertura que
+# él pidió, y el recuento de arriba sólo cazaba «es/son/resulta…»: un estudio
+# que califica UNA vez por apartado —lo que manda la v2 del prompt— salía
+# acusado de dejar planteamientos sin respuesta, y el que repetía la
+# calificación cinco veces, no. Con `amplia` se cuentan también «se
+# considera / se estima / se califica / se declara». Calibrado sobre la
+# Solución de los 24 engroses Kingston: acusa al mismo que la cuenta estrecha
+# (el ADC 722/2025) y a ninguno más. Sólo la usa la v2; la v1 no cambia.
+_RX_CALIFICA_AMPLIA = re.compile(
+    r"\b(?:es|son|resulta[n]?|deviene[n]?|se\s+(?:considera|estima|califica|declara)n?)\s+"
+    r"(?:(?:igualmente|tambi[ée]n|asimismo|por\s+tanto|entonces)\s+)?"
+    r"(fundad[oa]s?|infundad[oa]s?|inoperantes?|ineficaces?|inatendibles?|"
+    r"innecesari[oa]s?)\b", re.I)
+
+
+def exhaustividad(estudio: str, amplia: bool = False) -> dict:
     """¿Queda algún planteamiento sin respuesta?"""
     anunciados = {_norm(m.group(1)).rstrip("o")
                   for m in _RX_ANUNCIA.finditer(estudio or "")}
-    calificados = len(_RX_CALIFICA.findall(estudio or ""))
+    calificados = len((_RX_CALIFICA_AMPLIA if amplia else _RX_CALIFICA)
+                      .findall(estudio or ""))
     agrupa = bool(_RX_AGRUPA.search(estudio or ""))
     # Con estudio agrupado basta UNA calificación que los cubra; sin él, hace
     # falta al menos una por planteamiento anunciado.
@@ -217,10 +234,10 @@ def promesa_rota(texto: str) -> dict:
             "rota": promete and d["palabras"] > 300 and pct_acto > 0.33}
 
 
-def medir(texto: str) -> dict:
+def medir(texto: str, amplia: bool = False) -> dict:
     est = estudio_de(texto)
     return {"densidad": densidad(est),
-            "exhaustividad": exhaustividad(est),
+            "exhaustividad": exhaustividad(est, amplia=amplia),
             "remisiones_rotas": remisiones_rotas(texto),
             "procedencia_contradice": procedencia_contradice(texto),
             "promesa": promesa_rota(texto)}

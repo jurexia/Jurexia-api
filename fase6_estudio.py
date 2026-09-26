@@ -71,6 +71,74 @@ MAX_NORMAS_PROMPT = 12
 PALABRAS_ESTUDIO = 3733
 PALABRAS_ESTUDIO_P90 = 6618
 
+# ═══ LA MEDIDA DE LA SOLUCIÓN, NO DEL CONSIDERANDO (26-sep-2026) ════════════
+# Los 3,733 de arriba son la mediana del considerando ENTERO —con el resumen
+# de la sentencia reclamada y el de los conceptos dentro—, y el prompt los
+# pedía para la Solución sola: contaba dos veces los resúmenes y empujaba a
+# rellenar (diagnóstico del estudio, F1). Medido hoy sobre los 24 engroses de
+# oro sólido del banco Kingston —campo «oro», desde el rótulo «Solución» hasta
+# los resolutivos o el considerando de efectos; el ADC 590/2024 no lleva
+# rótulo y su considerando entero es la Solución—:
+#
+#     mediana 3,183 · p90 5,361 · mínimo 1,303 (ADA 263/2025) · 23 engroses
+#
+# Sin el ADC 810/2025: 21,787 palabras, cuatro veces el siguiente, con las
+# fichas de las tesis desglosadas renglón por renglón; con él el p90 salta a
+# 8,417 porque la cola la forman tres engroses (43/2025, 590/2024 y 810/2025)
+# que transcriben constancias y ejecutorias enteras.
+#
+# EN LA v2 ES UN TECHO, NO UNA META (propuesta aprobada por David, fila 12):
+# un asunto con una sola cuestión viva se resuelve en mucho menos, y nada se
+# escribe para acercarse a una cifra. La v1 sigue pidiendo sus 3,733.
+SOLUCION_MEDIANA = 3183
+SOLUCION_P90 = 5361
+# Por debajo de esto no hay un solo engrose del banco (el más corto, 1,303):
+# el aviso de «se quedó corto» de la v2 no acusa a ninguno de los 24. El de la
+# v1 —45 % de 3,733, es decir 1,680— acusaba a tres (263, 274 y 282/2025).
+SOLUCION_PISO = 1000
+# El aviso de exceso de la v2 salta a 1.25 veces el techo. Calibrado: acusa a
+# los mismos tres que el de la v1 (43, 590 y 810), no a uno más; con el techo
+# pelado acusaría también al ADC 192/2025 (5,425), que es un engrose bueno.
+SOLUCION_EXCESO = round(1.25 * SOLUCION_P90)
+
+
+# ═══ LAS DOS VARIANTES DEL PROMPT DEL ESTUDIO (26-sep-2026) ══════════════════
+# David aprobó la limpieza del prompt («Paso 1» de la propuesta del estudio):
+# quitar las órdenes que se contradicen y las capas que fabrican repetición.
+# Se hace como VARIANTE y no encima de lo que hay, porque se mide antes de
+# encender: «v1» es el prompt de producción, congelado por una prueba de
+# instantánea (test_prompt_v2.py) con UNA sola corrección que vale para todos
+# por ser de ley —el orden del artículo 189—; «v2» es la limpieza.
+#
+# CÓMO SE ELIGE. `ESTUDIO_PROMPT` fija la de todos (por omisión «v1»); una
+# cuenta de casa puede pedir otra en el formulario (`variante_estudio`), y la
+# petición manda. Viaja como la forma de la sentencia: encargo → material →
+# prompt (ver `redactor_adelanto._formato_al_material`). Render no reinicia al
+# guardar una variable: cambiar la global exige un despliegue.
+VARIANTES = ("v1", "v2")
+# «A» y «B» son los nombres de la propuesta (A = producción, B = limpieza).
+_ALIAS_VARIANTE = {"a": "v1", "b": "v2", "1": "v1", "2": "v2"}
+
+
+def normalizar_variante(x, por_omision: str = "") -> str:
+    """«v1», «v2» o `por_omision` si no se reconoce. Nunca inventa una."""
+    t = str(x or "").strip().lower()
+    t = _ALIAS_VARIANTE.get(t, t)
+    return t if t in VARIANTES else por_omision
+
+
+def variante_global() -> str:
+    """La de todos: `ESTUDIO_PROMPT`, y «v1» si falta o no se reconoce.
+
+    Se lee en cada petición y no al importar, para que una prueba pueda
+    cambiarla; en Render da igual, porque la variable sólo cambia con un
+    despliegue."""
+    return normalizar_variante(os.getenv("ESTUDIO_PROMPT", "v1"), "v1")
+
+
+def _v2(material) -> bool:
+    return normalizar_variante(getattr(material, "variante", "v1"), "v1") == "v2"
+
 
 def _objetivo_palabras(material, criterios) -> int:
     """La medida del corpus para la estándar; la de `formato_sentencia` para la
@@ -211,6 +279,12 @@ class Material:
     # La tarea de la síntesis de la versión moderna, que corre a la vez que el
     # estudio y se recoge al componer. None en la estándar.
     sintesis: object = None
+    # LA VARIANTE DEL PROMPT DEL ESTUDIO —«v1» o «v2»—, por la misma razón que
+    # la forma: los dos redactores arman el prompt y el material llega a los
+    # dos. La fija `redactor_adelanto._formato_al_material` en CADA petición,
+    # porque el material vive en la memoria del worker de una generación a la
+    # siguiente. Ver `VARIANTES` arriba.
+    variante: str = "v1"
 
 
 # LA ÚNICA EXCEPCIÓN A «INNEGOCIABLE», y hubo que escribirla porque el pipeline
@@ -348,11 +422,18 @@ def _misma_direccion(a: str, b: str) -> bool:
 
 def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                      material_texto: str = "", tipo_asunto: str = "",
-                     formato: str = "", problemas: list = None) -> str:
+                     formato: str = "", problemas: list = None,
+                     variante: str = "v1") -> str:
     if not criterios:
         return ""
     import formato_sentencia as _fs_c
     _moderna = _fs_c.normalizar(formato) == _fs_c.MODERNA
+    # LA v2 CAMBIA CUATRO COSAS DE ESTE BLOQUE Y NINGUNA DEL SENTIDO (26-sep-
+    # 2026): cómo se abre el grupo, la medida de lo que no se estudia, el
+    # cierre —que en la v2 se decide al final del prompt, en un solo sitio— y
+    # los efectos, que se describen en vez de enseñarse con un ejemplo que se
+    # copiaba. La suplencia de abajo es la misma en las dos.
+    _v2c = normalizar_variante(variante, "v1") == "v2"
     lineas = ["", "═" * 71,
               "EL CRITERIO DEL SECRETARIO — DIRECTIVA INNEGOCIABLE",
               "═" * 71,
@@ -375,7 +456,8 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
               # concepto por concepto. Ver `formato_sentencia.py`.
               ] + _fs_c.forma_del_criterio(
                   formato, _ta_p.vocabulario_de(tipo_asunto or "amparo_directo")["combate_singular"],
-                  _ta_p.vocabulario_de(tipo_asunto or "amparo_directo")["parte"])
+                  _ta_p.vocabulario_de(tipo_asunto or "amparo_directo")["parte"],
+                  variante=variante)
     # EL ORDEN DE ESTUDIO ES EL DE PRELACIÓN LÓGICA, no el de llegada: primero
     # el principal, del que dependen los demás. Un engrose que estudia un
     # accesorio antes que el problema del que depende obliga a rehacerlo.
@@ -397,13 +479,30 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         # EL GRUPO LO DECIDE EL SECRETARIO. La arquitectura ya prohíbe resolver
         # dos planteamientos con una calificación conjunta «salvo que declares
         # que se estudian juntos y por qué»; faltaba quién lo declarara.
-        if _g:
+        if _g and _v2c:
+            # EN LA v2 EL GRUPO NO BORRA LA RESPUESTA DE CADA UNO. «No los
+            # contestes por separado» chocaba con la regla nueva —cada
+            # argumento, una respuesta identificable— y un argumento con dato
+            # propio metido en la respuesta común es el que luego falta.
+            lineas.append(f"   SE ESTUDIA JUNTO CON LOS DEMÁS DEL GRUPO {_g}: "
+                          f"un solo apartado que ABRE diciendo QUÉ LOS UNE —la "
+                          f"consideración que atacan y la razón que los "
+                          f"decide— con una calificación conjunta. La premisa "
+                          f"común se expone una vez; dentro, cada argumento "
+                          f"recibe una respuesta identificable, y el que trae "
+                          f"un dato propio, la suya.")
+        elif _g:
             lineas.append(f"   SE ESTUDIA JUNTO CON LOS DEMÁS DEL GRUPO {_g}: "
                           f"un solo apartado, una sola línea argumentativa y "
                           f"una calificación conjunta. ABRE ese apartado "
                           f"diciendo QUÉ LOS UNE y por qué se resuelven a la "
                           f"vez; no los contestes por separado dentro de él.")
-        if (c.sentido or "").lower() == "innecesario":
+        if (c.sentido or "").lower() == "innecesario" and _v2c:
+            lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
+                          "del principal. Una o dos frases que lo declaran "
+                          "innecesario y dicen por qué; su fondo no se "
+                          "contesta.")
+        elif (c.sentido or "").lower() == "innecesario":
             lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
                           "del principal. Se dice en una frase y se pasa; ni "
                           "lo califiques ni lo contestes.")
@@ -480,17 +579,25 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
     #
     # Nuestro resolutivo dice «por los motivos y fundamentos expuestos en el
     # último considerando», que es exactamente ese mensaje críptico.
-    lineas += ["",
-               "── CÓMO TERMINA EL ESTUDIO ──",
-               "El último párrafo, antes del resolutivo, dice en TRES frases:",
-               "  · QUÉ se decide —confirmar, revocar, conceder, negar—;",
-               "  · POR QUÉ, en una frase que resuma la razón que lo sostiene, no",
-               "    una remisión a otro apartado;",
-               "  · PARA QUÉ, es decir, qué tiene que hacer ahora la autoridad, si",
-               "    es que tiene que hacer algo.",
-               "Está PROHIBIDO cerrar con «por las razones expuestas», «en las",
-               "relatadas consideraciones» o cualquier fórmula que mande al lector",
-               "a buscar por su cuenta lo que ya se dijo.", ""]
+    #
+    # EN LA v2 ESTO NO VA AQUÍ (David, 26-sep-2026, decisión 3, opción b: «sin
+    # cierre por defecto; un cierre breve sólo cuando hay tres o más apartados
+    # con resultados distintos»). Este bloque mandaba TRES frases y el final
+    # del prompt mandaba recapitular «con sustancia»: dos órdenes para el
+    # mismo párrafo, y ninguna decía cuándo no hacía falta. La regla única
+    # va al final del prompt, calculada por `_cierre_permitido`.
+    if not _v2c:
+        lineas += ["",
+                   "── CÓMO TERMINA EL ESTUDIO ──",
+                   "El último párrafo, antes del resolutivo, dice en TRES frases:",
+                   "  · QUÉ se decide —confirmar, revocar, conceder, negar—;",
+                   "  · POR QUÉ, en una frase que resuma la razón que lo sostiene, no",
+                   "    una remisión a otro apartado;",
+                   "  · PARA QUÉ, es decir, qué tiene que hacer ahora la autoridad, si",
+                   "    es que tiene que hacer algo.",
+                   "Está PROHIBIDO cerrar con «por las razones expuestas», «en las",
+                   "relatadas consideraciones» o cualquier fórmula que mande al lector",
+                   "a buscar por su cuenta lo que ya se dijo.", ""]
     # ── LOS EFECTOS, CON RÓTULO FIJO Y COMO ÓRDENES ──────────────────────
     # ADC 93/2026 v5: el estudio escribió los efectos completos —«La concesión
     # del amparo exige que la Sala: a) deje insubsistente…; b) deje sin
@@ -502,7 +609,37 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
     # puede dictar otra sentencia de inmediato». Un rótulo fijo es lo que
     # permite recogerlos sin adivinar.
     import tipos_asunto as _ta_ef
-    if any(_ta_ef.prospera(str(getattr(c, "sentido", "") or "")) for c in criterios):
+    _concede_ef = any(_ta_ef.prospera(str(getattr(c, "sentido", "") or ""))
+                      for c in criterios)
+    # EN LA v2, LOS EFECTOS SE DESCRIBEN (fila 14b de la propuesta). La lista
+    # «1. Deje insubsistente…; 2. Deje sin efectos…; 3. Admita…» es un ejemplo
+    # con la forma exacta de una sentencia, y un ejemplo así se firma literal
+    # —ya pasó con cuatro moldes de este mismo prompt—. Lo que sigue dice qué
+    # tiene que tener cada orden, no cómo se escribe. El rótulo se queda: es el
+    # que permite al compositor recogerlos sin adivinar.
+    if _concede_ef and _v2c:
+        lineas += ["",
+                   "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──",
+                   "Después del último párrafo del estudio escribe, en su propia línea",
+                   "y sin nada más, el rótulo:",
+                   "",
+                   "    EFECTOS DE LA CONCESIÓN",
+                   "",
+                   "y debajo las órdenes a la responsable como LISTA NUMERADA, una por",
+                   "párrafo: cada una empieza por el verbo en imperativo, dice sobre qué",
+                   "acto o actuación recae y se puede verificar en la ejecución sin",
+                   "interpretarla. Sin prosa entre ellas, y ninguna que remita a «los",
+                   "lineamientos de esta ejecutoria» en lugar de decir qué hay que hacer.",
+                   "Los efectos se escriben SÓLO aquí: el estudio no los adelanta.",
+                   "SI LA CONCESIÓN ES POR UNA VIOLACIÓN PROCESAL, la responsable NO",
+                   "puede dictar otra sentencia de inmediato: los efectos ordenan la",
+                   "REPOSICIÓN en el orden en que ha de cumplirse —qué se deja",
+                   "insubsistente; qué actuación viciada y qué resolución que la confirmó",
+                   "se dejan sin efectos; qué se admite, se practica o se ordena en su",
+                   "lugar; qué trámite sigue para la contraparte; y sólo al final, cerrada",
+                   "de nuevo la instrucción, el dictado de la sentencia de fondo con",
+                   "plenitud de jurisdicción—.", ""]
+    elif _concede_ef:
         lineas += ["",
                    "── LOS EFECTOS, AL FINAL Y CON ESTE RÓTULO ──",
                    "Después del último párrafo del estudio escribe, en su propia línea",
@@ -896,6 +1033,135 @@ estilo: son las operaciones que separan a unas de otras.
     SOBRA. La extensión acompaña a la calidad; no la produce.
 """
 
+# ═══ LO COMÚN, EN LA v2 (26-sep-2026) ═════════════════════════════════════
+# Cinco reglas de arriba se contradecían con otras del mismo prompt, y el
+# modelo obedecía a la que leyera al final (diagnóstico del estudio, C7 y C4):
+#   · la 1 mandaba TRANSCRIBIR el precepto entre comillas y el bloque de
+#     encima prohíbe transcribirlo en el cuerpo; la 2 enseñaba «Del precepto
+#     transcrito…», que ese mismo bloque prohíbe (fila 6 de la propuesta);
+#   · la 8 mandaba transcribir lo que alegó la parte —el resumen ya está
+#     arriba— y prohibía calificar dos juntos (fila 5);
+#   · la 9 mandaba un párrafo de objeción «por cada cuestión», y la objeción
+#     se ordenaba además desde otros tres sitios: salía contestada tres y
+#     cuatro veces (fila 8);
+#   · la 10 mandaba titular cada apartado y la FORMA prohíbe los rótulos
+#     (fila 7).
+# Aquí van quitadas o reescritas; lo demás, igual. La 11 remite a la regla
+# de suplencia del cuerpo, que en la v2 es una sola.
+_ARQUITECTURA_COMUN_V2 = """
+═══════════════════════════════════════════════════════════════════════
+EL CUERPO NO TRANSCRIBE: EL TEXTO ÍNTEGRO VA A LA NOTA AL PIE
+═══════════════════════════════════════════════════════════════════════
+Esto no es una preferencia de estilo: es cómo queda maquetado el documento, y
+si escribes contra ello el proyecto sale roto.
+
+El documento baja SOLO a la nota al pie el texto íntegro de cada precepto que
+identificas y de cada tesis larga. Tú no lo copias. Y como no hay transcripción
+en el cuerpo, TODA FRASE QUE LA ANUNCIE O REMITA A ELLA QUEDA APUNTANDO A NADA:
+
+  PROHIBIDO                        LO QUE SE ESCRIBE EN SU LUGAR
+  «…establece lo siguiente.»       «El artículo 38 del Código Fiscal de la
+  «…dispone lo siguiente.»          Federación exige que el acto notificado
+  «…señala lo siguiente:»           conste por escrito y lleve la firma del
+                                    funcionario competente.»
+  «Del precepto transcrito…»       «Del artículo 38…», «De esa disposición…»
+  «El criterio transcrito…»        «El criterio citado…», «Esa tesis…»
+  «la transcripción que antecede»  «lo dispuesto en ese precepto»
+
+Medido en la revisión fiscal 91/2025: el proyecto decía «El artículo 38 del
+Código Fiscal de la Federación establece lo siguiente.» y debajo, en vez del
+texto, empezaba otro párrafo. Y decía «Del precepto transcrito deriva que…»
+sobre un precepto que sólo estaba al pie. Ese proyecto no se puede firmar.
+
+LA REGLA, EN UNA LÍNEA: nombra el precepto o la tesis y DI LO QUE DICE, dentro
+de tu propia frase. Quien firme comprobará el texto en la nota.
+
+═══════════════════════════════════════════════════════════════════════
+EN REVISIÓN SE REVOCA; SÓLO EN AMPARO SE DEJA INSUBSISTENTE
+═══════════════════════════════════════════════════════════════════════
+David: «en revisión la sentencia no se deja insubsistente, se revoca. Sólo en
+amparo (cuando se concede) se ordena que se deje insubsistente el acto
+reclamado».
+
+No son dos maneras de decir lo mismo. Son dos figuras, y cada una vive en su
+sitio:
+
+  · REVISIÓN (o cualquier recurso). El tribunal es ÓRGANO REVISOR de esa misma
+    sentencia y la REVOCA: con eso deja de existir. No hay a quién ordenarle
+    que la deje insubsistente, porque ya no está. Si después hay reenvío, lo
+    que se ordena es DICTAR OTRA —«dicte otra sentencia en la que se ocupe de
+    los conceptos cuyo estudio omitió»—, no dejar insubsistente nada.
+
+  · AMPARO (directo, o indirecto en revisión, cuando se CONCEDE). El tribunal
+    NO revoca el acto reclamado: no es su superior jerárquico. Concede la
+    protección y ORDENA a la autoridad responsable que lo deje insubsistente y
+    dicte otro. Ahí sí, y por eso la fórmula existe.
+
+NO ESCRIBAS «deje insubsistente la sentencia recurrida» EN UN RECURSO. Es la
+fórmula del amparo colocada donde no cabe, y describe una potestad que este
+tribunal no está ejerciendo.
+
+
+
+═══════════════════════════════════════════════════════════════════════
+CÓMO SE ESCRIBE ESTE ESTUDIO
+═══════════════════════════════════════════════════════════════════════
+Esto está medido sobre 1,946 sentencias del propio acervo, comparando las que
+el corpus puntuó alto contra las que puntuó en la media. No son preferencias de
+estilo: son las operaciones que separan a unas de otras.
+
+1. DERIVA LA REGLA EN ABSTRACTO. Donde expones una premisa, nombra el precepto
+   y di lo que establece dentro de tu frase; enseguida, una frase puente que
+   extraiga la regla de modo que valga para CUALQUIER caso igual: ahí todavía
+   no nombras a quien promueve, ni al órgano, ni el expediente. La frase puente
+   retoma el precepto por su número o como «dicho numeral», nunca como
+   «transcrito»: en el cuerpo no hay transcripción. 33% arriba contra 3.3%
+   abajo.
+
+2. DI PARA QUÉ EXISTE LA NORMA, donde la premisa se expone: qué problema
+   resuelve el precepto y a qué derecho sirve. 53-62% arriba contra 26-43%
+   abajo.
+
+3. ENUNCIA EL LÍMITE DE LA REGLA. Toda regla se escribe con su frontera: lo que
+   no basta, lo que el órgano no debe hacer, o la excepción que la regla general
+   admite. SI NO PUEDES FORMULAR EL LÍMITE, LA REGLA ESTÁ MAL FORMULADA: no la
+   des por terminada. 53% arriba contra 31% abajo.
+
+4. RAZÓN PROPIA PRIMERO, CITA DESPUÉS. Donde expones una premisa, el
+   razonamiento del tribunal va delante y la tesis que lo respalda detrás.
+   Nunca abras un tramo con la cita: ése es el patrón de las medias, donde la
+   tesis sustituye al razonamiento en vez de apoyarlo.
+
+5. VE A LA EJECUTORIA, NO SÓLO A LA TESIS. Si el criterio viene de una
+   contradicción o de un asunto identificable, nómbralo y resume en tres a seis
+   líneas los hechos que la Corte tuvo enfrente. Y si afirmas que OBLIGA,
+   escribe por qué: expediente, órgano, fecha de sesión, votación y el precepto
+   que le da fuerza (artículo 217 o 223 de la Ley de Amparo). Sin esos datos no
+   escribas que obliga: cítalo como criterio orientador.
+
+6. NOMBRA LA OPERACIÓN. Prohibido el salto tesis → conclusión. Después de cada
+   criterio di qué haces con él: aplicación directa, analogía, identidad de
+   razón, orientador, o distinguible. Si es analogía, di en qué se parecen los
+   hechos. Si lo descartas, di por qué no aplica.
+
+7. CADA ARGUMENTO, UNA RESPUESTA IDENTIFICABLE. Quien lea el estudio tiene que
+   poder señalar dónde se contestó cada argumento de la parte, y con qué
+   calificación si no es la de su apartado. Estudiar varios juntos es correcto
+   cuando atacan la misma consideración y caen por la misma razón: se dice que
+   se estudian juntos, se nombran y se dice qué los une. Lo que no se hace es
+   volver a contar lo que alegó: el resumen de arriba ya lo contó.
+
+8. NO TE VAYAS POR LA PUERTA PROCESAL. Antes de declarar inoperante un
+   argumento, busca su causa de pedir e intenta el fondo; la inoperancia se
+   declara cuando ni así toca la razón que decide. Sólo el 7% de las mejores
+   sale por un filtro procesal, contra el 14% de las medias. (Si opera la
+   suplencia de la queja, rige la regla de suplencia de este prompt.)
+
+9. NO ALARGUES. Si un párrafo no enuncia una regla con su fuente, no la aplica
+   a un hecho del expediente, no contesta un argumento ni una objeción, SOBRA.
+   La extensión acompaña a la calidad; no la produce.
+"""
+
 # ── Y AQUÍ EL HALLAZGO QUE DESMONTA LO QUE YO HABÍA CONSTRUIDO ───────────────
 # Yo había hecho que el marco jurídico se escribiera ENTERO al principio y el
 # caso viniera después. En administrativa eso es exactamente lo que hacen las
@@ -1089,7 +1355,7 @@ def _bloque_circuito(tipo_asunto: str, criterios: list) -> str:
     return "\n".join(lineas) + "\n"
 
 
-def _bloque_conceptos(rama: str, conceptos: str) -> str:
+def _bloque_conceptos(rama: str, conceptos: str, variante: str = "v1") -> str:
     """Los conceptos de violación, cuando hay que estudiarlos por primera vez.
 
     Sólo aparece cuando el recurso LEVANTA UN SOBRESEIMIENTO. Entonces el
@@ -1112,6 +1378,12 @@ def _bloque_conceptos(rama: str, conceptos: str) -> str:
                 "añade en ADVERTENCIAS que el estudio de los conceptos de "
                 "violación queda pendiente porque no obran en el expediente "
                 "del recurso.\n")
+    # EN LA v2 NO HAY «CUATRO PASOS» A LOS QUE REMITIR (26-sep-2026): la
+    # limpieza los cambió por funciones por apartado, y una remisión a una
+    # técnica que el prompt ya no enseña apunta a nada.
+    _tecnica_c = ("con la MISMA forma de construir cada apartado que usaste con "
+                  "los agravios" if normalizar_variante(variante, "v1") == "v2"
+                  else "con la MISMA técnica de los cuatro pasos\nque usaste con los agravios")
     return f"""
 
 ESTUDIO DE LOS CONCEPTOS DE VIOLACIÓN — UN CONSIDERANDO NUEVO
@@ -1121,8 +1393,7 @@ JURISDICCIÓN: no devuelve el asunto al Juzgado de Distrito, lo resuelve él.
 
 Después del apartado en que declares fundado el agravio y levantes el
 sobreseimiento, ABRE UN APARTADO NUEVO —con su propio rótulo, «Estudio de los
-conceptos de violación»— y estúdialos con la MISMA técnica de los cuatro pasos
-que usaste con los agravios.
+conceptos de violación»— y estúdialos {_tecnica_c}.
 
 TRES COSAS QUE NO SE CONFUNDEN:
 - Los conceptos de violación son de la DEMANDA DE AMPARO y van contra el ACTO
@@ -1334,17 +1605,76 @@ inexhaustiva, y eso se combate en amparo.
 """
 
 
-def _bloque_arquitectura(materia: str) -> str:
+def _bloque_arquitectura(materia: str, variante: str = "v1") -> str:
     """Lo común más UNA arquitectura de materia. Nunca dos: son opuestas."""
     m = (materia or "").strip().lower()
+    _v2a = normalizar_variante(variante, "v1") == "v2"
+    comun = _ARQUITECTURA_COMUN_V2 if _v2a else _ARQUITECTURA_COMUN
     propia = _ARQUITECTURA.get(m, "")
+    if propia and _v2a:
+        propia = _arquitectura_materia_v2(propia)
     if not propia:
         # Sin materia identificada se entrega sólo lo común. Entregar la
         # arquitectura equivocada es peor que no entregar ninguna: en laboral
         # manda escribir en ciclos cortos y en administrativa manda justo lo
         # contrario.
-        return _ARQUITECTURA_COMUN
-    return _ARQUITECTURA_COMUN + propia
+        return comun
+    return comun + propia
+
+
+# ═══ LA ARQUITECTURA DE MATERIA, EN LA v2 (26-sep-2026) ════════════════════
+# Se deja entera salvo lo que contradice las reglas nuevas, que son de la
+# propuesta aprobada por David: la cuota de citas (laboral, cinco registros
+# como mínimo; civil, tres tesis transcritas) choca con «cada premisa con su
+# apoyo, máximo dos»; el título descriptivo y la transcripción del precepto de
+# la apertura administrativa chocan con «sin rótulos» y «el cuerpo no
+# transcribe»; el cierre obligatorio de la laboral, con «sin cierre por
+# defecto»; y la suplencia civil anunciada siempre, con el artículo 79, último
+# párrafo: «sólo se expresará en las sentencias cuando la suplencia derive de
+# un beneficio».
+#
+# POR SUSTITUCIÓN Y NO COPIA, para que la v2 no se quede atrás cuando alguien
+# afine la v1. Si un día una de estas frases cambia en la v1, la sustitución
+# no casa y la v2 conservaría la orden vieja: test_prompt_v2.py comprueba que
+# ninguna de las órdenes retiradas sobrevive, y ése es el aviso.
+_ARQUITECTURA_V2_CAMBIOS = (
+    ("el fondo. Cinco registros distintos como mínimo (media medida: 6.33 arriba,\n"
+     "3.46 abajo). Jurisprudencia",
+     "el fondo. Jurisprudencia"),
+    ("CIERRE. Dos partes obligatorias: (1) los efectos como LISTA NUMERADA de órdenes\n"
+     "en imperativo a la responsable, cada una verificable —«1. Deje insubsistente el\n"
+     "laudo; 2. Dicte otro en el que…»—: 53% arriba contra 32%; (2) un párrafo que\n"
+     "diga qué conceptos quedan sin estudiar y por qué. Si hay amparo adhesivo,\n"
+     "pronúnciate.",
+     "LO QUE QUEDA SIN ESTUDIAR se dice, con su razón, en el apartado donde toca;\n"
+     "y si se concede, los efectos van bajo su rótulo como lista numerada de\n"
+     "órdenes verificables (53% arriba contra 32%). Si hay amparo adhesivo,\n"
+     "pronúnciate."),
+    ("APERTURA. Título descriptivo de lo que se decide. Fija el orden de estudio\n"
+     "citando y TRANSCRIBIENDO el precepto que lo manda (artículo 93 de la Ley de\n"
+     "Amparo).",
+     "APERTURA. Fija el orden de estudio con el precepto que lo manda, nombrado y\n"
+     "dicho dentro de tu frase: en el amparo directo, el artículo 189 de la Ley de\n"
+     "Amparo; en la revisión, el 93."),
+    ("SI SÓLO TIENES EL REGISTRO Y NO EL TEXTO DE LA TESIS, NO LA CITES: OMÍTELA. Tres\n"
+     "tesis transcritas como mínimo cuando el asunto tenga dos o más cuestiones de\n"
+     "fondo (mediana medida: 4 rubros arriba, 1 abajo).",
+     "SI SÓLO TIENES EL REGISTRO Y NO EL TEXTO DE LA TESIS, NO LA CITES: OMÍTELA."),
+    ("—menores, materia familiar, orden público, violación manifiesta—. Si cae,\n"
+     "anúnciala en la misma frase del veredicto y fúndala con precepto y tesis: 53%\n"
+     "arriba contra 25%. Si no cae, no la menciones.",
+     "—menores, materia familiar, orden público, violación manifiesta—. Si cae y\n"
+     "de ella deriva un beneficio, anúnciala en la misma frase del veredicto y\n"
+     "fúndala con precepto y tesis: 53% arriba contra 25%. Si no cae, o no deriva\n"
+     "beneficio, no la menciones (artículo 79, último párrafo, de la Ley de\n"
+     "Amparo)."),
+)
+
+
+def _arquitectura_materia_v2(texto: str) -> str:
+    for viejo, nuevo in _ARQUITECTURA_V2_CAMBIOS:
+        texto = texto.replace(viejo, nuevo)
+    return texto
 
 
 def _sentido_del_fallo(criterios: list) -> str:
@@ -1411,6 +1741,18 @@ def prompt_estudio(resumen_acto: str, resumen_conceptos: str,
                    conceptos_violacion: str = "",
                    # EL ESCRITO DE LA PARTE, LITERAL. Ver `_bloque_escrito_literal`.
                    escrito_literal: str = "") -> str:
+    # LA VARIANTE LA TRAE EL MATERIAL, como la forma (ver `VARIANTES`). La v1
+    # es lo que sigue, congelado por test_prompt_v2.py; la v2 vive aparte
+    # para que tocarla no pueda mover ni una coma de la v1.
+    if _v2(material):
+        return _prompt_estudio_v2(
+            resumen_acto, resumen_conceptos, criterios, material,
+            es_recurso=es_recurso, partes=partes, marco=marco,
+            contexto=contexto, materia=materia,
+            propuesta_global=propuesta_global, rama=rama,
+            violacion_procesal=violacion_procesal,
+            conceptos_violacion=conceptos_violacion,
+            escrito_literal=escrito_literal)
     q = "agravios" if es_recurso else "conceptos de violación"
     # CÓMO SE LA NOMBRA. Estaba escrito «la parte quejosa» dentro de un EJEMPLO
     # de este prompt, y el modelo lo copiaba: en la revisión fiscal el proyecto
@@ -2018,6 +2360,627 @@ Nada más."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# LA v2 DEL PROMPT DEL ESTUDIO — la limpieza (26-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# El estudio repetía porque el prompt lo ordenaba: un apartado por concepto con
+# su premisa propia, «SIEMPRE LOS CUATRO» pasos, de tres a seis citas cada una
+# con su aplicación, la objeción mandada desde cuatro sitios, la calificación
+# al abrir y al cerrar, una recapitulación obligatoria y 3,733 palabras que
+# contaban dos veces los resúmenes. Medido: la ratio se re-enunciaba en el
+# 45-58 % de los párrafos, y el prompt ya traía siete órdenes contra la
+# repetición que perdían contra las que la mandaban (diagnóstico, § 1.7).
+#
+# Esto es el Paso 1 de la propuesta que David aprobó: quitar las órdenes que
+# se contradicen y las capas que fabrican repetición, SIN llamada nueva. Van
+# los peldaños B1, B2 y B3 de la tabla 4.6 y su decisión sobre el cierre:
+#   B1 · premisa sólo donde se expone por primera vez (filas 2-3); fuera
+#        «TRANSCRIBE LA FUENTE» y «Del precepto transcrito» (6), «TITULA POR
+#        FUNCIÓN» (7); la objeción una vez (8); cada premisa con su apoyo,
+#        máximo dos (9); una sola regla para no repetir la tesis (10); sin
+#        moldes de método (14) ni ejemplos que se copian (14b); la calificación
+#        una vez, al abrir (16); fuera los duplicados de efectos, calificación
+#        final (17) y suplencia (18).
+#   B2 · un techo medido sobre la Solución real en vez de la meta de 3,733
+#        (12) y una sola medida para lo accesorio (13).
+#   B3 · apertura de treinta palabras como máximo con la fórmula de David (4);
+#        cada argumento, una respuesta identificable (5).
+#   Decisión 3 (opción b): sin cierre por defecto; cierre breve sólo con tres
+#        o más apartados de resultado distinto (`_cierre_permitido`).
+# La técnica procesal (fila 21), el plan y las marcas (filas C) NO van aquí.
+#
+# LECCIÓN QUE NO SE NEGOCIA: un ejemplo escrito en el prompt se copia literal
+# al documento. Todo lo NUEVO de la v2 va en descripciones de función; lo único
+# nuevo entre comillas son palabras sueltas, la fórmula de David para abrir un
+# apartado que agrupa y frases que se PROHÍBEN —test_prompt_v2.py, sección 4,
+# acusa cualquier otra—. Lo que la propuesta manda conservar sin tocar (el
+# formato de cita, la ley ajena, el precepto dentro de la frase) conserva sus
+# ejemplos como estaban en la v1.
+
+def _techo_palabras(material, criterios) -> int:
+    """El techo de la Solución en la v2: el p90 medido, en la estándar; en la
+    moderna, la medida de `formato_sentencia`, que ya va por problema vivo."""
+    import formato_sentencia as _fs_t
+    if _fs_t.normalizar(getattr(material, "formato", "")) == _fs_t.MODERNA:
+        return _fs_t.palabras_moderna(criterios)
+    return SOLUCION_P90
+
+
+def _apartados_y_resultados(criterios: list) -> tuple:
+    """(apartados, resultados distintos), contados sobre el criterio.
+
+    Un grupo del secretario es un apartado; cada problema suelto, otro. El
+    resultado es la calificación en plural —«infundados», «innecesarios»—.
+    Se cuenta sobre el criterio y no sobre los conceptos porque es lo único que
+    se sabe antes de escribir: sin plan no hay quien diga cómo se agruparán."""
+    vistos, resultados = set(), set()
+    for i, c in enumerate(criterios or []):
+        g = str(getattr(c, "grupo", "") or "").strip()
+        vistos.add(("g", g) if g else ("i", i))
+        s = str(getattr(c, "sentido", "") or "").strip().lower()
+        if s:
+            resultados.add(_PLURAL.get(s, s))
+    return len(vistos), len(resultados)
+
+
+def _cierre_permitido(criterios: list) -> bool:
+    """David, 26-sep-2026, decisión 3, opción b: «sin cierre por defecto, y un
+    cierre breve sólo cuando hay tres o más apartados con resultados
+    distintos». Se lee así: tres apartados o más, y no todos con el mismo
+    resultado. Es determinista a propósito: que el modelo decida si recapitula
+    es lo que producía la recapitulación de siempre."""
+    n, distintos = _apartados_y_resultados(criterios)
+    return n >= 3 and distintos >= 2
+
+
+def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
+                       criterios: list[Criterio], material: Material,
+                       es_recurso: bool = False, partes=None, marco=None,
+                       contexto: str = "", materia: str = "",
+                       propuesta_global=None, rama: str = "",
+                       violacion_procesal: bool = False,
+                       conceptos_violacion: str = "",
+                       escrito_literal: str = "") -> str:
+    q = "agravios" if es_recurso else "conceptos de violación"
+    import tipos_asunto as _ta_e
+    import dialogo_constitucional as _dc_e
+    import formato_sentencia as _fs_e
+    # Lo mismo que la v1, en el mismo orden: el sentido del diálogo
+    # constitucional, el vocabulario del tipo y el nombre del órgano.
+    _fav_dc = getattr(material, "dialogo_favorece", None)
+    _mat_vista = material
+    if _fav_dc is False and any(t.get("metodo") for t in (getattr(material, "tesis", None) or [])):
+        import copy as _copy_dc
+        _mat_vista = _copy_dc.copy(material)
+        _mat_vista.tesis = [t for t in (material.tesis or []) if not t.get("metodo")]
+    _tipo = getattr(material, "tipo_asunto", "") or "amparo_directo"
+    _voc = _ta_e.vocabulario_de(_tipo)
+    parte = _voc["parte"]
+    q1 = _voc["combate_singular"]
+    _clase = ("una sentencia de amparo directo" if _voc["nombre"] == "amparo directo"
+              else f"la resolución de un {_voc['nombre']}")
+    _sjs = _ta_e.sujetos_de(_tipo)
+    _org = " o ".join(f"«{x}»" for x in _sjs["organo"][:2])
+    _org_rotulo = _sjs["organo"][0].upper()
+    calif = _calificacion(criterios)
+    _formato = _fs_e.normalizar(getattr(material, "formato", ""))
+    _moderna = _formato == _fs_e.MODERNA
+    _techo = _techo_palabras(material, criterios)
+    _forma = _fs_e.forma_del_estudio(_formato, q, q1, parte, calif, _techo,
+                                     variante="v2")
+    _ad = _ta_e.normalizar(_tipo) == "amparo_directo"
+    _materia_v = materia or getattr(material, "materia", "")
+    _tipo_tec = getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo")
+
+    # EL TECHO, DICHO COMO TECHO (fila 12). En la estándar se dice de dónde sale
+    # para que no se lea como meta; en la moderna es la medida de su forma.
+    _de_donde = (" Es el percentil 90 de la Solución medida en los engroses reales "
+                 "de este tribunal: nueve de cada diez resuelven en menos."
+                 if not _moderna else " Es la medida de la versión corta.")
+
+    # EL ORDEN, CON EL ARTÍCULO 189 (David, 26-sep-2026: «alinear al art.
+    # 189… también alinea a cómo debe resolverse (mayor beneficio art 189)»).
+    # En el amparo directo, además, las procesales se deciden todas —arts. 74,
+    # fracción V, y 174— y la única que puede quedar sin estudio es la que una
+    # concesión de fondo con mayor beneficio vuelve innecesaria. En un recurso
+    # el orden lo fija su técnica, cuando la hay.
+    if _ad:
+        _orden = (
+            f"EN EL AMPARO DIRECTO, EL FONDO ANTES QUE EL PROCEDIMIENTO Y LA FORMA:\n"
+            f"  el artículo 189 de la Ley de Amparo privilegia el estudio de los {q}\n"
+            f"  de fondo, y el orden sólo se invierte cuando estudiar primero una\n"
+            f"  violación procesal o formal redunda en un mayor beneficio para\n"
+            f"  {parte}; si lo inviertes, dilo y di en qué consiste ese beneficio.\n"
+            f"  Y LAS VIOLACIONES PROCESALES SE DECIDEN TODAS (artículos 74, fracción\n"
+            f"  V, y 174 de la misma ley): la única que puede quedar sin estudio es la\n"
+            f"  que una concesión de fondo con mayor beneficio vuelve innecesaria, y\n"
+            f"  entonces se dice así.")
+    else:
+        _orden = ("EN UN RECURSO, si la técnica de este asunto —más abajo— fija un\n"
+                  "  orden de estudio, ése manda.")
+
+    _recuerda_forma = (
+        f"Y LA FORMA ES LA MODERNA: cada problema con su pregunta sola en su "
+        f"párrafo, la respuesta enseguida nombrando el {q1} que contesta, sin "
+        f"pasar de {_techo} palabras en total y sin dejar ningún {q1} sin "
+        f"respuesta.\n"
+        if _moderna else
+        f"Y LA FORMA ES LA ESTÁNDAR: sin preguntas ni rótulos numerados; cada "
+        f"apartado abre con «Sobre el primer {q1}, en el que {parte} sostiene…» "
+        f"—o nombra a todos los que junta—, sigue su calificación y la "
+        f"demostración arranca con «Lo anterior…». Cada premisa se expone una "
+        f"vez y, donde vuelve a decidir, se recuerda en una frase; ningún {q1} "
+        f"sin una respuesta identificable.\n")
+
+    # EL CIERRE, EN UN SOLO SITIO Y DECIDIDO POR CÓDIGO (decisión 3).
+    if _cierre_permitido(criterios):
+        _n_ap, _ = _apartados_y_resultados(criterios)
+        _cierre = (
+            f"UN CIERRE BREVE, PORQUE EL ESTUDIO TIENE {_n_ap} APARTADOS CON\n"
+            f"RESULTADOS DISTINTOS. Después del último apartado —y antes de los\n"
+            f"EFECTOS, si los hay— puedes escribir un párrafo de tres frases como\n"
+            f"máximo que diga qué {q} resultan con qué calificación, con la razón de\n"
+            f"cada grupo en una línea. Sin efectos, sin volver a argumentar y sin\n"
+            f"remitir al lector a lo expuesto: si no dice nada que no esté ya dicho\n"
+            f"al abrir cada apartado, no lo escribas.")
+    else:
+        _cierre = (
+            f"SIN PÁRRAFO DE CIERRE. El estudio termina con su último apartado —y,\n"
+            f"si se concede, con los EFECTOS—. No recapitules: la calificación de\n"
+            f"cada {q1} ya está dicha al abrir su apartado, y la fórmula final la\n"
+            f"pone el documento.")
+
+    cierre_marco = ""
+    if isinstance(marco, str) and marco.strip():
+        cierre_marco = """
+Y EL MARCO JURÍDICO QUE SE TE DIO, SÓLO DONDE DECIDE. La sentencia no lleva
+apartado de marco: si un precepto constitucional o convencional es la premisa
+de un planteamiento, enúncialo AHÍ, en una frase, y sigue. Nada de repaso
+general de derechos humanos, de la Convención Americana o de la Corte
+Interamericana que no cambie la respuesta.
+"""
+    return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
+estudio de fondo de {_clase}. Escribes mejor que la media del
+oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
+
+FORMA — medida sobre 40 engroses firmados, no inventada:
+- ABRE con el encabezado ordinal y la CALIFICACIÓN: «SEXTO. Estudio. Los {q}
+  son {calif}.» Anunciar el resultado y luego demostrarlo es el orden que mejor
+  se lee, y el que sigue el 40% de los engroses reales.
+- FRASE de unas 35 palabras, SUBORDINADA; PÁRRAFO de unas 49, es decir UNA O
+  DOS FRASES POR PÁRRAFO. Es la medida real del corpus y no es un capricho: la
+  prosa judicial encadena la premisa y su consecuencia dentro de la misma
+  oración —«toda vez que», «en tanto que», «sin que obste»— en vez de apilar
+  cinco frases cortas bajo un mismo párrafo, que es como escribe un informe.
+- CONECTORES, por orden de uso real: {', '.join(f'«{c}»' for c in CONECTORES)}.
+  No repitas el mismo dos veces seguidas.
+- EL ÓRGANO RECURRIDO es {_org}; este tribunal se
+  nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
+  considera»). Nunca primera persona del singular.
+- LA EXTENSIÓN LA PONE EL ASUNTO, Y TIENE UN TECHO: {_techo} palabras EN TOTAL,
+  como máximo.{_de_donde} Es un techo, no una meta: un asunto con una sola
+  cuestión viva se resuelve en mucho menos, y nada se escribe para acercarse a
+  una cifra. Lo que decide se estudia a fondo; lo accesorio se mide así, y
+  ésta es la ÚNICA medida para todo el estudio:
+
+    · INNECESARIO —queda sin materia por el sentido de otro—: una o dos frases
+      que lo declaran innecesario y dicen por qué.
+    · CAE CON EL PRINCIPAL —descansa en la premisa que ya se desestimó—: un
+      párrafo.
+    · INOPERANTE: de uno a tres párrafos que dicen qué consideración deja sin
+      combatir, o por qué no puede examinarse, con su razón. La tesis sobre la
+      inoperancia se cita sólo si hace falta para sostenerla.
+    · RESIDUAL —un argumento menor dentro de un {q1} que se contesta—: una o
+      dos frases, con su calificación y su razón.
+
+  ESTO NO ES RECORTAR NI DEJAR TEMAS SIN CONTESTAR. Todos se contestan —la
+  exhaustividad se revisa de oficio y un tema olvidado es un amparo de
+  vuelta—; lo que cambia es cuánto se les dedica. Un proyecto que trata igual
+  lo que decide y lo accesorio es más largo, no más completo, y obliga a quien
+  lo lee a buscar dónde está la razón.
+
+  Y NO RELLENES. Si un apartado queda corto porque el tema es corto, está
+  bien. Repetir la misma razón con otras palabras no añade nada y es lo que un
+  revisor marca primero.
+- Sin Markdown y sin viñetas.
+{_forma}
+NO REPITAS LO QUE YA ESTÁ ESCRITO — esto es lo primero:
+- Los dos resúmenes que vienen abajo —lo que resolvió la responsable y lo que se
+  combate— YA OCUPAN SU PROPIO APARTADO en la sentencia, antes del tuyo. Se te
+  dan para que sepas de qué va el asunto, NO para que los reproduzcas.
+- TU TEXTO EMPIEZA CON LA CALIFICACIÓN GENERAL —una frase— y ACTO SEGUIDO abre
+  el primer apartado en la forma que fija el bloque FORMATO de arriba. Nada de
+  recuento.
+  Puedes referirte a lo que la responsable sostuvo cuando lo estés refutando,
+  pero no vuelvas a contar la resolución ni a enumerar los {q}: el lector
+  acaba de leerlos dos párrafos más arriba y se encontraría lo mismo por
+  tercera vez.
+- Y NO ESCRIBAS RÓTULOS. Nada de «Agravios:», «Conceptos de violación:» ni
+  «Solución:»: el documento ya los trae de la plantilla y salen duplicados.
+
+EL ORDEN Y LOS GRUPOS — se deciden aquí y se anuncian:
+- La síntesis de arriba respetó el orden y el número que propuso quien promueve.
+  ES AQUÍ donde se reordena o se juntan varios, y NUNCA en silencio: se dice
+  antes de empezar y con fundamento en el ARTÍCULO 76 DE LA LEY DE AMPARO.
+- EL CRITERIO PARA JUNTAR ES LA CONSIDERACIÓN QUE SE ATACA Y LA RAZÓN QUE LA
+  DECIDE, NO EL TEMA. Dos {q} que hablan de lo mismo pero atacan
+  consideraciones distintas, o que caen por razones distintas, no se juntan.
+  Tampoco los junta el artículo constitucional que invocan —casi todos repiten
+  el 14, el 16 y el 17—.
+- EL ORDEN ES EL DE PRELACIÓN LÓGICA: primero lo que decide la procedencia, y
+  cada accesorio después de su principal.
+  {_orden}
+- Si sigues el orden del escrito porque ya es el lógico, dilo y di por qué; si
+  lo sigues sin más, no invoques la prelación lógica.
+- El anuncio va en una o dos frases, con tus palabras: qué orden sigues y, si
+  juntas, cuáles juntas y qué los une. Un anuncio que no dice qué une a los que
+  junta no anuncia nada.
+
+CÓMO SE CONSTRUYE CADA APARTADO — por funciones, en este orden, y sólo las que
+hagan falta. No son pasos que se repitan en cada {q1}: son lo que un apartado
+puede necesitar.
+
+  1. ABRIR. Identifica y califica en la primera o segunda frase, en la forma
+     que fija el bloque FORMATO. Si el apartado junta varios {q}, dice qué los
+     une: la consideración que atacan y la razón que los decide.
+
+  2. EXPONER LA PREMISA, SÓLO DONDE SE EXPONE POR PRIMERA VEZ: la regla con su
+     fuente dentro de la frase, su límite y el apoyo que la sostiene, con su
+     punto extraído. Cada premisa se expone UNA vez en todo el estudio. Cuando
+     otro apartado depende de la misma regla no la vuelvas a construir:
+     recuerda en una frase la proposición concreta que decide ESTE argumento y
+     aplícala.
+
+  3. PASAR AL CASO. Una frase con la constancia que activa la regla. Aquí —y
+     sólo aquí— se entra en los hechos de este expediente: qué dice la
+     constancia, qué exige la regla y por qué encaja o no.
+
+  4. APLICAR. Los argumentos que no traen un dato propio se contestan en un
+     párrafo que los nombra a todos. El que trae un dato propio —un hecho, una
+     prueba, una cifra, un precepto, un precedente— lleva su párrafo o su
+     frase. Sólo la proposición se comparte; el hecho es de cada argumento.
+
+  5. REMITIR CON CONTENIDO. Si un argumento ya quedó contestado en otro
+     apartado, se remite nombrando ese apartado, con la proposición que decide
+     lo que este argumento tiene de distinto y el puente con él. Una remisión
+     que sólo manda a lo ya dicho deja el argumento sin respuesta.
+
+  6. DESARROLLAR LO NUEVO. Si un argumento trae algo que ninguna premisa ya
+     expuesta contesta, se dice qué trae de distinto y se construye SÓLO eso.
+
+  7. LA OBJECIÓN, UNA VEZ. La objeción seria —la que te dan abajo como
+     material del motor, o la que planteó la contraparte— se contesta una sola
+     vez en todo el estudio, en el apartado donde pesa y después de la razón
+     decisoria. Ahí es también donde se reconoce lo que el argumento de la
+     parte tiene de fuerte: si tiene un punto, se dice, y se explica por qué no
+     basta. Caricaturizarlo para tumbarlo produce una respuesta que no
+     responde.
+
+  8. RESIDUALES. Una o dos frases cada uno, con su calificación y su razón.
+
+  9. CERRAR EL APARTADO. Con la consecuencia y, si el siguiente depende de
+     éste, con el puente. La calificación no se repite: ya se dijo al abrir.
+
+  CÓMO SE DISTINGUE LO QUE SOBRA DE LO QUE NO:
+  · REPETICIÓN INNECESARIA: si se quita el pasaje, no se pierde ninguna
+    proposición. Se quita.
+  · RECAPITULACIÓN ÚTIL: más corta que lo que resume y seguida de una
+    inferencia; sólo cabe como recordatorio de una proposición justo antes de
+    aplicarla a un dato nuevo.
+  · APLICACIÓN DISTINTA DE LA MISMA REGLA: premisa común con otro hecho. Lleva
+    su paso de subsunción, no una premisa nueva.
+  · DESARROLLO INDISPENSABLE: ninguna proposición ya expuesta contesta lo
+    distintivo del argumento. Se desarrolla.
+
+  NO ESCRIBAS QUE LO ESTÁS HACIENDO. Anunciar que el planteamiento se toma «en
+  su versión más favorable», o rotular «la mejor objeción a esta conclusión»,
+  delata que sigues una instrucción en vez de redactar una sentencia: en un
+  engrose eso no se dice, se hace. Lo que alega la parte se atribuye a la
+  parte. David tachó las dos a mano.
+
+  CÓMO SE ENCADENAN LOS PÁRRAFOS. No son párrafos puestos uno detrás de otro:
+  son un razonamiento que avanza, y cada párrafo lo dice al avanzar. Salvo el
+  que abre el apartado, CADA PÁRRAFO ARRANCA RETOMANDO EL ANTERIOR: «Al
+  respecto,», «Así,», «En ese sentido,», «Por otro lado,», «Respecto de lo
+  anterior,», «En tal sentido,», «Por ende,», «En consecuencia,», «Ahora
+  bien,», «No obstante,». Y cuando anuncies que vas a justificar algo,
+  ciérralo con dos puntos.
+
+  Un apartado cuyos párrafos empiezan cada uno por su cuenta —«El Juzgado…»,
+  «El artículo…», «La recurrente…»— se lee como una lista de afirmaciones
+  sueltas aunque el razonamiento sea correcto. David repuso a mano NUEVE de
+  estos enlaces en un solo proyecto: ésa es la diferencia entre un borrador y
+  un engrose.
+
+  EL LISTÓN, MEDIDO: en el engrose que él corrigió, UNO DE CADA CUATRO
+  párrafos abre con conector. En lo que se generó sin esta regla, uno de cada
+  nueve. Apunta a uno de cada tres: cuesta cinco palabras por párrafo y es lo
+  que hace que el proyecto se lea de corrido en vez de a saltos.
+
+  Y no repitas el mismo enlace dos veces seguidas —dos «En consecuencia,»
+  pegados cansan igual que ninguno—. Tienes diez para alternar.
+
+  QUÉ DICE CADA CALIFICACIÓN:
+  · SUSTANCIALMENTE FUNDADO: tiene razón en lo esencial de su planteamiento y
+  eso basta. Prospera. Medido: aparece en asuntos favorables el 97% de las
+  veces, más que el propio «fundado».
+  · PARCIALMENTE FUNDADO: tiene razón en una parte de lo que plantea y no en
+  otra. Prospera en esa parte, y el proyecto acota cuál. Medido: 141 de sus
+  365 apariciones están en asuntos que conceden PARCIALMENTE.
+  · FUNDADO PERO INSUFICIENTE: tiene razón Y AUN ASÍ NO ALCANZA, porque
+  subsisten otras consideraciones que sostienen el sentido. NO PROSPERA: en el
+  acervo aparece en asuntos favorables el 12% de las veces, igual que el
+  infundado. Es la calificación honesta cuando el planteamiento acierta y el
+  resultado no cambia; usarla en lugar de «infundado» reconoce el acierto sin
+  mover el fallo.
+  · INATENDIBLE: no puede atenderse por CÓMO o CUÁNDO se plantea —es oscuro, no
+  se entiende qué combate, o llega fuera del momento procesal—, no por lo que
+  dice. Se distingue del inoperante: el inoperante SE ENTIENDE y no combate la
+  razón toral; el inatendible ni siquiera puede examinarse.
+
+  ESENCIALMENTE FUNDADO no es un fundado tibio ni una forma de no mojarse: es
+  el planteamiento que combate la razón toral y tiene razón EN LO SUSTANCIAL,
+  aunque no en todos sus términos —se equivoca en un dato, en un precepto o en
+  el alcance que pide—. Prospera igual que el fundado; lo que cambia es que el
+  proyecto ACOTA en qué medida, y esa acotación es la que fija los efectos.
+  Medido en este circuito: es el 23% de los agravios de las revisiones que
+  revocan. Si el secretario la eligió, respétala y di en qué parte se le da la
+  razón y en cuál no. Si es inoperante, la razón TÉCNICA de la inoperancia: que
+  no combate la razón toral, que es novedoso, que versa sobre cuestión firme.
+
+- Si lo que se combate es la REDACCIÓN de una parte del acto reclamado,
+  TRANSCRÍBELA entre comillas antes de analizarla. UNA VEZ y lo justo.
+
+- NO VIVAS DE LA CITA. Éste es el defecto medido en los engroses de este mismo
+  tribunal que sirven de referencia: en uno de ellos, 2,260 de las 3,798
+  palabras del estudio —el 59%— son la transcripción literal de una ejecutoria
+  de la Suprema Corte, y lo que sigue parafrasea lo mismo; el razonamiento
+  propio cabe en seiscientas. En otro, el 48% del considerando es relato de la
+  sentencia reclamada, después de haber prometido que era innecesario
+  transcribirla. Medido sobre los cinco: el razonamiento propio es el 45%.
+  Aquí ha de ser al revés. Del criterio que invoques, trae la REGLA en una o
+  dos frases y sigue razonando: el rubro y el registro identifican la tesis; su
+  texto íntegro va en la nota al pie, no en el cuerpo.
+
+  Y EL PRECEPTO, IGUAL QUE LA TESIS: NO LO TRANSCRIBAS. Su texto baja solo a
+  la nota al pie —de eso se encarga el documento— y en el cuerpo va lo que
+  dice, dicho por ti y DENTRO de tu frase:
+
+      SÍ:  «Del artículo 63, fracción IV, de la Ley de Amparo deriva que la
+            procedencia del juicio exige la existencia del acto reclamado.»
+      SÍ:  «A su vez, el artículo 65 de la Ley de Amparo impone que el
+            sobreseimiento por inexistencia se apoye en una conclusión
+            objetiva.»
+      NO:  «El artículo 63, fracción IV, de la Ley de Amparo. De ese precepto
+            deriva que…»   ← el artículo suelto, sin verbo, y la regla en otra
+            frase. Así salieron CUATRO párrafos de un mismo proyecto, y David
+            los corrigió a mano uno por uno.
+
+  El artículo es el SUJETO o el COMPLEMENTO de tu oración, nunca un rótulo
+  aparte. Si al quitarle la transcripción tu frase se queda sin verbo, la frase
+  estaba mal construida.
+
+- NO REPITAS EL MISMO PASAJE DOS VECES. Medido en el engrose del ADC 642/2024
+  que sirve de referencia: tres párrafos copiados palabra por palabra dentro
+  del mismo considerando, ochenta líneas después. Si el artículo 79 de la Ley
+  de Amparo ya se enunció al fijar la premisa, más adelante se le NOMBRA
+  —«el precepto citado», «la regla ya enunciada»— y no se vuelve a explicar.
+  NUNCA «el precepto transcrito»: en el cuerpo no hay transcripción, está en la
+  nota, y esa palabra manda al lector a buscar algo que no existe.
+  Un pasaje repetido no refuerza: delata que el estudio se escribió por trozos.
+
+- NO REMITAS POR ORDINAL A OTRO CONSIDERANDO. «En términos del considerando
+  séptimo» obliga a que exista un séptimo, y tú no sabes cuántos tendrá el
+  documento —los ordinales los calcula el compositor al final, y en una queja
+  hay tres apartados donde en un amparo directo hay seis—. Medido en el
+  engrose del ARA 17/2025 que sirve de referencia: su resolutivo remite al
+  «considerando séptimo» y ese engrose no tiene séptimo considerando. Remite
+  por su NOMBRE —«en el apartado de antecedentes», «al resolver el primer
+  agravio»— que no se descoloca.
+
+- SI JUNTAS PLANTEAMIENTOS, DI CUÁLES Y QUÉ LOS UNE. Estudiar varios juntos es
+  correcto cuando atacan la misma consideración y caen por la misma razón —el
+  reencuadre que los hace caer todos a la vez ahorra treinta páginas—, pero
+  hay que nombrarlos uno por uno por su ordinal y decir cuál es esa
+  consideración y cuál esa razón. Juntar sin decir cuáles es indistinguible de
+  olvidarse de uno.
+
+- Y NO PROMETAS LO QUE NO VAS A CUMPLIR. Si el documento dijo que era
+  innecesario transcribir la sentencia recurrida, no la parafrasees después
+  entera: eso pasa en los CINCO engroses de referencia y es lo primero que se
+  nota al leerlos seguidos.
+
+- LA SUPLENCIA DE LA QUEJA, EN UN SOLO SITIO. Donde la ley la manda —la persona
+  menor de edad o incapaz (artículo 79, fracción II, de la Ley de Amparo), la
+  materia penal en favor de la persona inculpada o sentenciada (fracción III),
+  la persona trabajadora (fracción V), entre otras—, un argumento mal expuesto
+  se SUPLE y se estudia: no se declara inoperante por deficiencia en su
+  impugnación —porque «no combatió la razón toral» o «no precisó qué prueba se
+  omitió»—, que es aplicarle la técnica de estricto derecho que la ley le
+  releva. Y la suplencia SÓLO SE EXPRESA en la sentencia cuando de ella deriva
+  un beneficio (artículo 79, último párrafo): si al suplir nada cambia, no se
+  menciona.
+
+FUNDAMENTO — hay que fundar, y hay que fundar bien:
+- FUNDA CON LAS TESIS OBLIGATORIAS DEL MATERIAL. Una premisa que decide sin
+  apoyo no es un engrose: es una opinión con formato de sentencia.
+
+  LA MEDIDA: cada premisa que decide, con su apoyo —el que de verdad la
+  sostiene, y como máximo dos—. Ninguna tesis se cita dos veces en el estudio:
+  si la misma vuelve a servir, se la nombra como ya citada y se aplica. La que
+  sólo refuerza lo ya fundado NO se cita. Si de veras ninguna de las que tienes
+  sostiene una premisa, razónala sin ella y sigue: pero que eso sea la
+  excepción, no la norma.
+- Sólo se cita lo que está en el MATERIAL. NUNCA inventes un registro digital
+  ni un número de tesis: tus datos de entrenamiento son viejos y falsos.
+- LEE EL TEXTO DE LA TESIS ANTES DE INVOCARLA, no sólo su rubro. El rubro es
+  un título y a menudo dice menos —o algo distinto— de lo que la tesis resuelve.
+  Si una tesis concreta no sostiene lo que quieres afirmar, usa OTRA de las que
+  tienes; dejar sin apoyo la premisa que decide no es la salida.
+- ASÍ SE CITA, Y NO DE OTRA FORMA. La cita ocupa su propio final de párrafo y
+  el rubro NO se embebe en mitad de una frase que sigue después:
+
+      Sirve de apoyo el criterio de registro 2022074:
+
+  Y ahí se detiene el párrafo. NO ESCRIBAS TÚ NI EL TIPO NI EL ÓRGANO: no digas
+  «la jurisprudencia», no digas «tesis aislada», no digas «de la Primera Sala».
+  El documento los pone solo, tomados del acervo, junto con el rubro y el texto
+  íntegro.
+- NO CITES UN CRITERIO PARA DECIR DESPUÉS QUE NO APLICA. Salió esto en un
+  proyecto: «Sirve de apoyo la jurisprudencia … INCONFORMIDAD. LA SUPREMA
+  CORTE DEBE SUPLIR LA QUEJA DEFICIENTE…» y, tres renglones más abajo, «el
+  criterio citado NO SE APLICA DIRECTAMENTE, porque se refiere al cumplimiento
+  de una sentencia de amparo». David lo tachó entero, y con razón: «Sirve de
+  apoyo» es una afirmación, y lo que no sirve de apoyo no se invoca.
+  Si el criterio aplica, se cita y se dice qué regla aporta. Si no aplica, NO
+  SE CITA: se borra y se sigue razonando. Un acervo que no trae la tesis del
+  punto no se disimula rellenando con la más parecida; se dice que falta, que
+  es información útil, y la afirmación se sostiene con lo que sí haya.
+  ÚNICA EXCEPCIÓN: citarlo para DISTINGUIRLO cuando la contraparte lo invocó o
+  cuando el asunto se parece y hay que explicar por qué no gobierna. Entonces
+  no se abre con «sirve de apoyo» sino con «no resulta aplicable el criterio…,
+  porque…», que es lo contrario y se lee como lo que es.Antes este ejemplo nombraba una Sala concreta y el modelo lo copiaba
+  cambiando sólo el número: así una tesis aislada del Pleno salió publicada como
+  «jurisprudencia de la Primera Sala», y la nota al pie de la misma página —que
+  sí sale del acervo— la desmentía. Tú escribes el verbo que ata la cita a tu
+  razonamiento; de identificarla se encarga el documento. Escribir «la jurisprudencia de registro X, de rubro
+  «Y», establece que…» deja la cita partida por la mitad y sin transcripción.
+- LA INSTANCIA VA SIEMPRE: «de la Primera Sala de la Suprema Corte de Justicia
+  de la Nación», «de la Segunda Sala», «del Pleno», «de un Tribunal Colegiado de
+  Circuito». Sin ella no se sabe qué peso tiene el criterio.
+- Y NOMBRA LA LEY EN LA MISMA FRASE, SIEMPRE. «El artículo 4º» a secas no
+  identifica nada: el 4º existe en la Constitución, en el Código Civil, en el
+  Procesal y en veinte leyes más. Escribe «el artículo 4º de la Constitución
+  Política de los Estados Unidos Mexicanos», «el artículo 296 del Código Civil
+  del Estado de Querétaro». No es pedantería: el documento baja al pie el TEXTO
+  ÍNTEGRO de cada precepto que puede identificar, y esa nota es lo que permite
+  a quien firma comprobar de un vistazo si el artículo dice lo que le atribuyes.
+  Un artículo sin su ley se queda sin nota, y la afirmación sin respaldo.
+- CITA LOS ARTÍCULOS QUE TIENES, NO LOS QUE RECUERDAS. En el bloque de NORMAS
+  van los preceptos que el acervo encontró para este asunto, con su texto
+  íntegro. Ésos son los que se citan, por su número y su cuerpo legal exacto.
+  Si citas un artículo que no está ahí —«el 242 del Código Civil Federal»— pasan
+  dos cosas malas a la vez: nadie puede comprobar que diga lo que le atribuyes,
+  y el documento no puede llevar su texto al pie, que es lo que permite a quien
+  firma verificarlo de un vistazo. Cuando de verdad necesites uno que no tengas,
+  dilo con esas palabras en vez de citarlo de memoria.
+- EL CÓDIGO QUE RIGE ES EL DE LA ENTIDAD, Y SÓLO EL QUE ESTÁ EN EL MATERIAL.
+  El CÓDIGO NACIONAL DE PROCEDIMIENTOS CIVILES Y FAMILIARES entró en vigor de
+  forma ESCALONADA y en muchas entidades —Querétaro entre ellas— TODAVÍA NO
+  RIGE: ahí siguen aplicándose el Código Civil y el Código de Procedimientos
+  Civiles del Estado. Aplicar un código que aún no ha entrado en vigor invalida
+  la sentencia entera, y es un error que no perdona nadie.
+  LA REGLA MECÁNICA: no cites ningún código que no aparezca en las NORMAS del
+  material. El acervo trae la legislación vigente de la entidad del asunto; si
+  el Código Nacional no está ahí, es porque en esa entidad no rige.
+- LA LEY AJENA NO ENTRA; EL CRITERIO AJENO SÍ. Es la distinción que más veces
+  se ha roto y está medida sobre 139 documentos de este tribunal: NO HAY UNA
+  SOLA aplicación de ley de otra entidad, y hay decenas de criterios que
+  interpretan la de otra entidad, invocados con toda naturalidad.
+  · PROHIBIDO razonar con el Código Civil o de Procedimientos de Jalisco, de la
+    Ciudad de México o de cualquier otra entidad. El juicio de origen se rige
+    por la legislación del Estado de la entidad del asunto y ESA es la que se aplica. La
+    analogía ENTRE CÓDIGOS DE ENTIDADES DISTINTAS no existe aquí: cuando la
+    parte la propone, este Tribunal la rechaza —«la analogía es improcedente»—.
+    La única analogía de ley admisible es dentro del propio código queretano.
+  · PERMITIDO invocar jurisprudencia que interprete legislación de otra
+    entidad, por una de estas tres razones y sólo por ellas:
+      – porque de ella deriva un MANDATO INTERPRETATIVO DE FUENTE
+        CONSTITUCIONAL: la Corte fija cómo debe entenderse la figura jurídica;
+      – porque la legislación interpretada ES LA DE QUERÉTARO;
+      – porque la de otro estado es DE CONTENIDO SIMILAR a la queretana.
+  · Y SE CITA SIN EXCUSARSE, anclando al PRINCIPIO y no a la norma ajena. Están
+    PROHIBIDAS las fórmulas «por tratarse de legislación diversa a la aplicable
+    al caso», «aunque referido a la legislación del Estado de X» y cualquier
+    otra que ponga la entidad ajena como razón: no aparecen ni una vez en el
+    corpus. Se escribe así:
+        «Sustenta esa consideración, por analogía, la jurisprudencia 2a./J.
+         58/2010 de la Segunda Sala de la Suprema Corte de Justicia de la
+         Nación, de registro …, de rubro y texto siguientes:»
+        «De acuerdo con el principio rector que informa la tesis precitada, es
+         factible considerar que…»
+        «resulta aplicable, por identidad de razón, … pues si bien en aquel
+         precedente el análisis se centró en X, el principio rector es el mismo»
+    La cláusula concesiva —«si bien…», «aun cuando…»— salva una distancia DE
+    TEMA O DE SUPUESTO, NUNCA de entidad federativa.
+  · SI EL CRITERIO ES DE LA SUPREMA CORTE NO HAY PUENTE QUE TENDER: es
+    obligatorio conforme al artículo 217 de la Ley de Amparo y la legislación
+    que interpretó resulta irrelevante. Se aplica en seco, sin «por analogía».
+  · SI ES DE UN COLEGIADO DE OTRO CIRCUITO el verbo es COMPARTIR, no obedecer:
+    «Por lo anterior se comparte el criterio sustentado en la jurisprudencia…».
+- EL REGISTRO DIGITAL VA SIEMPRE, sin excepción, en la misma frase que el rubro.
+  La clave —«2a./J. 58/2010»— no lo sustituye: sin el registro nadie comprueba
+  la cita en el Semanario, que es para lo que sirve citarla.
+- Al citar una tesis: en el CUERPO van sólo el rubro entre comillas y el
+  registro. NADA MÁS. La localización —«[J]; 11a. Época; 1a. Sala; Gaceta
+  S.J.F.; Libro 52…»— NO se escribe en el cuerpo: el documento la coloca sola
+  al pie, que es donde va en una sentencia, y escribirla dos veces obliga a
+  borrarla a mano. El texto de la tesis tampoco lo transcribas: se transcribe
+  solo, desde el acervo, palabra por palabra.
+- DESPUÉS DE LA CITA, NO LA REPITAS: ÚSALA. Es lo que más se rompe. El
+  documento transcribe el texto íntegro de la tesis debajo de la cita, palabra
+  por palabra; si después vuelves a contar lo que dice, el lector se encuentra
+  lo mismo dos veces y la sentencia engorda sin decir nada nuevo. Si la tesis
+  es la PREMISA de tu razonamiento, lo que sigue a la cita es UNA frase que
+  extrae su punto con palabras tuyas —más abstracta que el texto transcrito— y
+  lo gira de inmediato a este asunto: por qué eso decide ESTE caso. Si lo que
+  escribes tras la cita se entiende sin conocer el expediente, es un resumen de
+  la tesis: bórralo.
+- La INOPERANCIA se razona: hay que decir POR QUÉ el planteamiento no combate
+  la razón toral, no basta con declararla.
+- SI CITAS UN CRITERIO, RESUELVE CONFORME A ÉL. Invocar una jurisprudencia que
+  dice que el reconocimiento de un hecho no releva al patrón de probar los
+  elementos de la causal, y acto seguido tener por probada la causal porque el
+  trabajador reconoció el hecho, es contradecirse dentro del mismo párrafo. Si
+  el criterio no lleva a donde quieres ir, NO lo cites: busca otro o razona sin
+  él. Una cita que el propio fallo desmiente es peor que ninguna cita.
+- NUNCA SUPONGAS LO QUE CONSTA. Un tribunal tiene los autos delante: o el hecho
+  consta y se AFIRMA, o no consta y se dice que no obra. Están PROHIBIDAS las
+  fórmulas «si … fue efectivamente», «se afirma que», «según lo planteado», «de
+  ser cierto», «en el supuesto de que». Si el material no te permite afirmar,
+  escribe que el punto no está acreditado y sigue.
+{_bloque_ley_de_la_via(material)}
+{_bloque_aportado(contexto)}
+{_bloque_constancias(propuesta_global, contexto, criterios)}
+{partes.bloque() if partes is not None else ""}
+{marco if isinstance(marco, str) else ""}
+{_bloque_arquitectura(_materia_v, "v2")}
+{_bloque_tecnica(_tipo_tec, rama, violacion_procesal)}
+{_bloque_circuito(_tipo_tec, criterios)}
+{_bloque_conceptos(rama, conceptos_violacion, "v2")}
+{_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}
+{_bloque_global(propuesta_global, criterios)}
+{_bloque_precedente(material, criterios)}
+{_bloque_material(_mat_vista)}
+
+═══════════════════════════════════════════════════════════════════════
+LO QUE RESOLVIÓ {_org_rotulo}
+═══════════════════════════════════════════════════════════════════════
+{resumen_acto}
+
+═══════════════════════════════════════════════════════════════════════
+LO QUE SE COMBATE
+═══════════════════════════════════════════════════════════════════════
+{resumen_conceptos}
+{_bloque_escrito_literal(escrito_literal, resumen_conceptos)}
+
+Escribe el estudio de fondo.
+{cierre_marco}
+{_dc_e.cierre_estudio(material, _fav_dc)}
+{_recuerda_forma}
+NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
+frase de cierre que corresponde al tipo de asunto. Si tú escribes otra igual,
+el proyecto acaba con dos cierres seguidos diciendo lo mismo, que es lo que
+pasó en la revisión 410/2026.
+{_cierre}
+
+Si hay obstáculos al sentido fijado, añade al final —DESPUÉS de los EFECTOS DE
+LA CONCESIÓN, si los hay: los efectos son sentencia y las advertencias no— un
+apartado «ADVERTENCIAS» —fuera del cuerpo de la sentencia— con lo que el
+secretario debe valorar.
+Nada más."""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Verificación antes de entregar
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -2116,6 +3079,12 @@ _SUSPENSION_LA = range(125, 170)
 # mudo: probado con « » y no saltaba ni una alarma.
 _RX_RUBRO_CITADO = re.compile(
     r"[“«\"]\s*[A-ZÁÉÍÓÚÑ][^”»\"]{25,}[”»\"]")
+# LA CLAVE DE UNA TESIS —«2a./J. 58/2010», «I.3o.C. 12/2024»—. Sirve para
+# saber si un estudio se apoyó en alguna, aunque no dé el registro: medido en
+# los engroses Kingston, casi ninguno escribe «registro» en el cuerpo y todos
+# los que citan dan rubro o clave (v2 de `revisar`, 26-sep-2026).
+_RX_CLAVE_TESIS = re.compile(
+    r"\b(?:\d{1,2}a\.|P\.|PC\.|[IVXL]+\.\d{1,2}o\.[A-Z]?\.?)\s*/?\s*J?\.?\s*\d{1,4}/\d{4}")
 
 
 def _frases(t: str) -> set:
@@ -2639,6 +3608,11 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
             resumen_acto: str = "", marco: str = "") -> list[str]:
     """Lo comprobable sin modelo. Ninguna de estas es opinión."""
     avisos: list[str] = []
+    # CUATRO COMPROBACIONES CAMBIAN CON LA v2 (26-sep-2026): las que
+    # acusarían a la salida buena de la limpieza —la de pocas citas, la de
+    # «se quedó corto», la del cierre que oscila y la de exceso—. Cada una
+    # dice abajo con qué se calibró. La v1 se revisa como siempre.
+    _v2r = _v2(material)
 
     # Lo que añadió la medición sobre 1,946 sentencias del acervo.
     for comprobacion in (
@@ -2665,7 +3639,21 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     #        los arreglos avisaba tres veces contra citar mal y ninguna a favor
     #        de citar bien.
     obligatorias = [t for t in material.tesis if t.get("obligatoria")]
-    if obligatorias and len(citados) < 2:
+    # EN LA v2, «PREMISA SIN NINGÚN APOYO», Y EN SOMBRA. La v2 manda un apoyo
+    # por premisa, máximo dos, y ninguna tesis dos veces: un estudio bueno de
+    # un solo problema vivo cita una. «Menos de dos… entre tres y seis» lo
+    # acusaría siempre. Se baja a CERO apoyos —ni registro, ni rubro, ni
+    # clave— y aun así, calibrado contra la Solución de los 24 engroses
+    # Kingston, SEIS de ellos no citan ninguna tesis identificable (los ADC
+    # 296/2025, 481, 526, 529, 625 y 641/2024): un aviso visible acusaría a uno de
+    # cada cuatro engroses buenos. Por eso en la v2 sólo se registra, hasta
+    # que se calibre con lo que el material traía en cada caso.
+    if _v2r:
+        if obligatorias and not citados and not _RX_RUBRO_CITADO.search(estudio) \
+                and not _RX_CLAVE_TESIS.search(estudio):
+            print(f"   🔎 SOMBRA v2 · premisa sin apoyo: el estudio no cita ninguna "
+                  f"tesis teniendo {len(obligatorias)} obligatorias en el material")
+    elif obligatorias and len(citados) < 2:
         cuantas = "NI UNA TESIS" if not citados else "una sola tesis"
         avisos.append(f"El estudio cita {cuantas} teniendo "
                       f"{len(obligatorias)} obligatorias en el material "
@@ -2857,7 +3845,18 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     # 3. Largo.
     n = len(estudio.split())
     _obj_r = _objetivo_palabras(material, criterios)
-    if n < 0.45 * _obj_r:
+    import formato_sentencia as _fs_r
+    _moderna_r = _fs_r.normalizar(getattr(material, "formato", "")) == _fs_r.MODERNA
+    # EN LA v2 DE LA ESTÁNDAR NO HAY META CONTRA LA QUE QUEDARSE CORTO: hay un
+    # techo. Lo corto se mide contra la Solución real: ningún engrose del
+    # banco Kingston baja de 1,303 palabras, así que el piso de 1,000 no acusa
+    # a ninguno de los 24. El 45 % de 3,733 que usa la v1 acusaba a tres.
+    if _v2r and not _moderna_r:
+        if n < SOLUCION_PISO:
+            avisos.append(f"El estudio tiene {n} palabras; ningún engrose real "
+                          f"del banco resuelve en menos de {SOLUCION_PISO}. "
+                          f"Revisa si quedó algún planteamiento sin razonar.")
+    elif n < 0.45 * _obj_r:
         avisos.append(f"El estudio tiene {n} palabras; la mediana de los "
                       f"engroses es {PALABRAS_ESTUDIO}. Se quedó corto."
                       if _obj_r == PALABRAS_ESTUDIO else
@@ -2956,7 +3955,14 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     # a rehacer es que el cierre diga a la vez que prospera y que no.
     califs = {("prospera" if m.group(1).lower().startswith("fundad") else "no_prospera")
               for m in _RX_CALIF.finditer(cierre) if _es_calif(m)}
-    if len(califs) > 1 and len({c.sentido[:7].lower() for c in criterios}) == 1:
+    # EN LA v2 NO HAY CIERRE QUE PUEDA OSCILAR. Sin cierre por defecto
+    # (decisión 3 de David), las últimas 160 palabras son el último apartado,
+    # que puede citar lo que la responsable estimó fundado o infundado sin que
+    # eso sea una calificación del tribunal. Y cuando la v2 sí permite un
+    # cierre breve es porque hay resultados distintos, justo el caso en que
+    # esta comprobación ya no mira.
+    if (not _v2r and len(califs) > 1
+            and len({c.sentido[:7].lower() for c in criterios}) == 1):
         avisos.append(f"El cierre oscila entre calificaciones {sorted(califs)}; "
                       f"el criterio pedía una sola. Obliga a rehacer el resolutivo.")
 
@@ -2970,15 +3976,23 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
 
     # 6. Largo por exceso. El corpus tiene una medida y pasarse al doble no es
     #    rigor: es repetir el argumento con otras palabras.
-    if n > PALABRAS_ESTUDIO_P90:
+    # EN LA v2 SE MIDE CONTRA LA SOLUCIÓN, que es lo que el estudio escribe:
+    # los 6,618 son el p90 del considerando con sus resúmenes. Salta a 1.25
+    # veces el techo del prompt; calibrado, acusa a los mismos tres engroses
+    # Kingston que el aviso de la v1 (ver `SOLUCION_EXCESO`).
+    if _v2r and not _moderna_r:
+        if n > SOLUCION_EXCESO:
+            avisos.append(f"El estudio tiene {n} palabras y el techo de la "
+                          f"Solución es {SOLUCION_P90}: nueve de cada diez "
+                          f"engroses reales resuelven en menos. Revisa si hay "
+                          f"repetición.")
+    elif n > PALABRAS_ESTUDIO_P90:
         avisos.append(f"El estudio tiene {n} palabras; sólo el 10% de los "
                       f"engroses reales pasa de {PALABRAS_ESTUDIO_P90}. "
                       f"Revisa si hay repetición.")
     # LA MODERNA TIENE SU PROPIA MEDIDA, y pasarse de ella por la mitad es
     # haber escrito la estándar con preguntas: lo que el secretario eligió
     # precisamente para no recibir.
-    import formato_sentencia as _fs_r
-    _moderna_r = _fs_r.normalizar(getattr(material, "formato", "")) == _fs_r.MODERNA
     if _moderna_r and n > 1.5 * _obj_r:
         avisos.append(f"LA VERSIÓN MODERNA SALIÓ LARGA: {n} palabras donde se "
                       f"pedían unas {_obj_r}. Busca lo que no decide —recuentos, "
@@ -3064,6 +4078,40 @@ _RX_EFECTOS_TRAS_ADV = re.compile(
     r"\s+CONSTITUCIONAL))?\s*(?:\*\*|__)?\s*[.:]?\s*\n", re.I)
 
 
+# ═══ LO QUE SE ANOTA DE CADA ESTUDIO (26-sep-2026) ════════════════════════
+# La propuesta del estudio empieza por medir, y la ficha del proyecto no
+# guardaba con qué se hizo: ni la variante del prompt, ni si el modelo acabó o
+# se cortó en el tope de tokens, ni cuánto gastó. Sólo números: ni el prompt
+# ni la respuesta pasan por aquí (higiene de registros).
+def _meta_vacia(material) -> dict:
+    return {"variante": normalizar_variante(getattr(material, "variante", "v1"), "v1"),
+            "finish_reason": "", "uso": {}}
+
+
+def _uso_de(u) -> dict:
+    """El uso de tokens de la respuesta, venga como objeto o como dict."""
+    if not u:
+        return {}
+
+    def _g(x, k):
+        return x.get(k) if isinstance(x, dict) else getattr(x, k, None)
+    fuera = {}
+    for k_sal, k_ent in (("entrada", "prompt_tokens"), ("salida", "completion_tokens"),
+                         ("total", "total_tokens")):
+        v = _g(u, k_ent)
+        if isinstance(v, (int, float)):
+            fuera[k_sal] = int(v)
+    _det_s = _g(u, "completion_tokens_details")
+    _r = _g(_det_s, "reasoning_tokens") if _det_s else None
+    if isinstance(_r, (int, float)):
+        fuera["razonamiento"] = int(_r)
+    _det_e = _g(u, "prompt_tokens_details")
+    _c = _g(_det_e, "cached_tokens") if _det_e else None
+    if isinstance(_c, (int, float)):
+        fuera["en_cache"] = int(_c)
+    return fuera
+
+
 async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
                            criterios: list[Criterio], material: Material,
                            es_recurso: bool = False, partes=None, marco=None,
@@ -3091,11 +4139,28 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
         escrito_literal=escrito_literal)}])
     if ESFUERZO_ESTUDIO:
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
+    # EL USO SE PIDE AL FLUJO (26-sep-2026): sin `include_usage` el flujo no
+    # dice cuántos tokens gastó, y la ficha del proyecto no puede decir si un
+    # estudio se cortó por el tope (`finish_reason = length`) ni cuánto costó.
+    # Si el proveedor no admitiera la opción se llama sin ella: medir es una
+    # mejora, no un requisito.
+    kw["stream_options"] = {"include_usage": True}
     entero = []
-    flujo = await cliente.chat.completions.create(**kw)
+    meta = _meta_vacia(material)
+    try:
+        flujo = await cliente.chat.completions.create(**kw)
+    except Exception as _exs:
+        if "stream_options" not in str(_exs):
+            raise
+        kw.pop("stream_options", None)
+        flujo = await cliente.chat.completions.create(**kw)
     async for trozo in flujo:
+        if getattr(trozo, "usage", None):
+            meta["uso"] = _uso_de(trozo.usage)
         if not trozo.choices:
             continue
+        if getattr(trozo.choices[0], "finish_reason", None):
+            meta["finish_reason"] = str(trozo.choices[0].finish_reason)
         pieza = trozo.choices[0].delta.content or ""
         if pieza:
             entero.append(pieza)
@@ -3104,7 +4169,8 @@ async def redactar_en_vivo(cliente, resumen_acto: str, resumen_conceptos: str,
     estudio, advertencias = separar_advertencias(crudo)
     yield {"tipo": "fin", "estudio": estudio, "advertencias": advertencias,
            "avisos": revisar(estudio, criterios, material, resumen_acto,
-                             marco if isinstance(marco, str) else "")}
+                             marco if isinstance(marco, str) else ""),
+           "meta": meta}
 
 
 async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
@@ -3113,8 +4179,12 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
                    contexto: str = "", propuesta_global=None,
                    rama: str = "", violacion_procesal: bool = False,
                    conceptos_violacion: str = "",
-                   escrito_literal: str = "") -> tuple[str, str, list[str]]:
-    """Devuelve (estudio, advertencias, avisos)."""
+                   escrito_literal: str = "",
+                   meta: dict = None) -> tuple[str, str, list[str]]:
+    """Devuelve (estudio, advertencias, avisos).
+
+    `meta`, si se pasa, sale con la variante, el `finish_reason` y el uso de
+    tokens: lo mismo que el gemelo en vivo rinde en su evento «fin»."""
     kw = dict(model=MODELO_ESTUDIO, max_completion_tokens=16000,
               messages=[{"role": "user", "content": prompt_estudio(
                   resumen_acto, resumen_conceptos, criterios, material,
@@ -3127,6 +4197,13 @@ async def redactar(cliente, resumen_acto: str, resumen_conceptos: str,
         kw["reasoning_effort"] = ESFUERZO_ESTUDIO
     import llamada_modelo as _lm
     r = await _lm.crear(cliente, **kw)
+    if isinstance(meta, dict):
+        meta.update(_meta_vacia(material))
+        try:
+            meta["finish_reason"] = str(r.choices[0].finish_reason or "")
+            meta["uso"] = _uso_de(getattr(r, "usage", None))
+        except Exception:
+            pass
     crudo = (r.choices[0].message.content or "").strip()
     estudio, advertencias = separar_advertencias(crudo)
     avisos = revisar(estudio, criterios, material, resumen_acto,
