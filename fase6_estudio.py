@@ -618,10 +618,17 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                           "y el artículo 189 de la Ley de Amparo; no se escribe "
                           "que quedó sin materia ni se contesta su fondo.")
         elif (c.sentido or "").lower() == "innecesario" and _v2c:
+            # LOS EFECTOS RESPALDAN LA DECLARACIÓN (26-sep-2026, banco del
+            # localizador: 174/2026 y 43/2025 declaraban innecesarios la doble
+            # jornada o la pericial en informática y los efectos no los
+            # nombraban; la responsable podía resolver igual sin desacatar).
             lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
                           "del principal. Una o dos frases que lo declaran "
                           "innecesario y dicen por qué; su fondo no se "
-                          "contesta.")
+                          "contesta. Si lo que lo deja sin materia es que la "
+                          "responsable tendrá que volver a resolver lo que "
+                          "combate, sus argumentos con dato propio se nombran "
+                          "en los EFECTOS entre lo que deberá examinar.")
         elif (c.sentido or "").lower() == "innecesario":
             lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
                           "del principal. Se dice en una frase y se pasa; ni "
@@ -751,6 +758,9 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                    "interpretarla. Sin prosa entre ellas, y ninguna que remita a «los",
                    "lineamientos de esta ejecutoria» en lugar de decir qué hay que hacer.",
                    "Los efectos se escriben SÓLO aquí: el estudio no los adelanta.",
+                   "Cuando la concesión deja en manos de la responsable argumentos que el",
+                   "estudio no contestó, una de esas órdenes dice cuáles son, cada uno con",
+                   "su dato: es lo que la obliga a examinarlos al volver a resolver.",
                    "SI LA CONCESIÓN ES POR UNA VIOLACIÓN PROCESAL, la responsable NO",
                    "puede dictar otra sentencia de inmediato: los efectos ordenan la",
                    "REPOSICIÓN en el orden en que ha de cumplirse —qué se deja",
@@ -2662,14 +2672,18 @@ QUÉ SE HACE CON EL INVENTARIO — y lo que el sistema comprueba después:
   respuesta que ya lo resuelve: qué apartado y qué proposición. Los que
   reiteran otro se nombran juntos en el párrafo que los contesta. Un argumento
   que sólo queda cubierto por la calificación general de su {q1} queda sin
-  respuesta.
+  respuesta. Declararlo sin materia o innecesario tampoco es respuesta, salvo
+  que su criterio —su calificación o su razón— lo decida así; y entonces, si
+  la concesión lo deja en manos de la responsable, su dato va nombrado en los
+  EFECTOS.
 - EL PÁRRAFO QUE CONTESTA UNO O VARIOS ARGUMENTOS EMPIEZA CON SU MARCA: los
   identificadores del inventario de los argumentos que contesta, separados por
   un espacio, entre ⟦ y ⟧, al comienzo del párrafo y antes de su primera
-  palabra. El párrafo que no contesta ningún argumento —el que abre el
-  estudio, el que expone una premisa común, los efectos— no lleva marca. Si la
-  respuesta a un argumento ocupa varios párrafos, basta la marca en el
-  primero.
+  palabra. La marca va en el párrafo que aplica la razón al dato del
+  argumento, no en el que abre el apartado ni en el que expone la premisa. El
+  párrafo que no contesta ningún argumento —el que abre el estudio, el que
+  expone una premisa común, los efectos— no lleva marca. Si la respuesta a un
+  argumento ocupa varios párrafos, la marca va en el primero de ellos.
 - LA MARCA ES INTERNA: el sistema la retira antes de mostrar el texto y antes de
   componer la sentencia, y la usa para comprobar que ningún argumento quedó sin
   respuesta. Fuera de la marca no escribas identificadores: en la prosa cada
@@ -2777,6 +2791,15 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
         _orden = ("EN UN RECURSO, si la técnica de este asunto —más abajo— fija un\n"
                   "  orden de estudio, ése manda.")
 
+    # EL MAYOR BENEFICIO DENTRO DE «NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO…»
+    # (revisión adversarial de p2-exhaustivo, 26-sep-2026). El art. 189 permite
+    # dejar sin estudio lo que, aun fundado, no mejoraría lo ya concedido; esa
+    # decisión es del secretario, y la regla la respeta con «salvo que la razón
+    # del secretario lo diga de ese argumento» y con que los EFECTOS sólo nombran
+    # lo que la responsable tendrá que volver a resolver. NO se añade un párrafo
+    # que describa el mayor beneficio: se probó una salida así en la reparación
+    # y el modelo la usó de excusa («no produciría un beneficio adicional») con
+    # una concesión para efectos, que es justo el defecto de 43/2025.
     _recuerda_forma = (
         f"Y LA FORMA ES LA MODERNA: cada problema con su pregunta sola en su "
         f"párrafo, la respuesta enseguida nombrando el {q1} que contesta, sin "
@@ -2849,17 +2872,33 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   como máximo.{_de_donde} Es un techo, no una meta: un asunto con una sola
   cuestión viva se resuelve en mucho menos, y nada se escribe para acercarse a
   una cifra. Lo que decide se estudia a fondo; lo accesorio se mide así, y
-  ésta es la ÚNICA medida para todo el estudio:
+  ésta es la ÚNICA medida para todo el estudio. Los dos primeros renglones
+  valen SÓLO para lo que el CRITERIO DEL SECRETARIO decidió así —en su
+  calificación o en su razón—: esa decisión es suya, no del estudio.
 
-    · INNECESARIO —queda sin materia por el sentido de otro—: una o dos frases
-      que lo declaran innecesario y dicen por qué.
-    · CAE CON EL PRINCIPAL —descansa en la premisa que ya se desestimó—: un
-      párrafo.
+    · INNECESARIO —el criterio lo declaró sin materia por el sentido de
+      otro—: una o dos frases que lo declaran innecesario y dicen por qué.
+    · CAE CON EL PRINCIPAL —el criterio dice que descansa en la premisa que ya
+      se desestimó—: un párrafo.
     · INOPERANTE: de uno a tres párrafos que dicen qué consideración deja sin
       combatir, o por qué no puede examinarse, con su razón. La tesis sobre la
       inoperancia se cita sólo si hace falta para sostenerla.
     · RESIDUAL —un argumento menor dentro de un {q1} que se contesta—: una o
       dos frases, con su calificación y su razón.
+
+  NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO POR CUENTA DEL ESTUDIO. Dentro de un
+  problema que el criterio manda resolver de fondo —fundado o infundado—, el
+  estudio no declara sin materia, innecesario, sin objeto ni sin beneficio
+  adicional ninguno de sus argumentos, salvo que la razón del secretario lo
+  diga de ese argumento. Que la concesión obligue a la responsable a volver a
+  resolver no basta: si lo que ese argumento combate queda comprendido en lo
+  que ella tendrá que volver a hacer, se NOMBRA en los EFECTOS, con su dato,
+  entre lo que deberá examinar; si no cabe ahí —porque ataca una
+  consideración que la concesión deja en pie—, se contesta. Y cuando el
+  criterio sí lo declaró innecesario porque la responsable tendrá que volver
+  a resolver lo que combate, también se nombra en los EFECTOS con su dato:
+  sin eso, la declaración no tiene respaldo y el argumento queda sin
+  respuesta.
 
   ESTO NO ES RECORTAR NI DEJAR TEMAS SIN CONTESTAR. Todos se contestan —la
   exhaustividad se revisa de oficio y un tema olvidado es un amparo de
