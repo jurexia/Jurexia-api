@@ -32440,6 +32440,11 @@ async def _taller_plan_correr(email: str, numero: str, r, crit, ent: dict, *,
         print(f"   ⚠️ PLAN de {numero}: {err(ex)}")
     if plan:
         plan["clave"] = k
+    elif (info or {}).get("faltas"):
+        # LO QUE V0 RECHAZÓ, a la casilla (no al registro): es lo que hay que
+        # leer para saber por qué un plan no pasa, y lo ve la cuenta de casa en
+        # el panel. Sin esto el diagnóstico sólo sería «falló dos veces».
+        avisos = list(avisos) + [f"V0: {x}" for x in (info["faltas"][-1] or [])[:10]]
     _seg = time.time() - t0
     # HIGIENE DE REGISTROS: sólo números y la clave; ni citas, ni datos, ni lo
     # que el segmento «sostiene».
