@@ -15,7 +15,11 @@ Esto prueba, sin red y sin gastar API, que ahora:
   6. la sonda no rompe nada sin su colección;
   7. el bloque cabe en el presupuesto de tokens;
   9. lo que encontró la revisión adversarial del 26-sep-2026 (hallazgos 5-7,
-     9-17 y 19) no vuelve.
+     9-17 y 19) no vuelve;
+ 10. ni lo de la reverificación del mismo día: la instrucción sólo pide lo
+     que entró (12b), cada tema conserva sus hitos esenciales y lo de segunda
+     vuelta se recorta antes (14.1), el estado actual no le cobra turno a un
+     tema (14.2) y una abandonada nunca queda sin su sustituta (14.3).
 
 Qdrant es falso: los párrafos de la Corte IDH salen de los puntos en seco de la
 ingesta (si no están, esa parte se omite) y las tesis llevan su rubro real de
@@ -601,8 +605,10 @@ for nombre, p in (("LINEA", LINEA), ("Traza la línea", TRAZA)):
     ok(("→ ejes" in li["xml"]) == bool(fases_eje), f"12 · «{nombre}»: «→ ejes» sólo con hitos de eje ({sorted(fases_eje)})")
 ok("evolucion" in lc.pregunta_por_linea(TRAZA)[1], "12 · «desde el nacimiento hasta la postura actual» pide también la evolución")
 if PUNTOS:
+    # Desde la reverificación (12b) la columna nombra sólo lo que entró:
+    # «¿Dónde nace…?» no trae estado actual ni tensiones y ya no los pide.
     lo = linea("¿Dónde nace el control de convencionalidad?")
-    ok(lo and "→ ejes" not in lo["xml"] and "→ ex officio (Cesados ¶128) → estado actual" in lo["xml"],
+    ok(lo and "→ ejes" not in lo["xml"] and "→ ex officio (Cesados ¶128) → recepción en México." in lo["xml"],
        "12 · «¿Dónde nace…?» no trae ejes y la instrucción ya no los pide")
 
 # 13 · Radilla ¶339-341 cuando la pregunta es de México y pide origen, evolución
@@ -637,10 +643,22 @@ for alc in ("completa", "solo_mx"):
         nt = len(tiktoken.get_encoding("cl100k_base").encode(lt["xml"]))
     except ImportError:
         nt = lc.medida(lt["xml"])
-    ok(nt < lc.PRESUPUESTO_LINEA and "2015828" in lt["registros"] and 'registro="2015828"' in lt["xml"],
-       f"14 · «Traza la línea…» [{alc}]: {nt:,} tokens (< {lc.PRESUPUESTO_LINEA:,}) y con la 2a./J. 163/2017")
+    # La 2a./J. 163/2017 es de la SEGUNDA vuelta del tema de restricciones.
+    # Desde la reverificación del 26-sep-2026 (12b y 14.1) lo de segunda
+    # vuelta se recorta ANTES que los hitos esenciales de los temas y que sus
+    # tensiones; en modo completo la línea entera con dos temas llena los 10
+    # mil con lo protegido y una tensión, y la 2a./J. 163/2017 puede irse, pero
+    # sólo por el presupuesto (consta en «recortado»). En solo_mx, siempre.
+    con_163 = "2015828" in lt["registros"] and 'registro="2015828"' in lt["xml"]
+    ok(nt < lc.PRESUPUESTO_LINEA and (con_163 or (alc == "completa" and "registro:2015828" in lt["recortado"])),
+       f"14 · «Traza la línea…» [{alc}]: {nt:,} tokens (< {lc.PRESUPUESTO_LINEA:,}) y con la 2a./J. 163/2017 "
+       f"(o recortada por el presupuesto: {con_163})")
     if alc == "completa":
-        ok("DOCTRINA-885ee8c6-7543-5a1b-bbdb-fa0a3e510053" in lt["cronologia"]
+        # La doctrina contraria (Cano López y Rodríguez Manzo) es también de
+        # segunda vuelta: entra en la selección y sólo el presupuesto la saca.
+        sel_t = lc.seleccionar(FIG, lc.pregunta_por_linea(TRAZA)[1], pregunta=TRAZA)
+        doc885 = "DOCTRINA-885ee8c6-7543-5a1b-bbdb-fa0a3e510053"
+        ok(doc885 in sel_t["cronologia"] and (doc885 in lt["cronologia"] or f"cronologia:{doc885}" in lt["recortado"])
            and "SCJN-ct-293-2011-ejecutoria-24985" in lt["cronologia"]
            and {"DOF-2024-10-31-inimpugnabilidad", "DOF-2024-12-31-art19-literalidad", "SCJN-AG-2-2024",
                 "SCJN-impedimento-60-2025"} <= set(lt["cronologia"]),
@@ -699,6 +717,208 @@ for alc in ("completa", "solo_mx"):
         fechas = [f[:10] for f in re.findall(r'<tesis registro="\d+"[^>]*fecha="([^"]*)"', rec_x)]
         ok(fechas and all(fechas) and fechas == sorted(fechas),
            f"17b · <recepcion_mx> cronológica y sin fecha vacía [{alc}] «{p[:30]}…» ({fechas[:4]}…)")
+
+
+# ═══════════════════════════════════════════════════════════════ 10 · reverificación
+print("\n10 · LA REVERIFICACIÓN DEL 26-SEP-2026 (12b, 14.1, 14.2, 14.3)")
+# Las preguntas de la reverificación, medidas allí con Qdrant real. Cada
+# detalle va en su bloque: si uno lanza (con el código viejo, por ejemplo), se
+# anota como FALLA y los demás se prueban igual.
+POSTURAS = ("¿Qué posturas serias hay para inaplicar restricciones constitucionales como la prisión preventiva "
+            "oficiosa?")
+PPO_PARAM = "prisión preventiva oficiosa y restricciones constitucionales expresas en el parámetro de regularidad"
+COLEG_PPO = ("¿pueden los tribunales colegiados ejercer control difuso sobre la prisión preventiva oficiosa y el arraigo "
+             "pese a las restricciones constitucionales expresas?")
+RESTR_PPO = "restricciones constitucionales expresas y prisión preventiva oficiosa"
+ARR_PPO = "arraigo y prisión preventiva oficiosa frente a la Corte Interamericana"
+PPO = "prisión preventiva oficiosa para extorsión"
+_ORIG_PRES = (lc.PRESUPUESTO_LINEA, lc.PRESUPUESTO_TEMA, getattr(lc, "PRESUPUESTO_POR_TEMA", 0))
+
+
+def _presupuestos(linea_=None, tema=None, por_tema=None):
+    lc.PRESUPUESTO_LINEA = _ORIG_PRES[0] if linea_ is None else linea_
+    lc.PRESUPUESTO_TEMA = _ORIG_PRES[1] if tema is None else tema
+    lc.PRESUPUESTO_POR_TEMA = _ORIG_PRES[2] if por_tema is None else por_tema
+
+
+def _columna(xml):
+    m = re.search(r"Su columna: (.*?)\. Cuéntala", xml)
+    return m.group(1).split(" → ") if m else []
+
+
+def _tokens(xml):
+    try:
+        import tiktoken
+        return len(tiktoken.get_encoding("cl100k_base").encode(xml))
+    except ImportError:
+        return lc.medida(xml)
+
+
+def _bloque(nombre, fn):
+    try:
+        fn()
+    except Exception as e:                      # noqa: BLE001 — se anota y se sigue
+        ok(False, f"{nombre}: lanzó {type(e).__name__}: {str(e)[:100]}")
+    finally:
+        _presupuestos()
+
+
+def _r12b():
+    # La columna de la instrucción nombra SÓLO las partes que entraron:
+    # «→ tensiones» si hay <tension>, «→ recepción en México» si hay
+    # <recepcion_mx>, «→ estado actual» si entró un hito del estado actual o el
+    # estado mexicano (<pendientes>). Antes, «¿Dónde nace…?» y «Traza la
+    # línea…» (sin tensiones tras el recorte) las pedían igual.
+    for nombre, p, h in (("¿Dónde nace…?", "¿Dónde nace el control de convencionalidad?", None),
+                         ("ex officio", "Que es el control de convencionalidad ex officio y donde surgió?", None),
+                         ("LINEA", LINEA, None), ("Traza la línea", TRAZA, None),
+                         ("estado actual en México", "¿Cuál es el estado actual del control de convencionalidad en "
+                          "México?", None), ("línea de la SCJN (hilo)", LINEA_SCJN, HILO_SCJN)):
+        li = linea_hilo(p, h)
+        x, col = li["xml"], _columna(li["xml"])
+        hay_actual = bool(re.search(r'<hito [^>]*fase="estado actual', x)) or "<pendientes>" in x
+        ok(col and ("tensiones" in col) == ("<tension " in x) and ("recepción en México" in col) == ("<recepcion_mx>" in x)
+           and ("estado actual" in col) == hay_actual,
+           f"12b · «{nombre}»: la columna pide sólo lo que entró ({' → '.join(col[3:]) or col})")
+    # Con un tope que obliga a quitar las dos tensiones de «Traza la línea…».
+    _presupuestos(linea_=8000)
+    lt8 = linea(TRAZA)
+    _presupuestos()
+    ok("<tension " not in lt8["xml"] and "tensiones:0" in lt8["recortado"] and "tensiones" not in _columna(lt8["xml"]),
+       f"12b · sin <tensiones> tras el recorte, la columna no las pide ({' → '.join(_columna(lt8['xml'])[3:])})")
+    # Y un tema: «Preséntalos… con sus tensiones» sólo si las hay.
+    _presupuestos(tema=2500)
+    lp = linea(PPO)
+    _presupuestos()
+    lp_ok = linea(PPO)
+    ok("<tension " not in lp["xml"] and "con sus tensiones" not in lp["xml"]
+       and "<tension " in lp_ok["xml"] and "con sus tensiones" in lp_ok["xml"],
+       "12b · un tema: «con sus tensiones» sólo si entró alguna")
+    # Las tensiones de los temas pedidos, primero: «¿Qué posturas serias
+    # hay…?» traía «opiniones consultivas» y «res interpretata» y ninguna de
+    # las dos que se preguntan.
+    for nombre, p in (("¿Qué posturas serias hay…?", POSTURAS), ("Traza la línea", TRAZA)):
+        tt = re.findall(r'<tension tema="([^"]*)"', linea(p)["xml"])
+        ok(tt and tt[0] == "restricciones constitucionales frente a la Convención (México)"
+           and set(tt) <= {"restricciones constitucionales frente a la Convención (México)",
+                           "¿puede un juez inaplicar la prisión preventiva oficiosa?"},
+           f"12b · «{nombre}»: primero las tensiones de los temas pedidos ({tt})")
+
+
+def _r141():
+    # Cada tema pedido conserva sus hitos ESENCIALES (los que ordenan y los
+    # que fijan la tensión) y lo de segunda vuelta se va antes. Con el tope de
+    # un tema (6,500) estas preguntas quedaban en 0 hitos de la Corte IDH.
+    esenciales_de = {PPO_PARAM: {"C-482|s|301", "C-482|s|303", "C-470|s|118", "C-482|s|176"},
+                     COLEG_PPO: {"C-482|s|301", "C-482|s|303", "C-470|s|118", "C-482|s|176"},
+                     RESTR_PPO: {"C-482|s|176", "C-482|s|303", "C-482|s|301", "C-470|s|118"},
+                     ARR_PPO: {"C-482|s|300", "C-470|s|219", "C-482|s|301", "C-482|s|303"}}
+    for p, esenciales in esenciales_de.items():
+        det_p = lc.pregunta_por_linea(p)
+        temas_p = [x[5:] for x in det_p[1] if x.startswith("tema:")]
+        ok(len(temas_p) >= 2 and not [x for x in det_p[1] if x in lc._FASES_HITO],
+           f"14.1 · «{p[:45]}…»: varios temas y ninguna fase ({temas_p})")
+        sel_p = lc.seleccionar(FIG, det_p[1], pregunta=p)
+        recort = {x for t, x in sel_p["recortables"] if t in ("registro", "cronologia")}
+        for alto in (False, True):
+            # Con el presupuesto de hoy y con uno que obliga a recortar hasta el
+            # hueso (3,000 para todo): lo esencial no se toca.
+            if alto:
+                _presupuestos(tema=3000, por_tema=0)
+            li = linea(p)
+            _presupuestos()
+            cada_tema = all(set(F["temas_mx"][t].get("hitos") or []) & set(li["hitos"]) for t in temas_p)
+            ok(esenciales <= set(li["hitos"]) and cada_tema,
+               f"14.1 · «{p[:45]}…» [{'3,000' if alto else 'tope de hoy'}]: los hitos esenciales de cada tema "
+               f"({len(li['hitos'])} hitos; faltan {sorted(esenciales - set(li['hitos']))})")
+            # Si ya se quitó un hito de tema, no queda dentro ninguna tesis ni
+            # entrada recortable (antes seguían la 2010428 y la 2007932).
+            if any(x.startswith("hito:") for x in li["recortado"]):
+                dentro = recort & (set(li["registros"]) | set(li["cronologia"]))
+                ok(not dentro, f"14.1 · «{p[:45]}…» [{'3,000' if alto else 'tope de hoy'}]: lo de segunda vuelta se "
+                               f"fue antes que los hitos ({sorted(dentro)})")
+        pos = {tx: i for i, tx in enumerate(sel_p["recortables"])}
+        ult_tardio = max([i for (t, _), i in pos.items() if t in ("registro", "cronologia")], default=-1)
+        prim_hito_tema = min([i for (t, x), i in pos.items() if t == "hito"
+                              and any(x in (F["temas_mx"][tm].get("hitos") or []) for tm in temas_p)], default=10 ** 6)
+        ok(ult_tardio < prim_hito_tema and pos.get(("tensiones", 0)) == len(sel_p["recortables"]) - 1,
+           f"14.1 · «{p[:45]}…»: el orden de recorte deja los hitos de tema y las tensiones al final")
+        n_t = _tokens(linea(p)["xml"])
+        tope_p = lc.presupuesto(dict(fases=[], temas=temas_p))
+        ok(n_t < tope_p <= lc.PRESUPUESTO_LINEA
+           and tope_p == min(lc.PRESUPUESTO_LINEA, lc.PRESUPUESTO_TEMA + lc.PRESUPUESTO_POR_TEMA * (len(temas_p) - 1)),
+           f"14.1 · «{p[:45]}…»: {n_t:,} tokens (< {tope_p:,}, tope de {len(temas_p)} temas; nunca > "
+           f"{lc.PRESUPUESTO_LINEA:,})")
+    ok(lc.presupuesto(dict(fases=[], temas=["prision_preventiva_oficiosa"])) == lc.PRESUPUESTO_TEMA == 6500
+       and lc.presupuesto(dict(fases=[], temas=list(F["temas_mx"]))) == lc.PRESUPUESTO_LINEA
+       and lc.presupuesto(dict(fases=["actual"], temas=["arraigo"])) == lc.PRESUPUESTO_LINEA,
+       "14.1 · un tema solo sigue en 6,500; varios crecen sin pasar de 10,000; con fase, 10,000")
+    # Un resolutivo que repite la orden de un párrafo de su MISMA sentencia ya
+    # dentro no es esencial (García Rodríguez res. 14 ↔ ¶301).
+    ok(lc._esenciales_tema(FIG, ["C-482|s|301", "C-482|r|14", "C-470|r|8"], ["C-482|s|301"])
+       == ["C-482|s|301", "C-470|r|8"]
+       and lc._esenciales_tema(FIG, ["C-158|s|128", "C-276|s|124"]) == ["C-158|s|128"],
+       "14.1 · _esenciales_tema: ordenan o fijan tensión; el resolutivo repetido no; sin ninguno, el primero")
+
+
+def _r142():
+    # El estado actual no le cobra turno a un tema: la prisión preventiva
+    # recibe sus propias entradas (art. 166 LA, CC 3/2026, proyecto de Pardo) y
+    # los dos votos de la CT 293/2011 entran a la selección; si salen, es por
+    # el presupuesto.
+    propias_ppo = {"DOF-2025-10-16-ley-amparo-166", "PR-PTCN-CC-3-2026", "SCJN-RST-3-2023-proyecto-pardo"}
+    votos = {"SCJN-voto-41362", "SCJN-voto-41356"}
+    estado = set(F["fase_actual"]["cronologia"])
+    for nombre, p in (("Traza la línea", TRAZA), ("¿Qué posturas serias hay…?", POSTURAS)):
+        sel_p = lc.seleccionar(FIG, lc.pregunta_por_linea(p)[1], pregunta=p)
+        rec_c = {x for t, x in sel_p["recortables"] if t == "cronologia"}
+        ok(propias_ppo | votos | estado <= set(sel_p["cronologia"]) and not estado & rec_c
+           and "DOF-2025-10-16-ley-amparo-166" not in rec_c,
+           f"14.2 · «{nombre}»: el tema de prisión preventiva con entradas propias y los dos votos, en la selección "
+           f"(faltan {sorted((propias_ppo | votos | estado) - set(sel_p['cronologia']))})")
+        li = linea(p)
+        sin_razon = [i for i in propias_ppo | votos if i not in li["cronologia"] and f"cronologia:{i}" not in li["recortado"]]
+        ok("DOF-2025-10-16-ley-amparo-166" in li["cronologia"] and not sin_razon,
+           f"14.2 · «{nombre}»: el art. 166 LA dentro; lo demás, dentro o recortado por el presupuesto "
+           f"({sorted((propias_ppo | votos) & set(li['cronologia']))}; sin razón: {sin_razon})")
+
+
+def _r143():
+    # Una abandonada nunca queda sin su sustituta, aunque las dos vengan de la
+    # lista de un tema: con 3,500 la pregunta de los Colegiados con prisión
+    # preventiva dejaba la P. X/2015 sola.
+    for tope_x in (3500, 2000):
+        _presupuestos(linea_=tope_x, tema=tope_x, por_tema=0)
+        li = linea(COLEG_PPO)
+        _presupuestos()
+        solas = [r for r in li["registros"] if REC[r].get("vigencia") == "abandonada"
+                 and REC[r].get("reemplazo") not in li["registros"]]
+        ok(not solas and "2024159" in li["registros"],
+           f"14.3 · Colegiados con prisión preventiva [{tope_x:,}]: ninguna abandonada sin su sustituta ({solas})")
+
+
+def _r143_sin_qdrant():
+    # Si la sustituta se recorta, la abandonada se va con ella; si la
+    # abandonada no se puede recortar, la sustituta tampoco.
+    sel = dict(fases=[], temas=[], hitos=[], registros=["S", "A", "X"], cronologia=[], parejas={},
+               abandonos={"A": "S"}, recortables=[("registro", "S")])
+    _presupuestos(tema=10)
+    _, fuera = lc._al_presupuesto(sel, [], lambda: "x" * 400 * len(sel["registros"]))
+    _presupuestos()
+    ok(sel["registros"] == ["X"] and fuera == ["registro:S"],
+       f"14.3 · _al_presupuesto: la sustituta se lleva a su abandonada ({sel['registros']})")
+    sx = lc.seleccionar(FIG, lc.pregunta_por_linea(COLEG_PPO)[1], pregunta=COLEG_PPO)
+    rec_r = {x for t, x in sx["recortables"] if t == "registro"}
+    ok(sx["abandonos"] and all(s not in rec_r for a, s in sx["abandonos"].items() if a not in rec_r),
+       f"14.3 · si la abandonada no se puede recortar, su sustituta tampoco ({sx['abandonos']})")
+
+
+if PUNTOS:
+    _bloque("12b", _r12b)
+    _bloque("14.1", _r141)
+    _bloque("14.2", _r142)
+    _bloque("14.3", _r143)
+_bloque("14.3 sin Qdrant", _r143_sin_qdrant)
 
 
 # ═══════════════════════════════════════════════════════════════ 8 · main.py

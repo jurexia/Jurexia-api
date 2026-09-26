@@ -150,8 +150,21 @@ MAX_PALABRAS_APORTE = 55
 # (sin fase), de 5.5 a 6.5 mil: la prisión preventiva oficiosa trae ahora la
 # CC 3/2026 y sus aportes y notas de vigencia enteros (~5.9 mil); con 5.5 o 6
 # perdía el extracto de la supervisión que deja el punto abierto.
+#
+# VARIOS TEMAS SIN FASE (reverificación, 26-sep-2026, hallazgo 14.1): cada
+# tema pedido trae ahora sus hitos esenciales protegidos (_esenciales_tema),
+# su primera vuelta de tesis y de cronología, su advertencia y su tensión:
+# ~1,200-1,700 tokens propios. Con 6,500 para todo, «prisión preventiva
+# oficiosa y restricciones constitucionales expresas en el parámetro de
+# regularidad» (tres temas; 10,008 sin recorte) conservaba los hitos pero
+# perdía el AG 2/2024, la IX.P. J/2 P, el art. 166 LA y la CC 3/2026: el
+# estado mexicano de la prisión preventiva. Por eso 1,500 más por cada tema
+# después del primero, sin pasar de PRESUPUESTO_LINEA: dos temas, 8,000; tres,
+# 9,500; cuatro o más, 10,000. Un tema solo sigue en 6,500. Medido con Qdrant
+# real (cl100k): dos temas 7,326-7,671; tres o cuatro, 8,833-9,052.
 PRESUPUESTO_LINEA = 10000
 PRESUPUESTO_TEMA = 6500
+PRESUPUESTO_POR_TEMA = 1500
 CAR_POR_TOKEN = 2.8
 
 # La colección de la línea para la sonda semántica (scripts/lineas_qdrant.py).
@@ -649,6 +662,41 @@ def _por_turnos(listas: Sequence[Sequence[str]]) -> List[Tuple[str, int, int]]:
     return out
 
 
+def _esenciales_tema(fid: str, llaves: Sequence[str], dentro: Iterable[str] = ()) -> List[str]:
+    """Los hitos de un tema que el presupuesto nunca quita: los que ORDENAN
+    (postura «ordena_adecuar» en la cronología: García Rodríguez ¶300 y ¶301,
+    Tzompaxtle ¶118, los resolutivos de adecuar o suprimir) y los que fijan
+    una tensión (están en `a_favor` o `en_contra` de alguna: García Rodríguez
+    ¶303, Tzompaxtle ¶219). Si el tema no tiene ninguno así (control ex
+    officio, fuero militar), el primero de su lista: cada tema pedido conserva
+    al menos un hito de la Corte IDH.
+
+    Un RESOLUTIVO que ordena deja de ser esencial si en `dentro` (lo fijo de
+    la selección) ya hay un párrafo de la MISMA sentencia que ordena: García
+    Rodríguez ¶301 dice lo del resolutivo 14 y más («incluyendo sus
+    disposiciones constitucionales»); Tzompaxtle ¶118, lo del resolutivo 8.
+    Sigue entrando; sólo se puede recortar, y después de lo de segunda vuelta.
+    Medido con Qdrant real: con los dos resolutivos protegidos, «Traza la
+    línea…» no cabía en 10 mil ni quitando todo lo recortable.
+
+    POR QUÉ (reverificación del 26-sep-2026, hallazgo 14.1): el recorte
+    dejaba en cero los hitos interamericanos de las preguntas de dos o más
+    temas sin fase; ver el orden de recortables en seleccionar."""
+    crono = _crono_por_id(fid)
+    en_tension = {ll for t in (figuras().get(fid) or {}).get("tensiones") or []
+                  for ll in (t.get("a_favor") or []) + (t.get("en_contra") or [])}
+
+    def ordena(ll: str) -> bool:
+        return (crono.get(ll) or {}).get("postura") == "ordena_adecuar"
+
+    def seg(ll: str) -> str:
+        return ll.split("|")[1] if ll.count("|") >= 2 else ""
+    ordenan_en_parrafo = {ll.split("|")[0] for ll in dentro if seg(ll) == "s" and ordena(ll)}
+    salida = [ll for ll in llaves
+              if ll in en_tension or (ordena(ll) and not (seg(ll) == "r" and ll.split("|")[0] in ordenan_en_parrafo))]
+    return salida or list(llaves[:1])
+
+
 def _elegir_registros(fid: str, q: frozenset, reales: Sequence[str], temas: Sequence[str], mexico: bool,
                       tema_primero: bool, ids: Sequence[str], solo_mx: bool) -> Dict[str, Any]:
     """Las tesis de `recepcion_mx` que entran, por prioridad y no por el orden
@@ -663,16 +711,19 @@ def _elegir_registros(fid: str, q: frozenset, reales: Sequence[str], temas: Sequ
     PAREJAS: si entra una abandonada entra su sustituta y al revés, por encima
     del tope (MAX_PAREJAS), para que el modelo nunca vea una sin la otra.
 
-    Devuelve {registros, recortar, parejas}: `recortar` dice qué puede quitar
-    traer_linea si el bloque pasa del presupuesto (lo que entró por
-    puntuación, las parejas que no son de un abandono y lo que la sonda y los
-    temas trajeron de la segunda vuelta en adelante; nunca lo fijo); `parejas`
-    dice quién trajo a cada pareja."""
+    Devuelve {registros, recortar, parejas, abandonos}: `recortar` dice qué
+    puede quitar traer_linea si el bloque pasa del presupuesto (lo que entró
+    por puntuación, las parejas que no son de un abandono y lo que la sonda y
+    los temas trajeron de la segunda vuelta en adelante; nunca lo fijo ni la
+    sustituta de una abandonada que no se puede quitar); `parejas` dice quién
+    trajo a cada pareja y `abandonos`, abandonada → sustituta de las que
+    entraron juntas."""
     f = figuras().get(fid) or {}
     crono = _crono_por_id(fid)
     rec = {str(r["registro"]): r for r in f.get("recepcion_mx") or [] if r.get("en_acervo")}
     temas_mx = f.get("temas_mx") or {}
-    vacio: Dict[str, Any] = dict(registros=[], parejas={}, recortar=dict(puntos=[], tardios=[], parejas=[]))
+    vacio: Dict[str, Any] = dict(registros=[], parejas={}, abandonos={},
+                                 recortar=dict(puntos=[], tardios=[], parejas=[]))
     # Primero el estado actual: con «¿cuál es la postura ACTUAL…?» la P./J.
     # 20/2014, la 21/2014, la 2/2022, la 64/2014 y la 2/2025 no pueden quedar
     # detrás de las dieciséis de un tema.
@@ -779,9 +830,32 @@ def _elegir_registros(fid: str, q: frozenset, reales: Sequence[str], temas: Sequ
     vuelta = {x: (v, k) for x, v, k in turnos}
     por_puntos = [x for x in entran if x not in vuelta]
     tardios = [(x,) + vuelta[x] for x in entran if x in vuelta and vuelta[x][0] >= 1]
-    return dict(registros=elegidos + entran_parejas, parejas=de,
-                recortar=dict(puntos=por_puntos[::-1], tardios=tardios[::-1],
-                              parejas=[o for o in entran_parejas if not de[o]["abandono"]][::-1]))
+    recortar_parejas = [o for o in entran_parejas if not de[o]["abandono"]][::-1]
+    # LA PAREJA DE UN ABANDONO, VENGA DE DONDE VENGA (revisión del 26-sep-2026,
+    # hallazgo 14.3). `parejas` sólo sabe de las que trajo el mecanismo de
+    # arriba; cuando la abandonada y su sustituta llegan las dos por la lista
+    # de un tema, nadie las ataba. Medido con Qdrant real: en «¿pueden los
+    # tribunales colegiados ejercer control difuso sobre la prisión preventiva
+    # oficiosa y el arraigo…?» la P. X/2015 (2009817) es la primera vuelta del
+    # tema —protegida— y la P./J. 2/2022 (2024159) la tercera; con un
+    # presupuesto de 3,500 se iba la sustituta y quedaba la abandonada sola, el
+    # error de David. Si la abandonada no se puede recortar, su sustituta
+    # tampoco; si las dos se pueden, `abandonos` hace que la sustituta se lleve
+    # a la abandonada (ver _al_presupuesto).
+    todos_reg = elegidos + entran_parejas
+    abandonos = {x: str(rec[x]["reemplazo"]) for x in todos_reg
+                 if rec[x].get("vigencia") == "abandonada" and str(rec[x].get("reemplazo") or "") in todos_reg}
+    recortables_reg = set(por_puntos) | {z[0] for z in tardios} | set(recortar_parejas)
+    # La abandonada que entró como pareja se va con quien la trajo (ver
+    # _al_presupuesto): cuenta como recortable si todos los que la trajeron lo
+    # son, y entonces no blinda a su sustituta.
+    recortables_reg |= {o for o in entran_parejas if de[o]["abandono"]
+                        and all(b in recortables_reg for b in de[o]["de"])}
+    blindadas = {abandonos[x] for x in abandonos if x not in recortables_reg}
+    return dict(registros=todos_reg, parejas=de, abandonos=abandonos,
+                recortar=dict(puntos=[x for x in por_puntos[::-1] if x not in blindadas],
+                              tardios=[z for z in tardios[::-1] if z[0] not in blindadas],
+                              parejas=[x for x in recortar_parejas if x not in blindadas]))
 
 
 def _elegir_cronologia(fid: str, q: frozenset, reales: Sequence[str], temas: Sequence[str], mexico: bool,
@@ -794,6 +868,10 @@ def _elegir_cronologia(fid: str, q: frozenset, reales: Sequence[str], temas: Seq
     (revisión adversarial, 26-sep-2026: concatenados, el primer tema del
     archivo se quedaba el cupo); después, si la pregunta es de la línea, lo que
     más puntúa, con topes por clase.
+
+    Desde el 26-sep-2026 (hallazgo 14.2) lo del estado actual va fijo y
+    primero, fuera de los turnos, y los temas y la sonda se reparten sólo lo
+    que les queda.
 
     Devuelve {cronologia, recortar}: si el bloque no cabe se quita primero lo
     que entró por puntuación y después lo que la sonda y los temas trajeron de
@@ -810,18 +888,32 @@ def _elegir_cronologia(fid: str, q: frozenset, reales: Sequence[str], temas: Seq
         return not solo_mx or e.get("tipo") in _TIPOS_SOLO_MX
 
     cands = {e["id"]: e for e in crono if candidata(e)}
-    fuentes: List[List[str]] = [[i for i in ids if i in cands]]
-    for tid in temas:
-        fuentes.append([i for i in ((f.get("temas_mx") or {}).get(tid) or {}).get("cronologia") or [] if i in cands])
+    # LO DEL ESTADO ACTUAL VA FIJO Y NO GASTA TURNO DE NADIE (revisión del
+    # 26-sep-2026, hallazgo 14.2). Iba como una lista más en _por_turnos y el
+    # tope de MAX_CRONO + 2 contaba todo junto: en «Traza la línea…» y en
+    # «¿Qué posturas serias hay para inaplicar restricciones constitucionales
+    # como la prisión preventiva oficiosa?», los dos primeros ids del tema de
+    # prisión preventiva (la reforma del 31-dic-2024 y el AG 2/2024) ya los
+    # ponía el estado actual y aun así le cobraban sus dos turnos: el tema se
+    # quedaba sin ninguna entrada propia (fuera el art. 166 LA, la CC 3/2026 y
+    # el proyecto de Pardo) y el voto de Cossío en la CT 293/2011 ni se
+    # consideraba. Como en _elegir_registros, lo fijo va primero y las listas
+    # de los temas y la sonda compiten sólo con lo que les queda. Sin tope de
+    # cantidad: las listas de los temas son curadas (seis entradas como mucho)
+    # y lo de la segunda vuelta en adelante lo quita el presupuesto, que ahora
+    # se aplica (ver _al_presupuesto).
     estado: List[str] = []
     if "actual" in reales and (mexico or tema_primero or solo_mx):
         estado = [i for i in (f.get("fase_actual") or {}).get("cronologia") or [] if i in cands]
-        fuentes.append(estado)
-    turnos = _por_turnos(fuentes)[:MAX_CRONO + 2]
-    elegidos = [i for i, _, _ in turnos]
+    fuentes: List[List[str]] = [[i for i in ids if i in cands and i not in estado]]
+    for tid in temas:
+        fuentes.append([i for i in ((f.get("temas_mx") or {}).get(tid) or {}).get("cronologia") or []
+                        if i in cands and i not in estado])
+    turnos = _por_turnos(fuentes)
+    elegidos = estado + [i for i, _, _ in turnos]
     # Lo del estado actual no se recorta (como sus hitos y sus tesis); de la
     # sonda y los temas, sólo lo de la segunda vuelta en adelante.
-    tardios = [(i, v, k) for i, v, k in turnos if v >= 1 and i not in estado]
+    tardios = [(i, v, k) for i, v, k in turnos if v >= 1]
     por_puntos: List[str] = []
     # Por puntuación sólo cuando se pregunta por la LÍNEA con México (o en modo
     # solo_mx): un tema trae lo suyo y nada más (medido el 25-sep-2026: con
@@ -882,8 +974,9 @@ def seleccionar(fid: str, fases: Sequence[str], pregunta: Optional[str] = None, 
     relevantes y entran por delante.
 
     `recortables` es el orden en que traer_linea quita piezas si el bloque
-    pasa de PRESUPUESTO_LINEA: [(«cronologia»|«registro»|«hito»|
-    «supervision», id)], lo más prescindible primero."""
+    pasa de presupuesto(sel): [(«cronologia»|«registro»|«hito»|
+    «supervision»|«tensiones», id)], lo más prescindible primero; `abandonos`
+    (abandonada → sustituta) ata a las dos en el recorte."""
     f = figuras().get(fid) or {}
     por_llave = _hitos_por_llave(fid)
     temas = [x[5:] for x in fases if x.startswith("tema:")]
@@ -997,6 +1090,13 @@ def seleccionar(fid: str, fases: Sequence[str], pregunta: Optional[str] = None, 
             if x in por_llave:
                 elegidos[x] = min(elegidos.get(x, 0), 0)
                 protegidos.add(x)
+        # Los hitos esenciales de cada tema pedido no se recortan (hallazgo
+        # 14.1, 26-sep-2026; ver _esenciales_tema). Se miden contra lo fijo
+        # ya elegido, para no proteger un resolutivo que repite la orden de un
+        # párrafo de su misma sentencia.
+        fijos_ya = [ll for ll in elegidos if elegidos[ll] <= 0]
+        for lista in de_tema:
+            protegidos |= set(_esenciales_tema(fid, lista, fijos_ya))
     for tid in temas:
         t = (f.get("temas_mx") or {}).get(tid) or {}
         if t.get("advertencia"):
@@ -1025,10 +1125,24 @@ def seleccionar(fid: str, fases: Sequence[str], pregunta: Optional[str] = None, 
     crono = _elegir_cronologia(fid, q, reales, temas, mexico, tema_primero, ids, solo_mx)
     # Qué se quita primero si el bloque pasa del presupuesto: lo que entró por
     # puntuación (cronología, tesis, hitos de cupo), las parejas que no son de
-    # un abandono, el extracto de la supervisión, las tensiones, los hitos de
-    # un tema que no son del estado actual y, al final, lo que los temas
-    # trajeron de la
-    # segunda vuelta en adelante. Nunca lo protegido.
+    # un abandono, el extracto de la supervisión, lo que los temas trajeron de
+    # la segunda vuelta en adelante, los hitos de un tema que no son
+    # esenciales y, al final, las tensiones. Nunca lo protegido: el núcleo,
+    # Radilla, el estado actual, lo garantizado a cada fase y los hitos
+    # ESENCIALES de cada tema (_esenciales_tema).
+    #
+    # EL ORDEN CAMBIÓ el 26-sep-2026 (reverificación, hallazgo 14.1). Antes
+    # las tensiones y TODOS los hitos de un tema se iban antes que cualquier
+    # tesis o entrada de la segunda vuelta. Medido con Qdrant real y el tope de
+    # un tema (6,500): «prisión preventiva oficiosa y restricciones
+    # constitucionales expresas en el parámetro de regularidad» pasaba de 9
+    # hitos de la Corte IDH a 0, y «¿pueden los tribunales colegiados ejercer
+    # control difuso sobre la prisión preventiva oficiosa y el arraigo…?», a 0,
+    # mientras seguían dentro la 2a. CXXVIII/2015 (2010428) y la 2a./J.
+    # 119/2014 (2007932), de segunda vuelta. Sin García Rodríguez ¶301/¶303 ni los
+    # resolutivos que ORDENAN adecuar, el lado interamericano de la respuesta
+    # se contaba de memoria. Y las tensiones de los temas pedidos son justo
+    # «las posturas serias» que pregunta David: se quitan al último.
     hitos_tema = [ll for ll, _, _ in _por_turnos(de_tema) if ll in orden and ll not in protegidos]
     con_extracto = bool(set(temas) & {"prision_preventiva_oficiosa", "arraigo"}) and bool(supervisiones)
     recortables = ([("cronologia", i) for i in crono["recortar"]["puntos"]]
@@ -1036,20 +1150,20 @@ def seleccionar(fid: str, fases: Sequence[str], pregunta: Optional[str] = None, 
                    + [("hito", ll) for ll in extra[::-1] if ll not in protegidos]
                    + [("registro", r) for r in registros["recortar"]["parejas"]]
                    + ([("supervision", "extracto")] if con_extracto else [])
-                   + [("tensiones", 1), ("tensiones", 0)]
-                   + [("hito", ll) for ll in hitos_tema[::-1]]
                    # Lo tardío de los temas, la última vuelta primero y, en la
                    # misma vuelta, el último tema nombrado primero.
                    + [(t, x) for t, x, _, _ in sorted(
                        [("cronologia",) + tuple(z) for z in crono["recortar"]["tardios"]]
                        + [("registro",) + tuple(z) for z in registros["recortar"]["tardios"]],
-                       key=lambda z: (-z[2], -z[3], z[0] == "registro"))])
+                       key=lambda z: (-z[2], -z[3], z[0] == "registro"))]
+                   + [("hito", ll) for ll in hitos_tema[::-1]]
+                   + [("tensiones", 1), ("tensiones", 0)])
     return dict(hitos=hitos, registros=list(dict.fromkeys(registros["registros"])), cronologia=crono["cronologia"],
                 constitucion=[] if solo_mx else list(dict.fromkeys(constitucion)), supervisiones=supervisiones,
                 advertencias=advertencias, temas=temas, fases=reales, ejes=ejes, mexico=mexico,
                 alcance=alcance or "completa", tema_primero=tema_primero,
                 actual_mx=actual_mx or (solo_mx and "actual" in reales), extracto_supervision=con_extracto,
-                parejas=registros["parejas"], recortables=recortables)
+                parejas=registros["parejas"], abandonos=registros["abandonos"], recortables=recortables)
 
 
 def _orden_llave(ll: str) -> Tuple[int, int]:
@@ -1536,16 +1650,27 @@ def medida(xml: str) -> int:
     return int(len(xml or "") / CAR_POR_TOKEN) + 1
 
 
+def presupuesto(sel: Dict[str, Any]) -> int:
+    """El tope del bloque: PRESUPUESTO_LINEA si se pidió alguna fase; si no,
+    PRESUPUESTO_TEMA más PRESUPUESTO_POR_TEMA por cada tema de más, sin pasar
+    de PRESUPUESTO_LINEA (ver PRESUPUESTO_POR_TEMA)."""
+    if sel.get("fases"):
+        return PRESUPUESTO_LINEA
+    n = len(sel.get("temas") or [])
+    return min(PRESUPUESTO_LINEA, PRESUPUESTO_TEMA + PRESUPUESTO_POR_TEMA * max(0, n - 1))
+
+
 def _al_presupuesto(sel: Dict[str, Any], hitos: List[Dict[str, Any]], armar: Callable[[], str]) -> Tuple[str, List[str]]:
     """Quita piezas, en el orden de sel["recortables"], hasta que el bloque
-    quepa en PRESUPUESTO_LINEA (o PRESUPUESTO_TEMA si no se pidió ninguna
-    fase; 26-sep-2026). Toca `sel` y `hitos` en su sitio;
+    quepa en presupuesto(sel) (26-sep-2026). Toca `sel` y `hitos` en su sitio;
     devuelve (xml, lo recortado). Una tesis que se va se lleva a las parejas
-    que sólo ella había traído: una abandonada nunca queda sin su sustituta."""
+    que sólo ella había traído y a las abandonadas de las que es sustituta:
+    una abandonada nunca queda sin su sustituta."""
     xml = armar()
     fuera: List[str] = []
     parejas = sel.get("parejas") or {}
-    tope = PRESUPUESTO_LINEA if sel.get("fases") else PRESUPUESTO_TEMA
+    abandonos = sel.get("abandonos") or {}
+    tope = presupuesto(sel)
     for tipo, x in list(sel.get("recortables") or []):
         if medida(xml) <= tope:
             break
@@ -1558,6 +1683,10 @@ def _al_presupuesto(sel: Dict[str, Any], hitos: List[Dict[str, Any]], armar: Cal
                 quedan = [r for r in sel["registros"] if r not in quitar]
                 huerfanas = {p for p, v in parejas.items() if p in quedan
                              and not any(o in quedan for o in v.get("de") or [])}
+                # Y la abandonada cuya sustituta se va, aunque las dos hayan
+                # entrado por la lista de un tema y no por `parejas` (14.3,
+                # 26-sep-2026): se recortan juntas.
+                huerfanas |= {p for p, s in abandonos.items() if p in quedan and s not in quedan}
                 if not huerfanas:
                     break
                 quitar |= huerfanas
@@ -1656,7 +1785,7 @@ async def traer_linea(qdrant, deteccion: Sequence[Any], coleccion_tesis: str,
         xml, recortado = _al_presupuesto(sel, hitos, armar)
         if recortado:
             print(f"   ⚖️ LÍNEA: {len(recortado)} piezas fuera para caber en "
-                  f"{PRESUPUESTO_LINEA if sel['fases'] else PRESUPUESTO_TEMA:,} tokens "
+                  f"{presupuesto(sel):,} tokens "
                   f"({', '.join(recortado[:6])}{'…' if len(recortado) > 6 else ''})")
         tesis = {reg: v for reg, v in tesis.items() if reg in sel["registros"]}
         docs_crono = {i: d for i, d in docs_crono.items() if i in sel["cronologia"]}
@@ -1674,7 +1803,8 @@ async def traer_linea(qdrant, deteccion: Sequence[Any], coleccion_tesis: str,
                 ya.add(d.get("id"))
         return dict(xml=xml, docs=docs, n=len(docs), faltan=faltan, figura=fid, fases=sel["fases"],
                     temas=sel["temas"], hitos=[h["llave"] for h in sel["hitos"]], registros=sel["registros"],
-                    cronologia=sel["cronologia"], alcance=sel["alcance"], recortado=recortado)
+                    cronologia=sel["cronologia"], alcance=sel["alcance"], recortado=recortado,
+                    presupuesto=presupuesto(sel))
     except Exception as e:
         print(f"   ⚖️ COIDH: la línea falló ({type(e).__name__}: {str(e)[:120]}); la consulta sigue sin ella")
         return None
@@ -2121,23 +2251,67 @@ def bloque_xml(fid: str, sel: Dict[str, Any], hitos: Sequence[Dict[str, Any]],
               f'fases="{_esc(",".join(reales))}" temas="{_esc(",".join(temas))}" '
               f'alcance="{_esc(alcance)}" curada="sí"'
               + (' modo="solo_mx"' if solo_mx else f' corte_idh="{_esc(vig)}"') + ">"]
-    # Los ejes (quién está obligado, parámetro, efectos, forma) se piden sólo si
-    # entró alguno: si no, el modelo los contaba de memoria, sin [Doc ID]
-    # (revisión adversarial, 26-sep-2026).
-    hay_ejes = any(((d.get("_hito") or {}).get("fase") or "").lower() in _FASES_EJE for d in hitos)
+    # Tensiones: con la línea, salvo que sólo se pregunte el origen; con un
+    # tema, las que tocan sus hitos (la de prisión preventiva, la del arraigo).
+    # Se calculan ANTES de la instrucción, que sólo las pide si entraron.
+    ten = [] if solo_mx or reales == ["origen"] else (f.get("tensiones") or [])
+    # Las que tocan lo que entró (hitos o tesis), como mucho tres: con la
+    # línea entera eran seis y ~900 tokens, las de México también en una
+    # pregunta sin México (25-sep-2026).
+    mias = {d.get("llave") for d in hitos} | set(regs_xml)
+    ten = [t for t in ten if mias & set((t.get("a_favor") or []) + (t.get("en_contra") or [])
+                                        + [str(x) for x in t.get("registros") or []])]
+    # PRIMERO LAS DE LOS TEMAS PEDIDOS (reverificación, 26-sep-2026). Iban en
+    # el orden del archivo y el tope de dos se lo quedaban «opiniones
+    # consultivas como parámetro» y «res interpretata» —tocan la P./J. 2/2025 y
+    # la P./J. 21/2014 del núcleo mexicano—; medido con Qdrant real, en «Traza
+    # la línea… qué posturas serias hay para inaplicar restricciones
+    # constitucionales como la prisión preventiva oficiosa» y en «¿Qué posturas
+    # serias hay…?» no entraba ni «restricciones constitucionales frente a la
+    # Convención» ni «¿puede un juez inaplicar la prisión preventiva
+    # oficiosa?», que son justo las posturas que se preguntan. Primero las que
+    # comparten un hito con un tema pedido, luego las que comparten una tesis;
+    # en empate, el orden del archivo (sin temas, el de siempre).
+    temas_mx = f.get("temas_mx") or {}
+    ll_tema = {ll for t in temas for ll in (temas_mx.get(t) or {}).get("hitos") or []}
+    reg_tema = {str(r) for t in temas for r in (temas_mx.get(t) or {}).get("registros") or []}
+
+    def _rango_tension(t: Dict[str, Any]) -> int:
+        if ll_tema & set((t.get("a_favor") or []) + (t.get("en_contra") or [])):
+            return 0
+        return 1 if reg_tema & {str(x) for x in t.get("registros") or []} else 2
+    ten = sorted(ten, key=_rango_tension)[:sel.get("max_tensiones", 2)]
+
+    # La instrucción nombra SÓLO las partes que entraron. Primero fueron los
+    # ejes (quién está obligado, parámetro, efectos, forma): si no entró
+    # ninguno, el modelo los contaba de memoria, sin [Doc ID] (revisión
+    # adversarial, 26-sep-2026). Después, en la reverificación del mismo día
+    # (hallazgo 12b): en «Traza la línea…» el presupuesto quitaba las dos
+    # <tensiones> y la instrucción seguía pidiendo «→ estado actual →
+    # tensiones → recepción en México»; «¿Dónde nace…?» no trae ni estado
+    # actual ni tensiones y también las pedía. Cada tramo de la columna va
+    # sólo si su pieza está en el bloque.
+    fases_hitos = {((d.get("_hito") or {}).get("fase") or "").lower() for d in hitos}
+    hay_nucleo = any(d.get("llave") in NUCLEO for d in hitos)
+    hay_ejes = bool(fases_hitos & _FASES_EJE)
+    hay_actual = bool(fases_hitos & _FASES_HITO["actual"]) or bool(sel.get("actual_mx"))
+    columna = ((["expresión (votos de García Ramírez; el control lo ejerce la Corte IDH)",
+                 "formulación en pleno (Almonacid ¶124)", "ex officio (Cesados ¶128)"] if hay_nucleo else [])
+               + (["ejes (quién está obligado, parámetro, efectos, forma)"] if hay_ejes else [])
+               + (["estado actual"] if hay_actual else [])
+               + (["tensiones"] if ten else [])
+               + (["recepción en México"] if regs_xml else []))
     if solo_mx:
         partes.append(_INSTRUCCION_SOLO_MX)
     else:
         partes.append(
             "<!-- INSTRUCCIÓN LÍNEA JURISPRUDENCIAL (Corte IDH): "
-            + ("esta es la línea curada y verificada contra el PDF oficial de cada resolución. Su columna: "
-               "expresión (votos de García Ramírez; el control lo ejerce la Corte IDH) → formulación en pleno "
-               "(Almonacid ¶124) → ex officio (Cesados ¶128) → "
-               + ("ejes (quién está obligado, parámetro, efectos, forma) → " if hay_ejes else "")
-               + "estado actual → tensiones → recepción en México. "
+            + ("esta es la línea curada y verificada contra el PDF oficial de cada resolución. "
+               + (f"Su columna: {' → '.join(columna)}. " if columna else "")
                if alcance == "línea completa" else
                "éstos son SÓLO los hitos y criterios que tocan el tema de la pregunta, verificados; no cuentes "
-               "la línea entera. Preséntalos después de la norma y la jurisprudencia mexicanas, con sus tensiones. ")
+               "la línea entera. Preséntalos después de la norma y la jurisprudencia mexicanas"
+               + (", con sus tensiones. " if ten else ". "))
             + _INSTRUCCION_PILAR
             + f" Del estado actual de la Corte IDH di «según lo ingerido hasta {vig}», nunca «hoy». ingerido=\"no\": "
             "el texto completo no está en Iurexia, sólo su extracto verificado; cita igual su [Doc ID].\n"
@@ -2199,15 +2373,7 @@ def bloque_xml(fid: str, sel: Dict[str, Any], hitos: Sequence[Dict[str, Any]],
                          if sup.get("verificado") and con_extracto else "")
                       + f"<cita>{_esc(s.get('cita_canonica'))} [Doc ID: {_esc(s['id'])}]</cita>\n</supervision>")
 
-    # Tensiones: con la línea, salvo que sólo se pregunte el origen; con un
-    # tema, las que tocan sus hitos (la de prisión preventiva, la del arraigo).
-    ten = [] if solo_mx or reales == ["origen"] else (f.get("tensiones") or [])
-    # Las que tocan lo que entró (hitos o tesis), como mucho tres: con la
-    # línea entera eran seis y ~900 tokens, las de México también en una
-    # pregunta sin México (25-sep-2026).
-    mias = {d.get("llave") for d in hitos} | set(regs_xml)
-    ten = [t for t in ten if mias & set((t.get("a_favor") or []) + (t.get("en_contra") or [])
-                                        + [str(x) for x in t.get("registros") or []])][:sel.get("max_tensiones", 2)]
+    # Las tensiones ya se eligieron arriba (antes de la instrucción).
     if ten:
         partes.append("<tensiones>")
         for t in ten:
