@@ -86,9 +86,14 @@ TOPE_CORRIDAS = int(os.getenv("PLAN_TOPE_CORRIDAS", "4"))
 ESPERA_RESOLVER_S = float(os.getenv("PLAN_ESPERA_S", "120"))
 
 # Una corrida «en curso» sin latido en este tiempo es de un worker que murió
-# (despliegue, SIGTERM): se trata como abandonada. El mismo número que las
-# demás tareas sueltas del taller (`taller_estado.LATIDO_ABANDONADO_S`).
-PLAN_ABANDONADO_S = 150.0
+# (despliegue, SIGTERM): se trata como abandonada. MENOR QUE LA ESPERA DEL
+# RESOLVER (revisión adversarial de la integración, 26-sep-2026): con 150 s de
+# umbral y 120 de espera, el resolver nunca veía muerta la corrida de un worker
+# caído y el estudio iba sin plan; ahora late cada 20 s (`main._taller_plan_
+# correr`), se da por muerta con tres latidos perdidos y el resolver la relanza
+# dentro de su ventana.
+LATIDO_S = 20.0
+PLAN_ABANDONADO_S = 3 * LATIDO_S
 
 # Tramos del escrito que ve el planificador: tope TOTAL y, dentro, un tope
 # POR CONCEPTO (cabeza y cola) para que el recorte nunca se lleve el final de

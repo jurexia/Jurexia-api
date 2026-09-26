@@ -33151,7 +33151,9 @@ async def _taller_plan_correr(email: str, numero: str, r, crit, ent: dict, *,
         tocados=tocados, conceptos_violacion=ent["conceptos_violacion"],
         checklist=checklist))
     while True:
-        hechas, _ = await asyncio.wait({tarea}, timeout=45)
+        # El latido del plan (`plan_estudio.LATIDO_S`): su umbral de abandono
+        # es menor que la espera del resolver.
+        hechas, _ = await asyncio.wait({tarea}, timeout=_pe.LATIDO_S)
         if hechas:
             break
         if persistir:

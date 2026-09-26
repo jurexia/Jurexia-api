@@ -615,6 +615,142 @@ asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, d
 ok(_PEDIDOS == [], "el plan no se adelanta cuando la propuesta pide los conceptos de violación")
 asyncio.run(_ns_pp["_taller_plan_desde_propuesta"]("x@y", "1/2026", _r_pp, {}, _resp_pp))
 ok(_PEDIDOS == [""], "sin esa necesidad se adelanta con los de la pantalla (ninguno), no con los del encargo")
+
+
+print("\n11 · UN WORKER MUERTO: EL GEMELO RELANZA DENTRO DE SU VENTANA (relojes falsos)")
+
+
+class _Res:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Base:
+    def __init__(self, plan):
+        self.filas = [{"email": "x@y.mx", "expediente": "1/2026", "plan": plan}]
+
+    def table(self, _):
+        return _Q(self)
+
+
+class _Q:
+    def __init__(self, b):
+        self.b, self.modo, self.datos, self.f = b, "select", None, []
+
+    def select(self, *_):
+        return self
+
+    def update(self, datos):
+        self.modo, self.datos = "update", datos
+        return self
+
+    def eq(self, col, val):
+        self.f.append(("eq", col, val))
+        return self
+
+    def is_(self, col, val):
+        self.f.append(("is", col, val))
+        return self
+
+    def limit(self, _):
+        return self
+
+    def _pasa(self, fila):
+        for op, col, val in self.f:
+            if col == "plan->>rev":
+                v = str((fila.get("plan") or {}).get("rev")) if isinstance(fila.get("plan"), dict) else None
+            elif col == "plan->rev":
+                v = (fila.get("plan") or {}).get("rev") if isinstance(fila.get("plan"), dict) else None
+            else:
+                v = fila.get(col)
+            if (op == "eq" and v != val) or (op == "is" and v is not None):
+                return False
+        return True
+
+    def execute(self):
+        filas = [f for f in self.b.filas if self._pasa(f)]
+        if self.modo == "update":
+            for f in filas:
+                f.update(copy.deepcopy(self.datos))
+        return _Res([copy.deepcopy(f) for f in filas])
+
+
+class _Reloj:
+    """El tiempo sólo avanza cuando alguien duerme: la espera de 90 s dura nada."""
+    def __init__(self, t):
+        self.t = t
+
+    def time(self):
+        return self.t
+
+
+def _asyncio_falso(reloj):
+    class _A:
+        def __getattr__(self, n):
+            return getattr(asyncio, n)
+
+        async def sleep(self, s):
+            reloj.t += s
+            await asyncio.sleep(0)
+
+        async def to_thread(self, f, *a, **k):
+            return f(*a, **k)
+    return _A()
+
+
+T0 = 1_000_000.0
+# (a) La recalificación: la pantalla la lanzó y su worker murió 5 s antes de
+# que el gemelo empezara a esperarla (la casilla quedó «en curso»).
+_r_w = resultado(F3g)
+_ses_w = {"propuestas": [types.SimpleNamespace(**p) for p in PRg], "material": None}
+_arm_w = NS["_taller_armar_criterio"](_r_w, _ses_w, GLOBg, criterios_json=CJg)
+_k_w, _h_w = rc.clave_de(_arm_w["detalle"]), _arm_w["huella"]
+_doc_w, _ = rc.fila_pedir(None, _k_w, _h_w, T0 - 5)
+_reloj = _Reloj(T0)
+_ns_w = entorno(supabase_admin=_Base(_doc_w), time=_reloj, asyncio=_asyncio_falso(_reloj))
+_orig_ll = rc._llamar
+try:
+    rc._llamar = _llamar_bien
+    _out_w = asyncio.run(_ns_w["_taller_recalificar_para"]("x@y.mx", "1/2026", _r_w, _ses_w, GLOBg,
+                                                           {"criterios_json": CJg}, _arm_w))
+finally:
+    rc._llamar = _orig_ll
+ok(rc.ABANDONADA_S < rc.TOPE_S and rc.ABANDONADA_S >= 2 * rc.LATIDO_S,
+   f"recalificación: abandono ({rc.ABANDONADA_S:.0f} s) < espera del gemelo ({rc.TOPE_S:.0f} s), "
+   f"y más de dos latidos ({rc.LATIDO_S:.0f} s)")
+ok(_out_w["estado"] == "listo" and not rc.pendientes(_out_w["arm"]["detalle"])
+   and _reloj.t - T0 < rc.TOPE_S,
+   f"recalificación: el gemelo la da por muerta y la relanza dentro de su ventana "
+   f"(a los {_reloj.t - T0:.0f} s)")
+# (b) El plan: lo mismo con la espera del resolver.
+import plan_estudio as _pe_w  # noqa: E402
+_reloj_p = _Reloj(T0)
+_doc_p, _ = _pe_w.fila_pedir(None, "KP", "HP", T0 - 5)
+_LANZADO = []
+
+
+def _lanzar_espia(*a, **k):
+    _LANZADO.append(_reloj_p.t - T0)
+    f = asyncio.get_event_loop().create_future()
+    f.set_result((None, ["el planificador no devolvió nada (doble)"]))
+    return f
+
+
+_ns_p = {"time": _reloj_p, "asyncio": _asyncio_falso(_reloj_p), "print": lambda *a, **k: None,
+         "err": str, "supabase_admin": _Base(_doc_p), "_taller_plan_aplica": lambda r: True,
+         "_taller_plan_entradas": lambda *a, **k: {"clave": "KP", "huella": "HP"},
+         "_taller_plan_lanzar": _lanzar_espia}
+exec(compile(ast.Module(body=[FN[n] for n in ("_taller_plan_cas", "_taller_plan_leer", "_taller_plan_para")],
+                        type_ignores=[]), "main.py", "exec"), _ns_p)
+_r_p = resultado(F3g)
+asyncio.run(_ns_p["_taller_plan_para"]("x@y.mx", "1/2026", _r_p, {}, []))
+ok(_pe_w.PLAN_ABANDONADO_S < _pe_w.ESPERA_RESOLVER_S and _pe_w.PLAN_ABANDONADO_S >= 2 * _pe_w.LATIDO_S,
+   f"plan: abandono ({_pe_w.PLAN_ABANDONADO_S:.0f} s) < espera del resolver ({_pe_w.ESPERA_RESOLVER_S:.0f} s)")
+ok(len(_LANZADO) == 1 and _LANZADO[0] < _pe_w.ESPERA_RESOLVER_S,
+   "plan: el resolver lo da por muerto y lo relanza dentro de su ventana"
+   + (f" (a los {_LANZADO[0]:.0f} s)" if _LANZADO else ""))
+_src_pc = ast.get_source_segment(SRC_MAIN, FN["_taller_plan_correr"])
+ok("timeout=_pe.LATIDO_S" in _src_pc, "la corrida del plan late al ritmo que supone su umbral")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)

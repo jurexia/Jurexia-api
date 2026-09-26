@@ -71,9 +71,14 @@ TOPE_S = float(os.getenv("RECALIFICAR_TOPE_S", "90"))
 TOPE_CORRIDAS = int(os.getenv("RECALIFICAR_TOPE_CORRIDAS", "12"))
 MAX_CASILLAS = 6
 # Una corrida «en curso» sin latido en este tiempo es de un worker que murió.
-# La corrida no pasa de 90 s y late cada 30.
-ABANDONADA_S = 120.0
-LATIDO_S = 30.0
+# MENOR QUE LA ESPERA DEL GEMELO (revisión adversarial de la integración,
+# 26-sep-2026): con 120 s de umbral y 90 de espera, un worker muerto a media
+# recalificación nunca se daba por abandonado dentro de la ventana del gemelo
+# y los tumbados quedaban sin calificar aunque ya no corriera nada. Ahora late
+# cada 15 s, se da por muerta con tres latidos perdidos (45 s) y el gemelo la
+# relanza dentro de sus 90.
+LATIDO_S = 15.0
+ABANDONADA_S = 3 * LATIDO_S
 
 MAX_SEGMENTOS = 8
 MAX_TESIS = 5
