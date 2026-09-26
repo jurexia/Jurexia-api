@@ -32,9 +32,13 @@ principal: los artículos 74, fracción V, y 174 de la Ley de Amparo mandan
 decidirlas todas. La ÚNICA excepción es que un problema de FONDO prospere con
 mayor beneficio que la reposición (artículo 189): entonces la procesal queda
 innecesaria por mayor beneficio y su razón lo dice con el 189. Si lo que
-prospera es una procesal, las demás procesales se deciden igual y el fondo
-queda sin materia. Las piezas de la regla viven en `violacion_procesal`, que
-también usa `modos_decision.repartir`.
+prospera es una procesal, las demás procesales se deciden igual y el fondo que
+depende del principal queda sin materia; el que no declara dependencia no se
+toca: se le señala al secretario. Si el principal NO prospera, la procesal se
+decide con la calificación que el motor le escribió para esa vía, razonada y
+sin la fórmula de la caída; si no le escribió ninguna, conserva la suya y se
+avisa. Las piezas de la regla viven en `violacion_procesal`, que también usa
+`modos_decision.repartir`.
 
 DE DÓNDE SALE LA DEPENDENCIA. De tres fuentes, en este orden: la suerte
 condicional que la fase 5 escribe por tema (`si_prospera` / `si_no_prospera`,
@@ -497,8 +501,35 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 # ── LA GUARDA, CUANDO EL PRINCIPAL NO PROSPERA ──
                 # «Descansa en la premisa desestimada, de modo que su estudio no
                 # produciría ningún fin práctico» es no decidirla. Una procesal
-                # se decide por lo que ella plantea; lo que el motor escribió
-                # para esta vía se le enseña al secretario, no se impone.
+                # se decide por lo que ella plantea.
+                #
+                # PERO SI EL MOTOR LE ESCRIBIÓ UNA CALIFICACIÓN PARA ESTA VÍA,
+                # ésa es la que decide (revisión del 26-sep-2026). Conservar la
+                # que trae es conservar la de la vía CONTRARIA: la pericial
+                # ofrecida en una ampliación que se acaba de tener por bien
+                # precluida salía «fundado», con reposición para admitirla. Es
+                # el mismo fallo que dio origen a este módulo en el 93/2026 —el
+                # accesorio conservó el tratamiento escrito para el sentido
+                # contrario—. Se aplica como CALIFICACIÓN razonada, sin la
+                # fórmula de la caída: el estudio la decide y la razona, no la
+                # despacha como «cae con el principal».
+                if (_entrada_tiene_suerte(entrada, sentido_motor) and _decide(s)
+                        and not str(razon or "").startswith(CAE_CON_PRINCIPAL)):
+                    _set(c, "sentido", s)
+                    _set(c, "razonamiento", razon or "")
+                    detalle[t] = {"de": "principal", "guarda": "procesal",
+                                  "por_que": "violación procesal: se decide con la calificación "
+                                             "que el motor le escribió para esta vía, razonada; "
+                                             "no se declara caída (arts. 74-V y 174)"}
+                    avisos.append(
+                        f"«{t[:90]}» es una VIOLACIÓN PROCESAL y NO se declaró caída con el "
+                        f"principal: los artículos 74, fracción V, y 174 de la Ley de Amparo "
+                        f"mandan decidirla. Con el principal {p_sent.replace('_', ' ')} se "
+                        f"decide {s.replace('_', ' ')}, que es lo que el motor le escribió "
+                        f"para esta vía" + (f": {razon[:160]}" if razon else "")
+                        + ". El estudio lo razona como calificación suya. Revisa que sea la tuya.")
+                    siguen += 1
+                    continue
                 _k = _conservar(c, t)
                 detalle[t] = {"de": "propio", "guarda": "procesal",
                               "por_que": "violación procesal: se decide por sí misma "

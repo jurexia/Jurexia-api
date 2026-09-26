@@ -238,12 +238,25 @@ lista_no = [{"numero": 1, "tema": "ampliación", "papel": "principal"},
             {"numero": 3, "tema": "crédito", "papel": "accesorio", "relacion": "depende",
              "si_no_prospera": {"sentido": "inoperante", "razon": "el crédito no entró a la litis"}}]
 av, det = ad.aplicar(probs(PV1, PV2, PF), cc, lista_no, [])
-ok(cc[1]["sentido"] == "fundado" and cc[1]["razonamiento"] == "la pericial era idónea",
-   "la procesal conserva su calificación y su razón")
+# Revisión del 26-sep-2026. Antes conservaba el «fundado» de la vía CONTRARIA
+# (el de la pantalla, con el principal fundado) y sólo enseñaba en un aviso lo
+# que el motor escribió para ésta: la pericial ofrecida en una ampliación bien
+# precluida salía fundada. Es el fallo del 93/2026 que dio origen al árbol.
+ok(cc[1]["sentido"] == "inoperante" and cc[1]["razonamiento"] == "la pericial se ofreció en la ampliación",
+   f"la procesal se decide con lo que el motor le escribió para ESTA vía: {cc[1]['sentido']}")
+ok(not cc[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL),
+   "como calificación razonada, no con la fórmula de la caída (el estudio no la despacha)")
+ok(det[VP2].get("guarda") == "procesal", "la pantalla sabe que es la guarda procesal")
 ok(any("NO se declaró caída con el principal" in a and "la pericial se ofreció en la ampliación" in a
-       for a in av), "y el aviso le enseña al secretario lo que el motor escribió para esa vía")
+       for a in av), "y el aviso se lo dice al secretario")
 ok(cc[2]["sentido"] == "inoperante" and "el crédito no entró" in cc[2]["razonamiento"],
    "el fondo que dependía sí cae con el principal")
+# Sin suerte escrita para esta vía —sólo la dependencia de la fase 3—, no hay
+# calificación que aplicar: conserva la suya y se avisa.
+cc = [cr(VP1, "infundado", "principal", tocado=True), cr(VP2, "fundado", razon="la pericial era idónea")]
+av, det = ad.aplicar(probs(PV1, PV2), cc, [], [])
+ok(cc[1]["sentido"] == "fundado" and cc[1]["razonamiento"] == "la pericial era idónea",
+   "sin suerte escrita para la vía, la procesal conserva su calificación y su razón")
 # Una procesal que VUELVE de la pantalla caída (reparto anterior al 26-sep): el
 # estudio la reconoce por el arranque de la razón y la escribiría sin decidir.
 cc = [cr(VP1, "infundado", "principal", tocado=True),
