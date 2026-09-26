@@ -191,23 +191,49 @@ def instrucciones(clase: str, para: str = "estudio") -> str:
             "la jurisprudencia del material, y propón el sentido según resistan o\n"
             "no. No propongas a partir de la regla abstracta: propón a partir de si\n"
             "las razones concretas de esta resolución se sostienen.")
+    # ── LA TÉCNICA, REESCRITA EL 26-SEP-2026 (decisión 2 de David) ──────
+    # Decía «ENUNCIA, una por una» y «ESTÁ PROHIBIDO despacharla en un
+    # párrafo». El estudio del 93/2026 lo cumplió a la letra y escribió cuatro
+    # párrafos, uno por razón, contestados con la misma frase (estandar2,
+    # l. 104-109): la orden fabricaba la repetición que luego se le reprochaba.
+    # Lo que se quería evitar —contestar con una conclusión que no nombra las
+    # razones de la resolución— sigue prohibido; lo que cambia es que las que
+    # caen por la misma respuesta se contestan juntas, la dependiente cae con
+    # la otra salvo que un efecto la presuponga, y la mixta se parte.
+    # Se describe la FUNCIÓN y no se dan frases: un ejemplo escrito aquí se
+    # copia literal al proyecto (tres veces medido). Por eso también salió la
+    # frase entre comillas que se daba como lo que NO había que escribir.
+    # La misma regla, con las mismas cuatro piezas, está en
+    # `tipos_asunto.TECNICA_RESOLUCION["directo_violacion_procesal"]`.
     return base + (
         "TÉCNICA OBLIGADA para el planteamiento que la combate:\n"
-        "  1. ENUNCIA, una por una, las razones en que esta resolución se sostiene\n"
-        "     (qué plazo aplicó, desde cuándo lo contó, con qué fundamento, por\n"
-        "     qué tuvo por no exigible lo que la parte reclama).\n"
+        "  1. IDENTIFICA las razones en que esta resolución se sostiene (qué\n"
+        "     plazo aplicó, desde cuándo lo contó, con qué fundamento, por qué\n"
+        "     tuvo por no exigible lo que la parte reclama). Ninguna se queda\n"
+        "     sin respuesta.\n"
         "  2. CONFRONTA cada razón con la ley que rige la vía y con la\n"
         "     jurisprudencia obligatoria: di si esa razón resiste o cae, y por\n"
         "     qué. Si un criterio obligatorio dispone lo contrario de lo que la\n"
         "     resolución sostuvo, la razón cae y se dice con el registro delante.\n"
-        "  3. LA CALIFICACIÓN SALE DE ESE CONTRASTE: es fundado si cae al menos\n"
+        "  3. LAS QUE CAEN POR LA MISMA RESPUESTA SE CONTESTAN JUNTAS,\n"
+        "     nombrándolas a todas: una razón no pide desarrollo propio si lo que\n"
+        "     la derriba es lo mismo que derriba a otra.\n"
+        "  4. LA RAZÓN QUE DEPENDE DE OTRA CAE CON ELLA y basta decirlo,\n"
+        "     nombrándola, SALVO QUE UN EFECTO DE LA CONCESIÓN LA PRESUPONGA —la\n"
+        "     oportunidad, el cómputo o la cuantía con que la responsable tendrá\n"
+        "     que actuar al reponer—: entonces se desarrolla con el dato del\n"
+        "     expediente, o, si el material no lo trae, se dice en ADVERTENCIAS.\n"
+        "  5. LA RAZÓN MIXTA SE PARTE: si una misma razón une afirmaciones que se\n"
+        "     contestan de modo distinto —una regla de derecho y un hecho del\n"
+        "     expediente, por ejemplo—, cada parte recibe su respuesta.\n"
+        "  6. LA CALIFICACIÓN SALE DE ESE CONTRASTE: es fundado si cae al menos\n"
         "     una razón de la que dependía el resultado; infundado si todas\n"
         "     resisten. Y trasciende al fallo sólo si la actuación privó a la\n"
         "     parte de una defensa que podía cambiar el resultado —dilo.\n"
-        "  4. ESTÁ PROHIBIDO despacharla en un párrafo («esa consideración no\n"
-        "     supera el vicio») o razonar sobre una regla general sin bajar a lo\n"
-        "     que esta resolución dijo. Cítala como «la interlocutoria de… que\n"
-        "     resolvió el recurso de reclamación» o «el acuerdo de…», nunca como\n"
+        "  7. NO BASTA una conclusión que no nombre las razones de la resolución,\n"
+        "     ni razonar sobre una regla general sin bajar a lo que esta\n"
+        "     resolución dijo. Cítala como «la interlocutoria de… que resolvió el\n"
+        "     recurso de reclamación» o «el acuerdo de…», nunca como\n"
         "     «documento aportado».")
 
 

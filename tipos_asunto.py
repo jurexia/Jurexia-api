@@ -1577,20 +1577,54 @@ TECNICA_RESOLUCION = {
             "recurso contra la actuación, se dice que se agotó —y con qué "
             "resultado— o que no era exigible. Sin eso, el planteamiento es "
             "inoperante y se dice por qué.",
-            "LUEGO LA CONFRONTACIÓN: se enuncian, una por una, las razones de "
-            "la resolución que decidió la violación (qué plazo aplicó, desde "
+            # ── LA CONFRONTACIÓN, REESCRITA EL 26-SEP-2026 (decisión 2) ──
+            # Decía «se enuncian, una por una» y «PROHIBIDO despacharla en un
+            # párrafo». El estudio lo obedeció al pie de la letra: en el 93/2026
+            # (estandar2, l. 104-109) salieron cuatro párrafos, uno por razón,
+            # contestados con la MISMA respuesta. La orden fabricaba la
+            # repetición. David autorizó la regla nueva: cada razón se
+            # identifica y se confronta; las que caen por la misma respuesta se
+            # contestan juntas nombrándolas; la dependiente cae con la otra
+            # salvo que un efecto la presuponga; la mixta se parte. Van como
+            # descripción de la función, sin frases que copiar.
+            "LUEGO LA CONFRONTACIÓN: se identifican las razones de la "
+            "resolución que decidió la violación (qué plazo aplicó, desde "
             "cuándo lo contó, con qué fundamento, por qué tuvo por no exigible "
-            "lo reclamado) y cada una se contrasta con la ley de la vía y con "
-            "la jurisprudencia obligatoria. Se dice cuál resiste y cuál cae. "
-            "Está PROHIBIDO despacharla en un párrafo o razonar sólo sobre la "
-            "regla general sin bajar a lo que esa resolución sostuvo.",
+            "lo reclamado) y cada una se confronta con la ley de la vía y con "
+            "la jurisprudencia obligatoria. Ninguna se queda sin respuesta y "
+            "se dice cuál resiste y cuál cae. No basta razonar sobre la regla "
+            "general sin bajar a lo que esa resolución sostuvo.",
+            "LAS RAZONES QUE CAEN POR LA MISMA RESPUESTA SE CONTESTAN JUNTAS, "
+            "nombrándolas a todas: una razón no pide desarrollo propio si lo "
+            "que la derriba es lo mismo que derriba a otra.",
+            "LA RAZÓN QUE DEPENDE DE OTRA CAE CON ELLA y basta decirlo, "
+            "nombrándola, SALVO QUE UN EFECTO DE LA CONCESIÓN LA PRESUPONGA "
+            "—la oportunidad, el cómputo o la cuantía con que la responsable "
+            "tendrá que actuar al reponer—: entonces se desarrolla con el dato "
+            "del expediente, porque no puede ordenarse un efecto sobre una "
+            "premisa que nadie examinó. Si el material no trae ese dato, se "
+            "dice en ADVERTENCIAS.",
+            "LA RAZÓN MIXTA SE PARTE: si una misma razón une afirmaciones que "
+            "se contestan de modo distinto —una regla de derecho y un hecho "
+            "del expediente, por ejemplo—, cada parte recibe su respuesta.",
             "DESPUÉS LA TRASCENDENCIA (artículo 172): la violación sólo "
             "concede si privó a la parte de una defensa que podía cambiar el "
             "resultado del juicio. Se dice qué defensa y por qué podía cambiarlo.",
-            "SI PROSPERA, EL EFECTO ES LA REPOSICIÓN desde la actuación viciada, "
-            "y los accesorios que dependían de la litis reintegrada quedan sin "
-            "materia: se dice. SI NO PROSPERA, los accesorios que presuponían "
-            "la reposición caen con él: se declaran inoperantes con esa razón.",
+            # ── LA SUERTE DE LOS DEMÁS, ALINEADA CON LOS ARTÍCULOS 74 Y 174 ──
+            # Decía que, si prospera, «los accesorios… quedan sin materia», sin
+            # distinguir: una segunda violación procesal habría quedado sin
+            # decidir, y los artículos 74, fracción V, y 174 mandan decidirlas
+            # TODAS. David, 26-sep-2026: la única excepción es una concesión de
+            # fondo con mayor beneficio (artículo 189). La misma regla vive,
+            # determinista, en `arbol_decision.aplicar`.
+            "SI PROSPERA, EL EFECTO ES LA REPOSICIÓN desde la actuación viciada. "
+            "Los planteamientos de fondo quedan sin materia, porque la "
+            "sentencia reclamada se deja insubsistente, y se dice; las demás "
+            "violaciones procesales NO quedan sin materia: se deciden todas "
+            "(artículos 74, fracción V, y 174). SI NO PROSPERA, los "
+            "planteamientos que presuponían la reposición caen con él y se "
+            "declaran inoperantes con esa razón, salvo que sean otra violación "
+            "procesal: ésa se decide por lo que ella misma plantea.",
             "LOS EFECTOS DE LA REPOSICIÓN SE ORDENAN PASO A PASO, porque la "
             "responsable NO puede dictar otra sentencia de inmediato: 1. deje "
             "insubsistente la sentencia reclamada; 2. deje sin efectos la "
@@ -1605,22 +1639,50 @@ TECNICA_RESOLUCION = {
             "(artículos 192 a 196 de la Ley de Amparo).",
         ],
     },
+    # ═══ EL ORDEN ES EL DEL ARTÍCULO 189 VIGENTE: EL FONDO PRIMERO ═══════════
+    # Decía «LAS VIOLACIONES PROCESALES SON DE ESTUDIO PREFERENTE», que es la
+    # regla de ejecutorias anteriores a la redacción vigente. El artículo 189,
+    # segunda oración (reforma DOF 13-03-2025), dice lo contrario: «se
+    # privilegiará el estudio de los conceptos de violación de fondo por encima
+    # de los de procedimiento y forma, a menos que invertir el orden redunde en
+    # un mayor beneficio para la persona quejosa». Leído en
+    # `normas_ley_de_amparo.json`, no de memoria.
+    #
+    # David, 26-sep-2026: «Sí» a alinear la técnica con el 189, y «también
+    # alinea a cómo debe resolverse (mayor beneficio art 189)». Por eso la
+    # regla trae también la otra mitad: los artículos 74, fracción V, y 174
+    # mandan DECIDIR todas las violaciones procesales, y la única excepción es
+    # que un concepto de fondo prospere con mayor beneficio que la reposición.
+    # Lo mismo, sin modelo de por medio, en `arbol_decision.aplicar` y en
+    # `modos_decision.repartir`.
     "directo_orden_de_estudio": {
         "cuando": "Amparo directo en que se plantean violaciones procesales "
                   "junto con cuestiones de fondo.",
-        "fuente": "artículos 174 y 189 de la Ley de Amparo",
+        "fuente": "artículos 74, fracción V, 174 y 189 de la Ley de Amparo",
         "tecnica": [
-            "LAS VIOLACIONES PROCESALES SON DE ESTUDIO PREFERENTE, porque si "
-            "prosperan obligan a reponer el procedimiento y lo demás quedaría "
-            "sin materia.",
-            "PERO MANDA EL MAYOR BENEFICIO. El artículo 189 obliga a estudiar "
-            "primero aquello que, de resultar fundado, otorgue a la parte "
-            "quejosa un beneficio MAYOR. Si el fondo puede darle más que la "
-            "reposición —una concesión lisa y llana frente a repetir el "
-            "procedimiento—, el fondo va primero y se dice por qué.",
-            "EL ORDEN ELEGIDO SE JUSTIFICA en el proyecto, en una frase. No se "
-            "presenta como método: se presenta como la aplicación del artículo "
-            "189 a este caso concreto.",
+            "EL FONDO VA PRIMERO. El artículo 189 manda privilegiar el estudio "
+            "de los conceptos de fondo por encima de los de procedimiento y "
+            "forma. Una violación procesal no es de estudio preferente por el "
+            "solo hecho de serlo.",
+            "EL ORDEN SE INVIERTE SÓLO POR MAYOR BENEFICIO: la violación "
+            "procesal va antes que el fondo únicamente si, de resultar fundada, "
+            "daría a la parte quejosa más de lo que podría darle el fondo. Se "
+            "justifica comparando, con los datos de este asunto, qué obtendría "
+            "la parte con la reposición y qué con la concesión de fondo.",
+            "TODAS LAS VIOLACIONES PROCESALES SE DECIDEN (artículos 74, "
+            "fracción V, y 174): cada una recibe su calificación. La única que "
+            "puede dejar de estudiarse es la que se vuelve innecesaria porque "
+            "un concepto de fondo prospera y da a la parte quejosa un beneficio "
+            "mayor que la reposición; entonces el proyecto lo dice así, con el "
+            "artículo 189. Ninguna otra razón —sin materia, innecesaria, caída "
+            "con otro planteamiento— deja sin decidir una violación procesal.",
+            "SI LO QUE PROSPERA ES UNA VIOLACIÓN PROCESAL, las demás "
+            "violaciones procesales se deciden igual (artículo 174) y los "
+            "conceptos de fondo quedan sin materia, salvo el que daría un "
+            "beneficio mayor que la reposición, que se estudia antes.",
+            "EL ORDEN ELEGIDO SE JUSTIFICA en el proyecto, en una frase, como "
+            "aplicación del artículo 189 a este caso concreto, no como fórmula "
+            "de método.",
         ],
     },
 }
