@@ -471,8 +471,12 @@ for nombre, fn in eps.items():
               and any(isinstance(t, ast.Attribute) and t.attr == "variante_estudio" for t in n.targets)]
     ok(len(asigna) == 1 and isinstance(asigna[0].value, ast.Call)
        and getattr(asigna[0].value.func, "id", "") == "_taller_variante_estudio"
-       and [getattr(a, "id", "") for a in asigna[0].value.args] == ["user_email", "variante_estudio"],
-       f"{nombre}: la pone en el encargo con `_taller_variante_estudio(user_email, variante_estudio)`")
+       # Desde la revisión del Paso 2 (26-sep-2026) lleva además el tipo del
+       # encargo, para que `ESTUDIO_PROMPT_AD` encienda de verdad por tipo.
+       and [getattr(a, "id", "") for a in asigna[0].value.args][:2] == ["user_email", "variante_estudio"]
+       and len(asigna[0].value.args) == 3
+       and "tipo_asunto" in ast.dump(asigna[0].value.args[2]),
+       f"{nombre}: la pone en el encargo con `_taller_variante_estudio(user_email, variante_estudio, <tipo>)`")
     guarda = [n for n in ast.walk(fn) if isinstance(n, ast.Call)
               and getattr(n.func, "id", "") == "_taller_guardar_proyecto"]
     ok(len(guarda) == 1 and any(k.arg == "criterios_json" for k in guarda[0].keywords),

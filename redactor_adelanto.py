@@ -1015,6 +1015,9 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
         # sesión de una generación a la siguiente, y la suplencia confirmada de
         # la vuelta anterior no puede colarse en ésta si el secretario la quitó.
         material.suplencia = dict(getattr(e, "suplencia", None) or {}) if e else {}
+        # Y EL INVENTARIO SE VACÍA AQUÍ, antes de nada que pueda fallar: el de
+        # la vuelta anterior no puede sobrevivir a una excepción de más abajo.
+        material.inventario = []
         import formato_sentencia as _fs
         material.formato = _fs.normalizar(getattr(e, "formato", "") if e else "")
         # LA VARIANTE DEL PROMPT, EN CADA PETICIÓN, como la forma: el material
@@ -1022,9 +1025,30 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
         # colarse en la v1 de ésta. Sin variante en el encargo, la global.
         import fase6_estudio as _f6v
         material.variante = _f6v.normalizar_variante(
-            getattr(e, "variante_estudio", "") if e else "", _f6v.variante_global())
+            getattr(e, "variante_estudio", "") if e else "",
+            _f6v.variante_global(getattr(e, "tipo_asunto", "") if e else ""))
         material.problemas = [p for p in (getattr(r.fases, "problemas", None) or [])
                               if isinstance(p, dict)]
+        # EL INVENTARIO DE ARGUMENTOS, SÓLO PARA LA v3 Y LA v4 (Paso 2a,
+        # 26-sep-2026). Se calcula en CADA petición —y se vacía en las demás
+        # variantes— por lo mismo que la variante: el material vive en la
+        # memoria del worker. Es determinista y sin modelo (medido: 0.08 s de
+        # mediana, 0.65 s el escrito más largo de las 64 sesiones con escrito).
+        # Lo que falle aquí deja la v3 escribiendo como la v2, nunca sin estudio.
+        material.inventario = []
+        if _f6v.con_inventario(material):
+            try:
+                import inventario as _inv_m
+                _esc_m = (list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]
+                material.inventario = _inv_m.segmentos(
+                    r.fases, _esc_m, bool(getattr(e, "es_recurso", False)) if e else False)
+                _conc_m = sorted({x["concepto"] for x in material.inventario})
+                print(f"   🧭 INVENTARIO: {len(material.inventario)} argumentos en "
+                      f"{len(_conc_m)} concepto(s) · "
+                      f"{sum(1 for x in material.inventario if x.get('cita'))} anclados en el escrito")
+            except Exception as _ei:
+                material.inventario = []
+                print(f"   ⚠️ INVENTARIO: no se pudo armar: {type(_ei).__name__}")
         _c = getattr(r.fases, "conteo", None) or {}
         material.n_planteamientos = int(_c.get("n") or 0) \
             if str(_c.get("estado")) == "contado" else 0
@@ -1345,6 +1369,13 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     _meta = {}
     _litis_y_material(r, material, avisos, cliente, criterios)
     t0 = _time.perf_counter()
+    # LAS MARCAS NO LLEGAN A LA PANTALLA (Paso 2a): el filtro retiene desde «⟦»
+    # hasta «⟧» y quita la marca, aunque llegue partida entre dos trozos. Pasa
+    # con cualquier variante: sin marcas, el texto sale tal cual y sólo se
+    # retrasa lo que tarde en llegar un cierre que nunca llega (200 caracteres
+    # como mucho). El texto final lo limpia `_terminar`.
+    import marcas as _mc_v
+    _filtro = _mc_v.FiltroMarcas()
     async for paso in f6.redactar_en_vivo(
             cliente, r.fases.resumen_acto, r.fases.resumen_conceptos,
             criterios, material, e.es_recurso, r.partes, marco, contexto,
@@ -1357,12 +1388,20 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
             # el resumen —unas 472 palabras— y CERO caracteres del escrito.
             escrito_literal=(list(getattr(r.fases, "fuentes", []) or []) + ["", ""])[1]):
         if paso.get("tipo") == "texto":
-            yield paso
+            _dato = _filtro.alimentar(paso.get("dato") or "")
+            if _dato:
+                yield {"tipo": "texto", "dato": _dato}
         else:
+            _resto = _filtro.cerrar()
+            if _resto:
+                yield {"tipo": "texto", "dato": _resto}
             estudio = paso.get("estudio", "")
             advertencias = paso.get("advertencias", "")
             avisos.extend(paso.get("avisos", []))
             _meta = dict(paso.get("meta") or {})
+    _resto = _filtro.cerrar()
+    if _resto:
+        yield {"tipo": "texto", "dato": _resto}
     TIEMPOS["estudio de fondo"] = round(_time.perf_counter() - t0, 1)
     _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
     if _av_ef:
@@ -1467,6 +1506,101 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     yield {"tipo": "listo", "resultado": res}
 
 
+def _reindexar(mapa: dict, lineas: list, pars: list) -> dict:
+    """El mapa, con el índice del párrafo tal como lo compone el documento.
+
+    `separar_marcas` cuenta los renglones no vacíos del estudio; el documento
+    lo compone con `f6.parrafos`, que quita el encabezado «SEXTO. Estudio.» y
+    los rótulos sueltos. Se casan en orden: cada renglón con el párrafo que
+    termina igual; uno que el documento quitó apunta al siguiente."""
+    a_doc, j = {}, 0
+    for i, ln in enumerate(lineas):
+        t = ln.strip()
+        k = j
+        while k < len(pars) and not (pars[k] and t.endswith(pars[k])):
+            k += 1
+        if k < len(pars):
+            a_doc[i] = k
+            j = k + 1
+        else:
+            a_doc[i] = min(j, max(len(pars) - 1, 0))
+    return {ident: sorted({a_doc.get(i, i) for i in idxs}) for ident, idxs in (mapa or {}).items()}
+
+
+def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str) -> dict:
+    """Separa las marcas y aplica el control V1. Nunca lanza.
+
+    Devuelve {estudio, advertencias (sin marcas), aviso (el visible, o «»),
+    meta: {mapa, cobertura}}. El aviso VISIBLE sólo sale si falta la marca de
+    un argumento Y el rescate por anclas y texto tampoco lo encuentra (ver
+    `marcas.verificar`); lo demás va en sombra, sólo en `meta`."""
+    fuera = {"estudio": estudio or "", "advertencias": advertencias or "",
+             "aviso": "", "meta": {}}
+    try:
+        import marcas as _mc_t
+        limpio, mapa = _mc_t.separar_marcas(estudio or "")
+        adv_limpias, mapa_adv = _mc_t.separar_marcas(advertencias or "")
+        fuera["estudio"], fuera["advertencias"] = limpio, adv_limpias
+        segs = list(getattr(material, "inventario", None) or [])
+        if not (segs or mapa or mapa_adv):
+            return fuera
+        pars = f6.parrafos(limpio)
+        mapa_doc = _reindexar(mapa, _mc_t.parrafos(limpio), pars)
+        # EL ARRANQUE DE CADA PÁRRAFO, EN LISTA Y CON EL MISMO ÍNDICE QUE EL
+        # MAPA (revisión adversarial, 26-sep-2026): la pestaña «Mapa del
+        # estudio» de la pieza de pantallas lee `parrafos` así, en el primer
+        # nivel del «listo» y de la ficha; sin él enseña «párrafo 14» sin su
+        # texto. Catorce palabras por párrafo: unos 100 bytes cada uno.
+        meta = {"mapa": mapa_doc,
+                "parrafos": [" ".join(p.split()[:14]) for p in pars][:400]}
+        if segs:
+            cob = _mc_t.verificar(segs, mapa, limpio)
+            # LO QUE LA PANTALLA NECESITA PARA EL «MAPA DEL ESTUDIO»: cada
+            # argumento con lo que se alega y su cita, y el arranque de cada
+            # párrafo marcado. Recortado: la ficha se apila doce veces.
+            # Unas 300 letras por argumento: la mediana son 13 argumentos (4 KB
+            # por ficha) y el asunto más largo medido, 72 (22 KB).
+            cob["segmentos"] = [
+                {"id": x.get("id"), "concepto": x.get("concepto"),
+                 "texto": " ".join(str(x.get("texto") or "").split()[:25]),
+                 "cita": " ".join(str(x.get("cita") or "").split()[:30]),
+                 "pagina": x.get("pagina") or ""}
+                for x in segs][:120]
+            _usados = sorted({k for v in mapa_doc.values() for k in v})
+            cob["parrafos"] = {str(k): " ".join(pars[k].split()[:14])
+                               for k in _usados if 0 <= k < len(pars)}
+            cob["en_advertencias"] = sorted(mapa_adv)
+            cob["visible"] = bool(cob.get("sin_rastro")) and _f6_con_inventario(material)
+            meta["cobertura"] = cob
+            # HIGIENE DE REGISTROS: identificadores y cifras, nunca el texto.
+            print(f"   🧭 MARCAS: {cob['marcados']}/{cob['total']} marcados · "
+                  f"rescatados {len(cob['rescatados'])} · sin rastro "
+                  f"{cob['sin_rastro'][:12]}" + (" (aviso visible)" if cob["visible"] else " (sombra)")
+                  + (f" · desconocidos {cob['desconocidos'][:6]}" if cob["desconocidos"] else ""))
+            if cob["visible"]:
+                import tipos_asunto as _ta_m
+                _q1 = _ta_m.vocabulario_de(getattr(e, "tipo_asunto", "") or "amparo_directo")["combate_singular"]
+                fuera["aviso"] = _mc_t.aviso(segs, cob, _q1)
+        fuera["meta"] = meta
+    except Exception as _ex:
+        print(f"   ⚠️ MARCAS: no se pudieron separar: {type(_ex).__name__}")
+        # SI LO QUE REVENTÓ FUE LA SEPARACIÓN MISMA, el estudio seguiría con
+        # sus marcas camino del .docx (revisión adversarial, 26-sep-2026). Se
+        # quitan a lo bruto: sin mapa, pero ninguna marca llega a la sentencia.
+        for _k in ("estudio", "advertencias"):
+            if "⟦" in (fuera[_k] or ""):
+                fuera[_k] = re.sub(r"[ \t]*⟦[^⟦⟧\n]{0,1200}⟧[ \t]?", " ", fuera[_k])
+                fuera[_k] = "\n".join(_l.strip() for _l in fuera[_k].split("\n"))
+    return fuera
+
+
+def _f6_con_inventario(material) -> bool:
+    try:
+        return bool(f6.con_inventario(material))
+    except Exception:
+        return False
+
+
 def _revisar_contaminacion(r, e) -> list:
     """Que nada del proyecto sea de otro asunto.
 
@@ -1512,6 +1646,17 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     mismo cuando el flujo termina, y tener dos copias de esto es tener dos
     sitios donde se rompe la congruencia.
     """
+    # ═══ LAS MARCAS SE SEPARAN ANTES DE COMPONER (Paso 2a, 26-sep-2026) ════
+    # Lo primero, porque todo lo de abajo —la litis, el relleno, el .docx—
+    # tiene que ver el texto que se firma, y las marcas son registro interno.
+    # Aquí convergen los dos gemelos, así que deciden igual. El mapa y la
+    # cobertura van a la ficha y al evento «listo» por `meta_estudio`.
+    meta_estudio = dict(meta_estudio or {})
+    _v1 = _marcas_y_cobertura(r, e, material, estudio, advertencias)
+    estudio, advertencias = _v1["estudio"], _v1["advertencias"]
+    if _v1["aviso"]:
+        avisos.insert(0, _v1["aviso"])
+    meta_estudio.update(_v1["meta"])
     # ═══ LA LEY LOCAL SÓLO ENTRA SI ESTÁ EN LA LITIS ═══════════════════════
     # Aquí convergen los dos redactores del estudio, y el marco llega unas
     # líneas más abajo: es el único sitio por el que pasa TODO lo que se va a

@@ -29,8 +29,13 @@ distancia entre las medianas de v1 y v1@r o el recorrido de v1@r cuando es
 mayor. Con la réplica, además, el informe dice cuántos casos bloquearía v1
 contra v1@r: es la calibración del bloqueo.
 
+LAS MARCAS (v3 y v4, Paso 2a): si las corridas traen la cobertura por marcas
+en el evento «listo», el informe añade su sección (ver `informe_marcas`), y una
+marca que se filtró al documento BLOQUEA como un corte (w2_final §6.6).
+
 Uso:
     .venv/bin/python comparar_estudio.py --etiqueta estandar --base v1 --variantes v2
+    .venv/bin/python comparar_estudio.py --etiqueta estandar --base v2 --variantes v3
     .venv/bin/python comparar_estudio.py --etiqueta estandar --base v1 --ruido v1@r
 """
 from __future__ import annotations
@@ -255,7 +260,12 @@ def comparar_par(datos: dict, medidor: Medidor, base: str, nueva: str,
         fila = {"caso": c, "falta": False, "n_base": len(vb), "n_nueva": len(vn),
                 "metricas": por_metrica, "oro": oro,
                 "regresion": regresiones(mb, mn, mr or None, banda),
-                "truncadas": truncadas(vn), "truncadas_base": truncadas(vb)}
+                "truncadas": truncadas(vn), "truncadas_base": truncadas(vb),
+                # LAS MARCAS (v3/v4): la cobertura que devolvió el servidor en
+                # «listo», corrida por corrida, y las que se filtraron al .docx.
+                "marcas": {"base": [me.cobertura_de_fila(f) for f in vb],
+                           "nueva": [me.cobertura_de_fila(f) for f in vn]},
+                "filtradas": sum(1 for x in valores(mn, "marcas_filtradas") if x > 0)}
         # LA BASE CONTRA SU RÉPLICA, con la misma regla: lo que bloquearía el
         # mismo prompt contra sí mismo. Es la calibración del bloqueo.
         if mr:
@@ -273,8 +283,9 @@ def comparar_par(datos: dict, medidor: Medidor, base: str, nueva: str,
             "med_nueva": me.mediana([v["med_nueva"] for v in vs]),
             "med_delta": me.mediana([v["delta"] for v in vs]),
             "p_signo": signo(mej, len(vs)) if me.MEJOR[clave] else None}
+    # UNA MARCA FILTRADA AL DOCUMENTO BLOQUEA (w2_final §6.6), como un corte.
     bloquea = [f for f in filas if not f["falta"] and (
-        bloquea_regresion(f["regresion"]) or f["truncadas"])]
+        bloquea_regresion(f["regresion"]) or f["truncadas"] or f["filtradas"])]
     # SIN CORRIDAS BUENAS NO HAY CERTIFICADO (revisión, 26-sep-2026). Antes un
     # caso en que la variante fallaba las tres veces se quedaba fuera de la
     # comparación y el comparador salía con 0: la variante que revienta en un
@@ -340,6 +351,45 @@ def _referencia(raiz: Path) -> dict:
     return {}
 
 
+def informe_marcas(par: dict) -> list:
+    """La sección de las marcas (v3/v4), si alguna corrida del par las trae.
+
+    Lo que el servidor devolvió en «listo»: cuántos argumentos del inventario
+    tienen marca, cuántos más se rescatan por anclas o texto, cuántos no tienen
+    ni una cosa ni otra (el aviso visible) y los identificadores que el estudio
+    marcó sin estar en el inventario. NO dice si la marca es honesta —si el
+    párrafo marcado contesta de verdad ese argumento—: eso lo mide el
+    localizador (w2_final §6.3, M1d ≥ 0.95)."""
+    filas = [f for f in par["filas"] if not f["falta"]]
+    if not any(x for f in filas for lado in ("base", "nueva")
+               for x in (f.get("marcas") or {}).get(lado) or []):
+        return []
+    L = ["### Marcas e inventario (v3/v4)", "",
+         "Cobertura por marcas que devolvió el servidor. «Con rescate» suma los "
+         "argumentos sin marca cuyo rastro (anclas o palabras propias) sí está en el "
+         "texto; «sin rastro» es lo que se le avisa al secretario. La marca honesta "
+         "la mide el localizador, no esto.", "",
+         "| Caso | Variante | Corridas con mapa | Argumentos | Marcados (mediana · peor) | "
+         "Con rescate (mediana) | Sin rastro (por corrida) | Aviso visible | "
+         "Ids ajenos al inventario |", "|---|---|---|---|---|---|---|---|---|"]
+    for f in filas:
+        for lado, v in (("base", par["base"]), ("nueva", par["nueva"])):
+            cs = [x for x in (f.get("marcas") or {}).get(lado) or [] if x]
+            if not cs:
+                continue
+            cob = [x["cobertura"] for x in cs if x.get("cobertura") is not None]
+            res = [x["con_rescate"] for x in cs if x.get("con_rescate") is not None]
+            L.append(f"| {f['caso']} | {v} | {len(cs)} de {f['n_' + lado]} | "
+                     f"{_f(me.mediana([x['total'] for x in cs]), 0)} | "
+                     f"{_f(me.mediana(cob))} · {_f(min(cob) if cob else None)} | "
+                     f"{_f(me.mediana(res))} | "
+                     f"{' · '.join(str(x['sin_rastro']) for x in cs)} | "
+                     f"{sum(1 for x in cs if x['visible'])} | "
+                     f"{sum(x['desconocidos'] for x in cs) or '—'} |")
+    L.append("")
+    return L
+
+
 def informe(etiqueta: str, pares: list, oper: dict, ref: dict = None) -> str:
     ref = ref or {}
     L = [f"# Banco del estudio · «{etiqueta}»", "",
@@ -361,19 +411,20 @@ def informe(etiqueta: str, pares: list, oper: dict, ref: dict = None) -> str:
         if not par["bloquea"] and not par["incompletos"]:
             L += ["Ningún caso pierde un ancla del escrito que la base nombrara en todas sus "
                   "corridas, ni un concepto que nombrara en ≥ 2/3; en ninguno la peor corrida "
-                  f"de {n} cae por debajo de la peor de {b} más allá del ruido, y ninguna "
-                  "corrida salió truncada.", ""]
+                  f"de {n} cae por debajo de la peor de {b} más allá del ruido, ninguna "
+                  "corrida salió truncada y ninguna dejó una marca en el documento.", ""]
         if par["bloquea"]:
             L += [f"**BLOQUEA en {len(par['bloquea'])} caso(s).** Repetir menos no cuenta "
                   "como mejora si se contesta menos (w2_final §6.6).", "",
                   f"| Caso | Anclas que {b} nombraba siempre y {n} nunca | Conceptos | "
-                  "Peor corrida (base → nueva) | Truncadas |", "|---|---|---|---|---|"]
+                  "Peor corrida (base → nueva) | Truncadas | Con marcas en el .docx |",
+                  "|---|---|---|---|---|---|"]
             for f in par["bloquea"]:
                 r = f["regresion"]
                 L.append(f"| {f['caso']} | {', '.join(r['anclas']) or '—'} | "
                          f"{', '.join(map(str, r['ordinales'])) or '—'} | "
                          f"{'%s → %s' % r['peor_corrida'] if r['peor_corrida'] else '—'} | "
-                         f"{f['truncadas'] or '—'} |")
+                         f"{f['truncadas'] or '—'} | {f.get('filtradas') or '—'} |")
             L.append("")
         if par["incompletos"]:
             L += [f"**NO SE PUEDE CERTIFICAR en {len(par['incompletos'])} caso(s)**: sin "
@@ -396,6 +447,7 @@ def informe(etiqueta: str, pares: list, oper: dict, ref: dict = None) -> str:
                          if r["peor_corrida_bruta"] and not r["peor_corrida"] else "")
                 L.append(f"- {f['caso']}: {', '.join(r['anclas_revisar']) or '—'}{extra}")
             L.append("")
+        L += informe_marcas(par)
         # ── ¿ESTÁ CALIBRADO EL BLOQUEO? ────────────────────────────────────
         if par["calibrado"]:
             if par["falsos_bloqueos"]:

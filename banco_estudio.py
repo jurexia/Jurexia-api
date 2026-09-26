@@ -49,6 +49,11 @@ Uso (nunca sin --dry-run hasta que el servidor acepte `variante_estudio`):
         --formato estandar --casos 103/2025,93/2026 --paralelo 3
     Variantes: «prod» = no se manda el campo (lo que haya en producción);
     «v1@r» = se pide v1 y se guarda aparte, para la banda de ruido v1 contra v1'.
+    «v3» (la v2 con el inventario de argumentos y las marcas) y «v4» (la v3 con
+    el plan) se piden igual; el evento «listo» trae entonces el MAPA (qué
+    párrafo contesta cada argumento) y la COBERTURA por marcas, que se guardan
+    en la fila (`mapa`, `cobertura`) y reporta `comparar_estudio.py`:
+    .venv/bin/python banco_estudio.py --variantes v2,v3 --corridas 2 --dry-run
 """
 from __future__ import annotations
 
@@ -405,6 +410,11 @@ def resultado(acc: Acumulador, caso: Caso, var: Variante, k: int, formato: str,
             fila[campo] = ev.get(campo)
         fila["variante_servidor"] = ev.get("variante") or ev.get("variante_estudio")
         fila["commit"] = ev.get("commit")
+        # EL MAPA Y LA COBERTURA POR MARCAS (v3 y v4, Paso 2a). Ya van dentro
+        # de `listo`; se suben a la fila para que el comparador no dependa de
+        # cómo los anide el servidor. Sin ellos (v1, v2) quedan en None.
+        fila["mapa"] = ev.get("mapa") if isinstance(ev.get("mapa"), dict) else None
+        fila["cobertura"] = ev.get("cobertura") if isinstance(ev.get("cobertura"), dict) else None
         b64 = ev.get("docx_b64") or ""
         if b64:
             try:
@@ -685,9 +695,13 @@ def _linea(fila: dict) -> str:
     else:
         marca = "✗"
     extra = (fila.get("descartada") or fila.get("error") or "")[:90]
+    cob = fila.get("cobertura") or {}
+    marcas = (f" marcas {cob.get('marcados')}/{cob.get('total')}"
+              + (f" sin rastro {len(cob.get('sin_rastro') or [])}" if cob.get("sin_rastro") else "")
+              if cob.get("total") else "")
     return (f"  {marca} {fila['caso']:<9} {fila['variante']:<7} #{fila['k']} "
             f"{fila.get('t_total', 0):>6.0f}s  {fila.get('palabras') or '—':>5} pal "
-            f"v{fila.get('version') or '—'} {(fila.get('commit') or '')[:8]} {extra}")
+            f"v{fila.get('version') or '—'} {(fila.get('commit') or '')[:8]}{marcas} {extra}")
 
 
 async def correr(casos: list, vars_: list, corridas: int, formato: str, etiqueta: str,
