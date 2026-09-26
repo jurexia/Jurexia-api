@@ -43,6 +43,11 @@ if not RUTA_PUNTOS.exists():
     print(f"No están los puntos de la fase en seco ({RUTA_PUNTOS}); se omite la prueba.")
     sys.exit(0)
 
+# Las copias verificadas de legal-docs/CorteIDH (25-sep-2026): lo que abre el
+# visor. Se lee el manifiesto que viaja con el código, no una lista escrita aquí.
+MANIFIESTO = json.loads(lc.RUTA_COPIAS.read_text(encoding="utf-8"))
+COPIA_BASE = "https://ukcuzhwmmfwvcedvhfll.supabase.co/storage/v1/object/public/legal-docs/CorteIDH/"
+
 main._NOMBRES_FEDERALES["lista"] = [(main._normalizar_nombre_ley("Ley de Amparo"), "Ley de Amparo")]
 main._NOMBRES_FEDERALES["ts"] = 9e18          # que no intente refrescar contra la red
 
@@ -221,9 +226,15 @@ for llave, casos in CASOS.items():
     ok(pri is not None and pri.llave == llave and pri.pagina == PAGINAS[llave] and pri.score == 1.0
        and pri.rol_coidh == "pedido",
        f"{llave}: primer documento coidh, pág. {PAGINAS[llave]}, score 1.0")
-    ok(pri is not None and pri.pdf_url and "#" not in pri.pdf_url and pri.pdf_url == pri.url_oficial
-       and pri.pdf_url.startswith("https://www.corteidh.or.cr/"),
-       f"{llave}: pdf_url = url_oficial, sin #page")
+    # Desde el 25-sep-2026 el visor abre la COPIA verificada de legal-docs
+    # (Cloudflare de la Corte reta con 403 al proxy); la cita sigue siendo la
+    # URL oficial, y el sha1 es el de la copia (el del manifiesto).
+    ok(pri is not None and pri.pdf_url and "#" not in pri.pdf_url
+       and pri.pdf_url.startswith(COPIA_BASE)
+       and pri.url_oficial.startswith("https://www.corteidh.or.cr/") and "#" not in pri.url_oficial
+       and pri.pdf_sha1 == MANIFIESTO[pri.url_oficial]["sha1"]
+       and pri.pdf_url == MANIFIESTO[pri.url_oficial]["copia"],
+       f"{llave}: pdf_url = la copia de legal-docs, url_oficial = corteidh, pdf_sha1 del manifiesto, sin #page")
 alm = [r for r in directos(CASOS["C-154|s|124"]) if r.silo == "coidh"]
 ok([r.llave for r in alm] == ["C-154|s|124", "C-154|s|123", "C-154|s|125"],
    f"Almonacid ¶124 con un vecino a cada lado por orden ({[r.llave for r in alm]})")
@@ -251,6 +262,9 @@ fic = [r for r in directos(vr) if r.silo == "coidh"]
 ok(len(fic) == 1 and fic[0].rol_coidh == "ficha" and fic[0].id == lc.ficha_id(vr[0]["doc_id"])
    and fic[0].url_oficial and "no está ingerido" in fic[0].texto and fic[0].pagina is None,
    "caso fuera del piloto: la ficha del catálogo, con cita y URL, sin texto de la sentencia")
+ok(bool(fic) and fic[0].url_oficial not in MANIFIESTO and fic[0].pdf_url == fic[0].url_oficial
+   and fic[0].pdf_sha1 is None,
+   "sin copia en el manifiesto, la ficha sigue abriendo la URL oficial (como antes), sin sha1")
 ok(bool(fic) and lc.ficha_por_id(fic[0].id)["url_oficial"] == fic[0].url_oficial, "y /cita la reconstruye por su id")
 vel = cc.resolver_citas_coidh("Caso Velásquez Rodríguez Vs. Honduras, párr. 166")
 ok(vel and vel[0]["doc_id"] is None and not [r for r in directos(vel) if r.silo == "coidh"]
@@ -474,32 +488,46 @@ main.qdrant_client = QD
 marc = main._marcador_fuentes_previas([p124, normales[1]])
 dat = json.loads(marc[marc.index(":") + 1:marc.rindex("-->")])
 e124, eley = dat[p124.id], dat[normales[1].id]
+ALM_OFICIAL = "https://www.corteidh.or.cr/docs/casos/articulos/seriec_154_esp.pdf"
+ALM_COPIA = COPIA_BASE + "seriec_154_esp.pdf"
 ok(e124["silo"] == "coidh" and e124["pagina"] == 53 and e124["parrafo"] == "124" and e124["llave"] == "C-154|s|124"
-   and e124["pdf_url"] == e124["url_oficial"] and "#" not in e124["pdf_url"] and e124["ancla"]
+   and e124["pdf_url"] == ALM_COPIA and e124["url_oficial"] == ALM_OFICIAL and "#" not in e124["pdf_url"]
+   and e124["pdf_sha1"] == MANIFIESTO[ALM_OFICIAL]["sha1"] and e124["ancla"]
    and e124["cita_canonica"] and e124["tipo"] == "sentencia_coidh" and e124["serie"] == "Serie C No. 154"
    and e124["caso"] and e124["fecha"] == "2006-09-26" and "voto_autor" in e124 and e124["seg"] == "sentencia",
-   "FUENTES_PREVIAS: los 14 campos del contrato en la fuente de la Corte")
-ok(not any(k in eley for k in ("pagina", "llave", "ancla", "cita_canonica", "url_oficial")),
+   "FUENTES_PREVIAS: los 14 campos del contrato; pdf_url = la copia, url_oficial = corteidh, pdf_sha1 del manifiesto")
+ok(not any(k in eley for k in ("pagina", "llave", "ancla", "cita_canonica", "url_oficial", "pdf_sha1",
+                               "pagina_impresa", "obra", "autor", "anio")),
    "y ni una clave nueva en la fuente de una ley")
 cita = correr(main.resolver_cita(p124.id))
-ok(cita["silo"] == "coidh" and cita["pagina"] == 53 and cita["parrafo"] == "124" and cita["pdf_url"] == p124.url_oficial
-   and cita["texto"] and cita["origen"].startswith("Corte IDH"), "/cita/{doc_id} devuelve el contrato")
+ok(cita["silo"] == "coidh" and cita["pagina"] == 53 and cita["parrafo"] == "124" and cita["pdf_url"] == ALM_COPIA
+   and cita["url_oficial"] == ALM_OFICIAL and cita["pdf_sha1"] == MANIFIESTO[ALM_OFICIAL]["sha1"]
+   and cita["texto"] and cita["origen"].startswith("Corte IDH"), "/cita/{doc_id} devuelve el contrato (con la copia)")
 cita_f = correr(main.resolver_cita(lc.ficha_id("C-527|s|286")))
 ok(cita_f["silo"] == "coidh" and cita_f["pagina"] == 72 and "seriec_527" in cita_f["pdf_url"],
    "/cita resuelve también la ficha de un hito sin ingerir")
 ok("coidh" in main._COLECCIONES_CITA and main._COLECCIONES_CITA.index("coidh") < main._COLECCIONES_CITA.index("doctrina"),
    "_COLECCIONES_CITA busca en «coidh» antes que en «doctrina»")
 ver = correr(main._fuentes_ya_verificadas([p124.id, lc.ficha_id("C-527|s|286")]))
-ok([v.silo for v in ver] == ["coidh", "coidh"] and ver[0].pagina == 53 and ver[1].pagina == 72,
-   "las fuentes ya verificadas vuelven con su contrato (también la ficha)")
+ok([v.silo for v in ver] == ["coidh", "coidh"] and ver[0].pagina == 53 and ver[1].pagina == 72
+   and ver[0].pdf_url == ALM_COPIA and ver[0].url_oficial == ALM_OFICIAL,
+   "las fuentes ya verificadas vuelven con su contrato (también la ficha), con la copia")
 full = correr(main.get_full_document(origen=p124.origen, highlight_chunk_id=p124.id))
 trozos = full.texto_completo.split("\n\n")
-ok(full.source_doc_url == p124.url_oficial and full.total_chunks == len(trozos)
+# El botón «PDF» del modal es un ENLACE a otra pestaña: va a la Corte, como
+# antes; la copia es para dibujar y viaja en metadata (revisión 25-sep-2026).
+ok(full.source_doc_url == ALM_OFICIAL and full.metadata.get("url_oficial") == ALM_OFICIAL
+   and full.metadata.get("pdf_url") == ALM_COPIA and full.metadata.get("pdf_sha1") == MANIFIESTO[ALM_OFICIAL]["sha1"]
+   and full.total_chunks == len(trozos)
    and trozos[full.highlight_chunk_index].startswith("124. La Corte es consciente")
    and full.metadata.get("pagina") == 53,
-   "/document-full: la resolución por `orden`, con la URL oficial y el ¶124 señalado")
+   "/document-full: la resolución por `orden`, el botón PDF a la URL oficial, la copia en metadata y el ¶124 señalado")
 ok(main.resolver_pdf(None, "x", "coidh", url_oficial="https://www.corteidh.or.cr/a.pdf#page=3")
-   == "https://www.corteidh.or.cr/a.pdf", "resolver_pdf prefiere url_oficial y le quita el #page")
+   == "https://www.corteidh.or.cr/a.pdf", "resolver_pdf: sin copia, la url_oficial sin el #page")
+ok(main.resolver_pdf(None, "x", "coidh", url_oficial=ALM_OFICIAL + "#page=53") == ALM_COPIA
+   and main.resolver_pdf(None, "x", "coidh", url_oficial="http://corteidh.or.cr/docs/casos/articulos/seriec_154_esp.pdf")
+   == ALM_COPIA,
+   "resolver_pdf: con copia, la copia (también desde http:// y sin www.)")
 
 
 # ═══════════════════════════════════════════════════════════════ 9 · revisión
@@ -549,6 +577,79 @@ fx = lc.ficha_hito(_por["C-220|s|233"])
 ok(fx["parrafo"] == "233" and fx["serie"] == "Serie C No. 220"
    and (fx["cita_canonica"] or "").endswith("Serie C No. 220, párr. 233."),
    "el hito extra de un tema (C-220 ¶233) sin ingerir sale con párrafo, serie y cita canónica")
+
+
+# ═══════════════════════════════════════════════════════════════ 10 · la copia
+# 25-sep-2026: «No se pudo abrir el PDF aquí» en todas las sentencias.
+# Cloudflare de corteidh.or.cr reta con 403 a todo cliente automático, también
+# al proxy; el visor abre la copia verificada de legal-docs/CorteIDH.
+print("\n10 · EL VISOR ABRE LA COPIA DE LEGAL-DOCS; LA CITA SIGUE SIENDO LA OFICIAL")
+docs_col = {}
+for p in PUNTOS:
+    docs_col.setdefault(p.payload["doc_id"], p)
+ok(len(MANIFIESTO) == 58 and len(lc.copias()) == 58, f"el manifiesto trae 58 copias ({len(MANIFIESTO)})")
+malos, por_sha1 = [], []
+for doc_id, p in sorted(docs_col.items()):
+    c = lc.contrato(p.id, p.payload)
+    oficial = p.payload["url_oficial"]
+    m = MANIFIESTO.get(oficial)
+    if m is None:
+        # Los puntos en seco son de antes de --aceptar-alterno: cuatro traen la
+        # URL «_esp1/_esp2» del catálogo y se trocearon con el «_esp». Mismo
+        # sha1 = mismo archivo: la copia se encuentra por el sha1.
+        m = next((x for x in MANIFIESTO.values() if x["sha1"] == p.payload.get("pdf_sha1")), {})
+        por_sha1.append(doc_id)
+    if not (c["pdf_url"] == m.get("copia") and c["pdf_url"].startswith(COPIA_BASE) and c["url_oficial"] == oficial
+            and c["pdf_sha1"] == m.get("sha1") == p.payload.get("pdf_sha1") and m.get("doc_id") == doc_id
+            and "#" not in c["pdf_url"]):
+        malos.append(doc_id)
+ok(len(docs_col) == 58 and not malos,
+   f"las {len(docs_col)} resoluciones de la colección abren su copia, con el MISMO sha1 que se troceó ({malos[:5]})")
+ok(por_sha1 == ["C-217", "C-218", "C-221", "C-253"],
+   f"las cuatro del «_esp» alterno se encuentran por el sha1, no por el número de caso ({por_sha1})")
+p217 = docs_col["C-217"]
+e217 = json.loads((lambda m: m[m.index(":") + 1:m.rindex("-->")])(
+    main._marcador_fuentes_previas([main._sr_de(lc.contrato(p217.id, p217.payload))])))[str(p217.id)]
+ok(e217["pdf_url"] == COPIA_BASE + "seriec_217_esp.pdf" and e217["url_oficial"].endswith("seriec_217_esp1.pdf")
+   and e217["pdf_sha1"] == p217.payload["pdf_sha1"],
+   "y el marcador de fuentes también manda esa copia (por el sha1), con la URL oficial intacta")
+ok(lc.pdf_de("https://www.corteidh.or.cr/docs/casos/articulos/seriec_217_esp1.pdf")[0]
+   == "https://www.corteidh.or.cr/docs/casos/articulos/seriec_217_esp1.pdf",
+   "sin sha1, una URL que no está en el manifiesto NO se cambia por la de otro archivo del mismo caso")
+_hito_alm = lc._hitos_por_llave("control_convencionalidad").get("C-154|s|124")
+fh = lc.ficha_hito(_hito_alm) if _hito_alm else {}
+ok(fh.get("pdf_url") == ALM_COPIA and fh.get("url_oficial") == ALM_OFICIAL
+   and fh.get("pdf_sha1") == MANIFIESTO[ALM_OFICIAL]["sha1"],
+   "la ficha de un hito con copia (Almonacid ¶124): la copia para el visor, la oficial para la cita")
+fc = lc.ficha_catalogo("C-154", parrafo=124) or {}
+ok(fc.get("pdf_url") == ALM_COPIA and fc.get("url_oficial") == ALM_OFICIAL and fc.get("pdf_sha1"),
+   "y la ficha del catálogo de una resolución con copia, igual")
+ok(lc.canon_corteidh("HTTP://CorteIDH.or.cr/docs/casos/articulos/seriec_154_esp.pdf#page=3") == ALM_OFICIAL
+   and lc.canon_corteidh("https://archivos.juridicas.unam.mx/www/bjv/libros/8/3632/11.pdf") is None
+   and lc.canon_corteidh(None) is None,
+   "la URL oficial se canoniza como en el frontend (proxyPdf.canonCorteIDH); otro host no es de la Corte")
+_ruta = lc.RUTA_COPIAS
+try:
+    lc.RUTA_COPIAS = Path("/no/existe/coidh_copias.json")
+    lc.copias.cache_clear()
+    sin = lc.contrato(p124.id, POR_LLAVE["C-154|s|124"][0].payload)
+    ok(sin["pdf_url"] == ALM_OFICIAL and sin["url_oficial"] == ALM_OFICIAL
+       and sin["pdf_sha1"] == POR_LLAVE["C-154|s|124"][0].payload.get("pdf_sha1"),
+       "sin manifiesto (roto o ausente), todo vuelve a la URL oficial: no se cae nada")
+finally:
+    lc.RUTA_COPIAS = _ruta
+    lc.copias.cache_clear()
+ok(lc.pdf_de(ALM_OFICIAL)[0] == ALM_COPIA, "y con el manifiesto de vuelta, otra vez la copia")
+# Revisión (25-sep-2026): si el payload trae un sha1 que NO es el de la copia
+# de su URL, las páginas se midieron en otro archivo: no se abre esa copia.
+ok(lc.pdf_de(ALM_OFICIAL, "0" * 40) == (ALM_OFICIAL, "0" * 40),
+   "sha1 del payload distinto del de la copia: la URL oficial, no una copia con otras páginas")
+ok(lc.pdf_de(ALM_OFICIAL, MANIFIESTO[ALM_OFICIAL]["sha1"].upper())[0] == ALM_COPIA,
+   "y con el mismo sha1 (sin importar mayúsculas), la copia")
+_e_mal = main._campos_coidh(main._sr_de(dict(lc.contrato(p124.id, dict(POR_LLAVE["C-154|s|124"][0].payload,
+                                                                         pdf_sha1="0" * 40)))))
+ok(_e_mal["pdf_url"] == ALM_OFICIAL and _e_mal["url_oficial"] == ALM_OFICIAL,
+   "y el marcador tampoco la manda (resolver_pdf no le gana al sha1)")
 
 
 print()

@@ -88,6 +88,10 @@ scripts/
 # resto de datos/*.json sigue fuera.
 !datos/coidh_catalogo.json
 !datos/lineas_coidh.json
+# Y el manifiesto de las copias verificadas de legal-docs/CorteIDH (25-sep-2026)
+# que lee linea_coidh.pdf_de: sin él, en Render el visor vuelve a pedir
+# corteidh.or.cr, que Cloudflare reta con 403, y dice «No se pudo abrir el PDF».
+!datos/coidh_copias.json
 _catalog_*.json
 sise_*.json
 debug_resp.json

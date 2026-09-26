@@ -10,6 +10,11 @@ de cita del art. 148 fr. I de la LFDA hecho arquitectura, y por eso esta capa
 NO entra al sistema de [Doc ID] ni al visor /cita del acervo: sus fuentes se
 muestran en su propia tarjeta, con el enlace apuntando fuera.
 
+(Eso cambió después: hoy la doctrina se cita con [Doc ID] como la ley, y desde
+el 25-sep-2026 abre en el visor, en su página y con el pasaje resaltado —ver
+«El contrato del visor» más abajo—. El texto sigue sin copiarse: el visor lee
+el PDF de la UNAM por el proxy.)
+
 CUÁNDO ENTRA LA DOCTRINA (regla medida, no supuesta)
 ----------------------------------------------------
 El umbral solo no separa: «plazo para contestar la demanda» puntúa 0.545 y
@@ -81,20 +86,188 @@ async def buscar(qdrant_client, dense_vector, consulta: str) -> List[Dict[str, A
     for p in puntos:
         if (p.score or 0) < minimo:
             continue
-        pl = p.payload or {}
-        frags.append({
-            "id": str(p.id),
-            "score": p.score,
-            "texto": pl.get("texto", ""),
-            "autor": pl.get("autor", ""),
-            "obra": pl.get("obra", ""),
-            "anio": pl.get("anio"),
-            "editorial": pl.get("editorial"),
-            "pagina": pl.get("pagina_impresa") or pl.get("pagina_pdf"),
-            "pagina_pdf": pl.get("pagina_pdf"),
-            "url_oficial": pl.get("url_oficial", ""),
-        })
+        frags.append(fragmento(p.id, p.payload or {}, p.score))
     return frags
+
+
+# ── El contrato del visor (25-sep-2026) ─────────────────────────────────
+# David: «En todas estas nuevas el visor no está disponible, tenemos que
+# implementarlo como todas nuestras fuentes». La doctrina llegaba al visor con
+# `pdf_url` = url_oficial + «#page=N»: el proxy /api/ley/pdf la rechazaba y la
+# app decía «No se pudo abrir el PDF aquí». Ahora viaja como la Corte IDH:
+# `pdf_url` = `url_oficial` SIN «#page», `pagina` = la del PDF del capítulo
+# (`pagina_pdf`), y `ancla`, las primeras palabras literales del trozo, para
+# que el visor encuentre el pasaje en esa página y lo resalte.
+#
+# El PDF se lee de la Biblioteca Jurídica Virtual por el proxy, como los de
+# diputados.gob.mx: NO se copia a nuestro almacenamiento (derechos de autor).
+# Esto no contradice «sólo-cita»: el abogado abre la obra EN SU REPOSITORIO,
+# en su página; lo nuestro sólo le dice dónde mirar.
+
+PALABRAS_ANCLA = 15
+
+# Un folio suelto («280», «151»): la cabecera de página de PyMuPDF.
+_RE_FOLIO = re.compile(r"^\s*\d{1,4}\s*$")
+# Letras de control que el PDF de la UNAM mete en las cabeceras
+# («eduardo ferrer mac-gregor\x08», «A)  \x07Los derechos…»): pdf.js no las
+# pinta, así que en el ancla sobran.
+_RE_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _es_titulo_corrido(linea: str) -> bool:
+    """¿Es el título corrido que acompaña al folio?
+
+    Medido sobre los 9,629 trozos: en el Diccionario va DEBAJO del folio
+    («888» / «Libertades públicas»); en la Panorámica, ENCIMA («xxiv. La
+    democracia y el juez constitucional» / «641») o en dos renglones («eduardo
+    ferrer mac-gregor» / «panorámica del derecho procesal...» / «200»). Un
+    renglón del cuerpo se distingue porque es largo, o porque PyMuPDF lo deja
+    con espacio al final cuando la línea sigue, o porque termina en guion o en
+    puntuación («d) El Poder Ejecutivo y el Poder Legislativo del Estado.»)."""
+    crudo = _RE_CONTROL.sub("", linea or "")
+    t = crudo.strip()
+    if not t or len(t) > 90:
+        return False
+    if crudo != crudo.rstrip():          # el cuerpo sigue en el renglón de abajo
+        return False
+    # «panorámica del derecho procesal...»: el título corrido recortado
+    # termina en puntos suspensivos, y eso no es fin de frase.
+    if t.endswith("...") or t.endswith("…"):
+        return True
+    return not re.search(r"[-‐­.,;:]$", t)
+
+
+# Lo que puede ir ENCIMA del folio (sólo la Panorámica lo hace): el capítulo
+# con su número romano («VII.  Mauro Cappelletti…», «xxiv.  La democracia…»),
+# el autor con su letra de control («eduardo ferrer mac-gregor\x08») o el
+# título recortado («panorámica del derecho procesal...»). Nada más: en un
+# trozo que empieza a media página (las páginas largas se parten en dos,
+# ingestar_doctrina.py), el renglón de encima del folio es CUERPO —«aberse
+# sometido a sí mismos al peso de la» / «LAS RAZONES DEL DERECHO» / «153»,
+# medido en Atienza— y cortarlo movía el ancla a las notas al pie.
+_RE_CAPITULO_ROMANO = re.compile(r"^\s*[IVXLCivxlc]{1,7}\.\s")
+
+
+def _es_cabecera_de_encima(linea: str) -> bool:
+    t = (linea or "").strip()
+    if not _es_titulo_corrido(linea):
+        return False
+    return bool(_RE_CAPITULO_ROMANO.match(t) or _RE_CONTROL.search(t)
+                or t.endswith("...") or t.endswith("…"))
+
+
+def cuerpo(texto: str) -> str:
+    """El texto del trozo sin la cabecera de página: el folio y el título
+    corrido, si los trae arriba. Lo demás, tal cual."""
+    lineas = (texto or "").splitlines()
+    # Los primeros renglones con algo escrito (los vacíos no cuentan).
+    idx = [i for i, l in enumerate(lineas) if l.strip()][:4]
+    if not idx:
+        return ""
+    corte = None
+    for n, i in enumerate(idx[:3]):
+        if _RE_FOLIO.match(lineas[i]):
+            # Todo lo de ENCIMA del folio tiene que ser cabecera; si no, ese
+            # número es del cuerpo (una lista, una tabla, una nota) y no se
+            # corta nada.
+            if all(_es_cabecera_de_encima(lineas[j]) for j in idx[:n]):
+                corte = i
+            break
+    if corte is None:
+        return "\n".join(lineas[idx[0]:])
+    resto = [i for i in idx if i > corte]
+    # Debajo del folio, un renglón de título corrido (Diccionario) —sólo si
+    # el folio abre la página: cuando el título corrido va ENCIMA (Panorámica),
+    # lo de debajo es ya un epígrafe del texto («A)  El fallo parcialmente
+    # condenatorio…») y se queda—, y sólo si detrás viene más texto: un trozo
+    # de una sola línea no se vacía.
+    if corte == idx[0] and len(resto) >= 2 and _es_titulo_corrido(lineas[resto[0]]):
+        corte = resto[0]
+    return "\n".join(lineas[corte + 1:])
+
+
+def ancla(texto: str, palabras: int = PALABRAS_ANCLA) -> Optional[str]:
+    """Las primeras ~15 palabras LITERALES del cuerpo del trozo.
+
+    Literales quiere decir con sus cortes de renglón tal como los da el PDF
+    («ju- dicialización», no «judicialización»): el visor normaliza igual la
+    página y el ancla (minúsculas, sin acentos, sin signos), y un ancla
+    «arreglada» dejaría de aparecer en la página. None si no hay texto."""
+    t = _RE_CONTROL.sub("", cuerpo(texto))
+    t = t.replace(" ", " ").replace(" ", " ").replace(" ", " ")
+    # Los signos sueltos («—», los puntos guía de un índice «. . . .») no
+    # cuentan como palabra: el visor los borra al normalizar, y quince de
+    # ellos dejaban un ancla vacía.
+    trozos = [w for w in t.split() if any(c.isalnum() for c in w)]
+    if not trozos:
+        return None
+    return " ".join(trozos[:palabras])
+
+
+def _entero(v: Any) -> Optional[int]:
+    """int o None; lo que no sea un número entero no se inventa."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str) and v.strip().isdigit():
+        return int(v.strip())
+    return None
+
+
+def fragmento(pid: Any, pl: Dict[str, Any], score: Optional[float] = None) -> Dict[str, Any]:
+    """Un punto de la colección → el fragmento con el que trabajan el chat, el
+    bloque del modelo y la tarjeta. `pagina` es la que se ROTULA y se CITA:
+    sólo la impresa. En el 27 % de los trozos no se conoce (25-sep-2026), y
+    antes se caía a la del PDF del capítulo: la pág. 18 del capítulo 8 de
+    Carbonell lleva impreso el 773, y el modelo citaba «p. 18». La del visor
+    es `pagina_pdf`."""
+    return {
+        "id": str(pid),
+        "score": score,
+        "texto": pl.get("texto", "") or "",
+        "autor": pl.get("autor", "") or "",
+        "obra": pl.get("obra", "") or "",
+        "anio": pl.get("anio"),
+        "editorial": pl.get("editorial"),
+        "pagina": _entero(pl.get("pagina_impresa")),
+        "pagina_pdf": _entero(pl.get("pagina_pdf")),
+        "pagina_impresa": _entero(pl.get("pagina_impresa")),
+        "url_oficial": (pl.get("url_oficial", "") or "").split("#")[0],
+        "ancla": ancla(pl.get("texto", "") or ""),
+    }
+
+
+def origen_de(f: Dict[str, Any]) -> str:
+    """«Autor, «Obra», año»: como se rotula la fuente en la app."""
+    anio = f", {f['anio']}" if f.get("anio") else ""
+    return f"{f.get('autor') or ''}, «{f.get('obra') or ''}»{anio}"
+
+
+def contrato(f: Dict[str, Any], score: float) -> Dict[str, Any]:
+    """Un fragmento → los campos de SearchResult con el contrato del visor."""
+    url = (f.get("url_oficial") or "").split("#")[0] or None
+    return dict(
+        id=str(f["id"]),
+        score=score,
+        texto=f.get("texto") or "",
+        ref=f"p. {f['pagina']}" if f.get("pagina") else "",
+        origen=origen_de(f),
+        jurisdiccion="Doctrina",
+        silo=COLECCION,
+        # El enlace apunta a la obra EN SU REPOSITORIO. Nunca a nuestro
+        # texto. Sin «#page»: la página viaja aparte, en `pagina`.
+        pdf_url=url,
+        url_oficial=url,
+        pagina=_entero(f.get("pagina_pdf")),
+        pagina_impresa=_entero(f.get("pagina_impresa")),
+        ancla=f.get("ancla"),
+        obra=f.get("obra") or None,
+        autor=f.get("autor") or None,
+        anio=_entero(f.get("anio")),
+    )
 
 
 def bloque_para_prompt(frags: List[Dict[str, Any]]) -> str:
@@ -104,8 +277,9 @@ def bloque_para_prompt(frags: List[Dict[str, Any]]) -> str:
     lineas = [
         "<doctrina>",
         "Fragmentos de obras jurídicas de referencia, con su cita. Reglas:",
-        "1. ÚSALOS para enriquecer el concepto, atribuyendo SIEMPRE: autor,",
-        "   obra y página, p. ej. (Atienza, Las razones del derecho, p. 45).",
+        "1. ÚSALOS para enriquecer el concepto, atribuyendo SIEMPRE autor y",
+        "   obra, y la página SÓLO si aquí viene, p. ej. (Atienza, Las razones",
+        "   del derecho, p. 45). Si no viene página, no la pongas ni la inventes.",
         "2. Si citas textual, MÁXIMO 40 palabras y entre comillas — es derecho",
         "   de cita, no reproducción. Sólo puedes citar textual lo que esté",
         "   AQUÍ; jamás de memoria.",
@@ -114,7 +288,8 @@ def bloque_para_prompt(frags: List[Dict[str, Any]]) -> str:
     ]
     for f in frags:
         lineas.append(
-            f"— {f['autor']}, «{f['obra']}», p. {f['pagina']}:\n{f['texto'][:1200]}\n")
+            f"— {f['autor']}, «{f['obra']}»" + (f", p. {f['pagina']}" if f.get("pagina") else "")
+            + f":\n{f['texto'][:1200]}\n")
     lineas.append("</doctrina>")
     return "\n".join(lineas)
 

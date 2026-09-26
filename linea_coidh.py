@@ -63,6 +63,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 COLECCION = "coidh"          # el alias; la física es coidh_parrafos_p1 (ingesta_coidh.py)
 SILO = "coidh"               # = COLECCION: _parse_results y /cita usan el nombre consultado
 RUTA_LINEAS = Path(__file__).resolve().parent / "datos" / "lineas_coidh.json"
+RUTA_COPIAS = Path(__file__).resolve().parent / "datos" / "coidh_copias.json"
 
 # El resolvedor tarda p99 23 ms con 30 mil caracteres, pero con escritos
 # pegados se dispara por el escrito y no por la pregunta (revisión B.8): sobre
@@ -134,6 +135,101 @@ def ficha_id(clave: str) -> str:
     sello funcionan también para lo que todavía no se ingirió, y /cita lo puede
     reconstruir sin guardar nada (`ficha_por_id`)."""
     return str(uuid.UUID(hashlib.md5(f"coidh-ficha|{clave}".encode("utf-8")).hexdigest()))
+
+
+# ═══════════════════════════════════════════════════════════════ el PDF del visor
+
+# LA COPIA QUE SÍ SE DEJA LEER (25-sep-2026). El visor decía «No se pudo abrir
+# el PDF aquí» en todas las sentencias: Cloudflare de corteidh.or.cr reta con
+# 403 a TODO cliente automático, también al proxy de Vercel. Por eso se
+# subieron copias verificadas —el MISMO sha1 que el PDF con el que la ingesta
+# mapeó las páginas; cotejado para las 58 resoluciones de la colección— al
+# bucket público `legal-docs/CorteIDH/`, donde ya viven la Constitución y los
+# tratados. El manifiesto `datos/coidh_copias.json` dice cuál es la copia de
+# cada URL oficial: {url_oficial: {copia, sha1, bytes, doc_id}}.
+#
+# El contrato: `pdf_url` = la copia (lo que abre el visor), `url_oficial` = la
+# de corteidh.or.cr (la cita y el enlace «ver en el sitio de la Corte»), y
+# `pdf_sha1` = el de la copia, que es el que versiona la caché del visor. Sin
+# copia en el manifiesto, `pdf_url` sigue siendo la URL oficial, como antes.
+
+_HOSTS_CORTEIDH = ("www.corteidh.or.cr", "corteidh.or.cr")
+
+
+def canon_corteidh(url: Optional[str]) -> Optional[str]:
+    """`https://www.corteidh.or.cr/<ruta>`, sin «#page» ni consulta; None si no
+    es de la Corte. La misma forma que `canonCorteIDH` del frontend
+    (src/lib/proxyPdf.ts): http→https, con «www.», la ruta tal cual."""
+    if not url:
+        return None
+    from urllib.parse import urlsplit
+    try:
+        s = urlsplit(str(url).strip().split("#")[0])
+    except ValueError:
+        return None
+    if s.scheme not in ("http", "https") or (s.hostname or "") not in _HOSTS_CORTEIDH or not s.path:
+        return None
+    return f"https://www.corteidh.or.cr{s.path}"
+
+
+@lru_cache(maxsize=1)
+def copias() -> Dict[str, Dict[str, Any]]:
+    """datos/coidh_copias.json por URL oficial canónica, una vez por proceso.
+
+    Perezoso y tolerante, como `lineas()`: si falta o está roto, el visor vuelve
+    a pedir la URL oficial (la de antes) y la consulta sigue igual."""
+    try:
+        crudo = json.loads(RUTA_COPIAS.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"   ⚖️ COIDH: no pude leer {RUTA_COPIAS.name} ({type(e).__name__}); el visor pedirá la URL oficial")
+        return {}
+    salida: Dict[str, Dict[str, Any]] = {}
+    for url, d in (crudo or {}).items():
+        k = canon_corteidh(url)
+        copia = (d or {}).get("copia")
+        # Sólo una dirección https entera: un manifiesto a medio escribir no
+        # puede mandar al visor a una ruta relativa.
+        if k and isinstance(copia, str) and copia.startswith("https://"):
+            salida[k] = dict(d)
+    return salida
+
+
+def _copia_por_sha1(sha1: str) -> Optional[Dict[str, Any]]:
+    """La copia cuyo sha1 es `sha1` (58 entradas: recorrerlas cuesta nada y
+    así no hay una segunda caché que se desfase de `copias()`)."""
+    s = str(sha1 or "").strip().lower()
+    return next((d for d in copias().values() if s and str(d.get("sha1") or "").lower() == s), None)
+
+
+def pdf_de(url_oficial: Optional[str], sha1: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+    """(pdf_url, pdf_sha1) para el visor a partir de la URL oficial.
+
+    Con copia: la copia y SU sha1. Sin copia: la URL oficial sin «#page» y el
+    sha1 que ya se tuviera (el del payload de la ingesta).
+
+    Se busca por la URL oficial y, si no está, por el sha1 del PDF que se
+    troceó: mismo sha1 es el MISMO archivo, byte por byte. Hace falta porque
+    cuatro resoluciones (C-217, C-218, C-221, C-253) se trocearon con el «_esp»
+    cuando el catálogo pide «_esp1/_esp2» (ingesta --aceptar-alterno): un
+    payload escrito antes de ese cambio trae la URL del catálogo. Por número
+    de caso NO se busca: una resolución puede tener más de un PDF, y abrir
+    otro distinto del citado es la peor falla del visor (ver resolver_pdf).
+
+    Y si el payload trae sha1 y la copia de esa URL tiene OTRO (revisión del
+    25-sep-2026): la Corte reemplazó el PDF después de trocearlo, o la copia
+    se subió de otra descarga. Las páginas y el ancla se midieron en el
+    archivo del payload, no en ése; manda el sha1, y sin copia con ese sha1 se
+    queda la URL oficial, como antes. Hoy las 58 coinciden (test_coidh_chat)."""
+    oficial = (str(url_oficial).split("#")[0] or None) if url_oficial else None
+    c = copias().get(canon_corteidh(oficial) or "") if oficial else None
+    s = str(sha1 or "").strip().lower()
+    if c and s and str(c.get("sha1") or "").strip().lower() not in ("", s):
+        c = None
+    if not c and s:
+        c = _copia_por_sha1(s)
+    if c:
+        return c["copia"], (c.get("sha1") or sha1)
+    return oficial, sha1
 
 
 # ═══════════════════════════════════════════════════════════════ la ficha
@@ -414,10 +510,13 @@ def _origen(doc_id: str, caso: Optional[str], fecha: Optional[str]) -> str:
 
 def contrato(pid: Any, pl: Dict[str, Any], score: float = 1.0, rol: str = "pedido") -> Dict[str, Any]:
     """Un punto de la colección `coidh` → los campos del contrato del frontend
-    (y del resto de SearchResult). `pdf_url` = `url_oficial`, SIN «#page»: la
-    página viaja aparte (con #page pegado, la app Android dejaba de reconocer
-    el PDF, plan §3.8). `parrafo` va como texto; `voto_autor`, con nombre."""
+    (y del resto de SearchResult). SIN «#page» en ninguna URL: la página viaja
+    aparte (con #page pegado, la app Android dejaba de reconocer el PDF, plan
+    §3.8). `pdf_url` es la copia de legal-docs si la hay (`pdf_de`, 25-sep-2026)
+    y `url_oficial`, la de corteidh.or.cr. `parrafo` va como texto;
+    `voto_autor`, con nombre."""
     url = (pl.get("url_oficial") or pl.get("pdf_url") or "").split("#")[0] or None
+    pdf_url, sha1 = pdf_de(url, pl.get("pdf_sha1"))
     doc_id = str(pl.get("doc_id") or "")
     parrafo = pl.get("parrafo")
     return dict(
@@ -426,14 +525,14 @@ def contrato(pid: Any, pl: Dict[str, Any], score: float = 1.0, rol: str = "pedid
         ref=pl.get("ref"),
         origen=_origen(doc_id, pl.get("caso"), pl.get("fecha")),
         jurisdiccion="Corte Interamericana de Derechos Humanos",
-        entidad=None, silo=SILO, pdf_url=url,
+        entidad=None, silo=SILO, pdf_url=pdf_url,
         tipo=pl.get("tipo"), url_oficial=url,
         pagina=int(pl["pagina"]) if isinstance(pl.get("pagina"), (int, float)) else None,
         parrafo=str(parrafo) if parrafo is not None else None,
         seg=pl.get("seg"), voto_autor=_nombre_autor(pl.get("voto_autor")),
         caso=pl.get("caso"), serie=_serie_rotulo(pl.get("serie"), pl.get("serie_num")),
         fecha=pl.get("fecha"), ancla=pl.get("ancla"), cita_canonica=pl.get("cita_canonica"),
-        llave=pl.get("llave"), rol_coidh=rol, pdf_sha1=pl.get("pdf_sha1"),
+        llave=pl.get("llave"), rol_coidh=rol, pdf_sha1=sha1,
         # internos (no viajan al frontend)
         _doc_id=doc_id, _orden=pl.get("orden"), _sub=pl.get("sub") or 0,
     )
@@ -474,15 +573,19 @@ def ficha_catalogo(doc_id: str, cita_canonica: Optional[str] = None, parrafo: Op
     texto = (f"[{cab}]\nFicha del catálogo oficial de la Corte IDH: {cita}\n"
              "El texto de esta resolución no está ingerido en Iurexia; se conocen su cita y su "
              "enlace oficial, no su contenido." + (f"\n{nota}" if nota else ""))
+    # La copia de legal-docs, si la hay (25-sep-2026): la mayoría de las fichas
+    # son de resoluciones sin copia y siguen abriendo la URL oficial.
+    oficial = (d.get("url_oficial") or "").split("#")[0] or None
+    pdf_url, sha1 = pdf_de(oficial)
     return dict(
         id=ficha_id(doc_id), score=1.0, texto=texto,
         ref=("Ficha del catálogo" if parrafo is None else f"Párr. {parrafo} (no ingerido)"),
         origen=_origen(doc_id, caso, d.get("fecha")),
         jurisdiccion="Corte Interamericana de Derechos Humanos", entidad=None, silo=SILO,
-        pdf_url=d.get("url_oficial"), tipo=_tipo_de_doc(doc_id, seg), url_oficial=d.get("url_oficial"),
+        pdf_url=pdf_url, tipo=_tipo_de_doc(doc_id, seg), url_oficial=oficial,
         pagina=None, parrafo=str(parrafo) if parrafo is not None else None, seg=seg,
         voto_autor=voto_autor, caso=caso, serie=serie, fecha=d.get("fecha"), ancla=None,
-        cita_canonica=cita, llave=llave or doc_id, rol_coidh=rol,
+        cita_canonica=cita, llave=llave or doc_id, rol_coidh=rol, pdf_sha1=sha1,
         _doc_id=doc_id, _orden=None, _sub=0,
     )
 
@@ -519,7 +622,10 @@ def ficha_hito(h: Dict[str, Any], rol: str = "hito") -> Dict[str, Any]:
         except Exception:
             pass
     serie = _serie_rotulo(h.get("serie"), h.get("serie_num"))
-    url = h.get("url_oficial")
+    url = (h.get("url_oficial") or "").split("#")[0] or None
+    # Con copia en legal-docs (25-sep-2026), el visor abre la copia en la
+    # página del hito; la cita sigue apuntando a corteidh.or.cr.
+    pdf_url, sha1 = pdf_de(url, h.get("pdf_sha1"))
     ubic = h.get("ubicacion") or (f"párr. {h['parrafo']}" if h.get("parrafo") is not None else "")
     cab = " | ".join(x for x in ("Corte IDH", h.get("caso"), h.get("fecha"), serie, ubic) if x)
     texto = (f"[{cab}]\nHito de la línea curada; el texto completo de esta resolución no está "
@@ -531,7 +637,7 @@ def ficha_hito(h: Dict[str, Any], rol: str = "hito") -> Dict[str, Any]:
         ref=(h.get("ubicacion") or (f"Párr. {h['parrafo']}" if h.get("parrafo") is not None else "Hito")),
         origen=_origen(doc_id, h.get("caso"), h.get("fecha")),
         jurisdiccion="Corte Interamericana de Derechos Humanos", entidad=None, silo=SILO,
-        pdf_url=url, tipo=_tipo_de_doc(doc_id, seg), url_oficial=url,
+        pdf_url=pdf_url, tipo=_tipo_de_doc(doc_id, seg), url_oficial=url, pdf_sha1=sha1,
         pagina=h.get("pagina"), parrafo=str(h["parrafo"]) if h.get("parrafo") is not None else None,
         seg=seg, voto_autor=h.get("voto_autor"), caso=h.get("caso"), serie=serie, fecha=h.get("fecha"),
         # El extracto verificado es literal: sus primeras palabras sirven de
@@ -1224,9 +1330,15 @@ async def documento_completo(qdrant, highlight_id: Optional[str] = None,
     return dict(
         origen=meta["origen"], titulo=meta["origen"], tipo=meta.get("tipo"),
         texto_completo="\n\n".join(textos), total_chunks=len(todos), highlight_chunk_index=hi,
-        source_doc_url=meta.get("url_oficial"),
+        # El botón «PDF» de este modal es un ENLACE que se abre en otra
+        # pestaña, en el navegador del abogado, donde la Corte sí abre: va a
+        # corteidh.or.cr, como antes (revisión del 25-sep-2026). La copia de
+        # legal-docs es para DIBUJAR en el visor, no para enlazar; viaja en
+        # `metadata.pdf_url` con su sha1 por si la app la necesita.
+        source_doc_url=meta.get("url_oficial") or meta.get("pdf_url"),
         metadata={**{k: v for k, v in publico(meta).items()
-                     if k in ("caso", "serie", "fecha", "url_oficial", "llave", "pagina", "parrafo", "ancla",
-                              "cita_canonica", "seg", "voto_autor", "tipo", "silo") and v is not None},
+                     if k in ("caso", "serie", "fecha", "url_oficial", "pdf_url", "pdf_sha1", "llave", "pagina",
+                              "parrafo", "ancla", "cita_canonica", "seg", "voto_autor", "tipo", "silo")
+                     and v is not None},
                   "doc_id": doc_id},
     )

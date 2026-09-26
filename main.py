@@ -3172,10 +3172,14 @@ class SearchResult(BaseModel):
     obiter_dicta: Optional[str] = None
     # ── Corte IDH (25-sep-2026): el contrato con el frontend ───────────
     # Sólo los llena el silo «coidh» (linea_coidh.py); en los demás quedan en
-    # None. `pdf_url` = `url_oficial`, SIN «#page»: la página viaja aparte
-    # (con #page pegado la app Android dejaba de reconocer el PDF, plan §3.8).
+    # None. Ninguna URL lleva «#page»: la página viaja aparte (con #page pegado
+    # la app Android dejaba de reconocer el PDF, plan §3.8). `pdf_url` es la
+    # copia verificada de legal-docs/CorteIDH (Cloudflare de corteidh.or.cr
+    # reta con 403 a todo cliente automático, también al proxy) y
+    # `url_oficial`, la de corteidh.or.cr, que es la que se cita.
     # `pagina` es la del PDF en base 1 donde EMPIEZA el párrafo; el visor
     # resalta de «N.» a «N+1.» y confirma con `ancla` (~15 palabras literales).
+    # La doctrina (silo «doctrina») reutiliza `url_oficial`, `pagina` y `ancla`.
     tipo: Optional[str] = None            # sentencia_coidh | voto_coidh | resolutivo_coidh | oc_coidh | supervision_coidh
     url_oficial: Optional[str] = None
     pagina: Optional[int] = None
@@ -3195,6 +3199,17 @@ class SearchResult(BaseModel):
     # Ordena el bloque <casos_corte_idh> y le dice al visor si es una ficha
     # sin texto (no hay párrafo que resaltar), sin adivinarlo por la nota.
     rol_coidh: Optional[str] = None
+    # ── Doctrina (25-sep-2026): el visor, como en las demás fuentes ─────
+    # «No se pudo abrir el PDF aquí» en toda la doctrina: `pdf_url` llevaba
+    # «#page=N» pegado y el proxy la rechazaba. Ahora `pdf_url` = `url_oficial`
+    # (el capítulo en la Biblioteca Jurídica Virtual de la UNAM, que se lee por
+    # el proxy y NO se copia: derechos de autor), `pagina` = la del PDF del
+    # capítulo (`pagina_pdf`), y `ancla` = sus ~15 primeras palabras literales
+    # (doctrina.ancla). Sólo los llena el silo «doctrina».
+    pagina_impresa: Optional[int] = None  # la del libro, la que cita el abogado
+    obra: Optional[str] = None
+    autor: Optional[str] = None
+    anio: Optional[int] = None
 
 
 class SearchResponse(BaseModel):
@@ -3353,9 +3368,19 @@ def resolver_pdf(pdf_en_payload: Optional[str], origen: Optional[str], silo: Opt
 
     `url_oficial` (Corte IDH, 25-sep-2026) va antes que todo: es el PDF de
     corteidh.or.cr que la ingesta cotejó página por página, sin «#page» —la
-    página viaja aparte—. El visor lo abre por el proxy /api/ley/pdf.
+    página viaja aparte—. Como Cloudflare de la Corte reta con 403 a todo
+    cliente automático (también al proxy /api/ley/pdf), si hay copia
+    verificada en legal-docs/CorteIDH se devuelve la copia
+    (linea_coidh.pdf_de, datos/coidh_copias.json); si no, la URL oficial.
     """
     if url_oficial:
+        try:
+            import linea_coidh as _lc
+            _pdf, _ = _lc.pdf_de(url_oficial)
+            if _pdf:
+                return _pdf
+        except Exception:
+            pass
         return url_oficial.split("#")[0]
     if pdf_en_payload:
         return pdf_en_payload
@@ -10177,6 +10202,17 @@ async def _fuentes_ya_verificadas(ids: List[str]) -> List[SearchResult]:
             except Exception:
                 pass
             continue
+        # La doctrina (25-sep-2026), con el mismo contrato que en el turno en
+        # que se encontró: autor y obra en `origen`, la página en `ref`, y
+        # `pagina` y `ancla` para el visor. Por la rama genérica volvía sin
+        # origen ni referencia —la doctrina no tiene esos campos— y con la URL
+        # sin página, y el visor ya no sabía dónde abrir.
+        if _col == "doctrina":
+            try:
+                _salida.append(_sr_doctrina(_clave, _pay, score=2.0))
+            except Exception:
+                pass
+            continue
         _registro = _pay.get("registro")
         _texto = (_pay.get("texto") or _pay.get("text") or _pay.get("holding")
                   or _pay.get("chunk_text") or "")
@@ -10910,11 +10946,18 @@ async def resolver_cita(doc_id: str):
         _ref_doc = ", ".join(
             x for x in (_obra or None, f"p. {_pag}" if _pag else None) if x
         )
+        # El contrato del visor (25-sep-2026): la URL sin «#page», la página
+        # del PDF del capítulo y el ancla, como en el chat. Ver _campos_doctrina.
+        try:
+            _visor = _campos_doctrina(_sr_doctrina(doc_id, pay, score=2.0))
+        except Exception:
+            _url = (pay.get("url_oficial") or pay.get("pdf_url") or "").split("#")[0] or None
+            _visor = {"pdf_url": _url, "url_oficial": _url}
         return {
             "origen": origen or "Doctrina",
             "ref": _ref_doc or (_autor or ""),
             "texto": pay.get("texto") or "",
-            "pdf_url": pay.get("url_oficial") or pay.get("pdf_url") or None,
+            "pdf_url": None,
             "silo": col,
             "entidad": None,
             "registro": None,
@@ -10922,6 +10965,7 @@ async def resolver_cita(doc_id: str):
             "tipo_criterio": "doctrina",
             "instancia": _autor or None,
             "materia": materia,
+            **_visor,
         }
 
     # El visor de tesis reconstruye su ficha desde ESTA respuesta. Lo que
@@ -11426,6 +11470,7 @@ def _marcador_fuentes_previas(results: List["SearchResult"]) -> str:
                 # Corte IDH (25-sep-2026): página, párrafo, ancla… Nada para
                 # los demás silos.
                 **_campos_coidh(_d),
+                **_campos_doctrina(_d),        # doctrina: página y ancla (25-sep-2026)
             }
         except Exception:
             continue
@@ -11461,6 +11506,7 @@ def _marcadores_del_sello(texto: str, doc_id_map: Dict[str, "SearchResult"],
                 "instancia": getattr(doc, "instancia_meta", None) or None,
                 "materia": getattr(doc, "materia_meta", None) or None,
                 **_campos_coidh(doc),          # Corte IDH (25-sep-2026)
+                **_campos_doctrina(doc),       # doctrina: página y ancla (25-sep-2026)
             }
         else:
             sources_map[cv.doc_id] = {"origen": "Fuente no verificada", "ref": "", "texto": ""}
@@ -12464,11 +12510,15 @@ async def get_full_document(
                 # Una ficha (sin ingerir): su cita y la URL oficial, sin texto.
                 _f = _lc.ficha_por_id(highlight_chunk_id)
                 if _f:
+                    # El botón «PDF» es un enlace a otra pestaña: va a la URL
+                    # oficial, como antes; la copia de legal-docs es para
+                    # dibujar en el visor y viaja en `metadata.pdf_url`
+                    # (revisión del 25-sep-2026).
                     _doc = dict(origen=_f["origen"], titulo=_f["origen"], tipo=_f.get("tipo"),
                                 texto_completo=_f["texto"], total_chunks=1, highlight_chunk_index=0,
-                                source_doc_url=_f.get("url_oficial"),
+                                source_doc_url=_f.get("url_oficial") or _f.get("pdf_url"),
                                 metadata={k: v for k, v in _lc.publico(_f).items()
-                                          if k in _CAMPOS_COIDH and v is not None})
+                                          if (k in _CAMPOS_COIDH or k == "pdf_url") and v is not None})
         except Exception as _e_doc:
             print(f"   ⚖️ COIDH /document-full: {type(_e_doc).__name__}")
             _doc = None
@@ -13259,10 +13309,62 @@ def _campos_coidh(doc) -> dict:
     url = resolver_pdf(getattr(doc, "pdf_url", None), getattr(doc, "origen", None), "coidh",
                        url_oficial=getattr(doc, "url_oficial", None))
     salida = {"silo": "coidh", "pdf_url": url, "url_oficial": getattr(doc, "url_oficial", None) or url}
+    # El PDF que se SIRVE y su sha1 (25-sep-2026): la copia de legal-docs,
+    # buscada por la URL oficial o por el sha1 del PDF troceado, y el sha1 del
+    # manifiesto, que el visor usa de versión de caché.
+    try:
+        import linea_coidh as _lc
+        _pdf, _sha = _lc.pdf_de(getattr(doc, "url_oficial", None), getattr(doc, "pdf_sha1", None))
+        if _pdf:
+            salida["pdf_url"], salida["pdf_sha1"] = _pdf, _sha
+    except Exception:
+        pass
     for k in _CAMPOS_COIDH:
         if k not in salida:
             salida[k] = getattr(doc, k, None)
     return salida
+
+
+# ── LA DOCTRINA EN EL VISOR (25-sep-2026) ─────────────────────────────────
+# David, con captura: «En todas estas nuevas el visor no está disponible,
+# tenemos que implementarlo como todas nuestras fuentes». La doctrina viajaba
+# con `pdf_url` = url_oficial + «#page=N» y sin página ni ancla aparte: el
+# proxy rechazaba la dirección y el visor no sabía dónde abrir. Ahora, el
+# mismo contrato que la Corte IDH: la URL sin «#page», la página del PDF del
+# capítulo y el ancla para resaltar el pasaje. Los libros NO se copian a
+# nuestro almacenamiento (derechos de autor): se leen de la UNAM por el proxy.
+_CAMPOS_DOCTRINA = ("url_oficial", "pagina", "pagina_impresa", "ancla", "obra", "autor", "anio")
+
+
+def _campos_doctrina(doc) -> dict:
+    """Lo que los marcadores de fuentes (FUENTES_PREVIAS, CITATION_META)
+    añaden para la doctrina. Vacío para cualquier otro silo: en las fuentes
+    de siempre no cambia ni una clave."""
+    if getattr(doc, "silo", None) != "doctrina":
+        return {}
+    # La misma URL en las dos claves, y nunca con «#page» (aunque llegara así).
+    crudo = getattr(doc, "url_oficial", None) or getattr(doc, "pdf_url", None) or ""
+    url = crudo.split("#")[0] or None
+    salida = {"silo": "doctrina", "pdf_url": url, "url_oficial": url}
+    for k in _CAMPOS_DOCTRINA:
+        if k not in salida:
+            salida[k] = getattr(doc, k, None)
+    # Si una fuente de doctrina llegara armada a la antigua —«#page=N» pegado
+    # y sin `pagina`—, la página no se pierde al quitar el «#page» (revisión
+    # del 25-sep-2026): se pasa a `pagina`, que es donde el visor la busca.
+    if salida.get("pagina") is None:
+        _m = re.search(r"#(?:.*&)?page=(\d{1,5})\b", str(getattr(doc, "pdf_url", None) or crudo))
+        if _m and int(_m.group(1)) > 0:
+            salida["pagina"] = int(_m.group(1))
+    return salida
+
+
+def _sr_doctrina(pid: str, pl: dict, score: float) -> SearchResult:
+    """Un punto de la colección `doctrina` → SearchResult con el contrato del
+    visor. Lo usan el chat (score 0.70: ilustra, por debajo del acervo) y las
+    fuentes ya verificadas de los turnos siguientes (score 2.0)."""
+    import doctrina as _doctrina_mod
+    return SearchResult(**_doctrina_mod.contrato(_doctrina_mod.fragmento(pid, pl), score))
 
 
 def _cita_coidh(doc: SearchResult) -> dict:
@@ -15886,22 +15988,21 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                         print(f"   📚 Doctrina no llegó a tiempo: {_dfe}")
                         _frags = []
                     _xml_doc = []
+                    # Import AQUÍ y no el de chat_endpoint: más abajo, en esta
+                    # misma función, la tarjeta hace `import doctrina as
+                    # _doctrina_mod`, y eso vuelve local el nombre en todo
+                    # generate_stream; sin esta línea, aquí sería
+                    # UnboundLocalError y la doctrina se caería entera.
+                    import doctrina as _doctrina_mod
                     for _f in (_frags or []):
                         _doctrina_frags.append(_f)
-                        _anio = f", {_f['anio']}" if _f.get("anio") else ""
-                        _sr = SearchResult(
-                            id=_f["id"],
-                            score=0.70,   # por debajo del acervo: ilustra
-                            texto=_f["texto"],
-                            ref=f"p. {_f['pagina']}",
-                            origen=f"{_f['autor']}, «{_f['obra']}»{_anio}",
-                            jurisdiccion="Doctrina",
-                            silo="doctrina",
-                            # El enlace apunta a la obra EN SU REPOSITORIO, en
-                            # la página exacta. Nunca a nuestro texto.
-                            pdf_url=(f"{_f['url_oficial']}#page={_f['pagina_pdf']}"
-                                     if _f.get("pagina_pdf") else _f.get("url_oficial")),
-                        )
+                        # score 0.70: por debajo del acervo, ilustra. El enlace
+                        # apunta a la obra EN SU REPOSITORIO, nunca a nuestro
+                        # texto; y desde el 25-sep-2026 SIN «#page» pegado (el
+                        # proxy lo rechazaba y el visor decía «No se pudo abrir
+                        # el PDF aquí»): la página y el ancla viajan aparte,
+                        # como en la Corte IDH (doctrina.contrato).
+                        _sr = SearchResult(**_doctrina_mod.contrato(_f, 0.70))
                         search_results.append(_sr)
                         doc_id_map[str(_f["id"])] = _sr
                         import html as _html
@@ -16775,6 +16876,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                                 # Corte IDH (25-sep-2026): el contrato del
                                 # visor (página, párrafo, ancla, cita).
                                 **_campos_coidh(_d),
+                                # Y la doctrina, con su página y su ancla.
+                                **_campos_doctrina(_d),
                             }
                         yield ("\n<!-- FUENTES_PREVIAS:"
                                + json.dumps(_previas, ensure_ascii=False) + " -->\n")
@@ -17854,10 +17957,14 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                                 "tipo_criterio": doc.tipo_criterio or None,
                                 "instancia": doc.instancia_meta or None,
                                 "materia": doc.materia_meta or None,
-                                # Corte IDH (25-sep-2026): pdf_url = url_oficial
+                                # Corte IDH (25-sep-2026): pdf_url = la copia
+                                # de legal-docs (url_oficial, la de la Corte),
                                 # sin #page; la página, el párrafo y el ancla
                                 # viajan aparte para que el visor resalte.
                                 **_campos_coidh(doc),
+                                # Doctrina: la URL de la UNAM sin #page, con
+                                # `pagina` y `ancla` aparte (25-sep-2026).
+                                **_campos_doctrina(doc),
                             }
                             sources_map[cv.doc_id] = source_entry
                         else:
