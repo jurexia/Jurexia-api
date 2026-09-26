@@ -33766,6 +33766,11 @@ def _taller_meta_listo(res) -> dict:
     # dice «párrafo 14» y no enseña cuál es.
     if isinstance(_m.get("parrafos"), list):
         fuera["parrafos"] = [str(x) for x in _m["parrafos"]]
+    # LA CONGRUENCIA INTERNA (p2-congruencia): la calificación pegada o añadida
+    # al abrir y los EFECTOS que no recogen un argumento fundado (en sombra).
+    # Sólo la familia v2 la trae: la v1 no cambia ni un campo.
+    if isinstance(_m.get("congruencia"), dict):
+        fuera["congruencia"] = dict(_m["congruencia"])
     return fuera
 
 

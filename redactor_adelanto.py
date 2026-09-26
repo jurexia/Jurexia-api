@@ -1234,6 +1234,9 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
         with cronometrar("completar el estudio"):
             estudio = await _completar_estudio(cliente, r, criterios, material, estudio,
                                                _faltan, _meta, avisos)
+    # LA CALIFICACIÓN AL ABRIR (familia v2, p2-congruencia): sin modelo, igual
+    # que en el gemelo en vivo.
+    estudio = _congruencia_apertura(r, criterios, material, estudio, _meta, avisos)
     # LOS EFECTOS DE UNA VIOLACIÓN PROCESAL SE ORDENAN PASO A PASO (v5 del
     # 93/2026: «dicte otra» sobre una reposición). Se comprueba aquí porque
     # aquí se sabe si la hay.
@@ -1432,6 +1435,8 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
         with cronometrar("completar el estudio"):
             estudio = await _completar_estudio(cliente, r, criterios, material, estudio,
                                                _faltan, _meta, avisos)
+    # LA CALIFICACIÓN AL ABRIR (familia v2, p2-congruencia): sin modelo.
+    estudio = _congruencia_apertura(r, criterios, material, estudio, _meta, avisos)
     _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
     if _av_ef:
         avisos.insert(0, _av_ef)
@@ -1751,6 +1756,66 @@ async def _completar_estudio(cliente, r, criterios, material, estudio: str,
         return estudio
 
 
+# ═══ LA CALIFICACIÓN AL ABRIR (p2-congruencia, 26-sep-2026) ════════════════
+# ADC 642/2024 v4: cuatro apartados abrían con el concepto y seguían con «Lo
+# anterior, porque…» sin calificación en medio. El modelo SÍ la había escrito,
+# en su propio renglón —«Es fundado.»—, y el compositor tira los párrafos de
+# menos de seis palabras. Aquí se pega a su apertura y, si aun así el «Lo
+# anterior» no tiene a qué referirse, se añade la calificación que el criterio
+# (o el plan) da a ese apartado. Sin modelo. SÓLO LA FAMILIA v2: las 14
+# corridas v1 del banco no tienen una calificación suelta.
+def _congruencia_apertura(r, criterios, material, estudio: str, meta: dict,
+                          avisos: list) -> str:
+    """El estudio con la calificación en su apertura. Anota el informe en
+    `meta["congruencia"]` y el aviso visible en `avisos`. Nunca lanza."""
+    try:
+        if not f6._v2(material):
+            return estudio
+        import congruencia as _cg
+        _pl = (getattr(getattr(r, "encargo", None), "plan", None) or {})
+        _pl = _pl.get("plan") if isinstance(_pl, dict) else None
+        nuevo, inf = _cg.reparar_aperturas(estudio or "", criterios,
+                                           list(getattr(material, "problemas", None) or []),
+                                           plan=_pl if isinstance(_pl, dict) else None)
+        import tipos_asunto as _ta_cg
+        _q1 = _ta_cg.vocabulario_de(getattr(material, "tipo_asunto", "") or "amparo_directo")["combate_singular"]
+        _av = _cg.aviso_aperturas(inf, _q1)
+        if _av:
+            avisos.insert(0, _av)
+        if isinstance(meta, dict):
+            meta["congruencia"] = _cg.informe_sombra(inf)
+        # HIGIENE DE REGISTROS: cifras, nunca el texto.
+        print(f"   🧷 CONGRUENCIA: {len(inf.get('pegadas') or [])} calificación(es) pegada(s) · "
+              f"{len(inf.get('anadidas') or [])} añadida(s) · {len(inf.get('sin_reparar') or [])} "
+              f"sin reparar · {len(inf.get('sombra') or [])} en sombra")
+        return nuevo
+    except Exception as _ex_cg:
+        print(f"   ⚠️ CONGRUENCIA: {type(_ex_cg).__name__}")
+        return estudio
+
+
+def _congruencia_efectos(e, material, estudio_limpio: str, criterios, meta: dict) -> None:
+    """LOS EFECTOS CASAN CON EL CUERPO, EN SOMBRA (`congruencia.efectos_sin_cubrir`):
+    sobre el texto que se compone, después de la reparación dirigida. Sólo la
+    familia v2. Nunca lanza."""
+    try:
+        if not f6._v2(material):
+            return
+        import congruencia as _cg
+        _pl = (getattr(e, "plan", None) or {})
+        _pl = _pl.get("plan") if isinstance(_pl, dict) else None
+        _segs = list(getattr(material, "inventario", None) or []) if f6.con_inventario(material) else []
+        h = _cg.efectos_sin_cubrir(f6.parrafos(estudio_limpio or ""), _segs, criterios or [],
+                                   list(getattr(material, "problemas", None) or []),
+                                   plan=_pl if isinstance(_pl, dict) else None)
+        if isinstance(meta, dict):
+            meta.setdefault("congruencia", {})["efectos_sin_cubrir"] = h
+        if h:
+            print(f"   🧷 CONGRUENCIA: {len(h)} argumento(s) fundado(s) sin huella en los EFECTOS (sombra)")
+    except Exception as _ex_ce:
+        print(f"   ⚠️ CONGRUENCIA (efectos): {type(_ex_ce).__name__}")
+
+
 def _revisar_contaminacion(r, e) -> list:
     """Que nada del proyecto sea de otro asunto.
 
@@ -1827,6 +1892,8 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
     _compl = meta_estudio.pop("completado", None)
     if _compl and isinstance(meta_estudio.get("cobertura"), dict):
         meta_estudio["cobertura"].setdefault("exhaustivo", {})["completado"] = _compl
+    # LOS EFECTOS CASAN CON EL CUERPO (p2-congruencia), en sombra.
+    _congruencia_efectos(e, material, estudio, criterios, meta_estudio)
     # ═══ LA LEY LOCAL SÓLO ENTRA SI ESTÁ EN LA LITIS ═══════════════════════
     # Aquí convergen los dos redactores del estudio, y el marco llega unas
     # líneas más abajo: es el único sitio por el que pasa TODO lo que se va a
