@@ -13,13 +13,16 @@ falta. Esto comprueba, con DOBLES del modelo (ni una llamada de verdad):
       que nombran el dato;
   2 · la fusión: el piso intacto (mismos ids, mismo orden, mismo texto), los
       nuevos detrás de su concepto con los ids que siguen la serie, sin
-      duplicar un pasaje del piso ni otro nuevo, con tope;
+      duplicar un pasaje del piso ni otro nuevo, con tope repartido entre
+      los conceptos;
   3 · la caída al piso: el modelo que falla, que devuelve basura o que no
       llega a tiempo deja el inventario de siempre, y se registra;
   4 · la caché por huella en la fila (`taller_sesiones.plan`, rama
       «inventario»), con compare-and-set: la guardada se usa sin llamar al
       modelo; otra huella, una corrida abandonada o un error se relanzan con
-      tope; el plan y la lectura no se pisan;
+      tope; el plan y la lectura no se pisan; con dos workers, la primera
+      lectura buena no se reescribe (ni con un error tardío ni con otra
+      lista) y quien relanza usa la de la fila;
   5 · los gemelos (flujo y plano) por AST: los dos vacían la lectura del
       encargo y la fijan ANTES del plan; el plan y el material ven la misma;
   6 · la v1 intacta: ni la ve ni espera por ella, y su prompt no cambia ni una
@@ -235,6 +238,23 @@ _Sm, _Im = ie.fusionar(PISO, _vm, ESCRITO)
 ok(len([s for s in _Sm if s.get("origen") == "escrito"]) <= min(ie.MAX_NUEVOS, len(PISO))
    and (_Im["sobrantes"] > 0 or len(_vm) <= len(PISO)),
    f"EL BLOQUE NO SE DISPARA: como mucho {ie.MAX_NUEVOS} nuevos y nunca más que el piso ({_Im})")
+# EL TOPE SE REPARTE ENTRE CONCEPTOS (revisión adversarial): antes se cortaba
+# en el orden del escrito y un primer concepto largo dejaba fuera al último.
+_vr, _ = ie.verificar([
+    _arg(1, "Los testigos fueron aleccionados y contestaron con palabras idénticas.", CITA_TESTIGOS),
+    _arg(1, "Ningún testigo dio la razón de su dicho ni las circunstancias.",
+         "ninguno dio la razón de su dicho ni las circunstancias de tiempo, modo y lugar"),
+    _arg(3, "Es campesino, no sabe leer ni escribir y su condición es vulnerable.",
+         "soy campesino, no sé leer ni escribir y mi condición es vulnerable")], ESCRITO, PISO, CONTEO)
+_max0 = ie.MAX_NUEVOS
+try:
+    ie.MAX_NUEVOS = 2
+    _Sr, _Ir = ie.fusionar(PISO, _vr, ESCRITO)
+finally:
+    ie.MAX_NUEVOS = _max0
+ok([s["id"] for s in _Sr if s.get("origen") == "escrito"] == ["C1.c", "C3.b"] and _Ir["sobrantes"] == 1
+   and [s for s in _Sr if s.get("origen") != "escrito"] == PISO,
+   f"con tope 2 y tres leídos (dos del primer concepto, uno del tercero) entra uno de cada concepto ({_Ir})")
 ok(inv.segmentos(fases(), ESCRITO, extraidos=None) == PISO
    and inv.segmentos(fases(), ESCRITO, extraidos=[]) == PISO,
    "`inventario.segmentos` sin lectura (None o []) devuelve el piso de siempre")
@@ -332,12 +352,41 @@ ok(ie.fila_pedir(_dT, HU, H, T0)[1] == "tope", f"con {ie.TOPE_CORRIDAS} corridas
 # El plan y la lectura viven en el mismo documento y no se pisan.
 _dp, _ = pe.fila_pedir(d3, "CLAVE", HU, T0)
 ok(_dp["inventario"] == d3["inventario"], "pedir un plan conserva la lectura guardada")
-_dp2, _ = pe.fila_resultado(_dp, "CLAVE", HU, {"segmentos": []}, [], 1.0, T0)
+_dp1, _ = pe.fila_pedir(d1, "CLAVE", HU, T0)
+_dp2, _ = pe.fila_resultado(_dp1, "CLAVE", HU, {"segmentos": []}, [], 1.0, T0)
 _dl, _ = ie.fila_resultado(_dp2, HU, H, SAL, T0 + 1)
 ok(_dl["planes"] == _dp2["planes"] and _dl["inventario"]["estado"] == "listo",
    "guardar la lectura conserva los planes")
 _dn, _ = pe.fila_pedir(d3, "CLAVE", "ADELANTO_NUEVO", T0)
 ok("inventario" not in _dn, "un adelanto nuevo rehace el documento: la lectura vieja no sobrevive")
+
+# DOS WORKERS: la corrida que otro dio por abandonada y relevó, y que termina
+# tarde (revisión adversarial, 26-sep-2026). LO LEÍDO NO SE REESCRIBE: los ids
+# que añadió la primera lectura buena pueden estar ya en un plan y un estudio.
+_w1, _ = ie.fila_pedir(None, HU, H, T0)                               # corrida 1
+_w2, _dw2 = ie.fila_pedir(_w1, HU, H, T0 + ie.ABANDONADA_S + 1)        # la releva la 2
+ok(_dw2 == "lanzar" and _w2["inventario"]["corridas"] == 2, "la corrida 1 sin latido la releva la 2")
+ok(ie.fila_latido(_w2, HU, H, T0 + 70, corrida=1)[1] == "nada"
+   and ie.fila_latido(_w2, HU, H, T0 + 70, corrida=2)[1] == "latido",
+   "la relevada no late por la que la relevó (si ésta muere, tiene que poder darse por abandonada)")
+ok(ie.fila_resultado(_w2, HU, H, SAL_R, T0 + 80, corrida=1) == (None, "relevada"),
+   "un error tardío de la relevada no tumba a la que la relevó mientras ésta siga viva")
+_w2m = copy.deepcopy(_w2)
+_w2m["inventario"]["latido"] = T0                                      # la 2 murió también
+ok(ie.fila_resultado(_w2m, HU, H, SAL_R, T0 + 200, corrida=1)[1] == "error",
+   "si la que la relevó también murió, el error se guarda (y la petición siguiente relanza)")
+_w3, _ = ie.fila_resultado(_w2, HU, H, SAL, T0 + 90, corrida=2)
+_OTRA = dict(SAL, argumentos=[dict(SAL["argumentos"][0], texto="Otra lista, otros ids.")])
+ok(ie.fila_resultado(_w3, HU, H, SAL_R, T0 + 95, corrida=1) == (None, "listo")
+   and ie.fila_resultado(_w3, HU, H, _OTRA, T0 + 95, corrida=1) == (None, "listo")
+   and ie.fila_resultado(_w3, HU, H, _OTRA, T0 + 95) == (None, "listo")
+   and ie.guardado(_w3, HU, H, T0 + 96) == ("listo", SAL["argumentos"]),
+   "LA PRIMERA LECTURA BUENA NO SE REESCRIBE: ni con un error tardío ni con otra lista "
+   "(el mismo id nombraría otro argumento)")
+_w1l, _ = ie.fila_resultado(_w2, HU, H, _OTRA, T0 + 85, corrida=1)
+ok(_w1l["inventario"]["estado"] == "listo"
+   and ie.fila_resultado(_w1l, HU, H, SAL, T0 + 90, corrida=2) == (None, "listo"),
+   "si la relevada termina bien primero, la suya es LA lectura y la de la 2 ya no entra")
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n4b · EL FLUJO DE main.py CON LA BASE Y EL MODELO DE MENTIRA")
@@ -406,7 +455,7 @@ class _Q:
 _NOMBRES = ["_taller_plan_cas", "_taller_plan_leer", "_taller_inv_escrito_adelantar",
             "_taller_inv_escrito_huellas", "_taller_inv_escrito_correr", "_taller_inv_escrito_lanzar",
             "_taller_preinventariar", "_taller_preinventariar_suelta", "_taller_inv_escrito_para",
-            "_taller_inventario_al_encargo"]
+            "_taller_inventario_al_encargo", "_taller_inv_escrito_corrida"]
 ok(all(x in FN for x in _NOMBRES), "main.py trae las piezas del flujo")
 
 
@@ -502,6 +551,28 @@ try:
     (args6, est6), vivas6 = asyncio.run(_vence())
     ok(args6 is None and "no llegó" in est6 and vivas6 == 1,
        "la lanzada aquí que no llega: el piso para este estudio, y la corrida SIGUE para la próxima")
+
+    # (h) DOS WORKERS: ésta relanza una corrida que dio por abandonada, y la
+    # relevada termina bien antes. Se usa LA DE LA FILA (la primera buena), no
+    # la propia: este estudio y el siguiente ven los mismos ids.
+    _OTRA_ARGS = [dict(SAL["argumentos"][0], texto="Lo que leyó la corrida relevada.")]
+    B7 = _Base(ie.fila_pedir(None, HU, H, T0)[0])          # reservada hace mucho: abandonada
+
+    async def _llamar_y_la_otra_acaba(cliente, texto):
+        fila = B7.filas[0]
+        doc = copy.deepcopy(fila["plan"])
+        doc["inventario"] = {"huella": H, "version": ie.VERSION, "estado": "listo",
+                             "argumentos": _OTRA_ARGS, "corridas": 1, "hecho": time.time()}
+        doc["rev"] = int(doc.get("rev") or 0) + 1
+        fila["plan"] = doc
+        return await _llamar_bien(cliente, texto)
+
+    ie._llamar = _llamar_y_la_otra_acaba
+    NS7 = entorno(B7)
+    args7, est7 = asyncio.run(NS7["_taller_inv_escrito_para"]("x@y.mx", "1/2026", resultado(), 30))
+    ok(est7 == "listo" and args7 == _OTRA_ARGS
+       and B7.filas[0]["plan"]["inventario"]["argumentos"] == _OTRA_ARGS,
+       "la que relanza usa la lectura de la fila (la primera buena) y no la pisa con la suya")
 finally:
     ie._llamar = _orig_llamar
 _ap = ast.get_source_segment(SRC_MAIN, FN["_taller_inventario_al_encargo"])

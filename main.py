@@ -33068,9 +33068,11 @@ def _taller_inv_escrito_huellas(r) -> tuple:
 
 
 async def _taller_inv_escrito_correr(email: str, numero: str, r, hu: str, h: str, *,
-                                     persistir: bool = True) -> dict:
+                                     persistir: bool = True, corrida=None) -> dict:
     """UNA lectura del escrito con latido, y su resultado a la rama «inventario»
-    de la fila. Nunca lanza."""
+    de la fila. Nunca lanza. `corrida`: el número que reservó `fila_pedir`; con
+    él, una corrida que otro worker dio por abandonada y relevó ni late por la
+    que la relevó ni la tumba con un error (`inventario_escrito.fila_resultado`)."""
     import inventario_escrito as _ie
     e = getattr(r, "encargo", None)
     t0 = time.time()
@@ -33083,7 +33085,7 @@ async def _taller_inv_escrito_correr(email: str, numero: str, r, hu: str, h: str
             break
         if persistir:
             await asyncio.to_thread(_taller_plan_cas, email, numero,
-                                    lambda d: _ie.fila_latido(d, hu, h, time.time()))
+                                    lambda d: _ie.fila_latido(d, hu, h, time.time(), corrida))
     try:
         salida = tarea.result()
     except Exception as ex:
@@ -33098,8 +33100,16 @@ async def _taller_inv_escrito_correr(email: str, numero: str, r, hu: str, h: str
           f"(razonamiento {_u.get('razonamiento', 0)}) · {salida.get('coste', 0)} USD")
     if persistir:
         await asyncio.to_thread(_taller_plan_cas, email, numero, lambda d: _ie.fila_resultado(
-            d, hu, h, salida, time.time()))
+            d, hu, h, salida, time.time(), corrida))
     return salida
+
+
+def _taller_inv_escrito_corrida(doc):
+    """El número de corrida que acaba de reservar `fila_pedir` (None si no hay)."""
+    try:
+        return int(((doc or {}).get("inventario") or {}).get("corridas"))
+    except (TypeError, ValueError, AttributeError):
+        return None
 
 
 def _taller_inv_escrito_lanzar(email: str, numero: str, r, hu: str, h: str, **kw):
@@ -33120,10 +33130,11 @@ async def _taller_preinventariar(email: str, numero: str, r) -> None:
             return
         import inventario_escrito as _ie
         hu, h = await asyncio.to_thread(_taller_inv_escrito_huellas, r)
-        _, dec = await asyncio.to_thread(_taller_plan_cas, email, numero,
-                                         lambda d: _ie.fila_pedir(d, hu, h, time.time()))
+        doc, dec = await asyncio.to_thread(_taller_plan_cas, email, numero,
+                                           lambda d: _ie.fila_pedir(d, hu, h, time.time()))
         if dec == "lanzar":
-            await _taller_inv_escrito_correr(email, numero, r, hu, h)
+            await _taller_inv_escrito_correr(email, numero, r, hu, h,
+                                             corrida=_taller_inv_escrito_corrida(doc))
     except Exception as ex:
         print(f"   ⚠️ LECTURA DEL ESCRITO adelantada de {numero}: {err(ex)}")
 
@@ -33171,12 +33182,23 @@ async def _taller_inv_escrito_para(email: str, numero: str, r, tope_s: float) ->
             # «lanzar», o sin base / sin columna: se lee aquí. Sin base no se
             # reutiliza, pero sirve dentro de esta petición.
             tarea = _taller_inv_escrito_lanzar(email, numero, r, hu, h,
-                                               persistir=(dec == "lanzar"))
+                                               persistir=(dec == "lanzar"),
+                                               corrida=_taller_inv_escrito_corrida(doc))
             _resto = max(0.05, tope_s - (time.time() - t0))
             hechas, _ = await asyncio.wait({asyncio.shield(tarea)}, timeout=_resto)
             if not hechas:
                 return None, f"no llegó en {tope_s:.0f} s"
             salida = tarea.result() or {}
+            if dec == "lanzar":
+                # LA DE LA FILA, NO LA PROPIA, si la fila tiene una: la primera
+                # lectura que terminó bien es LA lectura de esta huella (otra
+                # corrida relevada pudo acabar antes) y es la que verán las
+                # peticiones siguientes; con la propia, este estudio y el
+                # siguiente llamarían C2.e a argumentos distintos.
+                _doc_f = await asyncio.to_thread(_taller_plan_leer, email, numero)
+                _est_f, _args_f = _ie.guardado(_doc_f, hu, h, time.time())
+                if _est_f in ("listo", "vacio"):
+                    return _args_f, _est_f
             if salida.get("estado") in ("listo", "vacio"):
                 return list(salida.get("argumentos") or []), salida["estado"]
             return None, str(salida.get("estado") or "error")

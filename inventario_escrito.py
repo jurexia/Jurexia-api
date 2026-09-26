@@ -613,7 +613,7 @@ def fusionar(piso: list, extraidos: list, escrito: str, es_recurso: bool = False
         inferido = any(s.get("concepto_inferido") for s in piso)
         propias = _inv.anclas_del_asunto(escrito or "")
         letras = Counter(int(s.get("concepto") or 0) for s in piso)
-        nuevos = []
+        cands = []
         for x in sorted(extraidos, key=lambda y: (int(y.get("concepto") or 0),
                                                   (y.get("palabras") or [0])[0])):
             c = int(x.get("concepto") or 0)
@@ -633,12 +633,33 @@ def fusionar(piso: list, extraidos: list, escrito: str, es_recurso: bool = False
                 informe["por_pasaje"] += 1
                 continue
             if any(_solape(tr, y["_tramo"]) >= SOLAPE_MISMO_PASAJE
-                   for y in nuevos if y["concepto"] == c):
+                   for y in cands if y["concepto"] == c):
                 informe["repetidos"] += 1
                 continue
-            if len(nuevos) >= min(MAX_NUEVOS, max(1, len(piso))):
-                informe["sobrantes"] += 1
-                continue
+            cands.append({"concepto": c, "_tramo": tr, "_x": x})
+        # EL TOPE, REPARTIDO ENTRE LOS CONCEPTOS (revisión adversarial,
+        # 26-sep-2026). Antes se cortaba en el orden del escrito: con un primer
+        # concepto de muchos renglones nuevos, los del último no entraban
+        # nunca. Ahora, por rondas: el primero de cada concepto, luego el
+        # segundo de cada uno… hasta el tope. Lo que sobra se registra.
+        tope = min(MAX_NUEVOS, max(1, len(piso)))
+        if len(cands) > tope:
+            filas_c = {}
+            for y in cands:
+                filas_c.setdefault(y["concepto"], []).append(y)
+            elegidos, ronda = [], 0
+            while len(elegidos) < tope:
+                tanda = [ys[ronda] for _, ys in sorted(filas_c.items()) if ronda < len(ys)]
+                if not tanda:
+                    break
+                elegidos.extend(tanda[:tope - len(elegidos)])
+                ronda += 1
+            informe["sobrantes"] = len(cands) - len(elegidos)
+            quedan = {id(y) for y in elegidos}
+            cands = [y for y in cands if id(y) in quedan]
+        nuevos = []
+        for y in cands:
+            c, tr, x = y["concepto"], y["_tramo"], y["_x"]
             sid = f"{pref}{c}.{_inv._letra(letras[c])}"
             letras[c] += 1
             texto = _inv._recortar(str(x.get("texto") or ""))
@@ -794,25 +815,54 @@ def fila_pedir(doc, huella_adelanto: str, h: str, ahora: float,
     return d, "lanzar"
 
 
-def fila_latido(doc, huella_adelanto: str, h: str, ahora: float) -> tuple:
+def _de_otra_corrida(c: dict, corrida) -> bool:
+    """¿La casilla es de una corrida posterior a la `corrida` de quien escribe?
+    (`corridas` es el número de la última reservada.) Sin número no se sabe y
+    se trata como propia, que es lo de antes."""
+    if corrida is None or not isinstance(c, dict):
+        return False
+    try:
+        return int(c.get("corridas") or 0) != int(corrida)
+    except (TypeError, ValueError):
+        return False
+
+
+def fila_latido(doc, huella_adelanto: str, h: str, ahora: float, corrida=None) -> tuple:
+    """El latido de SU corrida: una que otro worker dio por abandonada y relevó
+    no mantiene viva la casilla de la que la relevó (si ésta muere, tiene que
+    poder darse por abandonada)."""
     c = _casilla(doc, huella_adelanto, h)
-    if not c or c.get("estado") != "en_curso":
+    if not c or c.get("estado") != "en_curso" or _de_otra_corrida(c, corrida):
         return None, "nada"
     d = _base(doc, huella_adelanto)
     d["inventario"]["latido"] = ahora
     return d, "latido"
 
 
-def fila_resultado(doc, huella_adelanto: str, h: str, salida: dict, ahora: float) -> tuple:
+def fila_resultado(doc, huella_adelanto: str, h: str, salida: dict, ahora: float,
+                   corrida=None) -> tuple:
     """Guarda la lectura. Si la fila ya es de otro adelanto o de otra huella,
-    no escribe nada (lo leído es de otro asunto)."""
+    no escribe nada (lo leído es de otro asunto).
+
+    LO LEÍDO NO SE REESCRIBE (revisión adversarial, 26-sep-2026). La primera
+    lectura que termina bien ES la lectura de esta huella: los ids que añadió
+    (C2.e…) pueden estar ya en un plan, en un estudio y en su mapa. Una corrida
+    tardía —la que otro worker dio por abandonada y relevó, con -w 2— no la
+    pisa: ni con otra lista (el mismo id nombraría otro argumento) ni con un
+    error (se perdería y se volvería a pagar). Y un error tardío tampoco tumba
+    a la corrida que la relevó mientras ésta siga viva."""
     if not isinstance(doc, dict) or doc.get("huella") != huella_adelanto:
         return None, "otro_adelanto"
     d = _base(doc, huella_adelanto)
     prev = d["inventario"]
     if prev and prev.get("huella") not in (None, h):
         return None, "otra_huella"
+    if prev.get("huella") == h and prev.get("estado") in ("listo", "vacio"):
+        return None, prev["estado"]
     est = str((salida or {}).get("estado") or "error")
+    if est not in ("listo", "vacio") and prev.get("estado") == "en_curso" \
+            and _de_otra_corrida(prev, corrida) and not abandonada(prev, ahora):
+        return None, "relevada"
     d["inventario"] = {
         "huella": h, "version": VERSION,
         "estado": est if est in ("listo", "vacio", "error") else "error",
