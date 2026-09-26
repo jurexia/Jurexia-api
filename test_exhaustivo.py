@@ -350,14 +350,14 @@ cli = _Cli(SALIDA)
 nuevo_r, inf = asyncio.run(X.reparar(cli, ESTUDIO, CRIT, MAT, FALTAN, escrito=""))
 ok(inf["estado"] == "ok" and len(inf["efectos"]) == 2 and "3. Al dictar" in nuevo_r,
    "con el doble del modelo: dos órdenes insertadas")
-ok(len(cli.kw) == 1 and cli.kw[0]["model"] == f6.MODELO_ESTUDIO and cli.kw[0]["reasoning_effort"] == "medium",
-   "UNA llamada, al modelo del estudio, con razonamiento medio")
+ok(len(cli.kw) == 1 and cli.kw[0]["model"] == f6.MODELO_ESTUDIO and cli.kw[0]["reasoning_effort"] == "high",
+   "UNA llamada, al modelo del estudio, con el razonamiento del estudio (high)")
 os.environ["ESFUERZO_REPARAR"] = "low"
-ok(X.esfuerzo_reparar() == "medium", "«low» no se admite: nunca por debajo de medio")
+ok(X.esfuerzo_reparar() == "high", "«low» no se admite: nunca se baja el razonamiento del estudio")
 os.environ["ESFUERZO_REPARAR"] = "minimal"
-ok(X.esfuerzo_reparar() == "medium", "ni «minimal»")
-os.environ["ESFUERZO_REPARAR"] = "high"
-ok(X.esfuerzo_reparar() == "high", "«high», como el estudio, sí")
+ok(X.esfuerzo_reparar() == "high", "ni «minimal»")
+os.environ["ESFUERZO_REPARAR"] = "medium"
+ok(X.esfuerzo_reparar() == "medium", "«medium» sólo si se pide a propósito")
 os.environ.pop("ESFUERZO_REPARAR", None)
 _v, inf_v = asyncio.run(X.reparar(_Cli(SALIDA, demora=0.3), ESTUDIO, CRIT, MAT, FALTAN, tope_s=0.05))
 ok(_v == ESTUDIO and inf_v["estado"] == "vencio", "si vence, el estudio sale como estaba")

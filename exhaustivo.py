@@ -576,16 +576,17 @@ def revisar_texto(estudio: str, segs: list, criterios: list, problemas: list) ->
 # de los EFECTOS— y no toca nada más. Lo que no pasa las guardas se descarta.
 # Si la llamada falla o vence, el estudio sale como estaba y se avisa.
 #
-# EL RAZONAMIENTO NUNCA MENOR QUE MEDIO (regla de la casa: nunca se baja el
-# razonamiento del estudio; esta llamada es del estudio). `ESFUERZO_REPARAR`
-# sólo admite «medium» o «high»; cualquier otro valor se lee como «medium».
+# EL RAZONAMIENTO, EL DEL ESTUDIO: «high» (integración, 26-sep-2026). Esta
+# llamada escribe párrafos del estudio, y la regla de la casa es que el
+# razonamiento del estudio no se baja. `ESFUERZO_REPARAR` puede subirlo o
+# bajarlo a «medium» a propósito; cualquier otro valor se lee como «high».
 REPARAR_ACTIVO = os.getenv("ESTUDIO_REPARAR", "1") != "0"
 _ESFUERZOS_VALIDOS = ("medium", "high")
 
 
 def esfuerzo_reparar() -> str:
-    e = (os.getenv("ESFUERZO_REPARAR", "medium") or "").strip().lower()
-    return e if e in _ESFUERZOS_VALIDOS else "medium"
+    e = (os.getenv("ESFUERZO_REPARAR", "high") or "").strip().lower()
+    return e if e in _ESFUERZOS_VALIDOS else "high"
 
 
 # MEDIDO (11 llamadas reales, 26-sep-2026): de 4.3 a 8.5 s con razonamiento
