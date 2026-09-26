@@ -71,6 +71,7 @@ y después:
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import importlib.util
 import json
 import sys
@@ -210,6 +211,9 @@ class Descargador:
         if "_error" not in d:
             if self.aligerar:
                 d = {k: v for k, v in d.items() if k not in CAMPOS_PESADOS}
+            # Cuándo se bajó: si una reingesta de Qdrant es posterior, el
+            # generador no deja que esta ficha la pise (precedentes_completos).
+            d = dict(d, _bajada=_dt.datetime.now().astimezone().isoformat(timespec="seconds"))
             self.cache.mkdir(parents=True, exist_ok=True)
             tmp = p.with_name(p.name + ".tmp")
             tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")

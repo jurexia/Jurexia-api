@@ -45,6 +45,9 @@ EL SJF MANDA, Y LAS TESIS NUEVAS CUENTAN (26-sep-2026)
     tabuladores y NBSP a un espacio): medido sobre las 1,439 de la caché, 69
     de 69 enteras salen idénticas a Qdrant y 1,367 de 1,370 cortadas lo
     contienen tal cual; las 3 restantes son notas que el SJF cambió después.
+    Salvo que Qdrant sea más nuevo: si su texto contiene el de la ficha y es
+    más largo, o si la ficha se bajó antes de la `ingesta` de la tesis, manda
+    Qdrant (origen «qdrant_mas_nuevo»; ver precedentes_completos).
   · Las fichas de la caché que NO están en el acervo (las tesis que el SJF
     publicó después de la ingesta) entran como tesis NUEVAS: pueden declarar
     la pérdida de otra (fuente «tesis_nueva», `por_en_acervo` = false) y
@@ -130,6 +133,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import datetime as _dt
 import difflib
 import json
@@ -142,8 +146,11 @@ from typing import Dict, List, Optional, Tuple
 
 RAIZ = Path(__file__).resolve().parents[1]
 COLECCION = "jurisprudencia_nacional_v3"
+# `ingesta` («v3_semanario_2026-08»): dice de cuándo es el `precedentes` de
+# Qdrant, para no dejar que una ficha del SJF más vieja lo pise (ver
+# precedentes_completos).
 CAMPOS = ["registro", "clave_tesis", "rubro", "precedentes", "tipo", "epoca",
-          "fecha_publicacion", "instancia", "materia"]
+          "fecha_publicacion", "instancia", "materia", "ingesta"]
 SALIDA = RAIZ / "datos" / "vigencia_tesis.json"
 
 # Topes del archivo compacto: el índice viaja con el código y se carga en cada
@@ -204,13 +211,16 @@ def texto_sjf(h: Optional[str]) -> str:
     v3. Los espacios, tabuladores y NBSP se juntan en uno —la ingesta lo hizo—:
     sin eso, 17 de las 69 tesis enteras de la caché no salían iguales a Qdrant
     («registro digital:  2024159», «página\\xa01190») y cada tesis que el
-    repaso semanal bajara del SJF podía mover una nota por un espacio."""
+    repaso semanal bajara del SJF podía mover una nota por un espacio.
+    Recortado por los DOS lados: la 2029910 trae un espacio al principio en el
+    SJF y no en Qdrant, y con sólo rstrip el repaso la contaba «con nota
+    distinta» (y el mensaje del commit también)."""
     h = re.sub(r"</p>\s*(?:<br\s*/?>\s*)*<p[^>]*>", "\n\n", h or "")
     h = re.sub(r"<br\s*/?>", "\n", h)
     h = re.sub(r"<[^>]+>", "", h)
     h = h.replace("&nbsp;", " ").replace("&quot;", '"').replace("&amp;", "&")
     h = re.sub(r"[ \t\xa0]+", " ", h)
-    return h.rstrip()
+    return h.strip()
 
 
 def ficha_sjf(registro) -> Optional[dict]:
@@ -229,19 +239,66 @@ def ficha_sjf(registro) -> Optional[dict]:
     return d if isinstance(d, dict) and "_error" not in d else None
 
 
+def fecha_ingesta(t: dict) -> Optional[_dt.date]:
+    """El primer día en que pudo hacerse la ingesta de esa tesis en Qdrant, según
+    su etiqueta `ingesta` («v3_semanario_2026-08» → 1-ago-2026), o None. Sólo
+    trae el mes: se toma el día 1 para no dar por más nueva a la de Qdrant sin
+    estar seguros."""
+    m = re.search(r"(20\d\d)-(\d\d)(?:-(\d\d))?", str(t.get("ingesta") or ""))
+    if not m:
+        return None
+    try:
+        return _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3) or 1))
+    except ValueError:
+        return None
+
+
+def fecha_bajada(registro, d: dict) -> Optional[_dt.date]:
+    """El día en que se bajó la ficha del SJF: su `_bajada` (la pone
+    sjf_cache_descargar.py desde el 26-sep-2026) o, en las de antes, la fecha
+    del archivo en la caché."""
+    b = d.get("_bajada") if isinstance(d, dict) else None
+    if isinstance(b, str):
+        with contextlib.suppress(ValueError):
+            return _dt.date.fromisoformat(b[:10])
+    if not SJF_CACHE:
+        return None
+    try:
+        return _dt.date.fromtimestamp(os.path.getmtime(os.path.join(SJF_CACHE, f"{registro}.json")))
+    except OSError:
+        return None
+
+
 def precedentes_completos(t: dict) -> Tuple[str, str]:
     """El `precedentes` que miran las reglas -> (texto, origen).
 
     Si la caché del SJF tiene la tesis, MANDA el SJF (26-sep-2026), esté o no
     cortado el de Qdrant: el Semanario añade notas a tesis viejas y Qdrant se
     quedó con la versión de la ingesta. Antes sólo se usaba para las que
-    Qdrant cortó a 2,500 caracteres. Una ficha sin `precedentes` no pisa nada."""
+    Qdrant cortó a 2,500 caracteres. Una ficha sin `precedentes` no pisa nada.
+
+    SALVO QUE QDRANT SEA MÁS NUEVO (26-sep-2026, revisión). El repaso rotativo
+    vuelve a cada tesis del carril general una vez al año: si una reingesta de
+    la v3 trae notas que la ficha aún no tiene, la ficha rancia las taparía
+    durante meses. Manda Qdrant («qdrant_mas_nuevo») cuando
+      · su texto CONTIENE el del SJF y es más largo (la ingesta ya trae lo que
+        dice la ficha y algo más: una nota añadida después), o
+      · la ficha se bajó ANTES de la ingesta (`_bajada` < `ingesta`), salvo
+        que Qdrant esté cortado y el SJF lo continúe tal cual: entonces la
+        ficha es lo único que tiene el final de las notas y sigue mandando."""
     prec = t.get("precedentes") or ""
+    cortado = len(prec) >= TOPE_QDRANT
     d = ficha_sjf(t.get("registro"))
     h = texto_sjf(d.get("precedentes")) if d and isinstance(d.get("precedentes"), str) else ""
-    if h.strip():
-        return h, "sjf"
-    return prec, ("qdrant_truncado" if len(prec) >= TOPE_QDRANT else "qdrant")
+    if not h:
+        return prec, ("qdrant_truncado" if cortado else "qdrant")
+    q = prec.strip()
+    if len(q) > len(h) and h in q:
+        return prec, "qdrant_mas_nuevo"
+    ing, baj = fecha_ingesta(t), fecha_bajada(t.get("registro"), d)
+    if ing and baj and baj < ing and not (cortado and h.startswith(q)):
+        return prec, "qdrant_mas_nuevo"
+    return h, "sjf"
 
 
 # --------------------------------------------------------------------------- tesis nuevas (SJF, fuera del acervo)

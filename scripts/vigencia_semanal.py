@@ -48,7 +48,10 @@ QUÉ HACE, EN ORDEN
     y test_vigencia_semanal.py.
  6. Commit («vigencia semanal: +N −M entradas; …») y push a main por
     fast-forward; si main avanzó, rebase, pruebas otra vez y un reintento.
-    Nunca --force, y sólo desde el worktree dedicado, parado en origin/main.
+    Nunca --force, y sólo desde el worktree dedicado (con la MARCA que le deja
+    el .sh al crearlo), parado en origin/main. Las pruebas corren con las
+    variables del --env: el worktree dedicado es hermano del repo y main.py no
+    encontraría ningún .env al importarse.
 
 SI EL SJF NOS BLOQUEA: un registro que no existe NO da 404 —da 200 con la
 página de Incapsula, la misma del bloqueo—. Antes de dar por buena una racha
@@ -69,10 +72,15 @@ CÓDIGOS DE SALIDA: 0 bien (con o sin commit) · 1 fallo · 3 la cordura detuvo
 
 USO
 ---
-    # lo que corre launchd (vía scripts/vigencia_semanal.sh):
+    # lo que corre launchd (plist → lanzador → scripts/vigencia_semanal.sh → esto):
     .venv/bin/python scripts/vigencia_semanal.py --worktree ../wt-vigencia-semanal --env ../jurexia-api-git/.env
-    # ensayo en seco (todo menos commit y push; la caché y el estado SÍ se ponen al día):
+    # ensayo en seco (todo menos commit y push; la caché y el estado SÍ se ponen
+    # al día). El índice del checkout NO se toca: la propuesta queda en
+    # <dir>/propuesta/vigencia_tesis.json (y sólo en el worktree dedicado se
+    # corren las pruebas con ella puesta, devolviéndolo después como estaba):
     .venv/bin/python scripts/vigencia_semanal.py --seco --env ../../../.env
+Instalar o quitar el LaunchAgent: el comentario de
+scripts/launchd/com.iurexia.vigencia-semanal.plist (un comando cada cosa).
 """
 from __future__ import annotations
 
@@ -98,6 +106,12 @@ WT_DEDICADO = MAC / "wt-vigencia-semanal"
 ENV = MAC / "jurexia-api-git" / ".env"
 LOG = Path.home() / "Library" / "Logs" / "iurexia" / "vigencia-semanal.log"
 PRUEBAS = ("test_vigencia_tesis.py", "test_vigencia_semanal.py")
+# La marca del worktree dedicado: la escribe vigencia_semanal.sh en su carpeta
+# de administración (.git/worktrees/<nombre>/) al crearlo con `worktree add`.
+# Sin ella no se resetea ni se hace commit: un worktree enlazado cualquiera del
+# repo (el de otra sesión, uno con el mismo nombre para otra cosa) no es EL
+# dedicado. `git worktree remove` se la lleva con él.
+MARCA = "vigencia-semanal.marca"
 
 FALLOS_SEGUIDOS = 60          # registros seguidos sin ficha para dar por terminada la numeración
 SALTOS = (100, 250, 500, 1000, 2500, 5000)
@@ -382,7 +396,10 @@ def refrescar(D, registros: Sequence[str], previo: Callable[[str], Tuple[Optiona
         if clase(d) == "ok":
             ok.append(r)
             seguidos = 0
+            # Los dos recortados por ambos lados: un espacio al principio (la
+            # 2029910) no es una nota distinta.
             ahora = gen.texto_sjf(d.get("precedentes"))
+            antes = antes.strip() if antes is not None else None
             if antes is not None and ((not ahora.startswith(antes)) if cortado else ahora != antes):
                 cambiadas.append(r)
         else:
@@ -642,17 +659,31 @@ def git(raiz: Path, *args: str, check: bool = False) -> subprocess.CompletedProc
     return r
 
 
-def comprobar_worktree(raiz: Path, esperado: Path) -> None:
-    """Commit y push SÓLO desde el worktree dedicado, en origin/main y con el
-    índice limpio: nunca desde el checkout principal ni desde el de otra sesión."""
+def worktree_dedicado(raiz: Path, esperado: Path) -> Tuple[Optional[str], Path]:
+    """-> (None si `raiz` es EL worktree dedicado, o por qué no lo es; su git-dir).
+    Tiene que ser la carpeta esperada, un worktree enlazado (no el checkout
+    principal) y llevar la MARCA que deja vigencia_semanal.sh al crearlo."""
     top = Path(git(raiz, "rev-parse", "--show-toplevel", check=True).stdout.strip()).resolve()
     gd = Path(git(raiz, "rev-parse", "--absolute-git-dir", check=True).stdout.strip()).resolve()
     gcd = git(raiz, "rev-parse", "--git-common-dir", check=True).stdout.strip()
     gcd = (Path(gcd) if os.path.isabs(gcd) else (raiz / gcd)).resolve()
     if top != Path(esperado).resolve():
-        raise FalloGit(f"no es el worktree dedicado: {top} (se esperaba {esperado})")
+        return f"no es el worktree dedicado: {top} (se esperaba {esperado})", gd
     if gd == gcd:
-        raise FalloGit(f"{top} es el checkout principal, no un worktree")
+        return f"{top} es el checkout principal, no un worktree", gd
+    if not (gd / MARCA).is_file():
+        return (f"{top} no lleva la marca del worktree dedicado ({gd / MARCA}): no lo creó "
+                f"vigencia_semanal.sh"), gd
+    return None, gd
+
+
+def comprobar_worktree(raiz: Path, esperado: Path) -> None:
+    """Commit y push SÓLO desde el worktree dedicado (con su marca), en
+    origin/main y con el índice limpio: nunca desde el checkout principal ni
+    desde el de otra sesión."""
+    no, _ = worktree_dedicado(raiz, esperado)
+    if no:
+        raise FalloGit(no)
     head = git(raiz, "rev-parse", "HEAD", check=True).stdout.strip()
     om = git(raiz, "rev-parse", "origin/main", check=True).stdout.strip()
     if head != om:
@@ -661,11 +692,42 @@ def comprobar_worktree(raiz: Path, esperado: Path) -> None:
         raise FalloGit("datos/vigencia_tesis.json ya tenía cambios antes de empezar")
 
 
-def correr_pruebas(raiz: Path, pruebas: Sequence[str]) -> None:
+def vars_de_env(ruta: Optional[Path]) -> Dict[str, str]:
+    """Las variables del .env, para el entorno de las pruebas. Ni se imprimen ni
+    se escriben en ningún lado. {} si no hay archivo."""
+    if not ruta or not Path(ruta).is_file():
+        return {}
+    try:
+        from dotenv import dotenv_values
+        return {k: v for k, v in dotenv_values(ruta).items() if k and v is not None}
+    except ImportError:
+        out: Dict[str, str] = {}
+        for l in Path(ruta).read_text(encoding="utf-8").splitlines():
+            l = l.strip()
+            if l.startswith("export "):
+                l = l[7:].lstrip()
+            if "=" in l and not l.startswith("#"):
+                k, v = l.split("=", 1)
+                out.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        return out
+
+
+def correr_pruebas(raiz: Path, pruebas: Sequence[str], env_vars: Optional[Dict[str, str]] = None) -> None:
+    """Cada prueba en su proceso, con las variables del .env (`env_vars`).
+
+    POR QUÉ EL .env VA AQUÍ (26-sep-2026, revisión). test_vigencia_tesis.py hace
+    `import main`, y main.py crea sus clientes al importarse: sin credenciales
+    lanza «OpenAIError: Missing credentials». main busca el .env con
+    load_dotenv() desde su carpeta hacia arriba, y el worktree dedicado es
+    HERMANO del repo ($MAC/wt-vigencia-semanal), no está dentro de él: arriba no
+    hay ningún .env, y launchd sólo da PATH, LANG y PYTHONIOENCODING. Cada semana
+    con cambios acababa en código 6, sin commit. Lo de os.environ pesa más, como
+    en load_dotenv."""
+    env = {**(env_vars or {}), **os.environ, "VIGENCIA_SEMANAL_DENTRO": "1"}
     for p in pruebas:
         t0 = time.time()
         r = subprocess.run([sys.executable, p], cwd=str(raiz), capture_output=True, text=True, timeout=900,
-                           env={**os.environ, "VIGENCIA_SEMANAL_DENTRO": "1"})
+                           env=env)
         if r.returncode != 0:
             fallas = [l for l in (r.stdout + r.stderr).splitlines() if "FALLA" in l or "Error" in l][:12]
             raise FalloPruebas(f"{p} falla (rc={r.returncode}): " + " | ".join(fallas))
@@ -714,7 +776,9 @@ def principal(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dir", default=str(DIR_VIGENCIA), help="caché del SJF, estado, volcado e informes")
     ap.add_argument("--env", default=str(ENV), help=".env con QDRANT_URL y QDRANT_API_KEY (sólo se leen)")
-    ap.add_argument("--indice", default=None, help="el índice a comparar y reemplazar (datos/vigencia_tesis.json)")
+    ap.add_argument("--indice", default=None,
+                    help="el índice a comparar y reemplazar (datos/vigencia_tesis.json). En seco sólo se "
+                         "escribe si se pasa aquí; si no, queda la propuesta en <dir>/propuesta")
     ap.add_argument("--worktree", default=str(WT_DEDICADO), help="el único checkout desde el que se hace commit")
     ap.add_argument("--seco", action="store_true", help="todo menos commit y push")
     ap.add_argument("--sin-actualizar", action="store_true", help="no pedir nada al SJF: regenerar con la caché")
@@ -732,7 +796,8 @@ def principal(argv: Optional[List[str]] = None) -> int:
     d = Path(a.dir).expanduser()
     cache, estado_ruta = d / "sjf_cache", d / "estado.json"
     volcado, propuesta, informes = d / "tesis_v3.jsonl", d / "propuesta" / "vigencia_tesis.json", d / "informes"
-    indice = Path(a.indice) if a.indice else RAIZ / "datos" / "vigencia_tesis.json"
+    indice_explicito = a.indice is not None
+    indice = Path(a.indice) if indice_explicito else RAIZ / "datos" / "vigencia_tesis.json"
     t0 = time.time()
     res: Optional[dict] = None
     diff: Optional[dict] = None
@@ -776,7 +841,8 @@ def principal(argv: Optional[List[str]] = None) -> int:
                     f"{meta.get('reemplazo_fuera_del_acervo')} · precedentes {meta.get('precedentes_origen')}")
 
             # 4. comparar por registro
-            viejo_bytes = indice.read_bytes() if indice.exists() else b'{"tesis": {}}'
+            viejo_existia = indice.exists()
+            viejo_bytes = indice.read_bytes() if viejo_existia else b'{"tesis": {}}'
             viejo = json.loads(viejo_bytes.decode("utf-8")).get("tesis") or {}
             nuevo_json = json.loads(propuesta.read_text(encoding="utf-8"))
             nuevo = nuevo_json.get("tesis") or {}
@@ -805,14 +871,50 @@ def principal(argv: Optional[List[str]] = None) -> int:
             if n_carga != len(nuevo) or n_carga != nuevo_json.get("n") or n_carga == 0:
                 raise Detenido(f"vigencia_tesis.py lee {n_carga} entradas de la propuesta, que dice tener "
                                f"{nuevo_json.get('n')} ({len(nuevo)} en «tesis»)")
+            env_vars = vars_de_env(Path(a.env))
+            if a.pruebas and not env_vars:
+                log(f"   ⚠️ sin variables del .env ({a.env}): test_vigencia_tesis.py importa main y las necesita")
+
+            def restaurar():
+                if viejo_existia:
+                    indice.write_bytes(viejo_bytes)
+                else:
+                    indice.unlink(missing_ok=True)
+
+            # EN SECO NO SE TOCA EL ÍNDICE DE NINGÚN CHECKOUT (26-sep-2026,
+            # revisión): corrido a mano desde el checkout principal —que
+            # comparten otras sesiones— dejaba modificado el datos/vigencia_tesis.json
+            # versionado. Ahora la propuesta queda en <dir>/propuesta; sólo en el
+            # worktree dedicado (el .sh lo resetea en cada corrida) se pone un
+            # momento para correr las pruebas y se devuelve como estaba. Con
+            # --indice explícito, se escribe ahí, como antes.
+            if a.seco and not indice_explicito:
+                try:
+                    no_dedicado, _ = worktree_dedicado(RAIZ, Path(a.worktree))
+                except FalloGit as e:
+                    no_dedicado = str(e)
+                if no_dedicado:
+                    log(resumen_linea(res, diff, f"SECO: la propuesta queda en {propuesta}; {indice} no se toca "
+                                                 f"y las pruebas no se corren fuera del worktree dedicado "
+                                                 f"({no_dedicado})", t0))
+                    return 0
+                indice.write_bytes(propuesta.read_bytes())
+                try:
+                    correr_pruebas(RAIZ, a.pruebas, env_vars)
+                finally:
+                    restaurar()
+                log(resumen_linea(res, diff, f"SECO: la propuesta pasa las pruebas; queda en {propuesta} y "
+                                             f"{indice} sigue como estaba, sin commit ni push", t0))
+                return 0
             indice.write_bytes(propuesta.read_bytes())
             try:
-                correr_pruebas(RAIZ, a.pruebas)
+                correr_pruebas(RAIZ, a.pruebas, env_vars)
             except Exception:
-                indice.write_bytes(viejo_bytes)    # el índice queda como estaba
+                restaurar()                        # el índice queda como estaba
                 raise
             if a.seco:
-                log(resumen_linea(res, diff, f"SECO: {indice} queda modificado, sin commit ni push", t0))
+                log(resumen_linea(res, diff, f"SECO: {indice} (--indice) queda con la propuesta, sin commit "
+                                             f"ni push", t0))
                 return 0
 
             # 6. commit y push
@@ -825,7 +927,7 @@ def principal(argv: Optional[List[str]] = None) -> int:
             def reprobar():
                 if carga_con_vigencia_tesis(RAIZ, indice) != len(nuevo):
                     raise Detenido("tras el rebase, vigencia_tesis.py ya no lee el índice entero")
-                correr_pruebas(RAIZ, a.pruebas)
+                correr_pruebas(RAIZ, a.pruebas, env_vars)
             estado_push = empujar(RAIZ, reprobar)
             sha = git(RAIZ, "rev-parse", "--short", "HEAD", check=True).stdout.strip()
             log(resumen_linea(res, diff, f"commit {sha} · {estado_push}", t0))

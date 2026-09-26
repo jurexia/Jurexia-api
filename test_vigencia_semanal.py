@@ -2,15 +2,19 @@
 
     .venv/bin/python test_vigencia_semanal.py
 
-Sin red, sin Qdrant y sin git: el SJF es un doble que contesta como el de
+Sin red y sin Qdrant (git, sólo con repos de juguete en una carpeta temporal): el SJF es un doble que contesta como el de
 verdad —una ficha JSON si el registro existe y, si no, 200 con la página de
 Incapsula (medido: el SJF NO da 404)—. Se comprueba: el avance registro a
 registro con huecos y la racha sin fichas (y el salto de numeración, y el
 bloqueo), que un error no se guarda como tesis, la extracción de las
 afectadas de una tesis nueva, que la versión del SJF manda sobre la de Qdrant,
 que una tesis nueva fuera del acervo sirve de reemplazo y nunca de afectada,
-la cordura que detiene, la idempotencia (sin novedades → el mismo JSON) y el
-LaunchAgent.
+la cordura que detiene, la idempotencia (sin novedades → el mismo JSON), que
+las pruebas llevan el .env y que en seco no se toca el índice de ningún
+checkout, y el LaunchAgent: su lanzador (que funciona aunque el worktree
+dedicado no exista y avisa si falla), el worktree con su marca y su .env, y el
+candado —con un marcador de arranque, sin carreras; dentro de la corrida
+semanal (VIGENCIA_SEMANAL_DENTRO=1) esa prueba se salta—.
 """
 import datetime as dt
 import importlib.util
@@ -307,6 +311,60 @@ with tempfile.TemporaryDirectory() as d:
        "una ficha sin `precedentes` no pisa el de Qdrant")
     gen.SJF_CACHE = None
 
+# El SJF manda… salvo que Qdrant sea más nuevo (revisión del 26-sep-2026: el
+# repaso vuelve a una tesis del carril general una vez al año; una ficha rancia
+# no puede tapar lo que trajo una reingesta posterior).
+with tempfile.TemporaryDirectory() as d:
+    cache = Path(d, "c")
+    gen.SJF_CACHE = str(cache)
+    base = "Amparo en revisión 3/2019. 1 de marzo de 2019. Ponente: Fulano."
+    nota = "Nota: Esta tesis fue abandonada por la tesis 2a./J. 9/2026 (12a.)."
+    t_q = v3(2019990, "2a. L/2019 (10a.)", "X.", prec=f"{base}\n\n{nota}")
+    t_q["ingesta"] = "v3_semanario_2026-08"
+    f = ficha(2019990, "2a. L/2019 (10a.)", "X.", prec=base)
+    f["_bajada"] = "2026-09-27T03:40:00-06:00"
+    guardar_ficha(cache, f)
+    ok(gen.precedentes_completos(t_q) == (t_q["precedentes"], "qdrant_mas_nuevo"),
+       "si Qdrant contiene lo del SJF y algo más (una nota que trajo la ingesta), manda Qdrant")
+    # otra redacción: Qdrant NO contiene lo del SJF, así que sólo decide la fecha
+    t_d = dict(t_q, precedentes="Amparo en revisión 3/2019. 1 de marzo de 2019. Ponente: Mengano.")
+    f["_bajada"] = "2026-07-02T03:40:00-06:00"
+    guardar_ficha(cache, f)
+    ok(gen.precedentes_completos(t_d) == (t_d["precedentes"], "qdrant_mas_nuevo"),
+       "si la ficha se bajó ANTES de la ingesta (2-jul < ago-2026), manda Qdrant")
+    f["_bajada"] = "2026-09-27T03:40:00-06:00"
+    guardar_ficha(cache, f)
+    ok(gen.precedentes_completos(t_d) == (base, "sjf"), "si se bajó después, manda el SJF")
+    largo = "Amparo directo 1/2019. " + "Precedente largo. " * 200
+    t_c = v3(2019991, "2a. LI/2019 (10a.)", "X.", prec=largo[:gen.TOPE_QDRANT])
+    t_c["ingesta"] = "v3_semanario_2026-08"
+    fc = ficha(2019991, "2a. LI/2019 (10a.)", "X.", prec=largo.strip() + "\n\n" + nota)
+    fc["_bajada"] = "2026-07-02T03:40:00-06:00"
+    guardar_ficha(cache, fc)
+    ok(gen.precedentes_completos(t_c)[1] == "sjf" and gen.precedentes_completos(t_c)[0].endswith(nota),
+       "aunque sea más vieja, si Qdrant está cortado y la ficha lo continúa tal cual, manda la ficha (trae el final)")
+    f.pop("_bajada")
+    guardar_ficha(cache, f)
+    os.utime(Path(cache, "2019990.json"), (dt.datetime(2026, 7, 2).timestamp(),) * 2)
+    ok(gen.precedentes_completos(t_d)[1] == "qdrant_mas_nuevo",
+       "una ficha de antes, sin `_bajada`, se fecha por el archivo")
+    t_sin = dict(t_d)
+    t_sin.pop("ingesta")
+    ok(gen.precedentes_completos(t_sin) == (base, "sjf"), "sin `ingesta` en el volcado, manda el SJF, como antes")
+    ok(gen.texto_sjf("<p> Amparo en revisión 5/2020.</p>") == "Amparo en revisión 5/2020.",
+       "texto_sjf recorta por los dos lados (la 2029910 traía un espacio al principio)")
+    gen.SJF_CACHE = None
+
+with tempfile.TemporaryDirectory() as d:
+    # Un espacio al principio no es «nota distinta» (salía en el mensaje del commit).
+    q = "Amparo en revisión 4/2020. 1 de marzo de 2020."
+    sjf = SJFFalso({"2029910": ficha(2029910, "X", "R.", prec=" " + q)})
+    rr = sem.refrescar(descargador(Path(d, "c"), sjf), ["2029910"], lambda r: (q, False), ["2029910"])
+    ok(rr["ok"] == ["2029910"] and rr["cambiadas"] == [],
+       f"el repaso no cuenta como distinta la que sólo trae un espacio al principio ({rr['cambiadas']})")
+    ok("_bajada" in json.loads(Path(d, "c", "2029910.json").read_text()),
+       "cada ficha bajada guarda cuándo se bajó (`_bajada`)")
+
 # ═══════════════════════════════════════════════════════════════ 4 · la nueva fuera del acervo como reemplazo
 print("\n4 · UNA TESIS NUEVA FUERA DEL ACERVO COMO REEMPLAZO")
 T_ACERVO = ACERVO + [
@@ -455,6 +513,65 @@ with tempfile.TemporaryDirectory() as d:
        "y en el índice manda la nota propia de la afectada, con la nueva como reemplazo")
     gen.SJF_CACHE = None
 
+# ═══════════════════════════════════════════════════════════════ 6b · el .env de las pruebas y el seco
+print("\n6b · LAS PRUEBAS LLEVAN EL .env; EN SECO NO SE TOCA EL ÍNDICE")
+with tempfile.TemporaryDirectory() as d:
+    # El worktree dedicado es HERMANO del repo: main.py no halla ningún .env al
+    # importarse y test_vigencia_tesis.py tronaba («Missing credentials»).
+    d = Path(d)
+    (d / "prueba_env.py").write_text(
+        "import os, sys\n"
+        "sys.exit(0 if os.environ.get('CLAVE_DE_PRUEBA') == 'secreto de juguete'"
+        " and os.environ.get('VIGENCIA_SEMANAL_DENTRO') == '1' else 1)\n")
+    (d / "juguete.env").write_text("# comentario\nexport CLAVE_DE_PRUEBA=\"secreto de juguete\"\nOTRA=1\n")
+    ev = sem.vars_de_env(d / "juguete.env")
+    ok(ev.get("CLAVE_DE_PRUEBA") == "secreto de juguete" and ev.get("OTRA") == "1" and sem.vars_de_env(d / "no") == {},
+       "vars_de_env lee el .env (comillas, export, comentarios); sin archivo, nada")
+    try:
+        sem.correr_pruebas(d, ["prueba_env.py"], ev)
+        con_env = True
+    except sem.FalloPruebas:
+        con_env = False
+    _guardada = os.environ.pop("CLAVE_DE_PRUEBA", None)
+    try:
+        sem.correr_pruebas(d, ["prueba_env.py"], {})
+        sin_env = True
+    except sem.FalloPruebas:
+        sin_env = False
+    if _guardada is not None:
+        os.environ["CLAVE_DE_PRUEBA"] = _guardada
+    ok(con_env and not sin_env, "las pruebas corren con las variables del --env (sin ellas, fallan)")
+
+with tempfile.TemporaryDirectory() as d:
+    # Corrido a mano desde un checkout que no es el dedicado, --seco sin
+    # --indice dejaba modificado su datos/vigencia_tesis.json versionado.
+    d = Path(d)
+    raiz = d / "checkout"
+    (raiz / "scripts").mkdir(parents=True)
+    (raiz / "datos").mkdir()
+    for s in ("vigencia_semanal.py", "vigencia_tesis_generar.py", "sjf_cache_descargar.py"):
+        shutil.copy(RAIZ / "scripts" / s, raiz / "scripts" / s)
+    shutil.copy(RAIZ / "vigencia_tesis.py", raiz / "vigencia_tesis.py")
+    trabajo = d / "vig"
+    trabajo.mkdir()
+    _volcado(trabajo / "tesis_v3.jsonl", T_ACERVO)
+    guardar_ficha(trabajo / "sjf_cache", N1)
+    g = subprocess.run([sys.executable, str(raiz / "scripts" / "vigencia_tesis_generar.py"), "--sjf-cache",
+                        str(trabajo / "sjf_cache"), "--tesis-cache", str(trabajo / "tesis_v3.jsonl"), "--salida",
+                        str(raiz / "datos" / "vigencia_tesis.json")], capture_output=True, text=True, timeout=300)
+    guardar_ficha(trabajo / "sjf_cache", N2)          # la semana siguiente: la 2a./J. 30/2026 interrumpe otra
+    antes = (raiz / "datos" / "vigencia_tesis.json").read_bytes()
+    r = subprocess.run([sys.executable, str(raiz / "scripts" / "vigencia_semanal.py"), "--seco", "--sin-actualizar",
+                        "--reusar-volcado", "--dir", str(trabajo), "--env", str(d / "no_hay.env"), "--sin-log",
+                        "--worktree", str(d / "wt-no-existe"), "--pruebas"],
+                       capture_output=True, text=True, timeout=300)
+    prop = trabajo / "propuesta" / "vigencia_tesis.json"
+    ok(g.returncode == 0 and r.returncode == 0 and (raiz / "datos" / "vigencia_tesis.json").read_bytes() == antes
+       and prop.exists() and "2019000" in json.loads(prop.read_text())["tesis"]
+       and "la propuesta queda en" in r.stdout,
+       f"--seco sin --indice: la propuesta (con la interrumpida nueva) queda en <dir>/propuesta y el índice del "
+       f"checkout, intacto (rc={r.returncode}) {r.stdout[-300:] if r.returncode else ''}")
+
 # ═══════════════════════════════════════════════════════════════ 7 · el LaunchAgent y el arranque
 print("\n7 · EL LAUNCHAGENT Y EL ARRANQUE")
 PL = RAIZ / "scripts" / "launchd" / "com.iurexia.vigencia-semanal.plist"
@@ -462,19 +579,26 @@ p = plistlib.loads(PL.read_bytes())
 ok(p["Label"] == "com.iurexia.vigencia-semanal" and p["StartCalendarInterval"] == {"Weekday": 0, "Hour": 3,
                                                                                    "Minute": 30},
    "domingo 03:30 con StartCalendarInterval (corre al despertar si la Mac dormía)")
-ok(p["StandardOutPath"].endswith("Library/Logs/iurexia/vigencia-semanal.log")
-   and p["StandardErrorPath"] == p["StandardOutPath"] and ".venv/bin" in p["EnvironmentVariables"]["PATH"]
-   and "/usr/bin" in p["EnvironmentVariables"]["PATH"],
-   "registro en ~/Library/Logs/iurexia y un PATH con git y el .venv")
-ok("wt-vigencia-semanal/scripts/vigencia_semanal.sh" in " ".join(p["ProgramArguments"]) and not p.get("RunAtLoad"),
-   "corre la copia del worktree dedicado, y no al cargarse")
+ok(".venv/bin" in p["EnvironmentVariables"]["PATH"] and "/usr/bin" in p["EnvironmentVariables"]["PATH"]
+   and not p.get("RunAtLoad") and "StandardOutPath" not in p and "StandardErrorPath" not in p,
+   "un PATH con git y el .venv, no corre al cargarse y el registro lo abre el lanzador (sin StandardOutPath: "
+   "launchd no arranca si falta la carpeta)")
+LANZADOR = p["ProgramArguments"][2] if p["ProgramArguments"][:2] == ["/bin/zsh", "-c"] else ""
+ok(LANZADOR and subprocess.run(["zsh", "-n", "-c", LANZADOR]).returncode == 0
+   and "show origin/main:scripts/vigencia_semanal.sh" in LANZADOR
+   and "wt-vigencia-semanal/scripts" not in LANZADOR and "osascript" in LANZADOR,
+   "el plist lleva el lanzador dentro: saca el .sh de origin/main (no de un worktree que quizá no existe) y avisa")
+_com = PL.read_text(encoding="utf-8").split("<!--", 1)[1].split("-->", 1)[0]
+ok("launchctl bootstrap gui/$(id -u)" in _com and "launchctl bootout gui/$(id -u)/com.iurexia.vigencia-semanal" in _com
+   and "preparar" in _com and "--" not in _com,
+   "el comentario trae la instalación y la desinstalación, un comando cada una (y sin «--», que XML no admite)")
 SH = (RAIZ / "scripts" / "vigencia_semanal.sh").read_text(encoding="utf-8")
 ok(subprocess.run(["zsh", "-n", str(RAIZ / "scripts" / "vigencia_semanal.sh")]).returncode == 0,
    "vigencia_semanal.sh: sintaxis de zsh")
 _codigo_sh = [l for l in SH.splitlines() if not l.lstrip().startswith("#")]
 ok("worktree add -q --detach" in SH and "lockf -t 0" in SH and "reset -q --hard origin/main" in SH
    and not any(re.search(r"\bgit\b.*\bpush\b", l) for l in _codigo_sh)
-   and not any("--force" in l for l in _codigo_sh),
+   and not any("--force" in l and "worktree remove" not in l for l in _codigo_sh),
    "el arranque: candado, worktree desprendido en origin/main; el push lo hace el Python, nunca --force")
 PYS = (RAIZ / "scripts" / "vigencia_semanal.py").read_text(encoding="utf-8")
 _llamadas_push = re.findall(r'git\(raiz, "push"[^)]*\)', PYS)
@@ -483,8 +607,10 @@ ok(_llamadas_push and all(c == 'git(raiz, "push", "-q", "origin", "HEAD:main")' 
    f"el push es por fast-forward a main ({len(_llamadas_push)} llamadas) y no hay --force en ninguna parte")
 
 # El arranque, de verdad, contra un repo de juguete (nada del repo real): crea
-# el worktree dedicado, limpia lo suelto, respeta el candado, devuelve el código
-# del Python y se niega a tocar el checkout principal o un clon ajeno.
+# el worktree dedicado con su marca y su .env, limpia lo suelto, respeta el
+# candado, devuelve el código del Python y se niega a tocar el checkout
+# principal, un clon ajeno o un worktree enlazado que no lleva la marca. Y el
+# lanzador del plist, que funciona aunque el worktree no exista todavía.
 with tempfile.TemporaryDirectory() as d:
     d = Path(d)
     G = ["git", "-c", "user.name=prueba", "-c", "user.email=prueba@example.invalid", "-c", "init.defaultBranch=main"]
@@ -496,53 +622,124 @@ with tempfile.TemporaryDirectory() as d:
     (d / "semilla" / "scripts").mkdir(parents=True)
     (d / "semilla" / "scripts" / "vigencia_semanal.py").write_text("# de juguete\n")
     (d / "semilla" / "x.txt").write_text("limpio\n")
+    (d / "semilla" / ".gitignore").write_text(".env\n")          # como el repo de verdad
     _g("-C", str(d / "semilla"), "add", "-A")
     _g("-C", str(d / "semilla"), "commit", "-q", "-m", "inicial")
     _g("-C", str(d / "semilla"), "push", "-q", "origin", "HEAD:main")
     _g("clone", "-q", str(d / "origin.git"), str(d / "repo"))
+    (d / "juguete.env").write_text("CLAVE_DE_JUGUETE=1\n")
     py = d / "py.sh"
-    py.write_text('#!/bin/zsh\necho "PY $*"\nsleep "${PY_DORMIR:-0}"\nexit "${PY_RC:-0}"\n')
+    # PY_MARCA: avisa que arrancó (con el candado ya tomado); PY_SOLTAR: no
+    # termina hasta que exista ese archivo. Así la prueba del candado no
+    # depende de cuánto tarde nadie en arrancar.
+    py.write_text('#!/bin/zsh\necho "PY $*"\necho "SIN_AVISO=${VIGENCIA_SIN_AVISO:-}"\n'
+                  '[[ -n "${PY_MARCA:-}" ]] && : >| "$PY_MARCA"\n'
+                  'if [[ -n "${PY_SOLTAR:-}" ]]; then\n'
+                  '  for i in {1..1200}; do [[ -e "$PY_SOLTAR" ]] && break; sleep 0.05; done\nfi\n'
+                  'exit "${PY_RC:-0}"\n')
     py.chmod(0o755)
     base_env = {**os.environ, "VIGENCIA_REPO": str(d / "repo"), "VIGENCIA_WT": str(d / "wt"),
                 "VIGENCIA_DIR": str(d / "dir"), "VIGENCIA_LOG": str(d / "log.txt"), "VIGENCIA_PY": str(py),
-                "VIGENCIA_ENV": str(d / "no.env"), "VIGENCIA_SIN_AVISO": "1"}
+                "VIGENCIA_ENV": str(d / "juguete.env"), "VIGENCIA_SIN_AVISO": "1", "VIGENCIA_ESPERA_RED": "0"}
     base_env.pop("VIGENCIA_CON_CANDADO", None)
     SHP = str(RAIZ / "scripts" / "vigencia_semanal.sh")
 
     def _sh(*args, **env):
         return subprocess.run(["zsh", SHP, *args], env={**base_env, **env}, stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, timeout=120)
+
+    def _log():
+        return (d / "log.txt").read_text() if (d / "log.txt").exists() else ""
+
+    def _ultima():
+        return _log().split("══ vigencia semanal · arranque")[-1]
+
+    def _lanzar(*args, **env):
+        # VIGENCIA_SIN_AVISO siempre puesto: una prueba nunca manda una notificación de verdad.
+        return subprocess.run(["/bin/zsh", "-c", LANZADOR, "lanzador", *args], env={**base_env, **env},
+                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
+
+    rl = _lanzar(VIGENCIA_WT=str(d / "wt_l"))
+    ok(rl.returncode == 1 and "✗ lanzador: no pude sacar scripts/vigencia_semanal.sh de origin/main" in _log()
+       and "(aviso)" in _log() and not (d / "wt_l").exists(),
+       f"el lanzador, si origin/main aún no trae el .sh: sale 1, lo escribe y AVISA (antes: 127 en silencio) "
+       f"(rc={rl.returncode})")
     r1 = _sh("--seco")
     wt_ok = (d / "wt" / "scripts" / "vigencia_semanal.py").exists()
     rama = subprocess.run(["git", "-C", str(d / "wt"), "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
                           text=True).stdout.strip() if wt_ok else ""
-    log_txt = (d / "log.txt").read_text() if (d / "log.txt").exists() else ""
-    ok(r1.returncode == 0 and wt_ok and rama == "HEAD" and "--sin-log --seco" in log_txt
-       and f"--worktree {d / 'wt'}" in log_txt,
+    gd_wt = subprocess.run(["git", "-C", str(d / "wt"), "rev-parse", "--absolute-git-dir"], capture_output=True,
+                           text=True).stdout.strip() if wt_ok else ""
+    ok(r1.returncode == 0 and wt_ok and rama == "HEAD" and "--sin-log --seco" in _log()
+       and f"--worktree {d / 'wt'}" in _log(),
        "la primera vez crea el worktree dedicado, desprendido en origin/main, y le pasa --seco al Python")
+    ok(wt_ok and Path(gd_wt, sem.MARCA).is_file(),
+       "… y le deja su marca en la carpeta de administración (.git/worktrees/<nombre>/)")
+    ok(wt_ok and (d / "wt" / ".env").is_symlink() and os.readlink(d / "wt" / ".env") == str(d / "juguete.env"),
+       "… y le enlaza el .env del repo (un enlace, no una copia de los secretos)")
     if wt_ok:
         (d / "wt" / "x.txt").write_text("sucio\n")
         (d / "wt" / "suelto.txt").write_text("suelto\n")
     r2 = _sh()
     ok(r2.returncode == 0 and wt_ok and (d / "wt" / "x.txt").read_text() == "limpio\n"
-       and not (d / "wt" / "suelto.txt").exists(), "cada corrida deja el worktree EXACTAMENTE en origin/main")
-    primera = subprocess.Popen(["zsh", SHP], env={**base_env, "PY_DORMIR": "4"}, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    import time as _t
-    for _ in range(60):
-        if "PY" in ((d / "log.txt").read_text().split("══ vigencia semanal")[-1] if (d / "log.txt").exists() else ""):
-            break
-        _t.sleep(0.1)
-    r3 = _sh()
-    primera.wait(timeout=60)
-    ok(r3.returncode == 75 and primera.returncode == 0 and "ya hay otra corrida" in (d / "log.txt").read_text(),
-       f"con una corrida en marcha, la segunda sale con 75 sin tocar nada (rc={r3.returncode})")
+       and not (d / "wt" / "suelto.txt").exists() and (d / "wt" / ".env").is_symlink(),
+       "cada corrida deja el worktree EXACTAMENTE en origin/main (y el .env sigue enlazado)")
+    if os.environ.get("VIGENCIA_SEMANAL_DENTRO"):
+        # Dentro de la corrida semanal esta prueba es compuerta del commit: no
+        # se juega la semana en ella (el candado se probó al instalar).
+        print("   SALTA  el candado con dos corridas a la vez (dentro de la corrida semanal)")
+    else:
+        marca, soltar = d / "py.arranco", d / "py.soltar"
+        primera = subprocess.Popen(["zsh", SHP], env={**base_env, "PY_MARCA": str(marca), "PY_SOLTAR": str(soltar)},
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import time as _t
+        for _ in range(1200):                      # hasta 60 s a que la primera tenga el candado
+            if marca.exists() or primera.poll() is not None:
+                break
+            _t.sleep(0.05)
+        tenia = marca.exists()
+        r3 = _sh()
+        soltar.touch()
+        primera.wait(timeout=60)
+        ok(tenia and r3.returncode == 75 and primera.returncode == 0 and "ya hay otra corrida" in _log(),
+           f"con una corrida en marcha, la segunda sale con 75 sin tocar nada (rc={r3.returncode}, "
+           f"la primera arrancó: {tenia})")
     ok(_sh(PY_RC="3").returncode == 3, "el código del Python (3: la cordura detuvo) es el del arranque")
+    n_py = _log().count("PY ")
+    rp = _sh("preparar")
+    ok(rp.returncode == 0 and "✓ listo: worktree dedicado" in _ultima() and _log().count("PY ") == n_py,
+       "«preparar» (la instalación) deja listo el worktree y NO corre el Python")
+    ok(_sh(VIGENCIA_ENV=str(d / "no.env")).returncode == 1 and "no está el .env" in _ultima(),
+       "sin .env no arranca (sin él no hay Qdrant ni pasan las pruebas)")
     ok(_sh(VIGENCIA_WT=str(d / "repo")).returncode != 0, "se niega a usar el checkout principal como worktree")
     _g("clone", "-q", str(d / "origin.git"), str(d / "ajeno"))
     (d / "ajeno" / "x.txt").write_text("de otra sesión\n")
     ok(_sh(VIGENCIA_WT=str(d / "ajeno")).returncode == 5 and (d / "ajeno" / "x.txt").read_text() == "de otra sesión\n",
        "y a tocar un checkout que no es un worktree enlazado de este repo")
+    _g("-C", str(d / "repo"), "worktree", "add", "-q", "--detach", str(d / "otra-sesion"), "origin/main")
+    (d / "otra-sesion" / "x.txt").write_text("trabajo de otra sesión\n")
+    ro = _sh("--seco", VIGENCIA_WT=str(d / "otra-sesion"))
+    ok(ro.returncode == 5 and (d / "otra-sesion" / "x.txt").read_text() == "trabajo de otra sesión\n"
+       and "no lleva la marca del dedicado" in _ultima(),
+       "ni un worktree enlazado del mismo repo que no lleva la marca (el de otra sesión): no lo resetea")
+
+    # El lanzador del plist, con el .sh ya en origin/main y SIN el worktree:
+    shutil.copy(SHP, d / "semilla" / "scripts" / "vigencia_semanal.sh")
+    _g("-C", str(d / "semilla"), "add", "-A")
+    _g("-C", str(d / "semilla"), "commit", "-q", "-m", "el arranque")
+    _g("-C", str(d / "semilla"), "push", "-q", "origin", "HEAD:main")
+    rl2 = _lanzar("--seco", VIGENCIA_WT=str(d / "wt_l"), VIGENCIA_SIN_AVISO="del lanzador")
+    gd_l = subprocess.run(["git", "-C", str(d / "wt_l"), "rev-parse", "--absolute-git-dir"], capture_output=True,
+                          text=True).stdout.strip() if (d / "wt_l").exists() else ""
+    ok(rl2.returncode == 0 and (d / "wt_l" / "scripts" / "vigencia_semanal.sh").exists()
+       and gd_l and Path(gd_l, sem.MARCA).is_file() and f"--worktree {d / 'wt_l'} " in _ultima()
+       and "--seco" in _ultima() and "SIN_AVISO=1" in _ultima(),
+       "el lanzador saca el .sh de origin/main y lo corre aunque el worktree no exista: lo crea con su marca "
+       "(y el .sh corre sin avisar: avisa el lanzador)")
+    rl3 = _lanzar(VIGENCIA_WT=str(d / "wt_l"), PY_RC="6")
+    ok(rl3.returncode == 6 and "✗ lanzador: salió con código 6" in _log(),
+       f"si el .sh sale ≠ 0, el lanzador devuelve ese código, lo escribe y avisa (rc={rl3.returncode})")
+
 
 print()
 if FALLOS:
