@@ -105,10 +105,13 @@ for _extra in (-1, 0, 1):
     _cont = "C1.a" + " " * (mc.LIMITE + _extra - 4)      # una marca válida de ese largo
     _t = "Uno ⟦" + _cont + "⟧ dos."
     _quita = _extra <= 0
+    _fin, _mp = mc.separar_marcas(_t)
     ok(len(_cont) == mc.LIMITE + _extra
-       and ("⟦" not in filtrar([_t])) == _quita and ("⟦" not in mc.separar_marcas(_t)[0]) == _quita,
-       f"en el borde del tope ({len(_cont)} caracteres dentro): flujo y texto final "
-       f"{'la quitan' if _quita else 'la dejan'} los dos")
+       and ("⟦" not in filtrar([_t])) == _quita
+       and "⟦" not in _fin and "⟧" not in _fin and _fin == "Uno dos." and _mp == {"C1.a": [0]},
+       f"en el borde del tope ({len(_cont)} caracteres dentro): el flujo "
+       f"{'la quita' if _quita else 'la deja pasar tal cual (nunca se come texto)'}; "
+       "el texto final la quita siempre")
 ok(mc.ids_de("C1.a/C1.b") == ["C1.a", "C1.b"] and mc.ids_de("C1.a | C2.b") == ["C1.a", "C2.b"]
    and mc.ids_de("C1.a – C1.c") == ["C1.a", "C1.b", "C1.c"],
    "barras y rango con blancos también son marca (si no, llegaban al .docx)")
@@ -192,6 +195,17 @@ ok(m3 == {"C1.a": [0, 1], "C1.b": [1]}, "un argumento en dos párrafos lleva los
 ok(mc.separar_marcas("[[C1.a]] Uno. [[p.7 §3]]") == ("Uno. [[p.7 §3]]", {"C1.a": [0]}),
    "corchetes dobles: se quita la marca y se queda la nota al pie")
 ok(mc.sin_marcas(TXT) == LIMPIO, "`sin_marcas` es el texto limpio")
+# LA MARCA A MEDIAS (revisión adversarial, 26-sep-2026): sin su cierre o sin
+# su apertura no la reconocía ninguna forma y llegaba al .docx.
+_l, _m = mc.separar_marcas("Abre.\n⟦C1.a C1.b Sobre el primero, infundado.\nC2.a⟧ Sobre el segundo.")
+ok(_l == "Abre.\nSobre el primero, infundado.\nSobre el segundo." and _m == {"C1.a": [1], "C1.b": [1], "C2.a": [2]},
+   "«⟦» sin cierre o «⟧» sin apertura: se quitan con sus identificadores y la prosa se queda")
+ok(mc.separar_marcas("Un ⟦ signo raro en la prosa.") == ("Un signo raro en la prosa.", {})
+   and mc.separar_marcas("Un corchete ⟦que no es marca⟧ y sigue.")[0] == "Un corchete que no es marca y sigue."
+   and mc.separar_marcas("Sólo cierra ⟧ aquí.") == ("Sólo cierra aquí.", {}),
+   "un «⟦» o «⟧» sin identificadores: en el texto final se va EL SIGNO y la prosa se queda entera")
+ok(mc.separar_marcas("Sin signos.\n\nNi marcas.") == ("Sin signos.\n\nNi marcas.", {}),
+   "y sin «⟦», «⟧» ni «[[» el texto sigue saliendo idéntico")
 ok(mc.separar_marcas("a [[⟦C1.a⟧]] b") == ("a [[ ]] b", {"C1.a": [0]})
    and filtrar(["a [[⟦C1.a⟧]] b"]) == "a [[]] b",
    "una marca dentro de corchetes que no son marca: la quitan los dos (el texto y el flujo)")
@@ -204,6 +218,13 @@ t4 = ("Los conceptos son en parte fundados.\n\n⟦C1.a C1.b⟧\nSobre el primero
 
 def _norm(x):
     return "\n".join(ln.strip() for ln in x.split("\n") if ln.strip())
+
+
+def _norm_signos(x):
+    # Un «⟦» suelto en la prosa: el flujo lo deja pasar (nunca se come nada) y
+    # el texto final quita EL SIGNO (nunca llega al .docx). La prosa, igual.
+    return _norm("\n".join(re.sub(r"[ \t]+", " ", ln.replace("⟦", " ").replace("⟧", " "))
+                           for ln in x.split("\n")))
 
 
 _flujo = filtrar([t4[i:i + 5] for i in range(0, len(t4), 5)])
@@ -228,9 +249,12 @@ for _ in range(1000):
         trozos.append(t[a:c])
         a = c
     trozos.append(t[a:])
-    if _norm(filtrar(trozos)) != _norm(mc.sin_marcas(t)):
+    _fl, _fi = filtrar(trozos), mc.sin_marcas(t)
+    if _norm_signos(_fl) != _norm_signos(_fi) or "⟦" in _fi or "⟧" in _fi \
+            or any(m_ in _fl for m_ in ("⟦C", "⟦M", "⟦U")):
         distintos += 1
-ok(distintos == 0, f"1,000 estudios al azar con marcas: flujo = texto final ({distintos} distintos)")
+ok(distintos == 0, f"1,000 estudios al azar con marcas: flujo = texto final, salvo el signo suelto que "
+   f"el final quita; ninguna marca en ninguno y ningún signo en el final ({distintos} distintos)")
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n5 · EL CONTROL V1")

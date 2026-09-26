@@ -67,6 +67,11 @@ _RX_RANGO = re.compile(r"^((?:ad|[casmu])\d{1,3})\.([a-z])[-–—]\s*(?:(?:ad|[
 # azar de test_marcas.py).
 _RX_MARCA_U = re.compile(ABRE + r"([^" + ABRE + CIERRA + r"\n]{1,%d})" % LIMITE + CIERRA)
 _RX_MARCA_C = re.compile(r"\[\[([^\[\]\n]{1,%d})\]\]" % LIMITE_CORCHETES)
+# La marca a medias: un signo sin su pareja y los identificadores pegados a él
+# (ver `separar_marcas`). El grupo 1 son sólo identificadores y sus separadores.
+_LISTA_IDS = (r"(" + _ID + r"(?:[ \t]*[,;/|]?[ \t]*(?:y[ \t]+)?" + _ID + r")*)")
+_RX_ABRE_SUELTA = re.compile(ABRE + r"[ \t]*" + _LISTA_IDS + r"(?![\w.])")
+_RX_CIERRA_SUELTA = re.compile(r"(?<![\w.])" + _LISTA_IDS + r"[ \t]*" + CIERRA)
 
 
 def marcas_en(texto: str) -> list:
@@ -221,7 +226,7 @@ def separar_marcas(texto: str) -> tuple:
     desaparece. SIN MARCAS, EL TEXTO SALE IDÉNTICO, byte por byte: la v1 y la
     v2 pasan por aquí sin que les cambie nada."""
     texto = texto or ""
-    if ABRE not in texto and "[[" not in texto:
+    if ABRE not in texto and CIERRA not in texto and "[[" not in texto:
         return texto, {}
     mapa = {}
     fuera = []
@@ -244,14 +249,27 @@ def separar_marcas(texto: str) -> tuple:
             ids_ln.extend(ids)
             return "\x00"
         nueva = _RX_MARCA_C.sub(_sub, _RX_MARCA_U.sub(_sub, ln))
-        if not ids_ln:
+        # LA MARCA A MEDIAS (revisión adversarial, 26-sep-2026): «⟦C1.a C1.b
+        # Sobre el primero…» sin su «⟧», «C1.a⟧ Sobre…» sin su «⟦», o una
+        # marca más larga que el tope. Ninguna forma completa la reconoce y
+        # llegaba entera al .docx: la marca filtrada que bloquea (§6.6). En el
+        # texto final —nunca en el flujo, que no se come nada— se quitan el
+        # signo y los identificadores pegados a él (van al mapa), y si aún
+        # queda un «⟦» o un «⟧» se quita EL SIGNO SOLO: lo que hubiera dentro
+        # se queda. Así «⟦» y «⟧», que no son de una sentencia, no llegan
+        # nunca al documento. Sin ellos no se mira nada.
+        if ABRE in nueva or CIERRA in nueva:
+            nueva = _RX_ABRE_SUELTA.sub(_sub, nueva)
+            nueva = _RX_CIERRA_SUELTA.sub(_sub, nueva)
+            nueva = nueva.replace(ABRE, "\x00").replace(CIERRA, "\x00")
+        if "\x00" not in nueva:
             if ln.strip():
                 idx += 1
                 _apunta(pendientes, idx)
                 pendientes = []
             fuera.append(ln)
             continue
-        nueva = re.sub(r"[ \t]*\x00[ \t]*", " ", nueva).strip()
+        nueva = re.sub(r"[ \t]*(?:\x00[ \t]*)+", " ", nueva).strip()
         if nueva:
             idx += 1
             _apunta(pendientes + ids_ln, idx)
