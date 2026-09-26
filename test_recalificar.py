@@ -191,7 +191,19 @@ ok(por(c)[P2]["sentido"] == "infundado" and por(c)[P2]["razonamiento"] == "la ce
    "de lo recalificado se toma el sentido; la razón sigue siendo la suya")
 _c0 = crit("infundado")
 _, _d0 = ad.aplicar(fase3(P1, P2, P3), _c0, [], props(), tipo_asunto="amparo_directo")
-ok(rc.clave_de(_d0) != _k_suya, "su razón entra en la clave (es dato de la recalificación)")
+ok(rc.clave_de(_d0) == _k_suya,
+   "su razón NO entra en la clave: la pantalla la devolverá con el sentido y la clave no cambia")
+# La vuelta: la pantalla devuelve el sentido recalificado con SU razón; lo
+# guardado trae la suya y se vuelve a poner (pantalla y documento, iguales).
+c = crit("infundado")
+c[1]["sentido"], c[1]["razonamiento"] = "infundado", "la cedente litigó de buena fe"
+av, det = ad.aplicar(fase3(P1, P2, P3), c, [], props(), tipo_asunto="amparo_directo",
+                     recalificadas={"clave": _k_suya, "resultados": {P2: {
+                         "sentido": "infundado", "razon": "la del modelo, que no se usa aquí",
+                         "presupone": None, "verificado": False,
+                         "razon_suya": "la cedente litigó de buena fe"}}})
+ok(por(c)[P2]["sentido"] == "infundado" and por(c)[P2]["razonamiento"] == "la cedente litigó de buena fe"
+   and det[P2].get("razon_suya"), "en la vuelta, su razón se repone desde lo guardado")
 _pr_s, _ac_s = rc.entradas(types.SimpleNamespace(fases=f123.Fases123(problemas=fase3(P1, P2, P3))),
                            [f6.Criterio(problema=P1, sentido="infundado", jerarquia="principal"),
                             f6.Criterio(problema=P2, sentido="", razonamiento="la cedente litigó de buena fe")],

@@ -147,14 +147,17 @@ def clave_de(detalle: dict) -> str:
 
 
 def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
-          tipo_asunto, razones_propias: dict = None) -> str:
+          tipo_asunto) -> str:
     """LA CLAVE DE UNA RECALIFICACIÓN: el principal, el sentido que fijó el
     secretario y SU razón literal (la premisa), qué accesorios se recalifican,
     el adelanto y el tipo de asunto. Con cualquiera de ellos distinto, la
     recalificación guardada no sirve. Los pendientes se ordenan: el mismo
     conjunto da la misma clave venga de la pantalla o de los gemelos.
-    `razones_propias`: la razón que el secretario tecleó para un accesorio sin
-    elegir sentido; es dato de la recalificación y entra (sólo si la hay)."""
+
+    La razón que el secretario tecleó para un ACCESORIO sin elegir sentido NO
+    entra: la pantalla la devuelve después junto con el sentido recalificado,
+    y la clave tiene que ser la misma en las dos vueltas. Viaja guardada con
+    el resultado (`razon_suya`) y el árbol la vuelve a poner."""
     base = {"v": VERSION,
             "p": _clave_texto(principal_problema),
             "s": _norm_sentido(sentido),
@@ -162,9 +165,6 @@ def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
             "pend": sorted(_clave_texto(x) for x in (pendientes or [])),
             "h": str(huella_adelanto or ""),
             "t": str(tipo_asunto or "").strip().lower()}
-    _rp = {_clave_texto(k): _ws(v) for k, v in (razones_propias or {}).items() if _ws(v)}
-    if _rp:
-        base["rp"] = sorted(_rp.items())
     return hashlib.sha1(json.dumps(base, ensure_ascii=False, sort_keys=True)
                         .encode()).hexdigest()[:20]
 
@@ -219,7 +219,20 @@ def _parrafos_resumen(fases) -> list[str]:
             if p.strip()]
 
 
-def argumentos_de(r, numero: int, fase3: dict) -> list[dict]:
+def _inventario(r) -> list:
+    """Los segmentos del inventario (una vez por prompt), o [] sin él."""
+    fases = getattr(r, "fases", None)
+    e = getattr(r, "encargo", None)
+    try:
+        import inventario as _inv
+        return [s for s in (_inv.segmentos(fases, _escrito(fases),
+                                           bool(getattr(e, "es_recurso", False))) or [])
+                if isinstance(s, dict)]
+    except Exception:
+        return []
+
+
+def argumentos_de(r, numero: int, fase3: dict, segs: list = None) -> list[dict]:
     """Los argumentos del escrito que corresponden a ese planteamiento: los
     segmentos del inventario cuyo concepto está en su «cubre» (con dos o más
     planteamientos contados); si no se puede decir por el «cubre», los que
@@ -227,15 +240,8 @@ def argumentos_de(r, numero: int, fase3: dict) -> list[dict]:
     párrafos del resumen con esas anclas. Cada uno con su cita literal."""
     import arbol_decision as _ad
     fases = getattr(r, "fases", None)
-    e = getattr(r, "encargo", None)
-    segs: list = []
-    try:
-        import inventario as _inv
-        segs = [s for s in (_inv.segmentos(fases, _escrito(fases),
-                                           bool(getattr(e, "es_recurso", False))) or [])
-                if isinstance(s, dict)]
-    except Exception:
-        segs = []
+    if segs is None:
+        segs = _inventario(r)
     try:
         import fases123_pipeline as _f123
         cubre = _f123.cubre_de(fase3)
@@ -362,6 +368,7 @@ def prompt(r, material, principal: dict, accesorios: list, contexto: str = "",
     if acto:
         L += ["", "LO QUE RESOLVIÓ EL ACTO (resumen):", acto[:3500]]
     L += ["", "LOS PLANTEAMIENTOS QUE SE RECALIFICAN:"]
+    _segs = _inventario(r)
     for a in accesorios:
         f3 = a.get("fase3") or {}
         L.append(f"PLANTEAMIENTO {a['numero']} · clase: "
@@ -374,7 +381,7 @@ def prompt(r, material, principal: dict, accesorios: list, contexto: str = "",
             L.append("  razón que escribió el secretario para este planteamiento (literal; manda: "
                      "la calificación tiene que ser coherente con ella): "
                      + _ws(a["razon_suya"])[:1500])
-        args = argumentos_de(r, a["numero"], f3)
+        args = argumentos_de(r, a["numero"], f3, _segs)
         if args:
             L.append("  argumentos del escrito:")
             for s in args:
@@ -573,8 +580,7 @@ async def recalificar(r, material, principal: dict, accesorios: list[dict], cont
             _h = ""
         clave_ = clave(principal.get("problema", ""), principal.get("sentido", ""),
                        principal.get("razon", ""), [a["problema"] for a in accesorios],
-                       _h, str(getattr(e, "tipo_asunto", "") or ""),
-                       razones_propias={a["problema"]: a.get("razon_suya") for a in accesorios})
+                       _h, str(getattr(e, "tipo_asunto", "") or ""))
     acc = [a for a in accesorios if a.get("problema")]
     if not acc:
         return {"clave": clave_, "estado": "listo", "resultados": {}, "avisos": [],
@@ -613,6 +619,11 @@ async def recalificar(r, material, principal: dict, accesorios: list[dict], cont
         avisos.append(f"la recalificación falló ({type(ex).__name__})")
     if estado != "listo" and all(a["problema"] in mejor for a in acc):
         estado = "listo"
+    # LA RAZÓN QUE TECLEÓ ÉL viaja con el resultado: el árbol la vuelve a poner
+    # cuando la pantalla devuelva el sentido recalificado (ver `clave`).
+    for a in acc:
+        if a["problema"] in mejor and _ws(a.get("razon_suya")):
+            mejor[a["problema"]]["razon_suya"] = _ws(a["razon_suya"])[:2000]
     avisos = [avisos_de[t] for t in mejor if t in avisos_de] + avisos
     return {"clave": clave_, "estado": estado, "resultados": dict(mejor),
             "avisos": avisos[:20], "segundos": round(time.time() - t0, 1),

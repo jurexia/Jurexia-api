@@ -1095,10 +1095,12 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
     de fondo con su razón; la caída verificada con la fórmula de la caída (el
     estudio la reconoce por ella); «innecesario» con la de la sustracción.
     `razon_suya`: la razón que el secretario tecleó sin elegir sentido; se
-    queda, entra en la clave, y de lo recalificado sólo se toma el sentido."""
+    queda y de lo recalificado sólo se toma el sentido. No entra en la clave
+    (la pantalla la devuelve después con el sentido): viaja guardada con el
+    resultado y se vuelve a poner desde ahí."""
     razon_suya = dict(razon_suya or {})
     k = _rc.clave(p_txt, p_sent, str(_get(principal, "razonamiento", "") or ""), recal,
-                  huella_adelanto, tipo_asunto, razones_propias=razon_suya)
+                  huella_adelanto, tipo_asunto)
     casilla = _rc.casilla_de(recalificadas, k)
     res = dict((casilla or {}).get("resultados") or {})
     por_c = {str(_get(c, "problema", "")): c for c in criterios}
@@ -1120,6 +1122,11 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
         s_rt = _sentido_valido((rt or {}).get("sentido"))
         r_rt = str((rt or {}).get("razon") or "").strip()
         if rt and s_rt and r_rt:
+            # La suya: la que llega ahora sin sentido o, si la pantalla ya la
+            # devuelve con el sentido recalificado, la que se guardó con él.
+            _suya = _suya or str(rt.get("razon_suya") or "").strip()
+            if _suya:
+                base["razon_suya"] = True
             pre = rt.get("presupone") if isinstance(rt.get("presupone"), dict) else None
             if pre and rt.get("verificado") is True and not base["procesal"] and not pros:
                 _pq = str(pre.get("por_que") or "").strip() or r_rt

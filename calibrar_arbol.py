@@ -220,9 +220,11 @@ def main() -> None:
                 aciertos[nom] += 1
             if _prospera(str(c.get("sentido") or "")):
                 prosperan[nom] += 1
+        # Vacío = tumbado por el cambio de sentido, pendiente de recalificar
+        # con la premisa (26-sep-2026; lo mide `calibrar_recalificar.py`).
         print(f"  {exp} P{n} · oro {trato:<15} · vieja "
               f"{'CAE' if _cae(x) else x['sentido']:<10} · nueva "
-              f"{'CAE' if _cae(y) else y['sentido']:<10} · {nota}")
+              f"{'CAE' if _cae(y) else (y['sentido'] or 'RECALIFICA'):<10} · {nota}")
     print(f"\n  coinciden con el engrose (caído / estudiado): vieja {aciertos['vieja']}/{total} · "
           f"nueva {aciertos['nueva']}/{total}")
     print(f"  accesorios que PROSPERAN con el principal desestimado (cambian el desenlace; "
