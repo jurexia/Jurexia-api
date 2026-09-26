@@ -397,6 +397,104 @@ finally:
 _m_no = rc.aviso_sin_calificar([P2g], "infundado", reintentable=False, motivo="tope")
 ok("vuelve a generar" not in _m_no and "Califícalos tú en la pantalla" in _m_no and "se agotaron" in _m_no,
    "si volver a generar no lo reintentaría (corridas agotadas), no se le dice que vuelva a generar")
+
+
+print("\n7 · LA RECALIFICACIÓN NO DECLARA «INNECESARIO» LO QUE EL ÁRBOL MANDA ESTUDIAR")
+# El caso de la revisión: el motor propuso el principal infundado y el
+# secretario lo resuelve FUNDADO; el accesorio es la prescripción (pide más que
+# lo concedido: art. 189). En las dos ramas del árbol que lo mandan estudiar.
+P1p = "¿La cesión del contrato liberó a la cedente de responder por las rentas reclamadas?"
+P5p = "¿Operó la prescripción de la acción de cobro de las rentas reclamadas a la cedente?"
+P6p = "¿La condena en costas se sustentó en la conducta procesal de la cedente?"
+F3p = [{"pregunta": P1p, "jerarquia": "principal", "combate": "la cesión liberó a la cedente"},
+       {"pregunta": P5p, "jerarquia": "accesorio", "depende_de": 1, "combate": "la acción prescribió"},
+       {"pregunta": P6p, "jerarquia": "accesorio", "depende_de": 1, "combate": "las costas no proceden"}]
+
+
+def _crit_p():
+    return [{"problema": P1p, "sentido": "fundado", "razonamiento": "la cesión se notificó",
+             "jerarquia": "principal", "tocado": True},
+            {"problema": P5p, "sentido": "infundado", "razonamiento": "r", "jerarquia": "accesorio"},
+            {"problema": P6p, "sentido": "infundado", "razonamiento": "r", "jerarquia": "accesorio"}]
+
+
+for _rama, _alc, _quien, _motivo in (("pide más (art. 189)", True, P5p, "mayor_beneficio"),
+                                     ("lo fundado no alcanza", False, P6p, "no_alcanza")):
+    _props_p = [_prop(P1p, "infundado", alcanza=_alc), _prop(P5p, "infundado"), _prop(P6p, "infundado")]
+    _cr = _crit_p()
+    _av, _det = ad.aplicar(copy.deepcopy(F3p), _cr, [], _props_p, sentido_motor="infundado",
+                           tipo_asunto="amparo_directo", huella_adelanto="H")
+    ok(_det.get(_quien, {}).get("de") == "por_recalificar" and _det[_quien].get("se_estudia") == _motivo,
+       f"{_rama}: el tumbado lleva el motivo por el que se estudia ({_motivo})")
+    _rr = resultado(F3p)
+    _pr_e, _acc_e = rc.entradas(_rr, _cr, _det)
+    _a = next(a for a in _acc_e if a["problema"] == _quien)
+    ok(_a["se_estudia"] == _motivo and "innecesario" not in rc.catalogo(True, False, _motivo)
+       and "innecesario" in rc.catalogo(True, False, ""),
+       f"{_rama}: la recalificación lo recibe y su catálogo no admite «innecesario»")
+    _txt = rc.prompt(_rr, None, _pr_e, _acc_e)
+    _tramo = _txt.split(f"pregunta: {_quien}")[1].split("PLANTEAMIENTO")[0]
+    ok("por qué se estudia aunque el principal prospere:" in _tramo
+       and "innecesario" not in _tramo.split("calificaciones admitidas:")[1].split("\n")[0],
+       f"{_rama}: el prompt lo dice como dato y no le ofrece «innecesario»")
+    _res, _faltas, _ = rc.validar({"planteamientos": [
+        {"numero": _a["numero"], "sentido": "innecesario",
+         "razon": "la premisa del secretario deja sin materia el estudio de este planteamiento"}]},
+        [_a], _pr_e)
+    ok(_quien not in _res and _faltas and "innecesario" in _faltas[0],
+       f"{_rama}: la validación rechaza «innecesario» y lo vuelve a pedir")
+    # DEFENSA en el árbol: una casilla guardada que lo trajera innecesario no se aplica.
+    _k = rc.clave_de(_det)
+    _cas = {"clave": _k, "resultados": {_quien: {"sentido": "innecesario", "razon": "sin materia por la premisa",
+                                                 "presupone": None, "verificado": False}}}
+    _cr2 = _crit_p()
+    _, _det2 = ad.aplicar(copy.deepcopy(F3p), _cr2, [], _props_p, sentido_motor="infundado",
+                          tipo_asunto="amparo_directo", huella_adelanto="H", recalificadas=_cas)
+    _c2 = next(c for c in _cr2 if c["problema"] == _quien)
+    ok(_det2[_quien]["de"] == "por_recalificar" and _c2["sentido"] != "innecesario",
+       f"{_rama}: el árbol no aplica un «innecesario» que se colara")
+ok(rc.VERSION != "recal-1", "la versión de la recalificación sube: lo guardado con el catálogo viejo no sirve")
+
+
+print("\n8 · LA CLAVE DE LA RECALIFICACIÓN LLEVA LA SUPLENCIA CONFIRMADA Y EL CONTEXTO")
+_SUP = {"fraccion": "V", "a_favor_de": "el trabajador", "confirmada": True}
+_SUP_NO = dict(_SUP, confirmada=False)
+_base_k = ("¿P?", "infundado", "r", ["¿A?"], "H", "amparo_directo")
+ok(rc.huella_premisa(None, "") == "" and rc.huella_premisa(_SUP_NO, "") == ""
+   and rc.huella_premisa(_SUP, "") != "" and rc.huella_premisa(None, "el contrato colectivo") != "",
+   "la huella: vacía sin suplencia confirmada ni contexto; con cualquiera de las dos, no")
+ok(rc.clave(*_base_k, rc.huella_premisa(_SUP, "")) != rc.clave(*_base_k, rc.huella_premisa(None, ""))
+   and rc.clave(*_base_k, rc.huella_premisa(None, "otro contexto")) != rc.clave(*_base_k)
+   and rc.clave_premisa("¿P?", "infundado", "r", "H", "amparo_directo", rc.huella_premisa(_SUP, ""))
+   != rc.clave_premisa("¿P?", "infundado", "r", "H", "amparo_directo"),
+   "clave y clave_premisa cambian al confirmar la suplencia o al aportar contexto")
+# Por la puerta de verdad: lo recalificado antes de confirmar la suplencia no
+# se reutiliza después (ni por la misma clave ni por la misma premisa).
+_ses_s = {"propuestas": [types.SimpleNamespace(**p) for p in PRg], "material": None}
+_arm_sin = NS["_taller_armar_criterio"](resultado(F3g), _ses_s, GLOBg, criterios_json=CJg)
+_arm_con = NS["_taller_armar_criterio"](resultado(F3g), _ses_s, GLOBg, criterios_json=CJg, suplencia=_SUP)
+_arm_ctx = NS["_taller_armar_criterio"](resultado(F3g), _ses_s, GLOBg, criterios_json=CJg,
+                                        contexto="el contrato colectivo dice otra cosa")
+_k_sin, _k_con = rc.clave_de(_arm_sin["detalle"]), rc.clave_de(_arm_con["detalle"])
+ok(_k_sin and _k_con and _k_sin != _k_con and rc.clave_de(_arm_ctx["detalle"]) not in (_k_sin, _k_con),
+   "_taller_armar_criterio: otra suplencia confirmada u otro contexto, otra clave")
+_guard = {_k_sin: {"estado": "listo", "premisa": rc.premisa_de(_arm_sin["detalle"]), "hecho": 1.0,
+                   "resultados": {P2g: {"sentido": "inoperante", "razon": "no combate la consideración toral",
+                                        "presupone": None, "verificado": False},
+                                  P3g: {"sentido": "inoperante", "razon": "no combate la consideración toral",
+                                        "presupone": None, "verificado": False}}}}
+ok(rc.casilla_de(_guard, _k_con, rc.premisa_de(_arm_con["detalle"]), rc.pendientes(_arm_con["detalle"])) is None
+   and rc.casilla_de(_guard, _k_sin, rc.premisa_de(_arm_sin["detalle"]),
+                     rc.pendientes(_arm_sin["detalle"])) is not None,
+   "la «inoperante» hecha sin suplencia no se aplica con la suplencia confirmada")
+_arm_con2 = NS["_taller_armar_criterio"](resultado(F3g), _ses_s, GLOBg, criterios_json=CJg, suplencia=_SUP,
+                                         recalificadas=_guard)
+ok(sorted(rc.pendientes(_arm_con2["detalle"])) == sorted([P2g, P3g]),
+   "…y con ella el árbol los deja por recalificar")
+_pr_k, _acc_k = rc.entradas(resultado(F3g), _arm_con["crit"], _arm_con["detalle"])
+ok(rc.clave(_pr_k["problema"], _pr_k["sentido"], _pr_k["razon"], [a["problema"] for a in _acc_k],
+            _te.huella_contraste(resultado(F3g)), "amparo_directo", rc.huella_premisa(_SUP, ""))
+   == _k_con, "la clave del árbol es la que calcula la recalificación con esa suplencia")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)

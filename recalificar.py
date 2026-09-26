@@ -49,7 +49,10 @@ import unicodedata
 
 # Sube cuando cambie el prompt, el catálogo o la validación: una recalificación
 # hecha con otra versión no se reutiliza (entra en la clave).
-VERSION = "recal-1"
+# recal-2 (26-sep-2026): el motivo por el que el árbol manda estudiar un
+# accesorio (`se_estudia`) quita «innecesario» del catálogo, y la clave lleva
+# la suplencia confirmada y el contexto.
+VERSION = "recal-2"
 
 # EL MODELO DE LAS FASES, con razonamiento MEDIO (contrato): el mismo que el
 # planificador. Se lee al llamar, no al importar, para que una prueba lo cambie.
@@ -151,8 +154,33 @@ def clave_de(detalle: dict) -> str:
     return ""
 
 
+def huella_premisa(suplencia=None, contexto: str = "") -> str:
+    """LO QUE EL PROMPT VE ADEMÁS DE LA PREMISA, en una huella para la clave
+    (revisión adversarial, 26-sep-2026): la suplencia CONFIRMADA —fracción y a
+    favor de quién— y el contexto del secretario tal como lo recibe el prompt
+    (con las constancias de autos delante: `main._con_autos`). Sin esto, una
+    recalificación hecha antes de confirmar la suplencia («inoperante» por cómo
+    se formuló) se reutilizaba después de confirmarla, justo lo que el bloque de
+    suplencia prohíbe. "" si no hay ninguna de las dos."""
+    partes: dict = {}
+    try:
+        import suplencia as _sp
+        if _sp.confirmada(suplencia):
+            partes["sup"] = [str(suplencia.get("fraccion") or ""),
+                             _ws(suplencia.get("a_favor_de"))[:200]]
+    except Exception:                                   # pragma: no cover
+        pass
+    _c = _ws(contexto)[:4000]
+    if _c:
+        partes["ctx"] = hashlib.sha1(_c.encode()).hexdigest()[:16]
+    if not partes:
+        return ""
+    return hashlib.sha1(json.dumps(partes, ensure_ascii=False, sort_keys=True)
+                        .encode()).hexdigest()[:16]
+
+
 def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
-          tipo_asunto) -> str:
+          tipo_asunto, premisa_extra: str = "") -> str:
     """LA CLAVE DE UNA RECALIFICACIÓN: el principal, el sentido que fijó el
     secretario y SU razón literal (la premisa), qué accesorios se recalifican,
     el adelanto y el tipo de asunto. Con cualquiera de ellos distinto, la
@@ -162,7 +190,11 @@ def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
     La razón que el secretario tecleó para un ACCESORIO sin elegir sentido NO
     entra: la pantalla la devuelve después junto con el sentido recalificado,
     y la clave tiene que ser la misma en las dos vueltas. Viaja guardada con
-    el resultado (`razon_suya`) y el árbol la vuelve a poner."""
+    el resultado (`razon_suya`) y el árbol la vuelve a poner.
+
+    `premisa_extra`: `huella_premisa(suplencia, contexto)` —lo que el prompt ve
+    además de la premisa—; con otra suplencia confirmada u otro contexto, la
+    recalificación guardada no sirve."""
     # LOS TEXTOS, RECORTADOS COMO LOS RECORTA EL CRITERIO ARMADO (400): la
     # pantalla (/taller/reparto) manda el problema entero y los gemelos lo
     # traen recortado; la clave tiene que ser la misma por las dos puertas.
@@ -172,12 +204,14 @@ def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
             "r": _ws(razon),
             "pend": sorted(_clave_texto(_clave_problema(x)) for x in (pendientes or [])),
             "h": str(huella_adelanto or ""),
-            "t": str(tipo_asunto or "").strip().lower()}
+            "t": str(tipo_asunto or "").strip().lower(),
+            "x": str(premisa_extra or "")}
     return hashlib.sha1(json.dumps(base, ensure_ascii=False, sort_keys=True)
                         .encode()).hexdigest()[:20]
 
 
-def clave_premisa(principal_problema, sentido, razon, huella_adelanto, tipo_asunto) -> str:
+def clave_premisa(principal_problema, sentido, razon, huella_adelanto, tipo_asunto,
+                  premisa_extra: str = "") -> str:
     """LA PREMISA SOLA: la clave sin los pendientes. Sirve para no rehacer lo
     que ya se recalificó cuando el secretario PISA uno de los tumbados
     (revisión adversarial, 26-sep-2026): el conjunto de pendientes cambia —y
@@ -187,7 +221,7 @@ def clave_premisa(principal_problema, sentido, razon, huella_adelanto, tipo_asun
     salir distintos: «lo que el secretario marque después la sustituye», a
     ella, no a sus vecinos."""
     return "p-" + clave(principal_problema, sentido, razon, ["\x00premisa"], huella_adelanto,
-                        tipo_asunto)
+                        tipo_asunto, premisa_extra)
 
 
 def premisa_de(detalle: dict) -> str:
@@ -229,17 +263,33 @@ def casilla_de(recalificadas, k: str, premisa: str = "", pendientes: list = None
     return max(mejores, key=lambda x: float(x.get("hecho") or 0))
 
 
-def catalogo(via_prospera: bool, procesal: bool = False) -> tuple:
+def catalogo(via_prospera: bool, procesal: bool = False, se_estudia: str = "") -> tuple:
     """Las calificaciones admitidas: las del árbol, sin «innecesario» ni «sin
     materia» —salvo que la premisa deje sin materia: sólo en la vía en que el
     principal PROSPERA y nunca en una violación procesal (arts. 74, fr. V, y
     174 de la Ley de Amparo: se deciden todas; la única salida es el 189, que
-    ya aplica el árbol antes de llegar aquí)—."""
+    ya aplica el árbol antes de llegar aquí)—.
+
+    `se_estudia` (revisión adversarial, 26-sep-2026): el árbol ya decidió que
+    ese accesorio se estudia aunque el principal prospere —pide más que lo
+    concedido («mayor_beneficio», art. 189) o no consta que lo fundado del
+    principal alcance («no_alcanza»)—. Entonces «innecesario» tampoco se
+    admite: sería negarlo sin estudio."""
     import arbol_decision as _ad
     fuera = [s for s in _ad._SENTIDOS if s not in ("sin_materia", _ad.INNECESARIO)]
-    if via_prospera and not procesal:
+    if via_prospera and not procesal and not str(se_estudia or "").strip():
         fuera.append(_ad.INNECESARIO)
     return tuple(fuera)
+
+
+# POR QUÉ EL ÁRBOL MANDA ESTUDIAR UN ACCESORIO con el principal que prospera:
+# DATOS para el prompt, no frases que copiar.
+_SE_ESTUDIA = {
+    "mayor_beneficio": "pide algo que da más que lo concedido en el principal (mayor "
+                       "beneficio): el principal que prospera no lo deja sin materia",
+    "no_alcanza": "no consta que lo fundado del principal alcance para resolver el asunto: "
+                  "el principal que prospera no lo deja sin materia",
+}
 
 
 # ═══ LO QUE VE EL MODELO ════════════════════════════════════════════════════
@@ -410,6 +460,9 @@ def entradas(r, crit, detalle: dict) -> tuple:
         d = detalle.get(t) or {}
         acc.append({"problema": t, "numero": n, "fase3": f3,
                     "procesal": bool(d.get("procesal")),
+                    # Por qué el árbol lo manda estudiar (no puede quedar
+                    # innecesario): «mayor_beneficio», «no_alcanza» o "".
+                    "se_estudia": str(d.get("se_estudia") or ""),
                     # La razón que tecleó él (el árbol sólo la deja en un tumbado
                     # cuando es suya): dato, no ancla de la otra vía.
                     "razon_suya": (str(_get(por_c.get(_kp(t)), "razonamiento", "") or "")
@@ -459,6 +512,9 @@ def prompt(r, material, principal: dict, accesorios: list, contexto: str = "",
         if f3.get("resolvio"):
             L.append(f"  lo que resolvió el órgano: {_ws(f3['resolvio'])[:900]}")
         L.append(f"  se combate diciendo: {_ws(f3.get('combate'))[:1500] or '(la fase 3 no lo resumió)'}")
+        if _SE_ESTUDIA.get(str(a.get("se_estudia") or "")):
+            L.append("  por qué se estudia aunque el principal prospere: "
+                     + _SE_ESTUDIA[str(a["se_estudia"])])
         if _ws(a.get("razon_suya")):
             L.append("  razón que escribió el secretario para este planteamiento (literal; manda: "
                      "la calificación tiene que ser coherente con ella): "
@@ -477,7 +533,7 @@ def prompt(r, material, principal: dict, accesorios: list, contexto: str = "",
                          f"{'obligatoria' if t.get('obligatoria') else 'orientadora'} · "
                          f"{t.get('rubro', '')}\n      {_ws(t.get('texto'))[:700]}")
         L.append("  calificaciones admitidas: "
-                 + ", ".join(catalogo(via_p, bool(a.get("procesal")))))
+                 + ", ".join(catalogo(via_p, bool(a.get("procesal")), a.get("se_estudia", ""))))
         L.append("")
     normas = (ind.get("normas") or [])[:MAX_NORMAS]
     if normas:
@@ -496,7 +552,8 @@ def prompt(r, material, principal: dict, accesorios: list, contexto: str = "",
                   f"A esa parte no se le declara inoperante un planteamiento por cómo lo formuló.", ""]
     except Exception:
         pass
-    usadas = sorted({s for a in accesorios for s in catalogo(via_p, bool(a.get("procesal")))},
+    usadas = sorted({s for a in accesorios
+                     for s in catalogo(via_p, bool(a.get("procesal")), a.get("se_estudia", ""))},
                     key=lambda x: list(_DESCRIBE).index(x) if x in _DESCRIBE else 99)
     L += [
         "CÓMO SE CALIFICA (son descripciones: no copies ninguna expresión de aquí a la razón):",
@@ -601,7 +658,7 @@ def validar(crudo: dict, accesorios: list, principal: dict) -> tuple:
             faltas.append(f"falta el planteamiento {a.get('numero')}")
             continue
         s = _ad._sentido_valido(it.get("sentido"))
-        cat = catalogo(via_p, bool(a.get("procesal")))
+        cat = catalogo(via_p, bool(a.get("procesal")), a.get("se_estudia", ""))
         if s not in cat:
             faltas.append(f"planteamiento {a.get('numero')}: «{_ws(it.get('sentido'))[:40]}» no es una "
                           f"de sus calificaciones admitidas ({', '.join(cat)})")
@@ -662,7 +719,8 @@ async def recalificar(r, material, principal: dict, accesorios: list[dict], cont
             _h = ""
         clave_ = clave(principal.get("problema", ""), principal.get("sentido", ""),
                        principal.get("razon", ""), [a["problema"] for a in accesorios],
-                       _h, str(getattr(e, "tipo_asunto", "") or ""))
+                       _h, str(getattr(e, "tipo_asunto", "") or ""),
+                       huella_premisa(suplencia, contexto))
     acc = [a for a in accesorios if a.get("problema")]
     if not acc:
         return {"clave": clave_, "estado": "listo", "resultados": {}, "avisos": [],

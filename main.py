@@ -32685,14 +32685,20 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
                            razonamiento: str = "", criterios_json: str = "",
                            usar_propuesta: bool = False, modo_decision: str = "",
                            sentido_global: str = "", global_dictado: str = "",
-                           recalificadas: dict = None) -> dict:
+                           recalificadas: dict = None, contexto: str = "",
+                           suplencia=None) -> dict:
     """{"crit", "avisos_r" (van a r.avisos), "avisos_modo" (el reparto global),
     "avisos_fases" (árbol y desenlace), "tocados", "detalle" (el del árbol:
     quién se tumbó para recalificar y con qué clave), "huella"}.
 
     `recalificadas` (26-sep-2026): lo que el motor recalificó con la premisa
     del cambio de sentido —una casilla o la rama de la fila—; el árbol aplica
-    la de la MISMA clave. Ver `recalificar.py` y `_taller_recalificar_para`."""
+    la de la MISMA clave. Ver `recalificar.py` y `_taller_recalificar_para`.
+
+    `contexto` (el del formulario, sin las constancias) y `suplencia` (ya leída
+    con `suplencia.leer`): lo que el prompt de la recalificación ve además de la
+    premisa entra en su clave (`recalificar.huella_premisa`, revisión
+    adversarial del 26-sep-2026). Todas las puertas pasan los del formulario."""
     import fase6_estudio as _f6
     _glob = glob or {}
     avisos_r: list = []
@@ -32880,6 +32886,17 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
         _huella_ac = _te_ac.huella_contraste(r)
     except Exception:
         _huella_ac = ""
+    # LA SUPLENCIA CONFIRMADA Y EL CONTEXTO, en la clave de la recalificación:
+    # el mismo contexto que recibe su prompt (con las constancias delante).
+    try:
+        import recalificar as _rc_ac
+        try:
+            _ctx_ac = _con_autos(r, contexto or "")
+        except Exception:
+            _ctx_ac = contexto or ""
+        _hp_ac = _rc_ac.huella_premisa(suplencia, _ctx_ac)
+    except Exception:
+        _hp_ac = ""
     _det_ad: dict = {}
     try:
         import arbol_decision as _ad
@@ -32898,6 +32915,7 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
             # EL CAMBIO DE SENTIDO (26-sep-2026): lo recalificado con la
             # premisa del secretario, y cuándo no se recalifica nada.
             recalificadas=recalificadas, huella_adelanto=_huella_ac,
+            huella_premisa=_hp_ac,
             global_dictado=bool(_dictado and (sentido_global or "").strip()),
             tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         for _a in _av_ad:
@@ -35515,6 +35533,11 @@ async def taller_reparto(
     user_email: str = Form(...),
     criterios_json: str = Form(...),
     global_json: str = Form(""),
+    # LO QUE EL PROMPT DE LA RECALIFICACIÓN VE ADEMÁS DE LA PREMISA (26-sep-2026):
+    # entra en su clave, así que el reparto lo necesita para encontrar la
+    # guardada. Los mismos campos que /taller/recalificar.
+    contexto: str = Form(""),
+    suplencia: str = Form(""),
 ):
     """La suerte de los accesorios cuando el secretario cambia el principal.
 
@@ -35549,6 +35572,8 @@ async def taller_reparto(
     # guardada con la misma clave, vuelven con ella. Aquí no se llama a ningún
     # modelo: la pantalla la pide a /taller/recalificar.
     _huella_rp = _te.huella_contraste(r)
+    import recalificar as _rc_rp
+    import suplencia as _sp_rp
     return _ad.reparto_para_pantalla(
         list(r.fases.problemas or []),
         [d for d in _lista if isinstance(d, dict)],
@@ -35564,6 +35589,7 @@ async def taller_reparto(
         sentido_motor=str((_glob or {}).get("sentido") or ""),
         recalificadas=_taller_recalificadas_guardadas(user_email, numero, _huella_rp),
         huella_adelanto=_huella_rp,
+        huella_premisa=_rc_rp.huella_premisa(_sp_rp.leer(suplencia), _con_autos(r, contexto)),
         # LA GUARDA PROCESAL ES DEL AMPARO DIRECTO (26-sep-2026): el árbol
         # tiene que saber el tipo para no sacar una violación procesal.
         tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
@@ -36579,7 +36605,9 @@ async def taller_plan_pedir(
     _form_pp = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
                     criterios_json=criterios_json, usar_propuesta=usar_propuesta,
                     modo_decision=modo_decision, sentido_global=sentido_global,
-                    global_dictado=global_dictado)
+                    global_dictado=global_dictado,
+                    # Entran en la clave de la recalificación (26-sep-2026).
+                    contexto=contexto, suplencia=_sp_p.leer(suplencia))
     arm = _taller_armar_criterio(r, ses, _glob, **_form_pp)
     # LA CLAVE DEL PLAN LLEVA EL CRITERIO YA RECALIFICADO (26-sep-2026): con
     # una recalificación pendiente, el plan se pide cuando termine.
@@ -36651,7 +36679,9 @@ async def taller_recalificar(
     _form_rc = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
                     criterios_json=criterios_json, usar_propuesta=usar_propuesta,
                     modo_decision=modo_decision, sentido_global=sentido_global,
-                    global_dictado=global_dictado)
+                    global_dictado=global_dictado,
+                    # Entran en la clave de la recalificación (26-sep-2026).
+                    contexto=contexto, suplencia=_sp_rc.leer(suplencia))
     arm = _taller_armar_criterio(r, ses, _glob, **_form_rc)
     out = await _taller_recalificar_para(
         user_email, numero, r, ses, _glob, _form_rc, arm,
@@ -36844,10 +36874,14 @@ async def taller_resolver_stream(
     # criterio—. Los avisos vuelven en listas y van donde iban.
     # EL FORMULARIO, EN UN SOLO DICCIONARIO: la recalificación (26-sep-2026)
     # vuelve a armar el criterio con él, y tiene que ser el mismo.
+    import suplencia as _sp_fc
     _form_crit = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
                       criterios_json=criterios_json, usar_propuesta=usar_propuesta,
                       modo_decision=modo_decision, sentido_global=sentido_global,
-                      global_dictado=global_dictado)
+                      global_dictado=global_dictado,
+                      # Entran en la clave de la recalificación (26-sep-2026):
+                      # lo que su prompt ve además de la premisa.
+                      contexto=contexto, suplencia=_sp_fc.leer(suplencia))
     _arm = _taller_armar_criterio(r, ses, _glob, **_form_crit)
     crit = _arm["crit"]
     for _a in _arm["avisos_r"]:
@@ -37354,10 +37388,14 @@ async def taller_resolver(
     # criterio—. Los avisos vuelven en listas y van donde iban.
     # EL FORMULARIO, EN UN SOLO DICCIONARIO, como en el gemelo de flujo: la
     # recalificación vuelve a armar el criterio con él.
+    import suplencia as _sp_fc
     _form_crit = dict(sentido=sentido, problema=problema, razonamiento=razonamiento,
                       criterios_json=criterios_json, usar_propuesta=usar_propuesta,
                       modo_decision=modo_decision, sentido_global=sentido_global,
-                      global_dictado=global_dictado)
+                      global_dictado=global_dictado,
+                      # Entran en la clave de la recalificación (26-sep-2026):
+                      # lo que su prompt ve además de la premisa.
+                      contexto=contexto, suplencia=_sp_fc.leer(suplencia))
     _arm = _taller_armar_criterio(r, ses, _glob, **_form_crit)
     crit = _arm["crit"]
     for _a in _arm["avisos_r"]:
