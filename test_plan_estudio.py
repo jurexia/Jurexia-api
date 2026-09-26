@@ -701,9 +701,12 @@ HUELLAS = {
     # La v2 cambió en p2-exhaustivo (26-sep-2026): el «sin materia» es del
     # criterio y lo que la concesión deja a la responsable va en los EFECTOS
     # (test_exhaustivo.py); y en su revisión adversarial, la razón del
-    # secretario y la inoperancia suelta. La v1 no se mueve.
-    ("v2", "estandar"): "a3eca1abc777e0f9a832a1329a374b64bda5226d23cc875b3ad253ce15a00736",
-    ("v2", "moderna"): "bdfacda5276d843d6fc6108a5194da38cfae4e5dc69c6aeec3f5490b9428369c",
+    # secretario y la inoperancia suelta. Y en p2-congruencia (26-sep-2026):
+    # la calificación en el párrafo de la apertura, la de cada argumento
+    # dentro del sentido de su problema y la extensión sin cifra que alcanzar
+    # (test_congruencia.py). La v1 no se mueve.
+    ("v2", "estandar"): "eb6de1a07cb08082f7d8b11fc3aea495795b2e634e65f4285cb313ce074c7a97",
+    ("v2", "moderna"): "c83d818af9f805be0f41e481a421783a7c2f097cb7974743062fb84c4e7f0ec4",
 }
 
 

@@ -86,6 +86,37 @@ def palabras_moderna(criterios: list) -> int:
     return max(MODERNA_MIN, min(MODERNA_MAX, MODERNA_BASE + MODERNA_POR_PROBLEMA * vivos))
 
 
+# ═══ LA EXTENSIÓN SIN PRESIÓN (p2-congruencia, 26-sep-2026) ════════════════
+# David, tras medir v1/v3/v4: acepta que el estudio crezca de ~1,500 a
+# 2,000–2,500 palabras si eso da la exhaustividad; la brevedad NO es el
+# objetivo. La v3/v4 contestó en genérico más argumentos que la v1 (decisivos
+# con respuesta propia 98 / 90 / 79 %) con la Solución a la mitad.
+#   · EL TECHO DE LA MODERNA EN LA FAMILIA v2 es alto: una vez y media su
+#     medida —el punto donde `fase6_estudio.revisar` ya dice «salió larga»—.
+#     Antes el prompt le daba de techo la medida misma, y eso es una meta.
+#   · LA REFERENCIA DE LA ESTÁNDAR EN LA FAMILIA v2: 2,000 a 2,500 palabras,
+#     más cuantos más problemas vivos. Es lo que usa `revisar` para «se quedó
+#     corto» (con el 45 %, como la v1), nunca una cifra en el prompt.
+MODERNA_TECHO_FACTOR = 1.5
+ESTANDAR_REFERENCIA_MIN = 2000
+ESTANDAR_REFERENCIA_MAX = 2500
+ESTANDAR_REFERENCIA_BASE = 1500
+ESTANDAR_REFERENCIA_POR_PROBLEMA = 250
+
+
+def techo_moderna(criterios: list) -> int:
+    """El techo alto de la moderna (familia v2): no es meta."""
+    return round(MODERNA_TECHO_FACTOR * palabras_moderna(criterios))
+
+
+def referencia_estandar(criterios: list) -> int:
+    """La referencia de la estándar (familia v2), de 2,000 a 2,500 según los
+    problemas vivos: la que mide si el estudio se quedó corto."""
+    vivos = sum(1 for c in (criterios or []) if _vivo(c)) or 1
+    return max(ESTANDAR_REFERENCIA_MIN, min(ESTANDAR_REFERENCIA_MAX,
+               ESTANDAR_REFERENCIA_BASE + ESTANDAR_REFERENCIA_POR_PROBLEMA * vivos))
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # LO QUE CAMBIA EN EL PROMPT DEL ESTUDIO
 # ═══════════════════════════════════════════════════════════════════════════
@@ -194,12 +225,15 @@ FORMATO: VERSIÓN MODERNA — la pregunta y enseguida la respuesta.
 - ABRE con la calificación general en una frase («Los {q} son {calif}.») y
   ACTO SEGUIDO el primer problema, numerado y como pregunta, SOLA en su
   párrafo y terminada en «?». El párrafo siguiente EMPIEZA POR LA RESPUESTA
-  —«Sí.», «No.»— y en esa misma frase NOMBRA el {q1} o los {q} que contesta y
-  su calificación. Nombrar el {q1} no es adorno: es lo que permite comprobar,
-  leyendo, que ninguno se quedó sin respuesta.
+  —«Sí.», «No.»— y enseguida, EN ESE MISMO PÁRRAFO, NOMBRA el {q1} o los {q}
+  que contesta y su calificación, antes de demostrarla: la respuesta no va
+  sola en su renglón. Nombrar el {q1} no es adorno: es lo que permite
+  comprobar, leyendo, que ninguno se quedó sin respuesta.
 - ES LA VERSIÓN CORTA, NO LA INCOMPLETA. Todos los planteamientos se
-  contestan —uno olvidado es un amparo de vuelta—, pero se escribe con
-  economía, dentro del techo de {palabras} palabras que fija la extensión.
+  contestan —uno olvidado es un amparo de vuelta—. Lo que se condensa es lo
+  que no decide —lo de la lista FUERA—, nunca la respuesta de un argumento
+  que trae un dato propio. El techo de {palabras} palabras que fija la
+  extensión es alto y no es una meta.
     · EL PROBLEMA CENTRAL se razona a fondo y con argumentación de alto nivel:
       la regla, su fuente y la aplicación a estos hechos. Cada párrafo avanza;
       ninguno repite.
@@ -233,11 +267,14 @@ FORMATO: ESTÁNDAR — por la consideración que se ataca, con la fórmula del o
        palabras QUÉ CONSIDERACIÓN ataca —no el argumento entero: el resumen de
        arriba ya lo expuso—; si junta varios, «Sobre los {q} segundo y
        tercero, en los que…», y dice qué los une;
-    2) su calificación, en la frase siguiente: «Se considera infundado.»,
-       «Es fundado.», «Resulta inoperante.»;
-    3) y la demostración, que arranca con «Lo anterior, porque…», «Lo
-       anterior es así, ya que…» o «Lo anterior se estima así, toda vez
-       que…».
+    2) su calificación, en la frase siguiente Y EN EL MISMO PÁRRAFO —el
+       párrafo que abre el apartado termina con ella—: «Se considera
+       infundado.», «Es fundado.», «Resulta inoperante.». Nunca en un renglón
+       aparte ni después de la demostración;
+    3) y la demostración, en el párrafo siguiente, que arranca con «Lo
+       anterior, porque…», «Lo anterior es así, ya que…» o «Lo anterior se
+       estima así, toda vez que…». Ese «Lo anterior» es la calificación que se
+       acaba de decir: sin ella antes, no tiene a qué referirse.
   Varía las entradas —«Sobre el segundo…», «En relación con el tercer…»,
   «Por lo que hace al cuarto…»— y no copies la fórmula letra por letra en
   todos; lo que no varía es el orden: planteamiento, calificación, «Lo
@@ -245,10 +282,23 @@ FORMATO: ESTÁNDAR — por la consideración que se ataca, con la fórmula del o
 - LA CALIFICACIÓN VA UNA VEZ, AL ABRIR. El apartado no la repite al final:
   cierra con la consecuencia y, si el siguiente depende de él, con el puente.
   Si dentro un argumento tiene una calificación distinta, se dice en su
-  párrafo.
+  párrafo, antes de demostrarla.
 - LO QUE QUEDA SIN MATERIA O CAE CON EL PRINCIPAL se nombra por su ordinal y
   se despacha con la medida única de la extensión.
 """
+
+
+# LA COHERENCIA DE CADA ARGUMENTO CON EL SENTIDO DE SU PROBLEMA (familia v2;
+# la misma regla que `plan_estudio.etiqueta_fuera` comprueba en el plan). Es
+# una descripción: ni una frase que copiar.
+_COHERENCIA = [
+    "DENTRO DE ESE SENTIDO, CADA ARGUMENTO LLEVA SU PROPIA CALIFICACIÓN,",
+    "razonada por lo que él mismo plantea, y coherente con la del problema: si",
+    "el problema prospera, al menos uno de sus argumentos lo funda y los demás",
+    "pueden ser infundados o inoperantes; si no prospera, ninguno queda fundado",
+    "sin decir por qué no alcanza —ése es el fundado pero insuficiente—. La",
+    "calificación distinta de un argumento se dice en su párrafo, antes de",
+    "demostrarla, y no cambia la del problema."]
 
 
 def forma_del_criterio(formato: str, q1: str = "concepto de violación",
@@ -259,17 +309,24 @@ def forma_del_criterio(formato: str, q1: str = "concepto de violación",
     `q1` y `parte` salen del vocabulario del tipo de asunto: un ejemplo con
     «la quejosa» escrito a mano acabó firmado en una revisión fiscal, donde
     quien recurre es la autoridad."""
-    if (str(variante or "").strip().lower() == "v2"
-            and normalizar(formato) != MODERNA):
+    _v2 = str(variante or "").strip().lower() == "v2"
+    if _v2 and normalizar(formato) != MODERNA:
         # EN LA v2 DE LA ESTÁNDAR el criterio ya no reparte «{q1} por {q1}»:
         # dice la calificación y la razón, y el estudio agrupa por la
         # consideración atacada (ver `_forma_del_estudio_v2`).
+        # LA CALIFICACIÓN POR ARGUMENTO (p2-congruencia, 26-sep-2026): «cada
+        # {q1} recibe la calificación que le da el problema» hacía heredar al
+        # argumento la del problema —la reconvención del ADC 642/2024 salió
+        # «fundada» en la v4—. El sentido del problema no se toca; el del
+        # argumento, dentro de él, se razona (`_COHERENCIA`).
         return [
             "LOS PROBLEMAS DE ABAJO NO SE ESCRIBEN: son el CRITERIO con que se",
-            f"califica cada planteamiento. Cada {q1} recibe la calificación que le",
-            "da el problema que lo resuelve (la línea CUBRE dice cuáles son), y la",
-            "RAZÓN DEL SECRETARIO es la que decide: los que caen por la misma",
-            "razón contra la misma consideración van en un solo apartado.", ""]
+            "califica cada planteamiento. El SENTIDO de cada problema lo fijó el",
+            "secretario y no se cambia: cada apartado abre con la calificación que",
+            "le da el problema que lo resuelve (la línea CUBRE dice cuáles son), y",
+            "la RAZÓN DEL SECRETARIO es la que decide: los que caen por la misma",
+            "razón contra la misma consideración van en un solo apartado.",
+            ""] + _COHERENCIA + [""]
     if normalizar(formato) == MODERNA:
         return [
             "CADA PROBLEMA ABRE CON SU PREGUNTA, LITERAL Y EN SU PROPIA LÍNEA.",
@@ -279,7 +336,9 @@ def forma_del_criterio(formato: str, q1: str = "concepto de violación",
             "",
             "Y NO ESCRIBAS LA PREGUNTA DOS VECES ni la parafrasees en el cuerpo:",
             "el apartado ya la lleva, y repetirla es lo que hace kilométricas a",
-            "las sentencias. Cada apartado dice lo suyo y sólo lo suyo.", ""]
+            "las sentencias. Cada apartado dice lo suyo y sólo lo suyo.", ""] + (
+            ["EL SENTIDO de cada problema lo fijó el secretario y no se cambia:",
+             "la respuesta abre con él."] + _COHERENCIA + [""] if _v2 else [])
     return [
         "LOS PROBLEMAS DE ABAJO NO SE ESCRIBEN: son el CRITERIO con que se",
         f"califica cada planteamiento. El estudio va {q1} por {q1} —«Sobre",

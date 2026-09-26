@@ -16,11 +16,15 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
 - EL ÓRGANO RECURRIDO es «la Sala» o «la Sala responsable»; este tribunal se
   nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
   considera»). Nunca primera persona del singular.
-- LA EXTENSIÓN LA PONE EL ASUNTO, Y TIENE UN TECHO: 5361 palabras EN TOTAL,
-  como máximo. Es el percentil 90 de la Solución medida en engroses reales firmados: nueve de cada diez resuelven en menos. Es un techo, no una meta: un asunto con una sola
-  cuestión viva se resuelve en mucho menos, y nada se escribe para acercarse a
-  una cifra. Lo que decide se estudia a fondo; lo accesorio se mide así, y
-  ésta es la ÚNICA medida para todo el estudio. Los dos primeros renglones
+- LA EXTENSIÓN LA PIDE LO QUE HAY QUE CONTESTAR, NO UNA CIFRA. La medida es
+  que cada argumento que trae un dato propio —un hecho, una prueba, una
+  cifra, un precepto, un precedente— reciba su respuesta, aunque eso alargue
+  el apartado: lo que se ahorra es la repetición, nunca una respuesta. Hay un
+  TECHO ALTO de 5361 palabras EN TOTAL. Es el percentil 90 de la Solución medida en engroses reales firmados: nueve de cada diez resuelven en menos. No es una meta ni una
+  razón para contestar en genérico: sirve para advertir la repetición, y nada
+  se escribe para acercarse a él. Lo que decide se estudia a fondo; lo
+  accesorio se mide así, y ésta es la ÚNICA medida para todo el estudio.
+  Los dos primeros renglones
   valen SÓLO para lo que el CRITERIO DEL SECRETARIO decidió así —en su
   calificación o en su razón—: esa decisión es suya, no del estudio.
 
@@ -31,8 +35,9 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
     · INOPERANTE: de uno a tres párrafos que dicen qué consideración deja sin
       combatir, o por qué no puede examinarse, con su razón. La tesis sobre la
       inoperancia se cita sólo si hace falta para sostenerla.
-    · RESIDUAL —un argumento menor dentro de un agravio que se contesta—: una o
-      dos frases, con su calificación y su razón.
+    · RESIDUAL —un argumento menor y sin dato propio dentro de un agravio que se
+      contesta—: una o dos frases, con su calificación y su razón. El que
+      trae un dato propio no es residual: recibe su respuesta.
 
   NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO POR CUENTA DEL ESTUDIO. Dentro de un
   problema que el criterio manda resolver de fondo —fundado o infundado—, el
@@ -78,11 +83,14 @@ FORMATO: ESTÁNDAR — por la consideración que se ataca, con la fórmula del o
        palabras QUÉ CONSIDERACIÓN ataca —no el argumento entero: el resumen de
        arriba ya lo expuso—; si junta varios, «Sobre los agravios segundo y
        tercero, en los que…», y dice qué los une;
-    2) su calificación, en la frase siguiente: «Se considera infundado.»,
-       «Es fundado.», «Resulta inoperante.»;
-    3) y la demostración, que arranca con «Lo anterior, porque…», «Lo
-       anterior es así, ya que…» o «Lo anterior se estima así, toda vez
-       que…».
+    2) su calificación, en la frase siguiente Y EN EL MISMO PÁRRAFO —el
+       párrafo que abre el apartado termina con ella—: «Se considera
+       infundado.», «Es fundado.», «Resulta inoperante.». Nunca en un renglón
+       aparte ni después de la demostración;
+    3) y la demostración, en el párrafo siguiente, que arranca con «Lo
+       anterior, porque…», «Lo anterior es así, ya que…» o «Lo anterior se
+       estima así, toda vez que…». Ese «Lo anterior» es la calificación que se
+       acaba de decir: sin ella antes, no tiene a qué referirse.
   Varía las entradas —«Sobre el segundo…», «En relación con el tercer…»,
   «Por lo que hace al cuarto…»— y no copies la fórmula letra por letra en
   todos; lo que no varía es el orden: planteamiento, calificación, «Lo
@@ -90,7 +98,7 @@ FORMATO: ESTÁNDAR — por la consideración que se ataca, con la fórmula del o
 - LA CALIFICACIÓN VA UNA VEZ, AL ABRIR. El apartado no la repite al final:
   cierra con la consecuencia y, si el siguiente depende de él, con el puente.
   Si dentro un argumento tiene una calificación distinta, se dice en su
-  párrafo.
+  párrafo, antes de demostrarla.
 - LO QUE QUEDA SIN MATERIA O CAE CON EL PRINCIPAL se nombra por su ordinal y
   se despacha con la medida única de la extensión.
 
@@ -666,10 +674,19 @@ jurídica posible del sentido que él ya fijó. Elige los argumentos, las
 tesis y el orden de estudio que lo sostengan con el mayor rigor.
 
 LOS PROBLEMAS DE ABAJO NO SE ESCRIBEN: son el CRITERIO con que se
-califica cada planteamiento. Cada agravio recibe la calificación que le
-da el problema que lo resuelve (la línea CUBRE dice cuáles son), y la
-RAZÓN DEL SECRETARIO es la que decide: los que caen por la misma
+califica cada planteamiento. El SENTIDO de cada problema lo fijó el
+secretario y no se cambia: cada apartado abre con la calificación que
+le da el problema que lo resuelve (la línea CUBRE dice cuáles son), y
+la RAZÓN DEL SECRETARIO es la que decide: los que caen por la misma
 razón contra la misma consideración van en un solo apartado.
+
+DENTRO DE ESE SENTIDO, CADA ARGUMENTO LLEVA SU PROPIA CALIFICACIÓN,
+razonada por lo que él mismo plantea, y coherente con la del problema: si
+el problema prospera, al menos uno de sus argumentos lo funda y los demás
+pueden ser infundados o inoperantes; si no prospera, ninguno queda fundado
+sin decir por qué no alcanza —ése es el fundado pero insuficiente—. La
+calificación distinta de un argumento se dice en su párrafo, antes de
+demostrarla, y no cambia la del problema.
 
 1. [PRINCIPAL] ¿La Sala debió admitir la ampliación de demanda y estudiar los argumentos dirigidos contra el crédito fiscal?
    SENTIDO: FUNDADO
@@ -741,7 +758,7 @@ LO QUE SE COMBATE (resumen de prueba).
 Escribe el estudio de fondo.
 
 
-Y LA FORMA ES LA ESTÁNDAR: sin preguntas ni rótulos numerados; cada apartado abre con «Sobre el primer agravio, en el que la autoridad recurrente sostiene…» —o nombra a todos los que junta—, sigue su calificación y la demostración arranca con «Lo anterior…». Cada premisa se expone una vez y, donde vuelve a decidir, se recuerda en una frase; ningún agravio sin una respuesta identificable.
+Y LA FORMA ES LA ESTÁNDAR: sin preguntas ni rótulos numerados; cada apartado abre con «Sobre el primer agravio, en el que la autoridad recurrente sostiene…» —o nombra a todos los que junta— y, EN ESE MISMO PÁRRAFO, su calificación; la demostración arranca después con «Lo anterior…», que se refiere a ella. Cada premisa se expone una vez y, donde vuelve a decidir, se recuerda en una frase; ningún agravio sin una respuesta identificable.
 
 NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
 frase de cierre que corresponde al tipo de asunto. Si tú escribes otra igual,
