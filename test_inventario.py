@@ -323,7 +323,11 @@ for forma in ("estandar", "moderna"):
         antes = open(ruta, encoding="utf-8").read()
         ahora = f6.prompt_estudio(ACTO, CONC, C93, mat(forma, "v2", tipo), es_recurso=rec,
                                   escrito_literal=esc)
-        ok(ahora == antes, f"v2 {etiq}/{forma}: idéntica, byte por byte, a la de origin/main")
+        # LA INSTANTÁNEA SE REHÍZO UNA VEZ (p2-exhaustivo, 26-sep-2026): la v2
+        # gana la regla de que el «sin materia» es del criterio y no del estudio
+        # (escala de extensión, línea NO SE ESTUDIA y los EFECTOS). El diff contra
+        # la de origin/main 1aa0d1d son sólo esos tres pasajes (test_exhaustivo.py).
+        ok(ahora == antes, f"v2 {etiq}/{forma}: idéntica, byte por byte, a su instantánea")
         con_inv = f6.prompt_estudio(ACTO, CONC, C93, mat(forma, "v2", tipo, inventario=segs),
                                     es_recurso=rec, escrito_literal=esc)
         ok(con_inv == antes, f"v2 {etiq}/{forma}: aunque el material traiga inventario, la v2 no lo usa")
