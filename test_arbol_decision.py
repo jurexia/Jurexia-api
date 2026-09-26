@@ -141,6 +141,171 @@ ok('"tocado"' in src, "los criterios distinguen lo que el secretario marcó")
 import fase5_propuesta as f5
 ok("si_prospera" in inspect.getsource(f5.prompt_propuesta), "la fase 5 escribe la suerte condicional")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LA GUARDA PROCESAL — decisión 1 de David, 26-sep-2026
+# ═══════════════════════════════════════════════════════════════════════════
+# Los artículos 74, fracción V, y 174 de la Ley de Amparo mandan decidir TODAS
+# las violaciones procesales; la única excepción es que un problema de FONDO
+# prospere con mayor beneficio que la reposición (artículo 189). El árbol
+# declaraba innecesaria la segunda procesal igual que cualquier accesorio.
+import modos_decision as md
+
+VP1 = "¿La Sala debió admitir la ampliación de demanda presentada el catorce de agosto?"
+VP2 = "¿La Sala debió admitir la prueba pericial contable ofrecida por la actora?"
+FON = "¿Es legal la determinación del crédito fiscal por omisión de ingresos?"
+FON2 = "¿Procede la condena en costas impuesta en la sentencia?"
+
+
+def probs(principal, *acc, dep=1):
+    """El principal primero; cada accesorio depende del principal (fase 3)."""
+    out = [dict(principal, jerarquia="principal", depende_de=None)]
+    for a in acc:
+        out.append(dict(a, jerarquia="accesorio", depende_de=dep))
+    return out
+
+
+def cr(p, s, jer="accesorio", razon="", tocado=False):
+    return {"problema": p, "sentido": s, "razonamiento": razon, "jerarquia": jer, "tocado": tocado}
+
+
+PV1 = {"pregunta": VP1, "clase": "procesal"}
+PV2 = {"pregunta": VP2, "clase": "procesal"}
+PF = {"pregunta": FON, "clase": "fondo"}
+PF2 = {"pregunta": FON2, "clase": "fondo"}
+
+print("\n10 · DOS PROCESALES Y EL PRINCIPAL (PROCESAL) FUNDADO")
+pp = probs(PV1, PV2, PF)
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "infundado", razon="razón propia"),
+      cr(FON, "fundado")]
+av, det = ad.aplicar(pp, cc, [], [])
+ok(cc[1]["sentido"] == "infundado", f"la segunda procesal NO queda sin materia: {cc[1]['sentido']}")
+ok(cc[1]["razonamiento"] == "razón propia", "y conserva su razón")
+ok(det[VP2].get("guarda") == "procesal" and det[VP2]["de"] == "propio", "la pantalla sabrá que se estudia")
+ok(any("VIOLACIÓN PROCESAL y NO se declaró sin materia" in a and "74, fracción V, y 174" in a
+       and "también procesal" in a for a in av), "con su aviso y sus artículos")
+ok(cc[2]["sentido"] == "innecesario", "el fondo, que depende, sí queda sin materia con la reposición")
+ok(any("SUSTRACCIÓN DE MATERIA aplicada a 1" in a for a in av), "y la sustracción cuenta sólo el fondo")
+# La suerte que el motor escribió para esta vía («innecesario») tampoco la saca.
+lista_inn = [{"numero": 1, "tema": "ampliación", "papel": "principal"},
+             {"numero": 2, "tema": "pericial", "papel": "accesorio", "relacion": "depende",
+              "si_prospera": {"sentido": "innecesario", "razon": "la reposición lo absorbe"}}]
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "fundado")]
+av, det = ad.aplicar(probs(PV1, PV2), cc, lista_inn, [])
+ok(cc[1]["sentido"] == "fundado", "ni aunque el motor le haya escrito «innecesario» para esa vía")
+# Si LLEGA sacada (de otra pasada), se le devuelve la calificación del motor.
+cc = [cr(VP1, "fundado", "principal", tocado=True),
+      cr(VP2, "innecesario", razon="Dado el sentido del estudio del problema principal, queda sin materia…")]
+av, det = ad.aplicar(probs(PV1, PV2, dep=None), cc, [],
+                     [{"problema": VP2, "sentido": "infundado", "alcanza": True}])
+ok(cc[1]["sentido"] == "infundado" and "sin materia" not in cc[1]["razonamiento"],
+   f"una procesal que llega «innecesario» recupera lo que el motor propuso: {cc[1]['sentido']}")
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "innecesario")]
+av, det = ad.aplicar(probs(PV1, PV2, dep=None), cc, [], [])
+ok(any("ESTÁ SIN CALIFICAR" in a for a in av), "y si no hay qué devolverle, se le pide al secretario")
+
+print("\n11 · EL FONDO PROSPERA CON MAYOR BENEFICIO: la única excepción (art. 189)")
+cc = [cr(FON, "fundado", "principal", tocado=True), cr(VP1, "infundado"), cr(VP2, "fundado")]
+av, det = ad.aplicar(probs(PF, PV1, PV2), cc, [], [])
+ok(cc[1]["sentido"] == "innecesario" and cc[2]["sentido"] == "innecesario",
+   "las procesales quedan innecesarias por mayor beneficio")
+ok(all("189" in x["razonamiento"] and "mayor" in x["razonamiento"] and "beneficio" in x["razonamiento"]
+       for x in cc[1:]), "y su razón lo dice con el artículo 189")
+ok(det[VP1].get("guarda") == "mayor_beneficio_189", "la pantalla sabe por qué")
+ok(any("POR MAYOR BENEFICIO" in a and "márcala tú" in a for a in av),
+   "con el aviso de que, si la concesión no da más que reponer, la marque")
+ok(not any("SUSTRACCIÓN DE MATERIA aplicada" in a for a in av),
+   "y no se cuenta como sustracción de materia: es otra razón")
+cc = [cr(FON, "parcialmente_fundado", "principal", tocado=True), cr(VP1, "infundado")]
+av, det = ad.aplicar(probs(PF, PV1), cc, [], [])
+ok(cc[1]["sentido"] == "infundado",
+   "si el fondo prospera sólo en parte no se puede afirmar que dé más que reponer: se decide")
+cc = [cr("¿Fue legal el sobreseimiento del juicio de nulidad?", "fundado", "principal", tocado=True),
+      cr(VP1, "infundado")]
+av, det = ad.aplicar([{"pregunta": cc[0]["problema"], "jerarquia": "principal"},
+                      {"pregunta": VP1, "jerarquia": "accesorio", "depende_de": 1}], cc, [], [])
+ok(cc[1]["sentido"] == "infundado",
+   "una concesión contra el sobreseimiento (procedencia) no es de fondo: la procesal se decide")
+cc = [cr(FON, "fundado", "principal", tocado=True), cr(VP1, "infundado")]
+av, det = ad.aplicar(probs(PF, PV1), cc, [], [{"problema": FON, "sentido": "fundado", "alcanza": False}])
+ok(cc[1]["sentido"] == "infundado", "si lo fundado no alcanza, nada queda sin estudiar")
+
+print("\n12 · EL PRINCIPAL NO PROSPERA: la procesal no cae con él")
+cc = [cr(VP1, "infundado", "principal", tocado=True), cr(VP2, "fundado", razon="la pericial era idónea"),
+      cr(FON, "fundado")]
+lista_no = [{"numero": 1, "tema": "ampliación", "papel": "principal"},
+            {"numero": 2, "tema": "pericial", "papel": "accesorio", "relacion": "depende",
+             "si_no_prospera": {"sentido": "inoperante", "razon": "la pericial se ofreció en la ampliación"}},
+            {"numero": 3, "tema": "crédito", "papel": "accesorio", "relacion": "depende",
+             "si_no_prospera": {"sentido": "inoperante", "razon": "el crédito no entró a la litis"}}]
+av, det = ad.aplicar(probs(PV1, PV2, PF), cc, lista_no, [])
+ok(cc[1]["sentido"] == "fundado" and cc[1]["razonamiento"] == "la pericial era idónea",
+   "la procesal conserva su calificación y su razón")
+ok(any("NO se declaró caída con el principal" in a and "la pericial se ofreció en la ampliación" in a
+       for a in av), "y el aviso le enseña al secretario lo que el motor escribió para esa vía")
+ok(cc[2]["sentido"] == "inoperante" and "el crédito no entró" in cc[2]["razonamiento"],
+   "el fondo que dependía sí cae con el principal")
+
+print("\n13 · LO QUE EL SECRETARIO MARCÓ SE RESPETA, PERO SE LE DICE")
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "innecesario", tocado=True)]
+av, det = ad.aplicar(probs(PV1, PV2), cc, [], [])
+ok(cc[1]["sentido"] == "innecesario" and det[VP2]["de"] == "tuya", "su marca manda")
+ok(any("la marcaste innecesario" in a and "189" in a for a in av), "con el aviso de los arts. 74-V, 174 y 189")
+
+print("\n14 · EL FONDO QUE QUEDA VIVO CON LA REPOSICIÓN, SEÑALADO")
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(FON2, "fundado")]
+av, det = ad.aplicar(probs(PV1, PF2, dep=None), cc, [], [])
+ok(cc[1]["sentido"] == "fundado", "no se inventa una dependencia que nadie escribió")
+ok(any("EL PRINCIPAL ES UNA VIOLACIÓN PROCESAL QUE PROSPERA" in a for a in av),
+   "pero se le dice que la reposición deja sin materia el fondo")
+
+print("\n15 · SÓLO EN AMPARO DIRECTO (arts. 74-V y 174)")
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "infundado")]
+av, det = ad.aplicar(probs(PV1, PV2), cc, [], [], tipo_asunto="queja")
+ok(cc[1]["sentido"] == "innecesario", "en una queja el árbol sigue como estaba")
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "infundado")]
+av, det = ad.aplicar(probs(PV1, PV2), cc, [], [], tipo_asunto="amparo directo")
+ok(cc[1]["sentido"] == "infundado", "en amparo directo, con su grafía de siempre, rige")
+# Sin `clase` manda el vocabulario de `violacion_procesal` (el mismo que decide
+# si el estudio recibe la técnica procesal); no se amplía aquí sin calibrarlo.
+VP3 = "¿Fue ilegal que la Sala desechara la prueba pericial ofrecida por la actora?"
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP3, "infundado")]
+av, det = ad.aplicar([{"pregunta": VP1, "jerarquia": "principal"},
+                      {"pregunta": VP3, "jerarquia": "accesorio", "depende_de": 1}], cc, [], [])
+ok(cc[1]["sentido"] == "infundado", "sin `clase` (sesiones viejas), la procesal se reconoce por lo que combate")
+r = ad.reparto_para_pantalla(probs(PV1, PV2), [cr(VP1, "fundado", "principal", tocado=True),
+                                               cr(VP2, "infundado")], [], [])
+ok(r["criterios"][1]["sentido"] == "infundado" and "74-V" in r["criterios"][1]["por_que"],
+   "/taller/reparto enseña por qué se estudia")
+
+print("\n16 · EL REPARTO GLOBAL, CON LA MISMA REGLA")
+fu, avm = md.repartir(probs(PV1, PV2, PF), md.GLOBAL, "fundado",
+                      [{"problema": VP2, "sentido": "infundado", "razon": "razón del motor"}],
+                      {}, global_dictado=True)
+_d = {x["problema"]: x for x in fu}
+ok(_d[VP2]["sentido"] == "infundado", f"la procesal no se declara innecesaria y toma lo que el motor le propuso: {_d[VP2]['sentido']}")
+ok(_d[FON]["sentido"] == "innecesario", "el fondo sí, con la reposición")
+ok(any("VIOLACIÓN PROCESAL y NO se declaró sin materia" in a for a in avm), "con su aviso")
+cc2 = [cr(x["problema"], x["sentido"], x["jerarquia"], x["razonamiento"]) for x in fu]
+av2, _ = ad.aplicar(probs(PV1, PV2, PF), cc2, [], [])
+ok(len({a for a in avm + av2 if "VIOLACIÓN PROCESAL y NO se declaró sin materia" in a}) == 1,
+   "y el árbol, que corre después, dice lo mismo con las mismas palabras (un aviso, no dos)")
+fu, avm = md.repartir(probs(PF, PV1), md.GLOBAL, "fundado", [], {}, global_dictado=True)
+_d = {x["problema"]: x for x in fu}
+ok(_d[VP1]["sentido"] == "innecesario" and "189" in _d[VP1]["razonamiento"],
+   "fondo que prospera: la procesal innecesaria por mayor beneficio, con el 189")
+ok(any("POR MAYOR BENEFICIO" in a for a in avm), "y su aviso")
+fu, avm = md.repartir(probs(PV1, PV2), md.GLOBAL, "fundado", [], {}, global_dictado=True,
+                      tipo_asunto="amparo_revision")
+ok({x["problema"]: x for x in fu}[VP2]["sentido"] == "innecesario", "en revisión, como estaba")
+
+print("\n17 · LAS PUERTAS: el tipo llega a los dos gemelos, la propuesta y la pantalla")
+_ti = 'tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))'
+ok(src.count(_ti) == 6, f"cuatro árboles y dos repartos globales reciben el tipo ({src.count(_ti)})")
+i_st = src.find("async def taller_resolver_stream(")
+i_pl = src.find("async def taller_resolver(")
+ok(src[i_st:i_pl].count(_ti) == 2 and src[i_pl:i_pl + 40000].count(_ti) == 2,
+   "los dos gemelos del resolver, igual: reparto global y árbol")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

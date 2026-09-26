@@ -142,13 +142,14 @@ def temas_distintos_de(checklist: list, problemas: list) -> set:
 def repartir(problemas: list, modo: str, sentido_global: str = "",
              propuestas: list = None, calificaciones: dict = None,
              global_dictado: bool = False,
-             temas_distintos: set = None) -> tuple:
+             temas_distintos: set = None, tipo_asunto: str = "") -> tuple:
     """(lista de {problema, sentido, razonamiento, jerarquia}, avisos).
 
     `problemas` son los dicts de la fase 3; `propuestas`, lo que sugirió el
     motor; `calificaciones`, lo que el secretario marcó por problema;
     `temas_distintos`, los que el motor marcó ajenos a la suerte del principal
-    y que por eso no se declaran innecesarios.
+    y que por eso no se declaran innecesarios. `tipo_asunto` enciende la
+    guarda procesal del amparo directo (sin tipo, rige).
     """
     avisos: list = []
     props = {p.get("problema", ""): p for p in (propuestas or [])
@@ -291,6 +292,25 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             "asunto. Los accesorios se estudian.")
         return fuera, avisos
 
+    # ── LA GUARDA PROCESAL (26-sep-2026) ───────────────────────────────────
+    # La sustracción declaraba innecesario TODO accesorio, también una segunda
+    # violación procesal: quedaba sin decidir, contra los artículos 74,
+    # fracción V, y 174 de la Ley de Amparo. David aprobó la regla: una
+    # procesal sólo deja de estudiarse si un problema de FONDO prospera con
+    # mayor beneficio que la reposición (artículo 189), y entonces se dice con
+    # ese artículo. La misma regla, con las mismas piezas, en
+    # `arbol_decision.aplicar`, que corre después de este reparto.
+    try:
+        import violacion_procesal as _vpm
+        _guarda = _vpm.guarda_aplica(tipo_asunto)
+    except Exception:                                   # pragma: no cover
+        _vpm, _guarda = None, False
+    _pdict = {_texto(p): p for p in (problemas or [])}
+    _mb = bool(_guarda and _vpm.concesion_de_fondo_con_mayor_beneficio(
+        _pdict.get(principal["problema"]) or principal["problema"],
+        principal["sentido"], True))
+    _por_189: list = []
+
     tocados = 0
     for x in fuera:
         if x is principal or x["jerarquia"] == "principal":
@@ -313,6 +333,28 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
                 f"el principal—, y su suerte ya está escrita en la lista de "
                 f"comprobación. Se estudia.")
             continue
+        if _guarda and _vpm.clase_de(_pdict.get(x["problema"]) or x["problema"]) == "procesal":
+            if _mb:
+                # La única excepción, dicha con su artículo.
+                x["sentido"] = INNECESARIO
+                x["razonamiento"] = _vpm.RAZON_MAYOR_BENEFICIO
+                _por_189.append(x["problema"])
+                continue
+            # SE DECIDE. El sentido global es una brocha para el asunto, no una
+            # decisión sobre ESTA violación: hasta hoy nunca llegaba a pintarla
+            # —la sustracción la sacaba—, y un «fundado» de brocha sobre una
+            # violación procesal es una concesión que nadie decidió. Vale más
+            # lo que el motor propuso para ella, si propuso algo que decide.
+            _pr = props.get(x["problema"]) or {}
+            _sp = str(_pr.get("sentido") or "").strip().lower()
+            if _sp and _sp not in (INNECESARIO, "sin_materia") and _sp != x["sentido"]:
+                x["sentido"] = _sp
+                x["razonamiento"] = str(_pr.get("razon") or "")
+            avisos.append(_vpm.aviso_se_decide(
+                x["problema"], x["sentido"],
+                _vpm.clase_de(_pdict.get(principal["problema"]) or principal["problema"])
+                == "procesal"))
+            continue
         x["sentido"] = INNECESARIO
         x["razonamiento"] = (
             "Dado el sentido del estudio del problema principal, queda sin "
@@ -323,4 +365,13 @@ def repartir(problemas: list, modo: str, sentido_global: str = "",
             f"SUSTRACCIÓN DE MATERIA aplicada a {tocados} planteamiento(s): al "
             f"resultar {principal['sentido']} el principal, su estudio se "
             f"vuelve innecesario. El proyecto lo DICE, no lo calla.")
+    if _por_189:
+        avisos.append(
+            "VIOLACIÓN(ES) PROCESAL(ES) INNECESARIA(S) POR MAYOR BENEFICIO "
+            "(artículo 189 de la Ley de Amparo): "
+            + " · ".join(f"«{x[:80]}»" for x in _por_189[:4])
+            + f". El principal es de fondo y resulta {principal['sentido']}; se "
+              f"entiende que esa concesión da más que reponer el procedimiento. "
+              f"Si no es así —por ejemplo, porque es para efectos—, decide la "
+              f"violación procesal problema por problema.")
     return fuera, avisos

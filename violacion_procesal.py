@@ -158,6 +158,127 @@ def hay(problemas: list, criterios: list = None, contexto: str = "") -> bool:
     return clasificar(contexto)[0] == RESOLUCION_PROCESAL
 
 
+# ═══ LA GUARDA PROCESAL: TODAS SE DECIDEN, SALVO MAYOR BENEFICIO ═══════════
+#
+# POR QUÉ EXISTE. David, 26-sep-2026, al aprobar la decisión 1: la única
+# excepción para no decidir todas las violaciones procesales es una concesión
+# de fondo que dé mayor beneficio, y «también alinea a cómo debe resolverse
+# (mayor beneficio art 189)». Los artículos 74, fracción V, y 174 de la Ley de
+# Amparo mandan al colegiado DECIDIR todas las violaciones procesales que se
+# hicieron valer; el 189 vigente privilegia el fondo salvo mayor beneficio.
+#
+# LO QUE HABÍA. El árbol de decisión y el reparto global declaraban
+# INNECESARIO todo accesorio que dependiera de un principal que prospera, y
+# INOPERANTE por caer con él todo el que dependiera de uno que no prospera,
+# sin mirar si era una violación procesal. Dos procesales con el principal
+# fundado: la segunda quedaba sin decidir, y ninguna guarda lo veía (falla L2
+# del diagnóstico). Estas piezas son las que usan los dos —arbol_decision y
+# modos_decision— para que la regla viva en un solo sitio.
+
+# Lo que deja una violación procesal SIN DECIDIR. Sólo cabe por mayor
+# beneficio; «inoperante por caer con el principal» se vigila aparte porque
+# sí es una calificación y la escribe el árbol, no llega así.
+NO_DECIDEN = ("innecesario", "sin_materia", "queda_sin_materia")
+
+# La razón que lleva la procesal que se deja de estudiar. Es la RAZÓN del
+# criterio —lo que el estudio tiene que decir—, no una frase de estilo: el
+# artículo 189 tiene que quedar dicho, porque es lo único que autoriza a no
+# decidirla.
+RAZON_MAYOR_BENEFICIO = (
+    "Resulta innecesario el estudio de esta violación procesal por mayor "
+    "beneficio: el planteamiento de fondo que prospera otorga a la parte "
+    "quejosa más de lo que le daría la reposición del procedimiento, y el "
+    "artículo 189 de la Ley de Amparo privilegia el estudio del fondo sobre el "
+    "de las violaciones procesales salvo que invertir el orden le beneficie "
+    "más. Es la única razón por la que una violación procesal puede quedar sin "
+    "decidirse (artículos 74, fracción V, y 174).")
+
+# Sin `clase` de la fase 3 (sesiones anteriores al 22-sep), la procedencia se
+# reconoce por lo que combate. Importa por la excepción: una concesión contra
+# un sobreseimiento del juicio de origen manda estudiar el fondo, pero la
+# violación procesal de ese juicio sigue pesando sobre la nueva sentencia; no
+# da más que reponer.
+_RX_PROCEDENCIA = re.compile(
+    r"improcedenc\w+|sobrese\w+|sobresey\w+|causa(?:l)?\s+de\s+improcedencia", re.I)
+
+
+def clase_de(p) -> str:
+    """«procesal» | «procedencia» | «fondo» del problema (dict de la fase 3 o
+    texto). Manda la `clase` que declara la fase 3; sin ella, el vocabulario."""
+    if isinstance(p, dict):
+        c = str(p.get("clase") or "").strip().lower()
+        if c in ("procesal", "procedencia", "fondo"):
+            return c
+        t = " ".join(str(p.get(k) or "") for k in ("pregunta", "combate", "resolvio"))
+    else:
+        t = str(p or "")
+    if es_problema_procesal(p if isinstance(p, dict) else t):
+        return "procesal"
+    if _RX_PROCEDENCIA.search(t):
+        return "procedencia"
+    return "fondo"
+
+
+def guarda_aplica(tipo_asunto: str = "") -> bool:
+    """¿Rigen los artículos 74-V y 174? Son del AMPARO DIRECTO. Sin tipo
+    —sesiones viejas, llamadas sin él— se aplica: el taller trata como
+    directo lo que no dice otra cosa, y en la duda decidir una violación de
+    más es subsanable; dejar una sin decidir es un amparo de vuelta."""
+    try:
+        import tipos_asunto as _ta
+        t = _ta.normalizar(tipo_asunto or "")
+    except Exception:
+        t = ""
+    return t in ("", "amparo_directo")
+
+
+def aviso_se_decide(problema: str, sentido: str, principal_procesal: bool) -> str:
+    """El aviso al secretario cuando la guarda impide sacar una procesal.
+
+    UNO SOLO, con las mismas palabras, para el reparto global y para el árbol:
+    en modo global corren los dos seguidos sobre el mismo problema y, con
+    textos distintos, el secretario leía dos avisos de lo mismo. Con el mismo
+    texto, la comprobación de repetidos de main.py deja uno."""
+    s = str(sentido or "").strip().lower()
+    _por = ("aunque el principal —también procesal— prospere y se reponga el "
+            "procedimiento" if principal_procesal else
+            "y la única excepción —que un problema de FONDO prospere con mayor "
+            "beneficio que la reposición (artículo 189)— no se da aquí")
+    _cal = (f"Se estudia con su calificación: {s.replace('_', ' ')}; revisa que "
+            f"sea la tuya." if s and s not in NO_DECIDEN else
+            "ESTÁ SIN CALIFICAR: califícala tú antes de generar.")
+    return (f"«{str(problema)[:90]}» es una VIOLACIÓN PROCESAL y NO se declaró "
+            f"sin materia: los artículos 74, fracción V, y 174 de la Ley de Amparo "
+            f"mandan decidir todas las procesales, {_por}. {_cal}")
+
+
+def concesion_de_fondo_con_mayor_beneficio(principal, sentido: str,
+                                           alcanza: bool = True) -> bool:
+    """¿El principal es de FONDO y prospera ENTERO, de modo que la concesión
+    da más que la reposición? Es la ÚNICA puerta para no decidir una procesal.
+
+    Se exige, en conservador, las tres cosas: que sea de fondo (no procesal,
+    no procedencia), que prospere sin reservas —«parcialmente fundado» deja
+    en pie parte de lo reclamado y no se puede afirmar que dé más que reponer—
+    y que el motor no haya dicho que lo fundado no alcanza. Lo que el código
+    no puede saber —si la concesión es para efectos que dan menos que
+    reponer— se le avisa al secretario, que es quien lo decide."""
+    if alcanza is False:
+        return False
+    if clase_de(principal) != "fondo":
+        return False
+    s = str(sentido or "").strip().lower().replace(" ", "_")
+    if s == "concede":
+        return True
+    if "parcial" in s:
+        return False
+    try:
+        import tipos_asunto as _ta
+        return bool(_ta.prospera(s))
+    except Exception:
+        return "fundad" in s and "insuficien" not in s
+
+
 # ═══ CÓMO ENTRA AL PROMPT ══════════════════════════════════════════════════
 
 def rotulo(clase: str) -> str:

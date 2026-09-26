@@ -33072,7 +33072,10 @@ async def taller_reparto(
         [{"problema": _p.problema, "sentido": _p.sentido,
           "alcanza": getattr(_p, "alcanza", True)}
          for _p in (ses.get("propuestas") or [])],
-        sentido_motor=str((_glob or {}).get("sentido") or ""))
+        sentido_motor=str((_glob or {}).get("sentido") or ""),
+        # LA GUARDA PROCESAL ES DEL AMPARO DIRECTO (26-sep-2026): el árbol
+        # tiene que saber el tipo para no sacar una violación procesal.
+        tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
 
 
 @app.post("/taller/problema")
@@ -33770,7 +33773,8 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             problemas, _crit_ad, list(getattr(glob, "checklist", None) or []),
             [{"problema": _p.problema, "sentido": _p.sentido, "alcanza": _p.alcanza}
              for _p in propuestas],
-            sentido_motor=str(getattr(glob, "sentido", "") or ""))
+            sentido_motor=str(getattr(glob, "sentido", "") or ""),
+            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         for _c, _p in zip(_crit_ad, propuestas):
             if _p.alcanza and _p.sentido and _c["sentido"] != _p.sentido:
                 print(f"   🌳 ÁRBOL en la propuesta: «{_p.problema[:60]}» "
@@ -34235,7 +34239,8 @@ async def taller_resolver_stream(
             # ¿LO DICTÓ ÉL, O LO PUSO LA PANTALLA? Si lo eligió a propósito, su
             # sentido global manda sobre lo que el motor propuso por problema.
             global_dictado=str(global_dictado).strip().lower() in ("1", "true", "si", "sí"),
-            temas_distintos=_distintos)
+            temas_distintos=_distintos,
+            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         crit = [_f6.Criterio(problema=x["problema"], sentido=x["sentido"],
                              razonamiento=x.get("razonamiento", ""),
                              jerarquia=x.get("jerarquia", "accesorio"))
@@ -34350,7 +34355,8 @@ async def taller_resolver_stream(
             [{"problema": _p.problema, "sentido": _p.sentido,
               "alcanza": getattr(_p, "alcanza", True)}
              for _p in (ses.get("propuestas") or [])],
-            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""))
+            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
+            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         for _a in _av_ad:
             print(f"   🌳 ÁRBOL: {_a[:160]}")
             if _a not in (r.fases.avisos or []):
@@ -34913,7 +34919,8 @@ async def taller_resolver(
             (_glob or {}).get("checklist") or [], _probs)
         _repartido, _av_modo = _md.repartir(
             _probs, _md.GLOBAL, sentido_global.strip().lower(), _props,
-            _califs, global_dictado=_dictado, temas_distintos=_distintos)
+            _califs, global_dictado=_dictado, temas_distintos=_distintos,
+            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         print(f"   ⚖️ reparto global «{sentido_global.strip().lower()}» "
               f"({'dictado por el secretario' if _dictado else 'eco del motor'}): "
               + ", ".join(sorted({str(x.get('sentido')) for x in _repartido})))
@@ -34977,7 +34984,8 @@ async def taller_resolver(
             [{"problema": _p.problema, "sentido": _p.sentido,
               "alcanza": getattr(_p, "alcanza", True)}
              for _p in (ses.get("propuestas") or [])],
-            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""))
+            tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
+            tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
         for _a in _av_ad:
             print(f"   🌳 ÁRBOL: {_a[:160]}")
             if _a not in (r.fases.avisos or []):
