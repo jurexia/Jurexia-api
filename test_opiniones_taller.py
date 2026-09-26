@@ -21,6 +21,18 @@ ok(f["aspectos"] == {"citas": "mejorar", "sentido": "bien"}, "sólo aspectos del
 ok(f["sobre_sentencia"].startswith("Las citas") and "\n\n" in f["sobre_sentencia"], "el texto conserva sus párrafos")
 ok(f["sobre_taller"] is None, "lo vacío va como nulo, no como cadena vacía")
 
+print("\n1-bis · LOS DOS ASPECTOS DE LA DECISIÓN 5 (26-sep-2026)")
+_claves = [k for k, _ in ot.ASPECTOS]
+ok("exhaustividad" in _claves and "sin_repeticion" in _claves,
+   "«Contesta cada argumento» y «No repite lo ya razonado» están en el catálogo")
+ok(dict(ot.ASPECTOS)["exhaustividad"] == "Contesta cada argumento"
+   and dict(ot.ASPECTOS)["sin_repeticion"] == "No repite lo ya razonado",
+   "con las palabras de David")
+ok(len(set(_claves)) == len(_claves), "ninguna clave repetida (el auditor suma por clave)")
+f5, e5 = ot.limpiar(None, "", {"exhaustividad": "mejorar", "sin_repeticion": "bien"}, "", "")
+ok(not e5 and f5["aspectos"] == {"exhaustividad": "mejorar", "sin_repeticion": "bien"},
+   "se guardan como cualquier otro aspecto")
+
 print("\n2 · LO QUE NO")
 ok(ot.limpiar()[1] == ["La opinión llegó vacía: no hay nada que guardar."], "vacía: se rechaza")
 ok("La calificación va de 1 a 5." in ot.limpiar(9)[1], "nota fuera de rango")

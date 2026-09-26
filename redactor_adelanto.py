@@ -153,6 +153,12 @@ class Encargo:
     # o la que pida una cuenta de casa. Vacío = la global. Ver
     # `fase6_estudio.VARIANTES` (26-sep-2026).
     variante_estudio: str = ""
+    # LA SUPLENCIA DE LA QUEJA, COMO LA DECIDIÓ EL SECRETARIO en la pantalla de
+    # decisión (David, 26-sep-2026): {fraccion, a_favor_de, confirmada}. La fija
+    # cada generación, como la forma: no se guarda con la sesión, viaja en el
+    # formulario. Vacío = no decidió nada y el estudio se comporta como antes.
+    # Ver `suplencia.py`.
+    suplencia: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -1003,8 +1009,13 @@ def _formato_al_material(r, material, cliente=None, criterios=None) -> None:
     Sin cliente no hay síntesis y van los resúmenes completos: nunca falta
     nada por no haber condensado."""
     try:
-        import formato_sentencia as _fs
         e = getattr(r, "encargo", None)
+        # LA SUPLENCIA, POR EL MISMO CAMINO Y SIEMPRE —y lo primero, para que
+        # ningún fallo de lo que sigue la deje a medias—: el material vive en la
+        # sesión de una generación a la siguiente, y la suplencia confirmada de
+        # la vuelta anterior no puede colarse en ésta si el secretario la quitó.
+        material.suplencia = dict(getattr(e, "suplencia", None) or {}) if e else {}
+        import formato_sentencia as _fs
         material.formato = _fs.normalizar(getattr(e, "formato", "") if e else "")
         # LA VARIANTE DEL PROMPT, EN CADA PETICIÓN, como la forma: el material
         # vive en la memoria del worker y una v2 de la vuelta anterior no puede

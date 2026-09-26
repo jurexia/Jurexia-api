@@ -32046,6 +32046,10 @@ def _taller_guardar_proyecto(email: str, numero: str, res,
             # distinga dos versiones del mismo sentido y la opinión del
             # secretario se pueda leer por forma.
             "formato": str(formato or ""),
+            # Y CON QUÉ SUPLENCIA: la fracción, a favor de quién y si él la
+            # confirmó. Sin esto la opinión «contesta cada argumento: a mejorar»
+            # no se puede cruzar con lo que el estudio tenía mandado.
+            "suplencia": dict(getattr(getattr(res, "encargo", None), "suplencia", None) or {}),
             "criterios": [
                 {"problema": str(getattr(c, "problema", "") or "")[:400],
                  "sentido": str(getattr(c, "sentido", "") or ""),
@@ -33497,6 +33501,17 @@ def _tipo_desde_sise(t: str) -> str:
     return "amparo_directo"
 
 
+def _taller_suplencia_propuesta(r):
+    """La propuesta de suplencia para la pantalla, o None si no se pudo armar.
+    Nunca tumba la respuesta del asunto: es una ayuda, no un requisito."""
+    try:
+        import suplencia as _sp_p
+        return _sp_p.proponer_de(r)
+    except Exception as _exc_sp:
+        print(f"   ⚠️ SUPLENCIA: no se pudo proponer: {type(_exc_sp).__name__}")
+        return None
+
+
 @app.get("/taller/contexto-del-asunto")
 async def taller_contexto_del_asunto(numero: str, user_email: str):
     """EL ASUNTO, PARA LEERLO ANTES DE DECIDIR NADA.
@@ -33574,6 +33589,13 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
             "presentacion": (e.presentacion.isoformat()
                              if getattr(e, "presentacion", None) else ""),
         } if e is not None else None,
+        # ═══ LA SUPLENCIA QUE PROPONE EL MOTOR (David, 26-sep-2026) ════════
+        # La fracción del artículo 79, a favor de quién y por qué, con lo que
+        # la parte pide y los indicios a revisar. Determinista y sin coste: se
+        # lee de la materia, el tipo, las partes y el escrito de la sesión. La
+        # pantalla de decisión la enseña y el secretario la confirma, la cambia
+        # o dice que no hay. Ver `suplencia.py`.
+        "suplencia": _taller_suplencia_propuesta(r),
         # ═══ EL PROYECTO TERMINADO, SI LO HAY ════════════════════════════
         # Con esto la pantalla puede volver al estado final —el aviso de
         # borrador con sus avisos y sus huecos, y la descarga— sin repetir el
@@ -34837,6 +34859,12 @@ async def taller_resolver_stream(
     # casa; a las demás se les ignora. Vacío = ESTUDIO_PROMPT. Ver
     # `_taller_variante_estudio` (26-sep-2026).
     variante_estudio: str = Form(""),
+    # LA SUPLENCIA DE LA QUEJA, decidida en la pantalla de decisión (David,
+    # 26-sep-2026: «Sí», un paso más de esa pantalla). JSON {fraccion,
+    # a_favor_de, confirmada}. Sólo la CONFIRMADA cambia el estudio; vacío o sin
+    # confirmar = como antes. Está en los DOS gemelos: el mismo formulario tiene
+    # que dar la misma sentencia por cualquiera de las dos puertas.
+    suplencia: str = Form(""),
 ):
     """La sentencia, viéndose escribir.
 
@@ -34915,6 +34943,15 @@ async def taller_resolver_stream(
         # v2 pedida en la vuelta anterior no puede colarse en ésta.
         r.encargo.variante_estudio = _taller_variante_estudio(
             user_email, variante_estudio)
+        # Y LA SUPLENCIA, TAMBIÉN SIEMPRE y por la misma razón: una suplencia
+        # confirmada en la vuelta anterior no puede sobrevivir en la memoria del
+        # worker a que el secretario la quite. `leer` no revienta con un JSON
+        # roto: lo trata como si no hubiera llegado nada.
+        import suplencia as _sp_m
+        r.encargo.suplencia = _sp_m.leer(suplencia)
+        if r.encargo.suplencia:
+            print(f"   ⚖️ suplencia: {r.encargo.suplencia.get('fraccion')} · "
+                  f"{'confirmada' if r.encargo.suplencia.get('confirmada') else 'sin confirmar'}")
         if (responsable or "").strip():
             r.encargo.responsable = responsable.strip()
             print(f"   ⚖️ autoridad corregida en pantalla: "
@@ -35533,6 +35570,12 @@ async def taller_resolver(
     # casa; a las demás se les ignora. Vacío = ESTUDIO_PROMPT. Ver
     # `_taller_variante_estudio` (26-sep-2026).
     variante_estudio: str = Form(""),
+    # LA SUPLENCIA DE LA QUEJA, decidida en la pantalla de decisión (David,
+    # 26-sep-2026: «Sí», un paso más de esa pantalla). JSON {fraccion,
+    # a_favor_de, confirmada}. Sólo la CONFIRMADA cambia el estudio; vacío o sin
+    # confirmar = como antes. Está en los DOS gemelos: el mismo formulario tiene
+    # que dar la misma sentencia por cualquiera de las dos puertas.
+    suplencia: str = Form(""),
 ):
     """La sentencia, con el criterio del secretario dentro."""
     # `cobrable`: aquí nace la sentencia, así que aquí se miran las cuotas.
@@ -35601,6 +35644,15 @@ async def taller_resolver(
         # v2 pedida en la vuelta anterior no puede colarse en ésta.
         r.encargo.variante_estudio = _taller_variante_estudio(
             user_email, variante_estudio)
+        # Y LA SUPLENCIA, TAMBIÉN SIEMPRE y por la misma razón: una suplencia
+        # confirmada en la vuelta anterior no puede sobrevivir en la memoria del
+        # worker a que el secretario la quite. `leer` no revienta con un JSON
+        # roto: lo trata como si no hubiera llegado nada.
+        import suplencia as _sp_m
+        r.encargo.suplencia = _sp_m.leer(suplencia)
+        if r.encargo.suplencia:
+            print(f"   ⚖️ suplencia: {r.encargo.suplencia.get('fraccion')} · "
+                  f"{'confirmada' if r.encargo.suplencia.get('confirmada') else 'sin confirmar'}")
         if (responsable or "").strip():
             r.encargo.responsable = responsable.strip()
             print(f"   ⚖️ autoridad corregida en pantalla: "

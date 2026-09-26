@@ -287,6 +287,12 @@ class Material:
     # porque el material vive en la memoria del worker de una generación a la
     # siguiente. Ver `VARIANTES` arriba.
     variante: str = "v1"
+    # LA SUPLENCIA QUE DECIDIÓ EL SECRETARIO (Decisión 4 de David, 26-sep-2026):
+    # {fraccion, a_favor_de, confirmada}, o vacío. Viaja con el material por lo
+    # mismo que la forma: dos redactores arman el prompt y a los dos les llega el
+    # material. La fija `redactor_adelanto._formato_al_material` en CADA
+    # petición. Ver `suplencia.py`.
+    suplencia: dict = field(default_factory=dict)
 
 
 # LA ÚNICA EXCEPCIÓN A «INNEGOCIABLE», y hubo que escribirla porque el pipeline
@@ -323,11 +329,14 @@ _SUPLENCIA_ABSOLUTA = {
 # trabajadora: la suplencia opera igual. Clasificar el asunto como
 # «administrativa» lo dejaba fuera, que es tanto como quitarle la suplencia por
 # haber elegido bien la vía.
+# EL \b DEL PRINCIPIO (26-sep-2026): sin él, «pensión» se encontraba dentro de
+# «SUSPENSIÓN», que está en toda demanda de amparo. Medido en el banco Kingston:
+# dos amparos agrarios (ADA 263/2025 y 448/2025) salían como pensionarios.
 _RX_TRABAJADOR_EN_ADMINISTRATIVA = re.compile(
-    r"pensi[óo]n|pensionari|jubilaci[óo]n|jubilad|cesant[íi]a|"
+    r"\b(?:pensi[óo]n|pensionari|jubilaci[óo]n|jubilad|cesant[íi]a|"
     r"cuota\s+pensionaria|haber\s+de\s+retiro|ISSSTE|IMSS|"
     r"burocr[áa]tic|trabajador(?:a|es)?\s+al\s+servicio\s+del\s+estado|"
-    r"seguridad\s+social", re.I)
+    r"seguridad\s+social)", re.I)
 
 # LA FRACCIÓN VII NO DEPENDE DE LA MATERIA SINO DE LA PERSONA, así que aquí no
 # se puede decidir: se le RECUERDA LA REGLA a quien redacta y se le pide que
@@ -364,11 +373,31 @@ def _aviso_de_suplencia(criterios: list, materia: str,
     # El trabajador que litiga en la vía administrativa.
     if not par and _RX_TRABAJADOR_EN_ADMINISTRATIVA.search(material or ""):
         par = ("la persona trabajadora o pensionada", "79, fracción V")
-    if not par:
-        return []
     if not any("inoperan" in str(getattr(c, "sentido", "")).lower()
                for c in (criterios or [])):
         return []
+    # LA VII SE MIRA ANTES DE RENDIRSE (defecto L4, 26-sep-2026). Aquí había un
+    # `if not par: return []` ANTES de mirar la fracción VII, así que en civil,
+    # mercantil o administrativa —las materias sin suplencia absoluta— la
+    # desventaja social no se recordaba nunca, que es justo donde la VII es la
+    # única puerta: ella «no depende de la materia sino de la persona».
+    if not par:
+        if not _RX_DESVENTAJA.search(material or ""):
+            return []
+        return ["",
+                "── UNA SALVEDAD, Y SÓLO UNA ──",
+                "Se te dicta INOPERANTE y la materia de este asunto no trae",
+                "suplencia absoluta. Pero la fracción VII del artículo 79 de la Ley",
+                "de Amparo no depende de la materia sino de la persona: opera «en",
+                "favor de quienes por sus condiciones de pobreza o marginación se",
+                "encuentren en clara desventaja social para su defensa en el",
+                "juicio», aun sin conceptos de violación. En el material hay",
+                "indicios de esa condición. NO LA AFIRMES si el expediente no la",
+                "acredita —eso sería inventar un hecho—; si consta, estudia el",
+                "planteamiento en el fondo antes de escribir la inoperancia, y si al",
+                "suplirlo prospera, dilo en ADVERTENCIAS para que el secretario lo",
+                "valore.",
+                ]
     quien, precepto = par
     extra = []
     if _RX_DESVENTAJA.search(material or ""):
@@ -401,6 +430,20 @@ def _aviso_de_suplencia(criterios: list, materia: str,
             "es criterio: es un mandato del artículo 79 que ningún acuerdo de",
             "ponencia puede dispensar.",
             ] + extra
+
+
+def _bloque_suplencia(material) -> str:
+    """La suplencia CONFIRMADA por el secretario, como bloque propio del prompt.
+
+    Sin confirmar —o con «sin suplencia»— no añade nada: el estudio se comporta
+    como antes. Ver `suplencia.bloque`."""
+    try:
+        import suplencia as _sp
+        return _sp.bloque(getattr(material, "suplencia", None) or {},
+                          getattr(material, "tipo_asunto", "") or "")
+    except Exception as _es:
+        print(f"   ⚠️ SUPLENCIA: no se pudo armar el bloque: {type(_es).__name__}")
+        return ""
 
 
 # A FAVOR o EN CONTRA de quien promueve. Es lo único que hay que comparar: el
@@ -499,7 +542,20 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                           f"una calificación conjunta. ABRE ese apartado "
                           f"diciendo QUÉ LOS UNE y por qué se resuelven a la "
                           f"vez; no los contestes por separado dentro de él.")
-        if (c.sentido or "").lower() == "innecesario" and _v2c:
+        # LA PROCESAL QUE NO SE ESTUDIA POR MAYOR BENEFICIO NO «QUEDÓ SIN
+        # MATERIA» (26-sep-2026, decisión 1 de David). Los arts. 74-V y 174
+        # mandan decidir todas las violaciones procesales; la única salida es
+        # que una concesión de fondo dé mayor beneficio (art. 189), y eso es
+        # lo que la sentencia tiene que decir —con esa razón—, no la fórmula de
+        # la sustracción de materia. El árbol deja el 189 en el razonamiento.
+        if ((c.sentido or "").lower() == "innecesario"
+                and "189" in str(getattr(c, "razonamiento", "") or "")):
+            lineas.append("   NO SE ESTUDIA POR MAYOR BENEFICIO: la concesión de "
+                          "fondo da a quien promueve más de lo que le daría la "
+                          "reposición. Se dice en una o dos frases, con esa razón "
+                          "y el artículo 189 de la Ley de Amparo; no se escribe "
+                          "que quedó sin materia ni se contesta su fondo.")
+        elif (c.sentido or "").lower() == "innecesario" and _v2c:
             lineas.append("   NO SE ESTUDIA: quedó sin materia por el sentido "
                           "del principal. Una o dos frases que lo declaran "
                           "innecesario y dicen por qué; su fondo no se "
@@ -888,7 +944,9 @@ def _bloque_aportado(contexto: str) -> str:
     «documento aportado», y el estudio la despachó en un párrafo tras razonar
     sobre la regla abstracta. Ahora `violacion_procesal.clasificar` dice qué
     llegó, y si es la resolución del incidente el bloque trae la técnica: sus
-    razones son la razón toral, se enuncian y se confrontan una por una.
+    razones son la razón toral: cada una se identifica y se confronta, y las
+    que caen por la misma respuesta se contestan juntas, nombrándolas
+    (técnica aprobada por David el 26-sep-2026, `tipos_asunto`).
     """
     c = (contexto or "").strip()
     if not c:
@@ -2328,6 +2386,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_circuito(getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo"), criterios)}
 {_bloque_conceptos(rama, conceptos_violacion)}
 {_bloque_criterio(criterios, materia or getattr(material, "materia", ""), _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [])}
+{_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}
 {_bloque_material(_mat_vista)}
@@ -3001,6 +3060,7 @@ FUNDAMENTO — hay que fundar, y hay que fundar bien:
 {_bloque_circuito(_tipo_tec, criterios)}
 {_bloque_conceptos(rama, conceptos_violacion, "v2")}
 {_bloque_criterio(criterios, _materia_v, _texto_de(material), getattr(material, "tipo_asunto", ""), _formato, getattr(material, "problemas", None) or [], variante="v2")}
+{_bloque_suplencia(material)}
 {_bloque_global(propuesta_global, criterios)}
 {_bloque_precedente(material, criterios)}
 {_bloque_material(_mat_vista)}
@@ -3884,14 +3944,35 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     #    Entre las dos dejaban al modelo sin salida buena, y eligió obedecer a
     #    la que iba rotulada innegociable.
     _mat = str(getattr(material, "materia", "") or "").strip().lower()
+    # LA SUPLENCIA QUE EL SECRETARIO CONFIRMÓ TAMBIÉN CUENTA (revisión,
+    # 26-sep-2026). El bloque de suplencia le prohíbe al estudio la inoperancia
+    # de forma a favor de esa parte; si aquí sólo valiera la materia, una II
+    # confirmada en un asunto civil de alimentos, o una IV en un agrario que
+    # llega como administrativo, recibía el reproche seco de no haber escrito la
+    # inoperancia que el propio encargo le prohibió.
+    try:
+        import suplencia as _sp_rv
+        _supl_conf = _sp_rv.confirmada(getattr(material, "suplencia", None) or {})
+    except Exception:
+        _supl_conf = False
     for c in criterios:
         raiz = c.sentido[:7].lower()
         if not raiz or raiz in estudio.lower():
             continue
-        if raiz.startswith("inoperan") and _mat in _SUPLENCIA_ABSOLUTA:
+        # SE MIRA EL SENTIDO ENTERO, NO LA RAÍZ: «inoperante»[:7] es «inopera»,
+        # que nunca empieza por «inoperan», así que esta salvedad no se había
+        # dado jamás y el aviso salía siempre seco (revisión, 26-sep-2026).
+        # Y NUNCA EN LA VÍA SIN SUPLENCIA (la revisión fiscal): ahí la
+        # salvedad invocaría un artículo 79 que no rige.
+        if (str(c.sentido or "").lower().startswith("inoperan")
+                and not _via_sin_suplencia
+                and (_mat in _SUPLENCIA_ABSOLUTA or _supl_conf)):
+            _con = ("con la suplencia de la queja que se confirmó en la pantalla "
+                    "de decisión" if _supl_conf else
+                    f"en materia {_mat}, con la suplencia del artículo 79")
             avisos.append(
                 f"El criterio pedía «{c.sentido}» y el estudio no lo escribió. "
-                f"En materia {_mat}, con la suplencia del artículo 79, eso "
+                f"{_con[0].upper() + _con[1:]}, eso "
                 f"puede ser lo CORRECTO: revisa si el estudio suplió el "
                 f"planteamiento y lo resolvió en el fondo. Si es así, la "
                 f"calificación cambió y hay que confirmarla.")
