@@ -1047,6 +1047,50 @@ def remisiones(solucion: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 # LA MEDIDA ENTERA
 # ═══════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# LAS MARCAS DEL ESTUDIO (v3 y v4, Paso 2a, 26-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# Con la v3 el estudio escribe «⟦C1.a C1.b⟧» al principio del párrafo que
+# contesta esos argumentos, y el taller las quita antes de componer
+# (`marcas.py`). Una marca que llega al documento es un fallo de operación que
+# BLOQUEA el despliegue (w2_final §6.6: «una marca filtrada»). Se cuenta sobre
+# el documento ENTERO: la marca no tiene por qué colarse sólo en la Solución.
+_RX_MARCA_FILTRADA = re.compile(
+    r"\u27e6[^\u27e6\u27e7\n]{0,200}\u27e7|[\u27e6\u27e7]"
+    r"|\[\[\s*(?:AD|[CASMU])\d{1,3}(?:\.[a-z]{1,2})?\b")
+
+
+def marcas_filtradas(texto: str) -> int:
+    """Cuántos restos de marca hay en el texto: una marca entera «⟦…⟧» cuenta
+    una vez; un «⟦» o «⟧» suelto, uno; «[[C1.a…», uno."""
+    return len(_RX_MARCA_FILTRADA.findall(texto or ""))
+
+
+def cobertura_de_fila(fila: dict):
+    """La cobertura por marcas que el servidor devolvió en el evento «listo»
+    (v3 y v4), o None si la corrida no la trae (v1, v2, o servidor viejo).
+
+    {"cobertura": marcados/total, "con_rescate", "total", "marcados",
+     "sin_rastro": n, "rescatados": n, "desconocidos": n, "visible": bool,
+     "parrafos_marcados": n}"""
+    ev = (fila or {}).get("listo") or {}
+    cob = (fila or {}).get("cobertura") or ev.get("cobertura")
+    if not isinstance(cob, dict) or "total" not in cob:
+        return None
+    mapa = (fila or {}).get("mapa") or ev.get("mapa") or {}
+    return {
+        "cobertura": cob.get("cobertura"),
+        "con_rescate": cob.get("cobertura_con_rescate"),
+        "total": cob.get("total"),
+        "marcados": cob.get("marcados"),
+        "sin_rastro": len(cob.get("sin_rastro") or []),
+        "rescatados": len(cob.get("rescatados") or []),
+        "desconocidos": len(cob.get("desconocidos") or []),
+        "visible": bool(cob.get("visible")),
+        "parrafos_marcados": len({k for v in mapa.values() for k in (v or [])}),
+    }
+
+
 def medir(texto: str, escrito: str = None, n: int = None) -> dict:
     """Todas las medidas sobre un proyecto (o un engrose).
 
@@ -1138,6 +1182,7 @@ def medir(texto: str, escrito: str = None, n: int = None) -> dict:
         "anclas_escrito": len(a_esc),
         "anclas_cubiertas": len(cubiertas),
         "cobertura_demanda": round(len(cubiertas) / len(a_esc), 3) if a_esc else None,
+        "marcas_filtradas": marcas_filtradas(texto),
         "detalle": {
             "aperturas": aperturas,
             "resultados_por_apartado": [a.get("resultado") for a in aps],
@@ -1204,6 +1249,9 @@ METRICAS = [
     ("cobertura_ordinal", "Cobertura por ordinal", "mas",
      "< 1 (sin_contestar)", lambda v, f: v is not None and v < 1),
     ("cobertura_demanda", "Cobertura de anclas del escrito", "mas", None, None),
+    # Operación (v3/v4): ninguna marca puede llegar al documento. Bloquea.
+    ("marcas_filtradas", "Marcas filtradas al documento", "menos",
+     "> 0 (§6.6, bloquea)", lambda v, f: bool(v)),
 ]
 CLAVES = [m[0] for m in METRICAS]
 MEJOR = {m[0]: m[2] for m in METRICAS}
