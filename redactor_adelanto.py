@@ -1226,6 +1226,14 @@ async def resolver(cliente, r: Resultado, criterios: list[f6.Criterio],
             # EL GUION DEL PLAN (v4): lo puso `main._taller_plan_para` en el
             # encargo de ESTA petición; vacío fuera de la v4.
             guion=str(getattr(e, "guion", "") or ""))
+    # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): lo mismo que el gemelo en
+    # vivo, en el mismo sitio —antes de los efectos, las constancias y los
+    # preceptos, que leen el estudio ya completado—.
+    _faltan = _por_completar(material, criterios, estudio)
+    if _faltan:
+        with cronometrar("completar el estudio"):
+            estudio = await _completar_estudio(cliente, r, criterios, material, estudio,
+                                               _faltan, _meta, avisos)
     # LOS EFECTOS DE UNA VIOLACIÓN PROCESAL SE ORDENAN PASO A PASO (v5 del
     # 93/2026: «dicte otra» sobre una reposición). Se comprueba aquí porque
     # aquí se sabe si la hay.
@@ -1416,6 +1424,14 @@ async def resolver_en_vivo(cliente, r: Resultado, criterios: list[f6.Criterio],
     if _resto:
         yield {"tipo": "texto", "dato": _resto}
     TIEMPOS["estudio de fondo"] = round(_time.perf_counter() - t0, 1)
+    # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): igual que en `resolver`.
+    # La pantalla ve «completando» mientras corre la llamada; sólo si la hay.
+    _faltan = _por_completar(material, criterios, estudio)
+    if _faltan:
+        yield {"tipo": "completando"}
+        with cronometrar("completar el estudio"):
+            estudio = await _completar_estudio(cliente, r, criterios, material, estudio,
+                                               _faltan, _meta, avisos)
     _av_ef = f6._efectos_de_reposicion(estudio, criterios, _vp)
     if _av_ef:
         avisos.insert(0, _av_ef)
@@ -1578,7 +1594,8 @@ def limpiar_rotulos_del_guion(estudio: str, advertencias: str = "") -> tuple:
     return "\n".join(quedan), advertencias, fuera, len(llevados)
 
 
-def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str) -> dict:
+def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str,
+                        criterios: list = None) -> dict:
     """Separa las marcas y aplica el control V1. Nunca lanza.
 
     Devuelve {estudio, advertencias (sin marcas), aviso (el visible, o «»),
@@ -1622,6 +1639,25 @@ def _marcas_y_cobertura(r, e, material, estudio: str, advertencias: str) -> dict
                                for k in _usados if 0 <= k < len(pars)}
             cob["en_advertencias"] = sorted(mapa_adv)
             cob["visible"] = bool(cob.get("sin_rastro")) and _f6_con_inventario(material)
+            # LOS DOS CONTROLES DE p2-exhaustivo SOBRE EL TEXTO FINAL, EN SOMBRA:
+            # lo que queda sin su dato después de la reparación, y el «sin
+            # materia» que el criterio no dijo (calibrado: acusa a un engrose
+            # bueno, así que no se enseña; `exhaustivo.SIN_MATERIA_VISIBLE`).
+            try:
+                import exhaustivo as _ex_t
+                _ps_t = _mc_t.parrafos(limpio)
+                _pr_t = list(getattr(material, "problemas", None) or [])
+                _sm = _ex_t.sin_materia_por_su_cuenta(_ps_t, mapa, segs, criterios or [], _pr_t)
+                cob["exhaustivo"] = {
+                    "sin_dato": _ex_t.sin_su_dato(_ps_t, mapa, segs),
+                    "sin_materia": [{k: v for k, v in h.items() if k != "texto"} for h in _sm],
+                }
+                if _sm and _ex_t.SIN_MATERIA_VISIBLE and _f6_con_inventario(material):
+                    import tipos_asunto as _ta_x
+                    fuera["aviso_sin_materia"] = _ex_t.aviso_sin_materia(
+                        _sm, _ta_x.vocabulario_de(getattr(e, "tipo_asunto", "") or "amparo_directo")["combate_singular"])
+            except Exception as _ex_x:
+                print(f"   ⚠️ EXHAUSTIVO: {type(_ex_x).__name__}")
             meta["cobertura"] = cob
             # HIGIENE DE REGISTROS: identificadores y cifras, nunca el texto.
             print(f"   🧭 MARCAS: {cob['marcados']}/{cob['total']} marcados · "
@@ -1650,6 +1686,57 @@ def _f6_con_inventario(material) -> bool:
         return bool(f6.con_inventario(material))
     except Exception:
         return False
+
+
+# ═══ LA REPARACIÓN DIRIGIDA (p2-exhaustivo, 26-sep-2026) ════════════════════
+# Los DOS gemelos la llaman en el mismo sitio —en cuanto tienen el estudio,
+# antes de los efectos, las constancias y los preceptos—, con las mismas dos
+# funciones. Sólo v3/v4 (las que traen inventario y marcas); en la v1 y la v2
+# `_por_completar` devuelve [] sin mirar nada.
+def _por_completar(material, criterios, estudio: str) -> list:
+    """Los argumentos cuya respuesta es sólo una declaración de sin estudio,
+    sin su dato en los efectos ni en otra respuesta (`exhaustivo.sin_su_dato`).
+    Sin modelo. Nunca lanza."""
+    try:
+        if not _f6_con_inventario(material):
+            return []
+        import exhaustivo as _ex
+        if not _ex.REPARAR_ACTIVO:
+            return []
+        segs = list(getattr(material, "inventario", None) or [])
+        if not segs:
+            return []
+        return _ex.revisar_texto(estudio or "", segs, criterios,
+                                 list(getattr(material, "problemas", None) or []))["sin_dato"]
+    except Exception as _ex_p:
+        print(f"   ⚠️ COMPLETAR: no se pudo revisar: {type(_ex_p).__name__}")
+        return []
+
+
+async def _completar_estudio(cliente, r, criterios, material, estudio: str,
+                             faltan: list, meta: dict, avisos: list) -> str:
+    """Una llamada más al modelo del estudio para lo que falta. Devuelve el
+    estudio (con las piezas insertadas, o como estaba si falló); anota el
+    informe en `meta["completado"]` y el aviso visible en `avisos`."""
+    try:
+        import exhaustivo as _ex
+        _esc = (list(getattr(getattr(r, "fases", None), "fuentes", []) or []) + ["", ""])[1]
+        nuevo, informe = await _ex.reparar(cliente, estudio, criterios, material, faltan,
+                                           escrito=_esc)
+        _av = _ex.aviso_reparacion(informe, list(getattr(material, "inventario", None) or []))
+        if _av:
+            avisos.insert(0, _av)
+        if isinstance(meta, dict):
+            meta["completado"] = {k: v for k, v in informe.items() if k != "salida"}
+        # HIGIENE DE REGISTROS: identificadores y cifras, nunca el texto.
+        print(f"   🧩 COMPLETAR: {informe.get('estado')} · pedidos {informe.get('pedidos')} · "
+              f"párrafos {len(informe.get('parrafos') or [])} · efectos "
+              f"{len(informe.get('efectos') or [])} · descartes {len(informe.get('descartes') or [])} · "
+              f"{informe.get('segundos')} s")
+        return nuevo
+    except Exception as _ex_c:
+        print(f"   ⚠️ COMPLETAR: {type(_ex_c).__name__}")
+        return estudio
 
 
 def _revisar_contaminacion(r, e) -> list:
@@ -1716,11 +1803,18 @@ async def _terminar(cliente, r, e, criterios, material, estudio,
                       + ("la explicación «DESVIACIONES DEL GUION» en el cuerpo, que se llevó a "
                          "ADVERTENCIAS" if _n_desv else "")
                       + ". Revisa que no falte nada en el apartado donde estaban.")
-    _v1 = _marcas_y_cobertura(r, e, material, estudio, advertencias)
+    _v1 = _marcas_y_cobertura(r, e, material, estudio, advertencias, criterios)
     estudio, advertencias = _v1["estudio"], _v1["advertencias"]
     if _v1["aviso"]:
         avisos.insert(0, _v1["aviso"])
+    if _v1.get("aviso_sin_materia"):
+        avisos.insert(0, _v1["aviso_sin_materia"])
     meta_estudio.update(_v1["meta"])
+    # LO QUE HIZO LA REPARACIÓN DIRIGIDA viaja con la cobertura, que es lo que
+    # el «listo» y la ficha ya llevan (`main._taller_meta_listo`).
+    _compl = meta_estudio.pop("completado", None)
+    if _compl and isinstance(meta_estudio.get("cobertura"), dict):
+        meta_estudio["cobertura"].setdefault("exhaustivo", {})["completado"] = _compl
     # ═══ LA LEY LOCAL SÓLO ENTRA SI ESTÁ EN LA LITIS ═══════════════════════
     # Aquí convergen los dos redactores del estudio, y el marco llega unas
     # líneas más abajo: es el único sitio por el que pasa TODO lo que se va a

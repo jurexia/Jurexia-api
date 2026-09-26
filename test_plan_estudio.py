@@ -634,8 +634,11 @@ P93 = [{"pregunta": C93[0].problema, "cubre": [1]}, {"pregunta": C93[1].problema
 HUELLAS = {
     ("v1", "estandar"): "2b4186f558e719d5c550a3148f39c1aaec26cc8aec84de6ea298fe1bef1f71f2",
     ("v1", "moderna"): "94a6f328d09ba437c3cc353bbc9fba22d2e90ea6682a542c4ffd77eb35a54015",
-    ("v2", "estandar"): "b45b584d29c2bb5aa8fa2e9eb5476c210d2d3949c3bb17502bf1abdbdb8ec53e",
-    ("v2", "moderna"): "67661ae187573d611533beb304f3922410a9d83782b6b12f9e91a2706060a271",
+    # La v2 cambió en p2-exhaustivo (26-sep-2026): el «sin materia» es del
+    # criterio y lo que la concesión deja a la responsable va en los EFECTOS
+    # (test_exhaustivo.py). La v1 no se mueve.
+    ("v2", "estandar"): "5e8ec2b93a642a6f4403ff610709c6eb4e94a8fb06b6a6782d5ff1c4bc7118bd",
+    ("v2", "moderna"): "706813e60d7b9445105911a1b84318389f74bada8122481e6e84f4a713537572",
 }
 
 

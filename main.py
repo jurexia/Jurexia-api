@@ -37068,6 +37068,10 @@ async def taller_resolver_stream(
                     _cola.put_nowait({"tipo": "texto", "dato": paso["dato"]})
                 elif tipo == "componiendo":
                     _cola.put_nowait({"tipo": "componiendo"})
+                elif tipo == "completando":
+                    # LA REPARACIÓN DIRIGIDA (v3/v4, p2-exhaustivo): una llamada
+                    # más al modelo del estudio; la pantalla lo rotula mientras.
+                    _cola.put_nowait({"tipo": "completando"})
                 elif tipo == "listo":
                     res = paso["resultado"]
                     _taller_registrar_uso(user_email, numero, "proyecto")
