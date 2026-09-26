@@ -116,6 +116,23 @@ def _decide(s: str) -> bool:
     return bool(s) and s not in (INNECESARIO, "sin_materia", "queda_sin_materia")
 
 
+# El arranque con que este módulo escribe la caída con el principal. El
+# estudio (`fase6_estudio`, al armar el criterio) lo reconoce por ESTE texto y
+# lo redacta como «cae con el principal: no se estudia de fondo». Una procesal
+# que vuelve de la pantalla con él —un reparto anterior al 26-sep— saldría sin
+# decidir aunque su calificación diga «inoperante».
+CAE_CON_PRINCIPAL = "Descansa en la premisa que se desestimó"
+
+
+def _cae_con_principal(c) -> bool:
+    """¿Viene calificado como caído con el principal? La fórmula Y una de las
+    calificaciones con que el árbol la escribe; con otra calificación la
+    fórmula es un resto, no una caída."""
+    return (str(_get(c, "razonamiento", "") or "").startswith(CAE_CON_PRINCIPAL)
+            and str(_get(c, "sentido", "") or "").strip().lower()
+            in (INOPERANTE, "infundado", "ineficaz", "inatendible"))
+
+
 # ═══ LA SUERTE CONDICIONAL, LEÍDA DE LA LISTA DE COMPROBACIÓN ══════════════
 
 def entrada_de(checklist: list, numero: int, problema: str = "") -> dict:
@@ -315,19 +332,22 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     def _conservar(c, t: str) -> str:
         """Lo que se hace con una procesal que el árbol habría sacado: se
         queda con su calificación. Si la que trae no decide —llegó
-        «innecesario» de otra pasada—, se le devuelve la que el motor le
-        propuso; si tampoco hay, se queda como está y el aviso lo pide."""
+        «innecesario» de otra pasada, o «inoperante» con la fórmula de caer
+        con el principal—, se le devuelve la que el motor le propuso; si
+        tampoco hay, se queda como está y el aviso lo pide."""
         s_act = str(_get(c, "sentido", "")).strip().lower().replace(" ", "_")
-        if _decide(s_act):
+        _cae = _cae_con_principal(c)
+        if _decide(s_act) and not _cae:
             return s_act
         s_mot = _sentido_motor_de.get(t, "")
+        # La razón de «queda sin materia» o de «descansa en la premisa
+        # desestimada» sostenía no decidirla: no se deja pegada. El estudio
+        # (fase6) reconoce la caída por ESE arranque y la escribiría como tal.
+        _raz = str(_get(c, "razonamiento", "") or "").lower()
+        if _cae or "sin materia" in _raz or "innecesari" in _raz:
+            _set(c, "razonamiento", "")
         if _decide(s_mot):
             _set(c, "sentido", s_mot)
-            # La razón de «queda sin materia» sostenía lo contrario: no se deja
-            # pegada a una calificación que sí decide.
-            _raz = str(_get(c, "razonamiento", "") or "").lower()
-            if "sin materia" in _raz or "innecesari" in _raz:
-                _set(c, "razonamiento", "")
             return s_mot
         return s_act
 
@@ -498,10 +518,19 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             if t in _tocados or not _procesal(t, por_texto.get(t, (0, None))[1]):
                 continue
             s_act = str(_get(c, "sentido", "")).strip().lower()
-            if not s_act or _decide(s_act):
+            _cae = _cae_con_principal(c)
+            if not s_act or (_decide(s_act) and not _cae):
                 continue
             if (detalle.get(t) or {}).get("guarda") == "procesal":
                 continue                   # ya se avisó dentro del recorrido
+            if _cae:
+                # Llegó «caída con el principal»: se decide por sí misma.
+                _k = _conservar(c, t)
+                detalle[t] = {"de": "propio", "guarda": "procesal",
+                              "por_que": "violación procesal: se decide por sí misma "
+                                         "(arts. 74-V y 174); no cae con el principal"}
+                avisos.append(_aviso_procesal(t, _k, cae_con=True))
+                continue
             if mb_fondo:
                 if "189" not in str(_get(c, "razonamiento", "") or ""):
                     _set(c, "razonamiento", _m.RAZON_MAYOR_BENEFICIO)

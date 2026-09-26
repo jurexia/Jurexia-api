@@ -244,6 +244,17 @@ ok(any("NO se declaró caída con el principal" in a and "la pericial se ofreci�
        for a in av), "y el aviso le enseña al secretario lo que el motor escribió para esa vía")
 ok(cc[2]["sentido"] == "inoperante" and "el crédito no entró" in cc[2]["razonamiento"],
    "el fondo que dependía sí cae con el principal")
+# Una procesal que VUELVE de la pantalla caída (reparto anterior al 26-sep): el
+# estudio la reconoce por el arranque de la razón y la escribiría sin decidir.
+cc = [cr(VP1, "infundado", "principal", tocado=True),
+      cr(VP2, "inoperante", razon="Descansa en la premisa que se desestimó al resolver el "
+                                  "problema principal, de modo que su estudio no produciría "
+                                  "ningún fin práctico.")]
+av, det = ad.aplicar(probs(PV1, PV2, dep=None), cc, [],
+                     [{"problema": VP2, "sentido": "fundado", "alcanza": True}])
+ok(cc[1]["sentido"] == "fundado" and not cc[1]["razonamiento"].startswith("Descansa"),
+   f"la que llega caída se decide por sí misma, con lo que el motor le propuso: {cc[1]['sentido']}")
+ok(any("NO se declaró caída con el principal" in a for a in av), "y se avisa")
 
 print("\n13 · LO QUE EL SECRETARIO MARCÓ SE RESPETA, PERO SE LE DICE")
 cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "innecesario", tocado=True)]
