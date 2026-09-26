@@ -1165,9 +1165,12 @@ ok(len(seg(_fl, "C3.b")["razon_secretario"].split()) <= 60 and all(len(str(s.get
    "la ficha recorta la cita y la razón del secretario")
 # (i) El pedido decide la variante como los gemelos.
 _src_ped = ast.get_source_segment(SRC_MAIN, FN["taller_plan_pedir"])
-ok("_taller_variante_estudio(user_email, variante_estudio)" in _src_ped
-   and 'variante_estudio or "v4"' not in _src_ped,
-   "pedir: la variante vacía es la global, como en el resolver (no «v4» por omisión)")
+# (integración, 26-sep-2026: con el tipo del encargo, como los gemelos, para
+# que `ESTUDIO_PROMPT_AD` encienda la v4 también aquí)
+ok("_taller_variante_estudio(user_email, variante_estudio, _tipo_pp)" in _src_ped
+   and 'variante_estudio or "v4"' not in _src_ped
+   and "encargo" in _src_ped.split("_tipo_pp =", 1)[-1].split("\n", 1)[0],
+   "pedir: la variante vacía es la global de SU TIPO, como en el resolver (no «v4» por omisión)")
 # (j) Las citas del escrito a renglón fijo: la del inventario (renglones
 # repuestos) y la del planificador (texto crudo) valen las dos; una palabra
 # cambiada, ninguna. Medido en las 8 sesiones del banco (sólo lectura): antes
