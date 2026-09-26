@@ -830,6 +830,36 @@ if _oros:
     ok(_quitados == 0, f"calibrado contra {len(_oros)} engroses reales (campo «oro»): 0 renglones quitados")
 else:
     print("   (sin el corpus de engroses a mano: la calibración no se corre aquí)")
+
+
+print("\n14 · COMPROBACIÓN: /taller/recalificar NO DICE «NO SE GENERÓ» (nadie lo pidió aún)")
+# El caso del punto 2 por la puerta de la pantalla: la recalificación falla
+# (proveedor caído) antes de que él pida el proyecto. El aviso nombra los
+# planteamientos y dice qué hacer, pero no que un proyecto no se generó: eso
+# sólo lo dicen los gemelos, que sí se negaron a generar.
+_orig_ll = rc._llamar
+try:
+    rc._llamar = _llamar_mal
+    _ns_rc = _gemelos_ns()
+    _ses_rc, _ = _sesion()
+    _ns_rc["_taller_recuperar_sesion"] = lambda u, n: _ses_rc
+    _nodo_rc = copy.deepcopy(FN["taller_recalificar"])
+    _nodo_rc.decorator_list = []
+    exec(compile(ast.Module(body=[_nodo_rc], type_ignores=[]), "main.py", "exec"), _ns_rc)
+    _out_rc = asyncio.run(_ns_rc["taller_recalificar"](
+        numero="1/2026", user_email="x@y.mx", criterios_json=CJg, global_json=json.dumps(GLOBg),
+        modo_decision="", sentido_global="", global_dictado="", usar_propuesta=False, sentido="",
+        problema="", razonamiento="", contexto="", suplencia="", formato=""))
+finally:
+    rc._llamar = _orig_ll
+_av_sc = [a for a in _out_rc["avisos"] if "SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO" in a]
+ok(_out_rc["estado"] == "fallo" and len(_av_sc) == 1 and P2g[:60] in _av_sc[0]
+   and "NO SE GENERÓ" not in _av_sc[0] and "el proyecto no se genera" in _av_sc[0]
+   and "Califícalos tú en la pantalla" in _av_sc[0]
+   and not any(a.startswith("SE RECALIFICAN CON TU PREMISA") for a in _out_rc["avisos"]),
+   "la pantalla: nombra los planteamientos y qué hacer, sin decir que no se generó un proyecto")
+ok(rc.aviso_sin_calificar([P2g], "infundado").startswith("NO SE GENERÓ EL PROYECTO."),
+   "…y los gemelos, que sí se negaron a generar, lo siguen diciendo")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)

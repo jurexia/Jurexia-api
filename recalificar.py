@@ -909,7 +909,7 @@ def estado_de(doc, huella: str, k: str, ahora: float) -> dict:
 # ═══ LO QUE SE LE DICE AL SECRETARIO ════════════════════════════════════════
 
 def aviso_sin_calificar(problemas: list, sentido_principal: str, reintentable: bool = True,
-                        motivo: str = "") -> str:
+                        motivo: str = "", al_generar: bool = True) -> str:
     """LO QUE SE LE DICE CUANDO LA RECALIFICACIÓN NO LLEGÓ, y por qué NO se
     genera (decisión del integrador, 26-sep-2026). Los dos gemelos lo devuelven
     —el de flujo como evento «error», el plano como 409— en vez de escribir el
@@ -922,7 +922,12 @@ def aviso_sin_calificar(problemas: list, sentido_principal: str, reintentable: b
     volver a generar de verdad lo reintenta (`reintentable`): una corrida que
     sigue en marcha o que tropezó con el proveedor; no una premisa cuya
     recalificación ya no pasó la validación, ni con las corridas agotadas.
-    `motivo`: «fallo», «tope», «error» o «en_curso»."""
+    `motivo`: «fallo», «tope», «error» o «en_curso».
+
+    `al_generar`: lo dice un gemelo que se negó a generar (True) o
+    /taller/recalificar, donde nadie pidió todavía el proyecto (False): ahí
+    «NO SE GENERÓ EL PROYECTO» era falso —se dice que no se generará sin ellos—
+    (comprobación de la revisión adversarial, 26-sep-2026)."""
     _por = {"fallo": " (con esta premisa ya se intentó y no pasó la validación)",
             "tope": f" (se agotaron las {TOPE_CORRIDAS} recalificaciones de este adelanto)",
             "error": " (el proveedor falló o no respondió a tiempo)",
@@ -931,9 +936,13 @@ def aviso_sin_calificar(problemas: list, sentido_principal: str, reintentable: b
               "la recalificación." if reintentable else
               "Califícalos tú en la pantalla —un clic—: con esta premisa no se vuelve a "
               "intentar.")
-    return ("NO SE GENERÓ EL PROYECTO. SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO: "
+    _sin = ("Sin su calificación, la apertura, el cierre y los resolutivos se armarían sin "
+            "ellos. " if al_generar else
+            "Sin su calificación el proyecto no se genera: la apertura, el cierre y los "
+            "resolutivos se armarían sin ellos. ")
+    return (("NO SE GENERÓ EL PROYECTO. " if al_generar else "")
+            + "SIN CALIFICAR TRAS TU CAMBIO DE SENTIDO: "
             + " · ".join(f"«{t[:80]}»" for t in problemas[:6])
             + f". Con el principal {str(sentido_principal or '').replace('_', ' ')} —la vía "
               "contraria a la que propuso el motor— su calificación de la otra vía se retiró y la "
-              f"recalificación con tu premisa no llegó{_por}. Sin su calificación, la apertura, el "
-              "cierre y los resolutivos se armarían sin ellos. " + _hacer)
+              f"recalificación con tu premisa no llegó{_por}. " + _sin + _hacer)

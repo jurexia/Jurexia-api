@@ -32926,8 +32926,8 @@ def _taller_armar_criterio(r, ses, glob: dict, *, sentido: str = "", problema: s
     # LO QUE SIGUE VACÍO Y NO ESTÁ POR RECALIFICAR no se estudia, y se dice: son
     # los que él dejó sin sentido y los que la máquina dejó vacíos sin que el
     # árbol les encontrara calificación. Los tumbados por recalificar se
-    # quedan: los recalifica el motor o, si no llega, el estudio los desarrolla
-    # con el material y los pone primero en ADVERTENCIAS.
+    # quedan: los recalifica el motor o, si no llega, los gemelos NO generan
+    # y se lo dicen (`_taller_recalificado_al_resolver`, 26-sep-2026).
     _huecos = [c for c in crit if not str(c.sentido or "").strip()
                and not (_det_ad.get(str(c.problema)) or {}).get("recalificar")]
     if _huecos:
@@ -36770,9 +36770,11 @@ async def taller_recalificar(
         _av_rc = [a for a in _av_rc if not str(a).startswith("SE RECALIFICAN CON TU PREMISA")]
         _pral_e = next((c for c in (a2.get("crit") or [])
                         if str(getattr(c, "jerarquia", "")).lower() == "principal"), None)
+        # Aquí nadie pidió aún el proyecto: «NO SE GENERÓ» sería falso.
         _av_rc.append(_rc_e.aviso_sin_calificar(
             _pend_e, getattr(_pral_e, "sentido", ""),
-            reintentable=bool(out.get("reintentable", True)), motivo=str(out.get("motivo") or "")))
+            reintentable=bool(out.get("reintentable", True)), motivo=str(out.get("motivo") or ""),
+            al_generar=False))
     return {"estado": out["estado"], "clave": out["clave"],
             "criterios": _taller_criterios_pantalla(a2),
             "avisos": _av_rc + list(out.get("avisos") or [])}
