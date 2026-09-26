@@ -32710,6 +32710,9 @@ async def _taller_recalificar_correr(email: str, numero: str, r, ses, arm: dict,
     except Exception as ex:
         salida = {"clave": k, "estado": "error", "resultados": {},
                   "avisos": [f"la recalificación falló ({type(ex).__name__})"]}
+    # LA PREMISA SOLA viaja a la casilla: si después él pisa uno de los
+    # tumbados, lo de los demás se reutiliza (`recalificar.casilla_de`).
+    salida["premisa"] = _rc.premisa_de(arm.get("detalle") or {})
     _seg = time.time() - t0
     # HIGIENE DE REGISTROS: sólo números y la clave.
     print(f"   🔁 RECALIFICAR {numero}: {salida.get('estado')} en {_seg:.0f} s · "
@@ -32765,8 +32768,18 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
             except Exception:
                 pass
 
+    # LA MISMA PREMISA YA RECALIFICADA CON MÁS PENDIENTES (él pisó alguno de
+    # los tumbados después): lo de los demás se reutiliza, sin otra corrida y
+    # sin que cambien (revisión adversarial, 26-sep-2026).
     try:
-        while True:
+        _cas0 = _rc.casilla_de(_rc.guardadas(_taller_plan_leer(user_email, numero), huella), k,
+                               _rc.premisa_de(det), _rc.pendientes(det))
+        if isinstance(_cas0, dict) and _cas0.get("estado") == "listo":
+            salida = _cas0
+    except Exception as ex:
+        print(f"   ⚠️ RECALIFICAR {numero}: no se pudo leer lo guardado: {err(ex)}")
+    try:
+        while salida is None:
             _, dec = _taller_plan_cas(user_email, numero, lambda d: _rc.fila_pedir(
                 d, k, huella, time.time()))
             if dec in ("listo", "fallo"):
@@ -32792,6 +32805,11 @@ async def _taller_recalificar_para(user_email: str, numero: str, r, ses, glob: d
             if dec == "tope":
                 avisos.append(f"se agotaron las {_rc.TOPE_CORRIDAS} recalificaciones de este "
                               f"adelanto")
+                # LO QUE SÍ SE GUARDÓ DE ESTA PREMISA (un «error» con parte
+                # recalificada) se aplica: /taller/reparto y /taller/plan/pedir
+                # ya lo aplican, y el documento no puede decir otra cosa
+                # (revisión adversarial, 26-sep-2026).
+                salida = _rc.guardadas(_taller_plan_leer(user_email, numero), huella).get(k)
                 break
             # «lanzar», o sin base / sin columna / sin fila: se calcula aquí; sin
             # base no hay reutilización, pero sirve a esta petición.
@@ -32887,15 +32905,21 @@ def _taller_recalificado_al_pedir(email: str, numero: str, r, ses, glob: dict, f
     k = _rc.clave_de(det)
     huella = arm.get("huella") or _te.huella_contraste(r)
     doc = _taller_plan_leer(email, numero)
-    casilla = _rc.guardadas(doc, huella).get(k)
+    casilla = _rc.casilla_de(_rc.guardadas(doc, huella), k, _rc.premisa_de(det),
+                             _rc.pendientes(det))
+    est = _rc.estado_de(doc, huella, k, time.time())["estado"]
+    # CON LAS CORRIDAS AGOTADAS nadie la va a calcular: el resolver genera con
+    # lo que haya (lo guardado, o los tumbados sin calificar), y el plan se pide
+    # sobre eso mismo; si no, esperaría para siempre (revisión adversarial).
+    _nadie = _rc.agotadas(doc, huella) and est != "en_curso"
     if casilla:
         try:
             nuevo = _taller_armar_criterio(r, ses, glob, **form, recalificadas={k: casilla})
         except Exception:
             nuevo = arm
         return nuevo, bool(_rc.pendientes(nuevo.get("detalle") or {})
-                           and casilla.get("estado") not in ("listo", "fallo"))
-    return arm, _rc.estado_de(doc, huella, k, time.time())["estado"] != "fallo"
+                           and casilla.get("estado") not in ("listo", "fallo") and not _nadie)
+    return arm, est != "fallo" and not _nadie
 
 
 def _taller_plan_adelantar(email: str) -> bool:

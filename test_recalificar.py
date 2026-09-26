@@ -753,6 +753,192 @@ ok(o["estado"] == "listo", "sin la base, la recalificación sirve igual a esta p
 ok(pe.clave(o["arm"]["crit"], "h", "", {}) == pe.clave(out2["arm"]["crit"], "h", "", {}),
    "el mismo formulario da el mismo criterio recalificado (la misma clave del plan)")
 
+print("\n11 · REVISIÓN ADVERSARIAL (26-sep-2026)")
+# (a) LA VUELTA A LA VÍA DEL MOTOR, con un tumbado que NO depende: sin la
+# vuelta, se quedaba vacío y salía del estudio («NO SE ESTUDIARON»).
+pr_v = props("infundado", "infundado", "infundado")
+c = crit("fundado", pr_v)
+_, det = ad.aplicar(fase3(P1, P2, P3), c, [], pr_v, tipo_asunto="amparo_directo")
+ok(por(c)[P3]["sentido"] == "" and det[P3].get("recalificar"), "(el que no depende se tumba con el principal fundado)")
+vuelta = [dict(x) for x in c]
+vuelta[0]["sentido"] = "infundado"
+_, det = ad.aplicar(fase3(P1, P2, P3), vuelta, [], pr_v, tipo_asunto="amparo_directo")
+ok(por(vuelta)[P3]["sentido"] == "infundado" and por(vuelta)[P3]["razonamiento"] == "los recibos no acreditan el pago"
+   and not rc.pendientes(det),
+   "vuelta a la vía del motor: el tumbado que no depende recibe lo que el motor propuso, con su razón")
+_ses_v = {"propuestas": [types.SimpleNamespace(**p) for p in pr_v], "material": None}
+_f_v = dict(FORM, criterios_json=json.dumps([
+    {"problema": P1, "sentido": "infundado", "razonamiento": "", "jerarquia": "principal", "tocado": True},
+    {"problema": P2, "sentido": "", "razonamiento": "", "jerarquia": "accesorio", "tocado": False},
+    {"problema": P3, "sentido": "", "razonamiento": "", "jerarquia": "accesorio", "tocado": False}]))
+_a_v = entorno(Modelo(BUENO), FakeBase())["_taller_armar_criterio"](resultado(), _ses_v, {}, **_f_v)
+ok([c_.sentido for c_ in _a_v["crit"]] == ["infundado", "infundado", "infundado"]
+   and not any("NO SE ESTUDIARON" in a for a in _a_v["avisos_r"]),
+   "…y por el criterio común: los dos vuelven a lo del motor y se estudian")
+# (b) En la vía que prospera no hay caída, aunque lo guardado diga otra cosa.
+c = crit("fundado", pr_v)
+_, det = ad.aplicar(fase3(P1, P2, P3), c, [], pr_v, tipo_asunto="amparo_directo", huella_adelanto="h1")
+_kp = rc.clave_de(det)
+c = crit("fundado", pr_v)
+_, det = ad.aplicar(fase3(P1, P2, P3), c, [], pr_v, tipo_asunto="amparo_directo", huella_adelanto="h1",
+                    recalificadas={"clave": _kp, "resultados": {P3: {
+                        "sentido": "infundado", "razon": "los recibos no acreditan el pago parcial alegado",
+                        "presupone": {"cita": "la Sala omitió estudiar la excepción", "por_que": "x"},
+                        "verificado": True}}})
+ok(por(c)[P3]["sentido"] == "infundado" and not por(c)[P3]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL),
+   "con el principal prosperando, lo recalificado nunca se escribe como caída")
+# (c) Su razón se queda también en la caída.
+c = crit("infundado")
+c[1]["sentido"], c[1]["razonamiento"] = "", "la cedente litigó de buena fe"
+_, det = ad.aplicar(fase3(P1, P2, P3), c, [], props(), tipo_asunto="amparo_directo",
+                    recalificadas={"clave": _k_suya, "resultados": {P2: {
+                        "sentido": "inoperante", "razon": "la del modelo",
+                        "presupone": {"cita": "la cesionaria es la única obligada", "por_que": "p"},
+                        "verificado": True}}})
+ok(por(c)[P2]["sentido"] == "inoperante" and por(c)[P2]["razonamiento"] == "la cedente litigó de buena fe",
+   "la caída recalificada no le borra la razón que él tecleó")
+# (d) SIN EL MÓDULO QUE REGENERA no se tumba: se conserva y se avisa.
+_rm = ad._recalificar_mod
+ad._recalificar_mod = lambda: None
+try:
+    c = crit("infundado")
+    av, det = ad.aplicar(fase3(P1, P2, P3), c, [], props(), tipo_asunto="amparo_directo")
+    ok(por(c)[P2]["sentido"] == "fundado" and not rc.pendientes(det) and any("otra vía" in a for a in av),
+       "sin `recalificar` el árbol conserva y avisa, como antes")
+finally:
+    ad._recalificar_mod = _rm
+# (e) LOS PLANTEAMIENTOS DE MÁS DE 400 CARACTERES. El criterio armado los
+# recorta a 400 y /taller/reparto no: el árbol tumbaba en la pantalla y en los
+# gemelos los estudiaba «por su cuenta» con la calificación de la otra vía.
+L2 = P2 + " " + ("Se insiste en que la condena en costas no atendió a la conducta procesal. " * 6)
+L3 = P3 + " " + ("Se insiste en que la excepción de pago parcial quedó sin estudio alguno. " * 6)
+assert len(L2) > 400 and len(L3) > 400
+F3L = [dict(fase3(P1)[0]), dict(fase3(P2)[0], pregunta=L2), dict(fase3(P3)[0], pregunta=L3, depende_de=1)]
+PRL = [dict(p, problema={P1: P1, P2: L2, P3: L3}[p["problema"]]) for p in props()]
+
+
+def critL(corte):
+    return [{"problema": x["problema"][:corte], "sentido": x["sentido"], "razonamiento": x["razon"],
+             "jerarquia": "principal" if i == 0 else "accesorio", "tocado": i == 0}
+            for i, x in enumerate(PRL)]
+
+
+cL = critL(400)
+cL[0]["sentido"] = "infundado"
+_, dL = ad.aplicar(copy.deepcopy(F3L), cL, [], copy.deepcopy(PRL), tipo_asunto="amparo_directo",
+                   huella_adelanto="h1")
+cR = critL(10_000)
+cR[0]["sentido"] = "infundado"
+rR = ad.reparto_para_pantalla(copy.deepcopy(F3L), cR, [], copy.deepcopy(PRL), tipo_asunto="amparo_directo",
+                              huella_adelanto="h1")
+ok(len(rc.pendientes(dL)) == 2 and sum(1 for x in rR["criterios"] if x["recalificar"]) == 2,
+   "recortado a 400 (gemelos) o entero (pantalla): los mismos dos tumbados")
+_cR2 = critL(10_000)
+_cR2[0]["sentido"] = "infundado"
+_, dR = ad.aplicar(copy.deepcopy(F3L), _cR2, [], copy.deepcopy(PRL), tipo_asunto="amparo_directo",
+                   huella_adelanto="h1")
+ok(rc.clave_de(dL) == rc.clave_de(dR) != "", "…y la misma clave por las dos puertas")
+_rL = types.SimpleNamespace(fases=f123.Fases123(problemas=copy.deepcopy(F3L)))
+_prL, _acL = rc.entradas(_rL, [f6.Criterio(problema=x["problema"], sentido=x["sentido"],
+                                           razonamiento=x["razonamiento"], jerarquia=x["jerarquia"])
+                               for x in cL], dL)
+ok(sorted(a["numero"] for a in _acL) == [2, 3] and all(a["fase3"].get("combate") for a in _acL),
+   "el modelo los recibe con su número y lo que combaten (no dos «planteamiento 0»)")
+# Sin su problema de la fase 3, cada uno con un número propio: la respuesta se
+# casa por número y dos «0» se llevaban la misma calificación.
+_pr0, _ac0 = rc.entradas(types.SimpleNamespace(fases=f123.Fases123(problemas=[])),
+                         [f6.Criterio(problema=x["problema"], sentido=x["sentido"],
+                                      razonamiento=x["razonamiento"], jerarquia=x["jerarquia"]) for x in cL], dL)
+_n0 = [a["numero"] for a in _ac0]
+_res0, _f0, _ = rc.validar({"planteamientos": [
+    {"numero": _n0[0], "sentido": "infundado", "razon": "la condena atendió al resultado del juicio"},
+    {"numero": _n0[1], "sentido": "inoperante", "razon": "no combate la consideración que sostiene lo resuelto"}]},
+    _ac0, _pr0)
+ok(len(set(_n0)) == 2 and 0 not in _n0 and not _f0
+   and {v["sentido"] for v in _res0.values()} == {"infundado", "inoperante"},
+   "sin la fase 3, números distintos y cada respuesta a su planteamiento")
+_resL = {"clave": rc.clave_de(dL), "resultados": {
+    L2[:400]: {"sentido": "infundado", "razon": "la condena atendió al resultado del juicio", "presupone": None,
+               "verificado": False},
+    L3[:400]: {"sentido": "infundado", "razon": "los recibos no acreditan el pago parcial", "presupone": None,
+               "verificado": False}}}
+cR3 = critL(10_000)
+cR3[0]["sentido"] = "infundado"
+rR3 = ad.reparto_para_pantalla(copy.deepcopy(F3L), cR3, [], copy.deepcopy(PRL), tipo_asunto="amparo_directo",
+                               huella_adelanto="h1", recalificadas=_resL)
+ok(all(x["recalificada"] and x["sentido"] == "infundado" for x in rR3["criterios"][1:]),
+   "lo guardado por los gemelos (recortado) se aplica en la pantalla (entero)")
+# (f) ÉL PISA UNO DE LOS TUMBADOS: los demás no se rehacen ni cambian.
+F3P = fase3(P1, P2, P4)
+PRP = props(con=(P1, P2, P4))
+_sesP = {"propuestas": [types.SimpleNamespace(**p) for p in PRP], "material": None}
+
+
+def resP():
+    r = resultado()
+    r.fases = f123.Fases123(resumen_acto="La Sala condenó.", problemas=copy.deepcopy(F3P), fuentes=["", ""])
+    return r
+
+
+BUENO2 = {"planteamientos": [
+    {"numero": 2, "sentido": "infundado", "razon": "la condena en costas atendió al resultado del juicio",
+     "presupone": None},
+    {"numero": 3, "sentido": "fundado", "razon": "la pericial contable se ofreció en tiempo y era idónea",
+     "presupone": None}]}
+
+
+def formP(toca2):
+    return dict(FORM, criterios_json=json.dumps([
+        {"problema": P1, "sentido": "infundado", "razonamiento": "", "jerarquia": "principal", "tocado": True},
+        {"problema": P2, "sentido": "fundado", "razonamiento": "suya" if toca2 else "las costas siguen",
+         "jerarquia": "accesorio", "tocado": toca2},
+        {"problema": P4, "sentido": "fundado", "razonamiento": "la pericial era idónea", "jerarquia": "accesorio",
+         "tocado": False}]))
+
+
+_bP, _mP = FakeBase(), Modelo(BUENO2)
+nsP = entorno(_mP, _bP)
+aP = nsP["_taller_armar_criterio"](resP(), _sesP, {}, **formP(False))
+oP = asyncio.run(nsP["_taller_recalificar_para"]("casa@iurexia.com", "1/2026", resP(), _sesP, {}, formP(False), aP))
+ok(oP["estado"] == "listo" and len(_mP.kw) == 1 and sorted(rc.pendientes(aP["detalle"])) == sorted([P2, P4]),
+   "(dos tumbados, una llamada)")
+aP2 = nsP["_taller_armar_criterio"](resP(), _sesP, {}, **formP(True))
+oP2 = asyncio.run(nsP["_taller_recalificar_para"]("casa@iurexia.com", "1/2026", resP(), _sesP, {}, formP(True), aP2))
+_s2 = {c_.problema: c_.sentido for c_ in oP2["arm"]["crit"]}
+ok(oP2["estado"] == "listo" and len(_mP.kw) == 1 and _s2[P4] == "fundado" and _s2[P2] == "fundado"
+   and oP2["clave"] != oP["clave"],
+   "él pisa uno: el otro se queda como se recalificó, sin otra llamada (la misma premisa)")
+_docP = _bP.filas[0]["plan"]
+ok(_docP["recalificaciones_corridas"] == 1, "…y sin gastar otra corrida del adelanto")
+_hP = _te.huella_contraste(resP())
+_cP = [dict(x) for x in json.loads(formP(True)["criterios_json"])]
+rPant = ad.reparto_para_pantalla(copy.deepcopy(F3P), _cP, [], copy.deepcopy(PRP), tipo_asunto="amparo_directo",
+                                 recalificadas=rc.guardadas(_docP, _hP), huella_adelanto=_hP)
+ok([x["de"] for x in rPant["criterios"]] == ["principal", "tuya", "recalificada"],
+   "/taller/reparto dice lo mismo: el suyo es suyo y el otro, recalificado")
+_, faltaP = nsP["_taller_recalificado_al_pedir"]("casa@iurexia.com", "1/2026", resP(), _sesP, {}, formP(True), aP2)
+ok(not faltaP, "…y el plan se pide sin esperar a nadie")
+# (g) LAS CORRIDAS AGOTADAS: lo guardado se aplica y el plan no espera.
+_bT = FakeBase()
+nsT = entorno(Modelo(BUENO), _bT)
+aT = nsT["_taller_armar_criterio"](resultado(), _ses, {}, **FORM)
+kT, hT = rc.clave_de(aT["detalle"]), _te.huella_contraste(resultado())
+dT, _ = rc.fila_pedir(None, kT, hT, 1.0)
+dT, _ = rc.fila_resultado(dT, kT, hT, {"estado": "error", "resultados": {P2: {
+    "sentido": "infundado", "razon": "la condena atendió al resultado del juicio", "presupone": None,
+    "verificado": False}}, "avisos": []}, 1.0, 2.0)
+dT["recalificaciones_corridas"] = rc.TOPE_CORRIDAS
+_bT.filas[0]["plan"] = dT
+_mT = nsT["chat_client"]
+oT = asyncio.run(nsT["_taller_recalificar_para"]("casa@iurexia.com", "1/2026", resultado(), _ses, {}, FORM, aT))
+ok(len(_mT.kw) == 0 and oT["arm"]["crit"][1].sentido == "infundado",
+   "tope: lo guardado de esta premisa (un «error» con resultado) se aplica igual que en la pantalla")
+_, faltaT = nsT["_taller_recalificado_al_pedir"]("casa@iurexia.com", "1/2026", resultado(), _ses, {}, FORM, aT)
+ok(not faltaT, "tope: el plan no espera una recalificación que nadie va a calcular")
+_bT.filas[0]["plan"] = dict(dT, recalificaciones={})
+_, faltaT2 = nsT["_taller_recalificado_al_pedir"]("casa@iurexia.com", "1/2026", resultado(), _ses, {}, FORM, aT)
+ok(not faltaT2, "…tampoco sin nada guardado")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

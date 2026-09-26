@@ -88,6 +88,9 @@ from __future__ import annotations
 
 INNECESARIO = "innecesario"
 INOPERANTE = "inoperante"
+# Donde `main._taller_armar_criterio` corta el texto del problema. Lo que llega
+# recortado se casa con su problema de la fase 3 por esos primeros caracteres.
+CORTE_PROBLEMA = 400
 
 # Lo que un accesorio pide y que NO se declara innecesario aunque el principal
 # prospere: da más de lo concedido. Es la misma lista de modos_decision, que
@@ -454,13 +457,24 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
 
     textos = [_texto(p) for p in (problemas or [])]
     por_texto = {t: (i + 1, p) for i, (t, p) in enumerate(zip(textos, problemas or []))}
+    # EL CRITERIO ARMADO RECORTA EL PROBLEMA A 400 CARACTERES
+    # (`main._taller_armar_criterio`) y /taller/reparto no (revisión
+    # adversarial del cambio de sentido, 26-sep-2026). Sin esto, en los
+    # gemelos un planteamiento largo no casaba con su problema de la fase 3:
+    # perdía su `depende_de`, su clase y lo que combate, y el árbol lo
+    # estudiaba «por su cuenta» con la calificación de la otra vía mientras la
+    # pantalla lo enseñaba tumbado —otra clave, otra suerte—.
+    for _t_largo, _v_largo in list(por_texto.items()):
+        if len(_t_largo) > CORTE_PROBLEMA:
+            por_texto.setdefault(_t_largo[:CORTE_PROBLEMA], _v_largo)
 
     principal = next((c for c in criterios
                       if str(_get(c, "jerarquia", "")).lower() == "principal"), None)
     if principal is None:
         # Sin marca de jerarquía, el primero de la fase 3 es el principal.
         principal = next((c for c in criterios
-                          if textos and str(_get(c, "problema", "")) == textos[0]),
+                          if textos and str(_get(c, "problema", "")) in
+                          (textos[0], textos[0][:CORTE_PROBLEMA])),
                          criterios[0])
     p_txt = str(_get(principal, "problema", ""))
     p_num = por_texto.get(p_txt, (1, None))[0]
@@ -561,7 +575,11 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # recalificación que la pantalla devuelve—, y si decidiera quién entra, la
     # clave cambiaría en cuanto la pantalla devolviera lo recalificado y la
     # recalificación guardada no se encontraría nunca.
-    _cambio_via = bool(_via_conocida and not _via_motor and not global_dictado)
+    # Sin el módulo que regenera no se tumba: se conserva y se avisa, como
+    # antes (tumbar sin poder regenerar dejaría los accesorios sin calificar
+    # y sin aviso).
+    _cambio_via = bool(_via_conocida and not _via_motor and not global_dictado
+                       and _recalificar_mod() is not None)
     _cand: dict = {}               # problema → {"procesal": bool}
     # LA RAZÓN QUE ÉL TECLEÓ SIN ELEGIR SENTIDO es su palabra aunque la pantalla
     # no lo marque tocado. Si ese accesorio se recalifica, se tumba el sentido
@@ -1101,7 +1119,11 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
     razon_suya = dict(razon_suya or {})
     k = _rc.clave(p_txt, p_sent, str(_get(principal, "razonamiento", "") or ""), recal,
                   huella_adelanto, tipo_asunto)
-    casilla = _rc.casilla_de(recalificadas, k)
+    # La premisa sola: si él pisó alguno de los tumbados, lo que el motor ya
+    # recalificó para los demás con esta misma premisa sigue valiendo.
+    kp = _rc.clave_premisa(p_txt, p_sent, str(_get(principal, "razonamiento", "") or ""),
+                           huella_adelanto, tipo_asunto)
+    casilla = _rc.casilla_de(recalificadas, k, kp, recal)
     res = dict((casilla or {}).get("resultados") or {})
     por_c = {str(_get(c, "problema", "")): c for c in criterios}
     aplicadas, faltan = [], []
@@ -1109,7 +1131,7 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
         c = por_c[t]
         prev = detalle.get(t) or {}
         base = {x: prev[x] for x in ("guarda", "relacion") if prev.get(x)}
-        base.update({"clave_recalificar": k, "principal": p_txt,
+        base.update({"clave_recalificar": k, "premisa_recalificar": kp, "principal": p_txt,
                      "procesal": bool((cand.get(t) or {}).get("procesal"))})
         _suya = str(razon_suya.get(t) or "").strip()
         if _suya:
@@ -1118,7 +1140,10 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
         # que tecleó él, sí.
         _set(c, "sentido", "")
         _set(c, "razonamiento", _suya)
-        rt = res.get(t) if isinstance(res.get(t), dict) else None
+        # Lo guardado lleva el problema como lo armó el criterio (recortado a
+        # 400); /taller/reparto lo trae entero.
+        rt = res.get(t) if isinstance(res.get(t), dict) else (
+            res.get(t[:CORTE_PROBLEMA]) if isinstance(res.get(t[:CORTE_PROBLEMA]), dict) else None)
         s_rt = _sentido_valido((rt or {}).get("sentido"))
         r_rt = str((rt or {}).get("razon") or "").strip()
         if rt and s_rt and r_rt:
@@ -1128,16 +1153,22 @@ def _tumbar_y_aplicar(_rc, criterios: list, recal: list, cand: dict, detalle: di
             if _suya:
                 base["razon_suya"] = True
             pre = rt.get("presupone") if isinstance(rt.get("presupone"), dict) else None
+            # CON SU RAZÓN, de lo recalificado sólo se toma el sentido, también
+            # en la caída y en la sustracción: la fórmula sustituiría lo que él
+            # escribió (revisión adversarial, 26-sep-2026).
             if pre and rt.get("verificado") is True and not base["procesal"] and not pros:
                 _pq = str(pre.get("por_que") or "").strip() or r_rt
                 _set(c, "sentido", s_rt if s_rt in _CAIDA else INOPERANTE)
-                _set(c, "razonamiento", f"{CAE_CON_PRINCIPAL} al resolver el problema principal: {_pq}")
+                _set(c, "razonamiento", _suya or
+                     f"{CAE_CON_PRINCIPAL} al resolver el problema principal: {_pq}")
                 base.update({"relacion": "presupone", "cita": str(pre.get("cita") or "")})
-                _pant = f"cae con tu premisa: {_pq[:200]} («{str(pre.get('cita') or '')[:120]}»)"
+                _pant = (f"cae con tu premisa{', con tu razón' if _suya else ': ' + _pq[:200]} "
+                         f"(«{str(pre.get('cita') or '')[:120]}»)")
             elif s_rt == INNECESARIO:
                 _set(c, "sentido", INNECESARIO)
-                _set(c, "razonamiento", f"{SIN_MATERIA} el análisis de este planteamiento: {r_rt}")
-                _pant = r_rt
+                _set(c, "razonamiento", _suya or
+                     f"{SIN_MATERIA} el análisis de este planteamiento: {r_rt}")
+                _pant = "innecesario, con tu razón" if _suya else r_rt
             else:
                 _set(c, "sentido", s_rt)
                 _set(c, "razonamiento", _suya or r_rt)

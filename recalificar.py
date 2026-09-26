@@ -158,20 +158,55 @@ def clave(principal_problema, sentido, razon, pendientes, huella_adelanto,
     entra: la pantalla la devuelve después junto con el sentido recalificado,
     y la clave tiene que ser la misma en las dos vueltas. Viaja guardada con
     el resultado (`razon_suya`) y el árbol la vuelve a poner."""
+    # LOS TEXTOS, RECORTADOS COMO LOS RECORTA EL CRITERIO ARMADO (400): la
+    # pantalla (/taller/reparto) manda el problema entero y los gemelos lo
+    # traen recortado; la clave tiene que ser la misma por las dos puertas.
+    _c = _corte()
     base = {"v": VERSION,
-            "p": _clave_texto(principal_problema),
+            "p": _clave_texto(str(principal_problema or "")[:_c]),
             "s": _norm_sentido(sentido),
             "r": _ws(razon),
-            "pend": sorted(_clave_texto(x) for x in (pendientes or [])),
+            "pend": sorted(_clave_texto(str(x or "")[:_c]) for x in (pendientes or [])),
             "h": str(huella_adelanto or ""),
             "t": str(tipo_asunto or "").strip().lower()}
     return hashlib.sha1(json.dumps(base, ensure_ascii=False, sort_keys=True)
                         .encode()).hexdigest()[:20]
 
 
-def casilla_de(recalificadas, k: str):
+def clave_premisa(principal_problema, sentido, razon, huella_adelanto, tipo_asunto) -> str:
+    """LA PREMISA SOLA: la clave sin los pendientes. Sirve para no rehacer lo
+    que ya se recalificó cuando el secretario PISA uno de los tumbados
+    (revisión adversarial, 26-sep-2026): el conjunto de pendientes cambia —y
+    con él la clave—, pero la premisa es la misma y lo que el motor calificó
+    para los demás sigue siendo de esa premisa. Sin esto, cada pastilla que él
+    marcaba lanzaba otra corrida (de las seis del adelanto) y los demás podían
+    salir distintos: «lo que el secretario marque después la sustituye», a
+    ella, no a sus vecinos."""
+    return "p-" + clave(principal_problema, sentido, razon, ["\x00premisa"], huella_adelanto,
+                        tipo_asunto)
+
+
+def premisa_de(detalle: dict) -> str:
+    """La clave de la premisa que el árbol calculó ('' si no hay)."""
+    for d in (detalle or {}).values():
+        if isinstance(d, dict) and d.get("premisa_recalificar"):
+            return str(d["premisa_recalificar"])
+    return ""
+
+
+def _cubre(resultados: dict, pendientes: list) -> bool:
+    _c = _corte()
+    tiene = {_clave_texto(str(x)[:_c]) for x, v in (resultados or {}).items() if isinstance(v, dict)}
+    return bool(pendientes) and all(_clave_texto(str(x)[:_c]) in tiene for x in pendientes)
+
+
+def casilla_de(recalificadas, k: str, premisa: str = "", pendientes: list = None):
     """La recalificación guardada con la clave `k`, o None. Acepta una sola
-    ({"clave", "resultados"}) o la rama entera de la fila ({clave: casilla})."""
+    ({"clave", "resultados"}) o la rama entera de la fila ({clave: casilla}).
+
+    Sin la de la misma clave, y con la rama entera: una «listo» de la MISMA
+    premisa (`premisa`, ver `clave_premisa`) que ya calificó todos los
+    `pendientes` —la de antes de que él pisara alguno—."""
     if not isinstance(recalificadas, dict) or not k:
         return None
     if recalificadas.get("clave") == k and isinstance(recalificadas.get("resultados"), dict):
@@ -179,7 +214,15 @@ def casilla_de(recalificadas, k: str):
     c = recalificadas.get(k)
     if isinstance(c, dict) and isinstance(c.get("resultados"), dict) and c.get("resultados"):
         return c
-    return None
+    if not premisa or not pendientes:
+        return None
+    mejores = [x for x in recalificadas.values()
+               if isinstance(x, dict) and x.get("premisa") == premisa
+               and x.get("estado") == "listo" and isinstance(x.get("resultados"), dict)
+               and _cubre(x["resultados"], pendientes)]
+    if not mejores:
+        return None
+    return max(mejores, key=lambda x: float(x.get("hecho") or 0))
 
 
 def catalogo(via_prospera: bool, procesal: bool = False) -> tuple:
@@ -197,15 +240,29 @@ def catalogo(via_prospera: bool, procesal: bool = False) -> tuple:
 
 # ═══ LO QUE VE EL MODELO ════════════════════════════════════════════════════
 
+def _corte() -> int:
+    try:
+        import arbol_decision as _ad
+        return int(_ad.CORTE_PROBLEMA)
+    except Exception:                                   # pragma: no cover
+        return 400
+
+
 def _fase3(r, problema: str):
-    """(número 1..n, dict de la fase 3) del problema, por su pregunta."""
+    """(número 1..n, dict de la fase 3) del problema, por su pregunta. El
+    criterio armado recorta el problema a 400 caracteres: se casa también por
+    esos primeros caracteres (sin eso, un planteamiento largo llegaba al
+    modelo sin número y sin lo que combate)."""
     probs = list(getattr(getattr(r, "fases", None), "problemas", None) or [])
     k = _clave_texto(problema)
+    _c = _corte()
+    k_c = _clave_texto(str(problema or "")[:_c])
     for i, p in enumerate(probs, 1):
         d = p if isinstance(p, dict) else {"pregunta": str(p)}
-        if _clave_texto(d.get("pregunta")) == k or (
-                d.get("pregunta_original") and _clave_texto(d.get("pregunta_original")) == k):
-            return i, d
+        for campo in ("pregunta", "pregunta_original"):
+            v = str(d.get(campo) or "")
+            if v and (_clave_texto(v) == k or _clave_texto(v[:_c]) == k_c):
+                return i, d
     return 0, {"pregunta": problema}
 
 
@@ -323,8 +380,15 @@ def entradas(r, crit, detalle: dict) -> tuple:
                  "razon": str(_get(pc, "razonamiento", "") or ""), "fase3": f3_p}
     acc = []
     por_c = {str(_get(c, "problema", "")): c for c in (crit or [])}
+    _usados = {n_p}
     for t in pend:
         n, f3 = _fase3(r, t)
+        if not n or n in _usados:
+            # Sin su problema de la fase 3 no hay número: se le da uno que no
+            # choque. La respuesta se casa por número, y dos «0» se llevaban
+            # la misma calificación (revisión adversarial, 26-sep-2026).
+            n = max([100] + list(_usados)) + 1
+        _usados.add(n)
         d = detalle.get(t) or {}
         acc.append({"problema": t, "numero": n, "fase3": f3,
                     "procesal": bool(d.get("procesal")),
@@ -698,7 +762,9 @@ def fila_resultado(doc, k: str, huella: str, salida: dict, segundos: float,
         "estado": est if est in ("listo", "fallo", "error") else "error",
         "resultados": dict((salida or {}).get("resultados") or {}),
         "avisos": list((salida or {}).get("avisos") or [])[:20],
-        "segundos": round(float(segundos or 0), 1), "hecho": ahora}
+        "segundos": round(float(segundos or 0), 1), "hecho": ahora,
+        # La premisa sola: lo que sirve cuando él pisa uno (`casilla_de`).
+        "premisa": str((salida or {}).get("premisa") or "")}
     _podar(d["recalificaciones"], k)
     return d, est
 
@@ -721,6 +787,17 @@ def guardadas(doc, huella: str) -> dict:
     return {k: copy.deepcopy(c) for k, c in (doc.get("recalificaciones") or {}).items()
             if isinstance(c, dict) and c.get("estado") in ("listo", "fallo", "error")
             and c.get("resultados")}
+
+
+def agotadas(doc, huella: str, tope: int = TOPE_CORRIDAS) -> bool:
+    """¿Se gastaron las corridas de este adelanto? Entonces nadie calculará
+    una premisa nueva: quien espera no debe esperar."""
+    if not isinstance(doc, dict) or doc.get("huella") != huella:
+        return False
+    try:
+        return int(doc.get("recalificaciones_corridas") or 0) >= tope
+    except (TypeError, ValueError):
+        return False
 
 
 def estado_de(doc, huella: str, k: str, ahora: float) -> dict:
