@@ -751,6 +751,38 @@ ok(len(_LANZADO) == 1 and _LANZADO[0] < _pe_w.ESPERA_RESOLVER_S,
    + (f" (a los {_LANZADO[0]:.0f} s)" if _LANZADO else ""))
 _src_pc = ast.get_source_segment(SRC_MAIN, FN["_taller_plan_correr"])
 ok("timeout=_pe.LATIDO_S" in _src_pc, "la corrida del plan late al ritmo que supone su umbral")
+
+
+print("\n12 · LA CITA DE «PRESUPONE» SE PIDE COMO UN PASAJE, NO COMO EL PLANTEAMIENTO")
+
+
+class _M5i:
+    tipo_asunto = "amparo_directo"
+    sondeo = None
+    tesis = []
+    normas = []
+    espejo = None
+
+
+_p5i = " ".join(f5.prompt_propuesta(copy.deepcopy(F3g), _M5i(), "acto", "conceptos", False, "", "").split())
+_i12 = _p5i[_p5i.find("12. LA SUERTE CONDICIONAL"):_p5i.find("13. LAS CONSTANCIAS")]
+ok("PASAJE breve" in _i12 and "cuarenta palabras" in _i12 and "nunca todo lo que se combate" in _i12
+   and "pasaje literal breve" in _p5i,
+   "fase 5, instrucción 12 y esquema: un pasaje breve (hasta unas cuarenta palabras), nunca el entero")
+_pr_i = {"problema": P1g, "sentido": "infundado", "razon": "r", "fase3": F3g[0]}
+_acc_i = [{"problema": P2g, "numero": 2, "fase3": F3g[1], "procesal": False}]
+_p_rc = " ".join(rc.prompt(resultado(F3g), None, _pr_i, _acc_i).split())
+ok("PASAJE breve" in _p_rc and "cuarenta palabras" in _p_rc and "nunca todo lo que se combate" in _p_rc,
+   "recalificación: la misma descripción")
+_comb_i = ("la sala debió estudiar los agravios sobre la tasa de los intereses moratorios porque el pagaré "
+           "no era título ejecutivo y la vía debía improceder desde la demanda")
+_acc_e = [{"problema": P2g, "numero": 2, "fase3": dict(F3g[1], combate=_comb_i), "procesal": False}]
+_, _, _av_e = rc.validar({"planteamientos": [{"numero": 2, "sentido": "inoperante",
+                                              "razon": "descansa en la improcedencia de la vía que se desestimó",
+                                              "presupone": {"cita": _comb_i, "por_que": "la vía improcedente"}}]},
+                         _acc_e, _pr_i)
+ok(_av_e.get(P2g) and "todo lo que se combate" in _av_e[P2g] and "no consta" not in _av_e[P2g],
+   "el aviso de la cita entera no dice «no consta» (sí consta: es demasiado)")
 print()
 print("RESULTADO: TODAS LAS COMPROBACIONES PASAN" if not FALLAS else f"FALLAN {len(FALLAS)}: " + " · ".join(FALLAS))
 raise SystemExit(1 if FALLAS else 0)

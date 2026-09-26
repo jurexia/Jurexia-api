@@ -1094,10 +1094,12 @@ REGLAS QUE NO SE ROMPEN:
      dice qué premisa y lo declaras en `presupone`.{_procesal12}
    · `presupone`: null, salvo cuando el tema cae con el principal por dar por
      cierta su premisa. Entonces es un objeto con `premisa` (la premisa del
-     principal que este argumento da por cierta, en una frase), `cita` (las
-     palabras LITERALES, copiadas de «Se combate diciendo» de ESTE problema,
-     seguidas y sin cortes ni puntos suspensivos, en que la da por cierta: el
-     taller las busca ahí y, si no están, el tema no cae) y `causa_propia`
+     principal que este argumento da por cierta, en una frase), `cita` (un
+     PASAJE breve —de seis a unas cuarenta palabras— con las palabras
+     LITERALES, copiadas de «Se combate diciendo» de ESTE problema, seguidas y
+     sin cortes ni puntos suspensivos, en que la da por cierta; nunca todo lo
+     que se combate: el taller busca el pasaje ahí y, si no está o es el
+     planteamiento entero, el tema no cae) y `causa_propia`
      (lo que el argumento plantea además por su cuenta, en una frase, o null
      si no plantea nada más: con causa propia se estudia aunque el principal
      no prospere).
@@ -1163,7 +1165,7 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
        "si_no_prospera": {{"sentido": "inoperante|infundado|fundado|ineficaz",
                            "razon": "<una frase: por qué, en esta vía>"}},
        "presupone": null | {{"premisa": "<la premisa del principal que da por cierta>",
-                             "cita": "<palabras literales de «Se combate diciendo» de este problema>",
+                             "cita": "<pasaje literal breve de «Se combate diciendo» de este problema>",
                              "causa_propia": null | "<lo que plantea además, en una frase>"}}}}
    ]}}}}"""
 

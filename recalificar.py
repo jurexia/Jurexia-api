@@ -50,8 +50,9 @@ import unicodedata
 # Sube cuando cambie el prompt, el catálogo o la validación: una recalificación
 # hecha con otra versión no se reutiliza (entra en la clave).
 # recal-2 (26-sep-2026): el motivo por el que el árbol manda estudiar un
-# accesorio (`se_estudia`) quita «innecesario» del catálogo, y la clave lleva
-# la suplencia confirmada y el contexto.
+# accesorio (`se_estudia`) quita «innecesario» del catálogo, la clave lleva la
+# suplencia confirmada y el contexto, y la cita de «presupone» se pide como un
+# pasaje breve.
 VERSION = "recal-2"
 
 # EL MODELO DE LAS FASES, con razonamiento MEDIO (contrato): el mismo que el
@@ -574,9 +575,10 @@ def prompt(r, material, principal: dict, accesorios: list, contexto: str = "",
         L.append(
             "- presupone: sólo cuando el argumento ENTERO del planteamiento sólo tiene sentido si "
             "la premisa que el secretario desestimó fuera cierta. Entonces un objeto con «cita» "
-            "—seis palabras o más, LITERALES y seguidas, sin cortes ni puntos suspensivos, "
-            "copiadas de «se combate diciendo» de ESE planteamiento, donde da por cierta esa "
-            "premisa— y «por_que» —la premisa que da por cierta, en una frase—. Si además "
+            "—un PASAJE breve, de seis a unas cuarenta palabras, LITERAL y seguido, sin cortes "
+            "ni puntos suspensivos, copiado de «se combate diciendo» de ESE planteamiento, donde "
+            "da por cierta esa premisa; nunca todo lo que se combate— y «por_que» —la premisa "
+            "que da por cierta, en una frase—. Si además "
             "plantea algo por su cuenta, null. En una violación procesal, siempre null: se "
             "decide por lo que ella plantea (artículos 74, fracción V, y 174 de la Ley de "
             "Amparo). Aunque declares presupone, «sentido» y «razon» son la calificación de "
@@ -690,9 +692,14 @@ def validar(crudo: dict, accesorios: list, principal: dict) -> tuple:
                 presupone = {"cita": ev["cita"][:600], "por_que": _ws(pre.get("por_que"))[:400]}
                 verificado = bool(ev["verificado"])
                 if not verificado:
-                    avisos[t] = (f"«{t[:90]}»: el motor dijo que cae con el principal, pero la cita "
-                                 f"no consta en su planteamiento ({ev['motivo'] or 'sin cita'}); se "
-                                 f"descarta la caída y queda su calificación de fondo "
+                    # «cita_extensa» no es que no conste: consta, pero es todo
+                    # lo que se combate y no prueba dónde da por cierta la
+                    # premisa (el aviso decía «no consta», y era falso).
+                    _no = ("la cita es todo lo que se combate, no el pasaje donde da por cierta "
+                           "la premisa" if ev["motivo"] == "cita_extensa" else
+                           f"la cita no consta en su planteamiento ({ev['motivo'] or 'sin cita'})")
+                    avisos[t] = (f"«{t[:90]}»: el motor dijo que cae con el principal, pero {_no}; "
+                                 f"se descarta la caída y queda su calificación de fondo "
                                  f"({s.replace('_', ' ')})")
         resultados[t] = {"sentido": s, "razon": razon[:1500], "presupone": presupone,
                          "verificado": verificado}
