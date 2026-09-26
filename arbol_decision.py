@@ -351,26 +351,40 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     _motor_de = {str(_get(pr, "problema", "")): _propia(pr) for pr in (propuestas or [])}
     por_189: list = []
 
+    # ¿El principal va por la MISMA vía que propuso el motor? Entonces lo que el
+    # motor propuso para cada problema es la calificación de esta vía.
+    _misma_via = bool(sentido_motor) and _prospera(str(sentido_motor)) == pros
+
     def _conservar(c, t: str) -> str:
         """Lo que se hace con una procesal que el árbol habría sacado: se
         queda con su calificación. Si la que trae no decide —llegó
         «innecesario» de otra pasada, o «inoperante» con la fórmula de caer
         con el principal—, se le devuelve la que el motor le propuso, con su
-        razón; si tampoco hay, se queda como está y el aviso lo pide."""
+        razón; si tampoco hay, se queda como está y el aviso lo pide.
+
+        Y SI EL PRINCIPAL VUELVE A LA VÍA DEL MOTOR, manda lo que el motor
+        propuso (revisión del 26-sep-2026). La que trae puede ser la que se le
+        escribió para la vía contraria en un reparto anterior: con el principal
+        a infundado la pericial quedaba «inoperante, se ofreció en la
+        ampliación precluida», y al volverlo a fundado lo conservaba —la
+        ampliación admitida y su pericial inoperante por haberse ofrecido en
+        ella—."""
         s_act = str(_get(c, "sentido", "")).strip().lower().replace(" ", "_")
         _cae = _cae_con_principal(c)
-        if _decide(s_act) and not _cae:
+        s_mot, r_mot = _motor_de.get(t, ("", ""))
+        _otra = bool(_misma_via and s_mot and _decide(s_act) and s_act != s_mot)
+        if _decide(s_act) and not _cae and not _otra:
             return s_act
         # La razón de «queda sin materia», de «innecesario» (también la del
-        # 189) o de «descansa en la premisa desestimada» sostenía NO decidirla:
-        # no se deja pegada a una calificación. El estudio (fase6) reconoce la
-        # caída por su arranque y la escribiría como tal. Otra razón —la que
-        # el secretario tecleó antes de elegir sentido— no se toca.
+        # 189) o de «descansa en la premisa desestimada» sostenía NO decidirla,
+        # y la de otra calificación sostenía ésa: no se dejan pegadas. El
+        # estudio (fase6) reconoce la caída por su arranque y la escribiría
+        # como tal. Otra razón —la que el secretario tecleó antes de elegir
+        # sentido— no se toca.
         _raz = str(_get(c, "razonamiento", "") or "")
-        if _cae or "sin materia" in _raz.lower() or "innecesari" in _raz.lower():
+        if _cae or _otra or "sin materia" in _raz.lower() or "innecesari" in _raz.lower():
             _set(c, "razonamiento", "")
             _raz = ""
-        s_mot, r_mot = _motor_de.get(t, ("", ""))
         if s_mot:
             _set(c, "sentido", s_mot)
             if r_mot and not _raz.strip():

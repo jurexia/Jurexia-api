@@ -427,7 +427,40 @@ for _pp in (probs(PF, PV1), probs(PF, PV1, dep=None), probs(PF, PV1, PV2)):
     ok(len(_t) == 1, f"modo global: un solo aviso del 189, no {len(_t)} "
                      f"({len(_pp) - 1} procesal(es), depende_de={_pp[1].get('depende_de')})")
 
-print("\n21 · main GUARDA, REPONE Y PASA LO QUE EL MOTOR PROPUSO (gemelos iguales)")
+print("\n21 · IDA Y VUELTA DEL PRINCIPAL: la procesal no se queda con la calificación de la otra vía")
+# El motor propone el principal fundado y la pericial fundada; su lista dice
+# que, si el principal no prospera, la pericial es inoperante (se ofreció en la
+# ampliación). El secretario pasa el principal a infundado y lo devuelve a
+# fundado: la pericial tiene que volver a la calificación del motor, no
+# quedarse «inoperante por haberse ofrecido en la ampliación» con la ampliación
+# admitida.
+_lista_iv = [{"numero": 1, "papel": "principal"},
+             {"numero": 2, "papel": "accesorio", "relacion": "depende",
+              "si_prospera": {"sentido": "innecesario", "razon": "la reposición lo absorbe"},
+              "si_no_prospera": {"sentido": "inoperante",
+                                 "razon": "la pericial se ofreció en la ampliación, bien tenida por precluida"}}]
+_props_iv = [{"problema": VP1, "sentido": "fundado", "razon": "r1", "alcanza": True},
+             {"problema": VP2, "sentido": "fundado", "razon": "la pericial era idónea", "alcanza": True}]
+
+
+def _rep_iv(c):
+    return ad.reparto_para_pantalla(probs(PV1, PV2), c, _lista_iv, _props_iv,
+                                    sentido_motor="fundado")["criterios"]
+
+
+c = _rep_iv([cr(VP1, "fundado", "principal", "r1"), cr(VP2, "fundado", razon="la pericial era idónea")])
+ok(c[1]["sentido"] == "fundado", "en la vía del motor, la pericial con su calificación")
+c[0] = dict(c[0], sentido="infundado", tocado=True)
+c = _rep_iv(c)
+ok(c[1]["sentido"] == "inoperante" and "se ofreció en la ampliación" in c[1]["razonamiento"],
+   "principal a infundado: la pericial, con lo que el motor escribió para esa vía")
+c[0] = dict(c[0], sentido="fundado", tocado=True)
+c = _rep_iv(c)
+ok(c[1]["sentido"] == "fundado" and c[1]["razonamiento"] == "la pericial era idónea",
+   f"de vuelta a fundado: la calificación del motor y su razón, no la de la otra vía: "
+   f"{c[1]['sentido']} · {c[1]['razonamiento'][:40]}")
+
+print("\n22 · main GUARDA, REPONE Y PASA LO QUE EL MOTOR PROPUSO (gemelos iguales)")
 i_prop = src.find("LA SUERTE DE LOS ACCESORIOS, YA EN LA PROPUESTA")
 ok(i_prop > 0 and "_p.sentido_propio = _p.sentido" in src[i_prop:i_prop + 4000],
    "la propuesta guarda lo del motor antes de sobrescribirlo")
