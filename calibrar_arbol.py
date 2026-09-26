@@ -20,7 +20,7 @@ mide aquí, sin llamar a ningún modelo:
 
 Uso (con el .env cargado; la base sólo se LEE):
     .venv/bin/python calibrar_arbol.py --volcar /ruta/sesiones.json
-    .venv/bin/python calibrar_arbol.py /ruta/sesiones.json [--vieja origin/main]
+    .venv/bin/python calibrar_arbol.py /ruta/sesiones.json [--vieja de66e3d]
 """
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def volcar(ruta: str) -> None:
 
 
 def _cargar_vieja(ref: str):
-    """El árbol tal como está en `ref` (por omisión origin/main)."""
+    """El árbol tal como está en `ref` (por omisión, el de antes del cambio)."""
     src = subprocess.run(["git", "show", f"{ref}:arbol_decision.py"], cwd=AQUI,
                          capture_output=True, text=True, check=True).stdout
     tmp = Path(tempfile.mkdtemp()) / "arbol_viejo.py"
@@ -152,7 +152,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("dump", nargs="?")
     ap.add_argument("--volcar")
-    ap.add_argument("--vieja", default="origin/main")
+    # La regla vieja es la de antes de este cambio (de66e3d, origin/main del
+    # 26-sep-2026): después de integrarlo, origin/main ya trae la nueva.
+    ap.add_argument("--vieja", default="de66e3d")
     a = ap.parse_args()
     if a.volcar:
         volcar(a.volcar)
