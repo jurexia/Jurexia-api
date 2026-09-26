@@ -390,7 +390,14 @@ def presupuesto(entrada: dict, accesorio, principal) -> dict:
     if len(pc.split()) < 4:
         out["motivo"] = "cita_corta"
         return out
-    if pc not in _plano(_textos_de(accesorio, "combate", "pregunta")):
+    # PALABRAS ENTERAS Y DENTRO DE UN SOLO TEXTO (revisión del 26-sep-2026):
+    # sin los espacios de los bordes, «scindida es la obligada principal»
+    # constaba dentro de «la escindida es la obligada principal», y con los
+    # dos campos pegados una cita podía empezar en lo que se combate y acabar
+    # en la pregunta. La cita empieza y acaba donde empieza y acaba una
+    # palabra, y está entera en uno de los dos.
+    if not any(f" {pc} " in f" {_plano(_textos_de(accesorio, k))} "
+               for k in ("combate", "pregunta")):
         out["motivo"] = "cita_no_consta"
         return out
     if not (_anclas(cita) & _anclas(_textos_de(principal, "pregunta", "combate", "resolvio"))):
@@ -886,13 +893,38 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
             # entonces. Un «infundado» que dictó el secretario para todo el
             # asunto (modo global) no es de la otra vía, aunque no se escribiera
             # para éste.
-            if _org == "motor_otra_via" or (
-                    _org == "actual" and _via_conocida and not _via_motor
-                    and _k and _k == _motor_de.get(_t, ("", ""))[0]):
+            _de_otra = _org == "motor_otra_via" or (
+                _org == "actual" and _via_conocida and not _via_motor
+                and _k and _k == _motor_de.get(_t, ("", ""))[0])
+            if _de_otra and _via_conocida:
                 _nota += (" —calificación escrita con el principal en la otra vía: revisa que "
                           "siga siendo la tuya—")
-            if not _k:
+            elif _de_otra:
+                # Revisión del 26-sep-2026: sin el sentido del motor para el
+                # principal ni el global no se sabe en qué vía la escribió, y
+                # decir «la otra» sería afirmar lo que no consta.
+                _nota += (" —es la que el motor le propuso, sin que conste en qué vía la "
+                          "escribió: revisa que sea la tuya—")
+            # LO QUE CAMBIA EL DESENLACE, DICHO (revisión del 26-sep-2026).
+            # Medido en el banco Kingston con el principal desestimado: en los
+            # cinco accesorios que quedaron «fundado» con la calificación de la
+            # otra vía, el engrose real los declaró infundados o inoperantes.
+            # Tumbarlos sería la omisión de estudio que esta regla corrige, y
+            # rebajarlos sería inventarles calificación; lo que no puede pasar
+            # es que el asunto prospere por uno de ellos sin que el secretario
+            # lo haya visto.
+            if _de_otra and _k and _prospera(_k):
+                _nota += (" —y como prospera, el asunto prosperaría por él aunque el principal "
+                          "no prospere—")
+            if not _decide(_k):
+                # «innecesario» o «sin materia» que llegaron de otra pasada no
+                # califican nada: con el principal que no prospera, nada lo deja
+                # sin materia (antes sólo se avisaba si llegaba vacío).
                 _nota += " —SIN CALIFICAR: califícalo tú antes de generar—"
+            elif _org == "resto":
+                _nota += (" —llegó declarado caído con el principal y no hay otra calificación "
+                          "para él: se estudia con ésa, sin la fórmula de la caída; revisa que "
+                          "sea la tuya—")
             if _nota:
                 _partes.append(f"«{_t[:80]}» ({_k.replace('_', ' ') if _k else 'sin calificar'})"
                                + _nota)
@@ -928,6 +960,8 @@ def _calificacion_propia(c, s_escrita: str, razon_escrita: str, via_motor: bool,
          el «sin materia»).
       4. Si no, la que el motor le propuso, aunque sea de la otra vía: mejor
          que dejarla sin calificar, y el aviso lo dice.
+      5. Si no hay nada, la que trae, aunque sea un resto, y el aviso pide que
+         la califique o la revise.
     La razón que sostenía otro sentido no se queda pegada al nuevo; la que el
     secretario tecleó para el mismo sentido, sí.
     """
@@ -958,7 +992,12 @@ def _calificacion_propia(c, s_escrita: str, razon_escrita: str, via_motor: bool,
     elif s_mot:
         s_n, r_n, de, org = s_mot, r_mot, "propio", "motor_otra_via"
     else:
-        s_n, r_n, de, org = s_act, "", "propio", "sin_calificar"
+        # Sin nada más, se queda con lo que trae —como la guarda procesal, que
+        # no inventa calificación— y el aviso lo dice: «resto» si lo que trae
+        # es la caída de otra pasada (revisión del 26-sep-2026: salía sin
+        # aviso ninguno), «sin_calificar» si no califica.
+        s_n, r_n, de = s_act, "", "propio"
+        org = "resto" if (sobra and _decide(s_act)) else "sin_calificar"
     if sobra:
         _set(c, "razonamiento", "")
         r_act = ""

@@ -1073,23 +1073,25 @@ REGLAS QUE NO SE ROMPEN:
    · `si_no_prospera`: {{"sentido", "razon"}} = qué le pasa si el principal
      NO prospera. Quedar sin materia cuando el principal prospera NO lo hace
      caer cuando no prospera: si ataca otra consideración del acto o denuncia
-     otro vicio —la congruencia o el alcance de una condena, las costas, una
-     omisión de estudio propia—, lleva la calificación que merece por lo que
-     él mismo plantea, con su razón. Sólo es "inoperante" por caer con el
-     principal cuando TODO su argumento da por cierta la premisa que el
-     principal sostenía y que se desestima; entonces la razón dice qué premisa
-     y lo declaras en `presupone`.{_procesal12}
+     otro vicio —la congruencia o el alcance de una condena, la condena en
+     costas por una causa suya y no por el resultado que pide en el
+     principal, una omisión de estudio propia—, lleva la calificación que
+     merece por lo que él mismo plantea, con su razón. Sólo es "inoperante"
+     por caer con el principal cuando TODO su argumento da por cierta la
+     premisa que el principal sostenía y que se desestima; entonces la razón
+     dice qué premisa y lo declaras en `presupone`.{_procesal12}
    · `presupone`: null, salvo cuando el tema cae con el principal por dar por
      cierta su premisa. Entonces es un objeto con `premisa` (la premisa del
      principal que este argumento da por cierta, en una frase), `cita` (las
      palabras LITERALES, copiadas de «Se combate diciendo» de ESTE problema,
-     en que la da por cierta: el taller las busca ahí y, si no están, el tema
-     no cae) y `causa_propia` (lo que el argumento plantea además por su
-     cuenta, en una frase, o null si no plantea nada más: con causa propia se
-     estudia aunque el principal no prospere).
+     seguidas y sin cortes ni puntos suspensivos, en que la da por cierta: el
+     taller las busca ahí y, si no están, el tema no cae) y `causa_propia`
+     (lo que el argumento plantea además por su cuenta, en una frase, o null
+     si no plantea nada más: con causa propia se estudia aunque el principal
+     no prospere).
    La `razon` es UNA frase que el proyecto podrá escribir tal cual. No
-   contradigas la `relacion` con la suerte: si escribes que en una vía «al
-   no formar parte de la litis… no podía», ese tema DEPENDE.
+   contradigas la `relacion` con `si_prospera`: si ahí queda sin materia, el
+   tema DEPENDE, aunque en la otra vía lleve su propia calificación.
 13. LAS CONSTANCIAS QUE HARÍA FALTA VER, en `constancias`. Un tribunal
    terminal no resuelve confrontando sólo la sentencia y el escrito: hay
    hechos que sólo una constancia del juicio de origen puede acreditar —el
@@ -1148,7 +1150,9 @@ Devuelve SÓLO un JSON, sin texto alrededor, con esta forma exacta:
                         "razon": "<una frase>"}},
        "si_no_prospera": {{"sentido": "fundado|infundado|inoperante|ineficaz",
                            "razon": "<una frase: por qué, en esta vía>"}},
-       "presupone": null}}
+       "presupone": null | {{"premisa": "<la premisa del principal que da por cierta>",
+                             "cita": "<palabras literales de «Se combate diciendo» de este problema>",
+                             "causa_propia": null | "<lo que plantea además, en una frase>"}}}}
    ]}}}}"""
 
 

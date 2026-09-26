@@ -194,6 +194,13 @@ def main() -> None:
     print("\n═══ B. CONTRA LOS ENGROSES (principal desestimado, como en el oro) ═══")
     casa = {s["expediente"]: s for s in S if s.get("email") == CASA}
     aciertos = {"vieja": 0, "nueva": 0}
+    # LO QUE EL CONTEO DE ACIERTOS NO DICE (revisión del 26-sep-2026): mide
+    # caído contra estudiado, no la calificación. Un accesorio que la regla
+    # nueva deja «fundado» con el principal desestimado cuenta como acierto
+    # —se estudia— aunque el engrose lo haya declarado infundado, y ese
+    # «fundado» haría prosperar el asunto. Se cuentan aparte, para que nadie
+    # lea «15 de 16» como «15 de 16 bien calificados».
+    prosperan = {"vieja": 0, "nueva": 0}
     total = 0
     for (exp, n), (trato, nota) in ORO.items():
         ses = casa.get(exp)
@@ -211,11 +218,16 @@ def main() -> None:
         for nom, c in (("vieja", x), ("nueva", y)):
             if (trato == "cae") == _cae(c):
                 aciertos[nom] += 1
+            if _prospera(str(c.get("sentido") or "")):
+                prosperan[nom] += 1
         print(f"  {exp} P{n} · oro {trato:<15} · vieja "
               f"{'CAE' if _cae(x) else x['sentido']:<10} · nueva "
               f"{'CAE' if _cae(y) else y['sentido']:<10} · {nota}")
-    print(f"\n  coinciden con el engrose: vieja {aciertos['vieja']}/{total} · "
+    print(f"\n  coinciden con el engrose (caído / estudiado): vieja {aciertos['vieja']}/{total} · "
           f"nueva {aciertos['nueva']}/{total}")
+    print(f"  accesorios que PROSPERAN con el principal desestimado (cambian el desenlace; "
+          f"compárese con la nota del oro): vieja {prosperan['vieja']}/{total} · "
+          f"nueva {prosperan['nueva']}/{total}")
 
 
 if __name__ == "__main__":

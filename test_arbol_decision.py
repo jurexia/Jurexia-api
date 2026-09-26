@@ -837,19 +837,130 @@ ok("DOS direcciones" in _p5b and "`presupone`" in _p5b and '"presupone": null' i
    "la instrucción 12 separa las dos vías y el esquema trae `presupone`")
 ok("qué premisa cae con el principal" not in _p5b,
    "el esquema ya no pide para `si_no_prospera` «qué premisa cae con el principal»")
+_p5b_1l = " ".join(_p5b.split())
 ok("«debía estudiar\n     los alegatos contra el crédito»" not in _p5b
-   and "debía estudiar los alegatos contra el crédito" not in _p5b.replace("\n     ", " "),
+   and "debía estudiar los alegatos contra el crédito" not in _p5b_1l,
    "ni trae una frase de ejemplo que se copie (se describe, no se modela)")
+# Revisión del 26-sep-2026: la instrucción 12 conservaba otra frase modelo
+# —«al no formar parte de la litis… no podía» ⇒ DEPENDE—, que además volvía a
+# definir «depende» por la vía en que el principal NO prospera.
+ok("no formar parte de la litis" not in _p5b_1l,
+   "ni la frase «al no formar parte de la litis… no podía», que ataba «depende» a la otra vía")
+ok("No contradigas la `relacion` con `si_prospera`" in _p5b_1l,
+   "la coherencia de `relacion` se pide contra la vía que la define: `si_prospera`")
 ok("LITERALES, copiadas de «Se combate" in _p5b and "Se combate diciendo:" in inspect.getsource(f5.prompt_propuesta),
    "la cita se pide de lo que el motor tiene delante: «Se combate diciendo» de ese problema")
+ok("sin cortes ni puntos suspensivos" in _p5b_1l,
+   "entera y seguida: una cita con «…» no consta tal cual y el tema no caería")
+ok('"presupone": null | {"premisa"' in _p5b_1l and '"causa_propia": null | "' in _p5b_1l,
+   "el esquema enseña la forma del objeto, no sólo el null que el modelo copiaría siempre")
+ok("costas por una causa suya y no por el resultado que pide en el principal" in _p5b_1l,
+   "las costas son vicio propio sólo por una causa suya: las que sólo piden seguir al principal, caen")
 
 print("\n31 · LA CITA SE BUSCA DONDE LA TIENE EL ÁRBOL: los tres caminos le pasan la fase 3 entera")
-ok(src.count("list(r.fases.problemas or []), crit,") >= 2,
-   "los dos gemelos del resolver pasan los problemas de la fase 3 (con `combate`)")
-ok("list(r.fases.problemas or []),\n        [d for d in _lista if isinstance(d, dict)]," in src,
-   "/taller/reparto también")
-ok("problemas, _crit_ad, list(getattr(glob, \"checklist\", None) or [])," in src,
-   "y la propuesta, con la lista de comprobación donde viene `presupone`")
+# Revisión del 26-sep-2026: se comprueba sobre el árbol sintáctico de main, no
+# sobre el texto exacto de cada llamada. La pieza PLAN une los dos gemelos del
+# resolver en una sola función; lo que importa es que TODA llamada al árbol le
+# pase los problemas de la fase 3 (con `combate`) y la lista de comprobación,
+# no cuántas veces aparece una línea.
+import ast as _ast
+_arbol_main = _ast.parse(src)
+_llamadas = {}
+for _fn in _ast.walk(_arbol_main):
+    if not isinstance(_fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+        continue
+    for _n in _ast.walk(_fn):
+        if (isinstance(_n, _ast.Call) and isinstance(_n.func, _ast.Attribute)
+                and isinstance(_n.func.value, _ast.Name) and _n.func.value.id == "_ad"
+                and _n.func.attr in ("aplicar", "reparto_para_pantalla")):
+            # La llamada se queda con la función MÁS INTERNA que la contiene.
+            _llamadas[(_n.lineno, _n.col_offset)] = (
+                _fn.name, _n.func.attr,
+                [_ast.get_source_segment(src, x) or "" for x in _n.args],
+                _ast.get_source_segment(src, _fn) or "")
+
+
+def _fase3(arg0: str, cuerpo: str) -> bool:
+    return ("fases.problemas" in arg0
+            or (arg0 == "problemas" and "problemas = _te.problemas_de(r)" in cuerpo))
+
+
+_ll = list(_llamadas.values())
+ok(sum(1 for _f, _a, _x, _s in _ll if _a == "aplicar") >= 2
+   and any(_a == "reparto_para_pantalla" for _f, _a, _x, _s in _ll),
+   f"el árbol se aplica al proponer, al resolver y en /taller/reparto ({len(_ll)} llamadas)")
+ok(_ll and all(_x and _fase3(_x[0], _s) for _f, _a, _x, _s in _ll),
+   "toda llamada le pasa los problemas de la fase 3, con `combate`: "
+   + ", ".join(f"{_f}({(_x or [''])[0][:28]})" for _f, _a, _x, _s in _ll))
+ok(_ll and all(len(_x) >= 3 and "checklist" in _x[2] for _f, _a, _x, _s in _ll),
+   "y la lista de comprobación, donde viene `presupone`")
+
+print("\n32 · REVISIÓN: LO QUE LLEGA SIN CALIFICAR, LA VÍA QUE NO CONSTA Y EL DESENLACE")
+_PX = "¿La acción ejercida era procedente?"
+_PY = "¿La condena comprendió conceptos distintos de los reclamados?"
+_pxy = [{"pregunta": _PX, "jerarquia": "principal"},
+        {"pregunta": _PY, "jerarquia": "accesorio", "depende_de": 1}]
+
+
+def _cxy(s2, r2=""):
+    return [{"problema": _PX, "sentido": "infundado", "razonamiento": "", "jerarquia": "principal",
+             "tocado": True},
+            {"problema": _PY, "sentido": s2, "razonamiento": r2, "jerarquia": "accesorio"}]
+
+
+# Un «innecesario» que dejó un reparto con el principal fundado, sin
+# propuestas ni lista: con el principal desestimado nada lo deja sin materia.
+# Salía «se estudia con su calificación (innecesario)» y SIN aviso ninguno, y
+# el estudio lo habría escrito «sin materia»: la omisión que esta regla corrige.
+c = _cxy("innecesario", ad.SIN_MATERIA + " el análisis de este planteamiento.")
+av, det = ad.aplicar(_pxy, c, [], [])
+ok(any("NO SE DECLARARON CAÍDOS" in a and "SIN CALIFICAR" in a and _PY[:40] in a for a in av),
+   "un «innecesario» que llega de otra pasada se avisa SIN CALIFICAR, nombrándolo")
+ok(not c[1]["razonamiento"].startswith(ad.SIN_MATERIA), "y la razón del sin materia no se queda pegada")
+# La caída de otra pasada, sin nada con qué sustituirla: se estudia con esa
+# calificación, sin la fórmula, y se dice.
+c = _cxy("inoperante", _resto)
+av, det = ad.aplicar(_pxy, c, [], [])
+ok(c[1]["sentido"] == "inoperante" and not c[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL)
+   and det[_PY].get("origen") == "resto",
+   "la caída de otra pasada sin otra calificación se queda, sin la fórmula")
+ok(any("llegó declarado caído con el principal" in a for a in av), "y el aviso lo dice (antes, silencio)")
+# Sin la propuesta del principal ni el global, no consta en qué vía escribió
+# el motor la del accesorio: el aviso no afirma «la otra vía».
+c = _cxy("")
+av, det = ad.aplicar(_pxy, c, [], [{"problema": _PY, "sentido": "infundado",
+                                     "razon": "la condena se ciñe a lo pactado"}])
+ok(c[1]["sentido"] == "infundado" and det[_PY].get("origen") == "motor_otra_via",
+   "sin otra fuente, la calificación que el motor le propuso")
+ok(any("sin que conste en qué vía la escribió" in a for a in av)
+   and not any("principal en la otra vía" in a for a in av),
+   "y el aviso no afirma que sea de la otra vía, porque no consta")
+# LA OTRA VÍA QUE PROSPERA CAMBIA EL DESENLACE: se conserva —tumbarla sería
+# la omisión, rebajarla inventar— y se dice que el asunto prosperaría por él.
+_PROP_F2 = [{"problema": _PX, "sentido": "fundado", "razon": "la acción era improcedente"},
+            {"problema": _PY, "sentido": "fundado", "razon": "la condena excede lo reclamado"}]
+c = _cxy("fundado", "la condena excede lo reclamado")
+av, det = ad.aplicar(_pxy, c, [], _PROP_F2)
+ok(c[1]["sentido"] == "fundado", "la calificación de la otra vía se conserva")
+ok(any("principal en la otra vía" in a and "el asunto prosperaría por él" in a for a in av),
+   "y el aviso dice que, si prospera, el asunto prosperaría por él")
+_PROP_F3 = [_PROP_F2[0], dict(_PROP_F2[1], sentido="infundado", razon="la condena se ciñe a lo pactado")]
+c = _cxy("infundado", "la condena se ciñe a lo pactado")
+av, det = ad.aplicar(_pxy, c, [], _PROP_F3)
+ok(any("principal en la otra vía" in a for a in av) and not any("prosperaría por él" in a for a in av),
+   "una de la otra vía que no prospera no lleva esa nota")
+# La cita, por palabras enteras y dentro de un solo texto.
+ok(ad.presupuesto({"presupone": dict(_ok, cita="scindida es la obligada principal conforme")},
+                  _acc, _pr)["motivo"] == "cita_no_consta",
+   "media palabra no es la palabra: «scindida» no consta dentro de «escindida»")
+ok(ad.presupuesto({"presupone": dict(_ok, cita="afectar bienes de la escindente la existencia de "
+                                                 "obligaciones concurrentes")},
+                  _acc, _pr)["motivo"] == "cita_no_consta",
+   "ni una cita que empieza en lo que se combate y acaba en la pregunta")
+ok(ad.presupuesto({"presupone": dict(_ok, cita="la existencia de obligaciones concurrentes justificó "
+                                                 "mantener el embargo")},
+                  _acc, _pr)["motivo"] in ("", "cita_ajena_al_principal"),
+   "la que está entera en la pregunta sí consta")
 
 print()
 if FALLOS:
