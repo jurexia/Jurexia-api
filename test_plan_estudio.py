@@ -1205,6 +1205,54 @@ ok(not _tj.contiene(" ".join(_w), 6), "…y con una palabra cambiada, ninguna de
 if _doble_j is not None:
     sys.modules.pop("inventario", None)
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n· REVISIÓN ADVERSARIAL DE LA INTEGRACIÓN (26-sep-2026): LA REGLA PROCESAL SÓLO DONDE RIGE, "
+      "Y LA PARÁFRASIS SIN COMILLAS")
+_REGLA = "Las VIOLACIONES PROCESALES se deciden todas"
+_pp = {t: pe.prompt_plan(tipo_asunto=t, probs=pe.problemas_del_criterio(crit(), fases()), segs=SEGS_N,
+                         resumen_acto="r", tramos=pe._tramos_del_escrito(fases()), indice=_ind, n=3)
+       for t in ("amparo_directo", "amparo_revision", "queja")}
+ok(_REGLA in _pp["amparo_directo"] and _REGLA not in _pp["amparo_revision"] and _REGLA not in _pp["queja"],
+   "el prompt del planificador sólo da la regla de los arts. 74-V, 174 y 189 en el amparo directo")
+# V0 (j): la procesal que el plan deja sin estudiar se rechaza en el directo (y
+# sin tipo); en un amparo en revisión, no (se rige por su técnica, art. 93).
+_dj = norm(mutar(lambda d: seg(d, "C2.a").update(etiqueta="fundado", razon="cae_con_principal",
+                                                trat="no_se_estudia", vicio="procesal")))
+_cpj = crit(s2="fundado", r2="La Sala debió estudiarla: " + RAZON2)
+
+
+def _v0t(tipo):
+    _p = copy.deepcopy(_dj)
+    _p["tipo_asunto"] = tipo
+    return [x for x in pe.validar(_p, _cpj, SEGS_N, _fp, material(), "", suplencia={})
+            if "74, fracción V" in x or "189" in x]
+
+
+ok(_v0t("amparo_directo") and _v0t("") and not _v0t("amparo_revision") and not _v0t("queja"),
+   "V0 (j) con los arts. 74-V y 174 sólo en el amparo directo (y sin tipo, como el árbol)")
+_dr = norm(mutar(lambda d: seg(d, "C2.a").update(etiqueta="innecesario", razon="cae_con_principal",
+                                                trat="no_se_estudia", vicio="procesal")))
+
+
+def _avj(tipo):
+    _p = copy.deepcopy(_dr)
+    _p["tipo_asunto"] = tipo
+    _pr, _ = pe.reparar(_p, crit(s1="infundado", s2="innecesario", r2="Queda sin materia."), SEGS_N, _fp,
+                        material(), "", {})
+    return [a for a in _pr.get("avisos_al_secretario") or [] if "189" in a]
+
+
+ok(_avj("amparo_directo") and not _avj("amparo_revision"),
+   "el aviso de reparar (arts. 74-V, 174 y 189) tampoco sale en un recurso")
+_gv = pe.vista({"proposiciones": [{"id": "P1", "dice": "La identidad quedó acreditada con la confesión",
+                                   "caracter": "toral", "relacion": "suficiente"}],
+                "premisas": [{"id": "M1", "responde_a": ["P1"], "fuentes": {"tesis": ["2001111"], "normas": []},
+                              "anclas": ["identidad"]}],
+                "unidades": [{"id": "U1", "segmentos": [], "premisa": "M1"}], "segmentos": []})
+ok("«La identidad quedó acreditada" not in _gv and "en síntesis: La identidad quedó acreditada" in _gv
+   and "no son palabras del acto" in _gv,
+   "el guion da la proposición como síntesis del planificador, sin «» (que dicen «literal»)")
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

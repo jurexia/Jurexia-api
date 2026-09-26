@@ -709,6 +709,16 @@ def prompt_plan(*, tipo_asunto: str, probs: list[dict], segs: list[dict],
     q1 = voc["combate_singular"]
     organo = _ta.sujetos_de(tipo_asunto or "amparo_directo")["organo"][0]
     _ad = _ta.normalizar(tipo_asunto) == "amparo_directo"
+    # LA REGLA PROCESAL DEL AMPARO DIRECTO (arts. 74-V, 174 y 189) sólo donde
+    # rige, como en el árbol (`violacion_procesal.guarda_aplica`): en un recurso
+    # el planificador la aplicaba y el guion citaba el 189 (revisión
+    # adversarial de la integración, 26-sep-2026).
+    _regla_proc = (
+        "  · Las VIOLACIONES PROCESALES se deciden todas (artículos 74, fracción V, y 174 de la "
+        "Ley de Amparo): un segmento de vicio procesal nunca va a cae_con_principal, sin_materia ni "
+        "no_se_estudia; la única que puede quedar sin estudio es la de innecesario_mayor_beneficio, "
+        "cuando una concesión de fondo da mayor beneficio (artículo 189).\n"
+        if _guarda_procesal(tipo_asunto) else "")
     sup = suplencia if isinstance(suplencia, dict) else {}
     try:
         import suplencia as _sp
@@ -769,8 +779,7 @@ REGLAS QUE EL CÓDIGO COMPRUEBA (si no se cumplen, tu plan se rechaza)
   · razon: del catálogo, compatible con la etiqueta (la tabla dice qué implica cada una).
   · reitera: sólo si TODAS las anclas del segmento están entre las del segmento reiterado. Un segmento con un ancla propia (un artículo, un registro, un expediente, una cifra o una fecha que el otro no trae) no reitera: trat «desarrolla», con su diferencia.
   · Las citas —de dato, de proposición y de rastro— son COPIA LITERAL, palabra por palabra, del texto que dice su fuente. Lo que el código no encuentre se borra.
-  · Las VIOLACIONES PROCESALES se deciden todas (artículos 74, fracción V, y 174 de la Ley de Amparo): un segmento de vicio procesal nunca va a cae_con_principal, sin_materia ni no_se_estudia; la única que puede quedar sin estudio es la de innecesario_mayor_beneficio, cuando una concesión de fondo da mayor beneficio (artículo 189).
-  · Suplencia: {_sup}. Con suplencia confirmada, ningún segmento de la parte favorecida se declara inoperante por cómo se planteó (no_combate, ataca_accesoria, generico, reitera_sin_combatir).
+{_regla_proc}  · Suplencia: {_sup}. Con suplencia confirmada, ningún segmento de la parte favorecida se declara inoperante por cómo se planteó (no_combate, ataca_accesoria, generico, reitera_sin_combatir).
   · cosa_juzgada_amparo_previo sólo contra una proposición vinculada por una ejecutoria de amparo que conste en lo que resolvió {organo}, en el contexto o en el material.
   · Un segmento cuyo problema tiene sentido pero cuya razón del secretario NO contesta lo propio del segmento (su dato, su precepto, su precedente): pendiente «razon» y trat «desarrolla». No inventes esa razón.
   · Un segmento cuyo problema no tiene sentido fijado: pendiente «sentido» y etiqueta vacía.
@@ -1320,7 +1329,8 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
     # estudiar sin concesión de fondo de mayor beneficio: el plan no cambia el
     # sentido, pero lo dice arriba (arts. 74-V, 174 y 189 LA).
     for s in segmentos:
-        if _es_procesal(s, cx) and clase_sentido(s.get("etiqueta")) == NO_SE_ESTUDIA \
+        if _guarda_procesal(plan.get("tipo_asunto", "")) and _es_procesal(s, cx) \
+                and clase_sentido(s.get("etiqueta")) == NO_SE_ESTUDIA \
                 and not cx.alguno_prospera_fondo and not s["id"].startswith("AD"):
             _a = (f"{s['id']}: tu criterio deja sin estudiar una violación procesal sin una concesión "
                   f"de fondo de mayor beneficio (arts. 74, fracción V, 174 y 189 de la Ley de Amparo)")
@@ -1337,6 +1347,16 @@ def _grupo_comun(u: dict, us: list, cx: _Ctx) -> bool:
     pids = set(u.get("problemas") or []) | {s.get("problema_id") for s in us}
     grupos = {(cx.por_pid.get(p) or {}).get("grupo") for p in pids if p}
     return len(grupos) == 1 and bool(next(iter(grupos)))
+
+
+def _guarda_procesal(tipo_asunto: str = "") -> bool:
+    """¿Rigen los arts. 74-V, 174 y 189? La MISMA pregunta que el árbol
+    (`violacion_procesal.guarda_aplica`): amparo directo, o sin tipo."""
+    try:
+        import violacion_procesal as _vp
+        return bool(_vp.guarda_aplica(tipo_asunto or ""))
+    except Exception:                                   # pragma: no cover
+        return True
 
 
 def _es_procesal(s: dict, cx: _Ctx) -> bool:
@@ -1460,7 +1480,9 @@ def validar(plan: dict, crit, segs, fases, material, contexto: str = "", *,
         # no puede arreglarlo —no decide el sentido—: `reparar` lo avisa
         # arriba y aquí no se rechaza, porque rehacer el plan no lo cambiaría.
         # El adhesivo, con el principal que no prospera, va por (m).
-        if _es_procesal(s, cx) and not (sid.startswith("AD") and not cx.alguno_prospera):
+        # Sólo donde rige (amparo directo; sin tipo, rige), como en el árbol.
+        if _guarda_procesal(plan.get("tipo_asunto", "")) and _es_procesal(s, cx) \
+                and not (sid.startswith("AD") and not cx.alguno_prospera):
             _no_estudia = s.get("trat") == "no_se_estudia" or bool(
                 rz and RAZONES[rz]["clase"] == NO_SE_ESTUDIA)
             if clase_sentido(s.get("etiqueta")) != NO_SE_ESTUDIA:
@@ -1800,7 +1822,9 @@ def _linea_seg(s: dict, trat: str, extra: str = "") -> str:
 
 
 def _linea_premisa(m: dict, props: dict, uid: str = "") -> str:
-    resp = ", ".join(f"{pk} «{(props.get(pk) or {}).get('dice', '')}»" for pk in m.get("responde_a") or [])
+    # La proposición, por su síntesis y sin comillas (no es cita del acto).
+    resp = ", ".join(f"{pk} (en síntesis: {(props.get(pk) or {}).get('dice', '')})"
+                     for pk in m.get("responde_a") or [])
     fu = [f"registro {x}" for x in m["fuentes"]["tesis"]] + list(m["fuentes"]["normas"])
     return ("  EXPONE " + m["id"]
             + (f" · unidad {uid}" if uid else "")
@@ -1839,9 +1863,12 @@ def vista(plan: dict, formato: str = "estandar") -> str:
     L.append(f"ORDEN: {'prelación lógica' if o.get('criterio') == 'prelacion' else 'el del escrito'}"
              + (f" · por qué: {o['por_que']}" if o.get("por_que") else ""))
     if props:
-        L.append("PROPOSICIONES DEL ACTO:")
+        # LO QUE DICE CADA PROPOSICIÓN ES LA PARÁFRASIS DEL PLANIFICADOR, no
+        # palabras del acto: sin comillas angulares, que en una sentencia dicen
+        # «literal» (revisión adversarial de la integración, 26-sep-2026).
+        L.append("PROPOSICIONES DEL ACTO (en síntesis del planificador; no son palabras del acto):")
         for p in props.values():
-            L.append(f"  {p['id']} «{p['dice']}» · {p['caracter']} · {p['relacion']}"
+            L.append(f"  {p['id']} · en síntesis: {p['dice']} · {p['caracter']} · {p['relacion']}"
                      + (" · vinculada por ejecutoria" if p.get("vinculada_por_ejecutoria") else ""))
     expuesta: dict = {}          # premisa → apartado donde se expone
     vista_u: dict = {}           # unidad → primer apartado donde aparece
