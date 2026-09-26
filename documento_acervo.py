@@ -107,6 +107,7 @@ _CON_ACERVO = """7. **EL ACERVO ESTÁ DELANTE: CITA SÓLO DE ÉL.** Además del 
 
    · Cada artículo o tesis que cites lleva su [Doc ID: uuid] completo (36
      caracteres) tal como aparece en el contexto. Sin Doc ID no hay cita.
+     Uno por fuente, cada uno en sus corchetes: nunca «[Doc IDs: a; b]».
    · Transcribe el texto del artículo LITERAL, en cita en bloque, ANTES de
      interpretarlo:
      > "[texto exacto del contexto]" — *Art. X, [Ley]* [Doc ID: uuid]

@@ -35,10 +35,33 @@ que se identifica como guion («Iurexia-vigencia/1.0»); con el de un navegador
 y el Referer de la página de detalle responde. Se mandan las mismas que usó la
 caché de la que salió el índice versionado; `--user-agent` las cambia.
 
+UN REGISTRO QUE NO EXISTE NO DA 404 (medido el 26-sep-2026): el SJF contesta
+200 con la página HTML del reto de Incapsula («_Incapsula_Resource»), la
+MISMA que devuelve cuando bloquea. Por eso aquí se distingue: 404 →
+«no_existe», esa página → «incapsula» (no existe… o nos bloquearon: quien
+recorre registros lo desempata pidiendo una tesis que sí existe) y todo lo
+demás → «error». Con `validar` sólo cuenta como ficha un JSON cuyo `ius` es el
+registro pedido: ni un JSON de error ni el de otra tesis se guardan.
+
+LO QUE LA GACETA AÚN NO TIENE (medido el 26-sep-2026): con `isSemanal=false`
+la API sirve la Gaceta, y ahí la última tesis era la 2032443 (10-jul-2026);
+del 2032444 en adelante daba la página de Incapsula como si no existieran. No
+es el final de la numeración: son las tesis publicadas cada viernes en el
+Semanario que la Gaceta todavía no compila, y con `isSemanal=true` están (la
+2032444 es del 7-ago-2026, y la 2030612 ya decía que la interrumpió una tesis
+publicada el 4-sep-2026). En las que están en las dos, el `precedentes` sale
+igual una vez pasado a texto (2024159, 2029567). Con `semanal_si_falta` se pide
+primero a la Gaceta —como se armó la caché— y, si no la tiene, al Semanario.
+
+LA CACHÉ PERSISTENTE (26-sep-2026) vive en
+~/Documents/IUREXIA-MAC/reingesta/vigencia/sjf_cache, fuera de git; la pone al
+día cada semana scripts/vigencia_semanal.py.
+
 USO
 ---
     .venv/bin/python scripts/sjf_cache_descargar.py \\
-        --sjf-cache <dir> [--env ../../../.env] [--tesis-cache tesis.jsonl] [--max N]
+        --sjf-cache ~/Documents/IUREXIA-MAC/reingesta/vigencia/sjf_cache \\
+        [--env ../../../.env] [--tesis-cache tesis.jsonl] [--max N]
     .venv/bin/python scripts/sjf_cache_descargar.py --sjf-cache <dir> 164500 183349
 
 y después:
@@ -48,10 +71,12 @@ y después:
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import importlib.util
 import json
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
@@ -60,7 +85,7 @@ AQUI = Path(__file__).resolve().parent
 RAIZ = AQUI.parent
 PAUSA = 1.1          # segundos entre peticiones: ≤ 1 por segundo
 URL = ("https://sjf2.scjn.gob.mx/services/sjftesismicroservice/api/public/tesis/{registro}"
-       "?isSemanal=false&hostName=https://sjf2.scjn.gob.mx")
+       "?isSemanal={semanal}&hostName=https://sjf2.scjn.gob.mx")
 REFERER = "https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -75,55 +100,124 @@ def _generador():
     return mod
 
 
+INCAPSULA = "_Incapsula_Resource"
+# Lo que pesa y nadie lee (medido en 400 fichas: 52 % del archivo). `aligerar`
+# lo quita al guardar; `texto`, `precedentes` y el resto se quedan.
+CAMPOS_PESADOS = ("lstTemasDetalle", "idProg")
+ESPERAS_REINTENTO = (5.0, 20.0, 60.0)
+
+
 class Descargador:
     """GET a la API del SJF con caché en disco y una pausa mínima entre
-    peticiones. `abrir`, `dormir` y `reloj` se inyectan en las pruebas."""
+    peticiones. `abrir`, `dormir` y `reloj` se inyectan en las pruebas.
+
+    Las opciones nuevas (26-sep-2026) vienen apagadas para que quien ya lo usaba
+    no cambie: `validar` (sólo es ficha un JSON con el `ius` pedido),
+    `reintentos` (sólo ante «error»: ni un 404 ni la página de Incapsula se
+    reintentan), `aligerar` (quita CAMPOS_PESADOS al guardar) y
+    `semanal_si_falta` (si la Gaceta no tiene la ficha, la pide al Semanario
+    semanal, `isSemanal=true`: ver LO QUE LA GACETA AÚN NO TIENE, arriba)."""
 
     def __init__(self, cache: Path, pausa: float = PAUSA, user_agent: str = USER_AGENT,
                  abrir: Optional[Callable] = None, dormir: Callable[[float], None] = time.sleep,
-                 reloj: Callable[[], float] = time.monotonic):
+                 reloj: Callable[[], float] = time.monotonic, validar: bool = False,
+                 reintentos: int = 0, aligerar: bool = False, semanal_si_falta: bool = False):
         self.cache = Path(cache)
         self.pausa = max(1.0, float(pausa))      # nunca más de una por segundo
         self.user_agent = user_agent
         self.abrir = abrir or urllib.request.urlopen
         self.dormir, self.reloj = dormir, reloj
+        self.validar = validar
+        self.reintentos = max(0, min(int(reintentos), len(ESPERAS_REINTENTO)))
+        self.aligerar = aligerar
+        self.semanal_si_falta = semanal_si_falta
+        self.del_semanal = 0                     # fichas que sólo dio el Semanario semanal
         self._ultima: Optional[float] = None
         self.pedidas = 0
 
     def ruta(self, registro: str) -> Path:
         return self.cache / f"{registro}.json"
 
-    def tesis(self, registro) -> Dict:
-        """La ficha del SJF de ese registro (de la caché si ya está), o
-        {"_error": …} si falló; los errores no se guardan."""
-        registro = str(registro).strip()
-        if not registro.isdigit():
-            return {"_error": f"registro inválido: {registro!r}"}
-        p = self.ruta(registro)
-        if p.exists():
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                pass                              # una copia rota se vuelve a pedir
+    def _pedir(self, registro: str, semanal: bool = False) -> Dict:
+        """Una sola petición, respetando la pausa. -> la ficha o
+        {"_error": …, "_tipo": "no_existe" | "incapsula" | "error"}."""
         if self._ultima is not None:
             espera = self.pausa - (self.reloj() - self._ultima)
             if espera > 0:
                 self.dormir(espera)
-        req = urllib.request.Request(URL.format(registro=registro), method="GET", headers={
+        req = urllib.request.Request(URL.format(registro=registro, semanal="true" if semanal else "false"),
+                                     method="GET", headers={
             "Referer": REFERER.format(registro=registro),
             "User-Agent": self.user_agent,
             "Accept": "application/json"})
         try:
             with self.abrir(req, timeout=30) as r:
-                d = json.loads(r.read().decode("utf-8"))
+                cuerpo = r.read().decode("utf-8", errors="replace")
+            if INCAPSULA in cuerpo[:3000] and not cuerpo.lstrip().startswith("{"):
+                return {"_error": "página de Incapsula (no existe, o bloqueo)", "_tipo": "incapsula"}
+            d = json.loads(cuerpo)
+        except urllib.error.HTTPError as e:
+            return {"_error": repr(e)[:300], "_tipo": "no_existe" if e.code == 404 else "error"}
         except Exception as e:
-            d = {"_error": repr(e)[:300]}
+            return {"_error": repr(e)[:300], "_tipo": "error"}
         finally:
             self._ultima = self.reloj()
             self.pedidas += 1
+        if not isinstance(d, dict):
+            # `null` o una lista: antes esto reventaba con TypeError en `"_error" not in d`.
+            return {"_error": f"respuesta sin ficha ({type(d).__name__})", "_tipo": "error"}
+        if "_error" in d:
+            return {"_error": "la respuesta traía «_error»", "_tipo": "error"}
+        if self.validar and str(d.get("ius") or "").strip() != registro:
+            return {"_error": f"respuesta sin la ficha pedida (ius={str(d.get('ius'))[:20]!r})", "_tipo": "error"}
+        return d
+
+    def _con_reintentos(self, registro: str, semanal: bool) -> Dict:
+        d = self._pedir(registro, semanal=semanal)
+        for espera in ESPERAS_REINTENTO[:self.reintentos]:
+            if d.get("_tipo") != "error":
+                break
+            self.dormir(espera)
+            d = self._pedir(registro, semanal=semanal)
+        return d
+
+    def tesis(self, registro, refrescar: bool = False, semanal_primero: bool = False) -> Dict:
+        """La ficha del SJF de ese registro (de la caché si ya está, salvo con
+        `refrescar`), o {"_error": …, "_tipo": …} si falló. Los errores no se
+        guardan, y un refresco fallido deja la copia anterior como estaba.
+        `semanal_primero` (con `semanal_si_falta`): pide antes al Semanario
+        semanal; lo usa quien recorre registros nuevos, más allá de la Gaceta."""
+        registro = str(registro).strip()
+        if not registro.isdigit():
+            return {"_error": f"registro inválido: {registro!r}", "_tipo": "error"}
+        p = self.ruta(registro)
+        if p.exists() and not refrescar:
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(d, dict) and "_error" not in d:
+                    return d
+            except Exception:
+                pass                              # una copia rota se vuelve a pedir
+        orden = [False, True] if self.semanal_si_falta else [False]
+        if self.semanal_si_falta and semanal_primero:
+            orden = [True, False]
+        for semanal in orden:
+            d = self._con_reintentos(registro, semanal)
+            if "_error" not in d:
+                self.del_semanal += int(semanal)
+                break
+            if d.get("_tipo") not in ("incapsula", "no_existe"):
+                break                             # un error de verdad no se disfraza de «no está aquí»
         if "_error" not in d:
+            if self.aligerar:
+                d = {k: v for k, v in d.items() if k not in CAMPOS_PESADOS}
+            # Cuándo se bajó: si una reingesta de Qdrant es posterior, el
+            # generador no deja que esta ficha la pise (precedentes_completos).
+            d = dict(d, _bajada=_dt.datetime.now().astimezone().isoformat(timespec="seconds"))
             self.cache.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+            tmp = p.with_name(p.name + ".tmp")
+            tmp.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+            tmp.replace(p)                        # nunca media ficha en la caché
         return d
 
 
@@ -145,7 +239,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--user-agent", default=USER_AGENT)
     a = ap.parse_args(argv)
 
-    d = Descargador(Path(a.sjf_cache), user_agent=a.user_agent)
+    d = Descargador(Path(a.sjf_cache), user_agent=a.user_agent, validar=True, reintentos=2, semanal_si_falta=True)
     if a.registros:
         regs = [str(r) for r in a.registros]
     else:

@@ -1923,7 +1923,8 @@ async def sondear(qdrant, vector: Optional[Sequence[float]], umbral_min: Optiona
 _INSTRUCCION_CITA = (
     "CÓMO SE CITA LA CORTE IDH (25-sep-2026):\n"
     "· Sentencia: «Corte IDH. Caso X Vs. Y. [Excepciones…, Fondo…]. Sentencia de [fecha]. "
-    "Serie C No. N, párr. P [Doc ID: uuid]». La cita exacta viene en <cita>: cópiala y añade el [Doc ID].\n"
+    "Serie C No. N, párr. P [Doc ID: uuid]». La cita exacta viene en <cita>: cópiala y añade el [Doc ID]; "
+    "si son varios párrafos, un [Doc ID] por párrafo, cada uno en sus corchetes (nunca «Doc IDs»).\n"
     "· Voto: «voto razonado del juez X en el Caso …, párr. P [Doc ID: uuid]». UN VOTO NO ES LA CORTE: "
     "nunca le atribuyas a la Corte lo que dice un voto, ni al revés.\n"
     "· Opinión consultiva: «Corte IDH. Opinión Consultiva OC-N/AA …, párr. P [Doc ID: uuid]». "
@@ -2065,7 +2066,8 @@ _INSTRUCCION_SOLO_MX = (
     "«jurisprudencia»: aquí van SÓLO tesis y resoluciones mexicanas (SCJN, Plenos Regionales, Tribunales "
     "Colegiados). No cites a la Corte IDH, a la CIDH, a la ONU ni tratados de memoria. Cuéntala en orden "
     "cronológico por su fecha. Una tesis con vigencia=\"abandonada\" o \"superada\" NO es criterio vigente: dilo y "
-    "cita la que la reemplaza. Cita cada tesis con su clave, su registro y su [Doc ID]. Fecha el estado actual con "
+    "cita la que la reemplaza. Cita cada tesis con su clave, su registro y su propio [Doc ID] (uno por "
+    "corchetes; nunca «Doc IDs»). Fecha el estado actual con "
     "<cortes> («según lo verificado hasta…»), nunca «hoy». -->")
 
 

@@ -857,6 +857,16 @@ if dl is not None:
                               {"registro": "1", "precedentes": "x" * 2600}], 2500) == ["1"],
        "pide sólo las tesis con `precedentes` cortado (≥ 2,500), sin repetir")
 
+# La sustituta viaja en CITATION_META aunque el modelo no la cite (26-sep-2026):
+# si no, al reabrir la conversación «Abrir la que la reemplaza» caía al Semanario.
+_fuente_chat = Path("main.py").read_text(encoding="utf-8")
+_i_sus = _fuente_chat.find("LA SUSTITUTA TAMBIÉN VIAJA")
+_i_prec = _fuente_chat.find("# ── FIX: Agregar precedentes al sources_map", _i_sus)
+_tramo = _fuente_chat[_i_sus:_i_prec] if _i_sus > 0 and _i_prec > 0 else ""
+ok(bool(_tramo) and "_entrada_fuente(_sd)" in _tramo and '"rol": "sustituta"' in _tramo
+   and 'get("por_registro")' in _tramo and "except Exception" in _tramo,
+   "CITATION_META: la sustituta de una tesis citada entra al mapa con rol «sustituta», sin romper el sello")
+
 
 print()
 if FALLOS:
