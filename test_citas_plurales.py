@@ -18,6 +18,12 @@ formas —«[Doc IDs: a; b]», «[Doc ID: a; b]», «[Doc ID: a, b]»,
 singulares, que el singular sigue igual, que un id inexistente sigue
 marcándose inválido, que ninguna forma rara rompe el sello, la reparación
 de ids dentro de un grupo, el historial y la regla del prompt.
+
+Y que ninguna expresión se cuelga (sección 9): la primera versión tardaba
+22 s con «(véase Doc ID: 0123abcd» y veinte grupos «-0123456789abcdef» sin
+cierre, y el tiempo se duplicaba con cada grupo. Cada expresión del bloque
+de las citas, y cada función que las usa, se mide con cadenas patológicas
+de 10,000 caracteres: menos de 50 ms cada una.
 """
 import json
 import os
@@ -172,6 +178,28 @@ FORMAS = {
     f"(Tesis 2a./J. 5/2020, Doc ID: {A})": f"(Tesis 2a./J. 5/2020) [Doc ID: {A}]",
     f"[Registro 2005115; Doc IDs: {A}; {B}]": f"[Registro 2005115] {DOS}",
     f"[Doc ID: {A}, párr. 340]": f"[Doc ID: {A}] (párr. 340)",
+    # Lo que señaló la revisión del 26-sep: un id recortado con «-…» dentro
+    # de un grupo, las conjunciones del resto, más de quince ids, la
+    # etiqueta con énfasis y «Doc. ID».
+    f"[Doc IDs: {A}; 2b2dc535-…]": f"[Doc ID: {A}] [Doc ID: 2b2dc535-…]",
+    f"[Doc IDs: {A}; da1de55e-52d9-…]": f"[Doc ID: {A}] [Doc ID: da1de55e-52d9-…]",
+    f"[Doc IDs: {A}; 2b2dc535-...]": f"[Doc ID: {A}] [Doc ID: 2b2dc535-...]",
+    f"[Doc ID: {A}, párr. 340 y 341]": f"[Doc ID: {A}] (párr. 340 y 341)",
+    f"[Doc ID: {A}, párrs. 340 o 341 e interpretación]": f"[Doc ID: {A}] (párrs. 340 o 341 e interpretación)",
+    f"[Doc IDs: {A}, y {B}]": DOS,
+    f"[Doc IDs: {A}; párr. 3 y {B}]": f"{DOS} (párr. 3)",
+    f"[Doc IDs: {'; '.join([A, B, C] * 6)}]": DOS + f" [Doc ID: {C}]",
+    f"[**Doc IDs:** {A}; {B}]": DOS,
+    f"[*Doc IDs*: {A}; {B}]": DOS,
+    f"[**Doc ID:** {A}]": f"[Doc ID: {A}]",
+    f"[Doc. ID: {A}]": f"[Doc ID: {A}]",
+    f"(Doc. IDs: {A}; {B})": DOS,
+    f"**Doc IDs:** {A}; {B}.": DOS + ".",
+    f"(Tesis 2a./J. 5/2020, **Doc ID:** {A})": f"(Tesis 2a./J. 5/2020) [Doc ID: {A}]",
+    f"Doc IDs: {A} o {B}.": DOS + ".",
+    # El énfasis que es de la cita entera se queda donde estaba: sin un «**»
+    # huérfano que ponga en negritas el resto del párrafo.
+    f"**Doc ID: {A}**": f"**[Doc ID: {A}]**",
 }
 for crudo, esperado in FORMAS.items():
     sale = main.expandir_citas_doc_id(f"Frase. {crudo} Sigue.")
@@ -214,6 +242,10 @@ rep = main.repair_hallucinated_uuids(f"Algo. [Doc IDs: {A}; {B_ROTO}]", m1)
 ok(rep == f"Algo. {DOS}", f"«{B_ROTO[:14]}…» vuelve a ser {B[:14]}…")
 v = main.validate_citations(rep, m1)
 ok(v.valid_count == 2 and v.invalid_count == 0, "y las dos validan")
+rep = main.repair_hallucinated_uuids(f"Algo. [Doc IDs: {A}; 2b2dc535-…]", m1)
+ok(rep == f"Algo. {DOS}", "«2b2dc535-…» (recortado tras el guion) dentro de un grupo también se repara")
+rep = main.repair_hallucinated_uuids(f"Algo. [Doc IDs: {B}; da1de55e-52d9-…]", m1)
+ok(rep == f"Algo. [Doc ID: {B}] [Doc ID: {A}]", "y «da1de55e-52d9-…», sin dejar «(…)» colgando")
 
 # ═══════════════════════════════════════════════ 6. ninguna forma rara rompe el sello
 print("\n── 6. ninguna forma rara rompe el sello ──")
@@ -245,6 +277,16 @@ main.expandir_citas_doc_id(_grande)
 _seg = _t.perf_counter() - _t0
 ok(_seg < 1.0, f"canonizar {len(_grande):,} caracteres tarda {_seg * 1000:.0f} ms (< 1 s)")
 
+# ═══════════════════════════════════════════════ 6b. los modelos de estilo
+print("\n── 6b. los modelos de estilo no enseñan ids, en ninguna forma ──")
+_estilo = main._sanitize_style_example(
+    f"El quejoso alega. [Doc IDs: {A}; {B}] Se estima fundado (Doc ID: {A}). "
+    f"Así lo sostuvo [**Doc IDs:** {A}; {B}] la Sala (Tesis X, Doc ID: {C}) y "
+    f"Doc IDs: {A}; {B}. Consta [Doc ID: {A}, párr. 3] y [Doc. ID: {B}]. Fin.")
+ok("doc" not in _estilo.lower() and not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}", _estilo)
+   and "El quejoso alega" in _estilo and "la Sala" in _estilo and _estilo.endswith("Fin."),
+   f"_sanitize_style_example las quita todas y deja el texto: {_estilo[:90]!r}")
+
 # ═══════════════════════════════════════════════ 7. el historial vuelve en singular
 print("\n── 7. el historial que vuelve al modelo va en singular ──")
 hist = [main.Message(role="user", content=f"¿Y esto? [Doc IDs: {A}; {B}]"),
@@ -267,6 +309,8 @@ ok("enhanced_text = expandir_citas_doc_id(enhanced_text)" in FUENTE,
    "/enhance devuelve el texto entero ya canónico")
 ok("matches = DOC_ID_PATTERN.findall(expandir_citas_doc_id(" in FUENTE,
    "extract_doc_ids (validador, sello, /analyze-document, /chat-sentencia) lee las agrupadas")
+_viejos = len(re.findall(r"""re\.compile\(r['"]\\\[Doc ID:""", FUENTE))
+ok(_viejos == 1, f"ninguna otra expresión busca «[Doc ID:» con el patrón singular ({_viejos}: DOC_ID_PATTERN)")
 _n_directos = len(re.findall(r"DOC_ID_PATTERN\.(?:findall|finditer)\(", FUENTE))
 ok(_n_directos == 1, f"nadie más lee citas con el patrón singular a pelo ({_n_directos} lectura: la de extract_doc_ids)")
 _pm = main.SYSTEM_PROMPT_CHAT
@@ -280,6 +324,110 @@ ok(FUENTE.count("(uno por fragmento, en sus corchetes; nunca «Doc IDs»)") == 2
 ok("nunca «[Doc IDs: a; b]»" in da._CON_ACERVO, "y el análisis de documentos con acervo")
 ok('NUNCA agrupes varios ids ni escribas "Doc IDs"' in main.SYSTEM_PROMPT_DOCUMENT_ANALYSIS,
    "y el prompt de análisis de documentos del chat")
+
+# ═══════════════════════════════════════════════ 9. ninguna expresión se cuelga
+print("\n── 9. ninguna expresión se cuelga: cadenas patológicas, < 50 ms cada una ──")
+# El bloque de las citas, de la nota de LAS CITAS AGRUPADAS a extract_doc_ids.
+# Cada expresión compilada ahí se mide sola, y ninguna puede ir en línea
+# («re.sub(r"…"», «re.search(r"…"»): así una nueva no se escapa de la medida.
+_ini = FUENTE.index("# ── LAS CITAS AGRUPADAS (26-sep-2026)")
+_bloque = FUENTE[_ini:FUENTE.index("def extract_doc_ids(", _ini)]
+_nombres = re.findall(r"^(_?[A-Z][A-Z0-9_]*) = re\.compile\(", _bloque, re.M)
+_en_linea = re.findall(r"\bre\.(?:search|sub|match|fullmatch|findall|finditer|split)\(r?['\"]", _bloque)
+ok(len(_nombres) >= 9 and not _en_linea,
+   f"{len(_nombres)} expresiones compiladas en el bloque y ninguna en línea ({len(_en_linea)})")
+_PATRONES = {n: getattr(main, n) for n in _nombres}
+_PATRONES["DOC_ID_PATTERN"] = main.DOC_ID_PATTERN   # la lee extract_doc_ids tras canonizar
+
+N = 10_000
+H16 = "0123456789abcdef"
+
+
+def _relleno(pieza):
+    return (pieza * (N // len(pieza) + 1))[:N]
+
+
+_PATOLOGICOS = {
+    # El caso de la revisión: k=60 grupos de 16, sin el cierre que esperaba.
+    "k=60 ( … .)": "Respuesta (véase Doc ID: 0123abcd" + ("-" + H16) * 60 + ".)",
+    "k=60 [ … .]": "Respuesta [véase Doc ID: 0123abcd" + ("-" + H16) * 60 + ".]",
+    "k=60 sin cierre": "Respuesta (véase Doc ID: 0123abcd" + ("-" + H16) * 60 + " x",
+    "k=60 en grupo sin cierre": "[Doc IDs: 0123abcd" + ("-" + H16) * 60 + " x",
+    "k=60 suelto": "Doc IDs: 0123abcd" + ("-" + H16) * 60 + ".",
+    "etiquetas en paréntesis sin cierre": "(x " + _relleno("Doc ID: 0123abcd-0123; ") + " x",
+    "etiquetas en corchete sin cierre": "[x " + _relleno("Doc ID: 0123abcd-0123; ") + " x",
+    "[Doc ID: repetido": _relleno("[Doc ID:"),
+    "(Doc ID repetido": _relleno("(Doc ID "),
+    "Doc. ID repetido": _relleno("Doc. ID "),
+    "_Doc ID_: repetido": _relleno("_Doc ID_: "),
+    "10k aperturas": "(" * N + "Doc ID: 0123abcd-0123",
+    "10k corchetes": "[" * N + "Doc ID: 0123abcd-0123",
+    "espacios tras la etiqueta": "[Doc ID" + " " * N + "x",
+    "espacios a los dos lados de «:»": "[Doc ID" + " " * (N // 2) + ":" + " " * (N // 2) + "x",
+    "espacios en el prefijo": "(x" + " " * N + "Doc ID: 0123abcd-0123 x",
+    "comas en el prefijo": "(x" + ", " * (N // 2) + "Doc ID: 0123abcd-0123 x",
+    "Doc y espacios": "Doc" + " " * N + "x",
+    "Doc y guiones bajos": "Doc" + "_-" * (N // 2) + "x",
+    "asteriscos en el prefijo": "(x " + "*" * N + "Doc ID: 0123abcd-0123 x",
+    "asteriscos alrededor": "*" * N + "Doc IDs:" + "*" * N + " 0123abcd-0123",
+    "separadores sin id": "Doc ID: 0123abcd-0123" + ";" * N,
+    "conjunciones sin id": "Doc ID: 0123abcd-0123" + " y" * (N // 2),
+    "conjunciones en el resto": "[Doc ID: 0123abcd-0123, " + " y" * (N // 2) + "]",
+    "ids y conjunciones": "[Doc IDs: " + _relleno("0123abcd-0123 y o e ") + "]",
+    "resto largo": "[Doc ID: 0123abcd-0123, " + "párr. 340 y 341, " * 600 + "]",
+    "300 ids": f"[Doc IDs: {'; '.join([A] * 300)}]",
+    "alfanumérico largo": "Doc ID: 0123abcd-" + "a" * N,
+    "puntos": "Doc ID: 0123abcd" + "." * N,
+}
+for _et in ("", "Doc ID: ", "(Doc ID: ", "[Doc IDs: ", "(x, Doc ID: ", "[x; Doc IDs: ",
+            "[**Doc IDs:** ", "**Doc IDs:** ", "(x, **Doc ID:** "):
+    for _n, _cuerpo in (("hex y guiones", _relleno("0123abcd-")), ("grupos de 16", _relleno("-" + H16)),
+                        ("a-", _relleno("a-")), ("hex puro", _relleno("abcdef01")),
+                        ("hex…", _relleno("0123abcd…")), ("hex-…", _relleno("0123abcd-…")),
+                        ("ids;", _relleno("0123abcd-0123; ")), ("ids pegados", _relleno("0123abcd-0123")),
+                        ("ids y etiquetas", _relleno("0123abcd-0123; Doc ID: "))):
+        _PATOLOGICOS[f"{_et.strip() or 'sin etiqueta'} + {_n}"] = _et + _cuerpo + " x"
+
+import contextlib as _ctx
+import io as _io
+
+
+def _mide(f, t):
+    """El mejor de dos: que un tirón del equipo no pase por retroceso."""
+    mejor = 9e9
+    for _ in range(2):
+        with _ctx.redirect_stdout(_io.StringIO()):
+            t0 = _t.perf_counter()
+            f(t)
+            mejor = min(mejor, _t.perf_counter() - t0)
+    return mejor
+
+
+_FUNCIONES = {
+    "expandir_citas_doc_id": main.expandir_citas_doc_id,
+    "extract_doc_ids": main.extract_doc_ids,
+    "repair_hallucinated_uuids": lambda t: main.repair_hallucinated_uuids(t, m1),
+    "validate_citations": lambda t: main.validate_citations(t, m1),
+    "_limpiar_historial": lambda t: main._limpiar_historial([main.Message(role="assistant", content=t)]),
+    "_sanitize_style_example": main._sanitize_style_example,
+}
+for _n, _p in _PATRONES.items():
+    # search recorre cada posición de arranque si no hay coincidencia; sub,
+    # cada posición fuera de una coincidencia.
+    _FUNCIONES[_n] = (lambda p: lambda t: (p.search(t), p.sub("", t)))(_p)
+
+_lentos, _peor = [], (0.0, "", "")
+for _caso, _texto in _PATOLOGICOS.items():
+    for _fn, _f in _FUNCIONES.items():
+        _seg = _mide(_f, _texto)
+        _peor = max(_peor, (_seg, _fn, _caso))
+        if _seg >= 0.05:
+            _lentos.append(f"{_fn} · {_caso}: {_seg * 1000:.0f} ms")
+ok(not _lentos, f"{len(_PATOLOGICOS)} cadenas × {len(_FUNCIONES)} funciones y expresiones, todas < 50 ms "
+   f"(la peor: {_peor[1]} con «{_peor[2]}», {_peor[0] * 1000:.1f} ms)" + (f" — {_lentos[:4]}" if _lentos else ""))
+_k60 = "Respuesta (véase Doc ID: 0123abcd" + ("-" + H16) * 60 + ".)"
+ok(main.expandir_citas_doc_id(_k60) == "Respuesta (véase [Doc ID: 0123abcd" + ("-" + H16) * 60 + "].)",
+   "y la carga de la revisión se sigue leyendo como una cita (el id estropeado lo decide la reparación)")
 
 print()
 if FALLOS:

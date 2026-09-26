@@ -7107,8 +7107,11 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
     return "\n".join(xml_parts)
 
 
+# Las citas a documentos NO van aquí: las quita _quitar_citas_doc_id, que
+# conoce todas sus formas («[Doc IDs: a; b]», «(Doc ID: a)», la etiqueta
+# suelta…). El patrón de antes, «\[Doc ID:[^\]]*\]», sólo conocía el singular
+# (26-sep-2026).
 _STYLE_EXAMPLE_STRIP_PATTERNS = [
-    re.compile(r'\[Doc ID:[^\]]*\]', re.IGNORECASE),
     re.compile(r'\[\s*\d+\s*\]'),  # referencias numéricas tipo [3]
     re.compile(r'Registro digital:?\s*\d+', re.IGNORECASE),
     re.compile(r'\b\d+[aª]?\.?/J\.?\s*\d+/\d{4}\b'),  # jurisprudencias tipo 1a./J. 46/2014
@@ -7118,10 +7121,14 @@ _STYLE_EXAMPLE_STRIP_PATTERNS = [
 
 def _sanitize_style_example(texto: str) -> str:
     """Elimina citas específicas del texto del ejemplo para evitar que el LLM las copie."""
+    texto = _quitar_citas_doc_id(texto)
     for pat in _STYLE_EXAMPLE_STRIP_PATTERNS:
         texto = pat.sub("", texto)
-    # Limpiar espacios dobles y puntuación huérfana
-    texto = re.sub(r'\s+([,.;:])', r'\1', texto)
+    # Limpiar espacios dobles y puntuación huérfana. El «(?<!\s)» hace que
+    # cada racha de espacios se mida una vez, desde su principio: sin él, una
+    # racha de 10,000 espacios sin puntuación detrás se volvía a recorrer
+    # desde cada uno de sus espacios (medio segundo, 26-sep-2026).
+    texto = re.sub(r'(?<!\s)\s+([,.;:])', r'\1', texto)
     texto = re.sub(r'\s{2,}', ' ', texto)
     texto = re.sub(r'\(\s*\)', '', texto)
     return texto.strip()
@@ -7207,30 +7214,90 @@ DOC_ID_PATTERN = re.compile(r'\[Doc ID:\s*([^\]\s]+)\]', re.IGNORECASE)
 # canoniza lo que valida y lo que DEVUELVE entero (/enhance), y la pantalla
 # aplica esta misma regla al pintar (ChatMessage, la hoja del documento):
 # con eso las 7 están en `sources` y el texto sólo muestra sus números.
-_ETIQUETA_DOC_ID = r"Doc[\s_\-]*IDs?"
+# ── SIN RETROCESO CATASTRÓFICO (26-sep-2026) ──────────────────────────────
+# La primera versión de estas expresiones se colgaba: «(véase Doc ID:
+# 0123abcd» seguido de k grupos «-0123456789abcdef» y sin el cierre tardaba
+# 0.9 s con k=16, 22 s con k=20 y seis minutos con k=24. El tiempo se
+# duplicaba con cada grupo. Dentro de la lista el separador entre ids era
+# opcional y un id admitía grupos de 1 a 16 caracteres, así que una ristra
+# hexadecimal se podía partir en ids de 2^k maneras, y cuando faltaba el
+# cierre el motor las probaba todas. Por ahí se llegaba desde el historial
+# que manda el cliente (rol assistant incluido) y desde la salida del
+# modelo; la expresión corre síncrona y el Procfile levanta 3 workers: tres
+# peticiones dejaban la API sin servicio.
+#
+# La regla, para éstas y para las que vengan: cada pieza consume lo suyo y
+# no lo devuelve. El id es un grupo atómico «(?>…)»; los separadores, la
+# etiqueta y la lista usan cuantificadores posesivos («*+», «?+», «++»,
+# Python 3.11); entre dos ids tiene que haber algo que no sea letra ni
+# número; dos piezas contiguas no compiten por los mismos caracteres (el
+# prefijo ajeno ya incluye sus comas y espacios), y el contenido de unos
+# corchetes llega hasta el primer corchete o paréntesis, sin tope que
+# obligue a probar largos. test_citas_plurales.py mide cada expresión con
+# cadenas patológicas de 10,000 caracteres: menos de 50 ms cada una.
+#
+# La etiqueta: «Doc ID», «Doc IDs», «DocID», «doc_id», «Doc-IDs», «Doc. ID»…
+_ETIQUETA_DOC_ID = r"Doc\.?[\s_\-]*+IDs?"
+# La etiqueta con sus dos puntos, dentro de una lista de ids («a; Doc ID: b»).
+_ETIQUETA_EN_LISTA = _ETIQUETA_DOC_ID + r"\s*+[:：]?+\s*+"
+# La etiqueta al abrir unos corchetes, con el énfasis que el modelo le ponga
+# alrededor: «[**Doc IDs:** a; b]», «[*Doc IDs*: a; b]». Los corchetes la
+# delimitan, así que el énfasis se admite a los dos lados sin contarlo.
+_ETIQUETA_EN_GRUPO = r"[*_]*+" + _ETIQUETA_DOC_ID + r"[*_]*+\s*+[:：]?+"
+# La etiqueta suelta en la prosa. Con énfasis sólo si lo cierra junto a los
+# dos puntos («**Doc IDs:** a», «*Doc IDs*: a»); en «**Doc ID: a**» el
+# énfasis es de la cita entera y la etiqueta empieza en la «D»: así no queda
+# un «**» huérfano que ponga en negritas el resto del párrafo.
+_ETIQUETA_SUELTA = (r"(?:(?P<enf>\*{1,3}|_{1,3})" + _ETIQUETA_DOC_ID
+                    + r"(?:(?P=enf)\s*+[:：]|\s*+[:：](?P=enf))|" + _ETIQUETA_DOC_ID
+                    + r"\s*+[:：]?+)\s*+")
 # Un id con forma de uuid, también estropeado (le falta un grupo, le sobra
-# uno, cortado con «…»): la reparación de ids decide después cuál es.
-_UUIDISH = (r"[0-9a-fA-F]{8}(?:(?:-[0-9a-zA-Z]{1,16})+(?:…|\.{3})?|…|\.{3})"
-            r"|[0-9a-fA-F]{32}")
+# uno, cortado con «…» o con «-…» detrás de un guion): la reparación de ids
+# decide después cuál es. ATÓMICO: una vez leído no se vuelve a partir.
+_UUIDISH = (r"(?>[0-9a-fA-F]{8}(?:(?:-[0-9a-zA-Z]{1,16})++(?:-?+(?:…|\.{3}))?+|-?+(?:…|\.{3}))"
+            r"|[0-9a-fA-F]{32})")
 _RE_UUIDISH = re.compile(_UUIDISH)
-_RE_ETIQUETA_DOC_ID = re.compile(_ETIQUETA_DOC_ID + r"\s*[:：]?", re.IGNORECASE)
-# «[Doc IDs: a; b]», «[Doc ID: a, b]», «[Doc ID: a; Doc ID: b]», «(Doc ID: a)»…
-# La etiqueta al principio de unos corchetes o paréntesis, en cualquier caja.
+_RE_ETIQUETA_DOC_ID = re.compile(_ETIQUETA_EN_GRUPO + r"[*_]*+", re.IGNORECASE)
+# «[Doc IDs: a; b]», «[Doc ID: a, b]», «[Doc ID: a; Doc ID: b]», «(Doc ID: a)»,
+# «[**Doc IDs:** a; b]»… La etiqueta al principio de unos corchetes o
+# paréntesis, en cualquier caja. El contenido llega hasta el primer corchete
+# o paréntesis y no tiene tope: 18 ids agrupados son 700 caracteres y la
+# versión con tope de 600 no los leía. Lo que sí se acota es el texto que
+# no es cita (_RESTO_MAXIMO).
 _RE_GRUPO_DOC_ID = re.compile(
-    r"[\[(]\s*" + _ETIQUETA_DOC_ID + r"\s*[:：]?\s*([^\[\]()]{0,600}?)\s*[\])]", re.IGNORECASE)
-# Uno o más ids seguidos, con o sin la etiqueta repetida entre ellos.
-_IDS_EN_LISTA = (r"(?:" + _UUIDISH + r")(?:\s*(?:[;,/|&]|\by\b|\band\b)?\s*(?:"
-                 + _ETIQUETA_DOC_ID + r"\s*[:：]?\s*)?(?:" + _UUIDISH + r"))*")
+    r"[\[(]\s*+" + _ETIQUETA_EN_GRUPO + r"([^\[\]()]*+)[\])]", re.IGNORECASE)
+# Uno o más ids seguidos, con o sin la etiqueta repetida entre ellos. El
+# separador es opcional, pero entre dos ids tiene que haber algo que no sea
+# letra ni número: un id no empieza donde otro se cortó.
+_SEPARADOR_DE_IDS = (r"\s*+(?:[;,/|&]|\b(?:y|e|and|o)\b)?+\s*+(?:" + _ETIQUETA_EN_LISTA
+                     + r")?+(?<![0-9a-zA-Z])")
+_IDS_EN_LISTA = _UUIDISH + r"(?:" + _SEPARADOR_DE_IDS + _UUIDISH + r")*+"
 # «(Tesis 2a./J. 5/2020, Doc ID: a)» o «[Registro 2005115; Doc ID: a]»: la
 # etiqueta al FINAL de unos paréntesis ajenos. Las citas salen afuera:
 # «(Tesis 2a./J. 5/2020) [Doc ID: a]», sin corchetes dentro de corchetes.
+# El texto ajeno se lleva sus comas y espacios finales (se quitan después):
+# si una pieza aparte los disputara, cada largo del prefijo se volvería a
+# medir contra cada reparto de los espacios.
 _RE_DOC_ID_AL_CIERRE = re.compile(
-    r"([\[(])([^\[\]()]{1,400}?)[\s,;:]*(?<![\[\w])" + _ETIQUETA_DOC_ID
-    + r"\s*[:：]?\s*(" + _IDS_EN_LISTA + r")\s*[\])]", re.IGNORECASE)
+    r"([\[(])([^\[\]()]{1,400}?)(?<![\[\w])" + _ETIQUETA_SUELTA
+    + r"(?P<lista>" + _IDS_EN_LISTA + r")\s*+[\])]", re.IGNORECASE)
 # «Doc IDs: a; b» sin corchetes propios, en mitad de la prosa: la etiqueta
 # suelta seguida de uno o más ids. No entra en «[Doc ID: a]» (la precede «[»).
 _RE_DOC_ID_SUELTO = re.compile(
-    r"(?<![\[\w])" + _ETIQUETA_DOC_ID + r"\s*[:：]?\s*(" + _IDS_EN_LISTA + r")", re.IGNORECASE)
+    r"(?<![\[\w])" + _ETIQUETA_SUELTA + r"(?P<lista>" + _IDS_EN_LISTA + r")", re.IGNORECASE)
+# Lo que queda en unos corchetes al sacar los ids: una conjunción SÓLO se va
+# si está pegada a un id («a y b», «a, y b»); «párr. 340 y 341» se queda
+# como está. Los ids se marcan antes con un carácter de uso privado.
+_HUECO_ID = ""
+_RE_CONJUNCION_JUNTO_A_ID = re.compile(
+    r"(?<=" + _HUECO_ID + r")[\s;,/|&]*+\b(?:y|e|and|o)\b"
+    r"|\b(?:y|e|and|o)\b(?=[\s;,/|&]*+" + _HUECO_ID + r")", re.IGNORECASE)
+_RE_ESPACIOS = re.compile(r"\s+")
+_RE_HAY_ETIQUETA = re.compile(r"doc\.?[\s_\-]*+id", re.IGNORECASE)
+_RE_SEPARADOR_EN_ID = re.compile(r"[\s;,|/&]")
+# Más texto que esto junto a los ids y los corchetes no son una cita: se
+# dejan como estaban (y las otras dos pasadas recogen lo que puedan).
+_RESTO_MAXIMO = 600
 _ADORNO_ID = "*`\"'«»“”‘’"
 
 
@@ -7238,20 +7305,32 @@ def _citas_canonicas(ids: List[str]) -> str:
     return " ".join(f"[Doc ID: {i}]" for i in ids)
 
 
+def _sin_separador_final(s: str) -> str:
+    """«Tesis 2a./J. 5/2020, » → «Tesis 2a./J. 5/2020»."""
+    while True:
+        t = s.rstrip().rstrip(",;:")
+        if t == s:
+            return s
+        s = t
+
+
 def expandir_citas_doc_id(texto: str) -> str:
     """Toda cita a un documento, en su forma singular: «[Doc ID: a] [Doc ID: b]».
 
     Reconoce «[Doc IDs: a; b]», «[Doc ID: a; b]», «[Doc ID: a, b]»,
-    «[Doc ID: a; Doc ID: b]», «(Doc ID: a)», la etiqueta suelta dentro de un
-    paréntesis ajeno y cualquier caja («[doc id: a]»). Una cita singular sale
-    igual que entró (sólo con la etiqueta en su forma canónica), así que es
-    idempotente y el caso de siempre no cambia.
+    «[Doc ID: a; Doc ID: b]», «(Doc ID: a)», «[**Doc IDs:** a; b]»,
+    «[Doc. ID: a]», la etiqueta suelta dentro de un paréntesis ajeno y
+    cualquier caja («[doc id: a]»). Una cita singular sale igual que entró
+    (sólo con la etiqueta en su forma canónica), así que es idempotente y el
+    caso de siempre no cambia.
 
-    Lo que no es un id dentro de los corchetes («[Doc ID: a, párr. 340]») no
-    se tira: queda detrás, entre paréntesis. Unos corchetes con la etiqueta y
-    sin ningún id se dejan como estaban: no hay cita que rescatar.
+    Lo que no es un id dentro de los corchetes («[Doc ID: a, párr. 340 y
+    341]») no se tira: queda detrás, entre paréntesis, con sus conjunciones.
+    Unos corchetes con la etiqueta y sin ningún id se dejan como estaban: no
+    hay cita que rescatar. Tarda lo mismo que el texto es largo, sea cual sea
+    (SIN RETROCESO CATASTRÓFICO, arriba).
     Ver la nota de LAS CITAS AGRUPADAS, arriba."""
-    if not texto or not re.search(r"(?i)doc[\s_\-]*id", texto):
+    if not texto or not _RE_HAY_ETIQUETA.search(texto):
         return texto
 
     def _grupo(m: "re.Match") -> str:
@@ -7260,30 +7339,45 @@ def expandir_citas_doc_id(texto: str) -> str:
         # El singular de siempre: un único token, sea o no un uuid bien
         # formado (la reparación y el validador deciden). Sólo se le quita el
         # adorno (**negritas**, `código`, comillas) y se canoniza la etiqueta.
-        if solo and not re.search(r"[\s;,|/&]", solo) and not _RE_ETIQUETA_DOC_ID.search(solo):
+        if solo and not _RE_SEPARADOR_EN_ID.search(solo) and not _RE_ETIQUETA_DOC_ID.search(solo):
             return f"[Doc ID: {solo}]"
         ids = [x.group(0) for x in _RE_UUIDISH.finditer(contenido)]
         if not ids:
             return m.group(0)
-        resto = _RE_ETIQUETA_DOC_ID.sub(" ", _RE_UUIDISH.sub(" ", contenido))
-        resto = re.sub(r"(?i)(?:^|(?<=[\s;,]))(?:y|e|and|o)(?=[\s;,]|$)", " ", resto)
-        resto = re.sub(r"\s+", " ", resto).strip(" ;,|/&.:-" + _ADORNO_ID)
+        resto = _RE_ETIQUETA_DOC_ID.sub(_HUECO_ID, _RE_UUIDISH.sub(_HUECO_ID, contenido))
+        resto = _RE_CONJUNCION_JUNTO_A_ID.sub(_HUECO_ID, resto).replace(_HUECO_ID, " ")
+        resto = _RE_ESPACIOS.sub(" ", resto).strip(" ;,|/&.:-" + _ADORNO_ID)
+        if len(resto) > _RESTO_MAXIMO:
+            return m.group(0)
         return _citas_canonicas(list(dict.fromkeys(ids))) + (f" ({resto})" if resto else "")
 
     def _al_cierre(m: "re.Match") -> str:
-        abre, previo, lista = m.group(1), m.group(2).rstrip(" ,;:"), m.group(3)
-        ids = [x.group(0) for x in _RE_UUIDISH.finditer(lista)]
+        abre, previo = m.group(1), _sin_separador_final(m.group(2))
+        ids = [x.group(0) for x in _RE_UUIDISH.finditer(m.group("lista"))]
         if not ids or not previo:
             return m.group(0)
         return f"{abre}{previo}{')' if abre == '(' else ']'} {_citas_canonicas(list(dict.fromkeys(ids)))}"
 
     def _suelto(m: "re.Match") -> str:
-        ids = [x.group(0) for x in _RE_UUIDISH.finditer(m.group(1))]
+        ids = [x.group(0) for x in _RE_UUIDISH.finditer(m.group("lista"))]
         return _citas_canonicas(list(dict.fromkeys(ids))) if ids else m.group(0)
 
     texto = _RE_GRUPO_DOC_ID.sub(_grupo, texto)
     texto = _RE_DOC_ID_AL_CIERRE.sub(_al_cierre, texto)
     return _RE_DOC_ID_SUELTO.sub(_suelto, texto)
+
+
+def _quitar_citas_doc_id(texto: str) -> str:
+    """Quita toda cita a un documento, en cualquier forma, con lo que traiga
+    dentro de sus corchetes: para los modelos de estilo, que no deben
+    enseñarle al modelo ids que no están en su contexto."""
+    if not texto or not _RE_HAY_ETIQUETA.search(texto):
+        return texto
+    # Primero los grupos enteros, con su resto («[Doc ID: a, párr. 3]» se va
+    # entero, como con el patrón de antes); luego las formas al cierre de un
+    # paréntesis ajeno o sueltas, que pasan a singular y se van igual.
+    texto = _RE_GRUPO_DOC_ID.sub("", texto)
+    return _RE_GRUPO_DOC_ID.sub("", expandir_citas_doc_id(texto))
 
 
 def extract_doc_ids(text: str) -> List[str]:
