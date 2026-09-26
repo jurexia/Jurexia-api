@@ -14,6 +14,7 @@ VERSION: 2026.02.22-v5 (Anti-alucinación 3 capas: Deterministic Fetch + Prompt 
 """
 
 import asyncio
+import bisect
 import html
 import json
 import os
@@ -1228,10 +1229,10 @@ como derecho vigente. Las tesis son del sistema anterior y deben citarse como ta
 FORMATO DE CITAS:
 - Usa [Doc ID: uuid] del contexto proporcionado para respaldar cada afirmacion
 - Los UUID tienen 36 caracteres: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-- Cada cita debe estar INMEDIATAMENTE despues del texto que respalda
-- NUNCA coloques multiples [Doc ID] consecutivos sin texto entre ellos
+- Cada cita debe estar INMEDIATAMENTE despues del texto que respalda: mejor una por frase que varias amontonadas al final
+- Un [Doc ID: uuid] por cada fuente, cada uno en sus corchetes; si una frase descansa en dos: [Doc ID: abc] [Doc ID: def]. NUNCA agrupes varios ids en unos corchetes ni escribas "Doc IDs": esa cita no abre su PDF
 - Correcto: "El articulo 17 establece... [Doc ID: abc]. Asimismo, el articulo 19 dispone... [Doc ID: def]"
-- Incorrecto: "Los articulos 17 y 19... [Doc ID: abc] [Doc ID: def] [Doc ID: ghi]"
+- Incorrecto: "Los articulos 17 y 19... [Doc IDs: abc; def]"
 
 ===============================================================
    PROHIBICIONES ABSOLUTAS
@@ -1977,19 +1978,64 @@ _MARCADORES_DE_PANTALLA = (
     "SOURCES", "PASO", "MODE", "PING", "CACHE", "SUSCRIPCION_SUSPENDIDA",
     "ADVERTENCIA",
 )
-_RE_MARCADORES = re.compile(
-    r"\n*<!--\s*(?:" + "|".join(_MARCADORES_DE_PANTALLA) + r")\b[\s\S]*?-->\n*"
+# La apertura de un marcador. Lo demás —hasta su «-->» y los saltos de línea
+# de alrededor— lo recorre _limpiar_marcadores con str.find, no una
+# expresión: «\n*<!--…[\s\S]*?-->\n*» era CUADRÁTICA. Una racha de saltos de
+# línea delante de un «<!--» que no era marcador se volvía a recorrer desde
+# cada salto (0.2 s con 20,000; 6 s con 100,000), y cada marcador sin cierre
+# recorría el resto del texto buscándolo (lo mismo). Llega desde el
+# historial que manda el cliente (26-sep-2026).
+_RE_MARCADOR_ABRE = re.compile(
+    r"<!--\s{0,8}+(?:" + "|".join(_MARCADORES_DE_PANTALLA) + r")\b"
 )
+_RE_NO_SALTO = re.compile(r"[^\n]")
 
 
 def _limpiar_marcadores(texto: str) -> str:
-    """Quita del texto los marcadores de pantalla, dejando el resto intacto."""
+    """Quita del texto los marcadores de pantalla, dejando el resto intacto.
+
+    Cada marcador, con los saltos de línea que lo rodean, se cambia por una
+    línea en blanco. Lineal: cada búsqueda empieza donde acabó la anterior,
+    y un marcador sin «-->» termina el recorrido (los de detrás tampoco lo
+    tienen)."""
     if not texto or "<!--" not in texto:
         return texto
-    return _RE_MARCADORES.sub("\n\n", texto).strip()
+    partes, hecho = [], 0
+    m = _RE_MARCADOR_ABRE.search(texto)
+    while m is not None:
+        cierre = texto.find("-->", m.end())
+        if cierre < 0:
+            break
+        partes.append(texto[hecho:m.start()].rstrip("\n"))
+        partes.append("\n\n")
+        tras = _RE_NO_SALTO.search(texto, cierre + 3)
+        hecho = tras.start() if tras else len(texto)
+        m = _RE_MARCADOR_ABRE.search(texto, hecho)
+    partes.append(texto[hecho:])
+    return "".join(partes).strip()
 
 
 _HISTORIAL_SOLO_MARCAS = "[…turno sin texto…]"
+# Lo que se canoniza de cada respuesta del historial (expandir_citas_doc_id).
+# Esas respuestas las manda el CLIENTE con su rol «assistant»: no se puede
+# dar por hecho que las escribió el modelo ni que miden lo de siempre (de 10
+# a 70 mil caracteres ya sin marcadores). Todo lo de las citas es lineal,
+# pero lineal no es gratis: más allá de esto el turno sigue tal cual. Una
+# cita agrupada que quede detrás no rompe nada —el modelo la ve como la
+# escribió— y el corte se hace en un salto de línea cercano para no partir
+# una por la mitad (26-sep-2026).
+HISTORIAL_CITAS_MAX_CHARS = int(os.getenv("HISTORIAL_CITAS_MAX_CHARS", "200000"))
+
+
+def _canonizar_citas_del_turno(texto: str) -> str:
+    """expandir_citas_doc_id sobre, como mucho, HISTORIAL_CITAS_MAX_CHARS
+    caracteres del turno."""
+    tope = HISTORIAL_CITAS_MAX_CHARS
+    if len(texto) <= tope:
+        return expandir_citas_doc_id(texto)
+    corte = texto.rfind("\n", max(0, tope - 4000), tope)
+    corte = corte if corte > 0 else tope
+    return expandir_citas_doc_id(texto[:corte]) + texto[corte:]
 
 
 def _limpiar_historial(mensajes: list) -> list:
@@ -2000,20 +2046,35 @@ def _limpiar_historial(mensajes: list) -> list:
     cortado antes del primer token— se quedaría en cadena vacía al limpiarlo, y
     hay proveedores que rechazan el turno vacío: el arreglo se cobraría el
     fallo que venía a evitar.
+
+    Las respuestas guardadas con citas agrupadas («[Doc IDs: a; b]») vuelven
+    al modelo en singular (expandir_citas_doc_id, 26-sep-2026): lo que ve en
+    el historial es lo que imita en el turno siguiente. Se canonizan hasta
+    HISTORIAL_CITAS_MAX_CHARS caracteres por turno; los marcadores se quitan
+    del turno entero (_limpiar_marcadores es lineal y sólo busca con find).
     """
-    limpios, sucios, ahorro = [], 0, 0
+    limpios, sucios, ahorro, citas = [], 0, 0, 0
     for m in mensajes:
         c = m.content or ""
         n = _limpiar_marcadores(c) or (_HISTORIAL_SOLO_MARCAS if c else c)
         if n != c:
             sucios += 1
             ahorro += len(c) - len(n)
+        if getattr(m, "role", None) == "assistant":
+            n2 = _canonizar_citas_del_turno(n)
+            if n2 != n:
+                citas += 1
+                n = n2
+        if n != c:
             limpios.append(m.model_copy(update={"content": n}))
         else:
             limpios.append(m)
-    if not sucios:
+    if not sucios and not citas:
         return mensajes
-    print(f"   🧹 MARCADORES FUERA: {sucios} mensajes, -{ahorro:,} chars de historial")
+    if sucios:
+        print(f"   🧹 MARCADORES FUERA: {sucios} mensajes, -{ahorro:,} chars de historial")
+    if citas:
+        print(f"   🧹 CITAS AGRUPADAS: {citas} turnos del historial pasados a [Doc ID] singular")
     return limpios
 
 
@@ -2174,6 +2235,7 @@ FORMATO DE CITAS (CRÍTICO):
 - Los UUID tienen 36 caracteres exactos: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 - Si NO tienes el UUID completo → NO CITES, omite la referencia
 - NUNCA inventes o acortes UUIDs
+- Un [Doc ID: uuid] por fuente, cada uno en sus corchetes; NUNCA agrupes varios ids ni escribas "Doc IDs"
 - Si no hay UUID, describe la fuente por nombre: "Artículo X..." — *Nombre de la Ley*
 
 PRINCIPIO PRO PERSONA (Art. 1° CPEUM):
@@ -6874,7 +6936,8 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
             'pasaje CARÁCTER POR CARÁCTER del documento, máximo 40 palabras, entre '
             'comillas « », seguido de (autor, obra, página) y su [Doc ID]. PROHIBIDO '
             'poner comillas a una paráfrasis: si no copias exacto, parafrasea SIN '
-            'comillas, y cita igual el [Doc ID]. SI LA RESPUESTA EXPLICA UN '
+            'comillas, y cita igual el [Doc ID] (uno por fragmento, en sus corchetes; nunca «Doc IDs»). '
+            'SI LA RESPUESTA EXPLICA UN '
             'CONCEPTO y aquí hay un fragmento que lo trata, CÍTALO: se recuperó '
             'porque viene al caso. Lo que no debes hacer es fundar en doctrina lo '
             'que se funda en norma. -->'
@@ -7114,8 +7177,11 @@ def format_results_as_xml(results: List[SearchResult], estado: Optional[str] = N
     return "\n".join(xml_parts)
 
 
+# Las citas a documentos NO van aquí: las quita _quitar_citas_doc_id, que
+# conoce todas sus formas («[Doc IDs: a; b]», «(Doc ID: a)», la etiqueta
+# suelta…). El patrón de antes, «\[Doc ID:[^\]]*\]», sólo conocía el singular
+# (26-sep-2026).
 _STYLE_EXAMPLE_STRIP_PATTERNS = [
-    re.compile(r'\[Doc ID:[^\]]*\]', re.IGNORECASE),
     re.compile(r'\[\s*\d+\s*\]'),  # referencias numéricas tipo [3]
     re.compile(r'Registro digital:?\s*\d+', re.IGNORECASE),
     re.compile(r'\b\d+[aª]?\.?/J\.?\s*\d+/\d{4}\b'),  # jurisprudencias tipo 1a./J. 46/2014
@@ -7125,10 +7191,14 @@ _STYLE_EXAMPLE_STRIP_PATTERNS = [
 
 def _sanitize_style_example(texto: str) -> str:
     """Elimina citas específicas del texto del ejemplo para evitar que el LLM las copie."""
+    texto = _quitar_citas_doc_id(texto)
     for pat in _STYLE_EXAMPLE_STRIP_PATTERNS:
         texto = pat.sub("", texto)
-    # Limpiar espacios dobles y puntuación huérfana
-    texto = re.sub(r'\s+([,.;:])', r'\1', texto)
+    # Limpiar espacios dobles y puntuación huérfana. El «(?<!\s)» hace que
+    # cada racha de espacios se mida una vez, desde su principio: sin él, una
+    # racha de 10,000 espacios sin puntuación detrás se volvía a recorrer
+    # desde cada uno de sus espacios (medio segundo, 26-sep-2026).
+    texto = re.sub(r'(?<!\s)\s+([,.;:])', r'\1', texto)
     texto = re.sub(r'\s{2,}', ' ', texto)
     texto = re.sub(r'\(\s*\)', '', texto)
     return texto.strip()
@@ -7180,16 +7250,377 @@ def format_sentencias_as_examples(results: list, max_examples: int = 3, max_char
 # VALIDADOR DE CITAS (Citation Grounding Verification)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Regex para extraer Doc IDs del formato [Doc ID: uuid/id]
-DOC_ID_PATTERN = re.compile(r'\[Doc ID:\s*([^\]\s]+)\]', re.IGNORECASE)
+# Regex para extraer Doc IDs del formato [Doc ID: uuid/id]. Con topes (ver
+# TIEMPO LINEAL POR CONSTRUCCIÓN, abajo): un uuid mide 36 caracteres, y 200
+# seguidos sin un espacio ya no son un id.
+DOC_ID_PATTERN = re.compile(r'\[Doc ID:\s{0,8}+([^\]\s]{1,200}+)\]', re.IGNORECASE)
+
+
+# ── LAS CITAS AGRUPADAS (26-sep-2026) ─────────────────────────────────────
+#
+# David: «Tengo 7 citas no verificadas y formato como doc id que no debería
+# aparecer allí (solo los números de cita que permite desplegarla con pdf).
+# Siempre debemos asegurar el pdf en el visor».
+#
+# A la pregunta por la línea del control de convencionalidad el modelo
+# escribió 31 citas y cinco de ellas en PLURAL: «[Doc IDs: da1de55e-…;
+# 2b2dc535-…]» (Radilla ¶340 y ¶341), «[Doc IDs: 42e42c82-…; fcd8d6c8-…]»
+# (García Rodríguez ¶301 y ¶303), «[Doc IDs: 81e7710c-…; 0b9477ff-…]» (dos
+# tesis de la v3)… Siete ids sólo aparecían así. Eran REALES y estaban en el
+# contexto, pero DOC_ID_PATTERN sólo conoce el singular: no se validaron, no
+# entraron en CITATION_META.sources (60 fuentes, faltaban justo ésas), el
+# sello las contó como «no verificadas» y en pantalla quedó
+# «[Doc IDs: [25]; [26]]» sin PDF que abrir.
+#
+# El prompt maestro decía «NUNCA coloques multiples [Doc ID] consecutivos» y
+# el modelo obedecía AGRUPÁNDOLOS. Ahora pide uno por fuente, cada uno en sus
+# corchetes; pero un modelo que obedece el 99% no es un contrato. Por eso
+# TODO lo que lee citas pasa antes por aquí: el validador, la reparación de
+# ids, el sello de correspondencia, /analyze-document, /chat-sentencia y el
+# historial que vuelve al modelo.
+#
+# QUIÉN CANONIZA LO QUE VE EL ABOGADO. /chat, /chat-sentencia y
+# /analyze-document TRANSMITEN el texto en stream y el backend no guarda el
+# mensaje —lo persiste el frontend (lib/conversations.ts) con lo que
+# recibió—; lo ya transmitido no se puede reescribir. Así que el backend
+# canoniza lo que valida y lo que DEVUELVE entero (/enhance), y la pantalla
+# aplica esta misma regla al pintar (ChatMessage, la hoja del documento):
+# con eso las 7 están en `sources` y el texto sólo muestra sus números.
+#
+# ── TIEMPO LINEAL POR CONSTRUCCIÓN (26-sep-2026) ──────────────────────────
+# Dos rondas seguidas, el arreglo de una expresión de este bloque metió otra
+# que no era lineal. Primero la lista de ids: exponencial, 22 s con veinte
+# grupos «-0123456789abcdef» sin cierre, porque el separador era opcional y
+# la ristra se podía partir de 2^k maneras. Se arregló con grupos atómicos y
+# cuantificadores posesivos, y entonces la etiqueta empezó con «[*_]*+» sin
+# ancla: una racha de 60,000 «_» se recorría desde cada uno de sus
+# caracteres, y _recortar_historial tardaba 10 s con un turno assistant que
+# manda el CLIENTE. Lo posesivo quita el retroceso, pero no el volver a
+# empezar: una expresión que puede arrancar en cada carácter de una racha y
+# recorrerla entera es cuadrática aunque nunca retroceda. Y todo esto corre
+# síncrono en la petición, con 3 workers en el Procfile: tres peticiones así
+# dejan la API sin servicio.
+#
+# Así que la regla ya no es «que no retroceda», sino una que se comprueba
+# leyendo el patrón (test_citas_plurales.py, sección 10, recorre el árbol de
+# cada expresión de este bloque):
+#   · NINGÚN cuantificador sin tope. Adornos, separadores y etiquetas llevan
+#     topes pequeños ({0,3}, {0,8}); un id, {1,64} grupos. Con topes, lo que
+#     una expresión hace en cada punto de arranque está acotado, y el total
+#     es proporcional al texto.
+#   · Lo que no se deja escribir así lo hace código, no otra expresión:
+#       - el contenido de unos corchetes no lo lee una expresión: se busca
+#         el siguiente corchete o paréntesis (_RE_CORCHETE) en una ventana de
+#         _GRUPO_MAXIMO caracteres. Esa búsqueda se detiene en el primero,
+#         sea de apertura o de cierre, así que las ventanas de dos grupos no
+#         se solapan;
+#       - la lista de ids (_leer_ids) es un bucle que alterna dos
+#         expresiones ANCLADAS (el id y el separador) y no pasa de
+#         _IDS_MAXIMO ids;
+#       - «la etiqueta al cierre de un paréntesis ajeno» se busca etiqueta
+#         por etiqueta, con el corchete más cercano por detrás (bisect sobre
+#         las posiciones de los corchetes), y una lista que se quedó sin
+#         cierre no se vuelve a leer desde una etiqueta que está dentro de
+#         ella (acabaría en el mismo sitio, sin cierre).
+#   · Con eso cada carácter lo lee un número acotado de veces. La sección
+#     10 lo mide además con cadenas de 20,000 y 100,000 caracteres de un
+#     alfabeto adversario: menos de 60 ms y de 300 ms, y con 100,000 no más
+#     de ~6 veces lo que tarda con 20,000.
+#
+# La etiqueta: «Doc ID», «Doc IDs», «DocID», «doc_id», «Doc-IDs», «Doc. ID»…
+_ETIQUETA_DOC_ID = r"Doc\.?+[\s_\-]{0,3}+IDs?+"
+# El énfasis que el modelo le pone a la etiqueta o al id: «**», «*», «__».
+_ENFASIS = r"[*_]{0,3}+"
+# La etiqueta con sus dos puntos, dentro de una lista de ids («a; Doc ID: b»).
+_ETIQUETA_EN_LISTA = _ETIQUETA_DOC_ID + r"\s{0,8}+[:：]?+\s{0,8}+"
+# La etiqueta al abrir unos corchetes, con el énfasis que el modelo le ponga
+# alrededor y DESPUÉS de los dos puntos: «[**Doc IDs:** a; b]»,
+# «[*Doc IDs*: a; b]». El énfasis tras los dos puntos es de la etiqueta: sin
+# él, en «[**Doc ID:** **a**]» el contenido empezaba por «** **a**» y el id
+# salía como «**a» (no idempotente, y el sello lo contaba inválido).
+_ETIQUETA_EN_GRUPO = _ENFASIS + _ETIQUETA_DOC_ID + _ENFASIS + r"\s{0,8}+[:：]?+" + _ENFASIS
+# La etiqueta suelta en la prosa. Con énfasis sólo si lo cierra junto a los
+# dos puntos («**Doc IDs:** a», «*Doc IDs*: a»); en «**Doc ID: a**» el
+# énfasis es de la cita entera y la etiqueta empieza en la «D»: así no queda
+# un «**» huérfano que ponga en negritas el resto del párrafo.
+_ETIQUETA_SUELTA = (r"(?:(?P<enf>\*{1,3}|_{1,3})" + _ETIQUETA_DOC_ID
+                    + r"(?:(?P=enf)\s{0,8}+[:：]|\s{0,8}+[:：](?P=enf))|" + _ETIQUETA_DOC_ID
+                    + r"\s{0,8}+[:：]?+)\s{0,8}+")
+# Un id con forma de uuid, también estropeado (le falta un grupo, le sobra
+# uno, cortado con «…» o con «-…» detrás de un guion): la reparación de ids
+# decide después cuál es. ATÓMICO: una vez leído no se vuelve a partir.
+_UUIDISH = (r"(?>[0-9a-fA-F]{8}(?:(?:-[0-9a-zA-Z]{1,16}){1,64}+(?:-?+(?:…|\.{3}))?+|-?+(?:…|\.{3}))"
+            r"|[0-9a-fA-F]{32})")
+# El adorno que el modelo le pone a un id: **negritas**, `código`, comillas.
+_ADORNO_ID = "*`\"'«»“”‘’"
+_RE_UUIDISH = re.compile(_UUIDISH)
+# El id con su adorno pegado, para sacarlo del resto de unos corchetes: en
+# «[Doc IDs: **a** y **b**]» el «**» es del id, y la «y» queda junto a él
+# (sin esto quedaba «(y)» colgando).
+_RE_ID_CON_ADORNO = re.compile(
+    "[" + re.escape(_ADORNO_ID) + "]{0,3}+(" + _UUIDISH + ")[" + re.escape(_ADORNO_ID) + "]{0,3}+")
+_RE_ETIQUETA_DOC_ID = re.compile(_ETIQUETA_EN_GRUPO, re.IGNORECASE)
+# La apertura de un grupo: «[Doc IDs:», «(Doc ID:», «[**Doc IDs:**». Empieza
+# en un corchete o paréntesis, que es un carácter concreto: no hay racha
+# desde cuyo interior pueda volver a arrancar.
+_RE_GRUPO_ABRE = re.compile(r"[\[(]\s{0,8}+" + _ETIQUETA_EN_GRUPO, re.IGNORECASE)
+# Un corchete o paréntesis cualquiera: donde acaba el contenido de un grupo.
+_RE_CORCHETE = re.compile(r"[\[\]()]")
+# La etiqueta suelta, sin un corchete ni una letra justo delante: la que
+# puede ir al cierre de unos paréntesis ajenos o en mitad de la prosa.
+_RE_ETIQUETA_SUELTA = re.compile(r"(?<![\[\w])" + _ETIQUETA_SUELTA, re.IGNORECASE)
+# Lo que va entre dos ids de una lista. Es opcional, pero entre dos ids
+# tiene que haber algo que no sea letra ni número: un id no empieza donde
+# otro se cortó.
+_RE_SEPARADOR_DE_IDS = re.compile(
+    r"\s{0,8}+(?:[;,/|&]|\b(?:y|e|and|o)\b)?+\s{0,8}+(?:" + _ETIQUETA_EN_LISTA
+    + r")?+(?<![0-9a-zA-Z])", re.IGNORECASE)
+# El cierre tras la lista de ids de «(Tesis X, Doc ID: a)».
+_RE_CIERRE = re.compile(r"\s{0,8}+[\])]")
+# Lo que queda en unos corchetes al sacar los ids: una conjunción SÓLO se va
+# si está pegada a un id («a y b», «a, y b»); «párr. 340 y 341» se queda
+# como está. Los ids se marcan antes con un carácter de uso privado.
+_HUECO_ID = "\ue000"
+_RE_CONJUNCION_JUNTO_A_ID = re.compile(
+    r"(?<=" + _HUECO_ID + r")[\s;,/|&]{0,8}+\b(?:y|e|and|o)\b"
+    r"|\b(?:y|e|and|o)\b(?=[\s;,/|&]{0,8}+" + _HUECO_ID + r")", re.IGNORECASE)
+_RE_HAY_ETIQUETA = re.compile(r"doc\.?+[\s_\-]{0,3}+id", re.IGNORECASE)
+_RE_SEPARADOR_EN_ID = re.compile(r"[\s;,|/&]")
+# Más texto que esto junto a los ids y los corchetes no son una cita: se
+# dejan como estaban (y las otras dos pasadas recogen lo que puedan).
+_RESTO_MAXIMO = 600
+# El contenido de unos corchetes con la etiqueta: 18 ids agrupados son 700
+# caracteres; 4,000 son un centenar.
+_GRUPO_MAXIMO = 4000
+# El texto ajeno de «(Tesis 2a./J. 5/2020, Doc ID: a)» antes de la etiqueta.
+_PREVIO_MAXIMO = 400
+# Los ids de una lista.
+_IDS_MAXIMO = 200
+# Los blancos que se quitan junto al adorno o a los separadores (str.strip()
+# sin argumento los quita todos; éstos son los que se pueden mezclar con
+# ellos en una sola pasada).
+_BLANCOS = " \t\n\r\f\v\u00a0\u2009\u202f"
+
+
+def _citas_canonicas(ids: List[str]) -> str:
+    return " ".join(f"[Doc ID: {i}]" for i in ids)
+
+
+def _sin_separador_final(s: str) -> str:
+    """«Tesis 2a./J. 5/2020, » → «Tesis 2a./J. 5/2020». Una sola pasada con
+    blancos y separadores juntos: alternarlos de uno en uno copiaba el
+    texto una vez por cada «, » del final."""
+    while True:
+        t = s.rstrip(_BLANCOS + ",;:").rstrip()
+        if t == s:
+            return s
+        s = t
+
+
+def _leer_ids(texto: str, pos: int) -> Tuple[List[str], int]:
+    """Los ids seguidos que empiezan en `pos`, con o sin separador o etiqueta
+    entre ellos: «a; b», «a y b», «a; Doc ID: b». Devuelve los ids y dónde
+    acaba el último (o `[]` y `pos` si en `pos` no empieza un id).
+
+    Un bucle con dos expresiones ANCLADAS en vez de una expresión con la
+    lista repetida: cada vuelta lee lo suyo una sola vez y no hay reparto
+    que probar (TIEMPO LINEAL POR CONSTRUCCIÓN, arriba)."""
+    m = _RE_UUIDISH.match(texto, pos)
+    if m is None:
+        return [], pos
+    ids, fin = [m.group()], m.end()
+    while len(ids) < _IDS_MAXIMO:
+        s = _RE_SEPARADOR_DE_IDS.match(texto, fin)
+        m = _RE_UUIDISH.match(texto, s.end()) if s else None
+        if m is None:
+            break
+        ids.append(m.group())
+        fin = m.end()
+    return ids, fin
+
+
+def _cita_de_grupo(contenido: str, original: str) -> str:
+    """Lo que sustituye a «[Doc IDs: a; b, párr. 3]»: sus citas en singular y
+    el resto detrás, entre paréntesis. `contenido` es lo que va entre la
+    etiqueta y el cierre."""
+    solo = contenido.strip().strip(_ADORNO_ID + _BLANCOS).strip()
+    # El singular de siempre: un único token, sea o no un uuid bien formado
+    # (la reparación y el validador deciden). Sólo se le quita el adorno
+    # (**negritas**, `código`, comillas) y se canoniza la etiqueta.
+    if solo and not _RE_SEPARADOR_EN_ID.search(solo) and not _RE_ETIQUETA_DOC_ID.search(solo):
+        return f"[Doc ID: {solo}]"
+    ids = [x.group(1) for x in _RE_ID_CON_ADORNO.finditer(contenido)]
+    if not ids:
+        return original
+    resto = _RE_ETIQUETA_DOC_ID.sub(_HUECO_ID, _RE_ID_CON_ADORNO.sub(_HUECO_ID, contenido))
+    resto = _RE_CONJUNCION_JUNTO_A_ID.sub(_HUECO_ID, resto).replace(_HUECO_ID, " ")
+    resto = " ".join(resto.split()).strip(" ;,|/&.:-" + _ADORNO_ID)
+    if len(resto) > _RESTO_MAXIMO:
+        return original
+    return _citas_canonicas(list(dict.fromkeys(ids))) + (f" ({resto})" if resto else "")
+
+
+def _pasar_grupos(texto: str) -> str:
+    """«[Doc IDs: a; b]», «(Doc ID: a)», «[**Doc IDs:** a; b]»… La etiqueta
+    al principio de unos corchetes o paréntesis, en cualquier caja; el
+    contenido llega hasta el primer corchete o paréntesis, que tiene que ser
+    un cierre y estar a no más de _GRUPO_MAXIMO caracteres."""
+    partes, hecho = [], 0
+    for m in _RE_GRUPO_ABRE.finditer(texto):
+        if m.start() < hecho:
+            continue
+        c = _RE_CORCHETE.search(texto, m.end(), m.end() + _GRUPO_MAXIMO + 1)
+        if c is None or c.group() in "[(":
+            continue
+        partes.append(texto[hecho:m.start()])
+        partes.append(_cita_de_grupo(texto[m.end():c.start()], texto[m.start():c.end()]))
+        hecho = c.end()
+    if not partes:
+        return texto
+    partes.append(texto[hecho:])
+    return "".join(partes)
+
+
+def _pasar_al_cierre(texto: str) -> str:
+    """«(Tesis 2a./J. 5/2020, Doc ID: a)» o «[Registro 2005115; Doc ID: a]»:
+    la etiqueta al FINAL de unos paréntesis ajenos. Las citas salen afuera,
+    «(Tesis 2a./J. 5/2020) [Doc ID: a]», sin corchetes dentro de corchetes.
+
+    Etiqueta por etiqueta: su apertura es el corchete más cercano por detrás
+    (sin ninguno en medio, y a no más de _PREVIO_MAXIMO caracteres); detrás
+    de la etiqueta, la lista de ids y el cierre. Vale la primera etiqueta de
+    cada apertura que llega a su cierre."""
+    etiquetas = list(_RE_ETIQUETA_SUELTA.finditer(texto))
+    if not etiquetas:
+        return texto
+    corchetes = [c.start() for c in _RE_CORCHETE.finditer(texto)]
+    partes, hecho, sin_cierre = [], 0, 0
+    for e in etiquetas:
+        ini = e.start()
+        if ini < hecho or ini < sin_cierre:
+            continue
+        k = bisect.bisect_left(corchetes, ini) - 1
+        if k < 0:
+            continue
+        abre = corchetes[k]
+        if texto[abre] not in "[(" or not 1 <= ini - abre - 1 <= _PREVIO_MAXIMO:
+            continue
+        ids, fin = _leer_ids(texto, e.end())
+        if not ids:
+            continue
+        cierre = _RE_CIERRE.match(texto, fin)
+        if cierre is None:
+            # Toda etiqueta dentro de esta lista acabaría en el mismo sitio,
+            # sin cierre: no se vuelve a leer.
+            sin_cierre = fin
+            continue
+        previo = _sin_separador_final(texto[abre + 1:ini])
+        partes.append(texto[hecho:abre])
+        if previo:
+            a = texto[abre]
+            partes.append(f"{a}{previo}{')' if a == '(' else ']'} "
+                          f"{_citas_canonicas(list(dict.fromkeys(ids)))}")
+        else:
+            partes.append(texto[abre:cierre.end()])
+        hecho = cierre.end()
+    if not partes:
+        return texto
+    partes.append(texto[hecho:])
+    return "".join(partes)
+
+
+def _pasar_sueltos(texto: str) -> str:
+    """«Doc IDs: a; b» sin corchetes propios, en mitad de la prosa: la
+    etiqueta suelta seguida de uno o más ids. No entra en «[Doc ID: a]» (la
+    precede «[»)."""
+    partes, hecho = [], 0
+    for e in _RE_ETIQUETA_SUELTA.finditer(texto):
+        if e.start() < hecho:
+            continue
+        ids, fin = _leer_ids(texto, e.end())
+        if not ids:
+            continue
+        partes.append(texto[hecho:e.start()])
+        partes.append(_citas_canonicas(list(dict.fromkeys(ids))))
+        hecho = fin
+    if not partes:
+        return texto
+    partes.append(texto[hecho:])
+    return "".join(partes)
+
+
+def expandir_citas_doc_id(texto: str) -> str:
+    """Toda cita a un documento, en su forma singular: «[Doc ID: a] [Doc ID: b]».
+
+    Reconoce «[Doc IDs: a; b]», «[Doc ID: a; b]», «[Doc ID: a, b]»,
+    «[Doc ID: a; Doc ID: b]», «(Doc ID: a)», «[**Doc IDs:** a; b]»,
+    «[Doc. ID: a]», la etiqueta suelta dentro de un paréntesis ajeno y
+    cualquier caja («[doc id: a]»). Una cita singular sale igual que entró
+    (sólo con la etiqueta en su forma canónica), así que es idempotente y el
+    caso de siempre no cambia.
+
+    Lo que no es un id dentro de los corchetes («[Doc ID: a, párr. 340 y
+    341]») no se tira: queda detrás, entre paréntesis, con sus conjunciones.
+    Unos corchetes con la etiqueta y sin ningún id se dejan como estaban: no
+    hay cita que rescatar. Tarda lo mismo que el texto es largo, sea cual sea
+    (TIEMPO LINEAL POR CONSTRUCCIÓN, arriba).
+    Ver la nota de LAS CITAS AGRUPADAS, arriba."""
+    if not texto or not _RE_HAY_ETIQUETA.search(texto):
+        return texto
+    return _pasar_sueltos(_pasar_al_cierre(_pasar_grupos(texto)))
+
+
+def _sin_citas_entre_corchetes(texto: str) -> str:
+    """Quita «[Doc ID: …]» y «(Doc IDs: …)» ENTEROS, con lo que traigan
+    dentro aunque sean otros corchetes o paréntesis: «[Doc ID: a (párr. 3)]»,
+    «[Doc ID: a, véase [nota]]». Cada apertura se empareja con su cierre en
+    una sola pasada con una pila (cada corchete entra y sale una vez)."""
+    con_etiqueta = {m.start() for m in _RE_GRUPO_ABRE.finditer(texto)}
+    if not con_etiqueta:
+        return texto
+    abiertos, quitar = [], []
+    for c in _RE_CORCHETE.finditer(texto):
+        p = c.start()
+        if texto[p] in "[(":
+            abiertos.append(p)
+        elif abiertos:
+            o = abiertos.pop()
+            if o in con_etiqueta and p - o <= _GRUPO_MAXIMO:
+                quitar.append((o, p + 1))
+    if not quitar:
+        return texto
+    quitar.sort()
+    partes, hecho = [], 0
+    for o, f in quitar:
+        if o < hecho:            # dentro de otro que ya se quita entero
+            continue
+        partes.append(texto[hecho:o])
+        hecho = f
+    partes.append(texto[hecho:])
+    return "".join(partes)
+
+
+def _quitar_citas_doc_id(texto: str) -> str:
+    """Quita toda cita a un documento, en cualquier forma, con lo que traiga
+    dentro de sus corchetes: para los modelos de estilo, que no deben
+    enseñarle al modelo ids que no están en su contexto."""
+    if not texto or not _RE_HAY_ETIQUETA.search(texto):
+        return texto
+    # Primero los grupos enteros, con su resto («[Doc ID: a, párr. 3]» y
+    # «[Doc ID: a (párr. 3)]» se van enteros, como con el patrón de antes);
+    # luego las formas al cierre de un paréntesis ajeno o sueltas, que pasan
+    # a singular y se van igual.
+    texto = _sin_citas_entre_corchetes(texto)
+    return _sin_citas_entre_corchetes(expandir_citas_doc_id(texto))
 
 
 def extract_doc_ids(text: str) -> List[str]:
     """
     Extrae todos los Doc IDs citados en el texto.
-    Formato esperado: [Doc ID: uuid]
+    Formato esperado: [Doc ID: uuid] — y también las formas agrupadas o
+    sueltas, que se leen como citas singulares (expandir_citas_doc_id).
     """
-    matches = DOC_ID_PATTERN.findall(text)
+    matches = DOC_ID_PATTERN.findall(expandir_citas_doc_id(text or ""))
     return list(set(matches))  # Únicos
 
 
@@ -7232,9 +7663,26 @@ def _uuid_edit_distance(a: str, b: str, tope: int = 4) -> int:
     return previa[-1]
 
 
+# Los ids DISTINTOS que no están en el contexto y se intentan reparar en una
+# llamada (26-sep-2026). Cada intento compara contra cada fuente del
+# contexto, y la distancia de edición es cara: con 60 fuentes, 465 ids
+# inventados y distintos en 20,000 caracteres tardaban un segundo, y 100,000,
+# cinco. Una respuesta real trae de cero a cinco; pasado este tope no son
+# dedazos, y el resto se queda como está (el validador los marca inválidos).
+_REPARACIONES_MAXIMAS = 64
+
+
+def _cuenta_de_caracteres(s: str) -> Dict[str, int]:
+    c: Dict[str, int] = {}
+    for ch in s:
+        c[ch] = c.get(ch, 0) + 1
+    return c
+
+
 def repair_hallucinated_uuids(
     response_text: str,
     doc_id_map: Dict[str, "SearchResult"],
+    reparados: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     🔒 CANDADO ANTI-ALUCINACIÓN DE UUIDS — Post-procesamiento obligatorio.
@@ -7249,13 +7697,36 @@ def repair_hallucinated_uuids(
     - Prefix match (>= 28 chars coincidentes)
     - Edit distance <= 4 caracteres
     Si se encuentra un match, reemplaza el UUID alucinado por el real.
+
+    Las citas agrupadas («[Doc IDs: a; b]») se leen antes como singulares
+    (expandir_citas_doc_id): así también se reparan, y el texto que devuelve
+    sale ya canónico.
+
+    Cada id distinto se intenta una sola vez, y no más de
+    _REPARACIONES_MAXIMAS por llamada. Si se pasa `reparados`, se llena con
+    {id citado: id real} de lo que se reparó (lo usa /chat para su
+    CITATION_META).
     """
-    if not doc_id_map or not response_text:
+    if not response_text:
         return response_text
-    
+    response_text = expandir_citas_doc_id(response_text)
+    if not doc_id_map:
+        return response_text
+
     valid_ids = list(doc_id_map.keys())
     valid_ids_lower = {uid.lower(): uid for uid in valid_ids}
-    
+    # Para descartar sin calcular la distancia: cada edición cambia la cuenta
+    # de caracteres en 2 como mucho, así que si las cuentas de dos ids
+    # difieren en más de 2×4, su distancia pasa de 4. Dos uuids distintos
+    # difieren en ~25: casi ninguno llega a la distancia de edición.
+    cuentas: Dict[str, Dict[str, int]] = {}
+
+    def _lejos(ch: Dict[str, int], vid_lower: str) -> bool:
+        if vid_lower not in cuentas:
+            cuentas[vid_lower] = _cuenta_de_caracteres(vid_lower[:36])
+        cv = cuentas[vid_lower]
+        return sum(abs(ch.get(k, 0) - cv.get(k, 0)) for k in ch.keys() | cv.keys()) > 8
+
     def _find_best_match(hallucinated: str) -> Optional[str]:
         h = hallucinated.lower().strip()
         
@@ -7296,7 +7767,10 @@ def repair_hallucinated_uuids(
         # Strategy 2: Edit distance (1-4 char differences = likely hallucination)
         best_dist = 5  # Max allowed edit distance
         best_match = None
+        cuenta_h = _cuenta_de_caracteres(h[:36])
         for vid_lower, vid_original in valid_ids_lower.items():
+            if _lejos(cuenta_h, vid_lower):
+                continue
             dist = _uuid_edit_distance(h, vid_lower)
             if dist < best_dist:
                 best_dist = dist
@@ -7305,23 +7779,36 @@ def repair_hallucinated_uuids(
         return best_match
     
     repairs_made = 0
-    
+    intentos: Dict[str, Optional[str]] = {}
+    avisado = False
+
     def _repair(match):
-        nonlocal repairs_made
+        nonlocal repairs_made, avisado
         hallucinated_id = match.group(1)
         
         # Already valid? Skip
         if hallucinated_id in doc_id_map or hallucinated_id.lower() in valid_ids_lower:
             return match.group(0)
         
-        repaired = _find_best_match(hallucinated_id)
+        if hallucinated_id not in intentos:
+            if len(intentos) >= _REPARACIONES_MAXIMAS:
+                if not avisado:
+                    avisado = True
+                    print(f"   ⚠️ UUIDS: más de {_REPARACIONES_MAXIMAS} ids distintos fuera del "
+                          f"contexto; el resto no se intenta reparar")
+                return match.group(0)
+            repaired = intentos[hallucinated_id] = _find_best_match(hallucinated_id)
+            if repaired:
+                print(f"   🔧 UUID REPARADO: {hallucinated_id[:16]}... → {repaired[:16]}...")
+                if reparados is not None:
+                    reparados[hallucinated_id] = repaired
+            else:
+                print(f"   ❌ UUID IRREPARABLE (sin match fuzzy): {hallucinated_id[:20]}...")
+        repaired = intentos[hallucinated_id]
         if repaired:
             repairs_made += 1
-            print(f"   🔧 UUID REPARADO: {hallucinated_id[:16]}... → {repaired[:16]}...")
             return f"[Doc ID: {repaired}]"
-        else:
-            print(f"   ❌ UUID IRREPARABLE (sin match fuzzy): {hallucinated_id[:20]}...")
-            return match.group(0)
+        return match.group(0)
     
     repaired_text = DOC_ID_PATTERN.sub(_repair, response_text)
     
@@ -7331,8 +7818,13 @@ def repair_hallucinated_uuids(
     return repaired_text
 
 
+# Con topes (26-sep-2026). Con «\s*» sin tope entre piezas opcionales, los
+# espacios tras «Registro» se podían repartir entre tres huecos de n² maneras
+# y cada una se probaba: 400 espacios sin número detrás tardaban 265 ms, y
+# 1,000, segundos. Lo lee el sello de /chat, /chat-sentencia y
+# /analyze-document sobre la respuesta entera.
 _RE_REGISTRO_CITADO = re.compile(
-    r"[Rr]egistro(?:\s+digital)?\s*(?:n[uú]m(?:ero)?\.?)?\s*[:.]?\s*(\d{6,8})")
+    r"[Rr]egistro(?:\s{1,4}+digital)?+\s{0,4}+(?:n[uú]m(?:ero)?+\.?+)?+\s{0,4}+[:.]?+\s{0,4}+(\d{6,8})")
 
 
 def registros_fuera_del_contexto(respuesta: str, search_results: List[SearchResult]) -> List[str]:
@@ -16690,7 +17182,8 @@ async def chat_endpoint(request: ChatRequest, http_request: Request):
                             'Si citas TEXTUAL: copia el pasaje CARÁCTER POR CARÁCTER del documento, '
                             'máximo 40 palabras, entre comillas « », seguido de (autor, obra, '
                             'página) y su [Doc ID]. PROHIBIDO poner comillas a una paráfrasis: si no '
-                            'copias exacto, parafrasea SIN comillas y cita igual el [Doc ID]. -->\n'
+                            'copias exacto, parafrasea SIN comillas y cita igual el [Doc ID] '
+                            '(uno por fragmento, en sus corchetes; nunca «Doc IDs»). -->\n'
                             + "\n".join(_xml_doc) + '\n</doctrina>')
                         _autores = ";".join(dict.fromkeys(
                             str(f["autor"]).split(",")[0].strip() for f in _doctrina_frags))
@@ -18490,27 +18983,25 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                 # SOLUCIÓN: Construimos un mapa de reparaciones (hallucinated → real) y
                 # añadimos AMBOS UUIDs al sources_map. Así el frontend encuentra la fuente
                 # sin importar si tiene el UUID original o el reparado.
+                #
+                # Y ANTES, LAS AGRUPADAS (26-sep-2026): «[Doc IDs: a; b]» se lee
+                # como «[Doc ID: a] [Doc ID: b]» para que la reparación, el sello
+                # de correspondencia y CITATION_META.sources las vean. El texto
+                # ya salió así por el stream; la pantalla aplica la misma regla.
+                content_buffer = expandir_citas_doc_id(content_buffer)
                 uuid_repair_map: Dict[str, str] = {}  # hallucinated_uuid → real_uuid
                 if doc_id_map and content_buffer:
-                    cited_ids = extract_doc_ids(content_buffer)
-                    valid_ids_lower = {uid.lower(): uid for uid in doc_id_map.keys()}
-                    for cited_id in cited_ids:
-                        if cited_id not in doc_id_map and cited_id.lower() not in valid_ids_lower:
-                            # This UUID is NOT in our docs — attempt fuzzy repair
-                            repaired_text = repair_hallucinated_uuids(
-                                f"[Doc ID: {cited_id}]", doc_id_map
-                            )
-                            repaired_match = DOC_ID_PATTERN.search(repaired_text)
-                            if repaired_match:
-                                repaired_id = repaired_match.group(1)
-                                if repaired_id != cited_id and repaired_id in doc_id_map:
-                                    uuid_repair_map[cited_id] = repaired_id
-                    
+                    # Una sola pasada: repara el búfer (para que la validación
+                    # cuente bien) y anota qué id se reparó a cuál. Antes se
+                    # reparaba cada id citado por separado y luego el búfer
+                    # entero: el mismo trabajo dos veces y sin tope de ids
+                    # distintos (ver _REPARACIONES_MAXIMAS, 26-sep-2026).
+                    content_buffer = repair_hallucinated_uuids(
+                        content_buffer, doc_id_map, reparados=uuid_repair_map)
+                    uuid_repair_map = {k: v for k, v in uuid_repair_map.items()
+                                       if k != v and v in doc_id_map}
                     if uuid_repair_map:
                         print(f"   🔒 UUID REPAIR MAP: {len(uuid_repair_map)} alucinados → reales")
-                    
-                    # Also repair content_buffer for correct validation counts
-                    content_buffer = repair_hallucinated_uuids(content_buffer, doc_id_map)
 
                 # ── Apéndice de fuentes de internet ──────────────────────
                 # Se emite DESDE EL BACKEND, no se le pide al modelo. Dos
@@ -19160,6 +19651,10 @@ async def enhance_legal_text(request: EnhanceRequest):
         )
         
         enhanced_text = response.choices[0].message.content
+        # Esta ruta DEVUELVE el texto entero (no hay stream): sale ya con cada
+        # cita en su forma singular, la única que abre su PDF (26-sep-2026).
+        if enhanced_text:
+            enhanced_text = expandir_citas_doc_id(enhanced_text)
         tokens_used = response.usage.total_tokens if response.usage else 0
         
         return EnhanceResponse(
