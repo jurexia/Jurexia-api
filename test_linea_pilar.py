@@ -976,6 +976,17 @@ ok(ce.index("_lc_linea.lineas_disponible(qdrant_client)") < i_perm < i_emb,
    "la sonda: colección que existe y puerta de admins ANTES de pedir el embedding")
 ok("v = await _embedding_denso(last_user_message[:500])" in ce, "la doctrina usa el mismo vector compartido")
 
+# El resolutivo 8 de Tzompaxtle es la orden sobre la prisión preventiva
+# oficiosa, no una repetición del ¶118 (principio del art. 27 de la Convención
+# de Viena): sigue siendo esencial aunque el ¶118 ya esté dentro. El 14 de
+# García Rodríguez sí repite al ¶301 (26-sep-2026).
+_es = lc._esenciales_tema(FIG, ["C-470|s|118", "C-470|r|8", "C-482|s|301", "C-482|r|14"],
+                          ["C-470|s|118", "C-482|s|301"])
+ok("C-470|r|8" in _es and "C-482|r|14" not in _es,
+   f"resolutivos: Tzompaxtle 8 esencial, García Rodríguez 14 repite al ¶301 ({_es})")
+ok(lc.PRESUPUESTO_LINEA == 12500 and lc.UMBRAL_LINEAS == 0.60,
+   "tope de la línea 12,500 y umbral de la sonda 0.60 (calibrado con la colección creada)")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}:")

@@ -162,20 +162,32 @@ MAX_PALABRAS_APORTE = 55
 # después del primero, sin pasar de PRESUPUESTO_LINEA: dos temas, 8,000; tres,
 # 9,500; cuatro o más, 10,000. Un tema solo sigue en 6,500. Medido con Qdrant
 # real (cl100k): dos temas 7,326-7,671; tres o cuatro, 8,833-9,052.
-PRESUPUESTO_LINEA = 10000
+# SUBE A 12,500 (26-sep-2026, al abrir la línea a todos). Con 10 mil, «Traza la
+# línea… y dime qué posturas serias hay para inaplicar restricciones
+# constitucionales» perdía la orden de Tzompaxtle sobre la prisión preventiva
+# oficiosa (resolutivo 8) y, con 11 mil, todavía la doctrina de Cano López y
+# Rodríguez Manzo, el proyecto de Pardo (recepción 3/2023), el voto de Franco y
+# la CC 3/2026: justo las posturas que pide. Con 12,500 entran (11,926 tokens
+# medidos con Qdrant real); sólo queda fuera el voto de Cossío y la doctrina de
+# Silva García. Las demás preguntas de David no cambian (≤ 9,060). Sólo paga
+# este tope quien pide una fase de la línea: 0 de 336 consultas reales la abren.
+PRESUPUESTO_LINEA = 12500
 PRESUPUESTO_TEMA = 6500
 PRESUPUESTO_POR_TEMA = 1500
 CAR_POR_TOKEN = 2.8
 
 # La colección de la línea para la sonda semántica (scripts/lineas_qdrant.py).
-# Alias; la física es `lineas_p1`. HOY NO EXISTE: sondear() devuelve None.
+# Alias; la física es `lineas_p1` (creada el 26-sep-2026: 208 puntos).
 LINEAS = "lineas"
-# A CALIBRAR CON LA COLECCIÓN CREADA. Coseno de text-embedding-3-small: una
-# pregunta sobre otra cosa rara vez pasa de 0.35 contra textos jurídicos, y lo
-# pedido suele quedar entre 0.45 y 0.65. 0.55 es conservador a propósito:
-# prefiere no abrir a abrir en falso (una línea que no toca cuesta ~6 mil
-# tokens en cada respuesta). Se mueve con LINEAS_UMBRAL sin desplegar.
-UMBRAL_LINEAS = 0.55
+# Coseno de text-embedding-3-small. Prefiere no abrir a abrir en falso (una
+# línea que no toca cuesta ~6-9 mil tokens en la respuesta). Se mueve con
+# LINEAS_UMBRAL sin desplegar.
+# CALIBRADO el 26-sep-2026 con la colección creada (208 puntos): de 12 preguntas
+# que deben abrir la línea y no casan por palabras, 10 pasan de 0.60 (0.605-
+# 0.764; se quedan «evolución de la interpretación conforme…» 0.592 y «¿una
+# autoridad administrativa puede inaplicar…?» 0.533); de 60 consultas reales
+# ajenas, ninguna (máx. 0.592). scratchpad calibrar_lineas.py / calibracion_lineas.json.
+UMBRAL_LINEAS = 0.60
 
 # La precisión histórica que el plan corrigió (§ «Sobre el origen»): la
 # expresión es de los votos de García Ramírez desde 2003; la Corte en pleno la
@@ -662,6 +674,12 @@ def _por_turnos(listas: Sequence[Sequence[str]]) -> List[Tuple[str, int, int]]:
     return out
 
 
+# Resolutivo → el párrafo de la misma sentencia que dice lo mismo (y más).
+# Sólo pares cotejados en el texto de coidh; un resolutivo sin par aquí es
+# esencial aunque haya otro párrafo que ordene (reverificación, 26-sep-2026).
+_RESOLUTIVO_REPITE = {"C-482|r|14": "C-482|s|301"}
+
+
 def _esenciales_tema(fid: str, llaves: Sequence[str], dentro: Iterable[str] = ()) -> List[str]:
     """Los hitos de un tema que el presupuesto nunca quita: los que ORDENAN
     (postura «ordena_adecuar» en la cronología: García Rodríguez ¶300 y ¶301,
@@ -671,13 +689,17 @@ def _esenciales_tema(fid: str, llaves: Sequence[str], dentro: Iterable[str] = ()
     officio, fuero militar), el primero de su lista: cada tema pedido conserva
     al menos un hito de la Corte IDH.
 
-    Un RESOLUTIVO que ordena deja de ser esencial si en `dentro` (lo fijo de
-    la selección) ya hay un párrafo de la MISMA sentencia que ordena: García
-    Rodríguez ¶301 dice lo del resolutivo 14 y más («incluyendo sus
-    disposiciones constitucionales»); Tzompaxtle ¶118, lo del resolutivo 8.
-    Sigue entrando; sólo se puede recortar, y después de lo de segunda vuelta.
-    Medido con Qdrant real: con los dos resolutivos protegidos, «Traza la
-    línea…» no cabía en 10 mil ni quitando todo lo recortable.
+    Un RESOLUTIVO que ordena deja de ser esencial sólo si en `dentro` (lo fijo
+    de la selección) está el párrafo que DICE LO MISMO, según la tabla
+    verificada _RESOLUTIVO_REPITE: García Rodríguez ¶301 dice lo del resolutivo
+    14 y más («incluyendo sus disposiciones constitucionales»). Sigue
+    entrando; sólo se puede recortar, y después de lo de segunda vuelta.
+    Antes se suponía que CUALQUIER párrafo que ordena de la misma sentencia
+    repetía al resolutivo, y así Tzompaxtle ¶118 (el principio del art. 27 de
+    la Convención de Viena) dejaba sin proteger al resolutivo 8, que es la
+    orden de adecuar la prisión preventiva oficiosa (¶¶212-213, 217-219): en
+    «Traza la línea…» no entraba la orden de Tzompaxtle sobre la PPO
+    (reverificación, 26-sep-2026). Cabe con el tope de 12,500.
 
     POR QUÉ (reverificación del 26-sep-2026, hallazgo 14.1): el recorte
     dejaba en cero los hitos interamericanos de las preguntas de dos o más
@@ -691,9 +713,9 @@ def _esenciales_tema(fid: str, llaves: Sequence[str], dentro: Iterable[str] = ()
 
     def seg(ll: str) -> str:
         return ll.split("|")[1] if ll.count("|") >= 2 else ""
-    ordenan_en_parrafo = {ll.split("|")[0] for ll in dentro if seg(ll) == "s" and ordena(ll)}
+    dentro = set(dentro)
     salida = [ll for ll in llaves
-              if ll in en_tension or (ordena(ll) and not (seg(ll) == "r" and ll.split("|")[0] in ordenan_en_parrafo))]
+              if ll in en_tension or (ordena(ll) and not (seg(ll) == "r" and _RESOLUTIVO_REPITE.get(ll) in dentro))]
     return salida or list(llaves[:1])
 
 
@@ -1864,8 +1886,7 @@ async def sondear(qdrant, vector: Optional[Sequence[float]], umbral_min: Optiona
     jueces pueden dejar de aplicar la Constitución si choca con un tratado?»
     no dice «convencionalidad» ni «restricción».
 
-    Devuelve (figura, fases, ids) o None: sin vector, sin colección (HOY no
-    existe), si falla o si nada pasa del umbral. `ids` son las entradas,
+    Devuelve (figura, fases, ids) o None: sin vector, sin colección, si falla o si nada pasa del umbral. `ids` son las entradas,
     llaves o registros que pasaron, en orden de score; `fases` salen de los
     tramos de lo encontrado (_FASES_TRAMO). Nunca lanza."""
     if not vector:
