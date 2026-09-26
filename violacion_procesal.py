@@ -158,6 +158,153 @@ def hay(problemas: list, criterios: list = None, contexto: str = "") -> bool:
     return clasificar(contexto)[0] == RESOLUCION_PROCESAL
 
 
+# ═══ LA GUARDA PROCESAL: TODAS SE DECIDEN, SALVO MAYOR BENEFICIO ═══════════
+#
+# POR QUÉ EXISTE. David, 26-sep-2026, al aprobar la decisión 1: la única
+# excepción para no decidir todas las violaciones procesales es una concesión
+# de fondo que dé mayor beneficio, y «también alinea a cómo debe resolverse
+# (mayor beneficio art 189)». Los artículos 74, fracción V, y 174 de la Ley de
+# Amparo mandan al colegiado DECIDIR todas las violaciones procesales que se
+# hicieron valer; el 189 vigente privilegia el fondo salvo mayor beneficio.
+#
+# LO QUE HABÍA. El árbol de decisión y el reparto global declaraban
+# INNECESARIO todo accesorio que dependiera de un principal que prospera, y
+# INOPERANTE por caer con él todo el que dependiera de uno que no prospera,
+# sin mirar si era una violación procesal. Dos procesales con el principal
+# fundado: la segunda quedaba sin decidir, y ninguna guarda lo veía (falla L2
+# del diagnóstico). Estas piezas son las que usan los dos —arbol_decision y
+# modos_decision— para que la regla viva en un solo sitio.
+
+# Lo que deja una violación procesal SIN DECIDIR. Sólo cabe por mayor
+# beneficio; «inoperante por caer con el principal» se vigila aparte porque
+# sí es una calificación y la escribe el árbol, no llega así.
+NO_DECIDEN = ("innecesario", "sin_materia", "queda_sin_materia")
+
+# La razón que lleva la procesal que se deja de estudiar. Es la RAZÓN del
+# criterio —lo que el estudio tiene que decir—, no una frase de estilo: el
+# artículo 189 tiene que quedar dicho, porque es lo único que autoriza a no
+# decidirla. Viaja al estudio como «RAZÓN DEL SECRETARIO» y el modelo la
+# escribe casi tal cual, así que es prosa de sentencia: la explicación para el
+# secretario de que es la única excepción (arts. 74-V y 174) va en el aviso,
+# no aquí. Revisión del 26-sep-2026: la versión anterior la metía en la razón
+# y habría llegado al proyecto como una lección de técnica.
+RAZON_MAYOR_BENEFICIO = (
+    "Resulta innecesario el estudio de esta violación procesal: el "
+    "planteamiento de fondo que prospera otorga a la parte quejosa un "
+    "beneficio mayor que el que obtendría con la reposición del procedimiento, "
+    "y el artículo 189 de la Ley de Amparo privilegia el estudio de los "
+    "conceptos de violación de fondo por encima de los de procedimiento, a "
+    "menos que invertir el orden redunde en un mayor beneficio para ella.")
+
+# Sin `clase` de la fase 3 (sesiones anteriores al 22-sep), la procedencia se
+# reconoce por lo que combate. Importa por la excepción: una concesión contra
+# un sobreseimiento del juicio de origen manda estudiar el fondo, pero la
+# violación procesal de ese juicio sigue pesando sobre la nueva sentencia; no
+# da más que reponer.
+_RX_PROCEDENCIA = re.compile(
+    r"improcedenc\w+|sobrese\w+|sobresey\w+|causa(?:l)?\s+de\s+improcedencia", re.I)
+
+
+def clase_de(p) -> str:
+    """«procesal» | «procedencia» | «fondo» del problema (dict de la fase 3 o
+    texto). Manda la `clase` que declara la fase 3; sin ella, el vocabulario."""
+    if isinstance(p, dict):
+        c = str(p.get("clase") or "").strip().lower()
+        if c in ("procesal", "procedencia", "fondo"):
+            return c
+        t = " ".join(str(p.get(k) or "") for k in ("pregunta", "combate", "resolvio"))
+    else:
+        t = str(p or "")
+    if es_problema_procesal(p if isinstance(p, dict) else t):
+        return "procesal"
+    if _RX_PROCEDENCIA.search(t):
+        return "procedencia"
+    return "fondo"
+
+
+def guarda_aplica(tipo_asunto: str = "") -> bool:
+    """¿Rigen los artículos 74-V y 174? Son del AMPARO DIRECTO. Sin tipo
+    —sesiones viejas, llamadas sin él— se aplica: el taller trata como
+    directo lo que no dice otra cosa, y en la duda decidir una violación de
+    más es subsanable; dejar una sin decidir es un amparo de vuelta."""
+    try:
+        import tipos_asunto as _ta
+        t = _ta.normalizar(tipo_asunto or "")
+    except Exception:
+        t = ""
+    return t in ("", "amparo_directo")
+
+
+def aviso_se_decide(problema: str, sentido: str, principal_procesal: bool) -> str:
+    """El aviso al secretario cuando la guarda impide sacar una procesal.
+
+    UNO SOLO, con las mismas palabras, para el reparto global y para el árbol:
+    en modo global corren los dos seguidos sobre el mismo problema y, con
+    textos distintos, el secretario leía dos avisos de lo mismo. Con el mismo
+    texto, la comprobación de repetidos de main.py deja uno.
+
+    `principal_procesal`: el principal es una violación procesal QUE PROSPERA
+    (con uno que no prospera, el aviso no puede decir que se repone)."""
+    s = str(sentido or "").strip().lower().replace(" ", "_")
+    _por = ("aunque el principal —también procesal— prospere y se reponga el "
+            "procedimiento" if principal_procesal else
+            "y la única excepción —que un problema de FONDO prospere con mayor "
+            "beneficio que la reposición (artículo 189)— no se da aquí")
+    _cal = (f"Se estudia con su calificación: {s.replace('_', ' ')}; revisa que "
+            f"sea la tuya." if s and s not in NO_DECIDEN else
+            "ESTÁ SIN CALIFICAR: califícala tú antes de generar.")
+    return (f"«{str(problema)[:90]}» es una VIOLACIÓN PROCESAL y NO se declaró "
+            f"sin materia: los artículos 74, fracción V, y 174 de la Ley de Amparo "
+            f"mandan decidir todas las procesales, {_por}. {_cal}")
+
+
+def aviso_mayor_beneficio(problemas: list, sentido_principal: str) -> str:
+    """El aviso de la ÚNICA excepción: procesales innecesarias por el 189.
+
+    UNO SOLO para el reparto global y para el árbol, por la misma razón que
+    `aviso_se_decide`: en modo global corren seguidos y cada uno escribía el
+    suyo con otras palabras, así que el secretario leía dos avisos de lo mismo
+    (revisión del 26-sep-2026). La salida vale para las dos vías: en la global
+    no hay pastillas por tema, y por eso dice dónde marcarla."""
+    s = str(sentido_principal or "").strip().lower().replace("_", " ")
+    return ("VIOLACIÓN(ES) PROCESAL(ES) INNECESARIA(S) POR MAYOR BENEFICIO "
+            "(artículo 189 de la Ley de Amparo): "
+            + " · ".join(f"«{str(x)[:80]}»" for x in list(problemas or [])[:4])
+            + f". El principal es de fondo y resulta {s}, y se entiende que esa "
+              f"concesión da a la parte quejosa más que reponer el procedimiento. "
+              f"Los artículos 74, fracción V, y 174 mandan decidir todas las "
+              f"procesales y ésta es la única excepción: si la concesión de fondo "
+              f"no da más que la reposición —por ejemplo, porque es para efectos—, "
+              f"márcala tú, en la vía por problema, y se estudia.")
+
+
+def concesion_de_fondo_con_mayor_beneficio(principal, sentido: str,
+                                           alcanza: bool = True) -> bool:
+    """¿El principal es de FONDO y prospera ENTERO, de modo que la concesión
+    da más que la reposición? Es la ÚNICA puerta para no decidir una procesal.
+
+    Se exige, en conservador, las tres cosas: que sea de fondo (no procesal,
+    no procedencia), que prospere sin reservas —«parcialmente fundado» deja
+    en pie parte de lo reclamado y no se puede afirmar que dé más que reponer—
+    y que el motor no haya dicho que lo fundado no alcanza. Lo que el código
+    no puede saber —si la concesión es para efectos que dan menos que
+    reponer— se le avisa al secretario, que es quien lo decide."""
+    if alcanza is False:
+        return False
+    if clase_de(principal) != "fondo":
+        return False
+    s = str(sentido or "").strip().lower().replace(" ", "_")
+    if s == "concede":
+        return True
+    if "parcial" in s:
+        return False
+    try:
+        import tipos_asunto as _ta
+        return bool(_ta.prospera(s))
+    except Exception:
+        return "fundad" in s and "insuficien" not in s
+
+
 # ═══ CÓMO ENTRA AL PROMPT ══════════════════════════════════════════════════
 
 def rotulo(clase: str) -> str:
@@ -191,23 +338,49 @@ def instrucciones(clase: str, para: str = "estudio") -> str:
             "la jurisprudencia del material, y propón el sentido según resistan o\n"
             "no. No propongas a partir de la regla abstracta: propón a partir de si\n"
             "las razones concretas de esta resolución se sostienen.")
+    # ── LA TÉCNICA, REESCRITA EL 26-SEP-2026 (decisión 2 de David) ──────
+    # Decía «ENUNCIA, una por una» y «ESTÁ PROHIBIDO despacharla en un
+    # párrafo». El estudio del 93/2026 lo cumplió a la letra y escribió cuatro
+    # párrafos, uno por razón, contestados con la misma frase (estandar2,
+    # l. 104-109): la orden fabricaba la repetición que luego se le reprochaba.
+    # Lo que se quería evitar —contestar con una conclusión que no nombra las
+    # razones de la resolución— sigue prohibido; lo que cambia es que las que
+    # caen por la misma respuesta se contestan juntas, la dependiente cae con
+    # la otra salvo que un efecto la presuponga, y la mixta se parte.
+    # Se describe la FUNCIÓN y no se dan frases: un ejemplo escrito aquí se
+    # copia literal al proyecto (tres veces medido). Por eso también salió la
+    # frase entre comillas que se daba como lo que NO había que escribir.
+    # La misma regla, con las mismas cuatro piezas, está en
+    # `tipos_asunto.TECNICA_RESOLUCION["directo_violacion_procesal"]`.
     return base + (
         "TÉCNICA OBLIGADA para el planteamiento que la combate:\n"
-        "  1. ENUNCIA, una por una, las razones en que esta resolución se sostiene\n"
-        "     (qué plazo aplicó, desde cuándo lo contó, con qué fundamento, por\n"
-        "     qué tuvo por no exigible lo que la parte reclama).\n"
+        "  1. IDENTIFICA las razones en que esta resolución se sostiene (qué\n"
+        "     plazo aplicó, desde cuándo lo contó, con qué fundamento, por qué\n"
+        "     tuvo por no exigible lo que la parte reclama). Ninguna se queda\n"
+        "     sin respuesta.\n"
         "  2. CONFRONTA cada razón con la ley que rige la vía y con la\n"
         "     jurisprudencia obligatoria: di si esa razón resiste o cae, y por\n"
         "     qué. Si un criterio obligatorio dispone lo contrario de lo que la\n"
         "     resolución sostuvo, la razón cae y se dice con el registro delante.\n"
-        "  3. LA CALIFICACIÓN SALE DE ESE CONTRASTE: es fundado si cae al menos\n"
+        "  3. LAS QUE CAEN POR LA MISMA RESPUESTA SE CONTESTAN JUNTAS,\n"
+        "     nombrándolas a todas: una razón no pide desarrollo propio si lo que\n"
+        "     la derriba es lo mismo que derriba a otra.\n"
+        "  4. LA RAZÓN QUE DEPENDE DE OTRA CAE CON ELLA y basta decirlo,\n"
+        "     nombrándola, SALVO QUE UN EFECTO DE LA CONCESIÓN LA PRESUPONGA —la\n"
+        "     oportunidad, el cómputo o la cuantía con que la responsable tendrá\n"
+        "     que actuar al reponer—: entonces se desarrolla con el dato del\n"
+        "     expediente, o, si el material no lo trae, se dice en ADVERTENCIAS.\n"
+        "  5. LA RAZÓN MIXTA SE PARTE: si una misma razón une afirmaciones que se\n"
+        "     contestan de modo distinto —una regla de derecho y un hecho del\n"
+        "     expediente, por ejemplo—, cada parte recibe su respuesta.\n"
+        "  6. LA CALIFICACIÓN SALE DE ESE CONTRASTE: es fundado si cae al menos\n"
         "     una razón de la que dependía el resultado; infundado si todas\n"
         "     resisten. Y trasciende al fallo sólo si la actuación privó a la\n"
         "     parte de una defensa que podía cambiar el resultado —dilo.\n"
-        "  4. ESTÁ PROHIBIDO despacharla en un párrafo («esa consideración no\n"
-        "     supera el vicio») o razonar sobre una regla general sin bajar a lo\n"
-        "     que esta resolución dijo. Cítala como «la interlocutoria de… que\n"
-        "     resolvió el recurso de reclamación» o «el acuerdo de…», nunca como\n"
+        "  7. NO BASTA una conclusión que no nombre las razones de la resolución,\n"
+        "     ni razonar sobre una regla general sin bajar a lo que esta\n"
+        "     resolución dijo. Cítala como «la interlocutoria de… que resolvió el\n"
+        "     recurso de reclamación» o «el acuerdo de…», nunca como\n"
         "     «documento aportado».")
 
 

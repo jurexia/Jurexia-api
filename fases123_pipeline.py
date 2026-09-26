@@ -775,10 +775,10 @@ resumen de arriba.
 NO SE QUEDA NINGUNO FUERA. Agrupa los que compartan la misma cuestión jurídica
 —dos planteamientos sobre la misma omisión son UN problema— pero cada uno de
 los {n_planteamientos} tiene que quedar dentro de algún problema. Añade a cada
-problema el campo "cubre": la lista de números que ese problema responde, por
-ejemplo "cubre": [3, 7, 9]. La unión de todos los "cubre" tiene que dar
-exactamente 1..{n_planteamientos}, sin huecos y sin repetir un número en dos
-problemas.
+problema el campo "cubre": la lista de los números de planteamiento, enteros
+entre 1 y {n_planteamientos}, que ese problema responde. La unión de todos los
+"cubre" tiene que dar exactamente 1..{n_planteamientos}, sin huecos y sin
+repetir un número en dos problemas.
 
 Un planteamiento que no entra en ningún problema no se estudia y la sentencia
 sale incongruente: por eso este reparto no es un adorno.
@@ -790,6 +790,18 @@ Y ATENCIÓN, PORQUE ES UN SEGUNDO INTENTO: en el anterior se quedaron fuera los
 planteamientos {", ".join(str(x) for x in faltan)}. Esta vez tienen que estar
 dentro de algún problema, cada uno en el que le corresponda por su materia.
 """)
+    # ═══ «cubre» EN LA PLANTILLA: UN TIPO, NO UN VALOR (26-sep-2026) ═══════
+    # La plantilla decía `"cubre": [1, 2]` SIEMPRE, también cuando no se pedía
+    # el reparto. En los asuntos de un solo concepto el modelo lo copiaba tal
+    # cual: 13 sesiones de concepto único con «cubre» lleno y fuera de rango
+    # (L11 del diagnóstico), y el estudio leía «CUBRE: conceptos primero y
+    # segundo» donde sólo había uno. Es la lección que ya se midió tres veces:
+    # un ejemplo escrito en el prompt se copia literal. Ahora el campo se
+    # describe por su tipo, sin números, y sólo se pide cuando hay reparto
+    # que comprobar (dos o más planteamientos contados).
+    _campo_cubre = (
+        f'\n      "cubre": [<número de planteamiento, entero de 1 a {n_planteamientos}>, …],'
+        if n_planteamientos >= 2 else "")
     return f"""{_NUCLEO}
 
 {instrucciones_problemas(global_primero=True)}
@@ -804,8 +816,7 @@ Devuelve JSON y nada más:
 {{
   "problema_global": "la cuestión toral EN FORMA DE PREGUNTA, empezando por ¿ y terminando en ?",
   "problemas": [
-    {{"pregunta": "...",
-      "cubre": [1, 2],
+    {{"pregunta": "...",{_campo_cubre}
       "jerarquia": "principal|accesorio",
       "clase": "fondo|procesal|procedencia",
       "resolvio": "qué resolvió el órgano recurrido sobre este punto",
@@ -861,6 +872,15 @@ def _sin_repetidos(problemas: list) -> list:
     Se comparan por VOCABULARIO, no por cadena: la duplicación real no es
     literal —el modelo reformula— y comparar textos exactos no habría cazado
     ninguno de los dos casos.
+
+    AL DESCARTAR, SE FUSIONA (26-sep-2026). El repetido se tiraba entero, y
+    con él su «cubre»: los planteamientos que sólo él respondía quedaban
+    huérfanos —el reparto los daba por no recogidos y se gastaba una segunda
+    lectura— o, peor, desaparecían del CUBRE del estudio (F6 del diagnóstico).
+    Ahora el que se queda hereda el «cubre» del descartado, y también su
+    jerarquía si el descartado era el principal. Y como la fase 3 numera los
+    problemas y `depende_de` apunta a esos números, se renumeran: con un
+    problema menos, «depende del 3» ya no señalaba al mismo.
     """
     import re as _re
     import unicodedata as _ud
@@ -873,17 +893,80 @@ def _sin_repetidos(problemas: list) -> list:
         return {w for w in _re.findall(r"[a-z]{4,}", y) if w not in vacias}
 
     fuera, vistos = [], []
-    for p in problemas:
+    destino = {}                           # número original → número que queda
+    for i, p in enumerate(problemas or [], 1):
         q = p.get("pregunta", "") if isinstance(p, dict) else str(p)
         v = _vocab(q)
         if len(v) < 4:
             fuera.append(p)
+            destino[i] = len(fuera)
             continue
-        if any(len(v & w) / max(1, len(v | w)) > 0.60 for w in vistos):
+        # El MÁS parecido de los ya vistos: se descarta en los mismos casos que
+        # antes (alguno pasa de 0.60), pero la fusión va al que de verdad es.
+        parecido, donde = max(((len(v & w) / max(1, len(v | w)), k) for w, k in vistos),
+                              default=(0.0, -1))
+        if parecido > 0.60:
+            queda = fuera[donde]
+            if isinstance(queda, dict) and isinstance(p, dict):
+                queda = dict(queda)
+                if "cubre" in queda or "cubre" in p:
+                    queda["cubre"] = sorted(set(cubre_de(queda)) | set(cubre_de(p)))
+                if str(p.get("jerarquia") or "").strip().lower() == "principal":
+                    queda["jerarquia"] = "principal"
+                fuera[donde] = queda
+            destino[i] = donde + 1
             continue                       # ya se preguntó esto
-        vistos.append(v)
+        vistos.append((v, len(fuera)))
         fuera.append(p)
+        destino[i] = len(fuera)
+    if len(fuera) == len(problemas or []):
+        return fuera
+    for k, p in enumerate(fuera, 1):
+        if not isinstance(p, dict) or p.get("depende_de") in (None, "", "null"):
+            continue
+        try:
+            d = int(p.get("depende_de"))
+        except (TypeError, ValueError):
+            continue
+        if d in destino:
+            p = dict(p)
+            p["depende_de"] = None if destino[d] == k else destino[d]
+            fuera[k - 1] = p
     return fuera
+
+
+def cubre_de(p) -> list:
+    """Los números de planteamiento de «cubre», como enteros ordenados.
+
+    El modelo los devuelve casi siempre como lista de enteros, pero no hay
+    contrato que lo asegure: una cadena «1, 2» recorrida letra a letra daba
+    '1', ',', ' ', '2' y los consumidores (`formato_sentencia.cubre_de`, el
+    reparto) la leían mal o la tiraban."""
+    import re as _re
+    x = p.get("cubre") if isinstance(p, dict) else None
+    if x is None or isinstance(x, bool):
+        return []
+    if isinstance(x, (int, float)):
+        x = [x]
+    elif isinstance(x, str):
+        x = _re.findall(r"\d+", x)
+    fuera = []
+    for y in (x if isinstance(x, (list, tuple)) else []):
+        try:
+            fuera.append(int(y))
+        except (TypeError, ValueError):
+            pass
+    return sorted(set(fuera))
+
+
+def _con_cubre_en_rango(p, n: int):
+    """El problema con su «cubre» como enteros y dentro de 1..n (n = los
+    planteamientos contados). Sin conteo, o sin «cubre», no se toca."""
+    if not isinstance(p, dict) or n < 1 or "cubre" not in p:
+        return p
+    q = dict(p)
+    q["cubre"] = [x for x in cubre_de(p) if 1 <= x <= n]
+    return q
 
 # SIN RAZONAMIENTO, y lo decidió David: «es un proceso de resumen y recolección
 # de información para ser plasmados en el docx». No hay nada que deducir — lo
@@ -1277,15 +1360,20 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             m = re.search(r"\{.*\}", crudo, re.S)
             j = _json.loads(m.group(0) if m else crudo)
             _probs = _sin_repetidos(j.get("problemas", []) or [])
-            if not _n_plant:
+            # «cubre» SE CIÑE A LO QUE SE CONTÓ (26-sep-2026). Un número fuera
+            # de 1..N es un planteamiento que no existe —el [1, 2] copiado de
+            # la plantilla en un asunto de un solo concepto— y el estudio lo
+            # escribía como «conceptos primero y segundo». Se quita. Sin
+            # conteo no hay rango que comprobar y se deja como venga.
+            _probs = [_con_cubre_en_rango(_p, _n_plant) for _p in _probs]
+            # EL REPARTO SÓLO SE COMPRUEBA CUANDO SE PIDIÓ. Con un planteamiento
+            # el prompt no pide «cubre» y comprobarlo daba por huérfano al 1:
+            # una segunda lectura pagada y un aviso falso.
+            if _n_plant < 2:
                 break
             _cub = []
             for _p in _probs:
-                for _x in (_p.get("cubre") or []):
-                    try:
-                        _cub.append(int(_x))
-                    except Exception:
-                        pass
+                _cub.extend(cubre_de(_p))
             _faltan_rep = sorted(set(range(1, _n_plant + 1)) - set(_cub))
             print(f"   🧮 reparto: {len(_probs)} problemas cubren "
                   f"{len(set(_cub))}/{_n_plant}"
@@ -1295,7 +1383,7 @@ async def correr(cliente, texto_acto: str, texto_conceptos: str,
             _vuelta_rep += 1
         f.problema_global = j.get("problema_global", "")
         f.problemas = _probs
-        if _n_plant:
+        if _n_plant >= 2:
             _conteo = dict(_conteo or {}, reparto={
                 "planteamientos": _n_plant, "problemas": len(_probs),
                 "huerfanos": _faltan_rep, "vueltas": _vuelta_rep})

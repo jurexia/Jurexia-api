@@ -10,6 +10,7 @@ confrontar la demanda de la quejosa como razón toral.
     .venv/bin/python test_violacion_procesal.py
 """
 import inspect
+import json
 import os
 
 import violacion_procesal as vp
@@ -99,7 +100,21 @@ ok(not vp.hay([P2], [], CONTRATO), "con un contrato aportado y un problema de fo
 print("\n4 · EL BLOQUE DEL PROMPT")
 b = vp.bloque(RESUMEN_DAVID, para="estudio")
 ok("RESOLUCIÓN QUE DECIDIÓ LA VIOLACIÓN PROCESAL" in b and "171 y 172" in b, "rótulo y fundamento")
-ok("ENUNCIA, una por una" in b and "PROHIBIDO despacharla" in b, "la técnica: enunciar, confrontar, no despachar")
+# LA TÉCNICA APROBADA EL 26-SEP-2026 (decisión 2). La vieja —«una por una»,
+# «PROHIBIDO despacharla en un párrafo»— fabricaba cuatro párrafos con la misma
+# respuesta; la nueva identifica y confronta cada razón, junta las que caen por
+# lo mismo, deja caer la dependiente salvo que un efecto la presuponga y parte
+# la mixta.
+ok("IDENTIFICA las razones" in b and "CONFRONTA cada razón" in b and "Ninguna se queda" in b,
+   "la técnica: identificar y confrontar cada razón, sin dejar ninguna sin respuesta")
+ok("SE CONTESTAN JUNTAS" in b and "nombrándolas a todas" in b,
+   "las que caen por la misma respuesta se contestan juntas, nombrándolas")
+ok("DEPENDE DE OTRA CAE CON ELLA" in b and "SALVO QUE UN EFECTO DE LA CONCESIÓN LA PRESUPONGA" in b
+   and "ADVERTENCIAS" in b, "la dependiente cae con la otra salvo que un efecto la presuponga")
+ok("RAZÓN MIXTA SE PARTE" in b, "la razón mixta se parte")
+ok("una por una" not in b and "PROHIBIDO despacharla" not in b,
+   "y ya no manda un párrafo por razón")
+ok("esa consideración no" not in b, "sin la frase entre comillas que se copiaba (lección del ejemplo)")
 ok("nunca como\n     «documento aportado»" in b, "y no se cita como «documento aportado»")
 bp = vp.bloque(RESUMEN_DAVID, para="propuesta")
 ok("razon_toral" in bp, "en la propuesta, la razón toral es la de esta resolución")
@@ -115,6 +130,35 @@ ok(any(x["fuente"].startswith("artículos 171, 172") for x in ta.tecnica_de("amp
    "la técnica de los artículos 171 y 172 entra al prompt")
 src = open("main.py", encoding="utf-8").read()
 ok('"clase": _clase_ctx' in src, "/taller/contexto dice qué es lo que llegó")
+
+print("\n6 · LA MISMA TÉCNICA EN EL CATÁLOGO (tipos_asunto), Y EL ORDEN DEL 189")
+_tvp = " ".join(ta.TECNICA_RESOLUCION["directo_violacion_procesal"]["tecnica"])
+ok("se identifican las razones" in _tvp and "SE CONTESTAN JUNTAS" in _tvp
+   and "LA RAZÓN QUE DEPENDE DE OTRA CAE CON ELLA" in _tvp and "LA RAZÓN MIXTA SE PARTE" in _tvp,
+   "las cuatro piezas de la regla también en tipos_asunto")
+ok("una por una" not in _tvp and "PROHIBIDO despacharla" not in _tvp,
+   "y tampoco ahí manda un párrafo por razón")
+ok("se deciden todas" in _tvp and "74, fracción V, y 174" in _tvp,
+   "si prospera, las demás procesales no quedan sin materia: se deciden todas")
+# Revisión del 26-sep-2026: las dos técnicas llegan JUNTAS al estudio y ésta
+# mandaba todo el fondo a «sin materia» sin la salvedad del 189 que la del
+# orden sí dice.
+_si_pros = next(x for x in ta.TECNICA_RESOLUCION["directo_violacion_procesal"]["tecnica"]
+                if x.startswith("SI PROSPERA"))
+ok("beneficio mayor que la reposición" in _si_pros and "189" in _si_pros,
+   "y el fondo que da más que reponer no queda sin materia: se estudia antes (art. 189)")
+_tor = " ".join(ta.TECNICA_RESOLUCION["directo_orden_de_estudio"]["tecnica"])
+ok("SON DE ESTUDIO PREFERENTE" not in _tor,
+   "el orden ya no dice que las procesales son de estudio preferente")
+ok("EL FONDO VA PRIMERO" in _tor and "MAYOR BENEFICIO" in _tor,
+   "art. 189 vigente: el fondo primero, salvo mayor beneficio")
+ok("189" in ta.TECNICA_RESOLUCION["directo_orden_de_estudio"]["fuente"]
+   and "174" in ta.TECNICA_RESOLUCION["directo_orden_de_estudio"]["fuente"],
+   "con su fundamento: 74-V, 174 y 189")
+_la = json.load(open("normas_ley_de_amparo.json", encoding="utf-8"))["articulos"]["189"]
+ok("se privilegiará el estudio de los conceptos de violación de fondo por encima de los de "
+   "procedimiento y forma" in _la,
+   "y la regla sale del texto vigente del 189, que está en el repositorio")
 
 print()
 if FALLOS:
