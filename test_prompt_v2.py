@@ -97,11 +97,39 @@ for forma in ("estandar", "moderna"):
     ok(FRASE_VIEJA in antes and antes.count(FRASE_VIEJA) == 1,
        f"{forma}: la instantánea de antes (origin/main 9833dfb) trae la fórmula vieja una vez")
     ok(FRASE_NUEVA not in antes, f"{forma}: y no la nueva")
-    ok(ahora == antes.replace(FRASE_VIEJA, FRASE_NUEVA),
+    # LOS RENGLONES EN BLANCO NO CUENTAN (revisión adversarial, 26-sep-2026).
+    # Otra rama de este mismo paso (la suplencia) añade al prompt un bloque que
+    # sale VACÍO cuando no hay suplencia confirmada, como en el 93: al integrar,
+    # la v1 ganaría un renglón en blanco y esta prueba fallaría sin que el
+    # modelo lea nada distinto. Se compara con los saltos de renglón
+    # consecutivos colapsados; cualquier palabra de más o de menos sigue
+    # fallando.
+    def _sin_blancos(x):
+        return re.sub(r"\n(?:[ \t]*\n)+", "\n\n", x)
+    _esperada = antes.replace(FRASE_VIEJA, FRASE_NUEVA)
+    ok(_sin_blancos(ahora) == _sin_blancos(_esperada),
        f"{forma}: la v1 de hoy es la de antes con esa frase cambiada y NADA MÁS")
+    if ahora != _esperada:
+        print(f"   (nota: {forma} difiere sólo en renglones en blanco de la instantánea)")
     ok(f6.prompt_estudio(ACTO, CONC, C93, mat(forma, variante="")) == ahora
        and f6.prompt_estudio(ACTO, CONC, C93, mat(forma, variante="v7")) == ahora,
        f"{forma}: una variante vacía o desconocida es la v1")
+# EL 189 ES DEL AMPARO DIRECTO (revisión adversarial, 26-sep-2026). En los
+# recursos la v1 sigue exactamente como en producción: el molde que se copia
+# no puede decir «los agravios… como lo ordena el artículo 189» ni «mayor
+# beneficio para la autoridad recurrente».
+FRASE_VIEJA_1L = "estudio de las violaciones procesales que inciden en el sentido del fallo.»"
+for _tipo_r in ("revision_fiscal", "amparo_revision", "queja"):
+    for forma in ("estandar", "moderna"):
+        _p_r = f6.prompt_estudio(ACTO, CONC, C93, mat(forma, tipo_asunto=_tipo_r), es_recurso=True)
+        _i = _p_r.find("«Por cuestión de método")
+        _molde = _p_r[_i:_i + 600]
+        ok(_i > 0 and FRASE_VIEJA_1L in _molde and "189" not in _molde
+           and "mayor beneficio" not in _molde,
+           f"{_tipo_r}/{forma}: la v1 del recurso no cita el 189 en el molde (queda como estaba)")
+_p_ad_rec = f6.prompt_estudio(ACTO, CONC, C93, mat("estandar"), es_recurso=True)
+ok("como lo\n       ordena el artículo 189" not in _p_ad_rec,
+   "con `es_recurso` el molde no habla del 189 aunque falte el tipo")
 m_sin = f6.Material(tipo_asunto="amparo_directo", materia="administrativa", formato="estandar",
                     problemas=P93, n_planteamientos=2)
 ok(m_sin.variante == "v1", "el material nace en v1")
@@ -167,6 +195,10 @@ RETIRADAS = {
     "de los cuatro pasos": "el bloque de conceptos remitía a los cuatro pasos",
     "no los contestes por separado dentro de él": "el grupo borraba la respuesta de cada uno",
     "ni lo califiques ni lo contestes": "lo innecesario sin su calificación",
+    # Revisión adversarial, 26-sep-2026:
+    "tres a seis criterios del caso": "fila 9: la cuota volvía por el diálogo constitucional",
+    "79, último párrafo": "el «sólo se expresa si beneficia» es el PENÚLTIMO párrafo del 79",
+    "engroses reales de este tribunal: nueve": "el techo no es de «este tribunal»",
 }
 C_CONCEDE = [f6.Criterio("¿La Sala debió admitir la ampliación?", "fundado", "Razón A", "principal"),
              f6.Criterio("¿La multa es excesiva?", "infundado", "Razón B", "accesorio", grupo="A"),
@@ -187,6 +219,19 @@ for tipo, es_rec, rama in (("amparo_directo", False, ""), ("revision_fiscal", Tr
                     ACTO, CONC, crit, m, es_recurso=es_rec, rama=rama,
                     conceptos_violacion="Primer concepto de violación: " + "x " * 40,
                     marco="MATERIAL CONSTITUCIONAL")
+# CON TESIS DE MÉTODO EN EL MATERIAL, que es cuando `dialogo_constitucional`
+# añade su bloque al final (y con él, hasta hoy, la cuota «tres a seis»).
+_TESIS_METODO = [{"registro": "2006224", "metodo": True, "obligatoria": True,
+                  "rubro": "PRINCIPIO PRO PERSONA. CRITERIO DE PRUEBA LARGO", "texto": "t"}]
+for forma in ("estandar", "moderna"):
+    for fav in (None, True):
+        m = f6.Material(tipo_asunto="amparo_directo", materia="administrativa", formato=forma,
+                        problemas=P93, n_planteamientos=4, variante="v2", tesis=_TESIS_METODO)
+        m.dialogo_favorece = fav
+        PROMPTS_V2[("amparo_directo", forma, "administrativa", f"metodo_{fav}")] = f6.prompt_estudio(
+            ACTO, CONC, C_CONCEDE, m, marco="MATERIAL CONSTITUCIONAL")
+ok(all("Y EL DIÁLOGO CONSTITUCIONAL" in p for k, p in PROMPTS_V2.items() if k[3].startswith("metodo_")),
+   "con tesis de método, la v2 sí recibe el bloque del diálogo constitucional")
 sobreviven = {}
 for clave, p in PROMPTS_V2.items():
     for frase, fila in RETIRADAS.items():
@@ -236,7 +281,8 @@ for forma, p in (("estándar", p_std), ("moderna", p_mod)):
                        ("como máximo dos", "fila 9"),
                        ("DESPUÉS DE LA CITA, NO LA REPITAS: ÚSALA", "fila 10: una sola regla"),
                        ("ÉSTA es la ÚNICA medida".lower(), "fila 13: una sola tabla"),
-                       ("SÓLO SE EXPRESA", "suplencia: art. 79, último párrafo"),
+                       ("SÓLO SE EXPRESA", "suplencia: art. 79, penúltimo párrafo"),
+                       ("artículo 79, penúltimo párrafo", "y el párrafo bien citado"),
                        ("SIN PÁRRAFO DE CIERRE", "decisión 3: sin cierre por defecto")):
         ok(frase.lower() in p.lower(), f"{forma}: {que}")
     ok(p.rstrip().endswith("Nada más."), f"{forma}: termina igual")
@@ -268,6 +314,17 @@ _p_conc = PROMPTS_V2[("amparo_directo", "estandar", "administrativa", "concede")
 ok("SE ESTUDIA JUNTO CON LOS DEMÁS DEL GRUPO A" in _p_conc and "respuesta identificable" in _p_conc,
    "el grupo del secretario: un apartado, y cada argumento con su respuesta")
 ok("REPOSICIÓN en el orden en que ha de cumplirse" in _p_conc, "los efectos, descritos")
+# LA CALIFICACIÓN GENERAL QUE EL MODELO COPIA EN LA PRIMERA LÍNEA, concordada
+# (revisión adversarial): «innecesario» no está en el catálogo y salía en
+# singular. La v1 sigue como estaba, congelada.
+ok("en parte fundados y en parte innecesarios.»" in p_std
+   and "en parte innecesario.»" not in p_std and "en parte innecesario.»" not in p_mod,
+   "v2: la calificación general concuerda «innecesarios» (el 93 la trae)")
+ok("en parte innecesario.»" in f6.prompt_estudio(ACTO, CONC, C93, mat("estandar")),
+   "v1: sin tocar (congelada)")
+_p_ad_r = f6.prompt_estudio(ACTO, CONC, C93, mat("estandar", "v2"), es_recurso=True)
+ok("EN UN RECURSO" in _p_ad_r and "privilegia el estudio de los agravios" not in _p_ad_r,
+   "v2 con `es_recurso`: el 189 no se aplica a agravios aunque falte el tipo")
 ok(len(p_std) < len(f6.prompt_estudio(ACTO, CONC, C93, mat("estandar"))),
    f"la v2 es más corta que la v1 ({len(p_std)} contra "
    f"{len(f6.prompt_estudio(ACTO, CONC, C93, mat('estandar')))} caracteres)")
@@ -299,6 +356,8 @@ def _citas(t: str) -> set:
 PERMITIDAS = {" ".join(x.split()) for x in PERMITIDAS}
 nuevas = set()
 for clave, p in PROMPTS_V2.items():
+    if clave[3].startswith("metodo_"):
+        continue   # su v1 lleva otro material; el bloque del diálogo es común
     _v1 = f6.prompt_estudio(ACTO, CONC, [C_CONCEDE, C_NIEGA, C_LAB][
         ["concede", "niega", "laboral"].index(clave[3])],
         f6.Material(tipo_asunto=clave[0], materia=clave[2], formato=clave[1],
@@ -307,7 +366,9 @@ for clave, p in PROMPTS_V2.items():
         rama="revoca_sobreseimiento" if clave[0] == "amparo_revision" else "",
         conceptos_violacion="Primer concepto de violación: " + "x " * 40,
         marco="MATERIAL CONSTITUCIONAL")
-    nuevas |= _citas(p) - _citas(_v1)
+    # La calificación general es la misma frase de la v1, sólo concordada
+    # («innecesarios»): no es una frase nueva que copiar.
+    nuevas |= {x.replace("innecesarios", "innecesario") for x in _citas(p)} - _citas(_v1)
 ok(not (nuevas - PERMITIDAS), "ningún entrecomillado nuevo fuera de la lista"
    + (": " + " · ".join(sorted(x[:50].replace("\n", " ") for x in nuevas - PERMITIDAS))
       if nuevas - PERMITIDAS else ""))
@@ -450,6 +511,22 @@ for nombre in ("redactar", "redactar_en_vivo"):
        f"{nombre}: arma el prompt con el material, que es quien trae la variante")
     ok(any(isinstance(n, ast.Call) and getattr(n.func, "id", "") == "_meta_vacia" for n in ast.walk(fn)),
        f"{nombre}: anota variante, finish_reason y tokens")
+
+# LA v1 Y LA v2 ARMAN EL PROMPT CON LOS MISMOS BLOQUES (revisión adversarial,
+# 26-sep-2026). La v2 vive en su propia función, así que un bloque que otra
+# rama añada a la v1 —la suplencia confirmada de la decisión 4 añade
+# `_bloque_suplencia(material)`— no llegaría a la v2 y, con la v2 encendida,
+# lo que el secretario confirmó no llegaría al estudio. Esto falla al integrar
+# hasta que la v2 lo lleve también.
+def _llamadas_bloque(nombre_fn):
+    fn = next(n for n in ARBOL_F6.body if isinstance(n, ast.FunctionDef) and n.name == nombre_fn)
+    return {n.func.id for n in ast.walk(fn) if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name) and n.func.id.startswith("_bloque_")}
+
+
+_faltan_v2 = _llamadas_bloque("prompt_estudio") - _llamadas_bloque("_prompt_estudio_v2")
+ok(not _faltan_v2, "la v2 arma el prompt con todos los bloques `_bloque_*` de la v1"
+   + (f": faltan {sorted(_faltan_v2)}" if _faltan_v2 else ""))
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n8 · LOS CONTROLES AJUSTADOS NO ACUSAN A LA SALIDA BUENA")

@@ -1629,9 +1629,16 @@ def _bloque_arquitectura(materia: str, variante: str = "v1") -> str:
 # apoyo, máximo dos»; el título descriptivo y la transcripción del precepto de
 # la apertura administrativa chocan con «sin rótulos» y «el cuerpo no
 # transcribe»; el cierre obligatorio de la laboral, con «sin cierre por
-# defecto»; y la suplencia civil anunciada siempre, con el artículo 79, último
-# párrafo: «sólo se expresará en las sentencias cuando la suplencia derive de
-# un beneficio».
+# defecto»; y la suplencia civil anunciada siempre, con el artículo 79,
+# penúltimo párrafo: «solo se expresará en las sentencias cuando la suplencia
+# derive de un beneficio».
+#
+# PENÚLTIMO, NO ÚLTIMO (revisión adversarial, 26-sep-2026, leído en el texto
+# vigente, DOF 16-10-2025): esa frase cierra el párrafo que empieza «En los
+# casos de las fracciones I, II, III, IV, V y VII…»; el último párrafo del 79
+# es otro —la suplencia por violaciones procesales o formales sólo opera si no
+# hay vicio de fondo—. La propuesta decía «último párrafo», y un prompt que
+# cita mal el párrafo enseña al modelo a citarlo mal en la sentencia.
 #
 # POR SUSTITUCIÓN Y NO COPIA, para que la v2 no se quede atrás cuando alguien
 # afine la v1. Si un día una de estas frases cambia en la v1, la sustitución
@@ -1666,7 +1673,7 @@ _ARQUITECTURA_V2_CAMBIOS = (
      "—menores, materia familiar, orden público, violación manifiesta—. Si cae y\n"
      "de ella deriva un beneficio, anúnciala en la misma frase del veredicto y\n"
      "fúndala con precepto y tesis: 53% arriba contra 25%. Si no cae, o no deriva\n"
-     "beneficio, no la menciones (artículo 79, último párrafo, de la Ley de\n"
+     "beneficio, no la menciones (artículo 79, penúltimo párrafo, de la Ley de\n"
      "Amparo)."),
 )
 
@@ -1843,6 +1850,24 @@ Interamericana que no cambie la respuesta.
     # (mayor beneficio art 189)». Vale para todos por ser de ley, y por eso es
     # lo ÚNICO que cambia en la v1: la frase del molde y, fuera de las
     # comillas, que si se invierte el orden se diga en qué consiste el beneficio.
+    #
+    # SÓLO EN EL AMPARO DIRECTO (revisión adversarial, 26-sep-2026). El molde
+    # vive en el prompt de los cuatro tipos, y el artículo 189 está en el
+    # capítulo del amparo directo: habla de «conceptos de violación» y de
+    # «la persona quejosa». Puesto en una revisión fiscal, el molde que se
+    # copia literal decía «los agravios… como lo ordena el artículo 189» y
+    # «mayor beneficio para la autoridad recurrente»: un precepto mal citado en
+    # el primer párrafo del estudio. En los recursos el orden lo fija su
+    # técnica (el 93 en la revisión), así que ahí la v1 sigue exactamente como
+    # estaba en producción.
+    _ad_189 = (not es_recurso) and _voc["nombre"] == "amparo directo"
+    _metodo_orden = (
+        f"estudio de los de fondo sobre los de procedimiento y forma, como lo\n"
+        f"       ordena el artículo 189 de esa ley.» (Si inviertes ese orden porque\n"
+        f"       estudiar primero una violación procesal redunda en un mayor beneficio\n"
+        f"       para {parte}, dilo y di en qué consiste ese beneficio.)"
+        if _ad_189 else
+        "estudio de las violaciones procesales que inciden en el sentido del fallo.»")
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito redactando el
 estudio de fondo de {_clase}. Escribes mejor que la media del
 oficio: con más orden, más precisión y menos relleno, pero en su mismo registro.
@@ -1910,10 +1935,7 @@ AQUÍ SÍ SE AGRUPA, Y SE ANUNCIA — la regla que él sigue sin excepción:
   antes de empezar y con fundamento en el ARTÍCULO 76 DE LA LEY DE AMPARO.
       «Por cuestión de método, los {q} se analizarán agrupados por bloques
        temáticos, conforme al artículo 76 de la Ley de Amparo, privilegiando el
-       estudio de los de fondo sobre los de procedimiento y forma, como lo
-       ordena el artículo 189 de esa ley.» (Si inviertes ese orden porque
-       estudiar primero una violación procesal redunda en un mayor beneficio
-       para {parte}, dilo y di en qué consiste ese beneficio.)
+       {_metodo_orden}
       «se procede al análisis conjunto de los {q} identificados como TERCERO y
        QUINTO, dada su estrecha vinculación con el fondo del asunto.»
 - EL CRITERIO PARA AGRUPAR NO ES EL ARTÍCULO CONSTITUCIONAL INVOCADO —casi todos
@@ -2461,20 +2483,29 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
     _sjs = _ta_e.sujetos_de(_tipo)
     _org = " o ".join(f"«{x}»" for x in _sjs["organo"][:2])
     _org_rotulo = _sjs["organo"][0].upper()
-    calif = _calificacion(criterios)
+    # «INNECESARIO» NO ESTÁ EN EL CATÁLOGO DE CALIFICACIONES y `_calificacion`
+    # lo dejaba en singular: la v2 le mandaba abrir con «Los conceptos de
+    # violación son en parte fundados y en parte innecesario.», que el modelo
+    # copia en la primera línea del estudio (el 93/2026 la trae). La v1 queda
+    # como estaba —está congelada—; la v2 lo concuerda (revisión adversarial,
+    # 26-sep-2026).
+    calif = re.sub(r"\binnecesario\b", "innecesarios", _calificacion(criterios))
     _formato = _fs_e.normalizar(getattr(material, "formato", ""))
     _moderna = _formato == _fs_e.MODERNA
     _techo = _techo_palabras(material, criterios)
     _forma = _fs_e.forma_del_estudio(_formato, q, q1, parte, calif, _techo,
                                      variante="v2")
-    _ad = _ta_e.normalizar(_tipo) == "amparo_directo"
+    # El 189 es del amparo directo y habla de conceptos de violación: con
+    # `es_recurso` el texto diría «los agravios de fondo… artículo 189», así
+    # que hacen falta las dos señales, igual que en la v1.
+    _ad = (not es_recurso) and _ta_e.normalizar(_tipo) == "amparo_directo"
     _materia_v = materia or getattr(material, "materia", "")
     _tipo_tec = getattr(material, "tipo_asunto", "") or ("amparo_revision" if es_recurso else "amparo_directo")
 
     # EL TECHO, DICHO COMO TECHO (fila 12). En la estándar se dice de dónde sale
     # para que no se lea como meta; en la moderna es la medida de su forma.
-    _de_donde = (" Es el percentil 90 de la Solución medida en los engroses reales "
-                 "de este tribunal: nueve de cada diez resuelven en menos."
+    _de_donde = (" Es el percentil 90 de la Solución medida en engroses reales "
+                 "firmados: nueve de cada diez resuelven en menos."
                  if not _moderna else " Es la medida de la versión corta.")
 
     # EL ORDEN, CON EL ARTÍCULO 189 (David, 26-sep-2026: «alinear al art.
@@ -2528,6 +2559,16 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
             f"si se concede, con los EFECTOS—. No recapitules: la calificación de\n"
             f"cada {q1} ya está dicha al abrir su apartado, y la fórmula final la\n"
             f"pone el documento.")
+
+    # EL DIÁLOGO CONSTITUCIONAL TRAÍA LA CUOTA DE CITAS POR LA PUERTA DE ATRÁS
+    # (revisión adversarial, 26-sep-2026). Cuando el material trae tesis de
+    # método, `cierre_estudio` dice que ésas «NO cuentan entre los tres a seis
+    # criterios del caso»: es la cuota que la fila 9 retiró, y llegaba a la v2
+    # en la última pantalla que lee el modelo. Se sustituye aquí, como la
+    # arquitectura de materia, para no tocar el módulo que comparte la v1.
+    _dc_cierre = _dc_e.cierre_estudio(material, _fav_dc).replace(
+        "NO cuentan entre los tres a seis criterios del caso",
+        "NO cuentan entre los apoyos de las premisas del caso")
 
     cierre_marco = ""
     if isinstance(marco, str) and marco.strip():
@@ -2797,7 +2838,7 @@ puede necesitar.
   impugnación —porque «no combatió la razón toral» o «no precisó qué prueba se
   omitió»—, que es aplicarle la técnica de estricto derecho que la ley le
   releva. Y la suplencia SÓLO SE EXPRESA en la sentencia cuando de ella deriva
-  un beneficio (artículo 79, último párrafo): si al suplir nada cambia, no se
+  un beneficio (artículo 79, penúltimo párrafo): si al suplir nada cambia, no se
   menciona.
 
 FUNDAMENTO — hay que fundar, y hay que fundar bien:
@@ -2965,7 +3006,7 @@ LO QUE SE COMBATE
 
 Escribe el estudio de fondo.
 {cierre_marco}
-{_dc_e.cierre_estudio(material, _fav_dc)}
+{_dc_cierre}
 {_recuerda_forma}
 NO ESCRIBAS LA FÓRMULA FINAL. El documento añade solo, debajo de tu texto, la
 frase de cierre que corresponde al tipo de asunto. Si tú escribes otra igual,
@@ -3643,11 +3684,15 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     # por premisa, máximo dos, y ninguna tesis dos veces: un estudio bueno de
     # un solo problema vivo cita una. «Menos de dos… entre tres y seis» lo
     # acusaría siempre. Se baja a CERO apoyos —ni registro, ni rubro, ni
-    # clave— y aun así, calibrado contra la Solución de los 24 engroses
-    # Kingston, SEIS de ellos no citan ninguna tesis identificable (los ADC
-    # 296/2025, 481, 526, 529, 625 y 641/2024): un aviso visible acusaría a uno de
-    # cada cuatro engroses buenos. Por eso en la v2 sólo se registra, hasta
-    # que se calibre con lo que el material traía en cada caso.
+    # clave— y aun así acusa a engroses buenos. Medido de nuevo en la revisión
+    # adversarial (26-sep-2026) sobre la Solución de los 24 Kingston: por
+    # registro o clave, SEIS no citan nada (los ADC 296/2025, 481, 526, 529,
+    # 625 y 641/2024); con el rubro entre comillas —que es lo que mira esta
+    # condición— queda UNO, el ADC 641/2024, que no cita ninguna tesis y es
+    # oro sólido. Y `_RX_RUBRO_CITADO` caza cualquier texto en mayúsculas
+    # entre comillas, sea tesis o no: no está calibrado como «apoyo». Por eso
+    # en la v2 sólo se registra, hasta que se calibre con lo que el material
+    # traía en cada caso.
     if _v2r:
         if obligatorias and not citados and not _RX_RUBRO_CITADO.search(estudio) \
                 and not _RX_CLAVE_TESIS.search(estudio):
@@ -3854,7 +3899,7 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     if _v2r and not _moderna_r:
         if n < SOLUCION_PISO:
             avisos.append(f"El estudio tiene {n} palabras; ningún engrose real "
-                          f"del banco resuelve en menos de {SOLUCION_PISO}. "
+                          f"de referencia resuelve en menos de {SOLUCION_PISO}. "
                           f"Revisa si quedó algún planteamiento sin razonar.")
     elif n < 0.45 * _obj_r:
         avisos.append(f"El estudio tiene {n} palabras; la mediana de los "
