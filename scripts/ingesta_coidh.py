@@ -1461,6 +1461,8 @@ def main() -> int:
     ap.add_argument("--confirmar", action="store_true",
                     help="sin esto --escribir sólo trocea e informa: escribir en Qdrant y pagar embeddings es F1, con permiso de David")
     ap.add_argument("--revertir", action="store_true", help="borra lo subido con la marca de esta ingesta")
+    ap.add_argument("--aceptar-alterno", action="store_true",
+                    help="enlaza la copia «_esp» verificada (URL oficial propia) cuando el catálogo pide «_esp1/_esp2»")
     ap.add_argument("--env", default=str(RAIZ / ".env"))
     ap.add_argument("--salida", default="coidh_troceo_informe.json")
     ap.add_argument("--puntos", default="coidh_puntos_seco.jsonl", help="JSONL con lo que SE ESCRIBIRÍA, sin vectores")
@@ -1515,7 +1517,18 @@ def main() -> int:
             alterno = re.sub(r"_esp\d\.pdf$", "_esp.pdf", nombre)
             ruta = next((Path(c) / alterno for c in a.pdfs if alterno != nombre and (Path(c) / alterno).exists()), None)
             if ruta is not None:
-                d = dict(d, _archivo_alterno=alterno)
+                if a.aceptar_alterno:
+                    # 25-sep-2026: Cloudflare de la Corte ya reta toda descarga
+                    # automática, así que el «_esp1» del catálogo no se puede
+                    # bajar. El «_esp» local también es un PDF oficial —se bajó
+                    # de su propia URL en la Corte— y es el archivo contra el
+                    # que se verificaron las páginas: se enlaza ESE, para que el
+                    # visor abra justo el PDF cuyas páginas se mapearon. La URL
+                    # del listado queda en url_catalogo.
+                    d = dict(d, url_catalogo=d["url_oficial"],
+                             url_oficial=d["url_oficial"].rsplit("/", 1)[0] + "/" + alterno)
+                else:
+                    d = dict(d, _archivo_alterno=alterno)
         if ruta is None:
             sin_pdf.append(did)
             continue
