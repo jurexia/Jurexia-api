@@ -1253,6 +1253,49 @@ _gv = pe.vista({"proposiciones": [{"id": "P1", "dice": "La identidad quedó acre
 ok("«La identidad quedó acreditada" not in _gv and "en síntesis: La identidad quedó acreditada" in _gv
    and "no son palabras del acto" in _gv,
    "el guion da la proposición como síntesis del planificador, sin «» (que dicen «literal»)")
+
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n· COMPROBACIÓN DE LA REVISIÓN (26-sep-2026): EL ORDINAL QUE NO ES DEL ESCRITO TAMPOCO "
+      "LO ESCRIBE EL GUION (v4)")
+# El caso del punto 7 en la v4: el contador dio n=2 y el resumen trae TRES
+# párrafos sin ordinales; el inventario numera los conceptos por el orden de
+# párrafos y el guion abría «concepto de violación 3».
+_segs_inf = [{"id": f"C{k}.a", "concepto": k, "problema_id": 1, "etiqueta": "infundado",
+              "trat": "desarrolla", "concepto_inferido": True} for k in (1, 2, 3)]
+
+
+def _guion_inf(inferido: bool) -> str:
+    _s = [dict(x, concepto_inferido=inferido) for x in _segs_inf]
+    return pe.vista({"tipo_asunto": "amparo_directo", "n_planteamientos": 2, "segmentos": _s,
+                     "problemas": [{"id": 1, "pregunta": "¿P?", "sentido": "infundado"}],
+                     "unidades": [{"id": f"U{k}", "segmentos": [f"C{k}.a"]} for k in (1, 2, 3)]})
+
+
+_abre_si = [x for x in _guion_inf(True).splitlines() if x.startswith("APARTADO")]
+_abre_no = [x for x in _guion_inf(False).splitlines() if x.startswith("APARTADO")]
+ok(_abre_si and not any("concepto de violación" in x for x in _abre_si)
+   and all("abre: argumentos" in x for x in _abre_si),
+   "con el concepto inferido, el apartado abre por sus argumentos, sin «concepto de violación 3»")
+ok(any("abre: concepto de violación 3" in x for x in _abre_no),
+   "…y con el número del escrito se sigue escribiendo (control)")
+_piso_inf = pe.normalizar_segmento_piso(dict(SEGS[0], concepto_inferido=True))
+ok(_piso_inf["concepto_inferido"] is True
+   and pe.normalizar_segmento_piso(SEGS[0])["concepto_inferido"] is False,
+   "el piso conserva la marca del inventario")
+_segs_n_inf = [pe.normalizar_segmento_piso(dict(s, concepto_inferido=True)) for s in SEGS]
+_pr_inf, _ = pe.reparar(norm(PLAN_BUENO), crit(), _segs_n_inf, fases(), material(), "", {})
+_pr_ord, _ = pe.reparar(norm(PLAN_BUENO), crit(), SEGS_N, fases(), material(), "", {})
+ok(all(s.get("concepto_inferido") for s in _pr_inf["segmentos"] if s["id"] in {x["id"] for x in SEGS})
+   and not any(s.get("concepto_inferido") for s in _pr_ord["segmentos"]),
+   "reparar lleva la marca del piso a los segmentos del plan (lo que lee el guion)")
+_r_h = types.SimpleNamespace(fases=fases(), encargo=types.SimpleNamespace(tipo_asunto="amparo_directo"))
+ok(pe.huella_entradas(_r_h, material(), "", [_piso_inf])
+   == pe.huella_entradas(_r_h, material(), "", [pe.normalizar_segmento_piso(SEGS[0])]),
+   "la marca no entra en la clave del plan (un plan guardado sigue sirviendo)")
+_bs = pe._bloque_segmentos([_piso_inf], [], 2)
+ok("orden del párrafo: el resumen no numera los conceptos" in _bs
+   and "orden del párrafo" not in pe._bloque_segmentos([pe.normalizar_segmento_piso(SEGS[0])], [], 2),
+   "el planificador lo recibe como dato (sólo en ese caso)")
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

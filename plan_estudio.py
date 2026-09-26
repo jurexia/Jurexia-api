@@ -394,7 +394,11 @@ def normalizar_segmento_piso(s: dict) -> dict:
     return {"id": norm_id(s.get("id")), "concepto": _int(s.get("concepto")),
             "parrafo": _int(s.get("parrafo")), "texto": _ws(s.get("texto"))[:900],
             "cita": _ws(s.get("cita"))[:600],
-            "anclas": [str(a) for a in (s.get("anclas") or []) if str(a).strip()][:20]}
+            "anclas": [str(a) for a in (s.get("anclas") or []) if str(a).strip()][:20],
+            # El número de concepto lo puso el inventario por el orden de
+            # párrafos, no el escrito (`inventario.segmentos`): el guion no lo
+            # escribe. No entra en la clave del plan (`huella_entradas`).
+            "concepto_inferido": bool(s.get("concepto_inferido"))}
 
 
 def _int(x, por_omision=0) -> int:
@@ -677,7 +681,11 @@ def _bloque_segmentos(segs: list[dict], probs: list[dict], n: int = 2) -> str:
     for s in segs:
         perm = problemas_permitidos(s, probs, n)
         lineas.append(
-            f"{s['id']} · concepto {s['concepto'] or '—'} · problema(s) posible(s): "
+            f"{s['id']} · concepto {s['concepto'] or '—'}"
+            # Dato: ese número es el orden del párrafo, no el del escrito.
+            + (" (orden del párrafo: el resumen no numera los conceptos)"
+               if s.get("concepto_inferido") else "")
+            + " · problema(s) posible(s): "
             f"{', '.join(str(x) for x in perm)}"
             + (f" · anclas: {' | '.join(s['anclas'])}" if s.get("anclas") else " · anclas: —")
             + f"\n  resumen: {s['texto']}"
@@ -1136,6 +1144,7 @@ def reparar(plan: dict, crit, segs, fases, material, contexto: str = "", suplenc
         piso = cx.seg_piso.get(s["id"])
         if piso:
             s["concepto"] = piso["concepto"]
+            s["concepto_inferido"] = bool(piso.get("concepto_inferido"))
             s["anclas"] = list(piso["anclas"])
             s["resumen"] = piso["texto"]
             s["cita"] = piso["cita"] if cx.escrito.contiene(piso["cita"], MIN_PALABRAS_CITA_SEGMENTO) else ""
@@ -1950,7 +1959,15 @@ def vista(plan: dict, formato: str = "estandar") -> str:
                 if s.get("etiqueta") and s["etiqueta"] not in ets:
                     ets.append(s["etiqueta"])
             con = [str(k) for k in ap["conceptos"] if k]
-            abre = (f"{q1} {' y '.join(con)}" if varios and con
+            # UN NÚMERO DE CONCEPTO QUE NO ES DEL ESCRITO NO SE ESCRIBE: sin
+            # ordinales en el resumen y sin una cuenta que case, el concepto es
+            # el orden de párrafos (`inventario`, `concepto_inferido`), y
+            # «abre: concepto de violación 3» ordenaba nombrar en la prosa un
+            # tercer concepto que la demanda no tiene (comprobación de la
+            # revisión adversarial de la integración, 26-sep-2026). Se abre por
+            # los argumentos, como cuando hay uno solo.
+            _inferido = any(x.get("concepto_inferido") for x in ap["segmentos"])
+            abre = (f"{q1} {' y '.join(con)}" if varios and con and not _inferido
                     else "argumentos " + ", ".join(s["id"] for s in vivos))
             L.append(f"APARTADO {n} · abre: {abre}"
                      + (f" · etiqueta: {'; '.join(ets)}" if ets else "")
