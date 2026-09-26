@@ -47,11 +47,13 @@ LO QUE SE MIDIÓ ANTES DE ESCRIBIR ESTO (scratchpad/exhaustivo, 26-sep-2026;
     estudio: 26 de las 36 genéricas frente a 31 de las 279 propias. Con la
     condición de que el dato no esté en los EFECTOS ni en otro párrafo de
     fondo, queda la regla de `sin_su_dato` (tabla en `UMBRAL_EFECTOS`).
-  · 11 de las 27 omisiones graves de la v3/v4 NO ESTÁN EN EL INVENTARIO: el
-    resumen de la fase 2 no las trae (la testimonial aleccionada y la
-    falsedad sobre el hijo en el 103, el oficio mal pedido al RAN en el 263).
-    Ninguna comprobación sobre las marcas puede verlas; es cosa del resumen o
-    de la cobertura contra la demanda (V1b).
+  · 12 de las 27 omisiones graves de la v3/v4 (pares argumento × corrida) NO
+    ESTÁN EN EL INVENTARIO: el resumen de la fase 2 no las trae (la
+    testimonial aleccionada y la falsedad sobre el hijo en el 103, el oficio
+    mal pedido al RAN en el 263). Tampoco 31 de las 67 respuestas genéricas o
+    ausentes. Ninguna comprobación sobre las marcas puede verlas; es cosa del
+    resumen o de la cobertura contra la demanda (V1b). (Recontado en la
+    revisión adversarial: el informe decía 11.)
 """
 from __future__ import annotations
 
@@ -451,6 +453,35 @@ def aviso_sin_materia(hallazgos: list, q1: str = "concepto de violación") -> st
 #   cambia nada.
 UMBRAL_EFECTOS = 0.4
 UMBRAL_SUSTANTIVO = 0.6
+#
+# LO QUE LA TABLA NO DICE (revisión adversarial, 26-sep-2026, recontado):
+#   · El denominador son los argumentos QUE ESTÁN EN EL INVENTARIO. Contando
+#     también los que el resumen de la fase 2 no trae, las respuestas genéricas
+#     o ausentes son 67 y se acusan 24: el 36 %. De las 27 omisiones graves
+#     (pares argumento × corrida) se acusan 11 (41 %); 12 no están en el
+#     inventario.
+#   · Todo está medido DENTRO de la muestra: la regex y los umbrales se
+#     ajustaron sobre estas mismas corridas. Dejando fuera cada asunto para
+#     elegir el umbral y midiendo en él, queda 64 % / 12 % (precisión 37 %).
+#     Con el emparejamiento automático (similitud + posición) en lugar del
+#     hecho a mano, 21 de 67: el mapeo a mano no infla el resultado.
+#   · 20 de los 24 aciertos son de dos asuntos (174/2026 y 43/2025): lo que
+#     esto ve es el patrón «declarado innecesario y los efectos callan», no el
+#     argumento absorbido en una calificación global (263/2025 y 722/2025: 0).
+
+
+_RX_LISA_Y_LLANA = re.compile(r"\blis[oa]s?\s+y\s+llan[oa]s?\b", re.I)
+
+
+def es_lisa_y_llana(efectos: str) -> bool:
+    """¿Los EFECTOS conceden de manera lisa y llana (o mandan declarar la
+    nulidad lisa y llana)? Sin contar la mención negada («sin que pueda
+    declarar la nulidad lisa y llana»)."""
+    t = efectos or ""
+    for m in _RX_LISA_Y_LLANA.finditer(t):
+        if not re.search(r"\b(?:no|sin)\b", t[max(0, m.start() - 45):m.start()], re.I):
+            return True
+    return False
 
 
 def sin_su_dato(parrafos: list, mapa: dict, segs: list) -> list:
@@ -461,6 +492,13 @@ def sin_su_dato(parrafos: list, mapa: dict, segs: list) -> list:
         return []
     fin_cuerpo, fin_ef = partes(ps)
     efectos = "\n".join(ps[fin_cuerpo:fin_ef])
+    if es_lisa_y_llana(efectos):
+        # EL MAYOR BENEFICIO (art. 189 LA; revisión adversarial, 26-sep-2026):
+        # con una concesión lisa y llana no queda nada que la responsable deba
+        # volver a examinar, y declarar innecesario lo demás es lo correcto.
+        # Nombrarlo en los EFECTOS contradiría la concesión. Ninguna de las 27
+        # corridas v3/v4 del banco tiene efectos así: la calibración no cambia.
+        return []
     datos = Datos(segs)
     decl = {i for i in range(fin_cuerpo) if declara_sin_estudio(ps[i])}
     fuera = []
@@ -612,18 +650,22 @@ def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
             partes_f.append(f"lo que dice hoy el estudio en el párrafo que lo marca: «{' '.join(hoy.split())}»")
         filas.append("\n   ".join(partes_f))
     concede = any(_ta.prospera(str(_get(c, "sentido") or "")) for c in (criterios or []))
+    # El 189 es del amparo directo (lo mismo que en el prompt del estudio): en
+    # un recurso la tercera respuesta se describe sin citarlo.
+    _art189 = (": el mayor beneficio del artículo 189 de la Ley de Amparo"
+               if _ta.normalizar(tipo) == "amparo_directo" else "")
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito. El estudio de fondo que va al
 final ya está escrito, y el secretario fijó su criterio. Una revisión automática encontró
 argumentos del escrito cuya única respuesta en el estudio es declararlos sin materia,
 innecesarios o sin beneficio, sin que su dato aparezca en los EFECTOS ni en otra respuesta de
 fondo. Tu tarea es escribir SÓLO lo que falta para cada uno. No reescribes nada del estudio.
 
-QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
-- LA ORDEN PARA LOS EFECTOS, cuando el criterio del problema al que pertenece el argumento lo
-  declaró innecesario, o cuando lo que el argumento combate queda comprendido en lo que la
-  responsable tendrá que volver a resolver por la concesión: una orden que nombra lo que el
-  argumento plantea —el hecho, la prueba, el precepto o el precedente que trae—, no la omisión
-  que se le reprocha a la responsable, entre lo que ella deberá examinar al volver a resolver.
+QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de tres respuestas:
+- LA ORDEN PARA LOS EFECTOS, cuando lo que el argumento combate queda comprendido en lo que la
+  responsable tendrá que volver a resolver por la concesión, lo haya declarado innecesario el
+  criterio o no: una orden que nombra lo que el argumento plantea —el hecho, la prueba, el
+  precepto o el precedente que trae—, no la omisión que se le reprocha a la responsable, entre
+  lo que ella deberá examinar al volver a resolver.
   En imperativo y en la misma persona gramatical que las órdenes que ya están en los EFECTOS,
   sobre qué recae, verificable en la ejecución, y sin adelantar el resultado.
   Si varios argumentos de la lista los examinará la responsable en el mismo acto, UNA sola
@@ -632,7 +674,12 @@ QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
   el argumento combate —ataca una consideración que queda en pie—, o cuando no hay concesión:
   la razón y la calificación que el criterio fija para su problema, aplicadas a su dato propio.
   Se leerá justo después del párrafo que hoy lo nombra: retoma lo dicho sin repetirlo, empieza
-  con un conector que lo enlace, y no contradice la calificación de su apartado.
+  con un conector que lo enlace, y no contradice la calificación de su apartado. Un argumento
+  cuyo criterio lo desestima —infundado, inoperante— no va a los EFECTOS: lleva su párrafo.
+- NINGUNA PIEZA, cuando el criterio —su calificación o su razón— lo deja sin estudiar porque,
+  aun fundado, no daría a quien promueve más de lo que la concesión ya le da, y sobre él no
+  queda nada que la responsable deba volver a resolver{_art189}. Entonces la declaración que
+  tiene es la correcta y se queda como está.
 {"En este asunto se concede: los EFECTOS existen al final del estudio." if concede else
  "En este asunto no se concede: no hay EFECTOS; toda pieza es un párrafo."}
 
@@ -647,9 +694,11 @@ LÍMITES:
 CÓMO LO ENTREGAS — cada pieza en su propio renglón, y nada más:
 - el párrafo empieza con la marca del argumento: su identificador entre ⟦ y ⟧, como en el
   estudio;
-- la orden para los efectos empieza con la palabra EFECTO, un espacio y la marca, sin número.
-Cada argumento de la lista queda en una pieza, sola o compartida: ninguno se queda fuera, y
-ninguno pierde su dato por compartirla.
+- la orden para los efectos empieza con la palabra EFECTO, un espacio y la marca, sin número;
+- el argumento que no lleva pieza va en un renglón que empieza con las palabras SIN PIEZA, un
+  espacio y su marca, y sigue con la razón en una frase.
+Cada argumento de la lista queda en una pieza, sola o compartida, o en un renglón SIN PIEZA:
+ninguno se queda fuera, y ninguno pierde su dato por compartir su pieza.
 
 ═══════════════════════════════════════════════════════════════════════
 EL CRITERIO DEL SECRETARIO
@@ -677,15 +726,37 @@ _RX_REGISTRO = re.compile(r"(?:registro(?:\s+digital)?|reg\.)\s*:?\s*(\d{6,7})\b
 _RX_CALIF = re.compile(r"\b(?:resulta\w*|es|son|se\s+(?:estima|considera|califica)\w*(?:\s+de)?)\s+"
                        r"(?:\w+\s+){0,2}(fundad|infundad|inoperant|inefica|inatendibl)\w*", re.I)
 MIN_PALABRAS_PIEZA, MAX_PALABRAS_PIEZA = 12, 450
+# LAS CALIFICACIONES QUE MANDAN NO ESTUDIAR EL FONDO: un párrafo que contesta un
+# argumento así calificado estudia lo que el secretario decidió no estudiar.
+SIN_ESTUDIO = {"innecesario", "sin_materia"}
+# UNA ORDEN QUE DICTA EL RESULTADO en lugar de decir qué examinar. Las once
+# salidas reales de la calibración empiezan por examine, valore, analice,
+# considere o «al emitir la nueva sentencia, examine…»; ninguna casa aquí.
+_RX_RESULTADO = re.compile(
+    r"\b(?:condene|absuelva|conceda|otorgue|niegue|reconozca|revoque|confirme|decrete|"
+    r"declare\s+(?:procedente|improcedente|fundad\w*|infundad\w*|la\s+nulidad|nul\w+|"
+    r"prescrit\w*|la\s+prescripci\w+|la\s+caducidad|caduc\w+|probad\w+|acreditad\w+))\b", re.I)
+
+
+_RX_SIN_PIEZA = re.compile(r"^\s*[-*•]?\s*SIN\s+PIEZA\s*[:.\-–—]?\s*(⟦[^⟦⟧\n]{1,400}⟧)\s*(.*?)\s*$")
 
 
 def parsear(texto: str, pedidos: list) -> tuple:
-    """([(ids, texto)] párrafos, [(ids, texto)] órdenes, [descartes])."""
+    """([(ids, texto)] párrafos, [(ids, texto)] órdenes, [descartes],
+    [ids que el modelo dejó SIN PIEZA —el mayor beneficio—])."""
     import marcas as _mc
     pedidos = set(pedidos or [])
-    parrafos_, efectos_, fuera = [], [], []
+    parrafos_, efectos_, fuera, sin_pieza = [], [], [], []
     for ln in (texto or "").split("\n"):
         if not ln.strip():
+            continue
+        # LA TERCERA RESPUESTA (revisión adversarial, 26-sep-2026): el
+        # argumento que la concesión ya deja sin nada que resolver. No se
+        # inserta nada; sólo se anota para el aviso.
+        ms = _RX_SIN_PIEZA.match(ln)
+        if ms:
+            sin_pieza.extend(x for x in _mc.ids_de(ms.group(1)[1:-1])
+                             if x in pedidos and x not in sin_pieza)
             continue
         m = _RX_PIEZA_EFECTO.match(ln)
         es_ef = bool(m)
@@ -713,7 +784,7 @@ def parsear(texto: str, pedidos: list) -> tuple:
             fuera.append({"ids": ids, "motivo": f"extensión fuera de rango ({n} palabras)"})
             continue
         (efectos_ if es_ef else parrafos_).append((ids, cuerpo))
-    return parrafos_, efectos_, fuera
+    return parrafos_, efectos_, fuera, sin_pieza
 
 
 def _direccion(s: str) -> str:
@@ -737,7 +808,13 @@ def guardas(ids: list, texto: str, es_efecto: bool, estudio: str, segs_por_id: d
     · No puede calificar en la dirección contraria a la del criterio de su
       problema («infundado» donde el criterio dice fundado, o al revés).
     · No puede traer un registro de tesis que no esté en el estudio ni en los
-      datos del argumento."""
+      datos del argumento.
+    · (Revisión adversarial, 26-sep-2026.) Una orden de EFECTOS no puede
+      recaer sobre un argumento que su criterio desestima —mandaría a la
+      responsable reexaminar lo que este tribunal le dio por bueno— ni
+      adelantar el resultado (condenar, absolver, conceder, declarar la
+      nulidad…): el sentido es del secretario. Y un párrafo no puede contestar
+      el fondo de lo que su criterio declaró innecesario."""
     cs = []
     for i in ids:
         s = segs_por_id.get(i)
@@ -746,7 +823,15 @@ def guardas(ids: list, texto: str, es_efecto: bool, estudio: str, segs_por_id: d
     sentidos = [_norm_sentido(_get(c, "sentido")) for c in cs if _get(c, "sentido")]
     if not es_efecto and declara_sin_estudio(texto) and sentidos and all(x in FONDO for x in sentidos):
         return "declara sin estudio un argumento cuyo criterio es de fondo"
+    if not es_efecto and sentidos and all(x in SIN_ESTUDIO for x in sentidos):
+        return "contesta un argumento que su criterio declaró innecesario"
     dirs = {_direccion(x) for x in sentidos} - {""}
+    if es_efecto and dirs == {"contra"}:
+        return "nombra en los efectos un argumento que su criterio desestima"
+    if es_efecto:
+        _r = _RX_RESULTADO.search(texto)
+        if _r:
+            return f"la orden adelanta el resultado ({_r.group(0).strip()})"
     if len(dirs) == 1:
         d = dirs.pop()
         for m in _RX_CALIF.finditer(texto):
@@ -755,6 +840,9 @@ def guardas(ids: list, texto: str, es_efecto: bool, estudio: str, segs_por_id: d
             pero = re.match(r"\w*\s*,?\s*(?:pero|aunque)\s+(?:\w+\s+)?(?:insuficien|inoperan|inefica)",
                             texto[m.end(1):m.end(1) + 60], re.I)
             dir_pieza = "favor" if (k.startswith("fundad") and not pero) else "contra"
+            # «no es fundado» va al revés de lo que dice su palabra.
+            if re.search(r"\bno\s+$", texto[max(0, m.start() - 4):m.start()], re.I):
+                dir_pieza = "contra" if dir_pieza == "favor" else "favor"
             if dir_pieza != d:
                 return f"califica en contra del criterio ({m.group(0).strip()})"
     conocidos = set(_RX_REGISTRO.findall(estudio or ""))
@@ -854,13 +942,19 @@ async def reparar(cliente, estudio: str, criterios: list, material, faltan: list
                   escrito: str = "", tope_s: float = None) -> tuple:
     """(estudio, informe). El estudio sale COMO ESTABA si no hay nada que
     reparar, si la llamada falla o vence, o si ninguna pieza pasa las guardas.
-    `informe`: {estado: ok|sin_piezas|fallo|vencio|nada, pedidos, parrafos,
-    efectos, descartes, segundos, error}."""
+    `informe`: {estado: ok|sin_piezas|sin_pieza|fallo|vencio|nada, pedidos,
+    no_pedidos, parrafos, efectos, sin_pieza, sin_respuesta, sin_sitio,
+    descartes, registros_nuevos, segundos, error}. «sin_pieza»: el modelo
+    dejó todos con su declaración por el mayor beneficio y no se tocó nada."""
     import time as _t
     t0 = _t.perf_counter()
-    faltan = list(faltan or [])[:REPARAR_MAX_ARGUMENTOS]
+    _todos = list(faltan or [])
+    faltan = _todos[:REPARAR_MAX_ARGUMENTOS]
     informe = {"estado": "nada", "pedidos": [f["id"] for f in faltan], "parrafos": [],
-               "efectos": [], "descartes": [], "segundos": 0.0, "esfuerzo": esfuerzo_reparar()}
+               "efectos": [], "descartes": [], "segundos": 0.0, "esfuerzo": esfuerzo_reparar(),
+               # Los que pasan del tope no se piden, pero el aviso los nombra.
+               "no_pedidos": [f["id"] for f in _todos[REPARAR_MAX_ARGUMENTOS:]],
+               "sin_pieza": [], "sin_respuesta": [], "registros_nuevos": []}
     if not faltan or cliente is None:
         return estudio, informe
     segs = list(_get(material, "inventario", None) or [])
@@ -891,7 +985,7 @@ async def reparar(cliente, estudio: str, criterios: list, material, faltan: list
         informe.update(estado="fallo", error=type(ex).__name__,
                        segundos=round(_t.perf_counter() - t0, 1))
         return estudio, informe
-    pars, efs, descartes = parsear(salida, informe["pedidos"])
+    pars, efs, descartes, sin_pieza = parsear(salida, informe["pedidos"])
     buenos_p, buenos_e = [], []
     for lista, destino, es_ef in ((pars, buenos_p, False), (efs, buenos_e, True)):
         for ids, t in lista:
@@ -903,12 +997,31 @@ async def reparar(cliente, estudio: str, criterios: list, material, faltan: list
     informe["descartes"] = descartes
     informe["segundos"] = round(_t.perf_counter() - t0, 1)
     informe["salida"] = salida[:6000]
-    if not (buenos_p or buenos_e):
-        informe["estado"] = "sin_piezas"
+    nuevo, ins = insertar(estudio, buenos_p, buenos_e, por_id) if (buenos_p or buenos_e) \
+        else (estudio, {"parrafos": [], "efectos": [], "sin_sitio": []})
+    puestos = {i for x in ins["parrafos"] + ins["efectos"] for i in x["ids"]}
+    # EL MAYOR BENEFICIO: lo que el modelo dejó sin pieza y nada más lo tocó.
+    informe["sin_pieza"] = [i for i in sin_pieza if i not in puestos]
+    informe["sin_respuesta"] = [i for i in informe["pedidos"]
+                                if i not in puestos and i not in informe["sin_pieza"]]
+    informe["sin_sitio"] = ins["sin_sitio"]
+    if not puestos:
+        # NADA SE INSERTÓ —ninguna pieza pasó, o las órdenes no tenían EFECTOS
+        # donde ir—: el estudio sale como estaba y el aviso no presume de haber
+        # completado nada (antes decía «ESTUDIO COMPLETADO» con la lista vacía).
+        informe["estado"] = "sin_piezas" if informe["sin_respuesta"] else "sin_pieza"
         return estudio, informe
-    nuevo, ins = insertar(estudio, buenos_p, buenos_e, por_id)
-    informe.update(estado="ok", parrafos=ins["parrafos"], efectos=ins["efectos"],
-                   sin_sitio=ins["sin_sitio"])
+    # LOS REGISTROS QUE LA REPARACIÓN TRAE AL ESTUDIO. `revisar` ya corrió
+    # sobre el estudio de antes; lo que se cita de nuevo (el registro que la
+    # parte invocó) se devuelve para que `_completar_estudio` lo coteje con el
+    # material, como `revisar` haría.
+    try:
+        import fase6_estudio as _f6r
+        informe["registros_nuevos"] = sorted(set(_f6r._RX_REGISTRO_CITA.findall(nuevo))
+                                             - set(_f6r._RX_REGISTRO_CITA.findall(estudio or "")))
+    except Exception:
+        pass
+    informe.update(estado="ok", parrafos=ins["parrafos"], efectos=ins["efectos"])
     return nuevo, informe
 
 
@@ -922,6 +1035,19 @@ def aviso_reparacion(informe: dict, segs: list) -> str:
     def _quien(ids):
         t = " ".join(str(_get(por_id.get(ids[0]) or {}, "texto") or "").split()[:14])
         return f"{', '.join(ids)}" + (f" («{t}…»)" if t else "")
+    # LO QUE QUEDÓ POR HACER se dice siempre (revisión adversarial,
+    # 26-sep-2026): el argumento que el modelo no contestó, el que pasó del
+    # tope y el que dejó sin pieza por el mayor beneficio no pueden quedar
+    # escondidos detrás de un «completado».
+    _resto = []
+    _sp = [_quien([i]) for i in informe.get("sin_pieza") or []]
+    if _sp:
+        _resto.append("la segunda revisión juzgó que la concesión ya da lo que pedían, y los "
+                      "dejó con su declaración: " + "; ".join(_sp[:6]))
+    _sr = [_quien([i]) for i in (informe.get("sin_respuesta") or []) + (informe.get("no_pedidos") or [])]
+    if _sr and informe.get("estado") in ("ok", "sin_pieza"):
+        _resto.append("quedaron sin completar " + "; ".join(_sr[:6])
+                      + ("…" if len(_sr) > 6 else ""))
     if informe.get("estado") == "ok":
         pz = [_quien(x["ids"]) for x in informe.get("parrafos") or []]
         ef = [_quien(x["ids"]) for x in informe.get("efectos") or []]
@@ -933,12 +1059,19 @@ def aviso_reparacion(informe: dict, segs: list) -> str:
                           + "; ".join(ef[:6]))
         return ("ESTUDIO COMPLETADO: el estudio despachaba argumentos con una declaración de "
                 "sin materia sin que su dato quedara en los efectos ni en otra respuesta; "
-                + " y ".join(trozos) + ". Revise esos pasajes antes de firmar: los escribió "
-                "una segunda llamada, con su criterio.")
-    faltan = [_quien([i]) for i in informe.get("pedidos") or []]
+                + " y ".join(trozos) + ("; " + "; ".join(_resto) if _resto else "")
+                + ". Revise esos pasajes antes de firmar: los escribió una segunda llamada, "
+                "con su criterio.")
+    if informe.get("estado") == "sin_pieza":
+        return ("REVISE LA DECLARACIÓN DE SIN MATERIA: el estudio despacha argumentos sin que su "
+                "dato quede en los efectos ni en otra respuesta; " + "; ".join(_resto)
+                + ". No se añadió nada: compruebe que la concesión de verdad los deja sin nada "
+                "que resolver.")
+    faltan = [_quien([i]) for i in (informe.get("pedidos") or []) + (informe.get("no_pedidos") or [])]
     por_que = {"vencio": "la llamada venció", "fallo": "la llamada falló",
                "sin_piezas": "ninguna pieza pasó las comprobaciones"}.get(informe.get("estado"), "no se pudo")
     return ("ESTUDIO SIN COMPLETAR (" + por_que + "): el estudio despacha con una declaración de "
             "sin materia, sin que su dato quede en los efectos ni en otra respuesta, "
-            + "; ".join(faltan[:6]) + ". Compruebe si la concesión los alcanza; si no, "
-            "contéstelos o nómbrelos en los efectos.")
+            + "; ".join(faltan[:6]) + ("…" if len(faltan) > 6 else "")
+            + ". Compruebe si la concesión los alcanza; si no, contéstelos o nómbrelos en los "
+            "efectos.")

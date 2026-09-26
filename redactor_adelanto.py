@@ -1726,6 +1726,18 @@ async def _completar_estudio(cliente, r, criterios, material, estudio: str,
         _av = _ex.aviso_reparacion(informe, list(getattr(material, "inventario", None) or []))
         if _av:
             avisos.insert(0, _av)
+        # LO QUE LA REPARACIÓN CITA DE NUEVO PASA POR LA MISMA REVISIÓN QUE EL
+        # ESTUDIO (revisión adversarial, 26-sep-2026). `f6.revisar` corrió antes
+        # de la reparación: un registro que sólo trae la pieza nueva —el que
+        # invocó la parte— salía sin el aviso de «no está en el material». Se
+        # escribe con la misma forma, así que si luego se trae del acervo
+        # `_registros_ya_estan` lo retira como a los demás.
+        _validos = {str(t.get("registro", "")) for t in (getattr(material, "tesis", None) or [])
+                    if isinstance(t, dict)}
+        _reg_fuera = [x for x in informe.get("registros_nuevos") or [] if x not in _validos]
+        if _reg_fuera:
+            avisos.append(f"REGISTROS QUE NO ESTÁN EN EL MATERIAL: {sorted(_reg_fuera)}. "
+                          "No se citan hasta comprobarlos en el Semanario.")
         if isinstance(meta, dict):
             meta["completado"] = {k: v for k, v in informe.items() if k != "salida"}
         # HIGIENE DE REGISTROS: identificadores y cifras, nunca el texto.

@@ -2673,8 +2673,9 @@ QUÉ SE HACE CON EL INVENTARIO — y lo que el sistema comprueba después:
   reiteran otro se nombran juntos en el párrafo que los contesta. Un argumento
   que sólo queda cubierto por la calificación general de su {q1} queda sin
   respuesta. Declararlo sin materia o innecesario tampoco es respuesta, salvo
-  que su criterio lo califique así; y entonces, si la concesión lo deja en
-  manos de la responsable, su dato va nombrado en los EFECTOS.
+  que su criterio —su calificación o su razón— lo decida así; y entonces, si
+  la concesión lo deja en manos de la responsable, su dato va nombrado en los
+  EFECTOS.
 - EL PÁRRAFO QUE CONTESTA UNO O VARIOS ARGUMENTOS EMPIEZA CON SU MARCA: los
   identificadores del inventario de los argumentos que contesta, separados por
   un espacio, entre ⟦ y ⟧, al comienzo del párrafo y antes de su primera
@@ -2790,6 +2791,23 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
         _orden = ("EN UN RECURSO, si la técnica de este asunto —más abajo— fija un\n"
                   "  orden de estudio, ése manda.")
 
+    # EL MAYOR BENEFICIO NO SE NOMBRA EN LOS EFECTOS (revisión adversarial de
+    # p2-exhaustivo, 26-sep-2026). La regla de que el «sin materia» es del
+    # criterio dejaba dos salidas —nombrarlo en los EFECTOS o contestarlo— y
+    # olvidaba la tercera, la del artículo 189: el argumento que, aun fundado,
+    # no daría más de lo que la concesión ya da. Ahí la declaración es la
+    # correcta (el ADC 810/2025 del corpus lo hace así) y ordenar a la
+    # responsable que lo examine contradiría la concesión. Sólo en el amparo
+    # directo, como el resto del 189 de este prompt.
+    _mayor_beneficio = (
+        f"\n\n  DISTINTO ES EL MAYOR BENEFICIO del artículo 189 de la Ley de Amparo:\n"
+        f"  cuando el criterio —su calificación o su razón— deja un argumento sin\n"
+        f"  estudiar porque, aun fundado, no daría a {parte} más de lo que la\n"
+        f"  concesión ya le da, se dice así, con esa razón, y no se nombra en los\n"
+        f"  EFECTOS: sobre él no queda nada que la responsable deba volver a\n"
+        f"  examinar."
+        if _ad else "")
+
     _recuerda_forma = (
         f"Y LA FORMA ES LA MODERNA: cada problema con su pregunta sola en su "
         f"párrafo, la respuesta enseguida nombrando el {q1} que contesta, sin "
@@ -2862,33 +2880,33 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   como máximo.{_de_donde} Es un techo, no una meta: un asunto con una sola
   cuestión viva se resuelve en mucho menos, y nada se escribe para acercarse a
   una cifra. Lo que decide se estudia a fondo; lo accesorio se mide así, y
-  ésta es la ÚNICA medida para todo el estudio. Los tres primeros renglones
-  valen SÓLO para lo que el CRITERIO DEL SECRETARIO calificó así: el
-  calificativo es suyo, no del estudio.
+  ésta es la ÚNICA medida para todo el estudio. Los dos primeros renglones
+  valen SÓLO para lo que el CRITERIO DEL SECRETARIO decidió así —en su
+  calificación o en su razón—: esa decisión es suya, no del estudio.
 
     · INNECESARIO —el criterio lo declaró sin materia por el sentido de
       otro—: una o dos frases que lo declaran innecesario y dicen por qué.
     · CAE CON EL PRINCIPAL —el criterio dice que descansa en la premisa que ya
       se desestimó—: un párrafo.
-    · INOPERANTE —así calificado en el criterio—: de uno a tres párrafos que
-      dicen qué consideración deja sin combatir, o por qué no puede
-      examinarse, con su razón. La tesis sobre la inoperancia se cita sólo si
-      hace falta para sostenerla.
+    · INOPERANTE: de uno a tres párrafos que dicen qué consideración deja sin
+      combatir, o por qué no puede examinarse, con su razón. La tesis sobre la
+      inoperancia se cita sólo si hace falta para sostenerla.
     · RESIDUAL —un argumento menor dentro de un {q1} que se contesta—: una o
       dos frases, con su calificación y su razón.
 
   NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO POR CUENTA DEL ESTUDIO. Dentro de un
   problema que el criterio manda resolver de fondo —fundado o infundado—, el
   estudio no declara sin materia, innecesario, sin objeto ni sin beneficio
-  adicional ninguno de sus argumentos. Que la concesión obligue a la
-  responsable a volver a resolver no basta: si lo que ese argumento combate
-  queda comprendido en lo que ella tendrá que volver a hacer, se NOMBRA en los
-  EFECTOS, con su dato, entre lo que deberá examinar; si no cabe ahí —porque
-  ataca una consideración que la concesión deja en pie—, se contesta. Y
-  cuando el criterio sí lo declaró innecesario porque la responsable tendrá
-  que volver a resolver lo que combate, también se nombra en los EFECTOS con
-  su dato: sin eso, la declaración no tiene respaldo y el argumento queda sin
-  respuesta.
+  adicional ninguno de sus argumentos, salvo que la razón del secretario lo
+  diga de ese argumento. Que la concesión obligue a la responsable a volver a
+  resolver no basta: si lo que ese argumento combate queda comprendido en lo
+  que ella tendrá que volver a hacer, se NOMBRA en los EFECTOS, con su dato,
+  entre lo que deberá examinar; si no cabe ahí —porque ataca una
+  consideración que la concesión deja en pie—, se contesta. Y cuando el
+  criterio sí lo declaró innecesario porque la responsable tendrá que volver
+  a resolver lo que combate, también se nombra en los EFECTOS con su dato:
+  sin eso, la declaración no tiene respaldo y el argumento queda sin
+  respuesta.{_mayor_beneficio}
 
   ESTO NO ES RECORTAR NI DEJAR TEMAS SIN CONTESTAR. Todos se contestan —la
   exhaustividad se revisa de oficio y un tema olvidado es un amparo de

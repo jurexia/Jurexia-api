@@ -64,8 +64,27 @@ for forma in ("estandar", "moderna"):
     p2 = f6.prompt_estudio("ACTO", "CONC", C_CONC, mat("v2", forma))
     p1 = f6.prompt_estudio("ACTO", "CONC", C_CONC, mat("v1", forma))
     ok("NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO POR CUENTA DEL ESTUDIO" in p2
-       and "valen SÓLO para lo que el CRITERIO DEL SECRETARIO calificó así" in p2,
-       f"v2/{forma}: la escala vale sólo para lo que el criterio calificó así")
+       and "valen SÓLO para lo que el CRITERIO DEL SECRETARIO decidió así" in p2,
+       f"v2/{forma}: la escala vale sólo para lo que el criterio decidió así")
+    # REVISIÓN ADVERSARIAL (26-sep-2026): la decisión del secretario está en su
+    # calificación Y en su razón; el mayor beneficio del 189 no va a los
+    # EFECTOS; y la inoperancia de un argumento concreto no se ata al criterio
+    # (la regla era sobre el «sin materia», no sobre la inoperancia).
+    _p2n = " ".join(p2.split())
+    ok("salvo que la razón del secretario lo diga de ese argumento" in _p2n,
+       f"v2/{forma}: la razón del secretario también decide el sin estudio")
+    ok("DISTINTO ES EL MAYOR BENEFICIO del artículo 189 de la Ley de Amparo" in _p2n
+       and "no se nombra en los EFECTOS" in _p2n,
+       f"v2/{forma}: el mayor beneficio (art. 189) se dice con su razón y no va a los EFECTOS")
+    ok("· INOPERANTE: de uno a tres párrafos" in _p2n and "así calificado en el criterio" not in _p2n,
+       f"v2/{forma}: la inoperancia de un argumento no se ata al criterio")
+    _p2r = " ".join(f6.prompt_estudio(
+        "ACTO", "CONC", C_CONC, f6.Material(tipo_asunto="revision_fiscal", materia="civil", formato=forma,
+                                            problemas=P_CONC, n_planteamientos=2, variante="v2"),
+        es_recurso=True).split())
+    ok("MAYOR BENEFICIO del artículo 189" not in _p2r and "NINGÚN ARGUMENTO SE DECLARA" in _p2r,
+       f"v2/{forma}: en un recurso, sin el 189 (es del amparo directo)")
+    ok("MAYOR BENEFICIO del artículo 189" not in p1, f"v1/{forma}: tampoco el 189 nuevo")
     ok("se NOMBRA en los\n  EFECTOS, con su dato" in p2 or "se NOMBRA en los EFECTOS" in " ".join(p2.split()),
        f"v2/{forma}: lo que la concesión deja a la responsable se nombra en los EFECTOS")
     ok("sus argumentos con dato propio se nombran en los EFECTOS" in p2,
@@ -215,7 +234,7 @@ SALIDA = ("Aquí van las piezas:\n"
           "EFECTO ⟦C2.a U3⟧ 5. Al dictar la nueva resolución, valore la pericial en informática y la fiabilidad de "
           "la plataforma bancaria que la institución de crédito ofreció.\n"
           "⟦C9.z⟧ Párrafo de un argumento que nadie pidió, con palabras de sobra para pasar el mínimo de extensión.\n")
-pars, efs, desc = X.parsear(SALIDA, ["C1.b", "C2.a"])
+pars, efs, desc, _sp0 = X.parsear(SALIDA, ["C1.b", "C2.a"])
 ok(not pars and [i for i, _ in efs] == [["C1.b"], ["C2.a"]],
    "el parser toma las dos órdenes y quita de la marca la unidad del plan que no se pidió (⟦C2.a U3⟧)")
 ok(efs[1][1].startswith("Al dictar") and desc and desc[0]["motivo"] == "identificador que no se pidió",
@@ -252,6 +271,53 @@ ok(X.guardas(["C1.b"], "Sirve de apoyo el criterio de registro 2099999, que obli
 ok(not X.guardas(["C2.a"], "Valore la pericial y la jurisprudencia de registro 2017826 sobre la fiabilidad de la plataforma.",
                  True, ESTUDIO, POR, REP),
    "el registro que trae el propio argumento sí se admite")
+
+# ── REVISIÓN ADVERSARIAL (26-sep-2026): lo que la reparación no puede hacer ──
+print("\n5b · LA REPARACIÓN NO CAMBIA EL SENTIDO NI LOS EFECTOS MÁS ALLÁ DE NOMBRAR")
+_rep_inf = X.reparto([f6.Criterio(CRIT[0].problema, "infundado"), CRIT[1]], PROB)
+ok(X.guardas(["C1.b"], "Al dictar la nueva resolución, examine la custodia del hijo menor y la doble jornada que alega.",
+             True, ESTUDIO, POR, _rep_inf).startswith("nombra en los efectos un argumento que su criterio desestima"),
+   "una orden de EFECTOS sobre un argumento cuyo criterio es infundado se descarta (la responsable no reexamina "
+   "lo que este tribunal le dio por bueno)")
+ok(X.guardas(["C2.a"], "Al dictar la nueva resolución, valore la pericial en informática y condene a la institución "
+             "de crédito a devolver las cantidades.", True, ESTUDIO, POR, REP).startswith("la orden adelanta el resultado"),
+   "una orden que dicta el resultado (condene…) se descarta: el sentido es del secretario")
+ok(X.guardas(["C2.a"], "Al emitir la nueva resolución, examine la pericial en informática y declare la nulidad de las "
+             "operaciones impugnadas.", True, ESTUDIO, POR, REP).startswith("la orden adelanta el resultado"),
+   "ni «declare la nulidad…»")
+ok(X.guardas(["C2.a"], "En ese sentido, la pericial en informática no acredita la fiabilidad de la plataforma bancaria "
+             "que ofreció la institución.", False, ESTUDIO, POR, REP)
+   .startswith("contesta un argumento que su criterio declaró innecesario"),
+   "un párrafo que contesta el fondo de lo que el criterio declaró innecesario se descarta")
+ok(not X.guardas(["C1.b"], "En ese sentido, el argumento de la doble jornada no es infundado, porque la Sala omitió "
+                 "valorarla.", False, ESTUDIO, POR, REP),
+   "«no es infundado» va en la dirección de un criterio fundado (la negación se lee)")
+_real = [  # las órdenes que el modelo escribió en la calibración real pasan todas
+    "Examine la custodia del menor y las labores de cuidado que la quejosa afirma haber realizado durante los "
+    "periodos en que no trabajaba, así como en días festivos y fines de semana, para determinar su relevancia en "
+    "la compensación.",
+    "Al emitir la nueva sentencia, examine y valore los planteamientos relativos a la custodia del hijo, los "
+    "cuidados que la quejosa afirmó prestar durante sus periodos no laborales, sin prejuzgar sobre su alcance.",
+    "Valore, al emitir la nueva resolución, el contrato bancario, las bitácoras, la prueba pericial en informática "
+    "y las disposiciones generales aplicables a las instituciones de crédito."]
+ok(not any(X.guardas(["C1.b"], t, True, ESTUDIO, POR, REP) for t in _real),
+   "las órdenes reales de la calibración no tropiezan con las guardas nuevas")
+
+# LA TERCERA RESPUESTA: el mayor beneficio.
+pr_ad = " ".join(pr.split())
+ok("NINGUNA PIEZA" in pr_ad and "SIN PIEZA" in pr_ad and "artículo 189 de la Ley de Amparo" in pr_ad,
+   "el prompt describe la tercera respuesta (mayor beneficio, art. 189) y cómo se entrega")
+ok("lo haya declarado innecesario el criterio o no" in pr_ad and
+   "cuando el criterio del problema al que pertenece el argumento lo declaró innecesario, o" not in pr_ad,
+   "la orden de EFECTOS ya no se pide por el solo hecho de que el criterio diga innecesario")
+_pr_rf = X.prompt_reparacion(ESTUDIO, CRIT, f6.Material(tipo_asunto="revision_fiscal", variante="v3",
+                                                         inventario=SEGS, problemas=PROB), FALTAN, "")
+ok("artículo 189" not in _pr_rf and "NINGUNA PIEZA" in _pr_rf, "en un recurso, la tercera respuesta sin el 189")
+_sal_sp = ("SIN PIEZA ⟦C1.b⟧ La concesión ya le da lo que pide.\n"
+           "EFECTO ⟦C2.a⟧ Al dictar la nueva resolución, valore la pericial en informática y la fiabilidad de "
+           "la plataforma bancaria que la institución de crédito ofreció.\n")
+_p, _e, _d, _s = X.parsear(_sal_sp, ["C1.b", "C2.a"])
+ok(_s == ["C1.b"] and [i for i, _ in _e] == [["C2.a"]] and not _p, "el parser lee SIN PIEZA aparte de las piezas")
 
 
 class _Resp:
@@ -302,6 +368,41 @@ ok("ESTUDIO COMPLETADO" in X.aviso_reparacion(inf, SEGS) and "ESTUDIO SIN COMPLE
    in X.aviso_reparacion(inf_v, SEGS) and X.aviso_reparacion(inf_z, SEGS) == "",
    "el aviso visible dice qué se añadió, o que no se pudo")
 
+# REVISIÓN ADVERSARIAL: lo que el aviso no puede esconder.
+_s1, inf_s1 = asyncio.run(X.reparar(_Cli("SIN PIEZA ⟦C1.b⟧ La concesión ya le da lo que pide.\n"
+                                         "SIN PIEZA ⟦C2.a⟧ Igual."), ESTUDIO, CRIT, MAT, FALTAN))
+ok(_s1 == ESTUDIO and inf_s1["estado"] == "sin_pieza" and inf_s1["sin_pieza"] == ["C1.b", "C2.a"]
+   and X.aviso_reparacion(inf_s1, SEGS).startswith("REVISE LA DECLARACIÓN DE SIN MATERIA"),
+   "todo SIN PIEZA: el estudio intacto y un aviso que pide comprobar el mayor beneficio")
+_s2, inf_s2 = asyncio.run(X.reparar(_Cli(SALIDA.split("\n")[1]), ESTUDIO, CRIT, MAT, FALTAN))
+_av2 = X.aviso_reparacion(inf_s2, SEGS)
+ok(inf_s2["estado"] == "ok" and inf_s2["sin_respuesta"] == ["C2.a"] and "quedaron sin completar C2.a" in _av2,
+   "si el modelo contesta sólo uno, el aviso dice cuál quedó sin completar")
+_sin_ef = ESTUDIO.split("\n\nEFECTOS DE LA CONCESIÓN")[0]
+_s3, inf_s3 = asyncio.run(X.reparar(_Cli(SALIDA), _sin_ef, CRIT, MAT,
+                                    X.revisar_texto(_sin_ef, SEGS, CRIT, PROB)["sin_dato"] or FALTAN))
+ok(_s3 == _sin_ef and inf_s3["estado"] == "sin_piezas" and "ESTUDIO COMPLETADO" not in X.aviso_reparacion(inf_s3, SEGS),
+   "órdenes sin EFECTOS donde ir: nada se inserta y el aviso no presume de haber completado")
+_muchos = [{"id": f"C{k}.a", "parrafo": 2} for k in range(1, 16)]
+_s4, inf_s4 = asyncio.run(X.reparar(_Cli("nada"), ESTUDIO, CRIT, MAT, _muchos))
+ok(len(inf_s4["pedidos"]) == X.REPARAR_MAX_ARGUMENTOS and inf_s4["no_pedidos"] == ["C13.a", "C14.a", "C15.a"]
+   and "…" in X.aviso_reparacion(inf_s4, SEGS),
+   "los que pasan del tope no se piden, pero el aviso no los esconde")
+_sal_reg = ("EFECTO ⟦C2.a⟧ Al dictar la nueva resolución, valore la pericial en informática y la jurisprudencia de "
+            "registro 2017826 sobre la fiabilidad de la plataforma bancaria.")
+_s5, inf_s5 = asyncio.run(X.reparar(_Cli(_sal_reg), ESTUDIO, CRIT, MAT, FALTAN))
+ok(inf_s5["estado"] == "ok" and inf_s5["registros_nuevos"] == ["2017826"],
+   "el registro que la pieza trae de nuevo se devuelve para cotejarlo con el material")
+
+# LA CONCESIÓN LISA Y LLANA: el mayor beneficio, nada que nombrar en los EFECTOS.
+PS_LL = PS[:5] + ["EFECTOS DE LA CONCESIÓN", "1. Deje insubsistente la sentencia reclamada.",
+                  "2. Dicte otra en la que declare la nulidad lisa y llana de la resolución impugnada."]
+ok(X.sin_su_dato(PS_LL, MAPA, SEGS) == [] and X.sin_su_dato(PS, MAPA, SEGS),
+   "con EFECTOS lisos y llanos no se acusa (ni se repara) la declaración de sin estudio")
+ok(not X.es_lisa_y_llana("2. Dicte otra, sin que pueda declarar la nulidad lisa y llana.")
+   and X.es_lisa_y_llana("se concede el amparo liso y llano"),
+   "la mención negada no cuenta")
+
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n6 · EL CAMINO: LOS DOS GEMELOS, EL EVENTO «completando» Y LA v1/v2")
 import redactor_adelanto as ra
@@ -312,6 +413,24 @@ ok(ra._por_completar(f6.Material(variante="v1"), CRIT, ESTUDIO) == [], "v1: tamp
 ok([f["id"] for f in ra._por_completar(MAT, CRIT, ESTUDIO)] == ["C1.b", "C2.a"], "v3: los que faltan")
 ok([f["id"] for f in ra._por_completar(f6.Material(variante="v4", inventario=SEGS, problemas=PROB), CRIT, ESTUDIO)]
    == ["C1.b", "C2.a"], "v4: igual")
+_av_c, _meta_c = [], {}
+_r_c = types.SimpleNamespace(fases=types.SimpleNamespace(fuentes=["acto", "escrito"]))
+_est_c = asyncio.run(ra._completar_estudio(_Cli(_sal_reg), _r_c, CRIT, MAT, ESTUDIO, FALTAN, _meta_c, _av_c))
+ok("2017826" in _est_c and any(a.startswith("REGISTROS QUE NO ESTÁN EN EL MATERIAL: ['2017826']") for a in _av_c)
+   and ra._registros_ya_estan(next(a for a in _av_c if a.startswith("REGISTROS")),
+                              f6.Material(tesis=[{"registro": "2017826"}])),
+   "el registro que trae la reparación y no está en el material se avisa como en `revisar`, "
+   "y se retira si luego se trae del acervo")
+_av_c2 = []
+asyncio.run(ra._completar_estudio(_Cli(_sal_reg), _r_c, CRIT,
+                                  f6.Material(tipo_asunto="amparo_directo", variante="v3", inventario=SEGS,
+                                              problemas=PROB, tesis=[{"registro": "2017826"}]),
+                                  ESTUDIO, FALTAN, {}, _av_c2))
+ok(not any(a.startswith("REGISTROS") for a in _av_c2), "si ya está en el material, no se avisa")
+_av_c3 = []
+_est_c3 = asyncio.run(ra._completar_estudio(_Cli(error=RuntimeError("x")), _r_c, CRIT, MAT, ESTUDIO, FALTAN, {}, _av_c3))
+ok(_est_c3 == ESTUDIO and any(a.startswith("ESTUDIO SIN COMPLETAR (la llamada falló)") for a in _av_c3),
+   "`_completar_estudio`: si la llamada falla, el estudio intacto y el aviso")
 
 SRC_RA = open(os.path.join(AQUI, "redactor_adelanto.py"), encoding="utf-8").read()
 ARBOL_RA = ast.parse(SRC_RA)

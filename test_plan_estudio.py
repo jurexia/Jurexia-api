@@ -636,9 +636,10 @@ HUELLAS = {
     ("v1", "moderna"): "94a6f328d09ba437c3cc353bbc9fba22d2e90ea6682a542c4ffd77eb35a54015",
     # La v2 cambió en p2-exhaustivo (26-sep-2026): el «sin materia» es del
     # criterio y lo que la concesión deja a la responsable va en los EFECTOS
-    # (test_exhaustivo.py). La v1 no se mueve.
-    ("v2", "estandar"): "5e8ec2b93a642a6f4403ff610709c6eb4e94a8fb06b6a6782d5ff1c4bc7118bd",
-    ("v2", "moderna"): "706813e60d7b9445105911a1b84318389f74bada8122481e6e84f4a713537572",
+    # (test_exhaustivo.py); y en su revisión adversarial, el mayor beneficio
+    # del art. 189 y la razón del secretario. La v1 no se mueve.
+    ("v2", "estandar"): "e41d375d048d00e825a781e78672cf6f455548f0ef19e5d55f78d1b3b1b47162",
+    ("v2", "moderna"): "eb7963302a52848b902ba44405d97bcd3b772a063a23949742bc7c569c3fdab8",
 }
 
 
