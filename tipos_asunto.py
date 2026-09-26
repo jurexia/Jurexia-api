@@ -1617,9 +1617,14 @@ TECNICA_RESOLUCION = {
             # TODAS. David, 26-sep-2026: la única excepción es una concesión de
             # fondo con mayor beneficio (artículo 189). La misma regla vive,
             # determinista, en `arbol_decision.aplicar`.
+            # Revisión del mismo día: el fondo «sin materia» iba sin la salvedad
+            # del 189 que `directo_orden_de_estudio` sí dice, y las dos llegan
+            # juntas al estudio: se contradecían en el mismo prompt.
             "SI PROSPERA, EL EFECTO ES LA REPOSICIÓN desde la actuación viciada. "
             "Los planteamientos de fondo quedan sin materia, porque la "
-            "sentencia reclamada se deja insubsistente, y se dice; las demás "
+            "sentencia reclamada se deja insubsistente, y se dice, salvo el que "
+            "daría a la parte quejosa un beneficio mayor que la reposición, "
+            "que se estudia antes (artículo 189); las demás "
             "violaciones procesales NO quedan sin materia: se deciden todas "
             "(artículos 74, fracción V, y 174). SI NO PROSPERA, los "
             "planteamientos que presuponían la reposición caen con él y se "

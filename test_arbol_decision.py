@@ -317,6 +317,99 @@ i_pl = src.find("async def taller_resolver(")
 ok(src[i_st:i_pl].count(_ti) == 2 and src[i_pl:i_pl + 40000].count(_ti) == 2,
    "los dos gemelos del resolver, igual: reparto global y árbol")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# REVISIÓN ADVERSARIAL DEL 26-SEP-2026
+# ═══════════════════════════════════════════════════════════════════════════
+print("\n18 · EL CAMINO REAL: la propuesta sobrescribe y el secretario cambia el principal")
+# main pasa la propuesta por el árbol y SOBRESCRIBE la propuesta guardada con lo
+# que el árbol decide. Con el fondo fundado, la procesal se guardaba
+# «innecesario» (189) y, al pasar el principal a infundado, ya no quedaba
+# calificación que devolverle: salía «ESTÁ SIN CALIFICAR» y el estudio la
+# escribía «sin materia». Se reproduce el bloque de main tal cual.
+import types
+import fase5_propuesta as _f5p
+
+
+def _propuesta_como_main(pp, props):
+    """El bloque «LA SUERTE DE LOS ACCESORIOS, YA EN LA PROPUESTA» de main,
+    y lo que se guarda y se repone con la sesión (dos workers)."""
+    crit = [{"problema": p.problema, "sentido": p.sentido, "razonamiento": p.razon,
+             "jerarquia": "principal" if i == 0 else "accesorio"} for i, p in enumerate(props)]
+    ad.aplicar(pp, crit, [], [{"problema": p.problema, "sentido": p.sentido, "alcanza": p.alcanza}
+                              for p in props])
+    for c, p in zip(crit, props):
+        if p.alcanza and p.sentido and c["sentido"] != p.sentido:
+            if not getattr(p, "sentido_propio", ""):
+                p.sentido_propio = p.sentido
+                p.razon_propia = p.razon
+            p.sentido = c["sentido"]
+            p.razon = c.get("razonamiento") or p.razon
+    guardado = [{"problema": p.problema, "sentido": p.sentido, "razon": p.razon,
+                 "alcanza": p.alcanza, "sentido_propio": getattr(p, "sentido_propio", "") or "",
+                 "razon_propia": getattr(p, "razon_propia", "") or ""} for p in props]
+    repuesto = [types.SimpleNamespace(**x) for x in guardado]
+    return crit, [{"problema": p.problema, "sentido": p.sentido, "razon": p.razon,
+                   "alcanza": p.alcanza, "sentido_propio": p.sentido_propio,
+                   "razon_propia": p.razon_propia} for p in repuesto]
+
+
+pp = probs(PF, PV1)
+props = [_f5p.Propuesta(problema=FON, sentido="fundado", razon="el crédito carece de sustento"),
+         _f5p.Propuesta(problema=VP1, sentido="infundado", razon="la ampliación fue extemporánea")]
+crit, para_arbol = _propuesta_como_main(pp, props)
+ok(crit[1]["sentido"] == "innecesario" and props[1].sentido == "innecesario",
+   "en la propuesta la procesal queda innecesaria por mayor beneficio (189)")
+ok(para_arbol[1]["sentido_propio"] == "infundado",
+   "y lo que el motor le propuso se guarda aparte, con la sesión")
+pant = [dict(crit[0], sentido="infundado", tocado=True), dict(crit[1])]
+r = ad.reparto_para_pantalla(pp, pant, [], para_arbol)
+ok(r["criterios"][1]["sentido"] == "infundado"
+   and r["criterios"][1]["razonamiento"] == "la ampliación fue extemporánea",
+   f"al pasar el principal a infundado, la procesal recupera la calificación del motor y su razón: "
+   f"{r['criterios'][1]['sentido']}")
+ok(not any("ESTÁ SIN CALIFICAR" in a for a in r["avisos"]), "y no queda sin calificar")
+ok(r["criterios"][1]["guarda"] == "procesal", "la pantalla recibe también por qué se estudia (`guarda`)")
+# Una propuesta guardada ANTES de hoy puede traer la caída que el árbol le
+# escribió: eso no se devuelve como si fuera una calificación.
+cc = [cr(VP1, "infundado", "principal", tocado=True), cr(VP2, "innecesario")]
+av, det = ad.aplicar(probs(PV1, PV2, dep=None), cc, [],
+                     [{"problema": VP2, "sentido": "inoperante",
+                       "razon": ad.CAE_CON_PRINCIPAL + ", de modo que su estudio no produciría ningún fin práctico."}])
+ok(cc[1]["sentido"] == "innecesario" and not cc[1]["razonamiento"].startswith(ad.CAE_CON_PRINCIPAL),
+   "la caída guardada de una sesión vieja no se le devuelve a la procesal como calificación")
+ok(any("ESTÁ SIN CALIFICAR" in a for a in av), "y se le pide al secretario")
+
+print("\n19 · EL AVISO NO DICE QUE PROSPERA UN PRINCIPAL QUE NO PROSPERA")
+cc = [cr(VP1, "infundado", "principal", tocado=True), cr(VP2, "innecesario", razon="queda sin materia")]
+av, det = ad.aplicar(probs(PV1, PV2, dep=None), cc, [], [])
+_av = [a for a in av if "VIOLACIÓN PROCESAL y NO se declaró sin materia" in a]
+ok(_av and not any("prospere y se reponga" in a for a in _av),
+   f"con el principal procesal infundado el aviso no habla de reponer: {(_av or [''])[0][120:260]}")
+cc = [cr(VP1, "fundado", "principal", tocado=True), cr(VP2, "innecesario")]
+av, det = ad.aplicar(probs(PV1, PV2, dep=None), cc, [], [{"problema": VP2, "sentido": "fundado"}])
+ok(any("prospere y se reponga" in a for a in av), "con el principal procesal fundado, sí")
+
+print("\n20 · LA EXCEPCIÓN DEL 189 ESCRIBE «innecesario», QUE ES LO QUE EL ESTUDIO LEE")
+cc = [cr(FON, "fundado", "principal", tocado=True), cr(VP1, "sin_materia")]
+av, det = ad.aplicar(probs(PF, PV1, dep=None), cc, [], [])
+ok(cc[1]["sentido"] == "innecesario" and "189" in cc[1]["razonamiento"],
+   f"una procesal que llega «sin materia» con el fondo fundado queda «innecesario» con el 189: {cc[1]['sentido']}")
+import violacion_procesal as _vp_t
+ok("única razón" not in _vp_t.RAZON_MAYOR_BENEFICIO and "74" not in _vp_t.RAZON_MAYOR_BENEFICIO,
+   "la razón del 189 es prosa de sentencia: la lección para el secretario va en el aviso")
+
+print("\n21 · main GUARDA, REPONE Y PASA LO QUE EL MOTOR PROPUSO (gemelos iguales)")
+i_prop = src.find("LA SUERTE DE LOS ACCESORIOS, YA EN LA PROPUESTA")
+ok(i_prop > 0 and "_p.sentido_propio = _p.sentido" in src[i_prop:i_prop + 4000],
+   "la propuesta guarda lo del motor antes de sobrescribirlo")
+ok(src.count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 4,
+   "se persiste con la sesión y llega al árbol en /taller/reparto y en los dos gemelos")
+ok('sentido_propio=str(x.get("sentido_propio") or "")' in src,
+   "y el worker que no la calculó la repone")
+ok(src[i_st:i_pl].count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 1
+   and src[i_pl:i_pl + 40000].count('"sentido_propio": getattr(_p, "sentido_propio", "") or ""') == 1,
+   "igual en /taller/resolver/stream y en /taller/resolver")
+
 print()
 if FALLOS:
     print(f"FALLAN {len(FALLOS)}: " + " · ".join(FALLOS))

@@ -31782,7 +31782,11 @@ def _taller_recuperar_sesion(email: str, numero: str):
                    problema=str(x.get("problema") or ""),
                    sentido=str(x.get("sentido") or ""),
                    razon=str(x.get("razon") or ""),
-                   alcanza=bool(x.get("alcanza", True)))
+                   alcanza=bool(x.get("alcanza", True)),
+                   # Lo que el motor propuso antes de que el árbol lo
+                   # ajustara: la guarda procesal lo devuelve (26-sep-2026).
+                   sentido_propio=str(x.get("sentido_propio") or ""),
+                   razon_propia=str(x.get("razon_propia") or ""))
                for x in (r.data[0].get("propuestas") or [])
                if isinstance(x, dict)],
            "sello": r.data[0].get("actualizado_en")}
@@ -33070,7 +33074,12 @@ async def taller_reparto(
         [d for d in _lista if isinstance(d, dict)],
         (_glob or {}).get("checklist") or [],
         [{"problema": _p.problema, "sentido": _p.sentido,
-          "alcanza": getattr(_p, "alcanza", True)}
+          "razon": getattr(_p, "razon", "") or "",
+          "alcanza": getattr(_p, "alcanza", True),
+          # LA GUARDA PROCESAL devuelve a una procesal lo que el motor propuso
+          # antes del árbol, no lo que el árbol guardó encima (26-sep-2026).
+          "sentido_propio": getattr(_p, "sentido_propio", "") or "",
+          "razon_propia": getattr(_p, "razon_propia", "") or ""}
          for _p in (ses.get("propuestas") or [])],
         sentido_motor=str((_glob or {}).get("sentido") or ""),
         # LA GUARDA PROCESAL ES DEL AMPARO DIRECTO (26-sep-2026): el árbol
@@ -33779,6 +33788,15 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             if _p.alcanza and _p.sentido and _c["sentido"] != _p.sentido:
                 print(f"   🌳 ÁRBOL en la propuesta: «{_p.problema[:60]}» "
                       f"{_p.sentido} → {_c['sentido']}")
+                # LO QUE EL MOTOR PROPUSO SE GUARDA APARTE (26-sep-2026). La
+                # guarda procesal lo necesita: si el árbol deja una violación
+                # procesal «innecesaria» por mayor beneficio (art. 189) y
+                # después el secretario cambia el principal, esa procesal hay
+                # que decidirla, y sin esto ya no quedaba calificación que
+                # devolverle. Viaja con la sesión, no en memoria (-w 2).
+                if not getattr(_p, "sentido_propio", ""):
+                    _p.sentido_propio = _p.sentido
+                    _p.razon_propia = _p.razon
                 _p.sentido = _c["sentido"]
                 _p.razon = _c.get("razonamiento") or _p.razon
         avisos.extend(_av_ad)
@@ -33805,7 +33823,10 @@ async def _taller_proponer_nucleo(user_email: str, numero: str, ses: dict,
             supabase_admin.table("taller_sesiones").update({
                 "propuestas": [
                     {"problema": _p.problema, "sentido": _p.sentido,
-                     "razon": _p.razon, "alcanza": _p.alcanza}
+                     "razon": _p.razon, "alcanza": _p.alcanza,
+                     # Lo que el motor propuso antes del árbol (guarda procesal).
+                     "sentido_propio": getattr(_p, "sentido_propio", "") or "",
+                     "razon_propia": getattr(_p, "razon_propia", "") or ""}
                     for _p in propuestas],
             }).eq("email", (user_email or "").strip().lower()) \
               .eq("expediente", numero).execute()
@@ -34353,7 +34374,12 @@ async def taller_resolver_stream(
             list(r.fases.problemas or []), crit,
             (_glob or {}).get("checklist") or [],
             [{"problema": _p.problema, "sentido": _p.sentido,
-              "alcanza": getattr(_p, "alcanza", True)}
+              "razon": getattr(_p, "razon", "") or "",
+              "alcanza": getattr(_p, "alcanza", True),
+              # LA GUARDA PROCESAL devuelve a una procesal lo que el motor
+              # propuso antes del árbol, no lo que el árbol guardó encima.
+              "sentido_propio": getattr(_p, "sentido_propio", "") or "",
+              "razon_propia": getattr(_p, "razon_propia", "") or ""}
              for _p in (ses.get("propuestas") or [])],
             tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
             tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))
@@ -34982,7 +35008,12 @@ async def taller_resolver(
             list(r.fases.problemas or []), crit,
             (_glob or {}).get("checklist") or [],
             [{"problema": _p.problema, "sentido": _p.sentido,
-              "alcanza": getattr(_p, "alcanza", True)}
+              "razon": getattr(_p, "razon", "") or "",
+              "alcanza": getattr(_p, "alcanza", True),
+              # LA GUARDA PROCESAL devuelve a una procesal lo que el motor
+              # propuso antes del árbol, no lo que el árbol guardó encima.
+              "sentido_propio": getattr(_p, "sentido_propio", "") or "",
+              "razon_propia": getattr(_p, "razon_propia", "") or ""}
              for _p in (ses.get("propuestas") or [])],
             tocados=_toc_ad, sentido_motor=str((_glob or {}).get("sentido") or ""),
             tipo_asunto=str(getattr(getattr(r, "encargo", None), "tipo_asunto", "") or ""))

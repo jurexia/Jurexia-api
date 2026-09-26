@@ -183,15 +183,18 @@ NO_DECIDEN = ("innecesario", "sin_materia", "queda_sin_materia")
 # La razón que lleva la procesal que se deja de estudiar. Es la RAZÓN del
 # criterio —lo que el estudio tiene que decir—, no una frase de estilo: el
 # artículo 189 tiene que quedar dicho, porque es lo único que autoriza a no
-# decidirla.
+# decidirla. Viaja al estudio como «RAZÓN DEL SECRETARIO» y el modelo la
+# escribe casi tal cual, así que es prosa de sentencia: la explicación para el
+# secretario de que es la única excepción (arts. 74-V y 174) va en el aviso,
+# no aquí. Revisión del 26-sep-2026: la versión anterior la metía en la razón
+# y habría llegado al proyecto como una lección de técnica.
 RAZON_MAYOR_BENEFICIO = (
-    "Resulta innecesario el estudio de esta violación procesal por mayor "
-    "beneficio: el planteamiento de fondo que prospera otorga a la parte "
-    "quejosa más de lo que le daría la reposición del procedimiento, y el "
-    "artículo 189 de la Ley de Amparo privilegia el estudio del fondo sobre el "
-    "de las violaciones procesales salvo que invertir el orden le beneficie "
-    "más. Es la única razón por la que una violación procesal puede quedar sin "
-    "decidirse (artículos 74, fracción V, y 174).")
+    "Resulta innecesario el estudio de esta violación procesal: el "
+    "planteamiento de fondo que prospera otorga a la parte quejosa un "
+    "beneficio mayor que el que obtendría con la reposición del procedimiento, "
+    "y el artículo 189 de la Ley de Amparo privilegia el estudio de los "
+    "conceptos de violación de fondo por encima de los de procedimiento, a "
+    "menos que invertir el orden redunde en un mayor beneficio para ella.")
 
 # Sin `clase` de la fase 3 (sesiones anteriores al 22-sep), la procedencia se
 # reconoce por lo que combate. Importa por la excepción: una concesión contra
@@ -238,8 +241,11 @@ def aviso_se_decide(problema: str, sentido: str, principal_procesal: bool) -> st
     UNO SOLO, con las mismas palabras, para el reparto global y para el árbol:
     en modo global corren los dos seguidos sobre el mismo problema y, con
     textos distintos, el secretario leía dos avisos de lo mismo. Con el mismo
-    texto, la comprobación de repetidos de main.py deja uno."""
-    s = str(sentido or "").strip().lower()
+    texto, la comprobación de repetidos de main.py deja uno.
+
+    `principal_procesal`: el principal es una violación procesal QUE PROSPERA
+    (con uno que no prospera, el aviso no puede decir que se repone)."""
+    s = str(sentido or "").strip().lower().replace(" ", "_")
     _por = ("aunque el principal —también procesal— prospere y se reponga el "
             "procedimiento" if principal_procesal else
             "y la única excepción —que un problema de FONDO prospere con mayor "

@@ -140,6 +140,13 @@ ok("una por una" not in _tvp and "PROHIBIDO despacharla" not in _tvp,
    "y tampoco ahí manda un párrafo por razón")
 ok("se deciden todas" in _tvp and "74, fracción V, y 174" in _tvp,
    "si prospera, las demás procesales no quedan sin materia: se deciden todas")
+# Revisión del 26-sep-2026: las dos técnicas llegan JUNTAS al estudio y ésta
+# mandaba todo el fondo a «sin materia» sin la salvedad del 189 que la del
+# orden sí dice.
+_si_pros = next(x for x in ta.TECNICA_RESOLUCION["directo_violacion_procesal"]["tecnica"]
+                if x.startswith("SI PROSPERA"))
+ok("beneficio mayor que la reposición" in _si_pros and "189" in _si_pros,
+   "y el fondo que da más que reponer no queda sin materia: se estudia antes (art. 189)")
 _tor = " ".join(ta.TECNICA_RESOLUCION["directo_orden_de_estudio"]["tecnica"])
 ok("SON DE ESTUDIO PREFERENTE" not in _tor,
    "el orden ya no dice que las procesales son de estudio preferente")

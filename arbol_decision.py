@@ -324,30 +324,49 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
     # reponer, eso no lo sabe el código: lo sabe el secretario, y se le avisa.
     mb_fondo = bool(guarda and pros and alcanza
                     and _m.concesion_de_fondo_con_mayor_beneficio(_p_ref, p_sent, alcanza))
-    _sentido_motor_de = {str(_get(pr, "problema", "")):
-                         str(_get(pr, "sentido", "") or "").strip().lower().replace(" ", "_")
-                         for pr in (propuestas or [])}
+    # LO QUE EL MOTOR PROPUSO PARA ESTE PROBLEMA, POR SUS PROPIOS MÉRITOS.
+    # Revisión del 26-sep-2026: la propuesta pasa por este mismo árbol y main
+    # SOBRESCRIBE la propuesta guardada con lo que el árbol decide. Una
+    # procesal que la excepción del 189 dejó «innecesaria» se guardaba así, y
+    # si después el secretario cambiaba el principal, aquí ya no había qué
+    # devolverle: quedaba sin calificar y el estudio la escribía «sin
+    # materia» (se reprodujo con un fondo fundado que pasa a infundado). main
+    # guarda ahora lo que el motor propuso ANTES del árbol en `sentido_propio`
+    # y `razon_propia`; se prefiere eso, y sólo si no decide, lo guardado.
+    def _propia(pr) -> tuple:
+        for _ks, _kr in (("sentido_propio", "razon_propia"), ("sentido", "razon")):
+            _s = str(_get(pr, _ks, "") or "").strip().lower().replace(" ", "_")
+            _r = str(_get(pr, _kr, "") or "").strip()
+            # Una propuesta guardada antes de hoy puede traer la caída que el
+            # árbol le escribió («inoperante» + «Descansa en la premisa…»): eso
+            # no es decidirla, es otra vez sacarla.
+            if _decide(_s) and not _r.startswith(CAE_CON_PRINCIPAL):
+                return _s, _r
+        return "", ""
+
+    _motor_de = {str(_get(pr, "problema", "")): _propia(pr) for pr in (propuestas or [])}
     por_189: list = []
 
     def _conservar(c, t: str) -> str:
         """Lo que se hace con una procesal que el árbol habría sacado: se
         queda con su calificación. Si la que trae no decide —llegó
         «innecesario» de otra pasada, o «inoperante» con la fórmula de caer
-        con el principal—, se le devuelve la que el motor le propuso; si
-        tampoco hay, se queda como está y el aviso lo pide."""
+        con el principal—, se le devuelve la que el motor le propuso, con su
+        razón; si tampoco hay, se queda como está y el aviso lo pide."""
         s_act = str(_get(c, "sentido", "")).strip().lower().replace(" ", "_")
         _cae = _cae_con_principal(c)
         if _decide(s_act) and not _cae:
             return s_act
-        s_mot = _sentido_motor_de.get(t, "")
-        # La razón de «queda sin materia» o de «descansa en la premisa
-        # desestimada» sostenía no decidirla: no se deja pegada. El estudio
-        # (fase6) reconoce la caída por ESE arranque y la escribiría como tal.
-        _raz = str(_get(c, "razonamiento", "") or "").lower()
-        if _cae or "sin materia" in _raz or "innecesari" in _raz:
-            _set(c, "razonamiento", "")
-        if _decide(s_mot):
+        # La razón que traía sostenía NO decidirla —sin materia, innecesaria,
+        # caída con el principal—: no se deja pegada a una calificación. El
+        # estudio (fase6) reconoce la caída por su arranque y la escribiría
+        # como tal.
+        _set(c, "razonamiento", "")
+        s_mot, r_mot = _motor_de.get(t, ("", ""))
+        if s_mot:
             _set(c, "sentido", s_mot)
+            if r_mot:
+                _set(c, "razonamiento", r_mot)
             return s_mot
         return s_act
 
@@ -356,7 +375,9 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
         if not cae_con:
             # El mismo texto que el reparto global: en modo global corren
             # seguidos sobre el mismo problema y así no se lee dos veces.
-            return _m.aviso_se_decide(t, s_kept, p_proc)
+            # «Principal procesal» quiere decir que PROSPERA: con uno
+            # infundado el aviso decía «aunque el principal prospere».
+            return _m.aviso_se_decide(t, s_kept, bool(p_proc and pros))
         _cal = (f"Se estudia con su calificación: {s_kept.replace('_', ' ')}."
                 if _decide(s_kept) else
                 "ESTÁ SIN CALIFICAR: califícala tú antes de generar.")
@@ -532,6 +553,9 @@ def aplicar(problemas: list, criterios: list, checklist: list = None,
                 avisos.append(_aviso_procesal(t, _k, cae_con=True))
                 continue
             if mb_fondo:
+                # «sin materia» se escribe como tal en el estudio, que sólo
+                # reconoce «innecesario»; la razón es la del 189.
+                _set(c, "sentido", INNECESARIO)
                 if "189" not in str(_get(c, "razonamiento", "") or ""):
                     _set(c, "razonamiento", _m.RAZON_MAYOR_BENEFICIO)
                 if (detalle.get(t) or {}).get("guarda") != "mayor_beneficio_189":
@@ -618,4 +642,7 @@ def reparto_para_pantalla(problemas: list, criterios: list, checklist: list = No
         d = detalle.get(str(c.get("problema", "")), {})
         c["de"] = d.get("de", "")
         c["por_que"] = d.get("por_que", "")
+        # «procesal» (se decide) o «mayor_beneficio_189»: la pantalla de hoy
+        # pinta `de` y `por_que`; esto viaja para la que lo distinga.
+        c["guarda"] = d.get("guarda", "")
     return {"criterios": copia, "avisos": avisos}
