@@ -556,14 +556,16 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
         _g = str(getattr(c, "grupo", "") or "").strip()
         lineas.append(f"{i}. [{(c.jerarquia or 'accesorio').upper()}]"
                       f"{f' [GRUPO {_g}]' if _g else ''} {c.problema}")
-        if _v2c and not str(c.sentido or "").strip():
-            # SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): lo dice
-            # el bloque de datos que sigue (`_bloque_sin_calificar`). Sólo
-            # desde la v2; la v1 está congelada.
-            lineas.append("   SENTIDO: SIN CALIFICAR (ver «PLANTEAMIENTOS SIN CALIFICAR»)")
-            lineas.append("")
-            continue
-        lineas.append(f"   SENTIDO: {c.sentido.upper()}")
+        # SIN CALIFICAR TRAS EL CAMBIO DE SENTIDO (26-sep-2026): lo dice el
+        # bloque de datos que sigue (`_bloque_sin_calificar`). Sólo desde la
+        # v2; la v1 está congelada. Conserva el puente con su concepto (CUBRE),
+        # su grupo y la razón que él haya escrito —revisión adversarial: sin
+        # CUBRE el estudio no sabía qué concepto contestaba, y su razón se
+        # perdía—; lo demás (innecesario, caída, corriente del acervo) supone
+        # un sentido que no tiene.
+        _sin_calif = bool(_v2c and not str(c.sentido or "").strip())
+        lineas.append("   SENTIDO: SIN CALIFICAR (ver «PLANTEAMIENTOS SIN CALIFICAR»)" if _sin_calif
+                      else f"   SENTIDO: {c.sentido.upper()}")
         # QUÉ PLANTEAMIENTOS CALIFICA. Es el puente entre el problema, que
         # decide, y el concepto, que es lo que se escribe —en la estándar como
         # apertura del apartado; en la moderna, nombrado en la respuesta—.
@@ -592,6 +594,11 @@ def _bloque_criterio(criterios: list[Criterio], materia: str = "",
                           f"una calificación conjunta. ABRE ese apartado "
                           f"diciendo QUÉ LOS UNE y por qué se resuelven a la "
                           f"vez; no los contestes por separado dentro de él.")
+        if _sin_calif:
+            if c.razonamiento:
+                lineas.append(f"   RAZÓN DEL SECRETARIO: {c.razonamiento}")
+            lineas.append("")
+            continue
         # LA PROCESAL QUE NO SE ESTUDIA POR MAYOR BENEFICIO NO «QUEDÓ SIN
         # MATERIA» (26-sep-2026, decisión 1 de David). Los arts. 74-V y 174
         # mandan decidir todas las violaciones procesales; la única salida es

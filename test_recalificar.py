@@ -938,6 +938,21 @@ ok(not faltaT, "tope: el plan no espera una recalificación que nadie va a calcu
 _bT.filas[0]["plan"] = dict(dT, recalificaciones={})
 _, faltaT2 = nsT["_taller_recalificado_al_pedir"]("casa@iurexia.com", "1/2026", resultado(), _ses, {}, FORM, aT)
 ok(not faltaT2, "…tampoco sin nada guardado")
+# (h) EL SIN CALIFICAR, EN LA v2, CONSERVA SU CONCEPTO Y SU RAZÓN: sin CUBRE
+# el estudio no sabía qué concepto contestaba, y la razón que él tecleó se
+# perdía.
+_mat_c = f6.Material(tipo_asunto="amparo_directo", materia="civil", variante="v2",
+                     problemas=fase3(P1, P2, P3))
+_C_c = [C_sin[0], f6.Criterio(problema=P2, sentido="", razonamiento="la cedente litigó de buena fe",
+                              jerarquia="accesorio")]
+_p_c = f6.prompt_estudio("acto", "conceptos", _C_c, _mat_c)
+_tramo = _p_c.split("SENTIDO: SIN CALIFICAR")[1].split("\n\n")[0]
+ok("CUBRE:" in _tramo and "RAZÓN DEL SECRETARIO: la cedente litigó de buena fe" in _tramo,
+   "v2: el sin calificar lleva su CUBRE y la razón que él escribió")
+_p1_c = f6.prompt_estudio("acto", "conceptos", _C_c, f6.Material(tipo_asunto="amparo_directo", materia="civil",
+                                                                  variante="v1", problemas=fase3(P1, P2, P3)))
+ok("SENTIDO: SIN CALIFICAR" not in _p1_c and "RAZÓN DEL SECRETARIO: la cedente litigó de buena fe" in _p1_c,
+   "la v1, como estaba")
 
 print()
 if FALLOS:
