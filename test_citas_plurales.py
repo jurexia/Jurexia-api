@@ -670,10 +670,13 @@ def _lineal(fn, f, t20, t100, que):
     """Con 100k no más de ~6 veces que con 20k. Por debajo de 2 ms no hay
     nada que medir; y antes de acusar se vuelve a medir con más vueltas: un
     tirón del equipo no es un retroceso (el cuadrático da 25 veces, siempre)."""
+    # 8× con suelo de 10 ms (26-sep-2026): con 6× y 2 ms fallaba 1 de cada 4
+    # corridas con la máquina cargada (2.68 → 16.20 ms, 6.1×) midiendo algo
+    # lineal (5.1× y 4.0× aislado). Lo cuadrático da 25×: sigue cazándolo.
     a, b = _mejor(f, t20, 3), _mejor(f, t100, 3)
-    if b > 6 * a and b > 0.002:
+    if b > 8 * a and b > 0.010:
         a, b = _mejor(f, t20, 7), _mejor(f, t100, 7)
-    if b > 6 * a and b > 0.002:
+    if b > 8 * a and b > 0.010:
         _no_lineales.append(f"{fn} · {que}: {a * 1000:.2f} → {b * 1000:.2f} ms ({b / a:.1f}×)")
 
 

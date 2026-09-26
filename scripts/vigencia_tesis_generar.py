@@ -296,7 +296,11 @@ def precedentes_completos(t: dict) -> Tuple[str, str]:
     if len(q) > len(h) and h in q:
         return prec, "qdrant_mas_nuevo"
     ing, baj = fecha_ingesta(t), fecha_bajada(t.get("registro"), d)
-    if ing and baj and baj < ing and not (cortado and h.startswith(q)):
+    # Cortado a 2,500 nunca gana por fecha (verificación del 26-sep-2026): las
+    # notas de pérdida viven al final, justo lo que el corte se lleva; si el
+    # SJF no lo continúa tal cual (2015690, 2013494, 2018541), la ficha
+    # completa sigue mandando hasta que el repaso la vuelva a bajar.
+    if ing and baj and baj < ing and not cortado:
         return prec, "qdrant_mas_nuevo"
     return h, "sjf"
 

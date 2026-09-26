@@ -2025,12 +2025,18 @@ _HISTORIAL_SOLO_MARCAS = "[…turno sin texto…]"
 # escribió— y el corte se hace en un salto de línea cercano para no partir
 # una por la mitad (26-sep-2026).
 HISTORIAL_CITAS_MAX_CHARS = int(os.getenv("HISTORIAL_CITAS_MAX_CHARS", "200000"))
+# Y un tope TOTAL por petición: el de arriba es por turno, y veinte turnos de
+# 200k costaban ~1.3 s de CPU síncrona con 3 workers (verificación del
+# 26-sep-2026). Pasado este total, los turnos siguen tal cual.
+HISTORIAL_CITAS_TOTAL_CHARS = int(os.getenv("HISTORIAL_CITAS_TOTAL_CHARS", "600000"))
 
 
-def _canonizar_citas_del_turno(texto: str) -> str:
-    """expandir_citas_doc_id sobre, como mucho, HISTORIAL_CITAS_MAX_CHARS
-    caracteres del turno."""
-    tope = HISTORIAL_CITAS_MAX_CHARS
+def _canonizar_citas_del_turno(texto: str, tope: Optional[int] = None) -> str:
+    """expandir_citas_doc_id sobre, como mucho, `tope` caracteres del turno
+    (por omisión HISTORIAL_CITAS_MAX_CHARS)."""
+    tope = HISTORIAL_CITAS_MAX_CHARS if tope is None else max(0, tope)
+    if tope <= 0:
+        return texto
     if len(texto) <= tope:
         return expandir_citas_doc_id(texto)
     corte = texto.rfind("\n", max(0, tope - 4000), tope)
@@ -2054,14 +2060,16 @@ def _limpiar_historial(mensajes: list) -> list:
     del turno entero (_limpiar_marcadores es lineal y sólo busca con find).
     """
     limpios, sucios, ahorro, citas = [], 0, 0, 0
+    restante = HISTORIAL_CITAS_TOTAL_CHARS
     for m in mensajes:
         c = m.content or ""
         n = _limpiar_marcadores(c) or (_HISTORIAL_SOLO_MARCAS if c else c)
         if n != c:
             sucios += 1
             ahorro += len(c) - len(n)
-        if getattr(m, "role", None) == "assistant":
-            n2 = _canonizar_citas_del_turno(n)
+        if getattr(m, "role", None) == "assistant" and restante > 0:
+            n2 = _canonizar_citas_del_turno(n, min(HISTORIAL_CITAS_MAX_CHARS, restante))
+            restante -= min(len(n), HISTORIAL_CITAS_MAX_CHARS)
             if n2 != n:
                 citas += 1
                 n = n2
@@ -7351,8 +7359,10 @@ _ETIQUETA_SUELTA = (r"(?:(?P<enf>\*{1,3}|_{1,3})" + _ETIQUETA_DOC_ID
 # decide después cuál es. ATÓMICO: una vez leído no se vuelve a partir.
 _UUIDISH = (r"(?>[0-9a-fA-F]{8}(?:(?:-[0-9a-zA-Z]{1,16}){1,64}+(?:-?+(?:…|\.{3}))?+|-?+(?:…|\.{3}))"
             r"|[0-9a-fA-F]{32})")
-# El adorno que el modelo le pone a un id: **negritas**, `código`, comillas.
-_ADORNO_ID = "*`\"'«»“”‘’"
+# El adorno que el modelo le pone a un id: **negritas**, __negritas__,
+# `código`, comillas. Sin el «_», «[Doc ID: __uuid__]» salía inválida en el
+# sello de /analyze-document y /chat-sentencia, que no reparan (26-sep-2026).
+_ADORNO_ID = "*_`\"'«»“”‘’"
 _RE_UUIDISH = re.compile(_UUIDISH)
 # El id con su adorno pegado, para sacarlo del resto de unos corchetes: en
 # «[Doc IDs: **a** y **b**]» el «**» es del id, y la «y» queda junto a él
@@ -19110,6 +19120,27 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                     
                     # Build sources map: uuid → {origen, ref, texto} for ALL cited docs
                     sources_map = {}
+
+                    def _entrada_fuente(doc):
+                        texto_full = doc.texto or ""
+                        pdf_url = resolver_pdf(doc.pdf_url, doc.origen, doc.silo)
+                        return {
+                            "origen": humanize_origen(doc.origen) or "Fuente legal",
+                            "ref": doc.ref or "",
+                            "texto": texto_full,
+                            "pdf_url": pdf_url or None,
+                            "silo": doc.silo,
+                            "entidad": doc.entidad or None,
+                            "registro": doc.registro or None,
+                            "tesis_num": doc.tesis_num or None,
+                            "tipo_criterio": doc.tipo_criterio or None,
+                            "instancia": doc.instancia_meta or None,
+                            "materia": doc.materia_meta or None,
+                            **_campos_coidh(doc),
+                            **_campos_doctrina(doc),
+                            **_campos_vigencia(doc),
+                        }
+
                     for cv in validation.citations:
                         doc = doc_id_map.get(cv.doc_id)
                         if doc:
@@ -19158,6 +19189,25 @@ Evita contradicciones y estructura la respuesta de forma impecable usando format
                             sources_map[hallucinated_id] = sources_map[real_id]
                             print(f"   🔗 ALIAS: {hallucinated_id[:16]}... → fuente de {real_id[:16]}...")
                     
+                    # LA SUSTITUTA TAMBIÉN VIAJA (26-sep-2026). Si la respuesta cita
+                    # una tesis que perdió vigencia, la que la reemplaza entró al
+                    # contexto (_sumar_sustitutas) pero sólo llegaba al frontend si
+                    # el modelo TAMBIÉN la citaba: al reabrir la conversación, el
+                    # botón «Abrir la que la reemplaza» del visor caía al Semanario
+                    # en vez de abrir su PDF. Se añade sin contar como citada.
+                    try:
+                        _por_registro = {str(d.registro): (i, d) for i, d in doc_id_map.items()
+                                         if getattr(d, "registro", None)}
+                        for _cid in list(sources_map):
+                            _v = sources_map[_cid].get("vigencia") or {}
+                            _pr_reg = str(_v.get("por_registro") or "")
+                            if _pr_reg and _pr_reg in _por_registro:
+                                _sid, _sd = _por_registro[_pr_reg]
+                                if _sid not in sources_map:
+                                    sources_map[_sid] = {**_entrada_fuente(_sd), "rol": "sustituta"}
+                    except Exception as _e_sus:
+                        print(f"   📛 VIGENCIA: no pude añadir las sustitutas al mapa ({type(_e_sus).__name__})")
+
                     # ── FIX: Agregar precedentes al sources_map ──────────────────
                     # Los precedentes (sentencias/holdings) se buscan por separado
                     # y no están en doc_id_map. Cuando el LLM los cita con
