@@ -287,9 +287,15 @@ for forma, p in (("estándar", p_std), ("moderna", p_mod)):
         ok(frase.lower() in p.lower(), f"{forma}: {que}")
     ok(p.rstrip().endswith("Nada más."), f"{forma}: termina igual")
     ok(p.count("LA OBJECIÓN, UNA VEZ") == 1, f"{forma}: la objeción se ordena en un solo sitio del cuerpo")
-ok(f"TIENE UN TECHO: {f6.SOLUCION_P90} palabras" in p_std and "techo, no una meta" in p_std,
-   "estándar: el techo medido, dicho como techo")
-ok(f"TIENE UN TECHO: {fs.palabras_moderna(C93)} palabras" in p_mod, "moderna: su propio techo")
+# EL TECHO, ALTO Y SIN META (p2-congruencia, 26-sep-2026): la medida es que
+# cada argumento con dato propio reciba su respuesta; la moderna tiene de
+# techo una vez y media su medida, no la medida misma.
+ok(f"TECHO ALTO de {f6.SOLUCION_P90} palabras" in p_std and "No es una meta" in p_std
+   and "cada argumento que trae un dato propio" in p_std,
+   "estándar: el techo medido, dicho como techo alto y no como meta")
+ok(f"TECHO ALTO de {fs.techo_moderna(C93)} palabras" in p_mod
+   and fs.techo_moderna(C93) == round(1.5 * fs.palabras_moderna(C93)),
+   "moderna: su techo alto, una vez y media su medida por problemas vivos")
 ok("Sobre el primer concepto de violación,\n       en el que la parte quejosa sostiene que…" in p_std,
    "estándar: la fórmula de David sigue abriendo el apartado de un solo concepto")
 ok("no más de treinta\n       palabras" in p_std, "fila 4: la apertura, treinta palabras como máximo")

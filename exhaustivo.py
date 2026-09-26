@@ -631,11 +631,26 @@ def _bloque_criterio_reparar(criterios: list, rep: list, q1: str) -> str:
     return "\n".join(L)
 
 
+def etiquetas_del_plan(plan) -> dict:
+    """{id: etiqueta} de los argumentos del plan (v4), o {}. plan-4: la
+    etiqueta es la calificación del ARGUMENTO dentro del sentido de su
+    problema, que puede no ser la del problema (p2-congruencia)."""
+    if not isinstance(plan, dict):
+        return {}
+    return {str(s.get("id")): _norm_sentido(s.get("etiqueta")) for s in plan.get("segmentos") or []
+            if isinstance(s, dict) and s.get("id") and s.get("etiqueta")}
+
+
 def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
-                      escrito: str = "") -> str:
+                      escrito: str = "", plan: dict = None) -> str:
     """El prompt de la reparación. Sólo descripciones y datos: ni una frase
     que copiar (lección medida tres veces: un ejemplo del prompt se firma
-    literal)."""
+    literal).
+
+    CON PLAN (v4, p2-congruencia): cada argumento lleva, como dato, su
+    calificación en el plan, y una línea dice que ésa es la suya. Sin plan
+    —la v3— el prompt no cambia ni una coma."""
+    _et = etiquetas_del_plan(plan)
     import tipos_asunto as _ta
     tipo = _get(material, "tipo_asunto", "") or "amparo_directo"
     voc = _ta.vocabulario_de(tipo)
@@ -671,10 +686,15 @@ def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
         partes_f.append("problema del criterio según el reparto: "
                         + (", ".join(f"{n} ({x.upper()})" for n, x in zip(num, sent)) if num
                            else "no se pudo determinar; búscalo en el criterio por lo que se alega"))
+        if _et.get(f["id"]):
+            partes_f.append(f"calificación de este argumento en el plan: {_et[f['id']].replace('_', ' ').upper()}")
         if hoy:
             partes_f.append(f"lo que dice hoy el estudio en el párrafo que lo marca: «{' '.join(hoy.split())}»")
         filas.append("\n   ".join(partes_f))
     concede = any(_ta.prospera(str(_get(c, "sentido") or "")) for c in (criterios or []))
+    _linea_plan = ("\n- El argumento que trae su calificación en el plan se contesta con ella: es la suya\n"
+                   "  dentro del sentido de su problema, y no cambia la del problema."
+                   if any(_et.get(f["id"]) for f in faltan) else "")
     # SIN TERCERA RESPUESTA PARA EL MAYOR BENEFICIO (revisión adversarial,
     # 26-sep-2026). Se probó una salida «SIN PIEZA» para el argumento que la
     # concesión ya deja sin nada que resolver (art. 189), y en la llamada real
@@ -712,7 +732,7 @@ QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
  "En este asunto no se concede: no hay EFECTOS; toda pieza es un párrafo."}
 
 LÍMITES:
-- No cambias ninguna calificación ni el sentido: el criterio es del secretario.
+- No cambias ninguna calificación ni el sentido: el criterio es del secretario.{_linea_plan}
 - No declaras sin materia, innecesario ni sin beneficio un argumento cuyo criterio es de fondo.
 - No citas tesis, registros ni preceptos que no estén ya en el estudio o en los datos del
   argumento.
@@ -826,7 +846,7 @@ def _direccion(s: str) -> str:
 
 
 def guardas(ids: list, texto: str, es_efecto: bool, estudio: str, segs_por_id: dict,
-            rep: list) -> str:
+            rep: list, etiquetas: dict = None) -> str:
     """El motivo para descartar una pieza, o «» si pasa.
 
     · Un párrafo no puede declarar sin estudio lo que su criterio manda
@@ -847,6 +867,14 @@ def guardas(ids: list, texto: str, es_efecto: bool, estudio: str, segs_por_id: d
         if s is not None:
             cs.extend(criterios_del_segmento(s, rep))
     sentidos = [_norm_sentido(_get(c, "sentido")) for c in cs if _get(c, "sentido")]
+    # LA CALIFICACIÓN DEL ARGUMENTO EN EL PLAN (v4, plan-4; p2-congruencia):
+    # dentro de un problema fundado cabe un argumento infundado —la
+    # reconvención del ADC 642/2024—. Si el plan la da para TODOS los de la
+    # pieza, la pieza se casa con ella y no con la del problema. Sin plan
+    # (v3), la guarda de siempre.
+    _et = [etiquetas.get(i) for i in ids] if etiquetas else []
+    if _et and all(_et):
+        sentidos = [_norm_sentido(x) for x in _et]
     if not es_efecto and declara_sin_estudio(texto) and sentidos and all(x in FONDO for x in sentidos):
         return "declara sin estudio un argumento cuyo criterio es de fondo"
     if not es_efecto and sentidos and all(x in SIN_ESTUDIO for x in sentidos):
@@ -965,7 +993,7 @@ def insertar(estudio: str, parrafos_: list, efectos_: list, segs_por_id: dict) -
 
 
 async def reparar(cliente, estudio: str, criterios: list, material, faltan: list,
-                  escrito: str = "", tope_s: float = None) -> tuple:
+                  escrito: str = "", tope_s: float = None, plan: dict = None) -> tuple:
     """(estudio, informe). El estudio sale COMO ESTABA si no hay nada que
     reparar, si la llamada falla o vence, o si ninguna pieza pasa las guardas.
     `informe`: {estado: ok|sin_piezas|sin_pieza|fallo|vencio|nada, pedidos,
@@ -991,7 +1019,7 @@ async def reparar(cliente, estudio: str, criterios: list, material, faltan: list
         import llamada_modelo as _lm
         kw = dict(model=_f6.MODELO_ESTUDIO, max_completion_tokens=REPARAR_MAX_TOKENS,
                   messages=[{"role": "user", "content": prompt_reparacion(
-                      estudio, criterios, material, faltan, escrito)}],
+                      estudio, criterios, material, faltan, escrito, plan=plan)}],
                   reasoning_effort=esfuerzo_reparar())
         # SIN LA PETICIÓN DE RESPALDO de `llamada_modelo.crear`: su espera
         # normal para este tope (300 s) pasa del nuestro, y al vencer
@@ -1015,7 +1043,7 @@ async def reparar(cliente, estudio: str, criterios: list, material, faltan: list
     buenos_p, buenos_e = [], []
     for lista, destino, es_ef in ((pars, buenos_p, False), (efs, buenos_e, True)):
         for ids, t in lista:
-            motivo = guardas(ids, t, es_ef, estudio, por_id, rep)
+            motivo = guardas(ids, t, es_ef, estudio, por_id, rep, etiquetas_del_plan(plan))
             if motivo:
                 descartes.append({"ids": ids, "motivo": motivo})
             else:

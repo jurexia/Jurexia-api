@@ -328,7 +328,10 @@ for forma in ("estandar", "moderna"):
         # (escala de extensión, línea NO SE ESTUDIA y los EFECTOS). El diff contra
         # la de origin/main 1aa0d1d son sólo esos tres pasajes (test_exhaustivo.py);
         # la revisión adversarial les añadió la razón del secretario y soltó la
-        # inoperancia del criterio.
+        # inoperancia del criterio. Y OTRA (p2-congruencia, 26-sep-2026): la
+        # calificación en el párrafo de la apertura, la de cada argumento dentro
+        # del sentido de su problema y la extensión sin cifra que alcanzar; el
+        # diff son sólo esos pasajes (test_congruencia.py lo comprueba).
         ok(ahora == antes, f"v2 {etiq}/{forma}: idéntica, byte por byte, a su instantánea")
         con_inv = f6.prompt_estudio(ACTO, CONC, C93, mat(forma, "v2", tipo, inventario=segs),
                                     es_recurso=rec, escrito_literal=esc)

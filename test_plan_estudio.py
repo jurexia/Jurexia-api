@@ -6,7 +6,8 @@ base:
 
   1 · catálogos, normalización y verificación literal;
   2 · un plan bueno pasa V0 al primer intento y conserva el sentido;
-  3 · los planes que V0 debe rechazar: etiqueta distinta al criterio,
+  3 · los planes que V0 debe rechazar: etiqueta que no cabe en el sentido de
+      su problema (plan-4: coherencia, no igualdad),
       procesal no estudiada, reitera con ancla propia, cita inventada, premisa
       sin rastro, fuente fuera del índice, unidad que mezcla, suplencia,
       cosa juzgada, orden;
@@ -266,7 +267,7 @@ _f = pe.validar(_pb, crit(), SEGS_N, fases(), material(), "", suplencia={})
 ok(_f == [], f"V0 lo acepta: {_f[:3]}")
 ok(_v0(PLAN_BUENO) == [], "y también sin reparar: no había nada que corregir")
 ok([s["etiqueta"] for s in _pb["segmentos"]] == ["infundado", "infundado", "inoperante", "infundado", "infundado"],
-   "la etiqueta de cada segmento es, por igualdad, la del criterio de su problema")
+   "la etiqueta de cada segmento, coherente con el criterio de su problema, se queda")
 ok(_pb["propuestas"] == [] and _avb == [], "sin propuestas ni avisos que inventar")
 ok(all(s["cita"] for s in _pb["segmentos"]), "cada segmento con su cita literal verificada del piso")
 ok(_pb["n_planteamientos"] == 3 and [p["id"] for p in _pb["problemas"]] == [1, 2],
@@ -276,10 +277,26 @@ ok(_pb["n_planteamientos"] == 3 and [p["id"] for p in _pb["problemas"]] == [1, 2
 print("\n3 · LOS PLANES QUE V0 DEBE RECHAZAR")
 _d = mutar(lambda d: seg(d, "C1.a").update(etiqueta="fundado"))
 _f = _v0(_d)
-ok(any("C1.a" in x and "etiqueta" in x for x in _f), "etiqueta distinta al criterio")
-_d = mutar(lambda d: seg(d, "C2.a").update(etiqueta="infundado"))
-ok(any("C2.a" in x and "etiqueta" in x for x in _v0(_d)),
-   "…también cuando las dos «no prosperan» (inoperante ≠ infundado): igualdad, no dirección")
+ok(any("C1.a" in x and "etiqueta" in x and "fundado_insuficiente" in x for x in _f),
+   "un argumento FUNDADO dentro de un problema que no prospera: sin decir por qué no alcanza, no cabe")
+_d = mutar(lambda d: seg(d, "C2.a").update(etiqueta="infundado", razon="fondo_desestimado"))
+ok(not any("C2.a" in x and "etiqueta" in x for x in _v0(_d)),
+   "plan-4: dentro de un problema inoperante cabe un argumento infundado (coherencia, no igualdad)")
+_d = mutar(lambda d: seg(d, "C1.a").update(etiqueta="innecesario"))
+ok(any("C1.a" in x and "sin estudio" in x for x in _v0(_d)),
+   "dentro de un problema que se estudia, ningún argumento se declara sin estudio")
+_c_f = crit(s1="fundado")
+_d = mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C1.b", "C3.a", "C3.b")]
+           + [seg(d, "C1.b").update(etiqueta="infundado", razon="fondo_desestimado")])
+ok(not any("C1.b" in x or "problema 1" in x for x in _v0(_d, c=_c_f)),
+   "plan-4: dentro de un problema FUNDADO cabe un argumento infundado si otro lo funda (el 642: la reconvención)")
+_d = mutar(lambda d: None)
+ok(any("problema 1" in x and "ninguna etiqueta" in x for x in _v0(_d, c=_c_f)),
+   "un problema fundado que ningún argumento funda: las etiquetas niegan el sentido del secretario")
+_d = mutar(lambda d: seg(d, "C2.a").update(etiqueta="fundado"))
+_cn = crit(s2="innecesario", r2="Queda sin materia.")
+ok(any("C2.a" in x and "no se estudia" in x for x in _v0(_d, c=_cn)),
+   "en un problema que no se estudia, sus argumentos tampoco: misma etiqueta")
 
 # procesal no estudiada
 _fp = fases(problemas=[{"pregunta": PREG1, "cubre": [1, 3], "clase": "fondo", "jerarquia": "principal"},
@@ -386,13 +403,49 @@ ok(any("C1.a" in x and "infundado" in x for x in _v0(_d)), "«infundado» no adm
 print("\n4 · REPARAR: LO QUE EL CÓDIGO CORRIGE SOLO")
 _d = mutar(lambda d: seg(d, "C1.a").update(etiqueta="fundado"))
 _r, _av = _rep(_d)
-ok(seg(_r, "C1.a")["etiqueta"] == "infundado"
-   and _r["propuestas"] == [{"seg": "C1.a", "de": "infundado", "a": "fundado",
-                             "por_que": "calificación que sugirió el planificador"}],
-   "la etiqueta vuelve a la del criterio y la del modelo pasa a PROPUESTA visible")
-_r, _ = _rep(_d, tocados=[PREG1])
-ok(seg(_r, "C1.a")["etiqueta"] == "infundado" and _r["propuestas"] == [],
+ok(seg(_r, "C1.a")["etiqueta"] == "fundado_insuficiente" and _r["propuestas"] == []
+   and any("C1.a" in a and "fundado pero insuficiente" in a for a in _av)
+   and pe.validar(_r, crit(), SEGS_N, fases(), material(), "") == [],
+   "plan-4: FUNDADO dentro de un problema infundado → fundado pero insuficiente, dicho; sin propuesta "
+   "(no es un cambio del problema) y el plan vale")
+_d = mutar(lambda d: seg(d, "C1.a").update(etiqueta="innecesario"))
+_r, _av = _rep(_d)
+ok(seg(_r, "C1.a")["etiqueta"] == "infundado" and _r["propuestas"] == []
+   and any("C1.a" in a and "no cabe" in a for a in _av),
+   "sin estudio dentro de un problema que se estudia → la del problema, dicho")
+_c_f = crit(s1="fundado")
+_d = mutar(lambda d: None)
+_r, _av = _rep(_d, c=_c_f)
+ok(all(seg(_r, x)["etiqueta"] == "fundado" for x in ("C1.a", "C1.b", "C3.a", "C3.b"))
+   and _r["propuestas"] == [{"seg": "C1.a", "de": "fundado", "a": "infundado",
+                             "por_que": "según el planificador, ninguno de los argumentos de este "
+                                        "problema lo funda"}]
+   and any("problema 1" in a for a in _av),
+   "un problema FUNDADO que ningún argumento funda: todos a su sentido y la otra, a PROPUESTA del problema")
+_r, _ = _rep(_d, c=_c_f, tocados=[PREG1])
+ok(all(seg(_r, x)["etiqueta"] == "fundado" for x in ("C1.a", "C1.b", "C3.a", "C3.b")) and _r["propuestas"] == [],
    "en un problema que el secretario tocó a mano, ni se propone")
+_d = mutar(lambda d: [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C3.a", "C3.b")]
+           + [seg(d, "C1.b").update(etiqueta="infundado", razon="fondo_desestimado")])
+_r, _av = _rep(_d, c=_c_f)
+ok(seg(_r, "C1.b")["etiqueta"] == "infundado" and seg(_r, "C1.a")["etiqueta"] == "fundado"
+   and _r["propuestas"] == [] and pe.validar(_r, _c_f, SEGS_N, fases(), material(), "") == [],
+   "plan-4 (el 642): un argumento infundado dentro de un problema fundado se queda con su calificación, "
+   "sin propuesta y el plan vale")
+_d2 = copy.deepcopy(_d)
+_d2["propuestas"] = [{"seg": "C1.b", "de": "fundado", "a": "infundado", "por_que": "la Sala sí lo examinó"},
+                     {"seg": "C3.a", "de": "fundado", "a": "inoperante", "por_que": "no combate"},
+                     {"seg": "C3.b", "de": "fundado", "a": "inoperante", "por_que": "tampoco"}]
+_r, _ = _rep(_d2, c=_c_f)
+ok(_r["propuestas"] == [{"seg": "C3.a", "de": "fundado", "a": "inoperante", "por_que": "no combate"}],
+   "las propuestas son del PROBLEMA: «de» es su sentido, la que repite la etiqueta del argumento no se "
+   "ofrece y dos iguales del mismo problema son una")
+_d = mutar(lambda d: seg(d, "C2.a").update(etiqueta="fundado"))
+_r, _ = _rep(_d, c=crit(s2="innecesario", r2="Queda sin materia."))
+ok(seg(_r, "C2.a")["etiqueta"] == "innecesario"
+   and _r["propuestas"] == [{"seg": "C2.a", "de": "innecesario", "a": "fundado",
+                             "por_que": "calificación que sugirió el planificador"}],
+   "en un problema que no se estudia, la etiqueta vuelve a la suya y estudiarlo se PROPONE (es otro sentido)")
 _d = mutar(lambda d: seg(d, "C3.b").update(reitera="C2.a", trat="remite", pendiente=None, diferencia=None))
 _r, _av = _rep(_d)
 ok(seg(_r, "C3.b")["reitera"] is None and seg(_r, "C3.b")["trat"] == "desarrolla"
@@ -528,7 +581,10 @@ ok(_g.count("objeción aquí, una vez") == 1 and _g.index("objeción aquí") < _
    "la objeción, una vez, en el apartado donde se contesta la unidad")
 ok("PENDIENTE DE RAZÓN: C3.b (precedente)" in _g and "ADVERTENCIAS" in _g, "el pendiente de razón, primero en ADVERTENCIAS")
 ok("dato (escrito): «una superficie de 2.5 hectáreas" in _g, "el dato verificado, literal, con su fuente")
-ok("EXTENSIÓN (techo, no meta)" in _g, "el presupuesto por apartado, como techo")
+ok("EXTENSIÓN (techo, no meta)" not in _g and "≤" not in _g,
+   "sin techo por apartado en el guion (David, 26-sep: la brevedad no es el objetivo)")
+ok("SENTIDO DE CADA PROBLEMA (del secretario; no se toca): problema 1 infundado · problema 2 inoperante" in _g,
+   "el guion dice el sentido de cada problema, que la etiqueta de cada argumento no toca")
 _pp = copy.deepcopy(_pb)
 _pp["orden"]["criterio"] = "prelacion"
 _gp = pe.vista(_pp, "estandar")
@@ -645,9 +701,12 @@ HUELLAS = {
     # La v2 cambió en p2-exhaustivo (26-sep-2026): el «sin materia» es del
     # criterio y lo que la concesión deja a la responsable va en los EFECTOS
     # (test_exhaustivo.py); y en su revisión adversarial, la razón del
-    # secretario y la inoperancia suelta. La v1 no se mueve.
-    ("v2", "estandar"): "a3eca1abc777e0f9a832a1329a374b64bda5226d23cc875b3ad253ce15a00736",
-    ("v2", "moderna"): "bdfacda5276d843d6fc6108a5194da38cfae4e5dc69c6aeec3f5490b9428369c",
+    # secretario y la inoperancia suelta. Y en p2-congruencia (26-sep-2026):
+    # la calificación en el párrafo de la apertura, la de cada argumento
+    # dentro del sentido de su problema y la extensión sin cifra que alcanzar
+    # (test_congruencia.py). La v1 no se mueve.
+    ("v2", "estandar"): "eb6de1a07cb08082f7d8b11fc3aea495795b2e634e65f4285cb313ce074c7a97",
+    ("v2", "moderna"): "c83d818af9f805be0f41e481a421783a7c2f097cb7974743062fb84c4e7f0ec4",
 }
 
 
@@ -1549,7 +1608,7 @@ ok(_plan is not None and _info["intentos"] == 1 and len(_cli.kw) == 1 and _info[
 ok(_plan and any("M2 se retiró" in a for a in _plan["avisos_al_secretario"])
    and any("U1 juntaba" in a for a in _plan["avisos_al_secretario"]),
    "…con las dos correcciones dichas al secretario")
-ok(pe.PLAN_VERSION == "plan-3", "la versión del plan sube: un «fallo» guardado con la regla vieja no bloquea el nuevo cálculo")
+ok(pe.PLAN_VERSION == "plan-4", "la versión del plan sube: un plan-3 (etiqueta = la del problema) no se reutiliza")
 # (j) Una propuesta es una CALIFICACIÓN: la razón que el planificador puso ahí
 # (642/2024: «fundado → fondo_desestimado») se traduce; el botón del panel
 # pondría si no una razón como sentido.

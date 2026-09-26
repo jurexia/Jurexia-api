@@ -1,0 +1,165 @@
+{
+ "nota": "ADC 642/2024 v4 (banco p2-estandar, 26-sep-2026): el plan tal como salió (plan-3), sólo id, problema, concepto, etiqueta, razón y tratamiento de cada segmento.",
+ "segmentos": [
+  {
+   "id": "C1.a",
+   "problema_id": 1,
+   "concepto": 1,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "aplica"
+  },
+  {
+   "id": "C1.b",
+   "problema_id": 1,
+   "concepto": 1,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "aplica"
+  },
+  {
+   "id": "C1.c",
+   "problema_id": 1,
+   "concepto": 1,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "aplica"
+  },
+  {
+   "id": "C1.d",
+   "problema_id": 1,
+   "concepto": 1,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "desarrolla"
+  },
+  {
+   "id": "C2.a",
+   "problema_id": 2,
+   "concepto": 2,
+   "etiqueta": "inoperante",
+   "razon": "no_combate",
+   "trat": "residual"
+  },
+  {
+   "id": "C2.b",
+   "problema_id": 2,
+   "concepto": 2,
+   "etiqueta": "inoperante",
+   "razon": "no_combate",
+   "trat": "aplica"
+  },
+  {
+   "id": "C2.c",
+   "problema_id": 2,
+   "concepto": 2,
+   "etiqueta": "inoperante",
+   "razon": "no_combate",
+   "trat": "remite"
+  },
+  {
+   "id": "C2.d",
+   "problema_id": 2,
+   "concepto": 2,
+   "etiqueta": "inoperante",
+   "razon": "no_combate",
+   "trat": "remite"
+  },
+  {
+   "id": "C2.e",
+   "problema_id": 2,
+   "concepto": 2,
+   "etiqueta": "inoperante",
+   "razon": "no_combate",
+   "trat": "remite"
+  },
+  {
+   "id": "C3.a",
+   "problema_id": 1,
+   "concepto": 3,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "aplica"
+  },
+  {
+   "id": "C3.b",
+   "problema_id": 1,
+   "concepto": 3,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "remite"
+  },
+  {
+   "id": "C3.c",
+   "problema_id": 1,
+   "concepto": 3,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "remite"
+  },
+  {
+   "id": "C3.d",
+   "problema_id": 1,
+   "concepto": 3,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "remite"
+  },
+  {
+   "id": "C3.e",
+   "problema_id": 1,
+   "concepto": 3,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "remite"
+  },
+  {
+   "id": "C3.f",
+   "problema_id": 1,
+   "concepto": 3,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "desarrolla"
+  },
+  {
+   "id": "C4.a",
+   "problema_id": 3,
+   "concepto": 4,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "aplica"
+  },
+  {
+   "id": "C4.b",
+   "problema_id": 3,
+   "concepto": 4,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "remite"
+  },
+  {
+   "id": "C4.c",
+   "problema_id": 3,
+   "concepto": 4,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "remite"
+  },
+  {
+   "id": "C4.d",
+   "problema_id": 3,
+   "concepto": 4,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "desarrolla"
+  },
+  {
+   "id": "C4.e",
+   "problema_id": 3,
+   "concepto": 4,
+   "etiqueta": "fundado",
+   "razon": "fundado",
+   "trat": "residual"
+  }
+ ]
+}

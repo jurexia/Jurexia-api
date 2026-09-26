@@ -181,10 +181,18 @@ def con_inventario(material) -> bool:
 def _objetivo_palabras(material, criterios) -> int:
     """La medida del corpus para la estándar; la de `formato_sentencia` para la
     moderna. El aviso de «se quedó corto» mide contra ESTE número: medido contra
-    el del corpus, toda sentencia moderna saldría acusada de corta."""
+    el del corpus, toda sentencia moderna saldría acusada de corta.
+
+    EN LA FAMILIA v2, LA ESTÁNDAR MIDE CONTRA SU REFERENCIA (p2-congruencia,
+    26-sep-2026): 2,000 a 2,500 palabras según los problemas vivos, el rango
+    que David aceptó para que cada argumento reciba su respuesta
+    (`formato_sentencia.referencia_estandar`). La moderna, igual en todas: su
+    medida por problemas vivos."""
     import formato_sentencia as _fs_o
     if _fs_o.normalizar(getattr(material, "formato", "")) == _fs_o.MODERNA:
         return _fs_o.palabras_moderna(criterios)
+    if _v2(material):
+        return _fs_o.referencia_estandar(criterios)
     return PALABRAS_ESTUDIO
 
 CONECTORES = ("Lo anterior", "En ese sentido", "Por tanto", "En consecuencia",
@@ -2582,10 +2590,13 @@ Nada más."""
 
 def _techo_palabras(material, criterios) -> int:
     """El techo de la Solución en la v2: el p90 medido, en la estándar; en la
-    moderna, la medida de `formato_sentencia`, que ya va por problema vivo."""
+    moderna, una vez y media su medida por problemas vivos
+    (`formato_sentencia.techo_moderna`). Los dos son TECHOS ALTOS, no metas
+    (p2-congruencia, 26-sep-2026: con la medida misma de techo, la moderna
+    se leía como una cifra que alcanzar y no pasar)."""
     import formato_sentencia as _fs_t
     if _fs_t.normalizar(getattr(material, "formato", "")) == _fs_t.MODERNA:
-        return _fs_t.palabras_moderna(criterios)
+        return _fs_t.techo_moderna(criterios)
     return SOLUCION_P90
 
 
@@ -2768,7 +2779,8 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
     # para que no se lea como meta; en la moderna es la medida de su forma.
     _de_donde = (" Es el percentil 90 de la Solución medida en engroses reales "
                  "firmados: nueve de cada diez resuelven en menos."
-                 if not _moderna else " Es la medida de la versión corta.")
+                 if not _moderna else " Es una vez y media la medida de la versión "
+                 "corta, que va por problemas vivos.")
 
     # EL ORDEN, CON EL ARTÍCULO 189 (David, 26-sep-2026: «alinear al art.
     # 189… también alinea a cómo debe resolverse (mayor beneficio art 189)»).
@@ -2800,18 +2812,26 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
     # que describa el mayor beneficio: se probó una salida así en la reparación
     # y el modelo la usó de excusa («no produciría un beneficio adicional») con
     # una concesión para efectos, que es justo el defecto de 43/2025.
+    # LA CALIFICACIÓN EN LA APERTURA (p2-congruencia, 26-sep-2026). «Sigue su
+    # calificación» se leía como «en el renglón siguiente»: el modelo la
+    # escribía sola —«Es fundado.»— y el compositor, que tira los párrafos de
+    # menos de seis palabras, se la comía (ADC 642/2024 v4; 9 de 28 corridas
+    # v3/v4 del banco). Se dice dónde va: en el mismo párrafo, antes de la
+    # demostración. Y la extensión, sin cifra que alcanzar.
     _recuerda_forma = (
         f"Y LA FORMA ES LA MODERNA: cada problema con su pregunta sola en su "
-        f"párrafo, la respuesta enseguida nombrando el {q1} que contesta, sin "
-        f"pasar de {_techo} palabras en total y sin dejar ningún {q1} sin "
-        f"respuesta.\n"
+        f"párrafo y la respuesta enseguida, en un mismo párrafo que nombra el "
+        f"{q1} que contesta y su calificación antes de demostrarla; ningún {q1} "
+        f"ni argumento con dato propio sin su respuesta. El techo de {_techo} "
+        f"palabras es alto y no es una meta.\n"
         if _moderna else
         f"Y LA FORMA ES LA ESTÁNDAR: sin preguntas ni rótulos numerados; cada "
         f"apartado abre con «Sobre el primer {q1}, en el que {parte} sostiene…» "
-        f"—o nombra a todos los que junta—, sigue su calificación y la "
-        f"demostración arranca con «Lo anterior…». Cada premisa se expone una "
-        f"vez y, donde vuelve a decidir, se recuerda en una frase; ningún {q1} "
-        f"sin una respuesta identificable.\n")
+        f"—o nombra a todos los que junta— y, EN ESE MISMO PÁRRAFO, su "
+        f"calificación; la demostración arranca después con «Lo anterior…», "
+        f"que se refiere a ella. Cada premisa se expone una vez y, donde vuelve "
+        f"a decidir, se recuerda en una frase; ningún {q1} sin una respuesta "
+        f"identificable.\n")
 
     # EL CIERRE, EN UN SOLO SITIO Y DECIDIDO POR CÓDIGO (decisión 3).
     if _cierre_permitido(criterios):
@@ -2868,11 +2888,15 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
 - EL ÓRGANO RECURRIDO es {_org}; este tribunal se
   nombra «este Tribunal Colegiado» y usa voz impersonal («se estima», «se
   considera»). Nunca primera persona del singular.
-- LA EXTENSIÓN LA PONE EL ASUNTO, Y TIENE UN TECHO: {_techo} palabras EN TOTAL,
-  como máximo.{_de_donde} Es un techo, no una meta: un asunto con una sola
-  cuestión viva se resuelve en mucho menos, y nada se escribe para acercarse a
-  una cifra. Lo que decide se estudia a fondo; lo accesorio se mide así, y
-  ésta es la ÚNICA medida para todo el estudio. Los dos primeros renglones
+- LA EXTENSIÓN LA PIDE LO QUE HAY QUE CONTESTAR, NO UNA CIFRA. La medida es
+  que cada argumento que trae un dato propio —un hecho, una prueba, una
+  cifra, un precepto, un precedente— reciba su respuesta, aunque eso alargue
+  el apartado: lo que se ahorra es la repetición, nunca una respuesta. Hay un
+  TECHO ALTO de {_techo} palabras EN TOTAL.{_de_donde} No es una meta ni una
+  razón para contestar en genérico: sirve para advertir la repetición, y nada
+  se escribe para acercarse a él. Lo que decide se estudia a fondo; lo
+  accesorio se mide así, y ésta es la ÚNICA medida para todo el estudio.
+  Los dos primeros renglones
   valen SÓLO para lo que el CRITERIO DEL SECRETARIO decidió así —en su
   calificación o en su razón—: esa decisión es suya, no del estudio.
 
@@ -2883,8 +2907,9 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
     · INOPERANTE: de uno a tres párrafos que dicen qué consideración deja sin
       combatir, o por qué no puede examinarse, con su razón. La tesis sobre la
       inoperancia se cita sólo si hace falta para sostenerla.
-    · RESIDUAL —un argumento menor dentro de un {q1} que se contesta—: una o
-      dos frases, con su calificación y su razón.
+    · RESIDUAL —un argumento menor y sin dato propio dentro de un {q1} que se
+      contesta—: una o dos frases, con su calificación y su razón. El que
+      trae un dato propio no es residual: recibe su respuesta.
 
   NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO POR CUENTA DEL ESTUDIO. Dentro de un
   problema que el criterio manda resolver de fondo —fundado o infundado—, el
@@ -4248,11 +4273,20 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     # techo. Lo corto se mide contra la Solución real: ningún engrose del
     # banco Kingston baja de 1,303 palabras, así que el piso de 1,000 no acusa
     # a ninguno de los 24. El 45 % de 3,733 que usa la v1 acusaba a tres.
+    # LA REFERENCIA DE LA v2 (p2-congruencia, 26-sep-2026): 2,000 a 2,500
+    # palabras según los problemas vivos (`_objetivo_palabras`), con el 45 %
+    # de la v1 y nunca por debajo del piso. Calibrado: el umbral más alto que
+    # sale (1,125, con cuatro problemas vivos o más) queda por debajo del
+    # engrose más corto del banco Kingston (1,303): sigue sin acusar a
+    # ninguno de los 24.
     if _v2r and not _moderna_r:
-        if n < SOLUCION_PISO:
+        _corto = max(SOLUCION_PISO, round(0.45 * _obj_r))
+        if n < _corto:
             avisos.append(f"El estudio tiene {n} palabras; ningún engrose real "
-                          f"de referencia resuelve en menos de {SOLUCION_PISO}. "
-                          f"Revisa si quedó algún planteamiento sin razonar.")
+                          f"de referencia resuelve en menos de {_corto}, y la "
+                          f"referencia de este formato es de unas {_obj_r} cuando "
+                          f"cada argumento recibe su respuesta. Revisa si quedó "
+                          f"algún planteamiento sin razonar o contestado en genérico.")
     elif n < 0.45 * _obj_r:
         avisos.append(f"El estudio tiene {n} palabras; la mediana de los "
                       f"engroses es {PALABRAS_ESTUDIO}. Se quedó corto."
@@ -4390,7 +4424,7 @@ def revisar(estudio: str, criterios: list[Criterio], material: Material,
     # LA MODERNA TIENE SU PROPIA MEDIDA, y pasarse de ella por la mitad es
     # haber escrito la estándar con preguntas: lo que el secretario eligió
     # precisamente para no recibir.
-    if _moderna_r and n > 1.5 * _obj_r:
+    if _moderna_r and n > _fs_r.MODERNA_TECHO_FACTOR * _obj_r:
         avisos.append(f"LA VERSIÓN MODERNA SALIÓ LARGA: {n} palabras donde se "
                       f"pedían unas {_obj_r}. Busca lo que no decide —recuentos, "
                       f"paráfrasis de tesis, objeciones que nadie planteó— y quítalo.")
