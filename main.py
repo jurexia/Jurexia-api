@@ -105,7 +105,29 @@ deepseek_client = AsyncOpenAI(
 )
 DEEPSEEK_CHAT_MODEL = "deepseek/deepseek-v4-flash"  # DeepSeek V4 Flash en OpenRouter (284B MoE, 13B active)
 REASONER_MODEL = "deepseek/deepseek-v4-flash"  # V4 Flash en OpenRouter — thinking se controla con API param, no modelo separado
-DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "google/gemini-2.5-flash")  # Gemini 2.5 Flash GA — 1M context, ultra-rápido, $0.30/M input
+# ── EL ANÁLISIS DE DOCUMENTOS DEJA OPENROUTER (26-sep-2026) ───────────────
+# David: «¿por qué estoy gastando tanto en OpenRouter? […] me parece que es en
+# leer documentos cuando se adjuntan con Gemini, cuando la calidad podría ser
+# superior con luna por un menor costo». Tenía razón. Medido del 19 al 26-sep
+# en los registros: 509 análisis —372 en google/gemini-2.5-flash y 137 en
+# google/gemini-3.1-pro-preview (Platinum y admin)—, ~10 M de tokens de
+# documento y ~3 M escritos: entre 31 y 43 de los 42 USD que OpenRouter cobró
+# esa semana, y el Pro solo, con 137 análisis, entre 22 y 30.
+#
+# gpt-6-luna directo en OpenAI (0.10/0.50 USD por millón, 1.05 M de contexto:
+# cabe el millón de caracteres de Platinum) hace ese volumen por ~3 USD.
+# Platinum conserva un escalón propio: el mismo motor razonando `medium`.
+#
+# REVERSA SIN DESPLIEGUE: DOCUMENT_MODEL=google/gemini-2.5-flash y
+# DOCUMENT_MODEL_PLATINUM=google/gemini-3.1-pro-preview en Render. Un id con
+# «/» vuelve a ir por OpenRouter con los parámetros de antes (_via_documento).
+DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "gpt-6-luna")
+DOCUMENT_MODEL_PLATINUM = os.getenv("DOCUMENT_MODEL_PLATINUM", DOCUMENT_MODEL)
+DOCUMENT_ESFUERZO = os.getenv("DOCUMENT_ESFUERZO", "low")
+DOCUMENT_ESFUERZO_PLATINUM = os.getenv("DOCUMENT_ESFUERZO_PLATINUM", "medium")
+# En la familia gpt-6 el razonamiento descuenta del mismo tope que el texto.
+# Medido: Gemini Flash escribía 28,800 caracteres de media (~7 mil tokens).
+DOCUMENT_MAX_SALIDA = int(os.getenv("DOCUMENT_MAX_SALIDA", "40000"))
 GEMINI_LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite-preview")  # Chat normal sin genio vía Gemini API directa — Flash Lite, latencia mínima
 
 # Consulta rápida (el rayo). Elegido midiendo seis candidatos sobre contexto
@@ -11605,6 +11627,21 @@ def _tokens_que_alcanzan(err) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
+def _via_documento(modelo: str, esfuerzo: Optional[str] = None) -> tuple:
+    """El cliente y los parámetros del motor que analiza un documento.
+
+    Un id con «/» (google/gemini-…) es de OpenRouter y va como iba antes del
+    26-sep-2026. Sin «/» es un modelo de OpenAI y va directo, con su nivel de
+    razonamiento y `max_completion_tokens` (los gpt-6 no aceptan `max_tokens`
+    ni una temperatura distinta de la de omisión)."""
+    if "/" in modelo:
+        return deepseek_client, {"max_tokens": 32768, "temperature": 0.3}
+    parametros = {"max_completion_tokens": DOCUMENT_MAX_SALIDA}
+    if esfuerzo:
+        parametros["reasoning_effort"] = esfuerzo
+    return chat_client, parametros
+
+
 async def _crear_con_amortiguador(cliente, *, etiqueta: str, **kwargs):
     """Lanza la petición y, si el saldo no da para el `max_tokens` pedido, la
     repite con lo que sí alcanza. Cualquier otro error sube tal cual."""
@@ -12241,8 +12278,10 @@ async def analyze_document(
 
         _paso("Redactando el análisis…")
         t_pre_llm = _time.time()
-        model_to_use = "google/gemini-3.1-pro-preview" if is_platinum_or_admin else DOCUMENT_MODEL
-        print(f"   🚀 Enviando a {model_to_use} vía OpenRouter ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
+        model_to_use = DOCUMENT_MODEL_PLATINUM if is_platinum_or_admin else DOCUMENT_MODEL
+        esfuerzo_doc = DOCUMENT_ESFUERZO_PLATINUM if is_platinum_or_admin else DOCUMENT_ESFUERZO
+        _via_doc = "OpenRouter" if "/" in model_to_use else f"OpenAI, razonamiento {esfuerzo_doc}"
+        print(f"   🚀 Enviando a {model_to_use} vía {_via_doc} ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
 
         # ── Fuentes de internet con documento adjunto ─────────────────────────
         # Este camino IGNORABA el globo: el frontend retornaba antes de anteponer
@@ -12277,6 +12316,7 @@ async def analyze_document(
             "system_documento": system_documento,
             "full_user_message": full_user_message,
             "model_to_use": model_to_use,
+            "esfuerzo_doc": esfuerzo_doc,
             "_marcador_previas": _marcador_previas,
             "_web_tasks_doc": _web_tasks_doc,
             "extracted_text": extracted_text,
@@ -12320,6 +12360,7 @@ async def analyze_document(
             system_documento = _p["system_documento"]
             full_user_message = _p["full_user_message"]
             model_to_use = _p["model_to_use"]
+            esfuerzo_doc = _p.get("esfuerzo_doc")
             _marcador_previas = _p["_marcador_previas"]
             _web_tasks_doc = _p["_web_tasks_doc"]
 
@@ -12352,9 +12393,10 @@ async def analyze_document(
 
             t_llm_start = _time.time()
 
-            async def _abrir(_modelo: str):
+            async def _abrir(_modelo: str, _esfuerzo: Optional[str] = None):
+                _cliente, _parametros = _via_documento(_modelo, _esfuerzo)
                 return await _crear_con_amortiguador(
-                    deepseek_client,
+                    _cliente,
                     etiqueta="analyze-document",
                     model=_modelo,
                     messages=[
@@ -12362,8 +12404,7 @@ async def analyze_document(
                         {"role": "user", "content": full_user_message}
                     ],
                     stream=True,
-                    max_tokens=32768,
-                    temperature=0.3,
+                    **_parametros,
                 )
 
             # EL MODELO CARO SE CAE Y EL ANÁLISIS NO (18-sep-2026). Platinum
@@ -12375,14 +12416,14 @@ async def analyze_document(
             # Sólo al ABRIR el flujo: una vez empezado a escribir, reabrir
             # duplicaría el texto ya entregado.
             try:
-                response = await _abrir(model_to_use)
+                response = await _abrir(model_to_use, esfuerzo_doc)
             except Exception as _e_abrir:
-                if model_to_use == DOCUMENT_MODEL:
+                if (model_to_use, esfuerzo_doc) == (DOCUMENT_MODEL, DOCUMENT_ESFUERZO):
                     raise
-                print(f"   ⚠️ {model_to_use} no abrió ({type(_e_abrir).__name__}: "
-                      f"{str(_e_abrir)[:140]}) — se sigue con {DOCUMENT_MODEL}")
-                model_to_use = DOCUMENT_MODEL
-                response = await _abrir(model_to_use)
+                print(f"   ⚠️ {model_to_use} ({esfuerzo_doc}) no abrió ({type(_e_abrir).__name__}: "
+                      f"{str(_e_abrir)[:140]}) — se sigue con {DOCUMENT_MODEL} ({DOCUMENT_ESFUERZO})")
+                model_to_use, esfuerzo_doc = DOCUMENT_MODEL, DOCUMENT_ESFUERZO
+                response = await _abrir(model_to_use, esfuerzo_doc)
             first_token = True
             _hubo_texto = False
             _trozos: List[str] = []
@@ -12439,8 +12480,9 @@ async def analyze_document(
                 print(f"   🔁 Documento: el motor paró por {_motivo_nativo or _motivo_fin} → se continúa con {DOCUMENT_MODEL}")
                 _fin2, _nativo2, _n2 = None, None, 0
                 try:
+                    _cliente2, _parametros2 = _via_documento(DOCUMENT_MODEL, DOCUMENT_ESFUERZO)
                     _resp2 = await _crear_con_amortiguador(
-                        deepseek_client,
+                        _cliente2,
                         etiqueta="analyze-document-continuacion",
                         model=DOCUMENT_MODEL,
                         messages=[
@@ -12450,8 +12492,7 @@ async def analyze_document(
                             {"role": "user", "content": INSTRUCCION_CONTINUAR},
                         ],
                         stream=True,
-                        max_tokens=32768,
-                        temperature=0.3,
+                        **_parametros2,
                     )
                     async for chunk in _resp2:
                         if chunk.choices and getattr(chunk.choices[0], "finish_reason", None):

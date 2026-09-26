@@ -141,9 +141,13 @@ CATALOGO: list[Motor] = [
     ),
     Motor(
         clave="documento", boton="Analizar documento adjunto", marcador=None,
-        proveedor="google", modelo="DOCUMENT_MODEL", razona=False, esfuerzo=None,
-        max_tokens=0, planes="todos",
-        nota="Platinum y admin suben a gemini-3.1-pro-preview.",
+        proveedor="openai", modelo="DOCUMENT_MODEL", razona=True,
+        esfuerzo="DOCUMENT_ESFUERZO", max_tokens=40_000, planes="todos",
+        nota="Desde el 26-sep-2026 gpt-6-luna directo en OpenAI (antes "
+             "gemini-2.5-flash y, para Platinum y admin, gemini-3.1-pro por "
+             "OpenRouter: ~80% del gasto de OpenRouter). Platinum razona "
+             "`medium` (DOCUMENT_ESFUERZO_PLATINUM); los demás `low`. Un id con "
+             "«/» en DOCUMENT_MODEL vuelve a OpenRouter sin desplegar.",
     ),
 ]
 
