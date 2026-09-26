@@ -2791,23 +2791,15 @@ def _prompt_estudio_v2(resumen_acto: str, resumen_conceptos: str,
         _orden = ("EN UN RECURSO, si la técnica de este asunto —más abajo— fija un\n"
                   "  orden de estudio, ése manda.")
 
-    # EL MAYOR BENEFICIO NO SE NOMBRA EN LOS EFECTOS (revisión adversarial de
-    # p2-exhaustivo, 26-sep-2026). La regla de que el «sin materia» es del
-    # criterio dejaba dos salidas —nombrarlo en los EFECTOS o contestarlo— y
-    # olvidaba la tercera, la del artículo 189: el argumento que, aun fundado,
-    # no daría más de lo que la concesión ya da. Ahí la declaración es la
-    # correcta (el ADC 810/2025 del corpus lo hace así) y ordenar a la
-    # responsable que lo examine contradiría la concesión. Sólo en el amparo
-    # directo, como el resto del 189 de este prompt.
-    _mayor_beneficio = (
-        f"\n\n  DISTINTO ES EL MAYOR BENEFICIO del artículo 189 de la Ley de Amparo:\n"
-        f"  cuando el criterio —su calificación o su razón— deja un argumento sin\n"
-        f"  estudiar porque, aun fundado, no daría a {parte} más de lo que la\n"
-        f"  concesión ya le da, se dice así, con esa razón, y no se nombra en los\n"
-        f"  EFECTOS: sobre él no queda nada que la responsable deba volver a\n"
-        f"  examinar."
-        if _ad else "")
-
+    # EL MAYOR BENEFICIO DENTRO DE «NINGÚN ARGUMENTO SE DECLARA SIN ESTUDIO…»
+    # (revisión adversarial de p2-exhaustivo, 26-sep-2026). El art. 189 permite
+    # dejar sin estudio lo que, aun fundado, no mejoraría lo ya concedido; esa
+    # decisión es del secretario, y la regla la respeta con «salvo que la razón
+    # del secretario lo diga de ese argumento» y con que los EFECTOS sólo nombran
+    # lo que la responsable tendrá que volver a resolver. NO se añade un párrafo
+    # que describa el mayor beneficio: se probó una salida así en la reparación
+    # y el modelo la usó de excusa («no produciría un beneficio adicional») con
+    # una concesión para efectos, que es justo el defecto de 43/2025.
     _recuerda_forma = (
         f"Y LA FORMA ES LA MODERNA: cada problema con su pregunta sola en su "
         f"párrafo, la respuesta enseguida nombrando el {q1} que contesta, sin "
@@ -2906,7 +2898,7 @@ FORMA — medida sobre 40 engroses firmados, no inventada:
   criterio sí lo declaró innecesario porque la responsable tendrá que volver
   a resolver lo que combate, también se nombra en los EFECTOS con su dato:
   sin eso, la declaración no tiene respaldo y el argumento queda sin
-  respuesta.{_mayor_beneficio}
+  respuesta.
 
   ESTO NO ES RECORTAR NI DEJAR TEMAS SIN CONTESTAR. Todos se contestan —la
   exhaustividad se revisa de oficio y un tema olvidado es un amparo de

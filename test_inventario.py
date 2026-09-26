@@ -326,9 +326,9 @@ for forma in ("estandar", "moderna"):
         # LA INSTANTÁNEA SE REHÍZO UNA VEZ (p2-exhaustivo, 26-sep-2026): la v2
         # gana la regla de que el «sin materia» es del criterio y no del estudio
         # (escala de extensión, línea NO SE ESTUDIA y los EFECTOS). El diff contra
-        # la de origin/main 1aa0d1d son sólo esos tres pasajes (test_exhaustivo.py),
-        # más el párrafo del mayor beneficio del art. 189 (sólo amparo directo)
-        # que añadió la revisión adversarial.
+        # la de origin/main 1aa0d1d son sólo esos tres pasajes (test_exhaustivo.py);
+        # la revisión adversarial les añadió la razón del secretario y soltó la
+        # inoperancia del criterio.
         ok(ahora == antes, f"v2 {etiq}/{forma}: idéntica, byte por byte, a su instantánea")
         con_inv = f6.prompt_estudio(ACTO, CONC, C93, mat(forma, "v2", tipo, inventario=segs),
                                     es_recurso=rec, escrito_literal=esc)

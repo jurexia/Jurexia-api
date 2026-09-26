@@ -529,13 +529,35 @@ def sin_su_dato(parrafos: list, mapa: dict, segs: list) -> list:
     return fuera
 
 
+_RX_MAYOR_BENEFICIO = re.compile(r"\bmayor\s+beneficio\b|\bart(?:[íi]culo|\.)?\s*189\b", re.I)
+
+
+def sin_mayor_beneficio(faltan: list, segs: list, criterios: list, problemas: list) -> list:
+    """Quita de `faltan` los argumentos cuyo criterio —por el reparto— invoca en
+    la RAZÓN DEL SECRETARIO el mayor beneficio del art. 189: ahí la declaración
+    de sin estudio es suya y es la correcta, y nombrarlo en los EFECTOS
+    contradiría la concesión. Es del criterio, no de lo que el estudio diga
+    (43/2025 escribió «no produciría un beneficio adicional» por su cuenta)."""
+    rep = reparto(criterios, problemas)
+    por_id = {str(_get(s, "id")): s for s in (segs or [])}
+    fuera = []
+    for f in faltan or []:
+        s = por_id.get(f.get("id"))
+        cs = criterios_del_segmento(s, rep) if s is not None else []
+        if cs and all(_RX_MAYOR_BENEFICIO.search(str(_get(c, "razonamiento") or "")) for c in cs):
+            continue
+        fuera.append(f)
+    return fuera
+
+
 def revisar_texto(estudio: str, segs: list, criterios: list, problemas: list) -> dict:
-    """Los dos controles sobre el estudio CON sus marcas. Nunca lanza."""
+    """Los dos controles sobre el estudio CON sus marcas. Nunca lanza. El de
+    la marca honesta ya sin lo que el criterio dejó fuera por mayor beneficio."""
     try:
         import marcas as _mc
         limpio, mapa = _mc.separar_marcas(estudio or "")
         ps = _mc.parrafos(limpio)
-        return {"sin_dato": sin_su_dato(ps, mapa, segs),
+        return {"sin_dato": sin_mayor_beneficio(sin_su_dato(ps, mapa, segs), segs, criterios, problemas),
                 "sin_materia": sin_materia_por_su_cuenta(ps, mapa, segs, criterios, problemas)}
     except Exception as ex:
         return {"sin_dato": [], "sin_materia": [], "error": type(ex).__name__}
@@ -650,22 +672,29 @@ def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
             partes_f.append(f"lo que dice hoy el estudio en el párrafo que lo marca: «{' '.join(hoy.split())}»")
         filas.append("\n   ".join(partes_f))
     concede = any(_ta.prospera(str(_get(c, "sentido") or "")) for c in (criterios or []))
-    # El 189 es del amparo directo (lo mismo que en el prompt del estudio): en
-    # un recurso la tercera respuesta se describe sin citarlo.
-    _art189 = (": el mayor beneficio del artículo 189 de la Ley de Amparo"
-               if _ta.normalizar(tipo) == "amparo_directo" else "")
+    # SIN TERCERA RESPUESTA PARA EL MAYOR BENEFICIO (revisión adversarial,
+    # 26-sep-2026). Se probó una salida «SIN PIEZA» para el argumento que la
+    # concesión ya deja sin nada que resolver (art. 189), y en la llamada real
+    # sobre 174/2026 A el modelo la usó para dejar fuera C1.i —el crédito que la
+    # quejosa sigue pagando— «porque su estudio no produciría un beneficio
+    # adicional frente al nuevo análisis»: la misma excusa que es el defecto que
+    # se repara, con una concesión para efectos. El caso legítimo del 189 se
+    # filtra antes, sin modelo (EFECTOS lisos y llanos en `sin_su_dato`; la razón
+    # del secretario que invoca el mayor beneficio en `sin_mayor_beneficio`), y
+    # el prompt vuelve a ser el de las once llamadas de la calibración, más la
+    # frase de que lo desestimado no va a los EFECTOS (la guarda lo exige igual).
     return f"""Eres el secretario de un Tribunal Colegiado de Circuito. El estudio de fondo que va al
 final ya está escrito, y el secretario fijó su criterio. Una revisión automática encontró
 argumentos del escrito cuya única respuesta en el estudio es declararlos sin materia,
 innecesarios o sin beneficio, sin que su dato aparezca en los EFECTOS ni en otra respuesta de
 fondo. Tu tarea es escribir SÓLO lo que falta para cada uno. No reescribes nada del estudio.
 
-QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de tres respuestas:
-- LA ORDEN PARA LOS EFECTOS, cuando lo que el argumento combate queda comprendido en lo que la
-  responsable tendrá que volver a resolver por la concesión, lo haya declarado innecesario el
-  criterio o no: una orden que nombra lo que el argumento plantea —el hecho, la prueba, el
-  precepto o el precedente que trae—, no la omisión que se le reprocha a la responsable, entre
-  lo que ella deberá examinar al volver a resolver.
+QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
+- LA ORDEN PARA LOS EFECTOS, cuando el criterio del problema al que pertenece el argumento lo
+  declaró innecesario, o cuando lo que el argumento combate queda comprendido en lo que la
+  responsable tendrá que volver a resolver por la concesión: una orden que nombra lo que el
+  argumento plantea —el hecho, la prueba, el precepto o el precedente que trae—, no la omisión
+  que se le reprocha a la responsable, entre lo que ella deberá examinar al volver a resolver.
   En imperativo y en la misma persona gramatical que las órdenes que ya están en los EFECTOS,
   sobre qué recae, verificable en la ejecución, y sin adelantar el resultado.
   Si varios argumentos de la lista los examinará la responsable en el mismo acto, UNA sola
@@ -676,10 +705,6 @@ QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de tres respuestas:
   Se leerá justo después del párrafo que hoy lo nombra: retoma lo dicho sin repetirlo, empieza
   con un conector que lo enlace, y no contradice la calificación de su apartado. Un argumento
   cuyo criterio lo desestima —infundado, inoperante— no va a los EFECTOS: lleva su párrafo.
-- NINGUNA PIEZA, cuando el criterio —su calificación o su razón— lo deja sin estudiar porque,
-  aun fundado, no daría a quien promueve más de lo que la concesión ya le da, y sobre él no
-  queda nada que la responsable deba volver a resolver{_art189}. Entonces la declaración que
-  tiene es la correcta y se queda como está.
 {"En este asunto se concede: los EFECTOS existen al final del estudio." if concede else
  "En este asunto no se concede: no hay EFECTOS; toda pieza es un párrafo."}
 
@@ -694,11 +719,9 @@ LÍMITES:
 CÓMO LO ENTREGAS — cada pieza en su propio renglón, y nada más:
 - el párrafo empieza con la marca del argumento: su identificador entre ⟦ y ⟧, como en el
   estudio;
-- la orden para los efectos empieza con la palabra EFECTO, un espacio y la marca, sin número;
-- el argumento que no lleva pieza va en un renglón que empieza con las palabras SIN PIEZA, un
-  espacio y su marca, y sigue con la razón en una frase.
-Cada argumento de la lista queda en una pieza, sola o compartida, o en un renglón SIN PIEZA:
-ninguno se queda fuera, y ninguno pierde su dato por compartir su pieza.
+- la orden para los efectos empieza con la palabra EFECTO, un espacio y la marca, sin número.
+Cada argumento de la lista queda en una pieza, sola o compartida: ninguno se queda fuera, y
+ninguno pierde su dato por compartirla.
 
 ═══════════════════════════════════════════════════════════════════════
 EL CRITERIO DEL SECRETARIO
@@ -750,9 +773,9 @@ def parsear(texto: str, pedidos: list) -> tuple:
     for ln in (texto or "").split("\n"):
         if not ln.strip():
             continue
-        # LA TERCERA RESPUESTA (revisión adversarial, 26-sep-2026): el
-        # argumento que la concesión ya deja sin nada que resolver. No se
-        # inserta nada; sólo se anota para el aviso.
+        # «SIN PIEZA» (revisión adversarial, 26-sep-2026): el prompt ya no lo
+        # ofrece —el modelo lo usó de excusa en 174/2026 A—, pero si lo
+        # escribe por su cuenta no se inserta nada y el aviso lo nombra.
         ms = _RX_SIN_PIEZA.match(ln)
         if ms:
             sin_pieza.extend(x for x in _mc.ids_de(ms.group(1)[1:-1])

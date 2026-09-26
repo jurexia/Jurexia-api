@@ -67,24 +67,19 @@ for forma in ("estandar", "moderna"):
        and "valen SÓLO para lo que el CRITERIO DEL SECRETARIO decidió así" in p2,
        f"v2/{forma}: la escala vale sólo para lo que el criterio decidió así")
     # REVISIÓN ADVERSARIAL (26-sep-2026): la decisión del secretario está en su
-    # calificación Y en su razón; el mayor beneficio del 189 no va a los
-    # EFECTOS; y la inoperancia de un argumento concreto no se ata al criterio
-    # (la regla era sobre el «sin materia», no sobre la inoperancia).
+    # calificación Y en su razón (el mayor beneficio del 189 que él decida se
+    # respeta), y la inoperancia de un argumento concreto no se ata al
+    # criterio (la regla era sobre el «sin materia», no sobre la inoperancia).
+    # NO se describe el mayor beneficio como salida: invita la excusa del
+    # «beneficio adicional» (medido en la reparación, 174/2026 A).
     _p2n = " ".join(p2.split())
     ok("salvo que la razón del secretario lo diga de ese argumento" in _p2n,
        f"v2/{forma}: la razón del secretario también decide el sin estudio")
-    ok("DISTINTO ES EL MAYOR BENEFICIO del artículo 189 de la Ley de Amparo" in _p2n
-       and "no se nombra en los EFECTOS" in _p2n,
-       f"v2/{forma}: el mayor beneficio (art. 189) se dice con su razón y no va a los EFECTOS")
+    _ning = _p2n[_p2n.index("NINGÚN ARGUMENTO SE DECLARA"):_p2n.index("ESTO NO ES RECORTAR")]
+    ok("beneficio adicional ninguno" in _ning and "mayor beneficio" not in _ning.lower(),
+       f"v2/{forma}: la regla no ofrece el mayor beneficio como salida propia del estudio")
     ok("· INOPERANTE: de uno a tres párrafos" in _p2n and "así calificado en el criterio" not in _p2n,
        f"v2/{forma}: la inoperancia de un argumento no se ata al criterio")
-    _p2r = " ".join(f6.prompt_estudio(
-        "ACTO", "CONC", C_CONC, f6.Material(tipo_asunto="revision_fiscal", materia="civil", formato=forma,
-                                            problemas=P_CONC, n_planteamientos=2, variante="v2"),
-        es_recurso=True).split())
-    ok("MAYOR BENEFICIO del artículo 189" not in _p2r and "NINGÚN ARGUMENTO SE DECLARA" in _p2r,
-       f"v2/{forma}: en un recurso, sin el 189 (es del amparo directo)")
-    ok("MAYOR BENEFICIO del artículo 189" not in p1, f"v1/{forma}: tampoco el 189 nuevo")
     ok("se NOMBRA en los\n  EFECTOS, con su dato" in p2 or "se NOMBRA en los EFECTOS" in " ".join(p2.split()),
        f"v2/{forma}: lo que la concesión deja a la responsable se nombra en los EFECTOS")
     ok("sus argumentos con dato propio se nombran en los EFECTOS" in p2,
@@ -303,21 +298,30 @@ _real = [  # las órdenes que el modelo escribió en la calibración real pasan 
 ok(not any(X.guardas(["C1.b"], t, True, ESTUDIO, POR, REP) for t in _real),
    "las órdenes reales de la calibración no tropiezan con las guardas nuevas")
 
-# LA TERCERA RESPUESTA: el mayor beneficio.
+# EL MAYOR BENEFICIO: fuera del modelo. La salida «SIN PIEZA» se probó y el
+# modelo la usó de excusa en 174/2026 A (llamada 12 de 12): el prompt no la
+# ofrece; el caso legítimo del 189 se filtra antes, sin modelo.
 pr_ad = " ".join(pr.split())
-ok("NINGUNA PIEZA" in pr_ad and "SIN PIEZA" in pr_ad and "artículo 189 de la Ley de Amparo" in pr_ad,
-   "el prompt describe la tercera respuesta (mayor beneficio, art. 189) y cómo se entrega")
-ok("lo haya declarado innecesario el criterio o no" in pr_ad and
-   "cuando el criterio del problema al que pertenece el argumento lo declaró innecesario, o" not in pr_ad,
-   "la orden de EFECTOS ya no se pide por el solo hecho de que el criterio diga innecesario")
-_pr_rf = X.prompt_reparacion(ESTUDIO, CRIT, f6.Material(tipo_asunto="revision_fiscal", variante="v3",
-                                                         inventario=SEGS, problemas=PROB), FALTAN, "")
-ok("artículo 189" not in _pr_rf and "NINGUNA PIEZA" in _pr_rf, "en un recurso, la tercera respuesta sin el 189")
+ok("SIN PIEZA" not in pr_ad and "NINGUNA PIEZA" not in pr_ad and "189" not in pr_ad,
+   "el prompt de la reparación no ofrece una salida de «no hace falta»")
+ok("no va a los EFECTOS: lleva su párrafo" in pr_ad,
+   "y dice que lo que el criterio desestima no va a los EFECTOS (la guarda lo exige igual)")
 _sal_sp = ("SIN PIEZA ⟦C1.b⟧ La concesión ya le da lo que pide.\n"
            "EFECTO ⟦C2.a⟧ Al dictar la nueva resolución, valore la pericial en informática y la fiabilidad de "
            "la plataforma bancaria que la institución de crédito ofreció.\n")
 _p, _e, _d, _s = X.parsear(_sal_sp, ["C1.b", "C2.a"])
-ok(_s == ["C1.b"] and [i for i, _ in _e] == [["C2.a"]] and not _p, "el parser lee SIN PIEZA aparte de las piezas")
+ok(_s == ["C1.b"] and [i for i, _ in _e] == [["C2.a"]] and not _p,
+   "si el modelo escribe SIN PIEZA por su cuenta, el parser no lo inserta y lo anota aparte")
+_CRIT_189 = [CRIT[0], f6.Criterio(CRIT[1].problema, "innecesario",
+                                  "La concesión por el primero da mayor beneficio (art. 189).", "accesorio")]
+ok([f["id"] for f in X.revisar_texto(ESTUDIO, SEGS, _CRIT_189, PROB)["sin_dato"]] == ["C1.b"]
+   and [f["id"] for f in X.revisar_texto(ESTUDIO, SEGS, CRIT, PROB)["sin_dato"]] == ["C1.b", "C2.a"],
+   "si la RAZÓN DEL SECRETARIO invoca el mayor beneficio, ese argumento no se repara (la declaración es suya)")
+ok(X.sin_mayor_beneficio([{"id": "C2.a"}], SEGS,
+                         [CRIT[0], f6.Criterio(CRIT[1].problema, "innecesario",
+                                               "Sin materia; el estudio dirá que no da beneficio adicional.")],
+                         PROB) == [{"id": "C2.a"}],
+   "«beneficio adicional» no es «mayor beneficio»: sólo cuenta lo que el secretario invoca")
 
 
 class _Resp:
