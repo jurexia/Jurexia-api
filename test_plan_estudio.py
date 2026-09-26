@@ -1105,6 +1105,16 @@ _ds = mutar(lambda d: (d["segmentos"].append(
 _rs, _ = _rep(_ds, c=crit(s1="fundado"))
 ok(any("S1.a" in a and "79, último párrafo" in a for a in _rs["avisos_al_secretario"]),
    "art. 79, último párrafo: suplir una procesal habiendo vicio de fondo que prospera se avisa")
+# (c2) La excepción del art. 189 es una concesión DE FONDO: una de
+# procedencia que prospera no deja una procesal sin estudiar en silencio.
+_fpr = fases(problemas=[{"pregunta": PREG1, "cubre": [1, 3], "clase": "procedencia", "jerarquia": "principal"},
+                        {"pregunta": PREG2, "cubre": [2], "clase": "procesal", "jerarquia": "accesorio"}])
+_dpr = mutar(lambda d: (seg(d, "C2.a").update(etiqueta="innecesario", razon="innecesario_mayor_beneficio",
+                                              trat="no_se_estudia", vicio="procesal"),
+                        [seg(d, x).update(etiqueta="fundado", razon="fundado") for x in ("C1.a", "C1.b", "C3.a", "C3.b")]))
+_rpr, _ = _rep(_dpr, c=crit(s1="fundado", s2="innecesario", r2="Queda sin materia."), f=_fpr)
+ok(any("C2.a" in a and "74" in a for a in _rpr["avisos_al_secretario"]),
+   "una procedencia que prospera no es la concesión de fondo del art. 189: la procesal sin estudio se avisa")
 # (d) Un argumento del escrito no desaparece por el tratamiento.
 _d = mutar(lambda d: seg(d, "C1.b").update(trat="no_se_expresa_art79"))
 ok(any("C1.b" in x and "no_se_expresa_art79" in x for x in _v0(_d)),

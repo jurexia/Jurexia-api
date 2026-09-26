@@ -963,8 +963,11 @@ class _Ctx:
         self.tocados = {_clave_texto(t) for t in (tocados or [])}
         self.suplencia = suplencia if isinstance(suplencia, dict) else {}
         self.hay_escrito = bool(self.escrito)
+        # LA ÚNICA EXCEPCIÓN DEL ART. 189 es una concesión DE FONDO (Decisión
+        # 1 de David). Un problema de procedencia que prospera no lo es: antes
+        # contaba (`!= "procesal"`) y dejaba pasar una procesal sin estudiar.
         self.alguno_prospera_fondo = any(
-            clase_sentido(p["sentido"]) == PROSPERA and p["clase"] != "procesal"
+            clase_sentido(p["sentido"]) == PROSPERA and p["clase"] == "fondo"
             for p in self.probs)
         self.alguno_prospera = any(clase_sentido(p["sentido"]) == PROSPERA for p in self.probs)
 
