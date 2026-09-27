@@ -331,7 +331,10 @@ for forma in ("estandar", "moderna"):
         # inoperancia del criterio. Y OTRA (p2-congruencia, 26-sep-2026): la
         # calificación en el párrafo de la apertura, la de cada argumento dentro
         # del sentido de su problema y la extensión sin cifra que alcanzar; el
-        # diff son sólo esos pasajes (test_congruencia.py lo comprueba).
+        # diff son sólo esos pasajes (test_congruencia.py lo comprueba). Y OTRA
+        # (acuerdos-efectos, 27-sep-2026): los EFECTOS de tres a cinco órdenes
+        # breves en infinitivo, y ninguno en la revisión fiscal, que no concede
+        # amparo; el diff es sólo ese bloque.
         ok(ahora == antes, f"v2 {etiq}/{forma}: idéntica, byte por byte, a su instantánea")
         con_inv = f6.prompt_estudio(ACTO, CONC, C93, mat(forma, "v2", tipo, inventario=segs),
                                     es_recurso=rec, escrito_literal=esc)

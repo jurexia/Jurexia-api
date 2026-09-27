@@ -704,9 +704,12 @@ HUELLAS = {
     # secretario y la inoperancia suelta. Y en p2-congruencia (26-sep-2026):
     # la calificación en el párrafo de la apertura, la de cada argumento
     # dentro del sentido de su problema y la extensión sin cifra que alcanzar
-    # (test_congruencia.py). La v1 no se mueve.
-    ("v2", "estandar"): "eb6de1a07cb08082f7d8b11fc3aea495795b2e634e65f4285cb313ce074c7a97",
-    ("v2", "moderna"): "c83d818af9f805be0f41e481a421783a7c2f097cb7974743062fb84c4e7f0ec4",
+    # (test_congruencia.py). La v1 no se mueve. Y en acuerdos-efectos
+    # (27-sep-2026): los EFECTOS de tres a cinco órdenes breves en infinitivo,
+    # sin frase de introducción, porque la apertura con el artículo 77 la pone
+    # el documento; el diff contra la anterior es sólo ese bloque.
+    ("v2", "estandar"): "e1dba05e34399b9ec37b6b1175651e31d8e73e92db7abd6ef9bde7f46795186f",
+    ("v2", "moderna"): "3ec71df89c1523bec320724449d7f487e34ea4bda5da0521c15b5aad01fe05a4",
 }
 
 

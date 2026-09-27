@@ -606,6 +606,28 @@ CIERRE = {
 }
 
 
+# LOS EFECTOS ABREN CON SU FUNDAMENTO Y CUELGAN DE «DEBERÁ:» (27-sep-2026).
+# David: «inicia con "Efectos. 1. Deje insubsistente…" cuando debería decir:
+# "Efectos. Con fundamento en el artículo … de la Ley de Amparo, la autoridad
+# responsable deberá: …", con efectos más reducidos pero que comprendan el
+# objetivo de la concesión. Regularmente los efectos son 3 a máximo 5 en
+# función de la complejidad del caso».
+#
+# EL PRECEPTO ES EL 77. Es el que manda que «en el último considerando de la
+# sentencia que conceda el amparo» se determinen con precisión los efectos; el
+# 93 son las reglas con que el colegiado resuelve la REVISIÓN. En su propio
+# banco, la apertura que funda los efectos lo hace con el 77 («Efectos del fallo
+# protector. De conformidad con el artículo 77 de la Ley de Amparo…») y los
+# encabezados de resolutivo que los apoyan citan el 77.
+#
+# Y LAS ÓRDENES VAN EN INFINITIVO: cuelgan de «deberá:». «Deberá: 1. Deje
+# insubsistente…» no concuerda; «deberá: 1. Dejar insubsistente…» sí, y es como
+# lo escribe el esqueleto medido del banco (`ad-c6-efectos`).
+APERTURA_EFECTOS = ("Con fundamento en el artículo 77 de la Ley de Amparo, la "
+                    "autoridad responsable deberá:")
+EFECTOS_MIN, EFECTOS_MAX = 3, 5
+
+
 def cierre_de(tipo: str) -> dict:
     return CIERRE.get(normalizar(tipo), CIERRE["amparo_directo"])
 
@@ -616,8 +638,14 @@ def parrafo_cierre(tipo: str, concede: bool, calificacion: str = "") -> str:
     c = cierre_de(tipo)
     desenlace = c["positivo"] if concede else c["negativo"]
     if concede:
-        return (f"En ese sentido, al resultar {calificacion or 'fundado'} "
-                f"lo planteado, lo procedente es {desenlace}.")
+        # «AL RESULTAR FUNDADOS LO PLANTEADO» no concuerda: la calificación
+        # llega en plural («fundados», «esencialmente fundados») y el sujeto
+        # era singular. El sujeto es el del tipo, como en la rama negativa.
+        _cal = (calificacion or "fundados").strip()
+        if not _cal.split()[-1].endswith("s"):
+            _cal = _cal + "s"
+        return (f"En ese sentido, al resultar {_cal} los {v['combate']} "
+                f"planteados, lo procedente es {desenlace}.")
     return (f"En ese sentido, ante la ineficacia de los {v['combate']} "
             f"planteados, lo procedente es {desenlace}.")
 

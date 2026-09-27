@@ -718,10 +718,12 @@ QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
   responsable tendrá que volver a resolver por la concesión: una orden que nombra lo que el
   argumento plantea —el hecho, la prueba, el precepto o el precedente que trae—, no la omisión
   que se le reprocha a la responsable, entre lo que ella deberá examinar al volver a resolver.
-  En imperativo y en la misma persona gramatical que las órdenes que ya están en los EFECTOS,
-  sobre qué recae, verificable en la ejecución, y sin adelantar el resultado.
-  Si varios argumentos de la lista los examinará la responsable en el mismo acto, UNA sola
-  orden los nombra a todos, cada uno con su dato, y su marca lleva todos sus identificadores.
+  En INFINITIVO, como las órdenes que ya están en los EFECTOS —cuelgan de la frase con que el
+  documento los abre, la autoridad responsable deberá—, en una oración breve: sobre qué recae,
+  verificable en la ejecución, y
+  sin adelantar el resultado. Los efectos no pasan de cinco órdenes: si varios argumentos de
+  la lista los examinará la responsable en el mismo acto, UNA sola orden los nombra a todos,
+  cada uno con su dato, y su marca lleva todos sus identificadores.
 - EL PÁRRAFO QUE LO CONTESTA, cuando su criterio es de fondo y la concesión no alcanza lo que
   el argumento combate —ataca una consideración que queda en pie—, o cuando no hay concesión:
   la razón y la calificación que el criterio fija para su problema, aplicadas a su dato propio.
@@ -780,7 +782,9 @@ SIN_ESTUDIO = {"innecesario", "sin_materia"}
 # considere o «al emitir la nueva sentencia, examine…»; ninguna casa aquí.
 _RX_RESULTADO = re.compile(
     r"\b(?:condene|absuelva|conceda|otorgue|niegue|reconozca|revoque|confirme|decrete|"
-    r"declare\s+(?:procedente|improcedente|fundad\w*|infundad\w*|la\s+nulidad|nul\w+|"
+    # EN INFINITIVO desde el 27-sep-2026: las órdenes cuelgan de «deberá:».
+    r"condenar|absolver|conceder|otorgar|negar|reconocer|revocar|confirmar|decretar|"
+    r"(?:declare|declarar)\s+(?:procedente|improcedente|fundad\w*|infundad\w*|la\s+nulidad|nul\w+|"
     r"prescrit\w*|la\s+prescripci\w+|la\s+caducidad|caduc\w+|probad\w+|acreditad\w+))\b", re.I)
 
 

@@ -2936,6 +2936,220 @@ def partir_efectos(estudio: list) -> tuple:
     return cuerpo, efectos
 
 
+# ═══ LAS ÓRDENES DE EFECTOS CUELGAN DE «DEBERÁ:» ══════════════════════════
+# David, 27-sep-2026: el considerando salía «Efectos. 1. Deje insubsistente…»
+# —la primera orden pegada al rótulo, sin fundamento y sin sujeto—, y debe
+# decir «Efectos. Con fundamento en el artículo 77 de la Ley de Amparo, la
+# autoridad responsable deberá:» seguido de tres a cinco órdenes. La apertura
+# la pone el documento (`tipos_asunto.APERTURA_EFECTOS`); el modelo escribe las
+# órdenes, y aquí se ordenan: una por párrafo, numeradas, en infinitivo.
+#
+# EL INFINITIVO SE PIDE EN EL PROMPT Y SE ASEGURA AQUÍ, porque una sesión
+# anterior —o la v1— trae las órdenes en subjuntivo, y «deberá: 1. Deje» no
+# concuerda. La conversión es sólo del PRIMER verbo de cada orden de primer
+# nivel, y sólo de los que están en esta tabla: un verbo que no conozco se deja
+# como vino (un subjuntivo que sobrevive se lee; un infinitivo inventado, no).
+# Los incisos de segundo nivel NO se tocan: cuelgan de «en la que:» y ahí el
+# subjuntivo es lo correcto («emitir una nueva en la que: a) reitere…»).
+_INFINITIVO = {
+    "deje": "dejar", "dicte": "dictar", "emita": "emitir", "reitere": "reiterar",
+    "analice": "analizar", "examine": "examinar", "estudie": "estudiar",
+    "resuelva": "resolver", "reponga": "reponer", "admita": "admitir",
+    "corra": "correr", "emplace": "emplazar", "desahogue": "desahogar",
+    "abra": "abrir", "valore": "valorar", "funde": "fundar", "motive": "motivar",
+    "precise": "precisar", "determine": "determinar", "explique": "explicar",
+    "señale": "señalar", "mantenga": "mantener", "conserve": "conservar",
+    "confronte": "confrontar", "atienda": "atender", "provea": "proveer",
+    "ordene": "ordenar", "realice": "realizar", "practique": "practicar",
+    "cite": "citar", "notifique": "notificar", "requiera": "requerir",
+    "verifique": "verificar", "continúe": "continuar", "continue": "continuar",
+    "subsane": "subsanar", "tome": "tomar", "considere": "considerar",
+    "califique": "calificar", "fije": "fijar", "cuantifique": "cuantificar",
+    "calcule": "calcular", "cumpla": "cumplir", "restituya": "restituir",
+    "devuelva": "devolver", "pague": "pagar", "reintegre": "reintegrar",
+    "cancele": "cancelar", "levante": "levantar", "reciba": "recibir",
+    "prescinda": "prescindir", "omita": "omitir", "aplique": "aplicar",
+    "inaplique": "inaplicar", "declare": "declarar", "reconozca": "reconocer",
+    "condene": "condenar", "absuelva": "absolver", "conceda": "conceder",
+    "niegue": "negar", "revoque": "revocar", "confirme": "confirmar",
+    "modifique": "modificar", "decrete": "decretar", "sobresea": "sobreseer",
+    "responda": "responder", "conteste": "contestar", "pondere": "ponderar",
+    "identifique": "identificar", "individualice": "individualizar",
+    "integre": "integrar", "recabe": "recabar", "solicite": "solicitar",
+    "remita": "remitir", "deseche": "desechar", "regularice": "regularizar",
+    "amplíe": "ampliar", "acuerde": "acordar", "celebre": "celebrar",
+    "proceda": "proceder", "siga": "seguir",
+    "prosiga": "proseguir", "repare": "reparar", "haga": "hacer",
+    "vuelva": "volver", "prevenga": "prevenir", "incluya": "incluir",
+    "excluya": "excluir", "tenga": "tener", "reponga": "reponer",
+    "dé": "dar", "emplace": "emplazar", "exponga": "exponer",
+    "establezca": "establecer", "evalúe": "evaluar", "evalue": "evaluar",
+    "abstenga": "abstenerse", "pronuncie": "pronunciarse", "ocupe": "ocuparse",
+    "avoque": "avocarse", "allegue": "allegarse",
+    "pronúnciese": "pronunciarse", "ocúpese": "ocuparse",
+    "absténgase": "abstenerse",
+}
+# Los que se conjugan con «se» delante: «se pronuncie» → «pronunciarse».
+_CON_SE = {"abstenga", "pronuncie", "ocupe", "avoque", "allegue"}
+
+_RX_ITEM_NUM = re.compile(r"^\s*(\d{1,2})\s*[.)\-–]\s*(.+)$", re.S)
+_RX_ITEM_LETRA = re.compile(r"^\s*([a-z])\s*\)\s*(.+)$", re.S)
+_RX_ITEM_VIÑETA = re.compile(r"^\s*[-•*–]\s+(.+)$", re.S)
+# «La autoridad responsable, Segunda Sala…, deberá dejar…» / «Acto seguido,
+# deberá emitir…»: el sujeto y el «deberá» ya los pone la apertura.
+_RX_DEBERA = re.compile(r"^(?P<pre>[^:;]{0,200}?)\bdeber[áa]\s+(?=\w+(?:ar|er|ir)(?:se)?\b)", re.I)
+# La introducción que el propio modelo escribe antes de la lista.
+_RX_INTRO_EFECTOS = re.compile(
+    r":\s*$|para\s+(?:el|los)\s+efectos?\s+(?:siguientes|de\s+que)|lo\s+siguiente\s*[:.]?\s*$",
+    re.I)
+
+
+def _a_infinitivo(texto: str) -> tuple:
+    """(texto, convertido). El primer verbo de la orden —o el primero tras una
+    frase de enlace corta: «Hecho lo anterior, dicte…» → «…, dictar…»— y los
+    que se coordinan con él antes de cualquier subordinada («admitir la
+    ampliación y provea» → «y proveer»). Desde el primer «que» no se toca nada:
+    «emitir otra en la que examine…» lleva el subjuntivo que le corresponde."""
+    t = (texto or "").strip()
+    convertido = False
+    m = _RX_DEBERA.match(t)
+    if m:
+        pre = m.group("pre").strip()
+        resto = t[m.end():]
+        # Si lo que precede es el sujeto («La autoridad responsable, …,»), sobra;
+        # si es una frase de enlace corta («Acto seguido,»), se queda. Cualquier
+        # otra cosa es un «deberá» DENTRO de la orden («emita otra en la que
+        # deberá analizar…») y no se toca.
+        sujeto = re.match(r"^(?:la|el)\s+(?:autoridad|sala|juez|jueza|tribunal|junta|"
+                          r"responsable|magistrad)", pre, re.I)
+        enlace = pre.endswith(",") and len(pre) <= 60
+        if not pre or sujeto or enlace:
+            t = resto if (not pre or sujeto) else f"{pre} {resto}"
+            convertido = True
+
+    def _inf(palabra, se):
+        clave = palabra.lower()
+        inf = _INFINITIVO.get(clave)
+        if not inf or (se and clave not in _CON_SE):
+            return None
+        return inf
+
+    _PAL = r"[A-Za-zÁÉÍÓÚÑáéíóúñü]+"
+    # 1 · EL PRIMER VERBO. Si la orden ya empieza en infinitivo, se respeta.
+    m0 = re.match(rf"^(?P<se>se\s+)?(?P<v>{_PAL})\b", t, re.I)
+    ya_infinitivo = bool(m0 and not m0.group("se")
+                         and re.fullmatch(r"\w+(?:ar|er|ir)(?:se|lo|la|los|las)?", m0.group("v"), re.I))
+    if m0 and not ya_infinitivo:
+        inf = _inf(m0.group("v"), bool(m0.group("se")))
+        if inf:
+            t = inf + t[m0.end():]
+            convertido = True
+        else:
+            m1 = re.match(rf"^(?P<pre>[^,;:]{{2,80}},\s*)(?P<se>se\s+)?(?P<v>{_PAL})\b", t, re.I)
+            if m1 and not re.search(r"\bque\b", m1.group("pre"), re.I):
+                inf = _inf(m1.group("v"), bool(m1.group("se")))
+                if inf:
+                    t = m1.group("pre") + inf + t[m1.end():]
+                    convertido = True
+                elif not m1.group("se") and re.fullmatch(
+                        r"\w+(?:ar|er|ir)(?:se|lo|la|los|las)?", m1.group("v"), re.I):
+                    convertido = True       # «Hecho lo anterior, dictar…»
+    elif ya_infinitivo:
+        convertido = True
+    # 2 · LOS COORDINADOS, hasta la primera subordinada.
+    corte = re.search(r"\bque\b", t, re.I)
+    cabeza, cola = (t[:corte.start()], t[corte.start():]) if corte else (t, "")
+
+    def _coord(mm):
+        inf = _inf(mm.group("v"), bool(mm.group("se")))
+        return f"{mm.group('enl')}{inf}" if inf else mm.group(0)
+    cabeza = re.sub(rf"(?P<enl>(?:(?:,\s*|\s+)(?:y|e)\s*,\s*[^,;:]{{2,60}},\s*|,\s*(?:y\s+|e\s+)?|\s+(?:y|e)\s+))"
+                    rf"(?P<se>se\s+)?(?P<v>{_PAL})\b", _coord, cabeza)
+    t = cabeza + cola
+    return (t[:1].upper() + t[1:] if t else t), convertido
+
+
+def _cierra_orden(t: str) -> str:
+    """Cada orden termina en punto; la que abre incisos, en dos puntos."""
+    t = (t or "").rstrip()
+    if t.endswith(":"):
+        return t
+    t = re.sub(r"[;,]\s*(?:y|e)?\s*$", "", t).rstrip()
+    return t if t.endswith((".", "»", "”", "\"")) else t + "."
+
+
+def componer_efectos(parrafos: list) -> tuple:
+    """(órdenes, avisos). Las órdenes de primer nivel, numeradas «1.», «2.»… y
+    en infinitivo; los incisos y los párrafos de continuación, en su sitio.
+    Vacío si no hay una sola orden reconocible (entonces los efectos vinieron
+    en prosa y se escriben como vinieron)."""
+    ps = [str(x).strip() for x in (parrafos or []) if str(x or "").strip()]
+    if not ps:
+        return [], []
+    hay_num = any(_RX_ITEM_NUM.match(x) for x in ps)
+    hay_letra = any(_RX_ITEM_LETRA.match(x) for x in ps)
+    hay_viñeta = any(_RX_ITEM_VIÑETA.match(x) for x in ps)
+
+    def _primer_nivel(x):
+        if hay_num:
+            m = _RX_ITEM_NUM.match(x)
+        elif hay_letra:
+            m = _RX_ITEM_LETRA.match(x)
+        elif hay_viñeta:
+            m = _RX_ITEM_VIÑETA.match(x)
+            return m.group(1) if m else None
+        else:
+            return None
+        return m.group(2) if m else None
+
+    # La introducción que el modelo haya escrito delante de la lista sobra: la
+    # apertura del documento dice ya quién debe y con qué fundamento.
+    intro = False
+    while ps and _primer_nivel(ps[0]) is None and len(ps[0]) < 400 \
+            and _RX_INTRO_EFECTOS.search(ps[0]):
+        ps, intro = ps[1:], True
+    if not (hay_num or hay_letra or hay_viñeta):
+        # SIN MARCAS, UNA ORDEN POR PÁRRAFO —así las escribe el ADA 767/2025:
+        # «realice lo siguiente:» y tres párrafos sin número—. Sólo si hubo esa
+        # introducción o son varias; un párrafo suelto es prosa.
+        if not ps or not (intro or len(ps) > 1):
+            return [], []
+        _primer_nivel = (lambda x: x)
+    ordenes, n, sin_convertir = [], 0, 0
+    for x in ps:
+        cuerpo = _primer_nivel(x)
+        if cuerpo is None:
+            # Inciso o continuación de la orden anterior: se queda como vino.
+            ordenes.append(x)
+            continue
+        n += 1
+        cuerpo, ok = _a_infinitivo(cuerpo)
+        if not ok and not re.match(r"^\S+(?:ar|er|ir)(?:se|lo|la|los|las)?\b", cuerpo, re.I):
+            sin_convertir += 1
+        ordenes.append(f"{n}. {_cierra_orden(cuerpo[:1].upper() + cuerpo[1:])}")
+    avisos = []
+    import tipos_asunto as _ta_ef
+    if n > _ta_ef.EFECTOS_MAX:
+        avisos.append(
+            f"LOS EFECTOS SON {n} ÓRDENES y lo habitual es de "
+            f"{_ta_ef.EFECTOS_MIN} a {_ta_ef.EFECTOS_MAX}. Fusione las que recaen "
+            f"sobre el mismo acto o la misma decisión: juntas deben comprender el "
+            f"objetivo de la concesión, no repetir el estudio.")
+    palabras = sum(len(o.split()) for o in ordenes)
+    larga = max((len(o.split()) for o in ordenes), default=0)
+    if palabras > 250 or larga > 60:
+        avisos.append(
+            f"LOS EFECTOS SUMAN {palabras} PALABRAS"
+            + (f" y alguna orden pasa de sesenta" if larga > 60 else "")
+            + ". Cada orden dice qué hacer, no por qué: las razones ya están en "
+              "el estudio. Acórtelos antes de firmar.")
+    if sin_convertir:
+        avisos.append(
+            "REVISE LA CONCORDANCIA DE LOS EFECTOS: cuelgan de «la autoridad "
+            "responsable deberá:» y alguna orden no empieza en infinitivo.")
+    return ordenes, avisos
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # EL ESTUDIO DE LOS CONCEPTOS DE VIOLACIÓN ES UN CONSIDERANDO, NO UN SUBTÍTULO
 # ══════════════════════════════════════════════════════════════════════════
@@ -4537,6 +4751,36 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         elif not _ta.cierre_de(tipo_asunto)["efectos"]:
             parrafo(doc, _ta.parrafo_cierre(tipo_asunto, True,
                                             _calificacion_plural(cs)))
+            _efectos_de_la_revision()
+
+    def _efectos_de_la_revision():
+        """EN LA REVISIÓN QUE CONCEDE, LOS EFECTOS CIERRAN EL ÚLTIMO CONSIDERANDO
+        (27-sep-2026). `partir_efectos` los sacaba del estudio en los cuatro
+        tipos y sólo el amparo directo los volvía a escribir: si el colegiado
+        revocaba y concedía —o modificaba los efectos—, el resolutivo remitía a
+        «los efectos precisados en el último considerando» y el documento no
+        tenía ninguno. Van aquí, bajo su subtítulo, porque el último
+        considerando es a donde apuntan los puntos resolutivos de la revisión;
+        un considerando propio correría el ordinal que el corpus no tiene."""
+        if _ta.normalizar(tipo_asunto) != "amparo_revision" or not _efectos_escritos:
+            return
+        import fase_rama as _fr_ef
+        _txt_ef = " ".join(str(x) for x in (estudio or []))
+        if not (_fr_ef.sentido_en_plenitud(_txt_ef) == "concede"
+                or _fr_ef.solo_los_efectos(_txt_ef)):
+            return
+        _ords, _avs = componer_efectos(_efectos_escritos)
+        _avisos_bk.extend(_avs)
+        _subtitulo(doc, "Efectos de la concesión")
+        if _ords:
+            parrafo(doc, _ta.APERTURA_EFECTOS)
+            for _o in _ords:
+                if sin_andamio(_o).strip():
+                    parrafo(doc, sin_andamio(_o).strip())
+        else:
+            for _x in _efectos_escritos:
+                if sin_andamio(_x).strip():
+                    parrafo(doc, sin_andamio(_x).strip())
 
     def _estudio(p):
         calif = _calificacion_plural(cs)
@@ -4733,17 +4977,42 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
     if _extemp:
         pass          # no hay efectos de una concesión que no existe
     elif concede and _ta.cierre_de(tipo_asunto)["efectos"]:
+        # «EFECTOS. CON FUNDAMENTO EN EL ARTÍCULO 77…, LA AUTORIDAD RESPONSABLE
+        # DEBERÁ:» y debajo las órdenes (David, 27-sep-2026). La apertura
+        # continúa el rótulo; cada orden va en su párrafo.
+        _ordenes_ef, _avisos_ef = componer_efectos(_efectos_escritos)
+        _avisos_bk.extend(_avisos_ef)
+        if not _efectos_escritos:
+            # SIN EFECTOS ESCRITOS, EL ESQUELETO CON SU HUECO. La fórmula de
+            # antes —«dicte otra en la que atienda los lineamientos de esta
+            # ejecutoria»— no se puede ejecutar sin interpretarla, y el banco lo
+            # dice sin rodeos: un párrafo de efectos genérico es peor que el
+            # esqueleto vacío, porque el mandato del caso es justo donde va el
+            # criterio del secretario.
+            _ordenes_ef = [
+                "1. Dejar insubsistente la sentencia reclamada.",
+                f"2. Emitir una nueva en la que reitere lo que no fue materia de "
+                f"la concesión y {HUECO}.",
+                "3. Hecho lo anterior, resolver con plenitud de jurisdicción lo "
+                "que en derecho corresponda."]
+            _avisos_bk.append(
+                "LOS EFECTOS VAN CON UN HUECO: el estudio no los escribió. La "
+                "segunda orden debe decir qué tiene que decidir la responsable al "
+                "volver a resolver; complétala antes de firmar.")
+        elif not _ordenes_ef:
+            _avisos_bk.append(
+                "LOS EFECTOS VINIERON EN PROSA y no como órdenes: redáctalos "
+                "como «Con fundamento en el artículo 77 de la Ley de Amparo, la "
+                "autoridad responsable deberá:» y de tres a cinco órdenes "
+                "numeradas en infinitivo.")
+
         def _efectos(p):
-            if _efectos_escritos:
+            if _ordenes_ef:
+                _texto_en(p, _ta.APERTURA_EFECTOS, _ordenes_ef)
+            else:
+                # Vinieron en prosa, sin una sola orden reconocible: se escriben
+                # como vinieron y se avisa, que reescribirlos a ciegas es peor.
                 _texto_en(p, _efectos_escritos[0], _efectos_escritos[1:])
-                return
-            _texto_en(p,
-                      f"Consecuentemente, procede conceder el amparo y protección "
-                      f"de la Justicia Federal a {datos.get('quejoso','')} para el "
-                      f"efecto de que "
-                      f"{_con_articulo(datos.get('responsable','')) or HUECO} "
-                      f"deje insubsistente la sentencia reclamada y dicte otra en "
-                      f"la que atienda los lineamientos de esta ejecutoria.")
         con_apartados.append(("Efectos.", _efectos))
 
     _emitir(con_apartados)
