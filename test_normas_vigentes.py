@@ -140,6 +140,24 @@ for _n, _dias, _txt in ((dt.date(2025, 12, 5), 3, ""), (dt.date(2026, 7, 6), 3, 
     ok(_c.regla.dias_habiles == _dias and _txt in _c.regla.fundamento,
        f"Boletín del TFJA notificado el {_n.isoformat()}: surte al {_dias}º día hábil (art. 65 LFPCA y su Tercero transitorio)")
 
+print("\n4b · EL CÓMPUTO DE LA REVISIÓN FISCAL, CON EL CALENDARIO DEL TFJA")
+_rf = f0.computar(dt.date(2026, 1, 30), dt.date(2026, 2, 27), regla="lfpca_boletin", plazo=15,
+                  responsable="Sala Regional en Querétaro del Tribunal Federal de Justicia Administrativa",
+                  tipo_asunto="revision_fiscal")
+ok(f0.CALENDARIO_TFJA.es_habil(dt.date(2026, 2, 5)) and not f0.CALENDARIO_AMPARO.es_habil(dt.date(2026, 2, 5)),
+   "el 5 de febrero de 2026 es inhábil para el PJF (art. 19) pero hábil para el TFJA")
+ok(not f0.CALENDARIO_TFJA.es_habil(dt.date(2025, 12, 15)) and f0.CALENDARIO_AMPARO.es_habil(dt.date(2025, 12, 15)),
+   "el 15 de diciembre de 2025 es vacación del TFJA y hábil para el PJF")
+ok(_rf.surtio == dt.date(2026, 2, 5) and dt.date(2026, 2, 23) in _rf.inhabiles_en_medio,
+   "boletín del 30-ene-2026: surte el 5-feb (hábil para el TFJA) y descuenta la suspensión de la Sala de Querétaro (SRQ/01/2026)")
+_prf = f0.parrafo_oportunidad(_rf, "", "revision_fiscal")
+ok("artículo 74, fracción II, de la Ley Federal de Procedimiento Contencioso Administrativo" in _prf
+   and "SS/2/2026" in _prf and "artículo 19 de la Ley de Amparo" not in _prf,
+   "el considerando funda los inhábiles en el 74-II de la LFPCA y el acuerdo del TFJA, no en el 19 de la LA")
+_ad = f0.computar(dt.date(2026, 1, 23), dt.date(2026, 2, 20), regla="lfpca_boletin", plazo=15,
+                  responsable="Sala Regional", tipo_asunto="amparo_directo")
+ok(dt.date(2026, 2, 5) in _ad.inhabiles_en_medio, "el amparo directo sigue con el calendario del artículo 19")
+
 print("\n5 · PLAZOS DE AÑOS DEL ARTÍCULO 17 (fracciones II y III)")
 ok(ta.anios_de("amparo_directo", "penal_prision") == 8 and ta.anios_de("amparo_directo", "agrario_nucleo") == 7
    and ta.anios_de("amparo_directo", "") == 0, "ocho años (fr. II) y siete (fr. III); el plazo ordinario no es de años")
