@@ -156,7 +156,12 @@ def variante_global(tipo_asunto: str = "") -> str:
     Se lee en cada petición y no al importar, para que una prueba pueda
     cambiarla; en Render da igual, porque la variable sólo cambia con un
     despliegue."""
-    glob = normalizar_variante(os.getenv("ESTUDIO_PROMPT", "v1"), "v1")
+    # ENCENDIDA PARA TODOS (David, 26-sep-2026: «enciende ambas para todos»,
+    # tras la tercera medición ciega: en la moderna la v4 contesta más y con
+    # cinco veces menos omisiones graves; en la estándar, más argumentos
+    # autónomos, graves iguales y mucho menos repetición). `ESTUDIO_PROMPT=v1`
+    # la apaga sin tocar código (Render: con un despliegue).
+    glob = normalizar_variante(os.getenv("ESTUDIO_PROMPT", "v4"), "v4")
     if tipo_asunto:
         try:
             if _ta_p.normalizar(tipo_asunto) == "amparo_directo":

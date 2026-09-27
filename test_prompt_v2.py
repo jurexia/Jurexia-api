@@ -399,11 +399,11 @@ print("\n6 · LA VARIANTE: SÓLO CASA LA ELIGE, Y VIAJA POR EL MATERIAL")
 ok(f6.normalizar_variante("V2") == "v2" and f6.normalizar_variante("B") == "v2"
    and f6.normalizar_variante("a") == "v1" and f6.normalizar_variante("v9") == "",
    "se normaliza sin inventar ninguna")
-ok(f6.variante_global() == "v1", "sin ESTUDIO_PROMPT, la global es la v1")
+ok(f6.variante_global() == "v4", "sin ESTUDIO_PROMPT, la global es la v4 (encendida para todos, 26-sep-2026)")
 os.environ["ESTUDIO_PROMPT"] = "v2"
 ok(f6.variante_global() == "v2", "ESTUDIO_PROMPT=v2 la cambia para todos")
 os.environ["ESTUDIO_PROMPT"] = "tonteria"
-ok(f6.variante_global() == "v1", "un valor que no existe no apaga nada: v1")
+ok(f6.variante_global() == "v4", "un valor que no existe no apaga nada: v4")
 os.environ.pop("ESTUDIO_PROMPT", None)
 
 # Las funciones de main.py, tomadas del archivo y ejecutadas aparte: importar
@@ -429,8 +429,8 @@ _v = _ns["_taller_variante_estudio"]
 ok(_v("jdm.juridico@gmail.com", "v2") == "v2", "David pide la v2 → v2")
 ok(_v("administracion@iurexia.com", "v2") == "v2" and _v("soporte@iurexia.com", "B") == "v2",
    "administracion@ y soporte@ son de casa")
-ok(_v("secretario.piloto@gmail.com", "v2") == "v1", "un secretario del piloto pide v2 → se ignora, v1")
-ok(_v("jdm.juridico@gmail.com", "") == "v1" and _v("jdm.juridico@gmail.com", "v9") == "v1",
+ok(_v("secretario.piloto@gmail.com", "v2") == "v4", "un secretario del piloto pide v2 → se ignora, la global (v4)")
+ok(_v("jdm.juridico@gmail.com", "") == "v4" and _v("jdm.juridico@gmail.com", "v9") == "v4",
    "casa sin pedir, o pidiendo algo que no existe → la global")
 os.environ["ESTUDIO_PROMPT"] = "v2"
 ok(_v("secretario.piloto@gmail.com", "v1") == "v2", "con la global en v2, el piloto recibe v2 aunque pida v1")
@@ -456,14 +456,14 @@ ra._formato_al_material(r, m_v, None, C93)
 ok(m_v.variante == "v2", "el encargo con v2 pone la v2 en el material")
 r.encargo.variante_estudio = ""
 ra._formato_al_material(r, m_v, None, C93)
-ok(m_v.variante == "v1", "y la vuelta siguiente sin variante vuelve a la global: no se cuela la anterior")
+ok(m_v.variante == "v4", "y la vuelta siguiente sin variante vuelve a la global (v4): no se cuela la anterior")
 os.environ["ESTUDIO_PROMPT"] = "v2"
 ra._formato_al_material(r, m_v, None, C93)
 ok(m_v.variante == "v2", "sin variante en el encargo, manda ESTUDIO_PROMPT")
 os.environ.pop("ESTUDIO_PROMPT", None)
 del r.encargo.variante_estudio
 ra._formato_al_material(r, m_v, None, C93)
-ok(m_v.variante == "v1", "un encargo viejo, sin el campo, va con la global")
+ok(m_v.variante == "v4", "un encargo viejo, sin el campo, va con la global (v4)")
 
 # ═══════════════════════════════════════════════════════════════════════════
 print("\n7 · LOS DOS GEMELOS LA PASAN IGUAL")

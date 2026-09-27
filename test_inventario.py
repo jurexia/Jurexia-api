@@ -274,13 +274,13 @@ ok(all(f6._v2(types.SimpleNamespace(variante=v)) for v in ("v2", "v3", "v4"))
    and not f6._v2(types.SimpleNamespace(variante="v1")), "la v3 y la v4 son de la familia de la v2")
 ok([f6.con_inventario(types.SimpleNamespace(variante=v)) for v in f6.VARIANTES] == [False, False, True, True],
    "sólo la v3 y la v4 reciben el inventario")
-ok(f6.variante_global() == "v1" and f6.variante_global("amparo_directo") == "v1",
-   "sin variables, la global es la v1 (no se enciende nada en esta entrega)")
+ok(f6.variante_global() == "v4" and f6.variante_global("amparo_directo") == "v4",
+   "sin variables, la global es la v4 (encendida para todos, 26-sep-2026)")
 os.environ["ESTUDIO_PROMPT_AD"] = "v3"
-ok(f6.variante_global("amparo_directo") == "v3" and f6.variante_global("queja") == "v1"
-   and f6.variante_global() == "v1", "ESTUDIO_PROMPT_AD enciende sólo el amparo directo")
+ok(f6.variante_global("amparo_directo") == "v3" and f6.variante_global("queja") == "v4"
+   and f6.variante_global() == "v4", "ESTUDIO_PROMPT_AD manda sólo en el amparo directo")
 os.environ["ESTUDIO_PROMPT_AD"] = "tonteria"
-ok(f6.variante_global("amparo_directo") == "v1", "un valor que no existe: la global")
+ok(f6.variante_global("amparo_directo") == "v4", "un valor que no existe: la global")
 os.environ.pop("ESTUDIO_PROMPT_AD", None)
 
 # La instantánea de la v2, sacada de origin/main (de66e3d) con SU código, con
@@ -575,19 +575,19 @@ exec(compile(ast.Module(body=_piezas, type_ignores=[]), "main.py", "exec"), _ns)
 _v = _ns["_taller_variante_estudio"]
 ok(_v("administracion@iurexia.com", "v3") == "v3" and _v("soporte@iurexia.com", "v4") == "v4",
    "una cuenta de casa puede pedir la v3 y la v4")
-ok(_v("secretario.piloto@gmail.com", "v3") == "v1", "un secretario del piloto no")
+ok(_v("secretario.piloto@gmail.com", "v3") == "v4", "un secretario del piloto no elige: va con la global (v4)")
 # EL ENCENDIDO POR TIPO LLEGA DE VERDAD AL ENCARGO (revisión adversarial,
 # 26-sep-2026): antes la global se leía sin tipo y `ESTUDIO_PROMPT_AD` no
 # encendía nada.
 os.environ["ESTUDIO_PROMPT_AD"] = "v3"
 ok(_v("secretario.piloto@gmail.com", "", "amparo_directo") == "v3"
    and _v("secretario.piloto@gmail.com", "v2", "amparo_directo") == "v3"
-   and _v("secretario.piloto@gmail.com", "", "revision_fiscal") == "v1"
+   and _v("secretario.piloto@gmail.com", "", "revision_fiscal") == "v4"
    and _v("administracion@iurexia.com", "v2", "amparo_directo") == "v2",
    "con ESTUDIO_PROMPT_AD, el amparo directo sale con ella; los recursos, con la global; casa manda")
 os.environ.pop("ESTUDIO_PROMPT_AD", None)
-ok(_v("secretario.piloto@gmail.com", "", "amparo_directo") == "v1",
-   "sin la variable, lo de siempre")
+ok(_v("secretario.piloto@gmail.com", "", "amparo_directo") == "v4",
+   "sin la variable, la global (v4)")
 ok(SRC_MAIN.count('_taller_variante_estudio(\n            user_email, variante_estudio,\n'
                   '            getattr(r.encargo, "tipo_asunto", "") or "")') == 2,
    "los dos gemelos le pasan el tipo del encargo")

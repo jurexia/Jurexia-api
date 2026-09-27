@@ -35605,6 +35605,10 @@ async def taller_contexto_del_asunto(numero: str, user_email: str):
         "problema_global": f.problema_global or "",
         # DE QUÉ VA EL ASUNTO, contado de corrido. La tarjeta grande del paso 2.
         "relato": getattr(f, "relato", "") or "",
+        # CON QUÉ SE ESCRIBIRÁ EL ESTUDIO (26-sep-2026): la pantalla enseña el
+        # panel «Cómo se estudiará» cuando es la v4, que desde hoy es la de
+        # todos.
+        "variante_estudio": _taller_variante_estudio(user_email, "", _t or ""),
         # Y CÓMO VA LO QUE CORRE SOLO: la pantalla lo pregunta cada pocos
         # segundos y, cuando la propuesta está lista, la pide y pasa al paso 3.
         "avance": _taller_avance(user_email, numero),

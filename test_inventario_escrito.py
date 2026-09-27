@@ -508,10 +508,14 @@ try:
        and B2.filas[0]["plan"]["inventario"]["estado"] == "listo",
        "v4 sin lectura guardada: se calcula dentro de la tarea (la pantalla ve «ordenando») y se guarda")
     # (d) El cliente de fuera de casa no la precalcula.
+    # (con la global en v1: desde el 26-sep-2026 la global por omisión es la v4
+    # y entonces sí se precalcula para todos)
     B3 = _Base()
+    os.environ["ESTUDIO_PROMPT"] = "v1"
     asyncio.run(entorno(B3, casa=False)["_taller_preinventariar"]("x@y.mx", "1/2026", resultado()))
+    os.environ.pop("ESTUDIO_PROMPT", None)
     ok(len(_LLAMADAS) == 2 and B3.escrituras == 0,
-       "fuera de casa (y sin v3/v4 global) no se precalcula: nadie paga una lectura que no se usará")
+       "fuera de casa y con la global en v1 no se precalcula: nadie paga una lectura que no se usará")
     # (e) El proveedor falla: queda el piso y se registra.
     ie._llamar = _llamar_roto
     B4 = _Base()
