@@ -692,6 +692,12 @@ def prompt_reparacion(estudio: str, criterios: list, material, faltan: list,
             partes_f.append(f"lo que dice hoy el estudio en el párrafo que lo marca: «{' '.join(hoy.split())}»")
         filas.append("\n   ".join(partes_f))
     concede = any(_ta.prospera(str(_get(c, "sentido") or "")) for c in (criterios or []))
+    # QUE LOS EFECTOS EXISTAN DE VERDAD (revisión del código, 27-sep-2026): el
+    # estudio ya no los escribe en la queja, en la revisión fiscal ni en la
+    # revisión que no concede, y decirle al modelo que están ahí producía
+    # órdenes sin sitio donde insertarse.
+    if concede and not re.search(r"(?m)^\s*(?:⟦[^⟧]*⟧\s*)?EFECTOS\b", estudio or ""):
+        concede = False
     _linea_plan = ("\n- El argumento que trae su calificación en el plan se contesta con ella: es la suya\n"
                    "  dentro del sentido de su problema, y no cambia la del problema."
                    if any(_et.get(f["id"]) for f in faltan) else "")
@@ -731,7 +737,7 @@ QUÉ ESCRIBES POR CADA ARGUMENTO DE LA LISTA — una de dos piezas:
   con un conector que lo enlace, y no contradice la calificación de su apartado. Un argumento
   cuyo criterio lo desestima —infundado, inoperante— no va a los EFECTOS: lleva su párrafo.
 {"En este asunto se concede: los EFECTOS existen al final del estudio." if concede else
- "En este asunto no se concede: no hay EFECTOS; toda pieza es un párrafo."}
+ "En este asunto no hay EFECTOS: toda pieza es un párrafo."}
 
 LÍMITES:
 - No cambias ninguna calificación ni el sentido: el criterio es del secretario.{_linea_plan}
@@ -976,7 +982,15 @@ def insertar(estudio: str, parrafos_: list, efectos_: list, segs_por_id: dict) -
             m = re.match(r"^\s*(\d{1,2})\s*[.)]\s+", ult[3])
             ml = re.match(r"^\s*([a-y])\s*\)\s+", ult[3])
             n = int(m.group(1)) if m else None
-            letra = ml.group(1) if ml and not m else None
+            # SI LA ÚLTIMA ES UN INCISO DE UNA LISTA NUMERADA, la orden nueva
+            # sigue la numeración de primer nivel: un «c)» en infinitivo no
+            # concuerda con los incisos que cuelgan de «en la que:».
+            if n is None:
+                _nums = [int(mm.group(1)) for b in ordenes
+                         for mm in [re.match(r"^\s*(\d{1,2})\s*[.)]\s+", b[3])] if mm]
+                if _nums:
+                    n = max(_nums)
+            letra = ml.group(1) if ml and n is None else None
             for ids, t in efectos_:
                 if n is not None:
                     n += 1

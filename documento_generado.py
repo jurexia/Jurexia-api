@@ -2997,6 +2997,20 @@ _RX_ITEM_VIÑETA = re.compile(r"^\s*[-•*–]\s+(.+)$", re.S)
 # deberá emitir…»: el sujeto y el «deberá» ya los pone la apertura.
 _RX_DEBERA = re.compile(r"^(?P<pre>[^:;]{0,200}?)\bdeber[áa]\s+(?=\w+(?:ar|er|ir)(?:se)?\b)", re.I)
 # La introducción que el propio modelo escribe antes de la lista.
+# Dónde empieza la orden dentro de una introducción: el primer verbo conocido
+# después de «para el efecto de que», «a fin de que» o «para que», con su sujeto
+# en medio («… de que la Sala responsable deje…»).
+_RX_ORDEN_EN_INTRO = re.compile(
+    r"(?:para\s+(?:el|los)\s+efectos?\s+de\s+que|a\s+fin\s+de\s+que|para\s+que)\s+"
+    r"(?:[^,;:]{0,160}?\s)??(?P<se>se\s+)?(?P<v>" + "|".join(
+        sorted((re.escape(k) for k in (
+            "deje dicte emita reitere analice examine estudie resuelva reponga admita "
+            "corra emplace desahogue valore funde precise determine provea ordene "
+            "realice practique restituya devuelva pague cancele levante reciba "
+            "pronuncie ocupe").split()), key=len, reverse=True)) + r")\b", re.I)
+_RX_SOLO_ANUNCIA = re.compile(
+    r"^(?:se\s+)?\S+\s+(?:lo\s+siguiente|lo\s+que\s+a\s+continuaci[óo]n\s+se\s+\w+|"
+    r"(?:las?|los)\s+(?:siguientes?\s+\w+|\w+\s+siguientes?))\s*[:.]?\s*$", re.I)
 _RX_INTRO_EFECTOS = re.compile(
     r":\s*$|para\s+(?:el|los)\s+efectos?\s+(?:siguientes|de\s+que)|lo\s+siguiente\s*[:.]?\s*$",
     re.I)
@@ -3044,7 +3058,7 @@ def _a_infinitivo(texto: str) -> tuple:
             convertido = True
         else:
             m1 = re.match(rf"^(?P<pre>[^,;:]{{2,80}},\s*)(?P<se>se\s+)?(?P<v>{_PAL})\b", t, re.I)
-            if m1 and not re.search(r"\bque\b", m1.group("pre"), re.I):
+            if m1 and not re.search(r"\b(?:que|cual|cuales|donde)\b", m1.group("pre"), re.I):
                 inf = _inf(m1.group("v"), bool(m1.group("se")))
                 if inf:
                     t = m1.group("pre") + inf + t[m1.end():]
@@ -3055,7 +3069,7 @@ def _a_infinitivo(texto: str) -> tuple:
     elif ya_infinitivo:
         convertido = True
     # 2 · LOS COORDINADOS, hasta la primera subordinada.
-    corte = re.search(r"\bque\b", t, re.I)
+    corte = re.search(r"\b(?:que|cual|cuales|donde|cuyo|cuya|cuyos|cuyas|cuando)\b", t, re.I)
     cabeza, cola = (t[:corte.start()], t[corte.start():]) if corte else (t, "")
 
     def _coord(mm):
@@ -3100,12 +3114,39 @@ def componer_efectos(parrafos: list) -> tuple:
             return None
         return m.group(2) if m else None
 
-    # La introducción que el modelo haya escrito delante de la lista sobra: la
-    # apertura del documento dice ya quién debe y con qué fundamento.
+    # LA INTRODUCCIÓN DEL MODELO. Si sólo introduce —«para los efectos
+    # siguientes:», «realice lo siguiente:»— sobra: la apertura del documento
+    # dice ya quién debe y con qué fundamento. PERO SI TRAE LA ORDEN —«…para el
+    # efecto de que la Sala deje insubsistente la sentencia y dicte otra en la
+    # que valore la pericial»—, borrarla era perder la orden principal sin aviso
+    # (revisión del código, 27-sep-2026): se vuelve la primera orden, desde su
+    # verbo. Y si esa orden abre incisos, los incisos cuelgan de ella.
     intro = False
+    orden_intro = ""
     while ps and _primer_nivel(ps[0]) is None and len(ps[0]) < 400 \
             and _RX_INTRO_EFECTOS.search(ps[0]):
+        m_or = _RX_ORDEN_EN_INTRO.search(ps[0])
+        if m_or and not orden_intro:
+            _o = ps[0][m_or.start("v") - (len(m_or.group("se") or "")):].strip()
+            # «realice lo siguiente:» no es una orden: sólo anuncia la lista.
+            if not _RX_SOLO_ANUNCIA.match(_o):
+                orden_intro = _o
         ps, intro = ps[1:], True
+    if orden_intro:
+        if not hay_num and orden_intro.rstrip().endswith(":"):
+            # Los incisos cuelgan de la orden que los abre: el primer nivel son
+            # la orden de la introducción y los párrafos sin marca.
+            hay_num = True
+            ps = [f"1. {orden_intro}"] + [
+                x if _RX_ITEM_LETRA.match(x) else
+                (x if _RX_ITEM_NUM.match(x) else f"{i}. {x}")
+                for i, x in enumerate(ps, 2)]
+        elif hay_num:
+            ps = [f"0. {orden_intro}"] + ps
+        elif hay_letra or hay_viñeta:
+            ps = [("a) " if hay_letra else "- ") + orden_intro] + ps
+        else:
+            ps = [orden_intro] + ps
     if not (hay_num or hay_letra or hay_viñeta):
         # SIN MARCAS, UNA ORDEN POR PÁRRAFO —así las escribe el ADA 767/2025:
         # «realice lo siguiente:» y tres párrafos sin número—. Sólo si hubo esa

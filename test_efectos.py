@@ -107,6 +107,27 @@ o, a = dg.componer_efectos(["1. Cierre de la instrucción conforme a derecho."])
 ok(o == ["1. Cierre de la instrucción conforme a derecho."],
    "un sustantivo que parece verbo («Cierre de…») no se convierte")
 
+# LA REVISIÓN DEL CÓDIGO (27-sep-2026): la introducción que TRAE la orden no se
+# borra; las subordinadas con «en la cual» o «donde» conservan su subjuntivo.
+o, a = dg.componer_efectos([
+    "En consecuencia, procede conceder el amparo para el efecto de que la Sala responsable deje "
+    "insubsistente la sentencia reclamada y dicte otra en la que valore la prueba pericial.",
+    "Hecho lo anterior, resuelva con plenitud de jurisdicción."])
+ok(o == ["1. Dejar insubsistente la sentencia reclamada y dictar otra en la que valore la prueba pericial.",
+         "2. Hecho lo anterior, resolver con plenitud de jurisdicción."],
+   "la orden que viene en la introducción es la primera orden, no se pierde")
+o, a = dg.componer_efectos([
+    "Se concede el amparo para el efecto de que la Sala deje insubsistente la sentencia y emita otra en la que:",
+    "a) Reitere lo no concedido.", "b) Valore la pericial."])
+ok(o == ["1. Dejar insubsistente la sentencia y emitir otra en la que:", "a) Reitere lo no concedido.",
+         "b) Valore la pericial."], "y si abre incisos, los incisos cuelgan de ella con su subjuntivo")
+o, a = dg.componer_efectos(["1. Emitir otra en la cual analice el agravio y valore la prueba.",
+                            "2. Dictar otra sentencia donde examine la prueba y resuelva."])
+ok(o[0].endswith("analice el agravio y valore la prueba.") and o[1].endswith("examine la prueba y resuelva."),
+   "«en la cual» y «donde» abren subordinada: no se convierte lo que va dentro")
+ok(ta.parrafo_cierre("amparo_revision", True, "unos fundados y otros sin materia").count("sin materias") == 0,
+   "«sin materia» no se pluraliza en el cierre")
+
 print("\n2 · EL PROMPT DE LA v4")
 _C = [f6.Criterio(problema="¿La Sala debió admitir la ampliación?", sentido="fundado",
                   razonamiento="Porque el acuerdo la dejó a salvo.", jerarquia="principal")]

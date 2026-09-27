@@ -560,9 +560,15 @@ def cadena_competencia(tipo: str) -> str:
 # la resolución recurrida —«VISTOS para resolver el incidente de suspensión…»—
 # y no por el expediente entero: una sentencia de audiencia menciona el
 # incidente de suspensión de pasada.
+# SÓLO EL PROEMIO, y sólo su fórmula: «VISTOS para resolver el incidente de
+# suspensión…» o «INTERLOCUTORIA». Una sentencia de audiencia dice en su
+# trámite «ordenó tramitar por cuerda separada el incidente de suspensión
+# relativo» y con la fórmula suelta pasaba por interlocutoria (revisión del
+# código, 27-sep-2026).
 _RX_PROEMIO_SUSPENSION = re.compile(
-    r"(?:resolver|interlocutoria)[^.]{0,160}incidente\s+de\s+suspensi[óo]n|"
-    r"incidente\s+de\s+suspensi[óo]n[^.]{0,120}(?:relativo|derivado|deducido)", re.I)
+    r"(?:V\s*I\s*S\s*T\s*O\s*S?|RESOLUCI[ÓO]N\s+INTERLOCUTORIA|INTERLOCUTORIA)"
+    r"[^.]{0,220}?(?:para\s+)?resolver[^.]{0,80}?(?:el\s+|los\s+autos\s+del\s+)?"
+    r"incidente\s+de\s+suspensi[óo]n", re.I)
 _RX_AUDIENCIA = re.compile(r"audiencia\s+constitucional", re.I)
 _RX_MODIFICA_SUSP = re.compile(
     r"(?:modific|revoc)\w*\s+(?:el\s+|la\s+)?(?:acuerdo|auto|interlocutoria|resoluci[óo]n)"
@@ -576,7 +582,7 @@ def competencia_revision(texto_comp: str, proemio: str, fuente: str = "") -> tup
     """(competencia, avisos) para la revisión, según lo recurrido."""
     avisos = []
     t = texto_comp or ""
-    if (proemio and _RX_PROEMIO_SUSPENSION.search(proemio)
+    if (proemio and _RX_PROEMIO_SUSPENSION.search(proemio[:700])
             and not _RX_AUDIENCIA.search(proemio)):
         inciso = "b" if _RX_MODIFICA_SUSP.search(proemio) else "a"
         nuevo = t
@@ -756,7 +762,8 @@ def parrafo_cierre(tipo: str, concede: bool, calificacion: str = "") -> str:
         # llega en plural («fundados», «esencialmente fundados») y el sujeto
         # era singular. El sujeto es el del tipo, como en la rama negativa.
         _cal = (calificacion or "fundados").strip()
-        if not _cal.split()[-1].endswith("s"):
+        # «sin materia» no se pluraliza: «unos fundados y otros sin materia».
+        if not _cal.split()[-1].endswith("s") and not _cal.endswith("sin materia"):
             _cal = _cal + "s"
         return (f"En ese sentido, al resultar {_cal} los {v['combate']} "
                 f"planteados, lo procedente es {desenlace}.")

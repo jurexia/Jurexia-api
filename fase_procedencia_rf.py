@@ -71,6 +71,8 @@ def veces_de(fecha_sentencia) -> int:
     sale con aviso (`parrafo`). Sin fecha, el texto vigente."""
     if fecha_sentencia is None:
         return VECES_DESDE_2026
+    if isinstance(fecha_sentencia, _dt.datetime):
+        fecha_sentencia = fecha_sentencia.date()
     return VECES_DESDE_2026 if fecha_sentencia >= REFORMA_63 else VECES_ANTES
 
 
@@ -229,6 +231,12 @@ def parrafo(texto_fuente: str, anio_resolucion: int = 0, fecha_sentencia=None,
     # LA FECHA QUE DECIDE: la de la sentencia; si no se leyó, la de su
     # notificación, que es posterior —si ésta es anterior a la reforma, aquélla
     # también—.
+    if isinstance(fecha_sentencia, _dt.datetime):
+        fecha_sentencia = fecha_sentencia.date()
+    if isinstance(fecha_notificacion, _dt.datetime):
+        fecha_notificacion = fecha_notificacion.date()
+    if isinstance(fecha_interposicion, _dt.datetime):
+        fecha_interposicion = fecha_interposicion.date()
     ref = fecha_sentencia or fecha_notificacion
     veces = veces_de(ref)
     if fecha_sentencia is None and fecha_notificacion is not None \

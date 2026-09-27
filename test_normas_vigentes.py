@@ -68,6 +68,15 @@ for _tipo in ta.TIPOS:
                                                             "Administrativa y Civil del Vigésimo Segundo Circuito"))
     ok("28/2017" in _t3 and "28/2017" not in _t1 and "Acuerdo General 3/2013 del Pleno del otrora" in _t1,
        f"{_tipo}: el 28/2017 (creación del Tercer TCC) sólo para el Tercero; el 3/2013 para todos")
+for _grafia in ("Tercer Tribunal Colegiado en Materia Administrativa y Civil del Vigésimo Segundo Circuito",
+                "Tercer Tribunal Colegiado en Materias Administrativa y Civil del XXII Circuito",
+                "Tercer Tribunal Colegiado de Circuito en Materias Administrativa y Civil, Querétaro"):
+    _tg, _ = banco.texto_de("amparo_directo", "competencia", dict(_datos, tribunal=_grafia))
+    ok("28/2017" in _tg, f"otra grafía del Tercero conserva su 28/2017: «{_grafia[:50]}…»")
+_c_aud = ("SENTENCIA. Querétaro. VISTOS para resolver los autos del juicio de amparo 55/2026; RESULTANDO: "
+          "... ordenó tramitar por cuerda separada el incidente de suspensión relativo ...")
+_na, _aa = ta.competencia_revision(_c_rv, _c_aud)
+ok(_na == _c_rv, "una sentencia de audiencia que menciona el incidente de suspensión no pasa por interlocutoria")
 ok("artículo 4°" not in _B and "a través del oficio SEADS" not in _B, "ni el art. 4° del 28/2017 (reparto de 2017) ni un oficio de adscripción fijo en la plantilla")
 ok("12/2020" in _B and "abrogó el 12/2020" in _B, "el 6/2026 del OAJ abrogó el 12/2020: la cola COVID queda para lo anterior")
 

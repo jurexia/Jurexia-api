@@ -196,9 +196,19 @@ _RX_CON_28_2017 = re.compile(
     r"\s*ambos\s+(del\s+Pleno)", re.I)
 
 
+_RX_ES_TERCERO = re.compile(r"\bterc(?:er|ero)\b|\b3(?:er|o|º)\b", re.I)
+_RX_ES_XXII = re.compile(r"vig[ée]simo\s+segundo|\bXXII\b|quer[ée]taro", re.I)
+
+
 def sin_acuerdo_ajeno(texto: str, tribunal: str) -> str:
-    """Quita el 28/2017 si el tribunal no es el que ese acuerdo creó."""
-    if not tribunal or _RX_TERCERO_XXII.search(tribunal):
+    """Quita el 28/2017 si el tribunal no es el que ese acuerdo creó.
+
+    Se quita sólo cuando el nombre dice CLARAMENTE otro tribunal: con cualquier
+    grafía del Tercero del Vigésimo Segundo («Materia» en singular, «XXII»,
+    «de Circuito en Materias…») se queda (revisión del código, 27-sep-2026).
+    """
+    t = tribunal or ""
+    if not t.strip() or (_RX_ES_TERCERO.search(t) and _RX_ES_XXII.search(t)):
         return texto
     return _RX_CON_28_2017.sub(r"\1 \2", texto or "")
 
