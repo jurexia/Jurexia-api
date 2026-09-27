@@ -213,6 +213,105 @@ def _revisar_periodos() -> None:
 _revisar_periodos()
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EL CALENDARIO DEL TRIBUNAL FEDERAL DE JUSTICIA ADMINISTRATIVA (27-sep-2026)
+# ═══════════════════════════════════════════════════════════════════════════
+# En la revisión fiscal el escrito se presenta ante la Sala del TFJA y los días
+# hábiles son «aquellos en que se encuentren abiertas al público las oficinas
+# de las Salas del Tribunal» (art. 74, fr. II, LFPCA): se cuentan los inhábiles
+# DEL TFJA, «no así los días inhábiles que marca la Ley de Amparo y los periodos
+# de asueto del Poder Judicial de la Federación» (tesis 2007213; en el mismo
+# sentido la 239295 de la Segunda Sala). El cómputo usaba el calendario del
+# PJF: sumaba sus vacaciones y omitía las del TFJA, que no coinciden (el TFJA
+# para del 15 de julio y del 15 de diciembre; el PJF, del 16).
+#
+# LOS DATOS SON LOS ACUERDOS DEL PLENO GENERAL DE LA SALA SUPERIOR que fijan
+# el «calendario oficial de suspensión de labores», verificados en el DOF:
+#   2024 · SS/1/2024 (DOF 11-01-2024) y SS/4/2023 para el 1 de enero
+#   2025 · SS/1/2025 (DOF 14-01-2025), con SS/22/2025 (DOF 03-12-2025)
+#   2026 · SS/2/2026 (DOF 12-01-2026)
+#   2027 · sin publicar al 27-sep-2026; sólo el 1 de enero (SS/2/2026)
+# Cada año hay que volver a cargarlo: el calendario se publica a mediados de
+# enero. Sin el año cargado, el cómputo avisa.
+def _iso(x):
+    return _dt.date.fromisoformat(x)
+
+
+INHABILES_TFJA = {
+    2024: {_iso(x) for x in (
+        "2024-01-01 2024-02-05 2024-03-18 2024-03-27 2024-03-28 2024-03-29 "
+        "2024-05-01 2024-07-15 2024-07-16 2024-07-17 2024-07-18 2024-07-19 "
+        "2024-07-22 2024-07-23 2024-07-24 2024-07-25 2024-07-26 2024-07-29 "
+        "2024-07-30 2024-07-31 2024-08-26 2024-09-16 2024-10-01 2024-11-01 "
+        "2024-11-18 2024-12-16 2024-12-17 2024-12-18 2024-12-19 2024-12-20 "
+        "2024-12-23 2024-12-24 2024-12-25 2024-12-26 2024-12-27 2024-12-30 "
+        "2024-12-31").split()},
+    2025: {_iso(x) for x in (
+        "2025-01-01 2025-02-03 2025-03-17 2025-04-16 2025-04-17 2025-04-18 "
+        "2025-05-01 2025-05-02 2025-05-05 2025-07-14 2025-07-15 2025-07-16 "
+        "2025-07-17 2025-07-18 2025-07-21 2025-07-22 2025-07-23 2025-07-24 "
+        "2025-07-25 2025-07-28 2025-07-29 2025-07-30 2025-07-31 2025-08-01 "
+        "2025-08-25 2025-09-15 2025-09-16 2025-11-17 2025-12-15 2025-12-16 "
+        "2025-12-17 2025-12-18 2025-12-19 2025-12-22 2025-12-23 2025-12-24 "
+        "2025-12-25 2025-12-26 2025-12-29 2025-12-30 2025-12-31").split()},
+    2026: {_iso(x) for x in (
+        "2026-01-01 2026-01-02 2026-02-02 2026-03-16 2026-04-01 2026-04-02 "
+        "2026-04-03 2026-05-01 2026-05-04 2026-05-05 2026-07-13 2026-07-14 "
+        "2026-07-15 2026-07-16 2026-07-17 2026-07-20 2026-07-21 2026-07-22 "
+        "2026-07-23 2026-07-24 2026-07-27 2026-07-28 2026-07-29 2026-07-30 "
+        "2026-07-31 2026-08-28 2026-09-14 2026-09-15 2026-09-16 2026-10-12 "
+        "2026-11-02 2026-11-16 2026-12-14 2026-12-15 2026-12-16 2026-12-17 "
+        "2026-12-18 2026-12-21 2026-12-22 2026-12-23 2026-12-24 2026-12-25 "
+        "2026-12-28 2026-12-29 2026-12-30 2026-12-31").split()},
+    2027: {_iso("2027-01-01")},
+}
+# El año cargado COMPLETO (con su acuerdo). 2027 sólo trae el 1 de enero.
+ACUERDO_TFJA = {
+    2024: "el Acuerdo SS/1/2024",
+    2025: "el Acuerdo SS/1/2025",
+    2026: "el Acuerdo SS/2/2026",
+}
+# Suspensiones LOCALES: sólo para la Sala que las dictó. Se aplican cuando el
+# nombre de la responsable la identifica.
+INHABILES_TFJA_LOCAL = {
+    # SRQ/01/2026 (DOF 05-03-2026): «no correrán términos y plazos procesales»
+    # el 23 de febrero de 2026 en la Sala Regional en Querétaro.
+    "quer[ée]taro": {_iso("2026-02-23")},
+}
+
+CALENDARIO_TFJA = Calendario(
+    nombre="Tribunal Federal de Justicia Administrativa",
+    fundamento=("artículo 74, fracción II, de la Ley Federal de Procedimiento "
+                "Contencioso Administrativo"),
+    sueltos=set().union(*INHABILES_TFJA.values()),
+)
+
+
+def calendario_tfja(responsable: str = "") -> "Calendario":
+    """El del TFJA con las suspensiones locales de la Sala que se nombra."""
+    import copy as _copy
+    c = _copy.deepcopy(CALENDARIO_TFJA)
+    for patron, dias in INHABILES_TFJA_LOCAL.items():
+        if re.search(patron, responsable or "", re.I):
+            c.sueltos = set(c.sueltos) | set(dias)
+    return c
+
+
+def fundamento_tfja(anios) -> str:
+    """«artículo 74, fracción II, de la LFPCA y el Acuerdo SS/2/2026…»."""
+    acs = [ACUERDO_TFJA[a].replace("el Acuerdo ", "") for a in sorted(set(anios))
+           if a in ACUERDO_TFJA]
+    base = CALENDARIO_TFJA.fundamento
+    if not acs:
+        return base
+    ac = (f"del Acuerdo {acs[0]}" if len(acs) == 1
+          else "de los Acuerdos " + ", ".join(acs[:-1]) + " y " + acs[-1])
+    return (f"{base}, y {ac} del Pleno General de la Sala Superior del Tribunal "
+            f"Federal de Justicia Administrativa, que "
+            f"{'fija' if len(acs) == 1 else 'fijan'} su calendario de "
+            f"suspensión de labores")
+
+
 # El día en que el surtimiento del Boletín del TFJA pasa del tercero al segundo
 # día hábil: 240 días naturales desde el 09-06-2026 (LFPCA, transitorio Tercero).
 LFPCA_65_REFORMADO = _dt.date(2027, 2, 4)
@@ -1206,6 +1305,20 @@ def computar(
         cal_resp.fundamento = rec.fundamento
         cal_resp.sueltos = set(cal_resp.sueltos) | _resp
 
+    # LA REVISIÓN FISCAL CORRE CON EL CALENDARIO DEL TFJA (art. 74, fr. II,
+    # LFPCA; tesis 2007213 y 239295): el surtimiento y el plazo, sin las
+    # vacaciones del Poder Judicial de la Federación y con las del Tribunal.
+    _es_rf = rec.clave == "revision_fiscal"
+    _base_rf = None
+    if _es_rf:
+        import copy as _copy
+        _base_rf = calendario_tfja(responsable or "")
+        cal_resp = _copy.deepcopy(_base_rf)
+        cal_resp.nombre = (responsable or "").strip() or _base_rf.nombre
+        cal_resp.sueltos = set(cal_resp.sueltos) | _resp
+        cal_amparo = _copy.deepcopy(_base_rf)
+        cal_amparo.sueltos = set(cal_amparo.sueltos) | _extra | _resp
+
     # 1) Surtimiento — calendario de la RESPONSABLE, salvo que el secretario
     # ya haya dicho la fecha (regla «otra»).
     if _manual:
@@ -1229,15 +1342,29 @@ def computar(
     dias = cal_amparo.sumar(inicio, _plazo) if _plazo else []
     vence = dias[-1] if dias else inicio
     if _anios:
-        # DE FECHA A FECHA: el plazo que arranca al día siguiente del
-        # surtimiento concluye el mismo día y mes, N años después; un 29 de
-        # febrero que no existe cae al 28. Si ese día es inhábil, se extiende
-        # al siguiente hábil.
+        # AÑOS CALENDARIO, EN DÍAS NATURALES (1a./J. 41/2023 (11a.), registro
+        # 2026377: «debe computarse en años calendario; esto es incluyendo
+        # todos los días naturales»), sin descontar los inhábiles del art. 19.
+        # Corre desde el día siguiente al surtimiento (art. 18) y concluye en
+        # la misma fecha de ese primer día, N años después —así lo cuentan los
+        # colegiados: «del tres de abril de dos mil trece al tres de abril de
+        # dos mil veintiuno»—.
+        inicio = surtio + _dt.timedelta(days=1)
         try:
-            vence = surtio.replace(year=surtio.year + _anios)
-        except ValueError:
-            vence = surtio.replace(year=surtio.year + _anios, day=28)
-        vence = cal_amparo.siguiente_habil(vence)
+            vence = inicio.replace(year=inicio.year + _anios)
+        except ValueError:                      # 29 de febrero → 1 de marzo
+            vence = _dt.date(inicio.year + _anios, 3, 1)
+        # SI EL ÚLTIMO DÍA ES INHÁBIL, ni la ley ni la jurisprudencia dicen qué
+        # pasa. No se declara extemporánea en automático la demanda del día
+        # hábil siguiente: se corre al siguiente hábil y se avisa.
+        if not cal_amparo.es_habil(vence):
+            _nominal = vence
+            vence = cal_amparo.siguiente_habil(vence)
+            avisos.append(
+                f"EL ÚLTIMO DÍA DEL PLAZO DE {_anios} AÑOS CAYÓ EN INHÁBIL "
+                f"({_nominal.isoformat()}) y se corrió al siguiente hábil "
+                f"({vence.isoformat()}). La Ley de Amparo no lo regula y no hay "
+                f"jurisprudencia: si la demanda se presentó ese día, decídelo tú.")
         dias = []
 
     # Los inhábiles entre semana dentro del plazo, SEPARADOS POR FUNDAMENTO.
@@ -1245,7 +1372,18 @@ def computar(
     # aunque la responsable también hubiera cerrado: la tesis descuenta esos
     # días «aun cuando la autoridad responsable no haya suspendido labores», y
     # nombrarlo dos veces en el considerando sería un error de bulto.
-    _art19 = CALENDARIO_AMPARO
+    _art19 = _base_rf if _es_rf else CALENDARIO_AMPARO
+    if _es_rf:
+        # EL FUNDAMENTO NOMBRA EL ACUERDO DEL AÑO; si falta un año, se avisa.
+        _anios_v = {surtio.year, inicio.year, vence.year}
+        cal_amparo.fundamento = fundamento_tfja(_anios_v)
+        _faltan = sorted(a for a in _anios_v if a not in ACUERDO_TFJA)
+        if _faltan:
+            avisos.append(
+                f"NO ESTÁ CARGADO EL CALENDARIO DEL TFJA DE {', '.join(map(str, _faltan))} "
+                f"(su Pleno General lo publica en el DOF a mediados de enero): el "
+                f"plazo de la revisión fiscal se contó sólo sin sábados ni domingos "
+                f"en ese año. Comprueba sus días inhábiles antes de firmar.")
     enmedio, resp_enmedio, cur = [], [], inicio
     while cur <= vence and not _anios:
         if cur.weekday() < 5 and not cal_amparo.es_habil(cur):
@@ -1384,11 +1522,18 @@ def computar(
             # revisión fiscal el considerando SIEMPRE desglosa la ventana del
             # plazo: si falta el calendario del Tribunal, esa ventana sale
             # corta en el papel aunque el sentido no cambie.
-            avisos.append(
-                f"NO DECLARASTE DÍAS DE LA RESPONSABLE. El plazo se contó sólo "
-                f"con el calendario federal, y el escrito se presenta ante "
-                f"{rec.quien} ({rec.fundamento}): sus vacaciones y suspensiones "
-                f"tampoco se computan. Si las tuvo dentro del plazo, decláralas.")
+            if rec.clave == "revision_fiscal":
+                avisos.append(
+                    "EL PLAZO SE CONTÓ CON EL CALENDARIO OFICIAL DEL TFJA "
+                    "(acuerdos de su Pleno General), no con el del Poder Judicial "
+                    "de la Federación. Si la Sala tuvo una suspensión local que no "
+                    "esté en ese calendario, decláralo.")
+            else:
+                avisos.append(
+                    f"NO DECLARASTE DÍAS DE LA RESPONSABLE. El plazo se contó sólo "
+                    f"con el calendario federal, y el escrito se presenta ante "
+                    f"{rec.quien} ({rec.fundamento}): sus vacaciones y suspensiones "
+                    f"tampoco se computan. Si las tuvo dentro del plazo, decláralas.")
     elif (not rec.aporta_calendario and c.oportuna is False
             and not any(inicio <= d <= vence for d in _extra)):
         # EL MISMO AVISO, DEL OTRO LADO. En amparo en revisión y en queja lo que
@@ -1749,9 +1894,10 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
              + (f" y surtió efectos {_surte_a}, es decir, el "
                 f"{fecha_en_letra(c.surtio)}" if _surte_a else
                 f"; esa notificación surtió efectos el {fecha_en_letra(c.surtio)}")
-             + f", por lo que el plazo, computado de fecha a fecha a partir del "
-               f"día siguiente, transcurrió del {fecha_en_letra(c.inicio)} al "
-               f"{fecha_en_letra(c.vencimiento)}")
+             + f", por lo que el plazo, computado en años calendario, de fecha a "
+               f"fecha y con todos los días naturales —jurisprudencia 1a./J. "
+               f"41/2023 (11a.), de registro digital 2026377—, transcurrió del "
+               f"{fecha_en_letra(c.inicio)} al {fecha_en_letra(c.vencimiento)}")
         if c.presentacion is None:
             return p + "."
         if c.oportuna:

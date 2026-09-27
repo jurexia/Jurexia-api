@@ -144,14 +144,16 @@ print("\n5 · PLAZOS DE AÑOS DEL ARTÍCULO 17 (fracciones II y III)")
 ok(ta.anios_de("amparo_directo", "penal_prision") == 8 and ta.anios_de("amparo_directo", "agrario_nucleo") == 7
    and ta.anios_de("amparo_directo", "") == 0, "ocho años (fr. II) y siete (fr. III); el plazo ordinario no es de años")
 _c8 = f0.computar(dt.date(2018, 3, 9), dt.date(2026, 3, 5), regla="personal", plazo=2920, plazo_anios=8)
-ok(_c8.vencimiento == dt.date(2026, 3, 12) and _c8.oportuna is True and not _c8.dias,
-   "ocho años de fecha a fecha desde el surtimiento, sin sumar 2,920 hábiles")
+ok(_c8.inicio == dt.date(2018, 3, 13) and _c8.vencimiento == dt.date(2026, 3, 13)
+   and _c8.oportuna is True and not _c8.dias,
+   "ocho años calendario desde el día siguiente al surtimiento, de fecha a fecha (1a./J. 41/2023), sin sumar 2,920 hábiles")
 _c8t = f0.computar(dt.date(2018, 3, 9), dt.date(2026, 6, 5), regla="personal", plazo=2920, plazo_anios=8)
 ok(_c8t.oportuna is False and _c8t.cierra_por_extemporaneidad,
    "presentada después de los ocho años: extemporánea (con 2,920 hábiles salía en tiempo)")
 _p7 = f0.parrafo_oportunidad(f0.computar(dt.date(2019, 1, 10), dt.date(2026, 1, 5), regla="personal",
                                          plazo=2555, plazo_anios=7), "", "amparo_directo")
-ok("siete años" in _p7 and "artículo 17, fracción III" in _p7 and "de fecha a fecha" in _p7,
+ok("siete años" in _p7 and "artículo 17, fracción III" in _p7 and "de fecha a fecha" in _p7
+   and "2026377" in _p7,
    "el considerando dice los años, la fracción y que se computan de fecha a fecha")
 
 print()
