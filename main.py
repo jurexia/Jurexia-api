@@ -123,7 +123,20 @@ REASONER_MODEL = "deepseek/deepseek-v4-flash"  # V4 Flash en OpenRouter — thin
 # DOCUMENT_MODEL_PLATINUM=google/gemini-3.1-pro-preview en Render. Un id con
 # «/» vuelve a ir por OpenRouter con los parámetros de antes (_via_documento).
 DOCUMENT_MODEL = os.getenv("DOCUMENT_MODEL", "gpt-6-luna")
-DOCUMENT_MODEL_PLATINUM = os.getenv("DOCUMENT_MODEL_PLATINUM", DOCUMENT_MODEL)
+# ── PLATINUM VUELVE A GEMINI 3.1 PRO, DIRECTO (27-sep-2026) ───────────────
+# Al día siguiente del cambio, un abogado Platinum de los que más lo usan
+# escribió que «contesta como ChatGPT… sólo hace resúmenes y no acata lo que
+# le delimito». Sus 61 análisis de la semana en Render: con Gemini 3.1 Pro,
+# 11,254 caracteres de mediana y 3 citas verificadas; con luna medium, 36,117
+# y 1 (respuestas completas, mismo prompt). En toda la plataforma las citas
+# verificadas por análisis bajaron de 4.2 a 1.7. David: devolverle Gemini 3.1
+# Pro con la clave NUEVA de la API de Gemini, sin OpenRouter
+# (gemini_documento.py). Sin esa clave (GEMINI_API_KEY_DOCUMENTO) Platinum
+# sigue con luna, como ayer: el código puede desplegarse antes que la clave.
+import gemini_documento as _gemini_doc
+DOCUMENT_MODEL_PLATINUM = os.getenv(
+    "DOCUMENT_MODEL_PLATINUM",
+    "gemini-3.1-pro-preview" if _gemini_doc.disponible() else DOCUMENT_MODEL)
 DOCUMENT_ESFUERZO = os.getenv("DOCUMENT_ESFUERZO", "low")
 DOCUMENT_ESFUERZO_PLATINUM = os.getenv("DOCUMENT_ESFUERZO_PLATINUM", "medium")
 # En la familia gpt-6 el razonamiento descuenta del mismo tope que el texto.
@@ -12133,11 +12146,17 @@ def _via_documento(modelo: str, esfuerzo: Optional[str] = None) -> tuple:
     """El cliente y los parámetros del motor que analiza un documento.
 
     Un id con «/» (google/gemini-…) es de OpenRouter y va como iba antes del
-    26-sep-2026. Sin «/» es un modelo de OpenAI y va directo, con su nivel de
-    razonamiento y `max_completion_tokens` (los gpt-6 no aceptan `max_tokens`
-    ni una temperatura distinta de la de omisión)."""
+    26-sep-2026. «gemini-…» sin «/» es la API de Gemini directa con la clave
+    nueva (27-sep-2026, gemini_documento.py), con los mismos parámetros con que
+    OpenRouter llamaba a Gemini 3.1 Pro. Cualquier otro id sin «/» es de OpenAI
+    y va directo, con su nivel de razonamiento y `max_completion_tokens` (los
+    gpt-6 no aceptan `max_tokens` ni una temperatura distinta de la de
+    omisión)."""
     if "/" in modelo:
         return deepseek_client, {"max_tokens": 32768, "temperature": 0.3}
+    if _gemini_doc.es_modelo_gemini_directo(modelo):
+        return _gemini_doc.cliente, {"max_tokens": _gemini_doc.MAX_SALIDA,
+                                     "temperature": _gemini_doc.TEMPERATURA}
     parametros = {"max_completion_tokens": DOCUMENT_MAX_SALIDA}
     if esfuerzo:
         parametros["reasoning_effort"] = esfuerzo
@@ -12782,7 +12801,9 @@ async def analyze_document(
         t_pre_llm = _time.time()
         model_to_use = DOCUMENT_MODEL_PLATINUM if is_platinum_or_admin else DOCUMENT_MODEL
         esfuerzo_doc = DOCUMENT_ESFUERZO_PLATINUM if is_platinum_or_admin else DOCUMENT_ESFUERZO
-        _via_doc = "OpenRouter" if "/" in model_to_use else f"OpenAI, razonamiento {esfuerzo_doc}"
+        _via_doc = ("OpenRouter" if "/" in model_to_use
+                    else "Gemini directo (clave nueva)" if _gemini_doc.es_modelo_gemini_directo(model_to_use)
+                    else f"OpenAI, razonamiento {esfuerzo_doc}")
         print(f"   🚀 Enviando a {model_to_use} vía {_via_doc} ({len(full_user_message):,} chars) — preprocessing total: {t_pre_llm - t0:.2f}s")
 
         # ── Fuentes de internet con documento adjunto ─────────────────────────
@@ -12917,14 +12938,22 @@ async def analyze_document(
             # de siempre, que es el que usa todo el mundo, en vez de fallar.
             # Sólo al ABRIR el flujo: una vez empezado a escribir, reabrir
             # duplicaría el texto ya entregado.
+            #
+            # Si el que no abre es Gemini directo (27-sep-2026), Platinum cae
+            # a luna con SU razonamiento (medium), no al low de todos: el
+            # repliegue no debe castigar además el plan.
             try:
                 response = await _abrir(model_to_use, esfuerzo_doc)
             except Exception as _e_abrir:
-                if (model_to_use, esfuerzo_doc) == (DOCUMENT_MODEL, DOCUMENT_ESFUERZO):
+                if model_to_use != DOCUMENT_MODEL:
+                    _repliegue = (DOCUMENT_MODEL, esfuerzo_doc or DOCUMENT_ESFUERZO)
+                elif esfuerzo_doc != DOCUMENT_ESFUERZO:
+                    _repliegue = (DOCUMENT_MODEL, DOCUMENT_ESFUERZO)
+                else:
                     raise
                 print(f"   ⚠️ {model_to_use} ({esfuerzo_doc}) no abrió ({type(_e_abrir).__name__}: "
-                      f"{str(_e_abrir)[:140]}) — se sigue con {DOCUMENT_MODEL} ({DOCUMENT_ESFUERZO})")
-                model_to_use, esfuerzo_doc = DOCUMENT_MODEL, DOCUMENT_ESFUERZO
+                      f"{str(_e_abrir)[:140]}) — se sigue con {_repliegue[0]} ({_repliegue[1]})")
+                model_to_use, esfuerzo_doc = _repliegue
                 response = await _abrir(model_to_use, esfuerzo_doc)
             first_token = True
             _hubo_texto = False

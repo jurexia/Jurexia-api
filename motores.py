@@ -149,6 +149,17 @@ CATALOGO: list[Motor] = [
              "`medium` (DOCUMENT_ESFUERZO_PLATINUM); los demás `low`. Un id con "
              "«/» en DOCUMENT_MODEL vuelve a OpenRouter sin desplegar.",
     ),
+    Motor(
+        clave="documento_platinum", boton="Analizar documento adjunto", marcador=None,
+        proveedor="google", modelo="gemini-3.1-pro-preview", razona=True,
+        esfuerzo=None, max_tokens=32_768, planes="platinum y admin",
+        nota="Desde el 27-sep-2026 Platinum vuelve a Gemini 3.1 Pro, directo con "
+             "la clave nueva de la API de Gemini (GEMINI_API_KEY_DOCUMENTO; "
+             "gemini_documento.py), temperatura 0.3 como en OpenRouter. Con luna "
+             "medium escribía 3× más largo con la mitad de citas del acervo. Sin "
+             "la clave, Platinum sigue con luna medium; si Gemini no abre, cae a "
+             "luna medium. DOCUMENT_MODEL_PLATINUM lo cambia sin desplegar.",
+    ),
 ]
 
 # Servicios que NO son un botón del chat pero sí cuestan dinero.
