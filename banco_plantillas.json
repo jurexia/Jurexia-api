@@ -765,14 +765,14 @@
     "rotulo": "CUARTO. Celebración de la sesión vía remota.",
     "fijo": true,
     "frecuencia": "26/26 la frase «El presente asunto se listó el»",
-    "plantilla": "CUARTO. Celebración de la sesión vía remota. El presente asunto se listó el _________ de ________ de {anio_letra}, para verse en sesión de ______ de _______ siguiente, lo anterior, de conformidad con los Acuerdos Generales del Pleno del otrora Consejo de la Judicatura Federal 16/2009 y 12/2020 en relación con el de catorce de octubre de dos mil veintidós y que entró en vigor el siete de noviembre siguiente del propio Consejo que abroga los acuerdos de contingencia por COVID-19 y reforma, adiciona y deroga diversas disposiciones relativas a la utilización de medios electrónicos y soluciones digitales como ejes rectores del nuevo esquema de trabajo en las áreas administrativas y órganos jurisdiccionales del propio Consejo; y,\n\nC O N S I D E R A N D O:",
-    "cuando": "Cola COVID: sólo para asuntos listados ANTES del 18-04-2026. El Acuerdo General 6/2026 del Pleno del OAJ (DOF 17-04-2026) abrogó el 12/2020 del CJF (transitorio tercero); para lo listado desde su vigencia la cola es la de la variante del 6/2026, que es la que escribe el documento en los cuatro tipos.",
+    "plantilla": "{ordinal}. Verificación de la sesión vía remota. El presente asunto se listó el ______ de dos mil veintiséis, para verse en sesión ordinaria de ______ siguiente; lo anterior, de conformidad con el Acuerdo General 6/2026, del Pleno del Órgano de Administración Judicial que regula la integración y trámite del expediente electrónico y el uso de videoconferencias en todos los asuntos competencia de los órganos jurisdiccionales a cargo del Órgano, publicado en el Diario Oficial de la Federación el diecisiete de abril de dos mil veintiséis; y,",
+    "cuando": "SIEMPRE el último resultando. Cola vigente: Acuerdo General 6/2026 del Pleno del OAJ (DOF 17-04-2026), que abrogó el 12/2020 del CJF (transitorio tercero). Verificado en el DOF el 27-sep-2026.",
     "variantes": [
      {
       "id": "rv-r4-6-2026",
-      "texto": "SEXTO. Verificación de la sesión vía remota. El presente asunto se listó el ______ de dos mil veintiséis, para verse en sesión ordinaria de ______ siguiente; lo anterior, de conformidad con el Acuerdo General 6/2026, del Pleno del Órgano de Administración Judicial que regula la integración y trámite del expediente electrónico y el uso de videoconferencias en todos los asuntos competencia de los órganos jurisdiccionales a cargo del Órgano, publicado en el Diario Oficial de la Federación el diecisiete de abril de dos mil veintiséis; y,",
+      "texto": "CUARTO. Celebración de la sesión vía remota. El presente asunto se listó el _________ de ________ de {anio_letra}, para verse en sesión de ______ de _______ siguiente, lo anterior, de conformidad con los Acuerdos Generales del Pleno del otrora Consejo de la Judicatura Federal 16/2009 y 12/2020 en relación con el de catorce de octubre de dos mil veintidós y que entró en vigor el siete de noviembre siguiente del propio Consejo que abroga los acuerdos de contingencia por COVID-19 y reforma, adiciona y deroga diversas disposiciones relativas a la utilización de medios electrónicos y soluciones digitales como ejes rectores del nuevo esquema de trabajo en las áreas administrativas y órganos jurisdiccionales del propio Consejo; y,\n\nC O N S I D E R A N D O:",
       "frecuencia": "10/26",
-      "cuando": "En 2026 cambia de nombre y de fundamento. EXCLUYENTE con la cola COVID."
+      "cuando": "Cola COVID: sólo para asuntos listados ANTES del 18-04-2026 (el AG 6/2026 del OAJ abrogó el 12/2020 del CJF)."
      }
     ]
    }
