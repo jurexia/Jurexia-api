@@ -52,6 +52,47 @@ def _plano(texto: str, lineas: bool = False) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+_PENSAR_ABRE = "<!--THINKING_START-->"
+_PENSAR_CIERRA = "<!--THINKING_END-->"
+
+
+def _sin_marcadores(texto: str) -> str:
+    """La respuesta anterior tal como la LEYÓ el abogado.
+
+    El historial vuelve del cliente con lo que la pantalla guarda junto al
+    texto: el mapa de fuentes al final (`<!-- CITATION_META:{…} -->`, con el
+    texto de cada fuente, decenas de miles de caracteres), `REGISTROS_FUERA` y
+    el razonamiento entre `THINKING_START` y `THINKING_END` al principio. Con
+    el mapa detrás, «¿Desea que redacte la demanda?» quedaba fuera de los
+    últimos 600 caracteres y el «sí» del abogado se atendía como consulta
+    (27-sep-2026): las pruebas pasaban porque sus respuestas no traían mapa.
+
+    Lineal a propósito, con str.find y sin expresiones: el texto llega del
+    cliente. Un marcador sin cierre se lleva lo que queda, que es un corte y
+    no prosa.
+    """
+    if not texto or "<!--" not in texto:
+        return texto or ""
+    partes, i = [], 0
+    while True:
+        a = texto.find("<!--", i)
+        if a < 0:
+            partes.append(texto[i:])
+            break
+        partes.append(texto[i:a])
+        if texto.startswith(_PENSAR_ABRE, a):
+            b = texto.find(_PENSAR_CIERRA, a + len(_PENSAR_ABRE))
+            if b < 0:
+                break
+            i = b + len(_PENSAR_CIERRA)
+        else:
+            b = texto.find("-->", a + 4)
+            if b < 0:
+                break
+            i = b + 3
+    return "".join(partes)
+
+
 # Lo que se antepone por cortesía y no cambia el encargo.
 _CORTESIA = re.compile(
     r"^(?:[¿¡\"'«(\[\-*•]+\s*)*"
@@ -75,7 +116,7 @@ _DOC = (
     r"convenios?|acuerdos?|alegatos?|incidentes?|proyecto de|considerandos?|"
     r"estudio de fondo|sentencias?|resolucion|dictamen|opinion juridica|"
     r"carta poder|cartas?|poder notarial|desistimiento|ofrecimiento de pruebas|"
-    r"solicitud|argumentos?|argumentacion|memorial|informe justificado|"
+    r"solicitud|argumentos?|argumentacion|esqueleto argumentativo|memorial|informe justificado|"
     r"excepciones|inconformidad|juicio de nulidad|requerimiento|minuta|"
     r"clausulas?|acta|testamento|mandato|pagare|interpelacion|notificacion|"
     r"contrarreplica|replica|duplica|vista|desahogo|interrogatorio|"
@@ -93,6 +134,12 @@ _PREGUNTA_REDACTAR = re.compile(_PUEDES + r"(?:redact|reescrib)")
 _PREGUNTA_ENCARGO = re.compile(
     _PUEDES + r"(?:elabor|prepar|hac|escrib|formul|proyect|gener|arm|constru|realiz)\w*"
 )
+# «¿Podrías contestar la demanda?» y «¿puedes pasarlo a formato de demanda?»
+# también encargan, pero con el documento como complemento mismo —«¿puedes
+# contestar la PREGUNTA del amparo?» es consulta— o como destino de la
+# conversión, nunca como su origen: «¿puedes convertir la sentencia en un
+# resumen?» no pide un escrito.
+_PREGUNTA_CONTESTAR = re.compile(_PUEDES + r"contestar\s+")
 
 # En cualquier parte del mensaje, salvo cuando «redactar» no es lo que se
 # pide sino de lo que se habla: «¿qué contrato DEBO redactar?», «la lista de
@@ -123,6 +170,35 @@ _VERBO_AMBIGUO = re.compile(
     r"(?:ayudame|ayudanos|vamos) a (?:preparar|hacer|escribir|elaborar|armar|"
     r"construir|generar|formular|proyectar|desarrollar|realizar))\b"
 )
+# «Quiero que me ayudes con la demanda de divorcio» es el mismo encargo que
+# «ayúdame con la demanda». Sólo con «con» y el documento detrás, o con «a» y
+# un verbo de hacer: «que me ayudes a ENTENDER la demanda» sigue siendo
+# consulta, y la pregunta «¿me ayudas con…?» también —si era un encargo, la
+# respuesta cierra ofreciendo el escrito y el «sí» lo pide—.
+_AYUDA_CON = re.compile(
+    r"^(?:(?:necesito|nesecito|nececito|nesesito|necesitamos|quiero|queremos|ocupo|"
+    r"requiero|me urge|quisiera|me gustaria)\s+)?(?:que\s+)?(?:me\s+|nos\s+)?"
+    r"ayud(?:es|en|e|ar|ame|anos)\s+(?:con|a\s+(?:preparar|hacer|escribir|elaborar|"
+    r"armar|construir|generar|formular|proyectar|desarrollar|realizar|contestar))\s+"
+)
+_REDACCION_DE = re.compile(r"^(?:la\s+)?redaccion\s+(?:de|del)\b")
+# «Hazlo en formato de demanda», «pásalo a escrito», «conviértelo en un
+# amparo»: la respuesta anterior se pide convertida en escrito. Es encargo
+# aunque lo anterior fuera una consulta. Sin preposición sólo con artículo
+# detrás —«hazlo un escrito»—, para que «hazlo un poco más largo» no cuente.
+_DESTINO = (
+    r"(?:(?:en|como|a|al)\s+|(?=(?:un|una)\s))" + _ARTICULO
+    + r"(?:(?:formato|forma|manera|estilo|modelo|machote|version)\s+(?:de\s+)?"
+    + _ARTICULO + r")?" + _DOC + r"\b"
+)
+_CONVERTIR = re.compile(
+    r"^(?:haz|pon|pasa|convierte|transforma|vuelve|escribe|presenta|dame|arma|deja)"
+    r"(?:l[oa]s?|mel[oa]s?|nosl[oa]s?)\s+" + _DESTINO
+)
+_PREGUNTA_CONVERTIR = re.compile(
+    _PUEDES + r"(?:convertir|transformar|pasar|poner|hacer|dejar|escribir|presentar)"
+    r"(?:l[oa]s?|mel[oa]s?|nosl[oa]s?)\s+" + _DESTINO
+)
 # «Dame el escrito sin explicaciones» sí; «dame los requisitos de la demanda»
 # no: con estos verbos el documento tiene que ser lo que se entrega.
 _VERBO_ENTREGA = re.compile(
@@ -150,6 +226,18 @@ _ENCARGO_DENTRO = re.compile(
     r"|\bque (?:me |nos )?(?:hagas|elabores|prepares|formules|escribas|generes|"
     r"proyectes|realices|armes)\s+" + _ARTICULO + _ENVOLTURA + _DOC + r"\b)"
 )
+
+# «Contesta la demanda que te pasé» es un encargo; pero «contesta» es también
+# la tercera persona —«si contesta la demanda fuera de plazo, ¿qué pasa?»—.
+# Por eso va aparte y sólo cuenta en imperativo: sin signo de pregunta y sin
+# el «si» condicional delante (el «sí, contesta…» lleva coma).
+_CONTESTA = re.compile(r"^contest(?:a|ame|anos)\b")
+_CONTESTA_DENTRO = re.compile(
+    r"(?:[.;:!]\s*|,\s*|\by\s+|\bahora\s+(?:si\s+)?|\bentonces\s+|\bpor favor\s+|"
+    r"\bluego\s+|\bdespues\s+)contesta(?:me)?\s+" + _ARTICULO + _ENVOLTURA + _DOC + r"\b"
+    r"|\bque (?:me |nos )?contestes\s+" + _ARTICULO + _ENVOLTURA + _DOC + r"\b"
+)
+_SI_CONDICIONAL = re.compile(r"\bsi\s+(?:no\s+|ya\s+|solo\s+)?contest")
 
 # «Formato de contestación de amparo…», «modelo de demanda de alimentos».
 _FORMATO_INICIAL = re.compile(
@@ -194,10 +282,10 @@ _ORDINAL_INICIAL = re.compile(
 
 def pide_escrito(mensaje: str) -> bool:
     """¿El mensaje ENCARGA un texto jurídico, o pregunta algo?"""
-    t = _plano(mensaje)
-    if not t:
+    llano = _plano(mensaje)
+    if not llano:
         return False
-    t = _CORTESIA.sub("", t).strip()
+    t = _CORTESIA.sub("", llano).strip()
     if not t:
         return False
     if t.startswith("redaccion de") or t.startswith("redaccion del"):
@@ -211,6 +299,9 @@ def pide_escrito(mensaje: str) -> bool:
     m = _PREGUNTA_ENCARGO.match(t)
     if m and _objeto_es_documento(t[m.end():]):
         return True
+    m = _PREGUNTA_CONTESTAR.match(t)
+    if (m and _objeto_es_documento(t[m.end():], estricto=True)) or _PREGUNTA_CONVERTIR.match(t):
+        return True
     if _VERBO_REDACTAR.search(t) or _AYUDA_REDACTAR.search(t):
         return True
     if _VERBO_FUERTE.match(t) or _FORMATO_INICIAL.match(t):
@@ -221,6 +312,25 @@ def pide_escrito(mensaje: str) -> bool:
     m = _NECESIDAD.match(t) or _VERBO_AMBIGUO.match(t)
     if m and _objeto_es_documento(t[m.end():]):
         return True
+    # El documento tiene que ser el complemento mismo: «que me ayudes con EL
+    # PLAZO del amparo» es consulta. Y sin pregunta: «ayúdame con la demanda,
+    # ¿qué requisitos lleva?» pide los requisitos, no el escrito.
+    m = _AYUDA_CON.match(t)
+    if m and "?" not in t and (_REDACCION_DE.match(t[m.end():])
+                               or _objeto_es_documento(t[m.end():], estricto=True)):
+        return True
+    if _CONVERTIR.match(t):
+        return True
+    # El «si» condicional se busca ANTES de quitar la cortesía, que se lo come
+    # como si fuera el «sí» de asentir. A media frase sólo en el arranque: un
+    # borrador pegado para revisarlo («…el demandado fue emplazado y contesta
+    # la demanda…») no es un encargo.
+    if "?" not in t and not _SI_CONDICIONAL.search(llano[:60]):
+        # Con el documento como complemento: «contesta la PREGUNTA del
+        # amparo» es consulta.
+        m = _CONTESTA.match(t)
+        if (m and _objeto_es_documento(t[m.end():], estricto=True)) or _CONTESTA_DENTRO.search(t[:600]):
+            return True
     return bool(_ENCARGO_DENTRO.search(t))
 
 
@@ -237,6 +347,7 @@ def _objeto_es_documento(resto: str, estricto: bool = False) -> bool:
 
 def parece_escrito(texto: str) -> bool:
     """¿La respuesta anterior fue un escrito (y no una consulta)?"""
+    texto = _sin_marcadores(texto)
     if not texto:
         return False
     t = _plano(texto, lineas=True)
@@ -270,6 +381,16 @@ _AFIRMATIVO = re.compile(
     r"procede|correcto|perfecto|me parece bien|esta bien|andale)\b"
 )
 
+# La despedida con que la revisión de sentencia ofrece redactar. Vive aquí, y
+# main.py la inserta en su prompt, para que la oferta y el detector que la
+# reconoce no vuelvan a separarse: la anterior mandaba elegir un Genio y
+# encender «Redacción Especializada» —las dos cosas salieron de la pantalla el
+# 25-sep-2026— y el «ok» que pedía no encendía la redacción (27-sep-2026).
+OFERTA_TRAS_REVISION = (
+    "¿Quieres que redacte los argumentos para fortalecer el proyecto o para "
+    "cambiar su sentido? Respóndeme «sí» y los redacto."
+)
+
 
 def acepta_oferta(mensaje: str, anterior: str) -> bool:
     """El abogado dice «sí» a la oferta de redactar con que cerró la consulta."""
@@ -277,7 +398,7 @@ def acepta_oferta(mensaje: str, anterior: str) -> bool:
     if not t or len(t) > 80 or t.endswith("?"):
         return False
     return bool(_AFIRMATIVO.match(t.lstrip("¡!¿ "))) and bool(
-        _OFRECE_ESCRITO.search(_plano(anterior)[-600:]))
+        _OFRECE_ESCRITO.search(_plano(_sin_marcadores(anterior))[-600:]))
 
 
 def _campo(m: Any, nombre: str) -> str:
@@ -300,8 +421,10 @@ def detectar_redaccion(mensajes: Iterable[Any]) -> str:
     ultimo = _campo(lista[-1], "content")
     if pide_escrito(ultimo):
         return "pide"
-    anterior = next((_campo(m, "content") for m in reversed(lista[:-1])
-                     if _campo(m, "role") == "assistant"), "")
+    # Una sola limpieza para las dos lecturas: el mapa de fuentes puede medir
+    # más que la respuesta misma.
+    anterior = _sin_marcadores(next((_campo(m, "content") for m in reversed(lista[:-1])
+                                     if _campo(m, "role") == "assistant"), ""))
     if anterior and es_ajuste_de_escrito(ultimo) and parece_escrito(anterior):
         return "ajuste"
     if anterior and acepta_oferta(ultimo, anterior):
@@ -360,9 +483,10 @@ anterior sigue rigiendo; esto sube el listón:
   califica, cada prueba se relaciona con el hecho que acredita y cada punto
   petitorio responde a una prestación o concepto desarrollado. Nada queda
   suelto.
-- DATOS QUE FALTAN: no inventes nombres, fechas, expedientes ni domicilios.
-  Donde falte un dato del caso, deja el hueco visible entre corchetes
-  —[NOMBRE DEL QUEJOSO], [FECHA DE NOTIFICACIÓN]— y sigue escribiendo.
+- DATOS QUE FALTAN: la regla de los tres registros, sin excepción: con más
+  extensión hay más sitios donde un nombre o una fecha se cuelan inventados.
+  Cada hueco con su forma —[DATO PENDIENTE: fecha de notificación]— y sigue
+  escribiendo.
 - ANTES DE ENTREGAR, relee en silencio: que el esqueleto esté completo, que
   ninguna cita carezca de fuente en el contexto y que el tono sea el de un
   escrito que se presenta hoy.

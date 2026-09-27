@@ -1561,6 +1561,13 @@ Medido sobre 40 estudios de fondo firmados de Tribunal Colegiado:
 # los describió David: una demanda en prosa con hechos enumerados; argumentos
 # completos para el secretario que redacta la sentencia; argumentos completos
 # para el abogado que recurre.
+#
+# LOS DATOS QUE FALTAN, EN LOS TRES ESCALONES (27-sep-2026). La regla «no
+# inventes nombres, fechas ni expedientes» vivía sólo en el acabado Platinum:
+# Básico y Pro no la tenían, y un escrito con un quejoso o una fecha inventados
+# llega firmado al juzgado. Ahora cierra los tres registros, con el mismo
+# hueco que usan los flujos de trabajo y la tarjeta «Escrito legal»:
+# [DATO PENDIENTE: …], una sola cadena que el abogado busca antes de firmar.
 _REDACCION_REGISTROS = """
 ════════════════════════════════════════════════════════════════
    ELIGE EL REGISTRO ANTES DE ESCRIBIR (PASO OBLIGATORIO)
@@ -1685,6 +1692,23 @@ consecuencia que se pide.
 
 Aquí SÍ hay apartados y numeración: un escrito de parte sin ellos no lo admite
 ningún tribunal.
+
+────────────────────────────────────────────────────────────────
+ EN LOS TRES REGISTROS — LOS DATOS DEL CASO QUE NO TE DIERON
+────────────────────────────────────────────────────────────────
+No inventes nombres, fechas, números de expediente o de toca, domicilios,
+cantidades ni hechos. Lo que no esté en lo que te dio el abogado —su mensaje,
+sus documentos o la conversación— se deja visible en su lugar, siempre con esta
+misma forma:
+  [DATO PENDIENTE: nombre de la parte quejosa]
+  [DATO PENDIENTE: fecha de notificación del acto reclamado]
+Y sigues escribiendo: un hueco no detiene el escrito. El abogado busca
+«DATO PENDIENTE» antes de firmar; un dato inventado no lo encuentra nadie
+hasta que lo lee el juez.
+
+Lo que el foro escribe en genérico —«C. JUEZ DE DISTRITO EN MATERIA
+ADMINISTRATIVA EN TURNO», «P R E S E N T E»— no es un dato que falte: se
+escribe así.
 """
 
 
@@ -1856,7 +1880,7 @@ def _build_precedentes_system_prompt(circuit: str, tribunal: Optional[str] = Non
 # «qué alego…»), y sin el interruptor Buscar/Redactar el detector ES el
 # interruptor.
 from esfuerzo_redaccion import (  # noqa: E402
-    ACABADO_PLATINUM, PLANES_PLATINUM, PLANES_PRO,
+    ACABADO_PLATINUM, OFERTA_TRAS_REVISION, PLANES_PLATINUM, PLANES_PRO,
     detectar_redaccion, normalizar_esfuerzo,
 )
 
@@ -2379,7 +2403,7 @@ Dictamen final y directrices para el proyectista o juzgador.
    - Si es materialmente justo pero formalmente un desastre, ordena las correcciones de redacción.
 
 *Nota Final: Al terminar tu dictamen, SIEMPRE despídete textualmente con este mensaje exacto:*
-**"¿Quieres que redacte un esqueleto argumentativo para fortalecer o cambiar el proyecto? Si es así, selecciona el Genio de la Materia que corresponda a este caso, activa el modo 'Redacción Especializada', envíame un mensaje con un simple 'ok' y yo me encargaré del resto."**
+**\"""" + OFERTA_TRAS_REVISION + """\"**
 
 ═══════════════════════════════════════════════════════════════
    PRINCIPIOS RECTORES PARA TU RAZONAMIENTO
@@ -2466,6 +2490,7 @@ REGLAS CRÍTICAS:
 3. Incluye cláusulas de protección equilibradas
 4. Usa lenguaje formal pero claro
 5. Adapta al estado/jurisdicción seleccionado
+6. Si falta un dato de las partes o del objeto (nombres, domicilios, montos, fechas), NO lo inventes: indica [DATO PENDIENTE: qué falta]
 """
 
 SYSTEM_PROMPT_DRAFT_DEMANDA = """Eres IUREXIA REDACTOR ESTRATÉGICO, especializado en redacción de demandas mexicanas con enfoque estratégico-procesal.
@@ -2616,7 +2641,7 @@ REGLAS CRÍTICAS:
 3. Cada prestación debe tener FUNDAMENTO LEGAL específico del contexto RAG
 4. BUSCA AGRESIVAMENTE en el contexto RAG: constitución, leyes, jurisprudencia
 5. Cita SIEMPRE con [Doc ID: uuid] del contexto recuperado
-6. Si el usuario no proporciona datos, indica [COMPLETAR: descripción de lo que falta]
+6. Si el usuario no proporciona un dato, NO lo inventes: indica [DATO PENDIENTE: qué falta]
 7. Adapta la estructura según la MATERIA (civil/laboral/familiar/mercantil/agrario)
 8. Sé CREATIVO en los argumentos: no repitas fórmulas genéricas
 """
@@ -2776,7 +2801,7 @@ REGLAS CRÍTICAS:
 3. NO uses fórmulas genéricas — argumenta con lógica jurídica real
 4. Cita SIEMPRE con [Doc ID: uuid] del contexto recuperado
 5. Aplica interpretación conforme y principio pro persona cuando fortalezca
-6. Si faltan datos, indica [COMPLETAR: descripción]
+6. Si falta un dato, NO lo inventes: indica [DATO PENDIENTE: qué falta]
 7. Anticipa causales de improcedencia y desvirtúalas en los hechos
 """
 
@@ -2816,7 +2841,7 @@ Tu capacidad creativa debe ser MÁXIMA. Construye AGRAVIOS devastadores, lógico
   - Plazo: 10 días (art. 86 Ley de Amparo)
 
 ▸ SI EL TIPO DE RECURSO NO ESTÁ ARRIBA (lo escribe el abogado con sus palabras):
-  - El órgano ante el que se presenta y el plazo se toman de la ley procesal aplicable a ese recurso y a la materia indicados. Si no están en el contexto ni los conoces con certeza, escribe [COMPLETAR: órgano ante el que se interpone] y [COMPLETAR: plazo y artículo] en lugar de suponerlos.
+  - El órgano ante el que se presenta y el plazo se toman de la ley procesal aplicable a ese recurso y a la materia indicados. Si no están en el contexto ni los conoces con certeza, escribe [DATO PENDIENTE: órgano ante el que se interpone] y [DATO PENDIENTE: plazo y artículo] en lugar de suponerlos.
   - Si el recurso exige razonar su procedencia (por ejemplo, la revisión fiscal del art. 63 de la Ley Federal de Procedimiento Contencioso Administrativo), incluye un apartado PROCEDENCIA DEL RECURSO antes de los agravios.
 
 ▸ CONCEPTO DE VIOLACIÓN / AGRAVIO:
@@ -2931,7 +2956,7 @@ REGLAS CRÍTICAS:
 4. SIEMPRE identifica la CAUSA DE PEDIR con precisión
 5. Cita con [Doc ID: uuid] del contexto recuperado
 6. Si el usuario describe la resolución, ataca la consideración que sostiene el fallo: un agravio que no combate la razón toral es inoperante
-7. Si faltan datos, indica [COMPLETAR: descripción]
+7. Si falta un dato, NO lo inventes: indica [DATO PENDIENTE: qué falta]
 8. Proporciona un ANÁLISIS DE VIABILIDAD honesto al final
 """
 
@@ -3096,6 +3121,7 @@ REGLAS CRÍTICAS:
 4. Las respuestas deben indicar recursos disponibles
 5. Usa lenguaje formal pero accesible
 6. Adapta a la jurisdicción seleccionada
+7. Si falta un dato (nombres, número de oficio, fechas, domicilios), NO lo inventes: indica [DATO PENDIENTE: qué falta]
 """
 
 # LA REGLA 8 YA NO MANDA CITAR DE MEMORIA   (16-sep-2026, con visto bueno de David)
@@ -3137,11 +3163,11 @@ Tu tarea es redactar una DENUNCIA ADMINISTRATIVA FORMAL (Queja Disciplinaria) co
 **ÓRGANO DE CONTROL Y DISCIPLINA**
 **P R E S E N T E**
 
-**[INSERTAR NOMBRE DEL PROMOVENTE]**, mexicano(a), mayor de edad, con domicilio en **[INSERTAR DOMICILIO]**, señalando como medio para recibir notificaciones **[INSERTAR CORREO ELECTRÓNICO O DOMICILIO PROCESAL]**, por mi propio derecho, ante este H. Órgano comparezco para interponer formal:
+**[DATO PENDIENTE: nombre del promovente]**, mexicano(a), mayor de edad, con domicilio en **[DATO PENDIENTE: domicilio]**, señalando como medio para recibir notificaciones **[DATO PENDIENTE: correo electrónico o domicilio procesal]**, por mi propio derecho, ante este H. Órgano comparezco para interponer formal:
 
 **DENUNCIA ADMINISTRATIVA / QUEJA DISCIPLINARIA**
 
-En contra de **[INSERTAR NOMBRE DEL JUZGADOR/MAGISTRADO]**, en su carácter de **[Juez/Magistrado]** del **[Juzgado/Tribunal]** con residencia en **[Ciudad, Estado]**, por las conductas que a continuación se describen.
+En contra de **[DATO PENDIENTE: nombre del juzgador o magistrado]**, en su carácter de **[Juez/Magistrado]** del **[Juzgado/Tribunal]** con residencia en **[Ciudad, Estado]**, por las conductas que a continuación se describen.
 
 ### HECHOS
 
@@ -3152,7 +3178,7 @@ En contra de **[INSERTAR NOMBRE DEL JUZGADOR/MAGISTRADO]**, en su carácter de *
 **TERCERO.-** [Continuación cronológica]
 [Continuar numeración según los hechos del usuario]
 
-NOTA: Si el usuario no proporcionó fechas o datos específicos, usar **[INSERTAR FECHA]**, **[INSERTAR NÚMERO DE EXPEDIENTE]**, **[INSERTAR DATO]** en negritas para que sea visible.
+NOTA: Si el usuario no proporcionó fechas o datos específicos, usar **[DATO PENDIENTE: fecha]**, **[DATO PENDIENTE: número de expediente]**, **[DATO PENDIENTE: qué falta]** en negritas para que sea visible.
 
 ### CONCEPTOS DE INFRACCIÓN
 
@@ -3183,8 +3209,8 @@ La conducta del servidor público denunciado transgrede frontalmente el derecho 
 
 Para acreditar los hechos y las infracciones denunciadas, se ofrecen las siguientes:
 
-1. **DOCUMENTAL PÚBLICA.-** Consistente en las constancias del expediente **[INSERTAR NÚMERO]** del **[Juzgado/Tribunal]**, que acreditan la dilación procesal / la conducta denunciada.
-2. **DOCUMENTAL PÚBLICA.-** Copia certificada de los autos de fecha **[INSERTAR FECHAS]** que evidencian **[la falta denunciada]**.
+1. **DOCUMENTAL PÚBLICA.-** Consistente en las constancias del expediente **[DATO PENDIENTE: número de expediente]** del **[Juzgado/Tribunal]**, que acreditan la dilación procesal / la conducta denunciada.
+2. **DOCUMENTAL PÚBLICA.-** Copia certificada de los autos de fecha **[DATO PENDIENTE: fechas de los autos]** que evidencian **[la falta denunciada]**.
 3. **INSTRUMENTAL DE ACTUACIONES.-** Todas las constancias que obren en el expediente de mérito.
 4. **PRESUNCIONAL LEGAL Y HUMANA.-** En todo lo que favorezca a los intereses del denunciante.
 
@@ -3194,21 +3220,21 @@ Para acreditar los hechos y las infracciones denunciadas, se ofrecen las siguien
 
 Por lo anteriormente expuesto y fundado, a este H. Consejo de la Judicatura, respetuosamente **PIDO:**
 
-**PRIMERO.-** Tenerme por presentado con este escrito, interponiendo formal **denuncia administrativa / queja disciplinaria** en contra de **[NOMBRE DEL DENUNCIADO]**.
+**PRIMERO.-** Tenerme por presentado con este escrito, interponiendo formal **denuncia administrativa / queja disciplinaria** en contra de **[DATO PENDIENTE: nombre del servidor público denunciado]**.
 
 **SEGUNDO.-** Ordenar la apertura del **procedimiento disciplinario** correspondiente, de conformidad con la Ley General de Responsabilidades Administrativas y la normatividad aplicable.
 
-**TERCERO.-** Requerir al **[Juzgado/Tribunal]** la remisión de las constancias del expediente **[INSERTAR NÚMERO]** para su análisis.
+**TERCERO.-** Requerir al **[Juzgado/Tribunal]** la remisión de las constancias del expediente **[DATO PENDIENTE: número de expediente]** para su análisis.
 
 **CUARTO.-** En su caso, decretar la **suspensión temporal** del servidor público denunciado como medida cautelar, atendiendo a la gravedad de las infracciones.
 
 **QUINTO.-** Imponer las **sanciones administrativas** que resulten procedentes, incluyendo amonestación, suspensión, destitución e inhabilitación.
 
 PROTESTO LO NECESARIO
-**[INSERTAR CIUDAD]**, a **[INSERTAR FECHA]**
+**[DATO PENDIENTE: ciudad]**, a **[DATO PENDIENTE: fecha]**
 
 ________________________
-**[INSERTAR NOMBRE DEL DENUNCIANTE]**
+**[DATO PENDIENTE: nombre del denunciante]**
 
 ═══════════════════════════════════════════════════════════════
    REGLAS CRÍTICAS DE REDACCIÓN
@@ -3216,7 +3242,7 @@ ________________________
 
 1. **SIN PREÁMBULOS NI YAPPING**: Genera el documento inmediatamente. NO incluyas explicación, resumen, ni preámbulo. El output comienza con "### PROEMIO".
 2. **CITA AGRESIVA DEL RAG**: Cada Concepto de Infracción DEBE citar al menos 2-3 artículos del contexto recuperado usando [Doc ID: uuid].
-3. **DATOS FALTANTES**: Usa **[INSERTAR DATO]** en negritas para cualquier información que el usuario no proporcionó. Esto permite que el usuario rellene los huecos antes de imprimir.
+3. **DATOS FALTANTES**: Usa **[DATO PENDIENTE: qué falta]** en negritas para cualquier información que el usuario no proporcionó; nunca la inventes. Esto permite que el usuario rellene los huecos antes de imprimir.
 4. **NEGRITAS ESTRATÉGICAS**: Resalta con ** nombres, fechas clave, preceptos legales y artículos constitucionales para que el conversor DOCX los respete.
 5. **CREATIVIDAD JURÍDICA**: Sé creativo en la argumentación. Relaciona hechos con normas de forma contundente. Usa silogismos jurídicos implacables.
 6. **ADAPTACIÓN JURISDICCIONAL**: Si es Federal → Consejo de la Judicatura Federal + Ley Orgánica del PJF. Si es Estatal → Consejo de la Judicatura del Estado + Ley Orgánica del Poder Judicial del Estado.

@@ -1,7 +1,10 @@
 """Pruebas del esfuerzo de redacción — sin red. `python test_esfuerzo_redaccion.py`."""
+import json
+
 from esfuerzo_redaccion import (
-    detectar_redaccion, es_ajuste_de_escrito, esfuerzo_permitido,
-    normalizar_esfuerzo, parece_escrito, pide_escrito,
+    OFERTA_TRAS_REVISION, _sin_marcadores, detectar_redaccion,
+    es_ajuste_de_escrito, esfuerzo_permitido, normalizar_esfuerzo,
+    parece_escrito, pide_escrito,
 )
 
 ENCARGOS = [
@@ -41,6 +44,26 @@ ENCARGOS = [
     "Hacer un contrato de obra a precio unitario de un edificio de 8 niveles",
     "¿Podrías reescribir el amparo?",
     "Elabora un interrogatorio en materia laboral para los testigos de la demandada",
+    # 27-sep-2026: frases de abogado que se atendían como consulta.
+    "Quiero que me ayudes con la demanda de divorcio",
+    "Necesito que me ayudes con los agravios contra la sentencia",
+    "Quisiera que me ayudes con el amparo contra la clausura",
+    "Quiero que me ayudes a hacer la contestación de la demanda",
+    "Necesito que me ayudes con la redacción de la demanda laboral",
+    "Contesta la demanda que te pasé",
+    "Sí, contesta la demanda negando los hechos 3 y 4",
+    "Contéstame la vista que me dieron sobre las pruebas",
+    "Te pasé la demanda. Contesta la demanda oponiendo la prescripción",
+    "Hazlo en formato de demanda",
+    "Ahora hazlo en formato de demanda de amparo",
+    "Pásalo a escrito para presentarlo al juez",
+    "Conviértelo en un amparo indirecto",
+    "Dámelo en formato de demanda",
+    "Hazlo un escrito de agravios",
+    "¿Puedes pasarlo a formato de demanda?",
+    "¿Podrías convertirlo en una demanda de amparo?",
+    "¿Podrías contestar la demanda con los datos que te di?",
+    "Redacta un esqueleto argumentativo para cambiar el sentido del proyecto",
 ]
 
 CONSULTAS = [
@@ -69,6 +92,36 @@ CONSULTAS = [
     "Ayúdame a entender el juicio de amparo",
     "Vamos a analizar el recurso de revisión",
     "",
+    # Las vecinas de las frases nuevas, que tienen que seguir siendo consulta.
+    "Quiero que me ayudes a entender la demanda",
+    "Necesito que me ayudes con una duda sobre la demanda",
+    "Necesito que me ayudes con el plazo del amparo",
+    "Quiero que me ayudes con la demanda, ¿qué requisitos lleva?",
+    "Quiero que me ayudes con la jurisprudencia sobre alimentos",
+    "¿Me ayudas con la demanda?",
+    "Contesta mi pregunta sobre el amparo",
+    "Contesta brevemente",
+    "Si contesta la demanda fuera de plazo, ¿se tiene por no contestada?",
+    "si contesta la demanda tarde que pasa",
+    "Hola, si contesta la demanda extemporáneamente qué efectos tiene",
+    "Contesta: ¿cuándo prescribe la acción cambiaria?",
+    "¿El demandado contesta la demanda en nueve días?",
+    "Mi contraparte ya contestó la demanda, ¿qué sigue?",
+    "Ponlo en una tabla",
+    "Hazlo más corto",
+    "Hazlo un poco más largo",
+    "¿Puedes pasarme la jurisprudencia de la reforma?",
+    "¿Puedes ponerlo en una tabla?",
+    "¿Puedes poner ejemplos de agravios?",
+    "¿Puedes pasar ejemplos de demandas?",
+    "¿Puedes convertir la sentencia en un resumen?",
+    "¿Puedes transformar la sentencia en un resumen?",
+    "Contesta la pregunta del amparo",
+    "¿Puedes contestar la pregunta del amparo?",
+    # El paso «Revisar» de Toulmin pega el borrador entero detrás de la orden.
+    "Revisa este borrador de contestación de demanda y dime qué fundamentos le faltan.\n\n"
+    "BORRADOR:\n" + "Antecedentes del juicio. " * 40
+    + "El demandado fue emplazado el tres de marzo y contesta la demanda oponiendo excepciones.",
 ]
 
 ESCRITO = """**C. JUEZ DE DISTRITO EN MATERIA ADMINISTRATIVA**
@@ -136,6 +189,52 @@ def main() -> None:
         {"role": "user", "content": "¿Cuál es el plazo del amparo directo?"},
         {"role": "assistant", "content": CONSULTA_RESPUESTA},
         {"role": "user", "content": "Sí, por favor"}]) == "", "un «sí» sin oferta es consulta"
+
+    # EL HISTORIAL REAL (27-sep-2026): la respuesta vuelve con el mapa de
+    # fuentes AL FINAL —decenas de miles de caracteres— y a veces con el
+    # razonamiento al principio. La oferta y el escrito tienen que verse igual.
+    meta = "\n\n<!-- CITATION_META:" + json.dumps({"sources": {
+        f"{i:08d}-0000-4000-8000-000000000000": {
+            "origen": "Ley de Amparo", "ref": f"Art. {i}", "texto": "Texto del artículo. " * 40}
+        for i in range(12)}}, ensure_ascii=False) + " -->"
+    fuera = "\n<!--REGISTROS_FUERA:2021234,2019876-->"
+    pensar = "<!--THINKING_START-->Reviso el plazo y ofrezco el escrito.<!--THINKING_END-->"
+    for previa in (oferta + meta, oferta + meta + fuera, pensar + oferta + meta,
+                   oferta + meta[:4000]):   # el mapa cortado a la mitad, sin cierre
+        assert detectar_redaccion([
+            {"role": "user", "content": "¿Cuál es el plazo del amparo directo?"},
+            {"role": "assistant", "content": previa},
+            {"role": "user", "content": "Sí, por favor"}]) == "acepta", previa[-60:]
+    assert detectar_redaccion([
+        {"role": "user", "content": "Redacta una demanda de amparo contra la clausura"},
+        {"role": "assistant", "content": pensar + ESCRITO + meta + fuera},
+        {"role": "user", "content": "Agrega un concepto de violación sobre audiencia previa"},
+    ]) == "ajuste"
+    assert parece_escrito(pensar + "SEXTO. Estudio. Son fundados los conceptos…" + meta)
+    assert not parece_escrito(pensar + CONSULTA_RESPUESTA + meta)
+    assert _sin_marcadores("a<!-- x -->b<!--THINKING_START-->c<!--THINKING_END-->d") == "abd"
+    assert _sin_marcadores("sin marcas") == "sin marcas"
+    assert _sin_marcadores("texto<!-- sin cierre") == "texto"
+    assert _sin_marcadores("") == ""
+
+    # La despedida de la revisión de sentencia: la de hoy y la que quedó en las
+    # conversaciones guardadas antes del 27-sep-2026.
+    dictamen = "## VII. CONCLUSIONES\n\n1) **Calificación Global**: REQUIERE CAMBIO DE SENTIDO.\n\n"
+    vieja = ("¿Quieres que redacte un esqueleto argumentativo para fortalecer o cambiar el "
+             "proyecto? Si es así, selecciona el Genio de la Materia que corresponda a este "
+             "caso, activa el modo 'Redacción Especializada', envíame un mensaje con un "
+             "simple 'ok' y yo me encargaré del resto.")
+    for cierre in (OFERTA_TRAS_REVISION, vieja):
+        for si in ("sí", "Sí", "ok", "Ok, adelante"):
+            assert detectar_redaccion([
+                {"role": "user", "content": "AUDITAR_SENTENCIA …"},
+                {"role": "assistant", "content": f'{dictamen}**"{cierre}"**{meta}'},
+                {"role": "user", "content": si}]) == "acepta", (cierre[:30], si)
+        assert detectar_redaccion([
+            {"role": "user", "content": "AUDITAR_SENTENCIA …"},
+            {"role": "assistant", "content": f'{dictamen}**"{cierre}"**{meta}'},
+            {"role": "user", "content": "¿Por qué dices que el sentido es injusto?"}]) == ""
+
     for m in ("¿Me puedes volver a dar el contrato con los campos llenos?",):
         assert not es_ajuste_de_escrito(m), "una pregunta no es ajuste"
     assert es_ajuste_de_escrito("Me puedes volver a dar el contrato con los campos llenos")
