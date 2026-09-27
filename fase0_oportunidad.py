@@ -1365,6 +1365,15 @@ def computar(
                 f"({_nominal.isoformat()}) y se corrió al siguiente hábil "
                 f"({vence.isoformat()}). La Ley de Amparo no lo regula y no hay "
                 f"jurisprudencia: si la demanda se presentó ese día, decídelo tú.")
+        # EL DÍA ANIVERSARIO ES FRONTERA: contar 365/366 días incluyendo el
+        # primero termina la víspera. Si la demanda cae justo ese día, lo
+        # decide quien firma.
+        if presentacion is not None and presentacion == vence:
+            avisos.append(
+                f"LA DEMANDA SE PRESENTÓ EL DÍA ANIVERSARIO ({vence.isoformat()}): "
+                f"contado de fecha a fecha está en tiempo, pero un cómputo de "
+                f"365 días que incluya el primero termina la víspera. La "
+                f"jurisprudencia 1a./J. 41/2023 no fija el día exacto: decídelo tú.")
         dias = []
 
     # Los inhábiles entre semana dentro del plazo, SEPARADOS POR FUNDAMENTO.
@@ -1377,6 +1386,17 @@ def computar(
         # EL FUNDAMENTO NOMBRA EL ACUERDO DEL AÑO; si falta un año, se avisa.
         _anios_v = {surtio.year, inicio.year, vence.year}
         cal_amparo.fundamento = fundamento_tfja(_anios_v)
+        # EL JUICIO EN LÍNEA 2.0 ESTUVO SUSPENDIDO del 18 de mayo al 25 de mayo
+        # de 2026 a las 08:29 (G/JGA/58/2026 y 59/2026, DOF 26 y 27-05-2026),
+        # sólo para los expedientes que se tramitan en línea: no se descuenta
+        # solo, porque en papel esos días corrieron. Se avisa si caen dentro.
+        _jel = (_dt.date(2026, 5, 18), _dt.date(2026, 5, 25))
+        if inicio <= _jel[1] and vence >= _jel[0]:
+            avisos.append(
+                "SI EL JUICIO SE TRAMITÓ EN LÍNEA (Sistema de Justicia en Línea "
+                "2.0), sus plazos estuvieron suspendidos del 18 de mayo de 2026 "
+                "a las 8:29 horas del 25 de mayo (Acuerdos G/JGA/58/2026 y "
+                "G/JGA/59/2026): declara esos días. En papel corrieron.")
         _faltan = sorted(a for a in _anios_v if a not in ACUERDO_TFJA)
         if _faltan:
             avisos.append(
