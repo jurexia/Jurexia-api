@@ -128,6 +128,24 @@ ok(o[0].endswith("analice el agravio y valore la prueba.") and o[1].endswith("ex
 ok(ta.parrafo_cierre("amparo_revision", True, "unos fundados y otros sin materia").count("sin materias") == 0,
    "«sin materia» no se pluraliza en el cierre")
 
+# LA SEGUNDA PASADA NO DUPLICA ÓRDENES (93/2026 en producción, 27-sep-2026:
+# «4. Considerar… los alegatos» y «6. Considerar… los alegatos»): reescribe la
+# que ya existe.
+import exhaustivo as X
+_est = ("⟦C1.a⟧ Es fundado el concepto.\n\nEFECTOS DE LA CONCESIÓN\n\n"
+        "1. Dejar insubsistente la sentencia reclamada.\n\n"
+        "2. Considerar, al resolver nuevamente, los alegatos de veintiocho de agosto.\n\n"
+        "3. Dictar sentencia con plenitud de jurisdicción.")
+_p, _e, _f, _s = X.parsear("EFECTO ⟦C2.b C2.c⟧ SUSTITUYE 2: Considerar, al resolver nuevamente, los "
+                           "alegatos de veintiocho de agosto, incluida la jurisprudencia de registro 187528.",
+                           ["C2.b", "C2.c"])
+_nuevo, _inf = X.insertar(_est, _p, _e, {})
+ok("2. Considerar, al resolver nuevamente, los alegatos de veintiocho de agosto, incluida la jurisprudencia"
+   in _nuevo and _nuevo.count("Considerar, al resolver nuevamente") == 1 and "4." not in _nuevo,
+   "la orden de la reparación reescribe la 2 en vez de añadir una 4 sobre lo mismo")
+import inspect as _insp
+ok("SUSTITUYE" in _insp.getsource(X.prompt_reparacion), "el prompt de la reparación ofrece sustituir la orden existente")
+
 print("\n2 · EL PROMPT DE LA v4")
 _C = [f6.Criterio(problema="¿La Sala debió admitir la ampliación?", sentido="fundado",
                   razonamiento="Porque el acuerdo la dejó a salvo.", jerarquia="principal")]

@@ -282,15 +282,9 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
         avisos.append(_pl["aviso"])
     # LOS PLAZOS DE AÑOS NO SE CUENTAN EN DÍAS HÁBILES (verificación de normas,
     # 27-sep-2026): el artículo 17 da «hasta ocho años» (fracción II) y «siete
-    # años» (fracción III), y sumarlos como 2,920 y 2,555 hábiles da unos once y
-    # diez años. Hasta que el cómputo sepa contar años naturales, se avisa.
-    if getattr(e, "excepcion_plazo", "") in ("penal_prision", "agrario_nucleo"):
-        _anios = 8 if e.excepcion_plazo == "penal_prision" else 7
-        avisos.append(
-            f"EL PLAZO ES DE {_anios} AÑOS NATURALES ({_pl['fundamento']}), no "
-            f"de días hábiles: el cómputo de la tabla no sirve para decidir la "
-            f"oportunidad. Compruébala contando {_anios} años desde que surtió "
-            f"efectos la notificación del acto reclamado.")
+    # años» (fracción III), y sumarlos como 2,920 y 2,555 hábiles daba unos once
+    # y diez años. El cómputo los cuenta de fecha a fecha (`plazo_anios`).
+    _anios_plazo = _ta.anios_de(_tipo, getattr(e, "excepcion_plazo", ""))
     if _pl["en_cualquier_tiempo"]:
         # NO ES UN PLAZO LARGO: ES QUE NO HAY PLAZO. Contar días aquí y
         # declarar extemporaneidad sería inventar una causa de improcedencia.
@@ -383,7 +377,8 @@ async def generar(cliente, e: Encargo, texto_acto: str, texto_conceptos: str,
                     # sólo donde el escrito se presenta ante ella.
                     getattr(e, "tipo_asunto", "") or "amparo_directo",
                     getattr(e, "inhabiles_responsable", "") or None,
-                    surtio_manual=_surtio_manual)
+                    surtio_manual=_surtio_manual,
+                    plazo_anios=_anios_plazo)
     avisos.extend(c.avisos)
     if c.oportuna is False:
         avisos.append("EL CÓMPUTO DA EXTEMPORÁNEA. Compruébalo antes de seguir: "

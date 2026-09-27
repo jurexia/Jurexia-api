@@ -519,6 +519,9 @@ class Computo:
     # extemporáneos. Es un CAMPO, no una propiedad, porque quien lo sabe es el
     # catálogo de tipos y tiene que poder decírselo al cómputo.
     sin_plazo: bool = False
+    # PLAZOS DE AÑOS (art. 17, fracciones II y III, LA): ocho y siete años no
+    # se cuentan en días hábiles. Cuando va, `plazo` es 0 y `dias` va vacío.
+    plazo_anios: int = 0
 
     # LOS DÍAS DE LA RESPONSABLE, y si de verdad se aplicaron. SEPARADOS de
     # `inhabiles_en_medio` porque el considerando los funda distinto: aquéllos
@@ -586,6 +589,8 @@ class Computo:
         nadie había construido. Ahora sí la hay, en `computar`, y esto sólo la
         lee.
         """
+        if getattr(self, "plazo_anios", 0):
+            return False
         return bool(self.sin_plazo) or not self.plazo or self.plazo <= 0
 
     @property
@@ -1035,8 +1040,14 @@ def computar(
     tipo_asunto: str = "amparo_directo",
     inhabiles_responsable=None,
     surtio_manual: Optional[Fecha] = None,
+    plazo_anios: int = 0,
 ) -> Computo:
     """El cómputo completo, con los dos calendarios.
+
+    `plazo_anios` (8 o 7) es el plazo en AÑOS del artículo 17, fracciones II y
+    III, de la Ley de Amparo: se cuenta de fecha a fecha desde que surtió
+    efectos la notificación, no en días hábiles; si el último día es inhábil,
+    el plazo se extiende al siguiente hábil.
 
     `plazo` en días hábiles: 15 para amparo directo (art. 17 LA), 10 para la
     revisión (art. 86), 5 para la queja urgente.
@@ -1067,8 +1078,9 @@ def computar(
     """
     avisos: list[str] = []
 
-    _sin_plazo = plazo is None or int(plazo) <= 0
-    _plazo = 0 if _sin_plazo else int(plazo)
+    _anios = int(plazo_anios or 0)
+    _sin_plazo = (plazo is None or int(plazo) <= 0) and not _anios
+    _plazo = 0 if (_sin_plazo or _anios) else int(plazo)
     if _sin_plazo:
         avisos.append(
             "NO SE COMPUTÓ PLAZO: este asunto no lo tiene —procede en cualquier "
@@ -1216,6 +1228,17 @@ def computar(
     inicio = cal_amparo.siguiente_habil(surtio + _dt.timedelta(days=1))
     dias = cal_amparo.sumar(inicio, _plazo) if _plazo else []
     vence = dias[-1] if dias else inicio
+    if _anios:
+        # DE FECHA A FECHA: el plazo que arranca al día siguiente del
+        # surtimiento concluye el mismo día y mes, N años después; un 29 de
+        # febrero que no existe cae al 28. Si ese día es inhábil, se extiende
+        # al siguiente hábil.
+        try:
+            vence = surtio.replace(year=surtio.year + _anios)
+        except ValueError:
+            vence = surtio.replace(year=surtio.year + _anios, day=28)
+        vence = cal_amparo.siguiente_habil(vence)
+        dias = []
 
     # Los inhábiles entre semana dentro del plazo, SEPARADOS POR FUNDAMENTO.
     # Un día que ya era inhábil por el artículo 19 se atribuye al artículo 19
@@ -1224,7 +1247,7 @@ def computar(
     # nombrarlo dos veces en el considerando sería un error de bulto.
     _art19 = CALENDARIO_AMPARO
     enmedio, resp_enmedio, cur = [], [], inicio
-    while cur <= vence:
+    while cur <= vence and not _anios:
         if cur.weekday() < 5 and not cal_amparo.es_habil(cur):
             if not _art19.es_habil(cur) or cur in _extra:
                 enmedio.append(cur)
@@ -1326,6 +1349,7 @@ def computar(
         resp_tramos_en_medio=resp_tramos, resp_declarados=bool(ir.dias),
         resp_aplicados=bool(resp_enmedio), receptor=rec,
         responsable_nombre=(responsable or "").strip(),
+        plazo_anios=_anios,
     )
 
     # ── EL AVISO SE CALIBRA SOLO ──────────────────────────────────────────
@@ -1707,6 +1731,36 @@ def parrafo_oportunidad(c: Computo, fundamento: str = "17",
                       else f", pues se presentó el {fecha_en_letra(c.presentacion)}")
         return (f"Igualmente, la presentación {_del(v['escrito'])} resultó "
                 f"oportuna, a la luz del {fundamento}{cierre}.")
+    # EL PLAZO DE AÑOS (art. 17, fr. II y III): de fecha a fecha, sin
+    # desglose de hábiles, que en ocho años no dice nada.
+    if getattr(c, "plazo_anios", 0):
+        _n = {7: "siete", 8: "ocho"}.get(c.plazo_anios, str(c.plazo_anios))
+        # LA FRACCIÓN DEL 17 QUE DA LOS AÑOS, no el plazo general de quince días.
+        fundamento = {8: "artículo 17, fracción II, de la Ley de Amparo",
+                      7: "artículo 17, fracción III, de la Ley de Amparo"}.get(
+                          c.plazo_anios, fundamento)
+        _surte_a = (_ORDINAL_SURTE.get(c.regla.dias_habiles, "al día hábil siguiente")
+                    if getattr(c.regla, "clave", "") != "otra" else "")
+        p = (f"Por cuanto hace a la oportunidad en la presentación "
+             f"{_del(v['escrito'])}, el plazo es de {_n} años, en términos del "
+             f"{fundamento}. {v['recurrido'][:1].upper() + v['recurrido'][1:]} "
+             f"se notificó al {v['promovente']} el "
+             f"{fecha_en_letra(c.notificacion)}"
+             + (f" y surtió efectos {_surte_a}, es decir, el "
+                f"{fecha_en_letra(c.surtio)}" if _surte_a else
+                f"; esa notificación surtió efectos el {fecha_en_letra(c.surtio)}")
+             + f", por lo que el plazo, computado de fecha a fecha a partir del "
+               f"día siguiente, transcurrió del {fecha_en_letra(c.inicio)} al "
+               f"{fecha_en_letra(c.vencimiento)}")
+        if c.presentacion is None:
+            return p + "."
+        if c.oportuna:
+            return (p + f"; entonces, si se presentó el "
+                    f"{fecha_en_letra(c.presentacion)}, es claro que fue "
+                    f"hecho valer oportunamente.")
+        return (p + f"; entonces, si se presentó el "
+                f"{fecha_en_letra(c.presentacion)}, resulta evidente su "
+                f"extemporaneidad.")
     # DESDE CUÁNDO CORRE, CON SU PRECEPTO, y los inhábiles como tramos con su
     # fundamento: «ni del dieciséis de diciembre… al uno de enero…» en vez de
     # trece fechas sueltas colgadas de un «así como» sin razón.

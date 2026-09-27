@@ -4588,7 +4588,9 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         # La tabla va en los cuatro tipos. En el corpus casi no aparece
         # —el secretario la dibuja a mano y cuesta—, pero eso mide lo que hoy
         # es caro hacer, no lo que sobra: la máquina tiene el calendario.
-        if esq["tabla_computo"]:
+        # EN UN PLAZO DE AÑOS NO HAY CALENDARIO QUE DIBUJAR: ocho años de
+        # recuadros no enseñan nada; el párrafo dice de qué fecha a qué fecha.
+        if esq["tabla_computo"] and not getattr(computo, "plazo_anios", 0):
             # EL CALENDARIO PRIMERO, EL MAPA DESPUÉS. El calendario enseña qué
             # fue cada día —con su palabra dentro del recuadro y su leyenda—;
             # el mapa, el recorrido de la notificación a la presentación y el
@@ -5440,13 +5442,26 @@ def componer(datos: dict, estructura: Estructura, computo, fecha_en_letra,
         _a_quien = _pvr.por_conducto(str(datos.get("quejoso") or ""),
                                      str(datos.get("representante") or ""),
                                      str(datos.get("figura_representante") or ""))
+        # LOS EFECTOS SE NOMBRAN EN EL RESOLUTIVO (art. 74, fr. VI, LA: los
+        # resolutivos expresan «cuando sea el caso, los efectos de la concesión
+        # en congruencia con la parte considerativa»). Su propio banco lo mide:
+        # «…y para los efectos precisados en el último considerando». Se
+        # remite al considerando de Efectos por su ordinal.
+        _ef_cola = ""
+        if concede:
+            _k_ef = next((i for i, (r_, _) in enumerate(con_apartados)
+                          if str(r_).strip().rstrip(".").lower() == "efectos"), None)
+            if _k_ef is not None:
+                _ef_cola = (f", para los efectos precisados en el considerando "
+                            f"{_ORDINALES[min(_k_ef, 9)].lower()} de la misma")
         tramos(doc, [("ÚNICO. ", {"bold": True}),
                      ("La Justicia de la Unión ", {}),
                      (formula, {"bold": True}),
                      (f" a {_a_quien or HUECO}, en contra de "
                       f"{esq.get('recurrido','la sentencia reclamada')}, dictada "
                       f"por {_con_articulo(datos.get('responsable','')) or HUECO}, "
-                      f"precisada en el primer resultando de esta ejecutoria.", {})],
+                      f"precisada en el primer resultando de esta ejecutoria"
+                      f"{_ef_cola}.", {})],
                sangria=False)
 
     parrafo(doc, _res["notif"], sangria=True)

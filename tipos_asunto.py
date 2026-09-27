@@ -50,10 +50,10 @@ PLAZOS = {
             # normas, 27-sep-2026): los treinta días de la fracción I operan en
             # el indirecto; en el directo la norma no es acto reclamado
             # (artículo 175, fracción IV). Se quitó de aquí.
-            {"clave": "penal_prision", "dias": 2920,
+            {"clave": "penal_prision", "dias": 2920, "anios": 8,
              "cuando": "Se reclama sentencia definitiva condenatoria que impone pena de prisión",
              "fundamento": "artículo 17, fracción II, de la Ley de Amparo (hasta ocho años)"},
-            {"clave": "agrario_nucleo", "dias": 2555,
+            {"clave": "agrario_nucleo", "dias": 2555, "anios": 7,
              "cuando": "El acto priva de derechos agrarios a un núcleo de población ejidal o comunal",
              "fundamento": "artículo 17, fracción III, de la Ley de Amparo (siete años)"},
             {"clave": "vida_libertad", "dias": None,
@@ -293,6 +293,17 @@ def plazo_de(tipo: str, excepcion: str = "") -> dict:
                         "en_cualquier_tiempo": e["dias"] is None}
     return {"dias": base["dias"], "fundamento": base["fundamento"],
             "en_cualquier_tiempo": False}
+
+
+def anios_de(tipo: str, excepcion: str = "") -> int:
+    """Los años del plazo si la excepción los fija (art. 17, fr. II y III), o 0.
+    Los «dias» de esas excepciones (2920, 2555) se conservan por compatibilidad
+    con encargos guardados, pero NO se cuentan: un plazo de años va de fecha a
+    fecha (verificación de normas, 27-sep-2026)."""
+    for e in PLAZOS.get(normalizar(tipo), {}).get("excepciones", []):
+        if excepcion and e["clave"] == excepcion:
+            return int(e.get("anios") or 0)
+    return 0
 
 
 def excepciones_de(tipo: str) -> list:
